@@ -40,6 +40,19 @@ export async function fetchSessions(fetchImpl: FetchLike = fetch): Promise<Sessi
 }
 
 /**
+ * The session with the most recorded history — the one the one-click "replay
+ * this session's birth" path should jump to. The API doesn't expose an event
+ * count, so `sizeBytes` is the best proxy; restarts leave tiny 1-event stubs,
+ * so "largest file" and "most events" agree in practice.
+ */
+export function pickRichestSession(sessions: readonly SessionSummary[]): SessionSummary | null {
+  if (sessions.length === 0) return null
+  return sessions.reduce((richest, candidate) =>
+    candidate.sizeBytes > richest.sizeBytes ? candidate : richest,
+  )
+}
+
+/**
  * Fetches one session's full event log. Invalid entries are dropped rather
  * than failing the whole load — same tolerance as the server's own JSONL
  * reader for a half-written last line.
