@@ -1,0 +1,39 @@
+/*
+ * Dark neon instrument theme. Near-black base, three accents (cyan for
+ * "live"/nominal, magenta for attention/collision, amber for warning), plus
+ * glow utilities so panels can read as lit instruments rather than flat cards.
+ */
+
+@theme {
+  --color-void: #05060a;
+  --color-void-raised: #0d0f1a;
+  --color-void-line: #1c2033;
+
+  --color-neon-cyan: #4deaff;
+  --color-neon-magenta: #ff4dd8;
+  --color-neon-amber: #ffc857;
+
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@utility glow-cyan {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-neon-cyan) 45%, transparent),
+    0 0 16px color-mix(in oklab, var(--color-neon-cyan) 40%, transparent);
+}
+
+@utility glow-magenta {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-neon-magenta) 45%, transparent),
+    0 0 16px color-mix(in oklab, var(--color-neon-magenta) 40%, transparent);
+}
+
+@utility glow-amber {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-neon-amber) 45%, transparent),
+    0 0 16px color-mix(in oklab, var(--color-neon-amber) 40%, transparent);
+}
+
+@utility text-glow-cyan {
+  text-shadow: 0 0 10px color-mix(in oklab, var(--color-neon-cyan) 70%, transparent);
+}
