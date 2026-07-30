@@ -1,0 +1,69 @@
+{
+  "resourceMetrics": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "claude-code" } },
+          { "key": "lane", "value": { "stringValue": "2-core" } }
+        ]
+      },
+      "scopeMetrics": [
+        {
+          "scope": { "name": "com.anthropic.claude_code" },
+          "metrics": [
+            {
+              "name": "claude_code.token.usage",
+              "unit": "tokens",
+              "sum": {
+                "aggregationTemporality": 2,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-2-core" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-5" } },
+                      { "key": "query_source", "value": { "stringValue": "main" } },
+                      { "key": "type", "value": { "stringValue": "input" } }
+                    ],
+                    "timeUnixNano": "1753866000000000000",
+                    "asInt": "249"
+                  },
+                  {
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-2-core" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-5" } },
+                      { "key": "query_source", "value": { "stringValue": "main" } },
+                      { "key": "type", "value": { "stringValue": "output" } }
+                    ],
+                    "timeUnixNano": "1753866000000000000",
+                    "asInt": "222678"
+                  },
+                  {
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-2-core" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-5" } },
+                      { "key": "query_source", "value": { "stringValue": "main" } },
+                      { "key": "type", "value": { "stringValue": "cacheRead" } }
+                    ],
+                    "timeUnixNano": "1753866000000000000",
+                    "asInt": "13065329"
+                  },
+                  {
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-2-core" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-5" } },
+                      { "key": "query_source", "value": { "stringValue": "main" } },
+                      { "key": "type", "value": { "stringValue": "cacheCreation" } }
+                    ],
+                    "timeUnixNano": "1753866000000000000",
+                    "asInt": "247684"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -29,6 +29,14 @@ export interface ParseMetricsResult {
 const TOKEN_USAGE_METRIC = 'claude_code.token.usage'
 const COST_USAGE_METRIC = 'claude_code.cost.usage'
 
+/** `type` attribute values `claude_code.token.usage` sends, mapped to the core event's token tiers (research §S1). */
+const TOKEN_TYPE_TO_TIER = {
+  input: 'input',
+  output: 'output',
+  cacheRead: 'cacheRead',
+  cacheCreation: 'cacheCreation',
+} as const satisfies Record<string, keyof TokenUsagePayload>
+
 /**
  * Parses one `POST /v1/metrics` body into `llm.usage` / `llm.cost` events.
  * Pure: no I/O, no clock — the caller's `emitter` supplies ids and timestamps,
@@ -89,7 +97,8 @@ function buildUsageEvent(
 ): ObservatoryEvent {
   const type = attrString(dp.attributes, 'type')
   const value = dataPointValue(dp)
-  if (type !== 'input' && type !== 'output') {
+  const tier = TOKEN_TYPE_TO_TIER[type as keyof typeof TOKEN_TYPE_TO_TIER]
+  if (!tier) {
     return emitter.emit('collector.error', {
       collector: 'otel',
       message: `malformed ${TOKEN_USAGE_METRIC} datapoint: unrecognised type "${type ?? ''}"`,
@@ -114,13 +123,13 @@ function buildUsageEvent(
   const role = resolveRole(resourceAttrs, lane, querySource)
   const sessionId = attrString(dp.attributes, 'session.id') ?? null
 
-  // OTel's token.usage only ever breaks out input/output — no cache-tier
-  // detail (that's the sessionlog collector's strength). The other three
-  // tiers are always zero here, and the envelope's `source: otel` says why.
+  // Each datapoint carries exactly one tier's worth of tokens per `type`
+  // attribute (research §S1: input/output/cacheRead/cacheCreation) — the
+  // other three tiers are zero on this event, same as sessionlog splitting
+  // usage across separate messages instead of one combined total.
   const tokens: TokenUsagePayload = {
     ...ZERO_TOKENS,
-    input: type === 'input' ? Math.trunc(value) : 0,
-    output: type === 'output' ? Math.trunc(value) : 0,
+    [tier]: Math.trunc(value),
   }
 
   return emitter.emit(

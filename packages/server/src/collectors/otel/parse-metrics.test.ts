@@ -81,6 +81,28 @@ describe('parseMetricsExport', () => {
     )
   })
 
+  it('accepts all four claude_code.token.usage tiers — input, output, cacheRead, cacheCreation — with zero collector.error', () => {
+    const result = parseMetricsExport(fixture('metrics-all-tiers.json'), testEmitter())
+
+    expect(result.malformed).toBe(false)
+
+    const errors = result.events.filter((e) => e.type === 'collector.error')
+    expect(errors).toHaveLength(0)
+
+    const usage = result.events.filter((e) => e.type === 'llm.usage')
+    expect(usage).toHaveLength(4)
+
+    const tokensByTier = usage.map((e) => (e.payload as { tokens: Record<string, number> }).tokens)
+    expect(tokensByTier).toEqual(
+      expect.arrayContaining([
+        { input: 249, output: 0, cacheRead: 0, cacheCreation: 0 },
+        { input: 0, output: 222_678, cacheRead: 0, cacheCreation: 0 },
+        { input: 0, output: 0, cacheRead: 13_065_329, cacheCreation: 0 },
+        { input: 0, output: 0, cacheRead: 0, cacheCreation: 247_684 },
+      ]),
+    )
+  })
+
   it('never copies user.email (or any other stray attribute) into the stored payload', () => {
     const result = parseMetricsExport(fixture('metrics-token-and-cost.json'), testEmitter())
     const serialised = JSON.stringify(result.events)
