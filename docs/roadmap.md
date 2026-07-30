@@ -8,19 +8,26 @@
   collectors (sessionlog + otel), cost selectors with the role dimension,
   spend ticker, per-lane cost, collapsible panels, bounded scene
   meaning-fixes.
-- **prd2 — the viz design study.** The big one, had properly: every visual
+- **prd2 — anyone, anywhere** (`docs/prd2.md`, in flight): trustworthy numbers
+  (session-scoped totals, true timestamps, resume-on-restart), identity that
+  cannot collide (instance namespacing, explicit-at-source, no magic strings),
+  cost that reaches the branch ledger, visible threads, and a first-run that
+  works for a stranger. Displaced the viz study by one rung, deliberately: a
+  number nobody can trust is not worth visualising.
+
+- **prd3 — the viz design study.** The big one, had properly: every visual
   channel encodes a metric or is removed; relatedness layout (file/semantic
   proximity), cost-in-scene, task-progress verticality — designed against
   real prd1 data and interview findings.
-- **prd3 — the catch-up brief + lane chat replay.** "What did my swarm do
+- **prd4 — the catch-up brief + lane chat replay.** "What did my swarm do
   while I was away" as a first-class digest (the strongest user-stated pain
   from the JV call), plus click-a-lane chat replay reconstructed from session
   logs at major-event granularity.
-- **prd4 — task graphs + tool-agnostic capture.** TodoWrite/beads collector
+- **prd5 — task graphs + tool-agnostic capture.** TodoWrite/beads collector
   for task-size-and-growth per lane; the LiteLLM passthrough route (proven
   viable with subscription OAuth — see the research note) for CLIs without
   native OTel.
-- **prd5 candidate / standing research question — dispatch-policy
+- **prd6 candidate / standing research question — dispatch-policy
   optimization.** Descriptive analytics → lookup-table defaults → contextual
   bandit over (model × effort) per issue class; rewards on **verified**
   outcomes only (Goodhart guard — we have already watched a metric diverge
