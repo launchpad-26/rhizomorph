@@ -1,4 +1,5 @@
 import { useReplay } from '../app/ModeContext.js'
+import { pickRichestSession } from './api.js'
 import { Scrubber } from './Scrubber.js'
 import { PLAYBACK_SPEEDS } from './usePlayback.js'
 
@@ -9,15 +10,45 @@ import { PLAYBACK_SPEEDS } from './usePlayback.js'
  * what's already there.
  */
 export default function ReplayControls() {
-  const { sessions, selectedId, selectSession, error, playback, range, state, isReplaying } =
-    useReplay()
+  const {
+    sessions,
+    selectedId,
+    selectSession,
+    selectAndPlay,
+    error,
+    playback,
+    range,
+    state,
+    isReplaying,
+  } = useReplay()
+
+  function replayBirth() {
+    const richest = pickRichestSession(sessions)
+    if (!richest) return
+    if (isReplaying && selectedId === richest.id) {
+      playback.play()
+      return
+    }
+    selectAndPlay(richest.id)
+  }
 
   return (
     <div className="flex flex-col gap-2 border-t border-void-line bg-void-raised px-4 py-2 text-xs uppercase tracking-wide text-slate-400">
       <div className="flex flex-wrap items-center gap-3">
+        <span className="font-semibold tracking-widest text-slate-300">Replay</span>
         <span className="font-semibold text-neon-cyan">
           {isReplaying ? 'Replay mode' : 'Live mode'}
         </span>
+
+        <button
+          type="button"
+          onClick={replayBirth}
+          disabled={sessions.length === 0}
+          title={sessions.length === 0 ? 'No recorded sessions yet' : "Replay this session's birth"}
+          className="rounded border border-neon-cyan/60 px-2 py-1 normal-case tracking-normal text-neon-cyan hover:border-neon-cyan hover:bg-neon-cyan/10 disabled:opacity-50"
+        >
+          {"Replay this session's birth"}
+        </button>
 
         <label className="flex items-center gap-2 normal-case tracking-normal">
           <span className="uppercase tracking-wide text-slate-500">session</span>
@@ -26,7 +57,7 @@ export default function ReplayControls() {
             onChange={(event) => selectSession(event.target.value === '' ? null : event.target.value)}
             className="rounded border border-void-line bg-void px-2 py-1 text-slate-200"
           >
-            <option value="">— select a session —</option>
+            <option value="">Replay a recorded session…</option>
             {sessions.map((session) => (
               <option key={session.id} value={session.id}>
                 {new Date(session.startedAt).toISOString()}
@@ -39,6 +70,7 @@ export default function ReplayControls() {
           type="button"
           onClick={() => (playback.playing ? playback.pause() : playback.play())}
           disabled={!isReplaying}
+          title={isReplaying ? undefined : 'Select a session first to enable playback'}
           className="rounded border border-void-line px-2 py-1 hover:border-neon-cyan hover:text-neon-cyan disabled:opacity-50"
         >
           {playback.playing ? 'Pause' : 'Play'}
