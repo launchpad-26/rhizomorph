@@ -9,4 +9,6 @@ export interface ServerContext {
   recorder: SessionRecorder
   /** Path to the built web app (packages/web/dist), if it should be served statically. */
   webDistDir?: string
+  /** Flatline threshold in ms, for routes/selectors that derive agent liveness. Defaults to the core selector's own default. */
+  flatlineMs?: number
 }

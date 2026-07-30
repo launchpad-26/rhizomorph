@@ -9,7 +9,7 @@ import { loadCollectors } from '../server/collector-loader.js'
 import { exec as realExec } from '../server/exec.js'
 import { createPollLoop, type PollLoop } from '../server/poll-loop.js'
 import { SessionRecorder } from '../server/recorder.js'
-import { parseArgs } from './args.js'
+import { helpText, parseArgs } from './args.js'
 
 export interface RunCliOptions {
   /** Injectable clock, so tests get deterministic session ids and ticks. */
@@ -36,14 +36,20 @@ export interface CliHandle {
 
 /**
  * Boots collectors + server for one repo and returns a handle to it. Pure
- * bootstrap: no signal handlers, no `process.exit` — that belongs to
- * whichever entrypoint actually owns the process (see `src/index.ts`), so
- * this stays callable from tests.
+ * bootstrap: no signal handlers — that belongs to whichever entrypoint
+ * actually owns the process (see `src/index.ts`), so this stays callable
+ * from tests. The one exception is `--help`, which prints and exits 0
+ * immediately, same as any CLI tool.
  */
 export async function runCli(argv: readonly string[], options: RunCliOptions = {}): Promise<CliHandle> {
   const now = options.now ?? Date.now
   const log = options.log ?? console
   const args = parseArgs(argv)
+
+  if (args.help) {
+    log.log(helpText())
+    process.exit(0)
+  }
 
   const repoPath = path.resolve(args.path ?? process.cwd())
   const repoName = path.basename(repoPath)
@@ -66,12 +72,13 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
     recorder,
     exec: options.exec ?? realExec,
     now,
-    intervalMs: options.intervalMs,
+    intervalMs: options.intervalMs ?? args.pollIntervalMs,
   })
   pollLoop.start()
 
   const webDistDir = options.webDistDir ?? defaultWebDistDir()
-  const app = buildApp({ repoPath, repoName, sessionDir, recorder, webDistDir })
+  const flatlineMs = args.flatlineMinutes * 60_000
+  const app = buildApp({ repoPath, repoName, sessionDir, recorder, webDistDir, flatlineMs })
 
   const url = await app.listen({ port: args.port })
   log.log(`observatory running at ${url}`)
