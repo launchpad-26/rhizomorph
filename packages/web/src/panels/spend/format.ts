@@ -33,7 +33,7 @@ export function formatUsdPerHour(rate: number): string {
   return `${formatUsd(rate)}/hr`
 }
 
-type CostFields = Pick<RoleSpend, 'costUsd' | 'costEventCount' | 'costIsAuthoritative'>
+export type CostFields = Pick<RoleSpend, 'costUsd' | 'costEventCount' | 'costIsAuthoritative'>
 
 export interface CostOverhead {
   /**
@@ -73,4 +73,16 @@ export function formatCostOverhead(overhead: CostOverhead): string {
   if (overhead.ratio === null) return 'unknown — no worker cost yet'
   const suffix = overhead.mixedProvenance ? ' (incl. estimate)' : ''
   return `overhead ${overhead.ratio.toFixed(2)}×${suffix}`
+}
+
+/**
+ * A single role's or lane's own dollar figure. `costEventCount === 0` means no
+ * `llm.cost` event has ever named it — the same gap `formatCostOverhead` guards
+ * against, just at the row level instead of the headline. Without this check a
+ * conductor row would print the real zero `formatUsd(0)` gives, sitting right
+ * next to a headline that just said "not instrumented" — the two would
+ * contradict each other in the same panel.
+ */
+export function formatCostOrGap(cost: Pick<CostFields, 'costUsd' | 'costEventCount'>): string {
+  return cost.costEventCount === 0 ? 'no cost data' : formatUsd(cost.costUsd)
 }
