@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "main": "src/index.ts",
+  "bin": {
+    "observatory": "./bin/observatory.mjs"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",
