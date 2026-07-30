@@ -35,18 +35,25 @@ read-only and never touches it.
 
 ## Act 2 — the birth replay
 
-1. In the replay bar at the bottom, open the session picker — it lists every
-   recorded session for this repo, oldest first.
-2. Select the **first** entry: the session that started the moment
-   `observatory` first ran against this repo, `session.started` event zero.
-3. Hit **Play** at a low speed first (1x), then bump to a higher speed to fast
-   forward through the quiet stretches — same reducer as live, just folding a
-   history slice under the scrubber instead of a live stream.
-4. Scrub by hand to a specific moment (e.g. the first `commit.landed` or the
+1. In the replay bar at the bottom, hit **Replay this session's birth**. It
+   picks the recorded session with the most history — sized by file, the best
+   proxy available for event count — and jumps straight into playback of it,
+   no picker required.
+2. Bump the speed to **16x** to fast forward through the quiet stretches; that
+   speed is what makes the long idle gaps between real events watchable
+   instead of tedious — same reducer as live, just folding a history slice
+   under the scrubber instead of a live stream.
+3. Scrub by hand to a specific moment (e.g. the first `commit.landed` or the
    first collision) and pause there — the panel grid and scene both freeze to
    that instant, because replay and live share one reducer.
-5. Hit **Return to live** to snap back to the present and close on the live
+4. Hit **Return to live** to snap back to the present and close on the live
    view again.
+
+If you'd rather choose by hand: the **session** dropdown next to the button
+lists every recorded session, oldest first. Skip anything that shows as a
+single `session.started` event with nothing after it — those are just short
+server restarts, and a normal recordings directory accumulates several of
+them, which is exactly why "richest" beats "oldest" for the one-click path.
 
 ## If something degrades
 

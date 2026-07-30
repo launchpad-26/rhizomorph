@@ -20,7 +20,14 @@ npx observatory <path-to-repo>           # boots collectors + API on http://127.
 ```
 
 Then open the printed URL in a browser. Omit `<path-to-repo>` to watch the
-current directory; add `--port <n>` to pick a different port.
+current directory. Flags (`observatory --help` prints the same table):
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--port <n>` | `4321` | Port to listen on |
+| `--flatline-minutes <n>` | `5` | Minutes of silence before an agent is flatlined |
+| `--poll-interval <ms>` | `2000`, minimum `250` | Collector poll cadence in ms |
+| `--help`, `-h` | — | Show usage and exit |
 
 The server serves API and static dashboard from one origin (no CORS), so
 rebuild `packages/web` after front-end changes and restart `observatory` to
@@ -34,6 +41,22 @@ Event-sourced core (`packages/core`), collectors + Fastify API + CLI
 replay. Full write-up in [`docs/architecture.md`](docs/architecture.md); the
 product brief is in [`docs/prd0.md`](docs/prd0.md). See
 [`docs/demo.md`](docs/demo.md) for the end-of-day demo script.
+
+## Dashboard
+
+A status bar along the bottom edge shows one dot per collector — Git, Tmux,
+Workmux — plus an SSE dot for the stream connection itself; a dot dims when
+that collector is disabled and glows magenta when it's erroring, so you can
+tell "nothing to report" from "something's wrong" at a glance. Each panel
+draws the same distinction for its own data: it says "Waiting for the
+stream…" while the connection isn't up yet, and something more specific like
+"No worktrees discovered yet" once connected but genuinely empty.
+
+The replay bar has a one-click **"Replay this session's birth"** button — it
+picks the recorded session with the most history and jumps straight into
+playback, no picker required. A **session** dropdown next to it lists every
+recorded session if you'd rather choose by hand. See
+[`docs/demo.md`](docs/demo.md) for the full replay walkthrough.
 
 ## The worktrees-challenge context
 
