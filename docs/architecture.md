@@ -131,6 +131,42 @@ hook.
   imported it and sat outside core's fence, so the root gate would have gone
   red for every branch at once. The export was kept alive, deprecated, until
   the files that depended on it were replaced by their own issues.
+- 2026-07-30 — prd1: `role` (`worker | conductor | auxiliary`,
+  `agentRoleSchema` in `packages/core/src/events/telemetry.ts`) is attributed
+  at the collector boundary, never guessed from a lane name. A conductor
+  commonsensically doesn't run inside a workmux-managed worktree, so nothing
+  about its lane name would ever say "conductor" — the only sources of truth
+  are the OTel dispatch's own `role=<role>` resource attribute and the
+  hardcoded `role: conductor` the `sessionlog` collector applies to every
+  session under `--extra-sessions`.
+- 2026-07-30 — prd1: the orchestration overhead ratio (conductor tokens ÷
+  worker tokens) is a first-class selector (`selectRoleSpend` /
+  `selectOverheadRatio`, `packages/core/src/selectors/spend.ts`), not a
+  downstream derivation, because orchestrated setups undercount by omitting
+  the conductor's own spend — plausibly the largest single consumer in this
+  build day. `overhead()` returns `null`, never `0`, unless both conductor
+  and worker tokens are measured and non-zero, so a conductor that hasn't
+  sent telemetry yet reads as "unknown," not "free."
+- 2026-07-30 — prd1: two telemetry collectors by design, not redundancy.
+  `otel` (`packages/server/src/collectors/otel`) is the sole source of
+  authoritative `cost_usd` — real dollars, no pricing table; the one unrun
+  claim from `research/2026-07-30-telemetry-capture-routes.md`
+  (`OTEL_RESOURCE_ATTRIBUTES` lane tagging) was proven live in issue #36.
+  `sessionlog` tails `~/.claude/projects/*/*.jsonl` for free structural
+  attribution and per-message cache-tier token depth OTel's own metrics never
+  break out, but is documented "No dollars" (`packages/core/src/events/
+  telemetry.ts`) rather than estimate them from a pricing table. Either
+  degrades to `collector.disabled` alone; together they cross-validate.
+- 2026-07-30 — prd1: `user.email` rides along on Claude Code's own OTel
+  resource attributes by default (per the research spike), and there is no
+  explicit redaction step that strips it. Instead the otel collector's event
+  builders (`buildUsageEvent` / `buildCostEvent`,
+  `packages/server/src/collectors/otel/parse-metrics.ts`) only read a fixed
+  allowlist of attributes by name off the wire payload, so `user.email` is
+  structurally never copied into a stored event — allowlist-by-construction,
+  not scrub-after-the-fact. Verified by test, not merely assumed from the
+  code's shape (`parse-metrics.test.ts`: "never copies user.email … into the
+  stored payload").
 
 ## Platform — pinned versions (issue #1, 2026-07-30)
 

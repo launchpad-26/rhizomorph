@@ -27,11 +27,37 @@ current directory. Flags (`observatory --help` prints the same table):
 | `--port <n>` | `4321` | Port to listen on |
 | `--flatline-minutes <n>` | `5` | Minutes of silence before an agent is flatlined |
 | `--poll-interval <ms>` | `2000`, minimum `250` | Collector poll cadence in ms |
+| `--extra-sessions <dir>` | — | Extra Claude session-log dir to tail as a conductor (repeatable) |
 | `--help`, `-h` | — | Show usage and exit |
 
 The server serves API and static dashboard from one origin (no CORS), so
 rebuild `packages/web` after front-end changes and restart `observatory` to
 see them.
+
+## Telemetry (the money layer)
+
+Point a real `claude` process at this Observatory's built-in OTLP receiver and
+its spend shows up live in the spend ticker and the worktree table's cost
+column. Every lane needs `CLAUDE_CODE_ENABLE_TELEMETRY=1`, an OTLP/HTTP JSON
+exporter aimed at the running server, and an
+`OTEL_RESOURCE_ATTRIBUTES=lane=<handle>,role=<worker|conductor|auxiliary>` tag
+so the event lands on the right row. Get the exact, export-ready env block for
+any lane with:
+
+```sh
+observatory env <lane> [--role worker|conductor|auxiliary] [--port <n>]
+eval "$(observatory env test-lane)"   # then launch claude in the same shell
+```
+
+`.workmux.yaml` already wires this into every worker lane automatically —
+nothing to enable by hand for a worker. A conductor, or any lane whose Claude
+Code session-log directory lives outside the worktrees this repo's
+`sessionlog` collector would otherwise discover (a cross-filesystem or
+cross-machine conductor, say), is picked up with the repeatable
+`--extra-sessions <dir>` flag and attributed `role: conductor` automatically.
+Full walkthrough — the cross-machine note, the subscription-dollars honesty
+note, live proof of the `OTEL_RESOURCE_ATTRIBUTES` lane tag — lives in
+[`docs/telemetry.md`](docs/telemetry.md).
 
 ## Architecture
 
@@ -51,6 +77,15 @@ tell "nothing to report" from "something's wrong" at a glance. Each panel
 draws the same distinction for its own data: it says "Waiting for the
 stream…" while the connection isn't up yet, and something more specific like
 "No worktrees discovered yet" once connected but genuinely empty.
+
+A **spend ticker** panel shows the live token/dollar total, the $/hour burn
+rate, the worker/conductor/auxiliary split with the orchestration overhead
+ratio (conductor tokens ÷ worker tokens — prd1's headline number) picked out
+on its own, and per-lane mini-bars; it shows tokens only, with copy saying so
+outright, until a real `llm.cost` event has arrived — no invented dollars.
+The worktree table gains a **Cost** column alongside it (dollars once OTel's
+`cost_usd` is authoritative for that worktree, otherwise the raw token count)
+and a **Model** badge (the dominant model by tokens spent in that worktree).
 
 The replay bar has a one-click **"Replay this session's birth"** button — it
 picks the recorded session with the most history and jumps straight into

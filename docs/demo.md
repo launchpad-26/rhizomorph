@@ -1,7 +1,8 @@
 # Demo script — end of day
 
-Two acts: the Observatory watching its own construction live, then replaying
-its own birth. Both run from the same instance — no restart between them.
+Three acts: the Observatory watching its own construction live, then the
+money layer, then replaying its own birth. All three run from the same
+instance — no restart between them.
 
 ## Setup (before anyone's watching)
 
@@ -33,7 +34,26 @@ read-only and never touches it.
    dashboard is within ~2 seconds of ground truth the whole time, by polling,
    not filesystem watchers.
 
-## Act 2 — the birth replay
+## Act 2 — the money layer
+
+1. **Spend ticker panel.** Point at the live token/dollar total and the
+   $/hour rate at the top — call out that it's tokens-only, with copy saying
+   so, until a real `llm.cost` event has arrived from OTel; dollars are never
+   invented from tokens.
+2. **Role split + overhead ratio.** Worker / conductor / auxiliary tokens
+   side by side, overhead ratio (conductor tokens ÷ worker tokens) picked out
+   in magenta — prd1's headline number, the empirical price of the
+   brain/hands principle, and the reason the conductor exports telemetry too
+   instead of hiding off to the side of the count.
+3. **Per-lane mini-bars and the worktree table.** Point at whichever lane is
+   burning the most tokens right now, then the same numbers in the worktree
+   table's **Cost** column and **Model** badge, per row.
+4. **The honesty note.** Read the small print under the total out loud: on a
+   subscription plan the number is real per-request but not a literal
+   invoice line — the copy says so outright rather than let anyone read the
+   ticker as a bill.
+
+## Act 3 — the birth replay
 
 1. In the replay bar at the bottom, hit **Replay this session's birth**. It
    picks the recorded session with the most history — sized by file, the best
@@ -46,7 +66,13 @@ read-only and never touches it.
 3. Scrub by hand to a specific moment (e.g. the first `commit.landed` or the
    first collision) and pause there — the panel grid and scene both freeze to
    that instant, because replay and live share one reducer.
-4. Hit **Return to live** to snap back to the present and close on the live
+4. Point at the replay bar's own numbers while scrubbing: the whole loaded
+   session's total spend next to the session picker, and spend "as of scrub
+   time" below the scrubber — and at the spend ticker's per-lane rows, which
+   keep pace live as you scrub, because replay folds the same reducer as the
+   live stream, just under a scrubber clock instead of a live one. This is
+   "what did that feature cost me", one click and a scrub away.
+5. Hit **Return to live** to snap back to the present and close on the live
    view again.
 
 If you'd rather choose by hand: the **session** dropdown next to the button
@@ -65,3 +91,7 @@ them, which is exactly why "richest" beats "oldest" for the one-click path.
 - Nothing has committed recently: fall back to narrating the worktree table's
   "files touched" and the collision matrix, which update on uncommitted dirty
   state, not just commits.
+- No telemetry env set on any lane: the spend ticker shows "No spend recorded
+  yet this session," and no cost telemetry at all (env set, but OTel hasn't
+  sent a cost datapoint yet) shows tokens with the tokens-only honesty copy —
+  say so out loud, same empty-state discipline as every other panel.
