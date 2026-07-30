@@ -1,5 +1,5 @@
 import { createEvent, createIdFactory } from '@observatory/core'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { FetchLike } from '../replay/api.js'
 import { ConnectionBadge } from './ConnectionBadge.js'
@@ -62,19 +62,25 @@ describe('ConnectionBadge', () => {
   })
 
   it('reads REPLAY with the session timestamp once a session is selected, keeping SSE state visible but secondary', async () => {
-    render(
-      <ModeProvider fetchImpl={makeFetch(replaySessionEvents())}>
-        <ConnectionBadge status="open" />
-        <ReplayDriver />
-      </ModeProvider>,
-    )
+    // Selecting a session chains through two mocked fetches (the session
+    // list, then that session's events) before `isReplaying` flips. Awaiting
+    // an async `act` around mount and around the click each flush their own
+    // fetch's microtasks deterministically, rather than racing both chains
+    // against a single waitFor timeout under scheduler load (see #28/#31).
+    await act(async () => {
+      render(
+        <ModeProvider fetchImpl={makeFetch(replaySessionEvents())}>
+          <ConnectionBadge status="open" />
+          <ReplayDriver />
+        </ModeProvider>,
+      )
+    })
 
-    fireEvent.click(await screen.findByText('select session'))
+    await act(async () => {
+      fireEvent.click(screen.getByText('select session'))
+    })
 
-    // Selecting a session chains through two mocked fetches before `isReplaying`
-    // flips; under heavy scheduler load those extra microtask hops can outrun
-    // waitFor's default 1000ms, so give this one more headroom.
-    await waitFor(() => expect(screen.getByText('replay')).toBeInTheDocument(), { timeout: 3000 })
+    expect(screen.getByText('replay')).toBeInTheDocument()
     // Scrub time starts at the session's first event (ts 1000); the last
     // event lands at ts 4000, so total elapsed is 3s.
     expect(screen.getByText('0:00 / 0:03')).toBeInTheDocument()

@@ -1,11 +1,38 @@
 import { createEvent, createIdFactory } from '@observatory/core'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ModeProvider } from '../app/ModeContext.js'
 import ReplayControls from './index.js'
 import type { FetchLike } from './api.js'
 
 afterEach(cleanup)
+
+/**
+ * `render` only act-wraps the synchronous commit; the session list arrives
+ * later via a mocked `fetch().then(...)` chain. Awaiting an async `act`
+ * flushes that chain's microtasks before the test's first assertion, so
+ * `sessions` is deterministically populated instead of racing a `findBy*`'s
+ * default 1000ms timeout against scheduler load (the class of bug from #28,
+ * now in this file too — see #31).
+ */
+async function renderReplay(fetchImpl: FetchLike) {
+  let utils!: ReturnType<typeof render>
+  await act(async () => {
+    utils = render(
+      <ModeProvider fetchImpl={fetchImpl}>
+        <ReplayControls />
+      </ModeProvider>,
+    )
+  })
+  return utils
+}
+
+/** Selecting a session (or the "birth" button) kicks off its own mocked fetch chain — flush it the same way. */
+async function fireAndFlush(fn: () => void) {
+  await act(async () => {
+    fn()
+  })
+}
 
 const nextId = createIdFactory('evt')
 
@@ -81,28 +108,20 @@ function makeMultiSessionFetch(): FetchLike {
 
 describe('ReplayControls', () => {
   it('shows a session picker and stays idle until one is chosen', async () => {
-    render(
-      <ModeProvider fetchImpl={makeFetch(fixtureEvents())}>
-        <ReplayControls />
-      </ModeProvider>,
-    )
+    await renderReplay(makeFetch(fixtureEvents()))
 
-    expect(await screen.findByText('Live mode')).toBeInTheDocument()
+    expect(screen.getByText('Live mode')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Play' })).toBeDisabled()
-    expect(await screen.findByRole('option', { name: /^1970-01-01T00:00:01/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /^1970-01-01T00:00:01/ })).toBeInTheDocument()
   })
 
   it('loads a session and folds state up to the scrubber position', async () => {
-    render(
-      <ModeProvider fetchImpl={makeFetch(fixtureEvents())}>
-        <ReplayControls />
-      </ModeProvider>,
-    )
+    await renderReplay(makeFetch(fixtureEvents()))
 
-    const select = await screen.findByLabelText('session')
-    fireEvent.change(select, { target: { value: 's1' } })
+    const select = screen.getByLabelText('session')
+    await fireAndFlush(() => fireEvent.change(select, { target: { value: 's1' } }))
 
-    await waitFor(() => expect(screen.getByText('Replay mode')).toBeInTheDocument())
+    expect(screen.getByText('Replay mode')).toBeInTheDocument()
 
     const scrubber = screen.getByLabelText('Replay scrubber')
     fireEvent.change(scrubber, { target: { value: '2000' } })
@@ -113,15 +132,11 @@ describe('ReplayControls', () => {
   })
 
   it('returning to live clears the session and disables the transport', async () => {
-    render(
-      <ModeProvider fetchImpl={makeFetch(fixtureEvents())}>
-        <ReplayControls />
-      </ModeProvider>,
-    )
+    await renderReplay(makeFetch(fixtureEvents()))
 
-    const select = await screen.findByLabelText('session')
-    fireEvent.change(select, { target: { value: 's1' } })
-    await waitFor(() => expect(screen.getByText('Replay mode')).toBeInTheDocument())
+    const select = screen.getByLabelText('session')
+    await fireAndFlush(() => fireEvent.change(select, { target: { value: 's1' } }))
+    expect(screen.getByText('Replay mode')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /return to live/i }))
 
@@ -130,15 +145,11 @@ describe('ReplayControls', () => {
   })
 
   it('play/pause toggles the transport button label', async () => {
-    render(
-      <ModeProvider fetchImpl={makeFetch(fixtureEvents())}>
-        <ReplayControls />
-      </ModeProvider>,
-    )
+    await renderReplay(makeFetch(fixtureEvents()))
 
-    const select = await screen.findByLabelText('session')
-    fireEvent.change(select, { target: { value: 's1' } })
-    await waitFor(() => expect(screen.getByText('Replay mode')).toBeInTheDocument())
+    const select = screen.getByLabelText('session')
+    await fireAndFlush(() => fireEvent.change(select, { target: { value: 's1' } }))
+    expect(screen.getByText('Replay mode')).toBeInTheDocument()
 
     const transport = screen.getByRole('button', { name: 'Play' })
     fireEvent.click(transport)
@@ -146,13 +157,9 @@ describe('ReplayControls', () => {
   })
 
   it('invites session selection instead of reading as a dead status strip', async () => {
-    render(
-      <ModeProvider fetchImpl={makeFetch(fixtureEvents())}>
-        <ReplayControls />
-      </ModeProvider>,
-    )
+    await renderReplay(makeFetch(fixtureEvents()))
 
-    expect(await screen.findByText('Live mode')).toBeInTheDocument()
+    expect(screen.getByText('Live mode')).toBeInTheDocument()
     expect(screen.getByText('Replay')).toBeInTheDocument()
     expect(
       screen.getByRole('option', { name: 'Replay a recorded session…' }),
@@ -160,47 +167,33 @@ describe('ReplayControls', () => {
   })
 
   it("Play explains why it's disabled before a session is chosen", async () => {
-    render(
-      <ModeProvider fetchImpl={makeFetch(fixtureEvents())}>
-        <ReplayControls />
-      </ModeProvider>,
-    )
+    await renderReplay(makeFetch(fixtureEvents()))
 
-    const play = await screen.findByRole('button', { name: 'Play' })
+    const play = screen.getByRole('button', { name: 'Play' })
     expect(play).toBeDisabled()
     expect(play).toHaveAttribute('title', expect.stringMatching(/session/i))
   })
 
   it("replaying this session's birth picks the richest session and starts playing", async () => {
-    render(
-      <ModeProvider fetchImpl={makeMultiSessionFetch()}>
-        <ReplayControls />
-      </ModeProvider>,
-    )
+    await renderReplay(makeMultiSessionFetch())
 
-    const birthButton = await screen.findByRole('button', {
-      name: "Replay this session's birth",
-    })
+    const birthButton = screen.getByRole('button', { name: "Replay this session's birth" })
     expect(birthButton).toBeEnabled()
-    fireEvent.click(birthButton)
+    await fireAndFlush(() => fireEvent.click(birthButton))
 
-    await waitFor(() => expect(screen.getByText('Replay mode')).toBeInTheDocument())
+    expect(screen.getByText('Replay mode')).toBeInTheDocument()
     expect(screen.getByLabelText('session')).toHaveValue('rich')
-    expect(await screen.findByRole('button', { name: 'Pause' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument()
   })
 
   it('shows the real duration once a session is loaded, not 0:00 / 0:00', async () => {
-    render(
-      <ModeProvider fetchImpl={makeFetch(fixtureEvents())}>
-        <ReplayControls />
-      </ModeProvider>,
-    )
+    await renderReplay(makeFetch(fixtureEvents()))
 
-    const select = await screen.findByLabelText('session')
-    fireEvent.change(select, { target: { value: 's1' } })
+    const select = screen.getByLabelText('session')
+    await fireAndFlush(() => fireEvent.change(select, { target: { value: 's1' } }))
 
-    await waitFor(() => expect(screen.getByText('Replay mode')).toBeInTheDocument())
+    expect(screen.getByText('Replay mode')).toBeInTheDocument()
     // Fixture events span ts 1000..3000 — a 2 second session, not an empty one.
-    expect(await screen.findByText('0:02')).toBeInTheDocument()
+    expect(screen.getByText('0:02')).toBeInTheDocument()
   })
 })

@@ -95,39 +95,52 @@ function ReplayDriver() {
   )
 }
 
-function renderApp() {
+/**
+ * Mounting kicks off the session-list fetch immediately; awaiting an async
+ * `act` around `render` flushes that chain's microtasks before the test's
+ * first interaction, rather than leaving it to race a later waitFor's
+ * default timeout under scheduler load (see #28/#31).
+ */
+async function renderApp() {
   let source: FakeEventSource | undefined
-  const utils = render(
-    <ModeProvider fetchImpl={makeFetch(replaySessionEvents())}>
-      <StreamProvider
-        url="/api/stream"
-        createSource={() => {
-          source = new FakeEventSource()
-          return source
-        }}
-      >
-        <PanelLikeConsumer />
-        <ReplayDriver />
-      </StreamProvider>
-    </ModeProvider>,
-  )
+  let utils!: ReturnType<typeof render>
+  await act(async () => {
+    utils = render(
+      <ModeProvider fetchImpl={makeFetch(replaySessionEvents())}>
+        <StreamProvider
+          url="/api/stream"
+          createSource={() => {
+            source = new FakeEventSource()
+            return source
+          }}
+        >
+          <PanelLikeConsumer />
+          <ReplayDriver />
+        </StreamProvider>
+      </ModeProvider>,
+    )
+  })
   return { ...utils, getSource: () => source }
 }
 
 describe('StreamContext driven by mode', () => {
   it('serves live state while live, the replay fold while replaying, and live again after returning', async () => {
-    const { getSource } = renderApp()
+    const { getSource } = await renderApp()
 
     act(() => getSource()?.open())
     act(() => getSource()?.emit(liveWorktreeEvent()))
     expect(screen.getByTestId('worktree-paths').textContent).toBe('/repo')
 
-    fireEvent.click(await screen.findByText('select session'))
-    // Wait for the fetched log to land AND the scrubber's reset-to-start
-    // effect to have actually committed (`currentTs` reads back the
-    // session's first event, ts 1000) before driving a seek below — this is
-    // the deterministic condition to wait on, not a fixed delay.
-    await waitFor(() => expect(screen.getByTestId('scrub-ts').textContent).toBe('1000'))
+    // Selecting a session chains through two mocked fetches (session list,
+    // then that session's events) plus the scrubber's reset-to-start effect
+    // before `currentTs` reads back the session's first event (ts 1000).
+    // Awaiting an async `act` around the click flushes that whole chain's
+    // microtasks deterministically, rather than racing it against waitFor's
+    // default 1000ms timeout under scheduler load (see #28/#31).
+    await act(async () => {
+      fireEvent.click(screen.getByText('select session'))
+    })
+    expect(screen.getByTestId('scrub-ts').textContent).toBe('1000')
     // Scrub time starts at the session's first event (ts 1000): the worktree
     // (ts 2000) has not "happened" yet — panels must show that, not the
     // live `/repo` worktree, and not a preview of the whole replay log.
