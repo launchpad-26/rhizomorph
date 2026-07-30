@@ -1,5 +1,5 @@
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
-import { fixtureSession } from '@observatory/core'
+import { FIXTURE_REPO_PATH, fixtureSession, fx } from '@observatory/core'
 import { afterEach, describe, expect, it } from 'vitest'
 import { StreamProvider } from '../../app/StreamContext.js'
 import type { EventSourceLike } from '../../hooks/useEventStream.js'
@@ -40,10 +40,26 @@ function renderPanel() {
 }
 
 describe('CollisionsPanel', () => {
-  it('shows a waiting state before any data has arrived', () => {
+  it('shows a waiting-for-stream state before any connection or data', () => {
     renderPanel()
     expect(screen.getByText('Collisions')).toBeInTheDocument()
-    expect(screen.getByText('Waiting for data…')).toBeInTheDocument()
+    expect(screen.getByText('Waiting for the stream…')).toBeInTheDocument()
+  })
+
+  it('shows a calm empty state once connected with events but no collisions', () => {
+    const { source } = renderPanel()
+    act(() => source()?.open())
+    act(() => source()?.emit(fx.sessionStarted()))
+    act(() =>
+      source()?.emit(
+        fx.worktreeDiscovered({ path: FIXTURE_REPO_PATH, branch: 'main', isMain: true }),
+      ),
+    )
+
+    expect(
+      screen.getByText('No collisions — no two branches touch the same file.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Waiting for the stream…')).not.toBeInTheDocument()
   })
 
   it('renders the matrix from fixture events and glows the collided rows', async () => {

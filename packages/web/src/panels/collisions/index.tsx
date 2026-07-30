@@ -9,12 +9,15 @@ import { MAX_VISIBLE_ROWS, selectCollisionColumns, selectCollisionRows } from '.
  * branches glows magenta — the warning state prd0 asks for.
  */
 export default function CollisionsPanel() {
-  const { state: raw } = useStream()
+  const { state: raw, status } = useStream()
   const session = useMemo(() => reduceAll(raw.events), [raw.events])
   const columns = useMemo(() => selectCollisionColumns(session), [session])
   const rows = useMemo(() => selectCollisionRows(session), [session])
   const visibleRows = rows.slice(0, MAX_VISIBLE_ROWS)
   const hiddenCount = rows.length - visibleRows.length
+  const hasData = visibleRows.length > 0 && columns.length > 0
+  /** Same signal ConnectionBadge/StatusBar read, plus proof at least one event has folded. */
+  const connected = status === 'open' && raw.events.length > 0
 
   return (
     <section className="flex h-full flex-col rounded-lg border border-void-line bg-void-raised p-4">
@@ -22,8 +25,12 @@ export default function CollisionsPanel() {
         Collisions
       </h2>
 
-      {visibleRows.length === 0 || columns.length === 0 ? (
-        <p className="mt-2 text-sm text-slate-500">Waiting for data…</p>
+      {!hasData && !connected ? (
+        <p className="mt-2 text-sm text-slate-500">Waiting for the stream…</p>
+      ) : !hasData ? (
+        <p className="mt-2 text-sm text-slate-300" role="status">
+          No collisions — no two branches touch the same file.
+        </p>
       ) : (
         <div className="mt-2 flex-1 overflow-auto">
           <table className="w-full border-collapse text-left text-xs">

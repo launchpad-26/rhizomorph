@@ -1,5 +1,5 @@
 import { act, cleanup, render, screen } from '@testing-library/react'
-import { FIXTURE_START_TS, fixtureSession } from '@observatory/core'
+import { FIXTURE_START_TS, fixtureSession, fx } from '@observatory/core'
 import { afterEach, describe, expect, it } from 'vitest'
 import { StreamProvider } from '../../app/StreamContext.js'
 import type { EventSourceLike } from '../../hooks/useEventStream.js'
@@ -11,6 +11,10 @@ class FakeEventSource implements EventSourceLike {
   onopen: ((event: Event) => void) | null = null
   onerror: ((event: Event) => void) | null = null
   onmessage: ((event: MessageEvent<string>) => void) | null = null
+
+  open() {
+    this.onopen?.(new Event('open'))
+  }
 
   emit(data: unknown) {
     this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent<string>)
@@ -54,14 +58,34 @@ function liveDot(row: HTMLTableRowElement): string | null {
 }
 
 describe('WorktreesPanel', () => {
-  it('renders a header even before any data arrives', () => {
+  it('renders a header even before any connection or data', () => {
     render(
       <StreamProvider url="/api/stream" createSource={() => new FakeEventSource()}>
         <WorktreesPanel now={NOW} />
       </StreamProvider>,
     )
     expect(screen.getByText('Worktrees')).toBeInTheDocument()
-    expect(screen.getByText('Waiting for data…')).toBeInTheDocument()
+    expect(screen.getByText('Waiting for the stream…')).toBeInTheDocument()
+  })
+
+  it('shows a calm empty state once connected with events but no worktrees discovered', () => {
+    let source: FakeEventSource | undefined
+    render(
+      <StreamProvider
+        url="/api/stream"
+        createSource={() => {
+          source = new FakeEventSource()
+          return source
+        }}
+      >
+        <WorktreesPanel now={NOW} />
+      </StreamProvider>,
+    )
+    act(() => source?.open())
+    act(() => source?.emit(fx.sessionStarted()))
+
+    expect(screen.getByText('No worktrees discovered yet.')).toBeInTheDocument()
+    expect(screen.queryByText('Waiting for the stream…')).not.toBeInTheDocument()
   })
 
   it('renders one row per worktree, active stations first, flatline dimmed', () => {

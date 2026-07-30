@@ -1,6 +1,6 @@
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createEventFactory, fixtureSession, type ObservatoryEvent } from '@observatory/core'
+import { createEventFactory, fixtureSession, fx, type ObservatoryEvent } from '@observatory/core'
 import { StreamProvider } from '../../app/StreamContext.js'
 import type { EventSourceLike } from '../../hooks/useEventStream.js'
 import TickerPanel from './index.js'
@@ -11,6 +11,10 @@ class FakeEventSource implements EventSourceLike {
   onopen: ((event: Event) => void) | null = null
   onerror: ((event: Event) => void) | null = null
   onmessage: ((event: MessageEvent<string>) => void) | null = null
+
+  open() {
+    this.onopen?.(new Event('open'))
+  }
 
   emit(data: unknown) {
     this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent<string>)
@@ -32,13 +36,26 @@ function renderTicker() {
       <TickerPanel />
     </StreamProvider>,
   )
-  return { ...utils, emit: (event: ObservatoryEvent) => act(() => source?.emit(event)) }
+  return {
+    ...utils,
+    emit: (event: ObservatoryEvent) => act(() => source?.emit(event)),
+    open: () => act(() => source?.open()),
+  }
 }
 
 describe('TickerPanel', () => {
-  it('shows a waiting placeholder before any events arrive', () => {
+  it('shows a waiting-for-stream placeholder before any connection or events', () => {
     renderTicker()
-    expect(screen.getByText('Waiting for data…')).toBeInTheDocument()
+    expect(screen.getByText('Waiting for the stream…')).toBeInTheDocument()
+  })
+
+  it('shows a calm empty state once connected with events but no commits', () => {
+    const { emit, open } = renderTicker()
+    open()
+    emit(fx.sessionStarted())
+
+    expect(screen.getByText('No commits yet this session.')).toBeInTheDocument()
+    expect(screen.queryByText('Waiting for the stream…')).not.toBeInTheDocument()
   })
 
   it('renders commit.landed and agent.status events as one reverse-chron feed', () => {

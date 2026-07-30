@@ -56,7 +56,7 @@ function formatRelativeTime(ts: number | null, now: number): string {
 }
 
 export default function WorktreesPanel({ now: nowOverride }: WorktreesPanelProps = {}) {
-  const { state } = useStream()
+  const { state, status } = useStream()
   const now = useNow(nowOverride)
   const session = useMemo(() => reduceAll(state.events), [state.events])
   const liveness = useMemo(() => selectWorktreeLiveness(session, { now }), [session, now])
@@ -72,11 +72,18 @@ export default function WorktreesPanel({ now: nowOverride }: WorktreesPanelProps
     })
   }, [session, liveness])
 
+  /** Same signal ConnectionBadge/StatusBar read, plus proof at least one event has folded. */
+  const connected = status === 'open' && state.events.length > 0
+
   return (
     <section className="flex h-full flex-col rounded-lg border border-void-line bg-void-raised p-4">
       <h2 className="text-xs font-semibold uppercase tracking-widest text-neon-cyan">Worktrees</h2>
-      {rows.length === 0 ? (
-        <p className="mt-2 text-sm text-slate-500">Waiting for data…</p>
+      {rows.length === 0 && !connected ? (
+        <p className="mt-2 text-sm text-slate-500">Waiting for the stream…</p>
+      ) : rows.length === 0 ? (
+        <p className="mt-2 text-sm text-slate-300" role="status">
+          No worktrees discovered yet.
+        </p>
       ) : (
         <div className="mt-2 flex-1 overflow-auto">
           <table className="w-full border-collapse text-left text-sm">

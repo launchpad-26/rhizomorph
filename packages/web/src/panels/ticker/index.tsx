@@ -54,7 +54,7 @@ function formatDiffStat(commit: CommitRecord): string {
 }
 
 export default function TickerPanel() {
-  const { state } = useStream()
+  const { state, status } = useStream()
 
   const commits = useMemo(() => {
     const session = reduceAll(state.events)
@@ -85,13 +85,20 @@ export default function TickerPanel() {
     return [...commitEntries, ...agentEntries].sort((a, b) => b.ts - a.ts).slice(0, FEED_LIMIT)
   }, [commits, agentEntries])
 
+  /** Same signal ConnectionBadge/StatusBar read, plus proof at least one event has folded. */
+  const connected = status === 'open' && state.events.length > 0
+
   return (
     <section className="flex h-full flex-col rounded-lg border border-void-line bg-void-raised p-4">
       <h2 className="text-xs font-semibold uppercase tracking-widest text-neon-amber">
         Commit ticker
       </h2>
-      {feed.length === 0 ? (
-        <p className="mt-2 text-sm text-slate-500">Waiting for data…</p>
+      {feed.length === 0 && !connected ? (
+        <p className="mt-2 text-sm text-slate-500">Waiting for the stream…</p>
+      ) : feed.length === 0 ? (
+        <p className="mt-2 text-sm text-slate-300" role="status">
+          No commits yet this session.
+        </p>
       ) : (
         <ol className="mt-2 flex-1 space-y-1.5 overflow-auto font-mono text-xs">
           {feed.map((entry) => (
