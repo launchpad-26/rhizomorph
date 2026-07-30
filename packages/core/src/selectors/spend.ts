@@ -246,9 +246,14 @@ export function selectRoleSpend(state: SessionState, filter: SpendFilter = {}): 
   const lanes = new Map<AgentRole, Set<string>>(AGENT_ROLES.map((role) => [role, new Set()]))
 
   const track = (role: AgentRole, lane: string): Acc => {
-    lanes.get(role)?.add(lane)
-    // AGENT_ROLES seeds every key, so this is a lookup, not a create.
-    return accs.get(role) ?? createAcc()
+    const seen = lanes.get(role) ?? new Set<string>()
+    seen.add(lane)
+    lanes.set(role, seen)
+    const existing = accs.get(role)
+    if (existing !== undefined) return existing
+    const fresh = createAcc()
+    accs.set(role, fresh)
+    return fresh
   }
 
   for (const record of usageIn(state, filter)) addUsage(track(record.role, record.lane), record)
