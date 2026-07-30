@@ -1,4 +1,5 @@
 import { lazy, Suspense } from 'react'
+import { PanelFrame } from './PanelFrame.js'
 
 const WorktreesPanel = lazy(() => import('../panels/worktrees/index.js'))
 const CollisionsPanel = lazy(() => import('../panels/collisions/index.js'))
@@ -13,15 +14,21 @@ function PanelFallback() {
 export function PanelGrid() {
   return (
     <div className="grid flex-1 auto-rows-fr grid-cols-1 gap-4 overflow-auto p-4 lg:grid-cols-3">
-      <Suspense fallback={<PanelFallback />}>
-        <WorktreesPanel />
-      </Suspense>
-      <Suspense fallback={<PanelFallback />}>
-        <CollisionsPanel />
-      </Suspense>
-      <Suspense fallback={<PanelFallback />}>
-        <TickerPanel />
-      </Suspense>
+      <PanelFrame id="worktrees" title="Worktrees">
+        <Suspense fallback={<PanelFallback />}>
+          <WorktreesPanel />
+        </Suspense>
+      </PanelFrame>
+      <PanelFrame id="collisions" title="Collisions">
+        <Suspense fallback={<PanelFallback />}>
+          <CollisionsPanel />
+        </Suspense>
+      </PanelFrame>
+      <PanelFrame id="ticker" title="Commit ticker">
+        <Suspense fallback={<PanelFallback />}>
+          <TickerPanel />
+        </Suspense>
+      </PanelFrame>
     </div>
   )
 }
