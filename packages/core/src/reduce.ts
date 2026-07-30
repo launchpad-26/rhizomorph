@@ -2,14 +2,20 @@ import type {
   EventOf,
   ObservatoryEvent,
 } from './events/index.js'
+import { totalTokens } from './events/index.js'
 import type {
   AgentState,
   BranchState,
   CollectorState,
   CommitRecord,
+  CostRecord,
   ErrorRecord,
+  LaneAttribution,
   PaneState,
   SessionState,
+  TelemetryState,
+  ToolActivityRecord,
+  UsageRecord,
   WorktreeState,
 } from './state.js'
 import { MAX_ERRORS, basename, initialSessionState } from './state.js'
@@ -67,6 +73,12 @@ function applyEvent(state: SessionState, event: ObservatoryEvent): SessionState 
       return paneActivity(state, event)
     case 'agent.status':
       return agentStatus(state, event)
+    case 'llm.usage':
+      return llmUsage(state, event)
+    case 'llm.cost':
+      return llmCost(state, event)
+    case 'tool.activity':
+      return toolActivity(state, event)
     default: {
       // Exhaustive today; an unknown future type must never break a replay.
       const _never: never = event
@@ -318,6 +330,130 @@ function agentStatus(state: SessionState, event: EventOf<'agent.status'>): Sessi
     updatedAt: event.ts,
   }
   return { ...state, agents: { ...state.agents, [p.handle]: agent } }
+}
+
+// --- telemetry (prd1) -------------------------------------------------------
+
+function llmUsage(state: SessionState, event: EventOf<'llm.usage'>): SessionState {
+  const p = event.payload
+  const record: UsageRecord = {
+    eventId: event.id,
+    ts: event.ts,
+    origin: event.source,
+    lane: p.lane,
+    role: p.role,
+    model: p.model,
+    tokens: p.tokens,
+    totalTokens: totalTokens(p.tokens),
+    requestId: p.requestId ?? null,
+    durationMs: p.durationMs ?? null,
+    sessionId: p.sessionId ?? null,
+    worktreePath: p.worktreePath ?? null,
+    branch: p.branch ?? null,
+  }
+  return withTelemetry(state, event, p, (telemetry) => ({
+    ...telemetry,
+    usage: [...telemetry.usage, record],
+  }))
+}
+
+function llmCost(state: SessionState, event: EventOf<'llm.cost'>): SessionState {
+  const p = event.payload
+  const record: CostRecord = {
+    eventId: event.id,
+    ts: event.ts,
+    origin: event.source,
+    lane: p.lane,
+    role: p.role,
+    model: p.model,
+    costUsd: p.costUsd,
+    authoritative: p.authoritative,
+    estimateSource: p.estimateSource ?? null,
+    requestId: p.requestId ?? null,
+    sessionId: p.sessionId ?? null,
+    worktreePath: p.worktreePath ?? null,
+    branch: p.branch ?? null,
+  }
+  return withTelemetry(state, event, p, (telemetry) => ({
+    ...telemetry,
+    costs: [...telemetry.costs, record],
+  }))
+}
+
+function toolActivity(state: SessionState, event: EventOf<'tool.activity'>): SessionState {
+  const p = event.payload
+  const record: ToolActivityRecord = {
+    eventId: event.id,
+    ts: event.ts,
+    origin: event.source,
+    lane: p.lane,
+    tool: p.tool,
+    role: p.role ?? null,
+    durationMs: p.durationMs ?? null,
+    sessionId: p.sessionId ?? null,
+    worktreePath: p.worktreePath ?? null,
+    branch: p.branch ?? null,
+  }
+  return withTelemetry(state, event, p, (telemetry) => ({
+    ...telemetry,
+    tools: [...telemetry.tools, record],
+  }))
+}
+
+/** Attribution fields shared by every telemetry payload. */
+interface TelemetryAttribution {
+  lane: string
+  sessionId?: string | null | undefined
+  worktreePath?: string | null | undefined
+  branch?: string | null | undefined
+}
+
+/**
+ * Appends a telemetry record and keeps the lane index in step. Attribution is
+ * last-non-null-wins: OTel datapoints carry no cwd, so a lane's worktree may
+ * only ever be learned from the sessionlog side and must not be unlearned.
+ */
+function withTelemetry(
+  state: SessionState,
+  event: ObservatoryEvent,
+  attribution: TelemetryAttribution,
+  append: (telemetry: TelemetryState) => TelemetryState,
+): SessionState {
+  const appended = append(state.telemetry)
+  return {
+    ...state,
+    telemetry: {
+      ...appended,
+      lanes: {
+        ...appended.lanes,
+        [attribution.lane]: upsertLane(
+          appended.lanes[attribution.lane],
+          attribution,
+          event.ts,
+        ),
+      },
+    },
+  }
+}
+
+function upsertLane(
+  prev: LaneAttribution | undefined,
+  p: TelemetryAttribution,
+  ts: number,
+): LaneAttribution {
+  const sessionIds = prev?.sessionIds ?? []
+  const sessionId = p.sessionId ?? null
+  return {
+    lane: p.lane,
+    worktreePath: p.worktreePath ?? prev?.worktreePath ?? null,
+    branch: p.branch ?? prev?.branch ?? null,
+    sessionIds:
+      sessionId === null || sessionIds.includes(sessionId)
+        ? sessionIds
+        : [...sessionIds, sessionId],
+    firstSeenAt: prev === undefined ? ts : Math.min(prev.firstSeenAt, ts),
+    lastSeenAt: prev === undefined ? ts : Math.max(prev.lastSeenAt, ts),
+  }
 }
 
 // --- helpers ----------------------------------------------------------------

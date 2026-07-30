@@ -27,7 +27,7 @@ export interface EventFactoryOptions {
   idPrefix?: string
 }
 
-type Init = Partial<EventEnvelopeInit>
+type Init<T extends EventType = EventType> = Partial<EventEnvelopeInit<T>>
 
 /**
  * A deterministic event factory: sequential ids, a clock that ticks per event,
@@ -45,20 +45,28 @@ export interface EventFactory {
   /** Every event this factory has produced, in order. */
   all(): ObservatoryEvent[]
 
-  make<T extends EventType>(type: T, payload: PayloadOf<T>, init?: Init): EventOf<T>
+  make<T extends EventType>(type: T, payload: PayloadOf<T>, init?: Init<T>): EventOf<T>
 
-  sessionStarted(payload?: Partial<PayloadOf<'session.started'>>, init?: Init): EventOf<'session.started'>
-  collectorError(payload?: Partial<PayloadOf<'collector.error'>>, init?: Init): EventOf<'collector.error'>
-  collectorDisabled(payload?: Partial<PayloadOf<'collector.disabled'>>, init?: Init): EventOf<'collector.disabled'>
-  worktreeDiscovered(payload?: Partial<PayloadOf<'worktree.discovered'>>, init?: Init): EventOf<'worktree.discovered'>
-  worktreeRemoved(payload?: Partial<PayloadOf<'worktree.removed'>>, init?: Init): EventOf<'worktree.removed'>
-  worktreeDirty(payload?: Partial<PayloadOf<'worktree.dirty'>>, init?: Init): EventOf<'worktree.dirty'>
-  branchUpdated(payload?: Partial<PayloadOf<'branch.updated'>>, init?: Init): EventOf<'branch.updated'>
-  commitLanded(payload?: Partial<PayloadOf<'commit.landed'>>, init?: Init): EventOf<'commit.landed'>
-  paneDiscovered(payload?: Partial<PayloadOf<'pane.discovered'>>, init?: Init): EventOf<'pane.discovered'>
-  paneClosed(payload?: Partial<PayloadOf<'pane.closed'>>, init?: Init): EventOf<'pane.closed'>
-  paneActivity(payload?: Partial<PayloadOf<'pane.activity'>>, init?: Init): EventOf<'pane.activity'>
-  agentStatus(payload?: Partial<PayloadOf<'agent.status'>>, init?: Init): EventOf<'agent.status'>
+  sessionStarted(payload?: Partial<PayloadOf<'session.started'>>, init?: Init<'session.started'>): EventOf<'session.started'>
+  collectorError(payload?: Partial<PayloadOf<'collector.error'>>, init?: Init<'collector.error'>): EventOf<'collector.error'>
+  collectorDisabled(payload?: Partial<PayloadOf<'collector.disabled'>>, init?: Init<'collector.disabled'>): EventOf<'collector.disabled'>
+  worktreeDiscovered(payload?: Partial<PayloadOf<'worktree.discovered'>>, init?: Init<'worktree.discovered'>): EventOf<'worktree.discovered'>
+  worktreeRemoved(payload?: Partial<PayloadOf<'worktree.removed'>>, init?: Init<'worktree.removed'>): EventOf<'worktree.removed'>
+  worktreeDirty(payload?: Partial<PayloadOf<'worktree.dirty'>>, init?: Init<'worktree.dirty'>): EventOf<'worktree.dirty'>
+  branchUpdated(payload?: Partial<PayloadOf<'branch.updated'>>, init?: Init<'branch.updated'>): EventOf<'branch.updated'>
+  commitLanded(payload?: Partial<PayloadOf<'commit.landed'>>, init?: Init<'commit.landed'>): EventOf<'commit.landed'>
+  paneDiscovered(payload?: Partial<PayloadOf<'pane.discovered'>>, init?: Init<'pane.discovered'>): EventOf<'pane.discovered'>
+  paneClosed(payload?: Partial<PayloadOf<'pane.closed'>>, init?: Init<'pane.closed'>): EventOf<'pane.closed'>
+  paneActivity(payload?: Partial<PayloadOf<'pane.activity'>>, init?: Init<'pane.activity'>): EventOf<'pane.activity'>
+  agentStatus(payload?: Partial<PayloadOf<'agent.status'>>, init?: Init<'agent.status'>): EventOf<'agent.status'>
+
+  /**
+   * prd1 telemetry. `source` defaults to each type's primary collector, so pass
+   * `{ source: 'otel' }` to fake the authority side of a cross-validation.
+   */
+  llmUsage(payload?: Partial<PayloadOf<'llm.usage'>>, init?: Init<'llm.usage'>): EventOf<'llm.usage'>
+  llmCost(payload?: Partial<PayloadOf<'llm.cost'>>, init?: Init<'llm.cost'>): EventOf<'llm.cost'>
+  toolActivity(payload?: Partial<PayloadOf<'tool.activity'>>, init?: Init<'tool.activity'>): EventOf<'tool.activity'>
 }
 
 const defaults = {
@@ -102,6 +110,38 @@ const defaults = {
   'pane.closed': { paneId: '%1' },
   'pane.activity': { paneId: '%1', contentHash: 'hash-1' },
   'agent.status': { handle: 'feature', status: 'working' },
+  // Token proportions are the real ones from the build day's keystone lane
+  // (research §S2): cache reads dwarf everything, output is the next biggest.
+  'llm.usage': {
+    lane: 'feature',
+    role: 'worker',
+    model: 'claude-opus-5',
+    tokens: { input: 2, output: 1_700, cacheRead: 99_700, cacheCreation: 1_900 },
+    requestId: 'req_fixture_1',
+    durationMs: 9_400,
+    sessionId: 'sess-feature',
+    worktreePath: `${FIXTURE_REPO_PATH}-wt/feature`,
+    branch: 'feature',
+  },
+  // 0.0588372 is the literal cost_usd the OTel spike captured (research §S1).
+  'llm.cost': {
+    lane: 'feature',
+    role: 'worker',
+    model: 'claude-opus-5',
+    costUsd: 0.0588372,
+    authoritative: true,
+    sessionId: 'sess-feature',
+    worktreePath: `${FIXTURE_REPO_PATH}-wt/feature`,
+    branch: 'feature',
+  },
+  'tool.activity': {
+    lane: 'feature',
+    tool: 'Bash',
+    role: 'worker',
+    sessionId: 'sess-feature',
+    worktreePath: `${FIXTURE_REPO_PATH}-wt/feature`,
+    branch: 'feature',
+  },
 } as const satisfies { [T in EventType]: PayloadOf<T> }
 
 export function createEventFactory(options: EventFactoryOptions = {}): EventFactory {
@@ -113,9 +153,13 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
   let nextId = createIdFactory(idPrefix)
   const produced: ObservatoryEvent[] = []
 
-  const make = <T extends EventType>(type: T, payload: PayloadOf<T>, init: Init = {}) => {
+  const make = <T extends EventType>(type: T, payload: PayloadOf<T>, init: Init<T> = {}) => {
     const ts = init.ts ?? clock
-    const event = createEvent(type, payload, { id: init.id ?? nextId(), ts })
+    const event = createEvent(type, payload, {
+      id: init.id ?? nextId(),
+      ts,
+      ...(init.source === undefined ? {} : { source: init.source }),
+    })
     if (init.ts === undefined) clock += stepMs
     produced.push(event)
     return event
@@ -123,7 +167,7 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
 
   const sugar =
     <T extends EventType>(type: T) =>
-    (payload: Partial<PayloadOf<T>> = {}, init: Init = {}) =>
+    (payload: Partial<PayloadOf<T>> = {}, init: Init<T> = {}) =>
       // The spread of a generic partial widens; the schema still validates.
       make(type, { ...(defaults[type] as PayloadOf<T>), ...payload } as PayloadOf<T>, init)
 
@@ -157,6 +201,9 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
     paneClosed: sugar('pane.closed'),
     paneActivity: sugar('pane.activity'),
     agentStatus: sugar('agent.status'),
+    llmUsage: sugar('llm.usage'),
+    llmCost: sugar('llm.cost'),
+    toolActivity: sugar('tool.activity'),
   }
 
   return factory
@@ -172,11 +219,12 @@ export const fx: EventFactory = createEventFactory()
 export function makeEvent<T extends EventType>(
   type: T,
   payload: PayloadOf<T>,
-  init: Init = {},
+  init: Init<T> = {},
 ): EventOf<T> {
   return createEvent(type, payload, {
     id: init.id ?? `evt-${type}-${init.ts ?? FIXTURE_START_TS}`,
     ts: init.ts ?? FIXTURE_START_TS,
+    ...(init.source === undefined ? {} : { source: init.source }),
   })
 }
 
@@ -375,4 +423,139 @@ export function fixtureSession(): ObservatoryEvent[] {
   f.agentStatus({ handle: '3-git', status: 'waiting', worktreePath: WT('3-git'), branch: '3-git' })
 
   return f.all()
+}
+
+/**
+ * prd1's money layer, on top of {@link fixtureSession}. Deliberately a separate
+ * log rather than more events in `fixtureSession()`: every v0 panel test folds
+ * that one and must keep reading exactly what it read before.
+ *
+ * What it says, so a test can assert against prose:
+ *
+ * - three worker lanes (`2-core`, `3-git`, `7-web`) plus a `conductor` lane and
+ *   an `auxiliary` haiku call riding inside `2-core`'s session — the shape the
+ *   OTel capture actually showed;
+ * - tokens from `sessionlog` (all four cache tiers), dollars from `otel`
+ *   (`authoritative: true`) — the two collectors doing their own jobs;
+ * - one estimated cost, flagged as such, so the UI has something to caveat;
+ * - a conductor that outspends any single worker, which is the whole point of
+ *   the overhead ratio.
+ */
+export function fixtureTelemetrySession(): ObservatoryEvent[] {
+  const f = createEventFactory({ stepMs: 1000, idPrefix: 'tel' })
+  const minute = 60_000
+  const otel = { source: 'otel' } as const
+
+  const usage = (
+    lane: string,
+    role: 'worker' | 'conductor' | 'auxiliary',
+    model: string,
+    tokens: { input: number; output: number; cacheRead: number; cacheCreation: number },
+    extra: { ts?: number } = {},
+  ) =>
+    f.llmUsage(
+      {
+        lane,
+        role,
+        model,
+        tokens,
+        sessionId: `sess-${lane}`,
+        worktreePath: role === 'conductor' ? null : WT(lane),
+        branch: role === 'conductor' ? null : lane,
+        requestId: `req-${lane}-${tokens.output}`,
+        durationMs: 8_000,
+      },
+      extra.ts === undefined ? {} : { ts: extra.ts },
+    )
+
+  const cost = (lane: string, role: 'worker' | 'conductor' | 'auxiliary', model: string, costUsd: number) =>
+    f.llmCost(
+      {
+        lane,
+        role,
+        model,
+        costUsd,
+        authoritative: true,
+        sessionId: `sess-${lane}`,
+        worktreePath: role === 'conductor' ? null : WT(lane),
+        branch: role === 'conductor' ? null : lane,
+      },
+      otel,
+    )
+
+  // t+1m — the swarm starts spending. Workers on opus, conductor on sonnet.
+  f.at(FIXTURE_START_TS + minute)
+  usage('2-core', 'worker', 'claude-opus-5', {
+    input: 4,
+    output: 3_100,
+    cacheRead: 180_000,
+    cacheCreation: 6_400,
+  })
+  cost('2-core', 'worker', 'claude-opus-5', 0.42)
+  usage('3-git', 'worker', 'claude-opus-5', {
+    input: 3,
+    output: 1_900,
+    cacheRead: 120_000,
+    cacheCreation: 4_100,
+  })
+  cost('3-git', 'worker', 'claude-opus-5', 0.28)
+  usage('conductor', 'conductor', 'claude-sonnet-5', {
+    input: 12,
+    output: 5_600,
+    cacheRead: 410_000,
+    cacheCreation: 9_800,
+  })
+  cost('conductor', 'conductor', 'claude-sonnet-5', 0.9)
+
+  f.toolActivity({ lane: '2-core', tool: 'Write', role: 'worker', sessionId: 'sess-2-core', worktreePath: WT('2-core'), branch: '2-core' })
+  f.toolActivity({ lane: '2-core', tool: 'Bash', role: 'worker', sessionId: 'sess-2-core', worktreePath: WT('2-core'), branch: '2-core' })
+  f.toolActivity({ lane: '3-git', tool: 'Bash', role: 'worker', sessionId: 'sess-3-git', worktreePath: WT('3-git'), branch: '3-git' })
+
+  // t+3m — the CLI's own auxiliary haiku call, inside 2-core's session.
+  f.at(FIXTURE_START_TS + 3 * minute)
+  usage('2-core', 'auxiliary', 'claude-haiku-4-5-20251001', {
+    input: 310,
+    output: 40,
+    cacheRead: 0,
+    cacheCreation: 0,
+  })
+  cost('2-core', 'auxiliary', 'claude-haiku-4-5-20251001', 0.000591)
+
+  // t+5m — 7-web joins, with tokens but no authoritative dollars: telemetry env
+  // vars were never set on that lane, so its cost is an explicit estimate.
+  f.at(FIXTURE_START_TS + 5 * minute)
+  usage('7-web', 'worker', 'claude-opus-5', {
+    input: 2,
+    output: 2_400,
+    cacheRead: 96_000,
+    cacheCreation: 3_300,
+  })
+  f.llmCost(
+    {
+      lane: '7-web',
+      role: 'worker',
+      model: 'claude-opus-5',
+      costUsd: 0.31,
+      authoritative: false,
+      estimateSource: 'pricing-table@litellm',
+      worktreePath: WT('7-web'),
+      branch: '7-web',
+    },
+    // An estimate is derived from the tokens, so it belongs to the depth
+    // collector; otel is the only thing allowed to claim authority.
+    { source: 'sessionlog' },
+  )
+  f.toolActivity({ lane: '7-web', tool: 'Edit', role: 'worker', worktreePath: WT('7-web'), branch: '7-web' })
+
+  // t+6m — the conductor spends again, because it never stops.
+  f.at(FIXTURE_START_TS + 6 * minute)
+  usage('conductor', 'conductor', 'claude-sonnet-5', {
+    input: 8,
+    output: 4_200,
+    cacheRead: 330_000,
+    cacheCreation: 7_100,
+  })
+  cost('conductor', 'conductor', 'claude-sonnet-5', 0.71)
+
+  return [...fixtureSession(), ...f.all()]
 }

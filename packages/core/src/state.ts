@@ -1,8 +1,11 @@
 import type {
+  AgentRole,
   AgentStatus,
   Author,
   DirtyFile,
   FileChange,
+  TelemetryOrigin,
+  TokenUsagePayload,
 } from './events/index.js'
 
 /**
@@ -120,6 +123,88 @@ export interface ErrorRecord {
   detail: string | null
 }
 
+/**
+ * One recorded model request. Kept whole, in observation order: rates over a
+ * rolling window and a lane's replayable spend timeline both need the
+ * individual facts, and every total in `selectors/spend.ts` is folded from
+ * these rather than accumulated here — same rule as commits and collisions.
+ */
+export interface UsageRecord {
+  eventId: string
+  ts: number
+  /** Which collector saw it — `sessionlog` (depth) or `otel` (authority). */
+  origin: TelemetryOrigin
+  lane: string
+  role: AgentRole
+  model: string
+  tokens: TokenUsagePayload
+  /** Sum of the four tiers, precomputed because everything sorts by it. */
+  totalTokens: number
+  requestId: string | null
+  durationMs: number | null
+  sessionId: string | null
+  worktreePath: string | null
+  branch: string | null
+}
+
+export interface CostRecord {
+  eventId: string
+  ts: number
+  origin: TelemetryOrigin
+  lane: string
+  role: AgentRole
+  model: string
+  costUsd: number
+  /** True when the agent CLI computed the dollars, not us. */
+  authoritative: boolean
+  estimateSource: string | null
+  requestId: string | null
+  sessionId: string | null
+  worktreePath: string | null
+  branch: string | null
+}
+
+export interface ToolActivityRecord {
+  eventId: string
+  ts: number
+  origin: TelemetryOrigin
+  lane: string
+  tool: string
+  /** Null when the collector did not know the lane's role. */
+  role: AgentRole | null
+  durationMs: number | null
+  sessionId: string | null
+  worktreePath: string | null
+  branch: string | null
+}
+
+/**
+ * What we have learned about a lane's identity, as opposed to its arithmetic.
+ * Telemetry arrives with attribution on some events and not others (OTel has no
+ * cwd), so the last non-null wins — the same shape as `agents`. Every number a
+ * panel shows is derived by a selector; nothing is summed in here.
+ */
+export interface LaneAttribution {
+  lane: string
+  worktreePath: string | null
+  branch: string | null
+  /** Agent CLI session ids seen for this lane, in first-sighting order. */
+  sessionIds: string[]
+  firstSeenAt: number
+  lastSeenAt: number
+}
+
+export interface TelemetryState {
+  usage: UsageRecord[]
+  costs: CostRecord[]
+  tools: ToolActivityRecord[]
+  lanes: Record<string, LaneAttribution>
+}
+
+export function initialTelemetryState(): TelemetryState {
+  return { usage: [], costs: [], tools: [], lanes: {} }
+}
+
 export interface SessionState {
   session: SessionInfo | null
   /** Branch everything is measured against; null until we learn it. */
@@ -134,6 +219,8 @@ export interface SessionState {
   collectors: Record<string, CollectorState>
   /** Most recent last, capped — a long session must not grow unbounded. */
   errors: ErrorRecord[]
+  /** prd1: tokens, dollars and tool calls. Additive — nothing above changed. */
+  telemetry: TelemetryState
   eventCount: number
   firstEventTs: number | null
   lastEventTs: number | null
@@ -154,6 +241,7 @@ export function initialSessionState(): SessionState {
     agents: {},
     collectors: {},
     errors: [],
+    telemetry: initialTelemetryState(),
     eventCount: 0,
     firstEventTs: null,
     lastEventTs: null,

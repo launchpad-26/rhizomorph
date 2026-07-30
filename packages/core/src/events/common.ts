@@ -9,7 +9,15 @@ import { z } from 'zod'
  * parser is loud instead of silent.
  */
 
-export const eventSourceSchema = z.enum(['git', 'tmux', 'workmux', 'system'])
+export const eventSourceSchema = z.enum([
+  'git',
+  'tmux',
+  'workmux',
+  'system',
+  // prd1's two telemetry collectors: sessionlog is depth, otel is authority.
+  'sessionlog',
+  'otel',
+])
 export type EventSource = z.infer<typeof eventSourceSchema>
 
 /** Epoch milliseconds. Chosen over ISO strings so liveness maths is subtraction. */
@@ -67,6 +75,27 @@ export function envelope<
     id: nonEmptyString,
     ts: timestampSchema,
     source: z.literal(source),
+    type: z.literal(type),
+    payload,
+  })
+}
+
+/**
+ * Like {@link envelope}, but for a type that more than one collector can
+ * legitimately produce. prd1's `sessionlog` and `otel` collectors both report
+ * token usage; the envelope's `source` stays the honest record of which one
+ * saw it, so nothing has to be duplicated into the payload. The union still
+ * discriminates on `type`, which is unaffected.
+ */
+export function envelopeWithSources<
+  const S extends readonly [EventSource, ...EventSource[]],
+  const T extends string,
+  P extends z.ZodType,
+>(sources: S, type: T, payload: P) {
+  return z.object({
+    id: nonEmptyString,
+    ts: timestampSchema,
+    source: z.enum(sources),
     type: z.literal(type),
     payload,
   })

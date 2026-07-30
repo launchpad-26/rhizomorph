@@ -1,0 +1,259 @@
+import { beforeEach, describe, expect, it } from 'vitest'
+import { createEventFactory, fixtureSession, fixtureTelemetrySession } from './fixtures.js'
+import { reduce, reduceAll } from './reduce.js'
+import { initialSessionState } from './state.js'
+
+/**
+ * The telemetry fold. Records go in whole and in observation order; every total
+ * is a selector's job, so what is asserted here is what was *recorded*.
+ */
+
+let f = createEventFactory()
+beforeEach(() => {
+  f = createEventFactory()
+})
+
+describe('reduce — llm.usage', () => {
+  it('records the request with its tiers, origin and total', () => {
+    const state = reduceAll([
+      f.llmUsage(
+        {
+          lane: '33-core',
+          role: 'worker',
+          model: 'claude-opus-5',
+          tokens: { input: 4, output: 100, cacheRead: 9_000, cacheCreation: 200 },
+          requestId: 'req_1',
+          durationMs: 8_400,
+          sessionId: 'sess-a',
+        },
+        { ts: 5_000 },
+      ),
+    ])
+
+    expect(state.telemetry.usage).toHaveLength(1)
+    expect(state.telemetry.usage[0]).toEqual({
+      eventId: 'evt-000001',
+      ts: 5_000,
+      origin: 'sessionlog',
+      lane: '33-core',
+      role: 'worker',
+      model: 'claude-opus-5',
+      tokens: { input: 4, output: 100, cacheRead: 9_000, cacheCreation: 200 },
+      totalTokens: 9_304,
+      requestId: 'req_1',
+      durationMs: 8_400,
+      sessionId: 'sess-a',
+      worktreePath: '/repo/observatory-wt/feature',
+      branch: 'feature',
+    })
+  })
+
+  it('takes origin from the envelope, so both collectors stay distinguishable', () => {
+    const state = reduceAll([
+      f.llmUsage({ lane: 'a' }),
+      f.llmUsage({ lane: 'a' }, { source: 'otel' }),
+    ])
+    expect(state.telemetry.usage.map((record) => record.origin)).toEqual(['sessionlog', 'otel'])
+  })
+
+  it('normalises absent optional fields to null rather than dropping them', () => {
+    const state = reduceAll([
+      f.llmUsage({
+        lane: 'a',
+        requestId: null,
+        durationMs: null,
+        sessionId: null,
+        worktreePath: null,
+        branch: null,
+      }),
+    ])
+    expect(state.telemetry.usage[0]).toMatchObject({
+      requestId: null,
+      durationMs: null,
+      sessionId: null,
+      worktreePath: null,
+      branch: null,
+    })
+  })
+
+  it('keeps observation order even when timestamps arrive out of order', () => {
+    const state = reduceAll([
+      f.llmUsage({ lane: 'a', model: 'first' }, { ts: 9_000 }),
+      f.llmUsage({ lane: 'a', model: 'second' }, { ts: 3_000 }),
+    ])
+    expect(state.telemetry.usage.map((record) => record.model)).toEqual(['first', 'second'])
+  })
+})
+
+describe('reduce — llm.cost', () => {
+  it('records dollars with their authority intact', () => {
+    const state = reduceAll([
+      f.llmCost({ lane: 'a', costUsd: 0.0588372, authoritative: true }, { ts: 10 }),
+      f.llmCost(
+        {
+          lane: 'a',
+          costUsd: 0.5,
+          authoritative: false,
+          estimateSource: 'pricing-table@litellm',
+        },
+        { ts: 20, source: 'sessionlog' },
+      ),
+    ])
+    expect(state.telemetry.costs).toHaveLength(2)
+    expect(state.telemetry.costs[0]).toMatchObject({
+      origin: 'otel',
+      costUsd: 0.0588372,
+      authoritative: true,
+      estimateSource: null,
+    })
+    expect(state.telemetry.costs[1]).toMatchObject({
+      origin: 'sessionlog',
+      authoritative: false,
+      estimateSource: 'pricing-table@litellm',
+    })
+  })
+})
+
+describe('reduce — tool.activity', () => {
+  it('records the tool, the lane and a role only when one was reported', () => {
+    const state = reduceAll([
+      f.toolActivity({ lane: 'a', tool: 'Bash', role: 'worker' }, { ts: 1 }),
+      f.toolActivity({ lane: 'a', tool: 'Edit', role: null }, { ts: 2 }),
+    ])
+    expect(state.telemetry.tools.map((record) => [record.tool, record.role])).toEqual([
+      ['Bash', 'worker'],
+      ['Edit', null],
+    ])
+  })
+})
+
+describe('reduce — the lane index', () => {
+  it('learns a lane from whichever telemetry event arrives first', () => {
+    const state = reduceAll([
+      f.llmCost({ lane: 'conductor', worktreePath: null, branch: null }, { ts: 400 }),
+    ])
+    expect(state.telemetry.lanes.conductor).toEqual({
+      lane: 'conductor',
+      worktreePath: null,
+      branch: null,
+      sessionIds: ['sess-feature'],
+      firstSeenAt: 400,
+      lastSeenAt: 400,
+    })
+  })
+
+  it('fills attribution in from the collector that has it, and never unlearns it', () => {
+    const state = reduceAll([
+      // OTel has no cwd — the lane arrives bare.
+      f.llmCost({ lane: 'x', worktreePath: null, branch: null, sessionId: 'sess-x' }, { ts: 100 }),
+      // The sessionlog side knows exactly where it lives.
+      f.llmUsage({ lane: 'x', worktreePath: '/repo/wt/x', branch: 'x', sessionId: 'sess-x' }, { ts: 200 }),
+      // A later bare event must not wipe what we learned.
+      f.llmCost({ lane: 'x', worktreePath: null, branch: null, sessionId: 'sess-x' }, { ts: 300 }),
+    ])
+    expect(state.telemetry.lanes.x).toEqual({
+      lane: 'x',
+      worktreePath: '/repo/wt/x',
+      branch: 'x',
+      sessionIds: ['sess-x'],
+      firstSeenAt: 100,
+      lastSeenAt: 300,
+    })
+  })
+
+  it('collects distinct session ids in first-sighting order, ignoring repeats', () => {
+    const state = reduceAll([
+      f.llmUsage({ lane: 'x', sessionId: 'sess-1' }),
+      f.llmUsage({ lane: 'x', sessionId: 'sess-2' }),
+      f.llmUsage({ lane: 'x', sessionId: 'sess-1' }),
+      f.llmUsage({ lane: 'x', sessionId: null }),
+    ])
+    expect(state.telemetry.lanes.x?.sessionIds).toEqual(['sess-1', 'sess-2'])
+  })
+
+  it('holds first/last seen against the clock, not against arrival', () => {
+    const state = reduceAll([
+      f.llmUsage({ lane: 'x' }, { ts: 9_000 }),
+      f.llmUsage({ lane: 'x' }, { ts: 1_000 }),
+    ])
+    expect(state.telemetry.lanes.x).toMatchObject({ firstSeenAt: 1_000, lastSeenAt: 9_000 })
+  })
+
+  it('keeps lanes apart', () => {
+    const state = reduceAll([
+      f.llmUsage({ lane: 'a' }),
+      f.llmUsage({ lane: 'b' }),
+      f.toolActivity({ lane: 'c', tool: 'Read' }),
+    ])
+    expect(Object.keys(state.telemetry.lanes).sort()).toEqual(['a', 'b', 'c'])
+  })
+})
+
+describe('reduce — additivity', () => {
+  it('leaves telemetry empty for a log that has none', () => {
+    const state = reduceAll(fixtureSession())
+    expect(state.telemetry).toEqual({ usage: [], costs: [], tools: [], lanes: {} })
+  })
+
+  it('folds the v0 half of a telemetry log to exactly the same state', () => {
+    const withTelemetry = reduceAll(fixtureTelemetrySession())
+    const v0Only = reduceAll(fixtureSession())
+    for (const key of ['worktrees', 'branches', 'commits', 'commitOrder', 'panes', 'agents', 'collectors', 'errors'] as const) {
+      expect(withTelemetry[key], key).toEqual(v0Only[key])
+    }
+  })
+
+  it('counts telemetry events in the envelope bookkeeping like any other', () => {
+    const events = fixtureTelemetrySession()
+    const state = reduceAll(events)
+    expect(state.eventCount).toBe(events.length)
+    expect(state.telemetry.usage.length + state.telemetry.costs.length + state.telemetry.tools.length)
+      .toBe(events.length - fixtureSession().length)
+  })
+
+  it('is pure — the input state is untouched', () => {
+    const before = reduceAll(fixtureTelemetrySession())
+    const snapshot = JSON.parse(JSON.stringify(before)) as unknown
+    reduce(before, f.llmUsage({ lane: 'new-lane' }))
+    expect(JSON.parse(JSON.stringify(before))).toEqual(snapshot)
+  })
+
+  it('does not touch a telemetry-free state object', () => {
+    const empty = initialSessionState()
+    const next = reduce(empty, f.llmCost({ lane: 'a' }))
+    expect(empty.telemetry.costs).toEqual([])
+    expect(next.telemetry.costs).toHaveLength(1)
+  })
+})
+
+describe('fixtureTelemetrySession', () => {
+  it('is deterministic — two calls give identical logs', () => {
+    expect(fixtureTelemetrySession()).toEqual(fixtureTelemetrySession())
+  })
+
+  it('starts with the v0 log, unchanged', () => {
+    const v0 = fixtureSession()
+    expect(fixtureTelemetrySession().slice(0, v0.length)).toEqual(v0)
+  })
+
+  it('advertises the lanes, roles and origins the selectors are tested against', () => {
+    const state = reduceAll(fixtureTelemetrySession())
+    expect(Object.keys(state.telemetry.lanes).sort()).toEqual([
+      '2-core',
+      '3-git',
+      '7-web',
+      'conductor',
+    ])
+    expect([...new Set(state.telemetry.usage.map((record) => record.role))].sort()).toEqual([
+      'auxiliary',
+      'conductor',
+      'worker',
+    ])
+    expect([...new Set(state.telemetry.usage.map((record) => record.origin))]).toEqual(['sessionlog'])
+    expect([...new Set(state.telemetry.costs.map((record) => record.origin))]).toEqual([
+      'otel',
+      'sessionlog',
+    ])
+    expect(state.telemetry.costs.filter((record) => !record.authoritative)).toHaveLength(1)
+  })
+})

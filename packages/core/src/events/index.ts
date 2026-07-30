@@ -2,12 +2,14 @@ import { z } from 'zod'
 import type { EventSource } from './common.js'
 import { gitEventSchemas } from './git.js'
 import { systemEventSchemas } from './system.js'
+import { telemetryEventSchemas } from './telemetry.js'
 import { tmuxEventSchemas } from './tmux.js'
 import { workmuxEventSchemas } from './workmux.js'
 
 export * from './common.js'
 export * from './git.js'
 export * from './system.js'
+export * from './telemetry.js'
 export * from './tmux.js'
 export * from './workmux.js'
 
@@ -17,6 +19,7 @@ export const observatoryEventSchema = z.discriminatedUnion('type', [
   ...tmuxEventSchemas,
   ...workmuxEventSchemas,
   ...systemEventSchemas,
+  ...telemetryEventSchemas,
 ])
 
 export type ObservatoryEvent = z.infer<typeof observatoryEventSchema>
@@ -32,6 +35,11 @@ export type PayloadOf<T extends EventType> = EventOf<T>['payload']
 /**
  * Which source owns which type. Lets `createEvent` take a type alone and fill
  * the envelope's `source` in — one place to be wrong instead of every collector.
+ *
+ * For the prd1 telemetry types this is the *primary* source, the one whose
+ * strength the prd names: depth for usage and tool activity, authority for
+ * dollars. The other collector passes `source` explicitly to `createEvent`;
+ * {@link SourceOf} keeps that choice type-checked per event type.
  */
 export const EVENT_SOURCE_BY_TYPE = {
   'worktree.discovered': 'git',
@@ -46,17 +54,29 @@ export const EVENT_SOURCE_BY_TYPE = {
   'session.started': 'system',
   'collector.error': 'system',
   'collector.disabled': 'system',
+  'llm.usage': 'sessionlog',
+  'llm.cost': 'otel',
+  'tool.activity': 'sessionlog',
 } as const satisfies Record<EventType, EventSource>
 
 export const EVENT_TYPES = Object.keys(EVENT_SOURCE_BY_TYPE) as EventType[]
+
+/** Which sources one type may carry, e.g. `'sessionlog' | 'otel'` for usage. */
+export type SourceOf<T extends EventType> = EventOf<T>['source']
 
 export function sourceOf<T extends EventType>(type: T): (typeof EVENT_SOURCE_BY_TYPE)[T] {
   return EVENT_SOURCE_BY_TYPE[type]
 }
 
-export interface EventEnvelopeInit {
+export interface EventEnvelopeInit<T extends EventType = EventType> {
   id: string
   ts: number
+  /**
+   * Which collector saw it. Optional: for every v0 type there is exactly one
+   * possible source, so it is filled in from the type. The prd1 telemetry types
+   * have two, and the non-primary collector names itself here.
+   */
+  source?: SourceOf<T>
 }
 
 /**
@@ -66,12 +86,12 @@ export interface EventEnvelopeInit {
 export function createEvent<T extends EventType>(
   type: T,
   payload: PayloadOf<T>,
-  init: EventEnvelopeInit,
+  init: EventEnvelopeInit<T>,
 ): EventOf<T> {
   const candidate = {
     id: init.id,
     ts: init.ts,
-    source: EVENT_SOURCE_BY_TYPE[type],
+    source: init.source ?? EVENT_SOURCE_BY_TYPE[type],
     type,
     payload,
   }

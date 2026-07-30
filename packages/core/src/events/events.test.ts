@@ -4,6 +4,7 @@ import {
   EVENT_TYPES,
   createEvent,
   createIdFactory,
+  eventSourceSchema,
   isEventOfType,
   isObservatoryEvent,
   observatoryEventSchema,
@@ -28,27 +29,31 @@ describe('event envelope', () => {
   })
 
   it('covers every v0 type from the architecture doc', () => {
+    // arrayContaining, not toEqual: prd1 adds telemetry types additively, and
+    // the v0 twelve must survive that intact.
     expect([...EVENT_TYPES].sort()).toEqual(
-      [
-        'agent.status',
-        'branch.updated',
-        'collector.disabled',
-        'collector.error',
-        'commit.landed',
-        'pane.activity',
-        'pane.closed',
-        'pane.discovered',
-        'session.started',
-        'worktree.dirty',
-        'worktree.discovered',
-        'worktree.removed',
-      ].sort(),
+      expect.arrayContaining(
+        [
+          'agent.status',
+          'branch.updated',
+          'collector.disabled',
+          'collector.error',
+          'commit.landed',
+          'pane.activity',
+          'pane.closed',
+          'pane.discovered',
+          'session.started',
+          'worktree.dirty',
+          'worktree.discovered',
+          'worktree.removed',
+        ].sort(),
+      ),
     )
   })
 
-  it('maps each type to exactly one of the four sources', () => {
+  it('maps each type to exactly one declared source', () => {
     for (const type of EVENT_TYPES) {
-      expect(['git', 'tmux', 'workmux', 'system']).toContain(sourceOf(type))
+      expect([...eventSourceSchema.options]).toContain(sourceOf(type))
       expect(EVENT_SOURCE_BY_TYPE[type]).toBe(sourceOf(type))
     }
   })
@@ -189,5 +194,22 @@ function oneOfEach() {
       ts: 11,
     }),
     createEvent('agent.status', { handle: 'feat', status: 'working' }, { id: id(), ts: 12 }),
+    createEvent('llm.usage', {
+      lane: 'feat',
+      role: 'worker',
+      model: 'claude-opus-5',
+      tokens: { input: 2, output: 1700, cacheRead: 99_700, cacheCreation: 1900 },
+      requestId: 'req_1',
+      durationMs: 9400,
+      sessionId: 'sess-1',
+    }, { id: id(), ts: 13 }),
+    createEvent('llm.cost', {
+      lane: 'feat',
+      role: 'conductor',
+      model: 'claude-sonnet-5',
+      costUsd: 0.0588372,
+      authoritative: true,
+    }, { id: id(), ts: 14, source: 'otel' }),
+    createEvent('tool.activity', { lane: 'feat', tool: 'Bash' }, { id: id(), ts: 15 }),
   ]
 }
