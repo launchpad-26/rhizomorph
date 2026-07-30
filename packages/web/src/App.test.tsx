@@ -4,17 +4,22 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App.js'
 import type { EventSourceLike } from './hooks/useEventStream.js'
 
-// App renders these behind React.lazy(() => import(...)). Even with the
-// module pre-warmed in vitest's cache, the dynamic import() call is spec'd to
-// always resolve via a queued promise job, so the shell still suspends for at
-// least one tick — and under CPU contention (several suites' processes
-// fighting for the same cores) that tick's actual wall-clock cost is whatever
-// the OS scheduler feels like, which can occasionally outrun findByText's
-// window no matter how generous. Stubbing these to render synchronously
-// removes the dynamic import — and therefore the promise-resolution tick —
-// entirely, so there's nothing left to race: this test is about the shell's
-// composition (does each Suspense slot host the right panel?), not the real
-// panels' internals, which each have their own direct-import test file.
+// App renders these behind React.lazy(() => import(...)). Mocking them (below)
+// makes their dynamic import() trivial, but it's still a real import() —
+// React.lazy still suspends for at least one promise-resolution tick before
+// the shell commits. `findByText`/`waitFor` race that tick against a fixed
+// default deadline (1000ms), and under CPU contention (several suites'
+// processes fighting for the same cores) that tick's wall-clock cost is
+// whatever the scheduler feels like, which can occasionally outrun the
+// deadline — the same family of flake already fixed in PanelGrid.test.tsx
+// (#28, #42). Preloading resolves each mocked module's import() *before*
+// mounting (an unbounded await with no deadline of its own), so by the time
+// App's `lazy()` calls the same import() specifier, the module record is
+// already fulfilled and there is no delay left to race. The one remaining
+// tick — React's mandatory suspend-then-resume on first render, now against
+// already-resolved promises — is flushed deterministically with
+// `act(async () => {})` instead of a timed poll, so the assertions that
+// follow are plain synchronous queries with nothing left to race.
 vi.mock('./panels/worktrees/index.js', () => ({ default: () => <h2>Worktrees</h2> }))
 vi.mock('./panels/collisions/index.js', () => ({ default: () => <h2>Collisions</h2> }))
 vi.mock('./panels/ticker/index.js', () => ({ default: () => <div>Commit ticker</div> }))
@@ -40,8 +45,20 @@ class FakeEventSource implements EventSourceLike {
   close() {}
 }
 
-/** jsdom has no `EventSource` global, so every render needs a mock source injected. */
-function renderApp() {
+/**
+ * jsdom has no `EventSource` global, so every render needs a mock source
+ * injected. Also preloads every mocked lazy module and flushes the one
+ * remaining suspend-then-resume tick before returning — see the top-of-file
+ * comment — so callers can assert with plain synchronous queries.
+ */
+async function renderApp() {
+  await import('./panels/worktrees/index.js')
+  await import('./panels/collisions/index.js')
+  await import('./panels/ticker/index.js')
+  await import('./panels/spend/index.js')
+  await import('./replay/index.js')
+  await import('./scene/index.js')
+
   let source: FakeEventSource | undefined
   const utils = render(
     <App
@@ -52,6 +69,7 @@ function renderApp() {
       }}
     />,
   )
+  await act(async () => {})
   return { ...utils, source: () => source }
 }
 
@@ -74,21 +92,18 @@ function fixtureEvents() {
 
 describe('App', () => {
   it('renders the instrument shell — scene slot, panel grid, replay bar', async () => {
-    renderApp()
+    await renderApp()
 
     expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
     expect(screen.getByText('connecting…')).toBeInTheDocument()
-    // Panels are still React.lazy (mocked above), so the boundary still
-    // suspends for a tick — but resolving a mocked, already-in-memory module
-    // is fixed, negligible work with nothing left to transform on demand.
-    expect(await screen.findByText('Worktrees')).toBeInTheDocument()
-    expect(await screen.findByText('Collisions')).toBeInTheDocument()
-    expect(await screen.findByText('Commit ticker')).toBeInTheDocument()
-    expect(await screen.findByText('Spend ticker')).toBeInTheDocument()
+    expect(screen.getByText('Worktrees')).toBeInTheDocument()
+    expect(screen.getByText('Collisions')).toBeInTheDocument()
+    expect(screen.getByText('Commit ticker')).toBeInTheDocument()
+    expect(screen.getByText('Spend ticker')).toBeInTheDocument()
   })
 
   it('surfaces connection state and folds fixture events from a mock stream', async () => {
-    const { source } = renderApp()
+    const { source } = await renderApp()
 
     act(() => source()?.open())
     await waitFor(() => expect(screen.getByText('live')).toBeInTheDocument())
@@ -103,7 +118,7 @@ describe('App', () => {
   })
 
   it('can collapse and re-expand the scene slot', async () => {
-    renderApp()
+    await renderApp()
     const toggle = screen.getByRole('button', { name: /collapse scene/i })
 
     act(() => toggle.click())
