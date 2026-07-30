@@ -14,7 +14,8 @@ export interface CliArgs {
    * `/mnt/c/Users/<u>/.claude/projects/<slug>` (the session-log dir itself,
    * mounted). Passed through as raw `<path>[:<lane>]` strings; the
    * sessionlog collector resolves each dir-first (session dir directly, then
-   * cwd-slug fallback) and attributes these `role: conductor`.
+   * cwd-slug fallback), attributes these `role: conductor`, and labels the
+   * lane `conductor`/`conductor-2`/… when no explicit `:<lane>` is given.
    */
   extraSessionDirs: string[]
   /** True when `--help`/`-h` was passed; other fields are defaults and should be ignored. */
@@ -217,8 +218,9 @@ Options:
   --extra-sessions <path>[:<lane>]
                           Foreign session-log dir to tail as a conductor (repeatable).
                           <path> is the dir of *.jsonl itself; if it has none, it falls
-                          back to cwd-slug inference like today. <lane> defaults to the
-                          dir's basename.
+                          back to cwd-slug inference like today. <lane> defaults to
+                          "conductor" for the first one, "conductor-2", "conductor-3"…
+                          for the rest — never the raw project-dir slug.
   --help, -h              Show this help and exit
 
 Run 'observatory env --help' for the env-block subcommand's own options.

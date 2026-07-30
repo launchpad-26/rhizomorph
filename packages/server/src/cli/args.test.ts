@@ -147,6 +147,18 @@ describe('parseArgs', () => {
     expect(parseArgs(['--extra-sessions=/one']).extraSessionDirs).toEqual(['/one'])
   })
 
+  it('passes a <dir>:<lane> value through untouched, for the sessionlog collector to split', () => {
+    expect(
+      parseArgs(['--extra-sessions', '/mnt/c/Users/operator/.claude/projects/foo:conductor']).extraSessionDirs,
+    ).toEqual(['/mnt/c/Users/operator/.claude/projects/foo:conductor'])
+  })
+
+  it('accumulates a mix of plain and <dir>:<lane> --extra-sessions values in order', () => {
+    expect(
+      parseArgs(['--extra-sessions', '/one:conductor', '--extra-sessions', '/two']).extraSessionDirs,
+    ).toEqual(['/one:conductor', '/two'])
+  })
+
   it('throws on a missing --extra-sessions value', () => {
     expect(() => parseArgs(['--extra-sessions'])).toThrow(/invalid --extra-sessions/)
   })

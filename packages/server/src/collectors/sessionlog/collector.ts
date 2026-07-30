@@ -39,9 +39,12 @@ export interface SessionlogCollectorConfig {
    *    slug-inferred under `claudeProjectsRoot`, same as today (local
    *    conductor convenience).
    *
-   * `<lane>` names the lane for every session under this dir; defaults to
-   * the (post-slug-check) path's basename. A spec that resolves neither way
-   * emits one `collector.error` instead of silently doing nothing.
+   * `<lane>` names the lane for every session under this dir. Left off, it
+   * defaults to `conductor` for the first `--extra-sessions` (index 0), then
+   * `conductor-2`, `conductor-3`… for the rest — never the raw project-dir
+   * slug, and never inferred from the log content either (see
+   * `defaultConductorLane`). A spec that resolves neither way emits one
+   * `collector.error` instead of silently doing nothing.
    */
   extraSessionDirs?: readonly string[]
 }
@@ -52,7 +55,7 @@ interface WatchedDir {
   /** Set only for a dir-first extra session dir: tail this dir literally, skipping slug inference. */
   sessionDirOverride?: string
   /** Set for extra session dirs: wins over any lane inferred from the JSONL content. */
-  laneOverride?: string | null
+  laneOverride?: string
 }
 
 /**
@@ -105,7 +108,7 @@ export function createSessionlogCollector(
       const extraWatchedDirs: WatchedDir[] = []
 
       const extraResolutions = await Promise.all(
-        extraSessionDirs.map((spec) => resolveExtraSessionDir(spec, claudeProjectsRoot)),
+        extraSessionDirs.map((spec, index) => resolveExtraSessionDir(spec, claudeProjectsRoot, index)),
       )
       for (const resolution of extraResolutions) {
         if (resolution.dir) {
@@ -166,6 +169,18 @@ type ExtraSessionResolution =
   | { spec: string; dir: null; reason: string }
 
 /**
+ * Default lane for an `--extra-sessions` spec with no explicit `:<lane>`:
+ * `conductor` for the first extra dir (index 0), `conductor-2`, `conductor-3`…
+ * for the rest, keyed by the spec's position in `--extra-sessions` — never the
+ * raw project-dir slug, and never inferred from the log content (gitBranch,
+ * cwd) either. The dir path stays exactly what the operator passed; only the
+ * presentation label defaults.
+ */
+function defaultConductorLane(index: number): string {
+  return index === 0 ? 'conductor' : `conductor-${index + 1}`
+}
+
+/**
  * Resolves one `--extra-sessions` spec dir-first: tries `path` directly as a
  * session-log dir (contains `*.jsonl`), then falls back to slug-inferring it
  * as a cwd under `claudeProjectsRoot` (today's behaviour). Neither working
@@ -175,8 +190,10 @@ type ExtraSessionResolution =
 async function resolveExtraSessionDir(
   spec: string,
   claudeProjectsRoot: string,
+  index: number,
 ): Promise<ExtraSessionResolution> {
   const { path: rawPath, lane: explicitLane } = parseExtraSessionSpec(spec)
+  const lane = explicitLane ?? defaultConductorLane(index)
 
   const directInfo = await statOrNull(rawPath)
   if (directInfo?.isDirectory()) {
@@ -188,7 +205,7 @@ async function resolveExtraSessionDir(
           worktreePath: rawPath,
           role: 'conductor',
           sessionDirOverride: rawPath,
-          laneOverride: explicitLane ?? basenameOf(rawPath) ?? UNATTRIBUTED_LANE,
+          laneOverride: lane,
         },
       }
     }
@@ -199,7 +216,7 @@ async function resolveExtraSessionDir(
   if (fallbackInfo?.isDirectory()) {
     return {
       spec,
-      dir: { worktreePath: rawPath, role: 'conductor', laneOverride: explicitLane },
+      dir: { worktreePath: rawPath, role: 'conductor', laneOverride: lane },
     }
   }
 

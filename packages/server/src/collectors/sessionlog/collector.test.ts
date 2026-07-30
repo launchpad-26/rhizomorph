@@ -160,7 +160,7 @@ describe('createSessionlogCollector', () => {
     })
   })
 
-  it('attributes role: conductor for sessions under an extra session dir', async () => {
+  it('attributes role: conductor and the default "conductor" lane for sessions under an extra session dir with no explicit lane', async () => {
     const conductorPath = '/fake/conductor/cwd'
     const projectDir = path.join(root, worktreePathToProjectSlug(conductorPath))
     await mkdir(projectDir, { recursive: true })
@@ -181,12 +181,12 @@ describe('createSessionlogCollector', () => {
     expect(usage).toHaveLength(1)
     expect(usage[0]?.payload).toMatchObject({
       role: 'conductor',
-      lane: 'main',
+      lane: 'conductor',
       worktreePath: conductorPath,
     })
   })
 
-  it('tails an --extra-sessions path directly when it contains *.jsonl, no slugification, lane from the dir basename', async () => {
+  it('tails an --extra-sessions path directly when it contains *.jsonl, no slugification, lane defaults to "conductor" (not the dir basename)', async () => {
     const conductorSessionDir = path.join(root, 'agenticlaunchpad')
     await mkdir(conductorSessionDir, { recursive: true })
     await writeFile(
@@ -207,9 +207,67 @@ describe('createSessionlogCollector', () => {
     expect(usage).toHaveLength(1)
     expect(usage[0]?.payload).toMatchObject({
       role: 'conductor',
-      lane: 'agenticlaunchpad',
+      lane: 'conductor',
       worktreePath: conductorSessionDir,
     })
+  })
+
+  it('numbers the default lane conductor-2, conductor-3… for the second and third extra dir with no explicit lane', async () => {
+    const dirs = await Promise.all(
+      ['first', 'second', 'third'].map(async (name) => {
+        const dir = path.join(root, name)
+        await mkdir(dir, { recursive: true })
+        await writeFile(
+          path.join(dir, '85649f6d-2f7d-43aa-a23e-10c9c1c0d2bc.jsonl'),
+          await readFixture('conductor-root.jsonl'),
+          'utf8',
+        )
+        return dir
+      }),
+    )
+
+    const collector = createSessionlogCollector({
+      claudeProjectsRoot: root,
+      extraSessionDirs: dirs,
+    })
+    const gitExec: Exec = async () => success(worktreeListOutput([]))
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+
+    expect(result.events.some((e) => e.type === 'collector.error')).toBe(false)
+    const usage = result.events.filter((e) => e.type === 'llm.usage')
+    expect(usage).toHaveLength(3)
+    expect(usage.map((e) => (e.payload as { lane: string }).lane)).toEqual([
+      'conductor',
+      'conductor-2',
+      'conductor-3',
+    ])
+  })
+
+  it('mixes an explicit :<lane> with default-numbered lanes across multiple extra dirs', async () => {
+    const namedDir = path.join(root, 'named')
+    const defaultedDir = path.join(root, 'defaulted')
+    for (const dir of [namedDir, defaultedDir]) {
+      await mkdir(dir, { recursive: true })
+      await writeFile(
+        path.join(dir, '85649f6d-2f7d-43aa-a23e-10c9c1c0d2bc.jsonl'),
+        await readFixture('conductor-root.jsonl'),
+        'utf8',
+      )
+    }
+
+    const collector = createSessionlogCollector({
+      claudeProjectsRoot: root,
+      extraSessionDirs: [`${namedDir}:my-conductor`, defaultedDir],
+    })
+    const gitExec: Exec = async () => success(worktreeListOutput([]))
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+
+    const usage = result.events.filter((e) => e.type === 'llm.usage')
+    expect(usage).toHaveLength(2)
+    expect(usage.map((e) => (e.payload as { lane: string }).lane)).toEqual([
+      'my-conductor',
+      'conductor-2',
+    ])
   })
 
   it('honours an explicit :<lane> suffix on a direct --extra-sessions path, overriding the dir basename', async () => {
@@ -256,9 +314,10 @@ describe('createSessionlogCollector', () => {
     expect(second.events).toEqual([])
   })
 
-  it('resolves the foreign-slug basename case (Windows-shaped dir name a POSIX slug function could never produce)', async () => {
+  it('resolves the foreign-slug basename case without leaking the raw project-dir slug as the lane (Windows-shaped dir name a POSIX slug function could never produce)', async () => {
     // Mimics a Windows conductor mounted at a WSL path — e.g.
     // /mnt/c/Users/operator/.claude/projects/C--Users-operator-agenticlaunchpad.
+    // This is issue #49's exact bug: the raw slug used to leak as the lane.
     const foreignSessionDir = path.join(root, 'foreign', 'C--Users-operator-agenticlaunchpad')
     await mkdir(foreignSessionDir, { recursive: true })
     await writeFile(
@@ -282,7 +341,7 @@ describe('createSessionlogCollector', () => {
     expect(usage).toHaveLength(1)
     expect(usage[0]?.payload).toMatchObject({
       role: 'conductor',
-      lane: 'C--Users-operator-agenticlaunchpad',
+      lane: 'conductor',
       worktreePath: foreignSessionDir,
     })
   })
