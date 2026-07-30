@@ -50,6 +50,7 @@ function model(stations: SceneStation[], trunk: SceneStation | null = null): Sce
     mainBranch: 'main',
     trunk,
     stations,
+    worktreeCount: stations.length + (trunk === null ? 0 : 1),
     commitCount: stations.reduce((total, s) => total + s.commits.length, 0),
     lastEventTs: NOW,
     eventCount: 0,

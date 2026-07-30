@@ -87,7 +87,7 @@ export function SceneView({ events, demo = false, webgl }: SceneViewProps) {
           />
           <Header
             repoName={model.repoName}
-            stationCount={model.stations.length}
+            worktreeCount={model.worktreeCount}
             commitCount={model.commitCount}
             demo={demo}
             supported={supported}
@@ -104,13 +104,13 @@ export function SceneView({ events, demo = false, webgl }: SceneViewProps) {
 
 function Header({
   repoName,
-  stationCount,
+  worktreeCount,
   commitCount,
   demo,
   supported,
 }: {
   repoName: string | null
-  stationCount: number
+  worktreeCount: number
   commitCount: number
   demo: boolean
   supported: boolean
@@ -119,7 +119,7 @@ function Header({
     <div className="pointer-events-none text-right uppercase tracking-widest text-slate-500">
       <div className="text-neon-cyan text-glow-cyan">{repoName ?? 'constellation'}</div>
       <div>
-        {stationCount} worktrees · {commitCount} commits
+        {worktreeCount} worktrees · {commitCount} commits
       </div>
       {demo && <div className="text-neon-amber">demo data — awaiting stream</div>}
       {!supported && <div className="text-neon-magenta">no webgl — text mode</div>}

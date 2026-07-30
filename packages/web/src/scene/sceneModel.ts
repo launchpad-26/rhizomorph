@@ -1,4 +1,4 @@
-import type { AgentStatus, ObservatoryEvent } from '@observatory/core'
+import { reduceAll, selectWorktreeViews, type AgentStatus, type ObservatoryEvent } from '@observatory/core'
 
 /**
  * The scene's read of the event log.
@@ -55,6 +55,12 @@ export interface SceneModel {
   trunk: SceneStation | null
   /** Everything orbiting the trunk, in discovery order. */
   stations: SceneStation[]
+  /**
+   * Worktree count for the header, from the same core selector the
+   * worktrees panel builds its table from — never counted locally, so the
+   * two can never disagree.
+   */
+  worktreeCount: number
   commitCount: number
   lastEventTs: number
   eventCount: number
@@ -65,6 +71,7 @@ export const EMPTY_SCENE_MODEL: SceneModel = {
   mainBranch: null,
   trunk: null,
   stations: [],
+  worktreeCount: 0,
   commitCount: 0,
   lastEventTs: 0,
   eventCount: 0,
@@ -265,6 +272,7 @@ export function buildSceneModel(events: readonly ObservatoryEvent[]): SceneModel
     mainBranch,
     trunk: trunk === null ? null : strip(trunk),
     stations: orbiting.map(strip),
+    worktreeCount: selectWorktreeViews(reduceAll(events)).length,
     commitCount: ordered.reduce((total, station) => total + station.commits.length, 0),
     lastEventTs,
     eventCount: events.length,

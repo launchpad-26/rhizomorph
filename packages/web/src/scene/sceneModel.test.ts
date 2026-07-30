@@ -1,6 +1,8 @@
 import {
   createEvent,
   createIdFactory,
+  reduceAll,
+  selectWorktreeViews,
   type EventType,
   type ObservatoryEvent,
   type PayloadOf,
@@ -110,6 +112,31 @@ describe('buildSceneModel', () => {
     // Trunk (main) + one orbiting station — never doubled.
     expect(model.stations).toHaveLength(1)
     expect(model.trunk).not.toBeNull()
+  })
+
+  it('never fabricates a duplicate station for a branch with a worktree, and its header count matches the worktree table', () => {
+    const log = [
+      ...baseLog(),
+      // Same branch as WT's worktree, arriving again via branch.updated —
+      // must land on the existing WT station, not mint a second one.
+      ev('branch.updated', { branch: 'feat', head: 'h2', aheadOfMain: 2 }, 3_000),
+      // A branch with no discovered worktree at all — must produce no station.
+      ev('branch.updated', { branch: 'orphan', head: 'h9', aheadOfMain: 4 }, 4_000),
+    ]
+    const model = buildSceneModel(log)
+
+    const allLabels = [model.trunk, ...model.stations]
+      .filter((s): s is NonNullable<typeof s> => s !== null)
+      .map((s) => s.label)
+    expect(new Set(allLabels).size).toBe(allLabels.length)
+    expect(model.stations.filter((s) => s.branch === 'feat')).toHaveLength(1)
+
+    // The scene header's worktree count must equal what the worktree panel
+    // (same log, `selectWorktreeViews`) would show — not a locally counted
+    // number that happens to exclude the trunk.
+    const expectedWorktreeCount = selectWorktreeViews(reduceAll(log)).length
+    expect(expectedWorktreeCount).toBe(2) // main + WT; 'orphan' has no worktree
+    expect(model.worktreeCount).toBe(expectedWorktreeCount)
   })
 
   it('treats worktree.dirty as a snapshot, not a delta', () => {
