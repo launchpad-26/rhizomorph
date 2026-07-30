@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   initialSessionState,
   reduceAll,
@@ -13,6 +13,8 @@ export interface ReplaySession {
   sessions: SessionSummary[]
   selectedId: string | null
   selectSession(id: string | null): void
+  /** Selects a session and starts playback as soon as its events finish loading. */
+  selectAndPlay(id: string): void
   /** Raw log for the selected session, fetched in full up front. */
   events: ObservatoryEvent[]
   error: string | null
@@ -41,6 +43,18 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [events, setEvents] = useState<ObservatoryEvent[]>([])
   const [error, setError] = useState<string | null>(null)
+  /** Session id awaiting its events before auto-starting playback (`selectAndPlay`). */
+  const autoplaySessionIdRef = useRef<string | null>(null)
+
+  const selectSession = useCallback((id: string | null) => {
+    autoplaySessionIdRef.current = null
+    setSelectedId(id)
+  }, [])
+
+  const selectAndPlay = useCallback((id: string) => {
+    autoplaySessionIdRef.current = id
+    setSelectedId(id)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -76,6 +90,21 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
 
   const range = useMemo(() => timeRangeOf(events) ?? { start: 0, end: 0 }, [events])
   const playback = usePlayback({ start: range.start, end: range.end })
+
+  // Runs after `usePlayback`'s own reset-on-new-range effect (hook call order
+  // within this component determines effect order), so this play() wins over
+  // that effect's pause-on-load reset instead of racing it.
+  useEffect(() => {
+    if (
+      autoplaySessionIdRef.current !== null &&
+      autoplaySessionIdRef.current === selectedId &&
+      events.length > 0
+    ) {
+      autoplaySessionIdRef.current = null
+      playback.play()
+    }
+  }, [events, selectedId, playback])
+
   const eventsAtScrubTime = useMemo(
     () => eventsUpTo(events, playback.currentTs),
     [events, playback.currentTs],
@@ -89,7 +118,8 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
   return {
     sessions,
     selectedId,
-    selectSession: setSelectedId,
+    selectSession,
+    selectAndPlay,
     events,
     error,
     playback,
@@ -107,6 +137,7 @@ export function emptyReplaySession(): ReplaySession {
     sessions: [],
     selectedId: null,
     selectSession: noop,
+    selectAndPlay: noop,
     events: [],
     error: null,
     playback: {
