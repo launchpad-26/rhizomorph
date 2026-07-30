@@ -1,0 +1,9 @@
+cc021f427ba6c9d563d90964a9e1e0696048a367cc021f4Ada Devdev@example.com1785359400d129e8d9ede5050302a93cd9d66ccadad0f2713dfeat: extend entry point and add util
+:100644 100644 e14c4f2 a81cf38 M	src/index.js
+:000000 100644 0000000 09b76aa A	src/lib/util.js
+1	0	src/index.js
+1	0	src/lib/util.js
+
+6e164406fdc3e92168183601862506dbce13cec46e16440Ada Devdev@example.com1785359520cc021f427ba6c9d563d90964a9e1e0696048a367chore: drop stale readme
+:100644 000000 ce01362 0000000 D	README.md
+0	1	README.md

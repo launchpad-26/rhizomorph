@@ -1,0 +1,21 @@
+worktree /home/dev/observatory-demo
+HEAD d129e8d9ede5050302a93cd9d66ccadad0f2713d
+branch refs/heads/main
+
+worktree /home/dev/observatory-demo-worktrees/alpha
+HEAD 6e164406fdc3e92168183601862506dbce13cec4
+branch refs/heads/feature/alpha
+
+worktree /home/dev/observatory-demo-worktrees/beta
+HEAD d129e8d9ede5050302a93cd9d66ccadad0f2713d
+branch refs/heads/feature/beta
+
+worktree /home/dev/observatory-demo-worktrees/detached
+HEAD d129e8d9ede5050302a93cd9d66ccadad0f2713d
+detached
+
+worktree /home/dev/observatory-demo-worktrees/locked
+HEAD d129e8d9ede5050302a93cd9d66ccadad0f2713d
+branch refs/heads/feature/locked
+locked in use by agent
+
