@@ -26,10 +26,22 @@ export interface SessionlogCollectorConfig {
    */
   claudeProjectsRoot?: string
   /**
-   * Extra worktree-shaped paths to also tail — e.g. the conductor's own cwd,
-   * possibly on another filesystem (`--extra-sessions`; CLI wiring is a
-   * separate issue). Sessions discovered under these are attributed
-   * `role: 'conductor'` rather than the default `'worker'`.
+   * Extra session sources to tail as `role: 'conductor'`, each shaped
+   * `<path>[:<lane>]` (`--extra-sessions`; CLI wiring is a separate issue).
+   * `<path>` is tried two ways, dir-first:
+   *
+   * 1. **Directly**, as the session-log directory itself (contains
+   *    `*.jsonl`) — no slug inference, no assumption about where the
+   *    conductor's projects root lives or what OS it runs. This is the path
+   *    that makes a Windows/foreign-filesystem conductor work at all: point
+   *    it straight at the mounted session dir.
+   * 2. **As a fallback**, if step 1 finds no `*.jsonl`: treated as a cwd and
+   *    slug-inferred under `claudeProjectsRoot`, same as today (local
+   *    conductor convenience).
+   *
+   * `<lane>` names the lane for every session under this dir; defaults to
+   * the (post-slug-check) path's basename. A spec that resolves neither way
+   * emits one `collector.error` instead of silently doing nothing.
    */
   extraSessionDirs?: readonly string[]
 }
@@ -37,6 +49,10 @@ export interface SessionlogCollectorConfig {
 interface WatchedDir {
   worktreePath: string
   role: AgentRole
+  /** Set only for a dir-first extra session dir: tail this dir literally, skipping slug inference. */
+  sessionDirOverride?: string
+  /** Set for extra session dirs: wins over any lane inferred from the JSONL content. */
+  laneOverride?: string | null
 }
 
 /**
@@ -61,7 +77,7 @@ export function createSessionlogCollector(
     name: COLLECTOR_NAME,
 
     initialSnapshot(): SessionlogSnapshot {
-      return { disabled: false, files: {} }
+      return { disabled: false, files: {}, erroredExtraSessionDirs: {} }
     },
 
     async poll(prevSnapshot, context: CollectorContext): Promise<PollResult<SessionlogSnapshot>> {
@@ -84,22 +100,115 @@ export function createSessionlogCollector(
         )
       }
 
+      const events: ObservatoryEvent[] = []
+      const nextErroredExtraSessionDirs: Record<string, true> = {}
+      const extraWatchedDirs: WatchedDir[] = []
+
+      const extraResolutions = await Promise.all(
+        extraSessionDirs.map((spec) => resolveExtraSessionDir(spec, claudeProjectsRoot)),
+      )
+      for (const resolution of extraResolutions) {
+        if (resolution.dir) {
+          extraWatchedDirs.push(resolution.dir)
+          continue
+        }
+        nextErroredExtraSessionDirs[resolution.spec] = true
+        if (!prevSnapshot.erroredExtraSessionDirs[resolution.spec]) {
+          events.push(context.emit('collector.error', { collector: COLLECTOR_NAME, message: resolution.reason }))
+        }
+      }
+
       const watchedDirs: WatchedDir[] = [
         ...parseWorktreePaths(worktreeListResult.stdout).map(
           (worktreePath): WatchedDir => ({ worktreePath, role: 'worker' }),
         ),
-        ...extraSessionDirs.map((worktreePath): WatchedDir => ({ worktreePath, role: 'conductor' })),
+        ...extraWatchedDirs,
       ]
 
-      const events: ObservatoryEvent[] = []
       const nextFiles: Record<string, TailedFileState> = { ...prevSnapshot.files }
 
       for (const dir of watchedDirs) {
         await tailProjectDir(claudeProjectsRoot, dir, context, events, nextFiles)
       }
 
-      return { nextSnapshot: { disabled: false, files: nextFiles }, events }
+      return {
+        nextSnapshot: { disabled: false, files: nextFiles, erroredExtraSessionDirs: nextErroredExtraSessionDirs },
+        events,
+      }
     },
+  }
+}
+
+/** A parsed `<path>[:<lane>]` extra-sessions spec, before we know which resolution mode applies. */
+interface ExtraSessionSpec {
+  path: string
+  lane: string | null
+}
+
+/**
+ * Splits on the last `:` only when what follows looks like a lane name, not
+ * a path fragment (no `/`) — real session dirs on this project are POSIX
+ * paths with no colons, so this never fires on a bare path.
+ */
+function parseExtraSessionSpec(spec: string): ExtraSessionSpec {
+  const separatorIndex = spec.lastIndexOf(':')
+  if (separatorIndex === -1) return { path: spec, lane: null }
+
+  const candidateLane = spec.slice(separatorIndex + 1)
+  if (candidateLane.length === 0 || candidateLane.includes('/')) {
+    return { path: spec, lane: null }
+  }
+  return { path: spec.slice(0, separatorIndex), lane: candidateLane }
+}
+
+type ExtraSessionResolution =
+  | { spec: string; dir: WatchedDir; reason?: undefined }
+  | { spec: string; dir: null; reason: string }
+
+/**
+ * Resolves one `--extra-sessions` spec dir-first: tries `path` directly as a
+ * session-log dir (contains `*.jsonl`), then falls back to slug-inferring it
+ * as a cwd under `claudeProjectsRoot` (today's behaviour). Neither working
+ * means the spec is a misconfiguration, not "no session yet" — that becomes
+ * a `collector.error` at the call site rather than silence.
+ */
+async function resolveExtraSessionDir(
+  spec: string,
+  claudeProjectsRoot: string,
+): Promise<ExtraSessionResolution> {
+  const { path: rawPath, lane: explicitLane } = parseExtraSessionSpec(spec)
+
+  const directInfo = await statOrNull(rawPath)
+  if (directInfo?.isDirectory()) {
+    const entries = await readdir(rawPath).catch(() => [] as string[])
+    if (entries.some((name) => name.endsWith(JSONL_SUFFIX))) {
+      return {
+        spec,
+        dir: {
+          worktreePath: rawPath,
+          role: 'conductor',
+          sessionDirOverride: rawPath,
+          laneOverride: explicitLane ?? basenameOf(rawPath) ?? UNATTRIBUTED_LANE,
+        },
+      }
+    }
+  }
+
+  const fallbackProjectDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(rawPath))
+  const fallbackInfo = await statOrNull(fallbackProjectDir)
+  if (fallbackInfo?.isDirectory()) {
+    return {
+      spec,
+      dir: { worktreePath: rawPath, role: 'conductor', laneOverride: explicitLane },
+    }
+  }
+
+  return {
+    spec,
+    dir: null,
+    reason:
+      `--extra-sessions "${rawPath}" is not a readable session directory: ` +
+      `no *.jsonl found directly, and no project dir at ${fallbackProjectDir}`,
   }
 }
 
@@ -110,7 +219,7 @@ async function tailProjectDir(
   events: ObservatoryEvent[],
   nextFiles: Record<string, TailedFileState>,
 ): Promise<void> {
-  const projectDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(dir.worktreePath))
+  const projectDir = dir.sessionDirOverride ?? path.join(claudeProjectsRoot, worktreePathToProjectSlug(dir.worktreePath))
   const projectInfo = await statOrNull(projectDir)
   if (!projectInfo?.isDirectory()) return // no session started here (yet) — not an error
 
@@ -129,7 +238,7 @@ async function tailProjectDir(
       const facts = parseAssistantLine(rawLine)
       if (!facts) continue
 
-      const lane = facts.gitBranch ?? basenameOf(facts.cwd ?? dir.worktreePath) ?? UNATTRIBUTED_LANE
+      const lane = dir.laneOverride ?? facts.gitBranch ?? basenameOf(facts.cwd ?? dir.worktreePath) ?? UNATTRIBUTED_LANE
       const sessionId = facts.sessionId ?? fallbackSessionId
 
       if (facts.requestId && facts.requestId !== lastUsageRequestId) {
@@ -170,7 +279,7 @@ async function tailProjectDir(
 
 function disable(context: CollectorContext, reason: string): PollResult<SessionlogSnapshot> {
   return {
-    nextSnapshot: { disabled: true, files: {} },
+    nextSnapshot: { disabled: true, files: {}, erroredExtraSessionDirs: {} },
     events: [context.emit('collector.disabled', { collector: COLLECTOR_NAME, reason })],
   }
 }

@@ -186,6 +186,107 @@ describe('createSessionlogCollector', () => {
     })
   })
 
+  it('tails an --extra-sessions path directly when it contains *.jsonl, no slugification, lane from the dir basename', async () => {
+    const conductorSessionDir = path.join(root, 'agenticlaunchpad')
+    await mkdir(conductorSessionDir, { recursive: true })
+    await writeFile(
+      path.join(conductorSessionDir, '85649f6d-2f7d-43aa-a23e-10c9c1c0d2bc.jsonl'),
+      await readFixture('conductor-root.jsonl'),
+      'utf8',
+    )
+
+    const collector = createSessionlogCollector({
+      claudeProjectsRoot: root,
+      extraSessionDirs: [conductorSessionDir],
+    })
+    const gitExec: Exec = async () => success(worktreeListOutput(['/fake/worktrees/alpha']))
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+
+    expect(result.events.some((e) => e.type === 'collector.error')).toBe(false)
+    const usage = result.events.filter((e) => e.type === 'llm.usage')
+    expect(usage).toHaveLength(1)
+    expect(usage[0]?.payload).toMatchObject({
+      role: 'conductor',
+      lane: 'agenticlaunchpad',
+      worktreePath: conductorSessionDir,
+    })
+  })
+
+  it('honours an explicit :<lane> suffix on a direct --extra-sessions path, overriding the dir basename', async () => {
+    const conductorSessionDir = path.join(root, 'agenticlaunchpad')
+    await mkdir(conductorSessionDir, { recursive: true })
+    await writeFile(
+      path.join(conductorSessionDir, '85649f6d-2f7d-43aa-a23e-10c9c1c0d2bc.jsonl'),
+      await readFixture('conductor-root.jsonl'),
+      'utf8',
+    )
+
+    const collector = createSessionlogCollector({
+      claudeProjectsRoot: root,
+      extraSessionDirs: [`${conductorSessionDir}:my-conductor`],
+    })
+    const gitExec: Exec = async () => success(worktreeListOutput([]))
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+
+    const usage = result.events.filter((e) => e.type === 'llm.usage')
+    expect(usage).toHaveLength(1)
+    expect(usage[0]?.payload).toMatchObject({ role: 'conductor', lane: 'my-conductor' })
+  })
+
+  it('emits one collector.error, not silence, when an --extra-sessions path resolves neither directly nor as a cwd slug', async () => {
+    const bogusPath = path.join(root, 'never-created', 'bogus-conductor-dir')
+    const collector = createSessionlogCollector({
+      claudeProjectsRoot: root,
+      extraSessionDirs: [bogusPath],
+    })
+    const gitExec: Exec = async () => success(worktreeListOutput([]))
+
+    const first = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+    expect(first.nextSnapshot.disabled).toBe(false) // a bogus extra dir must not disable the whole collector
+    expect(first.events).toHaveLength(1)
+    expect(first.events[0]).toMatchObject({
+      source: 'system',
+      type: 'collector.error',
+      payload: { collector: 'sessionlog' },
+    })
+    expect((first.events[0]?.payload as { message: string }).message).toContain(bogusPath)
+
+    // Second poll: the same bogus path must not spam another error.
+    const second = await collector.poll(first.nextSnapshot, makeContext(gitExec))
+    expect(second.events).toEqual([])
+  })
+
+  it('resolves the foreign-slug basename case (Windows-shaped dir name a POSIX slug function could never produce)', async () => {
+    // Mimics a Windows conductor mounted at a WSL path — e.g.
+    // /mnt/c/Users/operator/.claude/projects/C--Users-operator-agenticlaunchpad.
+    const foreignSessionDir = path.join(root, 'foreign', 'C--Users-operator-agenticlaunchpad')
+    await mkdir(foreignSessionDir, { recursive: true })
+    await writeFile(
+      path.join(foreignSessionDir, '85649f6d-2f7d-43aa-a23e-10c9c1c0d2bc.jsonl'),
+      await readFixture('conductor-root.jsonl'),
+      'utf8',
+    )
+
+    // claudeProjectsRoot is a bare empty dir: if this test only passed because
+    // of a slug-inferred fallback under it, there would be nothing there to find.
+    const emptyProjectsRoot = await mkdtemp(path.join(tmpdir(), 'sessionlog-empty-root-'))
+    const collector = createSessionlogCollector({
+      claudeProjectsRoot: emptyProjectsRoot,
+      extraSessionDirs: [foreignSessionDir],
+    })
+    const gitExec: Exec = async () => success(worktreeListOutput(['/fake/worktrees/alpha']))
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+    await rm(emptyProjectsRoot, { recursive: true, force: true })
+
+    const usage = result.events.filter((e) => e.type === 'llm.usage')
+    expect(usage).toHaveLength(1)
+    expect(usage[0]?.payload).toMatchObject({
+      role: 'conductor',
+      lane: 'C--Users-operator-agenticlaunchpad',
+      worktreePath: foreignSessionDir,
+    })
+  })
+
   it('only parses new lines across polls, and dedupes usage for a reply split across polls', async () => {
     const worktreePath = '/fake/worktrees/alpha'
     const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))

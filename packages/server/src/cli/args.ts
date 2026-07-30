@@ -9,10 +9,12 @@ export interface CliArgs {
   /** Collector poll cadence in ms. */
   pollIntervalMs: number
   /**
-   * Extra worktree-shaped session dirs to tail (`--extra-sessions`,
+   * Extra session sources to tail (`--extra-sessions <path>[:<lane>]`,
    * repeatable) — for a conductor on a foreign filesystem, e.g.
-   * `/mnt/c/Users/<u>/.claude/projects/<slug>`. Fed to the sessionlog
-   * collector, which attributes these `role: conductor`.
+   * `/mnt/c/Users/<u>/.claude/projects/<slug>` (the session-log dir itself,
+   * mounted). Passed through as raw `<path>[:<lane>]` strings; the
+   * sessionlog collector resolves each dir-first (session dir directly, then
+   * cwd-slug fallback) and attributes these `role: conductor`.
    */
   extraSessionDirs: string[]
   /** True when `--help`/`-h` was passed; other fields are defaults and should be ignored. */
@@ -84,7 +86,7 @@ function isAgentRole(value: string): value is AgentRole {
 
 /**
  * Parses `observatory [path] [--port <n>] [--flatline-minutes <n>]
- * [--poll-interval <ms>] [--extra-sessions <dir>]... [--help]`.
+ * [--poll-interval <ms>] [--extra-sessions <path>[:<lane>]]... [--help]`.
  */
 export function parseArgs(argv: readonly string[]): CliArgs {
   if (argv.includes('--help') || argv.includes('-h')) {
@@ -212,7 +214,11 @@ Options:
   --port <n>              Port to listen on (default: ${DEFAULT_PORT})
   --flatline-minutes <n>  Minutes of silence before an agent is flatlined (default: ${DEFAULT_FLATLINE_MINUTES})
   --poll-interval <ms>    Collector poll cadence in ms (default: ${DEFAULT_POLL_INTERVAL_MS}, minimum: ${MIN_POLL_INTERVAL_MS})
-  --extra-sessions <dir>  Extra Claude session-log dir to tail as a conductor (repeatable)
+  --extra-sessions <path>[:<lane>]
+                          Foreign session-log dir to tail as a conductor (repeatable).
+                          <path> is the dir of *.jsonl itself; if it has none, it falls
+                          back to cwd-slug inference like today. <lane> defaults to the
+                          dir's basename.
   --help, -h              Show this help and exit
 
 Run 'observatory env --help' for the env-block subcommand's own options.

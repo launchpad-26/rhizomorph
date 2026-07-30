@@ -19,4 +19,11 @@ export interface SessionlogSnapshot {
   disabled: boolean
   /** Keyed by absolute file path. */
   files: Record<string, TailedFileState>
+  /**
+   * Keyed by the raw `--extra-sessions` spec string. Set once a spec resolves
+   * to neither a direct session dir nor a slug-inferred fallback, so the
+   * `collector.error` for it fires once, not every poll. Cleared the moment a
+   * spec resolves again, so recovery doesn't need its own bookkeeping.
+   */
+  erroredExtraSessionDirs: Record<string, true>
 }

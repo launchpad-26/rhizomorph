@@ -166,6 +166,7 @@ describe('helpText', () => {
     expect(text).toContain('2000')
     expect(text).toContain('250')
     expect(text).toContain('--extra-sessions')
+    expect(text).toContain('[:<lane>]')
     expect(text).toContain('--help')
   })
 
