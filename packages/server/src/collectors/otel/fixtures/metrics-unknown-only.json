@@ -1,0 +1,27 @@
+{
+  "resourceMetrics": [
+    {
+      "resource": {
+        "attributes": [{ "key": "lane", "value": { "stringValue": "3-git" } }]
+      },
+      "scopeMetrics": [
+        {
+          "metrics": [
+            {
+              "name": "claude_code.active_time.total",
+              "unit": "s",
+              "sum": {
+                "dataPoints": [
+                  {
+                    "attributes": [{ "key": "session.id", "value": { "stringValue": "sess-3-git" } }],
+                    "asDouble": 42.5
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

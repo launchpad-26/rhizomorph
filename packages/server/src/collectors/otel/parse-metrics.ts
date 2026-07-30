@@ -1,0 +1,181 @@
+import type { EventType, ObservatoryEvent, PayloadOf, SourceOf, TokenUsagePayload } from '@observatory/core'
+import { ZERO_TOKENS } from '@observatory/core'
+import { resolveLane, resolveRole } from './attribution.js'
+import { formatZodIssues } from './format-issues.js'
+import {
+  attrString,
+  dataPointValue,
+  exportMetricsRequestSchema,
+  metricDataPoints,
+  type OtlpKeyValue,
+  type OtlpNumberDataPoint,
+} from './types.js'
+
+/**
+ * Same shape as `CollectorContext.emit`, plus an optional explicit `source` —
+ * `llm.usage`'s primary collector is `sessionlog`, so this receiver has to say
+ * `otel` out loud rather than ride the type's default.
+ */
+export interface OtelEmitter {
+  emit: <T extends EventType>(type: T, payload: PayloadOf<T>, source?: SourceOf<T>) => ObservatoryEvent
+}
+
+export interface ParseMetricsResult {
+  events: ObservatoryEvent[]
+  /** True when the body itself isn't a valid `ExportMetricsServiceRequest` — the 400 case. */
+  malformed: boolean
+}
+
+const TOKEN_USAGE_METRIC = 'claude_code.token.usage'
+const COST_USAGE_METRIC = 'claude_code.cost.usage'
+
+/**
+ * Parses one `POST /v1/metrics` body into `llm.usage` / `llm.cost` events.
+ * Pure: no I/O, no clock — the caller's `emitter` supplies ids and timestamps,
+ * same as every other collector.
+ *
+ * Two failure modes stay distinct on purpose:
+ * - the whole body isn't OTLP-shaped → `malformed: true`, no events, the route
+ *   answers 400.
+ * - one datapoint is malformed (missing model, bad type) inside an otherwise
+ *   fine request → a `collector.error` event for that datapoint alone; the
+ *   request still succeeds, same as a poll collector logging one bad row
+ *   without failing the whole tick.
+ *
+ * A metric name that isn't `claude_code.token.usage` or `claude_code.cost.usage`
+ * is ignored silently — not an error, just a signal this receiver doesn't read yet.
+ */
+export function parseMetricsExport(body: unknown, emitter: OtelEmitter): ParseMetricsResult {
+  const parsed = exportMetricsRequestSchema.safeParse(body)
+  if (!parsed.success) {
+    return {
+      events: [
+        emitter.emit('collector.error', {
+          collector: 'otel',
+          message: 'malformed OTLP metrics export request',
+          detail: formatZodIssues(parsed.error.issues),
+        }),
+      ],
+      malformed: true,
+    }
+  }
+
+  const events: ObservatoryEvent[] = []
+
+  for (const resourceMetrics of parsed.data.resourceMetrics) {
+    const resourceAttrs = resourceMetrics.resource?.attributes
+    for (const scopeMetrics of resourceMetrics.scopeMetrics ?? []) {
+      for (const metric of scopeMetrics.metrics ?? []) {
+        if (metric.name === TOKEN_USAGE_METRIC) {
+          for (const dp of metricDataPoints(metric)) {
+            events.push(buildUsageEvent(emitter, resourceAttrs, dp))
+          }
+        } else if (metric.name === COST_USAGE_METRIC) {
+          for (const dp of metricDataPoints(metric)) {
+            events.push(buildCostEvent(emitter, resourceAttrs, dp))
+          }
+        }
+      }
+    }
+  }
+
+  return { events, malformed: false }
+}
+
+function buildUsageEvent(
+  emitter: OtelEmitter,
+  resourceAttrs: OtlpKeyValue[] | undefined,
+  dp: OtlpNumberDataPoint,
+): ObservatoryEvent {
+  const type = attrString(dp.attributes, 'type')
+  const value = dataPointValue(dp)
+  if (type !== 'input' && type !== 'output') {
+    return emitter.emit('collector.error', {
+      collector: 'otel',
+      message: `malformed ${TOKEN_USAGE_METRIC} datapoint: unrecognised type "${type ?? ''}"`,
+    })
+  }
+  if (value === undefined || value < 0) {
+    return emitter.emit('collector.error', {
+      collector: 'otel',
+      message: `malformed ${TOKEN_USAGE_METRIC} datapoint: missing or invalid value`,
+    })
+  }
+  const model = attrString(dp.attributes, 'model')
+  if (!model) {
+    return emitter.emit('collector.error', {
+      collector: 'otel',
+      message: `malformed ${TOKEN_USAGE_METRIC} datapoint: missing model attribute`,
+    })
+  }
+
+  const lane = resolveLane(resourceAttrs, dp.attributes)
+  const querySource = attrString(dp.attributes, 'query_source')
+  const role = resolveRole(resourceAttrs, lane, querySource)
+  const sessionId = attrString(dp.attributes, 'session.id') ?? null
+
+  // OTel's token.usage only ever breaks out input/output — no cache-tier
+  // detail (that's the sessionlog collector's strength). The other three
+  // tiers are always zero here, and the envelope's `source: otel` says why.
+  const tokens: TokenUsagePayload = {
+    ...ZERO_TOKENS,
+    input: type === 'input' ? Math.trunc(value) : 0,
+    output: type === 'output' ? Math.trunc(value) : 0,
+  }
+
+  return emitter.emit(
+    'llm.usage',
+    {
+      lane,
+      role,
+      model,
+      tokens,
+      requestId: null,
+      durationMs: null,
+      sessionId,
+      worktreePath: null,
+      branch: null,
+    },
+    'otel',
+  )
+}
+
+function buildCostEvent(
+  emitter: OtelEmitter,
+  resourceAttrs: OtlpKeyValue[] | undefined,
+  dp: OtlpNumberDataPoint,
+): ObservatoryEvent {
+  const value = dataPointValue(dp)
+  if (value === undefined || value < 0) {
+    return emitter.emit('collector.error', {
+      collector: 'otel',
+      message: `malformed ${COST_USAGE_METRIC} datapoint: missing or invalid value`,
+    })
+  }
+  const model = attrString(dp.attributes, 'model')
+  if (!model) {
+    return emitter.emit('collector.error', {
+      collector: 'otel',
+      message: `malformed ${COST_USAGE_METRIC} datapoint: missing model attribute`,
+    })
+  }
+
+  const lane = resolveLane(resourceAttrs, dp.attributes)
+  const querySource = attrString(dp.attributes, 'query_source')
+  const role = resolveRole(resourceAttrs, lane, querySource)
+  const sessionId = attrString(dp.attributes, 'session.id') ?? null
+
+  return emitter.emit('llm.cost', {
+    lane,
+    role,
+    model,
+    // The agent CLI computes this client-side (research §S1) — no pricing table involved.
+    costUsd: value,
+    authoritative: true,
+    estimateSource: null,
+    requestId: null,
+    sessionId,
+    worktreePath: null,
+    branch: null,
+  })
+}

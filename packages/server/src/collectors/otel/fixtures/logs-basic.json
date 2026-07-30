@@ -1,0 +1,21 @@
+{
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [{ "key": "lane", "value": { "stringValue": "2-core" } }]
+      },
+      "scopeLogs": [
+        {
+          "scope": { "name": "com.anthropic.claude_code" },
+          "logRecords": [
+            {
+              "timeUnixNano": "1753866000000000000",
+              "body": { "stringValue": "api_request" },
+              "attributes": [{ "key": "session.id", "value": { "stringValue": "sess-2-core" } }]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

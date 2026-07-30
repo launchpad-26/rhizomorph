@@ -1,0 +1,121 @@
+{
+  "resourceMetrics": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "claude-code" } },
+          { "key": "lane", "value": { "stringValue": "2-core" } }
+        ]
+      },
+      "scopeMetrics": [
+        {
+          "scope": { "name": "com.anthropic.claude_code" },
+          "metrics": [
+            {
+              "name": "claude_code.token.usage",
+              "unit": "tokens",
+              "sum": {
+                "aggregationTemporality": 2,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-2-core" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-5" } },
+                      { "key": "query_source", "value": { "stringValue": "main" } },
+                      { "key": "type", "value": { "stringValue": "input" } },
+                      { "key": "user.id", "value": { "stringValue": "user-1" } },
+                      { "key": "user.email", "value": { "stringValue": "lachlan@example.com" } },
+                      { "key": "organization.id", "value": { "stringValue": "org-1" } },
+                      { "key": "terminal.type", "value": { "stringValue": "iterm2" } }
+                    ],
+                    "timeUnixNano": "1753866000000000000",
+                    "asInt": "4"
+                  },
+                  {
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-2-core" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-5" } },
+                      { "key": "query_source", "value": { "stringValue": "main" } },
+                      { "key": "type", "value": { "stringValue": "output" } },
+                      { "key": "user.email", "value": { "stringValue": "lachlan@example.com" } }
+                    ],
+                    "timeUnixNano": "1753866000000000000",
+                    "asInt": "222678"
+                  },
+                  {
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-2-core" } },
+                      { "key": "model", "value": { "stringValue": "claude-haiku-4-5-20251001" } },
+                      { "key": "query_source", "value": { "stringValue": "auxiliary" } },
+                      { "key": "type", "value": { "stringValue": "input" } },
+                      { "key": "user.email", "value": { "stringValue": "lachlan@example.com" } }
+                    ],
+                    "timeUnixNano": "1753866000000000000",
+                    "asInt": "12"
+                  },
+                  {
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-2-core" } },
+                      { "key": "model", "value": { "stringValue": "claude-haiku-4-5-20251001" } },
+                      { "key": "query_source", "value": { "stringValue": "auxiliary" } },
+                      { "key": "type", "value": { "stringValue": "output" } },
+                      { "key": "user.email", "value": { "stringValue": "lachlan@example.com" } }
+                    ],
+                    "timeUnixNano": "1753866000000000000",
+                    "asInt": "88"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "claude_code.cost.usage",
+              "unit": "USD",
+              "sum": {
+                "aggregationTemporality": 2,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-2-core" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-5" } },
+                      { "key": "query_source", "value": { "stringValue": "main" } },
+                      { "key": "user.email", "value": { "stringValue": "lachlan@example.com" } }
+                    ],
+                    "timeUnixNano": "1753866000000000000",
+                    "asDouble": 0.0588372
+                  },
+                  {
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-2-core" } },
+                      { "key": "model", "value": { "stringValue": "claude-haiku-4-5-20251001" } },
+                      { "key": "query_source", "value": { "stringValue": "auxiliary" } },
+                      { "key": "user.email", "value": { "stringValue": "lachlan@example.com" } }
+                    ],
+                    "timeUnixNano": "1753866000000000000",
+                    "asDouble": 0.000591
+                  }
+                ]
+              }
+            },
+            {
+              "name": "claude_code.session.count",
+              "unit": "1",
+              "sum": {
+                "aggregationTemporality": 2,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "attributes": [{ "key": "session.id", "value": { "stringValue": "sess-2-core" } }],
+                    "timeUnixNano": "1753866000000000000",
+                    "asInt": "1"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

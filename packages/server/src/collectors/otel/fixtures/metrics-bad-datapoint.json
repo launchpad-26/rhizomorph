@@ -1,0 +1,37 @@
+{
+  "resourceMetrics": [
+    {
+      "resource": {
+        "attributes": [{ "key": "lane", "value": { "stringValue": "7-web" } }]
+      },
+      "scopeMetrics": [
+        {
+          "metrics": [
+            {
+              "name": "claude_code.token.usage",
+              "sum": {
+                "dataPoints": [
+                  {
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-7-web" } },
+                      { "key": "type", "value": { "stringValue": "input" } }
+                    ],
+                    "asInt": "10"
+                  },
+                  {
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-7-web" } },
+                      { "key": "model", "value": { "stringValue": "claude-sonnet-5" } },
+                      { "key": "type", "value": { "stringValue": "output" } }
+                    ],
+                    "asInt": "20"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

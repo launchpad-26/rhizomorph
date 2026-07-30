@@ -1,0 +1,38 @@
+{
+  "resourceMetrics": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "claude-code" } },
+          { "key": "lane", "value": { "stringValue": "conductor" } }
+        ]
+      },
+      "scopeMetrics": [
+        {
+          "scope": { "name": "com.anthropic.claude_code" },
+          "metrics": [
+            {
+              "name": "claude_code.cost.usage",
+              "unit": "USD",
+              "sum": {
+                "aggregationTemporality": 2,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-conductor" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-5" } },
+                      { "key": "query_source", "value": { "stringValue": "main" } }
+                    ],
+                    "timeUnixNano": "1753866000000000000",
+                    "asDouble": 1.2345
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+{
+  "resourceLogs": "should be an array, not a string"
+}
