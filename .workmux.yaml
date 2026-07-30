@@ -8,6 +8,24 @@ merge_strategy: merge   # keep the DAG visible — the Observatory renders it
 post_create:
   - "[ -f package.json ] && npm install || true"
 
+# prd1 telemetry (docs/telemetry.md): every lane's agent exports OTLP/HTTP
+# JSON straight to this repo's own Observatory server (the receiver at
+# packages/server/src/api/otel.ts), tagged lane=<worktree handle>,role=worker
+# via OTEL_RESOURCE_ATTRIBUTES. `observatory env <lane>` prints this same
+# block on demand — keep the port below in sync with whatever `--port` the
+# running Observatory actually used (default 4321).
+panes:
+  - command: >-
+      CLAUDE_CODE_ENABLE_TELEMETRY=1
+      OTEL_METRICS_EXPORTER=otlp OTEL_LOGS_EXPORTER=otlp
+      OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+      OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4321
+      OTEL_METRIC_EXPORT_INTERVAL=5000 OTEL_LOGS_EXPORT_INTERVAL=2000
+      OTEL_RESOURCE_ATTRIBUTES="lane=$(basename "$PWD"),role=worker"
+      <agent>
+    focus: true
+  - split: horizontal
+
 # Mechanical merge gate: workmux refuses to merge red branches.
 pre_merge:
   - cd "$WM_WORKTREE_PATH" && npm test
