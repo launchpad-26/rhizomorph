@@ -1,0 +1,3 @@
+0067c36f6db0a411ce6052fa3b323ffd47388c920067c36Ada Devdev@example.com1785360600d129e8d9ede5050302a93cd9d66ccadad0f2713drefactor: rename entry point
+:100644 100644 e14c4f2 e14c4f2 R100	src/index.js	src/main.js
+0	0	src/{index.js => main.js}
