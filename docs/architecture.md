@@ -108,6 +108,29 @@ hook.
   less discoverable. (Blessed.)
 - 2026-07-30 — Tailwind 4 for panels: daily fluency, faster worker output,
   one more scaffold dep. (Blessed.)
+- 2026-07-30 — Collector loading must be static, not dynamic: a variable
+  dynamic import (`../collectors/${slug}/index.js`) can't be statically
+  analysed by Vite/Rollup, so every collector silently failed to load while
+  the server booted happily and emitted only `session.started`. Collectors
+  are now imported explicitly. (issue #14)
+- 2026-07-30 — SSE frames are named, and the client must subscribe by name:
+  the server writes `event: <type>`, but a client using only `onmessage`
+  receives every frame and drops it — `onmessage` fires only for unnamed
+  frames. Both packages were green in isolation because the web test double
+  called `onmessage` directly instead of imitating the real wire format; test
+  doubles must match the real protocol, not the convenient one. (issue #17)
+- 2026-07-30 — Panels must distinguish "connected but idle" from "not
+  connected": otherwise the dashboard's own empty state is indistinguishable
+  from the failure it exists to reveal. (issue #18)
+- 2026-07-30 — Source files must be plain UTF-8: one stray NUL byte made
+  `selectors/collisions.ts` binary to git — undiffable and unmergeable —
+  while it still compiled and passed tests.
+- 2026-07-30 — Fences must cover every file a change can orphan: core
+  removed the scaffold's placeholder export as part of landing the real
+  event schema, but the server's and web's still-scaffolded entry points
+  imported it and sat outside core's fence, so the root gate would have gone
+  red for every branch at once. The export was kept alive, deprecated, until
+  the files that depended on it were replaced by their own issues.
 
 ## Platform — pinned versions (issue #1, 2026-07-30)
 
