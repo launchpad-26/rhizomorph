@@ -1,0 +1,127 @@
+import { useMemo } from 'react'
+import { reduceAll, selectSpendByBranch } from '@observatory/core'
+import { useStream } from '../../app/StreamContext.js'
+import {
+  costCellText,
+  costCellTitle,
+  formatElapsed,
+  formatRelativeTime,
+  formatTokens,
+} from './format.js'
+
+export interface LedgerPanelProps {
+  /** Test-only override so render tests don't depend on the wall clock. */
+  now?: number
+}
+
+/**
+ * prd1's "what did that feature cost me" table: one row per branch this
+ * session has ever seen spend against, live and landed lanes together, dearest
+ * first. This is the row that survives `workmux merge` deleting the worktree —
+ * everywhere else in the UI that spend goes with it, this panel still has it,
+ * because it is keyed on the branch rather than the worktree path.
+ */
+export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {}) {
+  const { state, status } = useStream()
+  const now = nowOverride ?? Date.now()
+  const session = useMemo(() => reduceAll(state.events), [state.events])
+  const rows = useMemo(() => selectSpendByBranch(session), [session])
+
+  /** Same signal ConnectionBadge/StatusBar read, plus proof at least one event has folded. */
+  const connected = status === 'open' && state.events.length > 0
+
+  return (
+    <section className="flex h-full flex-col rounded-lg border border-void-line bg-void-raised p-4">
+      <h2 className="text-xs font-semibold uppercase tracking-widest text-neon-cyan">Ledger</h2>
+
+      {rows.length === 0 && !connected ? (
+        <p className="mt-2 text-sm text-slate-500">Waiting for the stream…</p>
+      ) : rows.length === 0 ? (
+        <p className="mt-2 text-sm text-slate-300" role="status">
+          No branch spend recorded yet this session.
+        </p>
+      ) : (
+        <div className="mt-2 flex min-h-0 flex-1 flex-col gap-2 overflow-auto">
+          <p className="text-[11px] text-slate-500" data-testid="ledger-honesty">
+            Dollars are notional on subscription plans — the real signal here is efficiency and
+            rate-limit budget. Estimated dollars are flagged "est."; nothing here is invented.
+          </p>
+          <table className="w-full border-collapse text-left text-sm">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-slate-500">
+                <th className="pb-1 pr-2 font-medium">Branch</th>
+                <th className="pb-1 pr-2 font-medium">Status</th>
+                <th className="pb-1 pr-2 font-medium">Cost</th>
+                <th className="pb-1 pr-2 font-medium">Tokens</th>
+                <th className="pb-1 pr-2 font-medium">Models</th>
+                <th className="pb-1 pr-2 font-medium">First seen</th>
+                <th className="pb-1 pr-2 font-medium">Last seen</th>
+                <th className="pb-1 font-medium">Elapsed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr
+                  key={row.branch}
+                  data-testid="ledger-row"
+                  className="border-t border-void-line/60"
+                >
+                  <td className="py-1.5 pr-2 font-mono text-slate-200">
+                    {row.branch}
+                    {row.issue === null ? null : (
+                      <span className="ml-1 text-[10px] text-slate-500">#{row.issue}</span>
+                    )}
+                  </td>
+                  <td className="py-1.5 pr-2">
+                    <span
+                      role="status"
+                      aria-label={row.landed ? 'landed' : 'live'}
+                      title={
+                        row.landed
+                          ? 'worktree removed — this feature is finished'
+                          : 'worktree still present'
+                      }
+                      className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wide ${
+                        row.landed ? 'text-slate-500' : 'text-neon-cyan'
+                      }`}
+                    >
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          row.landed ? 'bg-slate-600' : 'bg-neon-cyan glow-cyan'
+                        }`}
+                      />
+                      {row.landed ? 'Landed' : 'Live'}
+                    </span>
+                  </td>
+                  <td
+                    className="py-1.5 pr-2 font-mono text-slate-200"
+                    data-testid="ledger-cost"
+                    title={costCellTitle(row)}
+                  >
+                    {costCellText(row)}
+                    {row.costIsAuthoritative === false ? (
+                      <span className="ml-1 text-[10px] font-normal text-slate-500">est.</span>
+                    ) : null}
+                  </td>
+                  <td className="py-1.5 pr-2 font-mono text-slate-400">
+                    {formatTokens(row.tokens.total)}
+                  </td>
+                  <td className="py-1.5 pr-2 text-slate-400">
+                    {row.models.length === 0 ? '—' : row.models.join(', ')}
+                  </td>
+                  <td className="py-1.5 pr-2 text-slate-400">
+                    {formatRelativeTime(row.firstTs, now)}
+                  </td>
+                  <td className="py-1.5 pr-2 text-slate-400">
+                    {formatRelativeTime(row.lastTs, now)}
+                  </td>
+                  <td className="py-1.5 text-slate-400">{formatElapsed(row.elapsedMs)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
