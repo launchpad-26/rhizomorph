@@ -2,11 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   compareStrings,
   reduceAll,
+  selectSpendByWorktree,
   selectWorktreeLiveness,
   selectWorktreeViews,
   type LivenessStatus,
+  type WorktreeSpend,
 } from '@observatory/core'
 import { useStream } from '../../app/StreamContext.js'
+import { formatTokens, formatUsd } from './format.js'
 
 export interface WorktreesPanelProps {
   /** Test-only override so render tests don't depend on the wall clock. */
@@ -55,11 +58,59 @@ function formatRelativeTime(ts: number | null, now: number): string {
   return `${days}d ago`
 }
 
+/**
+ * Dollars only once they are authoritative (OTel's own `cost_usd`); an estimate
+ * or no cost telemetry at all falls back to the raw token count, which is
+ * always a measured fact rather than a number this table had to trust.
+ */
+function costCellText(entry: WorktreeSpend | undefined): string {
+  if (entry === undefined) return '—'
+  if (entry.costIsAuthoritative === true) return formatUsd(entry.costUsd)
+  return formatTokens(entry.tokens.total)
+}
+
+function costCellTitle(entry: WorktreeSpend | undefined): string {
+  if (entry === undefined) return 'no telemetry for this worktree'
+  if (entry.costIsAuthoritative === true) return 'authoritative dollar cost (OTel)'
+  if (entry.costIsAuthoritative === false) {
+    return `tokens shown — cost is an estimate, not authoritative (≈${formatUsd(entry.costUsd)})`
+  }
+  return 'tokens shown — no cost telemetry yet'
+}
+
+/** One row per worktree path, the model with the most tokens spent under it. */
+function selectDominantModelByWorktree(
+  usage: ReadonlyArray<{ worktreePath: string | null; model: string; totalTokens: number }>,
+): Record<string, string> {
+  const totals = new Map<string, Map<string, number>>()
+  for (const record of usage) {
+    if (record.worktreePath === null) continue
+    const perModel = totals.get(record.worktreePath) ?? new Map<string, number>()
+    perModel.set(record.model, (perModel.get(record.model) ?? 0) + record.totalTokens)
+    totals.set(record.worktreePath, perModel)
+  }
+
+  const result: Record<string, string> = {}
+  for (const [path, perModel] of totals) {
+    const ranked = [...perModel.entries()].sort(
+      (a, b) => b[1] - a[1] || compareStrings(a[0], b[0]),
+    )
+    const dominant = ranked[0]
+    if (dominant !== undefined) result[path] = dominant[0]
+  }
+  return result
+}
+
 export default function WorktreesPanel({ now: nowOverride }: WorktreesPanelProps = {}) {
   const { state, status } = useStream()
   const now = useNow(nowOverride)
   const session = useMemo(() => reduceAll(state.events), [state.events])
   const liveness = useMemo(() => selectWorktreeLiveness(session, { now }), [session, now])
+  const spendByWorktree = useMemo(() => selectSpendByWorktree(session), [session])
+  const dominantModelByWorktree = useMemo(
+    () => selectDominantModelByWorktree(session.telemetry.usage),
+    [session],
+  )
 
   const rows = useMemo(() => {
     const views = selectWorktreeViews(session)
@@ -94,12 +145,16 @@ export default function WorktreesPanel({ now: nowOverride }: WorktreesPanelProps
                 <th className="pb-1 pr-2 font-medium">Live</th>
                 <th className="pb-1 pr-2 font-medium">Last activity</th>
                 <th className="pb-1 pr-2 font-medium">Ahead</th>
-                <th className="pb-1 font-medium">Files</th>
+                <th className="pb-1 pr-2 font-medium">Files</th>
+                <th className="pb-1 pr-2 font-medium">Cost</th>
+                <th className="pb-1 font-medium">Model</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => {
                 const status = liveness[row.path]?.status ?? 'unknown'
+                const spend = spendByWorktree[row.path]
+                const dominantModel = dominantModelByWorktree[row.path] ?? null
                 return (
                   <tr key={row.path} className="border-t border-void-line/60">
                     <td className="py-1.5 pr-2 font-mono text-slate-200">
@@ -121,7 +176,22 @@ export default function WorktreesPanel({ now: nowOverride }: WorktreesPanelProps
                       {formatRelativeTime(row.lastActivityTs, now)}
                     </td>
                     <td className="py-1.5 pr-2 text-slate-200">{row.aheadOfMain}</td>
-                    <td className="py-1.5 text-slate-200">{row.filesTouched.length}</td>
+                    <td className="py-1.5 pr-2 text-slate-200">{row.filesTouched.length}</td>
+                    <td
+                      className="py-1.5 pr-2 font-mono text-slate-200"
+                      title={costCellTitle(spend)}
+                    >
+                      {costCellText(spend)}
+                    </td>
+                    <td className="py-1.5 text-slate-400">
+                      {dominantModel === null ? (
+                        '—'
+                      ) : (
+                        <span className="rounded border border-void-line px-1 text-[10px] uppercase tracking-wide text-neon-cyan">
+                          {dominantModel}
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 )
               })}

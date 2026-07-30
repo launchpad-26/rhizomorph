@@ -197,3 +197,90 @@ describe('ReplayControls', () => {
     expect(screen.getByText('0:02')).toBeInTheDocument()
   })
 })
+
+/** Same shape as `fixtureEvents`, plus one lane's tokens and a dollar cost landing later. */
+function moneyEvents() {
+  return [
+    createEvent(
+      'session.started',
+      { sessionId: 'm1', repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' },
+      { id: nextId(), ts: 1000 },
+    ),
+    createEvent(
+      'worktree.discovered',
+      { path: '/repo', branch: 'main', head: 'sha-0', isMain: true },
+      { id: nextId(), ts: 2000 },
+    ),
+    createEvent(
+      'llm.usage',
+      {
+        lane: 'a',
+        role: 'worker',
+        model: 'claude-opus-5',
+        tokens: { input: 1, output: 1, cacheRead: 0, cacheCreation: 0 },
+      },
+      { id: nextId(), ts: 3000 },
+    ),
+    createEvent(
+      'llm.cost',
+      { lane: 'a', role: 'worker', model: 'claude-opus-5', costUsd: 1.5, authoritative: true },
+      { id: nextId(), ts: 4000 },
+    ),
+  ]
+}
+
+function makeMoneyFetch(): FetchLike {
+  const events = moneyEvents()
+  return (async (url: string | URL | Request) => {
+    const href = String(url)
+    if (href === '/api/sessions') {
+      return jsonResponse({
+        sessions: [{ id: 'm1', fileName: 'session-1000.jsonl', startedAt: 1000, sizeBytes: 100 }],
+      })
+    }
+    if (href === '/api/sessions/m1/events') return jsonResponse({ events })
+    throw new Error(`unexpected fetch: ${href}`)
+  }) as unknown as FetchLike
+}
+
+describe('ReplayControls — spend', () => {
+  it('shows tokens in the scrub line before any cost telemetry has landed', async () => {
+    await renderReplay(makeMoneyFetch())
+
+    const select = screen.getByLabelText('session')
+    await fireAndFlush(() => fireEvent.change(select, { target: { value: 'm1' } }))
+
+    const scrubber = screen.getByLabelText('Replay scrubber')
+    fireEvent.change(scrubber, { target: { value: '3000' } })
+    // Only the token-only llm.usage event has landed — no cost event yet.
+    await waitFor(() => expect(screen.getByText(/2 tok as of scrub time/)).toBeInTheDocument())
+  })
+
+  it('switches the scrub line to dollars once an authoritative cost event lands', async () => {
+    await renderReplay(makeMoneyFetch())
+
+    const select = screen.getByLabelText('session')
+    await fireAndFlush(() => fireEvent.change(select, { target: { value: 'm1' } }))
+
+    const scrubber = screen.getByLabelText('Replay scrubber')
+    fireEvent.change(scrubber, { target: { value: '4000' } })
+    await waitFor(() => expect(screen.getByText(/\$1\.50 as of scrub time/)).toBeInTheDocument())
+  })
+
+  it('shows the whole session total in the picker regardless of scrub position', async () => {
+    await renderReplay(makeMoneyFetch())
+
+    const select = screen.getByLabelText('session')
+    await fireAndFlush(() => fireEvent.change(select, { target: { value: 'm1' } }))
+
+    const scrubber = screen.getByLabelText('Replay scrubber')
+    fireEvent.change(scrubber, { target: { value: '3000' } })
+    // The scrub line hasn't reached the cost event yet, but the session total already has.
+    await waitFor(() => expect(screen.getByText('total $1.50')).toBeInTheDocument())
+  })
+
+  it('has no total badge before a session is selected', async () => {
+    await renderReplay(makeMoneyFetch())
+    expect(screen.queryByText(/^total /)).not.toBeInTheDocument()
+  })
+})

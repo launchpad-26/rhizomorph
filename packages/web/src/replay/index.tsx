@@ -1,5 +1,8 @@
+import { useMemo } from 'react'
+import { initialSessionState, reduceAll, selectSessionSpend } from '@observatory/core'
 import { useReplay } from '../app/ModeContext.js'
 import { pickRichestSession } from './api.js'
+import { formatSpend } from './format.js'
 import { Scrubber } from './Scrubber.js'
 import { PLAYBACK_SPEEDS } from './usePlayback.js'
 
@@ -19,8 +22,16 @@ export default function ReplayControls() {
     playback,
     range,
     state,
+    events,
     isReplaying,
   } = useReplay()
+
+  /** The whole loaded session's spend — cheap, since `events` is already in memory. */
+  const sessionTotal = useMemo(
+    () => selectSessionSpend(isReplaying ? reduceAll(events) : initialSessionState()),
+    [events, isReplaying],
+  )
+  const scrubSpend = useMemo(() => selectSessionSpend(state), [state])
 
   function replayBirth() {
     const richest = pickRichestSession(sessions)
@@ -65,6 +76,15 @@ export default function ReplayControls() {
             ))}
           </select>
         </label>
+
+        {isReplaying && (
+          <span
+            className="normal-case tracking-normal text-slate-500"
+            title="total spend for this whole recorded session, not just up to the scrub time"
+          >
+            total {formatSpend(sessionTotal)}
+          </span>
+        )}
 
         <button
           type="button"
@@ -118,7 +138,7 @@ export default function ReplayControls() {
       {isReplaying && (
         <p className="normal-case tracking-normal text-slate-500">
           {Object.keys(state.worktrees).length} worktrees · {Object.keys(state.commits).length}{' '}
-          commits · {Object.keys(state.agents).length} agents as of scrub time
+          commits · {formatSpend(scrubSpend)} as of scrub time
         </p>
       )}
 

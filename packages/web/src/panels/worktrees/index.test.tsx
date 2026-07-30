@@ -1,5 +1,5 @@
 import { act, cleanup, render, screen } from '@testing-library/react'
-import { FIXTURE_START_TS, fixtureSession, fx } from '@observatory/core'
+import { FIXTURE_START_TS, fixtureSession, fixtureTelemetrySession, fx } from '@observatory/core'
 import { afterEach, describe, expect, it } from 'vitest'
 import { StreamProvider } from '../../app/StreamContext.js'
 import type { EventSourceLike } from '../../hooks/useEventStream.js'
@@ -26,7 +26,7 @@ class FakeEventSource implements EventSourceLike {
 /** 7 minutes in: 2-core and 3-git panes are alive, 7-web's has gone quiet past 5m. */
 const NOW = FIXTURE_START_TS + 7 * 60_000
 
-function renderPanel() {
+function renderPanel(events: ReturnType<typeof fixtureSession> = fixtureSession()) {
   let source: FakeEventSource | undefined
   const utils = render(
     <StreamProvider
@@ -40,7 +40,7 @@ function renderPanel() {
     </StreamProvider>,
   )
   act(() => {
-    for (const event of fixtureSession()) source?.emit(event)
+    for (const event of events) source?.emit(event)
   })
   return utils
 }
@@ -119,10 +119,59 @@ describe('WorktreesPanel', () => {
     expect(core[3]).toBe('2m ago')
     expect(core[4]).toBe('2')
     expect(core[5]).toBe('4')
+    // No telemetry events in this fixture — cost and model stay honestly blank.
+    expect(core[6]).toBe('—')
+    expect(core[7]).toBe('—')
 
     const git = cells(rows[1]!)
     expect(git[1]).toBe('waiting')
     expect(git[4]).toBe('1')
     expect(git[5]).toBe('3')
+    expect(git[6]).toBe('—')
+    expect(git[7]).toBe('—')
+  })
+})
+
+describe('WorktreesPanel — cost and model', () => {
+  function findRow(rows: HTMLTableRowElement[], branchSubstring: string): HTMLTableRowElement {
+    const row = rows.find((candidate) => cells(candidate)[0]?.includes(branchSubstring))
+    if (row === undefined) throw new Error(`no row for branch "${branchSubstring}"`)
+    return row
+  }
+
+  it('shows dollars when a lane is authoritative, tokens when it is not, per the per-lane spend selectors', () => {
+    const { container } = renderPanel(fixtureTelemetrySession())
+    const rows = bodyRows(container)
+
+    // 2-core and 3-git both carry only authoritative OTel dollars.
+    const core = cells(findRow(rows, '2-core'))
+    expect(core[6]).toBe('$0.42')
+    expect(core[7]).toBe('claude-opus-5')
+
+    const git = cells(findRow(rows, '3-git'))
+    expect(git[6]).toBe('$0.28')
+    expect(git[7]).toBe('claude-opus-5')
+
+    // 7-web's only cost event is an estimate, so the honest cell falls back to tokens.
+    const web = cells(findRow(rows, '7-web'))
+    expect(web[6]).toBe('101.7K')
+    expect(web[7]).toBe('claude-opus-5')
+
+    // main never spent anything — stays blank, not a fabricated zero.
+    const main = cells(findRow(rows, 'main'))
+    expect(main[6]).toBe('—')
+    expect(main[7]).toBe('—')
+  })
+
+  it('titles the cost cell with why it shows tokens instead of an estimate', () => {
+    const { container } = renderPanel(fixtureTelemetrySession())
+    const rows = bodyRows(container)
+    const web = findRow(rows, '7-web')
+    const costCell = web.querySelectorAll('td')[6]
+    expect(costCell?.getAttribute('title')).toMatch(/estimate/i)
+
+    const main = findRow(rows, 'main')
+    const mainCostCell = main.querySelectorAll('td')[6]
+    expect(mainCostCell?.getAttribute('title')).toMatch(/no telemetry/i)
   })
 })
