@@ -8,8 +8,8 @@ instance — no restart between them.
 
 ```sh
 npm install
-npm run build --workspace packages/web
-npx observatory .        # from the repo root, so it watches this repo
+npm run build   # builds packages/web
+npm start       # from the repo root, so it watches this repo
 ```
 
 Open the printed `http://127.0.0.1:4321` in a browser, full-screen it.

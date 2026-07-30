@@ -3,12 +3,17 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
     "test": "vitest run",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "npm run build --workspace packages/web",
+    "start": "observatory",
     "dev:web": "npm run dev --workspace packages/web",
     "dev:server": "npm run dev --workspace packages/server"
   },

@@ -1,7 +1,7 @@
 # The Observatory
 
-Run `observatory` in any repo hosting a git-worktree agent swarm and get a
-live, replayable dashboard at localhost — who's working, what's landing, and
+Run it in any repo hosting a git-worktree agent swarm and get a live,
+replayable dashboard at localhost — who's working, what's landing, and
 what's about to collide. It discovers worktrees and branches (git), agent
 panes (tmux), and workmux state if present, each source optional and each
 degrading gracefully, and reflects reality within a couple of seconds via
@@ -10,17 +10,19 @@ anything — see [`docs/vision.md`](docs/vision.md) for the full pitch.
 
 ## Quickstart
 
-Requires Node 22 and, for the git/tmux/workmux collectors to have anything to
+Requires Node 22 (enforced via `engines` — `npm install` will warn on an
+older Node) and, for the git/tmux/workmux collectors to have anything to
 report, a repo that already has worktrees and tmux panes running in it.
 
 ```sh
 npm install
-npm run build --workspace packages/web   # builds the dashboard once; observatory serves it statically
-npx observatory <path-to-repo>           # boots collectors + API on http://127.0.0.1:4321
+npm run build   # builds the dashboard once; the server serves it statically
+npm start       # boots collectors + API on http://127.0.0.1:4321, watching the cwd
 ```
 
-Then open the printed URL in a browser. Omit `<path-to-repo>` to watch the
-current directory. Flags (`observatory --help` prints the same table):
+Then open the printed URL in a browser. To watch a different repo or pass
+flags, forward them after `--`: `npm start -- <path-to-repo> --port 5000`.
+Flags (`npm start -- --help` prints the same table):
 
 | Flag | Default | Meaning |
 |---|---|---|
@@ -31,8 +33,14 @@ current directory. Flags (`observatory --help` prints the same table):
 | `--help`, `-h` | — | Show usage and exit |
 
 The server serves API and static dashboard from one origin (no CORS), so
-rebuild `packages/web` after front-end changes and restart `observatory` to
-see them.
+rebuild `packages/web` (`npm run build`) after front-end changes and restart
+`npm start` to see them.
+
+**Not published to npm.** The obvious package name (`observatory`) is already
+taken by an unrelated project on the public registry, so there is no `npx
+observatory` yet — publishing under a different name is a later step, and
+picking that name isn't this issue's call to make. `npm install` + `npm start`
+above is the only supported way to run this today.
 
 ## Telemetry (the money layer)
 
@@ -45,8 +53,8 @@ so the event lands on the right row. Get the exact, export-ready env block for
 any lane with:
 
 ```sh
-observatory env <lane> [--role worker|conductor|auxiliary] [--port <n>]
-eval "$(observatory env test-lane)"   # then launch claude in the same shell
+node_modules/.bin/observatory env <lane> [--role worker|conductor|auxiliary] [--port <n>]
+eval "$(node_modules/.bin/observatory env test-lane)"   # then launch claude in the same shell
 ```
 
 `.workmux.yaml` already wires this into every worker lane automatically —
