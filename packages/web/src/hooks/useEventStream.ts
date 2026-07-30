@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { parseEvent, type ObservatoryEvent } from '@observatory/core'
+import { EVENT_TYPES, parseEvent, type ObservatoryEvent } from '@observatory/core'
 
 export type ConnectionStatus = 'connecting' | 'open' | 'error' | 'closed'
+
+type MessageListener = (event: MessageEvent<string>) => void
 
 /** The slice of the browser `EventSource` API this hook actually uses. */
 export interface EventSourceLike {
@@ -9,6 +11,9 @@ export interface EventSourceLike {
   onopen: ((event: Event) => void) | null
   onerror: ((event: Event) => void) | null
   onmessage: ((event: MessageEvent<string>) => void) | null
+  /** Optional so existing mocks that predate named-event support still satisfy this interface. */
+  addEventListener?(type: string, listener: MessageListener): void
+  removeEventListener?(type: string, listener: MessageListener): void
 }
 
 export type EventSourceFactory = (url: string) => EventSourceLike
@@ -47,7 +52,8 @@ export function useEventStream<S>(
 
     source.onopen = () => setStatus('open')
     source.onerror = () => setStatus('error')
-    source.onmessage = (event) => {
+
+    const handleMessage: MessageListener = (event) => {
       const payload = parseJson(event.data)
       if (payload === undefined) return
       const result = parseEvent(payload)
@@ -55,7 +61,19 @@ export function useEventStream<S>(
       setState((prev) => reduce(prev, result.event))
     }
 
+    // The server sends every event as a named SSE frame (`event: <type>`),
+    // which the spec routes to listeners registered for that name, not to
+    // `onmessage` (that only fires for frames with no `event:` line at all).
+    // Subscribing both ways means either framing folds correctly.
+    source.onmessage = handleMessage
+    for (const type of EVENT_TYPES) {
+      source.addEventListener?.(type, handleMessage)
+    }
+
     return () => {
+      for (const type of EVENT_TYPES) {
+        source.removeEventListener?.(type, handleMessage)
+      }
       source.close()
       setStatus('closed')
     }

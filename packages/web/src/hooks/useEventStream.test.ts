@@ -3,11 +3,33 @@ import { createEvent, createIdFactory } from '@observatory/core'
 import { describe, expect, it } from 'vitest'
 import { useEventStream, type EventSourceLike } from './useEventStream.js'
 
+type MessageListener = (event: MessageEvent<string>) => void
+
+/**
+ * Mirrors real `EventSource` framing: `emit` drives unnamed frames (the
+ * default `message` type) through `onmessage`, while `emitNamed` drives named
+ * frames (`event: <type>`) through listeners registered via
+ * `addEventListener` — exactly like the server, which names every frame.
+ */
 class FakeEventSource implements EventSourceLike {
   onopen: ((event: Event) => void) | null = null
   onerror: ((event: Event) => void) | null = null
   onmessage: ((event: MessageEvent<string>) => void) | null = null
   closed = false
+  private listeners = new Map<string, Set<MessageListener>>()
+
+  addEventListener(type: string, listener: MessageListener) {
+    let set = this.listeners.get(type)
+    if (!set) {
+      set = new Set()
+      this.listeners.set(type, set)
+    }
+    set.add(listener)
+  }
+
+  removeEventListener(type: string, listener: MessageListener) {
+    this.listeners.get(type)?.delete(listener)
+  }
 
   open() {
     this.onopen?.(new Event('open'))
@@ -15,6 +37,13 @@ class FakeEventSource implements EventSourceLike {
 
   emit(data: unknown) {
     this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent<string>)
+  }
+
+  emitNamed(type: string, data: unknown) {
+    const event = { data: JSON.stringify(data) } as MessageEvent<string>
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(event)
+    }
   }
 
   fail() {
@@ -61,6 +90,38 @@ describe('useEventStream', () => {
     await waitFor(() => expect(result.current.state).toBe(1))
 
     act(() => source?.emit(sessionStarted(2)))
+    await waitFor(() => expect(result.current.state).toBe(2))
+  })
+
+  it('folds named SSE frames the way the real server sends them', async () => {
+    let source: FakeEventSource | undefined
+    const { result } = renderHook(() =>
+      useEventStream<number>('/api/stream', {
+        initialState: 0,
+        reduce: (count) => count + 1,
+        createSource: (url) => {
+          source = new FakeEventSource()
+          return source
+        },
+      }),
+    )
+
+    const worktreeDiscovered = createEvent(
+      'worktree.discovered',
+      { path: '/repo', branch: 'main', head: 'abc123', isMain: true },
+      { id: nextId(), ts: 1 },
+    )
+
+    act(() => source?.emitNamed('worktree.discovered', worktreeDiscovered))
+    await waitFor(() => expect(result.current.state).toBe(1))
+
+    const branchUpdated = createEvent(
+      'branch.updated',
+      { branch: 'main', head: 'def456' },
+      { id: nextId(), ts: 2 },
+    )
+
+    act(() => source?.emitNamed('branch.updated', branchUpdated))
     await waitFor(() => expect(result.current.state).toBe(2))
   })
 
