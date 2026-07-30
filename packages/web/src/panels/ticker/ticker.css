@@ -1,0 +1,28 @@
+/*
+ * New feed entries pulse once on arrival. Scoped to this panel only — list
+ * items are keyed by a stable id, so React never remounts an entry it has
+ * already rendered, and the animation (playing once, on mount) never replays.
+ */
+
+@keyframes ticker-pulse {
+  0% {
+    background-color: color-mix(in oklab, var(--color-neon-cyan) 30%, transparent);
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--color-neon-cyan) 55%, transparent),
+      0 0 18px color-mix(in oklab, var(--color-neon-cyan) 45%, transparent);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+.ticker-entry-pulse {
+  animation: ticker-pulse 1400ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-entry-pulse {
+    animation: none;
+  }
+}
