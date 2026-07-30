@@ -3,6 +3,17 @@ import { createEvent, createIdFactory } from '@observatory/core'
 import { afterEach, describe, expect, it } from 'vitest'
 import { App } from './App.js'
 import type { EventSourceLike } from './hooks/useEventStream.js'
+// App renders these behind React.lazy(). Importing them statically here warms
+// vitest's module cache before the test runs, so the dynamic import() that
+// lazy() fires on first render resolves off an already-loaded module instead
+// of transforming it on demand — otherwise that on-demand transform's cost
+// varies with machine load and can occasionally outrun findByText's default
+// 1000ms timeout (the "1 failed | 329 passed" flake seen on CI).
+import './panels/worktrees/index.js'
+import './panels/collisions/index.js'
+import './panels/ticker/index.js'
+import './replay/index.js'
+import './scene/index.js'
 
 afterEach(cleanup)
 

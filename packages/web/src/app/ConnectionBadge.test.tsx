@@ -71,7 +71,10 @@ describe('ConnectionBadge', () => {
 
     fireEvent.click(await screen.findByText('select session'))
 
-    await waitFor(() => expect(screen.getByText('replay')).toBeInTheDocument())
+    // Selecting a session chains through two mocked fetches before `isReplaying`
+    // flips; under heavy scheduler load those extra microtask hops can outrun
+    // waitFor's default 1000ms, so give this one more headroom.
+    await waitFor(() => expect(screen.getByText('replay')).toBeInTheDocument(), { timeout: 3000 })
     // Scrub time starts at the session's first event (ts 1000); the last
     // event lands at ts 4000, so total elapsed is 3s.
     expect(screen.getByText('0:00 / 0:03')).toBeInTheDocument()
