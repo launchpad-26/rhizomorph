@@ -20,6 +20,10 @@ export const CONVERGENCE_MS = 2_600
 export const MAX_BEADS = 1_200
 /** Newest N commits drawn per branch; older ones are folded into the length. */
 export const MAX_BEADS_PER_BRANCH = 80
+/** A branch's vertical rise per commit it holds ahead of main. */
+export const TILT_PER_AHEAD = 0.05
+/** Ceiling on that rise, so a very ahead branch doesn't fly off-screen. */
+export const MAX_TILT = 1.6
 
 export interface CommitBead {
   commit: SceneCommit
@@ -80,8 +84,10 @@ export function layoutScene(model: SceneModel, now: number): SceneLayout {
       MAX_RADIUS,
       BASE_RADIUS + station.commits.length * COMMIT_RADIUS_STEP,
     )
-    // A little vertical spread so ten branches don't read as one flat disc.
-    const tilt = ((index % 3) - 1) * 0.75
+    // Vertical rise reads as progress: a branch pulled further ahead of main
+    // sits higher, not just further out.
+    const tilt =
+      station.aheadOfMain === null ? 0 : Math.min(station.aheadOfMain * TILT_PER_AHEAD, MAX_TILT)
     const tip: Vec3 = [Math.cos(angle) * radius, anchorY + tilt, Math.sin(angle) * radius]
 
     const convergence =

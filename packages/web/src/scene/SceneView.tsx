@@ -1,10 +1,12 @@
 import type { ObservatoryEvent } from '@observatory/core'
 import { Canvas } from '@react-three/fiber'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Constellation } from './Constellation.js'
 import { CONVERGENCE_MS, layoutScene } from './layout.js'
 import { PALETTE, STATUS_COLOR } from './palette.js'
 import {
+  IDLE_AFTER_MS,
+  FLATLINE_AFTER_MS,
   allStations,
   buildSceneModel,
   stationLiveness,
@@ -202,25 +204,53 @@ function Readout({ station, now }: { station: SceneStation; now: number }) {
   )
 }
 
-const LEGEND: { color: string; label: string }[] = [
+const STATUS_LEGEND: { color: string; label: string }[] = [
   { color: PALETTE.cyan, label: 'working' },
-  { color: PALETTE.amber, label: 'waiting / pulse' },
+  { color: PALETTE.amber, label: 'waiting' },
   { color: PALETTE.magenta, label: 'done' },
-  { color: PALETTE.dim, label: 'flatline' },
 ]
 
+/**
+ * Every visual channel the constellation uses, answered plainly: what a
+ * size, a position, or a bit of motion means here — the three questions
+ * from the JV call. Nothing below is decorative; each line names the real
+ * field or event it is drawn from.
+ */
 function Legend() {
+  const idleSec = Math.round(IDLE_AFTER_MS / 1_000)
+  const flatlineMin = Math.round(FLATLINE_AFTER_MS / 60_000)
   return (
-    <div className="pointer-events-none flex gap-2 uppercase tracking-widest text-slate-600">
-      {LEGEND.map((entry) => (
-        <span key={entry.label} className="flex items-center gap-1">
-          <span
-            className="inline-block h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: entry.color }}
-          />
-          {entry.label}
-        </span>
-      ))}
+    <div className="pointer-events-none flex max-w-[17rem] flex-col gap-1 rounded border border-void-line bg-void-raised/90 px-2 py-1.5 text-slate-500 backdrop-blur">
+      <div className="flex flex-wrap items-center gap-2 uppercase tracking-widest text-slate-600">
+        {STATUS_LEGEND.map((entry) => (
+          <span key={entry.label} className="flex items-center gap-1">
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: entry.color }}
+            />
+            {entry.label}
+          </span>
+        ))}
+      </div>
+      <LegendLine label="glow">
+        dims after {idleSec}s idle, flatlines after {flatlineMin}min silent
+      </LegendLine>
+      <LegendLine label="size">bead size = files touched in that commit</LegendLine>
+      <LegendLine label="position">
+        ring = join order · reach from trunk = commit count · rise = commits ahead of main
+      </LegendLine>
+      <LegendLine label="motion">
+        breathing = live · streak = a commit landing · fold inward = worktree removed
+      </LegendLine>
+    </div>
+  )
+}
+
+function LegendLine({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex gap-1.5">
+      <span className="shrink-0 uppercase tracking-widest text-slate-600">{label}</span>
+      <span className="normal-case tracking-normal text-slate-500">{children}</span>
     </div>
   )
 }

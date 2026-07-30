@@ -95,12 +95,15 @@ export function Constellation({
 /** Main: the star everything else is measured against. */
 function Trunk({ model, now, active }: { model: SceneModel; now: number; active: boolean }) {
   const halo = useRef<THREE.Mesh>(null)
-  const glow = model.trunk === null ? 0.25 : livenessGlow(stationLiveness(model.trunk, now))
+  const liveness = model.trunk === null ? 'unknown' : stationLiveness(model.trunk, now)
+  const glow = model.trunk === null ? 0.25 : livenessGlow(liveness)
 
+  // Breathing is the trunk's heartbeat, same rule as a station: it only
+  // moves when main itself reads as live, not as ambient decoration.
   useFrame((state) => {
-    if (halo.current) {
-      halo.current.scale.setScalar(1 + Math.sin(state.clock.elapsedTime * 1.1) * 0.06)
-    }
+    if (!halo.current) return
+    const breathe = liveness === 'live' ? 1 + Math.sin(state.clock.elapsedTime * 1.1) * 0.06 : 1
+    halo.current.scale.setScalar(breathe)
   })
 
   return (
