@@ -85,15 +85,31 @@ describe('buildSceneModel', () => {
     expect(model.commitCount).toBe(1)
   })
 
-  it('invents a station for a branch with no worktree', () => {
+  it('does not invent a station for a branch with no worktree (retired branch)', () => {
     const model = buildSceneModel([
       ...baseLog(),
       ev('branch.updated', { branch: 'orphan', head: 'h9', aheadOfMain: 4 }, 5_000),
     ])
 
-    const orphan = model.stations.find((station) => station.branch === 'orphan')
-    expect(orphan?.id).toBe('branch:orphan')
-    expect(orphan?.aheadOfMain).toBe(4)
+    expect(model.stations.some((station) => station.branch === 'orphan')).toBe(false)
+    expect(model.stations).toHaveLength(1)
+  })
+
+  it('folds worktree.discovered plus repeated branch.updated into exactly one station per worktree', () => {
+    const model = buildSceneModel([
+      ...baseLog(),
+      ev('branch.updated', { branch: 'feat', head: 'h1', aheadOfMain: 1 }, 3_000),
+      ev('branch.updated', { branch: 'feat', head: 'h2', aheadOfMain: 2 }, 4_000),
+      ev('branch.updated', { branch: 'feat', head: 'h3', aheadOfMain: 3, worktreePath: WT }, 5_000),
+    ])
+
+    const matching = model.stations.filter((station) => station.branch === 'feat')
+    expect(matching).toHaveLength(1)
+    expect(matching[0]?.id).toBe(WT)
+    expect(matching[0]?.aheadOfMain).toBe(3)
+    // Trunk (main) + one orbiting station — never doubled.
+    expect(model.stations).toHaveLength(1)
+    expect(model.trunk).not.toBeNull()
   })
 
   it('treats worktree.dirty as a snapshot, not a delta', () => {

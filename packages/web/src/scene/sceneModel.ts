@@ -30,7 +30,7 @@ export interface SceneCommit {
 export type Liveness = 'live' | 'idle' | 'flatline' | 'unknown'
 
 export interface SceneStation {
-  /** Worktree path when there is one, else `branch:<name>`. Stable identity. */
+  /** The worktree path. Stable identity — a station only exists for a worktree. */
   id: string
   label: string
   path: string | null
@@ -85,14 +85,15 @@ export function buildSceneModel(events: readonly ObservatoryEvent[]): SceneModel
   let lastEventTs = 0
   let order = 0
 
-  function ensure(id: string, ts: number): Draft {
-    const existing = stations.get(id)
+  /** A station's identity is its worktree path — there is no other kind. */
+  function ensure(path: string, ts: number): Draft {
+    const existing = stations.get(path)
     if (existing) return existing
     const created: Draft = {
-      id,
-      label: labelFor(id),
-      path: id.startsWith('branch:') ? null : id,
-      branch: id.startsWith('branch:') ? id.slice('branch:'.length) : null,
+      id: path,
+      label: labelFor(path),
+      path,
+      branch: null,
       isMain: false,
       commits: [],
       aheadOfMain: null,
@@ -104,19 +105,24 @@ export function buildSceneModel(events: readonly ObservatoryEvent[]): SceneModel
       removedAt: null,
       order: order++,
     }
-    stations.set(id, created)
+    stations.set(path, created)
     return created
   }
 
-  /** Resolve the station a fact belongs to, creating a branch-only one if needed. */
+  /**
+   * Resolve the station a fact belongs to. A branch or pane fact never
+   * fabricates a station on its own — a station exists only once its
+   * worktree has been discovered. A branch with no known worktree (retired,
+   * or not yet discovered) resolves to nothing.
+   */
   function resolve(hints: {
     worktreePath?: string | null
     branch?: string | null
     paneId?: string
     ts: number
   }): Draft | null {
-    const { worktreePath, branch, paneId, ts } = hints
-    if (worktreePath) return ensure(worktreePath, ts)
+    const { worktreePath, branch, paneId } = hints
+    if (worktreePath) return ensure(worktreePath, hints.ts)
     if (paneId) {
       const viaPane = stationIdByPane.get(paneId)
       if (viaPane) return stations.get(viaPane) ?? null
@@ -124,7 +130,6 @@ export function buildSceneModel(events: readonly ObservatoryEvent[]): SceneModel
     if (branch) {
       const viaBranch = stationIdByBranch.get(branch)
       if (viaBranch) return stations.get(viaBranch) ?? null
-      return ensure(`branch:${branch}`, ts)
     }
     return null
   }
@@ -309,8 +314,7 @@ function strip({ order: _order, ...station }: Draft): SceneStation {
   return station
 }
 
-function labelFor(id: string): string {
-  const path = id.startsWith('branch:') ? id.slice('branch:'.length) : id
+function labelFor(path: string): string {
   const parts = path.split('/').filter(Boolean)
   return parts.length === 0 ? path : (parts[parts.length - 1] as string)
 }
