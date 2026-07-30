@@ -109,4 +109,29 @@ describe('CollisionsPanel', () => {
       expect.arrayContaining(['packages/core/src/index.ts', 'docs/architecture.md']),
     )
   })
+
+  it('shows the basename of a deep path, not a single truncated character', async () => {
+    const { source } = renderPanel()
+    act(() => source()?.open())
+
+    const deepPath = 'packages/web/src/panels/collisions/index.tsx'
+    act(() => source()?.emit(fx.sessionStarted()))
+    act(() =>
+      source()?.emit(fx.worktreeDiscovered({ path: FIXTURE_REPO_PATH, branch: 'main', isMain: true })),
+    )
+    act(() =>
+      source()?.emit(
+        fx.worktreeDirty({
+          path: FIXTURE_REPO_PATH,
+          branch: 'main',
+          files: [{ path: deepPath, status: 'modified' }],
+        }),
+      ),
+    )
+
+    const cell = await screen.findByTitle(deepPath)
+    expect(cell.textContent).toContain('index.tsx')
+    expect(cell.textContent).not.toBe('p…')
+    expect(cell.textContent?.length).toBeGreaterThan(2)
+  })
 })

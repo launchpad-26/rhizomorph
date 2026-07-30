@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { reduceAll } from '@observatory/core'
 import { useStream } from '../../app/StreamContext.js'
+import { elidePathMiddle, shortenBranch } from './format.js'
 import { MAX_VISIBLE_ROWS, selectCollisionColumns, selectCollisionRows } from './rows.js'
 
 /**
@@ -33,10 +34,10 @@ export default function CollisionsPanel() {
         </p>
       ) : (
         <div className="mt-2 flex-1 overflow-auto">
-          <table className="w-full border-collapse text-left text-xs">
+          <table className="w-full min-w-max border-collapse text-left text-xs">
             <thead>
               <tr>
-                <th className="sticky top-0 z-10 bg-void-raised px-2 py-1 font-medium text-slate-400">
+                <th className="sticky top-0 z-10 min-w-[14rem] bg-void-raised px-2 py-1 font-medium text-slate-400">
                   File
                 </th>
                 {columns.map((branch) => (
@@ -44,9 +45,9 @@ export default function CollisionsPanel() {
                     key={branch}
                     scope="col"
                     title={branch}
-                    className="sticky top-0 z-10 min-w-10 truncate bg-void-raised px-2 py-1 text-center font-medium text-slate-400"
+                    className="sticky top-0 z-10 min-w-14 truncate bg-void-raised px-2 py-1 text-center font-medium text-slate-400"
                   >
-                    {branch}
+                    {shortenBranch(branch)}
                   </th>
                 ))}
               </tr>
@@ -56,11 +57,11 @@ export default function CollisionsPanel() {
                 <tr key={row.path} data-collided={row.collided}>
                   <td
                     title={row.path}
-                    className={`max-w-0 truncate px-2 py-1 font-mono ${
+                    className={`min-w-[14rem] truncate px-2 py-1 font-mono ${
                       row.collided ? 'glow-magenta text-neon-magenta' : 'text-slate-300'
                     }`}
                   >
-                    {row.path}
+                    {elidePathMiddle(row.path)}
                   </td>
                   {columns.map((branch) => (
                     <td
