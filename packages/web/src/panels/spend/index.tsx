@@ -9,7 +9,7 @@ import {
   type AgentRole,
 } from '@observatory/core'
 import { useStream } from '../../app/StreamContext.js'
-import { formatOverheadRatio, formatTokens, formatUsd, formatUsdPerHour } from './format.js'
+import { formatCostOverhead, formatTokens, formatUsd, formatUsdPerHour, selectCostOverhead } from './format.js'
 
 export interface SpendPanelProps {
   /** Test-only override so render tests don't depend on the wall clock. */
@@ -54,6 +54,10 @@ export default function SpendPanel({ now: nowOverride }: SpendPanelProps = {}) {
   const totals = useMemo(() => selectSessionSpend(session), [session])
   const rate = useMemo(() => selectSpendRate(session, { now }), [session, now])
   const roleSplit = useMemo(() => selectRoleSpend(session), [session])
+  const costOverhead = useMemo(
+    () => selectCostOverhead(roleSplit.worker, roleSplit.conductor),
+    [roleSplit],
+  )
   const lanes = useMemo(() => selectLaneSpend(session), [session])
 
   const hasData = totals.requestCount > 0 || totals.costEventCount > 0 || totals.toolCallCount > 0
@@ -107,7 +111,7 @@ export default function SpendPanel({ now: nowOverride }: SpendPanelProps = {}) {
             <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500">
               <span>Role split</span>
               <span data-testid="spend-overhead-ratio" className="text-neon-magenta">
-                overhead {formatOverheadRatio(roleSplit.overheadRatio)}
+                {formatCostOverhead(costOverhead)}
               </span>
             </div>
             <ul className="mt-1 grid grid-cols-3 gap-2">

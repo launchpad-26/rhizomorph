@@ -1,3 +1,5 @@
+import type { RoleSpend } from '@observatory/core'
+
 const TOKEN_UNITS: readonly [threshold: number, suffix: string][] = [
   [1_000_000_000, 'B'],
   [1_000_000, 'M'],
@@ -31,8 +33,44 @@ export function formatUsdPerHour(rate: number): string {
   return `${formatUsd(rate)}/hr`
 }
 
-/** Null renders as an explicit "not yet known", never a misleading `0.00×`. */
-export function formatOverheadRatio(ratio: number | null): string {
-  if (ratio === null) return 'unknown — no conductor telemetry yet'
-  return `${ratio.toFixed(2)}×`
+type CostFields = Pick<RoleSpend, 'costUsd' | 'costEventCount' | 'costIsAuthoritative'>
+
+export interface CostOverhead {
+  /**
+   * False when the conductor has never sent a `llm.cost` event. A conductor's
+   * *tokens* can still show up in this state — `sessionlog --extra-sessions`
+   * tags a whole directory `role: conductor` with no dollars attached — so
+   * this is checked from `costEventCount`, never from token totals, or that
+   * token-only contamination would masquerade as a real ratio.
+   */
+  conductorInstrumented: boolean
+  /** Conductor `costUsd` ÷ worker `costUsd`. Null when either side has no cost. */
+  ratio: number | null
+  /** True when either side's dollars include a pricing-table estimate. */
+  mixedProvenance: boolean
+}
+
+/**
+ * prd1's headline overhead metric — on cost, never tokens. See
+ * `docs/architecture.md`'s Decisions log for why a token-derived ratio was
+ * rejected: an un-instrumented conductor must render as a visible gap, not a
+ * number computed from whatever happened to be lying around.
+ */
+export function selectCostOverhead(worker: CostFields, conductor: CostFields): CostOverhead {
+  const conductorInstrumented = conductor.costEventCount > 0
+  const mixedProvenance = worker.costIsAuthoritative === false || conductor.costIsAuthoritative === false
+  if (!conductorInstrumented || worker.costUsd <= 0) {
+    return { conductorInstrumented, ratio: null, mixedProvenance }
+  }
+  return { conductorInstrumented, ratio: conductor.costUsd / worker.costUsd, mixedProvenance }
+}
+
+/** An un-instrumented conductor renders as an actionable gap, never `0.00×`. */
+export function formatCostOverhead(overhead: CostOverhead): string {
+  if (!overhead.conductorInstrumented) {
+    return 'conductor not instrumented — see docs/telemetry.md'
+  }
+  if (overhead.ratio === null) return 'unknown — no worker cost yet'
+  const suffix = overhead.mixedProvenance ? ' (incl. estimate)' : ''
+  return `overhead ${overhead.ratio.toFixed(2)}×${suffix}`
 }

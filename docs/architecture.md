@@ -167,6 +167,29 @@ hook.
   not scrub-after-the-fact. Verified by test, not merely assumed from the
   code's shape (`parse-metrics.test.ts`: "never copies user.email … into the
   stored payload").
+- 2026-07-30 — prd1 (issue #47): **design for the correctly-configured case;
+  surface incomplete configuration as a gap, never as a second-class metric.**
+  The spend ticker previously rendered `OVERHEAD 0.14×` from the token-based
+  `overheadRatio` in `selectRoleSpend` (`packages/core/src/selectors/
+  spend.ts`, unchanged by this issue and still correct for what it measures)
+  while the actual conductor had sent zero `llm.cost` events — the ratio came
+  from `sessionlog --extra-sessions` tagging an unrelated probe session
+  `role: conductor`, tokens with no dollars attached. That number was worse
+  than absent: it looked like a real measurement of orchestration overhead
+  and was not one. `SpendPanel` (`packages/web/src/panels/spend/`) now
+  computes its own cost-only overhead (`selectCostOverhead`/
+  `formatCostOverhead`, `packages/web/src/panels/spend/format.ts`) straight
+  from `RoleSpend.costUsd`/`costEventCount` — fields `selectRoleSpend` already
+  exposed — and renders `conductor not instrumented — see docs/telemetry.md`
+  whenever `conductor.costEventCount === 0`, regardless of what its tokens
+  say. **Rejected alternative:** keeping the token-based ratio alive as a
+  fallback so historical, un-instrumented sessions (this project's own build
+  day) would still produce a number. Rejected because that fallback fits one
+  accident of this project's own history — a conductor that was, in fact,
+  never wired for cost — onto every future user's un-instrumented setup,
+  training them to read a token ratio as a dollar figure. Cost is the one
+  metric; provenance (`authoritative` vs. estimated) is shown on it; a gap in
+  it is shown as a gap.
 
 ## Platform — pinned versions (issue #1, 2026-07-30)
 

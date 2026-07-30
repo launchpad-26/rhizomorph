@@ -13,7 +13,13 @@ import {
 import { afterEach, describe, expect, it } from 'vitest'
 import { StreamProvider } from '../../app/StreamContext.js'
 import type { EventSourceLike } from '../../hooks/useEventStream.js'
-import { formatOverheadRatio, formatTokens, formatUsd, formatUsdPerHour } from './format.js'
+import {
+  formatCostOverhead,
+  formatTokens,
+  formatUsd,
+  formatUsdPerHour,
+  selectCostOverhead,
+} from './format.js'
 import SpendPanel from './index.js'
 
 afterEach(cleanup)
@@ -96,6 +102,44 @@ describe('SpendPanel', () => {
     expect(screen.getByTestId('spend-role-worker')).toHaveTextContent(formatTokens(2_610))
   })
 
+  it('shows the conductor as an instrumentation gap, never a ratio, when only its tokens are seen', () => {
+    // The exact incident this guards against: sessionlog --extra-sessions tags
+    // a whole directory role: conductor, so tokens show up with no llm.cost
+    // event ever arriving. A token-derived ratio would render a misleading
+    // number (e.g. 0.14×) here; the fix must say "not instrumented" instead.
+    const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'gap' })
+    f.sessionStarted()
+    f.llmUsage({
+      lane: '2-core',
+      role: 'worker',
+      model: 'claude-opus-5',
+      tokens: { input: 4, output: 3_100, cacheRead: 180_000, cacheCreation: 6_400 },
+    })
+    f.llmCost({
+      lane: '2-core',
+      role: 'worker',
+      model: 'claude-opus-5',
+      costUsd: 0.42,
+      authoritative: true,
+    })
+    f.llmUsage({
+      lane: 'conductor',
+      role: 'conductor',
+      model: 'claude-sonnet-5',
+      tokens: { input: 12, output: 5_600, cacheRead: 410_000, cacheCreation: 9_800 },
+    })
+
+    renderPanel(f.all())
+
+    expect(screen.getByTestId('spend-total-cost')).toBeInTheDocument()
+    expect(screen.getByTestId('spend-overhead-ratio')).toHaveTextContent(
+      'conductor not instrumented — see docs/telemetry.md',
+    )
+    expect(screen.getByTestId('spend-overhead-ratio')).not.toHaveTextContent('×')
+    // The conductor's tokens still show up in the role split — only the ratio is gated.
+    expect(screen.getByTestId('spend-role-conductor')).toHaveTextContent(formatTokens(425_412))
+  })
+
   it('renders the full ticker with dollars, rate, honesty line, role split and lane bars', () => {
     const session = reduceAll(fixtureTelemetrySession())
     const totals = selectSessionSpend(session)
@@ -119,11 +163,14 @@ describe('SpendPanel', () => {
       'Dollars are notional on subscription plans',
     )
 
-    // The headline metric: a conductor-heavy fixture, ratio not null, rendered plainly.
-    expect(roleSplit.overheadRatio).not.toBeNull()
-    expect(roleSplit.conductor.tokens.total).toBeGreaterThan(roleSplit.worker.tokens.total)
+    // The headline metric is on cost, not tokens: a conductor-heavy fixture,
+    // instrumented on both sides, ratio computed from costUsd and rendered plainly.
+    const overhead = selectCostOverhead(roleSplit.worker, roleSplit.conductor)
+    expect(overhead.conductorInstrumented).toBe(true)
+    expect(overhead.ratio).not.toBeNull()
+    expect(roleSplit.conductor.costUsd).toBeGreaterThan(roleSplit.worker.costUsd)
     expect(screen.getByTestId('spend-overhead-ratio')).toHaveTextContent(
-      formatOverheadRatio(roleSplit.overheadRatio),
+      formatCostOverhead(overhead),
     )
 
     for (const role of ['worker', 'conductor', 'auxiliary'] as const) {
