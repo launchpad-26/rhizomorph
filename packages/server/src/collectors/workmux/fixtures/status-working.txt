@@ -1,0 +1,7 @@
+WORKTREE             STATUS   ELAPSED  TITLE                                                     
+2-core               working  12m      ⠐ Implement core event schema and reducer                 
+3-git-collector      working  6m       ⠐ Implement Git collector with shell commands and parsers 
+4-tmux-collector     working  5m       ⠐ Implement tmux collector for The Observatory            
+5-workmux-collector  working  5m       ⠂ Implement workmux collector with status parsing         
+6-server             working  5m       ⠂ Build server SSE API and CLI with session logging       
+7-web-shell          working  4m       ⠂ Build web shell with stream hook and layout             
