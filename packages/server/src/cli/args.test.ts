@@ -88,6 +88,37 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--port', 'nope', '--help'])).not.toThrow()
     expect(parseArgs(['--port', 'nope', '--help']).help).toBe(true)
   })
+
+  it('throws on an unrecognised flag, naming it and printing usage', () => {
+    expect(() => parseArgs(['--flatline-minute', '3'])).toThrow(/unknown option.*"--flatline-minute"/is)
+  })
+
+  it('throws on an unrecognised flag with an "=" value', () => {
+    expect(() => parseArgs(['--prot=4400'])).toThrow(/unknown option.*"--prot"/is)
+  })
+
+  it('names the offending flag and includes the usage table in the error', () => {
+    try {
+      parseArgs(['--prot', '4400'])
+      expect.unreachable('parseArgs should have thrown')
+    } catch (err) {
+      const message = (err as Error).message
+      expect(message).toContain('--prot')
+      expect(message).toContain(helpText())
+    }
+  })
+
+  it('rejects --version instead of booting the server', () => {
+    expect(() => parseArgs(['--version'])).toThrow(/unknown option.*"--version"/is)
+  })
+
+  it('treats "--" as the end of flags, so a later "--foo" is a positional, not a flag', () => {
+    expect(parseArgs(['--', '--foo'])).toEqual({ ...defaults, path: '--foo' })
+  })
+
+  it('still rejects unknown flags that appear before "--"', () => {
+    expect(() => parseArgs(['--foo', '--', 'some-path'])).toThrow(/unknown option.*"--foo"/is)
+  })
 })
 
 describe('helpText', () => {

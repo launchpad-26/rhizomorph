@@ -45,19 +45,37 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     { flag: '--poll-interval', read: (v) => { pollIntervalArg = v } },
   ]
 
+  let sawDoubleDash = false
+
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === undefined) continue
 
-    const spec = specs.find((s) => arg === s.flag || arg.startsWith(`${s.flag}=`))
-    if (spec) {
-      if (arg === spec.flag) {
-        spec.read(argv[i + 1])
-        i += 1
-      } else {
-        spec.read(arg.slice(spec.flag.length + 1))
+    if (!sawDoubleDash && arg === '--') {
+      sawDoubleDash = true
+      continue
+    }
+
+    if (!sawDoubleDash && arg.startsWith('-')) {
+      const spec = specs.find((s) => arg === s.flag || arg.startsWith(`${s.flag}=`))
+      if (spec) {
+        if (arg === spec.flag) {
+          spec.read(argv[i + 1])
+          i += 1
+        } else {
+          spec.read(arg.slice(spec.flag.length + 1))
+        }
+        continue
       }
-    } else if (!arg.startsWith('-') && path === undefined) {
+
+      // Unknown flag (including misspellings like "--prot" and "--version", which
+      // this CLI doesn't support): fail loudly instead of silently ignoring it and
+      // booting with whatever default the flag was meant to override.
+      const flagName = arg.includes('=') ? arg.slice(0, arg.indexOf('=')) : arg
+      throw new Error(`unknown option: "${flagName}"\n\n${helpText()}`)
+    }
+
+    if (path === undefined) {
       path = arg
     }
   }
