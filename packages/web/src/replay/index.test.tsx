@@ -1,6 +1,7 @@
 import { createEvent, createIdFactory } from '@observatory/core'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
+import { ModeProvider } from '../app/ModeContext.js'
 import ReplayControls from './index.js'
 import type { FetchLike } from './api.js'
 
@@ -49,7 +50,11 @@ function makeFetch(events: ReturnType<typeof fixtureEvents>): FetchLike {
 
 describe('ReplayControls', () => {
   it('shows a session picker and stays idle until one is chosen', async () => {
-    render(<ReplayControls fetchImpl={makeFetch(fixtureEvents())} />)
+    render(
+      <ModeProvider fetchImpl={makeFetch(fixtureEvents())}>
+        <ReplayControls />
+      </ModeProvider>,
+    )
 
     expect(await screen.findByText('Live mode')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Play' })).toBeDisabled()
@@ -57,7 +62,11 @@ describe('ReplayControls', () => {
   })
 
   it('loads a session and folds state up to the scrubber position', async () => {
-    render(<ReplayControls fetchImpl={makeFetch(fixtureEvents())} />)
+    render(
+      <ModeProvider fetchImpl={makeFetch(fixtureEvents())}>
+        <ReplayControls />
+      </ModeProvider>,
+    )
 
     const select = await screen.findByLabelText('session')
     fireEvent.change(select, { target: { value: 's1' } })
@@ -73,7 +82,11 @@ describe('ReplayControls', () => {
   })
 
   it('returning to live clears the session and disables the transport', async () => {
-    render(<ReplayControls fetchImpl={makeFetch(fixtureEvents())} />)
+    render(
+      <ModeProvider fetchImpl={makeFetch(fixtureEvents())}>
+        <ReplayControls />
+      </ModeProvider>,
+    )
 
     const select = await screen.findByLabelText('session')
     fireEvent.change(select, { target: { value: 's1' } })
@@ -86,7 +99,11 @@ describe('ReplayControls', () => {
   })
 
   it('play/pause toggles the transport button label', async () => {
-    render(<ReplayControls fetchImpl={makeFetch(fixtureEvents())} />)
+    render(
+      <ModeProvider fetchImpl={makeFetch(fixtureEvents())}>
+        <ReplayControls />
+      </ModeProvider>,
+    )
 
     const select = await screen.findByLabelText('session')
     fireEvent.change(select, { target: { value: 's1' } })

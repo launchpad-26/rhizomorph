@@ -6,13 +6,25 @@ import {
 } from '@observatory/core'
 
 /**
+ * The events at or before scrub time T, in fold order. `StreamContext` uses
+ * this directly to serve panels the same raw-event shape they read live;
+ * `foldUpTo` uses it to produce the folded `SessionState` for the replay
+ * controls' own summary line.
+ */
+export function eventsUpTo(
+  events: readonly ObservatoryEvent[],
+  ts: number,
+): ObservatoryEvent[] {
+  return events.filter((event) => event.ts <= ts).sort((a, b) => a.ts - b.ts)
+}
+
+/**
  * State at scrub time T: the same core reducer, folding only the events at or
  * before T. Live and replay must never disagree, so this is the only logic
  * replay owns — everything else comes from `reduceAll`.
  */
 export function foldUpTo(events: readonly ObservatoryEvent[], ts: number): SessionState {
-  const prefix = events.filter((event) => event.ts <= ts).sort((a, b) => a.ts - b.ts)
-  return reduceAll(prefix, initialSessionState())
+  return reduceAll(eventsUpTo(events, ts), initialSessionState())
 }
 
 export interface TimeRange {

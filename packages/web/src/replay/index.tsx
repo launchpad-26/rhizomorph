@@ -1,63 +1,16 @@
-import type { ObservatoryEvent } from '@observatory/core'
-import { useEffect, useMemo, useState } from 'react'
-import { fetchSessionEvents, fetchSessions, type FetchLike, type SessionSummary } from './api.js'
-import { foldUpTo, timeRangeOf } from './replayFold.js'
+import { useReplay } from '../app/ModeContext.js'
 import { Scrubber } from './Scrubber.js'
-import { PLAYBACK_SPEEDS, usePlayback } from './usePlayback.js'
-
-export interface ReplayControlsProps {
-  /** Test-only escape hatch for injecting a mock fetch implementation. */
-  fetchImpl?: FetchLike
-}
+import { PLAYBACK_SPEEDS } from './usePlayback.js'
 
 /**
- * Session picker + scrubber. Replay folds a fetched history slice through the
- * exact same core reducer live uses (`foldUpTo`) — that shared identity is
- * the whole reason this panel can exist without its own derivation logic.
+ * Session picker + scrubber. All replay state (session list, selection,
+ * fetched log, scrubber clock, fold) lives in `ModeContext` — `StreamContext`
+ * reads the exact same slot to serve panels, so this component only renders
+ * what's already there.
  */
-export default function ReplayControls({ fetchImpl }: ReplayControlsProps = {}) {
-  const [sessions, setSessions] = useState<SessionSummary[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [events, setEvents] = useState<ObservatoryEvent[]>([])
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    fetchSessions(fetchImpl)
-      .then((loaded) => {
-        if (!cancelled) setSessions(loaded)
-      })
-      .catch(() => {
-        if (!cancelled) setError('could not load sessions')
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [fetchImpl])
-
-  useEffect(() => {
-    if (selectedId === null) {
-      setEvents([])
-      return
-    }
-    let cancelled = false
-    fetchSessionEvents(selectedId, fetchImpl)
-      .then((loaded) => {
-        if (!cancelled) setEvents(loaded)
-      })
-      .catch(() => {
-        if (!cancelled) setError(`could not load session "${selectedId}"`)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [selectedId, fetchImpl])
-
-  const range = useMemo(() => timeRangeOf(events) ?? { start: 0, end: 0 }, [events])
-  const playback = usePlayback({ start: range.start, end: range.end })
-  const state = useMemo(() => foldUpTo(events, playback.currentTs), [events, playback.currentTs])
-
-  const isReplaying = selectedId !== null && events.length > 0
+export default function ReplayControls() {
+  const { sessions, selectedId, selectSession, error, playback, range, state, isReplaying } =
+    useReplay()
 
   return (
     <div className="flex flex-col gap-2 border-t border-void-line bg-void-raised px-4 py-2 text-xs uppercase tracking-wide text-slate-400">
@@ -70,7 +23,7 @@ export default function ReplayControls({ fetchImpl }: ReplayControlsProps = {}) 
           <span className="uppercase tracking-wide text-slate-500">session</span>
           <select
             value={selectedId ?? ''}
-            onChange={(event) => setSelectedId(event.target.value === '' ? null : event.target.value)}
+            onChange={(event) => selectSession(event.target.value === '' ? null : event.target.value)}
             className="rounded border border-void-line bg-void px-2 py-1 text-slate-200"
           >
             <option value="">— select a session —</option>
@@ -120,7 +73,7 @@ export default function ReplayControls({ fetchImpl }: ReplayControlsProps = {}) 
 
         <button
           type="button"
-          onClick={() => setSelectedId(null)}
+          onClick={() => selectSession(null)}
           disabled={!isReplaying}
           className="rounded border border-void-line px-2 py-1 hover:border-neon-magenta hover:text-neon-magenta disabled:opacity-50"
         >
