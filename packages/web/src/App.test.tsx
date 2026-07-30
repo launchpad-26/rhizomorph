@@ -1,19 +1,25 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { createEvent, createIdFactory } from '@observatory/core'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App.js'
 import type { EventSourceLike } from './hooks/useEventStream.js'
-// App renders these behind React.lazy(). Importing them statically here warms
-// vitest's module cache before the test runs, so the dynamic import() that
-// lazy() fires on first render resolves off an already-loaded module instead
-// of transforming it on demand — otherwise that on-demand transform's cost
-// varies with machine load and can occasionally outrun findByText's default
-// 1000ms timeout (the "1 failed | 329 passed" flake seen on CI).
-import './panels/worktrees/index.js'
-import './panels/collisions/index.js'
-import './panels/ticker/index.js'
-import './replay/index.js'
-import './scene/index.js'
+
+// App renders these behind React.lazy(() => import(...)). Even with the
+// module pre-warmed in vitest's cache, the dynamic import() call is spec'd to
+// always resolve via a queued promise job, so the shell still suspends for at
+// least one tick — and under CPU contention (several suites' processes
+// fighting for the same cores) that tick's actual wall-clock cost is whatever
+// the OS scheduler feels like, which can occasionally outrun findByText's
+// window no matter how generous. Stubbing these to render synchronously
+// removes the dynamic import — and therefore the promise-resolution tick —
+// entirely, so there's nothing left to race: this test is about the shell's
+// composition (does each Suspense slot host the right panel?), not the real
+// panels' internals, which each have their own direct-import test file.
+vi.mock('./panels/worktrees/index.js', () => ({ default: () => <h2>Worktrees</h2> }))
+vi.mock('./panels/collisions/index.js', () => ({ default: () => <h2>Collisions</h2> }))
+vi.mock('./panels/ticker/index.js', () => ({ default: () => <div>Commit ticker</div> }))
+vi.mock('./replay/index.js', () => ({ default: () => <div>Replay stub</div> }))
+vi.mock('./scene/index.js', () => ({ default: () => <div>Scene stub</div> }))
 
 afterEach(cleanup)
 
@@ -71,7 +77,9 @@ describe('App', () => {
 
     expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
     expect(screen.getByText('connecting…')).toBeInTheDocument()
-    // Panels are React.lazy — they resolve after a microtask.
+    // Panels are still React.lazy (mocked above), so the boundary still
+    // suspends for a tick — but resolving a mocked, already-in-memory module
+    // is fixed, negligible work with nothing left to transform on demand.
     expect(await screen.findByText('Worktrees')).toBeInTheDocument()
     expect(await screen.findByText('Collisions')).toBeInTheDocument()
     expect(await screen.findByText('Commit ticker')).toBeInTheDocument()
