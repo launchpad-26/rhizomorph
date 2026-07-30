@@ -18,6 +18,7 @@ import type { EventSourceLike } from './hooks/useEventStream.js'
 vi.mock('./panels/worktrees/index.js', () => ({ default: () => <h2>Worktrees</h2> }))
 vi.mock('./panels/collisions/index.js', () => ({ default: () => <h2>Collisions</h2> }))
 vi.mock('./panels/ticker/index.js', () => ({ default: () => <div>Commit ticker</div> }))
+vi.mock('./panels/spend/index.js', () => ({ default: () => <h2>Spend ticker</h2> }))
 vi.mock('./replay/index.js', () => ({ default: () => <div>Replay stub</div> }))
 vi.mock('./scene/index.js', () => ({ default: () => <div>Scene stub</div> }))
 
@@ -83,6 +84,7 @@ describe('App', () => {
     expect(await screen.findByText('Worktrees')).toBeInTheDocument()
     expect(await screen.findByText('Collisions')).toBeInTheDocument()
     expect(await screen.findByText('Commit ticker')).toBeInTheDocument()
+    expect(await screen.findByText('Spend ticker')).toBeInTheDocument()
   })
 
   it('surfaces connection state and folds fixture events from a mock stream', async () => {

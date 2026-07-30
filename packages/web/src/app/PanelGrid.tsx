@@ -4,6 +4,7 @@ import { PanelFrame } from './PanelFrame.js'
 const WorktreesPanel = lazy(() => import('../panels/worktrees/index.js'))
 const CollisionsPanel = lazy(() => import('../panels/collisions/index.js'))
 const TickerPanel = lazy(() => import('../panels/ticker/index.js'))
+const SpendPanel = lazy(() => import('../panels/spend/index.js'))
 
 function PanelFallback() {
   return (
@@ -27,6 +28,11 @@ export function PanelGrid() {
       <PanelFrame id="ticker" title="Commit ticker">
         <Suspense fallback={<PanelFallback />}>
           <TickerPanel />
+        </Suspense>
+      </PanelFrame>
+      <PanelFrame id="spend" title="Spend ticker">
+        <Suspense fallback={<PanelFallback />}>
+          <SpendPanel />
         </Suspense>
       </PanelFrame>
     </div>
