@@ -1,0 +1,13 @@
+%0	obs	0	bash	/home/operator/worktrees-challenge	bash	HOST-REDACTED
+%11	obs	1	wm-2-core	/home/operator/worktrees-challenge__worktrees/2-core	claude	⠂ Implement core event schema and reducer
+%12	obs	1	wm-2-core	/home/operator/worktrees-challenge__worktrees/2-core	bash	HOST-REDACTED
+%13	obs	2	wm-3-git-collector	/home/operator/worktrees-challenge__worktrees/3-git-collector	claude	⠐ Implement Git collector with shell commands and parsers
+%14	obs	2	wm-3-git-collector	/home/operator/worktrees-challenge__worktrees/3-git-collector	bash	HOST-REDACTED
+%15	obs	3	wm-4-tmux-collector	/home/operator/worktrees-challenge__worktrees/4-tmux-collector	claude	⠐ Implement tmux collector for The Observatory
+%16	obs	3	wm-4-tmux-collector	/home/operator/worktrees-challenge__worktrees/4-tmux-collector	bash	HOST-REDACTED
+%17	obs	4	wm-5-workmux-collector	/home/operator/worktrees-challenge__worktrees/5-workmux-collector	claude	⠂ Implement workmux collector with status parsing
+%18	obs	4	wm-5-workmux-collector	/home/operator/worktrees-challenge__worktrees/5-workmux-collector	bash	HOST-REDACTED
+%19	obs	5	wm-6-server	/home/operator/worktrees-challenge__worktrees/6-server	claude	⠂ Build server SSE API and CLI with session logging
+%20	obs	5	wm-6-server	/home/operator/worktrees-challenge__worktrees/6-server	bash	HOST-REDACTED
+%21	obs	6	wm-7-web-shell	/home/operator/worktrees-challenge__worktrees/7-web-shell	claude	⠂ Build web shell with stream hook and layout
+%22	obs	6	wm-7-web-shell	/home/operator/worktrees-challenge__worktrees/7-web-shell	bash	HOST-REDACTED
