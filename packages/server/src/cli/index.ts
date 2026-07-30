@@ -9,7 +9,7 @@ import { loadCollectors } from '../server/collector-loader.js'
 import { exec as realExec } from '../server/exec.js'
 import { createPollLoop, type PollLoop } from '../server/poll-loop.js'
 import { SessionRecorder } from '../server/recorder.js'
-import { helpText, parseArgs } from './args.js'
+import { helpText, parseArgs, type CliArgs } from './args.js'
 
 export interface RunCliOptions {
   /** Injectable clock, so tests get deterministic session ids and ticks. */
@@ -23,6 +23,8 @@ export interface RunCliOptions {
   exec?: Exec
   intervalMs?: number
   log?: Pick<Console, 'log' | 'warn'>
+  /** Overrides `process.exit` — tests inject a stub that throws so a parse failure unwinds instead of killing the runner. */
+  exit?: (code: number) => never
 }
 
 export interface CliHandle {
@@ -38,17 +40,28 @@ export interface CliHandle {
  * Boots collectors + server for one repo and returns a handle to it. Pure
  * bootstrap: no signal handlers — that belongs to whichever entrypoint
  * actually owns the process (see `src/index.ts`), so this stays callable
- * from tests. The one exception is `--help`, which prints and exits 0
- * immediately, same as any CLI tool.
+ * from tests. The exceptions are `--help`, which prints to stdout and exits
+ * 0, and a bad argv (unknown flag or invalid value), which prints the
+ * message plus usage to stderr and exits 1 — both same as any CLI tool, and
+ * neither should surface as a thrown-Error stack trace.
  */
 export async function runCli(argv: readonly string[], options: RunCliOptions = {}): Promise<CliHandle> {
   const now = options.now ?? Date.now
   const log = options.log ?? console
-  const args = parseArgs(argv)
+  const exit: (code: number) => never = options.exit ?? ((code) => process.exit(code))
+
+  let args: CliArgs
+  try {
+    args = parseArgs(argv)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`${message}\n\n${helpText()}`)
+    exit(1)
+  }
 
   if (args.help) {
     log.log(helpText())
-    process.exit(0)
+    exit(0)
   }
 
   const repoPath = path.resolve(args.path ?? process.cwd())

@@ -2,8 +2,21 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Collector, CollectorContext, PollResult } from '@observatory/core'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runCli, type CliHandle } from './index.js'
+
+/** Thrown by the fake `exit` so a would-be `process.exit` unwinds the async call instead of killing the test runner. */
+class FakeExit extends Error {
+  constructor(readonly code: number) {
+    super(`exit(${code})`)
+  }
+}
+
+function fakeExit(): (code: number) => never {
+  return ((code: number) => {
+    throw new FakeExit(code)
+  }) as (code: number) => never
+}
 
 /** A fake collector so the boot test needs no real git/tmux/workmux. */
 const fakeCollector: Collector<{ ticks: number }> = {
@@ -75,5 +88,56 @@ describe('runCli', () => {
     expect(events[0]?.type).toBe('session.started')
     expect(events.slice(1).every((e) => e.type === 'collector.error')).toBe(true)
     expect(events.length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('runCli argument errors', () => {
+  it('prints a clean message + usage to stderr and exits 1 on an unknown flag — no stack trace', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+
+    const thrown = await runCli(['--version'], { exit }).catch((err: unknown) => err)
+
+    const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(1)
+    expect(output).toContain('unknown option: "--version"')
+    expect(output).toContain('Options:')
+    expect(output).toContain('--port')
+    expect(output).not.toMatch(/^\s*at /m)
+    expect(output).not.toContain('.ts:')
+  })
+
+  it('prints a clean message + usage to stderr and exits 1 on an invalid --port value — no stack trace', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+
+    const thrown = await runCli(['--port', 'abc'], { exit }).catch((err: unknown) => err)
+
+    const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(1)
+    expect(output).toContain('invalid --port value: "abc"')
+    expect(output).toContain('Options:')
+    expect(output).not.toMatch(/^\s*at /m)
+    expect(output).not.toContain('.ts:')
+  })
+
+  it('prints help to stdout and exits 0 for --help, without touching stderr', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['--help'], { log, exit }).catch((err: unknown) => err)
+
+    writeSpy.mockRestore()
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    expect(log.log).toHaveBeenCalledWith(expect.stringContaining('Options:'))
+    expect(writeSpy).not.toHaveBeenCalled()
   })
 })

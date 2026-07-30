@@ -70,9 +70,11 @@ export function parseArgs(argv: readonly string[]): CliArgs {
 
       // Unknown flag (including misspellings like "--prot" and "--version", which
       // this CLI doesn't support): fail loudly instead of silently ignoring it and
-      // booting with whatever default the flag was meant to override.
+      // booting with whatever default the flag was meant to override. The CLI
+      // boundary (runCli) is responsible for appending the usage table before
+      // printing this to the user — keep this message on its own.
       const flagName = arg.includes('=') ? arg.slice(0, arg.indexOf('=')) : arg
-      throw new Error(`unknown option: "${flagName}"\n\n${helpText()}`)
+      throw new Error(`unknown option: "${flagName}"`)
     }
 
     if (path === undefined) {

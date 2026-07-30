@@ -97,14 +97,14 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--prot=4400'])).toThrow(/unknown option.*"--prot"/is)
   })
 
-  it('names the offending flag and includes the usage table in the error', () => {
+  it('names the offending flag in the error (the CLI boundary adds the usage table)', () => {
     try {
       parseArgs(['--prot', '4400'])
       expect.unreachable('parseArgs should have thrown')
     } catch (err) {
       const message = (err as Error).message
       expect(message).toContain('--prot')
-      expect(message).toContain(helpText())
+      expect(message).not.toContain(helpText())
     }
   })
 
