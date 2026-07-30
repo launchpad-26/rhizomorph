@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  formatCostOrGap,
   formatCostOverhead,
   formatTokens,
   formatUsd,
@@ -117,5 +118,19 @@ describe('formatCostOverhead', () => {
     expect(
       formatCostOverhead({ conductorInstrumented: true, ratio: 0.5, mixedProvenance: true }),
     ).toBe('overhead 0.50× (incl. estimate)')
+  })
+})
+
+describe('formatCostOrGap', () => {
+  it('renders a real zero cost as $0.00 when a cost event actually reported it', () => {
+    expect(formatCostOrGap({ costUsd: 0, costEventCount: 1 })).toBe('$0.00')
+  })
+
+  it('renders no cost events as an explicit gap, never the real-zero $0.00', () => {
+    expect(formatCostOrGap({ costUsd: 0, costEventCount: 0 })).toBe('no cost data')
+  })
+
+  it('formats an ordinary known cost normally', () => {
+    expect(formatCostOrGap({ costUsd: 0.42, costEventCount: 3 })).toBe('$0.42')
   })
 })

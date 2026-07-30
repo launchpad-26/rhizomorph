@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { StreamProvider } from '../../app/StreamContext.js'
 import type { EventSourceLike } from '../../hooks/useEventStream.js'
 import {
+  formatCostOrGap,
   formatCostOverhead,
   formatTokens,
   formatUsd,
@@ -138,6 +139,10 @@ describe('SpendPanel', () => {
     expect(screen.getByTestId('spend-overhead-ratio')).not.toHaveTextContent('×')
     // The conductor's tokens still show up in the role split — only the ratio is gated.
     expect(screen.getByTestId('spend-role-conductor')).toHaveTextContent(formatTokens(425_412))
+    // Its dollar figure must read as a gap, not the real-zero `$0.00` — that
+    // would silently contradict the "not instrumented" headline right above it.
+    expect(screen.getByTestId('spend-role-conductor')).toHaveTextContent('no cost data')
+    expect(screen.getByTestId('spend-role-conductor')).not.toHaveTextContent('$0.00')
   })
 
   it('renders the full ticker with dollars, rate, honesty line, role split and lane bars', () => {
@@ -174,11 +179,14 @@ describe('SpendPanel', () => {
     )
 
     for (const role of ['worker', 'conductor', 'auxiliary'] as const) {
+      // Every role here is fully instrumented, so the gap-aware formatter
+      // renders the same real dollar figure `formatUsd` would.
+      expect(roleSplit[role].costEventCount).toBeGreaterThan(0)
       expect(screen.getByTestId(`spend-role-${role}`)).toHaveTextContent(
         formatTokens(roleSplit[role].tokens.total),
       )
       expect(screen.getByTestId(`spend-role-${role}`)).toHaveTextContent(
-        formatUsd(roleSplit[role].costUsd),
+        formatCostOrGap(roleSplit[role]),
       )
     }
 
@@ -186,9 +194,10 @@ describe('SpendPanel', () => {
     expect(laneRows).toHaveLength(lanes.length)
     laneRows.forEach((row, index) => {
       const lane = lanes[index]!
+      expect(lane.costEventCount).toBeGreaterThan(0)
       expect(row).toHaveTextContent(lane.lane)
       expect(row).toHaveTextContent(formatTokens(lane.tokens.total))
-      expect(row).toHaveTextContent(formatUsd(lane.costUsd))
+      expect(row).toHaveTextContent(formatCostOrGap(lane))
     })
     // Dearest lane first — the conductor outspent every worker lane here.
     expect(lanes[0]!.lane).toBe('conductor')

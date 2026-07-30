@@ -9,7 +9,14 @@ import {
   type AgentRole,
 } from '@observatory/core'
 import { useStream } from '../../app/StreamContext.js'
-import { formatCostOverhead, formatTokens, formatUsd, formatUsdPerHour, selectCostOverhead } from './format.js'
+import {
+  formatCostOrGap,
+  formatCostOverhead,
+  formatTokens,
+  formatUsd,
+  formatUsdPerHour,
+  selectCostOverhead,
+} from './format.js'
 
 export interface SpendPanelProps {
   /** Test-only override so render tests don't depend on the wall clock. */
@@ -132,7 +139,7 @@ export default function SpendPanel({ now: nowOverride }: SpendPanelProps = {}) {
                     </div>
                     {tokensOnly ? null : (
                       <div className="font-mono text-xs text-slate-500">
-                        {formatUsd(spend.costUsd)}
+                        {formatCostOrGap(spend)}
                       </div>
                     )}
                   </li>
@@ -148,7 +155,7 @@ export default function SpendPanel({ now: nowOverride }: SpendPanelProps = {}) {
                   <span className="truncate font-mono">{lane.lane}</span>
                   <span className="shrink-0 pl-2 font-mono text-slate-500">
                     {formatTokens(lane.tokens.total)}
-                    {tokensOnly ? '' : ` · ${formatUsd(lane.costUsd)}`}
+                    {tokensOnly ? '' : ` · ${formatCostOrGap(lane)}`}
                   </span>
                 </div>
                 <div className="mt-0.5 h-1 rounded bg-void-line">
