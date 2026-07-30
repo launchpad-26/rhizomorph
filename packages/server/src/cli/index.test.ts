@@ -1,8 +1,9 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Collector, CollectorContext, PollResult } from '@observatory/core'
+import type { Collector, CollectorContext, Exec, ObservatoryEvent, PollResult } from '@observatory/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { SessionRecorder } from '../server/recorder.js'
 import { runCli, type CliHandle } from './index.js'
 
 /** Thrown by the fake `exit` so a would-be `process.exit` unwinds the async call instead of killing the test runner. */
@@ -16,6 +17,37 @@ function fakeExit(): (code: number) => never {
   return ((code: number) => {
     throw new FakeExit(code)
   }) as (code: number) => never
+}
+
+/**
+ * The poll loop's first tick fires fire-and-forget from `pollLoop.start()`
+ * (see `server/poll-loop.ts`), so there is no promise a caller can await for
+ * "the boot tick has finished" — a fixed number of manual `tick()` calls
+ * races it instead of waiting for it. This awaits the actual boundary: the
+ * event landing in the recorder, already-recorded or still to come, bounded
+ * by a generous timeout as a safety net rather than the wait mechanism.
+ */
+async function waitForEvent(
+  recorder: SessionRecorder,
+  predicate: (event: ObservatoryEvent) => boolean,
+  timeoutMs = 5000,
+): Promise<ObservatoryEvent> {
+  const existing = recorder.eventsSoFar().find(predicate)
+  if (existing) return existing
+
+  return await new Promise<ObservatoryEvent>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      unsubscribe()
+      reject(new Error('timed out waiting for matching event'))
+    }, timeoutMs)
+    const unsubscribe = recorder.subscribe((event) => {
+      if (predicate(event)) {
+        clearTimeout(timer)
+        unsubscribe()
+        resolve(event)
+      }
+    })
+  })
 }
 
 /** A fake collector so the boot test needs no real git/tmux/workmux. */
@@ -88,6 +120,138 @@ describe('runCli', () => {
     expect(events[0]?.type).toBe('session.started')
     expect(events.slice(1).every((e) => e.type === 'collector.error')).toBe(true)
     expect(events.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('wires --extra-sessions into the default sessionlog collector, attributed role: conductor', async () => {
+    const claudeProjectsRoot = await mkdtemp(path.join(tmpdir(), 'observatory-claude-projects-'))
+    const extraDir = path.join(tmpdir(), 'observatory-conductor-workdir')
+    const projectDir = path.join(claudeProjectsRoot, extraDir.replace(/[/_]/g, '-'))
+    await mkdir(projectDir, { recursive: true })
+
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: {
+        model: 'claude-opus-5',
+        content: [],
+        usage: {
+          input_tokens: 1,
+          output_tokens: 2,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+      },
+      requestId: 'req-extra-1',
+      sessionId: 'sess-extra-1',
+      cwd: extraDir,
+      gitBranch: null,
+    })
+    await writeFile(path.join(projectDir, 'sess-extra-1.jsonl'), `${line}\n`)
+
+    // No real git repo behind repoPath: git worktree list is stubbed to "no worktrees",
+    // so the only session data tailed comes from --extra-sessions.
+    const fakeGitExec: Exec = async (command, cmdArgs) => {
+      if (command === 'git' && cmdArgs[0] === 'worktree') {
+        return { stdout: '', stderr: '', code: 0, failed: false }
+      }
+      return { stdout: '', stderr: 'not stubbed', code: 1, failed: true, errorMessage: 'not stubbed' }
+    }
+
+    try {
+      handle = await runCli(
+        [path.join(tmpdir(), 'conductor-repo'), '--port', '0', '--extra-sessions', extraDir],
+        {
+          dataRoot,
+          claudeProjectsRoot,
+          exec: fakeGitExec,
+          log: { log: () => {}, warn: () => {} },
+        },
+      )
+
+      const usage = await waitForEvent(handle.recorder, (e) => e.type === 'llm.usage')
+      expect(usage.payload).toMatchObject({ role: 'conductor', model: 'claude-opus-5' })
+    } finally {
+      await rm(claudeProjectsRoot, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('runCli env subcommand', () => {
+  it('prints the telemetry env block for a lane and exits 0', async () => {
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['env', 'test-lane'], { log, exit }).catch((err: unknown) => err)
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    const output = log.log.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('export CLAUDE_CODE_ENABLE_TELEMETRY=1')
+    expect(output).toContain('export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4321')
+    expect(output).toContain('export OTEL_RESOURCE_ATTRIBUTES=lane=test-lane,role=worker')
+  })
+
+  it('honours --role and --port', async () => {
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['env', 'conductor', '--role', 'conductor', '--port', '5000'], {
+      log,
+      exit,
+    }).catch((err: unknown) => err)
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    const output = log.log.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:5000')
+    expect(output).toContain('export OTEL_RESOURCE_ATTRIBUTES=lane=conductor,role=conductor')
+  })
+
+  it('prints a clean message + usage to stderr and exits 1 when the lane is missing — no stack trace', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+
+    const thrown = await runCli(['env'], { exit }).catch((err: unknown) => err)
+
+    const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(1)
+    expect(output).toContain('missing required argument')
+    expect(output).toContain('Options:')
+    expect(output).not.toMatch(/^\s*at /m)
+    expect(output).not.toContain('.ts:')
+  })
+
+  it('prints a clean message + usage to stderr and exits 1 on an invalid --role', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+
+    const thrown = await runCli(['env', 'my-lane', '--role', 'manager'], { exit }).catch(
+      (err: unknown) => err,
+    )
+
+    const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(1)
+    expect(output).toContain('invalid --role value: "manager"')
+    expect(output).not.toMatch(/^\s*at /m)
+  })
+
+  it('prints env --help to stdout and exits 0, without touching stderr', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['env', '--help'], { log, exit }).catch((err: unknown) => err)
+
+    writeSpy.mockRestore()
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    expect(log.log).toHaveBeenCalledWith(expect.stringContaining('observatory env <lane>'))
+    expect(writeSpy).not.toHaveBeenCalled()
   })
 })
 
