@@ -85,6 +85,12 @@ function ReplayDriver() {
       <button onClick={() => selectSession(sessions[0]?.id ?? null)}>select session</button>
       <button onClick={() => playback.seek(2000)}>seek</button>
       <button onClick={() => selectSession(null)}>return to live</button>
+      {/* Exposes the scrubber clock so the test can wait for the "jump to
+          session start" reset (usePlayback's `[start, end]` effect, which
+          fires once the fetched log lands) to actually settle before it
+          drives a seek — otherwise the seek can race that reset and be
+          silently clobbered by it. */}
+      <span data-testid="scrub-ts">{playback.currentTs}</span>
     </div>
   )
 }
@@ -117,10 +123,15 @@ describe('StreamContext driven by mode', () => {
     expect(screen.getByTestId('worktree-paths').textContent).toBe('/repo')
 
     fireEvent.click(await screen.findByText('select session'))
+    // Wait for the fetched log to land AND the scrubber's reset-to-start
+    // effect to have actually committed (`currentTs` reads back the
+    // session's first event, ts 1000) before driving a seek below — this is
+    // the deterministic condition to wait on, not a fixed delay.
+    await waitFor(() => expect(screen.getByTestId('scrub-ts').textContent).toBe('1000'))
     // Scrub time starts at the session's first event (ts 1000): the worktree
     // (ts 2000) has not "happened" yet — panels must show that, not the
     // live `/repo` worktree, and not a preview of the whole replay log.
-    await waitFor(() => expect(screen.getByTestId('worktree-paths').textContent).toBe(''))
+    expect(screen.getByTestId('worktree-paths').textContent).toBe('')
 
     fireEvent.click(screen.getByText('seek'))
     await waitFor(() =>
