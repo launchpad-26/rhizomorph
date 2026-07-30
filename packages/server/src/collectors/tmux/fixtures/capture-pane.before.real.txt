@@ -1,0 +1,50 @@
+  test' and
+    'npm run typecheck' both green. Then STOP and
+  write a short summary as
+    your final message. Do not pick up another
+  issue.
+  - If blocked on something environmental for
+  more than ~10 minutes, write
+    BLOCKED plus the exact command and error,
+  then stop.
+
+  Read 3 files, ran 1 shell command
+
+● Now let me look at the core package to
+  understand the Collector interface, event
+  schemas, and envelope types I need to build
+  against.
+
+  Searched for 1 pattern, read 11 files, ran 12
+  shell commands
+
+● Now let's capture detached HEAD, dirty status
+  with rename/untracked/staged combos, and locked
+  worktree examples for fixtures.
+
+  Ran 2 shell commands
+
+● Now dirty status combos: staged add, unstaged
+  modify, untracked, renamed staged, deleted,
+  unmerged conflict.
+
+  Running 2 shell commands…
+  ⎿  $ rm -rf /tmp/gitfixture-wt3 && cd
+     /tmp/gitfixture && git worktree add -q -b
+     rename-test /tmp/gitfixture-wt3 main
+     cd /tmp/gitfixture-wt3
+     git mv a.txt a-renamed.txt
+     echo "---clean rename staged---"
+     git status --porcelain
+     echo "---rename with content change
+     (staged)---"
+     echo "changed" >> a-renamed.tx…
+
+✽ Flummoxing… (3m 4s · still thinking)
+  ⎿  Tip: Use /btw to ask a quick side question
+     without interrupting Claude's current work
+
+──────────────────────────────────────────────────
+❯ 
+──────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to       ·
