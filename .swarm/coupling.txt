@@ -1,0 +1,7 @@
+# path  # why it couples — consult while grooming fences
+packages/web/src/App.test.tsx  # mocks EVERY lazy panel; registering a panel forces an edit here
+packages/web/src/app/PanelGrid.tsx  # registers every panel; and PanelGrid.test.tsx preloads them all
+packages/server/src/api/index.ts  # registers every route; adding an API surface forces a line here
+packages/server/src/server/collector-loader.ts  # imports every collector statically
+packages/core/src/events/index.ts  # the event union — every new event type touches it
+package-lock.json  # churned by npm install in EVERY worktree; restore it in the landing step

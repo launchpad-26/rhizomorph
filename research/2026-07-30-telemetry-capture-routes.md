@@ -53,7 +53,8 @@ events `api_request`, `user_prompt`, `assistant_response`, hook events.
 `token.usage` datapoint attributes (real capture):
 `session.id`, `model` (`claude-haiku-4-5-20251001` for the auxiliary call —
 the metric separates models), `query_source` (`auxiliary`; docs say
-main/subagent/auxiliary), `type` (`input`/`output`), `user.id`,
+main/subagent/auxiliary), `type` — **four values, not two: `input`, `output`,
+`cacheRead`, `cacheCreation`** (see the correction below) — `user.id`,
 `user.email`, `organization.id`, `terminal.type`.
 
 **Gap:** no cwd/branch attribute → lane attribution needs either a
@@ -170,3 +171,20 @@ later.**
 - langfuse.com/docs (accessed 2026-07-30).
 - github.com/steveyegge/beads (accessed 2026-07-30) — roadmap candidate for
   task-graph collection, not prd1.
+
+> ⚠️ CORRECTION (2026-07-30, later the same day): this note originally recorded
+> the `token.usage` `type` attribute as `input`/`output`, taken from the visible
+> portion of the S1 capture. Running the real receiver against live traffic
+> proved the set also includes **`cacheRead`** and **`cacheCreation`** — the
+> first implementation rejected them as malformed and silently dropped the
+> dominant token volume (issue #45). Caught only because the sessionlog
+> collector counts all four tiers and the two sources disagreed. **Lesson: a
+> capture read partially is still a hypothesis; the parser is the experiment.**
+
+> ⚠️ CORRECTION (2026-07-30): two conductor hypotheses formed while wiring
+> telemetry were both falsified by direct test and are recorded here so they are
+> not repeated: (1) nested double quotes in a tmux pane command break the lane —
+> they do not (probe ran fine); (2) a dead OTLP endpoint kills the agent — it
+> does not (`claude -p` against a dead port exits 0 and replies normally). The
+> real cause of the three failed dispatches remains unexplained; it did not
+> recur after the receiver moved to the port the lanes export.
