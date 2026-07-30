@@ -19,7 +19,10 @@ import {
   selectRecentToolActivity,
   selectRoleSpend,
   selectSessionSpend,
+  selectSpendByBranch,
+  selectSpendByBranchIndex,
   selectSpendByWorktree,
+  selectSpendForBranch,
   selectSpendForLane,
   selectSpendRate,
   selectSpendRateByLane,
@@ -315,6 +318,121 @@ describe('selectSpendByWorktree', () => {
     expect(entry?.authoritativeCostUsd).toBeCloseTo(1, 6)
     expect(entry?.estimatedCostUsd).toBeCloseTo(2, 6)
     expect(entry?.costIsAuthoritative).toBe(false)
+  })
+})
+
+describe('selectSpendByBranch', () => {
+  const BRANCH = '48-branch-ledger'
+  const PATH = WT(BRANCH)
+
+  it('keeps a branch\'s full spend after its worktree is removed — the whole point of keying by branch', () => {
+    const state = fold(
+      f.worktreeDiscovered({ path: PATH, branch: BRANCH, head: 'sha-0', isMain: false }),
+      f.llmUsage({
+        lane: BRANCH,
+        branch: BRANCH,
+        worktreePath: PATH,
+        tokens: tokens(2, 500, 40_000, 1_000),
+      }),
+      f.llmCost({ lane: BRANCH, branch: BRANCH, worktreePath: PATH, costUsd: 0.75, authoritative: true }),
+      f.worktreeRemoved({ path: PATH }),
+    )
+    const row = selectSpendForBranch(state, BRANCH)
+    expect(row).not.toBeNull()
+    expect(row?.landed).toBe(true)
+    expect(row?.tokens.total).toBe(2 + 500 + 40_000 + 1_000)
+    expect(row?.costUsd).toBeCloseTo(0.75, 6)
+    expect(row?.costIsAuthoritative).toBe(true)
+    expect(row?.worktreePath).toBe(PATH)
+  })
+
+  it('reports landed: false while the worktree is still present', () => {
+    const state = fold(
+      f.worktreeDiscovered({ path: PATH, branch: BRANCH, head: 'sha-0', isMain: false }),
+      f.llmUsage({ lane: BRANCH, branch: BRANCH, worktreePath: PATH, tokens: tokens(0, 1) }),
+    )
+    expect(selectSpendForBranch(state, BRANCH)?.landed).toBe(false)
+  })
+
+  it('reports landed: false for a branch telemetry has seen but git never discovered', () => {
+    const state = fold(
+      f.llmUsage({ lane: 'x', branch: 'ghost-branch', worktreePath: null, tokens: tokens(0, 1) }),
+    )
+    const row = selectSpendForBranch(state, 'ghost-branch')
+    expect(row?.landed).toBe(false)
+    expect(row?.worktreePath).toBeNull()
+  })
+
+  it('extracts the issue number from a fenced-issue branch name, and null otherwise', () => {
+    const state = fold(
+      f.llmUsage({ lane: BRANCH, branch: BRANCH, tokens: tokens(0, 1) }),
+      f.llmUsage({ lane: 'main', branch: 'main', tokens: tokens(0, 1) }),
+    )
+    expect(selectSpendForBranch(state, BRANCH)?.issue).toBe('48')
+    expect(selectSpendForBranch(state, 'main')?.issue).toBeNull()
+  })
+
+  it('rolls up every lane recorded against a branch', () => {
+    const state = fold(
+      f.llmUsage({ lane: 'lane-a', branch: BRANCH, tokens: tokens(0, 5) }),
+      f.llmUsage({ lane: 'lane-b', branch: BRANCH, tokens: tokens(0, 7) }),
+    )
+    const row = selectSpendForBranch(state, BRANCH)
+    expect(row?.lanes).toEqual(['lane-a', 'lane-b'])
+    expect(row?.tokens.total).toBe(12)
+  })
+
+  it('drops telemetry with no branch attribution — the conductor lives outside every branch', () => {
+    const state = fold(
+      f.llmUsage({ lane: 'conductor', branch: null, role: 'conductor', tokens: tokens(0, 999) }),
+    )
+    expect(selectSpendByBranch(state)).toEqual([])
+  })
+
+  it('still lists a known branch at zero when the filter excludes its only telemetry', () => {
+    const state = fold(
+      f.llmUsage({ lane: BRANCH, branch: BRANCH, tokens: tokens(0, 5) }, { ts: 1_000 }),
+    )
+    const rows = selectSpendByBranch(state, { since: 5_000 })
+    expect(rows.map((row) => row.branch)).toEqual([BRANCH])
+    expect(rows[0]?.tokens.total).toBe(0)
+    expect(rows[0]?.costIsAuthoritative).toBeNull()
+  })
+
+  it('computes elapsed working time from first to last activity, null when nothing arrived', () => {
+    const state = fold(
+      f.llmUsage({ lane: BRANCH, branch: BRANCH, tokens: tokens(0, 1) }, { ts: 1_000 }),
+      f.llmCost({ lane: BRANCH, branch: BRANCH, costUsd: 1, authoritative: true }, { ts: 9_000 }),
+    )
+    expect(selectSpendForBranch(state, BRANCH)?.elapsedMs).toBe(8_000)
+    expect(selectSpendForBranch(state, 'no-such-branch')).toBeNull()
+  })
+
+  it('indexes by branch, and reports null for one nobody mentioned', () => {
+    const state = fold(f.llmUsage({ lane: BRANCH, branch: BRANCH, tokens: tokens(0, 1) }))
+    expect(Object.keys(selectSpendByBranchIndex(state))).toEqual([BRANCH])
+    expect(selectSpendForBranch(state, 'nope')).toBeNull()
+  })
+
+  it('reads the swarm fixture the same way selectLaneSpend does for workers, since lane and branch coincide there', () => {
+    const byBranch = selectSpendByBranchIndex(swarm)
+    for (const laneName of ['2-core', '3-git', '7-web']) {
+      const lane = selectSpendForLane(swarm, laneName)
+      const branch = byBranch[laneName]
+      expect(branch?.tokens).toEqual(lane?.tokens)
+      expect(branch?.costUsd).toBeCloseTo(lane?.costUsd ?? NaN, 6)
+      expect(branch?.costIsAuthoritative).toBe(lane?.costIsAuthoritative ?? null)
+    }
+    // The conductor has no branch attribution at all — it never appears here.
+    expect(byBranch.conductor).toBeUndefined()
+    // Every branch fixtureSession's git events discovered shows up, main included, zeroed.
+    expect(byBranch.main).toMatchObject({ tokens: { total: 0 }, landed: false, issue: null })
+  })
+
+  it('never mutates the state it reads', () => {
+    const snapshot = JSON.stringify(swarm.telemetry)
+    selectSpendByBranch(swarm)
+    expect(JSON.stringify(swarm.telemetry)).toBe(snapshot)
   })
 })
 
@@ -659,6 +777,9 @@ describe('the package barrel', () => {
       'selectLaneSpendIndex',
       'selectSpendForLane',
       'selectSpendByWorktree',
+      'selectSpendByBranch',
+      'selectSpendByBranchIndex',
+      'selectSpendForBranch',
       'selectModelSpend',
       'selectRoleSpend',
       'selectOverheadRatio',

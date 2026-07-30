@@ -90,6 +90,20 @@ export interface WorktreeSpend extends SpendTotals {
   lanes: string[]
 }
 
+export interface BranchSpend extends SpendTotals {
+  branch: string
+  /** Leading digits of the branch name, e.g. `'48'` for `48-branch-ledger`. Null when it has none. */
+  issue: string | null
+  /** Lanes (telemetry identities) that have reported spend against this branch. */
+  lanes: string[]
+  /** Last worktree path git ever associated with this branch — stays populated once the worktree is gone. */
+  worktreePath: string | null
+  /** True once the worktree that carried this branch has seen `worktree.removed`. */
+  landed: boolean
+  /** `lastTs - firstTs`; null until at least one record has arrived. */
+  elapsedMs: number | null
+}
+
 export interface RoleSpend extends SpendTotals {
   role: AgentRole
   lanes: string[]
@@ -192,6 +206,115 @@ export function selectSpendByWorktree(
     }
   }
   return result
+}
+
+// --- per branch --------------------------------------------------------------
+
+/**
+ * One row per branch this session has ever seen spend against, dearest first.
+ * `workmux merge` deletes the worktree and the branch stops resolving to a
+ * live lane, but the branch itself is the durable identity — every event still
+ * carries it — so this survives exactly what {@link selectSpendByWorktree}
+ * cannot: a finished feature whose worktree is gone still reports its full
+ * cost. `landed` is read straight off the existing worktree/branch events
+ * (see {@link isBranchLanded}), never a new liveness source, and `issue`
+ * exposes the fenced-issue number when the branch name carries one.
+ */
+export function selectSpendByBranch(state: SessionState, filter: SpendFilter = {}): BranchSpend[] {
+  const accs = new Map<string, Acc>()
+  const lanes = new Map<string, Set<string>>()
+
+  const branchAcc = (branch: string): Acc => {
+    const existing = accs.get(branch)
+    if (existing !== undefined) return existing
+    const fresh = createAcc()
+    accs.set(branch, fresh)
+    return fresh
+  }
+
+  const track = (branch: string, lane: string): void => {
+    lanes.set(branch, (lanes.get(branch) ?? new Set()).add(lane))
+  }
+
+  // A branch's identity outlives any window filter: git ever having mentioned
+  // it, or telemetry ever having mentioned it — the window below only decides
+  // which of its spend counts, not whether the row exists at all. Same rule
+  // `selectLaneSpend` applies via `state.telemetry.lanes`.
+  for (const branch of Object.keys(state.branches)) branchAcc(branch)
+  for (const record of state.telemetry.usage) if (record.branch !== null) branchAcc(record.branch)
+  for (const record of state.telemetry.costs) if (record.branch !== null) branchAcc(record.branch)
+  for (const record of state.telemetry.tools) if (record.branch !== null) branchAcc(record.branch)
+
+  for (const record of usageIn(state, filter)) {
+    if (record.branch === null) continue
+    addUsage(branchAcc(record.branch), record)
+    track(record.branch, record.lane)
+  }
+  for (const record of costsIn(state, filter)) {
+    if (record.branch === null) continue
+    addCost(branchAcc(record.branch), record)
+    track(record.branch, record.lane)
+  }
+  for (const record of toolsIn(state, filter)) {
+    if (record.branch === null) continue
+    addTool(branchAcc(record.branch), record)
+    track(record.branch, record.lane)
+  }
+
+  return [...accs.entries()]
+    .map(([branch, acc]) => {
+      const totals = finalise(acc)
+      return {
+        ...totals,
+        branch,
+        issue: issueOf(branch),
+        lanes: [...(lanes.get(branch) ?? [])].sort(compareStrings),
+        worktreePath: state.branches[branch]?.worktreePath ?? null,
+        landed: isBranchLanded(state, branch),
+        elapsedMs:
+          totals.firstTs === null || totals.lastTs === null ? null : totals.lastTs - totals.firstTs,
+      }
+    })
+    .sort(bySpend((entry) => entry.branch))
+}
+
+export function selectSpendByBranchIndex(
+  state: SessionState,
+  filter: SpendFilter = {},
+): Record<string, BranchSpend> {
+  const index: Record<string, BranchSpend> = {}
+  for (const entry of selectSpendByBranch(state, filter)) index[entry.branch] = entry
+  return index
+}
+
+/** Null for a branch the log has never mentioned — which is not the same as zero. */
+export function selectSpendForBranch(
+  state: SessionState,
+  branch: string,
+  filter: SpendFilter = {},
+): BranchSpend | null {
+  return selectSpendByBranchIndex(state, filter)[branch] ?? null
+}
+
+/**
+ * `true` once the worktree that last carried this branch has recorded
+ * `worktree.removed` — `workmux merge`'s signature. `BranchState.worktreePath`
+ * is never cleared when its worktree goes (the reducer's `worktreeRemoved`
+ * never touches `state.branches`), so the stale path is exactly what lets a
+ * landed branch keep resolving to the worktree whose `present` flag now says
+ * it's gone. A branch git has never associated with a worktree reports
+ * `false` — no evidence of removal is not evidence of landing.
+ */
+function isBranchLanded(state: SessionState, branch: string): boolean {
+  const worktreePath = state.branches[branch]?.worktreePath ?? null
+  if (worktreePath === null) return false
+  const worktree = state.worktrees[worktreePath]
+  return worktree !== undefined && !worktree.present
+}
+
+/** The fenced-issue convention's number, e.g. `'34'` for `34-sessionlog-collector`. */
+function issueOf(branch: string): string | null {
+  return /^\d+/.exec(branch)?.[0] ?? null
 }
 
 // --- per model --------------------------------------------------------------
