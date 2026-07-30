@@ -93,8 +93,16 @@ Observatory wouldn't otherwise discover — a different filesystem entirely
 talking to a WSL-side Observatory). Point the server at it with (repeatable):
 
 ```sh
-observatory --extra-sessions /mnt/c/Users/<u>/.claude/projects/<slug>
+observatory --extra-sessions /mnt/c/Users/<u>/.claude/projects/<slug>:conductor
 ```
+
+The optional `:conductor` suffix names the lane this session dir shows up as
+in the worktree table, the spend ticker and the ledger — without it, the
+label defaults to `conductor` for the first `--extra-sessions` flag, then
+`conductor-2`, `conductor-3`… for any further ones (`--extra-sessions` is
+repeatable). Either way the label is never the raw `<slug>` — that's an
+implementation detail of where Claude Code happens to store the session log,
+not a name a human should have to read.
 
 Sessions discovered under an `--extra-sessions` dir are attributed
 `role: conductor` automatically, no matter what `role` the OTel export used —
