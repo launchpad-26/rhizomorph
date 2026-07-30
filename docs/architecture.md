@@ -217,3 +217,18 @@ hook.
 | @testing-library/jest-dom | 7.0.0 |
 | tsx | 4.23.1 |
 | @types/node | 22.20.1 |
+
+- 2026-07-31 — **prd1 (the money layer) complete.** Two native collectors
+  shipped: `sessionlog` (depth — per-message tokens by tier, tool timeline,
+  lane attribution from cwd/branch) and `otel` (authority — an OTLP/HTTP
+  receiver yielding `costUsd` with `authoritative: true`). Spend is keyed by
+  **branch**, so a lane's cost survives the worktree's removal. `role`
+  (worker | conductor | auxiliary) is first-class; the overhead ratio is
+  defined on cost. `--extra-sessions <dir>[:<lane>]` is **dir-first** — the
+  session-log directory is the input, no slug inference, no platform
+  assumption — which is what makes a conductor on another OS countable.
+  Verified live end to end: 4,989 `role: conductor` events from a Windows-side
+  conductor's log dir, per-lane dollars in the ticker and worktree table, the
+  per-branch ledger, and replay reporting `$0.02 as of scrub time` through the
+  same reducer as the live view.
+
