@@ -24,6 +24,7 @@ vi.mock('./panels/worktrees/index.js', () => ({ default: () => <h2>Worktrees</h2
 vi.mock('./panels/collisions/index.js', () => ({ default: () => <h2>Collisions</h2> }))
 vi.mock('./panels/ticker/index.js', () => ({ default: () => <div>Commit ticker</div> }))
 vi.mock('./panels/spend/index.js', () => ({ default: () => <h2>Spend ticker</h2> }))
+vi.mock('./panels/ledger/index.js', () => ({ default: () => <h2>Ledger</h2> }))
 vi.mock('./replay/index.js', () => ({ default: () => <div>Replay stub</div> }))
 vi.mock('./scene/index.js', () => ({ default: () => <div>Scene stub</div> }))
 
@@ -56,6 +57,7 @@ async function renderApp() {
   await import('./panels/collisions/index.js')
   await import('./panels/ticker/index.js')
   await import('./panels/spend/index.js')
+  await import('./panels/ledger/index.js')
   await import('./replay/index.js')
   await import('./scene/index.js')
 
@@ -100,6 +102,7 @@ describe('App', () => {
     expect(screen.getByText('Collisions')).toBeInTheDocument()
     expect(screen.getByText('Commit ticker')).toBeInTheDocument()
     expect(screen.getByText('Spend ticker')).toBeInTheDocument()
+    expect(screen.getByText('Ledger')).toBeInTheDocument()
   })
 
   it('surfaces connection state and folds fixture events from a mock stream', async () => {
