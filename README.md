@@ -1,64 +1,63 @@
-# worktrees-challenge
+# The Observatory
 
-Running parallel agents across git worktrees and tmux windows.
+Run `observatory` in any repo hosting a git-worktree agent swarm and get a
+live, replayable dashboard at localhost — who's working, what's landing, and
+what's about to collide. It discovers worktrees and branches (git), agent
+panes (tmux), and workmux state if present, each source optional and each
+degrading gracefully, and reflects reality within a couple of seconds via
+polling. Read-only, always: it never sends keys, launches agents, or merges
+anything — see [`docs/vision.md`](docs/vision.md) for the full pitch.
 
-Two skills ship with this repo: driving tmux by hand, and driving `workmux` for
-worktree-per-branch workflows. See below for how they are wired in.
+## Quickstart
 
-## What you are building
+Requires Node 22 and, for the git/tmux/workmux collectors to have anything to
+report, a repo that already has worktrees and tmux panes running in it.
 
-**Anything you want.** There is no prescribed product this time. Pick something
-you would find satisfying to have built by the end of the day.
+```sh
+npm install
+npm run build --workspace packages/web   # builds the dashboard once; observatory serves it statically
+npx observatory <path-to-repo>           # boots collectors + API on http://127.0.0.1:4321
+```
 
-**This one is solo.** No pair, no shared fork, nobody reviewing your PRs. The
-last two days were about working with another person; this one is about working
-with several agents at once, which is a different skill and needs your full
-attention on the orchestration rather than on a partner.
+Then open the printed URL in a browser. Omit `<path-to-repo>` to watch the
+current directory; add `--port <n>` to pick a different port.
 
-**Docs first, exactly as in the Next.js challenge.** Follow Part 1 of
-[`nextjs-project`](https://github.com/launchpad-26/nextjs-project): write
-`docs/prd0.md` and then `docs/architecture.md`, in that order, before the agent
-writes any code, and feed both into every prompt afterwards. Add a
-`docs/vision.md` first if blahing at the AI helps you find the idea. What you are
-building shapes how you should build it, so deciding the stack first means
-choosing for an app you have not decided on yet.
+The server serves API and static dashboard from one origin (no CORS), so
+rebuild `packages/web` after front-end changes and restart `observatory` to
+see them.
 
-Then the part that is new today:
+## Architecture
 
-1. **Build a backlog.** Turn `prd0.md` into issues, as you did before.
-2. **Groom it.** This is the step that earns its keep once you are running
-   several agents. Which issues can be worked at the same time without touching
-   the same files? Which ones block others? Make the dependencies explicit and
-   say which files each issue will touch. An ungroomed backlog with three agents
-   on it produces three conflicting branches.
-3. **Get multiple agents working through it.** One worktree per issue, one agent
-   per worktree, running at once. Keep grooming as you go, because the backlog
-   changes shape once work starts landing.
+Event-sourced core (`packages/core`), collectors + Fastify API + CLI
+(`packages/server`), and a React + Tailwind + react-three-fiber dashboard
+(`packages/web`) sharing one set of selectors between the live view and
+replay. Full write-up in [`docs/architecture.md`](docs/architecture.md); the
+product brief is in [`docs/prd0.md`](docs/prd0.md). See
+[`docs/demo.md`](docs/demo.md) for the end-of-day demo script.
 
-The point of the day is not the app. It is finding out how many agents you can
-actually keep useful at once, and what breaks first when you try.
+## The worktrees-challenge context
 
-## Steps
+This repo is also the build log for a day of running several coding agents
+across git worktrees at once — the Observatory is the app that day built, and
+its first real subject was its own construction. Skills for driving that
+workflow (`tmux-driver`, `workmux`) live in `.claude/skills/`
+(`.agent/skills` is a symlink to the same directory; recreate it with
+`ln -sfn ../.claude/skills .agent/skills` if it goes missing).
 
-### 1. Install the tools and set up your tmux keys
-
-**tmux:**
+**tmux and workmux setup:**
 
 ```sh
 brew install tmux      # macOS
 sudo apt install tmux  # Debian/Ubuntu
 ```
 
-**workmux** lives at
-[github.com/raine/workmux](https://github.com/raine/workmux). Install it from
-there, following that README. Come back when `workmux --version` prints
-something.
+`workmux` lives at [github.com/raine/workmux](https://github.com/raine/workmux);
+install it from there, following that README, then confirm with
+`workmux --version`.
 
-**tmux keys.** Out of the box, tmux gives you `C-b` as a prefix and no pane
-navigation worth using. Put this in `~/.tmux.conf`:
+Recommended `~/.tmux.conf` for pane navigation and worktree-friendly splits:
 
 ```tmux
-# optional JV prefers Ctrl-space
 unbind C-b
 set -g prefix C-space
 bind Space send-prefix
@@ -83,18 +82,8 @@ bind-key % split-window -h -c '#{pane_current_path}'
 bind-key c new-window -c '#{pane_current_path}'
 ```
 
-Reload without restarting:
-
-```sh
-tmux source-file ~/.tmux.conf
-```
-
-Then check it works: split a pane with `C-space %`, move between the two with
-`C-h` and `C-l`, and confirm the new pane opened in the same directory.
-
-Once you have worktrees running, these are the workmux keys worth adding. They
-only make sense with agents in several worktrees at once, so leave them until
-then:
+Reload without restarting: `tmux source-file ~/.tmux.conf`. Once agents are
+running in several worktrees, these workmux keys are worth adding too:
 
 ```tmux
 bind-key -T prefix C-s display-popup -h 30 -w 100 -E "workmux dashboard"
@@ -105,10 +94,6 @@ bind-key -n M-1 run-shell "workmux sidebar jump 1"
 bind-key -n M-2 run-shell "workmux sidebar jump 2"
 bind-key -n M-3 run-shell "workmux sidebar jump 3"
 ```
-
-### Steps 2 onward
-
-To be written.
 
 ## Skills layout
 
@@ -121,16 +106,8 @@ skills:
 .agent/skills -> ../.claude/skills
 ```
 
-If the symlink is ever missing, recreate it from the repo root:
-
-```sh
-ln -sfn ../.claude/skills .agent/skills
-```
-
 Git stores the symlink, so a fresh clone gets it for free. Check with
 `ls -l .agent/`.
-
-## Included skills
 
 | Skill | What it covers |
 |---|---|
