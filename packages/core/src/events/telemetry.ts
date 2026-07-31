@@ -82,9 +82,12 @@ export const UNATTRIBUTED_LANE = 'unattributed'
 
 /**
  * Tokens by cache tier, exactly the four buckets the session JSONL reports per
- * message. All four are required: a collector that cannot break out cache
- * detail (OTel's `token.usage` splits `input`/`output` only) sends zeros, and
- * the envelope's `source` says why they are zero.
+ * message. All four are required: OTel's `claude_code.token.usage` metric
+ * carries a `type` attribute naming exactly one of the four tiers per
+ * datapoint, and `parse-metrics.ts` maps all four (`input`, `output`,
+ * `cacheRead`, `cacheCreation`) — a single OTel `llm.usage` event reports that
+ * one tier's real value and zeros on the rest, never a collector-wide
+ * inability to see cache detail.
  */
 export const tokenUsageSchema = z.object({
   input: z.number().int().nonnegative(),
