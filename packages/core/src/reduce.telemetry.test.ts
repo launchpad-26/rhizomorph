@@ -45,6 +45,7 @@ describe('reduce — llm.usage', () => {
       sessionId: 'sess-a',
       worktreePath: '/repo/observatory-wt/feature',
       branch: 'feature',
+      thread: null,
     })
   })
 
@@ -215,6 +216,217 @@ describe('reduce — llm.cost', () => {
   })
 })
 
+describe('reduce — cost joins place through sessionId', () => {
+  // The audit's §C shape: OTel knows the dollars and the session and nothing
+  // about the place; sessionlog knows the session and the place and no dollars.
+  const bareCost = (sessionId: string | null, costUsd = 1) => ({
+    lane: 'otel-lane',
+    role: 'worker' as const,
+    costUsd,
+    authoritative: true,
+    sessionId,
+    worktreePath: null,
+    branch: null,
+  })
+  const placedUsage = (sessionId: string) => ({
+    lane: 'sessionlog-lane',
+    role: 'worker' as const,
+    sessionId,
+    worktreePath: '/repo/wt/64-cost',
+    branch: '64-cost',
+  })
+
+  it('places dollars that arrive after the usage that knows where the session runs', () => {
+    const state = reduceAll([
+      f.llmUsage(placedUsage('sess-64'), { ts: 1_000, source: 'sessionlog' }),
+      f.llmCost(bareCost('sess-64'), { ts: 2_000, source: 'otel' }),
+    ])
+    expect(state.telemetry.costs[0]).toMatchObject({
+      costUsd: 1,
+      worktreePath: '/repo/wt/64-cost',
+      branch: '64-cost',
+      placeSource: 'session-join',
+    })
+  })
+
+  it('places dollars that arrived first, once the usage catches up', () => {
+    const state = reduceAll([
+      f.llmCost(bareCost('sess-64'), { ts: 1_000, source: 'otel' }),
+      f.llmUsage(placedUsage('sess-64'), { ts: 2_000, source: 'sessionlog' }),
+    ])
+    // Same record, same dollars, same branch — arrival order is not a fact
+    // about where the money was spent.
+    expect(state.telemetry.costs).toHaveLength(1)
+    expect(state.telemetry.costs[0]).toMatchObject({
+      costUsd: 1,
+      worktreePath: '/repo/wt/64-cost',
+      branch: '64-cost',
+      placeSource: 'session-join',
+    })
+  })
+
+  it('joins on the session, not the lane — the two collectors name lanes differently', () => {
+    const state = reduceAll([
+      f.llmUsage(placedUsage('sess-64'), { ts: 1_000, source: 'sessionlog' }),
+      f.llmCost(bareCost('sess-64'), { ts: 2_000, source: 'otel' }),
+    ])
+    expect(state.telemetry.costs[0]?.lane).toBe('otel-lane')
+    expect(state.telemetry.costs[0]?.branch).toBe('64-cost')
+  })
+
+  it('keeps unplaceable dollars visible under their lane rather than dropping or guessing them', () => {
+    const state = reduceAll([
+      f.llmUsage(placedUsage('sess-64'), { ts: 1_000, source: 'sessionlog' }),
+      // A different session entirely: nothing in the log says where it ran.
+      f.llmCost(bareCost('sess-unknown', 0.25), { ts: 2_000, source: 'otel' }),
+    ])
+    expect(state.telemetry.costs).toHaveLength(1)
+    expect(state.telemetry.costs[0]).toMatchObject({
+      lane: 'otel-lane',
+      costUsd: 0.25,
+      worktreePath: null,
+      branch: null,
+      placeSource: null,
+    })
+  })
+
+  it('never joins a cost that carries no session id at all', () => {
+    const state = reduceAll([
+      f.llmUsage(placedUsage('sess-64'), { ts: 1_000, source: 'sessionlog' }),
+      f.llmCost(bareCost(null), { ts: 2_000, source: 'otel' }),
+    ])
+    expect(state.telemetry.costs[0]).toMatchObject({ branch: null, placeSource: null })
+  })
+
+  it('lets the collector that was there outrank the join', () => {
+    const state = reduceAll([
+      f.llmCost(
+        { ...bareCost('sess-64'), worktreePath: '/repo/wt/reported', branch: 'reported' },
+        { ts: 1_000, source: 'sessionlog' },
+      ),
+      f.llmUsage(placedUsage('sess-64'), { ts: 2_000, source: 'sessionlog' }),
+    ])
+    expect(state.telemetry.costs[0]).toMatchObject({
+      worktreePath: '/repo/wt/reported',
+      branch: 'reported',
+      placeSource: 'source',
+    })
+  })
+
+  it('completes a half-known place when the missing half arrives later', () => {
+    const state = reduceAll([
+      // The worktree is learned first, the branch only later.
+      f.llmUsage(
+        { lane: 'sessionlog-lane', sessionId: 'sess-64', worktreePath: '/repo/wt/64-cost', branch: null },
+        { ts: 1_000, source: 'sessionlog' },
+      ),
+      f.llmCost(bareCost('sess-64'), { ts: 2_000, source: 'otel' }),
+      f.llmUsage(placedUsage('sess-64'), { ts: 3_000, source: 'sessionlog' }),
+    ])
+    expect(state.telemetry.costs[0]).toMatchObject({
+      worktreePath: '/repo/wt/64-cost',
+      branch: '64-cost',
+      placeSource: 'session-join',
+    })
+  })
+
+  it('records where each session runs, learned from whichever event knew', () => {
+    const state = reduceAll([
+      f.llmCost(bareCost('sess-64'), { ts: 1_000, source: 'otel' }),
+      f.llmUsage(placedUsage('sess-64'), { ts: 2_000, source: 'sessionlog' }),
+      // A later bare event must not unlearn the place.
+      f.llmCost(bareCost('sess-64'), { ts: 3_000, source: 'otel' }),
+    ])
+    expect(state.telemetry.sessions['sess-64']).toEqual({
+      sessionId: 'sess-64',
+      worktreePath: '/repo/wt/64-cost',
+      branch: '64-cost',
+      firstSeenAt: 1_000,
+      lastSeenAt: 3_000,
+    })
+  })
+
+  it('teaches the bare lane its place too, whichever order the two sides arrive in', () => {
+    const costFirst = reduceAll([
+      f.llmCost(bareCost('sess-64'), { ts: 1_000, source: 'otel' }),
+      f.llmUsage(placedUsage('sess-64'), { ts: 2_000, source: 'sessionlog' }),
+    ])
+    const usageFirst = reduceAll([
+      f.llmUsage(placedUsage('sess-64'), { ts: 1_000, source: 'sessionlog' }),
+      f.llmCost(bareCost('sess-64'), { ts: 2_000, source: 'otel' }),
+    ])
+    for (const state of [costFirst, usageFirst]) {
+      expect(state.telemetry.lanes['otel-lane']).toMatchObject({
+        worktreePath: '/repo/wt/64-cost',
+        branch: '64-cost',
+      })
+    }
+  })
+
+  it('leaves a lane that shares no session with anything placed exactly as bare as it was', () => {
+    const state = reduceAll([
+      f.llmUsage(placedUsage('sess-64'), { ts: 1_000, source: 'sessionlog' }),
+      f.llmCost(bareCost('sess-elsewhere'), { ts: 2_000, source: 'otel' }),
+    ])
+    expect(state.telemetry.lanes['otel-lane']).toMatchObject({
+      worktreePath: null,
+      branch: null,
+    })
+  })
+
+  it('folds the same log to the same state whichever order the pair arrives in', () => {
+    const usageEvent = f.llmUsage(placedUsage('sess-64'), { ts: 1_000, source: 'sessionlog' })
+    const costEvent = f.llmCost(bareCost('sess-64'), { ts: 2_000, source: 'otel' })
+    const usageFirst = reduceAll([usageEvent, costEvent])
+    const costFirst = reduceAll([costEvent, usageEvent])
+    // Records keep observation order, so compare the placed facts themselves.
+    expect(costFirst.telemetry.costs).toEqual(usageFirst.telemetry.costs)
+    expect(costFirst.telemetry.sessions).toEqual(usageFirst.telemetry.sessions)
+    expect(costFirst.telemetry.lanes).toEqual(usageFirst.telemetry.lanes)
+  })
+
+  it('is pure — reconciling does not mutate the state it read', () => {
+    const before = reduceAll([f.llmCost(bareCost('sess-64'), { ts: 1_000, source: 'otel' })])
+    const snapshot = JSON.parse(JSON.stringify(before)) as unknown
+    reduce(before, f.llmUsage(placedUsage('sess-64'), { ts: 2_000, source: 'sessionlog' }))
+    expect(JSON.parse(JSON.stringify(before))).toEqual(snapshot)
+  })
+})
+
+describe('reduce — the thread dimension', () => {
+  it('carries the thread each source named, on all three telemetry records', () => {
+    const state = reduceAll([
+      f.llmUsage({ lane: 'a', thread: 'subagent' }),
+      f.llmCost({ lane: 'a', thread: 'main' }),
+      f.toolActivity({ lane: 'a', tool: 'Bash', thread: 'auxiliary' }),
+    ])
+    expect(state.telemetry.usage[0]?.thread).toBe('subagent')
+    expect(state.telemetry.costs[0]?.thread).toBe('main')
+    expect(state.telemetry.tools[0]?.thread).toBe('auxiliary')
+  })
+
+  it('records "the source did not say" as null, never as main', () => {
+    const state = reduceAll([f.llmUsage({ lane: 'a' }), f.llmCost({ lane: 'a' })])
+    expect(state.telemetry.usage[0]?.thread).toBeNull()
+    expect(state.telemetry.costs[0]?.thread).toBeNull()
+  })
+
+  it('keeps the thread the one collector that parsed it reported, across a dedup fold', () => {
+    const state = reduceAll([
+      f.llmUsage(
+        { lane: 'a', requestId: 'req_dup', thread: null, worktreePath: null, branch: null },
+        { ts: 1_000, source: 'otel' },
+      ),
+      f.llmUsage(
+        { lane: 'a', requestId: 'req_dup', thread: 'subagent' },
+        { ts: 1_100, source: 'sessionlog' },
+      ),
+    ])
+    expect(state.telemetry.usage).toHaveLength(1)
+    expect(state.telemetry.usage[0]?.thread).toBe('subagent')
+  })
+})
+
 describe('reduce — tool.activity', () => {
   it('records the tool, the lane and a role only when one was reported', () => {
     const state = reduceAll([
@@ -293,7 +505,7 @@ describe('reduce — the lane index', () => {
 describe('reduce — additivity', () => {
   it('leaves telemetry empty for a log that has none', () => {
     const state = reduceAll(fixtureSession())
-    expect(state.telemetry).toEqual({ usage: [], costs: [], tools: [], lanes: {} })
+    expect(state.telemetry).toEqual({ usage: [], costs: [], tools: [], lanes: {}, sessions: {} })
   })
 
   it('folds the v0 half of a telemetry log to exactly the same state', () => {

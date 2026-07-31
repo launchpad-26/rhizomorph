@@ -1,6 +1,7 @@
 import type {
   AgentRole,
   AgentStatus,
+  AgentThread,
   Author,
   DirtyFile,
   FileChange,
@@ -145,7 +146,23 @@ export interface UsageRecord {
   sessionId: string | null
   worktreePath: string | null
   branch: string | null
+  /** Which thread of the session spent it; null when the source didn't say. */
+  thread: AgentThread | null
 }
+
+/**
+ * How a {@link CostRecord} learned the place (worktree/branch) it is booked
+ * against.
+ *
+ * - `source` — the `llm.cost` event carried it. Sessionlog attribution is
+ *   structural, so anything it emits lands here.
+ * - `session-join` — the collector didn't know (every OTel cost event: audit
+ *   §C, `parse-metrics.ts:145-146`) and the reducer filled it from another
+ *   event sharing its `sessionId`, the documented join key.
+ * - `null` — nothing to join against yet. The dollars stay visible under their
+ *   lane with no branch; they are never guessed and never dropped.
+ */
+export type CostPlaceSource = 'source' | 'session-join'
 
 export interface CostRecord {
   eventId: string
@@ -162,6 +179,10 @@ export interface CostRecord {
   sessionId: string | null
   worktreePath: string | null
   branch: string | null
+  /** Null while the dollars have no resolvable place. See {@link CostPlaceSource}. */
+  placeSource: CostPlaceSource | null
+  /** Which thread of the session spent it; null when the source didn't say. */
+  thread: AgentThread | null
 }
 
 export interface ToolActivityRecord {
@@ -176,6 +197,8 @@ export interface ToolActivityRecord {
   sessionId: string | null
   worktreePath: string | null
   branch: string | null
+  /** Which thread of the session ran it; null when the source didn't say. */
+  thread: AgentThread | null
 }
 
 /**
@@ -194,15 +217,37 @@ export interface LaneAttribution {
   lastSeenAt: number
 }
 
+/**
+ * Where an agent CLI session was running, learned from whichever telemetry
+ * event happened to know. This is the index that makes dollars reach a branch:
+ * OTel cost events carry a `sessionId` and no place, sessionlog usage carries
+ * both, and `sessionId` is the documented join key between the two collectors
+ * (`events/telemetry.ts`). Keyed by session id, not by lane — the same session
+ * can be reported under two different lane handles by the two collectors,
+ * which is exactly the case a lane-keyed index cannot join.
+ *
+ * Last non-null wins, same rule as {@link LaneAttribution}: a place is learned
+ * once and never unlearned by a later event that simply didn't know it.
+ */
+export interface SessionPlace {
+  sessionId: string
+  worktreePath: string | null
+  branch: string | null
+  firstSeenAt: number
+  lastSeenAt: number
+}
+
 export interface TelemetryState {
   usage: UsageRecord[]
   costs: CostRecord[]
   tools: ToolActivityRecord[]
   lanes: Record<string, LaneAttribution>
+  /** Session id → where it ran. See {@link SessionPlace}. */
+  sessions: Record<string, SessionPlace>
 }
 
 export function initialTelemetryState(): TelemetryState {
-  return { usage: [], costs: [], tools: [], lanes: {} }
+  return { usage: [], costs: [], tools: [], lanes: {}, sessions: {} }
 }
 
 export interface SessionState {

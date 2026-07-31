@@ -8,10 +8,12 @@ import type {
   BranchState,
   CollectorState,
   CommitRecord,
+  CostPlaceSource,
   CostRecord,
   ErrorRecord,
   LaneAttribution,
   PaneState,
+  SessionPlace,
   SessionState,
   TelemetryState,
   ToolActivityRecord,
@@ -355,6 +357,7 @@ function llmUsage(state: SessionState, event: EventOf<'llm.usage'>): SessionStat
     sessionId: p.sessionId ?? null,
     worktreePath: p.worktreePath ?? null,
     branch: p.branch ?? null,
+    thread: p.thread ?? null,
   }
   return withTelemetry(state, event, p, (telemetry) => ({
     ...telemetry,
@@ -408,11 +411,26 @@ function foldUsage(existing: UsageRecord, incoming: UsageRecord): UsageRecord {
     branch: winner.branch ?? loser.branch,
     sessionId: winner.sessionId ?? loser.sessionId,
     durationMs: winner.durationMs ?? loser.durationMs,
+    // Whichever side named the thread wins over the side that stayed silent:
+    // the two collectors read it from different markers (`query_source` vs
+    // `isSidechain`) and only one of them may have been parsed for this
+    // request.
+    thread: winner.thread ?? loser.thread,
   }
 }
 
+/**
+ * Dollars, placed. An OTel `llm.cost` knows the session and the money and
+ * nothing about where the agent was working (audit §C), so the branch/worktree
+ * comes from the session index if anything there knows it yet — see
+ * {@link resolvePlace}. If nothing does, the record is stored unplaced and
+ * {@link placeCosts} comes back for it when the usage side finally says where
+ * that session lives. Either arrival order lands the same dollars on the same
+ * branch; neither drops them.
+ */
 function llmCost(state: SessionState, event: EventOf<'llm.cost'>): SessionState {
   const p = event.payload
+  const place = resolvePlace(state.telemetry.sessions, p)
   const record: CostRecord = {
     eventId: event.id,
     ts: event.ts,
@@ -425,13 +443,42 @@ function llmCost(state: SessionState, event: EventOf<'llm.cost'>): SessionState 
     estimateSource: p.estimateSource ?? null,
     requestId: p.requestId ?? null,
     sessionId: p.sessionId ?? null,
-    worktreePath: p.worktreePath ?? null,
-    branch: p.branch ?? null,
+    worktreePath: place.worktreePath,
+    branch: place.branch,
+    placeSource: place.placeSource,
+    thread: p.thread ?? null,
   }
   return withTelemetry(state, event, p, (telemetry) => ({
     ...telemetry,
     costs: [...telemetry.costs, record],
   }))
+}
+
+/**
+ * The cost side of the session join, at arrival time: what the event itself
+ * said, else what the session index already knows, else nothing.
+ *
+ * An event that named any part of its own place is `'source'` and is left
+ * alone by later reconciliation — the collector that was actually there
+ * outranks an inference, even ours.
+ */
+function resolvePlace(
+  sessions: Readonly<Record<string, SessionPlace>>,
+  p: TelemetryAttribution,
+): { worktreePath: string | null; branch: string | null; placeSource: CostPlaceSource | null } {
+  const reportedWorktree = p.worktreePath ?? null
+  const reportedBranch = p.branch ?? null
+  if (reportedWorktree !== null || reportedBranch !== null) {
+    return { worktreePath: reportedWorktree, branch: reportedBranch, placeSource: 'source' }
+  }
+  const known = p.sessionId === null || p.sessionId === undefined ? undefined : sessions[p.sessionId]
+  const worktreePath = known?.worktreePath ?? null
+  const branch = known?.branch ?? null
+  return {
+    worktreePath,
+    branch,
+    placeSource: worktreePath === null && branch === null ? null : 'session-join',
+  }
 }
 
 function toolActivity(state: SessionState, event: EventOf<'tool.activity'>): SessionState {
@@ -447,6 +494,7 @@ function toolActivity(state: SessionState, event: EventOf<'tool.activity'>): Ses
     sessionId: p.sessionId ?? null,
     worktreePath: p.worktreePath ?? null,
     branch: p.branch ?? null,
+    thread: p.thread ?? null,
   }
   return withTelemetry(state, event, p, (telemetry) => ({
     ...telemetry,
@@ -463,9 +511,17 @@ interface TelemetryAttribution {
 }
 
 /**
- * Appends a telemetry record and keeps the lane index in step. Attribution is
- * last-non-null-wins: OTel datapoints carry no cwd, so a lane's worktree may
- * only ever be learned from the sessionlog side and must not be unlearned.
+ * Appends a telemetry record and keeps the lane and session indexes in step.
+ * Attribution is last-non-null-wins: OTel datapoints carry no cwd, so a lane's
+ * worktree may only ever be learned from the sessionlog side and must not be
+ * unlearned.
+ *
+ * This is also where the join catches up. Every event that names a place for a
+ * session teaches {@link SessionPlace}, and anything already stored unplaced
+ * for that session — costs, and the lanes those costs were booked under — is
+ * reconciled against what we now know. That is what makes the join
+ * order-independent: the dollars land on the same branch whether the cost
+ * arrived before or after the usage that placed its session.
  */
 function withTelemetry(
   state: SessionState,
@@ -474,20 +530,96 @@ function withTelemetry(
   append: (telemetry: TelemetryState) => TelemetryState,
 ): SessionState {
   const appended = append(state.telemetry)
+  const sessions = upsertSessionPlace(appended.sessions, attribution, event.ts)
+  const place = attribution.sessionId == null ? undefined : sessions[attribution.sessionId]
+  const lanes = {
+    ...appended.lanes,
+    [attribution.lane]: upsertLane(appended.lanes[attribution.lane], attribution, event.ts),
+  }
   return {
     ...state,
     telemetry: {
       ...appended,
-      lanes: {
-        ...appended.lanes,
-        [attribution.lane]: upsertLane(
-          appended.lanes[attribution.lane],
-          attribution,
-          event.ts,
-        ),
-      },
+      costs: placeCosts(appended.costs, place),
+      lanes: placeLanes(lanes, place),
+      sessions,
     },
   }
+}
+
+/** Learns where a session runs, from whichever event happened to know. */
+function upsertSessionPlace(
+  sessions: Readonly<Record<string, SessionPlace>>,
+  p: TelemetryAttribution,
+  ts: number,
+): Record<string, SessionPlace> {
+  const sessionId = p.sessionId ?? null
+  if (sessionId === null) return sessions
+  const prev = sessions[sessionId]
+  const next: SessionPlace = {
+    sessionId,
+    worktreePath: p.worktreePath ?? prev?.worktreePath ?? null,
+    branch: p.branch ?? prev?.branch ?? null,
+    firstSeenAt: prev === undefined ? ts : Math.min(prev.firstSeenAt, ts),
+    lastSeenAt: prev === undefined ? ts : Math.max(prev.lastSeenAt, ts),
+  }
+  return { ...sessions, [sessionId]: next }
+}
+
+/**
+ * Fills in the branch/worktree of every cost record that shares this session
+ * and had none — the retroactive half of the join, for costs that arrived
+ * before anything knew where their session was running.
+ *
+ * A record whose own event named a place (`placeSource: 'source'`) is never
+ * touched: the collector that was there outranks the inference. Records
+ * already placed by an earlier join are topped up field by field, so learning
+ * the branch later than the worktree still completes them. Returns the array
+ * unchanged when nothing moved, so the common case allocates nothing.
+ */
+function placeCosts(
+  costs: readonly CostRecord[],
+  place: SessionPlace | undefined,
+): CostRecord[] {
+  if (place === undefined) return costs as CostRecord[]
+  if (place.worktreePath === null && place.branch === null) return costs as CostRecord[]
+  let changed = false
+  const next = costs.map((cost) => {
+    if (cost.placeSource === 'source' || cost.sessionId !== place.sessionId) return cost
+    const worktreePath = cost.worktreePath ?? place.worktreePath
+    const branch = cost.branch ?? place.branch
+    if (worktreePath === cost.worktreePath && branch === cost.branch) return cost
+    changed = true
+    return { ...cost, worktreePath, branch, placeSource: 'session-join' as const }
+  })
+  return changed ? next : (costs as CostRecord[])
+}
+
+/**
+ * The same catch-up for lane identity. A lane whose events never carried a
+ * place (the OTel side of a session) inherits the place of a session it has
+ * been seen under — two lane handles sharing a `sessionId` are two collectors'
+ * names for one agent session, so they ran in one worktree. Only nulls are
+ * filled; nothing already known is overwritten.
+ */
+function placeLanes(
+  lanes: Readonly<Record<string, LaneAttribution>>,
+  place: SessionPlace | undefined,
+): Record<string, LaneAttribution> {
+  if (place === undefined) return lanes
+  if (place.worktreePath === null && place.branch === null) return lanes
+  let changed = false
+  const next: Record<string, LaneAttribution> = { ...lanes }
+  for (const [name, lane] of Object.entries(lanes)) {
+    if (lane.worktreePath !== null && lane.branch !== null) continue
+    if (!lane.sessionIds.includes(place.sessionId)) continue
+    const worktreePath = lane.worktreePath ?? place.worktreePath
+    const branch = lane.branch ?? place.branch
+    if (worktreePath === lane.worktreePath && branch === lane.branch) continue
+    next[name] = { ...lane, worktreePath, branch }
+    changed = true
+  }
+  return changed ? next : lanes
 }
 
 function upsertLane(
