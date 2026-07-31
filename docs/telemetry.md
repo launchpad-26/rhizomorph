@@ -116,6 +116,92 @@ all (`research/2026-07-30-telemetry-capture-routes.md` §S2). So a directory
 full of token counts is not proof the conductor's dollars were ever measured,
 and the spend panel's dollar headline says so.
 
+## What is a token (not a unit)
+
+**Operator ruling, 2026-07:** a "token" is not one unit. `TokenTotals`
+(`packages/core/src/events/telemetry.ts`) carries four cache tiers that price
+out very differently, so summing all four into one number and calling it "the
+tokens" hides a mix of things worth up to ~50x apart. The Observatory's
+standing rule since this ruling: **no unlabelled all-tier total, anywhere in
+the product.** `TokenTotals.total` still exists on the type for a caller that
+genuinely wants the raw sum, but nothing sorts, ranks, or headlines by it, and
+no panel renders it without naming the tiers behind it.
+
+### The four tiers
+
+- **output** — tokens the model produced this turn: the actual work. This is
+  the headline figure everywhere the dashboard shows a single token count,
+  because it is immune to being inflated by, say, a polling conductor
+  re-reading its own growing context every cycle.
+- **input** — fresh, not-previously-cached tokens read into context: new
+  material the model had to actually process cold.
+- **cache read** (`cacheRead`) — tokens served from the prompt cache: context
+  that was already primed on an earlier turn and is being re-read now, cheap
+  because the model doesn't reprocess it from scratch.
+- **cache write** (`cacheCreation`) — tokens newly written into the prompt
+  cache this turn, so a later turn can read them cheaply instead of paying
+  input price again.
+
+### Price ratios (as of 2026-07)
+
+| Tier | Relative to input |
+|---|---|
+| output | ≈5x |
+| input | 1x (baseline) |
+| cache write (`cacheCreation`) | ≈1.25x |
+| cache read (`cacheRead`) | ≈0.1x |
+
+These are ratios across current Claude models, checked against Anthropic's
+published per-model pricing as of 2026-07 — not a promise. Anthropic can and
+does reprice models, and a new model generation can ship with a different
+output/cache multiplier. Treat the exact multipliers as approximate and
+re-check the provider's current pricing before leaning on them for anything
+more precise than "output costs several times more than input, and a cache
+read costs a fraction of it."
+
+### Which number each dashboard surface shows, and why
+
+- **Spend ticker headline** — OUTPUT tokens, labelled "output tokens — work
+  produced." Beneath it, all four tiers render as their own labelled counts
+  (`packages/web/src/lib/format.ts`'s `TOKEN_TIERS`); cache tiers are
+  visually de-emphasized (dimmed, smaller bar segments) but never hidden.
+  Once a real `llm.cost` event has arrived, the dollar total and $/hour rate
+  sit alongside the token headline — dollars are never invented from tokens.
+- **Ledger TOKENS column, worktree table token fallback, replay bar** — same
+  output-led figure, with the full four-tier breakdown reachable via the
+  existing `title=` tooltip. Never the bare all-tier sum.
+- **Cost, with provenance, wherever OTel exists** — once a row has an
+  authoritative `llm.cost` event, it shows real dollars instead of a token
+  count at all; an estimate is flagged (`incl. estimate` / `est.`); a row
+  with no cost telemetry shows tokens, never an invented `$0.00`.
+
+### Rate limits: cache reads are why the tiers stay visible
+
+Cache reads are the cheapest tier in dollars (≈0.1x input) but they are not
+cheap against a **subscription plan's rate limit**. A lane that re-reads a
+large, growing context on every turn — a polling conductor is the obvious
+case — can burn through a meaningful share of the plan's rate-limit budget
+almost entirely on cache reads while barely moving the dollar total. A reader
+who only ever saw the output-led headline would have no way to see that
+coming; this is why the four-tier breakdown stays visible under the headline
+instead of collapsing into it.
+
+### The overhead ratio's definition, and what it replaced
+
+`RoleSpendSplit.overheadRatio` (`selectRoleSpend`,
+`packages/core/src/selectors/spend.ts`) is **conductor OUTPUT tokens ÷ worker
+OUTPUT tokens** — `null` unless both sides have reported output tokens,
+`unattributed` spend excluded from both sides. prd1's original definition
+divided all-tier totals; that definition was retired by this ruling, because
+an all-tier ratio let a polling conductor's cache-read traffic (re-sending
+the same growing context every poll) inflate the ratio far past what the
+conductor's actual work — its output — cost. Output is immune to that
+inflation, so it is the basis now.
+
+This is a different number from the spend panel's headline overhead figure —
+see the next section for the cost-based one and why the two are kept apart
+rather than reconciled.
+
 ## Two overhead numbers, and which is which
 
 There are two, they measure different things, and the audit's open question
@@ -123,19 +209,21 @@ There are two, they measure different things, and the audit's open question
 
 | Where | What it divides | Reads |
 |---|---|---|
-| `selectOverheadRatio` / `RoleSpendSplit.overheadRatio` (`packages/core/src/selectors/spend.ts`) | conductor **tokens** ÷ worker tokens | `null` unless both sides reported tokens |
+| `selectOverheadRatio` / `RoleSpendSplit.overheadRatio` (`packages/core/src/selectors/spend.ts`) | conductor **output tokens** ÷ worker output tokens | `null` unless both sides reported output tokens |
 | `selectCostOverhead` / `formatCostOverhead` (`packages/web/src/panels/spend/format.ts`), the spend panel's headline | conductor **dollars** ÷ worker dollars | `conductor not instrumented — see docs/telemetry.md` when the conductor has no `llm.cost` events |
 
 Issue #47 replaced the *panel headline* with the cost-based figure (and its
 commit message said "cost", which is what the audit tripped over). It did not
-change the core selector, and this issue does not either: **the core
-orchestration overhead ratio is and stays tokens ÷ tokens.** Tokens are the
-honest basis there, because cost is structurally absent for any lane the OTel
-exporter never covered — a sessionlog-only conductor has real tokens and no
-dollars at all, and a cost-based core selector would report `null` for it
-forever while a token-based one reports something true. The two numbers are
-kept apart rather than reconciled: the panel refuses to print a token ratio
-where a reader expects money, and the core selector refuses to pretend the
+change the core selector, and issue #69 re-based that core selector from an
+all-tier token sum to output tokens specifically (see "What is a token" above)
+without changing which of the two numbers the panel displays: **the core
+orchestration overhead ratio is and stays output tokens ÷ output tokens, never
+cost.** Tokens are the honest basis there, because cost is structurally absent
+for any lane the OTel exporter never covered — a sessionlog-only conductor has
+real tokens and no dollars at all, and a cost-based core selector would report
+`null` for it forever while a token-based one reports something true. The two
+numbers are kept apart rather than reconciled: the panel refuses to print a
+token ratio where a reader expects money, and the core selector refuses to pretend the
 tokens it can see are dollars it cannot.
 
 ## How dollars reach a branch — the `sessionId` join

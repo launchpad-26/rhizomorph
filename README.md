@@ -148,20 +148,32 @@ draws the same distinction for its own data: it says "Waiting for the
 stream…" while the connection isn't up yet, and something more specific like
 "No worktrees discovered yet" once connected but genuinely empty.
 
-A **spend ticker** panel shows the live token/dollar total, the $/hour burn
-rate, the worker/conductor/auxiliary split with the orchestration overhead
-ratio (conductor tokens ÷ worker tokens — prd1's headline number) picked out
-on its own, and per-lane mini-bars; it shows tokens only, with copy saying so
-outright, until a real `llm.cost` event has arrived — no invented dollars.
-The worktree table gains a **Cost** column alongside it (dollars once OTel's
-`cost_usd` is authoritative for that worktree, otherwise the raw token count)
-and a **Model** badge (the dominant model by tokens spent in that worktree).
+A **spend ticker** panel leads with an **output-token headline** — labelled
+"output tokens — work produced," never an unlabelled sum of all four token
+tiers — plus, once a real `llm.cost` event has arrived, the dollar total and
+$/hour burn rate beside it; no invented dollars. Beneath the headline, all
+four token tiers (output, input, cache read, cache write) render as their own
+labelled counts, cache tiers dimmed but never hidden — cache reads are cheap
+in dollars but dominate a subscription plan's rate-limit consumption, so they
+stay visible rather than collapsing into the headline. A **worker / conductor
+/ auxiliary** split shows each role's own output-token figure with its cache
+breakdown, next to the panel's own cost-based orchestration overhead figure
+(conductor dollars ÷ worker dollars, not tokens) — which reads "conductor not
+instrumented" instead of a fabricated ratio until the conductor has sent at
+least one cost event. Per-lane mini-bars are stacked by token tier. See
+[`docs/telemetry.md`](docs/telemetry.md) for the full token vocabulary and
+why no surface shows an unlabelled all-tier total. The worktree table gains a
+**Cost** column (dollars once OTel's `cost_usd` is authoritative for that
+worktree, otherwise the output-token figure — either way a tooltip shows the
+full four-tier breakdown) and a **Model** badge (the model with the most
+total tokens spent in that worktree).
 
 The replay bar has a one-click **"Replay this session's birth"** button — it
 picks the recorded session with the most history and jumps straight into
 playback, no picker required. A **session** dropdown next to it lists every
-recorded session if you'd rather choose by hand. See
-[`docs/demo.md`](docs/demo.md) for the full replay walkthrough.
+recorded session if you'd rather choose by hand; its spend figures follow the
+same rule — dollars once authoritative, the output-token figure otherwise.
+See [`docs/demo.md`](docs/demo.md) for the full replay walkthrough.
 
 ## The worktrees-challenge context
 
