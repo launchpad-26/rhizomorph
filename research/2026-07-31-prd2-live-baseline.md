@@ -82,6 +82,22 @@ resume-the-run, #59 cross-collector dedup). Server restarted on main
 
 Wave A's demo criterion — "spend starts at zero" — holds in a real browser.
 
+## AFTER the token-semantics ruling (added 2026-07-31 ~15:05 NZST)
+
+Lachlan's ruling ("a token is not a unit") landed as #69/#70; verified in a
+real browser on main `b544055`:
+
+- **Headline: "400.6K output tokens — work produced"** where the old display
+  would have shown ~110M unlabelled "tokens". The four tiers sit beneath it,
+  always visible: OUTPUT 400.6K / INPUT 7.1K / CACHE READ 106M / CACHE WRITE
+  3.5M — the 50× value difference between tiers is now on screen instead of
+  buried in a sum.
+- Ledger COST/TOKENS and the worktree table show labelled output figures
+  ("68.1K out"); breakdowns ride the existing tooltips. **No surface renders
+  an unlabelled all-tier total.**
+- The overhead ratio is conductor OUTPUT ÷ worker OUTPUT (#69) — a work
+  ratio a polling conductor's cache reads can no longer inflate.
+
 ## One copy tension worth a prd3 line
 
 "CONDUCTOR NOT INSTRUMENTED" sitting above an 896M-token conductor row is
