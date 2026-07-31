@@ -154,8 +154,11 @@ describe('selectSessionSpend', () => {
 
   it('counts only the origins asked for — the cross-validation dedup lever', () => {
     const state = fold(
-      f.llmUsage({ lane: 'a', tokens: tokens(1, 10) }),
-      f.llmUsage({ lane: 'a', tokens: tokens(1, 10) }, { source: 'otel' }),
+      // Distinct requestIds: two unrelated requests that happen to cross-validate
+      // in size, not a same-request duplicate (that case dedups in reduce.ts —
+      // see 'cross-collector dedup by requestId' in reduce.telemetry.test.ts).
+      f.llmUsage({ lane: 'a', tokens: tokens(1, 10), requestId: 'req_sessionlog' }),
+      f.llmUsage({ lane: 'a', tokens: tokens(1, 10), requestId: 'req_otel' }, { source: 'otel' }),
     )
     expect(selectSessionSpend(state).tokens.total).toBe(22)
     expect(selectSessionSpend(state, { origins: ['sessionlog'] }).tokens.total).toBe(11)

@@ -353,8 +353,57 @@ function llmUsage(state: SessionState, event: EventOf<'llm.usage'>): SessionStat
   }
   return withTelemetry(state, event, p, (telemetry) => ({
     ...telemetry,
-    usage: [...telemetry.usage, record],
+    usage: dedupedUsage(telemetry.usage, record),
   }))
+}
+
+/**
+ * Cross-collector dedup by `requestId`: sessionlog and OTel can both emit
+ * `llm.usage` for the same physical model request, and appending both would
+ * double the ledger's totals. A `requestId` is the only safe join key — a
+ * fuzzy join (sessionId+model+token-equality) would risk folding two distinct
+ * requests together and silently deleting real spend, so it is never
+ * attempted here.
+ *
+ * Events with no `requestId` (every OTel usage event today — see the comment
+ * on `parse-metrics.ts`'s `buildUsageEvent`) always append; they have no
+ * identity to dedup against, including each other.
+ *
+ * The match requires a *different* origin on purpose — this issue is
+ * cross-collector dedup, not a general one-request-per-id constraint. A
+ * collector re-emitting its own id (e.g. an overlapping resume window) is a
+ * separate collector-level concern; folding same-origin records here would
+ * risk hiding that bug instead of surfacing it.
+ */
+function dedupedUsage(usage: readonly UsageRecord[], incoming: UsageRecord): UsageRecord[] {
+  if (incoming.requestId === null) return [...usage, incoming]
+  const index = usage.findIndex(
+    (existing) => existing.requestId === incoming.requestId && existing.origin !== incoming.origin,
+  )
+  if (index === -1) return [...usage, incoming]
+  const next = usage.slice()
+  next[index] = foldUsage(usage[index]!, incoming)
+  return next
+}
+
+/**
+ * Folds a duplicate request into one record — never sums the two sides'
+ * tokens, since they describe the same request. Sessionlog wins for token
+ * detail (all four cache tiers) over OTel (input/output only), whichever of
+ * the pair arrived first; the loser's attribution fills in only where the
+ * winner is missing it (OTel carries no worktree/branch).
+ */
+function foldUsage(existing: UsageRecord, incoming: UsageRecord): UsageRecord {
+  const winner = existing.origin === 'sessionlog' ? existing : incoming
+  const loser = winner === existing ? incoming : existing
+  return {
+    ...loser,
+    ...winner,
+    worktreePath: winner.worktreePath ?? loser.worktreePath,
+    branch: winner.branch ?? loser.branch,
+    sessionId: winner.sessionId ?? loser.sessionId,
+    durationMs: winner.durationMs ?? loser.durationMs,
+  }
 }
 
 function llmCost(state: SessionState, event: EventOf<'llm.cost'>): SessionState {

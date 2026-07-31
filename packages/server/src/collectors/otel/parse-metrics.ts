@@ -139,6 +139,14 @@ function buildUsageEvent(
       role,
       model,
       tokens,
+      // Genuinely absent, not a gap we forgot to fill: `claude_code.token.usage`
+      // datapoint attributes are session.id, model, query_source, type, user.id,
+      // user.email, organization.id, terminal.type (research
+      // 2026-07-30-telemetry-capture-routes.md §S1, a live capture) — no request
+      // id, and every fixture in ./fixtures/ agrees. Inventing one (or joining on
+      // sessionId+model+token-equality) would risk folding two distinct requests
+      // into one in reduce.ts's dedup and silently deleting real spend, so this
+      // stays null until OTel actually carries the attribute.
       requestId: null,
       durationMs: null,
       sessionId,
@@ -182,6 +190,7 @@ function buildCostEvent(
     costUsd: value,
     authoritative: true,
     estimateSource: null,
+    // Same absence as buildUsageEvent's requestId: null — see the comment there.
     requestId: null,
     sessionId,
     worktreePath: null,

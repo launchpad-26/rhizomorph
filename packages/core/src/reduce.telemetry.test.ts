@@ -50,8 +50,10 @@ describe('reduce — llm.usage', () => {
 
   it('takes origin from the envelope, so both collectors stay distinguishable', () => {
     const state = reduceAll([
-      f.llmUsage({ lane: 'a' }),
-      f.llmUsage({ lane: 'a' }, { source: 'otel' }),
+      // Distinct requestIds: these are two unrelated requests, not a dup pair —
+      // see 'cross-collector dedup by requestId' below for the collision case.
+      f.llmUsage({ lane: 'a', requestId: 'req_a' }),
+      f.llmUsage({ lane: 'a', requestId: 'req_b' }, { source: 'otel' }),
     ])
     expect(state.telemetry.usage.map((record) => record.origin)).toEqual(['sessionlog', 'otel'])
   })
@@ -82,6 +84,105 @@ describe('reduce — llm.usage', () => {
       f.llmUsage({ lane: 'a', model: 'second' }, { ts: 3_000 }),
     ])
     expect(state.telemetry.usage.map((record) => record.model)).toEqual(['first', 'second'])
+  })
+
+  describe('cross-collector dedup by requestId', () => {
+    const sessionlogTokens = { input: 4, output: 100, cacheRead: 9_000, cacheCreation: 200 }
+    const otelTokens = { input: 0, output: 222_678, cacheRead: 0, cacheCreation: 0 }
+
+    it('counts a request once when sessionlog arrives first and OTel repeats it', () => {
+      const state = reduceAll([
+        f.llmUsage(
+          { lane: 'a', requestId: 'req_dup', tokens: sessionlogTokens, sessionId: 'sess-a' },
+          { ts: 1_000, source: 'sessionlog' },
+        ),
+        f.llmUsage(
+          { lane: 'a', requestId: 'req_dup', tokens: otelTokens, worktreePath: null, branch: null, sessionId: 'sess-a' },
+          { ts: 1_200, source: 'otel' },
+        ),
+      ])
+
+      expect(state.telemetry.usage).toHaveLength(1)
+      expect(state.telemetry.usage[0]).toMatchObject({
+        origin: 'sessionlog',
+        tokens: sessionlogTokens,
+        totalTokens: 9_304,
+      })
+    })
+
+    it('counts a request once when OTel arrives first and sessionlog repeats it', () => {
+      const state = reduceAll([
+        f.llmUsage(
+          { lane: 'a', requestId: 'req_dup', tokens: otelTokens, worktreePath: null, branch: null, sessionId: 'sess-a' },
+          { ts: 1_000, source: 'otel' },
+        ),
+        f.llmUsage(
+          { lane: 'a', requestId: 'req_dup', tokens: sessionlogTokens, sessionId: 'sess-a' },
+          { ts: 1_200, source: 'sessionlog' },
+        ),
+      ])
+
+      // Same requestId, opposite arrival order — sessionlog still wins the
+      // tier detail, and the total is the one request's tokens, not both.
+      expect(state.telemetry.usage).toHaveLength(1)
+      expect(state.telemetry.usage[0]).toMatchObject({
+        origin: 'sessionlog',
+        tokens: sessionlogTokens,
+        totalTokens: 9_304,
+      })
+    })
+
+    it('fills in attribution the winning side lacks, without letting the loser overwrite what the winner already knows', () => {
+      const state = reduceAll([
+        // OTel's own sessionId, no worktree/branch — the only new information it carries.
+        f.llmUsage(
+          {
+            lane: 'a',
+            requestId: 'req_dup',
+            tokens: otelTokens,
+            worktreePath: null,
+            branch: null,
+            sessionId: 'sess-otel-only',
+          },
+          { ts: 1_000, source: 'otel' },
+        ),
+        f.llmUsage(
+          {
+            lane: 'a',
+            requestId: 'req_dup',
+            tokens: sessionlogTokens,
+            worktreePath: '/repo/wt/a',
+            branch: 'a',
+            sessionId: null,
+          },
+          { ts: 1_200, source: 'sessionlog' },
+        ),
+      ])
+
+      expect(state.telemetry.usage[0]).toMatchObject({
+        worktreePath: '/repo/wt/a',
+        branch: 'a',
+        sessionId: 'sess-otel-only',
+      })
+    })
+
+    it('still accumulates distinct requestIds as separate records', () => {
+      const state = reduceAll([
+        f.llmUsage({ lane: 'a', requestId: 'req_1' }, { ts: 1_000 }),
+        f.llmUsage({ lane: 'a', requestId: 'req_2' }, { ts: 1_100 }),
+      ])
+      expect(state.telemetry.usage).toHaveLength(2)
+      expect(state.telemetry.usage.map((r) => r.requestId)).toEqual(['req_1', 'req_2'])
+    })
+
+    it('never dedups null-requestId events against each other', () => {
+      const state = reduceAll([
+        f.llmUsage({ lane: 'a', requestId: null, model: 'first' }, { ts: 1_000, source: 'otel' }),
+        f.llmUsage({ lane: 'a', requestId: null, model: 'second' }, { ts: 1_100, source: 'otel' }),
+      ])
+      expect(state.telemetry.usage).toHaveLength(2)
+      expect(state.telemetry.usage.map((r) => r.model)).toEqual(['first', 'second'])
+    })
   })
 })
 

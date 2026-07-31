@@ -110,6 +110,17 @@ describe('parseMetricsExport', () => {
     expect(serialised).not.toContain('user.email')
   })
 
+  it('always emits requestId: null — no real OTLP capture or fixture carries a request-id attribute', () => {
+    const result = parseMetricsExport(fixture('metrics-token-and-cost.json'), testEmitter())
+    const usage = result.events.filter((e) => e.type === 'llm.usage')
+    const costs = result.events.filter((e) => e.type === 'llm.cost')
+    expect(usage.length).toBeGreaterThan(0)
+    expect(costs.length).toBeGreaterThan(0)
+    for (const event of [...usage, ...costs]) {
+      expect((event.payload as { requestId: unknown }).requestId).toBeNull()
+    }
+  })
+
   it('infers role: conductor from lane === "conductor" with no explicit resource role attribute', () => {
     const result = parseMetricsExport(fixture('metrics-conductor.json'), testEmitter())
     expect(result.malformed).toBe(false)
