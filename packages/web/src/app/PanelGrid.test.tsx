@@ -1,15 +1,16 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { PanelGrid } from './PanelGrid.js'
+import { PANEL_IDS, PanelGrid } from './PanelGrid.js'
 
-// Same rationale as App.test.tsx: stub the lazily-imported panels so this
-// test is about the grid's own collapse chrome, not the real panels'
-// internals (which each have their own direct-import test file).
-vi.mock('../panels/worktrees/index.js', () => ({ default: () => <h2>Worktrees</h2> }))
-vi.mock('../panels/collisions/index.js', () => ({ default: () => <h2>Collisions</h2> }))
-vi.mock('../panels/ticker/index.js', () => ({ default: () => <div>Commit ticker</div> }))
-vi.mock('../panels/spend/index.js', () => ({ default: () => <h2>Spend ticker</h2> }))
+// Stub the lazily-imported panels so this test is about the *registry* — which
+// panels are mounted, in what order, and whether collapse stays per-panel —
+// rather than about the real panels' internals, which each have their own
+// direct-import test file.
+vi.mock('../panels/fleet/index.js', () => ({ default: () => <h2>Fleet</h2> }))
 vi.mock('../panels/ledger/index.js', () => ({ default: () => <h2>Ledger</h2> }))
+vi.mock('../panels/collisions/index.js', () => ({ default: () => <h2>Collisions</h2> }))
+vi.mock('../panels/feed/index.js', () => ({ default: () => <h2>Activity</h2> }))
+vi.mock('../scene/index.js', () => ({ default: () => <div>Scene stub</div> }))
 
 beforeEach(() => {
   localStorage.clear()
@@ -33,11 +34,11 @@ afterEach(cleanup)
 // with `act(async () => {})` instead of a timed poll, so the assertions
 // that follow are plain synchronous queries with nothing left to race.
 async function renderGrid() {
-  await import('../panels/worktrees/index.js')
-  await import('../panels/collisions/index.js')
-  await import('../panels/ticker/index.js')
-  await import('../panels/spend/index.js')
+  await import('../panels/fleet/index.js')
   await import('../panels/ledger/index.js')
+  await import('../panels/collisions/index.js')
+  await import('../panels/feed/index.js')
+  await import('../scene/index.js')
 
   const utils = render(<PanelGrid />)
   await act(async () => {})
@@ -45,29 +46,46 @@ async function renderGrid() {
 }
 
 describe('PanelGrid', () => {
-  it('renders every panel expanded by default, collisions included', async () => {
+  it('renders every registered panel expanded by default, collisions included', async () => {
     await renderGrid()
 
-    expect(screen.getByText('Worktrees')).toBeInTheDocument()
-    expect(screen.getByText('Collisions')).toBeInTheDocument()
-    expect(screen.getByText('Commit ticker')).toBeInTheDocument()
-    expect(screen.getByText('Spend ticker')).toBeInTheDocument()
-    expect(screen.getByText('Ledger')).toBeInTheDocument()
+    for (const title of ['Fleet', 'Ledger', 'Collisions', 'Activity']) {
+      expect(screen.getByText(title)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: `Collapse ${title}` })).toBeInTheDocument()
+    }
+  })
 
-    expect(screen.getByRole('button', { name: 'Collapse Worktrees' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Collapse Collisions' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Collapse Commit ticker' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Collapse Spend ticker' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Collapse Ledger' })).toBeInTheDocument()
+  it('mounts the panels in the conductor-curated order, scene beneath the fleet table', async () => {
+    const { container } = await renderGrid()
+
+    // Ruling 6: fleet table → scene → the rest. The strips are docked in the
+    // Shell above this grid, and the provenance bar below it.
+    const headings = [...container.querySelectorAll('h2')].map((node) => node.textContent)
+    expect(headings).toEqual(['Fleet', 'Scene', 'Ledger', 'Collisions', 'Activity'])
+  })
+
+  it('no longer mounts the panels prd3 dissolved', async () => {
+    await renderGrid()
+
+    // worktrees → the fleet table (#78), ticker → the feed (#79), spend → the
+    // burn strip plus the ledger (#80). Their directories still exist; the
+    // shell just does not register them any more.
+    expect(screen.queryByText('Worktrees')).not.toBeInTheDocument()
+    expect(screen.queryByText('Commit ticker')).not.toBeInTheDocument()
+    expect(screen.queryByText('Spend ticker')).not.toBeInTheDocument()
+    for (const dissolved of ['worktrees', 'ticker', 'spend']) {
+      expect(PANEL_IDS as readonly string[]).not.toContain(dissolved)
+    }
   })
 
   it('collapsing one panel does not affect the others', async () => {
     await renderGrid()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse Worktrees' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Fleet' }))
 
-    expect(screen.queryByText('Worktrees')).not.toBeInTheDocument()
+    expect(screen.queryByText('Fleet')).not.toBeInTheDocument()
+    expect(screen.getByText('Ledger')).toBeInTheDocument()
     expect(screen.getByText('Collisions')).toBeInTheDocument()
-    expect(screen.getByText('Commit ticker')).toBeInTheDocument()
+    expect(screen.getByText('Activity')).toBeInTheDocument()
   })
 })

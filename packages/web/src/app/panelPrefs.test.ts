@@ -8,35 +8,35 @@ beforeEach(() => {
 describe('panelPrefs', () => {
   it('defaults every panel to expanded, including collisions (deliberate ruling)', () => {
     expect(isPanelCollapsed('collisions')).toBe(false)
-    expect(isPanelCollapsed('worktrees')).toBe(false)
-    expect(isPanelCollapsed('ticker')).toBe(false)
+    expect(isPanelCollapsed('fleet')).toBe(false)
+    expect(isPanelCollapsed('feed')).toBe(false)
     expect(isPanelCollapsed('some-future-panel')).toBe(false)
   })
 
   it('round-trips a collapsed state through localStorage', () => {
-    setPanelCollapsed('worktrees', true)
+    setPanelCollapsed('fleet', true)
 
-    expect(isPanelCollapsed('worktrees')).toBe(true)
+    expect(isPanelCollapsed('fleet')).toBe(true)
     expect(isPanelCollapsed('collisions')).toBe(false)
 
     const stored = JSON.parse(localStorage.getItem('observatory.panelCollapsed.v1') ?? '{}')
-    expect(stored).toEqual({ worktrees: true })
+    expect(stored).toEqual({ fleet: true })
   })
 
   it('round-trips back to expanded', () => {
-    setPanelCollapsed('ticker', true)
-    setPanelCollapsed('ticker', false)
+    setPanelCollapsed('feed', true)
+    setPanelCollapsed('feed', false)
 
-    expect(isPanelCollapsed('ticker')).toBe(false)
+    expect(isPanelCollapsed('feed')).toBe(false)
   })
 
   it('keeps per-panel state independent', () => {
-    setPanelCollapsed('worktrees', true)
+    setPanelCollapsed('fleet', true)
     setPanelCollapsed('collisions', true)
 
-    expect(isPanelCollapsed('worktrees')).toBe(true)
+    expect(isPanelCollapsed('fleet')).toBe(true)
     expect(isPanelCollapsed('collisions')).toBe(true)
-    expect(isPanelCollapsed('ticker')).toBe(false)
+    expect(isPanelCollapsed('feed')).toBe(false)
   })
 
   it('falls back to the default when stored JSON is malformed', () => {

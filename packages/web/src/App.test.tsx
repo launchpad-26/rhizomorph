@@ -20,15 +20,19 @@ import type { EventSourceLike } from './hooks/useEventStream.js'
 // already-resolved promises — is flushed deterministically with
 // `act(async () => {})` instead of a timed poll, so the assertions that
 // follow are plain synchronous queries with nothing left to race.
-vi.mock('./panels/worktrees/index.js', () => ({ default: () => <h2>Worktrees</h2> }))
-vi.mock('./panels/collisions/index.js', () => ({ default: () => <h2>Collisions</h2> }))
-vi.mock('./panels/ticker/index.js', () => ({ default: () => <div>Commit ticker</div> }))
-vi.mock('./panels/spend/index.js', () => ({ default: () => <h2>Spend ticker</h2> }))
+vi.mock('./panels/attention/index.js', () => ({ default: () => <div>Attention strip</div> }))
+vi.mock('./panels/burn/index.js', () => ({ default: () => <div>Burn strip</div> }))
+vi.mock('./panels/fleet/index.js', () => ({ default: () => <h2>Fleet</h2> }))
 vi.mock('./panels/ledger/index.js', () => ({ default: () => <h2>Ledger</h2> }))
+vi.mock('./panels/collisions/index.js', () => ({ default: () => <h2>Collisions</h2> }))
+vi.mock('./panels/feed/index.js', () => ({ default: () => <h2>Activity</h2> }))
 vi.mock('./replay/index.js', () => ({ default: () => <div>Replay stub</div> }))
 vi.mock('./scene/index.js', () => ({ default: () => <div>Scene stub</div> }))
 
 afterEach(cleanup)
+
+/** Pinned so the fixtures and the derived fleet never re-derive on a timer. */
+const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
 
 class FakeEventSource implements EventSourceLike {
   onopen: ((event: Event) => void) | null = null
@@ -47,23 +51,35 @@ class FakeEventSource implements EventSourceLike {
 }
 
 /**
+ * A server that has not shipped `/api/lanes` yet (#76) — the honest wave-1
+ * state. Injected rather than left to the ambient `fetch` so nothing in this
+ * suite depends on a network call that may or may not exist in the environment.
+ */
+const noLaneManifest = async () => ({ ok: false, json: async () => null })
+
+/**
  * jsdom has no `EventSource` global, so every render needs a mock source
  * injected. Also preloads every mocked lazy module and flushes the one
  * remaining suspend-then-resume tick before returning — see the top-of-file
  * comment — so callers can assert with plain synchronous queries.
  */
 async function renderApp() {
-  await import('./panels/worktrees/index.js')
-  await import('./panels/collisions/index.js')
-  await import('./panels/ticker/index.js')
-  await import('./panels/spend/index.js')
-  await import('./panels/ledger/index.js')
-  await import('./replay/index.js')
-  await import('./scene/index.js')
+  await Promise.all([
+    import('./panels/attention/index.js'),
+    import('./panels/burn/index.js'),
+    import('./panels/fleet/index.js'),
+    import('./panels/ledger/index.js'),
+    import('./panels/collisions/index.js'),
+    import('./panels/feed/index.js'),
+    import('./replay/index.js'),
+    import('./scene/index.js'),
+  ])
 
   let source: FakeEventSource | undefined
   const utils = render(
     <App
+      now={NOW}
+      fetchLanes={noLaneManifest}
       createSource={(url) => {
         expect(url).toBe('/api/stream')
         source = new FakeEventSource()
@@ -93,16 +109,26 @@ function fixtureEvents() {
 }
 
 describe('App', () => {
-  it('renders the instrument shell — scene slot, panel grid, replay bar', async () => {
-    await renderApp()
+  it('renders the instrument shell in the curated order (ruling 6)', async () => {
+    const { container } = await renderApp()
 
     expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
     expect(screen.getByText('connecting…')).toBeInTheDocument()
-    expect(screen.getByText('Worktrees')).toBeInTheDocument()
-    expect(screen.getByText('Collisions')).toBeInTheDocument()
-    expect(screen.getByText('Commit ticker')).toBeInTheDocument()
-    expect(screen.getByText('Spend ticker')).toBeInTheDocument()
-    expect(screen.getByText('Ledger')).toBeInTheDocument()
+
+    // attention + burn docked top → fleet → scene → the rest → provenance bar.
+    const marks = [...container.querySelectorAll('h1, h2')].map((node) => node.textContent)
+    expect(marks).toEqual([
+      'THE OBSERVATORY',
+      'Fleet',
+      'Scene',
+      'Ledger',
+      'Collisions',
+      'Activity',
+    ])
+    expect(screen.getByText('Attention strip')).toBeInTheDocument()
+    expect(screen.getByText('Burn strip')).toBeInTheDocument()
+    // The provenance bar stays docked at the bottom (ruling 15).
+    expect(screen.getByText('Sources')).toBeInTheDocument()
   })
 
   it('surfaces connection state and folds fixture events from a mock stream', async () => {
@@ -115,8 +141,8 @@ describe('App', () => {
       act(() => source()?.emit(event))
     }
 
-    // Stub panels don't read stream state yet — this proves the hook folded
-    // the events without the shell crashing or losing the connection badge.
+    // The panels here are stubs — this proves the shell folded the events
+    // without crashing or losing the connection badge.
     await waitFor(() => expect(screen.getByText('live')).toBeInTheDocument())
   })
 
