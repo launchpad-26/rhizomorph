@@ -6,6 +6,15 @@ instance — no restart between them.
 
 ## Setup (before anyone's watching)
 
+This script assumes a swarm to point at, but the Observatory itself doesn't
+require one — see the README's ["First run, nothing else set
+up"](../README.md#first-run-nothing-else-set-up) section for what an empty
+repo looks like and `observatory doctor` for diagnosing gaps. To run this
+demo for real you need a git-worktree swarm already going: several branches
+checked out as worktrees, with agents running in tmux panes (workmux is the
+easiest way to wire that up — see the README's "worktrees-challenge context"
+section).
+
 ```sh
 npm install
 npm run build   # builds packages/web
@@ -17,6 +26,24 @@ Open the printed `http://127.0.0.1:4321` in a browser, full-screen it.
 Leave the swarm's tmux/workmux session running in another window so the
 collectors have live agents and worktrees to report on — the Observatory is
 read-only and never touches it.
+
+**Telemetry, before you start Act 2.** The money layer only lights up once
+each lane exports to this Observatory's OTLP receiver, and that has to happen
+before you launch `claude` in a lane, not after. For every worker and
+conductor lane:
+
+```sh
+eval "$(node_modules/.bin/observatory env <lane> [--role worker|conductor|auxiliary])"
+# then launch claude in that same shell
+```
+
+`.workmux.yaml` already does this automatically for worker lanes started
+through workmux — nothing to set up by hand for those. A conductor (or any
+lane whose Claude Code session-log directory lives outside this repo's
+worktrees) needs `--extra-sessions <dir>` passed to `npm start` instead; see
+[`docs/telemetry.md`](telemetry.md). Do this now, before Act 1, so spend is
+already accumulating by the time Act 2 starts — walking up to a cold spend
+ticker mid-demo is the thing to avoid.
 
 ## Act 1 — live view of this repo's swarm
 

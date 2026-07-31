@@ -8,13 +8,28 @@ degrading gracefully, and reflects reality within a couple of seconds via
 polling. Read-only, always: it never sends keys, launches agents, or merges
 anything — see [`docs/vision.md`](docs/vision.md) for the full pitch.
 
+## Prerequisites
+
+- **Node 22 or newer.** Enforced via `engines` in `package.json` — `npm
+  install` will warn on an older Node.
+- **git.** The Observatory watches a git working tree; the directory you
+  point it at (default: cwd) must be one.
+- **tmux — optional.** Without it, the agent-status panel stays quiet (one
+  `collector.disabled` event) and the worktree table, commit ticker, and
+  collision matrix all keep working off git alone.
+- **[workmux](https://github.com/raine/workmux) — optional.** Without it,
+  the same graceful degradation applies to workmux-specific state (lane
+  labels, pane↔worktree wiring); nothing else is affected.
+
+Neither tmux nor workmux is required to see a working dashboard. Run
+`observatory doctor` (below) at any point to see exactly which of these are
+missing and what that costs you.
+
 ## Quickstart
 
-Requires Node 22 (enforced via `engines` — `npm install` will warn on an
-older Node) and, for the git/tmux/workmux collectors to have anything to
-report, a repo that already has worktrees and tmux panes running in it.
-
 ```sh
+git clone https://github.com/KelliherL/worktrees-challenge
+cd worktrees-challenge
 npm install
 npm run build   # builds the dashboard once; the server serves it statically
 npm start       # boots collectors + API on http://127.0.0.1:4321, watching the cwd
@@ -39,8 +54,55 @@ rebuild `packages/web` (`npm run build`) after front-end changes and restart
 **Not published to npm.** The obvious package name (`observatory`) is already
 taken by an unrelated project on the public registry, so there is no `npx
 observatory` yet — publishing under a different name is a later step, and
-picking that name isn't this issue's call to make. `npm install` + `npm start`
+picking that name isn't this issue's call to make. The clone-and-run sequence
 above is the only supported way to run this today.
+
+## First run, nothing else set up
+
+Point it at a fresh clone of some other repo — no worktrees beyond `main`, no
+tmux session, no telemetry configured — and here's exactly what you get, not
+a placeholder:
+
+- The **status bar** shows one dot per collector (Git, Tmux, Workmux) plus
+  the SSE stream dot. Git glows; Tmux and Workmux dim (nothing to report, not
+  an error) unless those tools aren't installed at all, in which case they
+  stay dim for a different reason — `observatory doctor` tells them apart.
+- The **worktree table** shows a single row for the main branch, no agent
+  status, no commit history beyond what's already in the repo.
+- The **collision matrix** and **commit ticker** stay empty until something
+  commits or two branches touch the same file.
+- The **spend ticker** shows "No spend recorded yet this session" — tokens
+  and dollars both start at zero, because this run has ingested nothing but
+  its own polling since it started.
+
+None of that is a bug. To tell "nothing to report" apart from "something's
+actually wrong," run the one command that explains every gap at once:
+
+```sh
+node_modules/.bin/observatory doctor
+```
+
+It checks the Node version, that the target path exists and is a git repo,
+that the web build is present, that the port is free, Claude Code session
+logs, tmux/workmux on `PATH`, and the telemetry env — one `ok`/`warn`/`FAIL`
+line per check, each with its exact remedy:
+
+```
+[ok  ] Node v22.23.2 satisfies the required >=22
+[ok  ] /path/to/worktrees-challenge exists and is a git repository
+[ok  ] web build present at /path/to/worktrees-challenge/packages/web/dist/index.html
+[ok  ] port 4321 is free
+[ok  ] Claude Code session logs found at ~/.claude/projects
+[ok  ] tmux found on PATH
+[ok  ] workmux found on PATH
+[warn] telemetry env is not set in this shell — spend stays at zero until you run `eval "$(observatory env <lane>)"` (see docs/telemetry.md)
+
+All required checks passed.
+```
+
+It exits non-zero only when the app genuinely cannot run at all (bad path,
+not a git repo, no web build, port already taken) — everything else is a
+`warn` that degrades gracefully rather than a reason to stop.
 
 ## Telemetry (the money layer)
 
@@ -182,3 +244,7 @@ Git stores the symlink, so a fresh clone gets it for free. Check with
 
 `workmux` is a CLI that must be installed separately; the skill is a reference
 for driving it, not a copy of it.
+
+## License
+
+[MIT](LICENSE)

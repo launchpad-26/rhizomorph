@@ -36,7 +36,7 @@ const SPECS: Spec[] = [
   { slug: '0-spike', branch: '0-spike', commits: 5, quietFor: 900, status: 'done', dirty: 0, removed: true },
 ]
 
-const REPO_PATH = '/home/operator/observatory'
+const REPO_PATH = '/home/demo/observatory'
 const MAIN_COMMITS = 11
 
 const MESSAGES = [
@@ -52,7 +52,7 @@ const MESSAGES = [
   'fix(tmux): pane id parsing on wrapped output',
 ]
 
-const AUTHORS = ['claude/opus', 'claude/sonnet', 'Lachlan Kelliher']
+const AUTHORS = ['claude/opus', 'claude/sonnet', 'Jordan Rivera']
 
 /**
  * @param now epoch ms the log should look "current" relative to. Defaults to
