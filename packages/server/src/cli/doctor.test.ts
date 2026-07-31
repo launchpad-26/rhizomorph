@@ -58,6 +58,9 @@ describe('runDoctor', () => {
   })
 
   it('reports ok on every check for a fully healthy machine and exits 0', async () => {
+    await mkdir(path.join(repoPath, '.swarm'), { recursive: true })
+    await writeFile(path.join(repoPath, '.swarm', 'lanes.json'), JSON.stringify({ version: 1, lanes: [] }))
+
     const report = await runDoctor({
       path: repoPath,
       port: 0,
@@ -80,6 +83,7 @@ describe('runDoctor', () => {
       'tmux',
       'workmux',
       'telemetry',
+      'lane-manifest',
     ])
   })
 
@@ -336,6 +340,49 @@ describe('runDoctor', () => {
     expect(telemetry.status).toBe('warn')
     expect(telemetry.message).toContain('docs/telemetry.md')
     expect(report.exitCode).toBe(0)
+  })
+
+  describe('lane manifest check', () => {
+    it('warns with a one-line fix when .swarm/lanes.json is absent, and does not fail the exit code', async () => {
+      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot })
+
+      const laneManifest = checkFor(report.checks, 'lane-manifest')
+      expect(laneManifest.status).toBe('warn')
+      expect(laneManifest.message).toContain('no lane manifest')
+      expect(laneManifest.message).toContain('.swarm/lanes.json')
+      expect(report.exitCode).toBe(0)
+    })
+
+    it('reports ok with the lane count when the manifest is present and valid', async () => {
+      await mkdir(path.join(repoPath, '.swarm'), { recursive: true })
+      await writeFile(
+        path.join(repoPath, '.swarm', 'lanes.json'),
+        JSON.stringify({
+          version: 1,
+          lanes: [{ handle: '77-attention-strip', branch: '77-attention-strip', fence: ['packages/web/**'] }],
+        }),
+      )
+
+      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot })
+
+      const laneManifest = checkFor(report.checks, 'lane-manifest')
+      expect(laneManifest.status).toBe('ok')
+      expect(laneManifest.message).toContain('1 lane')
+      expect(report.exitCode).toBe(0)
+    })
+
+    it('warns with the broken-file detail when the manifest is present but malformed, and does not fail the exit code', async () => {
+      await mkdir(path.join(repoPath, '.swarm'), { recursive: true })
+      await writeFile(path.join(repoPath, '.swarm', 'lanes.json'), '{ not valid json')
+
+      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot })
+
+      const laneManifest = checkFor(report.checks, 'lane-manifest')
+      expect(laneManifest.status).toBe('warn')
+      expect(laneManifest.message).toContain('is broken')
+      expect(laneManifest.message).toContain('not valid JSON')
+      expect(report.exitCode).toBe(0)
+    })
   })
 })
 

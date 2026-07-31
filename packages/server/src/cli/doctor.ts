@@ -5,6 +5,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Exec, ExecResult } from '@observatory/core'
+import { lanesManifestPath, readLanesManifest } from '../api/lanes.js'
 import { exec as realExec } from '../server/exec.js'
 
 /**
@@ -63,6 +64,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
     await checkOptionalTool('tmux', 'tmux', ['-V'], exec),
     await checkOptionalTool('workmux', 'workmux', ['status'], exec),
     checkTelemetryEnv(options.env ?? process.env),
+    await checkLaneManifest(repoPath),
   ]
 
   const exitCode = checks.some((check) => FAILING_CHECK_IDS.has(check.id) && check.status === 'fail') ? 1 : 0
@@ -237,5 +239,39 @@ function checkTelemetryEnv(env: NodeJS.ProcessEnv): DoctorCheck {
     status: 'warn',
     message:
       'telemetry env is not set in this shell — spend stays at zero until you run `eval "$(observatory env <lane>)"` (see docs/telemetry.md)',
+  }
+}
+
+/**
+ * Three-state vocabulary (#73), reused from `checkOptionalTool`: present-and-valid
+ * is `ok`; absent and present-but-broken are both `warn` (off-fence detection is an
+ * optional capability, not something the app needs to run), distinguished only by
+ * message — "no lane manifest" vs "is broken: <detail>".
+ */
+async function checkLaneManifest(repoPath: string): Promise<DoctorCheck> {
+  const manifestPath = lanesManifestPath(repoPath)
+  const result = await readLanesManifest(repoPath)
+
+  if (result.available) {
+    const count = result.lanes.length
+    return {
+      id: 'lane-manifest',
+      status: 'ok',
+      message: `lane manifest present and valid at ${manifestPath} — ${count} lane${count === 1 ? '' : 's'}`,
+    }
+  }
+
+  if (result.reason.startsWith('no lane manifest')) {
+    return {
+      id: 'lane-manifest',
+      status: 'warn',
+      message: `no lane manifest at ${manifestPath} — dispatch has not written .swarm/lanes.json yet; off-fence detection stays unavailable until a dispatch runs`,
+    }
+  }
+
+  return {
+    id: 'lane-manifest',
+    status: 'warn',
+    message: `lane manifest at ${manifestPath} is broken: ${result.reason}`,
   }
 }
