@@ -142,6 +142,11 @@ const defaults = {
     worktreePath: `${FIXTURE_REPO_PATH}-wt/feature`,
     branch: 'feature',
   },
+  'telemetry.refused': {
+    instance: 'other-observatory',
+    expectedInstance: 'fixture-instance',
+    count: 1,
+  },
 } as const satisfies { [T in EventType]: PayloadOf<T> }
 
 export function createEventFactory(options: EventFactoryOptions = {}): EventFactory {

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  AGENT_ROLES,
   reduceAll,
   selectLaneSpend,
   selectRoleSpend,
@@ -23,13 +22,22 @@ export interface SpendPanelProps {
   now?: number
 }
 
-const ROLE_LABEL: Record<AgentRole, string> = {
+/**
+ * The roles this panel splits spend across — the three `selectRoleSpend`
+ * reports, not every role the schema allows. prd2 added `unattributed` (#60):
+ * spend nobody claimed is a setup gap, so it gets its own surface (#62/#63)
+ * rather than a fourth column in the money split.
+ */
+const SPLIT_ROLES = ['worker', 'conductor', 'auxiliary'] as const satisfies readonly AgentRole[]
+type SplitRole = (typeof SPLIT_ROLES)[number]
+
+const ROLE_LABEL: Record<SplitRole, string> = {
   worker: 'Worker',
   conductor: 'Conductor',
   auxiliary: 'Auxiliary',
 }
 
-const ROLE_DOT_CLASS: Record<AgentRole, string> = {
+const ROLE_DOT_CLASS: Record<SplitRole, string> = {
   worker: 'bg-neon-cyan',
   conductor: 'bg-neon-magenta',
   auxiliary: 'bg-neon-amber',
@@ -122,7 +130,7 @@ export default function SpendPanel({ now: nowOverride }: SpendPanelProps = {}) {
               </span>
             </div>
             <ul className="mt-1 grid grid-cols-3 gap-2">
-              {AGENT_ROLES.map((role) => {
+              {SPLIT_ROLES.map((role) => {
                 const spend = roleSplit[role]
                 return (
                   <li

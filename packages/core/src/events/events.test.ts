@@ -211,5 +211,10 @@ function oneOfEach() {
       authoritative: true,
     }, { id: id(), ts: 14, source: 'otel' }),
     createEvent('tool.activity', { lane: 'feat', tool: 'Bash' }, { id: id(), ts: 15 }),
+    createEvent('telemetry.refused', {
+      instance: 'other-observatory',
+      expectedInstance: '1785458425389',
+      count: 3,
+    }, { id: id(), ts: 16 }),
   ]
 }

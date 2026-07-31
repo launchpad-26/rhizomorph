@@ -57,6 +57,8 @@ export const EVENT_SOURCE_BY_TYPE = {
   'llm.usage': 'sessionlog',
   'llm.cost': 'otel',
   'tool.activity': 'sessionlog',
+  // Only the OTLP receiver can refuse a post, so `otel` is not just primary here.
+  'telemetry.refused': 'otel',
 } as const satisfies Record<EventType, EventSource>
 
 export const EVENT_TYPES = Object.keys(EVENT_SOURCE_BY_TYPE) as EventType[]

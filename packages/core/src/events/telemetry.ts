@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { envelopeWithSources, nonEmptyString } from './common.js'
+import { envelope, envelopeWithSources, nonEmptyString } from './common.js'
 
 /**
  * prd1 — the money layer. Token, dollar and tool-activity facts, taken from the
@@ -35,11 +35,20 @@ const TELEMETRY_SOURCES = ['sessionlog', 'otel'] as const
  * - `conductor` — the orchestrator itself, wherever it runs.
  * - `auxiliary` — the CLI's own background calls: titles, summaries, the haiku
  *   traffic the OTel capture showed riding alongside a worker session.
+ * - `unattributed` — nobody said. prd2's ruling is that identity is declared at
+ *   the source, so a session that declared no role is booked here and shown as
+ *   a setup gap, never quietly filed as `worker` (which is what made a
+ *   conductor at the repo root read as worker spend in the live baseline).
  */
-export const agentRoleSchema = z.enum(['worker', 'conductor', 'auxiliary'])
+export const agentRoleSchema = z.enum(['worker', 'conductor', 'auxiliary', 'unattributed'])
 export type AgentRole = z.infer<typeof agentRoleSchema>
 
-export const AGENT_ROLES = ['worker', 'conductor', 'auxiliary'] as const satisfies readonly AgentRole[]
+export const AGENT_ROLES = [
+  'worker',
+  'conductor',
+  'auxiliary',
+  'unattributed',
+] as const satisfies readonly AgentRole[]
 
 /**
  * Lane for spend we could not attribute — an OTel datapoint that arrived with
@@ -120,6 +129,33 @@ export const toolActivityPayloadSchema = z.object({
 })
 export type ToolActivityPayload = z.infer<typeof toolActivityPayloadSchema>
 
+/**
+ * A telemetry export this Observatory refused: prd2's ruling is one repo, one
+ * Observatory, so a POST that does not carry our instance id is a
+ * misconfiguration (two servers, a stale env block, another repo's exporter) —
+ * surfaced as a setup gap, never silently merged into our numbers and never
+ * silently dropped.
+ *
+ * Recorded at most once per offender per minute with a `count`, not once per
+ * post: a misconfigured fleet exports every few seconds and must not be able to
+ * flood the log with what is a single standing fault.
+ */
+export const telemetryRefusedPayloadSchema = z.object({
+  /**
+   * The instance id the export declared, or `null` when it declared none — the
+   * "none" case a reader should render as such rather than as an empty string.
+   */
+  instance: nonEmptyString.nullable(),
+  /** Our instance id: what the export should have carried. */
+  expectedInstance: nonEmptyString,
+  /**
+   * Refusals from this offender since the last one we recorded, this one
+   * included. Always ≥ 1; > 1 means the throttle swallowed the rest.
+   */
+  count: z.number().int().positive(),
+})
+export type TelemetryRefusedPayload = z.infer<typeof telemetryRefusedPayloadSchema>
+
 export const llmUsageEventSchema = envelopeWithSources(
   TELEMETRY_SOURCES,
   'llm.usage',
@@ -136,10 +172,18 @@ export const toolActivityEventSchema = envelopeWithSources(
   toolActivityPayloadSchema,
 )
 
+/** Only our own receiver can refuse a post, so this one has a single source. */
+export const telemetryRefusedEventSchema = envelope(
+  'otel',
+  'telemetry.refused',
+  telemetryRefusedPayloadSchema,
+)
+
 export const telemetryEventSchemas = [
   llmUsageEventSchema,
   llmCostEventSchema,
   toolActivityEventSchema,
+  telemetryRefusedEventSchema,
 ] as const
 
 /** Sum of the four tiers — the one number a token total always means. */

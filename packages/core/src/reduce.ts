@@ -79,6 +79,11 @@ function applyEvent(state: SessionState, event: ObservatoryEvent): SessionState 
       return llmCost(state, event)
     case 'tool.activity':
       return toolActivity(state, event)
+    case 'telemetry.refused':
+      // A refusal is a setup gap, not spend: it stays in the log (and on the
+      // stream) for the UI to surface, and contributes nothing to any total.
+      // #62 gives it a home in state.
+      return state
     default: {
       // Exhaustive today; an unknown future type must never break a replay.
       const _never: never = event

@@ -9,6 +9,7 @@ import {
   llmUsageEventSchema,
   parseEvent,
   sourceOf,
+  telemetryRefusedEventSchema,
   toolActivityEventSchema,
   totalTokens,
 } from './index.js'
@@ -113,7 +114,8 @@ describe('llm.usage', () => {
     ).toThrow()
   })
 
-  it('accepts each of the three roles', () => {
+  it('accepts every declared role, including prd2 unattributed', () => {
+    expect(AGENT_ROLES).toContain('unattributed')
     for (const role of AGENT_ROLES) {
       const event = createEvent('llm.usage', { ...usage, role }, { id: 'evt-1', ts: 1 })
       expect(event.payload.role).toBe(role)
@@ -207,6 +209,64 @@ describe('tool.activity', () => {
         source: 'sessionlog',
         type: 'tool.activity',
         payload: { lane: 'l', tool: '' },
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('telemetry.refused', () => {
+  it('records the foreign instance, ours, and how many posts it stands for', () => {
+    expect(sourceOf('telemetry.refused')).toBe('otel')
+    const event = createEvent(
+      'telemetry.refused',
+      { instance: 'other-repo-42', expectedInstance: '1000', count: 7 },
+      { id: 'evt-1', ts: 1 },
+    )
+    expect(event.source).toBe('otel')
+    expect(event.payload).toEqual({
+      instance: 'other-repo-42',
+      expectedInstance: '1000',
+      count: 7,
+    })
+  })
+
+  it('distinguishes "declared nothing" from "declared someone else" with a null instance', () => {
+    const event = createEvent(
+      'telemetry.refused',
+      { instance: null, expectedInstance: '1000', count: 1 },
+      { id: 'evt-1', ts: 1 },
+    )
+    expect(event.payload.instance).toBeNull()
+  })
+
+  it('is part of the one event union every consumer reads', () => {
+    const parsed = parseEvent({
+      id: 'evt-1',
+      ts: 1,
+      source: 'otel',
+      type: 'telemetry.refused',
+      payload: { instance: null, expectedInstance: '1000', count: 1 },
+    })
+    expect(parsed.ok).toBe(true)
+  })
+
+  it('refuses a count that stands for no posts, and an empty expected instance', () => {
+    expect(
+      telemetryRefusedEventSchema.safeParse({
+        id: 'evt-1',
+        ts: 1,
+        source: 'otel',
+        type: 'telemetry.refused',
+        payload: { instance: 'x', expectedInstance: '1000', count: 0 },
+      }).success,
+    ).toBe(false)
+    expect(
+      telemetryRefusedEventSchema.safeParse({
+        id: 'evt-1',
+        ts: 1,
+        source: 'otel',
+        type: 'telemetry.refused',
+        payload: { instance: 'x', expectedInstance: '', count: 1 },
       }).success,
     ).toBe(false)
   })
