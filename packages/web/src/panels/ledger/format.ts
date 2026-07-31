@@ -1,27 +1,5 @@
 import type { AgentThread, SpendTotals } from '@observatory/core'
-
-const TOKEN_UNITS: readonly [threshold: number, suffix: string][] = [
-  [1_000_000_000, 'B'],
-  [1_000_000, 'M'],
-  [1_000, 'K'],
-]
-
-/** `1184279` → `"1.2M"`; small counts print exactly. */
-export function formatTokens(count: number): string {
-  for (const [threshold, suffix] of TOKEN_UNITS) {
-    if (count >= threshold) return `${trimTrailingZero((count / threshold).toFixed(1))}${suffix}`
-  }
-  return String(count)
-}
-
-function trimTrailingZero(value: string): string {
-  return value.endsWith('.0') ? value.slice(0, -2) : value
-}
-
-export function formatUsd(amountUsd: number): string {
-  if (amountUsd > 0 && amountUsd < 0.01) return '<$0.01'
-  return `$${amountUsd.toFixed(2)}`
-}
+import { formatTokenBreakdown, formatTokens, formatUsd } from '../../lib/format.js'
 
 /** `null` reads as "still going" or "never happened" depending on the caller — never `0m`. */
 export function formatElapsed(ms: number | null): string {
@@ -46,22 +24,31 @@ export function formatRelativeTime(ts: number | null, now: number): string {
 }
 
 /**
- * Dollars whenever any telemetry has priced this row, tokens alone when none
- * ever has — the null case in {@link SpendTotals.costIsAuthoritative} is "we
- * do not know", not "it was free", so it must never render as `$0.00`. Shared
- * by branch rows and their thread sub-rows: both are a {@link SpendTotals}.
+ * Dollars whenever any telemetry has priced this row, output tokens alone
+ * when none ever has — the null case in {@link SpendTotals.costIsAuthoritative}
+ * is "we do not know", not "it was free", so it must never render as `$0.00`.
+ * The fallback is output-led, never the unlabelled all-tier `.total` (prd2's
+ * ruling), and labelled `out` so it cannot be mistaken for one. Shared by
+ * branch rows and their thread sub-rows: both are a {@link SpendTotals}.
  */
 export function costCellText(row: SpendTotals): string {
-  if (row.costIsAuthoritative === null) return formatTokens(row.tokens.total)
+  if (row.costIsAuthoritative === null) return `${formatTokens(row.tokens.output)} out`
   return formatUsd(row.costUsd)
 }
 
 export function costCellTitle(row: SpendTotals): string {
-  if (row.costIsAuthoritative === null) return 'tokens shown — no cost telemetry yet'
+  if (row.costIsAuthoritative === null) {
+    return `output tokens shown — no cost telemetry yet (${formatTokenBreakdown(row.tokens)})`
+  }
   if (row.costIsAuthoritative === false) {
     return `includes an estimate, not fully authoritative (total ${formatUsd(row.costUsd)})`
   }
   return 'authoritative dollar cost (OTel)'
+}
+
+/** The TOKENS column's own tooltip: the full four-tier breakdown behind its output-led figure. */
+export function tokensCellTitle(row: SpendTotals): string {
+  return formatTokenBreakdown(row.tokens)
 }
 
 /** `null` is the source-didn't-say bucket — rendered as its own label, never folded into `main`. */

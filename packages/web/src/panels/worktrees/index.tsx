@@ -9,7 +9,7 @@ import {
   type WorktreeSpend,
 } from '@observatory/core'
 import { useStream } from '../../app/StreamContext.js'
-import { formatTokens, formatUsd } from './format.js'
+import { formatTokenBreakdown, formatTokens, formatUsd } from '../../lib/format.js'
 
 export interface WorktreesPanelProps {
   /** Test-only override so render tests don't depend on the wall clock. */
@@ -60,22 +60,24 @@ function formatRelativeTime(ts: number | null, now: number): string {
 
 /**
  * Dollars only once they are authoritative (OTel's own `cost_usd`); an estimate
- * or no cost telemetry at all falls back to the raw token count, which is
- * always a measured fact rather than a number this table had to trust.
+ * or no cost telemetry at all falls back to the output-led token figure —
+ * never the unlabelled all-tier `.total` (prd2's ruling) — which is always a
+ * measured fact rather than a number this table had to trust.
  */
 function costCellText(entry: WorktreeSpend | undefined): string {
   if (entry === undefined) return '—'
   if (entry.costIsAuthoritative === true) return formatUsd(entry.costUsd)
-  return formatTokens(entry.tokens.total)
+  return `${formatTokens(entry.tokens.output)} out`
 }
 
 function costCellTitle(entry: WorktreeSpend | undefined): string {
   if (entry === undefined) return 'no telemetry for this worktree'
   if (entry.costIsAuthoritative === true) return 'authoritative dollar cost (OTel)'
+  const breakdown = formatTokenBreakdown(entry.tokens)
   if (entry.costIsAuthoritative === false) {
-    return `tokens shown — cost is an estimate, not authoritative (≈${formatUsd(entry.costUsd)})`
+    return `output tokens shown — cost is an estimate, not authoritative (≈${formatUsd(entry.costUsd)}; ${breakdown})`
   }
-  return 'tokens shown — no cost telemetry yet'
+  return `output tokens shown — no cost telemetry yet (${breakdown})`
 }
 
 /** One row per worktree path, the model with the most tokens spent under it. */

@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import {
   FIXTURE_START_TS,
   createEventFactory,
@@ -13,14 +13,8 @@ import {
 import { afterEach, describe, expect, it } from 'vitest'
 import { StreamProvider } from '../../app/StreamContext.js'
 import type { EventSourceLike } from '../../hooks/useEventStream.js'
-import {
-  formatCostOrGap,
-  formatCostOverhead,
-  formatTokens,
-  formatUsd,
-  formatUsdPerHour,
-  selectCostOverhead,
-} from './format.js'
+import { formatTokens, formatUsd, formatUsdPerHour } from '../../lib/format.js'
+import { formatCostOrGap, formatCostOverhead, selectCostOverhead } from './format.js'
 import SpendPanel from './index.js'
 
 afterEach(cleanup)
@@ -93,14 +87,18 @@ describe('SpendPanel', () => {
 
     renderPanel(f.all())
 
-    expect(screen.getByTestId('spend-total-tokens')).toHaveTextContent(formatTokens(2_610))
+    // The headline is output tokens (500), never the all-tier sum (2_610).
+    const headline = screen.getByTestId('spend-total-tokens')
+    expect(headline).toHaveTextContent(formatTokens(500))
+    expect(headline).toHaveTextContent('output tokens — work produced')
+    expect(headline).not.toHaveTextContent(formatTokens(2_610))
     expect(screen.queryByTestId('spend-total-cost')).not.toBeInTheDocument()
     expect(screen.queryByTestId('spend-rate')).not.toBeInTheDocument()
     expect(screen.getByTestId('spend-honesty')).toHaveTextContent(
       'Tokens only — no cost events yet. Dollars are notional on subscription plans anyway.',
     )
     // The role split (tokens-only) still renders — it never depends on dollars.
-    expect(screen.getByTestId('spend-role-worker')).toHaveTextContent(formatTokens(2_610))
+    expect(screen.getByTestId('spend-role-worker')).toHaveTextContent(formatTokens(500))
   })
 
   it('shows the conductor as an instrumentation gap, never a ratio, when only its tokens are seen', () => {
@@ -137,12 +135,15 @@ describe('SpendPanel', () => {
       'conductor not instrumented — see docs/telemetry.md',
     )
     expect(screen.getByTestId('spend-overhead-ratio')).not.toHaveTextContent('×')
-    // The conductor's tokens still show up in the role split — only the ratio is gated.
-    expect(screen.getByTestId('spend-role-conductor')).toHaveTextContent(formatTokens(425_412))
+    // The conductor's OUTPUT tokens (5_600) show up in the role split, never
+    // the all-tier sum (425_412) — only the ratio is gated.
+    const conductorCard = screen.getByTestId('spend-role-conductor')
+    expect(conductorCard).toHaveTextContent(formatTokens(5_600))
+    expect(conductorCard).not.toHaveTextContent(formatTokens(425_412))
     // Its dollar figure must read as a gap, not the real-zero `$0.00` — that
     // would silently contradict the "not instrumented" headline right above it.
-    expect(screen.getByTestId('spend-role-conductor')).toHaveTextContent('no cost data')
-    expect(screen.getByTestId('spend-role-conductor')).not.toHaveTextContent('$0.00')
+    expect(conductorCard).toHaveTextContent('no cost data')
+    expect(conductorCard).not.toHaveTextContent('$0.00')
   })
 
   it('renders the full ticker with dollars, rate, honesty line, role split and lane bars', () => {
@@ -155,7 +156,7 @@ describe('SpendPanel', () => {
     renderPanel(fixtureTelemetrySession())
 
     expect(screen.getByTestId('spend-total-tokens')).toHaveTextContent(
-      formatTokens(totals.tokens.total),
+      formatTokens(totals.tokens.output),
     )
     expect(screen.getByTestId('spend-total-cost')).toHaveTextContent(formatUsd(totals.costUsd))
     // A mix of authoritative and estimated dollars must say so, not blend silently.
@@ -182,12 +183,13 @@ describe('SpendPanel', () => {
       // Every role here is fully instrumented, so the gap-aware formatter
       // renders the same real dollar figure `formatUsd` would.
       expect(roleSplit[role].costEventCount).toBeGreaterThan(0)
-      expect(screen.getByTestId(`spend-role-${role}`)).toHaveTextContent(
-        formatTokens(roleSplit[role].tokens.total),
-      )
-      expect(screen.getByTestId(`spend-role-${role}`)).toHaveTextContent(
-        formatCostOrGap(roleSplit[role]),
-      )
+      const card = screen.getByTestId(`spend-role-${role}`)
+      expect(card).toHaveTextContent(formatTokens(roleSplit[role].tokens.output))
+      expect(card).toHaveTextContent(formatCostOrGap(roleSplit[role]))
+      // All four tiers are visible on the card, not just the output headline.
+      expect(card).toHaveTextContent(`in ${formatTokens(roleSplit[role].tokens.input)}`)
+      expect(card).toHaveTextContent(`rd ${formatTokens(roleSplit[role].tokens.cacheRead)}`)
+      expect(card).toHaveTextContent(`wr ${formatTokens(roleSplit[role].tokens.cacheCreation)}`)
     }
 
     const laneRows = screen.getAllByTestId('spend-lane')
@@ -196,11 +198,38 @@ describe('SpendPanel', () => {
       const lane = lanes[index]!
       expect(lane.costEventCount).toBeGreaterThan(0)
       expect(row).toHaveTextContent(lane.lane)
-      expect(row).toHaveTextContent(formatTokens(lane.tokens.total))
+      expect(row).toHaveTextContent(formatTokens(lane.tokens.output))
       expect(row).toHaveTextContent(formatCostOrGap(lane))
+      // Never the unlabelled all-tier sum, even when it happens to differ from output.
+      if (lane.tokens.total !== lane.tokens.output) {
+        expect(row).not.toHaveTextContent(formatTokens(lane.tokens.total))
+      }
+      // Stacked bar: all four tiers get their own segment, muted for the cache pair.
+      for (const key of ['output', 'input', 'cacheRead', 'cacheCreation'] as const) {
+        expect(within(row).getByTestId(`spend-lane-segment-${key}`)).toBeInTheDocument()
+      }
     })
     // Dearest lane first — the conductor outspent every worker lane here.
     expect(lanes[0]!.lane).toBe('conductor')
+  })
+
+  it('renders all four token tiers, labelled, beneath the headline', () => {
+    renderPanel(fixtureTelemetrySession())
+
+    const totals = selectSessionSpend(reduceAll(fixtureTelemetrySession()))
+    const buckets = screen.getByTestId('spend-token-buckets')
+    expect(within(buckets).getByTestId('spend-bucket-output')).toHaveTextContent(
+      `output${formatTokens(totals.tokens.output)}`,
+    )
+    expect(within(buckets).getByTestId('spend-bucket-input')).toHaveTextContent(
+      `input${formatTokens(totals.tokens.input)}`,
+    )
+    expect(within(buckets).getByTestId('spend-bucket-cacheRead')).toHaveTextContent(
+      `cache read${formatTokens(totals.tokens.cacheRead)}`,
+    )
+    expect(within(buckets).getByTestId('spend-bucket-cacheCreation')).toHaveTextContent(
+      `cache write${formatTokens(totals.tokens.cacheCreation)}`,
+    )
   })
 
   it('shows the unattributed bucket as an actionable gap once a root session has booked spend against it', () => {
@@ -217,8 +246,9 @@ describe('SpendPanel', () => {
 
     renderPanel(f.all())
 
-    expect(screen.getByTestId('spend-unattributed-gap')).toHaveTextContent(
-      'tokens unattributed — claim with --extra-sessions <dir>:<lane> or observatory env',
+    const gap = screen.getByTestId('spend-unattributed-gap')
+    expect(gap).toHaveTextContent(
+      `${formatTokens(3_100)} output tokens unattributed — claim with --extra-sessions <dir>:<lane> or observatory env`,
     )
     expect(screen.queryByTestId('spend-refusal-gap')).not.toBeInTheDocument()
     // The unattributed bucket is not one of the three role-split columns.

@@ -152,9 +152,10 @@ describe('WorktreesPanel — cost and model', () => {
     expect(git[6]).toBe('$0.28')
     expect(git[7]).toBe('claude-opus-5')
 
-    // 7-web's only cost event is an estimate, so the honest cell falls back to tokens.
+    // 7-web's only cost event is an estimate, so the honest cell falls back to
+    // output-led tokens (2_400), never the unlabelled all-tier sum (101_702).
     const web = cells(findRow(rows, '7-web'))
-    expect(web[6]).toBe('101.7K')
+    expect(web[6]).toBe('2.4K out')
     expect(web[7]).toBe('claude-opus-5')
 
     // main never spent anything — stays blank, not a fabricated zero.
@@ -173,5 +174,18 @@ describe('WorktreesPanel — cost and model', () => {
     const main = findRow(rows, 'main')
     const mainCostCell = main.querySelectorAll('td')[6]
     expect(mainCostCell?.getAttribute('title')).toMatch(/no telemetry/i)
+  })
+
+  it('names all four token tiers in the fallback tooltip, never just the total', () => {
+    const { container } = renderPanel(fixtureTelemetrySession())
+    const rows = bodyRows(container)
+    const web = findRow(rows, '7-web')
+    const costCell = web.querySelectorAll('td')[6]
+    const title = costCell?.getAttribute('title') ?? ''
+    expect(title).toMatch(/output/)
+    expect(title).toMatch(/input/)
+    expect(title).toMatch(/cache read/)
+    expect(title).toMatch(/cache write/)
+    expect(title).not.toContain('101.7K')
   })
 })

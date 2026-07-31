@@ -9,7 +9,7 @@ import {
 import { afterEach, describe, expect, it } from 'vitest'
 import { StreamProvider } from '../../app/StreamContext.js'
 import type { EventSourceLike } from '../../hooks/useEventStream.js'
-import { formatTokens, formatUsd } from './format.js'
+import { formatTokenBreakdown, formatTokens, formatUsd } from '../../lib/format.js'
 import LedgerPanel from './index.js'
 
 afterEach(cleanup)
@@ -154,7 +154,9 @@ describe('LedgerPanel', () => {
     f.llmUsage({
       lane: 'tokens-only-branch',
       branch: 'tokens-only-branch',
-      tokens: { input: 1, output: 2_000, cacheRead: 0, cacheCreation: 0 },
+      // Cache-read-heavy on purpose: output (2_000) and the all-tier total
+      // (52_001) must render as visibly different figures.
+      tokens: { input: 1, output: 2_000, cacheRead: 50_000, cacheCreation: 0 },
     })
 
     renderPanel(f.all())
@@ -165,8 +167,32 @@ describe('LedgerPanel', () => {
     expect(estimatedRow).toHaveTextContent('est.')
 
     const tokensOnlyRow = rendered.find((el) => el.textContent?.includes('tokens-only-branch'))
-    expect(tokensOnlyRow).toHaveTextContent(formatTokens(2_001))
+    // Output-led (2_000), never the unlabelled all-tier sum (52_001).
+    expect(tokensOnlyRow).toHaveTextContent(formatTokens(2_000))
+    expect(tokensOnlyRow).not.toHaveTextContent(formatTokens(52_001))
     expect(tokensOnlyRow).not.toHaveTextContent('est.')
+  })
+
+  it('shows the TOKENS column as an output-led figure with the four-tier breakdown in its title', () => {
+    const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'tokcol' })
+    f.sessionStarted()
+    f.llmUsage({
+      lane: 'tokcol-branch',
+      branch: 'tokcol-branch',
+      tokens: { input: 4, output: 3_100, cacheRead: 180_000, cacheCreation: 6_400 },
+    })
+    f.llmCost({ lane: 'tokcol-branch', branch: 'tokcol-branch', costUsd: 0.42, authoritative: true })
+
+    renderPanel(f.all())
+
+    const row = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes('tokcol-branch'))!
+    const tokensCell = within(row).getByTestId('ledger-tokens')
+    // Output-led (3_100), never the unlabelled all-tier sum (189_504).
+    expect(tokensCell).toHaveTextContent(formatTokens(3_100))
+    expect(tokensCell).not.toHaveTextContent(formatTokens(189_504))
+    expect(tokensCell.getAttribute('title')).toBe(
+      formatTokenBreakdown({ input: 4, output: 3_100, cacheRead: 180_000, cacheCreation: 6_400, total: 189_504 }),
+    )
   })
 
   it('renders collapsed thread sub-rows for a mixed-thread lane that sum to its parent', () => {
@@ -203,7 +229,8 @@ describe('LedgerPanel', () => {
 
     const threadedRow = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes('threaded'))!
     expect(threadedRow).toHaveTextContent(formatUsd(0.15))
-    expect(threadedRow).toHaveTextContent(formatTokens(152))
+    // Output-led (150 = 100 + 50), never the unlabelled all-tier sum (152).
+    expect(threadedRow).toHaveTextContent(formatTokens(150))
 
     // Collapsed by default: the toggle is there, but no sub-rows have rendered yet.
     const toggle = within(threadedRow).getByTestId('ledger-thread-toggle')
@@ -216,10 +243,10 @@ describe('LedgerPanel', () => {
     expect(subrows).toHaveLength(2)
     expect(subrows[0]).toHaveTextContent('main')
     expect(subrows[0]).toHaveTextContent(formatUsd(0.1))
-    expect(subrows[0]).toHaveTextContent(formatTokens(101))
+    expect(subrows[0]).toHaveTextContent(formatTokens(100))
     expect(subrows[1]).toHaveTextContent('subagent')
     expect(subrows[1]).toHaveTextContent(formatUsd(0.05))
-    expect(subrows[1]).toHaveTextContent(formatTokens(51))
+    expect(subrows[1]).toHaveTextContent(formatTokens(50))
 
     // The sub-rows partition the parent's own numbers exactly.
     const session = reduceAll(f.all())

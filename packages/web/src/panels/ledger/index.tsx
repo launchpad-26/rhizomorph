@@ -1,13 +1,14 @@
 import { Fragment, useMemo, useState } from 'react'
 import { reduceAll, selectSpendByBranch } from '@observatory/core'
 import { useStream } from '../../app/StreamContext.js'
+import { formatTokens } from '../../lib/format.js'
 import {
   costCellText,
   costCellTitle,
   formatElapsed,
   formatRelativeTime,
-  formatTokens,
   threadLabel,
+  tokensCellTitle,
 } from './format.js'
 import { selectThreadRowsForBranch } from './threads.js'
 
@@ -136,8 +137,13 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
                           <span className="ml-1 text-[10px] font-normal text-slate-500">est.</span>
                         ) : null}
                       </td>
-                      <td className="py-1.5 pr-2 font-mono text-slate-400">
-                        {formatTokens(row.tokens.total)}
+                      <td
+                        className="py-1.5 pr-2 font-mono text-slate-400"
+                        data-testid="ledger-tokens"
+                        title={tokensCellTitle(row)}
+                      >
+                        {formatTokens(row.tokens.output)}
+                        <span className="ml-1 text-[10px] text-slate-500">out</span>
                       </td>
                       <td className="py-1.5 pr-2 text-slate-400">
                         {row.models.length === 0 ? '—' : row.models.join(', ')}
@@ -173,8 +179,13 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
                                 </span>
                               ) : null}
                             </td>
-                            <td className="py-1 pr-2 font-mono text-slate-400">
-                              {formatTokens(thread.tokens.total)}
+                            <td
+                              className="py-1 pr-2 font-mono text-slate-400"
+                              data-testid="ledger-subrow-tokens"
+                              title={tokensCellTitle(thread)}
+                            >
+                              {formatTokens(thread.tokens.output)}
+                              <span className="ml-1 text-[10px] text-slate-500">out</span>
                             </td>
                             <td className="py-1 pr-2 text-slate-400">
                               {thread.models.length === 0 ? '—' : thread.models.join(', ')}

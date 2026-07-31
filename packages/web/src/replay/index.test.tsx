@@ -253,7 +253,8 @@ describe('ReplayControls — spend', () => {
     const scrubber = screen.getByLabelText('Replay scrubber')
     fireEvent.change(scrubber, { target: { value: '3000' } })
     // Only the token-only llm.usage event has landed — no cost event yet.
-    await waitFor(() => expect(screen.getByText(/2 tok as of scrub time/)).toBeInTheDocument())
+    // The fallback is output-led (1), never the unlabelled all-tier sum (2).
+    await waitFor(() => expect(screen.getByText(/1 tok out as of scrub time/)).toBeInTheDocument())
   })
 
   it('switches the scrub line to dollars once an authoritative cost event lands', async () => {

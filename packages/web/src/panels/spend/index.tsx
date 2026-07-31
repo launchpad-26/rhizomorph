@@ -10,14 +10,12 @@ import {
   type AgentRole,
 } from '@observatory/core'
 import { useStream } from '../../app/StreamContext.js'
+import { formatTokenBreakdown, formatTokens, formatUsd, formatUsdPerHour, TOKEN_TIERS } from '../../lib/format.js'
 import {
   formatCostOrGap,
   formatCostOverhead,
   formatRefusalGap,
-  formatTokens,
   formatUnattributedGap,
-  formatUsd,
-  formatUsdPerHour,
   selectCostOverhead,
   selectRefusedCount,
 } from './format.js'
@@ -48,6 +46,19 @@ const ROLE_DOT_CLASS: Record<SplitRole, string> = {
   auxiliary: 'bg-neon-amber',
 }
 
+type TokenTierKey = (typeof TOKEN_TIERS)[number]['key']
+
+/** Cache tiers are dimmed everywhere they appear — never hidden, just de-emphasized (prd2's ruling). */
+const CACHE_TIERS = new Set<TokenTierKey>(['cacheRead', 'cacheCreation'])
+
+/** Stacked lane bar segment colours — output leads, cache tiers recede but stay visible. */
+const TIER_BAR_CLASS: Record<TokenTierKey, string> = {
+  output: 'bg-neon-cyan',
+  input: 'bg-neon-cyan/40',
+  cacheRead: 'bg-slate-500/40',
+  cacheCreation: 'bg-slate-500/25',
+}
+
 /** Re-ticks the clock so the rolling-window rate keeps moving with no new events. */
 function useNow(override?: number): number {
   const [now, setNow] = useState(() => override ?? Date.now())
@@ -66,6 +77,12 @@ function useNow(override?: number): number {
  * worker/conductor/auxiliary split with the overhead ratio front and centre,
  * and per-lane mini-bars. Falls back to tokens-only when no `llm.cost` event
  * has ever arrived — dollars are never invented from tokens here.
+ *
+ * prd2's ruling: the token headline is OUTPUT tokens, never the unlabelled
+ * all-tier `.total` — output is what the model produced, immune to a
+ * cache-read-heavy poll inflating the number. All four cache tiers stay
+ * visible below it, de-emphasized but never hidden, because cache reads are
+ * the dominant rate-limit consumer even when cheap.
  */
 export default function SpendPanel({ now: nowOverride }: SpendPanelProps = {}) {
   const { state, status } = useStream()
@@ -92,6 +109,8 @@ export default function SpendPanel({ now: nowOverride }: SpendPanelProps = {}) {
   const tokensOnly = totals.costIsAuthoritative === null
   /** Same signal ConnectionBadge/StatusBar read, plus proof at least one event has folded. */
   const connected = status === 'open' && state.events.length > 0
+  // Bar widths are scaled off the all-tier sum purely as a shared denominator
+  // across lanes; the sum itself is never rendered as text anywhere below.
   const maxLaneTokens = Math.max(1, ...lanes.map((lane) => lane.tokens.total))
 
   return (
@@ -110,8 +129,10 @@ export default function SpendPanel({ now: nowOverride }: SpendPanelProps = {}) {
         <div className="mt-2 flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
           <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
             <span className="font-mono text-2xl text-slate-100" data-testid="spend-total-tokens">
-              {formatTokens(totals.tokens.total)}
-              <span className="ml-1 text-xs font-normal text-slate-500">tokens</span>
+              {formatTokens(totals.tokens.output)}
+              <span className="ml-1 text-xs font-normal text-slate-500">
+                output tokens — work produced
+              </span>
             </span>
             {tokensOnly ? null : (
               <>
@@ -127,6 +148,22 @@ export default function SpendPanel({ now: nowOverride }: SpendPanelProps = {}) {
               </>
             )}
           </div>
+
+          <dl
+            className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px]"
+            data-testid="spend-token-buckets"
+          >
+            {TOKEN_TIERS.map(({ key, label }) => (
+              <div
+                key={key}
+                data-testid={`spend-bucket-${key}`}
+                className={`flex items-baseline gap-1 ${CACHE_TIERS.has(key) ? 'opacity-50' : ''}`}
+              >
+                <dt className="uppercase tracking-wide text-slate-500">{label}</dt>
+                <dd className="font-mono text-slate-200">{formatTokens(totals.tokens[key])}</dd>
+              </div>
+            ))}
+          </dl>
 
           <p className="text-[11px] text-slate-500" data-testid="spend-honesty">
             {tokensOnly
@@ -155,7 +192,16 @@ export default function SpendPanel({ now: nowOverride }: SpendPanelProps = {}) {
                       {ROLE_LABEL[role]}
                     </div>
                     <div className="font-mono text-sm text-slate-200">
-                      {formatTokens(spend.tokens.total)}
+                      {formatTokens(spend.tokens.output)}
+                      <span className="ml-1 text-[9px] font-normal text-slate-500">out</span>
+                    </div>
+                    <div
+                      className="mt-0.5 flex flex-wrap gap-x-1.5 font-mono text-[9px] text-slate-500"
+                      title={formatTokenBreakdown(spend.tokens)}
+                    >
+                      <span>in {formatTokens(spend.tokens.input)}</span>
+                      <span className="opacity-50">rd {formatTokens(spend.tokens.cacheRead)}</span>
+                      <span className="opacity-50">wr {formatTokens(spend.tokens.cacheCreation)}</span>
                     </div>
                     {tokensOnly ? null : (
                       <div className="font-mono text-xs text-slate-500">
@@ -185,15 +231,23 @@ export default function SpendPanel({ now: nowOverride }: SpendPanelProps = {}) {
                 <div className="flex items-center justify-between text-slate-300">
                   <span className="truncate font-mono">{lane.lane}</span>
                   <span className="shrink-0 pl-2 font-mono text-slate-500">
-                    {formatTokens(lane.tokens.total)}
+                    {formatTokens(lane.tokens.output)}
+                    <span className="text-[9px]"> out</span>
                     {tokensOnly ? '' : ` · ${formatCostOrGap(lane)}`}
                   </span>
                 </div>
-                <div className="mt-0.5 h-1 rounded bg-void-line">
-                  <div
-                    className="h-1 rounded bg-neon-cyan/60"
-                    style={{ width: `${(lane.tokens.total / maxLaneTokens) * 100}%` }}
-                  />
+                <div
+                  className="mt-0.5 flex h-1 overflow-hidden rounded bg-void-line"
+                  title={formatTokenBreakdown(lane.tokens)}
+                >
+                  {TOKEN_TIERS.map(({ key }) => (
+                    <div
+                      key={key}
+                      data-testid={`spend-lane-segment-${key}`}
+                      className={`h-1 ${TIER_BAR_CLASS[key]}`}
+                      style={{ width: `${(lane.tokens[key] / maxLaneTokens) * 100}%` }}
+                    />
+                  ))}
                 </div>
               </li>
             ))}
