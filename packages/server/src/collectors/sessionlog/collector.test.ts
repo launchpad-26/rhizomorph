@@ -28,7 +28,11 @@ function makeContext(exec: Exec, repoPath = '/repo', now = 1_000): CollectorCont
     now,
     exec,
     nextId: () => `id-${(counter += 1)}`,
-    emit: (type, payload) => createEvent(type, payload, { id: `id-${(counter += 1)}`, ts: now }),
+    emit: (type, payload, options) =>
+      createEvent(type, payload, {
+        id: `id-${(counter += 1)}`,
+        ts: options?.ts === undefined ? now : Math.floor(options.ts),
+      }),
   }
 }
 
@@ -91,7 +95,7 @@ describe('createSessionlogCollector', () => {
     })
   })
 
-  it('skips a worktree with no session dir yet, then discovers it once one appears', async () => {
+  it('skips a worktree with no session dir yet, then sees the file once one appears (EOF-started, no backfill)', async () => {
     const worktreePath = '/fake/worktrees/alpha'
     const collector = createSessionlogCollector({ claudeProjectsRoot: root })
     const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
@@ -101,14 +105,35 @@ describe('createSessionlogCollector', () => {
 
     const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
     await mkdir(projectDir, { recursive: true })
+    const filePath = path.join(projectDir, '95f42357-058c-4ea2-84d4-de7b1eb58635.jsonl')
+    await writeFile(filePath, await readFixture('worker-2-core.jsonl'), 'utf8')
+
+    // First sight of a file that already has content on disk: no backfill
+    // requested, so it seeks to EOF and emits nothing for what's already there.
+    const second = await collector.poll(first.nextSnapshot, makeContext(gitExec))
+    expect(second.events).toEqual([])
+
+    // A line appended after first sight is new activity and is emitted.
+    await writeFile(filePath, `${await readFixture('worker-2-core.jsonl')}${await readFixture('conductor-root.jsonl')}`, 'utf8')
+    const third = await collector.poll(second.nextSnapshot, makeContext(gitExec))
+    expect(third.events.filter((e) => e.type === 'llm.usage')).toHaveLength(1)
+  })
+
+  it('reads a newly discovered file from byte 0 when backfill: true is set', async () => {
+    const worktreePath = '/fake/worktrees/alpha'
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
+
+    const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
+    await mkdir(projectDir, { recursive: true })
     await writeFile(
       path.join(projectDir, '95f42357-058c-4ea2-84d4-de7b1eb58635.jsonl'),
       await readFixture('worker-2-core.jsonl'),
       'utf8',
     )
 
-    const second = await collector.poll(first.nextSnapshot, makeContext(gitExec))
-    expect(second.events.some((e) => e.type === 'llm.usage')).toBe(true)
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+    expect(result.events.some((e) => e.type === 'llm.usage')).toBe(true)
   })
 
   it('emits llm.usage once per requestId and tool.activity per tool_use, attributing role: worker', async () => {
@@ -122,7 +147,7 @@ describe('createSessionlogCollector', () => {
       'utf8',
     )
 
-    const collector = createSessionlogCollector({ claudeProjectsRoot: root })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
     const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
     const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
 
@@ -158,6 +183,16 @@ describe('createSessionlogCollector', () => {
       requestId: 'req_011CdXKgfbwmprh37TF3u2MZ',
       tokens: { input: 2, output: 169, cacheRead: 39635, cacheCreation: 4476 },
     })
+
+    // Each event carries the fixture line's own timestamp, not the tick clock.
+    expect(usage[0]?.ts).toBe(Date.parse('2026-07-30T00:49:19.094Z'))
+    expect(usage[1]?.ts).toBe(Date.parse('2026-07-30T00:49:22.966Z'))
+    expect(tools.map((e) => e.ts)).toEqual([
+      Date.parse('2026-07-30T00:49:19.094Z'),
+      Date.parse('2026-07-30T00:49:19.457Z'),
+      Date.parse('2026-07-30T00:49:19.739Z'),
+      Date.parse('2026-07-30T00:49:22.966Z'),
+    ])
   })
 
   it('attributes role: conductor and the default "conductor" lane for sessions under an extra session dir with no explicit lane', async () => {
@@ -173,6 +208,7 @@ describe('createSessionlogCollector', () => {
     const collector = createSessionlogCollector({
       claudeProjectsRoot: root,
       extraSessionDirs: [conductorPath],
+      backfill: true,
     })
     const gitExec: Exec = async () => success(worktreeListOutput(['/fake/worktrees/alpha']))
     const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
@@ -198,6 +234,7 @@ describe('createSessionlogCollector', () => {
     const collector = createSessionlogCollector({
       claudeProjectsRoot: root,
       extraSessionDirs: [conductorSessionDir],
+      backfill: true,
     })
     const gitExec: Exec = async () => success(worktreeListOutput(['/fake/worktrees/alpha']))
     const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
@@ -229,6 +266,7 @@ describe('createSessionlogCollector', () => {
     const collector = createSessionlogCollector({
       claudeProjectsRoot: root,
       extraSessionDirs: dirs,
+      backfill: true,
     })
     const gitExec: Exec = async () => success(worktreeListOutput([]))
     const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
@@ -258,6 +296,7 @@ describe('createSessionlogCollector', () => {
     const collector = createSessionlogCollector({
       claudeProjectsRoot: root,
       extraSessionDirs: [`${namedDir}:my-conductor`, defaultedDir],
+      backfill: true,
     })
     const gitExec: Exec = async () => success(worktreeListOutput([]))
     const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
@@ -282,6 +321,7 @@ describe('createSessionlogCollector', () => {
     const collector = createSessionlogCollector({
       claudeProjectsRoot: root,
       extraSessionDirs: [`${conductorSessionDir}:my-conductor`],
+      backfill: true,
     })
     const gitExec: Exec = async () => success(worktreeListOutput([]))
     const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
@@ -332,6 +372,7 @@ describe('createSessionlogCollector', () => {
     const collector = createSessionlogCollector({
       claudeProjectsRoot: emptyProjectsRoot,
       extraSessionDirs: [foreignSessionDir],
+      backfill: true,
     })
     const gitExec: Exec = async () => success(worktreeListOutput(['/fake/worktrees/alpha']))
     const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
@@ -356,7 +397,7 @@ describe('createSessionlogCollector', () => {
     // First poll only sees the reply's text block (no newline yet on the second line).
     await writeFile(filePath, `${fixtureLines[0]}\n`, 'utf8')
 
-    const collector = createSessionlogCollector({ claudeProjectsRoot: root })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
     const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
 
     const first = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
@@ -373,7 +414,7 @@ describe('createSessionlogCollector', () => {
     expect(tools[0]?.payload).toMatchObject({ tool: 'Read' })
   })
 
-  it('discovers a rotated/new session file dropped into an already-watched project dir', async () => {
+  it('discovers a rotated/new session file dropped into an already-watched project dir (backfill: true reads it in full)', async () => {
     const worktreePath = '/fake/worktrees/alpha'
     const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
     await mkdir(projectDir, { recursive: true })
@@ -383,7 +424,7 @@ describe('createSessionlogCollector', () => {
       'utf8',
     )
 
-    const collector = createSessionlogCollector({ claudeProjectsRoot: root })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
     const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
     const first = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
     expect(first.events.filter((e) => e.type === 'llm.usage')).toHaveLength(1)
@@ -395,5 +436,71 @@ describe('createSessionlogCollector', () => {
     )
     const second = await collector.poll(first.nextSnapshot, makeContext(gitExec))
     expect(second.events.filter((e) => e.type === 'llm.usage')).toHaveLength(2)
+  })
+
+  it('EOF-starts per file: a second file dropped in mid-run is new to it and, without backfill, emits nothing for its existing content', async () => {
+    const worktreePath = '/fake/worktrees/alpha'
+    const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(
+      path.join(projectDir, 'session-one.jsonl'),
+      await readFixture('worker-2-core.jsonl'),
+      'utf8',
+    )
+
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root })
+    const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
+
+    // session-one.jsonl is already on disk at first sight: EOF-started, nothing emitted.
+    const first = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+    expect(first.events).toEqual([])
+
+    // session-two.jsonl appears mid-run, already fully written — it is new to
+    // this collector too, so it gets the same EOF-start treatment, not a free
+    // pass just because the project dir was already being watched.
+    await writeFile(
+      path.join(projectDir, 'session-two.jsonl'),
+      await readFixture('worker-4-tmux-collector.jsonl'),
+      'utf8',
+    )
+    const second = await collector.poll(first.nextSnapshot, makeContext(gitExec))
+    expect(second.events).toEqual([])
+  })
+
+  it('resumes exactly from a rehydrated per-file offset on restart: no gap, no repeat', async () => {
+    const worktreePath = '/fake/worktrees/alpha'
+    const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
+    await mkdir(projectDir, { recursive: true })
+    const filePath = path.join(projectDir, '14442c1b-664e-4d26-9b0b-3009a5d69183.jsonl')
+    const fixture = await readFixture('worker-4-tmux-collector.jsonl')
+    await writeFile(filePath, fixture, 'utf8')
+
+    // Simulate a restart: a previous run (persisted via #56/#58) already read
+    // and emitted for line 1 only — offset sits right after it, with
+    // lastUsageRequestId carried over so the still-open reply doesn't
+    // re-fire its usage event once line 3 (same requestId) is read again.
+    const line1 = fixture.split('\n')[0] as string
+    const rehydratedOffset = Buffer.byteLength(`${line1}\n`, 'utf8')
+    const prevSnapshot = {
+      disabled: false,
+      files: {
+        [filePath]: { offset: rehydratedOffset, lastUsageRequestId: 'req_011CdXKgL7B2nj6xkUSoy4tk' },
+      },
+      erroredExtraSessionDirs: {},
+    }
+
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root })
+    const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
+    const result = await collector.poll(prevSnapshot, makeContext(gitExec))
+
+    // No repeat: line 1's requestId already fired pre-restart, so only the
+    // 4th line's (distinct) requestId produces a new llm.usage.
+    const usage = result.events.filter((e) => e.type === 'llm.usage')
+    expect(usage).toHaveLength(1)
+    expect(usage[0]?.payload).toMatchObject({ requestId: 'req_011CdXKgfbwmprh37TF3u2MZ' })
+
+    // No gap: lines 2-4's tool_use blocks are all still picked up.
+    const tools = result.events.filter((e) => e.type === 'tool.activity')
+    expect(tools.map((e) => (e.payload as { tool: string }).tool)).toEqual(['Read', 'Read', 'Bash'])
   })
 })

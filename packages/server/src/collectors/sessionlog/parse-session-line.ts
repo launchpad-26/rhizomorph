@@ -27,6 +27,12 @@ export interface AssistantLineFacts {
   }
   /** Tool names from every `tool_use` content block on this line, in order. */
   toolUses: string[]
+  /**
+   * Epoch millis parsed from the line's own `timestamp` (when the agent
+   * actually said this), or null when absent/unparsable — the caller falls
+   * back to tick time rather than guessing.
+   */
+  timestamp: number | null
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -39,6 +45,12 @@ function asString(value: unknown): string | null {
 
 function asCount(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0
+}
+
+function asTimestamp(value: unknown): number | null {
+  if (typeof value !== 'string') return null
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 /**
@@ -88,5 +100,6 @@ export function parseAssistantLine(raw: string): AssistantLineFacts | null {
       cacheCreation: asCount(usage.cache_creation_input_tokens),
     },
     toolUses,
+    timestamp: asTimestamp(line.timestamp),
   }
 }

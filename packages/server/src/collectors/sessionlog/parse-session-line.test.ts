@@ -25,6 +25,7 @@ describe('parseAssistantLine', () => {
       requestId: 'req_011CdXK9nHfLfMD1xWUP4FYL',
       model: 'claude-opus-5',
       toolUses: [],
+      timestamp: Date.parse('2026-07-30T00:42:23.473Z'),
     })
     expect(facts?.tokens).toEqual({
       input: 2,
@@ -87,5 +88,14 @@ describe('parseAssistantLine', () => {
     expect(parseAssistantLine('not json at all')).toBeNull()
     expect(parseAssistantLine('{"type":"assistant"}')).toBeNull()
     expect(parseAssistantLine('{"type":"assistant","message":{"model":"x"}}')).toBeNull()
+  })
+
+  it('falls back to a null timestamp when the line has none or an unparsable one', () => {
+    const base = '{"type":"assistant","message":{"model":"x","usage":{}}'
+    expect(parseAssistantLine(`${base}}`)?.timestamp).toBeNull()
+    expect(parseAssistantLine(`${base},"timestamp":"not-a-date"}`)?.timestamp).toBeNull()
+    expect(parseAssistantLine(`${base},"timestamp":"2026-07-30T00:42:23.473Z"}`)?.timestamp).toBe(
+      Date.parse('2026-07-30T00:42:23.473Z'),
+    )
   })
 })

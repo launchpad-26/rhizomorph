@@ -47,6 +47,14 @@ export interface SessionlogCollectorConfig {
    * `collector.error` instead of silently doing nothing.
    */
   extraSessionDirs?: readonly string[]
+  /**
+   * When a session file is seen for the very first time (no persisted offset
+   * — including one rehydrated from a snapshot), read it from byte 0 instead
+   * of seeking to its current end. Off by default: a fresh boot must start at
+   * zero, not ingest every line a log has ever held. CLI flag wiring is a
+   * separate issue.
+   */
+  backfill?: boolean
 }
 
 interface WatchedDir {
@@ -75,6 +83,7 @@ export function createSessionlogCollector(
 ): Collector<SessionlogSnapshot> {
   const claudeProjectsRoot = config.claudeProjectsRoot ?? path.join(homedir(), '.claude', 'projects')
   const extraSessionDirs = config.extraSessionDirs ?? []
+  const backfill = config.backfill ?? false
 
   return {
     name: COLLECTOR_NAME,
@@ -131,7 +140,7 @@ export function createSessionlogCollector(
       const nextFiles: Record<string, TailedFileState> = { ...prevSnapshot.files }
 
       for (const dir of watchedDirs) {
-        await tailProjectDir(claudeProjectsRoot, dir, context, events, nextFiles)
+        await tailProjectDir(claudeProjectsRoot, dir, context, events, nextFiles, backfill)
       }
 
       return {
@@ -235,6 +244,7 @@ async function tailProjectDir(
   context: CollectorContext,
   events: ObservatoryEvent[],
   nextFiles: Record<string, TailedFileState>,
+  backfill: boolean,
 ): Promise<void> {
   const projectDir = dir.sessionDirOverride ?? path.join(claudeProjectsRoot, worktreePathToProjectSlug(dir.worktreePath))
   const projectInfo = await statOrNull(projectDir)
@@ -246,7 +256,12 @@ async function tailProjectDir(
   for (const fileName of jsonlFiles) {
     const filePath = path.join(projectDir, fileName)
     const fallbackSessionId = fileName.slice(0, -JSONL_SUFFIX.length)
-    const prevFile = nextFiles[filePath] ?? { offset: 0, lastUsageRequestId: null }
+    // Absent from nextFiles means genuinely unseen — either a brand-new file
+    // this poll, or one never persisted before this process started. A file
+    // whose offset was rehydrated from a snapshot is already present here
+    // (copied in from prevSnapshot.files before this loop runs) and resumes
+    // from it rather than re-triggering first-sight behaviour.
+    const prevFile = nextFiles[filePath] ?? { offset: await initialOffset(filePath, backfill), lastUsageRequestId: null }
 
     const { lines, nextOffset } = await readNewLines(filePath, prevFile.offset)
     let lastUsageRequestId = prevFile.lastUsageRequestId
@@ -257,41 +272,61 @@ async function tailProjectDir(
 
       const lane = dir.laneOverride ?? facts.gitBranch ?? basenameOf(facts.cwd ?? dir.worktreePath) ?? UNATTRIBUTED_LANE
       const sessionId = facts.sessionId ?? fallbackSessionId
+      const emitOptions = facts.timestamp === null ? undefined : { ts: facts.timestamp }
 
       if (facts.requestId && facts.requestId !== lastUsageRequestId) {
         events.push(
-          context.emit('llm.usage', {
-            lane,
-            sessionId,
-            worktreePath: dir.worktreePath,
-            branch: facts.gitBranch,
-            role: dir.role,
-            model: facts.model,
-            tokens: facts.tokens,
-            requestId: facts.requestId,
-            durationMs: null,
-          }),
+          context.emit(
+            'llm.usage',
+            {
+              lane,
+              sessionId,
+              worktreePath: dir.worktreePath,
+              branch: facts.gitBranch,
+              role: dir.role,
+              model: facts.model,
+              tokens: facts.tokens,
+              requestId: facts.requestId,
+              durationMs: null,
+            },
+            emitOptions,
+          ),
         )
         lastUsageRequestId = facts.requestId
       }
 
       for (const tool of facts.toolUses) {
         events.push(
-          context.emit('tool.activity', {
-            lane,
-            sessionId,
-            worktreePath: dir.worktreePath,
-            branch: facts.gitBranch,
-            tool,
-            role: dir.role,
-            durationMs: null,
-          }),
+          context.emit(
+            'tool.activity',
+            {
+              lane,
+              sessionId,
+              worktreePath: dir.worktreePath,
+              branch: facts.gitBranch,
+              tool,
+              role: dir.role,
+              durationMs: null,
+            },
+            emitOptions,
+          ),
         )
       }
     }
 
     nextFiles[filePath] = { offset: nextOffset, lastUsageRequestId }
   }
+}
+
+/**
+ * Where a never-before-seen file starts reading from: byte 0 when backfill is
+ * requested (today's behaviour, opt-in), otherwise its current size — a fresh
+ * boot emits nothing for history already on disk, only what's appended after.
+ */
+async function initialOffset(filePath: string, backfill: boolean): Promise<number> {
+  if (backfill) return 0
+  const info = await statOrNull(filePath)
+  return info ? Number(info.size) : 0
 }
 
 function disable(context: CollectorContext, reason: string): PollResult<SessionlogSnapshot> {
