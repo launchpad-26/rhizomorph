@@ -22,7 +22,14 @@ import { compareStrings } from './touches.js'
  *    is the usual answer, since it is the one with cache-tier detail).
  */
 
-/** The four cache tiers plus the one number everything sorts by. */
+/**
+ * The four cache tiers plus `total`, their all-tier sum. `total` stays for
+ * callers that want the raw sum, but prd2's ruling is that no display ranks or
+ * headlines by it: tiers differ in cost by up to ~50x (see
+ * {@link RoleSpendSplit.overheadRatio}), so an unlabelled all-tier total is
+ * not a unit anything should sort or lead with. {@link bySpend} and every
+ * other tiebreak in this file rank by `output` instead.
+ */
 export interface TokenTotals extends TokenUsagePayload {
   total: number
 }
@@ -217,7 +224,7 @@ function threadRows(byThread: Map<AgentThread | null, Acc> | undefined): ThreadS
     .sort(
       (a, b) =>
         b.costUsd - a.costUsd ||
-        b.tokens.total - a.tokens.total ||
+        b.tokens.output - a.tokens.output ||
         threadOrder(a.thread) - threadOrder(b.thread),
     )
 }
@@ -291,7 +298,7 @@ export function selectSpendByLaneRole(
     .sort(
       (a, b) =>
         b.costUsd - a.costUsd ||
-        b.tokens.total - a.tokens.total ||
+        b.tokens.output - a.tokens.output ||
         compareStrings(a.lane, b.lane) ||
         compareStrings(a.role, b.role),
     )
@@ -475,14 +482,24 @@ export interface RoleSpendSplit {
    */
   unattributed: RoleSpend
   /**
-   * Conductor tokens divided by worker tokens — the empirical price of the
-   * brain/hands split, and prd1's headline metric.
+   * Conductor OUTPUT tokens divided by worker OUTPUT tokens — the empirical
+   * price of the brain/hands split, and prd1's headline metric.
    *
-   * Null unless *both* sides reported tokens. That is deliberate, not just
-   * divide-by-zero defence: with no conductor telemetry the honest answer is
-   * "unknown", and rendering the 0.0 that arithmetic would give is precisely
-   * the undercount prd1 exists to expose. The two token totals sit alongside
-   * so a caller can tell "no conductor instrumented" from "conductor idle".
+   * **prd2 ruling, output basis, not `.total`:** a "token" is not one unit —
+   * across current Claude models an output token costs roughly 5x an input
+   * token, a cache read roughly 0.1x, a cache write roughly 1.25x. Summing all
+   * four tiers before dividing let a polling conductor's cache-read traffic
+   * (re-sending the same growing context every poll) inflate the ratio far
+   * past what its actual work — output — cost. Output is what the model
+   * produced, immune to that inflation, so it is the basis for this ratio.
+   * This is a deliberate change from prd1's original total-token ratio.
+   *
+   * Null unless *both* sides reported output tokens. That is deliberate, not
+   * just divide-by-zero defence: with no conductor telemetry the honest
+   * answer is "unknown", and rendering the 0.0 that arithmetic would give is
+   * precisely the undercount prd1 exists to expose. The two token totals sit
+   * alongside (full tiers, not just output) so a caller can tell "no
+   * conductor instrumented" from "conductor idle".
    *
    * `unattributed` sits in neither side of this division. An undeclared
    * session is a setup gap, not evidence about the brain/hands ratio — letting
@@ -529,7 +546,7 @@ export function selectRoleSpend(state: SessionState, filter: SpendFilter = {}): 
     conductor,
     auxiliary: roleSpend('auxiliary'),
     unattributed: roleSpend('unattributed'),
-    overheadRatio: overhead(conductor.tokens.total, worker.tokens.total),
+    overheadRatio: overhead(conductor.tokens.output, worker.tokens.output),
   }
 }
 
@@ -541,10 +558,13 @@ export function selectOverheadRatio(
   return selectRoleSpend(state, filter).overheadRatio
 }
 
-/** Null unless both sides are non-zero. See {@link RoleSpendSplit.overheadRatio}. */
-function overhead(conductorTokens: number, workerTokens: number): number | null {
-  if (conductorTokens <= 0 || workerTokens <= 0) return null
-  return conductorTokens / workerTokens
+/**
+ * Null unless both sides produced output. See {@link RoleSpendSplit.overheadRatio}
+ * for why this divides output tokens, never `.total`.
+ */
+function overhead(conductorOutputTokens: number, workerOutputTokens: number): number | null {
+  if (conductorOutputTokens <= 0 || workerOutputTokens <= 0) return null
+  return conductorOutputTokens / workerOutputTokens
 }
 
 // --- spend rate over a rolling window ---------------------------------------
@@ -827,8 +847,12 @@ function toolsIn(state: SessionState, filter: SpendFilter): ToolActivityRecord[]
   )
 }
 
-/** Dearest first, then most tokens, then a stable name tiebreak. */
+/**
+ * Dearest first, then most output tokens, then a stable name tiebreak.
+ * Output, not `.total`: prd2's ruling is that a display surface never ranks
+ * by the all-tier sum (see {@link TokenTotals}).
+ */
 function bySpend<T extends SpendTotals>(name: (entry: T) => string) {
   return (a: T, b: T): number =>
-    b.costUsd - a.costUsd || b.tokens.total - a.tokens.total || compareStrings(name(a), name(b))
+    b.costUsd - a.costUsd || b.tokens.output - a.tokens.output || compareStrings(name(a), name(b))
 }

@@ -279,6 +279,17 @@ describe('selectLaneSpend', () => {
     )
     expect(selectLaneSpend(state).map((row) => row.lane)).toEqual(['c', 'a', 'b'])
   })
+
+  it('breaks a cost tie by OUTPUT tokens, not the all-tier total', () => {
+    const state = fold(
+      // 'heavy-cache' has more tokens in total (105 vs 9) but less output (5
+      // vs 9) — a total-based tiebreak would rank it first; output ranks it
+      // last, which is the ruling this test exists to prove.
+      f.llmUsage({ lane: 'heavy-cache', tokens: tokens(0, 5, 100, 0) }),
+      f.llmUsage({ lane: 'light', tokens: tokens(0, 9) }),
+    )
+    expect(selectLaneSpend(state).map((row) => row.lane)).toEqual(['light', 'heavy-cache'])
+  })
 })
 
 describe('selectSpendByWorktree', () => {
@@ -680,6 +691,17 @@ describe('per-thread sub-totals under a lane', () => {
     expect(lane?.threads[0]?.tokens.total).toBe(1)
     expect(selectSpendForLane(state, 'l', { since: 20_000 })?.threads).toEqual([])
   })
+
+  it('breaks a cost-tied thread ranking by output tokens, not the all-tier total', () => {
+    const state = fold(
+      // No cost events on either thread, so costUsd ties at 0 for both.
+      f.llmUsage({ lane: 'l', thread: 'main', tokens: tokens(0, 5, 100, 0) }),
+      f.llmUsage({ lane: 'l', thread: 'subagent', tokens: tokens(0, 9) }),
+    )
+    const lane = selectSpendForLane(state, 'l')
+    // 'main' has the larger total (105 vs 9) but the smaller output (5 vs 9).
+    expect(lane?.threads.map((row) => row.thread)).toEqual(['subagent', 'main'])
+  })
 })
 
 describe('selectSpendByLaneRole', () => {
@@ -799,11 +821,29 @@ describe('the overhead ratio', () => {
     expect(ratioOf(1_000, 1_000)).toBe(1)
   })
 
-  it('reads the fixture swarm as a conductor costing more than all three workers', () => {
+  it('reads the fixture swarm as a conductor costing more than all three workers, on output tokens', () => {
     const ratio = selectOverheadRatio(swarm)
-    expect(ratio).toBeCloseTo(766_720 / 417_209, 10)
+    // Output only: conductor 5_600 + 4_200, workers 3_100 + 1_900 + 2_400 — not
+    // the all-tier totals (766_720 / 417_209), which the cache-heavy conductor
+    // would otherwise inflate far past this.
+    expect(ratio).toBeCloseTo((5_600 + 4_200) / (3_100 + 1_900 + 2_400), 10)
     expect(ratio).toBeGreaterThan(1)
     expect(selectRoleSpend(swarm).overheadRatio).toBe(ratio)
+  })
+
+  it('is immune to cache-read inflation from a polling conductor — the whole point of the output basis', () => {
+    // A conductor that mostly polls: tiny output, enormous re-sent cache
+    // context. The all-tier total would make it look 1000x costlier than the
+    // worker; output tokens show it for what it is — a tenth as expensive.
+    const state = fold(
+      f.llmUsage({ lane: 'w', role: 'worker', tokens: tokens(0, 1_000) }),
+      f.llmUsage({
+        lane: 'c',
+        role: 'conductor',
+        tokens: tokens(0, 100, 1_000_000, 0),
+      }),
+    )
+    expect(selectOverheadRatio(state)).toBeCloseTo(0.1, 10)
   })
 
   it('is null when there are no workers — never Infinity', () => {
@@ -930,8 +970,10 @@ describe('selectSpendRate', () => {
     expect(midway.totals.requestCount).toBe(3)
     expect(midway.totals.costUsd).toBeCloseTo(0.42 + 0.28 + 0.9, 6)
     expect(midway.totals.lastTs).toBe(T + minute + 8_000)
+    // Output only, for the two records inside the window: conductor 5_600,
+    // workers 3_100 + 1_900.
     expect(selectOverheadRatio(swarm, { until: T + 2 * minute })).toBeCloseTo(
-      425_412 / (189_504 + 126_003),
+      5_600 / (3_100 + 1_900),
       10,
     )
   })
