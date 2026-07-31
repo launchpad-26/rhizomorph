@@ -1,10 +1,11 @@
-import { createEvent, createIdFactory, reduceAll } from '@observatory/core'
+import { createEvent, createIdFactory, type ObservatoryEvent } from '@observatory/core'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
 import type { FetchLike } from '../replay/api.js'
 import { ModeProvider, useReplay } from './ModeContext.js'
 import { StreamProvider, useStream } from './StreamContext.js'
+import { NEWS_GRACE_MS, foldStreamEvents, initialStreamState, isNews } from './streamState.js'
 
 afterEach(cleanup)
 
@@ -73,8 +74,9 @@ function makeFetch(events: ReturnType<typeof replaySessionEvents>): FetchLike {
 /** Stands in for a real panel: reads only `useStream`, never the mode/replay hooks. */
 function PanelLikeConsumer() {
   const { state } = useStream()
-  const session = reduceAll(state.events)
-  return <div data-testid="worktree-paths">{Object.keys(session.worktrees).sort().join(',')}</div>
+  return (
+    <div data-testid="worktree-paths">{Object.keys(state.session.worktrees).sort().join(',')}</div>
+  )
 }
 
 /** Stands in for the replay controls: the only thing that drives session/scrub selection. */
@@ -153,5 +155,171 @@ describe('StreamContext driven by mode', () => {
 
     fireEvent.click(screen.getByText('return to live'))
     await waitFor(() => expect(screen.getByTestId('worktree-paths').textContent).toBe('/repo'))
+  })
+})
+
+// ── news vs history (C's first motion-law rule) ─────────────────────────────
+
+/**
+ * The rule the scene depends on: **history builds state and lights nothing.**
+ * `/api/stream` replays the whole session before it live-tails, so every
+ * connection opens with a burst of facts that already happened — and a burst
+ * has no guaranteed order. The tag therefore has to come from each event's own
+ * `ts`, never from the order the socket handed them over in.
+ */
+describe('news vs history', () => {
+  const connectedAt = Date.UTC(2026, 6, 31, 12, 0, 0)
+
+  function commit(sha: string, ts: number): ObservatoryEvent {
+    return createEvent(
+      'commit.landed',
+      {
+        sha,
+        branch: 'a',
+        message: `feat: ${sha}`,
+        author: { name: 'agent' },
+        files: [{ path: `src/${sha}.ts`, status: 'added' }],
+      },
+      { id: nextId(), ts },
+    )
+  }
+
+  it('tags an out-of-order replay burst as history, whatever order it lands in', () => {
+    const burst = [
+      commit('c3', connectedAt - 30_000),
+      commit('c1', connectedAt - 600_000),
+      commit('c4', connectedAt - 5_000),
+      commit('c2', connectedAt - 120_000),
+    ]
+
+    const state = foldStreamEvents(initialStreamState(connectedAt), burst)
+
+    // Every fact landed in the fold…
+    expect(Object.keys(state.session.commits).sort()).toEqual(['c1', 'c2', 'c3', 'c4'])
+    expect(state.events).toHaveLength(4)
+    // …and not one of them is news, so nothing lights up.
+    expect(state.news).toEqual([])
+    expect(state.newsCount).toBe(0)
+    for (const event of burst) expect(isNews(state, event)).toBe(false)
+  })
+
+  it('tags what actually just happened as news, including the connect seam', () => {
+    const state = foldStreamEvents(initialStreamState(connectedAt), [
+      commit('old', connectedAt - 600_000),
+      // Emitted a moment before we connected: genuinely news by arrival.
+      commit('seam', connectedAt - NEWS_GRACE_MS + 1_000),
+      commit('new', connectedAt + 2_000),
+    ])
+
+    expect(state.news.map((event) => event.id)).toHaveLength(2)
+    expect(state.newsCount).toBe(2)
+    expect(state.news.every((event) => isNews(state, event))).toBe(true)
+  })
+
+  it('folds a burst identically whether it arrives at once or one at a time', () => {
+    const burst = [commit('x1', connectedAt - 10_000), commit('x2', connectedAt + 1_000)]
+
+    const batched = foldStreamEvents(initialStreamState(connectedAt), burst)
+    const single = burst.reduce(
+      (state, event) => foldStreamEvents(state, [event]),
+      initialStreamState(connectedAt),
+    )
+
+    expect(single.newsCount).toBe(batched.newsCount)
+    expect(Object.keys(single.session.commits).sort()).toEqual(
+      Object.keys(batched.session.commits).sort(),
+    )
+  })
+})
+
+// ── fixture switching (ruling 24's three sources, one reducer) ──────────────
+
+/** Exposes which log is driving and how much of it folded. */
+function SourceProbe() {
+  const { source, state, provenance } = useStream()
+  return (
+    <div>
+      <span data-testid="source">{source}</span>
+      <span data-testid="worktrees">{Object.keys(state.session.worktrees).length}</span>
+      <span data-testid="news">{state.newsCount}</span>
+      <span data-testid="provenance">{provenance}</span>
+    </div>
+  )
+}
+
+describe('fixture switching', () => {
+  /** Pinned: the fixtures generate from this instant and never tick. */
+  const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
+
+  async function renderSources() {
+    let utils!: ReturnType<typeof render>
+    await act(async () => {
+      utils = render(
+        <StreamProvider url="/api/stream" now={NOW} createSource={() => new FakeEventSource()}>
+          <SourceProbe />
+        </StreamProvider>,
+      )
+    })
+    return utils
+  }
+
+  it('starts on the live stream', async () => {
+    await renderSources()
+
+    expect(screen.getByTestId('source').textContent).toBe('live')
+    expect(screen.getByTestId('provenance').textContent).toBe('live · /api/stream')
+  })
+
+  it('keys 2 and 3 swap the driving log, folded by the same reducer', async () => {
+    await renderSources()
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: '2' })
+    })
+    expect(screen.getByTestId('source').textContent).toBe('fleet20')
+    // Twenty lanes plus main, folded from real schema events by core's reducer.
+    expect(screen.getByTestId('worktrees').textContent).toBe('21')
+    expect(screen.getByTestId('provenance').textContent).toContain('20 lanes')
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: '3' })
+    })
+    expect(screen.getByTestId('source').textContent).toBe('pathology')
+    expect(screen.getByTestId('worktrees').textContent).toBe('10')
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: '1' })
+    })
+    expect(screen.getByTestId('source').textContent).toBe('live')
+    // The live connection kept folding the whole time, so returning to it is
+    // exactly where it left off — nothing was torn down and rebuilt.
+    expect(screen.getByTestId('worktrees').textContent).toBe('0')
+  })
+
+  it('a fixture builds state without lighting anything up', async () => {
+    await renderSources()
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: '3' })
+    })
+
+    // The fixture's history is history: it is all older than the moment the
+    // fixture "connected", so the state is fully built and the scene has
+    // nothing whatsoever to flare about.
+    expect(screen.getByTestId('worktrees').textContent).toBe('10')
+    expect(screen.getByTestId('news').textContent).toBe('0')
+  })
+
+  it('ignores the fixture keys while the operator is typing', async () => {
+    await renderSources()
+    const input = document.createElement('input')
+    document.body.append(input)
+
+    await act(async () => {
+      fireEvent.keyDown(input, { key: '2' })
+    })
+    expect(screen.getByTestId('source').textContent).toBe('live')
+
+    input.remove()
   })
 })
