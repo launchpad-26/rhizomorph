@@ -174,3 +174,67 @@ where it carries meaning, and make agent health legible at a glance.
 New data features beyond ruling 19; replay features; publishing (name
 `@kelliherl/observatory` recorded, publish deferred past prd3 per roadmap);
 anything the factory GUI should own (full interaction with agents).
+
+## Pick ruling (2026-07-31 evening — rulings 28–32, operator)
+
+The spike round ran same-day: three opus builds reviewed side-by-side in
+live tabs (A :5183 / B :5199 / C :5188) plus fresh fixture screenshots.
+All three committed `spike-artifacts/NOTES.md`; branches stay unmerged as
+reference material.
+
+28. **Winner: DIRECTION C — MYCELIUM PULSE-NETWORK**, rebuilt properly in
+    fenced waves. Operator's clause: **improve what the spike developed —
+    no straight rip; implement it cleanly, intuitively, beautifully.**
+29. **Palette: the ice-neon register.** The calm world (threads,
+    root-mass, chrome) lives in cold blue-white / near-black-blue
+    *luminance* — B's proof that neon is luminance, not saturation — while
+    the four ladder hues stay exclusive (ruling 9 intact): saturated cyan
+    = NOTICE only, amber = NEEDS-YOU, magenta-red = BROKEN. C's bone-grey
+    is out: law-pure, but it isn't the Observatory.
+30. **Named grafts from the losers** (all blessed by the operator):
+    - **g1 (B)** — the fleet table's STATE column renders the scene's own
+      glyphs at row scale; the table IS the legend.
+    - **g2 (B)** — alarm marks are exempt from *every* fade: recency and
+      salience dimming never touch a needs-you/broken sigil.
+    - **g3 (B)** — the settle: a new lane's thread GROWS IN on
+      `worktree.discovered` (event-lawful; B cut it only for screenshot
+      determinism).
+    - **g4 (both, ratified as law)** — hue = severity, form = kind; and
+      attention chips carry evidence strings (`Read→Edit→Bash ×6, no
+      commit`), never bare labels.
+    - **g5 (A)** — the ladder floor: ALL CLEAR is structurally incapable
+      of rendering beside a non-zero collision count — enforced in the
+      derived model, never remembered by the view.
+    - **g6 (A)** — the EXPENSIVE-recede scar: a white-hot thread must
+      never outshine a summons; the staged fixture asserts it.
+    - **g7 (A)** — pointability: a lane's angular position is stable for
+      the session, pinned by test, so recency-as-distance never costs
+      "72 lives at four o'clock".
+    Explicitly not grafted: A's retracting recency wire (C's
+    recency-as-distance already owns that fact on a stronger channel).
+31. **Render-everything re-rule trigger (ruling 22 addendum):** B and C
+    independently predicted *label collisions* near ~30–35 lanes, well
+    before geometry fails. Recorded as the falsifiable trigger; the named
+    cheap retreat is labels-on-hover past a count threshold. Hiding lanes
+    stays off the table.
+32. **Motion-law amendments (ruling 10 addendum):** the WAITING throb and
+    the slow recency glide are blessed as lawful (the scene contract's
+    side taken, on the record), each keeping its reduced-motion
+    degradation (static bright dot + raised-hand glyph; the glide stays a
+    glide). C's three pulse-as-event enforcement rules are adopted as law
+    wherever anything animates: history never pulses; traffic is
+    coalesced, never invented; an arrival flare is the end of a real
+    journey.
+
+## Implementation waves (groomed 2026-07-31, issues #75–#86)
+
+Wave 1: **#75** instrument keystone (opus — tokens, derived fleet object,
+glyph alphabet, shell reorder, ladder floor) ∥ **#76** lane manifest
+served (`.swarm/lanes.json` → `/api/lanes`). Wave 2, after #75: **#77**
+attention strip + tab signals · **#78** burn strip (spend panel
+dissolves) · **#79** fleet table (worktrees panel dissolves) · **#80**
+activity feed + provenance bar (ticker dissolves) · **#81** the scene
+(opus — mycelium, ice-neon) · **#82** collisions attention-integration.
+Wave 3: **#83** replay mode shift · **#84** chat drawer (opus, + transcript
+tail endpoint) · **#85** panel focus. Wave 4: **#86** docs/demo refresh.
+Verification per ruling 25 runs conductor-side after wave 3, then retro.
