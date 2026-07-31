@@ -325,6 +325,96 @@ describe('selectSpendByWorktree', () => {
   })
 })
 
+describe('cost that reaches the rollups (prd2 wave C)', () => {
+  // The audit's §C pair: OTel carries the dollars and the session id and no
+  // place at all; sessionlog carries the place and no dollars. Before the
+  // session join, the branch ledger's COST column could only ever show tokens.
+  const BRANCH = '64-cost-joins-branch'
+  const PATH = WT(BRANCH)
+  const otelCost = (costUsd: number) =>
+    f.llmCost(
+      {
+        lane: 'otel-lane',
+        role: 'worker',
+        costUsd,
+        authoritative: true,
+        sessionId: 'sess-64',
+        worktreePath: null,
+        branch: null,
+      },
+      { ts: 2_000, source: 'otel' },
+    )
+  const sessionlogUsage = () =>
+    f.llmUsage(
+      {
+        lane: 'sessionlog-lane',
+        role: 'worker',
+        sessionId: 'sess-64',
+        worktreePath: PATH,
+        branch: BRANCH,
+        tokens: tokens(0, 1_000),
+      },
+      { ts: 1_000, source: 'sessionlog' },
+    )
+
+  it('puts real dollars in the branch ledger when the usage came first', () => {
+    const row = selectSpendForBranch(fold(sessionlogUsage(), otelCost(0.75)), BRANCH)
+    expect(row?.costUsd).toBeCloseTo(0.75, 6)
+    expect(row?.costIsAuthoritative).toBe(true)
+    // The lane that spent the dollars is credited alongside the one that
+    // reported the tokens — both are the same session.
+    expect(row?.lanes).toEqual(['otel-lane', 'sessionlog-lane'])
+  })
+
+  it('puts the same dollars in the branch ledger when the cost came first', () => {
+    const row = selectSpendForBranch(fold(otelCost(0.75), sessionlogUsage()), BRANCH)
+    expect(row?.costUsd).toBeCloseTo(0.75, 6)
+    expect(row?.costIsAuthoritative).toBe(true)
+  })
+
+  it('puts them in the worktree table too, in either order', () => {
+    for (const state of [
+      fold(sessionlogUsage(), otelCost(0.75)),
+      fold(otelCost(0.75), sessionlogUsage()),
+    ]) {
+      expect(selectSpendByWorktree(state)[PATH]?.costUsd).toBeCloseTo(0.75, 6)
+    }
+  })
+
+  it('leaves COST equal to TOKENS only when there is genuinely no cost feed', () => {
+    // The baseline this issue exists to change: tokens with no dollars behind
+    // them report "unknown", never a dollar figure copied from the tokens.
+    const row = selectSpendForBranch(fold(sessionlogUsage()), BRANCH)
+    expect(row?.tokens.total).toBe(1_000)
+    expect(row?.costUsd).toBe(0)
+    expect(row?.costIsAuthoritative).toBeNull()
+  })
+
+  it('keeps a cost it cannot place visible under its lane, out of every branch row', () => {
+    const state = fold(
+      sessionlogUsage(),
+      f.llmCost(
+        {
+          lane: 'otel-lane',
+          role: 'worker',
+          costUsd: 0.25,
+          authoritative: true,
+          sessionId: 'sess-nobody-knows',
+          worktreePath: null,
+          branch: null,
+        },
+        { ts: 3_000, source: 'otel' },
+      ),
+    )
+    // Visible in the session total and on its own lane…
+    expect(selectSessionSpend(state).costUsd).toBeCloseTo(0.25, 6)
+    expect(selectSpendForLane(state, 'otel-lane')?.costUsd).toBeCloseTo(0.25, 6)
+    // …and never guessed onto the one branch that happens to be around.
+    expect(selectSpendForBranch(state, BRANCH)?.costUsd).toBe(0)
+    expect(selectSpendByBranch(state).map((row) => row.branch)).toEqual([BRANCH])
+  })
+})
+
 describe('selectSpendByBranch', () => {
   const BRANCH = '48-branch-ledger'
   const PATH = WT(BRANCH)
@@ -516,6 +606,79 @@ describe('selectRoleSpend — the worker/conductor/auxiliary split', () => {
     expect(split.unattributed.lanes).toEqual(['no-setup'])
     // It is real spend, not silently credited to worker.
     expect(split.worker.tokens.total).toBe(100)
+  })
+})
+
+describe('per-thread sub-totals under a lane', () => {
+  const threaded = () =>
+    fold(
+      f.llmUsage({ lane: 'l', role: 'worker', thread: 'main', tokens: tokens(0, 100) }),
+      f.llmCost({ lane: 'l', role: 'worker', thread: 'main', costUsd: 1, authoritative: true }),
+      f.llmUsage({ lane: 'l', role: 'worker', thread: 'subagent', tokens: tokens(0, 300) }),
+      f.llmCost({ lane: 'l', role: 'worker', thread: 'subagent', costUsd: 3, authoritative: true }),
+      f.toolActivity({ lane: 'l', tool: 'Bash', role: 'worker', thread: 'subagent' }),
+    )
+
+  it('breaks a lane down by thread, dearest first', () => {
+    const lane = selectSpendForLane(threaded(), 'l')
+    expect(lane?.threads.map((row) => row.thread)).toEqual(['subagent', 'main'])
+    expect(lane?.threads[0]?.tokens.total).toBe(300)
+    expect(lane?.threads[0]?.costUsd).toBeCloseTo(3, 6)
+    expect(lane?.threads[0]?.toolCallCount).toBe(1)
+    expect(lane?.threads[1]?.tokens.total).toBe(100)
+  })
+
+  it('reconciles with the lane: summing its threads gives the lane total', () => {
+    for (const lane of selectLaneSpend(threaded())) {
+      const tokenSum = lane.threads.reduce((sum, row) => sum + row.tokens.total, 0)
+      const costSum = lane.threads.reduce((sum, row) => sum + row.costUsd, 0)
+      const toolSum = lane.threads.reduce((sum, row) => sum + row.toolCallCount, 0)
+      if (lane.threads.length === 0) continue
+      expect(tokenSum, lane.lane).toBe(lane.tokens.total)
+      expect(costSum, lane.lane).toBeCloseTo(lane.costUsd, 6)
+      expect(toolSum, lane.lane).toBe(lane.toolCallCount)
+    }
+  })
+
+  it('keeps spend whose thread nobody named in its own bucket, so the sub-rows still add up', () => {
+    const state = fold(
+      f.llmUsage({ lane: 'l', thread: 'main', tokens: tokens(0, 100) }),
+      f.llmUsage({ lane: 'l', thread: null, tokens: tokens(0, 900) }),
+    )
+    const lane = selectSpendForLane(state, 'l')
+    // Unknown sorts last despite being the larger number: it is not a thread.
+    expect(lane?.threads.map((row) => row.thread)).toEqual([null, 'main'])
+    expect(lane?.threads.find((row) => row.thread === null)?.tokens.total).toBe(900)
+    expect(lane?.threads.reduce((sum, row) => sum + row.tokens.total, 0)).toBe(lane?.tokens.total)
+  })
+
+  it('shows no sub-rows at all for a lane whose source never named a thread', () => {
+    // Today's collectors, until #65 parses the markers: every record unknown.
+    const lane = selectSpendForLane(fold(f.llmUsage({ lane: 'l', tokens: tokens(0, 5) })), 'l')
+    expect(lane?.tokens.total).toBe(5)
+    expect(lane?.threads).toEqual([])
+    for (const row of selectLaneSpend(swarm)) expect(row.threads, row.lane).toEqual([])
+  })
+
+  it('keeps threads under their own lane, never merged across lanes', () => {
+    const state = fold(
+      f.llmUsage({ lane: 'a', thread: 'subagent', tokens: tokens(0, 10) }),
+      f.llmUsage({ lane: 'b', thread: 'subagent', tokens: tokens(0, 20) }),
+    )
+    expect(selectSpendForLane(state, 'a')?.threads).toHaveLength(1)
+    expect(selectSpendForLane(state, 'a')?.threads[0]?.tokens.total).toBe(10)
+    expect(selectSpendForLane(state, 'b')?.threads[0]?.tokens.total).toBe(20)
+  })
+
+  it('honours the same filters as its lane', () => {
+    const state = fold(
+      f.llmUsage({ lane: 'l', thread: 'main', tokens: tokens(0, 1) }, { ts: 1_000 }),
+      f.llmUsage({ lane: 'l', thread: 'subagent', tokens: tokens(0, 2) }, { ts: 9_000 }),
+    )
+    const lane = selectSpendForLane(state, 'l', { until: 5_000 })
+    expect(lane?.threads.map((row) => row.thread)).toEqual(['main'])
+    expect(lane?.threads[0]?.tokens.total).toBe(1)
+    expect(selectSpendForLane(state, 'l', { since: 20_000 })?.threads).toEqual([])
   })
 })
 
@@ -897,6 +1060,8 @@ describe('the package barrel', () => {
     for (const name of [
       // schema
       'agentRoleSchema',
+      'agentThreadSchema',
+      'AGENT_THREADS',
       'telemetryOriginSchema',
       'tokenUsageSchema',
       'llmUsagePayloadSchema',

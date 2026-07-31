@@ -1,5 +1,5 @@
-import type { AgentRole, TelemetryOrigin, TokenUsagePayload } from '../events/index.js'
-import { AGENT_ROLES, ZERO_TOKENS, addTokens, totalTokens } from '../events/index.js'
+import type { AgentRole, AgentThread, TelemetryOrigin, TokenUsagePayload } from '../events/index.js'
+import { AGENT_ROLES, AGENT_THREADS, ZERO_TOKENS, addTokens, totalTokens } from '../events/index.js'
 import type { CostRecord, SessionState, ToolActivityRecord, UsageRecord } from '../state.js'
 import { compareStrings } from './touches.js'
 
@@ -70,6 +70,15 @@ export interface SpendTotals {
   lastTs: number | null
 }
 
+/**
+ * One thread's slice of a lane. `thread: null` is the "the source didn't say"
+ * bucket — present so the sub-totals still add up to the lane's own total, and
+ * rendered as unknown rather than folded into `main`.
+ */
+export interface ThreadSpend extends SpendTotals {
+  thread: AgentThread | null
+}
+
 export interface LaneSpend extends SpendTotals {
   lane: string
   worktreePath: string | null
@@ -77,6 +86,14 @@ export interface LaneSpend extends SpendTotals {
   sessionIds: string[]
   /** Tool name to call count, for this lane. */
   toolCounts: Record<string, number>
+  /**
+   * Per-thread sub-totals — prd2's sub-rows under the parent lane, dearest
+   * first. Empty when no record in this lane named a thread at all: an
+   * un-parsed source has no sub-rows to show, which is not the same as one
+   * sub-row of unknowns. When it is non-empty it partitions the lane, so
+   * summing it reproduces the lane's own totals exactly.
+   */
+  threads: ThreadSpend[]
 }
 
 export interface ModelSpend extends SpendTotals {
@@ -134,6 +151,7 @@ export function selectSessionSpend(state: SessionState, filter: SpendFilter = {}
 export function selectLaneSpend(state: SessionState, filter: SpendFilter = {}): LaneSpend[] {
   const accs = new Map<string, Acc>()
   const tools = new Map<string, Record<string, number>>()
+  const threads = new Map<string, Map<AgentThread | null, Acc>>()
 
   const laneAcc = (lane: string): Acc => {
     const existing = accs.get(lane)
@@ -143,11 +161,28 @@ export function selectLaneSpend(state: SessionState, filter: SpendFilter = {}): 
     return fresh
   }
 
+  const threadAcc = (lane: string, thread: AgentThread | null): Acc => {
+    const byThread = threads.get(lane) ?? new Map<AgentThread | null, Acc>()
+    threads.set(lane, byThread)
+    const existing = byThread.get(thread)
+    if (existing !== undefined) return existing
+    const fresh = createAcc()
+    byThread.set(thread, fresh)
+    return fresh
+  }
+
   for (const lane of Object.keys(state.telemetry.lanes)) laneAcc(lane)
-  for (const record of usageIn(state, filter)) addUsage(laneAcc(record.lane), record)
-  for (const record of costsIn(state, filter)) addCost(laneAcc(record.lane), record)
+  for (const record of usageIn(state, filter)) {
+    addUsage(laneAcc(record.lane), record)
+    addUsage(threadAcc(record.lane, record.thread), record)
+  }
+  for (const record of costsIn(state, filter)) {
+    addCost(laneAcc(record.lane), record)
+    addCost(threadAcc(record.lane, record.thread), record)
+  }
   for (const record of toolsIn(state, filter)) {
     addTool(laneAcc(record.lane), record)
+    addTool(threadAcc(record.lane, record.thread), record)
     const counts = tools.get(record.lane) ?? {}
     counts[record.tool] = (counts[record.tool] ?? 0) + 1
     tools.set(record.lane, counts)
@@ -163,9 +198,33 @@ export function selectLaneSpend(state: SessionState, filter: SpendFilter = {}): 
         branch: attribution?.branch ?? null,
         sessionIds: attribution?.sessionIds ?? [],
         toolCounts: tools.get(lane) ?? {},
+        threads: threadRows(threads.get(lane)),
       }
     })
     .sort(bySpend((entry) => entry.lane))
+}
+
+/**
+ * A lane's thread sub-rows, or none at all when nothing in the lane named a
+ * thread. See {@link LaneSpend.threads} for why the all-unknown case is empty
+ * rather than a single null row.
+ */
+function threadRows(byThread: Map<AgentThread | null, Acc> | undefined): ThreadSpend[] {
+  if (byThread === undefined) return []
+  if (![...byThread.keys()].some((thread) => thread !== null)) return []
+  return [...byThread.entries()]
+    .map(([thread, acc]) => ({ ...finalise(acc), thread }))
+    .sort(
+      (a, b) =>
+        b.costUsd - a.costUsd ||
+        b.tokens.total - a.tokens.total ||
+        threadOrder(a.thread) - threadOrder(b.thread),
+    )
+}
+
+/** Declared thread order, with the unknown bucket last. */
+function threadOrder(thread: AgentThread | null): number {
+  return thread === null ? AGENT_THREADS.length : AGENT_THREADS.indexOf(thread)
 }
 
 export function selectLaneSpendIndex(
