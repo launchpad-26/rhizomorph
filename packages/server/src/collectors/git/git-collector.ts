@@ -22,22 +22,25 @@ export const gitCollector: Collector<GitSnapshot> = {
   name: COLLECTOR_NAME,
 
   initialSnapshot(): GitSnapshot {
-    return { mainBranch: null, worktrees: {}, branches: {}, dirty: {} }
+    return { disabled: false, mainBranch: null, worktrees: {}, branches: {}, dirty: {} }
   },
 
   async poll(prevSnapshot, context): Promise<PollResult<GitSnapshot>> {
+    if (prevSnapshot.disabled) {
+      return { nextSnapshot: prevSnapshot, events: [] }
+    }
+
     const events: ObservatoryEvent[] = []
 
     const worktreeListResult = await runGit(context, ['worktree', 'list', '--porcelain'], context.repoPath)
     if (worktreeListResult.failed) {
-      events.push(
-        context.emit('collector.error', {
-          collector: COLLECTOR_NAME,
-          message: 'git worktree list --porcelain failed',
-          detail: worktreeListResult.errorMessage ?? worktreeListResult.stderr,
-        }),
-      )
-      return { nextSnapshot: prevSnapshot, events }
+      const reason =
+        worktreeListResult.errorMessage ??
+        (worktreeListResult.stderr.trim().length > 0
+          ? worktreeListResult.stderr.trim()
+          : 'git worktree list --porcelain failed')
+      events.push(context.emit('collector.disabled', { collector: COLLECTOR_NAME, reason }))
+      return { nextSnapshot: { ...prevSnapshot, disabled: true }, events }
     }
 
     const worktrees = parseWorktreeList(worktreeListResult.stdout)
@@ -49,7 +52,7 @@ export const gitCollector: Collector<GitSnapshot> = {
     const nextDirty = await diffDirty(context, worktrees, prevSnapshot, events)
 
     return {
-      nextSnapshot: { mainBranch, worktrees: nextWorktrees, branches: nextBranches, dirty: nextDirty },
+      nextSnapshot: { disabled: false, mainBranch, worktrees: nextWorktrees, branches: nextBranches, dirty: nextDirty },
       events,
     }
   },

@@ -200,26 +200,43 @@ describe('gitCollector', () => {
     expect(poll2.nextSnapshot.dirty['/repo-worktrees/feature-y']).toBeUndefined()
   })
 
-  it('emits a collector.error and keeps the previous snapshot when worktree list fails', async () => {
-    const exec: Exec = async () => ({
-      stdout: '',
-      stderr: 'fatal: not a git repository',
-      code: 128,
-      failed: true,
-      errorMessage: 'fatal: not a git repository',
-    })
+  it('latches disabled (not a repeating collector.error) when worktree list fails, e.g. a non-git directory', async () => {
+    let execCalls = 0
+    const exec: Exec = async () => {
+      execCalls += 1
+      return {
+        stdout: '',
+        stderr: 'fatal: not a git repository (or any of the parent directories): .git',
+        code: 128,
+        failed: true,
+        errorMessage: 'fatal: not a git repository (or any of the parent directories): .git',
+      }
+    }
     const context = makeContext(exec, 5000)
     const prevSnapshot = gitCollector.initialSnapshot()
 
     const { nextSnapshot, events } = await gitCollector.poll(prevSnapshot, context)
 
+    expect(execCalls).toBe(1)
     expect(events).toHaveLength(1)
     expect(events[0]).toEqual(
       expect.objectContaining({
-        type: 'collector.error',
-        payload: expect.objectContaining({ collector: 'git' }),
+        type: 'collector.disabled',
+        payload: expect.objectContaining({
+          collector: 'git',
+          reason: 'fatal: not a git repository (or any of the parent directories): .git',
+        }),
       }),
     )
-    expect(nextSnapshot).toBe(prevSnapshot)
+    expect(nextSnapshot).toEqual({ ...prevSnapshot, disabled: true })
+
+    // Latched: every later poll no-ops without shelling out again, so a
+    // non-git directory does not grow the session log forever.
+    const context2 = makeContext(exec, 7000)
+    const poll2 = await gitCollector.poll(nextSnapshot, context2)
+
+    expect(execCalls).toBe(1)
+    expect(poll2.events).toEqual([])
+    expect(poll2.nextSnapshot).toBe(nextSnapshot)
   })
 })

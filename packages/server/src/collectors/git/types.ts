@@ -19,6 +19,8 @@ export interface GitBranchState {
 }
 
 export interface GitSnapshot {
+  /** Set once `git worktree list` fails (e.g. not a git directory). Every later poll is a no-op. */
+  disabled: boolean
   /** Branch of the main worktree, or null when it's detached. */
   mainBranch: string | null
   worktrees: Record<string, GitWorktreeState>
