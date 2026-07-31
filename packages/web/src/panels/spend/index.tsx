@@ -4,17 +4,22 @@ import {
   selectLaneSpend,
   selectRoleSpend,
   selectSessionSpend,
+  selectSpendForLane,
   selectSpendRate,
+  UNATTRIBUTED_LANE,
   type AgentRole,
 } from '@observatory/core'
 import { useStream } from '../../app/StreamContext.js'
 import {
   formatCostOrGap,
   formatCostOverhead,
+  formatRefusalGap,
   formatTokens,
+  formatUnattributedGap,
   formatUsd,
   formatUsdPerHour,
   selectCostOverhead,
+  selectRefusedCount,
 } from './format.js'
 
 export interface SpendPanelProps {
@@ -74,6 +79,13 @@ export default function SpendPanel({ now: nowOverride }: SpendPanelProps = {}) {
     [roleSplit],
   )
   const lanes = useMemo(() => selectLaneSpend(session), [session])
+  const unattributedLane = useMemo(
+    () => selectSpendForLane(session, UNATTRIBUTED_LANE),
+    [session],
+  )
+  const unattributedGap = useMemo(() => formatUnattributedGap(unattributedLane), [unattributedLane])
+  const refusedCount = useMemo(() => selectRefusedCount(state.events), [state.events])
+  const refusalGap = useMemo(() => formatRefusalGap(refusedCount), [refusedCount])
 
   const hasData = totals.requestCount > 0 || totals.costEventCount > 0 || totals.toolCallCount > 0
   /** No `llm.cost` event has ever arrived — show tokens, invent no dollars. */
@@ -155,6 +167,17 @@ export default function SpendPanel({ now: nowOverride }: SpendPanelProps = {}) {
               })}
             </ul>
           </div>
+
+          {unattributedGap === null ? null : (
+            <p className="text-[11px] text-neon-amber" data-testid="spend-unattributed-gap">
+              {unattributedGap}
+            </p>
+          )}
+          {refusalGap === null ? null : (
+            <p className="text-[11px] text-neon-amber" data-testid="spend-refusal-gap">
+              {refusalGap}
+            </p>
+          )}
 
           <ul className="min-h-0 flex-1 space-y-1 overflow-auto">
             {lanes.map((lane) => (

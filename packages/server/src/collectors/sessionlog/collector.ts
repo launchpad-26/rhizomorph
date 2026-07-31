@@ -130,10 +130,26 @@ export function createSessionlogCollector(
         }
       }
 
+      // `git worktree list --porcelain` always lists the main working tree
+      // first, then linked worktrees in the order they were added — a stable
+      // ordering, not an assumption. Linked worktrees only exist because the
+      // swarm made them, so `role: 'worker'` is correct there; the main tree
+      // is where a human (or a conductor) drives the repo directly, so unless
+      // the operator has declared it via `--extra-sessions` (kept exactly as
+      // declared, never overridden here), it is `unattributed` — a setup gap
+      // to fill in, never silently booked as worker spend (#62).
+      const worktreePaths = parseWorktreePaths(worktreeListResult.stdout)
+      const mainWorktreePath = worktreePaths[0]
+      const declaredWorktreePaths = new Set(extraWatchedDirs.map((dir) => dir.worktreePath))
+
       const watchedDirs: WatchedDir[] = [
-        ...parseWorktreePaths(worktreeListResult.stdout).map(
-          (worktreePath): WatchedDir => ({ worktreePath, role: 'worker' }),
-        ),
+        ...worktreePaths
+          .filter((worktreePath) => !declaredWorktreePaths.has(worktreePath))
+          .map((worktreePath): WatchedDir =>
+            worktreePath === mainWorktreePath
+              ? { worktreePath, role: 'unattributed', laneOverride: UNATTRIBUTED_LANE }
+              : { worktreePath, role: 'worker' },
+          ),
         ...extraWatchedDirs,
       ]
 

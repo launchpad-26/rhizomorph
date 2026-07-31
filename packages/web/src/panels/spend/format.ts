@@ -1,4 +1,4 @@
-import type { RoleSpend } from '@observatory/core'
+import type { LaneSpend, ObservatoryEvent, RoleSpend } from '@observatory/core'
 
 const TOKEN_UNITS: readonly [threshold: number, suffix: string][] = [
   [1_000_000_000, 'B'],
@@ -85,4 +85,40 @@ export function formatCostOverhead(overhead: CostOverhead): string {
  */
 export function formatCostOrGap(cost: Pick<CostFields, 'costUsd' | 'costEventCount'>): string {
   return cost.costEventCount === 0 ? 'no cost data' : formatUsd(cost.costUsd)
+}
+
+/**
+ * The root working tree is `unattributed` (#62) until the operator claims it
+ * — never silently filed as worker spend. `null` (no `unattributed` lane at
+ * all, or one that has recorded nothing) means there is no gap to report;
+ * a real one always names the exact fix, never just a number.
+ */
+export function formatUnattributedGap(
+  lane: Pick<LaneSpend, 'tokens' | 'requestCount' | 'toolCallCount'> | null,
+): string | null {
+  if (lane === null) return null
+  const hasSpend = lane.tokens.total > 0 || lane.requestCount > 0 || lane.toolCallCount > 0
+  if (!hasSpend) return null
+  return (
+    `${formatTokens(lane.tokens.total)} tokens unattributed — claim with ` +
+    `--extra-sessions <dir>:<lane> or observatory env`
+  )
+}
+
+/**
+ * Every export this Observatory has refused (#60) since it started, summed
+ * from the raw event log rather than a selector — `telemetry.refused` is a
+ * setup gap the reducer deliberately leaves out of every spend total.
+ */
+export function selectRefusedCount(events: readonly ObservatoryEvent[]): number {
+  return events.reduce(
+    (sum, event) => (event.type === 'telemetry.refused' ? sum + event.payload.count : sum),
+    0,
+  )
+}
+
+/** `null` when nothing has ever been refused — there is nothing to warn about. */
+export function formatRefusalGap(refusedCount: number): string | null {
+  if (refusedCount <= 0) return null
+  return `${refusedCount} post${refusedCount === 1 ? '' : 's'} refused from unknown instance`
 }

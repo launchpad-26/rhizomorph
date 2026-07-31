@@ -148,7 +148,10 @@ describe('createSessionlogCollector', () => {
     )
 
     const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
-    const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
+    // '/repo' is the main working tree (first porcelain entry); listing it
+    // ahead of `worktreePath` here is what makes alpha a genuine *linked*
+    // worktree instead of accidentally being read as the root.
+    const gitExec: Exec = async () => success(worktreeListOutput(['/repo', worktreePath]))
     const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
 
     const usage = result.events.filter((e) => e.type === 'llm.usage')
@@ -193,6 +196,76 @@ describe('createSessionlogCollector', () => {
       Date.parse('2026-07-30T00:49:19.739Z'),
       Date.parse('2026-07-30T00:49:22.966Z'),
     ])
+  })
+
+  it('books the main working tree as unattributed while a linked worktree stays worker (#62)', async () => {
+    const rootPath = '/repo'
+    const linkedPath = '/fake/worktrees/alpha'
+    const rootProjectDir = path.join(root, worktreePathToProjectSlug(rootPath))
+    const linkedProjectDir = path.join(root, worktreePathToProjectSlug(linkedPath))
+    await mkdir(rootProjectDir, { recursive: true })
+    await mkdir(linkedProjectDir, { recursive: true })
+    // Same fixture content in both dirs: any role/lane difference below comes
+    // from which worktree it was tailed from, not from the log content.
+    await writeFile(
+      path.join(rootProjectDir, '95f42357-058c-4ea2-84d4-de7b1eb58635.jsonl'),
+      await readFixture('worker-2-core.jsonl'),
+      'utf8',
+    )
+    await writeFile(
+      path.join(linkedProjectDir, '95f42357-058c-4ea2-84d4-de7b1eb58635.jsonl'),
+      await readFixture('worker-2-core.jsonl'),
+      'utf8',
+    )
+
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    // '/repo' is listed first — git worktree list --porcelain always puts the
+    // main working tree first, then linked worktrees in creation order.
+    const gitExec: Exec = async () => success(worktreeListOutput([rootPath, linkedPath]))
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+
+    const usage = result.events.filter(
+      (e): e is typeof e & { payload: { worktreePath: string } } => e.type === 'llm.usage',
+    )
+    expect(usage).toHaveLength(2)
+
+    const rootUsage = usage.find((e) => e.payload.worktreePath === rootPath)
+    const linkedUsage = usage.find((e) => e.payload.worktreePath === linkedPath)
+
+    expect(rootUsage?.payload).toMatchObject({ role: 'unattributed', lane: 'unattributed' })
+    // The linked worktree's lane is still inferred from the log's own gitBranch/cwd.
+    expect(linkedUsage?.payload).toMatchObject({ role: 'worker', lane: '2-core' })
+  })
+
+  it('keeps a root worktree declared via --extra-sessions at its declared role/lane, never falling back to unattributed, and tails it exactly once (#62)', async () => {
+    const rootPath = '/repo'
+    const rootProjectDir = path.join(root, worktreePathToProjectSlug(rootPath))
+    await mkdir(rootProjectDir, { recursive: true })
+    await writeFile(
+      path.join(rootProjectDir, '85649f6d-2f7d-43aa-a23e-10c9c1c0d2bc.jsonl'),
+      await readFixture('conductor-root.jsonl'),
+      'utf8',
+    )
+
+    const collector = createSessionlogCollector({
+      claudeProjectsRoot: root,
+      extraSessionDirs: [`${rootPath}:conductor`],
+      backfill: true,
+    })
+    // Only the root is listed — a single-entry porcelain output is still the
+    // main working tree, and the operator's declaration must win over it.
+    const gitExec: Exec = async () => success(worktreeListOutput([rootPath]))
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+
+    const usage = result.events.filter((e) => e.type === 'llm.usage')
+    // Exactly one event, not two: the auto-discovered root entry must not
+    // also tail the same project dir alongside the declared extra-session one.
+    expect(usage).toHaveLength(1)
+    expect(usage[0]?.payload).toMatchObject({
+      role: 'conductor',
+      lane: 'conductor',
+      worktreePath: rootPath,
+    })
   })
 
   it('attributes role: conductor and the default "conductor" lane for sessions under an extra session dir with no explicit lane', async () => {

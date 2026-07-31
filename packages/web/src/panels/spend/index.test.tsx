@@ -202,4 +202,68 @@ describe('SpendPanel', () => {
     // Dearest lane first — the conductor outspent every worker lane here.
     expect(lanes[0]!.lane).toBe('conductor')
   })
+
+  it('shows the unattributed bucket as an actionable gap once a root session has booked spend against it', () => {
+    // The exact shape #62 fixes: a repo-root session with nobody claiming it
+    // books role: 'unattributed', lane: 'unattributed' — the panel must call
+    // this out by name, not blend it silently into the lane list below.
+    const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'root' })
+    f.sessionStarted()
+    f.llmUsage({
+      lane: 'unattributed',
+      role: 'unattributed',
+      tokens: { input: 4, output: 3_100, cacheRead: 180_000, cacheCreation: 6_400 },
+    })
+
+    renderPanel(f.all())
+
+    expect(screen.getByTestId('spend-unattributed-gap')).toHaveTextContent(
+      'tokens unattributed — claim with --extra-sessions <dir>:<lane> or observatory env',
+    )
+    expect(screen.queryByTestId('spend-refusal-gap')).not.toBeInTheDocument()
+    // The unattributed bucket is not one of the three role-split columns.
+    expect(screen.queryByTestId('spend-role-unattributed')).not.toBeInTheDocument()
+  })
+
+  it('renders no unattributed gap line when nothing has ever booked against that lane', () => {
+    const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'clean' })
+    f.sessionStarted()
+    f.llmUsage({ lane: 'feature', role: 'worker' })
+
+    renderPanel(f.all())
+
+    expect(screen.queryByTestId('spend-unattributed-gap')).not.toBeInTheDocument()
+  })
+
+  it('surfaces refused telemetry.refused posts as a setup gap, counting throttled counts across multiple offenders', () => {
+    const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'refused' })
+    f.sessionStarted()
+    f.llmUsage({ lane: 'feature', role: 'worker' })
+    f.make('telemetry.refused', {
+      instance: 'some-other-repo',
+      expectedInstance: 'this-repo',
+      count: 3,
+    })
+    f.make('telemetry.refused', {
+      instance: null,
+      expectedInstance: 'this-repo',
+      count: 2,
+    })
+
+    renderPanel(f.all())
+
+    expect(screen.getByTestId('spend-refusal-gap')).toHaveTextContent(
+      '5 posts refused from unknown instance',
+    )
+  })
+
+  it('renders no refusal gap line when nothing has ever been refused', () => {
+    const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'norefuse' })
+    f.sessionStarted()
+    f.llmUsage({ lane: 'feature', role: 'worker' })
+
+    renderPanel(f.all())
+
+    expect(screen.queryByTestId('spend-refusal-gap')).not.toBeInTheDocument()
+  })
 })
