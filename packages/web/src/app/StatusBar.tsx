@@ -3,15 +3,17 @@ import { reduceAll, type CollectorState } from '@observatory/core'
 import { CONNECTION_DOT_CLASS, CONNECTION_LABEL } from './ConnectionBadge.js'
 import { useStream } from './StreamContext.js'
 
-/** The three optional sources prd0 promises degrade gracefully. */
-type SourceKey = 'git' | 'tmux' | 'workmux'
+/** The five optional sources prd0/prd2 promise degrade gracefully. */
+type SourceKey = 'git' | 'tmux' | 'workmux' | 'sessionlog' | 'otel'
 
-const SOURCES: readonly SourceKey[] = ['git', 'tmux', 'workmux']
+const SOURCES: readonly SourceKey[] = ['git', 'tmux', 'workmux', 'sessionlog', 'otel']
 
 const SOURCE_LABEL: Record<SourceKey, string> = {
   git: 'Git',
   tmux: 'Tmux',
   workmux: 'Workmux',
+  sessionlog: 'Sessionlog',
+  otel: 'OTel',
 }
 
 type SourceHealth = 'live' | 'disabled' | 'errored'

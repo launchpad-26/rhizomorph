@@ -39,7 +39,7 @@ function renderBar() {
   return { ...utils, source: () => source }
 }
 
-function pill(container: HTMLElement, key: 'git' | 'tmux' | 'workmux'): HTMLElement {
+function pill(container: HTMLElement, key: 'git' | 'tmux' | 'workmux' | 'sessionlog' | 'otel'): HTMLElement {
   const el = container.querySelector(`[data-source="${key}"]`)
   if (el === null) throw new Error(`no pill for ${key}`)
   return el as HTMLElement
@@ -49,7 +49,7 @@ describe('StatusBar', () => {
   it('shows every source as live before any collector event arrives', () => {
     const { container } = renderBar()
 
-    for (const key of ['git', 'tmux', 'workmux'] as const) {
+    for (const key of ['git', 'tmux', 'workmux', 'sessionlog', 'otel'] as const) {
       expect(pill(container, key).dataset.health).toBe('live')
     }
   })
@@ -70,6 +70,21 @@ describe('StatusBar', () => {
     // Untouched sources stay live.
     expect(pill(container, 'git').dataset.health).toBe('live')
     expect(pill(container, 'tmux').dataset.health).toBe('live')
+    expect(pill(container, 'sessionlog').dataset.health).toBe('live')
+    expect(pill(container, 'otel').dataset.health).toBe('live')
+  })
+
+  it('surfaces a disabled sessionlog collector — the most likely stranger failure — with its reason', () => {
+    const { container, source } = renderBar()
+    const f = createEventFactory()
+
+    act(() => {
+      source()?.emit(f.collectorDisabled({ collector: 'sessionlog', reason: 'no Claude session logs found' }))
+    })
+
+    const sessionlog = pill(container, 'sessionlog')
+    expect(sessionlog.dataset.health).toBe('disabled')
+    expect(sessionlog.title).toBe('no Claude session logs found')
   })
 
   it('surfaces an errored collector with its last message on hover/focus', () => {
