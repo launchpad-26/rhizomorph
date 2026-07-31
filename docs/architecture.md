@@ -69,7 +69,53 @@ Fastify:
   live-tails.
 - `GET /api/sessions`, `GET /api/sessions/:id/events` — history for replay.
 - `GET /api/meta` — repo name, session info.
+- `GET /api/lanes` — the lane manifest (see below).
 - Serves the built web app statically — one origin, no CORS.
+
+### Lane manifest (prd3 ruling 19)
+
+The conductor's dispatch tooling writes `<repo>/.swarm/lanes.json` on every
+dispatch wave — one lane per worker, its handle, its branch, and the fence
+globs it may touch:
+
+```json
+{
+  "version": 1,
+  "lanes": [
+    {
+      "handle": "77-attention-strip",
+      "branch": "77-attention-strip",
+      "fence": ["packages/web/src/panels/attention/**"],
+      "issue": "77",
+      "model": "sonnet",
+      "dispatchedAt": "2026-07-31T20:30:00Z"
+    }
+  ]
+}
+```
+
+`handle`, `branch`, and `fence` (a string array) are required per lane;
+`issue`, `model`, and `dispatchedAt` are dispatch metadata the Observatory
+doesn't need for its own derivation. `GET /api/lanes`
+(`packages/server/src/api/lanes.ts`) reads and validates this file against
+the watched repo root — the server's existing target-repo context, not a new
+flag — fresh on every request; the file is tiny and changes at every
+dispatch, so caching would only risk staleness for no gain. Downstream, "where
+is this agent" is derived by comparing an agent's recently-touched files
+against its lane's fence globs — off-fence detection falls out of this one
+data addition with no other new collector.
+
+The response is never a silent empty list. A missing file is an honest,
+expected state before the first dispatch:
+`{ "available": false, "reason": "no lane manifest — dispatch has not written .swarm/lanes.json" }`.
+A present-but-unparseable-or-invalid file is a loud degradation carrying the
+parse or schema detail: `{ "available": false, "reason": "<detail>" }`. Only a
+structurally valid file serves `{ "available": true, "version": 1, "lanes": [...] }`.
+This is exactly the shape the web gap voice (ruling 12) consumes. `observatory
+doctor` reuses the same read/validate path for a `lane-manifest` check, in the
+existing three-state vocabulary (#73): present-and-valid is `ok`; absent and
+present-but-broken are both `warn` (an optional capability, not something the
+app needs to run) distinguished only by message.
 
 CLI entry `observatory [path]` boots collectors + server, prints the URL.
 
