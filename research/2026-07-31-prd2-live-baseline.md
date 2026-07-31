@@ -60,6 +60,28 @@ repo root booted everything (#51); the status bar shows all five collectors —
 Git, Tmux, Workmux, Sessionlog, OTel — plus the SSE dot (#53). This live run
 IS the dogfood half of the stranger test.
 
+## AFTER wave A (added 2026-07-31 ~13:35 NZST, same method: real browser, real server)
+
+Wave A landed (#56 source timestamps + snapshot store, #57 EOF-start, #58
+resume-the-run, #59 cross-collector dedup). Server restarted on main
+`68fc3b6` with `--fresh`:
+
+- **Spend ticker: 2.6M tokens** where the baseline showed 896.3M — and the
+  2.6M is honest: the conductor session and three live worker lanes
+  (60/61/67) burning *right now*, ingested from EOF forward only. Role split:
+  worker 1.7M / conductor 912.7K — actual current activity, not history.
+- **Ledger first-seen: "just now"** on live lanes, not "2m ago" on week-old
+  history — events now carry the log line's own timestamp.
+- **Resume proven:** a second restart *without* `--fresh` came back with the
+  same session id (`1785461449418`) — the run survives the process, offsets
+  persist, no duplicate history file.
+- The foreign-branch rows (`HEAD`, `factory-p1p2-conductor`) no longer appear
+  on a fresh boot — not because identity is fixed (that is wave B, in
+  flight), but because their *history* is no longer ingested; a live foreign
+  agent would still bleed in until #60 lands.
+
+Wave A's demo criterion — "spend starts at zero" — holds in a real browser.
+
 ## One copy tension worth a prd3 line
 
 "CONDUCTOR NOT INSTRUMENTED" sitting above an 896M-token conductor row is
