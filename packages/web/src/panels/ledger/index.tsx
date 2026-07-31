@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { reduceAll, selectSpendByBranch } from '@observatory/core'
 import { useStream } from '../../app/StreamContext.js'
 import {
@@ -7,7 +7,9 @@ import {
   formatElapsed,
   formatRelativeTime,
   formatTokens,
+  threadLabel,
 } from './format.js'
+import { selectThreadRowsForBranch } from './threads.js'
 
 export interface LedgerPanelProps {
   /** Test-only override so render tests don't depend on the wall clock. */
@@ -26,6 +28,21 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
   const now = nowOverride ?? Date.now()
   const session = useMemo(() => reduceAll(state.events), [state.events])
   const rows = useMemo(() => selectSpendByBranch(session), [session])
+  const threadsByBranch = useMemo(
+    () => new Map(rows.map((row) => [row.branch, selectThreadRowsForBranch(session, row)])),
+    [session, rows],
+  )
+
+  /** Branches with their sub-rows open — keyed by branch, so one lane's toggle never affects another's. */
+  const [expandedBranches, setExpandedBranches] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleBranch = (branch: string): void => {
+    setExpandedBranches((current) => {
+      const next = new Set(current)
+      if (next.has(branch)) next.delete(branch)
+      else next.add(branch)
+      return next
+    })
+  }
 
   /** Same signal ConnectionBadge/StatusBar read, plus proof at least one event has folded. */
   const connected = status === 'open' && state.events.length > 0
@@ -60,64 +77,117 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
-                <tr
-                  key={row.branch}
-                  data-testid="ledger-row"
-                  className="border-t border-void-line/60"
-                >
-                  <td className="py-1.5 pr-2 font-mono text-slate-200">
-                    {row.branch}
-                    {row.issue === null ? null : (
-                      <span className="ml-1 text-[10px] text-slate-500">#{row.issue}</span>
-                    )}
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    <span
-                      role="status"
-                      aria-label={row.landed ? 'landed' : 'live'}
-                      title={
-                        row.landed
-                          ? 'worktree removed — this feature is finished'
-                          : 'worktree still present'
-                      }
-                      className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wide ${
-                        row.landed ? 'text-slate-500' : 'text-neon-cyan'
-                      }`}
+              {rows.map((row) => {
+                const threads = threadsByBranch.get(row.branch) ?? []
+                const expandable = threads.length > 0
+                const expanded = expandable && expandedBranches.has(row.branch)
+                return (
+                  <Fragment key={row.branch}>
+                    <tr
+                      data-testid="ledger-row"
+                      className="border-t border-void-line/60"
                     >
-                      <span
-                        className={`h-2 w-2 rounded-full ${
-                          row.landed ? 'bg-slate-600' : 'bg-neon-cyan glow-cyan'
-                        }`}
-                      />
-                      {row.landed ? 'Landed' : 'Live'}
-                    </span>
-                  </td>
-                  <td
-                    className="py-1.5 pr-2 font-mono text-slate-200"
-                    data-testid="ledger-cost"
-                    title={costCellTitle(row)}
-                  >
-                    {costCellText(row)}
-                    {row.costIsAuthoritative === false ? (
-                      <span className="ml-1 text-[10px] font-normal text-slate-500">est.</span>
-                    ) : null}
-                  </td>
-                  <td className="py-1.5 pr-2 font-mono text-slate-400">
-                    {formatTokens(row.tokens.total)}
-                  </td>
-                  <td className="py-1.5 pr-2 text-slate-400">
-                    {row.models.length === 0 ? '—' : row.models.join(', ')}
-                  </td>
-                  <td className="py-1.5 pr-2 text-slate-400">
-                    {formatRelativeTime(row.firstTs, now)}
-                  </td>
-                  <td className="py-1.5 pr-2 text-slate-400">
-                    {formatRelativeTime(row.lastTs, now)}
-                  </td>
-                  <td className="py-1.5 text-slate-400">{formatElapsed(row.elapsedMs)}</td>
-                </tr>
-              ))}
+                      <td className="py-1.5 pr-2 font-mono text-slate-200">
+                        {expandable ? (
+                          <button
+                            type="button"
+                            onClick={() => toggleBranch(row.branch)}
+                            aria-expanded={expanded}
+                            aria-label={`${expanded ? 'Collapse' : 'Expand'} threads for ${row.branch}`}
+                            data-testid="ledger-thread-toggle"
+                            className="mr-1 inline-flex w-3 text-slate-500 hover:text-neon-cyan"
+                          >
+                            {expanded ? '▾' : '▸'}
+                          </button>
+                        ) : null}
+                        {row.branch}
+                        {row.issue === null ? null : (
+                          <span className="ml-1 text-[10px] text-slate-500">#{row.issue}</span>
+                        )}
+                      </td>
+                      <td className="py-1.5 pr-2">
+                        <span
+                          role="status"
+                          aria-label={row.landed ? 'landed' : 'live'}
+                          title={
+                            row.landed
+                              ? 'worktree removed — this feature is finished'
+                              : 'worktree still present'
+                          }
+                          className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wide ${
+                            row.landed ? 'text-slate-500' : 'text-neon-cyan'
+                          }`}
+                        >
+                          <span
+                            className={`h-2 w-2 rounded-full ${
+                              row.landed ? 'bg-slate-600' : 'bg-neon-cyan glow-cyan'
+                            }`}
+                          />
+                          {row.landed ? 'Landed' : 'Live'}
+                        </span>
+                      </td>
+                      <td
+                        className="py-1.5 pr-2 font-mono text-slate-200"
+                        data-testid="ledger-cost"
+                        title={costCellTitle(row)}
+                      >
+                        {costCellText(row)}
+                        {row.costIsAuthoritative === false ? (
+                          <span className="ml-1 text-[10px] font-normal text-slate-500">est.</span>
+                        ) : null}
+                      </td>
+                      <td className="py-1.5 pr-2 font-mono text-slate-400">
+                        {formatTokens(row.tokens.total)}
+                      </td>
+                      <td className="py-1.5 pr-2 text-slate-400">
+                        {row.models.length === 0 ? '—' : row.models.join(', ')}
+                      </td>
+                      <td className="py-1.5 pr-2 text-slate-400">
+                        {formatRelativeTime(row.firstTs, now)}
+                      </td>
+                      <td className="py-1.5 pr-2 text-slate-400">
+                        {formatRelativeTime(row.lastTs, now)}
+                      </td>
+                      <td className="py-1.5 text-slate-400">{formatElapsed(row.elapsedMs)}</td>
+                    </tr>
+                    {expanded
+                      ? threads.map((thread) => (
+                          <tr
+                            key={`${row.branch}::${thread.thread ?? 'unknown'}`}
+                            data-testid="ledger-subrow"
+                            className="border-t border-void-line/30 text-xs"
+                          >
+                            <td className="py-1 pr-2 pl-6 font-mono text-slate-400">
+                              {threadLabel(thread.thread)}
+                            </td>
+                            <td className="py-1 pr-2 text-slate-600">—</td>
+                            <td
+                              className="py-1 pr-2 font-mono text-slate-300"
+                              data-testid="ledger-subrow-cost"
+                              title={costCellTitle(thread)}
+                            >
+                              {costCellText(thread)}
+                              {thread.costIsAuthoritative === false ? (
+                                <span className="ml-1 text-[10px] font-normal text-slate-500">
+                                  est.
+                                </span>
+                              ) : null}
+                            </td>
+                            <td className="py-1 pr-2 font-mono text-slate-400">
+                              {formatTokens(thread.tokens.total)}
+                            </td>
+                            <td className="py-1 pr-2 text-slate-400">
+                              {thread.models.length === 0 ? '—' : thread.models.join(', ')}
+                            </td>
+                            <td className="py-1 pr-2 text-slate-600">—</td>
+                            <td className="py-1 pr-2 text-slate-600">—</td>
+                            <td className="py-1 text-slate-600">—</td>
+                          </tr>
+                        ))
+                      : null}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
         </div>

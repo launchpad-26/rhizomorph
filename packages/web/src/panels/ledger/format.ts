@@ -1,4 +1,4 @@
-import type { BranchSpend } from '@observatory/core'
+import type { AgentThread, SpendTotals } from '@observatory/core'
 
 const TOKEN_UNITS: readonly [threshold: number, suffix: string][] = [
   [1_000_000_000, 'B'],
@@ -46,19 +46,25 @@ export function formatRelativeTime(ts: number | null, now: number): string {
 }
 
 /**
- * Dollars whenever any telemetry has priced this branch, tokens alone when
- * none ever has — the null case in {@link BranchSpend.costIsAuthoritative} is
- * "we do not know", not "it was free", so it must never render as `$0.00`.
+ * Dollars whenever any telemetry has priced this row, tokens alone when none
+ * ever has — the null case in {@link SpendTotals.costIsAuthoritative} is "we
+ * do not know", not "it was free", so it must never render as `$0.00`. Shared
+ * by branch rows and their thread sub-rows: both are a {@link SpendTotals}.
  */
-export function costCellText(row: BranchSpend): string {
+export function costCellText(row: SpendTotals): string {
   if (row.costIsAuthoritative === null) return formatTokens(row.tokens.total)
   return formatUsd(row.costUsd)
 }
 
-export function costCellTitle(row: BranchSpend): string {
+export function costCellTitle(row: SpendTotals): string {
   if (row.costIsAuthoritative === null) return 'tokens shown — no cost telemetry yet'
   if (row.costIsAuthoritative === false) {
     return `includes an estimate, not fully authoritative (total ${formatUsd(row.costUsd)})`
   }
   return 'authoritative dollar cost (OTel)'
+}
+
+/** `null` is the source-didn't-say bucket — rendered as its own label, never folded into `main`. */
+export function threadLabel(thread: AgentThread | null): string {
+  return thread ?? 'unknown'
 }
