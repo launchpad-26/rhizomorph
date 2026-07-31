@@ -204,7 +204,8 @@ export function parseEnvArgs(argv: readonly string[]): EnvArgs {
 /** `--help` output: every flag, with its default shown. */
 export function helpText(): string {
   return `observatory [path] [options]
-observatory env <lane> [options]   Print the telemetry env block for a lane
+observatory doctor [path] [options]   Read-only preflight — say what's missing and how to fix it
+observatory env <lane> [options]      Print the telemetry env block for a lane
 
 Runs a live, replayable dashboard for a git-worktree agent swarm.
 
@@ -223,6 +224,51 @@ Options:
                           for the rest — never the raw project-dir slug.
   --help, -h              Show this help and exit
 
-Run 'observatory env --help' for the env-block subcommand's own options.
+Run 'observatory doctor --help' or 'observatory env --help' for a subcommand's own options.
 `
+}
+
+/** Parses `observatory doctor [path] [--port <n>] [--help]`. */
+export interface DoctorArgs {
+  path: string | undefined
+  port: number
+  help: boolean
+}
+
+/** `observatory doctor`'s own usage table, distinct from the main command's. */
+export function doctorHelpText(): string {
+  return `observatory doctor [path] [options]
+
+Read-only preflight: checks the Node version, the target path (exists and is
+a git repo), the web build, whether the port is free, Claude Code session
+logs, tmux/workmux presence, and telemetry env — one ok/warn/FAIL line per
+check, each with its remedy. Exits non-zero only when the app genuinely
+cannot run (bad path, not a repo, no web build, port taken).
+
+Arguments:
+  path                    Repo to check (default: current directory)
+
+Options:
+  --port <n>              Port to check for availability (default: ${DEFAULT_PORT})
+  --help, -h              Show this help and exit
+`
+}
+
+export function parseDoctorArgs(argv: readonly string[]): DoctorArgs {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    return { path: undefined, port: DEFAULT_PORT, help: true }
+  }
+
+  let portArg: string | undefined
+  const specs: FlagSpec[] = [{ flag: '--port', read: (v) => { portArg = v } }]
+
+  const positionals = parseFlags(argv, specs)
+  const path = positionals[0]
+
+  const port = portArg === undefined ? DEFAULT_PORT : Number(portArg)
+  if (!Number.isInteger(port) || port < 0) {
+    throw new Error(`invalid --port value: "${portArg}" (must be a non-negative integer)`)
+  }
+
+  return { path, port, help: false }
 }

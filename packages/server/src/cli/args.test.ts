@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { envHelpText, helpText, parseArgs, parseEnvArgs } from './args.js'
+import { doctorHelpText, envHelpText, helpText, parseArgs, parseDoctorArgs, parseEnvArgs } from './args.js'
 
 const defaults = {
   path: undefined,
@@ -184,6 +184,62 @@ describe('helpText', () => {
 
   it('mentions the env subcommand', () => {
     expect(helpText()).toContain('observatory env')
+  })
+
+  it('mentions the doctor subcommand', () => {
+    expect(helpText()).toContain('observatory doctor')
+  })
+})
+
+describe('parseDoctorArgs', () => {
+  const doctorDefaults = { path: undefined, port: 4321, help: false }
+
+  it('defaults to no path and port 4321', () => {
+    expect(parseDoctorArgs([])).toEqual(doctorDefaults)
+  })
+
+  it('takes the first non-flag token as the path', () => {
+    expect(parseDoctorArgs(['../some-repo'])).toEqual({ ...doctorDefaults, path: '../some-repo' })
+  })
+
+  it('parses --port as a separate token', () => {
+    expect(parseDoctorArgs(['../repo', '--port', '5000'])).toEqual({
+      ...doctorDefaults,
+      path: '../repo',
+      port: 5000,
+    })
+  })
+
+  it('parses --port=n', () => {
+    expect(parseDoctorArgs(['--port=5000'])).toEqual({ ...doctorDefaults, port: 5000 })
+  })
+
+  it('throws on a non-numeric port', () => {
+    expect(() => parseDoctorArgs(['--port', 'nope'])).toThrow(/invalid --port/)
+  })
+
+  it('parses --help', () => {
+    expect(parseDoctorArgs(['--help'])).toEqual({ ...doctorDefaults, help: true })
+  })
+
+  it('parses -h', () => {
+    expect(parseDoctorArgs(['-h'])).toEqual({ ...doctorDefaults, help: true })
+  })
+
+  it('throws on an unrecognised flag, naming it', () => {
+    expect(() => parseDoctorArgs(['--flatline-minutes', '3'])).toThrow(
+      /unknown option.*"--flatline-minutes"/is,
+    )
+  })
+})
+
+describe('doctorHelpText', () => {
+  it('documents the path argument, --port and --help', () => {
+    const text = doctorHelpText()
+    expect(text).toContain('observatory doctor [path]')
+    expect(text).toContain('--port')
+    expect(text).toContain('4321')
+    expect(text).toContain('--help')
   })
 })
 

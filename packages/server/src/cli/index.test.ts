@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Collector, CollectorContext, Exec, ObservatoryEvent, PollResult } from '@observatory/core'
@@ -303,5 +304,145 @@ describe('runCli argument errors', () => {
     expect((thrown as FakeExit).code).toBe(0)
     expect(log.log).toHaveBeenCalledWith(expect.stringContaining('Options:'))
     expect(writeSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('runCli doctor subcommand', () => {
+  it('runs a read-only preflight (no server boot) and exits 0 when healthy', async () => {
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+    const repoPath = await mkdtemp(path.join(tmpdir(), 'observatory-doctor-cli-'))
+    const webDistDir = await mkdtemp(path.join(tmpdir(), 'observatory-doctor-cli-web-'))
+    await writeFile(path.join(webDistDir, 'index.html'), '<html></html>')
+
+    const fakeGitExec: Exec = async (command, cmdArgs) => {
+      if (command === 'git' && cmdArgs[0] === 'rev-parse') {
+        return { stdout: 'true\n', stderr: '', code: 0, failed: false }
+      }
+      return { stdout: '', stderr: '', code: null, failed: true, errorMessage: `spawn ${command} ENOENT` }
+    }
+
+    try {
+      const thrown = await runCli(['doctor', repoPath, '--port', '0'], {
+        log,
+        exit,
+        exec: fakeGitExec,
+        webDistDir,
+      }).catch((err: unknown) => err)
+
+      expect(thrown).toBeInstanceOf(FakeExit)
+      expect((thrown as FakeExit).code).toBe(0)
+      const output = log.log.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(output).toContain('[ok  ]')
+      expect(output).toContain('All required checks passed.')
+    } finally {
+      await rm(repoPath, { recursive: true, force: true })
+      await rm(webDistDir, { recursive: true, force: true })
+    }
+  })
+
+  it('exits 1 and names the remedy when the target is not a git repository', async () => {
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+    const notGitDir = await mkdtemp(path.join(tmpdir(), 'observatory-doctor-cli-notgit-'))
+
+    const failGitExec: Exec = async (command, cmdArgs) => {
+      if (command === 'git' && cmdArgs[0] === 'rev-parse') {
+        return { stdout: '', stderr: 'fatal: not a git repository', code: 128, failed: true }
+      }
+      return { stdout: '', stderr: '', code: null, failed: true, errorMessage: `spawn ${command} ENOENT` }
+    }
+
+    try {
+      const thrown = await runCli(['doctor', notGitDir, '--port', '0'], {
+        log,
+        exit,
+        exec: failGitExec,
+      }).catch((err: unknown) => err)
+
+      expect(thrown).toBeInstanceOf(FakeExit)
+      expect((thrown as FakeExit).code).toBe(1)
+      const output = log.log.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(output).toContain('not a git repository')
+    } finally {
+      await rm(notGitDir, { recursive: true, force: true })
+    }
+  })
+
+  it('prints doctor --help to stdout and exits 0, without touching stderr', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['doctor', '--help'], { log, exit }).catch((err: unknown) => err)
+
+    writeSpy.mockRestore()
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    expect(log.log).toHaveBeenCalledWith(expect.stringContaining('observatory doctor [path]'))
+    expect(writeSpy).not.toHaveBeenCalled()
+  })
+
+  it('prints a clean message + usage to stderr and exits 1 on an invalid --port value', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+
+    const thrown = await runCli(['doctor', '--port', 'abc'], { exit }).catch((err: unknown) => err)
+
+    const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(1)
+    expect(output).toContain('invalid --port value: "abc"')
+    expect(output).not.toMatch(/^\s*at /m)
+    expect(output).not.toContain('.ts:')
+  })
+})
+
+describe('runCli port in use', () => {
+  let dataRoot: string
+
+  beforeEach(async () => {
+    dataRoot = await mkdtemp(path.join(tmpdir(), 'observatory-cli-port-test-'))
+  })
+
+  afterEach(async () => {
+    await rm(dataRoot, { recursive: true, force: true })
+  })
+
+  it('prints a clean message naming --port and exits 1 instead of an EADDRINUSE stack trace', async () => {
+    const server = createServer()
+    const busyPort = await new Promise<number>((resolve) => {
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address()
+        resolve(typeof address === 'object' && address ? address.port : 0)
+      })
+    })
+
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+    const repoPath = path.join(tmpdir(), 'observatory-port-busy-repo')
+
+    try {
+      const thrown = await runCli([repoPath, '--port', String(busyPort)], {
+        dataRoot,
+        collectors: [fakeCollector],
+        log: { log: () => {}, warn: () => {} },
+        exit,
+      }).catch((err: unknown) => err)
+
+      const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+
+      expect(thrown).toBeInstanceOf(FakeExit)
+      expect((thrown as FakeExit).code).toBe(1)
+      expect(output).toContain(String(busyPort))
+      expect(output).toContain('--port')
+      expect(output).not.toMatch(/^\s*at /m)
+      expect(output).not.toContain('.ts:')
+    } finally {
+      writeSpy.mockRestore()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
   })
 })
