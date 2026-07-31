@@ -14,8 +14,12 @@ export function shortHash(value: string): string {
 }
 
 /**
- * `lane` resource attribute, else a short-hash of the datapoint's `session.id`,
- * else the shared "we don't know" lane — never dropped, per `UNATTRIBUTED_LANE`.
+ * `lane` resource attribute, else the shared "we don't know" lane — never a
+ * hash of the datapoint's `session.id`. A hash-of-session-id fallback mints a
+ * new lane every restart (the session id changes; the hash follows it), so
+ * an untagged agent must land on the one stable `UNATTRIBUTED_LANE` bucket
+ * instead, even across restarts. `dataPointAttrs` is accepted for call-site
+ * symmetry with `resolveRole` but is no longer consulted.
  */
 export function resolveLane(
   resourceAttrs: OtlpKeyValue[] | undefined,
@@ -24,16 +28,18 @@ export function resolveLane(
   const lane = attrString(resourceAttrs, 'lane')
   if (lane) return lane
 
-  const sessionId = attrString(dataPointAttrs, 'session.id')
-  if (sessionId) return shortHash(sessionId)
-
   return UNATTRIBUTED_LANE
 }
 
 /**
- * Resource `role` wins outright when it's a real role; otherwise a
- * conductor-lane infers itself, then `query_source: auxiliary` maps to the
- * auxiliary role, and anything left over is an ordinary worker.
+ * Resource `role` wins outright when it's a real role; otherwise
+ * `query_source: auxiliary` maps to the auxiliary role, and anything left
+ * over is an ordinary worker. Role is never inferred from the lane string —
+ * a lane literally named `conductor` is not evidence of anything; only the
+ * declared `role` resource attribute is. `observatory env` emits `role` for
+ * every lane we launch, so post-#60 every accepted post already carries it —
+ * the `worker` default below is a backstop for a post that skipped that
+ * block, not a channel anyone should rely on for real attribution.
  */
 export function resolveRole(
   resourceAttrs: OtlpKeyValue[] | undefined,
@@ -46,7 +52,6 @@ export function resolveRole(
     if (parsed.success) return parsed.data
   }
 
-  if (lane === 'conductor') return 'conductor'
   if (querySource === 'auxiliary') return 'auxiliary'
   return 'worker'
 }
