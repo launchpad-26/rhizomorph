@@ -185,6 +185,101 @@ describe('reduce — llm.usage', () => {
       expect(state.telemetry.usage.map((r) => r.model)).toEqual(['first', 'second'])
     })
   })
+
+  describe('residual cross-collector dedup: OTel usage with no requestId', () => {
+    // Every OTel `llm.usage` event carries `requestId: null` (parse-metrics.ts
+    // never has one to report), so the requestId dedup above never fires for
+    // it. Left alone, a session both collectors report on would double every
+    // total. Origin precedence closes the gap: sessionlog is the depth
+    // collector, so once a session has any sessionlog usage record, OTel's
+    // request-less usage for that same session folds away instead of
+    // appending — order of arrival aside.
+    const sessionlogRecord = (ts: number) =>
+      f.llmUsage(
+        {
+          lane: 'a',
+          requestId: 'req_1',
+          sessionId: 'sess-a',
+          tokens: { input: 1, output: 100, cacheRead: 0, cacheCreation: 0 },
+        },
+        { ts, source: 'sessionlog' },
+      )
+    const otelRecord = (ts: number, output = 999) =>
+      f.llmUsage(
+        {
+          lane: 'a',
+          requestId: null,
+          sessionId: 'sess-a',
+          tokens: { input: 0, output, cacheRead: 0, cacheCreation: 0 },
+          worktreePath: null,
+          branch: null,
+        },
+        { ts, source: 'otel' },
+      )
+
+    it('counts a session once when sessionlog arrives first and OTel repeats it with no requestId', () => {
+      const state = reduceAll([sessionlogRecord(1_000), otelRecord(1_100)])
+      expect(state.telemetry.usage).toHaveLength(1)
+      expect(state.telemetry.usage[0]).toMatchObject({ origin: 'sessionlog', requestId: 'req_1' })
+      expect(state.telemetry.usage.reduce((sum, r) => sum + r.tokens.output, 0)).toBe(100)
+    })
+
+    it('retroactively folds OTel usage already recorded once sessionlog catches up to the same session', () => {
+      const state = reduceAll([otelRecord(1_000), sessionlogRecord(1_100)])
+      expect(state.telemetry.usage).toHaveLength(1)
+      expect(state.telemetry.usage[0]).toMatchObject({ origin: 'sessionlog', requestId: 'req_1' })
+      expect(state.telemetry.usage.reduce((sum, r) => sum + r.tokens.output, 0)).toBe(100)
+    })
+
+    it('folds every request-less OTel record for the session, not just the first one seen', () => {
+      const state = reduceAll([otelRecord(1_000, 500), otelRecord(1_050, 300), sessionlogRecord(1_100)])
+      expect(state.telemetry.usage).toHaveLength(1)
+      expect(state.telemetry.usage[0]?.tokens.output).toBe(100)
+    })
+
+    it('never folds an OTel-only session — nothing to fold against, so it keeps counting in full', () => {
+      const state = reduceAll([
+        f.llmUsage(
+          {
+            lane: 'a',
+            requestId: null,
+            sessionId: 'sess-otel-only',
+            tokens: { input: 0, output: 500, cacheRead: 0, cacheCreation: 0 },
+            worktreePath: null,
+            branch: null,
+          },
+          { ts: 1_000, source: 'otel' },
+        ),
+        f.llmUsage(
+          {
+            lane: 'a',
+            requestId: null,
+            sessionId: 'sess-otel-only',
+            tokens: { input: 0, output: 300, cacheRead: 0, cacheCreation: 0 },
+            worktreePath: null,
+            branch: null,
+          },
+          { ts: 1_100, source: 'otel' },
+        ),
+      ])
+      expect(state.telemetry.usage).toHaveLength(2)
+      expect(state.telemetry.usage.reduce((sum, r) => sum + r.tokens.output, 0)).toBe(800)
+    })
+
+    it('never joins a null-requestId record that carries no session id at all', () => {
+      const state = reduceAll([
+        f.llmUsage(
+          { lane: 'a', requestId: null, sessionId: null, tokens: { input: 0, output: 1, cacheRead: 0, cacheCreation: 0 } },
+          { ts: 1_000, source: 'otel' },
+        ),
+        f.llmUsage(
+          { lane: 'a', requestId: null, sessionId: null, tokens: { input: 0, output: 2, cacheRead: 0, cacheCreation: 0 } },
+          { ts: 1_100, source: 'otel' },
+        ),
+      ])
+      expect(state.telemetry.usage).toHaveLength(2)
+    })
+  })
 })
 
 describe('reduce — llm.cost', () => {

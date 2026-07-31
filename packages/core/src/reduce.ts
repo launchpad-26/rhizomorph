@@ -373,25 +373,75 @@ function llmUsage(state: SessionState, event: EventOf<'llm.usage'>): SessionStat
  * requests together and silently deleting real spend, so it is never
  * attempted here.
  *
- * Events with no `requestId` (every OTel usage event today — see the comment
- * on `parse-metrics.ts`'s `buildUsageEvent`) always append; they have no
- * identity to dedup against, including each other.
- *
  * The match requires a *different* origin on purpose — this issue is
  * cross-collector dedup, not a general one-request-per-id constraint. A
  * collector re-emitting its own id (e.g. an overlapping resume window) is a
  * separate collector-level concern; folding same-origin records here would
  * risk hiding that bug instead of surfacing it.
+ *
+ * Every OTel usage event today carries no `requestId` at all (see the comment
+ * on `parse-metrics.ts`'s `buildUsageEvent`), so it never matches here and
+ * falls through to {@link foldSessionCoverage} — the residual gap #59 left
+ * open, closed below.
  */
 function dedupedUsage(usage: readonly UsageRecord[], incoming: UsageRecord): UsageRecord[] {
-  if (incoming.requestId === null) return [...usage, incoming]
-  const index = usage.findIndex(
-    (existing) => existing.requestId === incoming.requestId && existing.origin !== incoming.origin,
-  )
-  if (index === -1) return [...usage, incoming]
-  const next = usage.slice()
-  next[index] = foldUsage(usage[index]!, incoming)
-  return next
+  if (incoming.requestId !== null) {
+    const index = usage.findIndex(
+      (existing) => existing.requestId === incoming.requestId && existing.origin !== incoming.origin,
+    )
+    if (index !== -1) {
+      const next = usage.slice()
+      next[index] = foldUsage(usage[index]!, incoming)
+      return next
+    }
+  }
+  return foldSessionCoverage(usage, incoming)
+}
+
+/**
+ * The residual cross-collector double-count `requestId` dedup cannot reach:
+ * OTel's `llm.usage` carries no `requestId`, so when sessionlog is *also*
+ * reporting a session, the OTel side has no id to fold against and simply
+ * appends, doubling that session's tokens.
+ *
+ * Origin precedence closes the gap with the honest rule the data supports:
+ * sessionlog is the depth collector (it is what supplies the per-message
+ * cache-tier detail everything else here reads), so once a session has *any*
+ * sessionlog usage record, a request-less OTel usage record for that same
+ * session is redundant with it and folds away instead of appending — the
+ * only defensible "fold" for a record with no counterpart to merge into. This
+ * has to be order-independent: a sessionlog record can arrive after OTel has
+ * already appended for the same session, so its arrival also retroactively
+ * drops whatever request-less OTel usage that session already accumulated.
+ *
+ * A session OTel alone ever reports (no sessionlog counterpart, ever) is
+ * never touched by either branch below and keeps counting in full — this
+ * rule only ever removes a record once the same session's tokens are also
+ * available from sessionlog, never the only telemetry a session has.
+ */
+function foldSessionCoverage(usage: readonly UsageRecord[], incoming: UsageRecord): UsageRecord[] {
+  if (incoming.sessionId === null) return [...usage, incoming]
+
+  if (incoming.requestId === null && incoming.origin === 'otel') {
+    const coveredBySessionlog = usage.some(
+      (existing) => existing.sessionId === incoming.sessionId && existing.origin === 'sessionlog',
+    )
+    if (coveredBySessionlog) return usage as UsageRecord[]
+  }
+
+  if (incoming.origin === 'sessionlog') {
+    const withoutStaleOtel = usage.filter(
+      (existing) =>
+        !(
+          existing.origin === 'otel' &&
+          existing.requestId === null &&
+          existing.sessionId === incoming.sessionId
+        ),
+    )
+    if (withoutStaleOtel.length !== usage.length) return [...withoutStaleOtel, incoming]
+  }
+
+  return [...usage, incoming]
 }
 
 /**
