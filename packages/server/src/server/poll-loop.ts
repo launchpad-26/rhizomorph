@@ -1,6 +1,7 @@
-import type { AnyCollector, CollectorContext, Exec } from '@observatory/core'
-import { createEvent, createIdFactory } from '@observatory/core'
+import type { AnyCollector, Exec } from '@observatory/core'
+import { createCollectorContext, createEvent, createIdFactory } from '@observatory/core'
 import type { SessionRecorder } from './recorder.js'
+import type { SnapshotStore } from './snapshot-store.js'
 
 export interface PollLoopOptions {
   repoPath: string
@@ -11,6 +12,12 @@ export interface PollLoopOptions {
   intervalMs?: number
   /** Injectable clock so tests are deterministic. */
   now?: () => number
+  /**
+   * Where collector snapshots survive a restart. Omitted, snapshots stay
+   * process-local and every boot starts each collector from its
+   * `initialSnapshot()` — which is what makes a restart re-read everything.
+   */
+  snapshotStore?: SnapshotStore
 }
 
 export interface PollLoop {
@@ -28,34 +35,75 @@ export interface PollLoop {
  * others.
  */
 export function createPollLoop(options: PollLoopOptions): PollLoop {
-  const { repoPath, collectors, recorder, exec } = options
+  const { repoPath, collectors, recorder, exec, snapshotStore } = options
   const intervalMs = options.intervalMs ?? 2000
   const now = options.now ?? Date.now
   const nextId = createIdFactory('evt')
   const snapshots = new Map<string, unknown>(collectors.map((c) => [c.name, c.initialSnapshot()]))
+  /** Collectors whose snapshot failed to persist, so the error fires once, not every 2s. */
+  const saveErrors = new Set<string>()
 
   let timer: ReturnType<typeof setInterval> | null = null
   let ticking = false
+  let hydration: Promise<void> | null = null
+
+  /**
+   * Replaces initial snapshots with whatever was persisted last run. Runs at
+   * most once, awaited by the first tick rather than fired at construction, so
+   * no poll can ever read a half-loaded Map.
+   */
+  function hydrate(): Promise<void> {
+    if (!hydration) {
+      hydration = (async () => {
+        if (!snapshotStore) return
+        for (const collector of collectors) {
+          const loaded = await snapshotStore.load(collector.name)
+          if (loaded.found) snapshots.set(collector.name, loaded.snapshot)
+        }
+      })()
+    }
+    return hydration
+  }
+
+  async function persist(collector: AnyCollector, snapshot: unknown): Promise<void> {
+    if (!snapshotStore) return
+    try {
+      await snapshotStore.save(collector.name, snapshot)
+      saveErrors.delete(collector.name)
+    } catch (error) {
+      if (saveErrors.has(collector.name)) return
+      saveErrors.add(collector.name)
+      await recorder.record(
+        createEvent(
+          'collector.error',
+          {
+            collector: collector.name,
+            message: `snapshot save failed: ${error instanceof Error ? error.message : String(error)}`,
+          },
+          { id: nextId(), ts: now() },
+        ),
+      )
+    }
+  }
 
   async function tick(): Promise<void> {
     if (ticking) return
     ticking = true
     try {
+      await hydrate()
       for (const collector of collectors) {
         const tickNow = now()
-        const context: CollectorContext = {
-          repoPath,
-          now: tickNow,
-          exec,
-          nextId,
-          emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: tickNow }),
-        }
+        const context = createCollectorContext({ repoPath, now: tickNow, exec, nextId })
         try {
-          const result = await collector.poll(snapshots.get(collector.name), context)
+          const previous = snapshots.get(collector.name)
+          const result = await collector.poll(previous, context)
           snapshots.set(collector.name, result.nextSnapshot)
           for (const event of result.events) {
             await recorder.record(event)
           }
+          // Reference check: a collector that handed its snapshot straight back
+          // (nothing new, or an error branch) has nothing to write.
+          if (result.nextSnapshot !== previous) await persist(collector, result.nextSnapshot)
         } catch (error) {
           await recorder.record(
             createEvent(
