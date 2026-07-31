@@ -1,39 +1,177 @@
 /*
- * Dark neon instrument theme. Near-black base, three accents (cyan for
- * "live"/nominal, magenta for attention/collision, amber for warning), plus
- * glow utilities so panels can read as lit instruments rather than flat cards.
+ * THE ICE-NEON REGISTER — prd3 ruling 29, and the single token source for the
+ * whole instrument. Every colour, type family and glow in the app comes from
+ * here; a component that wants a colour asks for a token, never a hex.
+ *
+ * Two ideas hold the whole palette up:
+ *
+ * 1. **Status owns hue** (law 9). The alarm ladder gets four exclusive hues and
+ *    nothing else on the page is allowed to want one. Identity — which lane,
+ *    which role, which generation, which panel — differentiates by lightness,
+ *    shape, position and label.
+ * 2. **Neon is luminance, not saturation** (ruling 29, proven by spike B). The
+ *    calm world therefore lives entirely in the ICE ramp: one cold blue-white
+ *    hue at twelve luminances, from near-black-blue to a near-white that glows
+ *    against the void without ever owning a colour. That is why CALM can be
+ *    "neutral" by law and still read as neon.
+ *
+ * Spike C's bone-grey is deliberately out: law-pure, but it is not the
+ * Observatory (ruling 29).
  */
 
 @theme {
-  --color-void: #05060a;
-  --color-void-raised: #0d0f1a;
-  --color-void-line: #1c2033;
+  /* ── the ice register: the calm world ───────────────────────────────────
+   * One hue (~218°), twelve luminances. Chrome, threads, root-mass, labels,
+   * rules and every non-status surface are built out of this ramp alone.
+   * Lightness is the identity channel, so these steps are the only way a
+   * calm surface is allowed to distinguish itself from another calm surface.
+   */
+  --color-ice-1000: #04060c; /* the void — the page's floor */
+  --color-ice-950: #080b14; /* raised: panels, docks, the strips */
+  --color-ice-900: #0d1220; /* raised-2: rows on hover, inset wells */
+  --color-ice-850: #131a2b; /* hairlines and panel borders */
+  --color-ice-800: #1b2438; /* stronger dividers, table rules */
+  --color-ice-700: #26334d; /* absent/disabled marks */
+  --color-ice-600: #364768; /* the quietest legible ink */
+  --color-ice-500: #4c6289; /* de-emphasised labels */
+  --color-ice-400: #6a81a8; /* secondary labels */
+  --color-ice-300: #8ea3c4; /* body copy */
+  --color-ice-200: #b3c6de; /* primary data ink — the calm neon */
+  --color-ice-100: #d6e2f2; /* emphasis: the headline number */
+  --color-ice-050: #f0f5fc; /* white-hot: peak luminance, never a hue */
 
-  --color-neon-cyan: #4deaff;
-  --color-neon-magenta: #ff4dd8;
-  --color-neon-amber: #ffc857;
+  /* ── the alarm ladder: four hues, exclusive (law 9, ruling 8) ───────────
+   * These four names are the ONLY status colours in the instrument. Using one
+   * of them for anything that is not a rung of the ladder is the single
+   * colour-law violation the design cannot absorb: it makes the amber that
+   * means "needs you" indistinguishable from an amber that means "the second
+   * series on a chart".
+   *
+   * Colour is never the sole carrier either — every rung also has a glyph
+   * (`fleet/sigils.tsx`) and a word, so the ladder survives greyscale,
+   * colour-blindness and a photographed screen.
+   */
 
+  /* CALM — neutral by law. Neon by luminance: the ice ramp's bright end. */
+  --color-calm: #b3c6de;
+  /* NOTICE — saturated cyan. Something changed; nobody is needed yet. */
+  --color-notice: #4deaff;
+  /* NEEDS-YOU — amber. A human has to act: looping, waiting, off-fence. */
+  --color-needs-you: #ffc857;
+  /* BROKEN — magenta-red. The lane is dead air, or a collector is down. */
+  --color-broken: #ff3d68;
+
+  /* Dead tissue: a frozen lane's *thread* greys out while its mark keeps the
+   * broken hue. The corpse is grey; the alarm is red (graft from spike B).
+   * Not a fifth ladder hue — it is a luminance, and it carries no status on
+   * its own. */
+  --color-necrotic: #4a5266;
+
+  /* ── type (law 11) ──────────────────────────────────────────────────────
+   * Sans for labels and copy. Mono WITH TABULAR NUMERALS for all data:
+   * numbers, branches, shas, ids, timestamps, durations. The rule is
+   * mechanical — if a reader could compare two of them down a column, it is
+   * data and it is mono. A display face is reserved for the wordmark alone.
+   */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  /* ── motion (law 10) ────────────────────────────────────────────────────
+   * Events move, states glow. These are the only durations in the app, so
+   * "one pulse then steady" is the same length everywhere it happens.
+   */
+  --duration-flare: 620ms; /* an event landing: one pulse, then steady */
+  --duration-settle: 900ms; /* a thread growing in on worktree.discovered */
+  --duration-breath: 5400ms; /* the scene's ambient breathing — the only loop */
+
+  /* ── legacy aliases (DEPRECATED — wave 2 removes them) ──────────────────
+   * The pre-prd3 surfaces (StatusBar, replay, the panels wave 2 dissolves)
+   * still name `void`/`neon-*`. Deleting the tokens here would leave those
+   * files un-styled while they sit outside this issue's fence, so they are
+   * kept alive pointed at the new register — the same "keep it alive,
+   * deprecated, until the files that depend on it are replaced by their own
+   * issues" rule architecture.md records for core's placeholder export.
+   *
+   * Three of them map onto ladder hues, so those surfaces are *temporarily*
+   * in breach of law 9; #77–#83 retire each caller and then these lines go.
+   */
+  --color-void: var(--color-ice-1000);
+  --color-void-raised: var(--color-ice-950);
+  --color-void-line: var(--color-ice-850);
+  --color-neon-cyan: var(--color-notice);
+  --color-neon-amber: var(--color-needs-you);
+  --color-neon-magenta: var(--color-broken);
 }
+
+/* ── glow: how a state reads as lit rather than filled ─────────────────────
+ * A glow is a *state* treatment (law 10: states glow, events move), so these
+ * are static box-shadows with no animation of their own.
+ */
+
+@utility glow-notice {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-notice) 45%, transparent),
+    0 0 16px color-mix(in oklab, var(--color-notice) 35%, transparent);
+}
+
+@utility glow-needs-you {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-needs-you) 50%, transparent),
+    0 0 18px color-mix(in oklab, var(--color-needs-you) 40%, transparent);
+}
+
+@utility glow-broken {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-broken) 55%, transparent),
+    0 0 22px color-mix(in oklab, var(--color-broken) 45%, transparent);
+}
+
+/* CALM's glow is pure luminance — the proof that the ice register is neon. */
+@utility glow-calm {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-calm) 22%, transparent),
+    0 0 14px color-mix(in oklab, var(--color-calm) 14%, transparent);
+}
+
+@utility text-glow-calm {
+  text-shadow: 0 0 12px color-mix(in oklab, var(--color-calm) 45%, transparent);
+}
+
+@utility text-glow-notice {
+  text-shadow: 0 0 10px color-mix(in oklab, var(--color-notice) 60%, transparent);
+}
+
+/*
+ * Law 11 in one class: every figure a reader might compare down a column is
+ * mono and tabular. Applied to a container, it covers the cells inside it.
+ */
+@utility figures {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* ── deprecated glow aliases — same removal schedule as the colour aliases ── */
 
 @utility glow-cyan {
   box-shadow:
-    0 0 0 1px color-mix(in oklab, var(--color-neon-cyan) 45%, transparent),
-    0 0 16px color-mix(in oklab, var(--color-neon-cyan) 40%, transparent);
+    0 0 0 1px color-mix(in oklab, var(--color-notice) 45%, transparent),
+    0 0 16px color-mix(in oklab, var(--color-notice) 35%, transparent);
 }
 
 @utility glow-magenta {
   box-shadow:
-    0 0 0 1px color-mix(in oklab, var(--color-neon-magenta) 45%, transparent),
-    0 0 16px color-mix(in oklab, var(--color-neon-magenta) 40%, transparent);
+    0 0 0 1px color-mix(in oklab, var(--color-broken) 50%, transparent),
+    0 0 18px color-mix(in oklab, var(--color-broken) 40%, transparent);
 }
 
 @utility glow-amber {
   box-shadow:
-    0 0 0 1px color-mix(in oklab, var(--color-neon-amber) 45%, transparent),
-    0 0 16px color-mix(in oklab, var(--color-neon-amber) 40%, transparent);
+    0 0 0 1px color-mix(in oklab, var(--color-needs-you) 50%, transparent),
+    0 0 18px color-mix(in oklab, var(--color-needs-you) 40%, transparent);
 }
 
 @utility text-glow-cyan {
-  text-shadow: 0 0 10px color-mix(in oklab, var(--color-neon-cyan) 70%, transparent);
+  text-shadow: 0 0 10px color-mix(in oklab, var(--color-notice) 60%, transparent);
 }

@@ -1,3 +1,36 @@
 @import 'tailwindcss';
 @import './theme/theme.css';
 
+/*
+ * The page's own floor. Everything above it is a token from theme.css —
+ * law 11's two families are set here once so a component never has to ask
+ * for the default face, only for the exception (`figures` for data).
+ */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-ice-1000);
+  color: var(--color-ice-300);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Law 10: `prefers-reduced-motion` is respected globally rather than
+ * per-component, so a surface added later cannot forget. The scene's own
+ * degradations (static bright dot for the WAITING throb, the glide kept as a
+ * glide — ruling 32) are chosen in its own code; this is the floor under them.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
