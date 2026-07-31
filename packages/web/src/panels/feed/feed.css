@@ -1,0 +1,31 @@
+/*
+ * A new-arrival entry pulses once. Scoped to this panel only — rows are keyed
+ * by a stable id, so React never remounts a row it has already rendered, and
+ * the mount-triggered animation never replays. The component only applies
+ * this class to `news` entries (ruling 32): history builds the feed and
+ * lights nothing, so a replayed backlog never fires the whole animation at
+ * once.
+ */
+
+@keyframes feed-pulse {
+  0% {
+    background-color: color-mix(in oklab, var(--color-notice) 30%, transparent);
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--color-notice) 55%, transparent),
+      0 0 18px color-mix(in oklab, var(--color-notice) 45%, transparent);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+.feed-entry-pulse {
+  animation: feed-pulse var(--duration-flare, 620ms) ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-entry-pulse {
+    animation: none;
+  }
+}
