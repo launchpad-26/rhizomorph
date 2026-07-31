@@ -25,6 +25,11 @@ Neither tmux nor workmux is required to see a working dashboard. Run
 `observatory doctor` (below) at any point to see exactly which of these are
 missing and what that costs you.
 
+**Platform support:** Linux is CI-verified on every push, WSL is first-class
+and exercised daily, and macOS is expected to work (no platform-specific
+code, paths go through `node:path`, and collectors degrade loudly rather
+than fail silently) but is not CI-verified.
+
 ## Quickstart
 
 ```sh
