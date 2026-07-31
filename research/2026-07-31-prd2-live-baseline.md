@@ -51,7 +51,7 @@ worker.**
 **Wave C (cost/threads).** COST equals TOKENS in every row; no dollars
 anywhere despite prd1's OTel path being live-proven — historical sessionlog
 data carries no cost and OTel events carry no branch, so the join is
-structurally impossible. No thread sub-rows exist. **After wave C: the ledge
+structurally impossible. No thread sub-rows exist. **After wave C: the ledger
 shows real dollars where provenance exists, and threads appear as sub-rows
 under their lane.**
 
