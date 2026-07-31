@@ -1,9 +1,11 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Collector, CollectorContext, Exec, ObservatoryEvent, PollResult } from '@observatory/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { sessionDirFor } from '../log/paths.js'
+import { listSessions, readSessionEvents, RESUME_WINDOW_MS } from '../log/session-log.js'
 import type { SessionRecorder } from '../server/recorder.js'
 import { runCli, type CliHandle } from './index.js'
 
@@ -59,6 +61,68 @@ const fakeCollector: Collector<{ ticks: number }> = {
     nextSnapshot: { ticks: prev.ticks + 1 },
     events: [context.emit('agent.status', { handle: 'fake', status: 'working' })],
   }),
+}
+
+const silentLog = { log: () => {}, warn: () => {} }
+
+interface OffsetCollector {
+  collector: Collector<{ offset: number }>
+  /**
+   * Resolves when poll number `n` begins. Because the loop serialises ticks
+   * (one at a time, snapshot persisted before the tick returns), poll `n`
+   * starting is proof that tick `n - 1` finished *including its snapshot save*
+   * — the boundary these tests actually need, awaited rather than slept past.
+   */
+  whenPolled(n: number): Promise<void>
+}
+
+/**
+ * A collector that stands in for sessionlog: it holds a fixed list of source
+ * lines and emits each one exactly once, tracking how far it has read in its
+ * snapshot. Idempotent by construction, so the number of ticks a test happens
+ * to get never changes the events — only whether the offset survived the
+ * restart does.
+ */
+function createOffsetCollector(handles: readonly string[]): OffsetCollector {
+  let polls = 0
+  const waiters: Array<{ n: number; resolve: () => void }> = []
+
+  return {
+    collector: {
+      name: 'offset',
+      initialSnapshot: () => ({ offset: 0 }),
+      poll: (prev, context: CollectorContext): PollResult<{ offset: number }> => {
+        polls += 1
+        for (const waiter of waiters.splice(0)) {
+          if (waiter.n <= polls) waiter.resolve()
+          else waiters.push(waiter)
+        }
+        const offset = prev?.offset ?? 0
+        return {
+          // A fresh object every poll, so the loop always has a snapshot to persist.
+          nextSnapshot: { offset: handles.length },
+          events: handles
+            .slice(offset)
+            .map((handle) => context.emit('agent.status', { handle, status: 'working' })),
+        }
+      },
+    },
+    whenPolled(n) {
+      if (polls >= n) return Promise.resolve()
+      return new Promise<void>((resolve) => waiters.push({ n, resolve }))
+    },
+  }
+}
+
+/** The handles of every `agent.status` event, in order — one per source line consumed. */
+function statusHandles(events: readonly ObservatoryEvent[]): string[] {
+  return events
+    .filter((event): event is Extract<ObservatoryEvent, { type: 'agent.status' }> => event.type === 'agent.status')
+    .map((event) => event.payload.handle)
+}
+
+function countOfType(events: readonly ObservatoryEvent[], type: ObservatoryEvent['type']): number {
+  return events.filter((event) => event.type === type).length
 }
 
 describe('runCli', () => {
@@ -397,6 +461,140 @@ describe('runCli doctor subcommand', () => {
     expect(output).toContain('invalid --port value: "abc"')
     expect(output).not.toMatch(/^\s*at /m)
     expect(output).not.toContain('.ts:')
+  })
+})
+
+describe('runCli resuming the run', () => {
+  /** A fixed boot clock: session ids, event stamps and the resume window all read from it. */
+  const BOOT_MS = 1_700_000_000_000
+  const repoPath = path.join(tmpdir(), 'observatory-resume-repo')
+  let dataRoot: string
+  let handle: CliHandle | undefined
+
+  const boot = async (
+    argv: readonly string[],
+    nowMs: number,
+    collector: Collector<{ offset: number }>,
+  ): Promise<CliHandle> =>
+    await runCli([repoPath, '--port', '0', ...argv], {
+      dataRoot,
+      now: () => nowMs,
+      collectors: [collector],
+      intervalMs: 250,
+      log: silentLog,
+    })
+
+  beforeEach(async () => {
+    dataRoot = await mkdtemp(path.join(tmpdir(), 'observatory-resume-test-'))
+  })
+
+  afterEach(async () => {
+    await handle?.stop()
+    handle = undefined
+    await rm(dataRoot, { recursive: true, force: true })
+  })
+
+  it('continues the recent session on the next boot: same file, no duplicate events, offsets carry on', async () => {
+    const first = createOffsetCollector(['lane-a', 'lane-b'])
+    handle = await boot([], BOOT_MS, first.collector)
+    const sessionId = handle.recorder.sessionId
+    const filePath = handle.recorder.filePath
+    await first.whenPolled(2)
+    await handle.stop()
+
+    const afterFirst = await readSessionEvents(filePath)
+    expect(countOfType(afterFirst, 'session.started')).toBe(1)
+    expect(statusHandles(afterFirst)).toEqual(['lane-a', 'lane-b'])
+
+    // A minute later, restarted, with one new line in the source.
+    const second = createOffsetCollector(['lane-a', 'lane-b', 'lane-c'])
+    handle = await boot([], BOOT_MS + 60_000, second.collector)
+
+    expect(handle.recorder.sessionId).toBe(sessionId)
+    expect(handle.recorder.filePath).toBe(filePath)
+    await second.whenPolled(2)
+
+    const afterSecond = await readSessionEvents(filePath)
+    // No second session.started, no re-record of lane-a/lane-b: the offset was rehydrated.
+    expect(countOfType(afterSecond, 'session.started')).toBe(1)
+    expect(statusHandles(afterSecond)).toEqual(['lane-a', 'lane-b', 'lane-c'])
+    // One session file for two boots — the 24-files-per-24-boots defect, gone.
+    expect(await listSessions(sessionDirFor(repoPath, dataRoot))).toHaveLength(1)
+    // And a new SSE subscriber replays the whole run, not just this process's share of it.
+    expect(handle.recorder.eventsSoFar()).toEqual(afterSecond)
+  })
+
+  it('--fresh starts a new session, ignoring the abandoned session\'s offsets', async () => {
+    const first = createOffsetCollector(['lane-a', 'lane-b'])
+    handle = await boot([], BOOT_MS, first.collector)
+    const sessionId = handle.recorder.sessionId
+    await first.whenPolled(2)
+    await handle.stop()
+
+    const second = createOffsetCollector(['lane-a', 'lane-b'])
+    handle = await boot(['--fresh'], BOOT_MS + 60_000, second.collector)
+
+    expect(handle.recorder.sessionId).not.toBe(sessionId)
+    expect(handle.recorder.sessionId).toBe(String(BOOT_MS + 60_000))
+    await second.whenPolled(2)
+
+    const sessions = await listSessions(sessionDirFor(repoPath, dataRoot))
+    expect(sessions.map((session) => session.id)).toEqual([sessionId, String(BOOT_MS + 60_000)])
+
+    const freshEvents = await readSessionEvents(handle.recorder.filePath)
+    // Its own session.started, and both lines read again: a fresh session gets no snapshots.
+    expect(countOfType(freshEvents, 'session.started')).toBe(1)
+    expect(statusHandles(freshEvents)).toEqual(['lane-a', 'lane-b'])
+  })
+
+  it('resumes a session whose last event is exactly at the window boundary', async () => {
+    handle = await boot([], BOOT_MS, createOffsetCollector(['lane-a']).collector)
+    const sessionId = handle.recorder.sessionId
+    await handle.stop()
+
+    handle = await boot([], BOOT_MS + RESUME_WINDOW_MS, createOffsetCollector(['lane-a']).collector)
+
+    expect(handle.recorder.sessionId).toBe(sessionId)
+    expect(await listSessions(sessionDirFor(repoPath, dataRoot))).toHaveLength(1)
+  })
+
+  it('starts a new session one millisecond past the window — two boots a day apart are two runs', async () => {
+    handle = await boot([], BOOT_MS, createOffsetCollector(['lane-a']).collector)
+    const sessionId = handle.recorder.sessionId
+    await handle.stop()
+
+    handle = await boot([], BOOT_MS + RESUME_WINDOW_MS + 1, createOffsetCollector(['lane-a']).collector)
+
+    expect(handle.recorder.sessionId).not.toBe(sessionId)
+    const events = await readSessionEvents(handle.recorder.filePath)
+    expect(countOfType(events, 'session.started')).toBe(1)
+    expect(await listSessions(sessionDirFor(repoPath, dataRoot))).toHaveLength(2)
+  })
+
+  it('resumes across a crash that left a half-written final line, dropping only that line', async () => {
+    const first = createOffsetCollector(['lane-a', 'lane-b'])
+    handle = await boot([], BOOT_MS, first.collector)
+    const filePath = handle.recorder.filePath
+    const sessionId = handle.recorder.sessionId
+    await first.whenPolled(2)
+    await handle.stop()
+
+    // Simulate the kill: a truncated line glued onto the end of the log.
+    const { appendFile } = await import('node:fs/promises')
+    await appendFile(filePath, '{"id":"evt-cut","ts":1,"type":"agent.sta', 'utf8')
+    const beforeResume = await readSessionEvents(filePath)
+
+    const second = createOffsetCollector(['lane-a', 'lane-b', 'lane-c'])
+    handle = await boot([], BOOT_MS + 60_000, second.collector)
+    expect(handle.recorder.sessionId).toBe(sessionId)
+    await second.whenPolled(2)
+
+    const afterResume = await readSessionEvents(filePath)
+    expect(afterResume.slice(0, beforeResume.length)).toEqual(beforeResume)
+    expect(statusHandles(afterResume)).toEqual(['lane-a', 'lane-b', 'lane-c'])
+    const raw = await readFile(filePath, 'utf8')
+    expect(raw).not.toContain('evt-cut')
+    expect(raw.endsWith('\n')).toBe(true)
   })
 })
 

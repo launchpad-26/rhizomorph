@@ -7,6 +7,8 @@ const defaults = {
   flatlineMinutes: 5,
   pollIntervalMs: 2000,
   extraSessionDirs: [],
+  fresh: false,
+  backfill: false,
   help: false,
 }
 
@@ -166,6 +168,37 @@ describe('parseArgs', () => {
   it('throws on an empty --extra-sessions value', () => {
     expect(() => parseArgs(['--extra-sessions=  '])).toThrow(/invalid --extra-sessions/)
   })
+
+  it('defaults to resuming: --fresh and --backfill are both off', () => {
+    expect(parseArgs([])).toEqual({ ...defaults, fresh: false, backfill: false })
+  })
+
+  it('parses --fresh as a switch', () => {
+    expect(parseArgs(['--fresh'])).toEqual({ ...defaults, fresh: true })
+  })
+
+  it('parses --backfill as a switch', () => {
+    expect(parseArgs(['--backfill'])).toEqual({ ...defaults, backfill: true })
+  })
+
+  it('parses --fresh and --backfill together', () => {
+    expect(parseArgs(['--fresh', '--backfill'])).toEqual({ ...defaults, fresh: true, backfill: true })
+  })
+
+  it('does not swallow the token after a switch, so the path still parses', () => {
+    expect(parseArgs(['--fresh', '../some-repo'])).toEqual({ ...defaults, path: '../some-repo', fresh: true })
+    expect(parseArgs(['--backfill', '--port', '5000', '../repo'])).toEqual({
+      ...defaults,
+      path: '../repo',
+      port: 5000,
+      backfill: true,
+    })
+  })
+
+  it('rejects a value on a switch instead of guessing what it meant', () => {
+    expect(() => parseArgs(['--fresh=true'])).toThrow(/"--fresh" takes no value/)
+    expect(() => parseArgs(['--backfill=1'])).toThrow(/"--backfill" takes no value/)
+  })
 })
 
 describe('helpText', () => {
@@ -179,7 +212,14 @@ describe('helpText', () => {
     expect(text).toContain('250')
     expect(text).toContain('--extra-sessions')
     expect(text).toContain('[:<lane>]')
+    expect(text).toContain('--fresh')
+    expect(text).toContain('--backfill')
     expect(text).toContain('--help')
+  })
+
+  it('says a boot continues the recent session by default, and names the window in hours', () => {
+    expect(helpText()).toMatch(/continues the most recent session/i)
+    expect(helpText()).toContain('4h')
   })
 
   it('mentions the env subcommand', () => {

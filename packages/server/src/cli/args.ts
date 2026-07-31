@@ -1,4 +1,5 @@
 import { AGENT_ROLES, DEFAULT_FLATLINE_MS, type AgentRole } from '@observatory/core'
+import { RESUME_WINDOW_MS } from '../log/session-log.js'
 
 export interface CliArgs {
   /** Target repo path, or undefined to default to cwd. */
@@ -18,6 +19,18 @@ export interface CliArgs {
    * lane `conductor`/`conductor-2`/… when no explicit `:<lane>` is given.
    */
   extraSessionDirs: string[]
+  /**
+   * True when `--fresh` was passed: start a brand-new session even if the most
+   * recent one is young enough to continue. Default (false) is to resume — see
+   * `RESUME_WINDOW_MS`.
+   */
+  fresh: boolean
+  /**
+   * True when `--backfill` was passed: the sessionlog collector reads each log
+   * from its beginning instead of starting at end-of-file, ingesting history on
+   * purpose rather than by accident.
+   */
+  backfill: boolean
   /** True when `--help`/`-h` was passed; other fields are defaults and should be ignored. */
   help: boolean
 }
@@ -27,10 +40,18 @@ const DEFAULT_FLATLINE_MINUTES = DEFAULT_FLATLINE_MS / 60_000
 const DEFAULT_POLL_INTERVAL_MS = 2000
 const MIN_POLL_INTERVAL_MS = 250
 const DEFAULT_ROLE: AgentRole = 'worker'
+/** Only for the help text — the boundary itself lives in one place, `RESUME_WINDOW_MS`. */
+const RESUME_WINDOW_HOURS = RESUME_WINDOW_MS / 3_600_000
 
 interface FlagSpec {
   flag: string
   read: (value: string | undefined) => void
+  /**
+   * True for a valueless switch: `--fresh` sets it and the *next* argv token is
+   * left alone. Without this a switch would swallow the token after it, so
+   * `observatory --fresh /repo` would lose the path.
+   */
+  boolean?: boolean
 }
 
 /**
@@ -57,6 +78,13 @@ function parseFlags(argv: readonly string[], specs: readonly FlagSpec[]): string
     if (!sawDoubleDash && arg.startsWith('-')) {
       const spec = specs.find((s) => arg === s.flag || arg.startsWith(`${s.flag}=`))
       if (spec) {
+        if (spec.boolean) {
+          // `--fresh=anything` is a typo, not a value: say so rather than
+          // quietly treating the switch as set (or unset).
+          if (arg !== spec.flag) throw new Error(`option "${spec.flag}" takes no value`)
+          spec.read(undefined)
+          continue
+        }
         if (arg === spec.flag) {
           spec.read(argv[i + 1])
           i += 1
@@ -87,7 +115,8 @@ function isAgentRole(value: string): value is AgentRole {
 
 /**
  * Parses `observatory [path] [--port <n>] [--flatline-minutes <n>]
- * [--poll-interval <ms>] [--extra-sessions <path>[:<lane>]]... [--help]`.
+ * [--poll-interval <ms>] [--extra-sessions <path>[:<lane>]]... [--fresh]
+ * [--backfill] [--help]`.
  */
 export function parseArgs(argv: readonly string[]): CliArgs {
   if (argv.includes('--help') || argv.includes('-h')) {
@@ -97,6 +126,8 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       flatlineMinutes: DEFAULT_FLATLINE_MINUTES,
       pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
       extraSessionDirs: [],
+      fresh: false,
+      backfill: false,
       help: true,
     }
   }
@@ -104,6 +135,8 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   let portArg: string | undefined
   let flatlineArg: string | undefined
   let pollIntervalArg: string | undefined
+  let fresh = false
+  let backfill = false
   const extraSessionRawValues: Array<string | undefined> = []
 
   const specs: FlagSpec[] = [
@@ -111,6 +144,8 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     { flag: '--flatline-minutes', read: (v) => { flatlineArg = v } },
     { flag: '--poll-interval', read: (v) => { pollIntervalArg = v } },
     { flag: '--extra-sessions', read: (v) => { extraSessionRawValues.push(v) } },
+    { flag: '--fresh', boolean: true, read: () => { fresh = true } },
+    { flag: '--backfill', boolean: true, read: () => { backfill = true } },
   ]
 
   const positionals = parseFlags(argv, specs)
@@ -141,7 +176,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     return raw
   })
 
-  return { path, port, flatlineMinutes, pollIntervalMs, extraSessionDirs, help: false }
+  return { path, port, flatlineMinutes, pollIntervalMs, extraSessionDirs, fresh, backfill, help: false }
 }
 
 /** Parses `observatory env <lane> [--role <role>] [--port <n>] [--help]`. */
@@ -222,6 +257,13 @@ Options:
                           back to cwd-slug inference like today. <lane> defaults to
                           "conductor" for the first one, "conductor-2", "conductor-3"…
                           for the rest — never the raw project-dir slug.
+  --fresh                 Start a new session instead of resuming. By default a boot
+                          continues the most recent session for this repo when its newest
+                          event is under ${RESUME_WINDOW_HOURS}h old — same file, same collector offsets,
+                          no duplicated history.
+  --backfill              Read session logs from the beginning instead of starting at
+                          end-of-file: ingest history on purpose. Expect a large
+                          first tick and old timestamps.
   --help, -h              Show this help and exit
 
 Run 'observatory doctor --help' or 'observatory env --help' for a subcommand's own options.

@@ -4,12 +4,14 @@ import type { AnyCollector, Exec } from '@observatory/core'
 import { createEvent, createIdFactory } from '@observatory/core'
 import type { FastifyInstance } from 'fastify'
 import { createSessionlogCollector } from '../collectors/sessionlog/index.js'
-import { defaultDataRoot, sessionDirFor, sessionFileName } from '../log/paths.js'
+import { defaultDataRoot, sessionDirFor, sessionFileName, snapshotDirFor } from '../log/paths.js'
+import { findResumableSession, RESUME_WINDOW_MS } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { loadCollectors } from '../server/collector-loader.js'
 import { exec as realExec } from '../server/exec.js'
 import { createPollLoop, type PollLoop } from '../server/poll-loop.js'
 import { SessionRecorder } from '../server/recorder.js'
+import { createFileSnapshotStore } from '../server/snapshot-store.js'
 import {
   doctorHelpText,
   envHelpText,
@@ -50,8 +52,10 @@ export interface CliHandle {
 }
 
 /**
- * Boots collectors + server for one repo and returns a handle to it. Pure
- * bootstrap: no signal handlers — that belongs to whichever entrypoint
+ * Boots collectors + server for one repo and returns a handle to it. A boot
+ * *resumes* the recent session by default (see `findResumableSession`;
+ * `--fresh` opts out), so a restart continues one run rather than recording a
+ * second copy of it. Pure bootstrap otherwise: no signal handlers — that belongs to whichever entrypoint
  * actually owns the process (see `src/index.ts`), so this stays callable
  * from tests. The exceptions are `--help`, which prints to stdout and exits
  * 0, and a bad argv (unknown flag or invalid value), which prints the
@@ -89,15 +93,28 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
   const repoName = path.basename(repoPath)
   const sessionDir = sessionDirFor(repoPath, options.dataRoot ?? defaultDataRoot())
   const ts = now()
-  const sessionId = String(ts)
-  const filePath = path.join(sessionDir, sessionFileName(ts))
 
-  const recorder = new SessionRecorder(sessionId, filePath)
+  // Resume the run (prd2's ruling): unless --fresh, continue the most recent
+  // session for this repo when it is younger than RESUME_WINDOW_MS. Same session
+  // id, same file, same collector snapshots — so a restart appends where the
+  // last process stopped instead of minting a new session file holding another
+  // copy of history.
+  const resumed = args.fresh ? null : await findResumableSession(sessionDir, ts, RESUME_WINDOW_MS)
+  const sessionId = resumed?.sessionId ?? String(ts)
+  const filePath = resumed?.filePath ?? path.join(sessionDir, sessionFileName(ts))
+
+  const recorder = new SessionRecorder(sessionId, filePath, resumed ? { resumeFrom: resumed.events } : {})
   const nextId = createIdFactory('evt')
 
-  await recorder.record(
-    createEvent('session.started', { sessionId, repoPath, repoName }, { id: nextId(), ts: now() }),
-  )
+  if (resumed) {
+    // No second `session.started`: one session, one start, however many
+    // processes served it.
+    log.log(`resuming session ${sessionId} (${resumed.events.length} events recorded)`)
+  } else {
+    await recorder.record(
+      createEvent('session.started', { sessionId, repoPath, repoName }, { id: nextId(), ts: now() }),
+    )
+  }
 
   const collectors =
     options.collectors ??
@@ -106,6 +123,11 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
       createSessionlogCollector({
         claudeProjectsRoot: options.claudeProjectsRoot,
         extraSessionDirs: args.extraSessionDirs,
+        // `backfill` is #57's field on SessionlogCollectorConfig. Spread rather
+        // than named so this plumbing compiles both before and after that lands
+        // (TypeScript excess-property-checks object literals, not spreads) and
+        // starts taking effect the moment the field exists.
+        ...(args.backfill ? { backfill: true } : {}),
       }),
     ]
   const pollLoop = createPollLoop({
@@ -115,6 +137,10 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
     exec: options.exec ?? realExec,
     now,
     intervalMs: options.intervalMs ?? args.pollIntervalMs,
+    // Keyed by session id, so a resumed session rehydrates its own offsets and a
+    // fresh one starts with none (safe: sessionlog starts at EOF, #57). The
+    // snapshots of a session nobody resumes are simply never read again.
+    snapshotStore: createFileSnapshotStore(snapshotDirFor(sessionDir, sessionId)),
   })
   pollLoop.start()
 
