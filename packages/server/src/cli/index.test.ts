@@ -178,7 +178,10 @@ describe('runCli', () => {
       log: { log: () => {}, warn: () => {} },
     })
 
-    await handle.pollLoop.tick()
+    // start() already fires one tick fire-and-forget; wait for its collector.error
+    // to land (rather than racing it with a manual tick() call, which is a no-op
+    // while a tick is still in flight) before forcing a second, guaranteed tick.
+    await waitForEvent(handle.recorder, (e) => e.type === 'collector.error')
     await handle.pollLoop.tick()
 
     const events = handle.recorder.eventsSoFar()

@@ -142,7 +142,6 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
     // snapshots of a session nobody resumes are simply never read again.
     snapshotStore: createFileSnapshotStore(snapshotDirFor(sessionDir, sessionId)),
   })
-  pollLoop.start()
 
   const webDistDir = options.webDistDir ?? defaultWebDistDir()
   const flatlineMs = args.flatlineMinutes * 60_000
@@ -150,9 +149,11 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
 
   let url: string
   try {
-    url = await app.listen({ port: args.port })
+    url = await app.listen({ port: args.port, host: '127.0.0.1' })
   } catch (err) {
-    pollLoop.stop()
+    // pollLoop was never started: a listen failure means no in-flight tick can
+    // leak past this catch and race a caller's cleanup (e.g. a test's rm of
+    // its temp dataRoot) with an unawaited snapshot write.
     await app.close().catch(() => {})
     const code = err instanceof Error ? (err as NodeJS.ErrnoException).code : undefined
     const message =
@@ -162,6 +163,7 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
     process.stderr.write(`${message}\n`)
     exit(1)
   }
+  pollLoop.start()
   log.log(`observatory running at ${url}`)
 
   const stop = async () => {
