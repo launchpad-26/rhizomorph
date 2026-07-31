@@ -4,6 +4,7 @@ import path from 'node:path'
 import {
   UNATTRIBUTED_LANE,
   type AgentRole,
+  type AgentThread,
   type Collector,
   type CollectorContext,
   type ObservatoryEvent,
@@ -289,6 +290,7 @@ async function tailProjectDir(
       const lane = dir.laneOverride ?? facts.gitBranch ?? basenameOf(facts.cwd ?? dir.worktreePath) ?? UNATTRIBUTED_LANE
       const sessionId = facts.sessionId ?? fallbackSessionId
       const emitOptions = facts.timestamp === null ? undefined : { ts: facts.timestamp }
+      const thread: AgentThread = facts.isSidechain ? 'subagent' : 'main'
 
       if (facts.requestId && facts.requestId !== lastUsageRequestId) {
         events.push(
@@ -299,6 +301,7 @@ async function tailProjectDir(
               sessionId,
               worktreePath: dir.worktreePath,
               branch: facts.gitBranch,
+              thread,
               role: dir.role,
               model: facts.model,
               tokens: facts.tokens,
@@ -320,6 +323,7 @@ async function tailProjectDir(
               sessionId,
               worktreePath: dir.worktreePath,
               branch: facts.gitBranch,
+              thread,
               tool,
               role: dir.role,
               durationMs: null,

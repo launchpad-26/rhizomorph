@@ -1,5 +1,5 @@
-import type { EventType, ObservatoryEvent, PayloadOf, SourceOf, TokenUsagePayload } from '@observatory/core'
-import { ZERO_TOKENS } from '@observatory/core'
+import type { AgentThread, EventType, ObservatoryEvent, PayloadOf, SourceOf, TokenUsagePayload } from '@observatory/core'
+import { agentThreadSchema, ZERO_TOKENS } from '@observatory/core'
 import { resolveLane, resolveRole } from './attribution.js'
 import { formatZodIssues } from './format-issues.js'
 import {
@@ -90,6 +90,17 @@ export function parseMetricsExport(body: unknown, emitter: OtelEmitter): ParseMe
   return { events, malformed: false }
 }
 
+/**
+ * `query_source` is read to pick a role (see `resolveRole`) and, separately,
+ * stored verbatim as `thread` when it's a value the core schema recognises
+ * (`main` | `subagent` | `auxiliary`) — null for anything else, including
+ * absent, rather than guessing.
+ */
+function resolveThread(querySource: string | undefined): AgentThread | null {
+  const parsed = agentThreadSchema.safeParse(querySource)
+  return parsed.success ? parsed.data : null
+}
+
 function buildUsageEvent(
   emitter: OtelEmitter,
   resourceAttrs: OtlpKeyValue[] | undefined,
@@ -121,6 +132,7 @@ function buildUsageEvent(
   const lane = resolveLane(resourceAttrs, dp.attributes)
   const querySource = attrString(dp.attributes, 'query_source')
   const role = resolveRole(resourceAttrs, lane, querySource)
+  const thread = resolveThread(querySource)
   const sessionId = attrString(dp.attributes, 'session.id') ?? null
 
   // Each datapoint carries exactly one tier's worth of tokens per `type`
@@ -152,6 +164,7 @@ function buildUsageEvent(
       sessionId,
       worktreePath: null,
       branch: null,
+      thread,
     },
     'otel',
   )
@@ -180,6 +193,7 @@ function buildCostEvent(
   const lane = resolveLane(resourceAttrs, dp.attributes)
   const querySource = attrString(dp.attributes, 'query_source')
   const role = resolveRole(resourceAttrs, lane, querySource)
+  const thread = resolveThread(querySource)
   const sessionId = attrString(dp.attributes, 'session.id') ?? null
 
   return emitter.emit('llm.cost', {
@@ -195,5 +209,6 @@ function buildCostEvent(
     sessionId,
     worktreePath: null,
     branch: null,
+    thread,
   })
 }

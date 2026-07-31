@@ -81,6 +81,64 @@ describe('parseMetricsExport', () => {
     )
   })
 
+  it('stores query_source as thread on the payload instead of discarding it after role selection (#65)', () => {
+    const result = parseMetricsExport(fixture('metrics-token-and-cost.json'), testEmitter())
+    const usage = result.events.filter((e) => e.type === 'llm.usage')
+    const costs = result.events.filter((e) => e.type === 'llm.cost')
+
+    // main/worker datapoints
+    expect(usage[0]?.payload).toMatchObject({ thread: 'main' })
+    expect(usage[1]?.payload).toMatchObject({ thread: 'main' })
+    // auxiliary haiku datapoints
+    expect(usage[2]?.payload).toMatchObject({ thread: 'auxiliary' })
+    expect(usage[3]?.payload).toMatchObject({ thread: 'auxiliary' })
+
+    expect(costs[0]?.payload).toMatchObject({ thread: 'main' })
+    expect(costs[1]?.payload).toMatchObject({ thread: 'auxiliary' })
+  })
+
+  it('stores thread: "subagent" for a query_source: subagent datapoint, and null when query_source is absent or unrecognised', () => {
+    const bodyWithQuerySource = (querySource: string | undefined) => ({
+      resourceMetrics: [
+        {
+          resource: { attributes: [{ key: 'lane', value: { stringValue: '2-core' } }] },
+          scopeMetrics: [
+            {
+              metrics: [
+                {
+                  name: 'claude_code.token.usage',
+                  sum: {
+                    dataPoints: [
+                      {
+                        attributes: [
+                          { key: 'model', value: { stringValue: 'claude-opus-5' } },
+                          { key: 'type', value: { stringValue: 'input' } },
+                          ...(querySource === undefined
+                            ? []
+                            : [{ key: 'query_source', value: { stringValue: querySource } }]),
+                        ],
+                        asInt: '4',
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+
+    const subagent = parseMetricsExport(bodyWithQuerySource('subagent'), testEmitter())
+    expect(subagent.events[0]?.payload).toMatchObject({ thread: 'subagent', role: 'worker' })
+
+    const absent = parseMetricsExport(bodyWithQuerySource(undefined), testEmitter())
+    expect((absent.events[0]?.payload as { thread: unknown }).thread).toBeNull()
+
+    const garbage = parseMetricsExport(bodyWithQuerySource('something-else'), testEmitter())
+    expect((garbage.events[0]?.payload as { thread: unknown }).thread).toBeNull()
+  })
+
   it('accepts all four claude_code.token.usage tiers — input, output, cacheRead, cacheCreation — with zero collector.error', () => {
     const result = parseMetricsExport(fixture('metrics-all-tiers.json'), testEmitter())
 

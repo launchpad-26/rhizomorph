@@ -33,6 +33,13 @@ export interface AssistantLineFacts {
    * back to tick time rather than guessing.
    */
   timestamp: number | null
+  /**
+   * The line's own `isSidechain` marker: true when this turn ran on a
+   * Task/subagent thread rather than the session's main conversation. Absent
+   * or non-boolean is treated as `false`, same as every real capture seen so
+   * far (`fixtures/conductor-root.jsonl:1` et al., always an explicit boolean).
+   */
+  isSidechain: boolean
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -51,6 +58,10 @@ function asTimestamp(value: unknown): number | null {
   if (typeof value !== 'string') return null
   const parsed = Date.parse(value)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function asBool(value: unknown): boolean {
+  return value === true
 }
 
 /**
@@ -101,5 +112,6 @@ export function parseAssistantLine(raw: string): AssistantLineFacts | null {
     },
     toolUses,
     timestamp: asTimestamp(line.timestamp),
+    isSidechain: asBool(line.isSidechain),
   }
 }

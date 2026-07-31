@@ -174,6 +174,7 @@ describe('createSessionlogCollector', () => {
         role: 'worker',
         worktreePath, // the discovered worktree root, not the log's own (possibly nested) cwd
         branch: '4-tmux-collector',
+        thread: 'main', // none of this fixture's lines are marked isSidechain: true
       })
     }
 
@@ -196,6 +197,35 @@ describe('createSessionlogCollector', () => {
       Date.parse('2026-07-30T00:49:19.739Z'),
       Date.parse('2026-07-30T00:49:22.966Z'),
     ])
+  })
+
+  it('emits thread: "subagent" for an isSidechain: true line, on both llm.usage and tool.activity (#65)', async () => {
+    const worktreePath = '/fake/worktrees/alpha'
+    const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
+    await mkdir(projectDir, { recursive: true })
+    // The real fixture's lines are all isSidechain: false — flip it to simulate
+    // a Task/subagent turn, the marker shape actually seen in captured JSONL
+    // (fixtures/conductor-root.jsonl:1) rather than inventing a new shape.
+    const sidechainFixture = (await readFixture('worker-2-core.jsonl')).replaceAll(
+      '"isSidechain":false',
+      '"isSidechain":true',
+    )
+    await writeFile(
+      path.join(projectDir, '95f42357-058c-4ea2-84d4-de7b1eb58635.jsonl'),
+      sidechainFixture,
+      'utf8',
+    )
+
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+
+    const usage = result.events.filter((e) => e.type === 'llm.usage')
+    const tools = result.events.filter((e) => e.type === 'tool.activity')
+    expect(usage).toHaveLength(1)
+    expect(tools).toHaveLength(1)
+    expect(usage[0]?.payload).toMatchObject({ thread: 'subagent' })
+    expect(tools[0]?.payload).toMatchObject({ thread: 'subagent' })
   })
 
   it('books the main working tree as unattributed while a linked worktree stays worker (#62)', async () => {

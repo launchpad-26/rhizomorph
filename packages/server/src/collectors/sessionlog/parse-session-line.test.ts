@@ -90,6 +90,25 @@ describe('parseAssistantLine', () => {
     expect(parseAssistantLine('{"type":"assistant","message":{"model":"x"}}')).toBeNull()
   })
 
+  it('parses isSidechain: true off a sidechain (subagent) line (#65)', () => {
+    const base = '{"type":"assistant","message":{"model":"x","usage":{}}'
+    expect(parseAssistantLine(`${base},"isSidechain":true}`)?.isSidechain).toBe(true)
+  })
+
+  it('treats every real fixture line as main (isSidechain: false) — none of them are sidechain turns', () => {
+    for (const name of ['worker-2-core.jsonl', 'worker-4-tmux-collector.jsonl', 'conductor-root.jsonl']) {
+      for (const line of fixtureLines(name)) {
+        expect(parseAssistantLine(line)?.isSidechain).toBe(false)
+      }
+    }
+  })
+
+  it('defaults isSidechain to false when the marker is absent or not a boolean', () => {
+    const base = '{"type":"assistant","message":{"model":"x","usage":{}}'
+    expect(parseAssistantLine(`${base}}`)?.isSidechain).toBe(false)
+    expect(parseAssistantLine(`${base},"isSidechain":"true"}`)?.isSidechain).toBe(false)
+  })
+
   it('falls back to a null timestamp when the line has none or an unparsable one', () => {
     const base = '{"type":"assistant","message":{"model":"x","usage":{}}'
     expect(parseAssistantLine(`${base}}`)?.timestamp).toBeNull()
