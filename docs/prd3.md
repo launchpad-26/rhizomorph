@@ -231,10 +231,12 @@ reference material.
 Wave 1: **#75** instrument keystone (opus — tokens, derived fleet object,
 glyph alphabet, shell reorder, ladder floor) ∥ **#76** lane manifest
 served (`.swarm/lanes.json` → `/api/lanes`). Wave 2, after #75: **#77**
-attention strip + tab signals · **#78** burn strip (spend panel
-dissolves) · **#79** fleet table (worktrees panel dissolves) · **#80**
-activity feed + provenance bar (ticker dissolves) · **#81** the scene
-(opus — mycelium, ice-neon) · **#82** collisions attention-integration.
-Wave 3: **#83** replay mode shift · **#84** chat drawer (opus, + transcript
-tail endpoint) · **#85** panel focus. Wave 4: **#86** docs/demo refresh.
-Verification per ruling 25 runs conductor-side after wave 3, then retro.
+attention strip + tab signals · **#78** fleet table (worktrees panel
+dissolves) · **#79** activity feed + provenance bar (ticker dissolves) ·
+**#80** burn strip (spend panel dissolves) · **#81** the scene (opus —
+mycelium, ice-neon) · **#82** collisions attention-integration. Wave 3:
+**#83** replay mode shift · **#84** chat drawer (opus, + transcript tail
+endpoint) · **#85** panel focus. Wave 4: **#86** docs/demo refresh.
+(#78–#80 ordering reflects a GitHub API outage mid-filing; recorded on
+the issues.) Verification per ruling 25 runs conductor-side after wave 3,
+then retro.
