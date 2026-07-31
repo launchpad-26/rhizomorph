@@ -20,12 +20,17 @@ export const exec: Exec = (command, args, options = {}) =>
       (error, stdout, stderr) => {
         if (error) {
           const err = error as NodeJS.ErrnoException & { code?: number | string }
+          const exitCode = typeof err.code === 'number' ? err.code : null
           resolve({
             stdout: stdout ?? '',
             stderr: stderr ?? '',
-            code: typeof err.code === 'number' ? err.code : null,
+            code: exitCode,
             failed: true,
-            errorMessage: err.message,
+            // Per the `ExecResult.errorMessage` contract: set only when the binary itself
+            // couldn't be run (ENOENT and friends), not for a real process that ran and
+            // exited non-zero — callers (doctor, the workmux collector) use its presence
+            // to tell "not installed" apart from "installed but erroring for a real reason".
+            errorMessage: exitCode === null ? err.message : undefined,
           })
           return
         }

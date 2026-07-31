@@ -7,10 +7,11 @@ describe('exec', () => {
     expect(result).toEqual({ stdout: 'hi', stderr: '', code: 0, failed: false })
   })
 
-  it('reports failure with an exit code for a nonzero exit', async () => {
+  it('reports failure with an exit code for a nonzero exit, and no errorMessage — the binary ran fine', async () => {
     const result = await exec('node', ['-e', 'process.exit(3)'])
     expect(result.failed).toBe(true)
     expect(result.code).toBe(3)
+    expect(result.errorMessage).toBeUndefined()
   })
 
   it('reports failure with an error message for a missing binary', async () => {
