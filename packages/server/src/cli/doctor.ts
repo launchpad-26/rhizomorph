@@ -4,7 +4,7 @@ import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Exec } from '@observatory/core'
+import type { Exec, ExecResult } from '@observatory/core'
 import { exec as realExec } from '../server/exec.js'
 
 /**
@@ -211,7 +211,21 @@ async function checkOptionalTool(id: string, command: string, args: string[], ex
       message: `${command} not found on PATH — its data is optional and will be degraded, not fatal`,
     }
   }
+  if (result.failed) {
+    return {
+      id,
+      status: 'warn',
+      message: `${command} found but erroring: ${describeToolError(result)} — its data is optional and will be degraded, not fatal`,
+    }
+  }
   return { id, status: 'ok', message: `${command} found on PATH` }
+}
+
+/** Best available one-line reason for a present-but-failing tool: real stderr, else the exit code. */
+function describeToolError(result: ExecResult): string {
+  const stderr = result.stderr.trim()
+  if (stderr) return stderr.split('\n')[0]!
+  return `exited with code ${result.code}`
 }
 
 function checkTelemetryEnv(env: NodeJS.ProcessEnv): DoctorCheck {

@@ -18,6 +18,11 @@ function gitFailure(): ExecResult {
   return { stdout: '', stderr: 'fatal: not a git repository', code: 128, failed: true }
 }
 
+/** A tool that exists on PATH but errors when run — distinct from `missingBinary`: no `errorMessage`. */
+function toolError(stderr: string, code = 1): ExecResult {
+  return { stdout: '', stderr, code, failed: true }
+}
+
 /** Everything a fully healthy machine would report. */
 const healthyExec: Exec = async (command, args) => {
   if (command === 'git' && args[0] === 'rev-parse') return okResult('true\n')
@@ -270,6 +275,50 @@ describe('runDoctor', () => {
 
     const workmux = checkFor(report.checks, 'workmux')
     expect(workmux.status).toBe('warn')
+    expect(report.exitCode).toBe(0)
+  })
+
+  it('reports "found but erroring" (not "not found") when tmux is on PATH but exits non-zero', async () => {
+    const brokenTmuxExec: Exec = async (command, args) => {
+      if (command === 'tmux') {
+        return toolError('tmux: error connecting to /tmp/tmux-1000/default (No such file or directory)')
+      }
+      return healthyExec(command, args)
+    }
+
+    const report = await runDoctor({
+      path: repoPath,
+      port: 0,
+      exec: brokenTmuxExec,
+      webDistDir,
+      claudeProjectsRoot,
+    })
+
+    const tmux = checkFor(report.checks, 'tmux')
+    expect(tmux.status).toBe('warn')
+    expect(tmux.message).toContain('found but erroring')
+    expect(tmux.message).toContain('error connecting to /tmp/tmux-1000/default')
+    expect(tmux.message).not.toContain('not found on PATH')
+    expect(report.exitCode).toBe(0)
+  })
+
+  it('reports "found but erroring" for workmux when it errors with no stderr, falling back to the exit code', async () => {
+    const brokenWorkmuxExec: Exec = async (command, args) => {
+      if (command === 'workmux') return toolError('', 2)
+      return healthyExec(command, args)
+    }
+
+    const report = await runDoctor({
+      path: repoPath,
+      port: 0,
+      exec: brokenWorkmuxExec,
+      webDistDir,
+      claudeProjectsRoot,
+    })
+
+    const workmux = checkFor(report.checks, 'workmux')
+    expect(workmux.status).toBe('warn')
+    expect(workmux.message).toContain('found but erroring: exited with code 2')
     expect(report.exitCode).toBe(0)
   })
 
