@@ -51,6 +51,29 @@ export const AGENT_ROLES = [
 ] as const satisfies readonly AgentRole[]
 
 /**
+ * Which thread *inside* a session was spending. Both collectors already receive
+ * this and prd1 stored neither (audit §C): OTel datapoints carry
+ * `query_source` (`main` | `subagent`), and a session-log line marks a
+ * subagent turn with `isSidechain: true`.
+ *
+ * - `main` — the session's own conversation: the agent someone dispatched.
+ * - `subagent` — work that agent handed to a Task/subagent thread.
+ * - `auxiliary` — the CLI's own background traffic (titles, summaries) riding
+ *   inside the same session.
+ *
+ * prd2's ruling is **sub-rows under the parent lane** — the lane stays the unit
+ * of work — so a thread is a dimension of a lane's spend, never a lane of its
+ * own. Absent or `null` means *the source did not say*, and a reader must
+ * render that as unknown rather than assume `main`. Parsing the two markers
+ * into this field is #65's job; the schema, the fold and the sub-totals are
+ * here so the value has somewhere to land.
+ */
+export const agentThreadSchema = z.enum(['main', 'subagent', 'auxiliary'])
+export type AgentThread = z.infer<typeof agentThreadSchema>
+
+export const AGENT_THREADS = ['main', 'subagent', 'auxiliary'] as const satisfies readonly AgentThread[]
+
+/**
  * Lane for spend we could not attribute — an OTel datapoint that arrived with
  * no resource attribute and no session we have seen. Kept as a real lane on
  * purpose: unattributed dollars must stay visible, not be silently dropped.
@@ -78,10 +101,17 @@ const attribution = {
    * name. Always present; see {@link UNATTRIBUTED_LANE}.
    */
   lane: nonEmptyString,
-  /** Agent CLI session id — the join key between the two collectors. */
+  /**
+   * Agent CLI session id — the join key between the two collectors, and the
+   * only honest way dollars reach a branch: OTel knows the session and the
+   * cost, sessionlog knows the session and the place. The reducer joins them
+   * on this (`packages/core/src/reduce.ts`, `resolvePlace`).
+   */
   sessionId: nonEmptyString.nullable().optional(),
   worktreePath: nonEmptyString.nullable().optional(),
   branch: nonEmptyString.nullable().optional(),
+  /** Which thread of the session spent it; null when the source didn't say. */
+  thread: agentThreadSchema.nullable().optional(),
 }
 
 /** One model request's token cost. The densest fact prd1 has. */

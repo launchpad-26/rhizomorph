@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   AGENT_ROLES,
+  AGENT_THREADS,
   UNATTRIBUTED_LANE,
   ZERO_TOKENS,
   addTokens,
+  agentThreadSchema,
   createEvent,
   llmCostEventSchema,
   llmUsageEventSchema,
@@ -269,6 +271,45 @@ describe('telemetry.refused', () => {
         payload: { instance: 'x', expectedInstance: '', count: 1 },
       }).success,
     ).toBe(false)
+  })
+})
+
+describe('the thread dimension', () => {
+  const cost = { lane: '33-core', role: 'worker' as const, model: 'claude-sonnet-5', costUsd: 1, authoritative: true }
+
+  it('names the three threads both collectors already receive', () => {
+    expect(AGENT_THREADS).toEqual(['main', 'subagent', 'auxiliary'])
+    for (const thread of AGENT_THREADS) {
+      expect(agentThreadSchema.safeParse(thread).success, thread).toBe(true)
+    }
+  })
+
+  it('rides on all three telemetry payloads', () => {
+    expect(
+      createEvent('llm.usage', { ...usage, thread: 'subagent' }, { id: 'evt-1', ts: 1 }).payload
+        .thread,
+    ).toBe('subagent')
+    expect(createEvent('llm.cost', { ...cost, thread: 'main' }, { id: 'evt-2', ts: 1 }).payload.thread).toBe(
+      'main',
+    )
+    expect(
+      createEvent('tool.activity', { lane: 'l', tool: 'Bash', thread: 'auxiliary' }, { id: 'evt-3', ts: 1 })
+        .payload.thread,
+    ).toBe('auxiliary')
+  })
+
+  it('is optional, and explicitly nullable for a source that does not say', () => {
+    expect(createEvent('llm.usage', usage, { id: 'evt-1', ts: 1 }).payload.thread).toBeUndefined()
+    expect(
+      createEvent('llm.usage', { ...usage, thread: null }, { id: 'evt-1', ts: 1 }).payload.thread,
+    ).toBeNull()
+  })
+
+  it('rejects a thread nobody declared — "worker" is a role, not a thread', () => {
+    expect(() =>
+      // @ts-expect-error — the role vocabulary is not the thread vocabulary
+      createEvent('llm.usage', { ...usage, thread: 'worker' }, { id: 'evt-1', ts: 1 }),
+    ).toThrow()
   })
 })
 
