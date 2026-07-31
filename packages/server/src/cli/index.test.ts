@@ -223,7 +223,19 @@ describe('runCli', () => {
 
     try {
       handle = await runCli(
-        [path.join(tmpdir(), 'conductor-repo'), '--port', '0', '--extra-sessions', extraDir],
+        // The fixture line above is already on disk before boot; a real boot
+        // now seeks a never-before-seen file to EOF (#57) and would emit
+        // nothing for it. This test is about conductor attribution, not
+        // first-sight semantics, so it opts into --backfill to read that
+        // pre-existing line instead.
+        [
+          path.join(tmpdir(), 'conductor-repo'),
+          '--port',
+          '0',
+          '--extra-sessions',
+          extraDir,
+          '--backfill',
+        ],
         {
           dataRoot,
           claudeProjectsRoot,
