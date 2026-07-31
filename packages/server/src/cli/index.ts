@@ -22,7 +22,7 @@ import {
   type CliArgs,
 } from './args.js'
 import { renderDoctorReport, runDoctor } from './doctor.js'
-import { renderTelemetryEnv } from './telemetry-env.js'
+import { fetchInstanceId, renderTelemetryEnv } from './telemetry-env.js'
 
 export interface RunCliOptions {
   /** Injectable clock, so tests get deterministic session ids and ticks. */
@@ -219,12 +219,15 @@ async function runDoctorCommand(
 }
 
 /**
- * `observatory env <lane>` — a standalone subcommand, no server boot. Same
- * clean-usage-error contract as the main command: a bad argv prints to
- * stderr and exits 1, `--help` prints to stdout and exits 0, no stack trace
- * either way (#30/#32 conventions). `exit` always terminates in real usage;
- * the `Promise<never>` return type is honest about that and lets this slot
- * into `runCli`'s `Promise<CliHandle>` return without a dummy value.
+ * `observatory env <lane>` — a standalone subcommand, no server boot of its
+ * own, but it does read the instance id off the server on `--port` (#60: the
+ * block must declare which run this telemetry belongs to, and only the running
+ * Observatory knows). Same clean-usage-error contract as the main command: a
+ * bad argv — or an unreachable server — prints to stderr and exits 1, `--help`
+ * prints to stdout and exits 0, no stack trace either way (#30/#32
+ * conventions). `exit` always terminates in real usage; the `Promise<never>`
+ * return type is honest about that and lets this slot into `runCli`'s
+ * `Promise<CliHandle>` return without a dummy value.
  */
 async function runEnvCommand(
   rest: readonly string[],
@@ -245,6 +248,14 @@ async function runEnvCommand(
     exit(0)
   }
 
-  log.log(renderTelemetryEnv(envArgs))
+  let instance: string
+  try {
+    instance = await fetchInstanceId(envArgs.port)
+  } catch (err) {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+    exit(1)
+  }
+
+  log.log(renderTelemetryEnv({ ...envArgs, instance }))
   exit(0)
 }

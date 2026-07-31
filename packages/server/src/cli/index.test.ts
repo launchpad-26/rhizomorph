@@ -255,35 +255,91 @@ describe('runCli', () => {
   })
 })
 
+/**
+ * Since #60 the env block declares the instance it belongs to, read from the
+ * server on `--port` — so these boot one on an ephemeral port instead of
+ * assuming the default is free (or, worse, borrowing whichever Observatory
+ * happens to be running on this machine). See `telemetry-env.test.ts` for the
+ * renderer's own tests.
+ */
 describe('runCli env subcommand', () => {
+  let dataRoot: string
+  let server: CliHandle | undefined
+
+  beforeEach(async () => {
+    dataRoot = await mkdtemp(path.join(tmpdir(), 'observatory-env-cli-test-'))
+  })
+
+  afterEach(async () => {
+    await server?.stop()
+    server = undefined
+    await rm(dataRoot, { recursive: true, force: true })
+  })
+
+  async function bootServer(): Promise<{ port: number; instance: string }> {
+    server = await runCli([path.join(tmpdir(), 'env-repo'), '--port', '0'], {
+      dataRoot,
+      collectors: [],
+      log: silentLog,
+    })
+    return { port: Number(new URL(server.url).port), instance: server.recorder.sessionId }
+  }
+
   it('prints the telemetry env block for a lane and exits 0', async () => {
+    const { port, instance } = await bootServer()
     const log = { log: vi.fn(), warn: vi.fn() }
     const exit = fakeExit()
 
-    const thrown = await runCli(['env', 'test-lane'], { log, exit }).catch((err: unknown) => err)
+    const thrown = await runCli(['env', 'test-lane', '--port', String(port)], { log, exit }).catch(
+      (err: unknown) => err,
+    )
 
     expect(thrown).toBeInstanceOf(FakeExit)
     expect((thrown as FakeExit).code).toBe(0)
     const output = log.log.mock.calls.map((call) => String(call[0])).join('\n')
     expect(output).toContain('export CLAUDE_CODE_ENABLE_TELEMETRY=1')
-    expect(output).toContain('export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4321')
-    expect(output).toContain('export OTEL_RESOURCE_ATTRIBUTES=lane=test-lane,role=worker')
+    expect(output).toContain(`export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:${port}`)
+    expect(output).toContain(
+      `export OTEL_RESOURCE_ATTRIBUTES=lane=test-lane,role=worker,instance=${instance}`,
+    )
   })
 
   it('honours --role and --port', async () => {
+    const { port, instance } = await bootServer()
     const log = { log: vi.fn(), warn: vi.fn() }
     const exit = fakeExit()
 
-    const thrown = await runCli(['env', 'conductor', '--role', 'conductor', '--port', '5000'], {
-      log,
-      exit,
-    }).catch((err: unknown) => err)
+    const thrown = await runCli(
+      ['env', 'conductor', '--role', 'conductor', '--port', String(port)],
+      { log, exit },
+    ).catch((err: unknown) => err)
 
     expect(thrown).toBeInstanceOf(FakeExit)
     expect((thrown as FakeExit).code).toBe(0)
     const output = log.log.mock.calls.map((call) => String(call[0])).join('\n')
-    expect(output).toContain('export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:5000')
-    expect(output).toContain('export OTEL_RESOURCE_ATTRIBUTES=lane=conductor,role=conductor')
+    expect(output).toContain(`export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:${port}`)
+    expect(output).toContain(
+      `export OTEL_RESOURCE_ATTRIBUTES=lane=conductor,role=conductor,instance=${instance}`,
+    )
+  })
+
+  it('prints a clean message + usage to stderr and exits 1 when no Observatory answers on the port', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+
+    // Port 1 needs root to bind, so nothing of ours is ever listening there.
+    const thrown = await runCli(['env', 'my-lane', '--port', '1'], { exit }).catch(
+      (err: unknown) => err,
+    )
+
+    const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(1)
+    expect(output).toContain("cannot read this Observatory's instance id on port 1")
+    expect(output).toContain('npm start -- --port 1')
+    expect(output).not.toMatch(/^\s*at /m)
   })
 
   it('prints a clean message + usage to stderr and exits 1 when the lane is missing — no stack trace', async () => {

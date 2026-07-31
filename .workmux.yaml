@@ -11,17 +11,23 @@ post_create:
 # prd1 telemetry (docs/telemetry.md): every lane's agent exports OTLP/HTTP
 # JSON straight to this repo's own Observatory server (the receiver at
 # packages/server/src/api/otel.ts), tagged lane=<worktree handle>,role=worker
-# via OTEL_RESOURCE_ATTRIBUTES. `observatory env <lane>` prints this same
-# block on demand — keep the port below in sync with whatever `--port` the
-# running Observatory actually used (default 4321).
+# and — since prd2 #60 — instance=<the running server's session id>.
+#
+# The block is no longer duplicated here: `observatory env <lane>` renders it,
+# including the instance id it reads from the server's /api/meta, and the pane
+# evals that. One source of truth, and the port lives in exactly one place
+# below (default 4321 — change it if the Observatory was started elsewhere).
+#
+# The Observatory must be running when a lane is dispatched. It always is at
+# dispatch time, and if it isn't, the pane says so and starts the agent anyway:
+# the exports then carry no instance id, the receiver answers 403 and records
+# one `telemetry.refused` event per minute, so the gap shows up as a setup gap
+# in the dashboard rather than as silently missing spend.
 panes:
   - command: >-
-      CLAUDE_CODE_ENABLE_TELEMETRY=1
-      OTEL_METRICS_EXPORTER=otlp OTEL_LOGS_EXPORTER=otlp
-      OTEL_EXPORTER_OTLP_PROTOCOL=http/json
-      OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4321
-      OTEL_METRIC_EXPORT_INTERVAL=5000 OTEL_LOGS_EXPORT_INTERVAL=2000
-      OTEL_RESOURCE_ATTRIBUTES=lane=$(basename $PWD),role=worker
+      OBS_ENV=$(node packages/server/bin/observatory.mjs env "$(basename "$PWD")" --port 4321)
+      && eval "$OBS_ENV"
+      || echo "!! no Observatory on 127.0.0.1:4321 — this lane's telemetry will be refused (403); start it and re-dispatch to record this lane's spend";
       <agent>
     focus: true
   - split: horizontal
