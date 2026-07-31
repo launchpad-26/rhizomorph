@@ -6,3 +6,4 @@ packages/server/src/server/collector-loader.ts  # imports every collector static
 packages/core/src/events/index.ts  # the event union — every new event type touches it
 package-lock.json  # churned by npm install in EVERY worktree; restore it in the landing step
 packages/server/src/cli/index.test.ts  # boots real collectors end-to-end; any collector behaviour change surfaces here
+packages/server/src/collectors/otel/parse-metrics.test.ts  # asserts end-to-end attribution behaviour; attribution changes surface here
