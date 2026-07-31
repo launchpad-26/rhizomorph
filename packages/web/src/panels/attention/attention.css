@@ -1,0 +1,27 @@
+/*
+ * One attention pulse when a chip arrives, then steady (ruling 10). Chips are
+ * keyed by their stable `AttentionItem.id`, so React never remounts a chip
+ * that is still the same fault a tick later — the animation plays once, on
+ * mount, and never replays for a fault that just happens to still be true.
+ */
+
+@keyframes attention-flare {
+  0% {
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, currentColor 55%, transparent),
+      0 0 20px color-mix(in oklab, currentColor 45%, transparent);
+  }
+  100% {
+    box-shadow: none;
+  }
+}
+
+.attention-chip-flare {
+  animation: attention-flare var(--duration-flare, 620ms) ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attention-chip-flare {
+    animation: none;
+  }
+}
