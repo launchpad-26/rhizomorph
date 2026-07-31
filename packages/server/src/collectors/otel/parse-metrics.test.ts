@@ -121,11 +121,13 @@ describe('parseMetricsExport', () => {
     }
   })
 
-  it('infers role: conductor from lane === "conductor" with no explicit resource role attribute', () => {
+  it('never infers role from a lane literally named "conductor" — role comes only from the declared resource role attribute', () => {
     const result = parseMetricsExport(fixture('metrics-conductor.json'), testEmitter())
     expect(result.malformed).toBe(false)
     expect(result.events).toHaveLength(1)
-    expect(result.events[0]?.payload).toMatchObject({ lane: 'conductor', role: 'conductor', costUsd: 1.2345 })
+    // This fixture's lane is "conductor" but declares no role attribute, so the
+    // backstop default applies — the lane string itself is never evidence of role.
+    expect(result.events[0]?.payload).toMatchObject({ lane: 'conductor', role: 'worker', costUsd: 1.2345 })
   })
 
   it('ignores metrics it does not recognise, silently — no events, no error', () => {
@@ -161,8 +163,8 @@ describe('parseMetricsExport', () => {
     }
   })
 
-  it('falls back to a short-hash of session.id for the lane when no resource lane attribute is present', () => {
-    const body = {
+  it('falls back to the unattributed lane for an untagged session, stable across a simulated restart — never a hash lane', () => {
+    const bodyFor = (sessionId: string) => ({
       resourceMetrics: [
         {
           resource: { attributes: [] },
@@ -175,7 +177,7 @@ describe('parseMetricsExport', () => {
                     dataPoints: [
                       {
                         attributes: [
-                          { key: 'session.id', value: { stringValue: 'sess-no-lane' } },
+                          { key: 'session.id', value: { stringValue: sessionId } },
                           { key: 'model', value: { stringValue: 'claude-opus-5' } },
                         ],
                         asDouble: 0.01,
@@ -188,12 +190,20 @@ describe('parseMetricsExport', () => {
           ],
         },
       ],
-    }
-    const result = parseMetricsExport(body, testEmitter())
-    expect(result.malformed).toBe(false)
-    const lane = (result.events[0]?.payload as { lane: string }).lane
-    expect(lane).not.toBe('sess-no-lane')
-    expect(lane).toMatch(/^[0-9a-f]{8}$/)
+    })
+
+    // Two different session ids, as if the same untagged agent restarted — a
+    // hash-of-session-id fallback would mint two distinct lanes here.
+    const beforeRestart = parseMetricsExport(bodyFor('sess-no-lane-boot-1'), testEmitter())
+    const afterRestart = parseMetricsExport(bodyFor('sess-no-lane-boot-2'), testEmitter())
+    expect(beforeRestart.malformed).toBe(false)
+    expect(afterRestart.malformed).toBe(false)
+
+    const laneBefore = (beforeRestart.events[0]?.payload as { lane: string }).lane
+    const laneAfter = (afterRestart.events[0]?.payload as { lane: string }).lane
+    expect(laneBefore).toBe('unattributed')
+    expect(laneAfter).toBe('unattributed')
+    expect(laneBefore).toBe(laneAfter)
   })
 
   it('falls back to the unattributed lane when neither a lane attribute nor a session id is present', () => {
