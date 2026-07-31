@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test-boot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node (from engines)
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+
+      - name: Install (clean, lockfile-honest)
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Boot smoke — start server, hit /api/meta and /, shut down
+        run: |
+          set -e
+
+          npm start -- --port 0 > server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          URL=""
+          for _ in $(seq 1 30); do
+            if grep -q "observatory running at" server.log; then
+              URL=$(grep -o 'http://[^ ]*' server.log | head -n1)
+              break
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              echo "server exited before printing a listening URL:"
+              cat server.log
+              exit 1
+            fi
+            sleep 1
+          done
+
+          if [ -z "$URL" ]; then
+            echo "server did not print a listening URL within 30s:"
+            cat server.log
+            exit 1
+          fi
+          echo "server listening at $URL"
+
+          META_OK=""
+          for _ in $(seq 1 30); do
+            if curl -sf "$URL/api/meta" -o meta.json; then
+              META_OK=1
+              break
+            fi
+            sleep 1
+          done
+
+          if [ -z "$META_OK" ]; then
+            echo "/api/meta never answered within 30s:"
+            cat server.log
+            exit 1
+          fi
+          echo "/api/meta responded:"
+          cat meta.json
+          echo
+
+          ROOT_CONTENT_TYPE=$(curl -sI "$URL/" | grep -i '^content-type:' | tr -d '\r\n')
+          echo "/ responded with: $ROOT_CONTENT_TYPE"
+          case "$ROOT_CONTENT_TYPE" in
+            *text/html*) ;;
+            *)
+              echo "expected / to return HTML, got: $ROOT_CONTENT_TYPE"
+              cat server.log
+              exit 1
+              ;;
+          esac
+
+          kill -TERM "$SERVER_PID"
+          wait "$SERVER_PID" 2>/dev/null || true
+          trap - EXIT
+          echo "server shut down cleanly"
