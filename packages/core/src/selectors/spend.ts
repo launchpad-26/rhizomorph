@@ -61,7 +61,7 @@ export interface SpendTotals {
   toolCallCount: number
   /** Distinct models, alphabetical. */
   models: string[]
-  /** Distinct roles seen, in `worker, conductor, auxiliary` order. */
+  /** Distinct roles seen, in `worker, conductor, auxiliary, unattributed` order. */
   roles: AgentRole[]
   /** Distinct collectors that contributed, alphabetical. */
   origins: TelemetryOrigin[]
@@ -107,6 +107,11 @@ export interface BranchSpend extends SpendTotals {
 export interface RoleSpend extends SpendTotals {
   role: AgentRole
   lanes: string[]
+}
+
+export interface LaneRoleSpend extends SpendTotals {
+  lane: string
+  role: AgentRole
 }
 
 // --- session totals ---------------------------------------------------------
@@ -179,6 +184,58 @@ export function selectSpendForLane(
   filter: SpendFilter = {},
 ): LaneSpend | null {
   return selectLaneSpendIndex(state, filter)[lane] ?? null
+}
+
+/**
+ * One row per (lane, role) pair the filtered window actually saw — "conductor
+ * spend within lane X" as a direct lookup instead of an unaskable question
+ * (audit §C). A lane that only ever spoke as one role has exactly one row;
+ * the "both hats" lane from {@link selectRoleSpend}'s tests gets two. Unlike
+ * {@link selectLaneSpend}, rows are not seeded from every known lane — a
+ * (lane, role) pair the log never mentioned inside the filter has nothing
+ * honest to zero, so it is simply absent rather than a wall of empty rows for
+ * combinations that never occurred.
+ */
+export function selectSpendByLaneRole(
+  state: SessionState,
+  filter: SpendFilter = {},
+): LaneRoleSpend[] {
+  const keyOf = (lane: string, role: AgentRole): string => `${lane}::${role}`
+  const accs = new Map<string, Acc>()
+  const keys = new Map<string, { lane: string; role: AgentRole }>()
+
+  const laneRoleAcc = (lane: string, role: AgentRole): Acc => {
+    const key = keyOf(lane, role)
+    const existing = accs.get(key)
+    if (existing !== undefined) return existing
+    const fresh = createAcc()
+    accs.set(key, fresh)
+    keys.set(key, { lane, role })
+    return fresh
+  }
+
+  for (const record of usageIn(state, filter)) {
+    addUsage(laneRoleAcc(record.lane, record.role), record)
+  }
+  for (const record of costsIn(state, filter)) {
+    addCost(laneRoleAcc(record.lane, record.role), record)
+  }
+  for (const record of toolsIn(state, filter)) {
+    // Same rule as selectRoleSpend: an unattributed-role tool call is a
+    // session fact, not a (lane, role) fact.
+    if (record.role === null) continue
+    addTool(laneRoleAcc(record.lane, record.role), record)
+  }
+
+  return [...accs.entries()]
+    .map(([key, acc]) => ({ ...finalise(acc), ...keys.get(key)! }))
+    .sort(
+      (a, b) =>
+        b.costUsd - a.costUsd ||
+        b.tokens.total - a.tokens.total ||
+        compareStrings(a.lane, b.lane) ||
+        compareStrings(a.role, b.role),
+    )
 }
 
 /**
@@ -352,6 +409,13 @@ export interface RoleSpendSplit {
   conductor: RoleSpend
   auxiliary: RoleSpend
   /**
+   * Spend whose source declared no role at all (prd2's `unattributed`, see
+   * `events/telemetry.ts`). A first-class bucket alongside the other three,
+   * not folded into `worker` — an undeclared session is a setup gap with a
+   * number, never a silent worker credit.
+   */
+  unattributed: RoleSpend
+  /**
    * Conductor tokens divided by worker tokens — the empirical price of the
    * brain/hands split, and prd1's headline metric.
    *
@@ -360,6 +424,10 @@ export interface RoleSpendSplit {
    * "unknown", and rendering the 0.0 that arithmetic would give is precisely
    * the undercount prd1 exists to expose. The two token totals sit alongside
    * so a caller can tell "no conductor instrumented" from "conductor idle".
+   *
+   * `unattributed` sits in neither side of this division. An undeclared
+   * session is a setup gap, not evidence about the brain/hands ratio — letting
+   * it inflate either side would misprice the split it is supposed to explain.
    */
   overheadRatio: number | null
 }
@@ -401,6 +469,7 @@ export function selectRoleSpend(state: SessionState, filter: SpendFilter = {}): 
     worker,
     conductor,
     auxiliary: roleSpend('auxiliary'),
+    unattributed: roleSpend('unattributed'),
     overheadRatio: overhead(conductor.tokens.total, worker.tokens.total),
   }
 }

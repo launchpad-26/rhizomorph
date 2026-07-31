@@ -21,6 +21,7 @@ import {
   selectSessionSpend,
   selectSpendByBranch,
   selectSpendByBranchIndex,
+  selectSpendByLaneRole,
   selectSpendByWorktree,
   selectSpendForBranch,
   selectSpendForLane,
@@ -484,9 +485,9 @@ describe('selectRoleSpend — the worker/conductor/auxiliary split', () => {
     expect(cost).toBeCloseTo(selectSessionSpend(swarm).costUsd, 6)
   })
 
-  it('always returns all three roles, zeroed when unseen', () => {
+  it('always returns all four roles, zeroed when unseen', () => {
     const split = selectRoleSpend(initialSessionState())
-    for (const role of ['worker', 'conductor', 'auxiliary'] as const) {
+    for (const role of ['worker', 'conductor', 'auxiliary', 'unattributed'] as const) {
       expect(split[role].role, role).toBe(role)
       expect(split[role].tokens.total, role).toBe(0)
       expect(split[role].lanes, role).toEqual([])
@@ -501,6 +502,122 @@ describe('selectRoleSpend — the worker/conductor/auxiliary split', () => {
     expect(selectRoleSpend(state).conductor.toolCallCount).toBe(1)
     // The unattributed call is still a fact about the session.
     expect(selectSessionSpend(state).toolCallCount).toBe(2)
+  })
+
+  it('carries undeclared spend in a first-class unattributed bucket, not folded into worker', () => {
+    const state = fold(
+      f.llmUsage({ lane: 'no-setup', role: 'unattributed', tokens: tokens(0, 500) }),
+      f.llmCost({ lane: 'no-setup', role: 'unattributed', costUsd: 0.5, authoritative: true }),
+      f.llmUsage({ lane: 'w', role: 'worker', tokens: tokens(0, 100) }),
+    )
+    const split = selectRoleSpend(state)
+    expect(split.unattributed.tokens.total).toBe(500)
+    expect(split.unattributed.costUsd).toBeCloseTo(0.5, 6)
+    expect(split.unattributed.lanes).toEqual(['no-setup'])
+    // It is real spend, not silently credited to worker.
+    expect(split.worker.tokens.total).toBe(100)
+  })
+})
+
+describe('selectSpendByLaneRole', () => {
+  it('gives the swarm one row per (lane, role) pair, dearest first', () => {
+    const rows = selectSpendByLaneRole(swarm)
+    expect(rows.map((row) => `${row.lane}:${row.role}`)).toEqual([
+      'conductor:conductor',
+      '2-core:worker',
+      '7-web:worker',
+      '3-git:worker',
+      '2-core:auxiliary',
+    ])
+  })
+
+  it('reconciles with selectLaneSpend: summing a lane\'s roles equals that lane\'s total', () => {
+    const byLaneRole = selectSpendByLaneRole(swarm)
+    for (const lane of selectLaneSpend(swarm)) {
+      const rowsForLane = byLaneRole.filter((row) => row.lane === lane.lane)
+      const tokenSum = rowsForLane.reduce((sum, row) => sum + row.tokens.total, 0)
+      const costSum = rowsForLane.reduce((sum, row) => sum + row.costUsd, 0)
+      expect(tokenSum, lane.lane).toBe(lane.tokens.total)
+      expect(costSum, lane.lane).toBeCloseTo(lane.costUsd, 6)
+    }
+  })
+
+  it('reconciles with selectRoleSpend: summing a role\'s lanes equals that role\'s total', () => {
+    const byLaneRole = selectSpendByLaneRole(swarm)
+    const split = selectRoleSpend(swarm)
+    for (const role of ['worker', 'conductor', 'auxiliary'] as const) {
+      const rowsForRole = byLaneRole.filter((row) => row.role === role)
+      const tokenSum = rowsForRole.reduce((sum, row) => sum + row.tokens.total, 0)
+      expect(tokenSum, role).toBe(split[role].tokens.total)
+    }
+  })
+
+  it('splits a lane that wore two hats into two rows, each honest about its own tokens', () => {
+    const state = fold(
+      f.llmUsage({ lane: 'both', role: 'worker', tokens: tokens(0, 200) }),
+      f.llmUsage({ lane: 'both', role: 'conductor', tokens: tokens(0, 100) }),
+    )
+    const rows = selectSpendByLaneRole(state)
+    expect(rows).toHaveLength(2)
+    expect(rows.find((row) => row.role === 'worker')?.tokens.total).toBe(200)
+    expect(rows.find((row) => row.role === 'conductor')?.tokens.total).toBe(100)
+  })
+
+  it('makes "conductor spend within lane X" a direct lookup', () => {
+    const state = fold(
+      f.llmUsage({ lane: 'x', role: 'worker', tokens: tokens(0, 50) }),
+      f.llmUsage({ lane: 'x', role: 'conductor', tokens: tokens(0, 30) }),
+      f.llmUsage({ lane: 'y', role: 'conductor', tokens: tokens(0, 900) }),
+    )
+    const row = selectSpendByLaneRole(state).find((r) => r.lane === 'x' && r.role === 'conductor')
+    expect(row?.tokens.total).toBe(30)
+  })
+
+  it('carries unattributed spend as its own (lane, role) row', () => {
+    const state = fold(
+      f.llmUsage({ lane: 'unattributed', role: 'unattributed', tokens: tokens(0, 700) }),
+    )
+    const rows = selectSpendByLaneRole(state)
+    expect(rows).toEqual([
+      expect.objectContaining({ lane: 'unattributed', role: 'unattributed', tokens: expect.objectContaining({ total: 700 }) }),
+    ])
+  })
+
+  it('does not seed a row for a (lane, role) combination the log never mentioned', () => {
+    const state = fold(f.llmUsage({ lane: 'solo', role: 'worker', tokens: tokens(0, 1) }))
+    const rows = selectSpendByLaneRole(state)
+    expect(rows.map((row) => row.role)).toEqual(['worker'])
+    expect(rows.find((row) => row.role === 'conductor')).toBeUndefined()
+  })
+
+  it('leaves a tool call with no reported role out of every (lane, role) row', () => {
+    const state = fold(
+      f.toolActivity({ lane: 'a', tool: 'Bash', role: 'worker' }),
+      f.toolActivity({ lane: 'a', tool: 'Bash', role: null }),
+    )
+    const row = selectSpendByLaneRole(state).find((r) => r.lane === 'a' && r.role === 'worker')
+    expect(row?.toolCallCount).toBe(1)
+  })
+
+  it('is empty for a session with no telemetry', () => {
+    expect(selectSpendByLaneRole(initialSessionState())).toEqual([])
+  })
+
+  it('honours the same filters as every other selector', () => {
+    const state = fold(
+      f.llmUsage({ lane: 'a', role: 'worker', tokens: tokens(0, 1) }, { ts: 1_000 }),
+      f.llmUsage({ lane: 'a', role: 'worker', tokens: tokens(0, 2) }, { ts: 2_000 }),
+    )
+    expect(
+      selectSpendByLaneRole(state, { since: 2_000 }).find((r) => r.lane === 'a')?.tokens.total,
+    ).toBe(2)
+    expect(selectSpendByLaneRole(state, { since: 9_000 })).toEqual([])
+  })
+
+  it('never mutates the state it reads', () => {
+    const snapshot = JSON.stringify(swarm.telemetry)
+    selectSpendByLaneRole(swarm)
+    expect(JSON.stringify(swarm.telemetry)).toBe(snapshot)
   })
 })
 
@@ -552,6 +669,24 @@ describe('the overhead ratio', () => {
   it('is null when only auxiliary traffic exists', () => {
     const state = fold(f.llmUsage({ lane: 'a', role: 'auxiliary', tokens: tokens(5, 5) }))
     expect(selectOverheadRatio(state)).toBeNull()
+  })
+
+  it('excludes unattributed tokens from both sides — an undeclared session must not move the ratio', () => {
+    const state = fold(
+      f.llmUsage({ lane: 'w', role: 'worker', tokens: tokens(0, 1_000) }),
+      f.llmUsage({ lane: 'c', role: 'conductor', tokens: tokens(0, 500) }),
+      f.llmUsage({ lane: 'ghost', role: 'unattributed', tokens: tokens(0, 999_999) }),
+    )
+    expect(selectOverheadRatio(state)).toBeCloseTo(0.5, 10)
+  })
+
+  it('is null when only unattributed traffic exists — it never stands in for either side', () => {
+    const state = fold(f.llmUsage({ lane: 'ghost', role: 'unattributed', tokens: tokens(0, 900) }))
+    const split = selectRoleSpend(state)
+    expect(split.overheadRatio).toBeNull()
+    expect(split.unattributed.tokens.total).toBe(900)
+    expect(split.worker.tokens.total).toBe(0)
+    expect(split.conductor.tokens.total).toBe(0)
   })
 
   it('ignores auxiliary tokens on both sides of the division', () => {
@@ -785,6 +920,7 @@ describe('the package barrel', () => {
       'selectSpendForBranch',
       'selectModelSpend',
       'selectRoleSpend',
+      'selectSpendByLaneRole',
       'selectOverheadRatio',
       'selectSpendRate',
       'selectSpendRateByLane',
