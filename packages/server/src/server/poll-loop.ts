@@ -22,7 +22,8 @@ export interface PollLoopOptions {
 
 export interface PollLoop {
   start(): void
-  stop(): void
+  /** Clears the timer, then awaits the in-flight tick (if any) so nothing outlives "stopped". */
+  stop(): Promise<void>
   /** Runs one tick immediately. Exposed for tests; start() also fires one on boot. */
   tick(): Promise<void>
 }
@@ -44,7 +45,8 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
   const saveErrors = new Set<string>()
 
   let timer: ReturnType<typeof setInterval> | null = null
-  let ticking = false
+  /** The in-flight tick's own promise, held (not just a boolean) so `stop()` has something to await. */
+  let inFlightTick: Promise<void> | null = null
   let hydration: Promise<void> | null = null
 
   /**
@@ -86,40 +88,43 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
     }
   }
 
-  async function tick(): Promise<void> {
-    if (ticking) return
-    ticking = true
-    try {
-      await hydrate()
-      for (const collector of collectors) {
-        const tickNow = now()
-        const context = createCollectorContext({ repoPath, now: tickNow, exec, nextId })
-        try {
-          const previous = snapshots.get(collector.name)
-          const result = await collector.poll(previous, context)
-          snapshots.set(collector.name, result.nextSnapshot)
-          for (const event of result.events) {
-            await recorder.record(event)
-          }
-          // Reference check: a collector that handed its snapshot straight back
-          // (nothing new, or an error branch) has nothing to write.
-          if (result.nextSnapshot !== previous) await persist(collector, result.nextSnapshot)
-        } catch (error) {
-          await recorder.record(
-            createEvent(
-              'collector.error',
-              {
-                collector: collector.name,
-                message: error instanceof Error ? error.message : String(error),
-              },
-              { id: nextId(), ts: now() },
-            ),
-          )
+  async function runTick(): Promise<void> {
+    await hydrate()
+    for (const collector of collectors) {
+      const tickNow = now()
+      const context = createCollectorContext({ repoPath, now: tickNow, exec, nextId })
+      try {
+        const previous = snapshots.get(collector.name)
+        const result = await collector.poll(previous, context)
+        snapshots.set(collector.name, result.nextSnapshot)
+        for (const event of result.events) {
+          await recorder.record(event)
         }
+        // Reference check: a collector that handed its snapshot straight back
+        // (nothing new, or an error branch) has nothing to write.
+        if (result.nextSnapshot !== previous) await persist(collector, result.nextSnapshot)
+      } catch (error) {
+        await recorder.record(
+          createEvent(
+            'collector.error',
+            {
+              collector: collector.name,
+              message: error instanceof Error ? error.message : String(error),
+            },
+            { id: nextId(), ts: now() },
+          ),
+        )
       }
-    } finally {
-      ticking = false
     }
+  }
+
+  function tick(): Promise<void> {
+    if (inFlightTick) return inFlightTick
+    const promise = runTick().finally(() => {
+      if (inFlightTick === promise) inFlightTick = null
+    })
+    inFlightTick = promise
+    return promise
   }
 
   function start(): void {
@@ -130,11 +135,12 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
     }, intervalMs)
   }
 
-  function stop(): void {
+  async function stop(): Promise<void> {
     if (timer) {
       clearInterval(timer)
       timer = null
     }
+    await inFlightTick
   }
 
   return { start, stop, tick }

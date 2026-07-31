@@ -167,7 +167,7 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
   log.log(`observatory running at ${url}`)
 
   const stop = async () => {
-    pollLoop.stop()
+    await pollLoop.stop()
     await app.close()
   }
 
