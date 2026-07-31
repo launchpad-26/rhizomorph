@@ -39,3 +39,9 @@
 question included; cohort first; JV's LinkedIn amplification offer standing);
 open-sourcing prep — including scrubbing guidance for `user.email` in OTel
 captures before the repo goes public.
+
+## Decisions appended post-prd2 (operator, 2026-07-31)
+
+- **npm name:** scoped — `@kelliherl/observatory`. Publish is deferred until after prd3; clone+run stays the supported path until then. (Unscoped `observatory` is taken; a scoped name needs no reservation.)
+- **prd3 next:** the visualization design study, run as a bounded prd; its spend-surface patterns feed the factory GUI alpha.
+- **macOS CI:** repo is private → claim softened to match verification (#74) instead of paying 10x for a macos-latest leg.
