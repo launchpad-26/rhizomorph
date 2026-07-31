@@ -1,8 +1,21 @@
-import { appendFile, mkdir, readdir, readFile, stat } from 'node:fs/promises'
+import { appendFile, mkdir, readdir, readFile, stat, truncate } from 'node:fs/promises'
 import path from 'node:path'
 import type { ObservatoryEvent } from '@observatory/core'
 import { parseEvent } from '@observatory/core'
 import { sessionFileName, sessionIdFromFileName } from './paths.js'
+
+const NEWLINE = 0x0a
+
+export interface SessionLogWriterOptions {
+  /**
+   * True when this writer continues a file an earlier process started — a
+   * resumed run. Before the first append the file's trailing *partial* line is
+   * dropped: that is what a process killed mid-append leaves behind, and
+   * appending after it would glue the new event onto half of the old one,
+   * costing two events instead of one.
+   */
+  resuming?: boolean
+}
 
 /**
  * Appends validated events to one session's JSONL file. One writer per
@@ -11,19 +24,46 @@ import { sessionFileName, sessionIdFromFileName } from './paths.js'
  */
 export class SessionLogWriter {
   readonly filePath: string
+  private readonly resuming: boolean
   private ready: Promise<void> | null = null
 
-  constructor(filePath: string) {
+  constructor(filePath: string, options: SessionLogWriterOptions = {}) {
     this.filePath = filePath
+    this.resuming = options.resuming ?? false
   }
 
   async append(event: ObservatoryEvent): Promise<void> {
     if (!this.ready) {
-      this.ready = mkdir(path.dirname(this.filePath), { recursive: true }).then(() => undefined)
+      this.ready = this.prepare()
     }
     await this.ready
     await appendFile(this.filePath, `${JSON.stringify(event)}\n`, 'utf8')
   }
+
+  /** Runs once, before the first append, and every append awaits it. */
+  private async prepare(): Promise<void> {
+    await mkdir(path.dirname(this.filePath), { recursive: true })
+    if (this.resuming) await dropTrailingPartialLine(this.filePath)
+  }
+}
+
+/**
+ * Truncates `filePath` back to its last newline if it doesn't end in one, and
+ * reports whether it dropped anything. A JSONL file with a half-written final
+ * line is a process killed mid-append; that line is unreadable either way
+ * (`readSessionEvents` skips it), so dropping it loses nothing and keeps the
+ * file appendable.
+ */
+export async function dropTrailingPartialLine(filePath: string): Promise<boolean> {
+  let content: Buffer
+  try {
+    content = await readFile(filePath)
+  } catch {
+    return false // no file yet — nothing to repair
+  }
+  if (content.length === 0 || content[content.length - 1] === NEWLINE) return false
+  await truncate(filePath, content.lastIndexOf(NEWLINE) + 1)
+  return true
 }
 
 /**
@@ -85,4 +125,54 @@ export async function listSessions(dir: string): Promise<SessionSummary[]> {
 
 export function sessionFilePath(dir: string, sessionId: string): string {
   return path.join(dir, sessionFileName(Number(sessionId)))
+}
+
+/**
+ * How stale the most recent session may be and still be *continued* by the next
+ * boot instead of superseded by a new one. The prd's ruling is "resume the run",
+ * but two boots a day apart are two runs: merging them would replay this
+ * morning's spend into tonight's dashboard. Four hours keeps a working session
+ * with a lunch break in it one run. It is a conductor default, not a law — this
+ * one constant is the whole boundary.
+ */
+export const RESUME_WINDOW_MS = 4 * 60 * 60 * 1000
+
+export interface ResumableSession {
+  sessionId: string
+  filePath: string
+  /** Everything already recorded, in file order — seeds the recorder's replay buffer. */
+  events: ObservatoryEvent[]
+}
+
+/**
+ * The most recent session recorded for a repo, if it is recent enough to
+ * continue. Null means "start a new one": no session dir, no session file, no
+ * readable event in the newest file, or its newest event is older than
+ * `windowMs`.
+ *
+ * Recency is the newest event *timestamp*, not the last line's, because
+ * collectors now stamp events with the source's own time (#56) — the final line
+ * of a tail can be older than the line above it. A max never overstates how
+ * fresh a file is (every source timestamp is in the past), so the worst this can
+ * do is open a new session where it could have resumed — which costs a file, not
+ * a duplicate: the new session starts with no snapshots and the sessionlog
+ * collector starts at EOF (#57).
+ */
+export async function findResumableSession(
+  dir: string,
+  nowMs: number,
+  windowMs: number = RESUME_WINDOW_MS,
+): Promise<ResumableSession | null> {
+  const sessions = await listSessions(dir)
+  const latest = sessions[sessions.length - 1]
+  if (!latest) return null
+
+  const filePath = path.join(dir, latest.fileName)
+  const events = await readSessionEvents(filePath)
+  if (events.length === 0) return null
+
+  const newestTs = events.reduce((newest, event) => Math.max(newest, event.ts), 0)
+  if (nowMs - newestTs > windowMs) return null
+
+  return { sessionId: latest.id, filePath, events }
 }

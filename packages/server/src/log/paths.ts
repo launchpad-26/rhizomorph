@@ -31,6 +31,18 @@ export function sessionFileName(ts: number): string {
   return `session-${ts}.jsonl`
 }
 
+/**
+ * Where a session's collector snapshots live: a directory of its own beside the
+ * session logs, keyed by session id. Keyed, not shared, because snapshots are
+ * only meaningful *for the session that wrote them* — a resumed session picks up
+ * its own byte offsets, and the snapshots of a session nobody resumes are simply
+ * never read again. The `snapshots/` level keeps them out of `listSessions`,
+ * which only ever matches `session-<ts>.jsonl` in the dir itself.
+ */
+export function snapshotDirFor(sessionDir: string, sessionId: string): string {
+  return path.join(sessionDir, 'snapshots', sessionId)
+}
+
 const SESSION_FILE_PATTERN = /^session-(\d+)\.jsonl$/
 
 /** A session's id is just its start timestamp — stable, sortable, and the filename round-trips it. */

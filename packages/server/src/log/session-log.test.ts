@@ -1,9 +1,22 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createEvent } from '@observatory/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { listSessions, readSessionEvents, SessionLogWriter, sessionFilePath } from './session-log.js'
+import {
+  dropTrailingPartialLine,
+  findResumableSession,
+  listSessions,
+  readSessionEvents,
+  RESUME_WINDOW_MS,
+  SessionLogWriter,
+  sessionFilePath,
+} from './session-log.js'
+
+/** A distinguishable, schema-valid event — `ts` is what the resume window reads. */
+function errorEvent(id: string, ts: number, message = 'boom') {
+  return createEvent('collector.error', { collector: 'git', message }, { id, ts })
+}
 
 describe('SessionLogWriter + readSessionEvents', () => {
   let dir: string
@@ -65,6 +78,160 @@ describe('SessionLogWriter + readSessionEvents', () => {
     await appendFile(filePath, `${JSON.stringify({ id: 'x', ts: 1 })}\n`, 'utf8')
 
     expect(await readSessionEvents(filePath)).toEqual([good])
+  })
+})
+
+describe('dropTrailingPartialLine', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'observatory-log-test-'))
+  })
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('drops a half-written final line and keeps every whole line before it', async () => {
+    const filePath = path.join(dir, 'session-1.jsonl')
+    const kept = errorEvent('evt-1', 1)
+    await writeFile(filePath, `${JSON.stringify(kept)}\n${JSON.stringify(errorEvent('evt-2', 2)).slice(0, 20)}`)
+
+    expect(await dropTrailingPartialLine(filePath)).toBe(true)
+    expect(await readFile(filePath, 'utf8')).toBe(`${JSON.stringify(kept)}\n`)
+    expect(await readSessionEvents(filePath)).toEqual([kept])
+  })
+
+  it('leaves a file that already ends in a newline alone', async () => {
+    const filePath = path.join(dir, 'session-2.jsonl')
+    const whole = `${JSON.stringify(errorEvent('evt-1', 1))}\n`
+    await writeFile(filePath, whole)
+
+    expect(await dropTrailingPartialLine(filePath)).toBe(false)
+    expect(await readFile(filePath, 'utf8')).toBe(whole)
+  })
+
+  it('empties a file whose only line is half-written', async () => {
+    const filePath = path.join(dir, 'session-3.jsonl')
+    await writeFile(filePath, '{"id":"evt-1","ts"')
+
+    expect(await dropTrailingPartialLine(filePath)).toBe(true)
+    expect(await readFile(filePath, 'utf8')).toBe('')
+  })
+
+  it('reports nothing to repair for a file that does not exist', async () => {
+    expect(await dropTrailingPartialLine(path.join(dir, 'missing.jsonl'))).toBe(false)
+  })
+})
+
+describe('SessionLogWriter resuming an existing file', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'observatory-log-test-'))
+  })
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('drops the crash-truncated final line before its first append, so the new event survives', async () => {
+    const filePath = path.join(dir, 'session-1.jsonl')
+    const kept = errorEvent('evt-1', 1)
+    await writeFile(filePath, `${JSON.stringify(kept)}\n{"id":"evt-2","ts":2,"ty`)
+
+    const writer = new SessionLogWriter(filePath, { resuming: true })
+    const appended = errorEvent('evt-3', 3, 'after the crash')
+    await writer.append(appended)
+
+    expect(await readSessionEvents(filePath)).toEqual([kept, appended])
+  })
+
+  it('repairs once, not before every append', async () => {
+    const filePath = path.join(dir, 'session-2.jsonl')
+    await writeFile(filePath, '{"half":')
+
+    const writer = new SessionLogWriter(filePath, { resuming: true })
+    const first = errorEvent('evt-1', 1)
+    const second = errorEvent('evt-2', 2)
+    await writer.append(first)
+    await writer.append(second)
+
+    expect(await readSessionEvents(filePath)).toEqual([first, second])
+  })
+})
+
+describe('findResumableSession', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'observatory-log-test-'))
+  })
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('returns null when there is no session directory at all', async () => {
+    expect(await findResumableSession(path.join(dir, 'nope'), 1000)).toBeNull()
+  })
+
+  it('returns null when the directory holds no session file', async () => {
+    await writeFile(path.join(dir, 'README.md'), 'not a session', 'utf8')
+    expect(await findResumableSession(dir, 1000)).toBeNull()
+  })
+
+  it('returns the newest session, with its events, when it is inside the window', async () => {
+    const older = errorEvent('evt-1', 1000)
+    const newest = errorEvent('evt-2', 5000)
+    await new SessionLogWriter(sessionFilePath(dir, '1000')).append(older)
+    const newer = new SessionLogWriter(sessionFilePath(dir, '4000'))
+    await newer.append(newest)
+
+    const resumable = await findResumableSession(dir, 6000)
+    expect(resumable?.sessionId).toBe('4000')
+    expect(resumable?.filePath).toBe(sessionFilePath(dir, '4000'))
+    expect(resumable?.events).toEqual([newest])
+  })
+
+  it('resumes at exactly the window boundary and refuses one millisecond past it', async () => {
+    const lastEventTs = 1_000_000
+    await new SessionLogWriter(sessionFilePath(dir, '900000')).append(errorEvent('evt-1', lastEventTs))
+
+    expect(await findResumableSession(dir, lastEventTs + RESUME_WINDOW_MS)).not.toBeNull()
+    expect(await findResumableSession(dir, lastEventTs + RESUME_WINDOW_MS + 1)).toBeNull()
+  })
+
+  it('judges recency by the newest event, not the last line — source timestamps are not sorted', async () => {
+    const filePath = sessionFilePath(dir, '1000')
+    const writer = new SessionLogWriter(filePath)
+    await writer.append(errorEvent('evt-1', 10_000_000)) // recorded now
+    await writer.append(errorEvent('evt-2', 1000)) // a week-old log line, tailed after it
+
+    expect(await findResumableSession(dir, 10_000_000 + 1000)).not.toBeNull()
+  })
+
+  it('returns null for a newest session file with nothing readable in it', async () => {
+    await writeFile(sessionFilePath(dir, '1000'), '', 'utf8')
+    expect(await findResumableSession(dir, 1000)).toBeNull()
+  })
+
+  it('survives a crash-truncated final line: the whole lines before it are the resume point', async () => {
+    const filePath = sessionFilePath(dir, '1000')
+    const kept = errorEvent('evt-1', 1000)
+    await new SessionLogWriter(filePath).append(kept)
+    await appendFile(filePath, '{"id":"evt-2","ts":2000,"ty', 'utf8')
+
+    const resumable = await findResumableSession(dir, 2000)
+    expect(resumable?.sessionId).toBe('1000')
+    expect(resumable?.events).toEqual([kept])
+  })
+
+  it('honours an explicit window, so the boundary is one constant and not a hidden rule', async () => {
+    await new SessionLogWriter(sessionFilePath(dir, '1000')).append(errorEvent('evt-1', 1000))
+
+    expect(await findResumableSession(dir, 3000, 1000)).toBeNull()
+    expect(await findResumableSession(dir, 3000, 5000)).not.toBeNull()
   })
 })
 

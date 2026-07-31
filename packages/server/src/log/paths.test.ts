@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { repoSlug, sessionDirFor, sessionFileName, sessionIdFromFileName } from './paths.js'
+import { repoSlug, sessionDirFor, sessionFileName, sessionIdFromFileName, snapshotDirFor } from './paths.js'
 
 describe('repoSlug', () => {
   it('combines a sanitized basename with a short hash of the absolute path', () => {
@@ -35,5 +35,22 @@ describe('session filenames', () => {
   it('rejects names that are not session files', () => {
     expect(sessionIdFromFileName('not-a-session.jsonl')).toBeNull()
     expect(sessionIdFromFileName('session-abc.jsonl')).toBeNull()
+  })
+})
+
+describe('snapshotDirFor', () => {
+  it('keys snapshots by session id, under a snapshots/ level beside the logs', () => {
+    expect(snapshotDirFor('/data/root/repo-1234abcd', '1700000000000')).toBe(
+      path.join('/data/root/repo-1234abcd', 'snapshots', '1700000000000'),
+    )
+  })
+
+  it('gives two sessions separate directories, so an abandoned session cannot feed a new one', () => {
+    expect(snapshotDirFor('/dir', '1')).not.toBe(snapshotDirFor('/dir', '2'))
+  })
+
+  it('never produces a name listSessions would mistake for a session file', () => {
+    expect(sessionIdFromFileName(path.basename(snapshotDirFor('/dir', '1700000000000')))).toBeNull()
+    expect(sessionIdFromFileName('snapshots')).toBeNull()
   })
 })
