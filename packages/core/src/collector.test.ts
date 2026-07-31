@@ -140,6 +140,38 @@ describe('createCollectorContext', () => {
     // @ts-expect-error — paneId is required
     expect(() => ctx.emit('pane.closed', {})).toThrow()
   })
+
+  /**
+   * The seam wave A stands on: a collector reading a week-old log line has to
+   * be able to say when the fact happened, or that spend lands inside the live
+   * rate window and `$/hr` spikes on boot.
+   */
+  it('keeps a source timestamp when one is given, and the tick time when it is not', () => {
+    const ctx = contextWith(createStubExec(), 1_700_000_000_000)
+    const weekOld = 1_699_400_000_000
+
+    const replayed = ctx.emit('pane.closed', { paneId: '%1' }, { ts: weekOld })
+    const live = ctx.emit('pane.closed', { paneId: '%2' })
+
+    expect(replayed.ts).toBe(weekOld)
+    expect(live.ts).toBe(1_700_000_000_000)
+  })
+
+  it('treats an explicit ts of 0 as a real time, not a missing one', () => {
+    const ctx = contextWith(createStubExec(), 7000)
+    expect(ctx.emit('pane.closed', { paneId: '%1' }, { ts: 0 }).ts).toBe(0)
+  })
+
+  it('floors a fractional source time rather than failing the envelope', () => {
+    const ctx = contextWith(createStubExec(), 7000)
+    expect(ctx.emit('pane.closed', { paneId: '%1' }, { ts: 1234.75 }).ts).toBe(1234)
+  })
+
+  it('refuses a source time that is not a real epoch — a broken date parser is loud', () => {
+    const ctx = contextWith(createStubExec(), 7000)
+    expect(() => ctx.emit('pane.closed', { paneId: '%1' }, { ts: Number.NaN })).toThrow()
+    expect(() => ctx.emit('pane.closed', { paneId: '%1' }, { ts: -1 })).toThrow()
+  })
 })
 
 describe('createStubExec', () => {

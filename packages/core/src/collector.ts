@@ -39,6 +39,21 @@ export type Exec = (
   options?: ExecOptions,
 ) => Promise<ExecResult>
 
+/** Per-emit overrides. Everything here has a sane default from the tick. */
+export interface EmitOptions {
+  /**
+   * When the fact *actually happened*, epoch millis from the source itself — a
+   * session log line's own `timestamp`, a commit's author date. Defaults to the
+   * tick clock, which is only honest for facts observed as they happen.
+   *
+   * A collector replaying history must pass this: stamped with the poll clock,
+   * week-old spend lands inside the live rate window and `$/hr` spikes on boot.
+   * A value that isn't a non-negative number throws at the envelope boundary,
+   * the same way a bad payload does — a broken date parser should be loud.
+   */
+  ts?: number
+}
+
 /** What a collector gets handed on every tick. */
 export interface CollectorContext {
   /** Absolute path of the repo being watched. */
@@ -49,10 +64,15 @@ export interface CollectorContext {
   /** Session-unique id generator. */
   nextId: () => string
   /**
-   * Builds a validated event stamped with `now` and a fresh id. Collectors
-   * should use this rather than hand-rolling envelopes.
+   * Builds a validated event stamped with a fresh id and, unless `options.ts`
+   * names the source's own time, `now`. Collectors should use this rather than
+   * hand-rolling envelopes.
    */
-  emit: <T extends EventType>(type: T, payload: PayloadOf<T>) => ObservatoryEvent
+  emit: <T extends EventType>(
+    type: T,
+    payload: PayloadOf<T>,
+    options?: EmitOptions,
+  ) => ObservatoryEvent
 }
 
 export interface PollResult<Snapshot> {
@@ -92,7 +112,13 @@ export function createCollectorContext(init: CollectorContextInit): CollectorCon
     now: init.now,
     exec: init.exec,
     nextId: init.nextId,
-    emit: (type, payload) => createEvent(type, payload, { id: init.nextId(), ts: init.now }),
+    emit: (type, payload, options) =>
+      createEvent(type, payload, {
+        id: init.nextId(),
+        // Floored, because a source time computed from a date string can carry
+        // a fraction; anything that isn't a real epoch-ms throws in createEvent.
+        ts: options?.ts === undefined ? init.now : Math.floor(options.ts),
+      }),
   }
 }
 
