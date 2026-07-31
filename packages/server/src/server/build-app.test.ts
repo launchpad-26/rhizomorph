@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createEvent } from '@observatory/core'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import { buildApp } from './build-app.js'
 import { SessionRecorder } from './recorder.js'
@@ -118,6 +118,49 @@ describe('buildApp integration', () => {
     expect(chunks.join('')).toContain('"id":"evt-2"')
 
     stream.destroy()
+    await app.close()
+  })
+
+  it('warns loudly and serves a placeholder HTML page instead of a bare 404 when no web build is configured', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const app = makeApp()
+    const response = await app.inject({ method: 'GET', url: '/' })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.headers['content-type']).toContain('text/html')
+    expect(response.body).toContain('npm run build --workspace packages/web')
+    expect(response.body).not.toContain('Route GET:/ not found')
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0]?.[0]).toContain('npm run build --workspace packages/web')
+
+    warn.mockRestore()
+    await app.close()
+  })
+
+  it('warns loudly and serves the placeholder when webDistDir is configured but does not exist on disk', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const missingDistDir = path.join(dir, 'no-such-dist')
+
+    const app = buildApp({
+      repoPath: '/repo',
+      repoName: 'repo',
+      sessionDir: dir,
+      recorder,
+      webDistDir: missingDistDir,
+    })
+    const response = await app.inject({ method: 'GET', url: '/dashboard' })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.headers['content-type']).toContain('text/html')
+    expect(response.body).toContain('npm run build --workspace packages/web')
+    expect(response.body).toContain(missingDistDir)
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0]?.[0]).toContain(missingDistDir)
+
+    warn.mockRestore()
     await app.close()
   })
 })
