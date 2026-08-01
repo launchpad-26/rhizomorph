@@ -30,7 +30,7 @@ import {
   mix,
   type Rgb,
 } from './palette.js'
-import { CALM_CEILING } from './salience.js'
+import { ALARM_FLOOR, CALM_CEILING, CALM_FLOOR, spend } from './salience.js'
 
 /**
  * THE MIRROR. Canvas cannot read a Tailwind class, so `palette.ts` is the one
@@ -197,6 +197,35 @@ describe('the activity chokepoint', () => {
     )
   })
 
+  it('keeps every activity inside the calm band, at every freshness (CALM_FLOOR)', () => {
+    // The floor is checked against the twenty-lane fixture in `marks.test.ts`,
+    // but that fixture is entirely `working` — so the states nothing stages
+    // (idle, unknown, a lane merely stopped) would go unpinned. This sweeps the
+    // ramp itself: no activity may be too dark to read, and none may claim the
+    // band the alarms own, whatever its age or heat.
+    //
+    // The floor is this function's own promise, so it is asserted on the raw
+    // ink. The ceiling is the budget's — a maximally fresh, maximally hot green
+    // thread does reach past 0.78 before `spend` sees it, and `spend` capping it
+    // is the mechanism, not a leak — so it is asserted on the pair, which is
+    // also the only combination the scene ever paints.
+    const calm = { spotlightId: null, hoverId: null }
+
+    for (const activity of Object.keys(ACTIVITY_HUE) as (keyof typeof ACTIVITY_HUE)[]) {
+      for (const freshness of [0, 0.5, 1]) {
+        for (const heat of [0, 0.5, 1]) {
+          const raw = activityInk(activity, freshness, heat)
+          const where = `${activity} at f=${freshness} h=${heat}`
+          expect(luminance(raw), `${where} was too dark to read`).toBeGreaterThan(CALM_FLOOR)
+          expect(
+            luminance(spend(raw, calm, 'a-lane', false)),
+            `${where} broke into the alarm band`,
+          ).toBeLessThanOrEqual(CALM_CEILING + 1e-9)
+        }
+      }
+    }
+  })
+
   it('reads as its own family at every freshness, and never leaves the calm band', () => {
     for (const freshness of [0, 0.5, 1]) {
       for (const heat of [0, 1]) {
@@ -206,8 +235,6 @@ describe('the activity chokepoint', () => {
         expect(working.rgb[1], `working at f=${freshness} h=${heat} was not green`).toBeGreaterThan(
           Math.max(working.rgb[0], working.rgb[2]),
         )
-        // And it never claims the band the alarms own (law 9b).
-        expect(luminance(working)).toBeLessThanOrEqual(CALM_CEILING + 0.03)
       }
     }
 
@@ -221,11 +248,12 @@ describe('the activity chokepoint', () => {
     expect(luminance(landed)).toBeLessThan(luminance(live))
   })
 
-  it('runs a summons past the ceiling that holds the calm world down (law 9b)', () => {
-    // `incandescent` is the only way anything gets above CALM_CEILING, and it
-    // is what makes ALARM_FLOOR reachable at all: raw amber is not bright enough.
-    expect(luminance(ink(NEEDS_YOU, 1))).toBeLessThan(CALM_CEILING + 0.03)
-    expect(luminance(ink(incandescent(NEEDS_YOU), 1))).toBeGreaterThan(CALM_CEILING)
+  it('runs a summons up into the band the alarms own (law 9b)', () => {
+    // Why `incandescent` has to exist at all: amber at full strength is only
+    // ~0.80, which is not enough daylight over a green fleet at the ceiling. So
+    // the summons is lifted toward the ramp's white until it clears ALARM_FLOOR.
+    expect(luminance(ink(NEEDS_YOU, 1))).toBeLessThan(ALARM_FLOOR)
+    expect(luminance(ink(incandescent(NEEDS_YOU), 1))).toBeGreaterThan(ALARM_FLOOR)
     // Still amber, not a pale nothing: it stays in its own family.
     expect(hueGap(incandescent(NEEDS_YOU), NEEDS_YOU)).toBeLessThan(15)
   })

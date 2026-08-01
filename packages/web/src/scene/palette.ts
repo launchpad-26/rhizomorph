@@ -132,6 +132,10 @@ const ACTIVITY_TINT: Record<LaneActivity, number> = {
  * `done` is the one state scaled down rather than up. It is the same green as
  * `working` and must stay legible, but a finished lane that shouted as loudly as
  * a running one would make a landed fleet look like a busy one.
+ *
+ * The floor is this function's promise; the ceiling is not. A maximally fresh,
+ * maximally hot green does reach past `CALM_CEILING` here — `salience.spend` is
+ * what holds it down, and holding it down is the mechanism rather than a leak.
  */
 export function activityInk(activity: LaneActivity, freshness: number, heat: number): Ink {
   const fresh = clamp01(freshness)
