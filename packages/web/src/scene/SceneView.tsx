@@ -1,310 +1,201 @@
-import type { ObservatoryEvent } from '@observatory/core'
-import { Canvas } from '@react-three/fiber'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Constellation } from './Constellation.js'
-import { CONVERGENCE_MS, layoutScene } from './layout.js'
-import { PALETTE, STATUS_COLOR } from './palette.js'
-import {
-  IDLE_AFTER_MS,
-  FLATLINE_AFTER_MS,
-  allStations,
-  buildSceneModel,
-  stationLiveness,
-  type Liveness,
-  type SceneStation,
-} from './sceneModel.js'
+import { useEffect, useRef, useState } from 'react'
+import type { Fleet } from '../fleet/index.js'
+import { layoutScene, type SceneGeometry } from './geometry.js'
+import { breathOf, sceneMarks, type SceneFrame } from './marks/index.js'
+import { paint } from './paint.js'
+import type { PulseField } from './pulses.js'
+import { salienceOf } from './salience.js'
+import type { SettleRegistry } from './settle.js'
 
 /**
- * The DOM half of the scene: capability guard, WebGL canvas, and the HTML
- * overlay that carries every readable label. Text stays in the DOM rather
- * than in three.js so it is crisp, themeable, selectable and — via the
- * station list — keyboard-focusable.
+ * The canvas host: the frame loop, device-pixel scaling, hit testing, and the
+ * reduced-motion query. Nothing visual is decided here — the picture is
+ * `sceneMarks(frame)` and the drawing is `paint`.
+ *
+ * The loop runs continuously because two things are genuinely continuous: a
+ * node's drift outward as its lane goes quiet, and the root-mass's breath. With
+ * nothing happening, both are imperceptible and the network is still — which is
+ * the point. Stillness is information.
+ *
+ * Everything the loop reads is taken from a ref rather than from the closure, so
+ * a fleet rebuild once a second never tears down and rebuilds the animation.
  */
 
 export interface SceneViewProps {
-  events: readonly ObservatoryEvent[]
-  /** True when `events` is the built-in fixture log, not live data. */
-  demo?: boolean
-  /** Test seam: force the WebGL path on or off instead of detecting it. */
-  webgl?: boolean
+  fleet: Fleet
+  field: PulseField
+  settle: SettleRegistry
+  selectedId: string | null
+  onSelect: (laneId: string | null) => void
+  /**
+   * Test-only clock. Pinned, the loop draws exactly one frame and stops, so a
+   * test asserts against a still image rather than racing an interval.
+   */
+  now?: number
 }
 
-export function SceneView({ events, demo = false, webgl }: SceneViewProps) {
-  const model = useMemo(() => buildSceneModel(events), [events])
-  const [converging, setConverging] = useState(false)
-  const now = useSceneClock(converging)
-  const layout = useMemo(() => layoutScene(model, now), [model, now])
-  const supported = useMemo(() => webgl ?? detectWebgl(), [webgl])
+/** How close to a node a pointer must be to have picked it, in CSS pixels. */
+const HIT_RADIUS = 30
 
-  const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const [focusedId, setFocusedId] = useState<string | null>(null)
-  const stations = allStations(model)
-  const activeId = hoveredId ?? focusedId
-  const active = stations.find((station) => station.id === activeId) ?? null
+export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: SceneViewProps) {
+  const hostRef = useRef<HTMLDivElement | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const geometryRef = useRef<SceneGeometry | null>(null)
+  const [hoverId, setHoverId] = useState<string | null>(null)
+  const [reducedMotion, setReducedMotion] = useState(false)
 
-  // Slow clock normally; fast only while a removed worktree is converging
-  // into main, which is the one moment the scene needs animation frames from
-  // React rather than from `useFrame`.
+  const latest = useRef({ fleet, field, settle, selectedId, hoverId, reducedMotion, now })
+  latest.current = { fleet, field, settle, selectedId, hoverId, reducedMotion, now }
+
   useEffect(() => {
-    const newest = model.stations.reduce(
-      (latest, station) => Math.max(latest, station.removedAt ?? 0),
-      0,
-    )
-    const remaining = newest === 0 ? 0 : newest + CONVERGENCE_MS - Date.now()
-    if (remaining <= 0) return
-    setConverging(true)
-    const id = setTimeout(() => setConverging(false), remaining)
-    return () => clearTimeout(id)
-  }, [model])
+    // `matchMedia` is absent in some test environments; its absence means "no
+    // stated preference", which is the same as not reducing motion.
+    if (typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+    setReducedMotion(query.matches)
+    const onChange = () => setReducedMotion(query.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
 
-  return (
-    <div className="relative h-full w-full overflow-hidden bg-void">
-      {supported ? (
-        <Canvas
-          camera={{ position: [9, 3.6, 9], fov: 45 }}
-          dpr={[1, 1.75]}
-          gl={{ antialias: true, powerPreference: 'high-performance' }}
-        >
-          <Constellation
-            model={model}
-            layout={layout}
-            now={now}
-            hoveredId={hoveredId}
-            focusedId={focusedId}
-            onHover={setHoveredId}
-          />
-        </Canvas>
-      ) : (
-        <NoWebglBackdrop />
-      )}
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const host = hostRef.current
+    if (canvas === null || host === null) return
 
-      <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-3 font-mono text-[10px]">
-        <div className="flex items-start justify-between gap-3">
-          <StationList
-            stations={stations}
-            now={now}
-            activeId={activeId}
-            onHover={setHoveredId}
-            onFocus={setFocusedId}
-          />
-          <Header
-            repoName={model.repoName}
-            worktreeCount={model.worktreeCount}
-            commitCount={model.commitCount}
-            demo={demo}
-            supported={supported}
-          />
-        </div>
-        <div className="flex items-end justify-between gap-3">
-          {active ? <Readout station={active} now={now} /> : <div />}
-          <Legend />
-        </div>
-      </div>
-    </div>
-  )
-}
+    let frame = 0
+    let width = 0
+    let height = 0
 
-function Header({
-  repoName,
-  worktreeCount,
-  commitCount,
-  demo,
-  supported,
-}: {
-  repoName: string | null
-  worktreeCount: number
-  commitCount: number
-  demo: boolean
-  supported: boolean
-}) {
-  return (
-    <div className="pointer-events-none text-right uppercase tracking-widest text-slate-500">
-      <div className="text-neon-cyan text-glow-cyan">{repoName ?? 'constellation'}</div>
-      <div>
-        {worktreeCount} worktrees · {commitCount} commits
-      </div>
-      {demo && <div className="text-neon-amber">demo data — awaiting stream</div>}
-      {!supported && <div className="text-neon-magenta">no webgl — text mode</div>}
-    </div>
-  )
-}
+    const resize = () => {
+      const rect = host.getBoundingClientRect()
+      const dpr = Math.min(2, window.devicePixelRatio || 1)
+      // A floor rather than the measured size, so a zero-height host during
+      // mount still lays out a coherent scene instead of dividing by nothing.
+      width = Math.max(320, Math.floor(rect.width))
+      height = Math.max(180, Math.floor(rect.height))
+      // The backing store only. The element's *size* is CSS (absolutely
+      // positioned), so it can never feed back into the panel that contains it —
+      // a canvas with a pixel width inside a flexible column will happily push
+      // that column wider than the viewport, one resize at a time.
+      canvas.width = Math.floor(width * dpr)
+      canvas.height = Math.floor(height * dpr)
+      const ctx = canvas.getContext('2d')
+      if (ctx !== null) ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    }
 
-function StationList({
-  stations,
-  now,
-  activeId,
-  onHover,
-  onFocus,
-}: {
-  stations: SceneStation[]
-  now: number
-  activeId: string | null
-  onHover: (id: string | null) => void
-  onFocus: (id: string | null) => void
-}) {
-  if (stations.length === 0) {
-    return (
-      <div className="uppercase tracking-widest text-slate-600">no worktrees discovered yet</div>
-    )
+    const observer =
+      typeof ResizeObserver === 'function' ? new ResizeObserver(resize) : null
+    observer?.observe(host)
+    resize()
+
+    const drawFrame = () => {
+      const current = latest.current
+      const clock = current.now ?? Date.now()
+      const ctx = canvas.getContext('2d')
+      // jsdom has no 2D context. The scene is then simply not drawn — the DOM
+      // it lives in still renders, and so does everything around it.
+      if (ctx === null) return
+
+      current.field.step(clock)
+
+      const geometry = layoutScene(current.fleet, {
+        width,
+        height,
+        now: clock,
+        growth: current.settle.progress(clock),
+      })
+      geometryRef.current = geometry
+
+      const sceneFrame: SceneFrame = {
+        fleet: current.fleet,
+        geometry,
+        field: current.field,
+        salience: salienceOf({
+          fleet: current.fleet,
+          hoverId: current.hoverId,
+          selectedId: current.selectedId,
+        }),
+        now: clock,
+        reducedMotion: current.reducedMotion,
+        breath: breathOf(clock, current.reducedMotion),
+      }
+
+      paint({ ctx, marks: sceneMarks(sceneFrame), width, height })
+    }
+
+    // A pinned clock is a test asking for a still image; running a loop under it
+    // would redraw the same frame forever and race every assertion.
+    if (latest.current.now !== undefined) {
+      drawFrame()
+      return () => observer?.disconnect()
+    }
+
+    const tick = () => {
+      frame = requestAnimationFrame(tick)
+      drawFrame()
+    }
+    frame = requestAnimationFrame(tick)
+
+    return () => {
+      cancelAnimationFrame(frame)
+      observer?.disconnect()
+    }
+  }, [now])
+
+  /** The nearest node within {@link HIT_RADIUS}, in CSS pixels. */
+  const laneAt = (clientX: number, clientY: number): string | null => {
+    const geometry = geometryRef.current
+    const canvas = canvasRef.current
+    if (geometry === null || canvas === null) return null
+
+    const rect = canvas.getBoundingClientRect()
+    const x = clientX - rect.left
+    const y = clientY - rect.top
+
+    let best: string | null = null
+    let bestDistance = HIT_RADIUS
+    for (const thread of geometry.threads) {
+      const distance = Math.hypot(thread.node.x - x, thread.node.y - y)
+      if (distance < bestDistance) {
+        bestDistance = distance
+        best = thread.laneId
+      }
+    }
+    return best
   }
 
   return (
-    <ul
-      className="pointer-events-auto max-h-full w-44 overflow-y-auto"
-      aria-label="Constellation stations"
-    >
-      {stations.map((station) => {
-        const liveness = stationLiveness(station, now)
-        return (
-          <li key={station.id}>
-            <button
-              type="button"
-              onMouseEnter={() => onHover(station.id)}
-              onMouseLeave={() => onHover(null)}
-              onFocus={() => onFocus(station.id)}
-              onBlur={() => onFocus(null)}
-              className={`flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left ${
-                station.id === activeId ? 'bg-void-line text-neon-cyan' : 'text-slate-400'
-              } hover:text-neon-cyan focus:outline-none focus-visible:ring-1 focus-visible:ring-neon-cyan`}
-            >
-              <LivenessDot liveness={liveness} status={station.agentStatus} />
-              <span className="truncate">{station.label}</span>
-              <span className="ml-auto tabular-nums text-slate-600">
-                {station.commits.length}
-              </span>
-            </button>
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
-
-function Readout({ station, now }: { station: SceneStation; now: number }) {
-  const liveness = stationLiveness(station, now)
-  const latest = station.commits[station.commits.length - 1]
-  return (
-    <div className="pointer-events-none max-w-[22rem] rounded border border-void-line bg-void-raised/90 px-2 py-1.5 text-slate-300 backdrop-blur">
-      <div className="flex items-center gap-1.5 text-neon-cyan">
-        <LivenessDot liveness={liveness} status={station.agentStatus} />
-        <span className="truncate font-semibold">{station.label}</span>
-        {station.isMain && <span className="text-slate-500">· main</span>}
-      </div>
-      <div className="text-slate-500">
-        {station.commits.length} commits
-        {station.aheadOfMain !== null && ` · ${station.aheadOfMain} ahead`}
-        {station.dirtyFiles > 0 && ` · ${station.dirtyFiles} dirty`}
-        {' · '}
-        {liveness}
-        {station.agentStatus && ` · ${station.agentStatus}`}
-        {station.removedAt !== null && ' · removed'}
-      </div>
-      {latest && <div className="truncate text-slate-400">{latest.message}</div>}
+    <div ref={hostRef} className="relative h-full w-full overflow-hidden bg-ice-1000">
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 h-full w-full"
+        onMouseMove={(event) => setHoverId(laneAt(event.clientX, event.clientY))}
+        onMouseLeave={() => setHoverId(null)}
+        onClick={(event) => onSelect(laneAt(event.clientX, event.clientY))}
+      />
+      <SceneSummary fleet={fleet} />
     </div>
-  )
-}
-
-const STATUS_LEGEND: { color: string; label: string }[] = [
-  { color: PALETTE.cyan, label: 'working' },
-  { color: PALETTE.amber, label: 'waiting' },
-  { color: PALETTE.magenta, label: 'done' },
-]
-
-/**
- * Every visual channel the constellation uses, answered plainly: what a
- * size, a position, or a bit of motion means here — the three questions
- * from the JV call. Nothing below is decorative; each line names the real
- * field or event it is drawn from.
- */
-function Legend() {
-  const idleSec = Math.round(IDLE_AFTER_MS / 1_000)
-  const flatlineMin = Math.round(FLATLINE_AFTER_MS / 60_000)
-  return (
-    <div className="pointer-events-none flex max-w-[17rem] flex-col gap-1 rounded border border-void-line bg-void-raised/90 px-2 py-1.5 text-slate-500 backdrop-blur">
-      <div className="flex flex-wrap items-center gap-2 uppercase tracking-widest text-slate-600">
-        {STATUS_LEGEND.map((entry) => (
-          <span key={entry.label} className="flex items-center gap-1">
-            <span
-              className="inline-block h-1.5 w-1.5 rounded-full"
-              style={{ backgroundColor: entry.color }}
-            />
-            {entry.label}
-          </span>
-        ))}
-      </div>
-      <LegendLine label="glow">
-        dims after {idleSec}s idle, flatlines after {flatlineMin}min silent
-      </LegendLine>
-      <LegendLine label="size">bead size = files touched in that commit</LegendLine>
-      <LegendLine label="position">
-        ring = join order · reach from trunk = commit count · rise = commits ahead of main
-      </LegendLine>
-      <LegendLine label="motion">
-        breathing = live · streak = a commit landing · fold inward = worktree removed
-      </LegendLine>
-    </div>
-  )
-}
-
-function LegendLine({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex gap-1.5">
-      <span className="shrink-0 uppercase tracking-widest text-slate-600">{label}</span>
-      <span className="normal-case tracking-normal text-slate-500">{children}</span>
-    </div>
-  )
-}
-
-function LivenessDot({
-  liveness,
-  status,
-}: {
-  liveness: Liveness
-  status: SceneStation['agentStatus']
-}) {
-  const color = status ? STATUS_COLOR[status] : PALETTE.cyan
-  const opacity = liveness === 'live' ? 1 : liveness === 'idle' ? 0.5 : 0.2
-  return (
-    <span
-      aria-hidden
-      className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-      style={{ backgroundColor: color, opacity }}
-    />
-  )
-}
-
-/** Degradation, not failure: the labels survive without a GPU. */
-function NoWebglBackdrop() {
-  return (
-    <div
-      className="h-full w-full"
-      style={{
-        background: `radial-gradient(circle at 50% 45%, ${PALETTE.line} 0%, ${PALETTE.void} 65%)`,
-      }}
-    />
   )
 }
 
 /**
- * r3f needs both a GL context and `ResizeObserver` to measure the canvas.
- * The `ResizeObserver` check comes first so jsdom never touches `getContext`.
+ * The scene in words, for anything that cannot read a canvas — a screen reader,
+ * and every test that needs to know the picture was built rather than what it
+ * looks like. Not a legend: the encoding is meant to be learnable without one
+ * (ruling 21), and this is never shown to a sighted reader.
  */
-export function detectWebgl(): boolean {
-  if (typeof window === 'undefined' || typeof ResizeObserver === 'undefined') return false
-  try {
-    const canvas = document.createElement('canvas')
-    return Boolean(canvas.getContext('webgl2') ?? canvas.getContext('webgl'))
-  } catch {
-    return false
-  }
-}
+function SceneSummary({ fleet }: { fleet: Fleet }) {
+  const flagged = fleet.lanes.filter((lane) => lane.pathologies.length > 0)
 
-/** Liveness is a function of elapsed time, so the view needs its own clock. */
-function useSceneClock(fast: boolean): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), fast ? 200 : 5_000)
-    return () => clearInterval(id)
-  }, [fast])
-  return now
+  return (
+    <p className="sr-only" data-testid="scene-summary">
+      {`${fleet.lanes.length} lanes threaded to ${fleet.root.mainBranch ?? 'main'}. `}
+      {flagged.length === 0
+        ? 'None flagged.'
+        : flagged
+            .map((lane) => `${lane.label}: ${lane.pathologies.map((p) => p.kind).join(', ')}`)
+            .join('; ')}
+    </p>
+  )
 }
