@@ -14,6 +14,7 @@ import {
   type LadderRank,
   type PathologyKind,
 } from '../../fleet/index.js'
+import { ageBand } from './ageBands.js'
 import { useReducedMotion } from './useReducedMotion.js'
 
 /**
@@ -153,11 +154,16 @@ interface ChipProps {
 /**
  * lane + WHY + how long (ruling 5). WHY is always the detector's own evidence
  * string, inference mark and all (graft g4) — never a bare pathology label.
+ *
+ * Ruling 5 (prd5): how long that WHY has been true also modulates INSISTENCE,
+ * never rung — only a needs-you chip ages (broken is already maximal, notice
+ * deliberately stays quiet; see {@link agingClass}).
  */
 function Chip({ item, selected, onToggle, reducedMotion }: ChipProps): ReactElement {
   const clickable = item.laneId !== null
   const evidence = item.inferred ? `${INFERRED_MARK} ${item.evidence}` : item.evidence
   const age = item.forMs === null ? null : formatSpan(item.forMs)
+  const aging = agingClass(item)
 
   const handleClick = (event: MouseEvent<HTMLButtonElement>): void => {
     event.preventDefault()
@@ -175,10 +181,11 @@ function Chip({ item, selected, onToggle, reducedMotion }: ChipProps): ReactElem
       onClick={clickable ? handleClick : undefined}
       className={[
         'flex shrink-0 items-center gap-1.5 rounded border px-1.5 py-0.5 normal-case tracking-normal',
-        RANK_TEXT_CLASS[item.rank],
+        aging.ink,
         selected ? 'border-ice-200 bg-ice-900' : 'border-ice-800 bg-ice-950',
         clickable ? '' : 'cursor-default opacity-90',
         reducedMotion ? '' : 'attention-chip-flare',
+        aging.pulsing && !reducedMotion ? 'attention-chip-age-pulse' : '',
       ]
         .filter(Boolean)
         .join(' ')}
@@ -186,9 +193,40 @@ function Chip({ item, selected, onToggle, reducedMotion }: ChipProps): ReactElem
       <ChipGlyph kind={item.kind} />
       <span className="max-w-[9rem] truncate font-medium">{item.label}</span>
       <span className="max-w-[18rem] truncate text-ice-300">{evidence}</span>
-      {age === null ? null : <span className="figures shrink-0 text-ice-500">{age}</span>}
+      {age === null ? null : (
+        <span className={`figures shrink-0 ${aging.ageEmphasized ? 'text-needs-you font-semibold' : 'text-ice-500'}`}>
+          {age}
+        </span>
+      )}
     </button>
   )
+}
+
+interface AgingClass {
+  /** The chip's ink class — replaces the plain `RANK_TEXT_CLASS` lookup. */
+  ink: string
+  /** Whether the chip should carry the slow age pulse (motion-gated by the caller). */
+  pulsing: boolean
+  /** Whether the age figure itself should read brighter than the rest of the chip. */
+  ageEmphasized: boolean
+}
+
+/**
+ * The only place a rung's ink becomes age-aware. BROKEN is already the
+ * ladder's maximum, and NOTICE is deliberately a heads-up rather than a
+ * summons — ruling 5 confines all of this to NEEDS-YOU, so neither ever
+ * escalates or mutes regardless of how long the item has been true.
+ */
+function agingClass(item: AttentionItem): AgingClass {
+  if (item.rank !== 'needs-you') {
+    return { ink: RANK_TEXT_CLASS[item.rank], pulsing: false, ageEmphasized: false }
+  }
+  const band = ageBand(item.forMs)
+  return {
+    ink: band === 'quiet' ? 'text-waiting-benign' : RANK_TEXT_CLASS['needs-you'],
+    pulsing: band === 'pulse',
+    ageEmphasized: band === 'pulse',
+  }
 }
 
 /** Form is kind (graft g4): the five pathologies get the scene's own glyph alphabet. */

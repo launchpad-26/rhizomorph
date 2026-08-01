@@ -7,9 +7,12 @@ import {
   fleet20Spec,
   manifestFor,
   pathologySpec,
+  type AttentionItem,
   type Fleet,
   type FixtureSpec,
+  type LadderRank,
 } from '../../fleet/index.js'
+import { AGE_INK_MAX_MS, AGE_QUIET_MAX_MS } from './ageBands.js'
 import { AttentionStripView, MAX_CHIPS } from './AttentionStripView.js'
 
 /**
@@ -164,6 +167,142 @@ describe('AttentionStripView — arrival pulse (ruling 10)', () => {
     }
   })
 })
+
+describe('AttentionStripView — amber ages (prd5 ruling 5)', () => {
+  it('reads QUIET (<2m) as the muted amber, never the full needs-you ink, and never pulses', () => {
+    render(<AttentionStripView fleet={singleItemFleet('needs-you', 0)} selectedId={null} onToggle={vi.fn()} />)
+    const chip = screen.getByRole('button') as HTMLButtonElement
+    expect(chip.className).toContain('text-waiting-benign')
+    expect(chip.className).not.toContain('text-needs-you')
+    expect(chip.className).not.toContain('attention-chip-age-pulse')
+  })
+
+  it('reads INK (2m–10m) as the full needs-you ink, no pulse', () => {
+    render(
+      <AttentionStripView
+        fleet={singleItemFleet('needs-you', AGE_QUIET_MAX_MS)}
+        selectedId={null}
+        onToggle={vi.fn()}
+      />,
+    )
+    const chip = screen.getByRole('button') as HTMLButtonElement
+    expect(chip.className).toContain('text-needs-you')
+    expect(chip.className).not.toContain('text-waiting-benign')
+    expect(chip.className).not.toContain('attention-chip-age-pulse')
+  })
+
+  it('reads PULSE (>=10m) as the full ink plus the slow pulse, with the age figure emphasized', () => {
+    render(
+      <AttentionStripView
+        fleet={singleItemFleet('needs-you', AGE_INK_MAX_MS)}
+        selectedId={null}
+        onToggle={vi.fn()}
+      />,
+    )
+    const chip = screen.getByRole('button') as HTMLButtonElement
+    expect(chip.className).toContain('text-needs-you')
+    expect(chip.className).toContain('attention-chip-age-pulse')
+    const ageFigure = within(chip).getByText('10m00s')
+    expect(ageFigure.className).toContain('text-needs-you')
+    expect(ageFigure.className).toContain('font-semibold')
+  })
+
+  it('degrades the PULSE band to the static brighter ink under prefers-reduced-motion, never dropping to a gentler pulse', () => {
+    const restore = mockReducedMotion(true)
+    try {
+      render(
+        <AttentionStripView
+          fleet={singleItemFleet('needs-you', AGE_INK_MAX_MS)}
+          selectedId={null}
+          onToggle={vi.fn()}
+        />,
+      )
+      const chip = screen.getByRole('button') as HTMLButtonElement
+      expect(chip.className).toContain('text-needs-you')
+      expect(chip.className).not.toContain('attention-chip-age-pulse')
+    } finally {
+      restore()
+    }
+  })
+
+  it('never escalates BROKEN — red is already maximal, whatever its age', () => {
+    render(
+      <AttentionStripView
+        fleet={singleItemFleet('broken', AGE_INK_MAX_MS * 5)}
+        selectedId={null}
+        onToggle={vi.fn()}
+      />,
+    )
+    const chip = screen.getByRole('button') as HTMLButtonElement
+    expect(chip.className).toContain('text-broken')
+    expect(chip.className).not.toContain('attention-chip-age-pulse')
+    expect(chip.className).not.toContain('text-waiting-benign')
+  })
+
+  it('never brightens NOTICE — cyan stays quiet, whatever its age', () => {
+    render(
+      <AttentionStripView
+        fleet={singleItemFleet('notice', AGE_INK_MAX_MS * 5)}
+        selectedId={null}
+        onToggle={vi.fn()}
+      />,
+    )
+    const chip = screen.getByRole('button') as HTMLButtonElement
+    expect(chip.className).toContain('text-notice')
+    expect(chip.className).not.toContain('attention-chip-age-pulse')
+  })
+})
+
+/**
+ * A minimal, hand-built `Fleet` carrying exactly one attention item — the age
+ * band tests need to pin `forMs` to exact millisecond boundaries, which no
+ * fixture's staged timeline can promise. Modeled on `panels/burn/index.test`'s
+ * `makeFleet`: fields the view never reads are filled with inert defaults.
+ */
+function singleItemFleet(rank: Exclude<LadderRank, 'calm'>, forMs: number): Fleet {
+  const item: AttentionItem = {
+    id: `${rank}:lane-x`,
+    laneId: 'lane-x',
+    label: 'lane-x',
+    kind: rank === 'notice' ? 'expensive' : rank === 'broken' ? 'frozen' : 'looping',
+    rank,
+    forMs,
+    evidence: 'evidence',
+    inferred: false,
+  }
+  return {
+    now: NOW,
+    root: {
+      repoName: null,
+      mainBranch: null,
+      worktreePath: null,
+      commitsHome: 0,
+      landings: 0,
+      conductorOutputTokens: 0,
+      overheadRatio: null,
+      lastCommitTs: null,
+    },
+    lanes: [],
+    ladder: { rank, items: [item] },
+    rank,
+    burn: {
+      outputTokens: 0,
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 },
+      costUsd: 0,
+      costIsAuthoritative: null,
+      costEventCount: 0,
+      outputPerMin: 0,
+      costUsdPerHour: 0,
+      overheadRatio: null,
+      conductorInstrumented: false,
+      windowMs: 300_000,
+    },
+    collisions: [],
+    gaps: [],
+    hasLaneManifest: false,
+    eventCount: 0,
+  }
+}
 
 /** Installs a `window.matchMedia` that reports reduced motion, then restores it. */
 function mockReducedMotion(reduced: boolean): () => void {

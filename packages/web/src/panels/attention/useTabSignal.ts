@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { Fleet } from '../../fleet/index.js'
+import { AGE_INK_MAX_MS } from './ageBands.js'
 
 /**
  * Ruling 8: at NEEDS-YOU and above the tab itself says so — the title flips
@@ -47,12 +48,28 @@ export function useTabSignal(fleet: Fleet): void {
       return
     }
 
-    const summons = fleet.ladder.items.filter(
+    const summonsItems = fleet.ladder.items.filter(
       (item) => item.rank === 'needs-you' || item.rank === 'broken',
-    ).length
-    document.title = `● ${summons} need you`
+    )
+    document.title = `● ${summonsItems.length} need you${oldestSuffix(summonsItems)}`
     setFavicon(themeHue(rank))
   }, [fleet])
+}
+
+/**
+ * Ruling 5 (prd5): once the oldest summons crosses the top age band, the tab
+ * title carries it too — "just asked" and "asked 40 minutes ago" should not
+ * read identically from a background tab. Unlike the chip (confined to
+ * NEEDS-YOU), this reads across every summons: a stale BROKEN lane is exactly
+ * as worth surfacing here as a stale NEEDS-YOU one.
+ */
+function oldestSuffix(summonsItems: readonly { forMs: number | null }[]): string {
+  const oldestMs = summonsItems.reduce<number | null>((oldest, item) => {
+    if (item.forMs === null) return oldest
+    return oldest === null || item.forMs > oldest ? item.forMs : oldest
+  }, null)
+  if (oldestMs === null || oldestMs < AGE_INK_MAX_MS) return ''
+  return ` (oldest ${Math.floor(oldestMs / 60_000)}m)`
 }
 
 function themeHue(rank: 'needs-you' | 'broken'): string {

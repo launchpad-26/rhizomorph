@@ -25,3 +25,35 @@
     animation: none;
   }
 }
+
+/*
+ * Ruling 5 (prd5): a needs-you chip old enough for the PULSE age band (see
+ * `ageBands.ts`) gets a slow, deliberate breathing pulse — insistence without
+ * panic, so the period is long rather than quickening. Only opacity moves
+ * (no transform), and it degrades to the static brighter ink under reduced
+ * motion rather than to a gentler pulse (ruling 5 asks for that exact
+ * degradation, not just "less motion").
+ *
+ * Seam: this duration is a conservative literal chosen independently of
+ * #101's motion budget (same prd, disjoint fence) — #101's alarm/event class
+ * constants may absorb it later.
+ */
+@keyframes attention-chip-age-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
+
+.attention-chip-age-pulse {
+  animation: attention-chip-age-pulse var(--duration-age-pulse-seam, 6800ms) ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attention-chip-age-pulse {
+    animation: none;
+  }
+}
