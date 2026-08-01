@@ -2,14 +2,18 @@ import { formatTokens } from '../../lib/format.js'
 import type { LadderRank, PathologyKind } from '../../fleet/index.js'
 import { tangentAt, type Point, type ThreadGeometry } from '../geometry.js'
 import {
+  ACTIVITY_HUE,
   BROKEN,
+  ICE_100,
   ICE_200,
-  ICE_400,
-  ICE_700,
+  ICE_300,
+  ICE_500,
+  ICE_600,
   ICE_950,
-  NECROTIC,
   NEEDS_YOU,
   NOTICE,
+  hotter,
+  incandescent,
   ink,
   mix,
   type Ink,
@@ -28,7 +32,7 @@ import type { Mark } from './types.js'
  * which is the difference between this scene and a chart with coloured dots.
  *
  * The five pathologies are behaviours of the thread and its tip, and each is
- * built so it survives greyscale (law 9's "colour is never the sole carrier"):
+ * built so it survives greyscale (law 9a's "colour is never the sole carrier"):
  *
  * | state     | form                                     | hue        |
  * | --------- | ---------------------------------------- | ---------- |
@@ -37,6 +41,12 @@ import type { Mark } from './types.js'
  * | WAITING   | raised hand, upright, thread stays lit   | amber      |
  * | EXPENSIVE | rising chevrons off the tip              | cyan       |
  * | OFF-FENCE | barb on the node, reach to the victim    | amber      |
+ *
+ * A lane with none of them is no longer hueless. Under prd4's law 9a its node
+ * takes its **activity's** colour — green while working, dim green once landed,
+ * muted amber while stopped, ice when idle or unread — so the picture answers
+ * "what is the fleet doing?" before anyone has learned the alphabet. What
+ * separates it from a summons is the band (law 9b), not the absence of colour.
  *
  * FROZEN and WAITING are the pair the prd says must never be confusable, so
  * they are opposed on three axes at once: **dark vs light** (a dead thread and a
@@ -61,6 +71,9 @@ const RANK_HUE: Record<LadderRank, Rgb> = {
   broken: BROKEN,
 }
 
+/** How dark a node's lens goes as its lane ages out. Never all the way to ice. */
+const LENS_FADE = 0.45
+
 /** How far a raised hand stands off its node. Tall enough to clear the label. */
 const HAND_LIFT = 15
 
@@ -78,15 +91,23 @@ export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const done = lane.activity === 'done'
   const plain = thread.pathology === null && lane.rank === 'calm'
 
+  // A plain lane's lens is its activity's hue, dimmed toward ice as the lane
+  // ages — recency in the same channel the thread reads it in, so a fresh green
+  // node and a stale one are the same colour at two temperatures rather than two
+  // colours. Never mixed all the way to ice: a lane that worked an hour ago
+  // still worked.
+  const tint = mix(ICE_600, hue, LENS_FADE + (1 - LENS_FADE) * freshness)
+
   // The lens. Hollow for a frozen lane and for a finished one — an outline is
   // "no longer filling with work", which is true of a corpse and of a landed
-  // lane alike; what tells them apart is everything else about them.
+  // lane alike; what tells them apart is everything else about them, starting
+  // with the hue: dead is red, landed is the working green gone quiet.
   const body: Ink = frozen
     ? ink(hue, 0.95)
     : done
-      ? ink(mix(NECROTIC, ICE_200, 0.45), 0.75)
+      ? ink(hue, 0.85)
       : plain
-        ? ink(mix(ICE_700, ICE_200, 0.35 + 0.65 * freshness), 0.55 + 0.4 * freshness)
+        ? ink(tint, 0.6 + 0.35 * freshness)
         : ink(hue, 0.92)
 
   marks.push({
@@ -118,7 +139,7 @@ export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
     },
     size: 9,
     rotate: angle,
-    ink: budget(frame, laneId, alarm, ink(plain ? mix(ICE_700, ICE_200, freshness) : hue, plain ? 0.6 : 0.9)),
+    ink: budget(frame, laneId, alarm, ink(plain ? tint : hue, plain ? 0.75 : 0.9)),
   })
 
   marks.push(...stateMarks(frame, thread, hue, angle, length))
@@ -172,6 +193,10 @@ function stateMarks(
     case 'off-fence':
       // A barb on the lane's own node: this one has a hook out. The reach and
       // the breached fence are drawn at the other end, by `rogueMarks`.
+      //
+      // Incandescent, so an off-fence lane clears `ALARM_FLOOR` the way the knot
+      // and the raised hand do — this barb is the only mark the offender itself
+      // wears, and every needs-you lane owes the band one mark inside it.
       return [
         {
           kind: 'path',
@@ -182,7 +207,7 @@ function stateMarks(
           at: thread.node,
           size: 13,
           rotate: angle - Math.PI / 2,
-          ink: ink(hue, 0.95),
+          ink: ink(incandescent(hue), 0.98),
         },
       ]
 
@@ -269,7 +294,10 @@ function handMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark[] 
       alarm: true,
       points: [wrist, { x: at.x, y: at.y - 5 - lift }],
       width: 3,
-      ink: ink(hue, 0.98),
+      // The arm is lifted a little off full saturation so it stays clear of the
+      // calm ceiling the fleet around it now reaches; the palm above it is what
+      // goes all the way to `ALARM_FLOOR`.
+      ink: ink(hotter(hue, 0.2), 0.98),
     },
     {
       kind: 'path',
@@ -293,12 +321,19 @@ function handMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark[] 
       at: palm,
       size: 7.6,
       rotate: 0,
-      ink: ink(hue, 1),
+      // The palm is the summons: the one mark of a waiting lane that reaches the
+      // band above the calm ceiling (`ALARM_FLOOR`).
+      ink: ink(incandescent(hue), 1),
     },
   ]
 }
 
-/** DONE — sealed. A bar across the tip: finished, and not a fault. */
+/**
+ * DONE — sealed. A bar across the tip: finished, and not a fault. It wears the
+ * done green rather than a neutral, so "landed" is one reading of one hue
+ * (hollow lens + seal + dim green) instead of a grey mark a viewer has to be
+ * told about.
+ */
 function sealMark(
   frame: SceneFrame,
   thread: ThreadGeometry,
@@ -317,7 +352,7 @@ function sealMark(
     laneId: thread.laneId,
     alarm: false,
     width: 1.3,
-    ink: budget(frame, thread.laneId, false, ink(mix(NECROTIC, ICE_200, 0.5), 0.7)),
+    ink: budget(frame, thread.laneId, false, ink(ACTIVITY_HUE.done, 0.9)),
     points: [
       { x: base.x - across.x * 4, y: base.y - across.y * 4 },
       { x: base.x + across.x * 4, y: base.y + across.y * 4 },
@@ -401,7 +436,11 @@ export function labelMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       frame,
       laneId,
       thread.alarm,
-      ink(flagged ? hue : mix(ICE_700, ICE_200, 1 - thread.ageFrac), flagged ? 0.98 : 0.7),
+      // A name is not a state, so an unflagged lane's name stays ice — the hue
+      // belongs to the node beside it. What changed in prd4 is only how bright:
+      // the old ramp bottomed out at `ICE_700`, where a stale lane's name was
+      // effectively unreadable against the void.
+      ink(flagged ? hue : mix(ICE_500, ICE_100, 1 - thread.ageFrac), flagged ? 0.98 : 0.85),
     ),
   })
 
@@ -416,17 +455,29 @@ export function labelMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
     size: 10,
     weight: 400,
     align,
-    ink: budget(frame, laneId, false, ink(ICE_400, 0.75)),
+    ink: budget(frame, laneId, false, ink(ICE_300, 0.85)),
   })
 
   return marks
 }
 
-/** A lane's hue: its fault when it has one, else its rung. Never its identity. */
+/**
+ * A lane's hue: its fault when it has one, else what it is *doing*. Never its
+ * identity — no lane gets a colour for being itself (law 9a).
+ *
+ * The activity branch is prd4's amendment. A pathology-free lane used to be
+ * `ICE_200` whatever it was up to, which is what made a busy fleet and a dead
+ * one look alike at a glance. `ACTIVITY_HUE` in `palette.ts` is the only place
+ * that mapping lives, so `marks/` still names no colour of its own.
+ *
+ * `RANK_HUE` survives for the case the activity map cannot speak to: a lane
+ * ranked above calm with no pathology attached to say why.
+ */
 function hueOf(thread: ThreadGeometry): Rgb {
-  return thread.pathology === null
-    ? RANK_HUE[thread.lane.rank]
-    : PATHOLOGY_HUE[thread.pathology]
+  if (thread.pathology !== null) return PATHOLOGY_HUE[thread.pathology]
+  return thread.lane.rank === 'calm'
+    ? ACTIVITY_HUE[thread.lane.activity]
+    : RANK_HUE[thread.lane.rank]
 }
 
 /** The palm of the raised hand: a filled disc, in the same unit space. */

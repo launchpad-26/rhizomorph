@@ -18,12 +18,20 @@ import { clamp01, fade, luminance, type Ink } from './palette.js'
  *    salience dimming both skip a needs-you/broken mark. Without this, FROZEN —
  *    the one state *defined* by being old — would be the dimmest thing on the
  *    page, and a second summons would be muted by the first.
- * 3. **The top of the luminance range is reserved for the ladder** (graft g6).
- *    Every non-alarm mark is capped at {@link CALM_CEILING}, which sits below
- *    the dimmest alarm ink. So a white-hot EXPENSIVE thread — lawful luminance,
- *    not a fifth hue — structurally cannot out-read a summons, and neither can a
- *    bright pulse, nor the root-mass core. The staged fixture asserts the
- *    comparison; the cap is what makes the assertion hold by construction.
+ * 3. **The top of the luminance range is reserved for the alarms** (graft g6,
+ *    law 9b). Every non-alarm mark is capped at {@link CALM_CEILING} and every
+ *    needs-you lane's brightest mark reaches {@link ALARM_FLOOR} above it. Since
+ *    prd4 dropped hue exclusivity, this band *is* the salience mechanism: a
+ *    green fleet and an amber summons no longer differ by "colour vs no colour",
+ *    they differ by which side of the band they are on. So a white-hot EXPENSIVE
+ *    thread — lawful luminance, not a hue — structurally cannot out-read a
+ *    summons, and neither can a bright pulse, nor the root-mass core.
+ *
+ * The four numbers below are the whole budget, and all four are pinned by tests
+ * against real fixtures rather than left as tuning knobs. That is deliberate:
+ * prd4's opening complaint was that the scene had drifted dark and pale, and a
+ * brightness you can only re-find by looking at it is a brightness that drifts
+ * again.
  */
 
 /** What everything the spotlight is not on drops to. */
@@ -31,10 +39,39 @@ export const RECEDE = 0.3
 
 /**
  * The ceiling every non-alarm mark is held under, in {@link luminance} units.
- * Chosen just below the amber summons at full strength (~0.80), so the gap is
- * real but the calm world still reaches most of the range it has.
+ * Raised from prd3's 0.70 by ruling 3: the calm world now carries hue as well as
+ * lightness, and the old ceiling left a working fleet visibly murky. It still
+ * sits below {@link ALARM_FLOOR}, which is the only thing it has to do.
  */
-export const CALM_CEILING = 0.7
+export const CALM_CEILING = 0.78
+
+/**
+ * The floor every needs-you lane's *brightest* mark must reach — the bottom of
+ * the band the alarms own. `marks.test.ts` walks the staged fixture and holds
+ * each amber lane to it, so "the summons is the brightest thing on the page"
+ * survives any future retune of the calm world underneath it.
+ *
+ * BROKEN IS EXEMPT, and on purpose. `#ff3d68` is a dark hue — pushing it to 0.84
+ * means mixing it two-thirds of the way to white, at which point it is pink and
+ * has stopped meaning "dead". A frozen lane instead buys its supremacy the three
+ * other ways the grammar allows: it takes the **spotlight** (it is the worst
+ * rung, so every other lane recedes to {@link RECEDE} around it), it is the only
+ * thing on screen wearing a **cartouche**, and it is **exempt from every fade**
+ * while the calm world it sits in is not. `marks.test.ts` pins that as
+ * dominance-under-recession rather than as a brightness.
+ */
+export const ALARM_FLOOR = 0.84
+
+/**
+ * The floor under a living lane's thread on a calm fleet — the "too dark to
+ * read" regression, pinned so it cannot come back. Nothing enforces this in
+ * code; it is a claim about `activityInk`'s alpha ramp that `marks.test.ts`
+ * checks against the twenty-lane fixture at every freshness it produces.
+ *
+ * A frozen lane's thread is deliberately *below* it: absence of light is that
+ * lane's encoding, which is why the pin names the calm fixture.
+ */
+export const CALM_FLOOR = 0.15
 
 /** Rungs whose marks are exempt from every fade and own the range above the cap. */
 const ALARM_RANKS: readonly LadderRank[] = ['needs-you', 'broken']

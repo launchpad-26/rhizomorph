@@ -2,12 +2,16 @@ import { pointAt, tangentAt, type Point, type ThreadGeometry } from '../geometry
 import {
   BROKEN,
   ICE_050,
+  ICE_100,
   ICE_200,
+  ICE_500,
   ICE_700,
   NECROTIC,
   NEEDS_YOU,
+  activityInk,
   clamp01,
   hotter,
+  incandescent,
   ink,
   mix,
   type Ink,
@@ -19,17 +23,18 @@ import type { Mark } from './types.js'
 /**
  * THE THREADS — a lane as a hypha, root-mass rim to node.
  *
- * The resting picture is deliberately quiet: cold blue-white linework on
- * near-black-blue, no saturation anywhere. Only two things are allowed to break
- * that quiet, and between them they are the whole of the glance test —
- * **light**, which is always an event in flight, and the **ladder hues**, which
- * only ever appear on a fault.
+ * The resting picture is quiet but no longer colourless. Under prd4's law 9a a
+ * living thread wears its lane's own family — green while the lane is working,
+ * a muted amber while it is stopped, dim green once it has landed, ice when
+ * there is nothing to say — so a layman can read the scene as a status board
+ * before learning a single glyph. What the calm world still may not do is reach
+ * the band above `CALM_CEILING`: that belongs to the alarms (law 9b).
  *
- * Two constraints pull against each other in a thread's brightness, and the
- * numbers below are where they meet. The floor: ruling 22 says render
- * everything, and a thread too faint to trace back to the mass is hinted at
- * rather than rendered. The ceiling: light in flight has to out-read the thread
- * it travels on, or the flow disappears into its own substrate.
+ * Three constraints pull against each other in a thread's brightness, and
+ * `activityInk` is where they meet. The floor: ruling 22 says render everything,
+ * and prd4 adds that a rendered thread must be genuinely legible — `CALM_FLOOR`.
+ * The ceiling: light in flight has to out-read the thread it travels on, and a
+ * summons has to out-read all of it.
  */
 
 /** Under this much heat a thread is at its resting brightness. */
@@ -77,30 +82,31 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
 }
 
 /**
- * A thread's resting ink. Freshness — the same fact the node's distance from the
- * mass carries — is read a second time here as lightness, because two channels
- * saying the same thing is what makes recency legible without a legend.
+ * A thread's resting ink — its lane's activity, as a colour (law 9a). The whole
+ * decision is `activityInk`'s; this function only picks which of the three
+ * threads a lane can be is being drawn.
  */
 function threadInk(frame: SceneFrame, thread: ThreadGeometry): Ink {
   if (thread.pathology === 'frozen') {
     // Gone dark. Still drawn (ruling 22) but barely lit: absence of light *is*
     // the encoding, so this is not a fade the alarm exemption should undo — the
-    // magenta-red cut strokes on top of it are what stays at full strength.
+    // magenta-red cut strokes on top of it are what stays at full strength. It
+    // is also the one thread allowed under `CALM_FLOOR`, for the same reason.
     return ink(mix(NECROTIC, ICE_700, 0.4), 0.5)
   }
 
   const freshness = 1 - thread.ageFrac
-  const resting = mix(ICE_700, ICE_200, freshness)
   const heat = clamp01(frame.field.energyOf(thread.laneId).heat / HEAT_FULL)
 
   if (thread.pathology === 'expensive') {
-    // White-hot: luminance at its ceiling, not a fifth hue (ruling 29). The
-    // contrast budget then holds it under a summons (graft g6).
-    return ink(hotter(resting, 0.95), 1)
+    // White-hot: luminance at its ceiling, not a hue (ruling 29). Burning
+    // through money is a *quantity*, so it is told in the channel quantities are
+    // told in, and the lane's cyan NOTICE stays with the chevrons at the tip.
+    // The contrast budget then holds all of it under a summons (graft g6).
+    return ink(hotter(mix(ICE_500, ICE_100, freshness), 0.95), 1)
   }
 
-  const alpha = 0.22 + 0.32 * freshness + 0.16 * heat
-  return ink(resting, thread.lane.activity === 'done' ? alpha * 0.78 : alpha)
+  return activityInk(thread.lane.activity, freshness, heat)
 }
 
 /**
@@ -265,7 +271,11 @@ export function knotMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
 
   const { centre, radius, tangent } = knot
   const width = Math.max(1.2, thread.widthRoot * 0.7)
-  const amber = ink(NEEDS_YOU, 0.82)
+  // The ring is the summons, so it is the incandescent end of the amber family
+  // and clears `ALARM_FLOOR`; the tails behind it stay at full saturation, which
+  // is what makes the ring read as the lit part of one object rather than as a
+  // paler second one.
+  const amber = ink(incandescent(NEEDS_YOU), 0.98)
 
   // Knot-local space: +x runs along the thread, so the tails trail behind it.
   const at = (along: number, across: number): Point => ({

@@ -1,19 +1,28 @@
 /*
- * THE ICE-NEON REGISTER — prd3 ruling 29, and the single token source for the
+ * THE ICE-NEON REGISTER — prd4 ruling 3, and the single token source for the
  * whole instrument. Every colour, type family and glow in the app comes from
  * here; a component that wants a colour asks for a token, never a hex.
  *
- * Two ideas hold the whole palette up:
+ * Three ideas hold the whole palette up:
  *
- * 1. **Status owns hue** (law 9). The alarm ladder gets four exclusive hues and
- *    nothing else on the page is allowed to want one. Identity — which lane,
- *    which role, which generation, which panel — differentiates by lightness,
- *    shape, position and label.
- * 2. **Neon is luminance, not saturation** (ruling 29, proven by spike B). The
- *    calm world therefore lives entirely in the ICE ramp: one cold blue-white
- *    hue at twelve luminances, from near-black-blue to a near-white that glows
- *    against the void without ever owning a colour. That is why CALM can be
- *    "neutral" by law and still read as neon.
+ * 1. **Hue is meaning, and each hue means one thing** (law 9a, which replaces
+ *    prd3's law 9). Green = productive. Amber = blocked on a human. Red = dead,
+ *    and red *only* ever means dead. Cyan = notice/anomaly. Ice = structure and
+ *    nothing-to-say. Identity — which lane, which role, which generation, which
+ *    panel — still differentiates by lightness, shape, position and label, and
+ *    never by reaching for a hue of its own.
+ * 2. **The brightness band and the alarm grammar own attention, not hue
+ *    exclusivity** (law 9b). Ruling 29 used to buy salience by forbidding the
+ *    calm world any colour at all, which made a working fleet read as a wall of
+ *    grey. It is bought here instead by a *band*: full-strength rung colour and
+ *    the alarm treatments — glow, cartouche, fade exemption, and the luminance
+ *    above `CALM_CEILING` — appear only on alarm marks. A calm mark may wear its
+ *    family's hue, below the ceiling. So the ladder and the activity states are
+ *    one semantic scale: needs-you is the incandescent end of the amber family
+ *    and benign waiting its muted end, severity told by brightness and grammar.
+ * 3. **Neon is luminance, not saturation** (ruling 29's surviving half). The ice
+ *    ramp is one cold blue-white hue at twelve luminances, and "white-hot" is
+ *    always its ceiling rather than a new colour.
  *
  * Spike C's bone-grey is deliberately out: law-pure, but it is not the
  * Observatory (ruling 29).
@@ -40,30 +49,57 @@
   --color-ice-100: #d6e2f2; /* emphasis: the headline number */
   --color-ice-050: #f0f5fc; /* white-hot: peak luminance, never a hue */
 
-  /* ── the alarm ladder: four hues, exclusive (law 9, ruling 8) ───────────
-   * These four names are the ONLY status colours in the instrument. Using one
-   * of them for anything that is not a rung of the ladder is the single
-   * colour-law violation the design cannot absorb: it makes the amber that
-   * means "needs you" indistinguishable from an amber that means "the second
-   * series on a chart".
+  /* ── the semantic map: six status hues, each meaning one thing (law 9a) ──
+   * These six names are the ONLY status colours in the instrument, and each
+   * owns exactly one meaning. Using one of them for anything that is not that
+   * meaning is the single colour-law violation the design cannot absorb: it
+   * makes the amber that means "needs you" indistinguishable from an amber
+   * that means "the second series on a chart", and the red that means "dead"
+   * indistinguishable from a red that means "hot".
    *
-   * Colour is never the sole carrier either — every rung also has a glyph
-   * (`fleet/sigils.tsx`) and a word, so the ladder survives greyscale,
+   * They are two *families* plus two singletons, and the family is the point:
+   * an activity state and the alarm above it share a hue and differ in
+   * brightness, so a reader who has learned "green = getting on with it" also
+   * knows that dim green is "got on with it and finished".
+   *
+   * Colour is never the sole carrier either — every state also has a glyph
+   * (`fleet/sigils.tsx`) and a word, so the whole scale survives greyscale,
    * colour-blindness and a photographed screen.
    */
 
-  /* CALM — neutral by law. Neon by luminance: the ice ramp's bright end. */
+  /* CALM — the ice ramp's bright end. Structure, not status. */
   --color-calm: #b3c6de;
+
+  /* The green family: productive. */
+  /* WORKING — the lane is getting on with it. */
+  --color-working: #40d98c;
+  /* DONE — the same green, dimmer: it got on with it, and stopped. Hollow
+   * marks and the node's seal carry live-vs-sealed; the hue carries family. */
+  --color-done: #2e9d74;
+
+  /* The amber family: blocked on a human. */
+  /* WAITING-BENIGN — stopped, and nobody has been summoned. The muted end. */
+  --color-waiting-benign: #d9a441;
+  /* NEEDS-YOU — the incandescent end. A human has to act: looping, waiting
+   * past the threshold, off-fence. Only ever worn by an alarm mark. */
+  --color-needs-you: #ffc857;
+
+  /* BROKEN — magenta-red. The lane is dead air, or a collector is down. Red
+   * means broken and means nothing else, anywhere in the instrument. */
+  --color-broken: #ff3d68;
   /* NOTICE — saturated cyan. Something changed; nobody is needed yet. */
   --color-notice: #4deaff;
-  /* NEEDS-YOU — amber. A human has to act: looping, waiting, off-fence. */
-  --color-needs-you: #ffc857;
-  /* BROKEN — magenta-red. The lane is dead air, or a collector is down. */
-  --color-broken: #ff3d68;
+
+  /* IDLE and UNKNOWN deliberately have no token of their own: they are
+   * `--color-ice-400` and `--color-ice-600`. "Nothing to say" is structure, so
+   * it wears the structural ramp — and the gap-honesty rule keeps working on
+   * brightness alone, because a lane the log has never mentioned must not be
+   * able to borrow the confidence a hue would give it. Same for the root-mass
+   * and the conductor: they are what the fleet hangs on, not a state of it. */
 
   /* Dead tissue: a frozen lane's *thread* greys out while its mark keeps the
    * broken hue. The corpse is grey; the alarm is red (graft from spike B).
-   * Not a fifth ladder hue — it is a luminance, and it carries no status on
+   * Not a seventh status hue — it is a luminance, and it carries no status on
    * its own. */
   --color-necrotic: #4a5266;
 
@@ -93,8 +129,8 @@
    * deprecated, until the files that depend on it are replaced by their own
    * issues" rule architecture.md records for core's placeholder export.
    *
-   * Three of them map onto ladder hues, so those surfaces are *temporarily*
-   * in breach of law 9; #77–#83 retire each caller and then these lines go.
+   * Three of them map onto status hues, so those surfaces are *temporarily*
+   * in breach of law 9a; #77–#83 retire each caller and then these lines go.
    */
   --color-void: var(--color-ice-1000);
   --color-void-raised: var(--color-ice-950);
@@ -107,6 +143,12 @@
 /* ── glow: how a state reads as lit rather than filled ─────────────────────
  * A glow is a *state* treatment (law 10: states glow, events move), so these
  * are static box-shadows with no animation of their own.
+ *
+ * There is deliberately no `glow-working` or `glow-done`. Glow is part of the
+ * alarm grammar (law 9b) — along with the cartouche, the fade exemption and the
+ * band above the calm ceiling — and the grammar is what buys a summons its
+ * attention now that hue exclusivity no longer does. A green lane wears its
+ * family's hue and nothing else; only an alarm is lit.
  */
 
 @utility glow-notice {

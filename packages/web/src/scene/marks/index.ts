@@ -1,4 +1,4 @@
-import { ICE_400, ICE_1000, ink } from '../palette.js'
+import { ICE_300, ICE_1000, ink } from '../palette.js'
 import { lightMarks } from './light.js'
 import { labelMarks, nodeMarks } from './node.js'
 import { rootMarks } from './root.js'
@@ -77,6 +77,9 @@ function chromeMarks(frame: SceneFrame): Mark[] {
     size: 9,
     weight: 500,
     align: 'left' as const,
-    ink: ink(ICE_400, 0.75),
+    // Body-copy brightness, not footnote brightness: the gap voice is the scene
+    // telling the truth about itself, and a caveat nobody can read is a caveat
+    // that was not made (law 12).
+    ink: ink(ICE_300, 0.85),
   }))
 }

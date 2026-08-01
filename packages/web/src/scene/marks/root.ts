@@ -1,5 +1,5 @@
 import type { Point } from '../geometry.js'
-import { ICE_050, ICE_200, ICE_400, clamp01, hotter, ink } from '../palette.js'
+import { ICE_050, ICE_200, ICE_300, clamp01, hotter, ink } from '../palette.js'
 import { budget, type SceneFrame } from './frame.js'
 import type { Mark } from './types.js'
 
@@ -25,8 +25,17 @@ const CURLS = 54
 /** Conductor output tokens that read as a fully warm root. */
 const CONDUCTOR_FULL_TOKENS = 400_000
 
-/** The floor: enough to see the mass, little enough to read as un-lit. */
-const RESTING_FLOOR = 0.2
+/**
+ * The floor: enough to see the mass, little enough to read as un-lit.
+ *
+ * Raised from prd3's 0.2 by ruling 3. The old floor was tuned against a scene
+ * where every thread around it was also dim; with the fleet now carrying its own
+ * colour, a mass at 0.2 stopped reading as the thing the threads are threaded
+ * *into* and started reading as a smudge behind them. It still has to sit far
+ * enough below a warm conductor for gap honesty to survive on brightness alone,
+ * which is what the root-mass test compares.
+ */
+const RESTING_FLOOR = 0.35
 
 export function rootMarks(frame: SceneFrame): Mark[] {
   const { geometry, field, fleet } = frame
@@ -50,7 +59,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
     alarm: false,
     at: centre,
     radius: radius * 4.2,
-    ink: budget(frame, null, false, ink(hotter(ICE_200, 0.35), 0.3 * intensity)),
+    ink: budget(frame, null, false, ink(hotter(ICE_200, 0.35), 0.45 * intensity)),
   })
 
   // The tangle. Golden-angle placement, deterministic by index — the mass looks
@@ -83,7 +92,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
         frame,
         null,
         false,
-        ink(hotter(ICE_200, 0.2 + 0.5 * surge), 0.1 + 0.4 * (1 - spiral) + 0.3 * surge),
+        ink(hotter(ICE_200, 0.2 + 0.5 * surge), 0.16 + 0.5 * (1 - spiral) + 0.3 * surge),
       ),
     })
   }
@@ -99,7 +108,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
     alarm: false,
     at: centre,
     radius: radius * (0.5 + 0.35 * surge),
-    ink: budget(frame, null, false, ink(ICE_050, 0.26 + 0.34 * intensity)),
+    ink: budget(frame, null, false, ink(ICE_050, 0.34 + 0.42 * intensity)),
   })
 
   // The arrival ring, only while a real surge is decaying.
@@ -130,7 +139,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
     size: 10,
     weight: 600,
     align: 'centre',
-    ink: budget(frame, null, false, ink(ICE_400, 0.85)),
+    ink: budget(frame, null, false, ink(ICE_300, 0.85)),
   })
 
   return marks
