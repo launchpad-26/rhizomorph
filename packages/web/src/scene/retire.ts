@@ -34,6 +34,14 @@ import { springStep } from './spring.js'
  * stages that each change one thing read as "let go — sprang back — went cold",
  * which is a sentence.
  *
+ * prd6 ruling 2 hangs two more things off the **retract**, and deliberately off
+ * that stage rather than off a new one: the lane's substance travelling home down
+ * the severing thread ({@link RetireGeometry.homeward}) and the root-mass
+ * thickening as it arrives (`marks/root.ts`). Both are position facts, both are
+ * over when the cord is, and both read {@link homecoming} rather than a clock of
+ * their own — so the concurrency cap and the queue below already govern them and
+ * no new motion grammar was invented to carry them.
+ *
  * Four laws, and all four are enforced here rather than trusted:
  *
  * 1. **It never fades to nothing.** {@link SCAR_FLOOR} is the floor under every
@@ -246,6 +254,19 @@ function retractAt(sinceMs: number): number {
     springStep({ x: 1, v: 0 }, 0, STRUCTURAL.stiffness, at).x
   const span = 1 - remaining(CUT.retractMs)
   return span <= 0 ? 1 : clamp01((1 - remaining(sinceMs)) / span)
+}
+
+/**
+ * How much of this lane's work has made it home, 0–1 (prd6 ruling 2).
+ *
+ * It is the retract, and naming it is the point: the substance arrives exactly as
+ * the cord parts, so the mass thickens *because* the thread let go rather than on
+ * a timer of its own. A scar that was never watched leaving — history, a replay, a
+ * reduced-motion frame — reads 1 from its first frame, which is the honest answer:
+ * the work did land, we simply were not there for the journey.
+ */
+export function homecoming(state: RetireState): number {
+  return clamp01(state.retract)
 }
 
 /** An ink `t` of the way from where it lives to where it ends up. */

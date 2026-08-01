@@ -9,12 +9,18 @@ import { isAlarmRank } from './salience.js'
  * Four facts carry meaning in the layout, and each one is a recorded fact rather
  * than a decoration:
  *
- * - **distance from the root-mass = recency.** A lane that just spoke is pulled
- *   in tight against the mass; as it falls silent its node drifts out and its
- *   thread stretches. A finished fleet and a working fleet therefore look
- *   categorically different with no text read at all.
- * - **thread width = work size.** Output tokens, log-scaled against the fleet's
- *   own busiest lane, tapering root→tip like a real hypha.
+ * - **distance from the root-mass = how far through its life the lane is**
+ *   (prd6 ruling 4). Born against the mass, travelling outward as it works,
+ *   retiring at the rim — where the cord-cut already happens, so the two now
+ *   tell one story. See {@link lifecycleFrac}. This REPLACES prd3 graft g6's
+ *   distance-as-recency, which needed explaining and therefore failed the layman
+ *   bar; recency keeps the channel it already shared, **thread lightness**
+ *   (`thread.ts`'s `freshness`, off {@link ThreadGeometry.ageFrac}), so no fact
+ *   was dropped when the radius changed hands.
+ * - **thread width = work size, on an absolute scale** (prd6 ruling 1). Output
+ *   tokens log-scaled against a *fixed* reference — never against the fleet's own
+ *   busiest lane — so a lane's size is a fact about the lane. See
+ *   {@link seedSize}. Tapering root→tip like a real hypha.
  * - **angular position = identity, and it is stable for the session** (graft
  *   g7). The angle comes from {@link Lane.slot} — assigned by first sighting in
  *   the derived model and never reshuffled by rank — so "72 lives at four
@@ -24,12 +30,17 @@ import { isAlarmRank } from './salience.js'
  *   discovered while we are watching grows out of the mass over
  *   {@link SETTLE_MS} rather than appearing at full length.
  *
- * The one honest caveat: the ring is subdivided by how many lanes there are, so
- * a *new dispatch* re-spaces everyone. That is a different fact from the one g7
+ * The one honest caveat: the ring is subdivided by how many *seats* there are, so
+ * a new dispatch re-spaces everyone. That is a different fact from the one g7
  * protects against — a lane must not move because its mood changed — and even
  * spacing is what keeps twenty labels legible (ruling 31's collision trigger).
  * `geometry.test.ts` pins both halves: same lanes → same angles in any event
  * order, and a lane's angle is untouched by its rank, age or size.
+ *
+ * A *returning* lane is the exception that proves it (prd6 ruling 3): a
+ * re-dispatched handle grows out of the seed it left behind, sharing that seat
+ * rather than claiming a new one — so the ring is not re-spaced at all, and the
+ * scene remembers where a lane worked. See {@link germination}.
  */
 
 export interface Point {
@@ -86,6 +97,20 @@ export interface RetireGeometry extends RetireState {
   widthRoot: number
   widthTip: number
   /**
+   * THE WAY HOME (prd6 ruling 2). The stretch of the lane's own thread that is
+   * currently travelling down it into the root-mass — real mycelium reabsorbs a
+   * spent hypha and translocates its substance back through the network, which is
+   * what a merge is. Null whenever nothing is in transit: before the retract
+   * begins, after it has arrived, and for every scar that was never watched
+   * leaving (history, replay, reduced motion) — a journey nobody saw start is a
+   * journey that did not happen on this screen.
+   *
+   * It runs the **full** path rather than the remnant, for the same reason the
+   * light already in flight does: the whole thread is still true while the mark
+   * being drawn is only what is left of it.
+   */
+  homeward: Point[] | null
+  /**
    * The operator's hide-finished toggle applies to this lane, so it draws
    * nothing at all. Only ever true of a *settled* scar — a cut in progress is
    * news and is always shown, because the one thing worse than a scar you did
@@ -110,10 +135,31 @@ export interface ThreadGeometry {
   outward: Point
   widthRoot: number
   widthTip: number
-  /** 0–1, log-scaled output tokens against the fleet's busiest lane. */
+  /**
+   * 0–1 work size on the absolute scale (prd6 ruling 1) — {@link seedSize} of
+   * this lane's output, floored at {@link SEED_FLOOR} and capped at
+   * {@link SEED_CEILING}. Never a comparison with another lane.
+   */
   sizeFrac: number
-  /** 0–1, where 0 = spoke just now and 1 = silent for {@link RECENCY_SPAN_MS}. */
+  /**
+   * 0–1, where 0 = spoke just now and 1 = silent for {@link RECENCY_SPAN_MS}.
+   *
+   * Recency, and **only** the lightness channel reads it now: prd6 ruling 4 took
+   * the radius off it and gave the radius to the lifecycle. See
+   * {@link lifeFrac}.
+   */
   ageFrac: number
+  /**
+   * 0–1 how far through its life this lane is — what {@link node}'s distance from
+   * the root-mass draws (prd6 ruling 4). 1 for a lane that has come home.
+   */
+  lifeFrac: number
+  /**
+   * The retired lane whose seed this thread grew out of (prd6 ruling 3), or null
+   * for a lane that started life somewhere new. A germinated lane shares its
+   * seed's angle and inherits its size as a floor.
+   */
+  germinatedFrom: string | null
   /** 0–1 grow-in progress. 1 for every lane that was already there (graft g3). */
   growth: number
   filaments: FilamentGeometry[]
@@ -146,8 +192,114 @@ export interface SceneGeometry {
   labelPolicy: 'all' | 'hover'
 }
 
-/** Silent this long and a lane has drifted all the way out to the rim. */
+/** Silent this long and a lane's thread has gone as pale as it gets. */
 export const RECENCY_SPAN_MS = 10 * 60_000
+
+/**
+ * ABSOLUTE SEED SIZE (prd6 ruling 1) — how much output reads as a full-grown seed.
+ *
+ * The scale is **fixed**, which is the whole ruling. The old reading divided by
+ * the fleet's own busiest lane, so a 20K lane visibly *shrank* the moment a 500K
+ * whale started working beside it, and growth — the one thing the operator asked
+ * to be able to see — never read at all. Nothing in {@link seedSize} looks at
+ * another lane, so a lane's size is a fact about that lane.
+ *
+ * Two references rather than one, because a bare `log1p(t) / log1p(FULL)` spends
+ * most of its range below a thousand tokens, where no real lane ever sits: 9K and
+ * 120K come out 0.79 and 1.00, which is the same "growth never reads" failure in a
+ * different coordinate system. So the ruler runs between the two ends that exist
+ * in practice — a lane that has only just started producing, and one that has done
+ * a long day's work — and the log does its compressing in between.
+ */
+export const SEED_TOKENS = 1_000
+/** …and full size. A lane past this is drawn at the ceiling, not beyond it. */
+export const SEED_FULL_TOKENS = 100_000
+/**
+ * The floor. A lane that has produced nothing is still a lane, and ruling 22 says
+ * draw it — so a fresh seed is small and unmistakably present rather than absent.
+ */
+export const SEED_FLOOR = 0.08
+/** The ceiling. Ruling 1's "nothing balloons", as a number rather than a hope. */
+export const SEED_CEILING = 1
+
+/**
+ * A lane's seed size, 0–1, from its output tokens alone.
+ *
+ * Monotone, absolute, floored and capped: ten times the reference draws exactly
+ * the same as the reference, and a sibling's growth cannot move it.
+ */
+export function seedSize(outputTokens: number): number {
+  const span = Math.log1p(SEED_FULL_TOKENS) - Math.log1p(SEED_TOKENS)
+  const above = Math.log1p(Math.max(0, outputTokens)) - Math.log1p(SEED_TOKENS)
+  return Math.min(SEED_CEILING, Math.max(SEED_FLOOR, above / span))
+}
+
+/**
+ * THE LIFECYCLE JOURNEY (prd6 ruling 4) — what distance from the mass means.
+ *
+ * "How far through its life is this?" needs no legend, which is exactly what
+ * distance-as-recency needed. Born against the mass, travelling outward as it
+ * works, coming to rest at the rim.
+ *
+ * The signal is built from what the fleet object already records, and every term
+ * in it had to be **monotone** — a radius that could go backwards would be a lane
+ * un-living part of its life, which is not a thing that happens:
+ *
+ * - **work done** ({@link seedSize} of the lane's output, {@link WORK_SHARE} of
+ *   the blend) — the dominant term, because a lane's life is measured in what it
+ *   produced rather than in how long it sat there. It is the same measurement the
+ *   seed's own size is drawn from, so the two channels cannot disagree.
+ * - **age since first sighting** (`now - lane.firstSeenAt` over
+ *   {@link LIFE_SPAN_MS}, the rest of the blend) — a lane that has been alive a
+ *   long time is further through its life even if it has little to show, and this
+ *   is the term that keeps the journey moving between snapshots.
+ * - **activity**, through exactly one door: the terminal pin. `done` and `parked`
+ *   are what `retire.ts` reads to cut a cord, so a lane comes to rest at the rim
+ *   *as its cord parts* rather than jumping there — the pin rides the cut's own
+ *   critically-damped spring, which is the structural class and the cap and the
+ *   queue already paid for. The other activity states say what a lane is doing
+ *   *now*, which is recency's fact and not a lifecycle fact; a lane can leave
+ *   `waiting`, and a term it could leave would not be monotone.
+ *
+ * The pin reads {@link RetireState.drift} rather than the retract, which is the
+ * one place the two differ: **drift is zero when the mode forbids travel**. So
+ * reduced motion keeps its existing law — the cord is severed in place and nothing
+ * crosses the picture — without this file having to know the preference exists.
+ *
+ * A lane whose cut is still queued behind the structural cap has no pin yet, and
+ * that is correct: it is still drawn as the living thread it visibly is.
+ */
+export const LIFE_SPAN_MS = 60 * 60_000
+/** How much of the journey is work rather than wall-clock. Work leads. */
+const WORK_SHARE = 0.65
+/**
+ * Where a newborn lane sits, as a fraction of the rim.
+ *
+ * Clear of the root-mass on every panel the layout produces (the mass is 11% of
+ * the smaller side; the shorter half-axis is never less than 46px) and clear of
+ * the bundle trunk at 0.32, so a brand-new thread still reads as a thread rather
+ * than as a smudge on the mass.
+ */
+export const RADIAL_BORN = 0.42
+/** …and where it comes to rest. The rim is retirement. */
+export const RADIAL_RIM = 1
+
+/**
+ * How far through its life a lane is, 0–1. `homecoming` is the retract of its
+ * cord-cut — 0 for every lane still in the network.
+ */
+export function lifecycleFrac(
+  sizeFrac: number,
+  sinceFirstSeenMs: number,
+  homecoming: number,
+): number {
+  const worked = clamp01(sizeFrac)
+  const aged = clamp01(Math.max(0, sinceFirstSeenMs) / LIFE_SPAN_MS)
+  const living = clamp01(WORK_SHARE * worked + (1 - WORK_SHARE) * aged)
+  // The pin closes whatever distance is left, over the cut's own retract, so a
+  // landing arrives at the rim instead of teleporting to it.
+  return living + (1 - living) * clamp01(homecoming)
+}
 
 /**
  * How long a newly discovered lane takes to grow in (graft g3). Long enough to
@@ -166,18 +318,26 @@ export const LABELS_ALL_MAX = 28
 /**
  * How much of its own thread a scar keeps, **in px of arc length**.
  *
- * A length rather than a fraction, and that is the whole point: the rim is a wide
+ * A length rather than a fraction, and that half of #102 stands: the rim is a wide
  * ellipse, so a lane at three o'clock has a thread three times as long as one at
  * noon, and keeping a fixed *fraction* of it made a scar's size a fact about the
- * panel's aspect ratio. Nothing means that. A scar is a **mark**, so it is the
- * same size for every lane — like the node glyph beside it, which takes its size
- * from the lane's work and not from where the lane happens to sit.
+ * panel's aspect ratio. Nothing means that.
  *
- * About twice the length of that glyph: enough to still be a tapering ribbon with
- * the lane's work-size in its width, short enough to read as a stub rather than as
- * a thread that happens to be floating.
+ * What prd6 ruling 1 overrules is the other half — "a scar is a mark, so it is the
+ * same size for every lane". The rim is where the session's finished work is on
+ * display, and a rim that shows nine identical stubs is a rim that has thrown away
+ * the only thing it had to say about them. So the mark is sized by the lane's own
+ * work on the same absolute scale everything else is ({@link seedSize}), between a
+ * floor that still reads as a tapering ribbon and a ceiling that still reads as a
+ * stub rather than as a thread left floating.
  */
-export const SCAR_LENGTH_PX = 34
+export const SCAR_LENGTH_MIN_PX = 22
+export const SCAR_LENGTH_MAX_PX = 46
+
+/** The scar length a lane of this work-size keeps, in px of arc. */
+export function scarLengthPx(sizeFrac: number): number {
+  return SCAR_LENGTH_MIN_PX + (SCAR_LENGTH_MAX_PX - SCAR_LENGTH_MIN_PX) * clamp01(sizeFrac)
+}
 
 /**
  * …but never more than this much of a short thread. On a cramped panel a lane's
@@ -186,8 +346,20 @@ export const SCAR_LENGTH_PX = 34
  */
 const SCAR_MAX_FRACTION = 0.4
 
-/** How far a retiring lane's node drifts out toward the rim. */
+/**
+ * How far a retiring lane's *freed tip* relaxes outward, on top of the journey to
+ * the rim the lifecycle pin is already carrying it on. A local bend, not a
+ * translation: it is what makes the released end ease out while the severance
+ * travels the other way.
+ */
 const RETIRE_DRIFT_PX = 9
+
+/**
+ * How long the returning substance is, in px of the thread it is made of
+ * (prd6 ruling 2) — measured in px for the same reason the scar is, so a lane at
+ * three o'clock does not send home three times as much matter as one at noon.
+ */
+const HOMEWARD_LENGTH_PX = 30
 
 /**
  * How far the root end of the thread bows out as the tension leaves it, as a
@@ -262,21 +434,53 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
 
   // Slot order, not attention order: this is the whole of graft g7.
   const lanes = [...fleet.lanes].sort((a, b) => a.slot - b.slot)
-  const angles = ringAngles(lanes.length, rx, ry)
+  const byId = new Map(lanes.map((lane) => [lane.id, lane]))
 
-  const maxOutput = Math.max(1, ...lanes.map((lane) => lane.outputTokens))
+  // Seats, not lanes: a re-dispatched handle shares the seat of the seed it grew
+  // out of, so a returning lane never re-spaces the ring (prd6 ruling 3).
+  const seedOf = germination(lanes, options.retire)
+  const seatKey = (lane: Lane): number => {
+    const seed = seedOf.get(lane.id)
+    return seed === undefined ? lane.slot : (byId.get(seed)?.slot ?? lane.slot)
+  }
+  const seatKeys = [...new Set(lanes.map(seatKey))].sort((a, b) => a - b)
+  const seatOf = new Map(seatKeys.map((key, i) => [key, i]))
+  const angles = ringAngles(seatKeys.length, rx, ry)
+
   const sinceSnapshot = Math.max(0, now - fleet.now)
 
   const threads: ThreadGeometry[] = []
   const byLane = new Map<string, ThreadGeometry>()
 
-  lanes.forEach((lane, index) => {
-    const angle = angles[index] as number
+  lanes.forEach((lane) => {
+    const seat = seatOf.get(seatKey(lane)) as number
+    const angle = angles[seat] as number
     const outward = rimNormal(angle, rx, ry)
+
+    // Absolute, and floored by whatever the seed this lane grew from had already
+    // accomplished: a germinated lane does not start over from nothing, because
+    // the handle that came back is the same worker returning to the same ground.
+    const seed = seedOf.get(lane.id)
+    const seedLane = seed === undefined ? undefined : byId.get(seed)
+    const sizeFrac = Math.max(
+      seedSize(lane.outputTokens),
+      seedLane === undefined ? 0 : seedSize(seedLane.outputTokens),
+    )
+    const widthRoot = 1.2 + 5 * sizeFrac
+    const widthTip = 0.4 + 1.3 * sizeFrac
 
     const ageFrac =
       lane.ageMs === null ? 0.98 : clamp01((lane.ageMs + sinceSnapshot) / RECENCY_SPAN_MS)
-    const radial = 0.62 + 0.38 * easeOut(ageFrac)
+
+    // The cut's first two stages are deformations of the thread rather than
+    // separate marks: the slack bows the root end out, and the drift carries the
+    // last stretch — the part that becomes the scar — outward. Its retract is also
+    // what carries the lane the last of the way to the rim.
+    const cut = options.retire?.get(lane.id) ?? null
+
+    // Distance is the lifecycle, not recency (prd6 ruling 4).
+    const lifeFrac = lifecycleFrac(sizeFrac, now - lane.firstSeenAt, cut?.drift ?? 0)
+    const radial = RADIAL_BORN + (RADIAL_RIM - RADIAL_BORN) * lifeFrac
     const rim: Point = {
       x: centre.x + rx * radial * Math.cos(angle),
       y: centre.y + ry * radial * Math.sin(angle),
@@ -284,7 +488,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
 
     // The bundle: a shared trunk the group leaves the mass through. Without it
     // twenty threads read as a starburst rather than as a network.
-    const bundleAngle = angles[bundleLeader(index, lanes.length)] as number
+    const bundleAngle = angles[bundleLeader(seat, seatKeys.length)] as number
     const bundle: Point = {
       x: centre.x + rx * 0.32 * Math.cos(bundleAngle),
       y: centre.y + ry * 0.32 * Math.sin(bundleAngle),
@@ -318,15 +522,11 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
     const full = sampleCubic(root, bundle, control, rim, THREAD_SAMPLES)
     const grown = growth >= 1 ? full : truncate(full, easeOut(growth))
 
-    // The cut's first two stages are deformations of the thread rather than
-    // separate marks: the slack bows the root end out, and the drift carries the
-    // last fifth of the thread — the part that becomes the scar — toward the rim.
-    const cut = options.retire?.get(lane.id) ?? null
     const slack = Math.min(SLACK_MAX_PX, Math.max(SLACK_MIN_PX, Math.min(rx, ry) * SLACK_FRACTION))
     // Measured on the thread as it *was*, so the resting place of the severance —
     // and the stretch of thread the drift is allowed to bend — do not shift under
     // the deformation they are about to be used to compute.
-    const rest = cut === null ? 1 : scarRest(grown)
+    const rest = cut === null ? 1 : scarRest(grown, scarLengthPx(sizeFrac))
     const path =
       cut === null
         ? grown
@@ -339,10 +539,6 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
             from: rest,
           })
     const node = path[path.length - 1] as Point
-
-    const sizeFrac = clamp01(Math.log1p(lane.outputTokens) / Math.log1p(maxOutput))
-    const widthRoot = 1.2 + 5 * sizeFrac
-    const widthTip = 0.4 + 1.3 * sizeFrac
 
     const pathology =
       PATHOLOGY_PRIORITY.find((kind) => lane.pathologies.some((p) => p.kind === kind)) ?? null
@@ -363,6 +559,8 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
       widthTip,
       sizeFrac,
       ageFrac,
+      lifeFrac,
+      germinatedFrom: seed ?? null,
       growth,
       filaments: layoutFilaments(lane, path, widthTip, perp),
       knot: pathology === 'looping' ? knotAt(path, 0.78, 8 + 5 * sizeFrac) : null,
@@ -405,6 +603,57 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
     byLane,
     labelPolicy: threads.length > LABELS_ALL_MAX ? 'hover' : 'all',
   }
+}
+
+// ── seeds that germinate ────────────────────────────────────────────────────
+
+/**
+ * Living lane id → the retired lane whose seat and size it inherits
+ * (prd6 ruling 3).
+ *
+ * A retired lane keeps its slot, so when a handle comes back the scene has
+ * somewhere to put it: the new thread grows out of the seed already sitting at
+ * that angle instead of a stranger appearing on the other side of the ring and
+ * re-spacing everybody. That is the whole difference between "the scene remembers
+ * where 72 worked" and "the ring reshuffled while you were reading it".
+ *
+ * **Handles, not ids.** A re-dispatch that reuses the branch is already the same
+ * lane to `buildFleet` and needs nothing from this function; the case that needs
+ * it is the one where the identity moved — new worktree, new branch — and the only
+ * thread of continuity left is the handle workmux launched it under.
+ *
+ * Retired means "the registry says this lane's cord has been cut", not
+ * `isRetired`: a lane whose cut is still queued behind the structural cap is
+ * visibly a living thread and is not a seed anybody can grow out of yet. (Reading
+ * the map also keeps this file's dependency on `retire.ts` type-only.)
+ *
+ * At most one sprout per seed, earliest slot first, so two returning lanes cannot
+ * both claim the same ground.
+ */
+function germination(
+  lanes: readonly Lane[],
+  retire: ReadonlyMap<string, RetireState> | undefined,
+): Map<string, string> {
+  const grown = new Map<string, string>()
+  if (retire === undefined || retire.size === 0) return grown
+
+  const seeds = lanes.filter((lane) => retire.has(lane.id))
+  if (seeds.length === 0) return grown
+
+  const taken = new Set<string>()
+  for (const lane of lanes) {
+    if (retire.has(lane.id)) continue
+    const seed = seeds.find(
+      (candidate) =>
+        candidate.id !== lane.id &&
+        !taken.has(candidate.id) &&
+        candidate.handles.some((handle) => lane.handles.includes(handle)),
+    )
+    if (seed === undefined) continue
+    taken.add(seed.id)
+    grown.set(lane.id, seed.id)
+  }
+  return grown
 }
 
 // ── the ring ────────────────────────────────────────────────────────────────
@@ -583,15 +832,15 @@ function driftWeight(t: number, from: number): number {
 }
 
 /**
- * The path parameter {@link SCAR_LENGTH_PX} of arc length back from the node —
- * where the freed end comes to rest.
+ * The path parameter `lengthPx` of arc length back from the node — where the freed
+ * end comes to rest.
  *
  * Walked from the tip backwards over the sampled polyline, which is exact enough:
  * the thread is 44 samples of a cubic, so a segment is a couple of pixels long and
  * the linear interpolation inside the segment the walk stops in is the same
  * approximation the ribbon is drawn with anyway.
  */
-function scarRest(path: readonly Point[]): number {
+function scarRest(path: readonly Point[], lengthPx: number): number {
   const last = path.length - 1
   if (last < 1) return 0
 
@@ -600,14 +849,50 @@ function scarRest(path: readonly Point[]): number {
     const a = path[i] as Point
     const b = path[i - 1] as Point
     const step = Math.hypot(a.x - b.x, a.y - b.y)
-    if (total + step >= SCAR_LENGTH_PX) {
-      const within = step === 0 ? 0 : (SCAR_LENGTH_PX - total) / step
+    if (total + step >= lengthPx) {
+      const within = step === 0 ? 0 : (lengthPx - total) / step
       return Math.max(1 - SCAR_MAX_FRACTION, (i - within) / last)
     }
     total += step
   }
   // The whole thread is shorter than the mark: keep the tail fraction instead.
   return 1 - SCAR_MAX_FRACTION
+}
+
+/**
+ * THE WAY HOME (prd6 ruling 2) — where the lane's substance has got to.
+ *
+ * A stretch of the thread's own centreline, leaving the node when the retract
+ * begins and gone into the mass when it ends. Not a pulse: pulses are light, and
+ * light is what a working lane spends. This is the hypha's *matter* being
+ * translocated back through the network — the honest reading of a merge, and the
+ * reason the mass it arrives at is thicker afterwards (`marks/root.ts`).
+ *
+ * It travels on the retract's own clock, so nothing new is animated and nothing
+ * new is budgeted: the substance comes home over the same 800 ms critically-damped
+ * structural stage that the cord is parting over, under the same concurrency cap.
+ * Null at both ends of that stage, so it grows out of the node rather than popping
+ * into existence and is absorbed by the mass rather than blinking out.
+ */
+function homewardFlow(path: readonly Point[], retract: number): Point[] | null {
+  if (retract <= 0 || retract >= 1) return null
+
+  // Measured in arc length rather than in path parameter: the samples of a cubic
+  // are not evenly spaced along it, so a fixed *parameter* span would send three
+  // times as much substance home from one end of the ellipse as from the other.
+  const cumulative = arcTable(path)
+  const total = cumulative[cumulative.length - 1] ?? 0
+  if (total <= 0) return null
+
+  const parcel = Math.min(HOMEWARD_LENGTH_PX, total * 0.5)
+  // The leading (rootward) edge, from the node at `total` to one parcel-length
+  // past the mass — which is where the last of it disappears under the mass.
+  const lead = total - (total + parcel) * retract
+  const from = Math.max(0, lead)
+  const to = Math.min(total, lead + parcel)
+  if (to - from < 0.5) return null
+
+  return between(path, paramAtArc(cumulative, from), paramAtArc(cumulative, to), 12)
 }
 
 /**
@@ -648,6 +933,7 @@ function severance(
     path: span(path, from, Math.max(10, Math.ceil(THREAD_SAMPLES * (1 - from)))),
     widthRoot: relaxed,
     widthTip,
+    homeward: homewardFlow(path, cut.retract),
     // Only a *settled* scar is hideable. A cut in progress is news, and the one
     // thing worse than a scar the operator asked not to see is a completion they
     // never saw at all.
@@ -657,10 +943,39 @@ function severance(
 
 /** The stretch of a path from `from` to its end, resampled to `steps` segments. */
 function span(path: readonly Point[], from: number, steps: number): Point[] {
+  return between(path, from, 1, steps)
+}
+
+/** The stretch of a path between two parameters, resampled to `steps` segments. */
+function between(path: readonly Point[], from: number, to: number, steps: number): Point[] {
   const start = clamp01(from)
+  const end = clamp01(to)
   const out: Point[] = []
-  for (let i = 0; i <= steps; i += 1) out.push(pointAt(path, start + (1 - start) * (i / steps)))
+  for (let i = 0; i <= steps; i += 1) out.push(pointAt(path, start + (end - start) * (i / steps)))
   return out
+}
+
+/** Cumulative arc length at each sample of a path — `[0, …, total]`. */
+function arcTable(path: readonly Point[]): number[] {
+  const out = [0]
+  for (let i = 1; i < path.length; i += 1) {
+    const a = path[i - 1] as Point
+    const b = path[i] as Point
+    out.push((out[i - 1] as number) + Math.hypot(b.x - a.x, b.y - a.y))
+  }
+  return out
+}
+
+/** The path parameter `s` px along a path, off its own cumulative table. */
+function paramAtArc(cumulative: readonly number[], s: number): number {
+  const last = cumulative.length - 1
+  if (last < 1) return 0
+  let i = 1
+  while (i < last && (cumulative[i] as number) < s) i += 1
+  const before = cumulative[i - 1] as number
+  const step = (cumulative[i] as number) - before
+  const within = step === 0 ? 0 : (s - before) / step
+  return clamp01((i - 1 + within) / last)
 }
 
 // ── faults with a shape ─────────────────────────────────────────────────────

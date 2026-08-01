@@ -42,6 +42,13 @@ export type MarkRole =
   | 'scar'
   | 'scar-bloom'
   | 'scar-mark'
+  /**
+   * The severed lane's substance on its way into the root-mass (prd6 ruling 2).
+   * A ribbon rather than a `pulse`, because it is the thread's own matter being
+   * reabsorbed and not light in flight — and present only while a cut the scene
+   * actually watched is retracting, so a replay never draws one.
+   */
+  | 'homeward'
   // light in flight
   | 'pulse'
   | 'pulse-wake'

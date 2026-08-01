@@ -115,6 +115,14 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
  *
  * What it deliberately does not have is a `glow`. A glow is light, and there is
  * no light here any more — no pulse, no heat, never again.
+ *
+ * The fourth mark is the one prd6 ruling 2 added, and it is the reason a cut is no
+ * longer a dead end: the **homeward flow**, the lane's own substance running down
+ * the severing thread into the mass while the remnant springs the other way. It is
+ * a ribbon of the thread, at the thread's own colour and a little narrower — the
+ * matter *inside* the hypha, not a packet of light travelling on it — and it is
+ * absent from a scar that was never watched leaving, which is what keeps a replay
+ * from re-landing work it is only reading about.
  */
 function scarMarks(
   frame: SceneFrame,
@@ -152,6 +160,28 @@ function scarMarks(
     widthTip: cut.widthTip,
     paint: budget(frame, laneId, false, cold),
   })
+
+  if (cut.homeward !== null) {
+    marks.push({
+      kind: 'ribbon',
+      role: 'homeward',
+      laneId,
+      alarm: false,
+      path: cut.homeward,
+      // Narrower than the thread it is inside, and thicker at the leading end:
+      // matter being drawn along, rather than a second thread beside the first.
+      widthRoot: thread.widthRoot * 0.8,
+      widthTip: thread.widthTip * 0.9,
+      // The lane's own colour, warmed — it is the work that is moving, and the
+      // budget still holds it under a summons the way every calm mark is held.
+      paint: budget(
+        frame,
+        laneId,
+        false,
+        ink(hotter(living.rgb, 0.5), Math.min(1, living.alpha * 1.25)),
+      ),
+    })
+  }
 
   // Nothing has parted yet during the tension release, so there is no freed end
   // to curl: the thread is still tied into the mass, just slack.
