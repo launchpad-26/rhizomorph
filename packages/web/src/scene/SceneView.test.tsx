@@ -9,6 +9,7 @@ import {
   buildFleet,
   finishedSpec,
   fixtureHistory,
+  MAIN_SELECTION,
   manifestFor,
   pathologySpec,
   type Fleet,
@@ -328,7 +329,9 @@ describe('the camera', () => {
    * drawing — laid out here with the same inputs the component uses, so a node's
    * world position is a known quantity rather than an inference.
    */
-  function mountCamera(options: { reducedMotion?: boolean; live?: boolean } = {}) {
+  function mountCamera(
+    options: { reducedMotion?: boolean; live?: boolean; selectedId?: string } = {},
+  ) {
     const hostRect = {
       ...HOST,
       top: 0,
@@ -351,8 +354,9 @@ describe('the camera', () => {
 
     const calls: string[] = []
     const transforms: number[][] = []
+    const journal: unknown[][] = []
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
-      fakeContext(calls, transforms) as unknown as CanvasRenderingContext2D,
+      fakeContext(calls, transforms, journal) as unknown as CanvasRenderingContext2D,
     )
 
     const fleet = stagedFleet()
@@ -363,7 +367,7 @@ describe('the camera', () => {
         field={new PulseField()}
         settle={new SettleRegistry()}
         retire={new RetireRegistry()}
-        selectedId={null}
+        selectedId={options.selectedId ?? null}
         onSelect={onSelect}
         {...(options.live === true ? {} : { now: NOW })}
       />,
@@ -373,7 +377,7 @@ describe('the camera', () => {
     const host = utils.container.firstElementChild as HTMLElement
     const geometry = layoutScene(fleet, { ...HOST, now: NOW })
 
-    return { ...utils, canvas, host, geometry, onSelect, transforms }
+    return { ...utils, canvas, host, geometry, onSelect, transforms, calls, journal }
   }
 
   /**
@@ -508,6 +512,128 @@ describe('the camera', () => {
     onSelect.mockClear()
     fireEvent.click(canvas, { clientX: node.x, clientY: node.y })
     expect(onSelect).toHaveBeenLastCalledWith(null)
+  })
+
+  /**
+   * THE ROOT-MASS, CLICKABLE (prd6 ruling 5) — the last unclickable thing on
+   * the screen.
+   *
+   * The composition risk is the same one the lane hit test carries and worse:
+   * the mass is drawn in world coordinates at a *world* radius, so a hit test
+   * that forgot the camera would be catching clicks in a circle that has
+   * nothing to do with where the mass is on screen. Both halves are pinned —
+   * that it works at all, and that it works after a zoom.
+   */
+  describe('the root-mass as a hit target', () => {
+    it('selects MAIN when the pointer is on the mass', () => {
+      const { canvas, geometry, onSelect } = mountCamera()
+
+      fireEvent.click(canvas, { clientX: geometry.centre.x, clientY: geometry.centre.y })
+
+      expect(onSelect).toHaveBeenCalledWith(MAIN_SELECTION)
+    })
+
+    it('catches the rim, and lets go a little beyond it', () => {
+      const { canvas, geometry, onSelect } = mountCamera()
+      const { centre, rootRadius } = geometry
+
+      // Just inside the rim: still the mass.
+      fireEvent.click(canvas, { clientX: centre.x + rootRadius - 1, clientY: centre.y })
+      expect(onSelect).toHaveBeenLastCalledWith(MAIN_SELECTION)
+
+      // Well past the slack, and nowhere near a node at this radius: nothing.
+      onSelect.mockClear()
+      fireEvent.click(canvas, { clientX: centre.x + rootRadius + 40, clientY: centre.y })
+      expect(onSelect).toHaveBeenLastCalledWith(null)
+    })
+
+    it('hit-tests the mass under a non-identity camera, in world coordinates', () => {
+      const { canvas, geometry, onSelect, transforms } = mountCamera()
+
+      pinch(canvas, { x: 20, y: 20 }, -200)
+      const camera = cameraOf(transforms)
+      expect(camera.k).toBeGreaterThan(1.2)
+
+      // Where the mass is now drawn.
+      const drawn = {
+        x: geometry.centre.x * camera.k + camera.x,
+        y: geometry.centre.y * camera.k + camera.y,
+      }
+      fireEvent.click(canvas, { clientX: drawn.x, clientY: drawn.y })
+      expect(onSelect).toHaveBeenLastCalledWith(MAIN_SELECTION)
+
+      // And where it used to be, which the camera has moved it away from.
+      onSelect.mockClear()
+      fireEvent.click(canvas, { clientX: geometry.centre.x, clientY: geometry.centre.y })
+      expect(onSelect).not.toHaveBeenLastCalledWith(MAIN_SELECTION)
+    })
+
+    it('keeps the mass out of a lane node\'s way — the smaller target wins', () => {
+      // A node is what an operator aiming at a node meant, even when the mass
+      // is within reach of the same pointer.
+      const { canvas, geometry, onSelect } = mountCamera()
+      const thread = geometry.threads[0]
+      const node = thread?.node as { x: number; y: number }
+
+      fireEvent.click(canvas, { clientX: node.x, clientY: node.y })
+
+      expect(onSelect).toHaveBeenLastCalledWith(thread?.laneId)
+    })
+
+    it('gives the mass the same spotlight ring a selected lane gets', () => {
+      // The affordance, as a query over what actually reached the canvas: two
+      // concentric hairlines on the mass's rim, drawn only when it is picked.
+      const unselected = mountCamera()
+      const before = ringsAround(unselected, unselected.geometry.centre)
+      cleanup()
+
+      const selected = mountCamera({ selectedId: MAIN_SELECTION })
+      const after = ringsAround(selected, selected.geometry.centre)
+
+      expect(before).toHaveLength(0)
+      expect(after).toHaveLength(2)
+      // On the rim, not inside it, and the outer one a hair beyond the inner.
+      const [inner, outer] = after as [number, number]
+      expect(inner).toBeGreaterThan(selected.geometry.rootRadius)
+      expect(outer).toBeCloseTo(inner + 5, 6)
+    })
+
+    /**
+     * The distinct radii of the full circles the mount **stroked** about `at`.
+     *
+     * Stroked, not merely drawn: the root-mass's halo and core are filled
+     * circles about the same point, so a test that counted every `ctx.arc`
+     * would be counting the glow it is not about. The two are told apart the
+     * way the canvas tells them apart — by what was called next.
+     *
+     * Distinct, because a pinned mount paints its still image more than once
+     * (the hide-finished preference asks for a redraw as it settles). How many
+     * *rings* there are is the question; how many times an unchanged frame was
+     * repainted is not.
+     */
+    function ringsAround(
+      frame: { calls: string[]; journal: unknown[][] },
+      at: { x: number; y: number },
+    ): number[] {
+      const arcs = frame.journal.filter((entry) => entry[0] === 'arc')
+      const radii: number[] = []
+      let index = -1
+
+      frame.calls.forEach((name, i) => {
+        if (name !== 'arc') return
+        index += 1
+        const arc = arcs[index] as [string, number, number, number, number, number] | undefined
+        if (arc === undefined) return
+        const [, x, y, radius, from, to] = arc
+        const painted = frame.calls.slice(i + 1).find((later) => later === 'stroke' || later === 'fill')
+        if (painted !== 'stroke') return
+        if (Math.hypot(x - at.x, y - at.y) > 0.001) return
+        if (from !== 0 || Math.abs(to - Math.PI * 2) > 0.001) return
+        radii.push(radius)
+      })
+
+      return [...new Set(radii)]
+    }
   })
 
   describe('the keys, scoped to a focused scene', () => {

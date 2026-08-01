@@ -1,7 +1,7 @@
 import { select } from 'd3-selection'
 import { zoom as d3Zoom, ZoomTransform, type D3ZoomEvent, type ZoomBehavior } from 'd3-zoom'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Fleet } from '../fleet/index.js'
+import { MAIN_SELECTION, type Fleet } from '../fleet/index.js'
 import {
   CLICK_DISTANCE,
   IDENTITY,
@@ -22,8 +22,9 @@ import {
 } from './camera.js'
 import { useScenePref } from '../app/panelPrefs.js'
 import { layoutScene, type SceneGeometry } from './geometry.js'
-import { breathOf, motionMode, sceneMarks, type SceneFrame } from './marks/index.js'
+import { breathOf, motionMode, sceneMarks, type Mark, type SceneFrame } from './marks/index.js'
 import { paint } from './paint.js'
+import { ICE_200, ink } from './palette.js'
 import type { PulseField } from './pulses.js'
 import { isRetired, type RetireRegistry } from './retire.js'
 import { salienceOf } from './salience.js'
@@ -82,6 +83,19 @@ export interface SceneViewProps {
 
 /** How close to a node a pointer must be to have picked it, in CSS pixels. */
 const HIT_RADIUS = 30
+
+/**
+ * How far outside the root-mass's own rim still counts as having clicked it, in
+ * CSS pixels (prd6 ruling 5).
+ *
+ * Small, unlike {@link HIT_RADIUS}, and for the opposite reason: a node is a
+ * ~10px lens that needs a generous catchment to be clickable at all, while the
+ * mass is the largest object in the picture and needs only the slack a hand
+ * aiming at an edge asks for. Both are screen quantities — divided by the scale
+ * at the hit test, so the tolerance is thirty (or eight) *pixels* at 6× as much
+ * as at 0.4×.
+ */
+const ROOT_HIT_SLACK = 8
 
 /**
  * Fallback size for a host measured at zero (mid-mount, before layout has
@@ -354,10 +368,13 @@ export function SceneView({
         breath: breathOf(clock, mode),
       }
 
+      const marks = sceneMarks(sceneFrame)
+      if (current.selectedId === MAIN_SELECTION) marks.push(...rootSpotlight(sceneFrame))
+
       // `paint` owns the transform now, camera and device scale together — the
       // one set at resize is only what a frame that never runs would leave
       // behind.
-      paint({ ctx, marks: sceneMarks(sceneFrame), width, height, camera: cameraRef.current, dpr })
+      paint({ ctx, marks, width, height, camera: cameraRef.current, dpr })
     }
 
     /** One frame of a zoom-to-fit, driven by the loop that is already running. */
@@ -448,14 +465,22 @@ export function SceneView({
   }, [hideFinished])
 
   /**
-   * The nearest node within {@link HIT_RADIUS}, in CSS pixels.
+   * What is under the pointer: the nearest node within {@link HIT_RADIUS}, the
+   * root-mass ({@link MAIN_SELECTION}) when the pointer is on the mass itself,
+   * or null.
    *
    * The pointer is put back into world coordinates before anything is measured,
-   * and the radius is divided by the scale rather than left alone: the tolerance
-   * is a property of the hand holding the mouse, so it stays thirty screen
-   * pixels at 6× as much as at 0.4×.
+   * and every radius is divided by the scale rather than left alone: the
+   * tolerance is a property of the hand holding the mouse, so it stays thirty
+   * screen pixels at 6× as much as at 0.4×.
+   *
+   * **Lanes first, the mass second.** They can overlap — a lane whose node has
+   * not drifted out yet sits close in against the mass, and at the far end of a
+   * zoom-out everything is close to everything. A node is the smaller, more
+   * specific target and the one an operator aiming at it meant; the mass is
+   * what is left when they were not aiming at a lane at all.
    */
-  const laneAt = (clientX: number, clientY: number): string | null => {
+  const pickAt = (clientX: number, clientY: number): string | null => {
     const geometry = geometryRef.current
     const canvas = canvasRef.current
     if (geometry === null || canvas === null) return null
@@ -473,7 +498,14 @@ export function SceneView({
         best = thread.laneId
       }
     }
-    return best
+    if (best !== null) return best
+
+    // MAIN was the one thing on screen that could not be clicked (prd6 ruling
+    // 5). The mass is drawn from `geometry.rootRadius` about `geometry.centre`,
+    // both world quantities, so the same two numbers that draw it catch the
+    // pointer — nothing here re-derives where the mass is.
+    const toCentre = Math.hypot(geometry.centre.x - at.x, geometry.centre.y - at.y)
+    return toCentre <= geometry.rootRadius + ROOT_HIT_SLACK / camera.k ? MAIN_SELECTION : null
   }
 
   /**
@@ -533,10 +565,10 @@ export function SceneView({
     >
       <canvas
         ref={canvasRef}
-        className={`absolute inset-0 h-full w-full ${cursorOf(panning, grabReady)}`}
-        onMouseMove={(event) => setHoverId(laneAt(event.clientX, event.clientY))}
+        className={`absolute inset-0 h-full w-full ${cursorOf(panning, grabReady, hoverId !== null)}`}
+        onMouseMove={(event) => setHoverId(pickAt(event.clientX, event.clientY))}
         onMouseLeave={() => setHoverId(null)}
-        onClick={(event) => onSelect(laneAt(event.clientX, event.clientY))}
+        onClick={(event) => onSelect(pickAt(event.clientX, event.clientY))}
       />
       <MotionControl paused={paused} onToggle={() => setPaused((held) => !held)} />
       <ScarControl
@@ -566,15 +598,61 @@ export function SceneView({
 }
 
 /**
+ * THE SELECTED ROOT-MASS'S RING (prd6 ruling 5) — the same two hairlines a
+ * selected lane's node wears (`marks/node.ts`'s `spotlightMarks`), around the
+ * mass instead of around a node.
+ *
+ * Two things make it the *same* affordance rather than a second vocabulary for
+ * the same idea: the geometry (an inner ring at full strength and an outer
+ * ghost 5px beyond it, so the thing picked reads as one object) and the way the
+ * rest of the picture answers it — `salienceOf` takes the selection as the
+ * spotlight, no lane matches `main`, so every lane recedes to `RECEDE` around a
+ * mass that keeps all of its brightness. The recession is free; this is the
+ * mark that says *where the light went*, which a mass at unchanged brightness
+ * cannot say on its own.
+ *
+ * It breathes with the mass (`frame.breath`) because it is drawn on the mass's
+ * rim and a ring that stayed put while the thing inside it moved would read as
+ * a second object. Ice, at the same alphas the node's ring uses: this is a
+ * pointer, not a state, and the alarm band is not its to spend.
+ *
+ * It lives here rather than in `marks/` only because #106 owns that directory
+ * this wave; it is a mark like any other and belongs beside `rootMarks` when
+ * the two waves meet.
+ */
+function rootSpotlight(frame: SceneFrame): Mark[] {
+  const { centre, rootRadius } = frame.geometry
+  const radius = rootRadius * frame.breath + 8
+
+  return [0, 5].map((offset) => ({
+    kind: 'arc' as const,
+    role: 'spotlight' as const,
+    laneId: null,
+    alarm: false,
+    at: centre,
+    radius: radius + offset,
+    from: 0,
+    to: Math.PI * 2,
+    width: offset === 0 ? 1.4 : 1,
+    ink: ink(ICE_200, offset === 0 ? 0.75 : 0.22),
+  }))
+}
+
+/**
  * A grabbing hand while the scene is actually being dragged, an open one while
  * space says it is about to be, and the ordinary pointer the rest of the time —
  * because the rest of the time a click on this canvas selects a lane, and a
  * canvas that permanently advertises "grab me" is a canvas nobody clicks.
+ *
+ * The one exception is a pointer that is actually *over* something: a hovered
+ * node or the root-mass gets the hand, which is how a canvas — the one surface
+ * in the instrument that cannot advertise its own targets in markup — says that
+ * this pixel does something and the one beside it does not.
  */
-function cursorOf(panning: boolean, grabReady: boolean): string {
+function cursorOf(panning: boolean, grabReady: boolean, overTarget: boolean): string {
   if (panning) return 'cursor-grabbing'
   if (grabReady) return 'cursor-grab'
-  return 'cursor-default'
+  return overTarget ? 'cursor-pointer' : 'cursor-default'
 }
 
 interface MotionControlProps {

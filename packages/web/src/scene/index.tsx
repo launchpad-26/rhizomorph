@@ -12,7 +12,10 @@ import { SettleRegistry } from './settle.js'
  * shell's lazy slot behind its error boundary (`app/SceneSlot.tsx`).
  *
  * This file is the wiring and nothing else. It reads the two things every prd3
- * surface reads — the derived fleet and the shared selection — and feeds the
+ * surface reads — the derived fleet and the shared selection (which since prd6
+ * ruling 5 also holds `MAIN_SELECTION`, the root-mass: the scene hands it back
+ * from a click on the mass and the same toggle-or-clear applies to it as to any
+ * lane) — and feeds the
  * pulse field from the fold's **news tail**, which is where ruling 32's first
  * rule becomes mechanical: `state.news` only ever contains what the fold tagged
  * as news, so a replayed session builds the whole picture and lights none of it.
