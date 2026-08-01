@@ -67,8 +67,14 @@ export const CHANNELS = {
 
 /** ±10% around the encoded width, and never more. */
 export const WIDTH_JITTER_MAX: number = CHANNELS.widthJitter.limit
-/** …and at most this many wobbles along a whole thread: low-frequency, or it reads as noise. */
-export const WIDTH_JITTER_WAVES = 1.5
+/**
+ * …and how much of the noise field a whole thread is sampled across. Under one
+ * feature's width, so a lane is a *little* fatter here and thinner there over
+ * its whole length: the ruling says low-frequency, and a ribbon that wobbled
+ * five times between the mass and its node would read as serrated rather than
+ * as grown.
+ */
+export const WIDTH_JITTER_WAVES = 1
 
 /** The sideways cap, as a fraction of the spacing between two lanes at the rim. */
 export const WANDER_MAX_SPACING: number = CHANNELS.wander.limit
@@ -148,8 +154,11 @@ function mulberry32(seed: number): () => number {
  * endpoints of every thread survive the wander exactly.
  */
 function ends(t: number): number {
-  const k = t < 0 ? 0 : t > 1 ? 1 : t
-  return Math.sin(Math.PI * k)
+  if (t <= 0 || t >= 1) return 0
+  // `Math.sin(Math.PI)` is 1.2e-16, not zero, and "the encoded endpoints do not
+  // move" is not a claim that survives being approximately true — so the two
+  // ends are returned rather than computed.
+  return Math.sin(Math.PI * t)
 }
 
 /**
@@ -181,7 +190,13 @@ function build(seed: string): LaneVariation {
   const habit = createNoise2D(mulberry32(cyrb128(`${seed}/curl`)))
 
   return {
-    wander: (t) => bend(t * WANDER_WAVES, 0.5) * ends(t),
+    wander: (t) => {
+      const envelope = ends(t)
+      // Not `noise * 0`: that is −0 for half the fleet, and a signed zero is the
+      // sort of thing that survives a `structuredClone` and fails a `toEqual`
+      // three modules away for no reason anybody can see.
+      return envelope === 0 ? 0 : bend(t * WANDER_WAVES, 0.5) * envelope
+    },
     widthJitter: (t) => 1 + WIDTH_JITTER_MAX * girth(t * WIDTH_JITTER_WAVES, 0.5),
     curl: (habit(0.5, 0.5) + 1) / 2,
   }

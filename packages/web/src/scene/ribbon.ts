@@ -199,11 +199,22 @@ function pinched(run: [number, number], widths: readonly number[]): [number, num
   let from = start
   for (let i = start; i <= end; i += 1) {
     if ((widths[i] as number) > PINCH_EPSILON) continue
-    if (i - from >= 1) out.push([from, i])
+    if (hasBody(widths, from, i)) out.push([from, i])
     from = i
   }
-  if (end - from >= 1) out.push([from, end])
+  if (hasBody(widths, from, end)) out.push([from, end])
   return out
+}
+
+/**
+ * Is there any ribbon between these two samples? A closure wide enough to span
+ * more than one sample would otherwise emit a zero-width sliver between its two
+ * halves — one more polygon in the display list, drawing nothing.
+ */
+function hasBody(widths: readonly number[], from: number, to: number): boolean {
+  if (to - from < 1) return false
+  for (let i = from; i <= to; i += 1) if ((widths[i] as number) > PINCH_EPSILON) return true
+  return false
 }
 
 /**
