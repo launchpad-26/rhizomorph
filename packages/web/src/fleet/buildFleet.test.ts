@@ -281,6 +281,19 @@ describe('the ladder floor', () => {
       expect(first.kind).toBeDefined()
     }
   })
+
+  it("a removed worktree's dirty files stop counting as contended, end to end", () => {
+    // Same shared file as the base fixture, but branch `b`'s worktree is
+    // removed afterward: it landed and folded, so its ghost must not keep
+    // arguing with `a` over a file it no longer holds.
+    const log = [...collidingLog(NOW), event('worktree.removed', { path: '/repo-wt/b' }, NOW - 1_000)]
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+
+    expect(fleet.collisions).toEqual([])
+    expect(fleet.ladder.items.some((item) => item.kind === 'collision')).toBe(false)
+    expect(laneIn(fleet, 'a').dirtyCount).toBe(1)
+    expect(laneIn(fleet, 'b').dirtyCount).toBe(0)
+  })
 })
 
 // ── detection honesty (ruling 18) ───────────────────────────────────────────
@@ -312,6 +325,34 @@ describe('detection honesty', () => {
     expect(waiting?.inferred).toBe(true)
     expect(waiting?.evidence).toMatch(/^quiet .*, pane still alive$/)
     expect(evidenceLine(waiting!).startsWith(`${INFERRED_MARK} `)).toBe(true)
+  })
+
+  it('lets a declared WAITING lapse once its worktree is removed, rather than standing forever', () => {
+    // workmux's last report never un-says itself once the handle goes quiet —
+    // the agent record simply stands. But a removed worktree has landed, the
+    // same honesty exemption FROZEN gets, and a stale "waiting" must not
+    // stand in for a live raised hand once that has happened.
+    const log = [
+      event('session.started', {
+        sessionId: 'waiting-removed',
+        repoPath: '/repo',
+        repoName: 'observatory',
+        mainBranch: 'main',
+      }, NOW - 600_000),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 600_000),
+      event('worktree.discovered', { path: '/repo-wt/r', branch: 'r', head: 'sha-r', isMain: false }, NOW - 600_000),
+      event('agent.status', { handle: 'r', status: 'waiting', worktreePath: '/repo-wt/r', branch: 'r' }, NOW - 500_000),
+      event('worktree.removed', { path: '/repo-wt/r' }, NOW - 300_000),
+    ]
+
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    const lane = laneIn(fleet, 'r')
+
+    expect(lane.present).toBe(false)
+    expect(lane.pathologies.map((pathology) => pathology.kind)).not.toContain('waiting')
+    expect(lane.rank).toBe('calm')
+    expect(lane.activity).toBe('done')
+    expect(fleet.ladder.rank).toBe('calm')
   })
 
   it('never infers off-fence without a manifest, and names the gap instead', () => {

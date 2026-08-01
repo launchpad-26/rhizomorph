@@ -750,7 +750,11 @@ function detectFrozen(lane: Lane): Pathology | null {
  * (ruling 18's detection-honesty clause).
  */
 function detectWaiting(lane: Lane, ctx: DiagnoseContext): Pathology | null {
-  if (lane.agentStatus === 'waiting') {
+  // A declared WAITING outlives the agent record that made it: workmux's last
+  // report stands forever once the handle goes quiet, but a worktree that has
+  // been removed has landed — same honesty exemption FROZEN applies, so a
+  // stale "waiting" does not stand in for a live raised hand.
+  if (lane.agentStatus === 'waiting' && lane.present) {
     const since = ctx.agentStatusTs ?? lane.lastEventTs
     const forMs = since === null ? null : Math.max(0, ctx.now - since)
     return {
