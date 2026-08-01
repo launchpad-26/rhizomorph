@@ -1,6 +1,3 @@
-import { useMemo } from 'react'
-import { selectRoleSpend } from '@observatory/core'
-import { useStream } from '../../app/StreamContext.js'
 import { useFleet } from '../../fleet/index.js'
 import { formatTokens } from '../../lib/format.js'
 import {
@@ -22,33 +19,15 @@ import {
  * once dollars are authoritative), overhead ratio (conductor OUTPUT ÷ worker
  * OUTPUT). The spend ticker panel dissolved into this and the ledger.
  *
- * Reads the one derived fleet object's `burn` for everything except the
- * overhead gate — every other number here is already computed once,
- * upstream, so this file only formats and never re-derives.
+ * Reads the one derived fleet object's `burn` for everything, including the
+ * overhead gate — every number here is already computed once, upstream, so
+ * this file only formats and never re-derives.
  */
 export default function BurnStrip() {
   const { burn } = useFleet()
-  const { state } = useStream()
-
-  /**
-   * `fleet.burn.conductorInstrumented` (`packages/web/src/fleet/buildFleet.ts`)
-   * comes from a role split deliberately filtered to the token-origin
-   * allowlist — the right call for the ratio's own tokens, so a request both
-   * collectors saw isn't double-counted — but that filter collaterally drops
-   * every cost event too, and the only collector that ever emits `llm.cost`
-   * is otel, never sessionlog. That makes the field read "not instrumented"
-   * for every conductor that is, in fact, correctly wired. Re-deriving the
-   * same check unfiltered, straight off core's own selector, is what keeps
-   * the overhead ratio from going dark on every real setup.
-   */
-  const conductorInstrumented = useMemo(
-    () => selectRoleSpend(state.session).conductor.costEventCount > 0,
-    [state.session],
-  )
-  const overhead = { conductorInstrumented, overheadRatio: burn.overheadRatio }
 
   const dollarsGap = isDollarsGap(burn)
-  const overheadGap = isOverheadGap(overhead)
+  const overheadGap = isOverheadGap(burn)
 
   return (
     <div
@@ -98,9 +77,9 @@ export default function BurnStrip() {
             : 'figures shrink-0 text-ice-300'
         }
         data-testid="burn-overhead"
-        title={overheadGap ? undefined : overheadHoverTitle(overhead)}
+        title={overheadGap ? undefined : overheadHoverTitle(burn)}
       >
-        {formatOverheadOrGap(overhead)}
+        {formatOverheadOrGap(burn)}
         {overheadGap ? null : (
           <span className="ml-1 text-[10px] font-normal uppercase tracking-wide text-ice-500">
             overhead

@@ -1,12 +1,11 @@
 import { cleanup, render, screen } from '@testing-library/react'
-import { createEvent, reduceAll, type SessionState } from '@observatory/core'
+import { createEvent, reduceAll } from '@observatory/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildFleet, type Burn, type CalmEvidence, type Fleet, type Ladder } from '../../fleet/buildFleet.js'
 import BurnStrip from './index.js'
 
-const { useFleetMock, useStreamMock } = vi.hoisted(() => ({
+const { useFleetMock } = vi.hoisted(() => ({
   useFleetMock: vi.fn(),
-  useStreamMock: vi.fn(),
 }))
 
 // The component reads only `useFleet` from the fleet barrel — mocking the
@@ -16,16 +15,9 @@ const { useFleetMock, useStreamMock } = vi.hoisted(() => ({
 // instead, which this mock never touches.
 vi.mock('../../fleet/index.js', () => ({ useFleet: useFleetMock }))
 
-// The component also reads `useStream` directly — for its own re-derived
-// `conductorInstrumented` check (see index.tsx's comment on why it can't
-// trust `fleet.burn.conductorInstrumented`). Only `state.session` is ever
-// read off this, so that is all the mock needs to carry.
-vi.mock('../../app/StreamContext.js', () => ({ useStream: useStreamMock }))
-
 afterEach(() => {
   cleanup()
   useFleetMock.mockReset()
-  useStreamMock.mockReset()
 })
 
 const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
@@ -54,22 +46,6 @@ const ZERO_BURN: Burn = {
   windowMs: 300_000,
 }
 
-/**
- * A real `SessionState`, folded through core's own reducer, with or without a
- * conductor `llm.cost` event — the exact signal `index.tsx` re-derives
- * `conductorInstrumented` from, unfiltered by token origin (see its comment).
- */
-function sessionState(conductorInstrumented: boolean): SessionState {
-  if (!conductorInstrumented) return reduceAll([])
-  return reduceAll([
-    createEvent(
-      'llm.cost',
-      { lane: 'conductor', role: 'conductor', model: 'claude-opus-5', costUsd: 1, authoritative: true },
-      { id: 'e0', ts: NOW - 1_000, source: 'otel' },
-    ),
-  ])
-}
-
 function makeFleet(burnOverrides: Partial<Burn> = {}): Fleet {
   return {
     now: NOW,
@@ -94,16 +70,9 @@ function makeFleet(burnOverrides: Partial<Burn> = {}): Fleet {
   }
 }
 
-function renderWith(
-  burnOverrides: Partial<Burn> = {},
-  options: { conductorInstrumented?: boolean } = {},
-) {
+function renderWith(burnOverrides: Partial<Burn> = {}) {
   const fleet = makeFleet(burnOverrides)
   useFleetMock.mockReturnValue(fleet)
-  useStreamMock.mockReturnValue({
-    state: { session: sessionState(options.conductorInstrumented ?? true) },
-    status: 'open',
-  })
   return { ...render(<BurnStrip />), fleet }
 }
 
@@ -124,6 +93,7 @@ describe('BurnStrip', () => {
       outputPerMin: 1_500,
       costUsdPerHour: 12.34,
       overheadRatio: 0.42,
+      conductorInstrumented: true,
     })
 
     expect(screen.getByTestId('burn-output-tokens').textContent).toContain('1.2M')
@@ -142,7 +112,7 @@ describe('BurnStrip', () => {
   })
 
   it('speaks the gap voice for overhead when the conductor is not instrumented', () => {
-    renderWith({}, { conductorInstrumented: false })
+    renderWith({ conductorInstrumented: false })
 
     expect(screen.getByTestId('burn-overhead').textContent).toContain(
       'CONDUCTOR NOT INSTRUMENTED — overhead ratio unknowable',
@@ -167,6 +137,7 @@ describe('BurnStrip', () => {
       costIsAuthoritative: true,
       costEventCount: 1,
       overheadRatio: 0.4231,
+      conductorInstrumented: true,
     })
 
     expect(screen.getByTestId('burn-dollars').title).toContain('42.556000')
@@ -249,9 +220,9 @@ describe('BurnStrip — overhead ratio basis (real pipeline)', () => {
       (5 + 100 + 900_000 + 5_000) / (50 + 1_000 + 2_000 + 500)
     expect(fleet.burn.overheadRatio).toBeCloseTo(100 / 1_000, 5)
     expect(fleet.burn.overheadRatio).not.toBeCloseTo(totalRatio, 0)
+    expect(fleet.burn.conductorInstrumented).toBe(true)
 
     useFleetMock.mockReturnValue(fleet)
-    useStreamMock.mockReturnValue({ state: { session }, status: 'open' })
     render(<BurnStrip />)
 
     expect(screen.getByTestId('burn-overhead').textContent).toContain('0.10×')
