@@ -34,11 +34,18 @@ import { ribbonOutline, type RibbonShape } from '../ribbon.js'
  * tests that hold WAITING's *meaning*.
  *
  * So the shape names went where the shapes are. `glyphs.ts` still says
- * `CARTOUCHE`, `NODE_LENS` and `THORN_OUT`, and `paint.ts` still knows seven
- * `kind`s of geometry — those files *are* the form layer, and naming the form is
- * their job. What no longer exists is a shape name in the one channel the laws
- * read. A future painter may draw a summons as anything it likes; what it may
- * not do is draw it as nothing.
+ * `NODE_LENS` and `THORN_OUT`, and `paint.ts` still knows seven `kind`s of
+ * geometry — those files *are* the form layer, and naming the form is their job.
+ * What no longer exists is a shape name in the one channel the laws read. A
+ * future painter may draw a summons as anything it likes; what it may not do is
+ * draw it as nothing.
+ *
+ * prd7 ruling 3 collected on that immediately, and the receipt is worth keeping:
+ * a chevron became a taper, a cut stroke became a pinch, a cartouche became a
+ * blob, a seal became a knot and a travelling dot became a swell — and not one
+ * assertion about what any of those *mean* had to move. `CARTOUCHE` is still in
+ * `glyphs.ts` and nothing draws it any more, which is exactly the right way for
+ * a shape to die.
  *
  * Three names look like shapes and are not, so they stay:
  *

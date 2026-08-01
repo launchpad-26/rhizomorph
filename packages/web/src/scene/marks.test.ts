@@ -1237,6 +1237,37 @@ describe('the frame budget at thirty lanes', () => {
     console.log(`layout + sceneMarks at 30 lanes: ${perFrame.toFixed(3)} ms/frame`)
     expect(perFrame).toBeLessThan(16.7)
   })
+
+  it('caps the geometry it hands the painter, whatever the clock says', () => {
+    // The non-flaky half, and the one that would actually catch the regression
+    // the timing above is a proxy for. Vertices are deterministic: uncap the
+    // sample count, subdivide an outline one more time, or stop reusing a spine,
+    // and this moves — on a loaded CI box exactly as much as on a quiet laptop.
+    const base = fleetFor(fleet20Spec())
+    const fleet = {
+      ...base,
+      lanes: Array.from({ length: 30 }, (_unused, i) => ({
+        ...(base.lanes[i % base.lanes.length] as (typeof base.lanes)[number]),
+        id: `lane-${i}`,
+        handles: [`lane-${i}`],
+        slot: i,
+      })),
+    }
+
+    const marks = marksFor({ fleet })
+    const ribbons = marks.filter((mark) => mark.kind === 'ribbon')
+    const vertices = ribbons.reduce(
+      (total, mark) => total + (mark.kind === 'ribbon' ? mark.outline.flat().length : 0),
+      0,
+    )
+
+    expect(ribbons.length).toBeGreaterThan(60)
+    // Research §"what to avoid": subdivision explosion is 2ⁿ, so the thing worth
+    // bounding is the absolute point count per frame rather than the recursion
+    // depth of whatever produced it.
+    expect(vertices / ribbons.length, 'a ribbon grew unbounded').toBeLessThan(140)
+    expect(vertices, 'the display list outgrew a frame').toBeLessThan(40_000)
+  })
 })
 
 /**

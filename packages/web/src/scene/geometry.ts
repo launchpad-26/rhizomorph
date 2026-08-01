@@ -43,6 +43,17 @@ import { WANDER_MAX_SPACING, variationFor, variationSeed } from './variation.js'
  * re-dispatched handle grows out of the seed it left behind, sharing that seat
  * rather than claiming a new one — so the ring is not re-spaced at all, and the
  * scene remembers where a lane worked. See {@link germination}.
+ *
+ * **What prd7 added, and what it was not allowed to touch.** A thread's spine is
+ * now sparse waypoints off that curve, nudged sideways by a noise field seeded
+ * from the lane's own handle, and interpolated by centripetal Catmull-Rom
+ * (`ribbon.ts`) — which is what stops twenty lanes reading as twenty drafted
+ * arcs. The nudge is bounded twice: by {@link WANDER_MAX_SPACING} of the gap
+ * between two lanes, and by an envelope that is exactly zero at both ends. So
+ * every one of the four facts above survives it *bit for bit* — the node is
+ * still at its lifecycle radius on its own angle, and `geometry.test.ts`
+ * recomputes both from the fleet to prove it. Variation is spent only where
+ * nothing is encoded; `variation.ts` is the table that says where that is.
  */
 
 export interface Point {

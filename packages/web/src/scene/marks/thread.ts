@@ -32,6 +32,13 @@ import { ribbonMark, type Mark } from './types.js'
 /**
  * THE THREADS — a lane as a hypha, root-mass rim to node.
  *
+ * Since prd7 ruling 3 a thread is a **filled ribbon** rather than a stroked
+ * centre-line: `ribbon.ts` turns its spine and its width profile into closed
+ * polygons, and the width becomes a channel this file can spend. Two of the five
+ * pathologies collect on that here — FROZEN's cut is the ribbon closing to
+ * nothing twice over, and EXPENSIVE's direction is a needle taper rather than
+ * three chevrons at the tip — and both spend zero new objects doing it.
+ *
  * The resting picture is quiet but no longer colourless. Under prd4's law 9a a
  * living thread wears its lane's own family — green while the lane is working,
  * a muted amber while it is stopped, dim green once it has landed, ice when

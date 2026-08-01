@@ -14,6 +14,13 @@ import { ribbonMark, type Mark } from './types.js'
  * *light*, not a fifth hue, so nothing that travels ever competes with the
  * ladder for meaning.
  *
+ * prd7 ruling 3 split the file's traffic in two, along a line the scene already
+ * drew elsewhere. A **mote** is a model request — light, nourishment going out —
+ * and is drawn as light. A **commit** is work, so it is drawn as matter: a
+ * travelling swell in the thread's own width, the same reading the homeward flow
+ * has at the other end of a lane's life. Nine objects a journey became two, and
+ * the packet stopped being a bead riding on a wire.
+ *
  * Everything here belongs to the budget's **event** class, and the class's cap
  * is what makes the file readable in a storm: the field will never hand us more
  * than five journeys at once, and the sixth arrives as an *aggregate* — one

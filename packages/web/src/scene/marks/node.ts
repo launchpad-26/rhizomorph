@@ -42,13 +42,16 @@ import { regionMark, ribbonMark, type Mark, type MarkRole } from './types.js'
  * laws in `marks.test.ts` are written in and are not allowed to change when the
  * picture does; the **form** is this file's answer today, and is free to.
  *
- * | state     | roles it emits            | form, today                | hue   |
- * | --------- | ------------------------- | -------------------------- | ----- |
- * | LOOPING   | `looping-mark`, `orbit`   | knot, light going round it | amber |
- * | FROZEN    | `severed`                 | cuts, dashed dark thread   | red   |
- * | WAITING   | `summons`, `held`         | raised hand, light stopped | amber |
- * | EXPENSIVE | `expensive-mark`, `heat`  | chevrons, white-hot thread | cyan  |
- * | OFF-FENCE | `off-fence-*` (four)      | barb, reach, breached arc  | amber |
+ * | state     | roles it emits            | form, today                    | hue   |
+ * | --------- | ------------------------- | ------------------------------ | ----- |
+ * | LOOPING   | `looping-mark`, `orbit`   | knot, light going round it     | amber |
+ * | FROZEN    | `severed`                 | the ribbon pinched shut, twice | red   |
+ * | WAITING   | `summons`, `held`         | raised hand, light stopped     | amber |
+ * | EXPENSIVE | `expensive-mark`, `heat`  | needled tip, licks coming off  | cyan  |
+ * | OFF-FENCE | `off-fence-*` (four)      | barb, reach, breached arc      | amber |
+ *
+ * Three of those cells were rewritten by prd7 ruling 3 and the left-hand column
+ * did not move an inch, which is the whole return on ruling 2.
  *
  * A lane with none of them is no longer hueless. Under prd4's law 9a its node
  * takes its **activity's** colour — green while working, dim green once landed,
@@ -174,9 +177,12 @@ function lensTint(hue: Rgb, freshness: number): Rgb {
 /**
  * THE SCAR'S OWN MARK (prd5 ruling 3) — what is left at the rim.
  *
- * Deliberately the *same three glyphs* a landed lane already wore — hollow lens,
- * outward thorn, seal bar — at the same inks the instant the cut begins, and
- * desaturating into `SCAR.glyph` over the settle. That continuity is the whole
+ * Deliberately the *same three marks* a landed lane already wore — hollow lens,
+ * outward thorn, and the knot it was tied off with — at the same inks the
+ * instant the cut begins, and desaturating into `SCAR.glyph` over the settle.
+ * (The knot was a seal bar before prd7 ruling 3; the continuity claim is what
+ * matters and it is unchanged, because both ends of it moved together.) That
+ * continuity is the whole
  * point of splitting the stages by channel: the tension release changes the
  * thread's curvature and *nothing else*, so there is no pop at the tip to
  * distract from the one thing that is happening.
