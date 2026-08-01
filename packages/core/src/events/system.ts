@@ -19,12 +19,44 @@ export const collectorErrorPayloadSchema = z.object({
 })
 export type CollectorErrorPayload = z.infer<typeof collectorErrorPayloadSchema>
 
-/** Emitted once when a source is unavailable (no tmux, no workmux). */
+/**
+ * Emitted once a collector's consecutive-failure count crosses the resilience
+ * policy's disable threshold (see `withResilience` in the server package).
+ * `consecutiveFailures` is optional so a collector emitting this directly
+ * (bypassing the shared policy) stays valid — every wrapped collector fills it.
+ */
 export const collectorDisabledPayloadSchema = z.object({
   collector: nonEmptyString,
   reason: z.string(),
+  consecutiveFailures: z.number().int().positive().optional(),
 })
 export type CollectorDisabledPayload = z.infer<typeof collectorDisabledPayloadSchema>
+
+/**
+ * Emitted for a poll that failed but hasn't yet reached the disable
+ * threshold — the collector is still trying, just degraded. Distinct from
+ * `collector.error` (a one-off gripe about a single row or command that
+ * doesn't affect the collector's overall health) so the retry/backoff policy
+ * has a fact of its own to track and clear.
+ */
+export const collectorDegradedPayloadSchema = z.object({
+  collector: nonEmptyString,
+  reason: z.string(),
+  consecutiveFailures: z.number().int().positive(),
+})
+export type CollectorDegradedPayload = z.infer<typeof collectorDegradedPayloadSchema>
+
+/**
+ * Emitted the first time a degraded or disabled collector polls
+ * successfully again — the fact that lets the provenance bar and gap
+ * registry clear themselves without a restart.
+ */
+export const collectorRecoveredPayloadSchema = z.object({
+  collector: nonEmptyString,
+  /** Consecutive failures survived before this recovery; 0 if none. */
+  consecutiveFailures: z.number().int().nonnegative(),
+})
+export type CollectorRecoveredPayload = z.infer<typeof collectorRecoveredPayloadSchema>
 
 export const sessionStartedEventSchema = envelope(
   'system',
@@ -41,9 +73,21 @@ export const collectorDisabledEventSchema = envelope(
   'collector.disabled',
   collectorDisabledPayloadSchema,
 )
+export const collectorDegradedEventSchema = envelope(
+  'system',
+  'collector.degraded',
+  collectorDegradedPayloadSchema,
+)
+export const collectorRecoveredEventSchema = envelope(
+  'system',
+  'collector.recovered',
+  collectorRecoveredPayloadSchema,
+)
 
 export const systemEventSchemas = [
   sessionStartedEventSchema,
   collectorErrorEventSchema,
   collectorDisabledEventSchema,
+  collectorDegradedEventSchema,
+  collectorRecoveredEventSchema,
 ] as const

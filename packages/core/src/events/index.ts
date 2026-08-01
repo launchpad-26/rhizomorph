@@ -54,6 +54,8 @@ export const EVENT_SOURCE_BY_TYPE = {
   'session.started': 'system',
   'collector.error': 'system',
   'collector.disabled': 'system',
+  'collector.degraded': 'system',
+  'collector.recovered': 'system',
   'llm.usage': 'sessionlog',
   'llm.cost': 'otel',
   'tool.activity': 'sessionlog',

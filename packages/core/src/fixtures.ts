@@ -50,6 +50,8 @@ export interface EventFactory {
   sessionStarted(payload?: Partial<PayloadOf<'session.started'>>, init?: Init<'session.started'>): EventOf<'session.started'>
   collectorError(payload?: Partial<PayloadOf<'collector.error'>>, init?: Init<'collector.error'>): EventOf<'collector.error'>
   collectorDisabled(payload?: Partial<PayloadOf<'collector.disabled'>>, init?: Init<'collector.disabled'>): EventOf<'collector.disabled'>
+  collectorDegraded(payload?: Partial<PayloadOf<'collector.degraded'>>, init?: Init<'collector.degraded'>): EventOf<'collector.degraded'>
+  collectorRecovered(payload?: Partial<PayloadOf<'collector.recovered'>>, init?: Init<'collector.recovered'>): EventOf<'collector.recovered'>
   worktreeDiscovered(payload?: Partial<PayloadOf<'worktree.discovered'>>, init?: Init<'worktree.discovered'>): EventOf<'worktree.discovered'>
   worktreeRemoved(payload?: Partial<PayloadOf<'worktree.removed'>>, init?: Init<'worktree.removed'>): EventOf<'worktree.removed'>
   worktreeDirty(payload?: Partial<PayloadOf<'worktree.dirty'>>, init?: Init<'worktree.dirty'>): EventOf<'worktree.dirty'>
@@ -78,6 +80,12 @@ const defaults = {
   },
   'collector.error': { collector: 'git', message: 'git worktree list exited 128' },
   'collector.disabled': { collector: 'workmux', reason: 'workmux not found on PATH' },
+  'collector.degraded': {
+    collector: 'tmux',
+    reason: 'tmux exited with code 1',
+    consecutiveFailures: 1,
+  },
+  'collector.recovered': { collector: 'tmux', consecutiveFailures: 2 },
   'worktree.discovered': {
     path: FIXTURE_REPO_PATH,
     branch: 'main',
@@ -197,6 +205,8 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
     sessionStarted: sugar('session.started'),
     collectorError: sugar('collector.error'),
     collectorDisabled: sugar('collector.disabled'),
+    collectorDegraded: sugar('collector.degraded'),
+    collectorRecovered: sugar('collector.recovered'),
     worktreeDiscovered: sugar('worktree.discovered'),
     worktreeRemoved: sugar('worktree.removed'),
     worktreeDirty: sugar('worktree.dirty'),

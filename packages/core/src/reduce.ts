@@ -57,6 +57,10 @@ function applyEvent(state: SessionState, event: ObservatoryEvent): SessionState 
       return collectorError(state, event)
     case 'collector.disabled':
       return collectorDisabled(state, event)
+    case 'collector.degraded':
+      return collectorDegraded(state, event)
+    case 'collector.recovered':
+      return collectorRecovered(state, event)
     case 'worktree.discovered':
       return worktreeDiscovered(state, event)
     case 'worktree.removed':
@@ -116,6 +120,7 @@ function collectorError(state: SessionState, event: EventOf<'collector.error'>):
     errorCount: (prev?.errorCount ?? 0) + 1,
     lastErrorTs: event.ts,
     lastErrorMessage: message,
+    consecutiveFailures: prev?.consecutiveFailures ?? 0,
     disabledReason: prev?.disabledReason ?? null,
     disabledAt: prev?.disabledAt ?? null,
   }
@@ -134,7 +139,7 @@ function collectorError(state: SessionState, event: EventOf<'collector.error'>):
 }
 
 function collectorDisabled(state: SessionState, event: EventOf<'collector.disabled'>): SessionState {
-  const { collector, reason } = event.payload
+  const { collector, reason, consecutiveFailures } = event.payload
   const prev = state.collectors[collector]
   const record: CollectorState = {
     name: collector,
@@ -142,8 +147,50 @@ function collectorDisabled(state: SessionState, event: EventOf<'collector.disabl
     errorCount: prev?.errorCount ?? 0,
     lastErrorTs: prev?.lastErrorTs ?? null,
     lastErrorMessage: prev?.lastErrorMessage ?? null,
+    consecutiveFailures: consecutiveFailures ?? prev?.consecutiveFailures ?? 0,
     disabledReason: reason,
     disabledAt: event.ts,
+  }
+  return { ...state, collectors: { ...state.collectors, [collector]: record } }
+}
+
+/** A poll failed but hasn't yet crossed the disable threshold — still trying. */
+function collectorDegraded(state: SessionState, event: EventOf<'collector.degraded'>): SessionState {
+  const { collector, reason, consecutiveFailures } = event.payload
+  const prev = state.collectors[collector]
+  const record: CollectorState = {
+    name: collector,
+    // Same ratchet as `collector.error`: a disabled collector's own retry
+    // attempt failing again must not read as merely "degraded".
+    status: prev?.status === 'disabled' ? 'disabled' : 'degraded-retrying',
+    errorCount: (prev?.errorCount ?? 0) + 1,
+    lastErrorTs: event.ts,
+    lastErrorMessage: reason,
+    consecutiveFailures,
+    disabledReason: prev?.disabledReason ?? null,
+    disabledAt: prev?.disabledAt ?? null,
+  }
+  return { ...state, collectors: { ...state.collectors, [collector]: record } }
+}
+
+/**
+ * The self-heal fact: a degraded or disabled collector polled successfully
+ * again. Clears the retry count and the disabled reason/timestamp so the
+ * provenance bar and the gap registry — both keyed off `status` — read this
+ * collector as healthy without needing a restart to notice.
+ */
+function collectorRecovered(state: SessionState, event: EventOf<'collector.recovered'>): SessionState {
+  const { collector } = event.payload
+  const prev = state.collectors[collector]
+  const record: CollectorState = {
+    name: collector,
+    status: 'healthy',
+    errorCount: prev?.errorCount ?? 0,
+    lastErrorTs: prev?.lastErrorTs ?? null,
+    lastErrorMessage: prev?.lastErrorMessage ?? null,
+    consecutiveFailures: 0,
+    disabledReason: null,
+    disabledAt: null,
   }
   return { ...state, collectors: { ...state.collectors, [collector]: record } }
 }

@@ -108,10 +108,19 @@ export interface AgentState {
 
 export interface CollectorState {
   name: string
-  status: 'error' | 'disabled'
+  /**
+   * `degraded-retrying` and `healthy` are the resilience policy's honest
+   * middle and recovered states (see `withResilience` in the server
+   * package) — additive alongside the older `error`/`disabled`, which a
+   * collector can still report directly for a one-off gripe unrelated to
+   * its overall health.
+   */
+  status: 'error' | 'degraded-retrying' | 'disabled' | 'healthy'
   errorCount: number
   lastErrorTs: number | null
   lastErrorMessage: string | null
+  /** Consecutive failures in the current retry/disable cycle; 0 once healthy. */
+  consecutiveFailures: number
   disabledReason: string | null
   disabledAt: number | null
 }

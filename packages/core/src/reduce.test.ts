@@ -129,6 +129,56 @@ describe('reduce — system events', () => {
       lastErrorMessage: 'late error',
     })
   })
+
+  it('reports a degraded collector as retrying, not disabled', () => {
+    const state = reduceAll([
+      f.collectorDegraded(
+        { collector: 'tmux', reason: 'tmux exited with code 1', consecutiveFailures: 1 },
+        { ts: 10 },
+      ),
+    ])
+    expect(state.collectors['tmux']).toMatchObject({
+      status: 'degraded-retrying',
+      consecutiveFailures: 1,
+      lastErrorMessage: 'tmux exited with code 1',
+      disabledReason: null,
+      disabledAt: null,
+    })
+  })
+
+  it('keeps a disabled collector disabled even if a retry attempt degrades again', () => {
+    const state = reduceAll([
+      f.collectorDisabled(
+        { collector: 'tmux', reason: 'tmux exited with code 1', consecutiveFailures: 3 },
+        { ts: 10 },
+      ),
+      f.collectorDegraded(
+        { collector: 'tmux', reason: 'tmux exited with code 1', consecutiveFailures: 4 },
+        { ts: 40 },
+      ),
+    ])
+    expect(state.collectors['tmux']).toMatchObject({ status: 'disabled', disabledReason: 'tmux exited with code 1' })
+  })
+
+  it('clears a collector back to healthy on recovery', () => {
+    const state = reduceAll([
+      f.collectorDegraded(
+        { collector: 'tmux', reason: 'tmux exited with code 1', consecutiveFailures: 1 },
+        { ts: 10 },
+      ),
+      f.collectorDisabled(
+        { collector: 'tmux', reason: 'tmux exited with code 1', consecutiveFailures: 3 },
+        { ts: 30 },
+      ),
+      f.collectorRecovered({ collector: 'tmux', consecutiveFailures: 3 }, { ts: 60 }),
+    ])
+    expect(state.collectors['tmux']).toMatchObject({
+      status: 'healthy',
+      consecutiveFailures: 0,
+      disabledReason: null,
+      disabledAt: null,
+    })
+  })
 })
 
 describe('reduce — worktrees', () => {

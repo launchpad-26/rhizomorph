@@ -156,6 +156,15 @@ function oneOfEach() {
       id: id(),
       ts: 3,
     }),
+    createEvent(
+      'collector.degraded',
+      { collector: 'tmux', reason: 'tmux exited with code 1', consecutiveFailures: 1 },
+      { id: id(), ts: 3 },
+    ),
+    createEvent('collector.recovered', { collector: 'tmux', consecutiveFailures: 2 }, {
+      id: id(),
+      ts: 3,
+    }),
     createEvent('worktree.discovered', {
       path: '/repo',
       branch: 'main',
