@@ -33,8 +33,10 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('useTabSignal', () => {
+  const calm = fleetFor(fleet20Spec())
+  const staged = fleetFor(pathologySpec())
+
   it('leaves the tab untouched while calm', () => {
-    const calm = fleetFor(fleet20Spec())
     expect(calm.rank).toBe('calm')
 
     render(<Harness fleet={calm} />)
@@ -44,7 +46,6 @@ describe('useTabSignal', () => {
   })
 
   it('flips the title to "● N need you" at NEEDS-YOU and above, counting only the summons', () => {
-    const staged = fleetFor(pathologySpec())
     expect(staged.rank).toBe('broken')
 
     render(<Harness fleet={staged} />)
@@ -56,7 +57,6 @@ describe('useTabSignal', () => {
   })
 
   it('takes the favicon to the worst rung\'s hue', () => {
-    const staged = fleetFor(pathologySpec())
     render(<Harness fleet={staged} />)
 
     const link = document.querySelector(ICON_SELECTOR)
@@ -65,9 +65,6 @@ describe('useTabSignal', () => {
   })
 
   it('restores the exact original title and favicon once the fleet returns to calm', () => {
-    const staged = fleetFor(pathologySpec())
-    const calm = fleetFor(fleet20Spec())
-
     const { rerender } = render(<Harness fleet={staged} />)
     expect(document.title).toBe('● 4 need you')
     expect(document.querySelector(ICON_SELECTOR)).not.toBeNull()

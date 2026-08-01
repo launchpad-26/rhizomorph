@@ -34,8 +34,9 @@ function chips(): HTMLButtonElement[] {
 }
 
 describe('AttentionStripView — calm', () => {
+  const fleet = fleetFor(fleet20Spec())
+
   it('renders ALL CLEAR with the evidence line, never bare reassurance (ruling 14)', () => {
-    const fleet = fleetFor(fleet20Spec())
     expect(fleet.rank).toBe('calm')
 
     render(<AttentionStripView fleet={fleet} selectedId={null} onToggle={vi.fn()} />)
@@ -50,7 +51,6 @@ describe('AttentionStripView — calm', () => {
   })
 
   it('renders no chips at all when calm', () => {
-    const fleet = fleetFor(fleet20Spec())
     render(<AttentionStripView fleet={fleet} selectedId={null} onToggle={vi.fn()} />)
     expect(screen.queryAllByRole('button')).toHaveLength(0)
   })
