@@ -179,6 +179,7 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
     let frame = 0
     let width = 0
     let height = 0
+    let dpr = 1
     let stopped = false
     const pinned = latest.current.now !== undefined
 
@@ -222,7 +223,7 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
 
     const resize = () => {
       const rect = host.getBoundingClientRect()
-      const dpr = Math.min(2, window.devicePixelRatio || 1)
+      dpr = Math.min(2, window.devicePixelRatio || 1)
       // A floor rather than the measured size, so a zero-height host during
       // mount still lays out a coherent scene instead of dividing by nothing.
       width = Math.max(FALLBACK_WIDTH, Math.floor(rect.width))
@@ -278,14 +279,10 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
         breath: breathOf(clock, current.reducedMotion),
       }
 
-      paint({
-        ctx,
-        marks: sceneMarks(sceneFrame),
-        width,
-        height,
-        camera: cameraRef.current,
-        dpr: Math.min(2, window.devicePixelRatio || 1),
-      })
+      // `paint` owns the transform now, camera and device scale together — the
+      // one set at resize is only what a frame that never runs would leave
+      // behind.
+      paint({ ctx, marks: sceneMarks(sceneFrame), width, height, camera: cameraRef.current, dpr })
     }
 
     /** One frame of a zoom-to-fit, driven by the loop that is already running. */
