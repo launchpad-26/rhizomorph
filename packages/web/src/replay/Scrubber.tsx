@@ -1,3 +1,5 @@
+import { formatElapsed } from './format.js'
+
 export interface ScrubberProps {
   start: number
   end: number
@@ -6,20 +8,18 @@ export interface ScrubberProps {
   disabled?: boolean
 }
 
-/** `mm:ss` since the start of the session — readable without a real clock. */
-function formatElapsed(ms: number): string {
-  const totalSeconds = Math.max(0, Math.round(ms / 1000))
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `${minutes}:${String(seconds).padStart(2, '0')}`
-}
-
+/**
+ * Chrome, not a panel (ruling 16): no border, no fill beyond the native
+ * track — it reads as part of the frame around the app, not a widget inside
+ * it. Keyboard affordances are the native range input's own (arrow keys,
+ * Home/End, Page Up/Down) — kept by construction, never reimplemented.
+ */
 export function Scrubber({ start, end, value, onChange, disabled = false }: ScrubberProps) {
   const clamped = Math.min(end, Math.max(start, value))
 
   return (
     <div className="flex flex-1 items-center gap-2 normal-case tracking-normal">
-      <span className="tabular-nums text-slate-500">{formatElapsed(clamped - start)}</span>
+      <span className="figures text-ice-500">{formatElapsed(clamped - start)}</span>
       <input
         type="range"
         aria-label="Replay scrubber"
@@ -28,9 +28,9 @@ export function Scrubber({ start, end, value, onChange, disabled = false }: Scru
         value={clamped}
         disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="h-1 flex-1 accent-neon-cyan"
+        className="h-1 flex-1 accent-ice-200"
       />
-      <span className="tabular-nums text-slate-500">{formatElapsed(end - start)}</span>
+      <span className="figures text-ice-500">{formatElapsed(end - start)}</span>
     </div>
   )
 }
