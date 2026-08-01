@@ -30,6 +30,14 @@ import type { ServerContext } from '../server/context.js'
  * is tens of megabytes; the endpoint that reads it must be the one thing in the
  * server that can never be surprised by its size.
  *
+ * **The conductor answers here too (prd6 ruling 5).** `:lane` is `main` for the
+ * root-mass — the orchestrator's own session, reached through the same route,
+ * the same reader and the same bounded chunking a worker lane uses. What differs
+ * is only *which* attribution is looked up: a worker is found by its handle, the
+ * conductor by `role: 'conductor'` on the telemetry it emitted. An
+ * uninstrumented conductor is a gap with a command on it, never an empty
+ * transcript (law 12) — see {@link CONDUCTOR_LANE}.
+ *
  * **Records, not a rendered string (prd4 ruling 4).** The drawer's main view is
  * now the conversation itself, styled the way an agent CLI shows it — so the
  * endpoint hands back turns and blocks and lets the client decide what a tool
@@ -192,12 +200,100 @@ export function findLaneAttribution(
   return null
 }
 
+/**
+ * The `:lane` the conductor's own session answers to (prd6 ruling 5).
+ *
+ * `main` rather than a route of its own, and rather than `conductor`: it is the
+ * identifier the *scene* already uses for the root-mass, the drawer opens it by
+ * clicking that mass, and the read-only constitution is easier to keep true of
+ * one route than of two. The collector's own default handle for an
+ * `--extra-sessions` dir is `conductor`, but that is a label the operator can
+ * override (`<dir>:<lane>`), so it is never what this route matches on — the
+ * `role` is.
+ */
+export const CONDUCTOR_LANE = 'main'
+
+/**
+ * The newest attribution the log carries for the **conductor**, whatever handle
+ * the operator gave it.
+ *
+ * Role, not name. `--extra-sessions <dir>:<lane>` lets the conductor be called
+ * anything, and prd2's ruling is that identity is declared at the source — so a
+ * lane literally named `conductor` proves nothing and `role: 'conductor'` proves
+ * everything. That role rides on `llm.usage` and `llm.cost` (required) and on
+ * `tool.activity` (when the collector knows it), which is the same three event
+ * types {@link findLaneAttribution} already reads; #88 is what put the
+ * conductor's `llm.cost` events in the fold for this to find.
+ */
+export function findConductorAttribution(events: readonly ObservatoryEvent[]): Attribution | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]
+    if (!event || !ATTRIBUTED_TYPES.has(event.type)) continue
+
+    const payload = event.payload as {
+      role?: unknown
+      sessionId?: unknown
+      worktreePath?: unknown
+    }
+    if (payload.role !== 'conductor') continue
+    if (typeof payload.sessionId !== 'string' || payload.sessionId.length === 0) continue
+
+    return {
+      sessionId: payload.sessionId,
+      worktreePath: typeof payload.worktreePath === 'string' ? payload.worktreePath : null,
+    }
+  }
+  return null
+}
+
+/** True when the log carries conductor telemetry at all, session id or not. */
+function conductorIsKnown(events: readonly ObservatoryEvent[]): boolean {
+  return events.some((event) => (event.payload as { role?: unknown }).role === 'conductor')
+}
+
+/**
+ * WHAT is missing → WHY → the command that fixes it (law 12), for the two ways
+ * the conductor can fail to resolve. They are genuinely different setups and
+ * they take different commands: nothing instrumented at all is a flag the
+ * operator has not passed yet, while telemetry without a session id is a
+ * collector that is running and not reporting.
+ */
+function conductorGap(events: readonly ObservatoryEvent[]): string {
+  if (conductorIsKnown(events)) {
+    return (
+      'NO SESSION LOG for the conductor — the log carries its telemetry but no session id was ' +
+      'attributed to it, so its transcript cannot be located — only the sessionlog collector ' +
+      'attributes one: run: `observatory doctor`'
+    )
+  }
+  return (
+    "CONDUCTOR NOT INSTRUMENTED — nothing in this session's event log was recorded against " +
+    'role: conductor, so the orchestrator has no session for this drawer to read — ' +
+    'run: `observatory --extra-sessions <dir>:conductor`'
+  )
+}
+
 /** True when the log mentions this lane at all, even without a session id. */
 function laneIsKnown(events: readonly ObservatoryEvent[], lane: string): boolean {
   return events.some((event) => {
     const payload = event.payload as { lane?: unknown; branch?: unknown; path?: unknown }
     return payload.lane === lane || payload.branch === lane
   })
+}
+
+/** The worker half of law 12's answer: a lane with no session, or no lane at all. */
+function missingLaneGap(events: readonly ObservatoryEvent[], lane: string): string {
+  if (laneIsKnown(events, lane)) {
+    return (
+      `NO SESSION LOG for "${lane}" — the log knows this lane but no session id was attributed ` +
+      'to it, so its transcript cannot be located — only the sessionlog collector attributes ' +
+      'one: run: `observatory doctor`'
+    )
+  }
+  return (
+    `NO SUCH LANE "${lane}" — nothing in this session's event log names it, so there is no ` +
+    'transcript to tail — run: `observatory doctor`'
+  )
 }
 
 /**
@@ -412,17 +508,24 @@ export async function readTranscript(request: ReadTranscriptRequest): Promise<Tr
   const { events, lane, offset, claudeProjectsRoot } = request
   const chunkBytes = request.chunkBytes ?? TRANSCRIPT_CHUNK_BYTES
 
-  const attribution = findLaneAttribution(events, lane)
+  /*
+   * One lookup or the other, and then one identical read. The conductor is
+   * found by its declared role; a lane whose *branch* is literally `main` — the
+   * root-mass's own branch, which the derived fleet books to the root rather
+   * than to any worker — is the honest second chance, so an operator who runs
+   * their orchestrator in the main checkout without `--extra-sessions` still
+   * gets the session that is actually there rather than a gap line.
+   */
+  const conductor = lane === CONDUCTOR_LANE
+  const attribution = conductor
+    ? (findConductorAttribution(events) ?? findLaneAttribution(events, lane))
+    : findLaneAttribution(events, lane)
+
   if (attribution === null) {
     return {
       available: false,
       lane,
-      reason: laneIsKnown(events, lane)
-        ? `NO SESSION LOG for "${lane}" — the log knows this lane but no session id was attributed to it, ` +
-          'so its transcript cannot be located — only the sessionlog collector attributes one: ' +
-          'run: `observatory doctor`'
-        : `NO SUCH LANE "${lane}" — nothing in this session's event log names it, so there is no ` +
-          'transcript to tail — run: `observatory doctor`',
+      reason: conductor ? conductorGap(events) : missingLaneGap(events, lane),
     }
   }
 
@@ -449,11 +552,12 @@ export async function readTranscript(request: ReadTranscriptRequest): Promise<Tr
   }
 
   const tried = candidates.length === 0 ? 'no worktree path was recorded for it' : candidates.join(' or ')
+  const whose = conductor ? 'the conductor' : `"${lane}"`
   return {
     available: false,
     lane,
     reason:
-      `NO SESSION LOG for "${lane}" (session ${attribution.sessionId}) — the transcript is not on ` +
+      `NO SESSION LOG for ${whose} (session ${attribution.sessionId}) — the transcript is not on ` +
       `disk where the collector tails it (${tried}), so there is nothing to read — ` +
       'run: `observatory doctor`',
   }

@@ -8,8 +8,10 @@ import { sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
 import {
+  CONDUCTOR_LANE,
   TOOL_RESULT_MAX_CHARS,
   candidateTranscriptPaths,
+  findConductorAttribution,
   findLaneAttribution,
   parseTranscript,
   parseTranscriptEntry,
@@ -29,6 +31,9 @@ const LANE = '84-chat-drawer'
 const WORKTREE = '/tmp/observatory-fixture/84-chat-drawer'
 const PROJECT_SLUG = '-tmp-observatory-fixture-84-chat-drawer'
 const SESSION_ID = 'sess-84'
+
+/** Where an `--extra-sessions` conductor's own log lives, in the attribution. */
+const CONDUCTOR_DIR = '/tmp/observatory-fixture/conductor'
 
 function assistantLine(text: string, extra: Record<string, unknown> = {}): string {
   return JSON.stringify({
@@ -105,6 +110,56 @@ describe('findLaneAttribution', () => {
 
   it('is null for a lane nothing ever named', () => {
     expect(findLaneAttribution(laneEvents(), 'no-such-lane')).toBeNull()
+  })
+})
+
+describe('findConductorAttribution (prd6 ruling 5)', () => {
+  it('finds the conductor by its declared role, whatever handle it was given', () => {
+    // `--extra-sessions <dir>:orchestrator` — the handle is the operator's, the
+    // role is the collector's. Matching on the name would find nothing here.
+    const f = createEventFactory()
+    const events = [
+      f.llmUsage({ lane: LANE, branch: LANE, sessionId: SESSION_ID, worktreePath: WORKTREE }),
+      f.llmUsage({
+        lane: 'orchestrator',
+        role: 'conductor',
+        sessionId: 'sess-conductor',
+        worktreePath: CONDUCTOR_DIR,
+      }),
+    ]
+
+    expect(findConductorAttribution(events)).toEqual({
+      sessionId: 'sess-conductor',
+      worktreePath: CONDUCTOR_DIR,
+    })
+  })
+
+  it('takes the newest conductor attribution, not the first', () => {
+    const f = createEventFactory()
+    const events = [
+      f.llmUsage({ lane: 'conductor', role: 'conductor', sessionId: 'sess-old', worktreePath: CONDUCTOR_DIR }),
+      f.llmCost({ lane: 'conductor', role: 'conductor', sessionId: 'sess-new', worktreePath: CONDUCTOR_DIR }),
+    ]
+
+    expect(findConductorAttribution(events)?.sessionId).toBe('sess-new')
+  })
+
+  it('is null when every row is a worker — a lane named conductor proves nothing', () => {
+    const f = createEventFactory()
+    const events = [
+      f.llmUsage({ lane: 'conductor', role: 'worker', sessionId: 'sess-x', worktreePath: WORKTREE }),
+    ]
+
+    expect(findConductorAttribution(events)).toBeNull()
+  })
+
+  it('ignores conductor telemetry that carries no session id', () => {
+    const f = createEventFactory()
+    const events = [
+      f.llmCost({ lane: 'conductor', role: 'conductor', sessionId: null, worktreePath: null }, { source: 'otel' }),
+    ]
+
+    expect(findConductorAttribution(events)).toBeNull()
   })
 })
 
@@ -493,6 +548,126 @@ describe('readTranscript', () => {
     expect(result.reason).toContain('no session id')
   })
 
+  /**
+   * THE CONDUCTOR'S OWN SESSION (prd6 ruling 5), under the `main` identifier.
+   * Same route, same reader, same chunking — only the attribution differs.
+   */
+  describe('the conductor, as `main`', () => {
+    it("reads the conductor's own session from its role attribution", async () => {
+      const dir = path.join(projectsRoot, 'conductor-session-dir')
+      await mkdir(dir, { recursive: true })
+      await writeFile(path.join(dir, 'sess-conductor.jsonl'), `${assistantLine('dispatching #107')}\n`)
+
+      const f = createEventFactory()
+      const result = await readTranscript({
+        events: [
+          ...laneEvents(),
+          f.llmUsage({
+            lane: 'orchestrator',
+            role: 'conductor',
+            sessionId: 'sess-conductor',
+            worktreePath: dir,
+          }),
+        ],
+        lane: CONDUCTOR_LANE,
+        offset: 0,
+        claudeProjectsRoot: projectsRoot,
+      })
+
+      expect(result.available).toBe(true)
+      if (!result.available) return
+      expect(result.lane).toBe('main')
+      expect(result.sessionId).toBe('sess-conductor')
+      expect(result.entries).toEqual([
+        { role: 'assistant', blocks: [{ kind: 'text', text: 'dispatching #107' }] },
+      ])
+    })
+
+    it('falls back to the session booked against main itself when no role said conductor', async () => {
+      // An orchestrator driving the main checkout with no `--extra-sessions`:
+      // its spend is booked to the root-mass's own branch, and that session is
+      // the one the root-mass's drawer should read. Still a recorded fact, not
+      // a guess — the log named the branch.
+      const dir = path.join(projectsRoot, PROJECT_SLUG)
+      await mkdir(dir, { recursive: true })
+      await writeFile(path.join(dir, `${SESSION_ID}.jsonl`), `${assistantLine('on main')}\n`)
+
+      const f = createEventFactory()
+      const result = await readTranscript({
+        events: [f.llmUsage({ lane: 'main', branch: 'main', sessionId: SESSION_ID, worktreePath: WORKTREE })],
+        lane: CONDUCTOR_LANE,
+        offset: 0,
+        claudeProjectsRoot: projectsRoot,
+      })
+
+      expect(result.available).toBe(true)
+      if (!result.available) return
+      expect(result.entries).toEqual([{ role: 'assistant', blocks: [{ kind: 'text', text: 'on main' }] }])
+    })
+
+    it('says the conductor is not instrumented, with the command, rather than going blank', async () => {
+      const result = await readTranscript({
+        events: laneEvents(),
+        lane: CONDUCTOR_LANE,
+        offset: 0,
+        claudeProjectsRoot: projectsRoot,
+      })
+
+      expect(result.available).toBe(false)
+      if (result.available) return
+      expect(result.reason).toContain('CONDUCTOR NOT INSTRUMENTED')
+      expect(result.reason).toContain('role: conductor')
+      expect(result.reason).toContain('observatory --extra-sessions <dir>:conductor')
+      // Never the worker voice: "no such lane main" would send the operator
+      // looking for a worktree that was never the point.
+      expect(result.reason).not.toContain('NO SUCH LANE')
+    })
+
+    it('says something else again when the conductor is instrumented but nameless', async () => {
+      const f = createEventFactory()
+      const result = await readTranscript({
+        events: [
+          f.llmCost(
+            { lane: 'conductor', role: 'conductor', sessionId: null, worktreePath: null },
+            { source: 'otel' },
+          ),
+        ],
+        lane: CONDUCTOR_LANE,
+        offset: 0,
+        claudeProjectsRoot: projectsRoot,
+      })
+
+      expect(result.available).toBe(false)
+      if (result.available) return
+      expect(result.reason).toContain('NO SESSION LOG for the conductor')
+      expect(result.reason).toContain('no session id')
+      expect(result.reason).toContain('observatory doctor')
+    })
+
+    it('names the conductor, not a lane, when its log is simply not on disk', async () => {
+      const f = createEventFactory()
+      const result = await readTranscript({
+        events: [
+          f.llmUsage({
+            lane: 'conductor',
+            role: 'conductor',
+            sessionId: 'sess-conductor',
+            worktreePath: CONDUCTOR_DIR,
+          }),
+        ],
+        lane: CONDUCTOR_LANE,
+        offset: 0,
+        claudeProjectsRoot: projectsRoot,
+      })
+
+      expect(result.available).toBe(false)
+      if (result.available) return
+      expect(result.reason).toContain('NO SESSION LOG for the conductor')
+      expect(result.reason).toContain('sess-conductor')
+      expect(result.reason).toContain(CONDUCTOR_DIR)
+    })
+  })
+
   it('is honestly absent, naming the paths it tried, when the file is not on disk', async () => {
     const result = await readTranscript({
       events: laneEvents(),
@@ -590,6 +765,33 @@ describe('GET /api/transcript/:lane', () => {
       const response = await app.inject({ method: 'GET', url: `/api/transcript/${LANE}?offset=${bad}` })
       expect(response.statusCode).toBe(400)
     }
+  })
+
+  it('serves the conductor on the same route, under `main` — no route of its own', async () => {
+    const dir = path.join(projectsRoot, 'conductor-route-dir')
+    await mkdir(dir, { recursive: true })
+    await writeFile(path.join(dir, 'sess-conductor.jsonl'), `${userLine('dispatch wave 1')}\n`)
+
+    const f = createEventFactory()
+    const app = await makeApp([
+      ...laneEvents(),
+      f.llmUsage({ lane: 'conductor', role: 'conductor', sessionId: 'sess-conductor', worktreePath: dir }),
+    ])
+
+    const response = await app.inject({ method: 'GET', url: '/api/transcript/main' })
+
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body.available).toBe(true)
+    expect(body.sessionId).toBe('sess-conductor')
+    expect(body.entries).toEqual([{ role: 'user', blocks: [{ kind: 'text', text: 'dispatch wave 1' }] }])
+  })
+
+  it('404s with the gap voice, not blankness, when the conductor is uninstrumented', async () => {
+    const response = await (await makeApp()).inject({ method: 'GET', url: '/api/transcript/main' })
+
+    expect(response.statusCode).toBe(404)
+    expect(response.json().reason).toContain('CONDUCTOR NOT INSTRUMENTED')
   })
 
   it('accepts no verb but GET — the read-only constitution, stated in routing', async () => {
