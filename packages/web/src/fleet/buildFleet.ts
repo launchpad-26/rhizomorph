@@ -391,7 +391,12 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
   const costSpend = indexByLane(selectLaneSpend(state))
   const tokenRates = selectSpendRateByLane(state, { now, windowMs, origins: TOKEN_ORIGINS })
   const costRates = selectSpendRateByLane(state, { now, windowMs })
+  // Token-filtered for the overhead ratio's own tokens (dedup'd across
+  // collectors); cost events are never double-reported, so the conductor's
+  // "is it instrumented at all" check reads every origin, otel included —
+  // the one collector that ever emits `llm.cost`.
   const roleSplit = selectRoleSpend(state, { origins: TOKEN_ORIGINS })
+  const costRoleSplit = selectRoleSpend(state)
 
   const worktrees = selectWorktreeViews(state, { includeRemoved: true })
   const touches = selectTouchesByBranch(state)
@@ -609,7 +614,7 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       ),
       costUsdPerHour: Object.values(costRates).reduce((sum, rate) => sum + rate.costUsdPerHour, 0),
       overheadRatio: roleSplit.overheadRatio,
-      conductorInstrumented: roleSplit.conductor.costEventCount > 0,
+      conductorInstrumented: costRoleSplit.conductor.costEventCount > 0,
       windowMs,
     },
     collisions,

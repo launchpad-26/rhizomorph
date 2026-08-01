@@ -334,6 +334,35 @@ describe('detection honesty', () => {
   })
 })
 
+// ── conductor cost visibility (#88) ─────────────────────────────────────────
+
+describe('conductor cost visibility', () => {
+  it('folds a conductor llm.cost event into the fleet, even though tokens are filtered to one origin', () => {
+    // `llm.cost` is otel-only (sessionlog never emits dollars), so the
+    // token-origin allowlist that dedups usage/rate aggregation must not be
+    // the thing `conductorInstrumented` is read off of, or a real cost feed
+    // reads as "not instrumented" on every setup that has one.
+    const log = [
+      event('session.started', {
+        sessionId: 'cost-vis',
+        repoPath: '/repo',
+        repoName: 'observatory',
+        mainBranch: 'main',
+      }, NOW - 10_000),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 10_000),
+      createEvent(
+        'llm.cost',
+        { lane: 'conductor', role: 'conductor', model: 'claude-opus-5', costUsd: 0.42, authoritative: true },
+        { id: nextId(), ts: NOW - 5_000, source: 'otel' },
+      ),
+    ]
+
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+
+    expect(fleet.burn.conductorInstrumented).toBe(true)
+  })
+})
+
 // ── pointability (graft g7) ─────────────────────────────────────────────────
 
 describe('lane slots', () => {
