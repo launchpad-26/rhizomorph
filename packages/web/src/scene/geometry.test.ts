@@ -20,6 +20,7 @@ import {
   SEED_CEILING,
   SEED_FLOOR,
   SEED_FULL_TOKENS,
+  bornRadial,
   layoutScene,
   lifecycleFrac,
   ringAngles,
@@ -289,9 +290,7 @@ describe('the lifecycle journey — prd6 ruling 4', () => {
     const newborn = lifecycleFrac(SEED_FLOOR, 0, 0)
     expect(newborn).toBeLessThan(0.1)
 
-    const geometry = layout(
-      withLane(fleet, LANE, { outputTokens: 0, firstSeenAt: NOW }),
-    )
+    const geometry = layout(withLane(fleet, LANE, { outputTokens: 0, firstSeenAt: NOW }))
     const thread = geometry.byLane.get(LANE) as ThreadGeometry
     // Clear of the root-mass it grew out of, and short of the ring the worked
     // lanes have reached.
@@ -299,7 +298,29 @@ describe('the lifecycle journey — prd6 ruling 4', () => {
     expect(thread.lifeFrac).toBeLessThan(
       (geometry.byLane.get('44-scene-pulses') as ThreadGeometry).lifeFrac,
     )
+    // Clear of the bundle trunk too, so a new thread reads as a thread.
     expect(RADIAL_BORN).toBeGreaterThan(0.32)
+  })
+
+  it('keeps a newborn out of the mass on a panel with no room for one', () => {
+    // A fraction of the rim is only half the answer: squeeze the panel and the
+    // rim closes in on a mass that does not shrink with it.
+    const newborns = {
+      ...fleet,
+      lanes: fleet.lanes.map((lane) => ({ ...lane, outputTokens: 0, firstSeenAt: NOW })),
+    }
+
+    for (const size of [{ width: 900, height: 260 }, { width: 320, height: 120 }, { width: 240, height: 90 }]) {
+      const geometry = layoutScene(newborns, { ...size, now: NOW })
+      for (const thread of geometry.threads) {
+        expect(
+          reach(geometry, thread),
+          `${thread.laneId} was born inside the mass at ${size.width}×${size.height}`,
+        ).toBeGreaterThan(geometry.rootRadius)
+      }
+      // …and there is still a journey left to make.
+      expect(bornRadial(geometry.rootRadius, geometry.rx, geometry.ry)).toBeLessThan(1)
+    }
   })
 
   it('carries a lane outward as it works, and never back in', () => {

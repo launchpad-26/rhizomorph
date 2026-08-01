@@ -9,9 +9,11 @@ import {
   SCAR,
   SCAR_FLOOR,
   cutAt,
+  homecoming,
   isRetired,
   toward,
   type RetireStage,
+  type RetireState,
 } from './retire.js'
 import type { LaneIndex } from './resolve.js'
 
@@ -145,6 +147,40 @@ describe('the three stages', () => {
     const mid = cutAt(CUT.tensionMs + CUT.retractMs * 0.4)
     expect(mid.drift).toBe(mid.retract)
     expect(cutAt(CUT.totalMs).drift).toBe(1)
+  })
+
+  /**
+   * THE WORK GETS HOME AS THE CORD PARTS (prd6 ruling 2).
+   *
+   * The substance travelling down the thread and the mass thickening to receive
+   * it are both hung on this one number, so neither of them has a clock of its
+   * own and the structural cap already governs both.
+   */
+  describe('homecoming', () => {
+    it('arrives exactly as the cord does, and not before', () => {
+      // Nothing has parted yet during the tension release.
+      expect(homecoming(cutAt(0))).toBe(0)
+      expect(homecoming(cutAt(CUT.tensionMs * 0.5))).toBe(0)
+
+      let previous = -1
+      for (let ms = CUT.tensionMs; ms <= CUT.totalMs; ms += 8) {
+        const value = homecoming(cutAt(ms))
+        expect(value).toBeGreaterThanOrEqual(previous)
+        previous = value
+      }
+      expect(homecoming(cutAt(CUT.tensionMs + CUT.retractMs))).toBe(1)
+      expect(homecoming(cutAt(CUT.totalMs))).toBe(1)
+    })
+
+    it('reads 1 for a scar nobody watched leave — the work did land', () => {
+      // History, a replay, and a reduced-motion frame. We were not there for the
+      // journey; that is not a reason to pretend the merge did not happen.
+      expect(homecoming(cutAt(0, false))).toBe(1)
+
+      const registry = new RetireRegistry()
+      const settled = registry.progress(DONE_FLEET, NOW, 'full').get('lane-a')
+      expect(homecoming(settled as RetireState)).toBe(1)
+    })
   })
 })
 

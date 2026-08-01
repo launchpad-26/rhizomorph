@@ -273,16 +273,30 @@ export const LIFE_SPAN_MS = 60 * 60_000
 /** How much of the journey is work rather than wall-clock. Work leads. */
 const WORK_SHARE = 0.65
 /**
- * Where a newborn lane sits, as a fraction of the rim.
+ * Where a newborn lane sits, as a fraction of the rim — close in, but a thread
+ * rather than a smudge on the mass, and clear of the bundle trunk at 0.32.
  *
- * Clear of the root-mass on every panel the layout produces (the mass is 11% of
- * the smaller side; the shorter half-axis is never less than 46px) and clear of
- * the bundle trunk at 0.32, so a brand-new thread still reads as a thread rather
- * than as a smudge on the mass.
+ * A *fraction*, so it is only half the answer: on a cramped panel the rim can
+ * close in on the mass until 42% of it is inside the mass, and a node born inside
+ * the thing it grew out of is not a picture of anything. {@link bornRadial} is the
+ * other half.
  */
 export const RADIAL_BORN = 0.42
 /** …and where it comes to rest. The rim is retirement. */
 export const RADIAL_RIM = 1
+/** How much daylight a newborn node keeps between itself and the mass. */
+const BORN_CLEARANCE_PX = 10
+
+/**
+ * {@link RADIAL_BORN}, pushed out far enough that a newborn node clears the mass
+ * on this panel. Measured against the *smaller* half-axis, because that is the
+ * direction the rim runs closest to the mass in — a lane born at the top of a
+ * letterbox ellipse must clear it as surely as one born at the side.
+ */
+export function bornRadial(rootRadius: number, rx: number, ry: number): number {
+  const smaller = Math.max(1, Math.min(rx, ry))
+  return Math.min(0.9, Math.max(RADIAL_BORN, (rootRadius + BORN_CLEARANCE_PX) / smaller))
+}
 
 /**
  * How far through its life a lane is, 0–1. `homecoming` is the retract of its
@@ -447,6 +461,8 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
   const seatOf = new Map(seatKeys.map((key, i) => [key, i]))
   const angles = ringAngles(seatKeys.length, rx, ry)
 
+  const born = bornRadial(rootRadius, rx, ry)
+
   const sinceSnapshot = Math.max(0, now - fleet.now)
 
   const threads: ThreadGeometry[] = []
@@ -480,7 +496,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
 
     // Distance is the lifecycle, not recency (prd6 ruling 4).
     const lifeFrac = lifecycleFrac(sizeFrac, now - lane.firstSeenAt, cut?.drift ?? 0)
-    const radial = RADIAL_BORN + (RADIAL_RIM - RADIAL_BORN) * lifeFrac
+    const radial = born + (RADIAL_RIM - born) * lifeFrac
     const rim: Point = {
       x: centre.x + rx * radial * Math.cos(angle),
       y: centre.y + ry * radial * Math.sin(angle),
