@@ -9,7 +9,7 @@ import {
   type Fleet,
   type FixtureSpec,
 } from '../fleet/index.js'
-import { RECENCY_SPAN_MS, layoutScene } from './geometry.js'
+import { RECENCY_SPAN_MS, layoutScene, pointAt, type Point } from './geometry.js'
 import { ALARM, EVENT, STRUCTURAL, allowance } from './motion.js'
 import {
   brightnessOf,
@@ -181,6 +181,53 @@ function of(marks: readonly Mark[], laneId: string, ...roles: MarkRole[]): Mark[
   return marks.filter((mark) => mark.laneId === laneId && roles.includes(mark.role))
 }
 
+/**
+ * Every point a mark puts in world space, whatever kind it is.
+ *
+ * A law about *where* something is drawn has no business knowing how it is
+ * drawn — that is the whole of prd7 ruling 2, applied to geometry rather than to
+ * names. Before this the expensive lane's "the marking rises away from the node"
+ * assertion read `mark.points`, which quietly made it a law about strokes; the
+ * marking is a ribbon now and the law is unchanged, so the reading is what had
+ * to move.
+ */
+function pointsOf(mark: Mark): Point[] {
+  switch (mark.kind) {
+    case 'ribbon':
+      return [...mark.path]
+    case 'stroke':
+      return [...mark.points]
+    case 'glow':
+    case 'arc':
+    case 'path':
+    case 'text':
+    case 'chip':
+      return [mark.at]
+  }
+}
+
+/** How close a mark comes to a point — the unit "rises away from the node" is in. */
+function reachOf(mark: Mark, from: Point): number {
+  return Math.min(...pointsOf(mark).map((point) => Math.hypot(point.x - from.x, point.y - from.y)))
+}
+
+/**
+ * How wide a ribbon is drawn at `t`, measured off the polygon that is actually
+ * filled rather than off the width fields that asked for it.
+ *
+ * The nearest outline vertex to a point on the spine sits one half-width away,
+ * so twice that is the drawn width. This is the reading that makes prd7 ruling
+ * 4's promise checkable: a lane's encoded facts must be recoverable *from its
+ * geometry*, however much bounded variation has been spent on it.
+ */
+function widthNear(mark: Mark, t: number): number {
+  if (mark.kind !== 'ribbon') return NaN
+  const on = pointAt(mark.path, t)
+  const vertices = mark.outline.flat()
+  if (vertices.length === 0) return 0
+  return 2 * Math.min(...vertices.map((v) => Math.hypot(v.x - on.x, v.y - on.y)))
+}
+
 /** The brightest thing a lane puts on screen — the salience comparison's unit. */
 function brightest(marks: readonly Mark[], laneId: string): number {
   const mine = marks.filter((mark) => mark.laneId === laneId)
@@ -227,21 +274,25 @@ describe('the five pathologies, found and rendered', () => {
 
     // Three, as the old drawing had — but the count was never the law. What the
     // law is: the marking *rises away* from the node and fades as it goes, which
-    // is what makes it read as heat leaving rather than as a fixed ladder.
+    // is what makes it read as heat leaving rather than as a fixed ladder. The
+    // marking is a tapered lick now rather than a chevron (prd7 ruling 3), and
+    // the law did not move an inch: `reachOf` reads whatever geometry a mark has.
     const rising = of(marks, LANE.expensive, 'expensive-mark')
     expect(rising).toHaveLength(3)
     const node = of(marks, LANE.expensive, 'node')[0]
     expect(node?.kind).toBe('path')
     const from = node?.kind === 'path' ? node.at : { x: 0, y: 0 }
-    const reach = rising.map((mark) =>
-      mark.kind === 'stroke'
-        ? Math.min(...mark.points.map((p) => Math.hypot(p.x - from.x, p.y - from.y)))
-        : NaN,
-    )
+    const reach = rising.map((mark) => reachOf(mark, from))
     for (let i = 1; i < rising.length; i += 1) {
       expect(reach[i] as number).toBeGreaterThan(reach[i - 1] as number)
       expect(brightnessOf(rising[i] as Mark)).toBeLessThan(brightnessOf(rising[i - 1] as Mark))
     }
+
+    // …and the thread it leaves is needled rather than blunt: direction as a
+    // width gradient, which is the substitution the chevrons paid for.
+    const thread = of(marks, LANE.expensive, 'thread')[0]
+    expect(thread?.kind).toBe('ribbon')
+    if (thread?.kind === 'ribbon') expect(widthNear(thread, 1)).toBeLessThan(widthNear(thread, 0.5))
   })
 
   it('OFF-FENCE — the offender marked, the reach taking hold, the victim fenced', () => {
@@ -1302,7 +1353,12 @@ describe('the cord-cut — a finished lane leaves the network', () => {
       const glyphs = of(marks, CALM_LANE, 'scar-mark')
       const lens = glyphs.find((mark) => mark.kind === 'path' && mark.d.startsWith('M0.04'))
       expect(lens?.kind === 'path' && lens.stroke).toBeDefined()
-      expect(glyphs.some((mark) => mark.kind === 'stroke')).toBe(true)
+      // The seal, which is the knot now (prd7 ruling 3) rather than a bar struck
+      // across the tip. Exactly as discriminating as the reading it replaces: the
+      // lens and the thorn are glyphs, so the one mark of the three that is not a
+      // glyph is the seal, and a scar that had stopped carrying one would fail
+      // here as loudly as it did before.
+      expect(glyphs.some((mark) => mark.kind === 'ribbon')).toBe(true)
     })
 
     it('does not breathe', () => {
