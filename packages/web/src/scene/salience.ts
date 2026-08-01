@@ -10,9 +10,10 @@ import { clamp01, fade, luminance, type Ink } from './palette.js'
  * looks right. Three rules, and every mark in the scene passes through them:
  *
  * 1. **Recede, don't shout** (graft g6's other half, A's contrast-spend note).
- *    At NEEDS-YOU and above one lane keeps 100% and everything else drops to
+ *    At NEEDS-YOU and above one lane keeps 100% and every other *lane* drops to
  *    {@link RECEDE}. Salience is a ratio: no amount of amber wins against
- *    nineteen calm threads at full contrast.
+ *    nineteen calm threads at full contrast. The root-mass and the scene's own
+ *    chrome are not lanes and are exempt — see {@link emphasisOf}.
  * 2. **Alarms are exempt from every fade** (graft g2). Recency dimming and
  *    salience dimming both skip a needs-you/broken mark. Without this, FROZEN —
  *    the one state *defined* by being old — would be the dimmest thing on the
@@ -86,7 +87,7 @@ export function salienceOf({ fleet, hoverId, selectedId }: SalienceInputs): Sali
  * (graft g2); a hovered or spotlit lane keeps all of it; everything else recedes
  * once there is something worth receding for.
  */
-export function emphasisOf(
+function emphasisOf(
   salience: Salience,
   laneId: string | null,
   alarm: boolean,
@@ -123,7 +124,7 @@ export function spend(
 }
 
 /** Scales alpha down — never up — until the ink is no brighter than `ceiling`. */
-export function capLuminance(source: Ink, ceiling: number): Ink {
+function capLuminance(source: Ink, ceiling: number): Ink {
   const bright = luminance(source)
   if (bright <= ceiling) return source
   return { rgb: source.rgb, alpha: clamp01(source.alpha * (ceiling / bright)) }

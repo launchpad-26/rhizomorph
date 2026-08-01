@@ -30,13 +30,13 @@ import type { Mark } from './types.js'
  * The five pathologies are behaviours of the thread and its tip, and each is
  * built so it survives greyscale (law 9's "colour is never the sole carrier"):
  *
- * | state     | form                                   | hue        |
- * | --------- | -------------------------------------- | ---------- |
- * | LOOPING   | ring at the node, knot on the thread   | amber      |
- * | FROZEN    | hollow node, dashed dark thread, cuts  | magenta-red|
- * | WAITING   | raised hand, upright, thread stays lit | amber      |
- * | EXPENSIVE | rising chevrons off the tip            | cyan       |
- * | OFF-FENCE | barb on the node, reach to the victim  | amber      |
+ * | state     | form                                     | hue        |
+ * | --------- | ---------------------------------------- | ---------- |
+ * | LOOPING   | knot in the thread, light going round it | amber      |
+ * | FROZEN    | hollow node, dashed dark thread, cuts    | magenta-red|
+ * | WAITING   | raised hand, upright, thread stays lit   | amber      |
+ * | EXPENSIVE | rising chevrons off the tip              | cyan       |
+ * | OFF-FENCE | barb on the node, reach to the victim    | amber      |
  *
  * FROZEN and WAITING are the pair the prd says must never be confusable, so
  * they are opposed on three axes at once: **dark vs light** (a dead thread and a
@@ -423,7 +423,7 @@ export function labelMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
 }
 
 /** A lane's hue: its fault when it has one, else its rung. Never its identity. */
-export function hueOf(thread: ThreadGeometry): Rgb {
+function hueOf(thread: ThreadGeometry): Rgb {
   return thread.pathology === null
     ? RANK_HUE[thread.lane.rank]
     : PATHOLOGY_HUE[thread.pathology]

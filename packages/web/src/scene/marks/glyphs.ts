@@ -29,7 +29,7 @@ export const CARTOUCHE = alarmCartouche()
  * ends in one of these — it is what makes the register read as sigilist rather
  * than as iconography.
  */
-export function thornCurl(sweep: number, width: number): string {
+function thornCurl(sweep: number, width: number): string {
   const r = 0.3
   return thorn(0.5 - r, 0.5, r, 0, sweep, width)
 }
