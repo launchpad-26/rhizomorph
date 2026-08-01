@@ -1,7 +1,11 @@
 import { createEventFactory, reduceAll } from '@observatory/core'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
+import { StreamProvider } from '../app/StreamContext.js'
+import type { EventSourceLike } from '../hooks/useEventStream.js'
+import FleetTable from '../panels/fleet/index.js'
+import { FleetProvider } from './FleetContext.js'
 import { buildFleet, type AttentionItem, type Fleet } from './buildFleet.js'
 import {
   isMainSelected,
@@ -105,6 +109,33 @@ describe('lane selection', () => {
  * it.
  */
 describe('the main pseudo-lane', () => {
+  /** Pinned, so the fold and the derived fleet never move under the test. */
+  const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
+
+  /** The stream the table is driven from — one main worktree and one lane. */
+  let source: SilentEventSource | null = null
+
+  class SilentEventSource implements EventSourceLike {
+    onopen: ((event: Event) => void) | null = null
+    onerror: ((event: Event) => void) | null = null
+    onmessage: ((event: MessageEvent<string>) => void) | null = null
+    constructor() {
+      source = this
+    }
+    close() {}
+  }
+
+  /** A repo with a main worktree, one worker lane, and burn booked to main. */
+  function sessionWithMain() {
+    const f = createEventFactory({ startTs: NOW - 60_000, stepMs: 1_000 })
+    return [
+      f.sessionStarted({ repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' }),
+      f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-main', isMain: true }),
+      f.worktreeDiscovered({ path: '/repo-wt/42', branch: '42-otel-receiver', head: 'sha-42', isMain: false }),
+      f.llmUsage({ lane: 'main', branch: 'main', worktreePath: '/repo', sessionId: 'sess-main' }),
+    ]
+  }
+
   /** Stands in for the scene's root-mass: it toggles main. */
   function RootMass() {
     const { toggle } = useSelection()
@@ -170,17 +201,36 @@ describe('the main pseudo-lane', () => {
     // The structural half of "no panel mistakes it for a worker": `buildFleet`
     // skips the main worktree and books main-branch spend to the root-mass, so
     // a table row can never match this id however the selection moves.
-    const now = Date.UTC(2026, 6, 31, 12, 0, 0)
-    const f = createEventFactory({ startTs: now - 60_000, stepMs: 1_000 })
-    const events = [
-      f.sessionStarted({ repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' }),
-      f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-main', isMain: true }),
-      f.worktreeDiscovered({ path: '/repo-wt/42', branch: '42-otel-receiver', head: 'sha-42', isMain: false }),
-      f.llmUsage({ lane: 'main', branch: 'main', worktreePath: '/repo', sessionId: 'sess-main' }),
-    ]
-    const fleet = buildFleet(reduceAll(events), { now })
+    const fleet = buildFleet(reduceAll(sessionWithMain()), { now: NOW })
 
     expect(fleet.lanes.map((lane) => lane.id)).not.toContain(MAIN_SELECTION)
+  })
+
+  it('grows the fleet table no MAIN row, and highlights none of its rows', async () => {
+    // The observable half, through the real table: main selected, and the
+    // panel that lists workers carries on listing exactly the workers.
+    await act(async () => {
+      render(
+        <StreamProvider url="/api/stream" now={NOW} createSource={() => new SilentEventSource()}>
+          <FleetProvider now={NOW} fetchLanes={async () => ({ ok: false, json: async () => null })}>
+            <SelectionProvider initialSelectedId={MAIN_SELECTION}>
+              <FleetTable />
+            </SelectionProvider>
+          </FleetProvider>
+        </StreamProvider>,
+      )
+    })
+    await act(async () => {
+      for (const event of sessionWithMain()) {
+        source?.onmessage?.({ data: JSON.stringify(event) } as MessageEvent<string>)
+      }
+    })
+
+    const rows = screen.getAllByTestId('fleet-row')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.textContent).toContain('42-otel-receiver')
+    expect(rows.some((row) => row.textContent?.includes('MAIN'))).toBe(false)
+    expect(rows.some((row) => row.getAttribute('aria-selected') === 'true')).toBe(false)
   })
 })
 
