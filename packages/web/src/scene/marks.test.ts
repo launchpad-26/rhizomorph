@@ -15,6 +15,7 @@ import {
   brightnessOf,
   breathOf,
   inksOf,
+  isLinear,
   motionMode,
   sceneMarks,
   type Mark,
@@ -886,6 +887,32 @@ describe('render everything — ruling 22, at twenty lanes', () => {
     }
   })
 
+  it('seals a lane that has landed — done, and not a fault', () => {
+    // DONE is the one state that is not a pathology, and the display list has to
+    // say so in both directions: it carries its own marking, and it carries none
+    // of the fault vocabulary and no enclosure. Until now nothing asserted the
+    // seal at all, because neither fixture has a landed lane in it.
+    const fleet = fleetFor(fleet20Spec())
+    const landed = {
+      ...fleet,
+      lanes: fleet.lanes.map((lane, i) =>
+        i === 0 ? { ...lane, activity: 'done' as const } : lane,
+      ),
+    }
+    const id = (fleet.lanes[0] as { id: string }).id
+    const sealed = marksFor({ fleet: landed })
+
+    expect(of(sealed, id, 'done-mark')).toHaveLength(1)
+    expect(of(sealed, id, ...PATHOLOGY_ROLES)).toHaveLength(0)
+    expect(of(sealed, id, 'rank-enclosure')).toHaveLength(0)
+    // Hollow, not filled: an outline is "no longer filling with work".
+    const node = of(sealed, id, 'node')[0]
+    expect(node?.kind === 'path' && node.stroke).toBeDefined()
+    // …and the lane beside it, still working, is neither sealed nor hollow.
+    const working = (fleet.lanes[1] as { id: string }).id
+    expect(of(sealed, working, 'done-mark')).toHaveLength(0)
+  })
+
   it('renders every thread bright enough to actually read (CALM_FLOOR)', () => {
     // Prd4's opening complaint, pinned. Ruling 22 says render everything, and a
     // thread rendered at a brightness nobody can trace back to the mass has not
@@ -912,6 +939,133 @@ describe('render everything — ruling 22, at twenty lanes', () => {
       const [r, g, b] = (node as Mark).kind === 'path' ? inksOf(node as Mark)[0]!.rgb : [0, 0, 0]
       expect(g, `${lane.id}'s node was not green-dominant`).toBeGreaterThan(Math.max(r, b))
     }
+  })
+})
+
+/**
+ * THE DISPLAY LIST IS DATA (prd7 ruling 1) — and this is the guard that keeps it
+ * that way.
+ *
+ * The seam only pays if a mark is *inert*: a value that can be written down,
+ * posted to a worker, replayed from a log or handed to a painter that has never
+ * heard of this scene. The moment one mark closes over a lane object, arrives as
+ * a class instance with a `draw()` on it, or points back at the frame that built
+ * it, the picture stops being data and the painter stops being swappable — and
+ * nothing else in this file would notice, because every other law reads fields
+ * that a live object has too.
+ *
+ * `structuredClone` is exactly that boundary, made executable: it is what
+ * `postMessage` does. What it refuses is what a painter in another thread could
+ * not have been given. The JSON round-trip is the second half — it refuses the
+ * things `structuredClone` would happily carry (a cycle, a `Map`) but a log or a
+ * wire could not.
+ */
+describe('the display list is data, not objects (prd7 ruling 1)', () => {
+  /**
+   * A corpus wide enough that the guard means something: every mark kind, and
+   * every optional field a mark can carry. A conformance test that only ever saw
+   * plain ribbons would pass for ever without proving anything.
+   */
+  function corpus(): Mark[] {
+    const fleet = fleetFor(pathologySpec())
+    const flowing = new PulseField()
+    flowing.ingest(
+      fixtureHistory(pathologySpec(), NOW).filter((event) => event.type === 'llm.usage').slice(-6),
+      indexFor(fleet),
+      NOW - 500,
+    )
+    const storm = new PulseField()
+    storm.ingest(
+      [
+        createEvent(
+          'commit.landed',
+          {
+            sha: 'clone-1',
+            branch: LANE.healthy,
+            message: 'feat: a step',
+            author: { name: 'agent', email: 'agent@observatory' },
+            files: [{ path: 'src/a.ts', status: 'modified', insertions: 2, deletions: 1 }],
+          },
+          { id: 'clone-1', ts: NOW },
+        ),
+      ],
+      indexFor(fleet),
+      NOW - 500,
+    )
+
+    return [
+      ...marksFor({ fleet }),
+      // The chip behind a spotlit name, and the spotlight's own rings.
+      ...marksFor({ fleet, selectedId: LANE.healthy }),
+      // The standing gradient — the one mark that paints with a `linear`.
+      ...marksFor({ fleet, field: flowing, reducedMotion: true }),
+      // Light in flight, and the count an aggregate carries.
+      ...marksFor({ fleet, field: storm }),
+      // A cut mid-flight: the scar family and the homeward ribbon.
+      ...marksFor({ fleet, retire: new Map([[LANE.healthy, cutAt(CUT.tensionMs + 120)]]) }),
+      // The gap voice, which is chrome rather than a lane's.
+      ...marksFor({ fleet: fleetFor(pathologySpec(), false) }),
+    ]
+  }
+
+  const marks = corpus()
+
+  it('covers every kind and every optional field, so the guard is worth having', () => {
+    const kinds = new Set(marks.map((mark) => mark.kind))
+    expect([...kinds].sort()).toEqual(['arc', 'chip', 'glow', 'path', 'ribbon', 'stroke', 'text'])
+
+    const has = (predicate: (mark: Mark) => boolean): boolean => marks.some(predicate)
+    expect(has((m) => m.kind === 'ribbon' && m.dashed === true), 'no dashed ribbon').toBe(true)
+    expect(has((m) => m.kind === 'ribbon' && isLinear(m.paint)), 'no linear paint').toBe(true)
+    expect(has((m) => m.kind === 'stroke' && m.dash !== undefined), 'no dashed stroke').toBe(true)
+    expect(has((m) => m.kind === 'arc' && m.dash !== undefined), 'no dashed arc').toBe(true)
+    expect(has((m) => m.kind === 'path' && m.stroke !== undefined), 'no hollow glyph').toBe(true)
+    expect(has((m) => m.kind === 'path' && m.squash !== undefined), 'no squashed glyph').toBe(true)
+    expect(has((m) => m.laneId === null), 'nothing that belongs to no lane').toBe(true)
+  })
+
+  it('survives structuredClone — the boundary a worker or a replay would cross', () => {
+    const copy = structuredClone(marks)
+    expect(copy).toEqual(marks)
+    // Not the same objects: a clone that handed back the originals would prove
+    // nothing about what is in them.
+    expect(copy[0]).not.toBe(marks[0])
+  })
+
+  it('survives a JSON round-trip — no cycle, and nothing that only lives in memory', () => {
+    expect(JSON.parse(JSON.stringify(marks))).toEqual(marks)
+  })
+
+  it('carries no function and no class instance, anywhere in the tree', () => {
+    // Walked by hand rather than inferred from the clone: `structuredClone`
+    // happily carries a `Map` and a cycle, and both would mean the painter is
+    // being handed a live object rather than a picture.
+    const wrong: string[] = []
+    const walk = (value: unknown, at: string, ancestors: readonly object[]): void => {
+      if (value === null) return
+      const type = typeof value
+      if (type === 'function' || type === 'symbol' || type === 'bigint') {
+        wrong.push(`${at} is a ${type}`)
+        return
+      }
+      if (type !== 'object') return
+
+      const node = value as object
+      if (ancestors.includes(node)) {
+        wrong.push(`${at} closes a cycle`)
+        return
+      }
+      const proto = Object.getPrototypeOf(node) as object | null
+      if (proto !== Object.prototype && proto !== Array.prototype && proto !== null) {
+        wrong.push(`${at} is a ${node.constructor?.name ?? 'exotic'}`)
+        return
+      }
+      const deeper = [...ancestors, node]
+      for (const [key, child] of Object.entries(node)) walk(child, `${at}.${key}`, deeper)
+    }
+
+    marks.forEach((mark, i) => walk(mark, `${mark.role}[${i}]`, []))
+    expect(wrong).toEqual([])
   })
 })
 
