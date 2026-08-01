@@ -96,4 +96,70 @@ describe('PanelGrid', () => {
     expect(screen.getByText('Collisions')).toBeInTheDocument()
     expect(screen.getByText('Activity')).toBeInTheDocument()
   })
+
+  describe('focus (ruling 6 — one panel at a time)', () => {
+    it('focusing one panel fills the view and hides every sibling, including the scene', async () => {
+      await renderGrid()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Focus Fleet' }))
+
+      expect(screen.getByText('Fleet')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Restore Fleet' })).toBeInTheDocument()
+      expect(screen.queryByText('Ledger')).not.toBeInTheDocument()
+      expect(screen.queryByText('Collisions')).not.toBeInTheDocument()
+      expect(screen.queryByText('Activity')).not.toBeInTheDocument()
+      expect(screen.queryByText('Scene stub')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /focus scene/i })).not.toBeInTheDocument()
+    })
+
+    it('restoring (the explicit control) returns the curated order', async () => {
+      await renderGrid()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Focus Ledger' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Restore Ledger' }))
+
+      for (const title of ['Fleet', 'Ledger', 'Collisions', 'Activity']) {
+        expect(screen.getByText(title)).toBeInTheDocument()
+      }
+      expect(screen.getByText('Scene stub')).toBeInTheDocument()
+    })
+
+    it('Esc restores the curated order when nothing is selected', async () => {
+      await renderGrid()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Focus Collisions' }))
+      fireEvent.keyDown(window, { key: 'Escape' })
+
+      for (const title of ['Fleet', 'Ledger', 'Collisions', 'Activity']) {
+        expect(screen.getByText(title)).toBeInTheDocument()
+      }
+    })
+
+    it('the scene focuses full-view, breaking out of the small slot chrome, and other panels hide', async () => {
+      await renderGrid()
+
+      // The un-focused slot still carries `SceneSlot`'s own fixed-height chrome.
+      expect(screen.getByRole('button', { name: /collapse scene/i })).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Focus Scene' }))
+      // The focused view mounts its own `lazy()` reference to `../scene/index.js`
+      // (see `FocusableScene`'s comment) — its own suspend-then-resume tick,
+      // flushed deterministically since the module is already preloaded above.
+      await act(async () => {})
+
+      expect(screen.getByText('Scene stub')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Restore Scene' })).toBeInTheDocument()
+      // `SceneSlot`'s own chrome (and its fixed h-64 host) is gone — the
+      // focused scene mounts directly instead of inside it.
+      expect(screen.queryByRole('button', { name: /collapse scene/i })).not.toBeInTheDocument()
+      expect(screen.queryByText('Fleet')).not.toBeInTheDocument()
+      expect(screen.queryByText('Ledger')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Restore Scene' }))
+
+      expect(screen.getByText('Scene stub')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /collapse scene/i })).toBeInTheDocument()
+      expect(screen.getByText('Fleet')).toBeInTheDocument()
+    })
+  })
 })
