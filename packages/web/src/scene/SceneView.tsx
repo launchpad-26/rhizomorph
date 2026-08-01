@@ -21,7 +21,7 @@ import {
   type Viewport,
 } from './camera.js'
 import { layoutScene, type SceneGeometry } from './geometry.js'
-import { breathOf, sceneMarks, type SceneFrame } from './marks/index.js'
+import { breathOf, motionMode, sceneMarks, type SceneFrame } from './marks/index.js'
 import { paint } from './paint.js'
 import type { PulseField } from './pulses.js'
 import { salienceOf } from './salience.js'
@@ -46,6 +46,17 @@ import type { SettleRegistry } from './settle.js'
  * between them. The transform is kept in a ref rather than in state because it
  * changes at pointer rate and the only thing that has to re-render when it does
  * is one button.
+ *
+ * **The pause control** (prd5 ruling 4) is the other thing wired here, and it is
+ * not a nicety: WCAG 2.2.2 is Level A, it covers any moving content that starts
+ * on its own and runs past five seconds, and a canvas that breathes for ever is
+ * exactly that. The mechanism is one line of arithmetic — while paused the scene
+ * **holds its clock still** — and that is deliberately the whole of it. Every
+ * ambient and event animation in `marks/` is a function of `now`, so freezing
+ * `now` freezes all of them at once, including any added later by somebody who
+ * never read this comment. What the frozen clock deliberately does *not* stop is
+ * structural motion: a thread half-way through growing in is a picture of a
+ * topology that does not exist, so grow-in keeps its real clock and settles.
  */
 
 export interface SceneViewProps {
@@ -80,7 +91,10 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
   const geometryRef = useRef<SceneGeometry | null>(null)
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [reducedMotion, setReducedMotion] = useState(false)
+  const [paused, setPaused] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
+  /** The instant the operator pressed pause. The scene's clock, while it lasts. */
+  const pausedAtRef = useRef<number | null>(null)
 
   // The camera's own live state. `cameraRef` is what the loop paints through;
   // the two booleans are the only parts React has to know about, and both flip
@@ -96,8 +110,8 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
   const [panning, setPanning] = useState(false)
   const [grabReady, setGrabReady] = useState(false)
 
-  const latest = useRef({ fleet, field, settle, selectedId, hoverId, reducedMotion, now })
-  latest.current = { fleet, field, settle, selectedId, hoverId, reducedMotion, now }
+  const latest = useRef({ fleet, field, settle, selectedId, hoverId, reducedMotion, paused, now })
+  latest.current = { fleet, field, settle, selectedId, hoverId, reducedMotion, paused, now }
 
   useEffect(() => {
     // `matchMedia` is absent in some test environments; its absence means "no
@@ -130,12 +144,14 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
    *
    * It jumps under `prefers-reduced-motion` (a camera flight is the largest
    * movement in the instrument, so it is the first thing that preference should
-   * switch off), and under a pinned clock, where there is no loop to fly with
-   * and a test is asking for a still image.
+   * switch off), while motion is paused (an operator who has asked the scene to
+   * stop moving has asked for all of it), and under a pinned clock, where there
+   * is no loop to fly with and a test is asking for a still image.
    */
   const goTo = useCallback(
     (camera: Camera) => {
-      const jump = latest.current.reducedMotion || latest.current.now !== undefined
+      const { reducedMotion: reduced, paused: held, now: pinned } = latest.current
+      const jump = reduced || held || pinned !== undefined
       if (jump) {
         flightRef.current = null
         moveTo(camera)
@@ -247,20 +263,30 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
 
     const drawFrame = () => {
       const current = latest.current
-      const clock = current.now ?? Date.now()
+      const real = current.now ?? Date.now()
       const ctx = canvas.getContext('2d')
       // jsdom has no 2D context. The scene is then simply not drawn — the DOM
       // it lives in still renders, and so does everything around it.
       if (ctx === null) return
 
-      stepFlight(clock)
+      // The pause, in three lines. The scene's clock stops at the instant the
+      // control was pressed and every ambient and event animation stops with it,
+      // because every one of them is a function of this number.
+      if (!current.paused) pausedAtRef.current = null
+      else if (pausedAtRef.current === null) pausedAtRef.current = real
+      const clock = pausedAtRef.current ?? real
+
+      stepFlight(real)
       current.field.step(clock)
 
       const geometry = layoutScene(current.fleet, {
         width,
         height,
         now: clock,
-        growth: current.settle.progress(clock),
+        // Structural motion keeps the real clock: a thread caught half-way
+        // through growing in is a picture of a fleet that does not exist, so a
+        // grow-in that was already running settles and *then* stops.
+        growth: current.settle.progress(real),
       })
       geometryRef.current = geometry
       boundsRef.current = contentBounds(geometry)
@@ -276,7 +302,8 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
         }),
         now: clock,
         reducedMotion: current.reducedMotion,
-        breath: breathOf(clock, current.reducedMotion),
+        paused: current.paused,
+        breath: breathOf(clock, motionMode(current)),
       }
 
       // `paint` owns the transform now, camera and device scale together — the
@@ -453,6 +480,7 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
         onMouseLeave={() => setHoverId(null)}
         onClick={(event) => onSelect(laneAt(event.clientX, event.clientY))}
       />
+      <MotionControl paused={paused} onToggle={() => setPaused((held) => !held)} />
       <CameraControls
         lost={lost}
         reducedMotion={reducedMotion}
@@ -484,6 +512,63 @@ function cursorOf(panning: boolean, grabReady: boolean): string {
   if (panning) return 'cursor-grabbing'
   if (grabReady) return 'cursor-grab'
   return 'cursor-default'
+}
+
+interface MotionControlProps {
+  paused: boolean
+  onToggle: () => void
+}
+
+/**
+ * THE PAUSE CONTROL (prd5 ruling 4) — WCAG 2.2.2, Level A.
+ *
+ * Any content that moves on its own, runs longer than five seconds and sits
+ * beside other content needs a way to stop it. The scene breathes for as long as
+ * it is open, so without this button the whole instrument is a Level A failure
+ * however careful the rest of the motion work is. It is a real `<button>` in the
+ * document, so it is in the tab order and answers Enter and Space for free —
+ * no key of its own, because the scene's keys are scoped to a focused canvas and
+ * an accessibility control that only works once you have found the canvas is not
+ * one.
+ *
+ * Paused, it *says so* rather than only looking different: the state is the
+ * point, and a stopped scene with no words on it is indistinguishable from a
+ * quiet fleet — which is the one confusion this instrument can least afford.
+ * `aria-pressed` carries the same fact to a screen reader.
+ *
+ * It sits top-left, the one corner nothing else claims: the camera cluster owns
+ * bottom-right and the gap voice is painted into the bottom-left gutter, and a
+ * control that covered law 12's caveats would be buying accessibility with
+ * honesty. Ice, never amber — amber means needs-you in this instrument.
+ */
+function MotionControl({ paused, onToggle }: MotionControlProps) {
+  return (
+    <div className="absolute left-2 top-2 flex items-center gap-2">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-pressed={paused}
+        data-testid="scene-motion-pause"
+        title={paused ? 'Let the scene move again' : 'Freeze the scene’s own motion'}
+        className={`rounded border px-2 py-1 text-[10px] uppercase leading-none tracking-wide backdrop-blur-sm transition-[transform,color,border-color] duration-150 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600 active:scale-[0.97] ${
+          paused
+            ? 'border-ice-600 bg-ice-900/90 text-ice-100'
+            : 'border-ice-850 bg-ice-950/80 text-ice-400 hover:border-ice-600 hover:text-ice-200'
+        }`}
+      >
+        {paused ? 'Resume motion' : 'Pause motion'}
+      </button>
+      {paused && (
+        <span
+          role="status"
+          data-testid="scene-motion-state"
+          className="text-[10px] uppercase tracking-widest text-ice-300"
+        >
+          Motion paused
+        </span>
+      )}
+    </div>
+  )
 }
 
 interface CameraControlsProps {

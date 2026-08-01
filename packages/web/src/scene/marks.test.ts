@@ -14,6 +14,7 @@ import {
   brightnessOf,
   breathOf,
   inksOf,
+  motionMode,
   sceneMarks,
   type Mark,
   type MarkRole,
@@ -59,26 +60,33 @@ interface FrameOptions {
   fleet?: Fleet
   field?: PulseField
   reducedMotion?: boolean
+  paused?: boolean
   selectedId?: string | null
   hoverId?: string | null
+  /** For the aging and motion suites: a clock other than the fleet's own. */
+  now?: number
 }
 
 function frameFor(options: FrameOptions = {}): SceneFrame {
   const fleet = options.fleet ?? fleetFor(pathologySpec())
   const reducedMotion = options.reducedMotion ?? false
+  const paused = options.paused ?? false
+  const now = options.now ?? NOW
+  const mode = motionMode({ reducedMotion, paused })
 
   return {
     fleet,
-    geometry: layoutScene(fleet, { ...SIZE, now: NOW }),
+    geometry: layoutScene(fleet, { ...SIZE, now }),
     field: options.field ?? new PulseField(),
     salience: salienceOf({
       fleet,
       hoverId: options.hoverId ?? null,
       selectedId: options.selectedId ?? null,
     }),
-    now: NOW,
+    now,
     reducedMotion,
-    breath: breathOf(NOW, reducedMotion),
+    paused,
+    breath: breathOf(now, mode),
   }
 }
 
@@ -339,8 +347,8 @@ describe('prefers-reduced-motion', () => {
   })
 
   it('holds the breath at rest', () => {
-    expect(breathOf(NOW, true)).toBe(1)
-    expect(breathOf(NOW + 1_350, false)).not.toBe(1)
+    expect(breathOf(NOW, 'reduced')).toBe(1)
+    expect(breathOf(NOW + 1_350, 'full')).not.toBe(1)
   })
 
   it('still draws every lane, every node and every name', () => {

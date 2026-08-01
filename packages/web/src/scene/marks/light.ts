@@ -1,7 +1,8 @@
 import { pointAt, tangentAt, type Point, type ThreadGeometry } from '../geometry.js'
-import { ICE_200, NEEDS_YOU, clamp01, hotter, incandescent, ink } from '../palette.js'
+import { alarmPulse } from '../motion.js'
+import { ICE_100, ICE_200, NEEDS_YOU, clamp01, hotter, incandescent, ink } from '../palette.js'
 import { PulseField, type Pulse } from '../pulses.js'
-import { budget, type SceneFrame } from './frame.js'
+import { budget, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
 import type { Mark } from './types.js'
 
 /**
@@ -13,17 +14,28 @@ import type { Mark } from './types.js'
  * *light*, not a fifth hue, so nothing that travels ever competes with the
  * ladder for meaning.
  *
- * Two of the three things drawn here are states rather than journeys, and both
- * are lawful under ruling 32's motion amendment because they are the encoding
- * rather than decoration:
+ * Everything here belongs to the budget's **event** class, and the class's cap
+ * is what makes the file readable in a storm: the field will never hand us more
+ * than five journeys at once, and the sixth arrives as an *aggregate* — one
+ * packet carrying a count of the events that folded into it (ruling 4). A count
+ * beside one moving light is a fact; twelve moving lights are a mood.
+ *
+ * Two of the things drawn here are states rather than journeys, and both are
+ * lawful under ruling 32's motion amendment because they are the encoding rather
+ * than decoration:
  *
  * - the LOOPING orbit advances one notch per real `tool.activity`, so a loop
  *   that stops looks stopped — the wheel turns because the agent turned it;
- * - the WAITING throb is a blessed exception, and degrades to a static bright
- *   dot under `prefers-reduced-motion`.
+ * - the WAITING throb is a blessed exception, and it now ages: ruling 5 lets an
+ *   unanswered summons pulse *slower and brighter* the longer it goes unanswered.
+ *   Slower, never faster — insistent, not frantic.
  *
- * Under reduced motion travelling pulses are not drawn at all: the same facts
- * are carried by the standing brightness gradient in `thread.ts`.
+ * The two degradations are not the same shape, and the difference is deliberate.
+ * Under **reduced motion** travelling pulses are not drawn at all and the same
+ * facts are carried by the standing brightness gradient in `thread.ts`. Under
+ * **pause** they are drawn exactly where they were: the scene holds its clock
+ * still, so a paused frame is the picture the operator was looking at when they
+ * pressed the button, rather than a different picture with the light removed.
  */
 
 /** How far along the thread a tool-call tick flicks. Near the tip: work is there. */
@@ -35,7 +47,7 @@ const HELD_AT = 0.9
 export function lightMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const marks: Mark[] = []
 
-  if (!frame.reducedMotion) {
+  if (motionMode(frame) !== 'reduced') {
     for (const pulse of frame.field.pulses()) {
       if (pulse.laneId !== thread.laneId) continue
       marks.push(...pulseMarks(frame, thread, pulse))
@@ -81,13 +93,15 @@ function pulseMarks(frame: SceneFrame, thread: ThreadGeometry, pulse: Pulse): Ma
 
   const t = PulseField.position(pulse, frame.now)
   const at = pointAt(thread.path, t)
-  const size = pulse.size * (0.75 + 0.35 * envelope)
+  const size = pulse.size * (0.75 + 0.35 * envelope) * swell(pulse.count)
   const marks: Mark[] = []
 
   // A commit is a packet with a wake: sharp head, tapered tail pointing back
   // the way it came, so its direction reads in a single frame. The tail's
-  // length is the file count — the journey carries how much rode in.
-  if (pulse.kind === 'commit' || pulse.kind === 'landing') {
+  // length is the file count — the journey carries how much rode in. An
+  // aggregate always gets one: it is the mark most in need of a direction,
+  // because it is the one standing in for traffic that was not drawn.
+  if (pulse.kind === 'commit' || pulse.kind === 'landing' || pulse.kind === 'aggregate') {
     const tail = 0.05 + Math.min(0.1, pulse.weight * 0.006)
     const steps = 7
     for (let i = steps; i >= 1; i -= 1) {
@@ -131,7 +145,49 @@ function pulseMarks(frame: SceneFrame, thread: ThreadGeometry, pulse: Pulse): Ma
     },
   )
 
+  if (pulse.count > 1) marks.push(countMark(frame, thread, pulse, at, size, envelope))
+
   return marks
+}
+
+/**
+ * How much bigger an aggregate rides than the single journey it grew out of.
+ *
+ * Logarithmic and capped: the count is the number, and the size only has to say
+ * "this one is carrying more than itself". A packet that scaled linearly with a
+ * burst of two hundred would be a disc across the whole scene.
+ */
+function swell(count: number): number {
+  if (count <= 1) return 1
+  return 1 + Math.min(0.6, 0.18 * Math.log2(count))
+}
+
+/**
+ * The count an aggregate carries — the whole reason coalescing is honest rather
+ * than merely tidy. Mono with tabular numerals, because it is a figure (law 11),
+ * and set beside the packet rather than on it so the light stays light.
+ */
+function countMark(
+  frame: SceneFrame,
+  thread: ThreadGeometry,
+  pulse: Pulse,
+  at: Point,
+  size: number,
+  envelope: number,
+): Mark {
+  return {
+    kind: 'text',
+    role: 'pulse',
+    laneId: thread.laneId,
+    alarm: false,
+    at: { x: at.x, y: at.y - size - 5 },
+    text: `×${pulse.count}`,
+    font: 'mono',
+    size: 9,
+    weight: 600,
+    align: 'centre',
+    ink: budget(frame, thread.laneId, false, ink(ICE_100, 0.9 * envelope)),
+  }
 }
 
 /**
@@ -143,7 +199,12 @@ function orbitMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const knot = thread.knot
   if (knot === null) return []
 
-  const phase = frame.field.energyOf(thread.laneId).orbitPhase
+  const energy = frame.field.energyOf(thread.laneId)
+  // Reduced motion takes the jump-cut: the notch the tool calls have actually
+  // put the wheel on, rather than the eased travel toward it. Same fact, same
+  // circuit, no movement — which is the sanctioned degradation for a layout
+  // that would otherwise animate its way to a solved position.
+  const phase = motionMode(frame) === 'reduced' ? energy.orbitTarget : energy.orbitPhase
   const angle = knot.tangent + phase * Math.PI * 2
   const on = (a: number): Point => ({
     x: knot.centre.x + Math.cos(a) * knot.radius,
@@ -200,12 +261,16 @@ function orbitMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
  * which is half of why this can never be read as FROZEN: waiting is light that
  * has stopped moving, frozen is darkness with a cut across it.
  *
- * Reduced motion pins the throb to a static bright dot (ruling 32).
+ * The breathing ages (ruling 5). A summons that has gone unanswered for ten
+ * minutes pulses more slowly and more brightly than one raised a moment ago —
+ * the hand does not start waving faster because nobody came, it gets harder to
+ * look away from. Reduced motion and pause both pin the throb to a static bright
+ * value (ruling 32's degradation, and the reason a paused alarm can never freeze
+ * at the dim end of its own wave).
  */
 function heldMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
-  const throb = frame.reducedMotion
-    ? 0.75
-    : 0.55 + 0.45 * (0.5 + 0.5 * Math.sin((frame.now / 620) * Math.PI))
+  const pulse = alarmPulse(summonsAgeMs(frame, thread), motionMode(frame))
+  const throb = (0.55 + 0.45 * pulse.throb) * pulse.intensity
   const at = pointAt(thread.path, HELD_AT)
 
   return [

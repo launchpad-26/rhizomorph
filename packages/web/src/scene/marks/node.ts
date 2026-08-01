@@ -1,6 +1,7 @@
 import { formatTokens } from '../../lib/format.js'
 import type { LadderRank, PathologyKind } from '../../fleet/index.js'
 import { tangentAt, type Point, type ThreadGeometry } from '../geometry.js'
+import { alarmPulse } from '../motion.js'
 import {
   ACTIVITY_HUE,
   BROKEN,
@@ -19,7 +20,7 @@ import {
   type Ink,
   type Rgb,
 } from '../palette.js'
-import { budget, type SceneFrame } from './frame.js'
+import { budget, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
 import { CARTOUCHE, NODE_LENS, THORN_OUT } from './glyphs.js'
 import type { Mark } from './types.js'
 
@@ -265,14 +266,19 @@ function chevronMarks(
  * pointed along its own thread would aim downward for half the fleet and stop
  * being a hand. Bright, standing, on a thread that is still lit.
  *
- * Under `prefers-reduced-motion` the lift is fixed rather than breathing — the
- * hand is still raised, it just stops waving (ruling 32's degradation).
+ * The wave ages with the summons (ruling 5): the longer nobody comes, the slower
+ * and the brighter it goes. A hand that waved *faster* the longer it was ignored
+ * would read as panic, and the fleet is not panicking — it is waiting, and it
+ * has been waiting a while.
+ *
+ * Under `prefers-reduced-motion` and under pause the lift is fixed rather than
+ * breathing — the hand is still raised, it just stops waving (ruling 32's
+ * degradation, now stated once for every alarm mark in `motion.ts`).
  */
 function handMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark[] {
   const at = thread.node
-  const wave = frame.reducedMotion
-    ? 0
-    : 2.6 * Math.sin((frame.now / 620) * Math.PI)
+  const pulse = alarmPulse(summonsAgeMs(frame, thread), motionMode(frame))
+  const wave = 2.6 * (pulse.throb * 2 - 1)
   const lift = (HAND_LIFT + wave) * frame.breath
   const wrist: Point = { x: at.x, y: at.y - 5 }
   const palm: Point = { x: at.x, y: at.y - 8.5 - lift }
@@ -285,7 +291,10 @@ function handMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark[] 
       alarm: true,
       at: { x: at.x, y: at.y - 10 - lift * 0.6 },
       radius: 20,
-      ink: ink(hue, 0.16),
+      // The halo is where the aging is spent. The palm above it does not move:
+      // it is the mark that owes the alarm band its floor, and a summons that
+      // dimmed while it was young would be lying about which band it is in.
+      ink: ink(hue, 0.16 * pulse.intensity),
     },
     {
       kind: 'stroke',

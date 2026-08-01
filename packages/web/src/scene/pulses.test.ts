@@ -6,14 +6,15 @@ import {
   initialStreamState,
   type StreamState,
 } from '../app/streamState.js'
+import { EVENT } from './motion.js'
 import {
-  MAX_MOTES_PER_LANE,
   MAX_MOTES_PER_REQUEST,
   MAX_PULSES,
   ORBIT_STEP,
   PulseField,
   TOKENS_PER_MOTE,
   takeNews,
+  type Pulse,
 } from './pulses.js'
 import type { LaneIndex } from './resolve.js'
 
@@ -96,6 +97,11 @@ function paneBeat(ts = NOW): ObservatoryEvent {
   )
 }
 
+/** How many real events the live animations stand for, counts included. */
+function represented(field: PulseField): number {
+  return field.pulses().reduce((total, pulse) => total + pulse.count, 0)
+}
+
 describe('rule 1 — history never pulses', () => {
   it('lights nothing for a replayed session, however big the burst', () => {
     const connectedAt = NOW
@@ -169,25 +175,28 @@ describe('rule 2 — traffic is coalesced, never invented', () => {
     expect(field.pulses()).toHaveLength(MAX_MOTES_PER_REQUEST)
   })
 
-  it('turns what the cap swallows into glow, and keeps the count real', () => {
+  it('turns a burst into a handful of pulses and a count, losing nothing', () => {
     const field = new PulseField()
     const requests = Array.from({ length: 20 }, () => usage('77-strip', TOKENS_PER_MOTE * 3))
     field.ingest(requests, INDEX, NOW)
 
-    const motes = field.pulses().filter((p) => p.kind === 'mote')
-    expect(motes).toHaveLength(MAX_MOTES_PER_LANE)
-    // 20 requests × 3 motes wanted, 12 in flight — the rest became brightness.
-    expect(field.energyOf('lane-a').coalesced).toBe(20 * 3 - MAX_MOTES_PER_LANE)
+    // 60 motes wanted, five animations drawn — and every one of the 60 is still
+    // accounted for, in a count or in the lane's glow.
+    expect(field.concurrency()).toBe(EVENT.maxConcurrent)
+    expect(represented(field) + field.energyOf('lane-a').coalesced).toBe(60)
     expect(field.energyOf('lane-a').heat).toBeGreaterThan(0)
   })
 
-  it('caps the whole field and says how much it refused', () => {
+  it('never drops anything outright — the motion cap coalesces long first', () => {
     const field = new PulseField()
     for (let i = 0; i < MAX_PULSES + 50; i += 1) {
       field.ingest([commit('77-strip', 1, NOW + i)], INDEX, NOW + i)
     }
-    expect(field.pulses().length).toBeLessThanOrEqual(MAX_PULSES)
-    expect(field.dropped()).toBeGreaterThan(0)
+    expect(field.concurrency()).toBeLessThanOrEqual(EVENT.maxConcurrent)
+    // The memory backstop is far above the motion cap, so it is never reached
+    // and the gap voice has nothing to report. Zero here means zero.
+    expect(field.dropped()).toBe(0)
+    expect(represented(field)).toBe(MAX_PULSES + 50)
   })
 
   it('lights nothing for the two event types that only move clocks', () => {
@@ -200,6 +209,132 @@ describe('rule 2 — traffic is coalesced, never invented', () => {
     const field = new PulseField()
     field.ingest([usage('99-unknown', 5_000)], INDEX, NOW)
     expect(field.pulses()).toHaveLength(0)
+  })
+})
+
+/**
+ * THE MOTION CAP (ruling 4) — rule 2, extended from traffic to motion.
+ *
+ * Five is not a performance budget. It is the number of independent moving
+ * targets a person can actually follow (Pylyshyn & Storm), and a scene that
+ * fires twelve at once reports *less* than one that fires five, because none of
+ * the twelve can be tracked. So the sixth event does not get its own light — it
+ * folds into a journey that is already running, which starts carrying a count.
+ */
+describe('ruling 4 — five concurrent animations, then a count', () => {
+  const aggregateOf = (field: PulseField): Pulse | undefined =>
+    field.pulses().find((pulse) => pulse.kind === 'aggregate')
+
+  it('animates the first five events and coalesces the sixth', () => {
+    const field = new PulseField()
+    const six = Array.from({ length: 6 }, (_unused, i) => commit('77-strip', 1, NOW + i))
+    field.ingest(six, INDEX, NOW)
+
+    expect(field.concurrency()).toBe(EVENT.maxConcurrent)
+
+    const aggregate = aggregateOf(field)
+    expect(aggregate).toBeDefined()
+    // Two events on one animation: the journey it was already making, plus the
+    // one that could not have its own.
+    expect(aggregate?.count).toBe(2)
+    expect(represented(field)).toBe(6)
+  })
+
+  it('keeps counting past the cap without ever adding a seventh moving thing', () => {
+    const field = new PulseField()
+    for (let i = 0; i < 40; i += 1) field.ingest([commit('77-strip', 1, NOW + i)], INDEX, NOW)
+
+    expect(field.concurrency()).toBe(EVENT.maxConcurrent)
+    expect(aggregateOf(field)?.count).toBe(40 - (EVENT.maxConcurrent - 1))
+    expect(represented(field)).toBe(40)
+  })
+
+  it('folds only into a journey going the same way', () => {
+    // A commit folded into an outbound mote would be a lie about direction, and
+    // direction is the one thing the light in this scene is *for*.
+    const field = new PulseField()
+    field.ingest(
+      Array.from({ length: EVENT.maxConcurrent }, () => usage('77-strip', TOKENS_PER_MOTE)),
+      INDEX,
+      NOW,
+    )
+    expect(field.pulses().every((pulse) => !pulse.homeward)).toBe(true)
+
+    field.ingest([commit('77-strip', 1)], INDEX, NOW)
+
+    // No homeward journey to join, so it became the lane's glow rather than
+    // riding out to the tip on somebody else's mote.
+    expect(field.pulses().every((pulse) => !pulse.homeward)).toBe(true)
+    expect(field.energyOf('lane-a').coalesced).toBe(1)
+  })
+
+  it('never folds one lane’s traffic onto another lane’s thread', () => {
+    const field = new PulseField()
+    field.ingest(
+      Array.from({ length: EVENT.maxConcurrent }, (_unused, i) => commit('77-strip', 1, NOW + i)),
+      INDEX,
+      NOW,
+    )
+    field.ingest([commit('78-table', 1)], INDEX, NOW)
+
+    expect(field.pulses().every((pulse) => pulse.laneId === 'lane-a')).toBe(true)
+    expect(field.energyOf('lane-b').coalesced).toBe(1)
+    expect(field.energyOf('lane-b').heat).toBeGreaterThan(0)
+  })
+
+  it('lets a tick yield its slot to light that is going somewhere', () => {
+    // A tick is a flick across the thread with no journey in it. A fleet running
+    // tools must not be able to starve the one motion that means "work landed".
+    const field = new PulseField()
+    field.ingest(
+      Array.from({ length: EVENT.maxConcurrent }, (_unused, i) => tool('77-strip', NOW + i)),
+      INDEX,
+      NOW,
+    )
+    expect(field.pulses().every((pulse) => pulse.kind === 'tick')).toBe(true)
+
+    field.ingest([commit('77-strip', 2)], INDEX, NOW)
+
+    const kinds = field.pulses().map((pulse) => pulse.kind)
+    expect(kinds).toContain('commit')
+    expect(kinds.filter((kind) => kind === 'tick')).toHaveLength(EVENT.maxConcurrent - 1)
+    expect(field.concurrency()).toBe(EVENT.maxConcurrent)
+  })
+
+  it('drops a tick of its own rather than growing the count for a flash', () => {
+    const field = new PulseField()
+    for (let i = 0; i < EVENT.maxConcurrent + 3; i += 1) {
+      field.ingest([tool('77-strip', NOW + i)], INDEX, NOW)
+    }
+    expect(field.concurrency()).toBe(EVENT.maxConcurrent)
+    expect(field.pulses().every((pulse) => pulse.count === 1)).toBe(true)
+    // The wheel still turned for every one of them: the fact survives the flash.
+    expect(field.energyOf('lane-a').orbitTarget).toBeCloseTo(ORBIT_STEP * 8, 10)
+  })
+
+  it('flares for every arrival an aggregate carried home', () => {
+    // Coalescing changes how traffic is drawn, never how much of it there was.
+    const one = new PulseField()
+    one.ingest([commit('77-strip', 1)], INDEX, NOW)
+    one.step(NOW + 3_000)
+
+    const many = new PulseField()
+    for (let i = 0; i < 12; i += 1) many.ingest([commit('77-strip', 1, NOW + i)], INDEX, NOW)
+    many.step(NOW + 3_000)
+
+    expect(many.surge()).toBeGreaterThan(one.surge())
+  })
+
+  it('frees its slots again as the journeys end', () => {
+    const field = new PulseField()
+    for (let i = 0; i < 12; i += 1) field.ingest([commit('77-strip', 1, NOW + i)], INDEX, NOW)
+    expect(field.concurrency()).toBe(EVENT.maxConcurrent)
+
+    field.step(NOW + 4_000)
+    expect(field.concurrency()).toBe(0)
+
+    field.ingest([commit('77-strip', 1)], INDEX, NOW + 4_000)
+    expect(field.pulses().map((pulse) => pulse.kind)).toEqual(['commit'])
   })
 })
 

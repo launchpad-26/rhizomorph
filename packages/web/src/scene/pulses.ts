@@ -1,5 +1,6 @@
 import type { ObservatoryEvent } from '@observatory/core'
 import type { StreamState } from '../app/streamState.js'
+import { EVENT } from './motion.js'
 import { clamp01 } from './palette.js'
 import { resolveLane, type LaneIndex } from './resolve.js'
 
@@ -19,10 +20,11 @@ import { resolveLane, type LaneIndex } from './resolve.js'
  *    the only caller is {@link takeNews}, which reads the shell fold's
  *    news-vs-history tag. A replay burst of ten thousand spent facts builds
  *    state and lights nothing.
- * 2. **Traffic is coalesced, never invented.** A lane already at its mote cap
- *    does not get another one; the surplus becomes thread *glow* instead. A busy
- *    lane therefore glows rather than fibrillating, and the count it glows for is
- *    real.
+ * 2. **Traffic is coalesced, never invented.** A lane past the motion budget's
+ *    concurrency cap does not get another animation; the surplus folds into an
+ *    *aggregate* pulse carrying a count, or failing that into thread *glow*. A
+ *    busy lane therefore glows rather than fibrillating, and the count it glows
+ *    for is real. See {@link EVENT.maxConcurrent}.
  * 3. **An arrival flare is the end of a real journey.** The root-mass surge is
  *    raised in {@link PulseField.step} when a homeward packet's life *ends* at
  *    the mass. There is no way to flare without a journey and no journey without
@@ -39,7 +41,17 @@ import { resolveLane, type LaneIndex } from './resolve.js'
  * the whole replayed past would "become" a trespass at once. Off-fence is an
  * ongoing state, and law 10 says states glow: the barbed filament is static.
  */
-export type PulseKind = 'commit' | 'landing' | 'mote' | 'tick'
+/**
+ * `aggregate` is the motion cap's answer (ruling 4): when the scene is already
+ * animating as many events as a person can follow, the next one does not get its
+ * own light — it folds into a journey already running on its own lane, which
+ * becomes an aggregate and starts carrying a **count**. Five packets and a "×7"
+ * is a picture an operator can read; twelve simultaneous packets is not.
+ */
+export type PulseKind = 'commit' | 'landing' | 'mote' | 'tick' | 'aggregate'
+
+/** The kinds an event can spawn directly. `aggregate` is only ever converted to. */
+type SpawnKind = Exclude<PulseKind, 'aggregate'>
 
 export interface Pulse {
   id: number
@@ -54,13 +66,19 @@ export interface Pulse {
   homeward: boolean
   /** Commits only: how many files rode in, for the wake's length. */
   weight: number
+  /**
+   * How many real events this one animation stands for. 1 for everything that
+   * got its own light; more only on an `aggregate`, and every unit of it is an
+   * event that actually arrived.
+   */
+  count: number
 }
 
 /** A lane's decaying event energy — the part of flow that is glow, not travel. */
 export interface LaneEnergy {
   /** Event density. What a thread's living brightness is made of. */
   heat: number
-  /** Usage records folded into glow because the mote cap was reached. */
+  /** Events folded into glow because the motion cap left nothing to fold into. */
   coalesced: number
   /** A stuck lane's wheel, in laps. Advances per tool call, never on its own. */
   orbitPhase: number
@@ -71,10 +89,14 @@ export interface LaneEnergy {
   outbound: number
 }
 
-/** Hard ceiling on live pulses. Past it the field drops and *says* it dropped. */
+/**
+ * The memory backstop, not the motion budget. {@link EVENT.maxConcurrent} binds
+ * first and binds hard, so in practice nothing reaches this — it exists so that
+ * a future law with a wider cap still cannot grow the array without bound, and
+ * so that if anything ever *is* refused outright the scene says so (law 12)
+ * rather than quietly thinning the traffic it reports.
+ */
 export const MAX_PULSES = 720
-/** Per-lane motes in flight. Past this, traffic coalesces into glow. */
-export const MAX_MOTES_PER_LANE = 12
 /** One mote per this many output tokens, so a mote is a real quantity of work. */
 export const TOKENS_PER_MOTE = 450
 /** …and never more than this from one request: drift, not spray. */
@@ -83,7 +105,7 @@ export const MAX_MOTES_PER_REQUEST = 3
 /** One notch of the wheel per tool call. Six calls is one lap of the knot. */
 export const ORBIT_STEP = 1 / 6
 
-const LIFE: Record<PulseKind, number> = {
+const LIFE: Record<SpawnKind, number> = {
   commit: 2_200,
   landing: 2_800,
   mote: 3_400,
@@ -178,12 +200,11 @@ export class PulseField {
           1,
           Math.min(MAX_MOTES_PER_REQUEST, Math.round(output / TOKENS_PER_MOTE)),
         )
-        const room = Math.max(0, MAX_MOTES_PER_LANE - this.moteCount(laneId))
-        const spawning = Math.min(wanted, room)
-        // Rule 2: what the cap swallows becomes glow, not nothing.
-        if (spawning < wanted) energy.coalesced += wanted - spawning
 
-        for (let i = 0; i < spawning; i += 1) {
+        // Rule 2 is enforced in `spawn` now, for every kind at once: what the
+        // motion cap will not animate becomes an aggregate's count or the lane's
+        // glow. Nothing is dropped and nothing is invented.
+        for (let i = 0; i < wanted; i += 1) {
           this.spawn({
             laneId,
             kind: 'mote',
@@ -247,9 +268,13 @@ export class PulseField {
         survivors.push(pulse)
         continue
       }
-      // Rule 3: the flare is the journey's end. Nothing else raises the surge.
+      // Rule 3: the flare is the journey's end. Nothing else raises the surge —
+      // and an aggregate is N journeys ending together, so it flares for all of
+      // them. Coalescing changes how the traffic is *drawn*, never how much of
+      // it there was.
       if (pulse.homeward) {
-        this.surgeLevel = Math.min(1.8, this.surgeLevel + (pulse.kind === 'landing' ? 1.2 : 0.55))
+        const each = pulse.kind === 'landing' ? 1.2 : 0.55
+        this.surgeLevel = Math.min(1.8, this.surgeLevel + each * pulse.count)
       }
     }
     this.live = survivors
@@ -280,11 +305,18 @@ export class PulseField {
   }
 
   /**
-   * Pulses refused at {@link MAX_PULSES}. Surfaced by the scene rather than
-   * swallowed: a cap that silently eats traffic makes the picture a guess.
+   * Pulses refused outright at {@link MAX_PULSES} — not the ones the motion cap
+   * coalesced, which are still counted and still drawn. Surfaced by the scene
+   * rather than swallowed: a cap that silently eats traffic makes the picture a
+   * guess. Zero is the normal reading, and it means what it says.
    */
   dropped(): number {
     return this.droppedPulses
+  }
+
+  /** Live event animations — what {@link EVENT.maxConcurrent} is a cap on. */
+  concurrency(): number {
+    return this.live.length
   }
 
   /** 0–1 through a pulse's life. Clamped, so a stale frame cannot overshoot. */
@@ -298,21 +330,75 @@ export class PulseField {
     return pulse.homeward ? 1 - t : t
   }
 
-  private moteCount(laneId: string): number {
-    let count = 0
-    for (const pulse of this.live) {
-      if (pulse.kind === 'mote' && pulse.laneId === laneId) count += 1
-    }
-    return count
-  }
-
-  private spawn(pulse: Omit<Pulse, 'id'>): void {
+  /**
+   * THE MOTION CAP (ruling 4), which is rule 2 extended from traffic to motion.
+   *
+   * Above {@link EVENT.maxConcurrent} concurrent animations the scene stops
+   * being readable — people follow four or five independent moving targets and
+   * fail past that, so a sixth simultaneous pulse does not add a sixth fact, it
+   * subtracts from the five already there. Nothing is thrown away to enforce it;
+   * the surplus goes somewhere it can still be counted.
+   */
+  private spawn(pulse: Omit<Pulse, 'id' | 'count'>): void {
     if (this.live.length >= MAX_PULSES) {
       this.droppedPulses += 1
       return
     }
-    this.live.push({ ...pulse, id: this.nextId })
+
+    // A tick is a flick across the thread with no journey in it, so it yields
+    // its slot to light that is actually going somewhere. Cutting one short
+    // loses no fact: its heat is already recorded on the lane.
+    if (this.live.length >= EVENT.maxConcurrent && (pulse.kind === 'tick' || !this.dropOneTick())) {
+      this.coalesce(pulse)
+      return
+    }
+
+    this.live.push({ ...pulse, count: 1, id: this.nextId })
     this.nextId += 1
+  }
+
+  /**
+   * Fold a refused event into something that still carries it.
+   *
+   * First choice is an **aggregate**: the oldest journey already running on that
+   * lane in the same direction, which takes on a count. That keeps the fold
+   * honest twice over — the journey it rides is one a real event started, and
+   * the direction it travels is the direction the folded event actually went.
+   *
+   * A landing is never folded into, because it is the biggest single arrival the
+   * fleet produces and it has earned its own light. If there is nothing lawful
+   * to fold into, the event becomes the lane's glow, which is where surplus has
+   * always gone.
+   */
+  private coalesce(pulse: Omit<Pulse, 'id' | 'count'>): void {
+    let host: Pulse | null = null
+    for (const live of this.live) {
+      if (live.laneId !== pulse.laneId) continue
+      if (live.kind === 'tick' || live.kind === 'landing') continue
+      if (live.homeward !== pulse.homeward) continue
+      if (host === null || live.born < host.born) host = live
+    }
+
+    if (host === null) {
+      this.energy(pulse.laneId).coalesced += 1
+      return
+    }
+
+    host.kind = 'aggregate'
+    host.count += 1
+  }
+
+  /** Retire the oldest tick to make room for a journey. False if there is none. */
+  private dropOneTick(): boolean {
+    let oldest = -1
+    for (let i = 0; i < this.live.length; i += 1) {
+      const pulse = this.live[i] as Pulse
+      if (pulse.kind !== 'tick') continue
+      if (oldest === -1 || pulse.born < (this.live[oldest] as Pulse).born) oldest = i
+    }
+    if (oldest === -1) return false
+    this.live.splice(oldest, 1)
+    return true
   }
 
   private energy(laneId: string): LaneEnergy {
