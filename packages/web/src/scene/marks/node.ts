@@ -71,8 +71,8 @@ const RANK_HUE: Record<LadderRank, Rgb> = {
   broken: BROKEN,
 }
 
-/** How dark a node's lens goes as its lane ages out. Never all the way to ice. */
-const LENS_FADE = 0.45
+/** How much of its hue a node's lens keeps once its lane has aged all the way out. */
+const LENS_HUE_FLOOR = 0.45
 
 /** How far a raised hand stands off its node. Tall enough to clear the label. */
 const HAND_LIFT = 15
@@ -96,7 +96,7 @@ export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   // node and a stale one are the same colour at two temperatures rather than two
   // colours. Never mixed all the way to ice: a lane that worked an hour ago
   // still worked.
-  const tint = mix(ICE_600, hue, LENS_FADE + (1 - LENS_FADE) * freshness)
+  const tint = mix(ICE_600, hue, LENS_HUE_FLOOR + (1 - LENS_HUE_FLOOR) * freshness)
 
   // The lens. Hollow for a frozen lane and for a finished one — an outline is
   // "no longer filling with work", which is true of a corpse and of a landed
