@@ -1,5 +1,4 @@
 import { IDENTITY, type Camera } from './camera.js'
-import type { Point } from './geometry.js'
 import { cssColour } from './palette.js'
 import {
   BACKDROP,
@@ -128,70 +127,31 @@ function draw(ctx: CanvasRenderingContext2D, mark: Mark): void {
 }
 
 /**
- * A tapering ribbon along a sampled path, as one filled polygon. A hypha gets
- * thinner as it reaches, and a constant-width stroke would lose that entirely —
- * which is the whole reason the scene draws in filled polygons (ruling 23).
+ * A ribbon: closed polygons, filled (prd7 ruling 3).
+ *
+ * The whole of the shape decision has already been made by `ribbon.ts` — the
+ * taper, the pinches, the swells, the runs a broken thread is drawn in — and it
+ * arrives here as vertices. That is the point of the seam: this file cannot
+ * change what a thread means because it no longer knows what a thread is.
+ *
+ * One `fill()` per polygon rather than one per ribbon, because two polygons in a
+ * single path would interact through the winding rule: a lobe drawn inside
+ * another lobe's turn would punch a hole in it.
  */
 function ribbon(ctx: CanvasRenderingContext2D, mark: RibbonMark): void {
-  const { path } = mark
-  if (path.length < 2) return
-  const last = path.length - 1
-
+  if (mark.outline.length === 0) return
   ctx.fillStyle = style(ctx, mark.paint)
-  for (const [from, to] of runs(last, mark.dashed === true)) {
+
+  for (const polygon of mark.outline) {
+    if (polygon.length < 3) continue
     ctx.beginPath()
-    for (let i = from; i <= to; i += 1) side(ctx, mark, i, last, 1, i === from)
-    for (let i = to; i >= from; i -= 1) side(ctx, mark, i, last, -1, false)
+    polygon.forEach((point, i) => {
+      if (i === 0) ctx.moveTo(point.x, point.y)
+      else ctx.lineTo(point.x, point.y)
+    })
     ctx.closePath()
     ctx.fill()
   }
-}
-
-/** One edge of the ribbon at sample `i`, offset along the path's normal. */
-function side(
-  ctx: CanvasRenderingContext2D,
-  mark: RibbonMark,
-  i: number,
-  last: number,
-  sign: number,
-  move: boolean,
-): void {
-  const t = i / last
-  const half = ((mark.widthRoot + (mark.widthTip - mark.widthRoot) * t) / 2) * sign
-  const point = mark.path[i] as Point
-  const tangent = localTangent(mark.path, i)
-  const x = point.x - tangent.y * half
-  const y = point.y + tangent.x * half
-  if (move) ctx.moveTo(x, y)
-  else ctx.lineTo(x, y)
-}
-
-/**
- * The runs a ribbon is drawn in. A whole thread is one; a severed one is drawn
- * five-on, two-off, because a *dashed* line reads as broken while a merely thin
- * one reads as far away — and FROZEN's whole encoding is that it is broken.
- */
-function runs(last: number, dashed: boolean): [number, number][] {
-  if (!dashed) return [[0, last]]
-
-  const out: [number, number][] = []
-  let start = 0
-  for (let i = 0; i <= last; i += 1) {
-    if (i % 7 !== 5) continue
-    if (i - start > 1) out.push([start, i])
-    start = i + 2
-  }
-  if (last - start > 1) out.push([start, last])
-  return out
-}
-
-function localTangent(path: readonly Point[], i: number): Point {
-  const a = path[Math.max(0, i - 1)] as Point
-  const b = path[Math.min(path.length - 1, i + 1)] as Point
-  const dx = b.x - a.x
-  const dy = b.y - a.y
-  const length = Math.hypot(dx, dy) || 1
-  return { x: dx / length, y: dy / length }
 }
 
 /** A soft radial falloff. The only thing in the scene that glows. */

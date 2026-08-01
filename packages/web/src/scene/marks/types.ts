@@ -1,5 +1,6 @@
 import type { Point } from '../geometry.js'
 import { luminance, type Ink } from '../palette.js'
+import { ribbonOutline, type RibbonShape } from '../ribbon.js'
 
 /**
  * THE DISPLAY LIST — what the scene draws, as data.
@@ -149,10 +150,32 @@ interface MarkBase {
   alarm: boolean
 }
 
-/** A tapering filled ribbon along a sampled path — how a hypha is drawn. */
+/**
+ * A filled ribbon whose width varies along its length — how a hypha is drawn
+ * (prd7 ruling 3).
+ *
+ * Two geometries, and both are load-bearing:
+ *
+ * - **`path`** is the spine, and it is what the *encodings* are read off. A test
+ *   asking where a lane's thread runs, or how wide it is, asks these fields;
+ *   they are unchanged by every pinch, swell and jitter the form layer applies
+ *   on top, which is exactly why bounded variation is safe (`variation.ts`).
+ * - **`outline`** is what is actually filled: closed polygons, built by
+ *   `ribbon.ts` and carried on the mark as plain data. More than one whenever
+ *   the ribbon is broken — a dashed thread, or one pinched shut by a cut.
+ *
+ * A ribbon with a **closed** spine and zero width is the degenerate case the
+ * painter also handles: the outline *is* the shape, and nothing is offset from a
+ * centre-line at all. That is how an organic enclosure is drawn (`node.ts`), and
+ * it is the reason `widthRoot`/`widthTip` may legitimately be zero here.
+ */
 export interface RibbonMark extends MarkBase {
   kind: 'ribbon'
+  /** The spine. The encoded geometry, untouched by the form applied over it. */
   path: readonly Point[]
+  /** The closed polygons the painter fills. One per unbroken run. */
+  outline: readonly (readonly Point[])[]
+  /** The encoded widths — the work-size channel, and LOCKED as such. */
   widthRoot: number
   widthTip: number
   paint: Paint
@@ -237,6 +260,63 @@ export type Mark =
   | PathMark
   | TextMark
   | ChipMark
+
+/**
+ * The one way a ribbon mark is made.
+ *
+ * Every ribbon in the scene goes through here so that its `outline` cannot drift
+ * out of step with its `path` — a mark whose filled polygon disagreed with the
+ * spine the tests read would be a picture that lies about its own encoding, and
+ * nothing downstream could catch it. The width modulations (`stops`, `modulate`,
+ * `taperTip`) are spent on the outline and deliberately *not* recorded on the
+ * mark: they are form, and the mark carries meaning.
+ */
+export type RibbonSpec = MarkBase &
+  Omit<RibbonShape, 'spine'> & {
+    role: MarkRole
+    path: readonly Point[]
+    paint: Paint
+  }
+
+export function ribbonMark(spec: RibbonSpec): RibbonMark {
+  const { role, laneId, alarm, path, widthRoot, widthTip, paint, dashed } = spec
+  return {
+    kind: 'ribbon',
+    role,
+    laneId,
+    alarm,
+    path,
+    outline: ribbonOutline({ ...spec, spine: path }),
+    widthRoot,
+    widthTip,
+    paint,
+    ...(dashed === true ? { dashed: true } : {}),
+  }
+}
+
+/**
+ * A closed region, filled as it stands: no spine, no offsetting, no width. The
+ * organic-enclosure case — see {@link RibbonMark}.
+ */
+export function regionMark(spec: {
+  role: MarkRole
+  laneId: string | null
+  alarm: boolean
+  ring: readonly Point[]
+  paint: Paint
+}): RibbonMark {
+  return {
+    kind: 'ribbon',
+    role: spec.role,
+    laneId: spec.laneId,
+    alarm: spec.alarm,
+    path: spec.ring,
+    outline: [spec.ring],
+    widthRoot: 0,
+    widthTip: 0,
+    paint: spec.paint,
+  }
+}
 
 /** Every ink a mark paints with — what the contrast-budget assertions read. */
 export function inksOf(mark: Mark): readonly Ink[] {

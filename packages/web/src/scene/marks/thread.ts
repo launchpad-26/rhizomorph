@@ -23,9 +23,11 @@ import {
   type Ink,
 } from '../palette.js'
 import { SCAR, toward } from '../retire.js'
+import type { WidthStop } from '../ribbon.js'
+import { variationFor, variationSeed } from '../variation.js'
 import { budget, type SceneFrame } from './frame.js'
 import { THORN_OUT } from './glyphs.js'
-import type { Mark } from './types.js'
+import { ribbonMark, type Mark } from './types.js'
 
 /**
  * THE THREADS — a lane as a hypha, root-mass rim to node.
@@ -47,6 +49,29 @@ import type { Mark } from './types.js'
 /** Under this much heat a thread is at its resting brightness. */
 const HEAT_FULL = 2.5
 
+/**
+ * FROZEN's severance, as two positions along the thread (prd7 ruling 3).
+ *
+ * Two, and the count is still the reading: one closure is a thread that got
+ * thin, two is unmistakably a thing that was cut. What changed is only how they
+ * are drawn — see {@link severedMarks}.
+ */
+const SEVERED_AT = [0.68, 0.76] as const
+/**
+ * How much of the thread each closure consumes. Wide enough that a sample always
+ * lands inside the flat bottom of the pinch, so the ribbon genuinely parts
+ * rather than necking down to a hairline.
+ */
+const SEVERED_SPAN = 0.07
+const SEVERED_FLAT = 0.5
+
+/**
+ * EXPENSIVE's taper. The last fifth of a burning lane's thread is drawn down to
+ * a needle: direction and urgency told as a width gradient that is legible along
+ * the whole thread, rather than as three 6px arrowheads legible at one point.
+ */
+const HEAT_TAPER = 0.2
+
 export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const marks: Mark[] = []
   const { laneId } = thread
@@ -58,31 +83,39 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   // second growth. See `scarMarks`.
   if (thread.retire !== null) return scarMarks(frame, thread, thread.retire, base)
 
+  // The form this lane's thread takes, in three parts, and all three are shared
+  // by the bloom so the two read as one object: the cuts that close it, the
+  // needle a burning lane tapers to, and the lane's own ±10% width habit.
+  const shape = {
+    ...(frozen ? { dashed: true as const, stops: severedStops() } : {}),
+    ...(thread.pathology === 'expensive' ? { taperTip: HEAT_TAPER } : {}),
+    modulate: variationFor(variationSeed(thread.lane)).widthJitter,
+  }
+
   // Bloom first, wide and faint, then the core. Two ribbons rather than a shadow
   // blur: shadows on forty paths a frame is where canvas 2D falls over.
-  marks.push({
-    kind: 'ribbon',
-    role: 'thread-bloom',
-    laneId,
-    alarm: false,
-    path: thread.path,
-    widthRoot: thread.widthRoot * 3.6,
-    widthTip: thread.widthTip * 3.6,
-    paint: budget(frame, laneId, false, { rgb: base.rgb, alpha: base.alpha * 0.1 }),
-    ...(frozen ? { dashed: true } : {}),
-  })
-
-  marks.push({
-    kind: 'ribbon',
-    role: 'thread',
-    laneId,
-    alarm: false,
-    path: thread.path,
-    widthRoot: thread.widthRoot,
-    widthTip: thread.widthTip,
-    paint: budget(frame, laneId, false, base),
-    ...(frozen ? { dashed: true } : {}),
-  })
+  marks.push(
+    ribbonMark({
+      ...shape,
+      role: 'thread-bloom',
+      laneId,
+      alarm: false,
+      path: thread.path,
+      widthRoot: thread.widthRoot * 3.6,
+      widthTip: thread.widthTip * 3.6,
+      paint: budget(frame, laneId, false, { rgb: base.rgb, alpha: base.alpha * 0.1 }),
+    }),
+    ribbonMark({
+      ...shape,
+      role: 'thread',
+      laneId,
+      alarm: false,
+      path: thread.path,
+      widthRoot: thread.widthRoot,
+      widthTip: thread.widthTip,
+      paint: budget(frame, laneId, false, base),
+    }),
+  )
 
   if (thread.pathology === 'expensive') marks.push(...heatMarks(frame, thread))
   if (frozen) marks.push(...severedMarks(frame, thread))
@@ -91,6 +124,11 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   marks.push(...filamentMarks(frame, thread, base))
 
   return marks
+}
+
+/** The two closures, as width stops the thread and its bloom both carry. */
+function severedStops(): WidthStop[] {
+  return SEVERED_AT.map((at) => ({ at, span: SEVERED_SPAN, scale: 0, flat: SEVERED_FLAT }))
 }
 
 /**
@@ -138,49 +176,56 @@ function scarMarks(
 
   const lit = 1 - cut.retract
   if (lit > 0.01) {
-    marks.push({
-      kind: 'ribbon',
-      role: 'scar-bloom',
+    marks.push(
+      ribbonMark({
+        role: 'scar-bloom',
+        laneId,
+        alarm: false,
+        path: cut.path,
+        widthRoot: cut.widthRoot * 3.6,
+        widthTip: cut.widthTip * 3.6,
+        paint: budget(frame, laneId, false, { rgb: cold.rgb, alpha: cold.alpha * 0.1 * lit }),
+      }),
+    )
+  }
+
+  marks.push(
+    ribbonMark({
+      role: 'scar',
       laneId,
       alarm: false,
       path: cut.path,
-      widthRoot: cut.widthRoot * 3.6,
-      widthTip: cut.widthTip * 3.6,
-      paint: budget(frame, laneId, false, { rgb: cold.rgb, alpha: cold.alpha * 0.1 * lit }),
-    })
-  }
-
-  marks.push({
-    kind: 'ribbon',
-    role: 'scar',
-    laneId,
-    alarm: false,
-    path: cut.path,
-    widthRoot: cut.widthRoot,
-    widthTip: cut.widthTip,
-    paint: budget(frame, laneId, false, cold),
-  })
+      widthRoot: cut.widthRoot,
+      widthTip: cut.widthTip,
+      paint: budget(frame, laneId, false, cold),
+    }),
+  )
 
   if (cut.homeward !== null) {
-    marks.push({
-      kind: 'ribbon',
-      role: 'homeward',
-      laneId,
-      alarm: false,
-      path: cut.homeward,
-      // Narrower than the thread it is inside, and thicker at the leading end:
-      // matter being drawn along, rather than a second thread beside the first.
-      widthRoot: thread.widthRoot * 0.8,
-      widthTip: thread.widthTip * 0.9,
-      // The lane's own colour, warmed — it is the work that is moving, and the
-      // budget still holds it under a summons the way every calm mark is held.
-      paint: budget(
-        frame,
+    marks.push(
+      ribbonMark({
+        role: 'homeward',
         laneId,
-        false,
-        ink(hotter(living.rgb, 0.5), Math.min(1, living.alpha * 1.25)),
-      ),
-    })
+        alarm: false,
+        path: cut.homeward,
+        // Narrower than the thread it is inside, and thicker at the leading end:
+        // matter being drawn along, rather than a second thread beside the first.
+        widthRoot: thread.widthRoot * 0.8,
+        widthTip: thread.widthTip * 0.9,
+        // …and it bulges where the substance actually is, so what travels down a
+        // cut cord is one parcel rather than a uniform stripe (ruling 3's swell,
+        // spent on the mark that was already the honest reading of a merge).
+        stops: [{ at: 0.3, span: 0.45, scale: 1.5 }],
+        // The lane's own colour, warmed — it is the work that is moving, and the
+        // budget still holds it under a summons the way every calm mark is held.
+        paint: budget(
+          frame,
+          laneId,
+          false,
+          ink(hotter(living.rgb, 0.5), Math.min(1, living.alpha * 1.25)),
+        ),
+      }),
+    )
   }
 
   // Nothing has parted yet during the tension release, so there is no freed end
@@ -242,63 +287,76 @@ function threadInk(frame: SceneFrame, thread: ThreadGeometry): Ink {
 function heatMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const { laneId } = thread
   return [
-    {
-      kind: 'ribbon',
+    ribbonMark({
       role: 'heat',
       laneId,
       alarm: false,
       path: thread.path,
       widthRoot: thread.widthRoot * 7,
       widthTip: thread.widthTip * 7,
+      taperTip: HEAT_TAPER,
       paint: budget(frame, laneId, false, ink(ICE_050, 0.06)),
-    },
-    {
-      kind: 'ribbon',
+    }),
+    ribbonMark({
       role: 'heat',
       laneId,
       alarm: false,
       path: thread.path,
       widthRoot: thread.widthRoot * 0.5,
       widthTip: thread.widthTip * 0.55,
+      taperTip: HEAT_TAPER,
       paint: budget(frame, laneId, false, ink(ICE_050, 0.85)),
-    },
+    }),
   ]
 }
 
 /**
- * FROZEN's cut. Two strokes across the thread, not along it: a cut has to sit
- * *across* the line it severs to read as one. Together with the dashed dark
- * ribbon and the hollow node, this is the third of the three axes FROZEN and
- * WAITING are separated on (dark/light, broken/continuous, cut/raised).
+ * FROZEN's cut, as form rather than as a glyph laid over it (prd7 ruling 3).
  *
- * Both strokes are alarm marks: exempt from every fade (graft g2), because the
- * one state defined by being old must not be dimmed by a recency ramp.
+ * It used to be two strokes drawn *across* the thread — a tick marking a place
+ * where something had happened to a line that carried on regardless. Now the
+ * thread genuinely parts: {@link severedStops} closes the ribbon to nothing at
+ * both positions, so the dark hypha is in three pieces, and these two marks are
+ * the **lips** of those closures — a short collar of the thread's own substance,
+ * swollen a little and stained the broken hue, tapering to the point where the
+ * line ends.
+ *
+ * Two objects, exactly as before: the substitution spends nothing. What it buys
+ * is that the severing survives being looked at closely. A tick across a
+ * continuous line is a claim about the line; a line that stops is the fact.
+ *
+ * Still the third of the three axes FROZEN and WAITING are separated on
+ * (dark/light, broken/continuous, cut/summoning), and still alarm marks: exempt
+ * from every fade (graft g2), because the one state defined by being old must
+ * not be dimmed by a recency ramp.
  */
 function severedMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
-  const at = pointAt(thread.path, 0.72)
-  const along = tangentAt(thread.path, 0.72)
-  const across = { x: -along.y, y: along.x }
-  const span = 6 + thread.widthRoot
-  const lean = 3
+  const { laneId } = thread
+  /** How much thread each lip is drawn over — a shade wider than the closure. */
+  const reach = SEVERED_SPAN * 1.15
 
-  return [-4, 4].map((offset) => ({
-    kind: 'stroke' as const,
-    role: 'severed' as const,
-    laneId: thread.laneId,
-    alarm: true,
-    width: 1.7,
-    ink: ink(BROKEN, 0.95),
-    points: [
-      {
-        x: at.x + along.x * (offset - lean) - across.x * span,
-        y: at.y + along.y * (offset - lean) - across.y * span,
-      },
-      {
-        x: at.x + along.x * (offset + lean) + across.x * span,
-        y: at.y + along.y * (offset + lean) + across.y * span,
-      },
-    ],
-  }))
+  return SEVERED_AT.map((at) => {
+    const local = thread.widthRoot + (thread.widthTip - thread.widthRoot) * at
+    return ribbonMark({
+      role: 'severed',
+      laneId,
+      alarm: true,
+      path: stretch(thread.path, at - reach, at + reach, 12),
+      // Swollen: dead tissue gathers at a break rather than thinning into one.
+      widthRoot: local * 1.45,
+      widthTip: local * 1.45,
+      stops: [{ at: 0.5, span: SEVERED_SPAN / reach / 2, scale: 0, flat: SEVERED_FLAT }],
+      samples: 12,
+      paint: ink(BROKEN, 0.95),
+    })
+  })
+}
+
+/** The stretch of a path between two parameters, resampled at its own resolution. */
+function stretch(path: readonly Point[], from: number, to: number, steps: number): Point[] {
+  const out: Point[] = []
+  for (let i = 0; i <= steps; i += 1) out.push(pointAt(path, from + (to - from) * (i / steps)))
+  return out
 }
 
 /**
@@ -318,8 +376,7 @@ function standingFlow(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
     budget(frame, thread.laneId, false, ink(hot, 0.85 * value))
 
   return [
-    {
-      kind: 'ribbon',
+    ribbonMark({
       role: 'thread-flow',
       laneId: thread.laneId,
       alarm: false,
@@ -336,7 +393,7 @@ function standingFlow(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
           { at: 1, ink: emphasis(outbound) },
         ],
       },
-    },
+    }),
   ]
 }
 
@@ -347,18 +404,26 @@ function standingFlow(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
 function filamentMarks(frame: SceneFrame, thread: ThreadGeometry, base: Ink): Mark[] {
   const marks: Mark[] = []
 
+  const habit = variationFor(variationSeed(thread.lane))
+
   for (const filament of thread.filaments) {
     for (const strand of filament.strands) {
-      marks.push({
-        kind: 'ribbon',
-        role: 'filament',
-        laneId: thread.laneId,
-        alarm: false,
-        path: strand,
-        widthRoot: filament.width * 1.15,
-        widthTip: filament.width * 0.25,
-        paint: budget(frame, thread.laneId, false, { rgb: base.rgb, alpha: base.alpha * 0.62 }),
-      })
+      marks.push(
+        ribbonMark({
+          role: 'filament',
+          laneId: thread.laneId,
+          alarm: false,
+          path: strand,
+          widthRoot: filament.width * 1.15,
+          widthTip: filament.width * 0.25,
+          // Second growth inherits the parent's width habit — the whole lane is
+          // one organism, so one hand drew all of it. Fewer samples: a 30px
+          // strand has no edge anybody reads at 6× (`ribbon.ts`).
+          modulate: habit.widthJitter,
+          samples: 12,
+          paint: budget(frame, thread.laneId, false, { rgb: base.rgb, alpha: base.alpha * 0.62 }),
+        }),
+      )
     }
 
     const tip = filament.path[filament.path.length - 1]

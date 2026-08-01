@@ -1,7 +1,9 @@
 import type { Fleet, Lane, PathologyKind } from '../fleet/index.js'
 import { clamp01 } from './palette.js'
 import type { RetireState } from './retire.js'
+import { smoothSpine } from './ribbon.js'
 import { isAlarmRank } from './salience.js'
+import { WANDER_MAX_SPACING, variationFor, variationSeed } from './variation.js'
 
 /**
  * WHERE THE MYCELIUM GROWS.
@@ -392,6 +394,19 @@ const BUNDLE_SIZE = 4
 
 const THREAD_SAMPLES = 44
 
+/**
+ * How many data waypoints a thread's spine is built from before centripetal
+ * Catmull-Rom smooths it (prd7 ruling 3).
+ *
+ * Sparse on purpose. The waypoints are where the *encoding* lives — the exit
+ * from the mass, the lean into the bundle, the node at its lifecycle radius —
+ * and Catmull-Rom interpolates every one of them, so the curve drawn passes
+ * through each exactly. Sampling the underlying cubic densely and smoothing
+ * *that* would be the same picture at three times the cost and with nothing left
+ * to interpolate.
+ */
+const SPINE_SEGMENTS = 8
+
 /** Worst first: when a lane carries two faults, this one owns its node. */
 const PATHOLOGY_PRIORITY: readonly PathologyKind[] = [
   'frozen',
@@ -463,6 +478,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
   const seatKeys = [...new Set(lanes.map(seatKey))].sort((a, b) => a - b)
   const seatOf = new Map(seatKeys.map((key, i) => [key, i]))
   const angles = ringAngles(seatKeys.length, rx, ry)
+  const spacing = rimSpacing(rx, ry, seatKeys.length)
 
   const born = bornRadial(rootRadius, rx, ry)
 
@@ -537,8 +553,25 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
       y: bundle.y + (rim.y - bundle.y) * 0.6 + perp.y * wander,
     }
 
+    // THE SPINE (prd7 rulings 3 and 4). Sparse waypoints off the data curve,
+    // nudged sideways by this lane's own noise, then interpolated by centripetal
+    // Catmull-Rom. The nudge is what makes the fleet look grown rather than
+    // drafted, and it is bounded twice over: never more than
+    // `WANDER_MAX_SPACING` of the gap between two lanes, and multiplied by zero
+    // at both ends — so where the thread leaves the mass and where its node came
+    // to rest are bit-identical to what the encoding asked for.
+    const sway = WANDER_MAX_SPACING * spacing
+    const variation = variationFor(variationSeed(lane))
+    const waypoints: Point[] = []
+    for (let i = 0; i <= SPINE_SEGMENTS; i += 1) {
+      const t = i / SPINE_SEGMENTS
+      const on = cubicPoint(root, bundle, control, rim, t)
+      const off = sway * variation.wander(t)
+      waypoints.push({ x: on.x + perp.x * off, y: on.y + perp.y * off })
+    }
+
     const growth = clamp01(options.growth?.get(lane.id) ?? 1)
-    const full = sampleCubic(root, bundle, control, rim, THREAD_SAMPLES)
+    const full = smoothSpine(waypoints, THREAD_SAMPLES)
     const grown = growth >= 1 ? full : truncate(full, easeOut(growth))
 
     const slack = Math.min(SLACK_MAX_PX, Math.max(SLACK_MIN_PX, Math.min(rx, ry) * SLACK_FRACTION))
@@ -713,6 +746,21 @@ export function ringAngles(count: number, rx: number, ry: number): number[] {
     angles.push(-Math.PI / 2 + ((i - 1 + within) / steps) * Math.PI * 2)
   }
   return angles
+}
+
+/**
+ * How much rim there is per lane, in px — the unit prd7 ruling 4's wander cap is
+ * expressed in.
+ *
+ * A *fraction of the spacing* rather than a pixel amount, because that is the
+ * only form of the bound that stays true at every fleet size and every zoom: a
+ * 6px wander is a gentle bend on a rim with four lanes on it and a lane crossing
+ * its neighbour's line on a rim with thirty. Ramanujan's ellipse perimeter,
+ * which is exact to a part in 10⁵ at any aspect ratio this panel produces.
+ */
+export function rimSpacing(rx: number, ry: number, count: number): number {
+  const perimeter = Math.PI * (3 * (rx + ry) - Math.sqrt((3 * rx + ry) * (rx + 3 * ry)))
+  return perimeter / Math.max(1, count)
 }
 
 /** Outward unit normal of the ellipse at parametric `angle`. */
@@ -1054,17 +1102,12 @@ function outwardReach(thread: ThreadGeometry, rx: number, ry: number): Point {
 
 // ── curves ──────────────────────────────────────────────────────────────────
 
-function sampleCubic(p0: Point, p1: Point, p2: Point, p3: Point, steps: number): Point[] {
-  const out: Point[] = []
-  for (let i = 0; i <= steps; i += 1) {
-    const t = i / steps
-    const u = 1 - t
-    out.push({
-      x: u * u * u * p0.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * p3.x,
-      y: u * u * u * p0.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * p3.y,
-    })
+function cubicPoint(p0: Point, p1: Point, p2: Point, p3: Point, t: number): Point {
+  const u = 1 - t
+  return {
+    x: u * u * u * p0.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * p3.x,
+    y: u * u * u * p0.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * p3.y,
   }
-  return out
 }
 
 function sampleQuad(p0: Point, p1: Point, p2: Point, steps: number): Point[] {

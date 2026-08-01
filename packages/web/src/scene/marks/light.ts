@@ -3,7 +3,7 @@ import { alarmPulse } from '../motion.js'
 import { ICE_100, ICE_200, NEEDS_YOU, clamp01, hotter, incandescent, ink } from '../palette.js'
 import { PulseField, type Pulse } from '../pulses.js'
 import { budget, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
-import type { Mark } from './types.js'
+import { ribbonMark, type Mark } from './types.js'
 
 /**
  * LIGHT IN FLIGHT — the part of the picture that is allowed to move.
@@ -96,58 +96,115 @@ function pulseMarks(frame: SceneFrame, thread: ThreadGeometry, pulse: Pulse): Ma
   const size = pulse.size * (0.75 + 0.35 * envelope) * swell(pulse.count)
   const marks: Mark[] = []
 
-  // A commit is a packet with a wake: sharp head, tapered tail pointing back
-  // the way it came, so its direction reads in a single frame. The tail's
-  // length is the file count — the journey carries how much rode in. An
-  // aggregate always gets one: it is the mark most in need of a direction,
-  // because it is the one standing in for traffic that was not drawn.
+  // A COMMIT IS MATTER, SO IT IS A SWELL (prd7 ruling 3).
+  //
+  // It used to be a bright dot with seven fading glows trailing it. That was a
+  // discrete object riding *above* the thread, and it read as one — a bead on a
+  // wire rather than something the lane had produced. A commit is work: the
+  // honest picture is the hypha itself bulging as the substance passes, which is
+  // exactly the reading the homeward flow already had at the other end of a
+  // lane's life. So the packet becomes a travelling thickening of the thread's
+  // own width, asymmetric so its direction reads in one frame, and nine objects
+  // become two.
+  //
+  // Motes keep their glow, and the split is the scene's own distinction rather
+  // than an inconsistency: a mote is a model request — *light*, nourishment
+  // going out — and light is drawn as light. Matter is drawn as matter.
   if (pulse.kind === 'commit' || pulse.kind === 'landing' || pulse.kind === 'aggregate') {
-    const tail = 0.05 + Math.min(0.1, pulse.weight * 0.006)
-    const steps = 7
-    for (let i = steps; i >= 1; i -= 1) {
-      const behind = clamp01(t + (pulse.homeward ? tail : -tail) * (i / steps))
-      const fade = (1 - i / steps) ** 1.6
-      marks.push({
+    marks.push(...swellMarks(frame, thread, pulse, t, envelope))
+  } else {
+    marks.push(
+      {
         kind: 'glow',
-        role: 'pulse-wake',
+        role: 'pulse',
         laneId,
         alarm: false,
-        at: pointAt(thread.path, behind),
-        radius: size * (0.35 + 0.5 * fade),
-        ink: budget(frame, laneId, false, ink(hotter(ICE_200, 0.8), 0.45 * fade * envelope)),
-      })
-    }
-  }
-
-  marks.push(
-    {
-      kind: 'glow',
-      role: 'pulse',
-      laneId,
-      alarm: false,
-      at,
-      radius: size * 2.6,
-      ink: budget(frame, laneId, false, ink(hotter(ICE_200, 0.55), 0.16 * envelope)),
-    },
-    {
-      kind: 'glow',
-      role: 'pulse',
-      laneId,
-      alarm: false,
-      at,
-      radius: size,
-      ink: budget(
-        frame,
+        at,
+        radius: size * 2.6,
+        ink: budget(frame, laneId, false, ink(hotter(ICE_200, 0.55), 0.16 * envelope)),
+      },
+      {
+        kind: 'glow',
+        role: 'pulse',
         laneId,
-        false,
-        ink(hotter(ICE_200, 0.92), (pulse.kind === 'mote' ? 0.72 : 1) * envelope),
-      ),
-    },
-  )
+        alarm: false,
+        at,
+        radius: size,
+        ink: budget(frame, laneId, false, ink(hotter(ICE_200, 0.92), 0.72 * envelope)),
+      },
+    )
+  }
 
   if (pulse.count > 1) marks.push(countMark(frame, thread, pulse, at, size, envelope))
 
   return marks
+}
+
+/**
+ * The swell, and the wake behind it — the commit packet's whole geometry.
+ *
+ * Both are stretches of the lane's *own* thread with a bulge in the width, so
+ * neither is a new object in the picture: what travels is the thread being
+ * thicker for a moment. The head is short and steep; the wake is longer, wider
+ * back the way it came, and much fainter, which is what makes direction legible
+ * in a single frame without an arrowhead. The wake's length is the file count —
+ * the journey still carries how much rode in.
+ */
+function swellMarks(
+  frame: SceneFrame,
+  thread: ThreadGeometry,
+  pulse: Pulse,
+  t: number,
+  envelope: number,
+): Mark[] {
+  const { laneId } = thread
+  const behind = pulse.homeward ? 1 : -1
+  const tail = 0.06 + Math.min(0.12, pulse.weight * 0.007)
+  // Bigger for an aggregate, exactly as the packet was: the count is the number,
+  // and the size only says "this one is carrying more than itself".
+  const gain = 1.9 * swell(pulse.count)
+
+  const width = (at: number): { root: number; tip: number } => {
+    const local = thread.widthRoot + (thread.widthTip - thread.widthRoot) * clamp01(at)
+    return { root: local, tip: local }
+  }
+
+  const head = width(t)
+  const wakeAt = clamp01(t + behind * tail * 0.5)
+  const trail = width(wakeAt)
+
+  return [
+    ribbonMark({
+      role: 'pulse-wake',
+      laneId,
+      alarm: false,
+      path: stretch(thread.path, wakeAt - tail, wakeAt + tail),
+      widthRoot: trail.root,
+      widthTip: trail.tip,
+      stops: [{ at: pulse.homeward ? 0.7 : 0.3, span: 0.8, scale: 1 + (gain - 1) * 0.55 }],
+      samples: 12,
+      paint: budget(frame, laneId, false, ink(hotter(ICE_200, 0.8), 0.4 * envelope)),
+    }),
+    ribbonMark({
+      role: 'pulse',
+      laneId,
+      alarm: false,
+      path: stretch(thread.path, t - tail * 0.55, t + tail * 0.55),
+      widthRoot: head.root,
+      widthTip: head.tip,
+      stops: [{ at: 0.5, span: 0.7, scale: gain }],
+      samples: 12,
+      paint: budget(frame, laneId, false, ink(hotter(ICE_200, 0.92), envelope)),
+    }),
+  ]
+}
+
+/** The stretch of the thread a swell occupies, resampled at its own resolution. */
+function stretch(path: readonly Point[], from: number, to: number): Point[] {
+  const steps = 12
+  return Array.from({ length: steps + 1 }, (_unused, i) =>
+    pointAt(path, from + (to - from) * (i / steps)),
+  )
 }
 
 /**

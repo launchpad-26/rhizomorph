@@ -21,9 +21,10 @@ import {
   type Rgb,
 } from '../palette.js'
 import { SCAR, toward } from '../retire.js'
+import { blobRing, variationFor, variationSeed } from '../variation.js'
 import { budget, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
-import { CARTOUCHE, NODE_LENS, THORN_OUT } from './glyphs.js'
-import type { Mark } from './types.js'
+import { NODE_LENS, THORN_OUT } from './glyphs.js'
+import { regionMark, ribbonMark, type Mark, type MarkRole } from './types.js'
 
 /**
  * THE NODES — where a lane's thread ends, and where its state is legible.
@@ -151,25 +152,7 @@ export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
 
   marks.push(...stateMarks(frame, thread, hue, angle, length))
 
-  // Enclosure is a rank, not a decoration: a lane above calm is bracketed and a
-  // calm one never is, which is the same statement the fleet table makes when it
-  // brackets an alarmed row (graft g1) — and it is drawn with the same cartouche.
-  // Exempt from every fade (graft g2), which is the whole reason a frozen lane —
-  // the state *defined* by being old — is not the dimmest thing on the page.
-  if (alarm) {
-    marks.push({
-      kind: 'path',
-      role: 'rank-enclosure',
-      laneId,
-      alarm: true,
-      d: CARTOUCHE,
-      at: thread.node,
-      size: length * 1.9 + 10,
-      rotate: angle,
-      ink: ink(hue, 0.85),
-      stroke: 1.3,
-    })
-  }
+  if (alarm) marks.push(enclosureMark(thread, hue))
 
   if (frame.salience.spotlightId === laneId || frame.salience.hoverId === laneId) {
     marks.push(...spotlightMarks(thread, hue, length))
@@ -254,15 +237,7 @@ function scarNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: RetireGeo
       rotate: angle,
       ink: cold(ink(lensTint(hue, freshness), 0.75)),
     },
-    {
-      kind: 'stroke',
-      role: 'scar-mark',
-      laneId,
-      alarm: false,
-      width: 1.3,
-      ink: cold(ink(ACTIVITY_HUE.done, 0.9)),
-      points: sealPoints(thread, angle, length),
-    },
+    knotMark('scar-mark', thread, angle, length, cold(ink(ACTIVITY_HUE.done, 0.9))),
   ]
 
   if (frame.salience.spotlightId === laneId || frame.salience.hoverId === laneId) {
@@ -270,6 +245,46 @@ function scarNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: RetireGeo
   }
 
   return marks
+}
+
+/**
+ * THE ENCLOSURE (prd7 ruling 3) — a lane above calm is bracketed, and a calm one
+ * never is.
+ *
+ * That statement is unchanged from prd3: it is the same claim the fleet table
+ * makes when it brackets an alarmed row (graft g1), and it is exempt from every
+ * fade (graft g2), which is the whole reason a frozen lane — the state *defined*
+ * by being old — is not the dimmest thing on the page.
+ *
+ * What changed is that it stopped being a cartouche. Two things were wrong with
+ * the ring: it was a struck circle in a picture of grown things, and it sat at
+ * the node, where it competed with the state mark it was supposed to frame. It
+ * is now a **midpoint-displaced blob behind the lane's name** — Hobbs'
+ * subdivision, seeded off the lane so no two enclosures are the same shape — and
+ * it does its job better for having moved, because the thing an operator needs
+ * bracketed at a glance is *which lane*, and the answer to that is the name.
+ *
+ * Low alpha and drawn a layer under the label (`marks/index.ts` puts nodes
+ * before names), so it grounds the text rather than shouting over it. Enclosure
+ * is the signal; nothing about it was ever circular.
+ */
+function enclosureMark(thread: ThreadGeometry, hue: Rgb): Mark {
+  const { anchor, align } = thread.label
+  // The block the name and its figure occupy — roughly, and roughly is right: a
+  // blob has no edge to line up with anyway.
+  const width = thread.lane.label.length * 5.9 + 16
+  const centre: Point = {
+    x: align === 'left' ? anchor.x + width / 2 - 5 : align === 'right' ? anchor.x - width / 2 + 5 : anchor.x,
+    y: anchor.y + 1,
+  }
+
+  return regionMark({
+    role: 'rank-enclosure',
+    laneId: thread.laneId,
+    alarm: true,
+    ring: blobRing(centre, width / 2, 15, variationSeed(thread.lane)),
+    paint: ink(hue, 0.14),
+  })
 }
 
 /** The mark that names the state, in world space around the node. */
@@ -325,14 +340,39 @@ function stateMarks(
       return []
 
     default:
-      return thread.lane.activity === 'done' ? [doneMark(frame, thread, angle, length)] : []
+      return thread.lane.activity === 'done'
+        ? [
+            knotMark(
+              'done-mark',
+              thread,
+              angle,
+              length,
+              budget(frame, laneId, false, ink(ACTIVITY_HUE.done, 0.9)),
+            ),
+          ]
+        : []
   }
 }
 
 /**
- * EXPENSIVE — cyan chevrons rising off the tip. NOTICE, and therefore non-alarm:
- * they pass through the contrast budget like everything else calm does, which is
- * how a white-hot thread stays structurally unable to out-read a summons (g6).
+ * EXPENSIVE — heat coming off the tip (prd7 ruling 3).
+ *
+ * The chevrons are gone. Three arrowheads stacked over a node were the scene at
+ * its most drafted: a fixed ladder of identical glyphs, legible only within a
+ * few pixels of one point, saying "outward" about a thread whose direction is
+ * already the most obvious thing on it. Substituted for **tapers** — the burning
+ * thread itself now draws down to a needle over its last fifth (`thread.ts`'s
+ * `HEAT_TAPER`), and these three are the licks leaving it: short ribbons, thick
+ * where they part from the tip and needled to nothing, each curling a little on
+ * the lane's own free phase so no two lanes exhale alike.
+ *
+ * The law they answer is unchanged, and it was never the count: the marking
+ * *rises away* from the node and *fades as it goes*, which is what makes it read
+ * as heat leaving rather than as a fixed ladder of three.
+ *
+ * NOTICE, and therefore non-alarm: they pass through the contrast budget like
+ * everything else calm does, which is how a white-hot thread stays structurally
+ * unable to out-read a summons (g6).
  */
 function expensiveMarks(
   frame: SceneFrame,
@@ -343,24 +383,33 @@ function expensiveMarks(
   const out = length * 0.5
   const across: Point = { x: -Math.sin(angle), y: Math.cos(angle) }
   const forward: Point = { x: Math.cos(angle), y: Math.sin(angle) }
+  // Free channel: which way the licks lean is a habit, and habits carry nothing.
+  const lean = (variationFor(variationSeed(thread.lane)).curl - 0.5) * 2
 
   return [0, 1, 2].map((i) => {
     const reach = out + 5 + i * 4.5
-    const span = 5.5 - i
-    const at = (a: number, c: number): Point => ({
-      x: thread.node.x + forward.x * a + across.x * c,
-      y: thread.node.y + forward.y * a + across.y * c,
+    const side = i % 2 === 0 ? 1 : -1
+    const at = (along: number, sideways: number): Point => ({
+      x: thread.node.x + forward.x * along + across.x * sideways,
+      y: thread.node.y + forward.y * along + across.y * sideways,
     })
-    return {
-      kind: 'stroke' as const,
-      role: 'expensive-mark' as const,
+
+    return ribbonMark({
+      role: 'expensive-mark',
       laneId: thread.laneId,
       alarm: false,
-      width: 1.2,
+      path: [
+        at(reach, 0),
+        at(reach + 2.6, side * (0.8 + lean)),
+        at(reach + 5.2, side * (2.4 + lean * 2)),
+      ],
+      widthRoot: 2.4 - i * 0.45,
+      widthTip: 0.3,
+      taperTip: 0.45,
+      samples: 10,
       // Fainter as they rise: heat leaving, not a fixed ladder of three.
-      ink: budget(frame, thread.laneId, false, ink(NOTICE, 0.9 - i * 0.18)),
-      points: [at(reach, -span), at(reach + 3.6, 0), at(reach, span)],
-    }
+      paint: budget(frame, thread.laneId, false, ink(NOTICE, 0.9 - i * 0.18)),
+    })
   })
 }
 
@@ -399,18 +448,23 @@ function summonsMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark
       // dimmed while it was young would be lying about which band it is in.
       ink: ink(hue, 0.16 * pulse.intensity),
     },
-    {
-      kind: 'stroke',
+    ribbonMark({
       role: 'summons',
       laneId: thread.laneId,
       alarm: true,
-      points: [wrist, { x: at.x, y: at.y - 5 - lift }],
-      width: 3,
+      path: [wrist, { x: at.x, y: at.y - 5 - lift }],
+      // A ribbon, tapering, rather than a 3px stroke: the arm is the lane's own
+      // substance standing up, and it is the one place in the scene where a
+      // constant-width line would still be visible next to everything that
+      // stopped being one (ruling 3).
+      widthRoot: 3.2,
+      widthTip: 2.1,
+      samples: 6,
       // The arm is lifted a little off full saturation so it stays clear of the
       // calm ceiling the fleet around it now reaches; the palm above it is what
       // goes all the way to `ALARM_FLOOR`.
-      ink: ink(hotter(hue, 0.2), 0.98),
-    },
+      paint: ink(hotter(hue, 0.2), 0.98),
+    }),
     {
       kind: 'path',
       role: 'summons',
@@ -441,40 +495,59 @@ function summonsMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark
 }
 
 /**
- * DONE — sealed. A bar across the tip: finished, and not a fault. It wears the
- * done green rather than a neutral, so "landed" is one reading of one hue
- * (hollow lens + seal + dim green) instead of a grey mark a viewer has to be
- * told about.
+ * DONE — tied off (prd7 ruling 3).
+ *
+ * It was a bar struck across the tip: a second vocabulary — flat, geometric,
+ * borrowed from wax seals — for a fact about a growing thing. It is now a
+ * **knot**: the thread's own substance carried past the node, wrapped once and
+ * drawn to nothing, distinguished from every other terminal by hue alone. Same
+ * mark, same role, same green; no new shape entered the scene, and one left it.
+ *
+ * It wears the done green rather than a neutral, so "landed" is one reading of
+ * one hue (hollow lens + knot + dim green) instead of a grey mark a viewer has
+ * to be told about.
  */
-function doneMark(
-  frame: SceneFrame,
+function knotMark(
+  role: MarkRole,
   thread: ThreadGeometry,
   angle: number,
   length: number,
+  paint: Ink,
 ): Mark {
-  return {
-    kind: 'stroke',
-    role: 'done-mark',
+  return ribbonMark({
+    role,
     laneId: thread.laneId,
     alarm: false,
-    width: 1.3,
-    ink: budget(frame, thread.laneId, false, ink(ACTIVITY_HUE.done, 0.9)),
-    points: sealPoints(thread, angle, length),
-  }
+    path: knotSpine(thread.node, angle, length),
+    // Thick where it leaves the node and drawn to nothing round the far side:
+    // a cord tied off, not a ring drawn round something.
+    widthRoot: 1.9,
+    widthTip: 0.35,
+    taperTip: 0.3,
+    samples: 20,
+    paint,
+  })
 }
 
-/** Where the seal bar sits: across the tip, just beyond the lens. */
-function sealPoints(thread: ThreadGeometry, angle: number, length: number): Point[] {
-  const out = length * 0.5 + 2.5
-  const across: Point = { x: -Math.sin(angle), y: Math.cos(angle) }
-  const base: Point = {
-    x: thread.node.x + Math.cos(angle) * out,
-    y: thread.node.y + Math.sin(angle) * out,
-  }
-  return [
-    { x: base.x - across.x * 4, y: base.y - across.y * 4 },
-    { x: base.x + across.x * 4, y: base.y + across.y * 4 },
-  ]
+/**
+ * Where the knot is tied: just past the tip, wrapped a little more than once so
+ * the cord crosses its own back. The overlap is what makes it a knot rather than
+ * a loop — and it costs nothing, because one filled polygon self-overlapping is
+ * still one fill.
+ */
+function knotSpine(node: Point, angle: number, length: number): Point[] {
+  const radius = 3.4
+  const out = length * 0.5 + radius * 0.9
+  const centre: Point = { x: node.x + Math.cos(angle) * out, y: node.y + Math.sin(angle) * out }
+
+  const turns = Math.PI * 2.35
+  const steps = 12
+  return Array.from({ length: steps + 1 }, (_unused, i) => {
+    const theta = angle + Math.PI + (i / steps) * turns
+    // Spiralling in as it goes round, so the wrap tucks under itself.
+    const r = radius * (1 - 0.28 * (i / steps))
+    return { x: centre.x + Math.cos(theta) * r, y: centre.y + Math.sin(theta) * r }
+  })
 }
 
 /**
