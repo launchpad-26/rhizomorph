@@ -89,6 +89,12 @@ globs it may touch:
       "issue": "77",
       "model": "sonnet",
       "dispatchedAt": "2026-07-31T20:30:00Z"
+    },
+    {
+      "handle": "60-shelved-idea",
+      "branch": "60-shelved-idea",
+      "fence": ["packages/web/src/panels/shelved/**"],
+      "parked": true
     }
   ]
 }
@@ -96,7 +102,17 @@ globs it may touch:
 
 `handle`, `branch`, and `fence` (a string array) are required per lane;
 `issue`, `model`, and `dispatchedAt` are dispatch metadata the Observatory
-doesn't need for its own derivation. `GET /api/lanes`
+doesn't need for its own derivation. `parked` (boolean, prd4 ruling 5) is the
+one optional field the Observatory *does* read: an operator's own declaration
+that a lane is parked, absent meaning `false`. It is written only by
+whatever wrote `.swarm/lanes.json` in the first place — this read-only
+instrument never sets it — and it is not dispatch metadata like the rest:
+`buildFleet` (`packages/web/src/fleet/buildFleet.ts`) uses it to exempt a
+parked lane from the FROZEN and inferred-WAITING alarms and to keep it off
+the ladder, while leaving every other fact about the lane (its output, its
+age, its fence compliance) exactly as true as it would be unparked — parked
+is a visible, dimmed `PARKED` state in the fleet table, never a mute. `GET
+/api/lanes`
 (`packages/server/src/api/lanes.ts`) reads and validates this file against
 the watched repo root — the server's existing target-repo context, not a new
 flag — fresh on every request; the file is tiny and changes at every
@@ -262,6 +278,36 @@ Off-fence detection is the one thing this data addition buys: a lane's
 recently-touched files (`selectTouchesByBranch`) are matched against its own
 fence, and a match against *someone else's* fence instead is a trespass with
 a named victim (`findTrespasses`) — no new collector, per ruling 19.
+
+**Parked is a state, not a mute (prd4 ruling 5).** A `LaneFence` may carry an
+optional `parked: true`, operator-declared and never written back by this
+read-only instrument. `parseLaneManifest` carries it through unchanged
+(absent, or anything other than the literal `true`, reads as not-parked —
+the same soft fallback `issue`/`model` get, rather than the flat-refusal
+treatment a malformed `fence` gets, since a bad `parked` only ever softens
+an accusation). `buildFleet` reads it onto `Lane.parked` and gives it three
+consequences, all in `packages/web/src/fleet/buildFleet.ts`: `detectFrozen`
+and the inferred half of `detectWaiting` exempt a parked lane by
+construction, alongside the exemptions those detectors already had; a
+parked lane never reaches `buildLadder`'s attention list, however many
+pathologies it still carries; and the fleet table
+(`packages/web/src/panels/fleet/index.tsx`) renders a dimmed `PARKED` in
+the STATE column in place of the usual glyph and word, while every other
+cell — output, age, cost, fence compliance — keeps reading the lane's real
+telemetry untouched. Parked mutes the alarm, never the evidence.
+
+*Two gaps this change leaves for a follow-up, both outside its own fence:*
+`packages/server/src/api/lanes.ts`'s `laneSchema` is a `zod` object with no
+`.passthrough()`, so a live `.swarm/lanes.json` carrying `parked` has it
+silently stripped before `GET /api/lanes` ever serves it — the schema needs
+its own `parked: z.boolean().optional()` for a real dispatch (as opposed to
+a fixture, which hands `buildFleet` a manifest directly) to carry the field
+at all. And the scene has no visual language for "parked" of its own: it
+reads `Lane.activity`, whose `Record<LaneActivity, …>` maps
+(`scene/palette.ts`'s `ACTIVITY_HUE`/`ACTIVITY_TINT`, `sigils.tsx`'s
+`ACTIVITY_TEXT_CLASS`) are exhaustive and outside this change's fence, so
+`parked` was deliberately kept off the `LaneActivity` union rather than
+adding a member those maps don't yet have a key for. See issue #96.
 
 ### Recent panel landings
 
