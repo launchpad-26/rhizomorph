@@ -176,7 +176,7 @@ function DrawerFrame({ selectedId, label, title, onClose, children }: DrawerFram
           type="button"
           data-testid="drawer-close"
           onClick={onClose}
-          aria-label="Close lane drawer"
+          aria-label="Close the drawer"
           className="shrink-0 rounded border border-ice-800 px-2 py-0.5 text-[10px] uppercase tracking-wider text-ice-400 transition-[color,border-color] duration-150 ease-out hover:border-ice-600 hover:text-ice-100"
         >
           Esc
