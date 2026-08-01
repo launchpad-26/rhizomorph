@@ -1,8 +1,16 @@
+import { createEventFactory, reduceAll } from '@observatory/core'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { AttentionItem, Fleet } from './buildFleet.js'
-import { needsYouLaneIds, nextJumpTarget, SelectionProvider, useSelection } from './selection.js'
+import { buildFleet, type AttentionItem, type Fleet } from './buildFleet.js'
+import {
+  isMainSelected,
+  MAIN_SELECTION,
+  needsYouLaneIds,
+  nextJumpTarget,
+  SelectionProvider,
+  useSelection,
+} from './selection.js'
 
 afterEach(cleanup)
 
@@ -87,6 +95,92 @@ describe('lane selection', () => {
   it('is inert outside a provider, so a panel can be rendered on its own', () => {
     render(<Scene />)
     expect(screen.getByTestId('spotlight').textContent).toBe('(none)')
+  })
+})
+
+/**
+ * THE ROOT-MASS IN THE SAME SLOT (prd6 ruling 5). The point of these is that
+ * main is a *value*, not a Lane: it travels the one selection, it toggles and
+ * clears exactly as a lane does, and nothing that walks `fleet.lanes` can see
+ * it.
+ */
+describe('the main pseudo-lane', () => {
+  /** Stands in for the scene's root-mass: it toggles main. */
+  function RootMass() {
+    const { toggle } = useSelection()
+    return (
+      <button type="button" onClick={() => toggle(MAIN_SELECTION)}>
+        root-mass
+      </button>
+    )
+  }
+
+  function renderWithRoot(initialSelectedId?: string | null) {
+    return render(
+      <SelectionProvider {...(initialSelectedId === undefined ? {} : { initialSelectedId })}>
+        <RootMass />
+        <Table />
+        <Scene />
+      </SelectionProvider>,
+    )
+  }
+
+  it('is a distinct, explicit value — never mistaken for a worker lane', () => {
+    expect(isMainSelected(MAIN_SELECTION)).toBe(true)
+    expect(isMainSelected('42-otel-receiver')).toBe(false)
+    expect(isMainSelected(null)).toBe(false)
+  })
+
+  it('travels the one selection, so every surface points at the root-mass at once', () => {
+    renderWithRoot()
+
+    fireEvent.click(screen.getByText('root-mass'))
+
+    expect(screen.getByTestId('selected').textContent).toBe(MAIN_SELECTION)
+    expect(screen.getByTestId('spotlight').textContent).toBe(MAIN_SELECTION)
+  })
+
+  it('toggles off on a second click, exactly like a lane row', () => {
+    renderWithRoot()
+
+    fireEvent.click(screen.getByText('root-mass'))
+    fireEvent.click(screen.getByText('root-mass'))
+
+    expect(screen.getByTestId('selected').textContent).toBe('(none)')
+  })
+
+  it('clears on Esc, by the same page-level way out', () => {
+    renderWithRoot(MAIN_SELECTION)
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(screen.getByTestId('selected').textContent).toBe('(none)')
+  })
+
+  it('replaces a lane selection rather than joining it — there is one slot', () => {
+    renderWithRoot()
+
+    fireEvent.click(screen.getByText('row 42'))
+    fireEvent.click(screen.getByText('root-mass'))
+
+    expect(screen.getByTestId('selected').textContent).toBe(MAIN_SELECTION)
+  })
+
+  it('is an id no lane in a real fleet can carry — main spend belongs to the root', () => {
+    // The structural half of "no panel mistakes it for a worker": `buildFleet`
+    // skips the main worktree and books main-branch spend to the root-mass, so
+    // a table row can never match this id however the selection moves.
+    const now = Date.UTC(2026, 6, 31, 12, 0, 0)
+    const f = createEventFactory({ startTs: now - 60_000, stepMs: 1_000 })
+    const events = [
+      f.sessionStarted({ repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' }),
+      f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-main', isMain: true }),
+      f.worktreeDiscovered({ path: '/repo-wt/42', branch: '42-otel-receiver', head: 'sha-42', isMain: false }),
+      f.llmUsage({ lane: 'main', branch: 'main', worktreePath: '/repo', sessionId: 'sess-main' }),
+    ]
+    const fleet = buildFleet(reduceAll(events), { now })
+
+    expect(fleet.lanes.map((lane) => lane.id)).not.toContain(MAIN_SELECTION)
   })
 })
 

@@ -14,10 +14,59 @@ import type { Fleet } from './buildFleet.js'
  * Esc clears, everywhere, always: the same key that leaves panel focus
  * (ruling 6) also drops the spotlight, so there is one way out of every
  * narrowed view.
+ *
+ * The slot holds one more thing than a lane id: {@link MAIN_SELECTION}, the
+ * root-mass. See its own note for why that is a value here rather than a Lane
+ * in the fleet.
  */
 
+/**
+ * THE ROOT-MASS, SELECTED (prd6 ruling 5) — the one thing on screen that used
+ * to be unclickable.
+ *
+ * It is a **pseudo-lane**: a value this slot can hold, and deliberately *not* a
+ * `Lane` in the derived fleet. Fabricating one would have been the shorter
+ * diff and the wrong model — main is not a worker. It has no fence, no
+ * pathologies, no rung on the ladder, and every panel that walks `fleet.lanes`
+ * (the table, the attention strip, the ladder, the scene's threads) would have
+ * had to learn to skip it. Keeping it out of that array means they skip it by
+ * construction: the fleet table grows no MAIN row because there is no MAIN lane
+ * to grow one from, and `selectedId === lane.id` is simply false for every row.
+ *
+ * The three surfaces that *do* have to know:
+ *
+ * - **the scene** hit-tests the root-mass and writes this value, and the
+ *   contrast budget then spotlights it for free — `salienceOf` takes the
+ *   selection as the spotlight, no lane matches, so every lane recedes around a
+ *   root-mass that stays at full brightness (`scene/salience.ts`);
+ * - **the drawer** branches on {@link isMainSelected} and shows the conductor;
+ * - **the feed** narrows to entries attributed to this id, of which there are
+ *   none: no feed kind is conductor-attributed today (commits, landings, lane
+ *   starts and collector events are all worker or global facts). So the feed
+ *   reads "Nothing matches this filter" with its clear button beside it, which
+ *   is the honest answer — it says the filter is on and that nothing in *this*
+ *   feed belongs to main, rather than quietly dropping the filter and implying
+ *   these were the conductor's commits. When a conductor-attributed feed kind
+ *   exists, it will land here with no change to this file.
+ *
+ * The value is `main` because that is what the scene already calls the
+ * root-mass and what the transcript route already answers to
+ * (`packages/server/src/api/transcript.ts`). A worker lane can never collide
+ * with it: `buildFleet` skips the main worktree and books every penny spent on
+ * the main branch to the root-mass, so no lane is ever built with this id.
+ */
+export const MAIN_SELECTION = 'main'
+
+/** True when the selection is the root-mass rather than a worker lane. */
+export function isMainSelected(selectedId: string | null): boolean {
+  return selectedId === MAIN_SELECTION
+}
+
 export interface SelectionValue {
-  /** The selected lane's `Lane.id`, or null when nothing is selected. */
+  /**
+   * The selected lane's `Lane.id`, {@link MAIN_SELECTION} for the root-mass, or
+   * null when nothing is selected.
+   */
   selectedId: string | null
   select: (laneId: string | null) => void
   /** Select if not selected, clear if already selected — the row-click idiom. */
