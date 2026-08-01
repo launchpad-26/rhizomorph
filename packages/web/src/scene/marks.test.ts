@@ -19,7 +19,7 @@ import {
   type MarkRole,
   type SceneFrame,
 } from './marks/index.js'
-import { CALM_CEILING, RECEDE, salienceOf } from './salience.js'
+import { ALARM_FLOOR, CALM_CEILING, CALM_FLOOR, RECEDE, salienceOf } from './salience.js'
 import { BROKEN, NEEDS_YOU, NOTICE } from './palette.js'
 import { PulseField } from './pulses.js'
 
@@ -229,19 +229,52 @@ describe('the contrast budget — spotlight, not shouting', () => {
   })
 
   it('recedes the rest of the fleet once something needs a human', () => {
-    const marks = marksFor()
-    const spotlit = of(marks, LANE.frozen, 'thread')[0] as Mark
-    const other = of(marks, LANE.healthy, 'thread')[0] as Mark
-
-    // Same role, same lane state apart from the spotlight: the ratio is the
-    // whole mechanism. Salience is a ratio, not an amount of amber.
-    expect(brightnessOf(other)).toBeLessThan(brightnessOf(spotlit))
+    const other = of(marksFor(), LANE.healthy, 'thread')[0] as Mark
     const healthyFull = of(
       marksFor({ selectedId: LANE.healthy }),
       LANE.healthy,
       'thread',
     )[0] as Mark
+
+    // One thread, two frames, nothing changed but who holds the light: the
+    // ratio is the whole mechanism. Salience is a ratio, not an amount of amber
+    // — which is exactly why it survived prd4 handing the calm world hue.
+    expect(brightnessOf(other)).toBeLessThan(brightnessOf(healthyFull))
     expect(brightnessOf(other) / brightnessOf(healthyFull)).toBeCloseTo(RECEDE, 2)
+  })
+
+  it('puts every needs-you lane inside the band the alarms own (ALARM_FLOOR)', () => {
+    // Law 9b's other half. Now that a calm fleet carries hue, "the summons is
+    // the loudest thing here" can no longer be argued from colour alone — it is
+    // argued from the band, so every amber lane owes it at least one mark.
+    const marks = marksFor()
+    for (const laneId of [LANE.looping, LANE.waiting, LANE.offFence]) {
+      expect(brightest(marks, laneId), `${laneId} never reached the alarm band`).toBeGreaterThanOrEqual(
+        ALARM_FLOOR,
+      )
+    }
+  })
+
+  it('lets FROZEN dominate by recession and enclosure, not by brightness', () => {
+    // BROKEN is exempt from ALARM_FLOOR: `#ff3d68` only reaches 0.84 by being
+    // mixed two-thirds of the way to white, at which point it is pink and has
+    // stopped meaning "dead". So a frozen lane's supremacy is bought the three
+    // other ways the grammar allows, and all three are asserted here.
+    const marks = marksFor()
+    const alarms = marks.filter((mark) => mark.laneId === LANE.frozen && mark.alarm)
+    const loudest = Math.max(...alarms.map(brightnessOf))
+
+    expect(loudest).toBeLessThan(ALARM_FLOOR)
+    // 1. The calm world around it has receded, and it clears what is left of it.
+    expect(loudest).toBeGreaterThan(CALM_CEILING * RECEDE)
+    const elsewhere = marks.filter(
+      (mark) => !mark.alarm && mark.laneId !== null && mark.laneId !== LANE.frozen,
+    )
+    expect(loudest).toBeGreaterThan(Math.max(...elsewhere.map(brightnessOf)))
+    // 2. It holds the spotlight — the ladder's own pick. 3. It is enclosed, and
+    //    an enclosure is the one thing nothing calm is ever allowed to wear.
+    expect(of(marks, LANE.frozen, 'spotlight').length).toBeGreaterThan(0)
+    expect(of(marks, LANE.frozen, 'cartouche').length).toBeGreaterThan(0)
   })
 
   it('dims nothing at all when the fleet is calm', () => {
@@ -363,17 +396,51 @@ describe('render everything — ruling 22, at twenty lanes', () => {
     }
   })
 
-  it('wears no ladder hue at all, because nothing is wrong (law 9)', () => {
-    // Status owns hue. A calm fleet has no status to report, so not one mark in
-    // it may reach for cyan, amber or magenta-red — identity differentiates by
-    // lightness, shape and position, and by nothing else.
-    const rungs = [NOTICE, NEEDS_YOU, BROKEN].map(String)
+  it('wears no alarm ink, because nothing is wrong (law 9b)', () => {
+    // Prd3's version of this law said a calm fleet wears no hue at all, which is
+    // what ruling 3 overturned: a working fleet may be green. What it may not do
+    // is wear *alarm* ink — the full-strength rung colours, or the band above
+    // the calm ceiling. Attention is bought by the band and the grammar now, so
+    // the band is what the law defends.
+    const alarmInk = [NOTICE, NEEDS_YOU, BROKEN].map(String)
     for (const mark of marks) {
+      expect(mark.alarm, `${mark.role} claimed alarm on a calm fleet`).toBe(false)
+      expect(brightnessOf(mark), `${mark.role} broke into the alarm band`).toBeLessThanOrEqual(
+        CALM_CEILING + 1e-9,
+      )
       for (const value of inksOf(mark)) {
-        expect(rungs, `${mark.role} wore a ladder hue on a calm fleet`).not.toContain(
+        expect(alarmInk, `${mark.role} wore alarm ink on a calm fleet`).not.toContain(
           String(value.rgb),
         )
       }
+    }
+  })
+
+  it('renders every thread bright enough to actually read (CALM_FLOOR)', () => {
+    // Prd4's opening complaint, pinned. Ruling 22 says render everything, and a
+    // thread rendered at a brightness nobody can trace back to the mass has not
+    // really been rendered — so "twenty lanes are all drawn" and "twenty lanes
+    // are all legible" are now the same assertion.
+    const threads = marks.filter((mark) => mark.role === 'thread')
+    expect(threads).toHaveLength(20)
+    for (const thread of threads) {
+      expect(brightnessOf(thread)).toBeGreaterThanOrEqual(CALM_FLOOR)
+    }
+  })
+
+  it('says what the fleet is doing in a colour a stranger can guess (law 9a)', () => {
+    // The layman bar (ruling 1) as arithmetic: somebody who has never seen the
+    // instrument should read a working lane as working. Green is the guess they
+    // will make, so the display list has to be green — dominantly, at the node
+    // where they are already looking, without a legend.
+    const working = fleetFor(fleet20Spec()).lanes.filter((lane) => lane.activity === 'working')
+    expect(working.length).toBeGreaterThan(0)
+
+    for (const lane of working) {
+      const node = of(marks, lane.id, 'node')[0]
+      expect(node, `${lane.id} drew no node`).toBeDefined()
+      const [r, g, b] = (node as Mark).kind === 'path' ? inksOf(node as Mark)[0]!.rgb : [0, 0, 0]
+      expect(g, `${lane.id}'s node was not green-dominant`).toBeGreaterThan(Math.max(r, b))
     }
   })
 })
