@@ -39,8 +39,22 @@ const ACTIVITY_TITLE: Record<Lane['activity'], string> = {
   unknown: 'no work signal yet',
 }
 
+/**
+ * The dimmed ice class the STATE column wears for an operator-parked lane
+ * (prd4 ruling 5) — `ice-700`, tailwind's own "absent/disabled marks" step and
+ * clearly dimmer than idle's `ice-400`, so parked always reads as more
+ * stood-down than a lane that merely went quiet on its own.
+ */
+export const PARKED_TEXT_CLASS = 'text-ice-700'
+
+/** The STATE cell's title for a parked lane: an acknowledgement, not a mute. */
+export function parkedTitle(): string {
+  return 'parked — declared in .swarm/lanes.json; alarm inferences suppressed, other evidence unaffected'
+}
+
 /** The STATE cell's title: the detector's own evidence, never a bare label (graft g4). */
 export function stateTitle(lane: Lane): string {
+  if (lane.parked) return parkedTitle()
   const worst = worstPathology(lane)
   if (worst === null) return ACTIVITY_TITLE[lane.activity]
   const extra = lane.pathologies.length - 1

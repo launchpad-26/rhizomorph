@@ -20,6 +20,7 @@ import {
   fenceCell,
   outputCellText,
   outputCellTitle,
+  PARKED_TEXT_CLASS,
   stateSigilKind,
   stateTitle,
   threadShort,
@@ -113,7 +114,7 @@ interface RowProps {
 
 function Row({ lane, fleet, selected, onToggle }: RowProps) {
   const sigilKind = stateSigilKind(lane)
-  const stateClass = stateTextClass(lane.rank, lane.activity)
+  const stateClass = lane.parked ? PARKED_TEXT_CLASS : stateTextClass(lane.rank, lane.activity)
   const fence = fenceCell(lane, fleet)
   const branching = branchingFilaments(lane)
 
@@ -149,19 +150,21 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
       </td>
       <td className="py-1 pr-2" title={stateTitle(lane)}>
         <span className={`inline-flex items-center gap-1 ${stateClass}`}>
-          <Sigil
-            kind={sigilKind}
-            size={SIGIL_ROW_SIZE}
-            className={lane.rank === 'calm' ? '' : RANK_GLOW_CLASS[lane.rank]}
-          />
-          <span className="figures uppercase tracking-wide">{SIGIL_WORD[sigilKind]}</span>
+          {lane.parked ? null : (
+            <Sigil
+              kind={sigilKind}
+              size={SIGIL_ROW_SIZE}
+              className={lane.rank === 'calm' ? '' : RANK_GLOW_CLASS[lane.rank]}
+            />
+          )}
+          <span className="figures uppercase tracking-wide">{lane.parked ? 'PARKED' : SIGIL_WORD[sigilKind]}</span>
         </span>
-        {lane.pathologies.some((p) => p.inferred) ? (
+        {!lane.parked && lane.pathologies.some((p) => p.inferred) ? (
           <span className="ml-1 text-ice-500" title="inferred from a weaker signal">
             ~
           </span>
         ) : null}
-        {lane.pathologies.length > 1 ? (
+        {!lane.parked && lane.pathologies.length > 1 ? (
           <span className="figures ml-1 text-[10px] text-ice-500">+{lane.pathologies.length - 1}</span>
         ) : null}
       </td>

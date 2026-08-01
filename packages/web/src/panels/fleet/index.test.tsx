@@ -299,3 +299,90 @@ describe('FleetTable — gap-honest cells (law 12)', () => {
     expect(fenceCellEl.getAttribute('title')).toMatch(/NO LANE MANIFEST.*off-fence detection unavailable/)
   })
 })
+
+describe('FleetTable — parked lanes (prd4 ruling 5)', () => {
+  const PARKED_LANE = '50-parked-lane'
+
+  async function renderParkedScenario() {
+    const fx = createEventFactory({ startTs: NOW - 5 * 60_000 })
+    const laneWorktreePath = `/repo/observatory__worktrees/${PARKED_LANE}`
+
+    fx.sessionStarted({ repoPath: '/repo/observatory', repoName: 'observatory', mainBranch: 'main' })
+    fx.worktreeDiscovered({ path: '/repo/observatory', branch: 'main', isMain: true })
+    fx.worktreeDiscovered({ path: laneWorktreePath, branch: PARKED_LANE, isMain: false })
+    fx.llmUsage({
+      lane: PARKED_LANE,
+      branch: PARKED_LANE,
+      worktreePath: laneWorktreePath,
+      tokens: { input: 5, output: 90, cacheRead: 0, cacheCreation: 0 },
+    })
+
+    const parkedManifest: FetchLike = async () => ({
+      ok: true,
+      json: async () => ({
+        available: true,
+        version: 1,
+        lanes: [
+          {
+            handle: PARKED_LANE,
+            branch: PARKED_LANE,
+            fence: ['packages/parked/**'],
+            parked: true,
+          },
+        ],
+      }),
+    })
+
+    let source: FakeEventSource | undefined
+    await act(async () => {
+      render(
+        <StreamProvider
+          url="/api/stream"
+          now={NOW}
+          createSource={() => {
+            source = new FakeEventSource()
+            return source
+          }}
+        >
+          <FleetProvider now={NOW} fetchLanes={parkedManifest}>
+            <SelectionProvider>
+              <FleetTable />
+            </SelectionProvider>
+          </FleetProvider>
+        </StreamProvider>,
+      )
+    })
+    await act(async () => {
+      source?.open()
+      for (const event of fx.all()) source?.emit(event)
+    })
+    // `fetchLanes` resolves on a microtask of its own; give it a tick to land.
+    await act(async () => {})
+
+    return rows().find((r) => r.getAttribute('data-lane') === PARKED_LANE) as HTMLElement
+  }
+
+  it('reads PARKED, dimmer than an idle row, in place of a glyph and a pathology word', async () => {
+    const row = await renderParkedScenario()
+    const stateCell = row.querySelectorAll('td')[1] as HTMLElement
+
+    expect(stateCell.textContent).toContain('PARKED')
+    // No sigil glyph is drawn for a parked row: the alphabet has no member for
+    // "parked" (see buildFleet.ts's `Lane.parked` doc — extending it would
+    // require an exhaustive key on maps outside this change's fence), so the
+    // word carries the state on its own rather than the mark falling back to
+    // an unrelated glyph.
+    expect(stateCell.querySelector('svg[data-sigil]')).toBeNull()
+
+    const span = stateCell.querySelector('span') as HTMLElement
+    expect(span.className).toContain('text-ice-700')
+    expect(stateCell.getAttribute('title')).toMatch(/parked/i)
+  })
+
+  it('still shows the lane\'s real output honestly — parked mutes the alarm, not the evidence', async () => {
+    const row = await renderParkedScenario()
+    const outputCell = row.querySelectorAll('td')[2] as HTMLElement
+    expect(outputCell.textContent?.trim()).not.toBe('')
+    expect(outputCell.textContent).not.toBe('—')
+  })
+})
