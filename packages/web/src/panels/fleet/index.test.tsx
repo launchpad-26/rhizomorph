@@ -1,7 +1,8 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createEventFactory, initialSessionState, reduce } from '@observatory/core'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { StreamProvider } from '../../app/StreamContext.js'
+import type { CopyText } from '../../drawer/AttachButton.js'
 import { FleetProvider } from '../../fleet/FleetContext.js'
 import {
   buildFleet,
@@ -384,5 +385,145 @@ describe('FleetTable — parked lanes (prd4 ruling 5)', () => {
     const outputCell = row.querySelectorAll('td')[2] as HTMLElement
     expect(outputCell.textContent?.trim()).not.toBe('')
     expect(outputCell.textContent).not.toBe('—')
+  })
+})
+
+describe('FleetTable — prd5 ruling 1+6: single-key verbs (k9s idiom)', () => {
+  const LANE_ID = '60-verbs-lane'
+  const VERBS_WORKTREE = `/repo/observatory__worktrees/${LANE_ID}`
+
+  async function renderVerbsScenario(onCopy?: CopyText) {
+    const fx = createEventFactory({ startTs: NOW - 5 * 60_000 })
+    fx.sessionStarted({ repoPath: '/repo/observatory', repoName: 'observatory', mainBranch: 'main' })
+    fx.worktreeDiscovered({ path: '/repo/observatory', branch: 'main', isMain: true })
+    fx.worktreeDiscovered({ path: VERBS_WORKTREE, branch: LANE_ID, isMain: false })
+    fx.llmUsage({
+      lane: LANE_ID,
+      branch: LANE_ID,
+      worktreePath: VERBS_WORKTREE,
+      tokens: { input: 5, output: 90, cacheRead: 0, cacheCreation: 0 },
+    })
+
+    let source: FakeEventSource | undefined
+    await act(async () => {
+      render(
+        <StreamProvider
+          url="/api/stream"
+          now={NOW}
+          createSource={() => {
+            source = new FakeEventSource()
+            return source
+          }}
+        >
+          <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
+            <SelectionProvider>
+              <FleetTable onCopy={onCopy} />
+            </SelectionProvider>
+          </FleetProvider>
+        </StreamProvider>,
+      )
+    })
+    await act(async () => {
+      source?.open()
+      for (const event of fx.all()) source?.emit(event)
+    })
+
+    return rows().find((r) => r.getAttribute('data-lane') === LANE_ID) as HTMLElement
+  }
+
+  it('renders a one-line, discoverable key hint in the footer', async () => {
+    await renderVerbsScenario()
+
+    const hint = screen.getByTestId('fleet-key-hint')
+    expect(hint.textContent).toMatch(/\bn\b.*needs-you/)
+    expect(hint.textContent).toMatch(/\bf\b.*focus/)
+    expect(hint.textContent).toMatch(/\ba\b.*attach/)
+    expect(hint.textContent).toMatch(/esc/i)
+  })
+
+  it('copies the ATTACH command for the selected lane on "a" — the drawer\'s own clipboard path', async () => {
+    const onCopy = vi.fn(async () => {})
+    const row = await renderVerbsScenario(onCopy)
+
+    await act(async () => {
+      fireEvent.click(row)
+    })
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'a' })
+    })
+
+    // No tmux pane was ever discovered for this lane, so `attachPlan` (the
+    // same function `AttachButton` reads) falls back to the workmux command —
+    // proof this reuses that plan rather than composing its own string.
+    expect(onCopy).toHaveBeenCalledTimes(1)
+    expect(onCopy).toHaveBeenCalledWith(`workmux open ${LANE_ID}`)
+  })
+
+  it('acts on a row focused via keyboard (Tab), even with no click-selection', async () => {
+    const onCopy = vi.fn(async () => {})
+    const row = await renderVerbsScenario(onCopy)
+
+    act(() => {
+      row.focus()
+    })
+    expect(document.activeElement).toBe(row)
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'a' })
+    })
+
+    expect(onCopy).toHaveBeenCalledWith(`workmux open ${LANE_ID}`)
+  })
+
+  it('does nothing on "a" when no lane row is focused or selected', async () => {
+    const onCopy = vi.fn(async () => {})
+    await renderVerbsScenario(onCopy)
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'a' })
+    })
+
+    expect(onCopy).not.toHaveBeenCalled()
+  })
+
+  it('toggles this panel\'s own full-view focus on "f" with a lane selected', async () => {
+    const row = await renderVerbsScenario()
+    const section = row.closest('section') as HTMLElement
+
+    await act(async () => {
+      fireEvent.click(row)
+    })
+    expect(section.className).not.toContain('fixed')
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'f' })
+    })
+    expect(section.className).toContain('fixed inset-0')
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'f' })
+    })
+    expect(section.className).not.toContain('fixed')
+  })
+
+  it('does not fire "a" while typing in an input (the standard guard)', async () => {
+    const onCopy = vi.fn(async () => {})
+    const row = await renderVerbsScenario(onCopy)
+    await act(async () => {
+      fireEvent.click(row)
+    })
+
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+
+    try {
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'a' })
+      })
+      expect(onCopy).not.toHaveBeenCalled()
+    } finally {
+      input.remove()
+    }
   })
 })

@@ -1,4 +1,9 @@
+import { useEffect, useState } from 'react'
+import { isTypingTarget } from '../../app/keyboard.js'
+import { usePanelFocus } from '../../app/panelPrefs.js'
 import { useStream } from '../../app/StreamContext.js'
+import { copyToClipboard, type CopyText } from '../../drawer/AttachButton.js'
+import { attachPlan } from '../../drawer/attach.js'
 import {
   RANK_GLOW_CLASS,
   SIGIL_ROW_SIZE,
@@ -43,15 +48,76 @@ import {
  * paints with, so the table is the legend for the *palette* and not only for the
  * glyphs. A reader learns "green means getting on with it" next to the word, and
  * then reads the picture above without one.
+ *
+ * prd5 ruling 1+6 adds two k9s-style single-key verbs, TABLE-SCOPED (see
+ * `app/keyboard.ts`'s comment for the split with the page-global idle-worker
+ * jump and #100's scene-scoped camera keys): with a lane row focused —
+ * either the DOM's own tab focus on a row, or the shared selection — `f`
+ * toggles this panel's own full-view focus and `a` copies the ATTACH command
+ * for that lane, over the exact same clipboard path the drawer's
+ * `AttachButton` uses (`attachPlan` + `copyToClipboard`, not a second copy of
+ * either). Esc's existing precedence (drawer/selection first, focus only
+ * once nothing is selected) is `usePanelFocus`'s own, untouched here.
  */
-export default function FleetTable() {
+export interface FleetTableProps {
+  /** Test seam for the clipboard — same shape the drawer's AttachButton uses. */
+  onCopy?: CopyText
+}
+
+export default function FleetTable({ onCopy = copyToClipboard }: FleetTableProps = {}) {
   const { state, status } = useStream()
   const fleet = useFleet()
   const { selectedId, toggle } = useSelection()
   const connected = status === 'open' && state.events.length > 0
+  const { focused, focus, restore } = usePanelFocus()
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
+
+  useEffect(() => {
+    if (copyStatus === 'idle') return
+    const timer = window.setTimeout(() => setCopyStatus('idle'), 1800)
+    return () => window.clearTimeout(timer)
+  }, [copyStatus])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      const key = event.key.toLowerCase()
+      if (key !== 'f' && key !== 'a') return
+
+      const laneId = focusedLaneId(selectedId)
+      if (laneId === null) return
+
+      if (key === 'f') {
+        event.preventDefault()
+        if (focused) restore()
+        else focus()
+        return
+      }
+
+      const lane = fleet.lanes.find((l) => l.id === laneId)
+      if (lane === undefined) return
+      const plan = attachPlan(state.events, lane)
+      if (plan.command === null) return
+      event.preventDefault()
+      void onCopy(plan.command).then(
+        () => setCopyStatus('copied'),
+        () => setCopyStatus('failed'),
+      )
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [selectedId, focused, focus, restore, fleet, state.events, onCopy])
 
   return (
-    <section className="flex h-full flex-col rounded-lg border border-ice-850 bg-ice-950 p-4" data-panel="fleet">
+    <section
+      className={
+        focused
+          ? 'fixed inset-0 z-30 flex flex-col overflow-auto bg-ice-1000 p-4'
+          : 'flex h-full flex-col rounded-lg border border-ice-850 bg-ice-950 p-4'
+      }
+      data-panel="fleet"
+    >
       <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-ice-400">Fleet</h2>
 
       {fleet.lanes.length === 0 && !connected ? (
@@ -101,8 +167,33 @@ export default function FleetTable() {
           </table>
         </div>
       )}
+
+      <footer
+        data-testid="fleet-key-hint"
+        className="mt-2 flex shrink-0 items-center gap-2 border-t border-ice-850 pt-1 font-mono text-[10px] text-ice-600"
+      >
+        <span>n next needs-you · shift+n prev · f focus · a attach · esc close</span>
+        {copyStatus === 'idle' ? null : (
+          <span role="status" className={copyStatus === 'copied' ? 'text-notice' : 'text-ice-500'}>
+            {copyStatus === 'copied' ? 'attach copied' : 'clipboard unavailable'}
+          </span>
+        )}
+      </footer>
     </section>
   )
+}
+
+/**
+ * "A lane row focused" (prd5 ruling 1+6) reads either way the direction
+ * names: the DOM's own tab focus landing on a row, or the shared selection —
+ * whichever names a lane, `f`/`a` act on it.
+ */
+function focusedLaneId(selectedId: string | null): string | null {
+  const active = document.activeElement
+  if (active instanceof HTMLElement && active.dataset.testid === 'fleet-row' && active.dataset.lane) {
+    return active.dataset.lane
+  }
+  return selectedId
 }
 
 interface RowProps {

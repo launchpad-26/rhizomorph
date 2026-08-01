@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { ConnectionBadge } from './ConnectionBadge.js'
+import { useIdleWorkerJump } from './keyboard.js'
 import { useMode } from './ModeContext.js'
 import { PanelGrid } from './PanelGrid.js'
 import { ReplayBar } from './ReplayBar.js'
@@ -40,6 +41,11 @@ const LaneDrawer = lazy(() => import('../drawer/index.js'))
  * which is what "the fleet stays visible" means structurally.
  */
 export function Shell() {
+  // prd5 ruling 1+6: the idle-worker jump is page-global (see `keyboard.ts`'s
+  // own comment on the split with #100's scene-scoped camera keys), so it is
+  // mounted once here rather than by any one panel.
+  useIdleWorkerJump()
+
   return (
     <div className="grid h-screen grid-rows-[auto_1fr_auto_auto] bg-ice-1000 font-sans text-ice-300">
       <TopDock />

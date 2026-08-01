@@ -97,6 +97,36 @@ async function renderShell(selected: string | null) {
   return utils
 }
 
+/**
+ * prd5 ruling 1+6 mounts `useIdleWorkerJump` here (`Shell()`'s own body) so
+ * the idle-worker jump is page-global rather than any one panel's. This is
+ * deliberately a smoke test, not a re-run of `app/keyboard.test.ts`'s own
+ * coverage: it exists to prove the hook is actually wired into `Shell`
+ * without breaking the Esc precedence chain the drawer tests above already
+ * pin (untouched by this change — see `keyboard.ts`'s own comment on why
+ * `f`/`a` do not live here at all).
+ */
+describe('Shell — the idle-worker jump (prd5 ruling 1+6)', () => {
+  it('mounts the jump: "n" is a harmless no-op when nothing needs you, and Esc still closes the drawer', async () => {
+    await renderShell(LANE)
+    expect(screen.getByTestId('lane-drawer')).toBeInTheDocument()
+
+    // The lane fixture here is a single quiet tool call — nothing on the
+    // ladder — so "n" has nowhere to jump and must leave the open drawer be.
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'n' })
+    })
+    expect(screen.getByTestId('lane-drawer')).toBeInTheDocument()
+
+    // The existing Esc chain (drawer/selection first) is untouched by
+    // mounting the jump alongside it.
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Escape' })
+    })
+    expect(screen.queryByTestId('lane-drawer')).toBeNull()
+  })
+})
+
 describe('Shell — the lane drawer mount (ruling 17)', () => {
   it('mounts no drawer while nothing is selected', async () => {
     await renderShell(null)
