@@ -1,9 +1,17 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createEventFactory, initialSessionState, reduce } from '@observatory/core'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { StreamProvider } from '../../app/StreamContext.js'
 import { FleetProvider } from '../../fleet/FleetContext.js'
-import { buildFleet, manifestFor, specFor, SyntheticFleet } from '../../fleet/index.js'
+import {
+  buildFleet,
+  fixtureHistory,
+  fleet20Spec,
+  manifestFor,
+  pathologySpec,
+  specFor,
+  SyntheticFleet,
+} from '../../fleet/index.js'
 import type { FetchLike } from '../../fleet/manifest.js'
 import { SelectionProvider } from '../../fleet/selection.js'
 import type { EventSourceLike } from '../../hooks/useEventStream.js'
@@ -13,6 +21,19 @@ afterEach(cleanup)
 
 /** Pinned, so the fixture and the derived fleet never move under the test. */
 const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
+
+/**
+ * `StreamProvider` builds each fixture's history the first time a test
+ * presses its key, which is also the moment vitest's per-test timeout clock
+ * is running. Warming fixtures.ts's memo here — same spec singleton, same
+ * `now`, same default seed the provider uses — moves that one-time
+ * ~8,000-event build into setup, so no single test (in this file or any
+ * other sharing the cache) pays for it under load.
+ */
+beforeAll(() => {
+  fixtureHistory(fleet20Spec(), NOW)
+  fixtureHistory(pathologySpec(), NOW)
+})
 
 class SilentEventSource implements EventSourceLike {
   onopen: ((event: Event) => void) | null = null
@@ -69,9 +90,14 @@ function rows(): HTMLElement[] {
 }
 
 describe('FleetTable — the twenty-lane fixture (ruling 22 scale test)', () => {
-  it('renders every lane, in the fleet object\'s own order', async () => {
+  // Hoisted out of the `it`: the mount folds a real ~8,000-event history and
+  // renders all 20 rows, so it belongs under `beforeAll`'s hookTimeout
+  // (10s), not the 5s testTimeout a busy box can blow through on cost alone.
+  beforeAll(async () => {
     await renderFixture('2')
+  })
 
+  it('renders every lane, in the fleet object\'s own order', async () => {
     const expected = expectedFleet('fleet20')
     expect(expected.rank).toBe('calm')
     expect(rows()).toHaveLength(20)
