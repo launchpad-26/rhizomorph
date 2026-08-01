@@ -11,6 +11,7 @@ import { FleetProvider } from '../fleet/FleetContext.js'
 import {
   buildFleet,
   fixtureHistory,
+  MAIN_SELECTION,
   manifestFor,
   pathologySpec,
   specFor,
@@ -19,6 +20,12 @@ import {
 import type { FetchLike } from '../fleet/manifest.js'
 import { SelectionProvider } from '../fleet/selection.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
+import { formatTokens } from '../lib/format.js'
+import {
+  formatDollarsOrGap,
+  formatOverheadOrGap,
+  outputHoverTitle,
+} from '../panels/burn/format.js'
 import { costCellText, outputCellText } from '../panels/fleet/format.js'
 import LaneDrawer from './index.js'
 
@@ -362,6 +369,221 @@ describe('LaneDrawer — the conversation (the main view)', () => {
     const roles = [...screen.getAllByTestId('turn')].map((turn) => turn.getAttribute('data-role'))
     expect(roles).toEqual(['user', 'assistant'])
     expect(screen.getByTestId('drawer-conversation').className).toContain('flex-1')
+  })
+})
+
+/**
+ * MAIN, THE PSEUDO-LANE (prd6 ruling 5) — the root-mass opens the same drawer.
+ *
+ * The claims worth pinning are the ones that would rot quietly: that this is
+ * genuinely the *same* frame and the *same* conversation component rather than
+ * a second panel that looks similar, that every figure in it is the one the
+ * burn strip would print, and that an uninstrumented conductor produces the gap
+ * voice rather than a blank pane.
+ */
+describe('LaneDrawer — MAIN, the conductor', () => {
+  const CONDUCTOR_DIR = '/conductor-home'
+  const LANDED = '/repo-wt/103-landed'
+
+  /** A session with a conductor in it, a lane, a landing and a commit home. */
+  function mainHistory(): ObservatoryEvent[] {
+    const f = createEventFactory({ startTs: NOW - 60_000, stepMs: 1_000 })
+    return [
+      f.sessionStarted({ repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' }),
+      f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-main', isMain: true }),
+      f.worktreeDiscovered({ path: WORKTREE, branch: LANE, head: 'sha-84', isMain: false }),
+      f.worktreeDiscovered({ path: LANDED, branch: '103-landed', head: 'sha-103', isMain: false }),
+      f.paneDiscovered({
+        paneId: '%1',
+        sessionName: 'observatory',
+        windowName: 'conductor',
+        windowIndex: 0,
+        currentPath: CONDUCTOR_DIR,
+        worktreePath: CONDUCTOR_DIR,
+      }),
+      f.llmUsage({
+        lane: LANE,
+        branch: LANE,
+        worktreePath: WORKTREE,
+        sessionId: 'sess-84',
+        tokens: { input: 10, output: 4_200, cacheRead: 90_000, cacheCreation: 1_000 },
+      }),
+      f.llmUsage({
+        lane: 'conductor',
+        role: 'conductor',
+        branch: null,
+        worktreePath: CONDUCTOR_DIR,
+        sessionId: 'sess-conductor',
+        tokens: { input: 40, output: 12_000, cacheRead: 5_000, cacheCreation: 0 },
+      }),
+      f.commitLanded({
+        branch: 'main',
+        sha: 'ma1n0001',
+        message: 'conductor: prd6 waves',
+        files: [{ path: 'docs/prd6.md', status: 'added' }],
+        insertions: 12,
+        deletions: 0,
+        worktreePath: '/repo',
+      }),
+      f.worktreeRemoved({ path: LANDED }),
+    ]
+  }
+
+  /** What the conductor's own transcript route answers with, when it has one. */
+  const conductorSession: FetchLike = async () => ({
+    ok: true,
+    json: async () => ({
+      available: true,
+      lane: 'main',
+      sessionId: 'sess-conductor',
+      offset: 0,
+      nextOffset: 90,
+      size: 90,
+      eof: true,
+      restarted: false,
+      entries: [
+        { role: 'user', blocks: [{ kind: 'text', text: 'dispatch wave 1' }] },
+        {
+          role: 'assistant',
+          blocks: [
+            { kind: 'text', text: 'Three briefs written.' },
+            { kind: 'tool_use', name: 'Bash', hint: 'workmux new 107-main-node' },
+          ],
+        },
+      ],
+    }),
+  })
+
+  async function renderMain(options: Omit<HarnessOptions, 'selected'> = {}) {
+    return renderDrawer({ events: mainHistory(), ...options, selected: MAIN_SELECTION })
+  }
+
+  it('opens on the root-mass, headed MAIN and the branch it is', async () => {
+    await renderMain({ fetchTranscript: conductorSession })
+
+    const drawer = screen.getByTestId('lane-drawer')
+    expect(drawer.getAttribute('data-lane')).toBe('main')
+    expect(drawer.textContent).toContain('Main')
+    expect(screen.getByTestId('drawer-main-branch').textContent).toBe('main')
+    // Not the lane reading: main is not in `fleet.lanes` and must not be
+    // reported as a lane that went away.
+    expect(screen.queryByTestId('drawer-unknown-lane')).toBeNull()
+    expect(screen.queryByTestId('drawer-vitals')).toBeNull()
+  })
+
+  it('shows main\'s own vitals — branch, landings, commits home, and the session burn', async () => {
+    await renderMain({ fetchTranscript: conductorSession })
+
+    const vitals = screen.getByTestId('drawer-main-vitals')
+    expect(vitals.textContent).toContain('branch')
+    expect(vitals.textContent).toContain('main')
+    // One worktree removed, one commit on main, and the two lanes' output
+    // summed by the fleet object rather than by this drawer: 4.2K + 12K.
+    expect(vitals.textContent).toContain('landings')
+    expect(vitals.textContent).toContain('1')
+    expect(vitals.textContent).toContain('16.2K')
+  })
+
+  it('prints the figures the burn strip prints — the same formatters, not a second sum', async () => {
+    await renderMain({ fetchTranscript: conductorSession })
+
+    const fleet = buildFleet(mainHistory().reduce(reduce, initialSessionState()), { now: NOW })
+    const vitals = screen.getByTestId('drawer-main-vitals')
+
+    expect(vitals.textContent).toContain(formatTokens(fleet.burn.outputTokens))
+    expect(screen.getByTitle(outputHoverTitle(fleet.burn.tokens))).toBeTruthy()
+    // No OTel in this fixture, so dollars are unknown — an em dash carrying the
+    // strip's own gap sentence, never `$0.00` (law 12).
+    const figureUnder = (title: string) =>
+      screen.getByTitle(title).querySelector('dd')?.textContent
+    expect(figureUnder(formatDollarsOrGap(fleet.burn))).toBe('—')
+    expect(figureUnder(formatOverheadOrGap(fleet.burn))).toBe('—')
+  })
+
+  it('says the conductor\'s burn is unknown, not zero, when nobody instrumented it', async () => {
+    await renderMain({ fetchTranscript: conductorSession })
+
+    expect(screen.getByTestId('drawer-main-evidence').textContent).toContain(
+      'conductor not instrumented — its burn is unknown, not zero',
+    )
+  })
+
+  it('reads the conductor\'s own session, in the component a lane\'s turns use', async () => {
+    const urls: string[] = []
+    const fetchTranscript: FetchLike = async (input) => {
+      urls.push(input)
+      return conductorSession(input)
+    }
+
+    await renderMain({ fetchTranscript })
+
+    expect(urls).toEqual(['/api/transcript/main?offset=0'])
+    const body = screen.getByTestId('conversation-body')
+    expect(body.textContent).toContain('dispatch wave 1')
+    expect(body.textContent).toContain('Three briefs written.')
+    expect(screen.getByTestId('tool-call').textContent).toContain('Bash')
+    // The same section, keeping the same share of the drawer it has for a lane.
+    expect(screen.getByTestId('drawer-conversation').className).toContain('flex-1')
+  })
+
+  it('says what is missing, why, and the command — never a blank conversation', async () => {
+    const gap =
+      "CONDUCTOR NOT INSTRUMENTED — nothing in this session's event log was recorded against " +
+      'role: conductor, so the orchestrator has no session for this drawer to read — ' +
+      'run: `observatory --extra-sessions <dir>:conductor`'
+    const uninstrumented: FetchLike = async () => ({
+      ok: false,
+      json: async () => ({ available: false, lane: 'main', reason: gap }),
+    })
+
+    await renderMain({ fetchTranscript: uninstrumented })
+
+    expect(screen.getByTestId('drawer-conversation').textContent).toContain(gap)
+    expect(screen.queryByTestId('conversation-body')).toBeNull()
+  })
+
+  it('copies the conductor\'s own pane, and still only ever copies', async () => {
+    const copied: string[] = []
+    await renderMain({
+      fetchTranscript: conductorSession,
+      onCopy: async (text) => {
+        copied.push(text)
+      },
+    })
+
+    fireEvent.click(screen.getByTestId('attach-copy'))
+
+    expect(screen.getByTestId('attach-command').textContent).toBe(
+      'tmux attach -t observatory \\; select-window -t 0',
+    )
+    expect(copied).toEqual(['tmux attach -t observatory \\; select-window -t 0'])
+  })
+
+  it('offers no command at all, with the reason, when no pane is on record', async () => {
+    const withoutPane = mainHistory().filter((event) => event.type !== 'pane.discovered')
+
+    await renderDrawer({
+      events: withoutPane,
+      selected: MAIN_SELECTION,
+      fetchTranscript: conductorSession,
+    })
+
+    expect(screen.queryByTestId('attach-copy')).toBeNull()
+    expect(screen.getByTestId('drawer-attach').textContent).toContain('NO PANE ON RECORD')
+    // Never `workmux open main`: main is not a workmux lane, and a command that
+    // would make one is worse than admitting there is no address.
+    expect(screen.getByTestId('drawer-attach').textContent).not.toContain('workmux')
+  })
+
+  it('closes on Esc, exactly as a lane\'s does', async () => {
+    await renderMain({ fetchTranscript: conductorSession })
+    expect(screen.getByTestId('lane-drawer')).toBeTruthy()
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Escape' })
+    })
+
+    expect(screen.queryByTestId('lane-drawer')).toBeNull()
   })
 })
 

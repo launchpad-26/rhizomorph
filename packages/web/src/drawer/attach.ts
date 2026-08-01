@@ -1,5 +1,5 @@
 import type { ObservatoryEvent } from '@observatory/core'
-import type { Lane } from '../fleet/index.js'
+import { MAIN_SELECTION, type Lane, type RootMass } from '../fleet/index.js'
 
 /**
  * THE ATTACH COMMAND (ruling 17) — the one thing in the Observatory that hands
@@ -133,6 +133,58 @@ export function findTmuxIdentity(
 /** The workmux handle for a lane: what `workmux open` calls its worktree. */
 export function workmuxHandle(lane: AttachLane): string {
   return lane.handles[0] ?? lane.branch ?? lane.id
+}
+
+/** The only part of the root-mass a conductor plan needs. */
+export type AttachRoot = Pick<RootMass, 'mainBranch' | 'worktreePath'>
+
+/**
+ * THE CONDUCTOR'S OWN PANE (prd6 ruling 5).
+ *
+ * The same tmux lookup a lane gets, pointed at the root-mass: a pane sitting in
+ * the main worktree, or a window named for the main branch or called
+ * `conductor` — the handle the sessionlog collector gives an
+ * `--extra-sessions` dir by default. It copies a string, like everything else
+ * in this file.
+ *
+ * **No workmux fallback, and that is the point.** `workmux open <handle>` makes
+ * a worktree; main is the one place in the repo that is not a workmux lane, so
+ * offering it here would hand the operator a command that creates a branch they
+ * did not ask for. When there is no pane on record, this says so with the
+ * command that would put one there (law 12) — which is a better answer than a
+ * plausible one that does the wrong thing.
+ */
+export function conductorAttachPlan(
+  events: readonly ObservatoryEvent[],
+  root: AttachRoot,
+): AttachPlan {
+  const identity = findTmuxIdentity(events, {
+    id: MAIN_SELECTION,
+    branch: root.mainBranch,
+    worktreePath: root.worktreePath,
+    handles: ['conductor'],
+    present: true,
+  })
+
+  if (identity !== null) {
+    return {
+      kind: 'tmux',
+      identity,
+      note: `tmux pane ${identity.paneId} — session ${identity.sessionName}, window ${identity.window}`,
+      command:
+        `tmux attach -t ${shellQuote(identity.sessionName)}` +
+        ` \\; select-window -t ${shellQuote(identity.window)}`,
+    }
+  }
+
+  return {
+    kind: 'none',
+    command: null,
+    note:
+      'NO PANE ON RECORD for the conductor — nothing the tmux collector saw sits in ' +
+      `${root.worktreePath ?? 'the main worktree'} or answers to “conductor”, so there is no ` +
+      'address to attach to — run: `observatory doctor`',
+  }
 }
 
 export function attachPlan(events: readonly ObservatoryEvent[], lane: AttachLane): AttachPlan {
