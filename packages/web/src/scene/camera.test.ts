@@ -316,14 +316,30 @@ describe('recentre', () => {
 })
 
 describe('the pan bounds', () => {
-  it('gives a viewport of slack in every direction — generous, but finite', () => {
+  it('is symmetrical about the scene box, and finite', () => {
     const [low, high] = translateExtentFor(VIEWPORT)
-    expect(low).toEqual([-VIEWPORT.width, -VIEWPORT.height])
-    expect(high).toEqual([VIEWPORT.width * 2, VIEWPORT.height * 2])
 
+    expect(-low[0]).toBeCloseTo(high[0] - VIEWPORT.width, 9)
+    expect(-low[1]).toBeCloseTo(high[1] - VIEWPORT.height, 9)
     // Finite is the load-bearing half: an infinite extent is a scene that can
     // be thrown away, and Recenter can only find what is still in bounds.
     expect(Number.isFinite(low[0]) && Number.isFinite(high[0])).toBe(true)
+  })
+
+  it('leaves enough slack that the network can actually be lost', () => {
+    // d3 constrains the *viewport* to the extent, so slack of exactly one
+    // viewport lets you pan the network to the panel edge and no further — and
+    // a Recenter button for a state that is unreachable is an ornament. The
+    // furthest pan has to clear the content, and this is what says by how much.
+    const bounds = contentBounds(geometry())
+    const [low, high] = translateExtentFor(VIEWPORT)
+    // The extreme leftward pan d3's `constrain` permits at 1×: the viewport's
+    // right edge is held at the extent's right edge, so `x = width - high[0]`.
+    const gone: Camera = { k: 1, x: VIEWPORT.width - high[0], y: 0 }
+    expect(gone.x).toBeCloseTo(low[0], 9)
+
+    expect(bounds.maxX + gone.x).toBeLessThan(-VISIBLE_SLIVER)
+    expect(isContentVisible(gone, VIEWPORT, bounds)).toBe(false)
   })
 })
 

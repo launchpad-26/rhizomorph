@@ -1,3 +1,4 @@
+import { IDENTITY, type Camera } from './camera.js'
 import type { Point } from './geometry.js'
 import { cssColour } from './palette.js'
 import {
@@ -28,33 +29,83 @@ import {
  * A `glow` is light — pulses, the root-mass core, a raised hand's halo — so it
  * composites additively and two overlapping pulses read brighter, the way light
  * does. Everything else is pigment and paints over.
+ *
+ * The second rule it owns is **where** the marks land, which is the whole of
+ * the camera as far as drawing is concerned: the picture is painted through
+ * `setTransform`, and the chrome is not. See {@link paint}.
  */
 
 export interface PaintOptions {
   ctx: CanvasRenderingContext2D
   marks: readonly Mark[]
+  /** The panel, in CSS pixels. Not the world — the world is what the camera moves. */
   width: number
   height: number
+  /** Where the scene is being looked at from. Identity until somebody moves. */
+  camera?: Camera
+  /** Device pixels per CSS pixel. The camera composes on top of it. */
+  dpr?: number
 }
 
 /** Cached by path data: the same glyph is drawn on every frame, at every node. */
 const glyphCache = new Map<string, Path2D>()
 
-export function paint({ ctx, marks, width, height }: PaintOptions): void {
+/**
+ * Two passes, and the difference between them is the camera.
+ *
+ * **The picture** — every thread, node, pulse and label — is drawn through the
+ * camera transform, so panning moves it and zooming magnifies it, strokes and
+ * type and all. That is what makes zoom feel like a lens rather than a
+ * re-layout: the geometry underneath never changes, so a lane stays at four
+ * o'clock however far in you go (graft g7).
+ *
+ * **The chrome** — the gap voice in the gutter (law 12) — is drawn at device
+ * scale only. It is the scene talking *about* the picture rather than part of
+ * it, so it stays legible at 0.4× and stays put at 6×, pinned to the panel's
+ * bottom-left corner where it was written. A caveat that scrolls off the edge
+ * when you pan is a caveat that was not made.
+ *
+ * The backdrop belongs with the chrome for the same reason: it is the panel's
+ * floor, not the void the network hangs in, and it has to cover the canvas
+ * whatever the camera is doing.
+ */
+export function paint({
+  ctx,
+  marks,
+  width,
+  height,
+  camera = IDENTITY,
+  dpr = 1,
+}: PaintOptions): void {
   ctx.save()
-  ctx.fillStyle = cssColour(BACKDROP)
-  ctx.fillRect(0, 0, width, height)
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
 
-  for (const mark of marks) {
-    const light = mark.kind === 'glow'
-    ctx.globalCompositeOperation = light ? 'lighter' : 'source-over'
-    draw(ctx, mark)
-  }
+  const screen = () => ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+  screen()
+  ctx.fillStyle = cssColour(BACKDROP)
+  ctx.fillRect(0, 0, width, height)
+
+  const scale = dpr * camera.k
+  ctx.setTransform(scale, 0, 0, scale, dpr * camera.x, dpr * camera.y)
+  for (const mark of marks) if (!isChrome(mark)) blend(ctx, mark)
+
+  screen()
+  for (const mark of marks) if (isChrome(mark)) blend(ctx, mark)
 
   ctx.globalCompositeOperation = 'source-over'
   ctx.restore()
+}
+
+/** What the camera does not move: the scene's own voice, in the gutter. */
+function isChrome(mark: Mark): boolean {
+  return mark.role === 'gap'
+}
+
+function blend(ctx: CanvasRenderingContext2D, mark: Mark): void {
+  ctx.globalCompositeOperation = mark.kind === 'glow' ? 'lighter' : 'source-over'
+  draw(ctx, mark)
 }
 
 function draw(ctx: CanvasRenderingContext2D, mark: Mark): void {

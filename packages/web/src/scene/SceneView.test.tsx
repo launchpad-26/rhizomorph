@@ -1,10 +1,22 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { reduceAll } from '@observatory/core'
+import { act, cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ModeProvider } from '../app/ModeContext.js'
 import { StreamProvider } from '../app/StreamContext.js'
-import { FleetProvider, SelectionProvider } from '../fleet/index.js'
+import {
+  FleetProvider,
+  SelectionProvider,
+  buildFleet,
+  fixtureHistory,
+  manifestFor,
+  pathologySpec,
+} from '../fleet/index.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
-import Scene from './index.js'
+import { SCALE_EXTENT, ZOOM_STEP } from './camera.js'
+import { layoutScene } from './geometry.js'
+import { PulseField } from './pulses.js'
+import { SettleRegistry } from './settle.js'
+import Scene, { SceneView } from './index.js'
 
 /**
  * THE SCENE, MOUNTED — the wiring, end to end.
@@ -236,8 +248,439 @@ describe('the canvas host', () => {
   })
 })
 
+/**
+ * THE CAMERA, WIRED.
+ *
+ * `camera.test.ts` pins the laws as arithmetic. This is the other half: that a
+ * real ctrl+wheel event on the real canvas produces the transform those laws
+ * describe, that a drag pans without eating the click that selects, and that the
+ * transform reaches `ctx.setTransform` and the hit test in the same shape.
+ *
+ * These mount `SceneView` directly rather than `Scene`, because a camera test
+ * has to know exactly where the nodes are — and with the fleet in hand the test
+ * can lay the scene out itself and compare against the component's own picture,
+ * instead of guessing at coordinates.
+ */
+describe('the camera', () => {
+  const HOST = { width: 900, height: 500 }
+
+  /**
+   * A turn of the event loop.
+   *
+   * d3 suppresses the click at the end of a drag by installing a capture-phase
+   * handler on `window` and removing it in a `setTimeout(0)` — which in a
+   * browser is over long before the user's next click, and in a synchronous
+   * test is still armed when the *next* test clicks something. Waiting a turn
+   * is what a real hand does anyway.
+   */
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  /**
+   * A mouse event that carries a `view`, which is not a thing jsdom will make.
+   *
+   * d3-zoom follows a drag by registering mousemove/mouseup on `event.view` and
+   * asks `dragDisable` for that window's document, so a press without one is a
+   * press it cannot follow. jsdom's `MouseEvent` constructor rejects *every*
+   * candidate for `view` under vitest — the global, `document.defaultView`,
+   * `ownerDocument.defaultView` — because vitest hands the window out through a
+   * proxy and the brand check does not see through it. Defining the property on
+   * the built event shadows `UIEvent.prototype.view` and gets d3 what it reads.
+   */
+  function withView(event: Event): Event {
+    Object.defineProperty(event, 'view', { value: window, configurable: true })
+    return event
+  }
+
+  const press = (canvas: HTMLCanvasElement, x: number, y: number, button = 0) => {
+    fireEvent(canvas, withView(createEvent.mouseDown(canvas, { clientX: x, clientY: y, button })))
+  }
+  const move = (x: number, y: number) => {
+    fireEvent(window, withView(createEvent.mouseMove(window, { clientX: x, clientY: y })))
+  }
+  const release = (x: number, y: number) => {
+    fireEvent(window, withView(createEvent.mouseUp(window, { clientX: x, clientY: y })))
+  }
+  const drag = (canvas: HTMLCanvasElement, from: [number, number], to: [number, number]) => {
+    press(canvas, from[0], from[1])
+    move(to[0], to[1])
+    release(to[0], to[1])
+  }
+
+  afterEach(async () => {
+    cleanup()
+    await settle()
+  })
+
+  function stagedFleet() {
+    const spec = pathologySpec()
+    return buildFleet(reduceAll(fixtureHistory(spec, NOW)), {
+      now: NOW,
+      manifest: manifestFor(spec),
+    })
+  }
+
+  /**
+   * A mounted scene, its recorded canvas transforms, and the geometry it is
+   * drawing — laid out here with the same inputs the component uses, so a node's
+   * world position is a known quantity rather than an inference.
+   */
+  function mountCamera(options: { reducedMotion?: boolean; live?: boolean } = {}) {
+    const hostRect = {
+      ...HOST,
+      top: 0,
+      left: 0,
+      right: HOST.width,
+      bottom: HOST.height,
+      x: 0,
+      y: 0,
+      toJSON() {},
+    }
+    vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect').mockReturnValue(hostRect as DOMRect)
+    vi.stubGlobal('Path2D', class {})
+    if (options.reducedMotion === true) {
+      vi.stubGlobal('matchMedia', () => ({
+        matches: true,
+        addEventListener() {},
+        removeEventListener() {},
+      }))
+    }
+
+    const calls: string[] = []
+    const transforms: number[][] = []
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      fakeContext(calls, transforms) as unknown as CanvasRenderingContext2D,
+    )
+
+    const fleet = stagedFleet()
+    const onSelect = vi.fn()
+    const utils = render(
+      <SceneView
+        fleet={fleet}
+        field={new PulseField()}
+        settle={new SettleRegistry()}
+        selectedId={null}
+        onSelect={onSelect}
+        {...(options.live === true ? {} : { now: NOW })}
+      />,
+    )
+
+    const canvas = utils.container.querySelector('canvas') as HTMLCanvasElement
+    const host = utils.container.firstElementChild as HTMLElement
+    const geometry = layoutScene(fleet, { ...HOST, now: NOW })
+
+    return { ...utils, canvas, host, geometry, onSelect, transforms }
+  }
+
+  /**
+   * The camera behind the most recent painted frame.
+   *
+   * `paint` sets the transform three times a frame — the backdrop at device
+   * scale, the picture through the camera, the chrome back at device scale — so
+   * the camera is the middle one of the last three.
+   */
+  function cameraOf(transforms: number[][]) {
+    const [k, , , , x, y] = transforms[transforms.length - 2] as number[]
+    return { k: k as number, x: x as number, y: y as number }
+  }
+
+  const pinch = (canvas: HTMLCanvasElement, at: { x: number; y: number }, deltaY: number) => {
+    fireEvent.wheel(canvas, { deltaY, ctrlKey: true, clientX: at.x, clientY: at.y })
+  }
+
+  it('paints the picture through the camera and the chrome outside it', () => {
+    // The frame's three transforms, in order: backdrop at device scale, the
+    // world through the camera, the gutter back at device scale. The gap voice
+    // is the scene talking about the picture, so it must not travel with it.
+    const { transforms } = mountCamera()
+    const frame = transforms.slice(-3)
+
+    expect(frame).toHaveLength(3)
+    expect(frame[0]).toEqual([1, 0, 0, 1, 0, 0])
+    expect(frame[2]).toEqual([1, 0, 0, 1, 0, 0])
+  })
+
+  it('zooms at the cursor, not at the middle of the panel', () => {
+    // The classic mistake d3 makes by default. The point under the pointer
+    // before the wheel must be the point under the pointer after it — off-centre
+    // on purpose, because a centred focal point passes either way.
+    const { canvas, transforms } = mountCamera()
+    const at = { x: 700, y: 120 }
+
+    pinch(canvas, at, -80)
+
+    const camera = cameraOf(transforms)
+    expect(camera.k).toBeGreaterThan(1)
+    // At identity the world point under the pointer *was* the pointer.
+    expect((at.x - camera.x) / camera.k).toBeCloseTo(at.x, 6)
+    expect((at.y - camera.y) / camera.k).toBeCloseTo(at.y, 6)
+  })
+
+  it('leaves a plain wheel to the page', () => {
+    // The scene is a panel in a scrolling page; a canvas that eats the wheel is
+    // a canvas nobody can scroll past.
+    const { canvas, transforms } = mountCamera()
+    const before = transforms.length
+
+    const event = createEvent.wheel(canvas, { deltaY: 240 })
+    const handled = !fireEvent(canvas, event)
+
+    expect(handled, 'the camera claimed a wheel event that belongs to the page').toBe(false)
+    expect(transforms.length).toBe(before)
+  })
+
+  it('clamps at the scale extent however hard the wheel is turned', () => {
+    const { canvas, transforms } = mountCamera()
+    for (let i = 0; i < 40; i += 1) pinch(canvas, { x: 450, y: 250 }, -100)
+    expect(cameraOf(transforms).k).toBeCloseTo(SCALE_EXTENT[1], 6)
+
+    for (let i = 0; i < 80; i += 1) pinch(canvas, { x: 450, y: 250 }, 100)
+    expect(cameraOf(transforms).k).toBeCloseTo(SCALE_EXTENT[0], 6)
+  })
+
+  it('pans on drag', () => {
+    const { canvas, transforms } = mountCamera()
+
+    drag(canvas, [400, 250], [520, 300])
+
+    const camera = cameraOf(transforms)
+    expect(camera.x).toBeCloseTo(120, 6)
+    expect(camera.y).toBeCloseTo(50, 6)
+    expect(camera.k).toBe(1)
+  })
+
+  it('pans on the middle button too', () => {
+    const { canvas, transforms } = mountCamera()
+
+    press(canvas, 400, 250, 1)
+    move(340, 250)
+    release(340, 250)
+
+    expect(cameraOf(transforms).x).toBeCloseTo(-60, 6)
+  })
+
+  it('does not steal the click that selects a lane', () => {
+    // The Figma resolution, via d3-zoom's `clickDistance` (which is where React
+    // Flow resolves the same conflict): a press that did not travel is a click,
+    // and a press that did is a pan and eats its own click.
+    const { canvas, geometry, onSelect } = mountCamera()
+    const node = geometry.threads[0]?.node as { x: number; y: number }
+
+    press(canvas, node.x, node.y)
+    release(node.x, node.y)
+    fireEvent.click(canvas, { clientX: node.x, clientY: node.y })
+
+    expect(onSelect).toHaveBeenCalledWith(geometry.threads[0]?.laneId)
+  })
+
+  it('eats the click at the end of a drag, so panning never selects', () => {
+    const { canvas, geometry, onSelect } = mountCamera()
+    const node = geometry.threads[0]?.node as { x: number; y: number }
+
+    drag(canvas, [node.x, node.y], [node.x + 90, node.y])
+    fireEvent.click(canvas, { clientX: node.x + 90, clientY: node.y })
+
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('hit-tests in world coordinates: it picks the lane the pointer is over now', () => {
+    // The whole composition risk in one test. After a zoom, a lane is picked
+    // from where it is *drawn*; a hit test left in screen coordinates would
+    // still be picking lanes off the layout the camera stopped agreeing with.
+    const { canvas, geometry, onSelect, transforms } = mountCamera()
+    const thread = geometry.threads[0]
+    const node = thread?.node as { x: number; y: number }
+
+    pinch(canvas, { x: 20, y: 20 }, -200)
+    const camera = cameraOf(transforms)
+    expect(camera.k).toBeGreaterThan(1.2)
+
+    // Where that node is now drawn.
+    const drawn = { x: node.x * camera.k + camera.x, y: node.y * camera.k + camera.y }
+    fireEvent.click(canvas, { clientX: drawn.x, clientY: drawn.y })
+    expect(onSelect).toHaveBeenLastCalledWith(thread?.laneId)
+
+    // And where it used to be, which at this zoom is a long way from anything.
+    onSelect.mockClear()
+    fireEvent.click(canvas, { clientX: node.x, clientY: node.y })
+    expect(onSelect).toHaveBeenLastCalledWith(null)
+  })
+
+  describe('the keys, scoped to a focused scene', () => {
+    it('sends the camera home on 0', () => {
+      const { canvas, host, transforms } = mountCamera()
+      pinch(canvas, { x: 700, y: 120 }, -100)
+      expect(cameraOf(transforms).k).toBeGreaterThan(1)
+
+      fireEvent.keyDown(host, { key: '0' })
+      expect(cameraOf(transforms)).toEqual({ k: 1, x: 0, y: 0 })
+    })
+
+    it('steps in and out on + and -', () => {
+      const { host, transforms } = mountCamera()
+
+      fireEvent.keyDown(host, { key: '+' })
+      const zoomedIn = cameraOf(transforms)
+      expect(zoomedIn.k).toBeCloseTo(ZOOM_STEP, 6)
+      // About the middle of the panel: there is no pointer to zoom at.
+      expect((HOST.width / 2 - zoomedIn.x) / zoomedIn.k).toBeCloseTo(HOST.width / 2, 6)
+
+      fireEvent.keyDown(host, { key: '-' })
+      expect(cameraOf(transforms).k).toBeCloseTo(1, 6)
+    })
+
+    it('fits on 1, and does not let 1 switch the stream underneath it', () => {
+      // `1` is already the live-stream key everywhere else on the page. The
+      // camera may only claim it while the scene holds focus, and claiming it
+      // means the global handler must never see it.
+      const { host, transforms } = mountCamera()
+      const global = vi.fn()
+      window.addEventListener('keydown', global)
+
+      fireEvent.keyDown(host, { key: '1' })
+
+      expect(global).not.toHaveBeenCalled()
+      window.removeEventListener('keydown', global)
+
+      // Fit frames the whole network, which is a little tighter than identity
+      // because the layout leaves room for labels that fit does not have to.
+      expect(cameraOf(transforms).k).not.toBe(1)
+    })
+
+    it("leaves the page's own shortcuts alone", () => {
+      const { host } = mountCamera()
+      const global = vi.fn()
+      window.addEventListener('keydown', global)
+
+      // Not the camera's keys, and the camera's keys under a modifier (cmd+0 is
+      // the browser's zoom reset, and taking it would be theft).
+      fireEvent.keyDown(host, { key: '2' })
+      fireEvent.keyDown(host, { key: '0', metaKey: true })
+
+      expect(global).toHaveBeenCalledTimes(2)
+      window.removeEventListener('keydown', global)
+    })
+  })
+
+  describe('recenter', () => {
+    it('stays out of the way while the network is on screen', () => {
+      const { getByTestId } = mountCamera()
+      // Mounted, not absent: the state it reports flips as fast as a drag, and
+      // a transition can be interrupted where a mount cannot.
+      expect(getByTestId('scene-recenter')).toHaveAttribute('aria-hidden', 'true')
+    })
+
+    it('appears once the network has been dragged out of view, and brings it back', async () => {
+      const { canvas, getByTestId } = mountCamera()
+
+      drag(canvas, [450, 250], [450 - 1400, 250])
+      expect(getByTestId('scene-recenter')).toHaveAttribute('aria-hidden', 'false')
+
+      await settle()
+      fireEvent.click(getByTestId('scene-recenter'))
+      expect(getByTestId('scene-recenter')).toHaveAttribute('aria-hidden', 'true')
+    })
+  })
+
+  /**
+   * The flight needs a running loop, so these mount with a live clock and drive
+   * `requestAnimationFrame` by hand — the only way to watch a camera move
+   * without racing it.
+   */
+  describe('the flight home', () => {
+    function mountFlying(options: { reducedMotion?: boolean } = {}) {
+      const frames: FrameRequestCallback[] = []
+      vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
+        frames.push(callback),
+      )
+      vi.stubGlobal('cancelAnimationFrame', () => {})
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(NOW)
+
+      const mounted = mountCamera({ ...options, live: true })
+      const draw = () => {
+        const next = frames.shift()
+        act(() => next?.(0))
+      }
+
+      return { ...mounted, draw, at: (ms: number) => vi.setSystemTime(NOW + ms) }
+    }
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('arcs there over several frames rather than cutting', () => {
+      const { host, transforms, draw, at } = mountFlying()
+      draw()
+      const home = cameraOf(transforms)
+
+      act(() => {
+        fireEvent.keyDown(host, { key: '1' })
+      })
+
+      // Nothing has moved yet: the keypress starts a flight, it does not take it.
+      expect(cameraOf(transforms)).toEqual(home)
+
+      at(120)
+      draw()
+      const midway = cameraOf(transforms)
+
+      at(2_000)
+      draw()
+      const landed = cameraOf(transforms)
+
+      expect(midway).not.toEqual(home)
+      expect(midway).not.toEqual(landed)
+      // And it settles: the frame after arrival is the frame it arrived on.
+      at(2_400)
+      draw()
+      expect(cameraOf(transforms)).toEqual(landed)
+    })
+
+    it('jumps instead, when motion is reduced', () => {
+      // A camera flight is the largest movement in the instrument, so it is the
+      // first thing the preference switches off.
+      const { host, transforms, draw } = mountFlying({ reducedMotion: true })
+      draw()
+      const home = cameraOf(transforms)
+
+      act(() => {
+        fireEvent.keyDown(host, { key: '1' })
+      })
+      draw()
+      const landed = cameraOf(transforms)
+
+      expect(landed).not.toEqual(home)
+      // No time passed and no frames were spent: it was already there.
+      draw()
+      expect(cameraOf(transforms)).toEqual(landed)
+    })
+
+    it('drops the flight when a hand lands on the canvas', () => {
+      const { canvas, host, transforms, draw, at } = mountFlying()
+      draw()
+
+      act(() => {
+        fireEvent.keyDown(host, { key: '1' })
+      })
+      at(100)
+      draw()
+      const interrupted = cameraOf(transforms)
+
+      act(() => {
+        drag(canvas, [400, 250], [430, 250])
+      })
+
+      at(2_000)
+      draw()
+      // The drag's 30px, and no sign of the flight resuming its arc underneath.
+      expect(cameraOf(transforms).x).toBeCloseTo(interrupted.x + 30, 6)
+    })
+  })
+})
+
 /** Records what was asked of it. Enough of a 2D context for `paint` to run. */
-function fakeContext(calls: string[]) {
+function fakeContext(calls: string[], transforms: number[][] = []) {
   const noop = (name: string) => () => {
     calls.push(name)
   }
@@ -260,7 +703,10 @@ function fakeContext(calls: string[]) {
     translate: noop('translate'),
     rotate: noop('rotate'),
     scale: noop('scale'),
-    setTransform: noop('setTransform'),
+    setTransform: (...args: number[]) => {
+      calls.push('setTransform')
+      transforms.push(args)
+    },
     setLineDash: noop('setLineDash'),
     measureText: () => ({ width: 40 }),
     createRadialGradient: () => gradient,

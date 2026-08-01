@@ -111,18 +111,32 @@ export function scaleAbout(camera: Camera, factor: number, focus: Point): Camera
 }
 
 /**
+ * How much room the camera has outside the scene's own box, as a multiple of
+ * the viewport in each direction.
+ *
+ * Exactly one viewport of slack is the wrong number, and interestingly so:
+ * d3's `constrain` keeps the *viewport* inside the extent, so one viewport of
+ * slack lets you pan the network to precisely the edge of the panel and no
+ * further. The content is then never quite lost, which sounds like a feature
+ * and is really a control that can be held against its stop while the thing it
+ * moves sits just off screen. Half a viewport more, and getting lost is a
+ * thing that can actually happen — which is what makes Recenter an answer
+ * rather than an ornament.
+ */
+const PAN_SLACK = 1.5
+
+/**
  * How far the camera may be panned, in world coordinates.
  *
- * One viewport of slack in every direction: generous enough that a hard edge is
- * never what stops an exploratory drag, tight enough that the scene cannot be
- * flung somewhere it takes a scroll bar to find. Losing the network off the
- * side of the panel is *allowed* — that is what Recenter is for. Being unable
- * to get back is not.
+ * Generous enough that a hard edge is never what stops an exploratory drag,
+ * finite so the scene cannot be flung somewhere it takes a scrollbar to find.
+ * Losing the network off the side of the panel is *allowed* — that is what
+ * Recenter is for. Being unable to get back is not.
  */
 export function translateExtentFor(viewport: Viewport): [[number, number], [number, number]] {
   return [
-    [-viewport.width, -viewport.height],
-    [viewport.width * 2, viewport.height * 2],
+    [-viewport.width * PAN_SLACK, -viewport.height * PAN_SLACK],
+    [viewport.width * (1 + PAN_SLACK), viewport.height * (1 + PAN_SLACK)],
   ]
 }
 
