@@ -33,8 +33,8 @@ Specifics:
 
 ## Blocked by
 
-#92 (colors land first; they are testable at any canvas size — the
-reverse is not). **Model:** sonnet. **Wave:** 2.
+#92 (colors land first) AND #94 (shared Shell/App test-file pins —
+fence-lint regroom, see issue comment). **Model:** sonnet. **Wave:** 2.
 
 ## Definition of done
 
