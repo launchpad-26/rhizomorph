@@ -316,14 +316,17 @@ list the sections above assume:
 
 - **The lane drawer (#84)** — `packages/web/src/drawer/`, opened by clicking
   any fleet row. Vitals on top (reusing the fleet table's own cell
-  formatters, so the drawer can't disagree with the row that opened it),
-  an activity view as the default reading, an expandable live-tailing
+  formatters, so the drawer can't disagree with the row that opened it), an
+  activity view as the default reading, an expandable live-tailing
   transcript below it (`GET /api/transcript/:lane`,
   `packages/server/src/api/transcript.ts`), and an ATTACH button that copies
   a `tmux`/`workmux` command to the clipboard and never executes anything —
   enforced structurally by `packages/web/src/drawer/readonly.test.ts`, which
   greps the drawer's own source for any exec/spawn/websocket/HTTP-mutation
-  capability and asserts none exists.
+  capability and asserts none exists. **The "activity view as the default
+  reading" half of this is superseded by prd4 #94** — see [The layman bar
+  (prd4)](#the-layman-bar-prd4) below; the transcript endpoint and the
+  ATTACH button, described here, are unchanged.
 - **Panel focus (#85)** — `usePanelFocus` (`packages/web/src/app/panelPrefs.ts`)
   lets any `PanelFrame` fill the view; **Esc** restores it, but only once
   nothing is selected — `escapeShouldExitFocus(selectedId)` returns `true`
@@ -340,6 +343,147 @@ list the sections above assume:
   states the mode in words ("viewing a recorded past — not the live fleet"),
   not color — an ice-register frame/tint only, deliberately avoiding every
   ladder hue (law 9), since a mode is not a status.
+
+## The layman bar (prd4)
+
+prd4 (`docs/prd4.md`) is the operator-review pass that followed prd3: the
+instrument worked but read as built for the person who already knew what
+every mark meant, and ruling 1 (a standing ruling) re-aims every surface at a
+first-time viewer instead. Issues #92–#96 landed it in fenced waves — #92
+(the palette keystone) and #94 (the conversation drawer) in parallel, then
+#93 (the scene-centerpiece layout) and #95 (parked) once #92 landed, then
+this docs pass (#96). What follows is the shape it took in code.
+
+### Law 9a/9b — hue is meaning, brightness is attention
+
+prd3's law 9 ("color is never the sole carrier of a state") is unchanged,
+but prd4 ruling 3 splits what it forbade in two, because the old rule had
+quietly grown into "the calm world carries no hue at all," which is what
+the operator's "too dark, too pale" complaint was actually describing:
+
+- **Law 9a — hue is meaning, and each hue means one thing.** Six hues, one
+  vocabulary, for every state in the app: green is productive, amber is
+  blocked on a human, red is dead, cyan is a notice, ice is structure and
+  nothing-to-say. The activity states and the alarm rungs are no longer two
+  separate palettes — they're one scale read at two brightnesses. `WORKING`
+  and `DONE` are the same green, dim and bright; `WAITING_BENIGN` and
+  `NEEDS_YOU` are the same amber. `packages/web/src/scene/palette.ts` is the
+  one chokepoint this is enforced at: `ACTIVITY_HUE` (a `Record<LaneActivity,
+  Rgb>`) is the only place a lane's activity becomes a colour, so `marks/`
+  and `sigils.tsx` never name a hue of their own — they ask the chokepoint.
+  Re-aiming the whole scene at a new semantic map is therefore an edit to one
+  record, not a sweep through five files. Hue distance between adjacent
+  states is measured in OKLCH in `palette.test.ts`, not HSL — HSL put `done`
+  and `notice` 29° apart, close enough to pass a "these must differ" test on
+  a pair no eye actually confuses.
+- **Law 9b — the brightness band and alarm grammar own attention, not hue
+  exclusivity.** A calm mark may wear its family's hue at a healthy
+  brightness now; what it may never do is reach the luminance band alarms
+  own, wear a glow, or wear a cartouche. `packages/web/src/scene/salience.ts`
+  is where the band is enforced, arithmetically, against real fixtures
+  rather than tuned by eye:
+  - `CALM_CEILING = 0.78` — the luminance ceiling every non-alarm mark is
+    held under (`spend()`'s `capLuminance`). Raised from prd3's `0.70`
+    because the calm world now carries hue as well as lightness, and the
+    old ceiling read as murky once it did.
+  - `ALARM_FLOOR = 0.84` — the luminance floor a needs-you lane's brightest
+    mark must clear, so a summons is always the single brightest thing on
+    the page. **`BROKEN` is exempt.** `#ff3d68` pushed to `0.84` is two-thirds
+    of the way to white — pink, not dead. A frozen lane instead buys its
+    dominance the three other ways the grammar allows: it takes the
+    spotlight (every other lane recedes to `RECEDE = 0.3` around it), it is
+    the only mark wearing a cartouche, and it is exempt from every fade —
+    `marks.test.ts` pins this as dominance-under-recession rather than as a
+    raw brightness number.
+  - `CALM_FLOOR = 0.15` — the floor under a *living* lane's thread on a calm
+    fleet, pinning the regression the operator's review opened with (an
+    alpha floor of `0.22` read as "too dark and pale to read"). Checked by
+    sweeping `activityInk`'s alpha ramp across every activity and every
+    freshness/heat the twenty-lane fixture produces
+    (`marks.test.ts`), not just the values that fixture happens to hit. A
+    frozen lane's thread is deliberately *below* this floor — absence of
+    light is what FROZEN encodes, so the pin only ever applies to a *living*
+    thread.
+
+  These four numbers (`RECEDE`, `CALM_CEILING`, `ALARM_FLOOR`, `CALM_FLOOR`)
+  are the whole contrast budget, and none of them is a tuning knob left to
+  taste: each is pinned by a test against a real fixture, because a
+  brightness you can only re-find by looking at the screen is a brightness
+  that drifts dark again.
+
+**The fleet table teaches the palette, not just the glyphs.**
+`stateTextClass(rank, activity)` (`packages/web/src/fleet/sigils.tsx`) is
+the panel-side twin of `activityInk`: a rung above calm wins outright (full
+rung colour is alarm grammar, law 9b — a looping lane must not be softened
+into green by also, technically, being "working"), and below that the
+activity's own hue speaks. Since the STATE column already drew the scene's
+own glyph at row scale (prd3's graft g1), it now draws the scene's own hue
+there too — a reader learns "green means getting on with it" beside the
+plain-English word, then reads the scene's picture with no separate legend.
+
+### The scene as centerpiece (#93, ruling 2)
+
+`packages/web/src/app/PanelGrid.tsx` is the panel registry and the one file
+that knows the curated order; prd4 reorders it so the scene renders first,
+directly beneath the attention/burn dock, hero-sized (`min-h-[55vh]`-ish,
+raised from a `h-64` box), with the fleet table right after it as the
+legend/detail surface and the rest (ledger, collisions, feed) below that.
+`Shell.tsx`'s own doc comment states the reasoning: the screen now answers
+*what is the fleet doing* before *who is doing what*, because the scene is
+"big, bright and self-explanatory" on the #92 palette and no longer needs
+the table to make sense of it first. `SceneView`'s zero-rect mount fallback
+was resized alongside it (`320×180` → `640×420`, named as a constant) since
+it was tuned for the old, smaller box.
+
+### The conversation, not the transcript (#94, ruling 4)
+
+Two changes land this, one on each side of the wire:
+
+- **The endpoint hands back records, not a rendered string.**
+  `GET /api/transcript/:lane` (`packages/server/src/api/transcript.ts`) used
+  to emit one pre-formatted `▌ assistant\n…`-style string; `parseTranscript`
+  now emits `entries: TranscriptEntry[]`, each `{ ts?, role, blocks }` where
+  `role` is `user | assistant | subagent | system` and a block is
+  `{ kind: 'text' }`, `{ kind: 'tool_use', name, hint }`, or
+  `{ kind: 'tool_result', text, dropped }`. Shipping a pre-formatted string
+  forced every presentation decision — which face, how quiet, how truncated
+  — into a file a stylesheet cannot reach; handing back records lets the
+  client decide what a tool call *looks* like. `subagent` is the same
+  `isSidechain` mapping prd3's flat renderer used to spell
+  `assistant · subagent`; `system` is not a voice from the log at all — it's
+  this parser saying a line was unreadable (`⟨unreadable line⟩`), the one
+  thing it ever says. Tool results are truncated at
+  `TOOL_RESULT_MAX_CHARS` (400) and *declare* the cut via `dropped` rather
+  than silently trimming — a 2,000-line `Read` result is a legitimate
+  result and a useless payload, but a reader who can't see it was cut is
+  being told the tool said less than it did. Thinking blocks are still
+  never emitted, unchanged from prd3.
+- **The drawer's main view is the conversation, CLI-style.**
+  `packages/web/src/drawer/Conversation.tsx` (renamed from `Transcript.tsx`)
+  is now default-open, `flex-1`, and polls the whole time the drawer is
+  open — no fold in front of it. This **supersedes prd3 #84's
+  collapsed-by-default ruling**: that ruling put the activity ledger first
+  on the theory that it tells you whether the transcript is worth reading,
+  and the operator's review found the opposite in practice — the
+  conversation *is* the reading. Section order in the drawer is now Vitals
+  → Conversation → Activity → Attach. User turns render prompt-like (a `›`
+  marker, the brightest ink); assistant prose renders in the page's own
+  sans face rather than inside a `<pre>` (law 11) — a wall of monospace was
+  the loudest "this is for machines" signal in the panel it replaces — and
+  monospace is kept for figures only: tool names, hints, and results
+  (`● Name — hint`, `⎿ result`). The existing `isAtTail` follow-the-tail
+  behavior is unchanged: scroll up and it pauses and says `paused ▴`;
+  scrolling back down resumes following.
+
+### Parked is a state, not a mute (#95, ruling 5)
+
+Documented in full where the wire contract lives — see [Lane geography and
+the manifest](#lane-geography-and-the-manifest-prd3-ruling-19) above for the
+manifest's `parked` field and its consequences in `buildFleet`/the fleet
+table, and the two open gaps (`laneSchema`'s missing `.passthrough()`/schema
+field, and the scene's `LaneActivity` union having no member for "parked")
+that #96 (this issue) inherits rather than fixes, since both sit outside a
+docs-only fence.
 
 ## Testing
 
@@ -529,4 +673,55 @@ hook.
   attention strip and the REPLAY banner are mutually exclusive in the shell,
   never stacked). Documented in full under [The instrument
   (prd3)](#the-instrument-prd3) above.
+- 2026-08-01 — prd4 (issue #92): **law 9 splits into 9a/9b, and the calm
+  world gets real hue.** The operator's review named the regression exactly:
+  an alpha floor of `0.22` on a calm thread read as "too dark and pale," a
+  complaint the old law's "no ladder hue on a calm mark" reading had no way
+  to fix without breaking the rule it was defending. 9a moves the "one hue,
+  one meaning" guarantee onto a shared six-hue scale (working/done one green,
+  waiting-benign/needs-you one amber, at two brightnesses each) enforced at a
+  single chokepoint (`ACTIVITY_HUE`/`activityInk` in `scene/palette.ts`); 9b
+  moves the actual job of buying a summons its attention onto a measured
+  contrast budget (`CALM_CEILING`/`ALARM_FLOOR`/`CALM_FLOOR`/`RECEDE` in
+  `scene/salience.ts`), each number pinned by a test against a real fixture
+  rather than tunable by eye. See [The layman bar
+  (prd4)](#the-layman-bar-prd4) above for the full budget and why `BROKEN` is
+  the one hue exempt from `ALARM_FLOOR`.
+- 2026-08-01 — prd4 (issue #94): **the transcript endpoint returns records,
+  not a rendered string.** `GET /api/transcript/:lane` used to hand back one
+  pre-formatted `▌ assistant\n…` string, which forced every presentation
+  decision (face, quietness, truncation) into a file a stylesheet cannot
+  reach. It now emits `entries: [{ ts?, role, blocks }]` with typed blocks
+  (`text` / `tool_use` / `tool_result`, the last carrying a declared
+  `dropped` count rather than a silent trim), and the drawer's main view
+  (`Conversation.tsx`, renamed from `Transcript.tsx`) renders it CLI-style
+  and default-open — superseding prd3 #84's collapsed-by-default transcript.
+  See [The layman bar (prd4)](#the-layman-bar-prd4) above.
+- 2026-08-01 — prd4 (issue #93): **the scene moved from a panel among panels
+  to the centerpiece**, rendering first, hero-sized, directly beneath the
+  attention/burn dock, with the fleet table demoted to the legend/detail
+  surface beneath it (`PanelGrid.tsx`'s curated order, ruling 2). The
+  reorder is registry-only — no panel's own internals changed to earn its
+  new position, which is what kept this a same-day, low-risk wave once #92's
+  palette landed under it.
+- 2026-08-01 — prd4 (issue #95): **parked is a state, not a mute** — see
+  the "Parked is a state, not a mute" note under [Lane geography and the
+  manifest](#lane-geography-and-the-manifest-prd3-ruling-19) above for the
+  manifest field, its three consequences in `buildFleet` and the fleet
+  table, and the two gaps (`laneSchema`'s missing schema field for it
+  server-side, and the scene's `LaneActivity` union having no member for it)
+  left for #96 to document rather than close, since both sit outside a
+  docs-only fence.
+- 2026-08-01 — prd4 (issue #96, this issue): **docs and screenshots refreshed
+  against the landed instrument**, not the plan for it. The screenshots in
+  `docs/screenshots/` were regenerated from a live server against this
+  repo's own real, in-progress build swarm (`live.png`) and the `fleet20` /
+  `pathology` fixtures (`fixture-20-lane.png`, `fixture-pathology.png`,
+  `replay.png`), plus one lane drawer opened on a real session
+  (`drawer.png`) so the conversation view shows genuine turns rather than a
+  fixture's absent-transcript gap state. `live.png` in particular shows real
+  attention chips (a stale spike-branch WAITING signal, an off-fence
+  trespass) rather than a staged ALL CLEAR — left as-is rather than
+  cropped or restaged, since this wave's own brief is to document what
+  landed honestly, warts included.
 

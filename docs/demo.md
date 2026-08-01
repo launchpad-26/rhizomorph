@@ -5,6 +5,13 @@ narrated tour: GLANCE, PATHOLOGY, SCENE, MODE. Each one has a pass condition
 and a failure condition below — run them in order, on the fixtures built for
 exactly this purpose, and you need no live swarm to do it.
 
+Every check below is now run against [prd4 ruling 1](prd4.md), the **layman
+bar** (a standing ruling): a first-time viewer — layman, even though the
+product targets developers — should understand what is going on, what things
+mean, and what to do next. GLANCE and SCENE in particular ask for a
+non-Lachlan, first-time viewer explicitly, not just the person who built the
+tool checking their own work.
+
 ## Setup
 
 ```sh
@@ -28,8 +35,10 @@ keyboard shortcuts — no swarm, no telemetry, no setup beyond this:
 checks below: **Esc** — closes the lane drawer if one is open, otherwise
 exits panel focus if a panel is focused, otherwise does nothing (shell-level
 precedence: drawer first, then focus) — and clicking a fleet-table row, which
-opens that lane's drawer (vitals, activity, transcript, an **ATTACH** button
-that copies a tmux/workmux command to your clipboard and never runs it).
+opens that lane's drawer: vitals on top, then the **conversation** as the
+main, default-open view ([prd4 ruling 4](prd4.md)) — the same thing you'd see
+at that agent's own terminal, tailing live — and an **ATTACH** button below
+it that copies a tmux/workmux command to your clipboard and never runs it.
 
 If you'd rather run this against a real swarm: point `npm start -- <path>` at
 a repo with worktrees and tmux panes going (see the README's ["worktrees-challenge
@@ -44,13 +53,16 @@ honest-empty-state design, not a failure.
 ## Check 1 — GLANCE
 
 > "From a 3-second look at a busy fleet, answer: anything need me? how many
-> lanes working? rough cost?" — passed by Lachlan **and** ideally one
-> non-Lachlan viewer.
+> lanes working? rough cost?" — passed by Lachlan **and**, per [prd4 ruling
+> 1](prd4.md)'s layman bar, a non-Lachlan, first-time viewer explicitly
+> invited to try it too, not merely a nice-to-have.
 
 1. Press **`2`** to load the 20-lane fixture.
 2. Look away from the screen, then look back for a 3-second glance at the top
-   of the dashboard only — the attention strip and burn strip. Don't scroll,
-   don't read the fleet table row by row.
+   of the dashboard only — the attention strip and burn strip (the scene, now
+   the centerpiece directly beneath them, is fair game too — a first-time
+   viewer's eye goes there first). Don't scroll, don't read the fleet table
+   row by row.
 3. Answer, from that glance alone:
    - **Anything need me?** The attention strip's pill: `ALL CLEAR` (with its
      evidence line — "N lanes · M branches · K files checked · collisions 0")
@@ -89,9 +101,11 @@ it should never be reachable from a real bug in this area.
    | OFF-FENCE | `45-ledger-subrows` | `touching 46-spend-selectors` — a trespass with a named victim |
 
 3. Confirm the fleet table's STATE column alone is enough to name each one —
-   it draws the scene's own glyph at row scale ([graft g1](prd3.md)), so the
-   table doubles as the legend; you shouldn't need to open a drawer to tell
-   WAITING from FROZEN.
+   it draws the scene's own glyph, in the scene's own hue, at row scale
+   ([graft g1](prd3.md); hue since [prd4 ruling 3](prd4.md)), so the table
+   doubles as the legend for shape *and* color; you shouldn't need to open a
+   drawer to tell WAITING (amber, a raised hand) from FROZEN (red, a severed
+   bar) — color and silhouette agree, on purpose.
 
 **What you should see:** all five named without hunting, each backed by an
 evidence string, not a bare label ([graft g4](prd3.md)).
@@ -104,23 +118,31 @@ graft g6](prd3.md)); or the fixture showing a count other than five.
 
 ## Check 3 — SCENE
 
-> "A first-time viewer explains the encoding within 30 seconds, no legend."
+> "A first-time viewer explains the encoding within 30 seconds, no legend." —
+> [prd4 ruling 1](prd4.md) requires this viewer be a genuine layman, not
+> someone already fluent in the rest of the dashboard.
 
 1. With any fixture loaded (`2` or `3` both work — `3` gives more to look at),
    hand the screen to someone who hasn't seen the Observatory before. Show
-   them the SCENE panel only — collapse or ignore the rest.
+   them the SCENE panel only — it's the first thing under the top dock now
+   ([prd4 ruling 2](prd4.md)), so this is naturally what they see first
+   anyway; collapse or ignore the rest of the page regardless.
 2. Give them 30 seconds of silent looking, then ask what they're looking at.
 
 **What you should see:** an explanation that covers, unprompted: threads
 reaching out from a central mass are lanes/agents; brightness and traveling
-pulses are activity (commits, tokens); a stuck or orbiting pulse, a dark
-thread, or a white-hot thread each mean something is off; a lane's position
-doesn't drift once you've noticed it (a lane keeps its angular slot for the
-session — [graft g7](prd3.md)).
+pulses are activity (commits, tokens); green threads are getting on with it,
+amber ones are stopped and waiting on a person, a hollow red mark is dead
+([prd4 ruling 3](prd4.md)'s law 9a — hue is meaning, and each hue means one
+thing); a stuck or orbiting pulse, a dark thread, or a white-hot thread each
+mean something is off; a lane's position doesn't drift once you've noticed it
+(a lane keeps its angular slot for the session — [graft g7](prd3.md)).
 
 **What failure looks like:** silence past 30 seconds; a guess about the wrong
 axis (e.g. "the length means how long it's been running," which it doesn't);
-or needing the mycelium metaphor explained before it clicks.
+needing the mycelium metaphor explained before it clicks; or needing the
+color explained as anything other than what it visibly is (green = good,
+amber = needs a person, red = dead).
 
 ## Check 4 — MODE
 
@@ -161,3 +183,8 @@ failure ruling 16 exists to prevent).
   only, with `NO COST FEED (OTel) — dollars unavailable — run: eval
   "$(observatory env <lane>)"` in place of a dollar figure — say so out loud,
   same empty-state discipline as every other gap.
+- **A lane is parked:** ([prd4 ruling 5](prd4.md)) it shows a dimmed `PARKED`
+  in the STATE column instead of a pathology, stays off the attention ladder
+  entirely, and is exempt from FROZEN/WAITING even at any age — this is a
+  declaration an operator made in `.swarm/lanes.json` (`"parked": true`),
+  never something the read-only Observatory decided on its own.

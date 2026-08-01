@@ -8,11 +8,14 @@ number. It discovers worktrees and branches (git), agent panes (tmux), and
 workmux state if present, each source optional and each degrading
 gracefully, and reflects reality within a couple of seconds via polling.
 Read-only, always: it never sends keys, launches agents, or merges anything —
-see [`docs/vision.md`](docs/vision.md) for the full pitch and
+see [`docs/vision.md`](docs/vision.md) for the full pitch,
 [`docs/prd3.md`](docs/prd3.md) for the visualization design rulings behind
-what's on screen today.
+what's on screen, and [`docs/prd4.md`](docs/prd4.md) for the operator-review
+rulings that re-aimed the whole surface at a first-time viewer, not just the
+person who built it (the **layman bar** — every screen below is written to
+be readable by someone who has never seen this tool before).
 
-![The fleet table, burn strip, scene and ledger against a busy 20-lane fleet — every lane healthy, ALL CLEAR](docs/screenshots/fixture-20-lane.png)
+![The scene as the centerpiece — a busy 20-lane fleet, every thread the same live green, ALL CLEAR above it](docs/screenshots/fixture-20-lane.png)
 
 ## Prerequisites
 
@@ -92,9 +95,9 @@ a placeholder:
   FEED (OTel) — dollars unavailable — run: eval "$(observatory env <lane>)"`
   in place of a dollar figure, plus `CONDUCTOR NOT INSTRUMENTED` in place of
   an overhead ratio.
-- The **fleet table** shows no rows at all — nothing dispatched yet — and the
-  **scene** shows a single lit mass (`main`) with nothing reaching out from
-  it.
+- The **scene**, the first thing under the two docked strips, shows a single
+  lit mass (`main`) with nothing reaching out from it, and the **fleet table**
+  right beneath it shows no rows at all — nothing dispatched yet.
 - The **ledger** and **collisions** panel stay at their own honest-empty
   states ("collisions: 0 — checked 0 branches / 0 files") until something
   commits or two branches touch the same file.
@@ -171,14 +174,18 @@ replay, plus one derived **fleet object** — the attention strip, fleet table,
 burn strip and scene are four views of it and of nothing else. Full write-up
 in [`docs/architecture.md`](docs/architecture.md); the product brief is in
 [`docs/prd0.md`](docs/prd0.md), the visualization design rulings in
-[`docs/prd3.md`](docs/prd3.md). See [`docs/demo.md`](docs/demo.md) for the
-falsifiable demo script.
+[`docs/prd3.md`](docs/prd3.md) and [`docs/prd4.md`](docs/prd4.md). See
+[`docs/demo.md`](docs/demo.md) for the falsifiable demo script.
 
 ## Dashboard
 
-The curated, top-to-bottom hierarchy ([ruling 6](docs/prd3.md)) answers, in
-order: *does anything need me* → *what is it costing* → *who is doing what*
-→ *what does it look like* → *what happened* → *where did this come from*.
+The curated, top-to-bottom hierarchy ([ruling 6](docs/prd3.md), reordered by
+[prd4 ruling 2](docs/prd4.md)) answers, in order: *does anything need me* →
+*what is it costing* → *what is the fleet doing* → *who is doing what* →
+*what happened* → *where did this come from*. The scene moved up to third
+place, directly under the two docked strips: it's big, bright and
+self-explanatory, so a first-time viewer reads it before the reference
+instruments beneath it.
 
 - **Attention strip** (docked top) — calm state is `ALL CLEAR` with an
   evidence line (lanes · branches · files checked · collisions); alert state
@@ -191,17 +198,20 @@ order: *does anything need me* → *what is it costing* → *who is doing what*
   burn rate, and the conductor/worker overhead ratio. Any missing piece
   speaks the gap voice instead of guessing (`NO COST FEED (OTel) — …`,
   `CONDUCTOR NOT INSTRUMENTED — …`).
+- **Scene** (the centerpiece, [prd4 ruling 2](docs/prd4.md)) — the mycelium
+  pulse-network ([ruling 28](docs/prd3.md)): root-mass at the center, one
+  tendril per lane, pulses of light traveling along them for real events
+  (commits, token bursts) — never invented, never on history. Looping,
+  frozen, waiting, expensive, and off-fence lanes each read as an
+  unmistakably different *shape* on their thread, not a color alone, and
+  since prd4 the color carries real meaning too (see "The palette" below).
+  Lazy-loaded behind an error boundary: if it breaks, the rest of the panel
+  grid stands alone. A "Focus Scene" button fills the whole viewport with it.
 - **Fleet table** — one dense row per lane: state, output tokens, `$`,
   request/tool counts, thread/subagent count, age, and fence status. The
-  STATE column draws the scene's own glyph at row scale, so the table is its
-  own legend — no separate key needed to read the scene.
-- **Scene** — the mycelium pulse-network ([ruling 28](docs/prd3.md)):
-  root-mass at the center, one tendril per lane, pulses of light traveling
-  along them for real events (commits, token bursts) — never invented,
-  never on history. Looping, frozen, waiting, expensive, and off-fence lanes
-  each read as an unmistakably different behavior on their thread, not a
-  color alone. Lazy-loaded behind an error boundary: if it breaks, the rest
-  of the panel grid stands alone.
+  STATE column draws the scene's own glyph *and* the scene's own hue at row
+  scale, so this table is the scene's legend for both shape and color — no
+  separate key needed to read the picture above it.
 - **Ledger** — the deep per-branch/thread spend table the burn strip
   summarizes; cost and token totals, model, first/last seen, elapsed.
 - **Collisions** — demoted to calm chrome until it matters: a real collision
@@ -214,9 +224,14 @@ order: *does anything need me* → *what is it costing* → *who is doing what*
 - **Provenance bar** (docked bottom) — one dot per collector (Git, Tmux,
   Workmux, Sessionlog, OTel) plus the SSE connection dot; a dead collector
   escalates to the strip too, and speaks the same gap voice here.
-- **Lane drawer** — click any fleet row to open it: vitals on top, an
-  activity view (tool calls, files, commits) as the default reading, an
-  expandable full transcript below it (live-tailing), and an **ATTACH**
+- **Lane drawer** — click any fleet row to open it. The main, largest section
+  is the **conversation** ([prd4 ruling 4](docs/prd4.md)): the same thing
+  you'd see sitting at that agent's own terminal — user turns marked with a
+  `›` prompt, assistant prose in the page's own type, tool calls as quiet
+  one-line bullets between them (`● Read — path/to/file`, `⎿ result, …+2K
+  more` when a result was cut). It tails the session log live and follows the
+  bottom until you scroll up, at which point it pauses and says so. Above it:
+  vitals (state, output, cost, age, fence, worktree). Below it, an **ATTACH**
   button that copies the exact `tmux`/`workmux` command for that lane to your
   clipboard — it never runs anything; interaction happens in your own
   terminal. Closing it (**Esc**, or the drawer's own close) always takes
@@ -235,10 +250,62 @@ order: *does anything need me* → *what is it costing* → *who is doing what*
   instant exactly as it would live. See [`docs/demo.md`](docs/demo.md) for
   the full replay check.
 
+### The palette — the fleet table teaches it, the scene speaks it
+
+[prd4 ruling 3](docs/prd4.md) gives every state a real color, not just a
+glyph. Six hues, each meaning exactly one thing everywhere in the app:
+
+| Hue | Means | Where you'll see it |
+|---|---|---|
+| Green | Productive | `WORKING` (bright) and `done` (dimmer) — the same green at two brightnesses |
+| Amber | Blocked on a human | `waiting` (muted, benign) and `NEEDS-YOU`/`WAITING` pathology (incandescent) — again one scale, two brightnesses |
+| Red | Dead | `FROZEN` only — red never means anything softer than that |
+| Cyan | Notice/anomaly | `EXPENSIVE`'s chevrons — something changed, nobody is summoned |
+| Ice (blue-grey) | Structure, nothing to say | `idle`, `unknown`, and all of the chrome |
+
+You don't need this table to read the app: the **fleet table's STATE column
+is the legend**, in both senses. It draws the scene's own glyph (a coil for
+LOOPING, a severed bar for FROZEN, a raised hand for WAITING, a radial burst
+for EXPENSIVE, fence posts and a barb for OFF-FENCE) at row scale next to the
+plain-English word, in the same hue the scene paints that lane's thread with.
+Learn a pathology from a row and you already know what it looks like — and
+what color it is — in the picture above.
+
+Brightness, not color exclusivity, is what marks an alarm: a calm lane may
+wear its hue at a healthy brightness (no more "too dark to read" fleet), but
+only a `NEEDS-YOU`/`FROZEN` mark reaches the band of luminance above it — so
+a summons is always the brightest thing on the screen, never merely "also
+colored." One lane at a time takes the spotlight; every other lane recedes
+around it rather than being drowned in more color.
+
+### Parked lanes — acknowledged, never hidden
+
+[prd4 ruling 5](docs/prd4.md): sometimes a worktree is deliberately shelved
+rather than abandoned — a spike, an idea kept for later — and the Observatory
+needs to say so without treating it as a bug. An operator (never this
+read-only instrument) declares that by adding `"parked": true` to that lane's
+entry in `.swarm/lanes.json`:
+
+```json
+{
+  "version": 1,
+  "lanes": [
+    { "handle": "60-shelved-idea", "branch": "60-shelved-idea", "fence": ["packages/web/src/panels/shelved/**"], "parked": true }
+  ]
+}
+```
+
+A parked lane renders a dimmed `PARKED` in the fleet table's STATE column —
+visible, never hidden — and is exempt from the FROZEN and inferred-WAITING
+alarms and skipped by the attention ladder, since silence in a lane you
+parked on purpose isn't news. Everything else about it (output, cost, age,
+fence compliance) keeps reading its real telemetry: parked mutes the alarm,
+never the evidence.
+
 | | |
 |---|---|
-| ![Staged pathology fixture — five lanes, five distinct pathologies, named in the attention strip and the fleet table's STATE column](docs/screenshots/fixture-pathology.png) | ![The lane drawer open on a frozen lane — vitals, activity timeline, and the ATTACH button](docs/screenshots/drawer.png) |
-| ![A fresh clone's first live view — one lane, ALL CLEAR, honest empty states everywhere](docs/screenshots/live.png) | ![Replay mid-scrub at 16x — the REPLAY banner, ice-register frame, timestamp and session identity](docs/screenshots/replay.png) |
+| ![Staged pathology fixture — five lanes, five distinct pathologies, each a different hue and shape, named in the attention strip and the fleet table's STATE column](docs/screenshots/fixture-pathology.png) | ![The lane drawer's conversation view — a real session's turns and tool calls, CLI-style, with the ATTACH button below](docs/screenshots/drawer.png) |
+| ![The live view against this project's own real, in-progress build swarm — an actual WAITING lane and off-fence trespass flagged, not staged](docs/screenshots/live.png) | ![Replay mid-scrub at 16x — the REPLAY banner, ice-register frame, timestamp and session identity](docs/screenshots/replay.png) |
 
 ## The worktrees-challenge context
 
