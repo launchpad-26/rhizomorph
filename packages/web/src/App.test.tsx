@@ -1,7 +1,8 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createEvent, createIdFactory } from '@observatory/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App.js'
+import { useSelection } from './fleet/index.js'
 import type { EventSourceLike } from './hooks/useEventStream.js'
 
 // App renders these behind React.lazy(() => import(...)). Mocking them (below)
@@ -22,7 +23,21 @@ import type { EventSourceLike } from './hooks/useEventStream.js'
 // follow are plain synchronous queries with nothing left to race.
 vi.mock('./panels/attention/index.js', () => ({ default: () => <div>Attention strip</div> }))
 vi.mock('./panels/burn/index.js', () => ({ default: () => <div>Burn strip</div> }))
-vi.mock('./panels/fleet/index.js', () => ({ default: () => <h2>Fleet</h2> }))
+// A stub that can still drive the one real selection (ruling 6's Esc precedence
+// test needs a way to open the drawer without a real fleet row to click).
+vi.mock('./panels/fleet/index.js', () => ({
+  default: function FleetStub() {
+    const { select } = useSelection()
+    return (
+      <div>
+        <h2>Fleet</h2>
+        <button type="button" onClick={() => select('42-otel-receiver')}>
+          select lane
+        </button>
+      </div>
+    )
+  },
+}))
 vi.mock('./panels/ledger/index.js', () => ({ default: () => <h2>Ledger</h2> }))
 vi.mock('./panels/collisions/index.js', () => ({ default: () => <h2>Collisions</h2> }))
 vi.mock('./panels/feed/index.js', () => ({ default: () => <h2>Activity</h2> }))
@@ -73,6 +88,9 @@ async function renderApp() {
     import('./panels/feed/index.js'),
     import('./replay/index.js'),
     import('./scene/index.js'),
+    // Real (unmocked) drawer — Shell mounts its `Suspense` unconditionally, so
+    // it is on the same one-tick clock as every mocked lazy module above.
+    import('./drawer/index.js'),
   ])
 
   let source: FakeEventSource | undefined
@@ -152,5 +170,41 @@ describe('App', () => {
 
     act(() => toggle.click())
     expect(await screen.findByRole('button', { name: /expand scene/i })).toBeInTheDocument()
+  })
+
+  describe('panel focus (ruling 6)', () => {
+    it('a focused panel fills the view and its siblings drop out', async () => {
+      await renderApp()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Focus Fleet' }))
+
+      expect(screen.getByRole('button', { name: 'Restore Fleet' })).toBeInTheDocument()
+      expect(screen.queryByText('Ledger')).not.toBeInTheDocument()
+      expect(screen.queryByText('Collisions')).not.toBeInTheDocument()
+      expect(screen.queryByText('Activity')).not.toBeInTheDocument()
+    })
+
+    it('Esc precedence: an open drawer/selection closes first, then a second Esc exits focus', async () => {
+      await renderApp()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Focus Fleet' }))
+      expect(screen.getByRole('button', { name: 'Restore Fleet' })).toBeInTheDocument()
+
+      fireEvent.click(screen.getByText('select lane'))
+      await act(async () => {})
+      expect(screen.getByTestId('lane-drawer')).toBeInTheDocument()
+
+      // First Esc belongs to the open drawer/selection (#84's own handler) —
+      // focus is untouched by the same keystroke.
+      fireEvent.keyDown(window, { key: 'Escape' })
+      expect(screen.queryByTestId('lane-drawer')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Restore Fleet' })).toBeInTheDocument()
+
+      // Nothing selected any more — the next Esc is free to exit focus, and
+      // the curated order returns.
+      fireEvent.keyDown(window, { key: 'Escape' })
+      expect(screen.getByRole('button', { name: 'Focus Fleet' })).toBeInTheDocument()
+      expect(screen.getByText('Ledger')).toBeInTheDocument()
+    })
   })
 })
