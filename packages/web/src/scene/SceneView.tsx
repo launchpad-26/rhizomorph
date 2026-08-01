@@ -57,6 +57,10 @@ import type { SettleRegistry } from './settle.js'
  * never read this comment. What the frozen clock deliberately does *not* stop is
  * structural motion: a thread half-way through growing in is a picture of a
  * topology that does not exist, so grow-in keeps its real clock and settles.
+ *
+ * The loop itself keeps running while paused, because panning, hovering and
+ * resizing still have to produce frames. What stops is the *picture changing*,
+ * which is what the success criterion is about and what the operator asked for.
  */
 
 export interface SceneViewProps {
@@ -543,14 +547,14 @@ interface MotionControlProps {
  */
 function MotionControl({ paused, onToggle }: MotionControlProps) {
   return (
-    <div className="absolute left-2 top-2 flex items-center gap-2">
+    <div className="pointer-events-none absolute left-2 top-2 flex items-center gap-2">
       <button
         type="button"
         onClick={onToggle}
         aria-pressed={paused}
         data-testid="scene-motion-pause"
         title={paused ? 'Let the scene move again' : 'Freeze the scene’s own motion'}
-        className={`rounded border px-2 py-1 text-[10px] uppercase leading-none tracking-wide backdrop-blur-sm transition-[transform,color,border-color] duration-150 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600 active:scale-[0.97] ${
+        className={`pointer-events-auto rounded border px-2 py-1 text-[10px] uppercase leading-none tracking-wide backdrop-blur-sm transition-[transform,color,border-color] duration-150 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600 active:scale-[0.97] ${
           paused
             ? 'border-ice-600 bg-ice-900/90 text-ice-100'
             : 'border-ice-850 bg-ice-950/80 text-ice-400 hover:border-ice-600 hover:text-ice-200'
