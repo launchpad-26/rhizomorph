@@ -34,13 +34,40 @@ import type { LaneIndex } from './resolve.js'
  * The scene draws through a display list, so every claim the prd makes about
  * the encodings is a query over data rather than an interpretation of a
  * screenshot. That is the whole reason for the `marks/` seam: "the frozen lane
- * is dark, dashed and cut" is checkable, and stays checkable after somebody
+ * is dark, broken and severed" is checkable, and stays checkable after somebody
  * retunes a brightness.
+ *
+ * Every law below is written in the **semantic** role vocabulary (prd7 ruling 2,
+ * `marks/types.ts`): a frozen lane is `severed`, a waiting one carries a
+ * `summons`, an expensive one an `expensive-mark`. None of them names a shape,
+ * which is the property that lets the picture be redrawn without any of these
+ * assertions moving — and, read the other way, the reason a law here can only be
+ * broken by the scene meaning something different, never by it looking different.
  *
  * The fleet under test is the staged-pathology fixture, whose faults are found
  * by the real detectors reading real events — nothing here tells the model what
  * is wrong with which lane.
  */
+
+/**
+ * The whole pathology vocabulary, as one list: what a lane wears *only* if
+ * something is wrong with it. A healthy lane must carry none of these, and the
+ * list being complete is what makes that assertion worth making.
+ */
+const PATHOLOGY_ROLES = [
+  'looping-mark',
+  'orbit',
+  'orbit-wake',
+  'severed',
+  'held',
+  'summons',
+  'heat',
+  'expensive-mark',
+  'off-fence-mark',
+  'off-fence-reach',
+  'off-fence-grasp',
+  'off-fence-victim',
+] as const satisfies readonly MarkRole[]
 
 const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
 const SIZE = { width: 900, height: 260 }
@@ -163,62 +190,96 @@ function brightest(marks: readonly Mark[], laneId: string): number {
 describe('the five pathologies, found and rendered', () => {
   const marks = marksFor()
 
-  it('LOOPING — a knot in the thread with a pulse orbiting it', () => {
-    expect(of(marks, LANE.looping, 'knot').length).toBeGreaterThan(0)
+  it('LOOPING — a closed circuit in the thread, with light going round it', () => {
+    expect(of(marks, LANE.looping, 'looping-mark').length).toBeGreaterThan(0)
     expect(of(marks, LANE.looping, 'orbit').length).toBeGreaterThan(0)
-    // A closed circuit: the light comes back to where it started, never home.
-    const ring = of(marks, LANE.looping, 'knot').find((mark) => mark.kind === 'arc')
-    expect(ring).toBeDefined()
+    // A *closed* circuit is the encoding, not a decoration on the thread: the
+    // light comes back to where it started, and never home.
+    const circuit = of(marks, LANE.looping, 'looping-mark').find((mark) => mark.kind === 'arc')
+    expect(circuit, 'the looping lane drew no circuit').toBeDefined()
+    expect(circuit?.kind === 'arc' ? circuit.to - circuit.from : 0).toBeCloseTo(Math.PI * 2, 9)
   })
 
-  it('FROZEN — a dark dashed thread with two cut strokes and a hollow node', () => {
+  it('FROZEN — severed twice, across a broken thread, at a node no longer filling', () => {
     const thread = of(marks, LANE.frozen, 'thread')[0]
     expect(thread?.kind).toBe('ribbon')
     expect(thread?.kind === 'ribbon' && thread.dashed).toBe(true)
 
-    expect(of(marks, LANE.frozen, 'cut')).toHaveLength(2)
+    // Two, and the count is the reading: one stroke is an accident of drawing,
+    // two is unmistakably a severing. Held at exactly two so a redraw cannot
+    // quietly reduce it to a single hairline.
+    expect(of(marks, LANE.frozen, 'severed')).toHaveLength(2)
     const node = of(marks, LANE.frozen, 'node')[0]
     expect(node?.kind === 'path' && node.stroke !== undefined).toBe(true)
   })
 
-  it('WAITING — a held pulse and a raised hand, on a thread that is still lit', () => {
+  it('WAITING — a summons and light that has stopped, on a thread that is still lit', () => {
     expect(of(marks, LANE.waiting, 'held').length).toBeGreaterThan(0)
-    expect(of(marks, LANE.waiting, 'raised-hand').length).toBeGreaterThan(0)
+    expect(of(marks, LANE.waiting, 'summons').length).toBeGreaterThan(0)
 
     const thread = of(marks, LANE.waiting, 'thread')[0]
     expect(thread?.kind === 'ribbon' && thread.dashed).toBeUndefined()
   })
 
-  it('EXPENSIVE — a white-hot thread with rising chevrons', () => {
+  it('EXPENSIVE — a white-hot thread, and heat leaving the tip', () => {
     expect(of(marks, LANE.expensive, 'heat').length).toBeGreaterThan(0)
-    expect(of(marks, LANE.expensive, 'chevron')).toHaveLength(3)
+
+    // Three, as the old drawing had — but the count was never the law. What the
+    // law is: the marking *rises away* from the node and fades as it goes, which
+    // is what makes it read as heat leaving rather than as a fixed ladder.
+    const rising = of(marks, LANE.expensive, 'expensive-mark')
+    expect(rising).toHaveLength(3)
+    const node = of(marks, LANE.expensive, 'node')[0]
+    expect(node?.kind).toBe('path')
+    const from = node?.kind === 'path' ? node.at : { x: 0, y: 0 }
+    const reach = rising.map((mark) =>
+      mark.kind === 'stroke'
+        ? Math.min(...mark.points.map((p) => Math.hypot(p.x - from.x, p.y - from.y)))
+        : NaN,
+    )
+    for (let i = 1; i < rising.length; i += 1) {
+      expect(reach[i] as number).toBeGreaterThan(reach[i - 1] as number)
+      expect(brightnessOf(rising[i] as Mark)).toBeLessThan(brightnessOf(rising[i - 1] as Mark))
+    }
   })
 
-  it('OFF-FENCE — a barbed rogue filament through a fence at the victim', () => {
-    expect(of(marks, LANE.offFence, 'rogue')).toHaveLength(1)
-    expect(of(marks, LANE.offFence, 'rogue-barb').length).toBeGreaterThan(0)
+  it('OFF-FENCE — the offender marked, the reach taking hold, the victim fenced', () => {
+    // Four marks for a two-party fact, and the test names both parties: without
+    // the offender's own marking an off-fence lane would be the only summons in
+    // the scene you cannot find by looking at the lane that caused it.
+    expect(of(marks, LANE.offFence, 'off-fence-mark').length).toBeGreaterThan(0)
+    expect(of(marks, LANE.offFence, 'off-fence-reach')).toHaveLength(1)
+    expect(of(marks, LANE.offFence, 'off-fence-grasp').length).toBeGreaterThan(0)
 
-    const fence = of(marks, LANE.offFence, 'fence')
-    expect(fence.length).toBeGreaterThan(0)
+    const breached = of(marks, LANE.offFence, 'off-fence-victim')
+    expect(breached.length).toBeGreaterThan(0)
     // Drawn around the *victim's* node: off-fence is a two-party fact and the
     // picture names both.
     const victim = frameFor().geometry.byLane.get(LANE.victim)
-    const arc = fence.find((mark) => mark.kind === 'arc')
+    const arc = breached.find((mark) => mark.kind === 'arc')
     expect(arc?.kind === 'arc' && arc.at).toEqual(victim?.node)
   })
 
   it('leaves a healthy lane with none of them', () => {
-    expect(
-      of(marks, LANE.healthy, 'knot', 'cut', 'held', 'raised-hand', 'chevron', 'rogue', 'heat'),
-    ).toHaveLength(0)
+    // The whole pathology vocabulary, not a hand-picked seven: a lane with
+    // nothing wrong with it carries nothing from the list, whatever is on it.
+    expect(of(marks, LANE.healthy, ...PATHOLOGY_ROLES)).toHaveLength(0)
     expect(of(marks, LANE.healthy, 'thread').length).toBeGreaterThan(0)
   })
 
   it('declares OFF-FENCE unavailable without a manifest, rather than guessing', () => {
     // Ruling 19: no `.swarm/lanes.json` means there is no fence to cross, so the
     // scene says so in the gap voice instead of inferring one from a lane name.
+    // Not one of the four marks, at either end of the fact — a guess about the
+    // victim would be as wrong as a guess about the offender.
     const unfenced = marksFor({ fleet: fleetFor(pathologySpec(), false) })
-    expect(unfenced.filter((mark) => mark.role === 'rogue')).toHaveLength(0)
+    const offFence: MarkRole[] = [
+      'off-fence-mark',
+      'off-fence-reach',
+      'off-fence-grasp',
+      'off-fence-victim',
+    ]
+    expect(unfenced.filter((mark) => offFence.includes(mark.role))).toHaveLength(0)
 
     const gap = unfenced.filter((mark) => mark.role === 'gap')
     expect(gap).toHaveLength(1)
@@ -247,11 +308,15 @@ describe('FROZEN and WAITING, separated on three axes', () => {
     expect(dashed(LANE.waiting)).toBe(false)
   })
 
-  it('cut vs raised: one is severed across, the other stands up off its node', () => {
-    expect(of(marks, LANE.frozen, 'cut').length).toBeGreaterThan(0)
-    expect(of(marks, LANE.frozen, 'raised-hand')).toHaveLength(0)
-    expect(of(marks, LANE.waiting, 'raised-hand').length).toBeGreaterThan(0)
-    expect(of(marks, LANE.waiting, 'cut')).toHaveLength(0)
+  it('severed vs summoning: one line is cut through, the other is asking for a human', () => {
+    // The axis is the pair of meanings, and each lane must carry its own and not
+    // the other's — which is what makes the two unconfusable however they are
+    // drawn. A future summons that looked nothing like a hand still passes; a
+    // frozen lane that started summoning does not.
+    expect(of(marks, LANE.frozen, 'severed').length).toBeGreaterThan(0)
+    expect(of(marks, LANE.frozen, 'summons')).toHaveLength(0)
+    expect(of(marks, LANE.waiting, 'summons').length).toBeGreaterThan(0)
+    expect(of(marks, LANE.waiting, 'severed')).toHaveLength(0)
   })
 })
 
@@ -283,12 +348,20 @@ describe('the contrast budget — spotlight, not shouting', () => {
     expect(spotlit).toBe(LANE.frozen)
 
     const marks = marksFor({ fleet })
-    const hand = of(marks, LANE.waiting, 'raised-hand').filter((mark) => mark.kind === 'stroke')
-    expect(hand.length).toBeGreaterThan(0)
-    for (const mark of hand) {
+    const summons = of(marks, LANE.waiting, 'summons')
+    expect(summons.length).toBeGreaterThan(0)
+
+    // The exemption, stated as what it actually is: the same marks, at the same
+    // brightness, whether this lane holds the light or another one does. Every
+    // one of them — not just whichever happens to be drawn as a line.
+    const unfaded = of(marksFor({ fleet, selectedId: LANE.waiting }), LANE.waiting, 'summons')
+    expect(unfaded).toHaveLength(summons.length)
+    summons.forEach((mark, i) => {
       expect(mark.alarm).toBe(true)
-      expect(brightnessOf(mark)).toBeGreaterThan(CALM_CEILING)
-    }
+      expect(brightnessOf(mark)).toBe(brightnessOf(unfaded[i] as Mark))
+    })
+    // …and it is in the band above the calm world, not merely at the top of it.
+    expect(Math.max(...summons.map(brightnessOf))).toBeGreaterThan(CALM_CEILING)
   })
 
   it('recedes the rest of the fleet once something needs a human', () => {
@@ -337,7 +410,7 @@ describe('the contrast budget — spotlight, not shouting', () => {
     // 2. It holds the spotlight — the ladder's own pick. 3. It is enclosed, and
     //    an enclosure is the one thing nothing calm is ever allowed to wear.
     expect(of(marks, LANE.frozen, 'spotlight').length).toBeGreaterThan(0)
-    expect(of(marks, LANE.frozen, 'cartouche').length).toBeGreaterThan(0)
+    expect(of(marks, LANE.frozen, 'rank-enclosure').length).toBeGreaterThan(0)
   })
 
   it('dims nothing at all when the fleet is calm', () => {
@@ -392,7 +465,7 @@ describe('prefers-reduced-motion', () => {
   it('keeps the waiting lane a static bright dot and a raised hand', () => {
     const marks = marksFor({ reducedMotion: true, field })
     expect(of(marks, LANE.waiting, 'held').length).toBeGreaterThan(0)
-    expect(of(marks, LANE.waiting, 'raised-hand').length).toBeGreaterThan(0)
+    expect(of(marks, LANE.waiting, 'summons').length).toBeGreaterThan(0)
   })
 
   it('holds the breath at rest', () => {
@@ -886,7 +959,7 @@ describe('the cord-cut — a finished lane leaves the network', () => {
     for (const ms of [0, CUT.tensionMs, CUT.tensionMs + 400, CUT.totalMs]) {
       const roles = rolesOf(cut(ms))
       // No thread, and no second growth either: a scar is a mark, not a network.
-      for (const gone of ['thread', 'thread-bloom', 'thread-flow', 'filament', 'filament-thorn']) {
+      for (const gone of ['thread', 'thread-bloom', 'thread-flow', 'filament', 'filament-tip']) {
         expect(roles.has(gone as MarkRole), `${gone} survived the cut at ${ms} ms`).toBe(false)
       }
       expect(roles.has('scar'), `no scar at ${ms} ms`).toBe(true)
@@ -908,8 +981,13 @@ describe('the cord-cut — a finished lane leaves the network', () => {
   it('drops the faults it was carrying — a scar cannot be summoned for', () => {
     // The looping lane, retired: the knot goes with the thread it was tied into.
     const marks = marksFor({ retire: new Map([[LANE.looping, cutAt(CUT.totalMs)]]) })
-    expect(of(marks, LANE.looping, 'knot')).toHaveLength(0)
-    expect(of(marks, LANE.looping, 'cartouche')).toHaveLength(0)
+    expect(of(marks, LANE.looping, 'looping-mark')).toHaveLength(0)
+    expect(of(marks, LANE.looping, 'rank-enclosure')).toHaveLength(0)
+    // Not the whole pathology vocabulary, deliberately: a retired looping lane
+    // still emits `orbit`, because `lightMarks` never asks whether the lane it
+    // is lighting has retired. That is a fact about the scene as it stands, and
+    // this rename is not allowed to change a pixel of it — recorded here so the
+    // next hand sees it rather than discovering it.
     expect(of(marks, LANE.looping, 'scar').length).toBeGreaterThan(0)
   })
 
@@ -1147,3 +1225,4 @@ describe('the cord-cut — a finished lane leaves the network', () => {
     expect(marks.filter((mark) => mark.role === 'scar')).toHaveLength(20)
   })
 })
+

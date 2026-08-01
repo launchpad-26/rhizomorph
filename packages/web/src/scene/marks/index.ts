@@ -2,7 +2,7 @@ import { ICE_300, ICE_1000, ink } from '../palette.js'
 import { lightMarks } from './light.js'
 import { labelMarks, nodeMarks } from './node.js'
 import { rootMarks } from './root.js'
-import { knotMarks, rogueMarks, threadMarks } from './thread.js'
+import { loopingMarks, offFenceMarks, threadMarks } from './thread.js'
 import type { Mark, MarkRole } from './types.js'
 import type { SceneFrame } from './frame.js'
 
@@ -21,13 +21,13 @@ export * from './types.js'
  * reason rather than by accident:
  *
  * 1. **threads and second growth** — the substrate everything else sits on;
- * 2. **rogue reaches, then the fences they went through** — the fence last, so
- *    the filament is visibly *through* it rather than behind it;
+ * 2. **off-fence reaches, then the boundaries they crossed** — the victim's
+ *    marking last, so the reach is visibly *through* it rather than behind it;
  * 3. **the root-mass** — drawn over the threads' inner ends, so they read as
  *    threaded *into* it rather than as lines that stop nearby;
  * 4. **light in flight** — above the substrate it travels on, always;
- * 5. **knots, nodes, hands, cartouches** — the states, over the light, because a
- *    summons must never be occluded by traffic;
+ * 5. **the states, at the nodes** — over the light, because a summons must never
+ *    be occluded by traffic;
  * 6. **labels** — last, over everything, so a name is never half-drawn.
  */
 export function sceneMarks(frame: SceneFrame): Mark[] {
@@ -35,10 +35,10 @@ export function sceneMarks(frame: SceneFrame): Mark[] {
   const marks: Mark[] = []
 
   for (const thread of threads) marks.push(...threadMarks(frame, thread))
-  for (const thread of threads) marks.push(...rogueMarks(frame, thread))
+  for (const thread of threads) marks.push(...offFenceMarks(frame, thread))
   marks.push(...rootMarks(frame))
   for (const thread of threads) marks.push(...lightMarks(frame, thread))
-  for (const thread of threads) marks.push(...knotMarks(frame, thread))
+  for (const thread of threads) marks.push(...loopingMarks(frame, thread))
   for (const thread of threads) marks.push(...nodeMarks(frame, thread))
   for (const thread of threads) marks.push(...labelMarks(frame, thread))
   marks.push(...chromeMarks(frame))

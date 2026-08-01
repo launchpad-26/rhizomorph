@@ -34,15 +34,20 @@ import type { Mark } from './types.js'
  * which is the difference between this scene and a chart with coloured dots.
  *
  * The five pathologies are behaviours of the thread and its tip, and each is
- * built so it survives greyscale (law 9a's "colour is never the sole carrier"):
+ * built so it survives greyscale (law 9a's "colour is never the sole carrier").
  *
- * | state     | form                                     | hue        |
- * | --------- | ---------------------------------------- | ---------- |
- * | LOOPING   | knot in the thread, light going round it | amber      |
- * | FROZEN    | hollow node, dashed dark thread, cuts    | magenta-red|
- * | WAITING   | raised hand, upright, thread stays lit   | amber      |
- * | EXPENSIVE | rising chevrons off the tip              | cyan       |
- * | OFF-FENCE | barb on the node, reach to the victim    | amber      |
+ * This is the one table in the scene where the two vocabularies meet, and the
+ * split down the middle is the point (prd7 ruling 2): the **roles** are what the
+ * laws in `marks.test.ts` are written in and are not allowed to change when the
+ * picture does; the **form** is this file's answer today, and is free to.
+ *
+ * | state     | roles it emits            | form, today                | hue   |
+ * | --------- | ------------------------- | -------------------------- | ----- |
+ * | LOOPING   | `looping-mark`, `orbit`   | knot, light going round it | amber |
+ * | FROZEN    | `severed`                 | cuts, dashed dark thread   | red   |
+ * | WAITING   | `summons`, `held`         | raised hand, light stopped | amber |
+ * | EXPENSIVE | `expensive-mark`, `heat`  | chevrons, white-hot thread | cyan  |
+ * | OFF-FENCE | `off-fence-*` (four)      | barb, reach, breached arc  | amber |
  *
  * A lane with none of them is no longer hueless. Under prd4's law 9a its node
  * takes its **activity's** colour — green while working, dim green once landed,
@@ -52,10 +57,12 @@ import type { Mark } from './types.js'
  *
  * FROZEN and WAITING are the pair the prd says must never be confusable, so
  * they are opposed on three axes at once: **dark vs light** (a dead thread and a
- * lit one), **broken vs continuous** (dashed vs whole), and **cut vs raised** (a
- * severing stroke across the thread vs a hand standing up off the node).
- * `marks.test.ts` asserts all three, so no future tuning can quietly collapse
- * one of them.
+ * lit one), **broken vs continuous** (dashed vs whole), and **severed vs
+ * summoning** (a line cut through vs a lane asking for a human). The third axis
+ * is the one that used to be stated as "cut vs raised", which was the drawing
+ * describing itself; the two states have to stay distinguishable however either
+ * is drawn. `marks.test.ts` asserts all three, so no future tuning can quietly
+ * collapse one of them.
  */
 
 const PATHOLOGY_HUE: Record<PathologyKind, Rgb> = {
@@ -125,10 +132,11 @@ export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
     ...(frozen || done ? { stroke: frozen ? 1.4 : 1 } : {}),
   })
 
-  // Every terminal in this scene ends in a hook.
+  // Where the thread stops, and it stops deliberately: every terminal in this
+  // scene ends in a hook rather than trailing off (ruling 23).
   marks.push({
     kind: 'path',
-    role: 'node-thorn',
+    role: 'node-tip',
     laneId,
     alarm,
     d: THORN_OUT,
@@ -143,14 +151,15 @@ export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
 
   marks.push(...stateMarks(frame, thread, hue, angle, length))
 
-  // The cartouche: the one enclosure in the instrument, and the same mark the
-  // fleet table brackets an alarmed row with (graft g1). Exempt from every fade
-  // (graft g2), which is the whole reason a frozen lane — the state *defined* by
-  // being old — is not the dimmest thing on the page.
+  // Enclosure is a rank, not a decoration: a lane above calm is bracketed and a
+  // calm one never is, which is the same statement the fleet table makes when it
+  // brackets an alarmed row (graft g1) — and it is drawn with the same cartouche.
+  // Exempt from every fade (graft g2), which is the whole reason a frozen lane —
+  // the state *defined* by being old — is not the dimmest thing on the page.
   if (alarm) {
     marks.push({
       kind: 'path',
-      role: 'cartouche',
+      role: 'rank-enclosure',
       laneId,
       alarm: true,
       d: CARTOUCHE,
@@ -275,7 +284,7 @@ function stateMarks(
 
   switch (thread.pathology) {
     case 'expensive':
-      return chevronMarks(frame, thread, angle, length)
+      return expensiveMarks(frame, thread, angle, length)
 
     case 'looping':
       // Nothing at the tip. The fault is the knot tied into the thread and the
@@ -284,16 +293,18 @@ function stateMarks(
       return []
 
     case 'off-fence':
-      // A barb on the lane's own node: this one has a hook out. The reach and
-      // the breached fence are drawn at the other end, by `rogueMarks`.
+      // The offender's own marking — `off-fence-mark`, and the only one of the
+      // four the *offender* wears. Drawn as a barb: this one has a hook out. The
+      // reach, its grasp and the breached boundary are all at the other end of
+      // the fact, by `offFenceMarks`.
       //
-      // Incandescent, so an off-fence lane clears `ALARM_FLOOR` the way the knot
-      // and the raised hand do — this barb is the only mark the offender itself
-      // wears, and every needs-you lane owes the band one mark inside it.
+      // Incandescent, so an off-fence lane clears `ALARM_FLOOR` the way a knot
+      // and a raised hand do — every needs-you lane owes the band one mark inside
+      // it, and for this pathology this is that mark.
       return [
         {
           kind: 'path',
-          role: 'node-thorn',
+          role: 'off-fence-mark',
           laneId,
           alarm: true,
           d: THORN_OUT,
@@ -305,7 +316,7 @@ function stateMarks(
       ]
 
     case 'waiting':
-      return handMarks(frame, thread, hue)
+      return summonsMarks(frame, thread, hue)
 
     case 'frozen':
       // The cut strokes are on the thread (`thread.ts`) and the node is already
@@ -314,7 +325,7 @@ function stateMarks(
       return []
 
     default:
-      return thread.lane.activity === 'done' ? [sealMark(frame, thread, angle, length)] : []
+      return thread.lane.activity === 'done' ? [doneMark(frame, thread, angle, length)] : []
   }
 }
 
@@ -323,7 +334,7 @@ function stateMarks(
  * they pass through the contrast budget like everything else calm does, which is
  * how a white-hot thread stays structurally unable to out-read a summons (g6).
  */
-function chevronMarks(
+function expensiveMarks(
   frame: SceneFrame,
   thread: ThreadGeometry,
   angle: number,
@@ -342,7 +353,7 @@ function chevronMarks(
     })
     return {
       kind: 'stroke' as const,
-      role: 'chevron' as const,
+      role: 'expensive-mark' as const,
       laneId: thread.laneId,
       alarm: false,
       width: 1.2,
@@ -367,7 +378,7 @@ function chevronMarks(
  * breathing — the hand is still raised, it just stops waving (ruling 32's
  * degradation, now stated once for every alarm mark in `motion.ts`).
  */
-function handMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark[] {
+function summonsMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark[] {
   const at = thread.node
   const pulse = alarmPulse(summonsAgeMs(frame, thread), motionMode(frame))
   const wave = 2.6 * (pulse.throb * 2 - 1)
@@ -390,7 +401,7 @@ function handMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark[] 
     },
     {
       kind: 'stroke',
-      role: 'raised-hand',
+      role: 'summons',
       laneId: thread.laneId,
       alarm: true,
       points: [wrist, { x: at.x, y: at.y - 5 - lift }],
@@ -402,7 +413,7 @@ function handMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark[] 
     },
     {
       kind: 'path',
-      role: 'raised-hand',
+      role: 'summons',
       laneId: thread.laneId,
       alarm: true,
       d: THORN_OUT,
@@ -415,7 +426,7 @@ function handMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark[] 
     },
     {
       kind: 'path',
-      role: 'raised-hand',
+      role: 'summons',
       laneId: thread.laneId,
       alarm: true,
       d: PALM,
@@ -435,7 +446,7 @@ function handMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark[] 
  * (hollow lens + seal + dim green) instead of a grey mark a viewer has to be
  * told about.
  */
-function sealMark(
+function doneMark(
   frame: SceneFrame,
   thread: ThreadGeometry,
   angle: number,
@@ -443,7 +454,7 @@ function sealMark(
 ): Mark {
   return {
     kind: 'stroke',
-    role: 'node-seal',
+    role: 'done-mark',
     laneId: thread.laneId,
     alarm: false,
     width: 1.3,

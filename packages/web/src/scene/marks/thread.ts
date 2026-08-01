@@ -85,7 +85,7 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   })
 
   if (thread.pathology === 'expensive') marks.push(...heatMarks(frame, thread))
-  if (frozen) marks.push(...cutMarks(frame, thread))
+  if (frozen) marks.push(...severedMarks(frame, thread))
   if (frame.reducedMotion) marks.push(...standingFlow(frame, thread))
 
   marks.push(...filamentMarks(frame, thread, base))
@@ -274,7 +274,7 @@ function heatMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
  * Both strokes are alarm marks: exempt from every fade (graft g2), because the
  * one state defined by being old must not be dimmed by a recency ramp.
  */
-function cutMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
+function severedMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const at = pointAt(thread.path, 0.72)
   const along = tangentAt(thread.path, 0.72)
   const across = { x: -along.y, y: along.x }
@@ -283,7 +283,7 @@ function cutMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
 
   return [-4, 4].map((offset) => ({
     kind: 'stroke' as const,
-    role: 'cut' as const,
+    role: 'severed' as const,
     laneId: thread.laneId,
     alarm: true,
     width: 1.7,
@@ -367,7 +367,7 @@ function filamentMarks(frame: SceneFrame, thread: ThreadGeometry, base: Ink): Ma
 
     marks.push({
       kind: 'path',
-      role: 'filament-thorn',
+      role: 'filament-tip',
       laneId: thread.laneId,
       alarm: false,
       d: THORN_OUT,
@@ -389,7 +389,7 @@ function filamentMarks(frame: SceneFrame, thread: ThreadGeometry, base: Ink): Ma
  * An alarm mark, so a stuck lane's knot is never dimmed by a recency ramp or by
  * another lane holding the spotlight (graft g2).
  */
-export function knotMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
+export function loopingMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const knot = thread.knot
   // A retired lane carries no faults forward. Whatever it was doing when it
   // stopped, it has stopped — and a knot on a scar would be an accusation about
@@ -413,7 +413,7 @@ export function knotMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const marks: Mark[] = [
     {
       kind: 'arc',
-      role: 'knot',
+      role: 'looping-mark',
       laneId: thread.laneId,
       alarm: true,
       at: centre,
@@ -428,7 +428,7 @@ export function knotMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   for (const side of [-1, 1]) {
     marks.push({
       kind: 'stroke',
-      role: 'knot',
+      role: 'looping-mark',
       laneId: thread.laneId,
       alarm: true,
       width: width * 0.9,
@@ -445,8 +445,11 @@ export function knotMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
 }
 
 /**
- * OFF-FENCE — a barbed rogue filament through a dashed amber fence arc at the
- * victim's node.
+ * OFF-FENCE — the reach (`off-fence-reach`), what it took hold of
+ * (`off-fence-grasp`) and the boundary it crossed (`off-fence-victim`). The
+ * fourth of the family, the offender's own marking, is at its node in
+ * `node.ts`. Today they are drawn as a barbed filament through a dashed amber
+ * fence arc.
  *
  * Drawn at the victim rather than at the offender because off-fence is a
  * two-party fact and the picture should name both: the reach leaves the
@@ -459,7 +462,7 @@ export function knotMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
  * `.swarm/lanes.json` to judge against, so nothing here can fire on a guess; the
  * scene says the pathology is *unavailable* instead (ruling 19).
  */
-export function rogueMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
+export function offFenceMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const rogue = thread.rogue
   // Same reason as the knot: a scar reaches for nothing. The fence it crossed
   // while it was alive is the fleet table's and the replay's to remember.
@@ -470,7 +473,7 @@ export function rogueMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
 
   marks.push({
     kind: 'stroke',
-    role: 'rogue',
+    role: 'off-fence-reach',
     laneId: thread.laneId,
     alarm: true,
     points: rogue.path,
@@ -487,7 +490,7 @@ export function rogueMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
     for (const side of [-1, 1]) {
       marks.push({
         kind: 'stroke',
-        role: 'rogue-barb',
+        role: 'off-fence-grasp',
         laneId: thread.laneId,
         alarm: true,
         width: 1.5,
@@ -510,7 +513,7 @@ export function rogueMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
 
     marks.push({
       kind: 'arc',
-      role: 'fence',
+      role: 'off-fence-victim',
       laneId: thread.laneId,
       alarm: true,
       at: victim.node,
@@ -525,7 +528,7 @@ export function rogueMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
     for (const angle of [towards - half, towards + half]) {
       marks.push({
         kind: 'stroke',
-        role: 'fence',
+        role: 'off-fence-victim',
         laneId: thread.laneId,
         alarm: true,
         width: 1.4,
