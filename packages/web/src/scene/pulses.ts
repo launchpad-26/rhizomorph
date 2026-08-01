@@ -228,8 +228,18 @@ export class PulseField {
 
   /** Advance the field to `now`: retire finished pulses, decay every energy. */
   step(now: number): void {
-    const dt = this.lastStep === 0 ? 16 : Math.max(0, Math.min(240, now - this.lastStep))
+    const elapsed = this.lastStep === 0 ? 16 : Math.max(0, now - this.lastStep)
     this.lastStep = now
+
+    // Decay runs on the true elapsed time — exponential decay is stable at any
+    // step size, and a tab that was in the background for five minutes must come
+    // back to a cold fleet rather than to five-minute-old heat.
+    //
+    // The orbit's easing does not: it is an animation catching up to a notch, and
+    // a huge step would snap it round the knot in a single frame. So it is
+    // clamped to a plausible frame, which stalls the catch-up for a few frames
+    // after a long gap and never invents a lap that no tool call asked for.
+    const dt = Math.min(240, elapsed)
 
     const survivors: Pulse[] = []
     for (const pulse of this.live) {
@@ -244,7 +254,7 @@ export class PulseField {
     }
     this.live = survivors
 
-    const decay = Math.exp(-dt / HEAT_TAU_MS)
+    const decay = Math.exp(-elapsed / HEAT_TAU_MS)
     const catchUp = Math.min(1, dt / ORBIT_CATCHUP_MS)
     for (const energy of this.energies.values()) {
       energy.heat *= decay
@@ -253,7 +263,7 @@ export class PulseField {
       energy.coalesced *= decay
       energy.orbitPhase += (energy.orbitTarget - energy.orbitPhase) * catchUp
     }
-    this.surgeLevel *= Math.exp(-dt / SURGE_TAU_MS)
+    this.surgeLevel *= Math.exp(-elapsed / SURGE_TAU_MS)
   }
 
   pulses(): readonly Pulse[] {

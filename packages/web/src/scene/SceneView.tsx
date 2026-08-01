@@ -43,6 +43,7 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
   const geometryRef = useRef<SceneGeometry | null>(null)
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [reducedMotion, setReducedMotion] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
 
   const latest = useRef({ fleet, field, settle, selectedId, hoverId, reducedMotion, now })
   latest.current = { fleet, field, settle, selectedId, hoverId, reducedMotion, now }
@@ -66,6 +67,28 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
     let frame = 0
     let width = 0
     let height = 0
+    let stopped = false
+
+    /**
+     * Everything that touches a canvas goes through here.
+     *
+     * The frame loop and the resize observer both live outside React, so an
+     * exception in either is outside the error boundary's reach — it would kill
+     * the loop and leave a black rectangle with nothing to say. Law 12 applies
+     * to the scene's own failures as much as to the data's: it stops drawing,
+     * once, and it says what stopped it.
+     */
+    const guard = (work: () => void): boolean => {
+      if (stopped) return false
+      try {
+        work()
+        return true
+      } catch (error) {
+        stopped = true
+        setFailure(error instanceof Error ? error.message : 'unknown drawing failure')
+        return false
+      }
+    }
 
     const resize = () => {
       const rect = host.getBoundingClientRect()
@@ -85,9 +108,9 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
     }
 
     const observer =
-      typeof ResizeObserver === 'function' ? new ResizeObserver(resize) : null
+      typeof ResizeObserver === 'function' ? new ResizeObserver(() => guard(resize)) : null
     observer?.observe(host)
-    resize()
+    guard(resize)
 
     const drawFrame = () => {
       const current = latest.current
@@ -127,13 +150,13 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
     // A pinned clock is a test asking for a still image; running a loop under it
     // would redraw the same frame forever and race every assertion.
     if (latest.current.now !== undefined) {
-      drawFrame()
+      guard(drawFrame)
       return () => observer?.disconnect()
     }
 
     const tick = () => {
+      if (!guard(drawFrame)) return
       frame = requestAnimationFrame(tick)
-      drawFrame()
     }
     frame = requestAnimationFrame(tick)
 
@@ -174,6 +197,14 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
         onMouseLeave={() => setHoverId(null)}
         onClick={(event) => onSelect(laneAt(event.clientX, event.clientY))}
       />
+      {failure !== null && (
+        <p
+          role="status"
+          className="absolute inset-x-0 bottom-0 px-3 py-2 text-center text-[10px] uppercase tracking-widest text-broken"
+        >
+          {`scene stopped drawing — ${failure} — the panels are unaffected`}
+        </p>
+      )}
       <SceneSummary fleet={fleet} />
     </div>
   )

@@ -20,7 +20,16 @@ import { SettleRegistry } from './settle.js'
  * 1/2/3) is switching to a different event log, and carrying one log's pulses
  * into another would be inventing traffic the new log never reported.
  */
-export default function Scene() {
+export interface SceneProps {
+  /**
+   * Test-only clock. Pinned, the canvas draws one frame and no loop starts —
+   * the same seam `StreamProvider` and `FleetProvider` take, so a test drives
+   * the real code against a still image rather than mocking around it.
+   */
+  now?: number
+}
+
+export default function Scene({ now }: SceneProps = {}) {
   const { state, source } = useStream()
   const fleet = useFleet()
   const { selectedId, select } = useSelection()
@@ -62,6 +71,7 @@ export default function Scene() {
       settle={settle}
       selectedId={selectedId}
       onSelect={(laneId) => select(laneId === selectedId ? null : laneId)}
+      {...(now === undefined ? {} : { now })}
     />
   )
 }

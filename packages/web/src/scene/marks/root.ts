@@ -88,7 +88,10 @@ export function rootMarks(frame: SceneFrame): Mark[] {
     })
   }
 
-  // The core: the point every packet is running to.
+  // The core: the point every packet is running to. It carries the conductor's
+  // burn too, through `intensity` — the mass at the centre of the picture is lit
+  // by the orchestrator, so an un-instrumented one has to read as dim all the
+  // way through rather than keeping a bright core that says nothing.
   marks.push({
     kind: 'glow',
     role: 'root-core',
@@ -96,7 +99,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
     alarm: false,
     at: centre,
     radius: radius * (0.5 + 0.35 * surge),
-    ink: budget(frame, null, false, ink(ICE_050, 0.34 + 0.42 * surge)),
+    ink: budget(frame, null, false, ink(ICE_050, 0.26 + 0.34 * intensity)),
   })
 
   // The arrival ring, only while a real surge is decaying.
