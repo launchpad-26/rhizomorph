@@ -22,6 +22,16 @@ export interface LaneFence {
   fence: string[]
   issue: string | null
   model: string | null
+  /**
+   * Parked is a state, not a mute (prd4 ruling 5): an operator can declare a
+   * lane parked in `.swarm/lanes.json` so the instrument stops alarming on
+   * silence it already knows about. Operator-declared only — this read-only
+   * instrument never writes it. Optional and defaults to absent, which reads
+   * as `false`; present only when the entry is genuinely parked, so a
+   * manifest with no parked lanes round-trips identically to one from before
+   * this field existed.
+   */
+  parked?: boolean
 }
 
 /** handle → its fence. The whole of `.swarm/lanes.json`, validated. */
@@ -155,6 +165,12 @@ function parseFenceEntry(entry: unknown, fallbackHandle: string | null): LaneFen
     fence: [...fence],
     issue: typeof record.issue === 'string' ? record.issue : null,
     model: typeof record.model === 'string' ? record.model : null,
+    // Anything other than the literal `true` reads as not-parked, the same
+    // way a stray non-string `issue` reads as `null` rather than rejecting
+    // the whole entry — a fence is an accusation, but `parked` is the one
+    // field that only ever softens one, so a malformed value should not cost
+    // the lane its fence.
+    ...(record.parked === true ? { parked: true as const } : {}),
   }
 }
 

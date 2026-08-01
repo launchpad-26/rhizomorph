@@ -180,3 +180,30 @@ describe('parseLaneManifest', () => {
     expect(parseLaneManifest({ lanes: [{ branch: 'a', fence: ['a/**'] }] })).toBeNull()
   })
 })
+
+// ── parked (prd4 ruling 5) ───────────────────────────────────────────────────
+
+describe('parseLaneManifest — parked', () => {
+  it('carries `parked: true` through when the operator declared it', () => {
+    expect(parseLaneManifest({ a: { fence: ['x/**'], parked: true } })).toEqual({
+      a: { handle: 'a', fence: ['x/**'], issue: null, model: null, parked: true },
+    })
+  })
+
+  it('leaves parked absent — never `false` — when the manifest never mentions it', () => {
+    const parsed = parseLaneManifest({ a: { fence: ['x/**'] } })
+    expect(parsed).toEqual({ a: { handle: 'a', fence: ['x/**'], issue: null, model: null } })
+    expect(parsed?.a).not.toHaveProperty('parked')
+  })
+
+  it('treats a malformed `parked` as not-parked rather than rejecting the whole entry', () => {
+    // Unlike a bad `fence`, a bad `parked` only ever softens an accusation, so
+    // it costs the lane nothing but the softening.
+    expect(parseLaneManifest({ a: { fence: ['x/**'], parked: 'yes' } })).toEqual({
+      a: { handle: 'a', fence: ['x/**'], issue: null, model: null },
+    })
+    expect(parseLaneManifest({ a: { fence: ['x/**'], parked: false } })).toEqual({
+      a: { handle: 'a', fence: ['x/**'], issue: null, model: null },
+    })
+  })
+})
