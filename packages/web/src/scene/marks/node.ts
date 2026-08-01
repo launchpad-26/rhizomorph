@@ -393,7 +393,7 @@ function expensiveMarks(
   const lean = (variationFor(variationSeed(thread.lane)).curl - 0.5) * 2
 
   return [0, 1, 2].map((i) => {
-    const reach = out + 5 + i * 4.5
+    const reach = out + 5 + i * 5.5
     const side = i % 2 === 0 ? 1 : -1
     const at = (along: number, sideways: number): Point => ({
       x: thread.node.x + forward.x * along + across.x * sideways,
@@ -406,10 +406,13 @@ function expensiveMarks(
       alarm: false,
       path: [
         at(reach, 0),
-        at(reach + 2.6, side * (0.8 + lean)),
-        at(reach + 5.2, side * (2.4 + lean * 2)),
+        at(reach + 4.2, side * (1.4 + lean)),
+        at(reach + 8.4, side * (4 + lean * 2)),
       ],
-      widthRoot: 2.4 - i * 0.45,
+      // Wide where it leaves the tip and gone by the end of itself. Bigger than
+      // the chevrons were: a 5px lick is a smudge, and the whole argument for
+      // dropping the arrowheads was that a width gradient reads further.
+      widthRoot: 3 - i * 0.5,
       widthTip: 0.3,
       taperTip: 0.45,
       samples: 10,

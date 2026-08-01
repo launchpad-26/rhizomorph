@@ -1,10 +1,4 @@
-import {
-  pointAt,
-  tangentAt,
-  type Point,
-  type RetireGeometry,
-  type ThreadGeometry,
-} from '../geometry.js'
+import { pointAt, type Point, type RetireGeometry, type ThreadGeometry } from '../geometry.js'
 import {
   BROKEN,
   ICE_050,

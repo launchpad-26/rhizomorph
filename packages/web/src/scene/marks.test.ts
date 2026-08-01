@@ -22,7 +22,9 @@ import {
   type MarkRole,
   type SceneFrame,
 } from './marks/index.js'
+import { ribbonMark } from './marks/index.js'
 import { ROOT_GROWTH, rootGirth } from './marks/root.js'
+import { paint } from './paint.js'
 import { CUT, SCAR, SCAR_FLOOR, cutAt, type RetireState } from './retire.js'
 import { ALARM_FLOOR, CALM_CEILING, CALM_FLOOR, RECEDE, salienceOf } from './salience.js'
 import { BROKEN, NEEDS_YOU, NOTICE } from './palette.js'
@@ -1271,6 +1273,194 @@ describe('the frame budget at thirty lanes', () => {
 })
 
 /**
+ * A corpus wide enough that the guard means something: every mark kind, and
+ * every optional field a mark can carry. A conformance test that only ever saw
+ * plain ribbons would pass for ever without proving anything.
+ */
+function corpus(): Mark[] {
+  const fleet = fleetFor(pathologySpec())
+  const flowing = new PulseField()
+  flowing.ingest(
+    fixtureHistory(pathologySpec(), NOW).filter((event) => event.type === 'llm.usage').slice(-6),
+    indexFor(fleet),
+    NOW - 500,
+  )
+  const storm = new PulseField()
+  storm.ingest(
+    [
+      createEvent(
+        'commit.landed',
+        {
+          sha: 'clone-1',
+          branch: LANE.healthy,
+          message: 'feat: a step',
+          author: { name: 'agent', email: 'agent@observatory' },
+          files: [{ path: 'src/a.ts', status: 'modified', insertions: 2, deletions: 1 }],
+        },
+        { id: 'clone-1', ts: NOW },
+      ),
+    ],
+    indexFor(fleet),
+    NOW - 500,
+  )
+
+  return [
+    ...marksFor({ fleet }),
+    // The chip behind a spotlit name, and the spotlight's own rings.
+    ...marksFor({ fleet, selectedId: LANE.healthy }),
+    // The standing gradient — the one mark that paints with a `linear`.
+    ...marksFor({ fleet, field: flowing, reducedMotion: true }),
+    // Light in flight, and the count an aggregate carries.
+    ...marksFor({ fleet, field: storm }),
+    // A cut mid-flight: the scar family and the homeward ribbon.
+    ...marksFor({ fleet, retire: new Map([[LANE.healthy, cutAt(CUT.tensionMs + 120)]]) }),
+    // The gap voice, which is chrome rather than a lane's.
+    ...marksFor({ fleet: fleetFor(pathologySpec(), false) }),
+  ]
+}
+
+/**
+ * THE PAINTER ACTUALLY RUNS.
+ *
+ * A gap this change had to close rather than inherit: nothing in the suite had
+ * ever executed `paint.ts`. jsdom returns `null` for a 2D context, so
+ * `SceneView` correctly declines to draw under test and the executor was
+ * literally never called — which was survivable while a ribbon was a loop over
+ * `path` that could not really fail, and is not survivable now that the geometry
+ * it fills is built somewhere else. An outline that came out empty, or a fill
+ * per ribbon instead of per polygon, would have reached a browser before it
+ * reached a test.
+ *
+ * So the context is recorded rather than rasterised. That is the right depth for
+ * this seam: `paint.ts` is defined as the file with no opinion about the
+ * picture, so what is worth asserting is that it issues the calls the display
+ * list implies and none of its own.
+ */
+describe('paint executes the display list (prd7 ruling 3)', () => {
+  interface Recorder {
+    calls: string[]
+    fills: number
+    closes: number
+  }
+
+  function recorder(): { ctx: CanvasRenderingContext2D; log: Recorder } {
+    const log: Recorder = { calls: [], fills: 0, closes: 0 }
+    const note =
+      (name: string) =>
+      (...args: unknown[]): unknown => {
+        log.calls.push(name)
+        if (name === 'fill') log.fills += 1
+        if (name === 'closePath') log.closes += 1
+        if (name === 'createRadialGradient' || name === 'createLinearGradient') {
+          return { addColorStop: () => {} }
+        }
+        return args.length
+      }
+
+    const ctx = {
+      save: note('save'),
+      restore: note('restore'),
+      setTransform: note('setTransform'),
+      translate: note('translate'),
+      rotate: note('rotate'),
+      scale: note('scale'),
+      beginPath: note('beginPath'),
+      closePath: note('closePath'),
+      moveTo: note('moveTo'),
+      lineTo: note('lineTo'),
+      arc: note('arc'),
+      fill: note('fill'),
+      stroke: note('stroke'),
+      fillRect: note('fillRect'),
+      strokeRect: note('strokeRect'),
+      fillText: note('fillText'),
+      setLineDash: note('setLineDash'),
+      createRadialGradient: note('createRadialGradient'),
+      createLinearGradient: note('createLinearGradient'),
+      globalCompositeOperation: 'source-over',
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 1,
+      lineCap: 'butt',
+      lineJoin: 'miter',
+      font: '',
+      textAlign: 'left',
+      textBaseline: 'alphabetic',
+    }
+    return { ctx: ctx as unknown as CanvasRenderingContext2D, log }
+  }
+
+  /** jsdom has no `Path2D`; the glyph painter constructs one per sigil. */
+  function withPath2D<T>(work: () => T): T {
+    const had = 'Path2D' in globalThis
+    if (!had) {
+      ;(globalThis as { Path2D?: unknown }).Path2D = class {
+        constructor(public d?: string) {}
+      }
+    }
+    try {
+      return work()
+    } finally {
+      if (!had) delete (globalThis as { Path2D?: unknown }).Path2D
+    }
+  }
+
+  it('fills one closed path per outline polygon, and never per ribbon', () => {
+    // The rule the winding order forces: two lobes of a severed thread in one
+    // path would interact, and the inner one would punch a hole in the outer.
+    const marks = marksFor()
+    const ribbons = marks.filter((mark) => mark.kind === 'ribbon')
+    const polygons = ribbons.reduce(
+      (total, mark) => total + (mark.kind === 'ribbon' ? mark.outline.length : 0),
+      0,
+    )
+    expect(polygons).toBeGreaterThan(ribbons.length)
+
+    const { ctx, log } = recorder()
+    withPath2D(() => paint({ ctx, marks: ribbons, width: 900, height: 260 }))
+
+    // Exactly one `fill()` per polygon — the backdrop is a `fillRect`, so it
+    // does not enter the count.
+    expect(log.fills).toBe(polygons)
+    expect(log.closes).toBe(polygons)
+  })
+
+  it('draws the whole picture without throwing, every kind of it', () => {
+    const marks = corpus()
+    const { ctx, log } = recorder()
+    withPath2D(() => paint({ ctx, marks, width: 900, height: 260, dpr: 2 }))
+
+    expect(log.calls).toContain('fill')
+    expect(log.calls).toContain('stroke')
+    expect(log.calls).toContain('fillText')
+    expect(log.calls).toContain('createRadialGradient')
+    expect(log.calls).toContain('createLinearGradient')
+  })
+
+  it('draws nothing at all for a mark with no geometry', () => {
+    // A ribbon whose width closed everywhere is absent, not a hairline — and the
+    // painter must not invent a path for it.
+    const { ctx, log } = recorder()
+    const empty = ribbonMark({
+      role: 'thread',
+      laneId: 'nobody',
+      alarm: false,
+      path: [
+        { x: 0, y: 0 },
+        { x: 10, y: 10 },
+      ],
+      widthRoot: 0,
+      widthTip: 0,
+      paint: { rgb: [255, 255, 255], alpha: 1 },
+    })
+    withPath2D(() => paint({ ctx, marks: [empty], width: 100, height: 100 }))
+    expect(empty.outline).toEqual([])
+    expect(log.fills).toBe(0)
+    expect(log.calls).not.toContain('beginPath')
+  })
+})
+
+/**
  * THE DISPLAY LIST IS DATA (prd7 ruling 1) — and this is the guard that keeps it
  * that way.
  *
@@ -1289,53 +1479,6 @@ describe('the frame budget at thirty lanes', () => {
  * wire could not.
  */
 describe('the display list is data, not objects (prd7 ruling 1)', () => {
-  /**
-   * A corpus wide enough that the guard means something: every mark kind, and
-   * every optional field a mark can carry. A conformance test that only ever saw
-   * plain ribbons would pass for ever without proving anything.
-   */
-  function corpus(): Mark[] {
-    const fleet = fleetFor(pathologySpec())
-    const flowing = new PulseField()
-    flowing.ingest(
-      fixtureHistory(pathologySpec(), NOW).filter((event) => event.type === 'llm.usage').slice(-6),
-      indexFor(fleet),
-      NOW - 500,
-    )
-    const storm = new PulseField()
-    storm.ingest(
-      [
-        createEvent(
-          'commit.landed',
-          {
-            sha: 'clone-1',
-            branch: LANE.healthy,
-            message: 'feat: a step',
-            author: { name: 'agent', email: 'agent@observatory' },
-            files: [{ path: 'src/a.ts', status: 'modified', insertions: 2, deletions: 1 }],
-          },
-          { id: 'clone-1', ts: NOW },
-        ),
-      ],
-      indexFor(fleet),
-      NOW - 500,
-    )
-
-    return [
-      ...marksFor({ fleet }),
-      // The chip behind a spotlit name, and the spotlight's own rings.
-      ...marksFor({ fleet, selectedId: LANE.healthy }),
-      // The standing gradient — the one mark that paints with a `linear`.
-      ...marksFor({ fleet, field: flowing, reducedMotion: true }),
-      // Light in flight, and the count an aggregate carries.
-      ...marksFor({ fleet, field: storm }),
-      // A cut mid-flight: the scar family and the homeward ribbon.
-      ...marksFor({ fleet, retire: new Map([[LANE.healthy, cutAt(CUT.tensionMs + 120)]]) }),
-      // The gap voice, which is chrome rather than a lane's.
-      ...marksFor({ fleet: fleetFor(pathologySpec(), false) }),
-    ]
-  }
-
   const marks = corpus()
 
   it('covers every kind and every optional field, so the guard is worth having', () => {

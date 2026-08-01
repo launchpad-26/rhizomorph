@@ -167,18 +167,29 @@ function swellMarks(
   const { laneId } = thread
   const behind = pulse.homeward ? 1 : -1
   const tail = 0.06 + Math.min(0.12, pulse.weight * 0.007)
-  // Bigger for an aggregate, exactly as the packet was: the count is the number,
-  // and the size only says "this one is carrying more than itself".
-  const gain = 1.9 * swell(pulse.count)
 
-  const width = (at: number): { root: number; tip: number } => {
-    const local = thread.widthRoot + (thread.widthTip - thread.widthRoot) * clamp01(at)
-    return { root: local, tip: local }
-  }
+  /** The thread's own width where the parcel is — what the swell swells *from*. */
+  const widthAt = (at: number): number =>
+    thread.widthRoot + (thread.widthTip - thread.widthRoot) * clamp01(at)
 
-  const head = width(t)
+  /**
+   * How much thicker the thread gets, in **pixels** rather than as a multiple.
+   *
+   * A multiple would be the obvious choice and it is the wrong one: a small
+   * lane's thread is a hairline, and twice a hairline is a hairline. A commit is
+   * the same event whoever made it, so the bulge is an absolute amount — which
+   * also means it reads as *proportionally* larger on a small lane, exactly as a
+   * parcel of the same size travelling down a narrower tube would.
+   *
+   * Bigger for an aggregate, as the packet was: the count is the number, and the
+   * size only says "this one is carrying more than itself".
+   */
+  const bulge = 3.2 * swell(pulse.count)
+  const peaked = (local: number, amount: number): number => (local + amount) / local
+
   const wakeAt = clamp01(t + behind * tail * 0.5)
-  const trail = width(wakeAt)
+  const head = widthAt(t)
+  const trail = widthAt(wakeAt)
 
   return [
     ribbonMark({
@@ -186,9 +197,11 @@ function swellMarks(
       laneId,
       alarm: false,
       path: stretch(thread.path, wakeAt - tail, wakeAt + tail),
-      widthRoot: trail.root,
-      widthTip: trail.tip,
-      stops: [{ at: pulse.homeward ? 0.7 : 0.3, span: 0.8, scale: 1 + (gain - 1) * 0.55 }],
+      widthRoot: trail,
+      widthTip: trail,
+      stops: [
+        { at: pulse.homeward ? 0.7 : 0.3, span: 0.8, scale: peaked(trail, bulge * 0.45) },
+      ],
       samples: 12,
       paint: budget(frame, laneId, false, ink(hotter(ICE_200, 0.8), 0.4 * envelope)),
     }),
@@ -197,9 +210,9 @@ function swellMarks(
       laneId,
       alarm: false,
       path: stretch(thread.path, t - tail * 0.55, t + tail * 0.55),
-      widthRoot: head.root,
-      widthTip: head.tip,
-      stops: [{ at: 0.5, span: 0.7, scale: gain }],
+      widthRoot: head,
+      widthTip: head,
+      stops: [{ at: 0.5, span: 0.7, scale: peaked(head, bulge) }],
       samples: 12,
       paint: budget(frame, laneId, false, ink(hotter(ICE_200, 0.92), envelope)),
     }),
