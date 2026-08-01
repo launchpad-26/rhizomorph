@@ -253,6 +253,21 @@ export interface Lane {
   /** True when this lane has a declared fence to be judged against at all. */
   fenced: boolean
   rank: LadderRank
+
+  /**
+   * Parked is a state, not a mute (prd4 ruling 5): `true` only when the
+   * manifest's own fence entry declared it. Never inferred and never set by
+   * this read-only instrument — an operator's call, carried, not guessed.
+   * Suppresses the FROZEN and inferred-WAITING alarms (`detectFrozen`,
+   * `detectWaiting`) and keeps the lane off the ladder (`buildLadder`), but
+   * leaves every other fact about it — its output, its age, its fence
+   * compliance — exactly as true as it would be unparked. The fleet table is
+   * this field's only consumer today; the scene still reads `activity`,
+   * which has no member for "parked" (adding one would require an exhaustive
+   * key on `sigils.tsx`'s and `scene/palette.ts`'s `Record<LaneActivity, …>`
+   * maps, both outside this change's fence) — see issue #96 for that follow-up.
+   */
+  parked: boolean
 }
 
 /** Main — the root-mass everything grows out of, and lands back into. */
@@ -539,6 +554,7 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       trespasses: [],
       fenced: fence !== undefined,
       rank: 'calm',
+      parked: fence?.parked === true,
     })
   }
 
@@ -700,17 +716,23 @@ export function findCycle(
 }
 
 /**
- * FROZEN — minutes of total silence. Three cases are exempt by construction,
+ * FROZEN — minutes of total silence. Four cases are exempt by construction,
  * and each exemption is the difference between an instrument and an alarm that
  * gets muted:
  *
  * - a lane whose agent said `done` has *finished*;
  * - a lane whose worktree was removed has landed;
  * - a telemetry-only lane has no git geography to say which of those it is, so
- *   we decline to guess rather than accuse it of dying.
+ *   we decline to guess rather than accuse it of dying;
+ * - a lane the operator declared `parked` in the manifest (prd4 ruling 5) is
+ *   silent on purpose. This is not the UI muting an alarm on its own say-so —
+ *   the honesty guard above still holds for everything this detector reads
+ *   off the log — it is the one exemption that comes from a fact *outside*
+ *   the log: a declaration the operator made in `.swarm/lanes.json`, as real
+ *   as `done` or a removed worktree, just written by a different hand.
  */
 function detectFrozen(lane: Lane): Pathology | null {
-  if (lane.agentStatus === 'done' || !lane.present || lane.telemetryOnly) return null
+  if (lane.agentStatus === 'done' || !lane.present || lane.telemetryOnly || lane.parked) return null
   if (lane.ageMs === null || lane.ageMs < FROZEN_AFTER_MS) return null
   return {
     kind: 'frozen',
@@ -742,7 +764,12 @@ function detectWaiting(lane: Lane, ctx: DiagnoseContext): Pathology | null {
     }
   }
 
-  if (lane.agentStatus === 'done' || !lane.present || lane.telemetryOnly) return null
+  // Same four exemptions as FROZEN (parked included, prd4 ruling 5): this
+  // branch is the *inference*, read off a quiet lane with a live pane, and a
+  // parked lane going quiet is exactly what the operator declared, not a
+  // raised hand to deduce. A workmux-declared WAITING above this is left
+  // alone — that is workmux's own fact, not this detector's guess.
+  if (lane.agentStatus === 'done' || !lane.present || lane.telemetryOnly || lane.parked) return null
   // Work-age, not liveness-age: the whole shape of this inference is "the agent
   // stopped working while its terminal kept moving", so a pane repaint must not
   // be allowed to refresh the very silence being measured.
@@ -822,6 +849,13 @@ function buildLadder(
   const items: AttentionItem[] = []
 
   for (const lane of lanes) {
+    // A parked lane never reaches the ladder (prd4 ruling 5) — the operator's
+    // declaration is the acknowledgement, so nothing of this lane's escalates
+    // to the attention strip or the tab title, however many pathologies it
+    // still carries. It is still visible everywhere else: the fleet table's
+    // own STATE cell, fence column and output/age cells read the lane
+    // directly and are untouched by this skip.
+    if (lane.parked) continue
     for (const pathology of lane.pathologies) {
       items.push({
         id: `${pathology.kind}:${lane.id}`,

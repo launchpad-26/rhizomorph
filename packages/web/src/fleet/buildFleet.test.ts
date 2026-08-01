@@ -12,6 +12,7 @@ import {
   type Ladder,
   type PathologyKind,
 } from './buildFleet.js'
+import type { LaneManifest } from './fences.js'
 import {
   finishedSpec,
   fixtureHistory,
@@ -331,6 +332,101 @@ describe('detection honesty', () => {
     expect(gap?.line).toBe(
       'NO LANE MANIFEST (.swarm/lanes.json) — off-fence detection unavailable — run: dispatch.sh (writes the fence manifest)',
     )
+  })
+})
+
+// ── parked (prd4 ruling 5) ───────────────────────────────────────────────────
+
+describe('parked lanes', () => {
+  const HANDLE = 'p'
+
+  function manifestFor(parked: boolean): LaneManifest {
+    return {
+      [HANDLE]: {
+        handle: HANDLE,
+        fence: ['packages/parked/**'],
+        issue: null,
+        model: null,
+        ...(parked ? { parked: true } : {}),
+      },
+    }
+  }
+
+  it('carries the manifest\'s declaration onto the lane, absence and an unset manifest both reading false', () => {
+    const log = [
+      event('session.started', {
+        sessionId: 'parked-flag',
+        repoPath: '/repo',
+        repoName: 'observatory',
+        mainBranch: 'main',
+      }, NOW - 60_000),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 60_000),
+      event('worktree.discovered', { path: '/repo-wt/p', branch: HANDLE, head: 'sha-p', isMain: false }, NOW - 60_000),
+    ]
+    const state = reduceAll(log)
+
+    expect(laneIn(buildFleet(state, { now: NOW, manifest: manifestFor(true) }), HANDLE).parked).toBe(true)
+    expect(laneIn(buildFleet(state, { now: NOW, manifest: manifestFor(false) }), HANDLE).parked).toBe(false)
+    expect(laneIn(buildFleet(state, { now: NOW, manifest: null }), HANDLE).parked).toBe(false)
+  })
+
+  it('a lane that WOULD be FROZEN reads parked instead, and never reaches the ladder', () => {
+    const log = [
+      event('session.started', {
+        sessionId: 'parked-frozen',
+        repoPath: '/repo',
+        repoName: 'observatory',
+        mainBranch: 'main',
+      }, NOW - 20 * 60_000),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 20 * 60_000),
+      event('worktree.discovered', { path: '/repo-wt/p', branch: HANDLE, head: 'sha-p', isMain: false }, NOW - 20 * 60_000),
+      event('agent.status', { handle: HANDLE, status: 'working', worktreePath: '/repo-wt/p', branch: HANDLE }, NOW - 15 * 60_000),
+    ]
+    const state = reduceAll(log)
+
+    // Same silence, no manifest: this really would be FROZEN — the control.
+    const unparked = buildFleet(state, { now: NOW, manifest: null })
+    expect(kindsFor(unparked, HANDLE)).toContain('frozen')
+
+    const parked = buildFleet(state, { now: NOW, manifest: manifestFor(true) })
+    expect(laneIn(parked, HANDLE).parked).toBe(true)
+    expect(kindsFor(parked, HANDLE)).not.toContain('frozen')
+    expect(kindsFor(parked, HANDLE)).not.toContain('waiting')
+
+    if (parked.ladder.rank !== 'calm') {
+      expect(parked.ladder.items.some((item) => item.laneId === HANDLE)).toBe(false)
+    }
+  })
+
+  it("suppresses only the alarm inference — a parked lane's real new activity still shows in OUTPUT/AGE", () => {
+    const log = [
+      event('session.started', {
+        sessionId: 'parked-active',
+        repoPath: '/repo',
+        repoName: 'observatory',
+        mainBranch: 'main',
+      }, NOW - 60_000),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 60_000),
+      event('worktree.discovered', { path: '/repo-wt/p', branch: HANDLE, head: 'sha-p', isMain: false }, NOW - 60_000),
+      event('llm.usage', {
+        lane: HANDLE,
+        role: 'worker',
+        model: 'claude-opus-5',
+        tokens: { input: 10, output: 500, cacheRead: 0, cacheCreation: 0 },
+        branch: HANDLE,
+        worktreePath: '/repo-wt/p',
+      }, NOW - 5_000),
+    ]
+
+    const fleet = buildFleet(reduceAll(log), { now: NOW, manifest: manifestFor(true) })
+    const lane = laneIn(fleet, HANDLE)
+
+    expect(lane.parked).toBe(true)
+    expect(lane.outputTokens).toBe(500)
+    expect(lane.ageMs).not.toBeNull()
+    expect(lane.ageMs ?? Infinity).toBeLessThan(10_000)
+    expect(lane.pathologies.map((pathology) => pathology.kind)).not.toContain('frozen')
+    expect(lane.pathologies.map((pathology) => pathology.kind)).not.toContain('waiting')
   })
 })
 
