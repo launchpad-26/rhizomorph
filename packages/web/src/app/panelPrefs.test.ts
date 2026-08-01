@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { isPanelCollapsed, setPanelCollapsed } from './panelPrefs.js'
+import { escapeShouldExitFocus, isPanelCollapsed, setPanelCollapsed } from './panelPrefs.js'
 
 beforeEach(() => {
   localStorage.clear()
@@ -43,5 +43,15 @@ describe('panelPrefs', () => {
     localStorage.setItem('observatory.panelCollapsed.v1', '{not json')
 
     expect(isPanelCollapsed('collisions')).toBe(false)
+  })
+})
+
+describe('escapeShouldExitFocus (ruling 6 — Esc precedence)', () => {
+  it('exits focus once nothing is selected', () => {
+    expect(escapeShouldExitFocus(null)).toBe(true)
+  })
+
+  it('defers to an open selection — a drawer closes first, not focus', () => {
+    expect(escapeShouldExitFocus('42-otel-receiver')).toBe(false)
   })
 })

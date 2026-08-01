@@ -1,4 +1,5 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSelection } from '../fleet/index.js'
 
 const STORAGE_KEY = 'observatory.panelCollapsed.v1'
 
@@ -63,4 +64,68 @@ export function usePanelCollapsed(id: string): [boolean, (next: boolean | ((prev
   )
 
   return [collapsed, setCollapsed]
+}
+
+/**
+ * Esc's precedence (ruling 6): a lane drawer/selection open consumes the
+ * keystroke first (that's `SelectionProvider`'s own global handler, already
+ * live for #84), and focus only gives way once nothing is selected. Pulled
+ * out as a pure predicate so the rule is a fact one `it()` can pin without
+ * mounting anything, and so `usePanelFocus` below has one place to call
+ * rather than a condition inlined in a keydown handler.
+ */
+export function escapeShouldExitFocus(selectedId: string | null): boolean {
+  return selectedId === null
+}
+
+export interface PanelFocusHandle {
+  /** True for the one panel currently filling the view — never more than one. */
+  focused: boolean
+  focus: () => void
+  /** Also reachable via Esc, deferring to an open drawer/selection first. */
+  restore: () => void
+}
+
+/**
+ * Focus state for one panel (ruling 6). Deliberately *not* routed through
+ * `usePanelCollapsed`'s localStorage store — a reload must land back on the
+ * curated order, never mid-focus.
+ *
+ * Self-contained rather than context-based: a bare `<PanelFrame>` in its own
+ * unit test manages its own focus with no provider to wire up, while
+ * `PanelGrid` (or any other coordinator) can still learn about the change
+ * via `onChange` and use it to keep every sibling out of the way — the one
+ * panel at a time invariant lives one level up, in whoever renders more than
+ * one of these.
+ */
+export function usePanelFocus(onChange?: (focused: boolean) => void): PanelFocusHandle {
+  const [focused, setFocused] = useState(false)
+  const { selectedId } = useSelection()
+  const selectedIdRef = useRef(selectedId)
+  selectedIdRef.current = selectedId
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+
+  const focus = useCallback(() => {
+    setFocused(true)
+    onChangeRef.current?.(true)
+  }, [])
+
+  const restore = useCallback(() => {
+    setFocused(false)
+    onChangeRef.current?.(false)
+  }, [])
+
+  useEffect(() => {
+    if (!focused) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (!escapeShouldExitFocus(selectedIdRef.current)) return
+      restore()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [focused, restore])
+
+  return { focused, focus, restore }
 }
