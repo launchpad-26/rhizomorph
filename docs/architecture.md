@@ -126,17 +126,174 @@ no state library (one tree, one store). **Live and replay are the same
 reducer**: live folds the stream as it arrives; replay folds a history slice
 under a scrubber clock. That one property is why replay is free.
 
-Panels are sibling directories (`panels/worktrees`, `panels/collisions`,
-`panels/ticker`, …), each consuming selectors only. The shell pre-creates
-lazy-loaded slots and stub directories for every panel, so panel workers only
-ever edit their own directory — that is the file-disjointness that lets three
-agents build three panels simultaneously.
+Panels are sibling directories (`panels/attention`, `panels/burn`,
+`panels/fleet`, `panels/ledger`, `panels/collisions`, `panels/feed`, plus
+`drawer/` and `replay/` outside the panel hierarchy proper), each consuming
+selectors — or, since prd3, the derived fleet object below — only. The shell
+pre-creates lazy-loaded slots and stub directories for every panel, so panel
+workers only ever edit their own directory — that is the file-disjointness
+that let multiple agents build multiple panels simultaneously, in both prd1
+and prd3's fenced waves.
 
 ## The scene
 
 react-three-fiber, lazy-loaded behind an error boundary, consuming the same
 selectors — no bespoke data path. If it breaks, the panel grid stands alone;
 the demo survives.
+
+## The instrument (prd3)
+
+prd3 (`docs/prd3.md`) is the "beautiful instrument" design pass, rebuilt in
+fenced waves (issues #75–#86) after a same-day spike round chose **Direction
+C — Mycelium Pulse-Network** ([ruling 28](prd3.md)) over the two other spike
+builds. What follows is the shape it took in code; ruling numbers are cited
+so the wording here can be checked against the rulings that required it.
+
+### The derived fleet object — one object, four surfaces
+
+`buildFleet` (`packages/web/src/fleet/buildFleet.ts`) is the single function
+the attention strip, fleet table, burn strip, and scene all read — and read
+*only*, never re-deriving their own count of "how many lanes are working" or
+their own collision total. Its own doc comment states the reason directly:
+four surfaces each re-deriving the same fact would eventually disagree by
+one, in public, on the one screen whose job is to be trusted at a glance.
+
+`buildFleet(state, { now, manifest, windowMs })` takes core's `SessionState`
+plus the optional lane manifest (below) and returns a `Fleet`: `{ now, root,
+lanes, ladder, rank, burn, collisions, gaps, hasLaneManifest, eventCount }`.
+Every field is built from core selectors that already exist
+(`selectSessionSpend`, `selectLaneSpend`, `selectRoleSpend`,
+`selectWorktreeViews`, `selectTouchesByBranch`, `selectCollisions`, …) — the
+fleet object composes and diagnoses, it does not re-sum.
+
+**The ladder floor is structural, not remembered ([graft g5](prd3.md)).** The
+`Ladder` type is a discriminated union: the calm branch's evidence type pins
+`collisions` to the literal `0`, so "ALL CLEAR beside a nonzero collision
+count" has no value that type-checks — `buildFleet.test.ts` asserts this with
+a `@ts-expect-error` on the calm branch's evidence field. `buildLadder` folds
+every collision into a ladder item *before* deciding calm vs. non-calm, so the
+floor lives in the derivation the view reads, never in a rule the view has to
+remember to apply.
+
+**The `ageMs`/`workAgeMs` split.** Both spikes shared a bug where a pane's own
+heartbeat (its content-hash repaint) kept a WAITING inference permanently
+"alive," because liveness and work were read off the same clock. The keystone
+(#75) fixed it with a test by splitting the clock in two:
+
+- `ageMs` — time since the newest fact of *any* kind about a lane, pane
+  repaints included. **FROZEN** reads this: total silence, including the
+  pane, is what FROZEN means.
+- `workAgeMs` — time since the newest sign the agent was actually *working*;
+  pane activity is deliberately excluded from it. **WAITING** reads this
+  (plus a separately-fresh pane signal): the inference is "stopped working
+  while its terminal kept moving," so a pane repaint must never be allowed to
+  refresh the very silence being measured. `diagnose()` enforces the two are
+  mutually exclusive per lane (`buildFleet.test.ts`: "never calls the same
+  silence both frozen and waiting").
+
+### The glyph alphabet — two scales, one alphabet
+
+`packages/web/src/fleet/sigils.tsx` is "the glyph alphabet" ([ruling
+23](prd3.md)'s cyber-sigilist register): every pathology/state mark is
+authored once, in a unit square, as `Path2D` code, then drawn at two named
+scales — `SIGIL_ROW_SIZE = 15` (the fleet table's row) and `SIGIL_SCENE_SIZE
+= 64` (the scene's node). Same code, same silhouette, just more room for the
+curl at the larger size. Because the fleet table draws the identical glyph the
+scene does, [graft g1](prd3.md) falls out for free: **the table is the
+scene's legend** — a reader who has learned to name a pathology in the table
+already knows what it looks like in the scene, with no separate key to teach.
+Two laws are encoded alongside the marks themselves: hue is severity, form is
+kind ([graft g4](prd3.md)), and color is never the sole carrier of a state
+([law 9](prd3.md)) — FROZEN and WAITING, for instance, are built to differ on
+shape and fill as well as hue.
+
+### The pulse-as-event laws
+
+`packages/web/src/scene/pulses.ts` (`PulseField`) is where the scene's motion
+lives, and it is built directly against [ruling 32](prd3.md)'s three adopted
+rules, each with its own enforcing test:
+
+1. **History never pulses.** The field only ever ingests through
+   `takeNews()`, which reads the stream's `news`/`newsCount` slice — a replay
+   fold of the past has nothing there, so scrubbing never lights a pulse for
+   an event that already happened (`pulses.test.ts`, "rule 1 — history never
+   pulses").
+2. **Traffic is coalesced, never invented.** A burst of `llm.usage` events
+   spawns at most a capped number of light-motes per lane per request; any
+   surplus tokens accumulate into a lane's `coalesced` count instead of being
+   dropped silently or spawning one mote per token (`pulses.test.ts`, "rule 2
+   — traffic is coalesced, never invented").
+3. **An arrival flare is the end of a real journey.** The field's surge
+   level rises only when a homeward-bound pulse's life ends at its
+   destination, never at spawn — an arrival is something that traveled, not
+   something the field decided to celebrate (`pulses.test.ts`, "rule 3 — an
+   arrival flare is the end of a real journey").
+
+These three rules are why the scene can be read honestly during MODE (replay
+mid-scrub reads as "the past," never as fresh activity) and why a busy fleet's
+scene never turns into uncapped light spam.
+
+### Lane geography and the manifest (prd3 ruling 19)
+
+The wire contract — `.swarm/lanes.json`, served at `GET /api/lanes` — is
+specified once, under [Server](#lane-manifest-prd3-ruling-19) above; this is
+where the web side of that contract is reconciled, not re-specified.
+`packages/web/src/fleet/fences.ts` owns the consumer: `parseLaneManifest`
+turns whatever `/api/lanes` served into a `LaneManifest` (`handle →
+LaneFence`), or `null` on anything malformed — a fence is an accusation, so a
+half-parsed manifest (fencing some lanes, silently un-fencing others) is
+treated as no manifest at all, never a best effort.
+
+**The `lanes` field is canonically an array** (`{ lanes: [{ handle, fence,
+... }, ...] }` — the shape `.swarm/lanes.json` and dispatch actually produce),
+**not an object keyed by handle.** `parseLaneManifest` folds array entries
+into its internal handle-keyed map itself; it also still accepts a bare
+object or an object-keyed `{ lanes: {...} }` envelope, so a shape decision on
+either side of the wire doesn't strand the other. #91 fixed a period where the
+array shape was rejected outright — a live manifest read as absent even
+though both the server and the consumer's own tests were green, because the
+consumer's test had hand-rolled an object-shaped approximation of the payload
+instead of copying the real one. The regression test
+(`packages/web/src/fleet/fences.test.ts`) now pins the exact envelope
+`packages/server/src/api/lanes.test.ts` asserts the server serves, so the two
+sides of the contract can't drift apart silently again.
+
+Off-fence detection is the one thing this data addition buys: a lane's
+recently-touched files (`selectTouchesByBranch`) are matched against its own
+fence, and a match against *someone else's* fence instead is a trespass with
+a named victim (`findTrespasses`) — no new collector, per ruling 19.
+
+### Recent panel landings
+
+Three more prd3 waves are worth naming here since they complete the panel
+list the sections above assume:
+
+- **The lane drawer (#84)** — `packages/web/src/drawer/`, opened by clicking
+  any fleet row. Vitals on top (reusing the fleet table's own cell
+  formatters, so the drawer can't disagree with the row that opened it),
+  an activity view as the default reading, an expandable live-tailing
+  transcript below it (`GET /api/transcript/:lane`,
+  `packages/server/src/api/transcript.ts`), and an ATTACH button that copies
+  a `tmux`/`workmux` command to the clipboard and never executes anything —
+  enforced structurally by `packages/web/src/drawer/readonly.test.ts`, which
+  greps the drawer's own source for any exec/spawn/websocket/HTTP-mutation
+  capability and asserts none exists.
+- **Panel focus (#85)** — `usePanelFocus` (`packages/web/src/app/panelPrefs.ts`)
+  lets any `PanelFrame` fill the view; **Esc** restores it, but only once
+  nothing is selected — `escapeShouldExitFocus(selectedId)` returns `true`
+  only when `selectedId === null`, so a lane drawer left open consumes the
+  keystroke first. This is shell-level precedence, not a per-panel decision:
+  the drawer's own global `Escape` handler (`fleet/selection.tsx`) and the
+  focus hook are two independent listeners ordered by that one predicate,
+  proven by `panelPrefs.test.ts`'s "escapeShouldExitFocus (ruling 6 — Esc
+  precedence)" cases.
+- **Replay's mode shift (#83)** — per [ruling 16](prd3.md), replay is a full
+  frame change, not a tinted live view: `Shell.tsx`'s top dock renders either
+  the attention strip or a `ReplayBanner` (`packages/web/src/replay/Banner.tsx`),
+  never both, so a live summons can never be read off a recording. The banner
+  states the mode in words ("viewing a recorded past — not the live fleet"),
+  not color — an ice-register frame/tint only, deliberately avoiding every
+  ladder hue (law 9), since a mode is not a status.
 
 ## Testing
 
@@ -277,4 +434,53 @@ hook.
   conductor's log dir, per-lane dollars in the ticker and worktree table, the
   per-branch ledger, and replay reporting `$0.02 as of scrub time` through the
   same reducer as the live view.
+- 2026-07-31 — prd3 (issue #75, the keystone): **`ageMs` and `workAgeMs` are
+  two different clocks, not one.** Both prd3 spikes independently shipped the
+  same bug: a WAITING inference read a lane's liveness age, so a pane's own
+  heartbeat (its content-hash repaint) kept refreshing the very silence the
+  inference was measuring, and a genuinely stuck-and-waiting lane never
+  tripped it. `ageMs` (time since any fact at all, pane repaints included) is
+  what FROZEN reads, because total silence — pane included — is what FROZEN
+  means; `workAgeMs` (time since the newest sign of actual work, pane
+  activity excluded on purpose) is what WAITING reads, because "stopped
+  working while the terminal kept moving" is the whole shape of that
+  inference. `buildFleet.ts`'s `diagnose()` keeps the two mutually exclusive
+  per lane, proven by test ("never calls the same silence both frozen and
+  waiting"). See [The instrument (prd3)](#the-instrument-prd3) above for
+  where this lives in code.
+- 2026-07-31 — prd3 (issue #75): **the ladder floor (ALL CLEAR structurally
+  incapable of coexisting with a nonzero collision count) lives in
+  `buildFleet`, not the view** ([graft g5](prd3.md)). The calm branch of the
+  `Ladder` union types its evidence's `collisions` field as the literal `0`,
+  so the disallowed state has no representable value rather than being a
+  convention a view author has to remember to check.
+- 2026-08-01 — prd3 (issue #91): fixed `parseLaneManifest` rejecting the
+  live `/api/lanes` payload outright, because `.swarm/lanes.json`'s `lanes`
+  field is **canonically an array** of entries (one per lane, each carrying
+  its own `handle`) and the parser only accepted an object keyed by handle —
+  a live manifest read as absent even though both the server and the
+  consumer's own test suites were green, because the consumer's test had
+  hand-rolled an object-shaped approximation of the wire payload instead of
+  copying the real one. Both shapes are accepted now; see [Lane geography and
+  the manifest](#lane-geography-and-the-manifest-prd3-ruling-19) above for
+  the reconciled contract, and the regression test that closes the gap by
+  pinning the exact server-side payload rather than an approximation of it.
+- 2026-08-01 — prd3 (issue #88): **`buildFleet` folds `llm.cost` events on an
+  unfiltered role split, separately from the token-origin-filtered split its
+  overhead ratio uses.** `otel` is the only collector that ever emits
+  `llm.cost` (sessionlog carries no dollars), so gating "is the conductor
+  instrumented at all" on the same token-origin allowlist used to dedup
+  token aggregation meant a real conductor cost feed always read as `CONDUCTOR
+  NOT INSTRUMENTED`. Any surface describing cost provenance describes it
+  through `Fleet.burn.conductorInstrumented` and the fleet object generally —
+  never a separate re-derivation off raw events, for the same one-object-four-
+  surfaces reason the fleet object exists at all.
+- 2026-08-01 — prd3 waves 3–4 landed: the **lane drawer** (#84 — vitals,
+  activity, live-tailing transcript, an ATTACH button that copies a
+  `tmux`/`workmux` command and never executes it), **panel focus** (#85 —
+  any panel fills the view; Esc restores it, yielding to an open lane drawer
+  first per shell-level precedence), and **replay's mode shift** (#83 — the
+  attention strip and the REPLAY banner are mutually exclusive in the shell,
+  never stacked). Documented in full under [The instrument
+  (prd3)](#the-instrument-prd3) above.
 
