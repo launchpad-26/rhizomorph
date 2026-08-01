@@ -63,13 +63,14 @@ describe('PanelGrid', () => {
     }
   })
 
-  it('mounts the panels in the conductor-curated order, scene beneath the fleet table', async () => {
+  it('mounts the panels in the conductor-curated order, scene above the fleet table', async () => {
     const { container } = await renderGrid()
 
-    // Ruling 6: fleet table → scene → the rest. The strips are docked in the
-    // Shell above this grid, and the provenance bar below it.
+    // prd4 ruling 2: scene (the centerpiece) → fleet table (its legend) → the
+    // rest. The strips are docked in the Shell above this grid, and the
+    // provenance bar below it.
     const headings = [...container.querySelectorAll('h2')].map((node) => node.textContent)
-    expect(headings).toEqual(['Fleet', 'Scene', 'Ledger', 'Collisions', 'Activity'])
+    expect(headings).toEqual(['Scene', 'Fleet', 'Ledger', 'Collisions', 'Activity'])
   })
 
   it('no longer mounts the panels prd3 dissolved', async () => {

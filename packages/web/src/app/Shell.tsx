@@ -11,18 +11,23 @@ const BurnStrip = lazy(() => import('../panels/burn/index.js'))
 const LaneDrawer = lazy(() => import('../drawer/index.js'))
 
 /**
- * The curated order (ruling 6). One conductor-curated hierarchy, no drag and no
- * custom layouts — the sequence itself is the ruling:
+ * The curated order — prd3 ruling 6, amended by prd4 ruling 2. One
+ * conductor-curated hierarchy, no drag and no custom layouts — the sequence
+ * itself is the ruling:
  *
  *   attention strip + burn strip (docked top)
- *     → fleet table
- *       → scene
+ *     → scene (the hero — ruling 2's centerpiece)
+ *       → fleet table (legend/detail beneath it)
  *         → the rest (ledger, collisions, feed)
  *           → provenance bar (docked bottom)
  *
- * It reads top-to-bottom as the first-second question and its answers: *does
- * anything need me* (attention), *what is it costing* (burn), *who is doing
- * what* (fleet), *what does it look like* (scene), *what happened* (the rest),
+ * prd4 ruling 2 answers "what is the fleet doing?" before anything else: the
+ * scene is big, bright and self-explanatory on the #92 palette, so it now
+ * outranks the table it used to sit beneath — the table and the detail panels
+ * are reference instruments once that first question is answered. It reads
+ * top-to-bottom as that question and its answers: *does anything need me*
+ * (attention), *what is it costing* (burn), *what does it look like* (scene),
+ * *who is doing what* (fleet, the legend), *what happened* (the rest),
  * *where did this come from* (provenance).
  *
  * Whitespace lives between panels, never inside them (ruling 7).

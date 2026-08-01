@@ -148,7 +148,7 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
       // what must not have moved.
       .filter((mark) => mark !== LANE)
 
-    expect(closedMarks).toEqual(['THE OBSERVATORY', 'Fleet', 'Scene', 'Ledger', 'Collisions', 'Activity'])
+    expect(closedMarks).toEqual(['THE OBSERVATORY', 'Scene', 'Fleet', 'Ledger', 'Collisions', 'Activity'])
     expect(openMarks).toEqual(closedMarks)
   })
 

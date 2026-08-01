@@ -27,6 +27,11 @@ import { SceneSlot } from './SceneSlot.js'
  * panel to get out of the way while that one fills the screen. Each
  * `PanelFrame` (and `FocusableScene` below) still *decides* its own focused
  * state; this only listens and keeps the "one at a time" invariant.
+ *
+ * prd4 ruling 2 reorders this registry: the scene is the centerpiece now, so
+ * it renders first — hero-sized, directly beneath the attention/burn dock —
+ * with the fleet table right after it as the legend/detail surface, then the
+ * rest (ledger, collisions, feed).
  */
 
 const FleetPanel = lazy(() => import('../panels/fleet/index.js'))
@@ -35,8 +40,14 @@ const CollisionsPanel = lazy(() => import('../panels/collisions/index.js'))
 const FeedPanel = lazy(() => import('../panels/feed/index.js'))
 const Scene = lazy(() => import('../scene/index.js'))
 
-/** Panel ids, in curated order — what `panelPrefs` persists collapse state for. */
-export const PANEL_IDS = ['fleet', 'ledger', 'collisions', 'feed'] as const
+/**
+ * Panel ids, in curated order — what `panelPrefs` persists collapse state
+ * for. `scene` persists through the same store as the rest (prd4 ruling 2's
+ * reconciliation, `SceneSlot`'s own `usePanelCollapsed('scene')`) even though
+ * it isn't wrapped in a `<PanelFrame>` — see `FocusableScene`'s comment above
+ * for why.
+ */
+export const PANEL_IDS = ['scene', 'fleet', 'ledger', 'collisions', 'feed'] as const
 
 /** The id `PanelGrid` uses to track the scene's own focus alongside the rest. */
 const SCENE_ID = 'scene'
@@ -55,7 +66,12 @@ export function PanelGrid() {
 
   return (
     <div className="flex min-h-0 flex-col gap-4 overflow-auto p-4">
-      {/* Who is doing what — the densest surface, and the one the strip jumps into. */}
+      {/* The centerpiece (prd4 ruling 2): "what is the fleet doing?" answered
+          before anything else, hero-sized directly beneath the dock. */}
+      <FocusableScene hidden={hiddenFor(SCENE_ID)} onFocusChange={onFocusChangeFor(SCENE_ID)} />
+
+      {/* Who is doing what — the scene's own legend and the densest surface,
+          right beneath the picture it explains. */}
       <PanelFrame
         id="fleet"
         title="Fleet"
@@ -66,10 +82,6 @@ export function PanelGrid() {
           <FleetPanel />
         </Suspense>
       </PanelFrame>
-
-      {/* The scene keeps its screen only by answering faster than the table
-          above it (ruling 4), which is why it sits directly beneath it. */}
-      <FocusableScene hidden={hiddenFor(SCENE_ID)} onFocusChange={onFocusChangeFor(SCENE_ID)} />
 
       {/* The rest: read after the first-second question has been answered. */}
       <div className="grid auto-rows-fr gap-4 lg:grid-cols-3">
@@ -110,11 +122,12 @@ export function PanelGrid() {
 
 /**
  * The scene's own focus affordance. It cannot simply be a `<PanelFrame>`
- * wrapping `<SceneSlot>`: `SceneSlot` bounds its canvas to a fixed height (its
- * own `h-64`, so the small view never pushes the panels below it around) —
- * exactly the box focus needs to break out of. So the focused view mounts the
- * scene directly (the same lazy `../scene/index.js` `SceneSlot` itself loads)
- * inside a full-viewport host instead of reusing that fixed-height chrome. The
+ * wrapping `<SceneSlot>`: `SceneSlot` carries its own header and collapse
+ * chrome (a `<PanelFrame>` would double it up), and even hero-sized (prd4
+ * ruling 2's `min-h-[55vh]`) it is still one embedded panel among others, not
+ * the full viewport focus needs to break out to. So the focused view mounts
+ * the scene directly (the same lazy `../scene/index.js` `SceneSlot` itself
+ * loads) inside a full-viewport host instead of reusing that chrome. The
  * canvas already resizes to whatever host it is given (`SceneView`'s own
  * `ResizeObserver`) and lays out from the host's measured width/height rather
  * than a fixed aspect ratio, so handing it a taller box does not distort it —

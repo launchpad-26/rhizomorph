@@ -133,12 +133,13 @@ describe('App', () => {
     expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
     expect(screen.getByText('connecting…')).toBeInTheDocument()
 
-    // attention + burn docked top → fleet → scene → the rest → provenance bar.
+    // attention + burn docked top → scene → fleet → the rest → provenance bar
+    // (prd4 ruling 2: the scene is the centerpiece, the table is its legend).
     const marks = [...container.querySelectorAll('h1, h2')].map((node) => node.textContent)
     expect(marks).toEqual([
       'THE OBSERVATORY',
-      'Fleet',
       'Scene',
+      'Fleet',
       'Ledger',
       'Collisions',
       'Activity',

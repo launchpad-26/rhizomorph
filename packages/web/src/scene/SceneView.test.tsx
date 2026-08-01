@@ -163,6 +163,33 @@ describe('the canvas host', () => {
     expect(container.querySelector('canvas')).not.toBeNull()
   })
 
+  it('sizes the canvas backing store from the measured host, DPR-aware — not the old small-box floor (prd4 ruling 2)', async () => {
+    // A hero-sized host, well above both the fallback floor and the old
+    // small-box numbers it replaced — proves the canvas tracks the *measured*
+    // host rather than being stuck at some fixed small default.
+    const hostRect = {
+      width: 960,
+      height: 540,
+      top: 0,
+      left: 0,
+      right: 960,
+      bottom: 540,
+      x: 0,
+      y: 0,
+      toJSON() {},
+    }
+    vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect').mockReturnValue(hostRect as DOMRect)
+    // Above the DPR cap of 2, so this also pins that the cap is still honoured
+    // at hero scale rather than scaling the backing store unbounded.
+    vi.stubGlobal('devicePixelRatio', 3)
+
+    const { container } = await mountScene()
+    const canvas = container.querySelector('canvas')
+
+    expect(canvas?.width).toBe(960 * 2)
+    expect(canvas?.height).toBe(540 * 2)
+  })
+
   it('draws exactly one frame under a pinned clock, and starts no loop', async () => {
     // A pinned clock is a test asking for a still image. A running loop under
     // one would redraw the same frame forever and race every assertion below it.

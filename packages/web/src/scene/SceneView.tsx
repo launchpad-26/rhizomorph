@@ -37,6 +37,16 @@ export interface SceneViewProps {
 /** How close to a node a pointer must be to have picked it, in CSS pixels. */
 const HIT_RADIUS = 30
 
+/**
+ * Fallback size for a host measured at zero (mid-mount, before layout has
+ * run). Proportioned to the hero slot this now sits in (prd4 ruling 2's
+ * `min-h-[55vh]`-ish `SceneSlot`) rather than the compact fixed box (`h-64`)
+ * it used to be the fallback for — a zero-rect mount should still read as the
+ * centerpiece, not a leftover small panel.
+ */
+const FALLBACK_WIDTH = 640
+const FALLBACK_HEIGHT = 420
+
 export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: SceneViewProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -95,8 +105,8 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
       const dpr = Math.min(2, window.devicePixelRatio || 1)
       // A floor rather than the measured size, so a zero-height host during
       // mount still lays out a coherent scene instead of dividing by nothing.
-      width = Math.max(320, Math.floor(rect.width))
-      height = Math.max(180, Math.floor(rect.height))
+      width = Math.max(FALLBACK_WIDTH, Math.floor(rect.width))
+      height = Math.max(FALLBACK_HEIGHT, Math.floor(rect.height))
       // The backing store only. The element's *size* is CSS (absolutely
       // positioned), so it can never feed back into the panel that contains it —
       // a canvas with a pixel width inside a flexible column will happily push

@@ -10,7 +10,18 @@ describe('panelPrefs', () => {
     expect(isPanelCollapsed('collisions')).toBe(false)
     expect(isPanelCollapsed('fleet')).toBe(false)
     expect(isPanelCollapsed('feed')).toBe(false)
+    expect(isPanelCollapsed('scene')).toBe(false)
     expect(isPanelCollapsed('some-future-panel')).toBe(false)
+  })
+
+  it('round-trips the scene\'s own collapse toggle (prd4 ruling 2 — one mechanism, not two)', () => {
+    setPanelCollapsed('scene', true)
+
+    expect(isPanelCollapsed('scene')).toBe(true)
+    expect(isPanelCollapsed('fleet')).toBe(false)
+
+    setPanelCollapsed('scene', false)
+    expect(isPanelCollapsed('scene')).toBe(false)
   })
 
   it('round-trips a collapsed state through localStorage', () => {

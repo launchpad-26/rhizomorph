@@ -12,9 +12,12 @@ const STORAGE_KEY = 'observatory.panelCollapsed.v1'
  * pass instead of being silently flipped.
  *
  * prd3 note: the ids here are the *panel* ids registered in `PanelGrid`
- * (`fleet`, `ledger`, `collisions`, `feed`). The attention and burn strips are
- * deliberately absent — ruling 5 makes the strip always-present, so it has no
- * collapse state to persist, and neither has the burn strip docked with it.
+ * (`fleet`, `ledger`, `collisions`, `feed`, and — since prd4 ruling 2 —
+ * `scene`, whose own collapse toggle in `SceneSlot` was reconciled onto this
+ * same store rather than keeping its own unpersisted state). The attention
+ * and burn strips are deliberately absent — ruling 5 makes the strip
+ * always-present, so it has no collapse state to persist, and neither has the
+ * burn strip docked with it.
  */
 const DEFAULT_COLLAPSED: Readonly<Record<string, boolean>> = {
   collisions: false,
