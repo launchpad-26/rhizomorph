@@ -10,10 +10,12 @@ gracefully, and reflects reality within a couple of seconds via polling.
 Read-only, always: it never sends keys, launches agents, or merges anything —
 see [`docs/vision.md`](docs/vision.md) for the full pitch,
 [`docs/prd3.md`](docs/prd3.md) for the visualization design rulings behind
-what's on screen, and [`docs/prd4.md`](docs/prd4.md) for the operator-review
+what's on screen, [`docs/prd4.md`](docs/prd4.md) for the operator-review
 rulings that re-aimed the whole surface at a first-time viewer, not just the
 person who built it (the **layman bar** — every screen below is written to
-be readable by someone who has never seen this tool before).
+be readable by someone who has never seen this tool before), and
+[`docs/prd5.md`](docs/prd5.md) for the rulings behind the scene's camera,
+its motion, and the cord-cut described below.
 
 ![The scene as the centerpiece — a busy 20-lane fleet, every thread the same live green, ALL CLEAR above it](docs/screenshots/fixture-20-lane.png)
 
@@ -205,13 +207,21 @@ instruments beneath it.
   frozen, waiting, expensive, and off-fence lanes each read as an
   unmistakably different *shape* on their thread, not a color alone, and
   since prd4 the color carries real meaning too (see "The palette" below).
-  Lazy-loaded behind an error boundary: if it breaks, the rest of the panel
-  grid stands alone. A "Focus Scene" button fills the whole viewport with it.
+  Since prd5 it's also a place you can go: drag to pan, Ctrl/Cmd+wheel to
+  zoom at the cursor, and a finished lane cuts loose from the mass rather
+  than sitting there dyed a different color — see "The camera" and "The
+  cord-cut" below. Lazy-loaded behind an error boundary: if it breaks, the
+  rest of the panel grid stands alone. A "Focus Scene" button fills the
+  whole viewport with it.
 - **Fleet table** — one dense row per lane: state, output tokens, `$`,
   request/tool counts, thread/subagent count, age, and fence status. The
   STATE column draws the scene's own glyph *and* the scene's own hue at row
   scale, so this table is the scene's legend for both shape and color — no
-  separate key needed to read the picture above it.
+  separate key needed to read the picture above it. Its own footer names
+  three keyboard verbs: `n`/`Shift+n` jumps the shared selection to the
+  next/previous lane that needs you, `f` focuses the table full-screen, and
+  `a` copies that lane's attach command — see "Keyboard reference" below
+  for the full set, scene included.
 - **Ledger** — the deep per-branch/thread spend table the burn strip
   summarizes; cost and token totals, model, first/last seen, elapsed.
 - **Collisions** — demoted to calm chrome until it matters: a real collision
@@ -302,10 +312,134 @@ parked on purpose isn't news. Everything else about it (output, cost, age,
 fence compliance) keeps reading its real telemetry: parked mutes the alarm,
 never the evidence.
 
+### The camera — drag, zoom, and a way home
+
+[prd5 ruling 2](docs/prd5.md): the scene is a place you navigate, not a
+picture that sits still. Click or tab into it first — the keys below are
+scoped to a focused scene, on purpose (see "Keyboard reference"):
+
+- **Drag** (left or middle button) pans.
+- **Ctrl/Cmd + scroll** zooms at the pointer — the point under your cursor
+  stays under it. A trackpad pinch arrives the same way (it's a ctrlKey
+  wheel stream under the hood), so pinch-to-zoom works with no separate
+  handling.
+- **A plain scroll is not the camera's** — the scene sits in a page you can
+  scroll past, so an unmodified wheel scrolls the page exactly as if the
+  canvas weren't there.
+- **`1`** zooms to fit the whole network in view; **`0`** resets to the
+  start position; **`+`/`-`** step the zoom. The same four actions sit as
+  on-canvas buttons bottom-right (**−**, **+**, **Fit**, **Reset**), so a
+  trackpad-only reader never needs the keyboard.
+- **Recenter** fades in automatically, in the same corner, whenever you've
+  panned or zoomed the network out of view entirely — a click brings it
+  back. It never appears at any other time, so it can't blink into view at
+  the moment you'd have looked away.
+- The zoom range is deliberately bounded (0.4×–6×): further out and the
+  threads go sub-pixel; further in and you're looking at a gradient, not a
+  network.
+
+### The cord-cut — a finished lane leaves the network
+
+[prd5 ruling 3](docs/prd5.md): when a lane finishes — workmux declares it
+`done`, or its worktree is removed — its thread doesn't just change color.
+It **cuts loose**: the thread goes slack at the root, the freed end springs
+back toward its own node, and what's left settles into a small, permanently
+dimmed **scar** near the rim, carrying the lane's name and its output
+figure for the rest of the session. It's a roughly 1.4-second sequence, not
+a jump-cut, so you can watch a lane stand down rather than just noticing it
+vanished.
+
+Two things worth knowing:
+
+- **A scar never disappears.** It's dim — well below a living lane's
+  floor — but never zero, because invisible completion looks exactly like
+  a bug. The fleet table still lists the lane too; only the scene's own
+  picture is affected by anything below.
+- **Hide finished** (top-right of the scene) toggles scars out of the
+  picture if a long session has accumulated a lot of them — it always
+  shows its own count (`Hide finished · 12`), so "hidden" never reads as
+  "gone," and it's remembered across reloads.
+
+A lane you've parked on purpose (see "Parked lanes" above) scars the same
+way, just without the animation — there's no "moment" a standing
+declaration can play back.
+
+### Motion, pause, and reduced motion
+
+[prd5 ruling 4](docs/prd5.md): the scene breathes gently and pulses on real
+events, but every bit of that motion is budgeted, not decorative:
+
+- **Ambient** life (the root-mass's slow breath) is subtle by design — at
+  most 3% — because it's meant to sit at the edge of your attention and be
+  ignorable, not a fidget you have to consciously tune out.
+- **Event** motion (a pulse traveling to say a commit landed, tokens
+  arrived) is capped at five pulses moving at once — the point past which
+  people stop being able to track individual moving things anyway. A busier
+  moment doesn't spawn a sixth pulse; it folds the overflow into one
+  pulse carrying a count, the same "coalesced, never invented" rule the
+  scene already applies to traffic.
+- **Structural** motion (a lane appearing, reflowing, or cutting loose) is
+  the one deliberately larger movement, and it never bounces — a spring
+  that recoiled would read as "this failed," which is never true of a
+  lane finishing its work.
+- An unanswered summons's pulse also **ages**: the longer a lane has been
+  waiting on you, the slower and brighter it throbs — insistent, never
+  frantic (see "Amber ages with attention" below).
+
+**Pause motion** (top-left of the scene) stops all of that outright — every
+ambient and event animation freezes at the instant you press it, and it
+says so in words (`Motion paused`), not just by looking different. This
+exists because WCAG's accessibility rules require a way to stop
+self-starting motion that runs more than a few seconds, and a scene that
+breathes forever without one fails that outright. The one exception: a
+cord-cut already in flight finishes and settles rather than freezing
+half-severed, since a half-cut thread is still a true picture of what's
+happening and a half-grown one would not be.
+
+If your system is set to reduce motion (`prefers-reduced-motion`), the
+scene keeps every color and brightness change but drops travel and
+scale — camera flights become instant jumps, pulses stop moving without
+disappearing, and the cord-cut swaps straight to its finished state in
+place rather than visibly retracting.
+
+### Amber ages with attention
+
+[prd5 ruling 5](docs/prd5.md): a `NEEDS-YOU` chip in the attention strip
+tells you *how long* it's been true, and that duration changes how
+insistent it reads — a summons that just fired reads at the quieter end of
+amber, the same one a benign wait already wears; past two minutes it's at
+full needs-you brightness; past ten, it adds a slow, deliberate pulse and
+brightens the age figure itself. What never changes is *which rung* it's
+on — age makes the same fault read more urgently, it never promotes a
+lane to a worse one, and `BROKEN`/`NOTICE` chips are unaffected regardless
+of age.
+
+### Keyboard reference
+
+Three independent registers, scoped by *where* you are rather than one
+global keymap — a key means one thing while the scene has focus and can
+mean something else everywhere else on the page:
+
+| Key | Scope | What it does |
+|---|---|---|
+| `1` / `2` / `3` | Page (scene unfocused) | Switch the driving log: live / 20-lane fixture / pathology fixture |
+| `1` | Scene (focused) | Zoom to fit the whole network |
+| `0` | Scene (focused) | Reset the camera |
+| `+` / `-` | Scene (focused) | Step the zoom in/out |
+| `n` / `Shift+n` | Page (global) | Jump the shared selection to the next/previous lane that needs you |
+| `f` | Fleet table (a lane in hand) | Focus the fleet table full-screen |
+| `a` | Fleet table (a lane in hand) | Copy that lane's tmux/workmux attach command |
+| `Esc` | Page (global) | Close the lane drawer, then exit panel focus — never both at once |
+
+Click the scene once, or tab to it, to put the first three rows in scope;
+click anywhere else (or press Esc) to give `1`/`2`/`3` back to the page.
+Every key here is ignored while you're typing into a form field.
+
 | | |
 |---|---|
 | ![Staged pathology fixture — five lanes, five distinct pathologies, each a different hue and shape, named in the attention strip and the fleet table's STATE column](docs/screenshots/fixture-pathology.png) | ![The lane drawer's conversation view — a real session's turns and tool calls, CLI-style, with the ATTACH button below](docs/screenshots/drawer.png) |
 | ![The live view against this project's own real, in-progress build swarm — an actual WAITING lane and off-fence trespass flagged, not staged](docs/screenshots/live.png) | ![Replay mid-scrub at 16x — the REPLAY banner, ice-register frame, timestamp and session identity](docs/screenshots/replay.png) |
+| ![The scene paused — the pause button pressed, "Motion paused" stated in words, camera and hide-finished controls visible](docs/screenshots/paused.png) | ![A scar-bearing scene — finished lanes cut loose from the mass, each a small dimmed mark near the rim, still named and still counted](docs/screenshots/scars.png) |
 
 ## The worktrees-challenge context
 

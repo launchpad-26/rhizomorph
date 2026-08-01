@@ -167,6 +167,97 @@ same time as the replay banner (a regression — the two must never render
 together, since a live summons rendered over a recording is exactly the
 failure ruling 16 exists to prevent).
 
+## The camera, the cord-cut, and pause — what you can *do*
+
+The four checks above establish that the scene reads correctly at a
+glance. prd5 (`docs/prd5.md`) added things to actually *do* with it, once
+you're looking — a first-time reader should come away knowing these exist,
+not just what the picture means.
+
+### Drive the camera
+
+1. With any fixture loaded, click once inside the scene panel to give it
+   focus (or tab to it) — this matters, because `1`/`0`/`+`/`-` mean
+   something else on the rest of the page (switching the driving log)
+   until the scene itself has focus.
+2. Drag to pan. Hold Ctrl (or Cmd on a Mac) and scroll to zoom in on
+   whatever's under your pointer — the point you're pointing at stays put
+   as the picture scales around it. A trackpad pinch does the same thing.
+3. Press **`1`** to zoom-to-fit the whole network, **`0`** to reset, or use
+   the four buttons in the scene's bottom-right corner (**−**, **+**,
+   **Fit**, **Reset**) if you'd rather click than type.
+4. Drag or zoom the network mostly out of the visible panel, and watch for
+   a **Recenter** button to fade in, bottom-right — click it to come back.
+   It's the one thing that appears only when you'd actually need it.
+
+**What failure looks like:** pressing `1` switches the driving log instead
+of fitting the camera (the scene didn't have focus); zooming moves the
+picture rather than the point under your cursor; Recenter never appears no
+matter how far you pan away, or appears when the network is already in
+view.
+
+### Watch a lane cut loose
+
+The two fixtures (`2`/`3`) don't include a finished lane of their own —
+they're built to stay a fixed, reproducible scale test and pathology set.
+To see the cord-cut itself: let a real swarm run under `1` (live) until a
+lane lands (workmux marks it `done`, or its worktree is removed), or read
+[`docs/architecture.md`](architecture.md#the-cord-cut-102-ruling-3) for the
+stage-by-stage description backed by `retire.test.ts`. What you're looking
+for: the thread goes slack, the freed end springs back to its own node
+with no bounce, and what's left settles into a small, permanently dimmed
+mark near the rim — never gone, never re-lit. The **hide finished** button
+(top-right of the scene, appears once at least one lane has finished)
+toggles those marks out of the picture and always shows its own count, so
+"hidden" is never mistaken for "gone" — the fleet table keeps listing the
+lane regardless of the toggle.
+
+**What failure looks like:** a finished lane's thread stays attached to
+the mass with only its color changed; a scar fades away entirely over
+time; the hide-finished button doesn't show a count, or shows one that
+doesn't match the fleet table's finished-lane total.
+
+### Pause the scene
+
+1. With any fixture loaded, click **Pause motion** (top-left of the
+   scene).
+2. Confirm two things: the label changes to **Resume motion** and a
+   `Motion paused` line appears beside it in words — and the scene's own
+   ambient breath and event pulses visibly stop moving.
+3. Click it again to resume.
+
+This exists because WCAG 2.2.2 requires a way to stop content that starts
+moving on its own and runs longer than five seconds — an always-breathing
+scene without this button would fail that outright. **What you should
+see:** nothing in the scene moves while paused, except a cord-cut already
+under way, which finishes and settles rather than freezing half-severed
+(a deliberate exception — a half-cut thread is still a true picture of
+what happened; a half-grown one would not be). If your system has
+`prefers-reduced-motion` set, the same idea applies automatically: color
+and brightness still change, but nothing travels or changes size.
+
+### Amber ages with attention
+
+On the pathology fixture (`3`), the `WAITING` chip is fresh, so it reads
+at the quieter end of amber — the same shade a benign wait wears. There's
+no way to fast-forward a fixture's clock to see the escalation live, but
+the rule is: past two minutes unanswered a `NEEDS-YOU` chip reaches full
+needs-you brightness, and past ten minutes it adds a slow pulse and
+brightens its own age figure. The severity rung never changes with age —
+only how insistently the same rung reads.
+
+### Orientation extras
+
+- **`n`** / **`Shift+n`** (anywhere on the page, no focus needed) jumps the
+  shared selection to the next/previous lane that needs you, worst rung
+  then oldest first — the same thing a click on that lane would do
+  (opens the drawer, spotlights the scene, highlights the table row).
+  Nowhere to jump to flashes the attention strip once rather than doing
+  nothing visibly.
+- **`f`** / **`a`**, with a lane focused or selected in the fleet table,
+  focus the table full-screen or copy that lane's tmux/workmux attach
+  command to your clipboard — the table's own footer names both.
+
 ## If something degrades
 
 - **No workmux installed:** one `collector.disabled` event, agent-status

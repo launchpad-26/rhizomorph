@@ -485,6 +485,288 @@ field, and the scene's `LaneActivity` union having no member for "parked")
 that #96 (this issue) inherits rather than fixes, since both sit outside a
 docs-only fence.
 
+## prd5 — the finished application
+
+prd5 (`docs/prd5.md`) is the "sleek, well formed, beautiful application"
+pass that followed prd4, set by the operator's close-out on issue #99:
+"drag around the scene, completed paths should not still be connected, a
+little more animation … not just a tool … production ready." Four issues
+landed it in fenced waves — #100 (camera) ∥ #103 (amber aging) ∥ #104
+(orientation extras) together, then #101 (motion budget) once #100 landed,
+then #102 (the cord-cut) once #101 landed — followed by this docs pass
+(#105). What follows is the shape it took in code, cited against prd5's
+six rulings.
+
+### The camera (#100, ruling 2)
+
+`packages/web/src/scene/camera.ts` is pure arithmetic over a plain `{ k, x,
+y }` — no canvas, no DOM, no d3-zoom import — because "zooming at the
+pointer leaves the thing under the pointer where it was" and "fit frames
+the whole network" are laws a test can pin in one line, and `Camera` is
+structurally d3-zoom's own `ZoomTransform` so nothing has to be adapted at
+the boundary. `SceneView.tsx` wires the two together: d3-zoom
+(`d3-zoom`/`d3-interpolate`, ISC, probed live in
+[the vehicles note](research/2026-08-01-obs-prd5-implementation-vehicles.md))
+owns pointer and wheel handling and hands back a transform; `camera.ts`
+owns every law about what that transform means.
+
+- **Gestures.** Drag (left or middle button) pans; Ctrl/Cmd+wheel zooms at
+  the pointer (`scaleAbout`) — trackpad pinch arrives as the same
+  ctrlKey-wheel stream, so no separate pinch handler exists.
+  `gestureFilter` is adapted from `@xyflow/system`'s `createFilter` (MIT):
+  the allowed-button list instead of d3's `!event.button`, and a **plain
+  wheel is deliberately not claimed** — the scene sits in a scrolling page,
+  and a canvas that eats every wheel event is a canvas you cannot scroll
+  past. `wheelDelta` keeps d3's own ctrlKey-boost logic but drops its
+  user-agent sniff for macOS in favour of the thing that actually tells a
+  pinch from a mouse notch: the size of the delta (`MOUSE_NOTCH_DELTA`).
+  `CLICK_DISTANCE` (4px, d3-zoom's `clickDistance`, the same knob React
+  Flow tunes for the same conflict) is what stops drag-to-pan from eating
+  click-to-select — nobody presses a mouse button without moving it a
+  pixel or two.
+- **Affordances.** Keys `1` (fit), `0` (reset), `+`/`-` (step by
+  `ZOOM_STEP` = 1.4), two on-canvas step buttons, a **Fit**/**Reset**
+  button pair, and an auto-appearing **Recenter** button
+  (`isContentVisible`, a `VISIBLE_SLIVER` = 24px floor in either axis)
+  that fades in rather than mounting, so it cannot pop into view at the
+  exact moment an operator's eye is elsewhere. `SCALE_EXTENT` is `[0.4,
+  6]` — below 0.4 the threads go sub-pixel and every label collides;
+  above 6 a ribbon is just a gradient. No minimap (deferred, ruling 1).
+- **The key collision, resolved by focus.** `1` already means "switch to
+  the live stream" page-wide (`StreamContext`'s fixture keys); the camera
+  claims the same key but only once the scene itself has DOM focus
+  (`onKeyDown` on the scene's own host div, which calls
+  `stopPropagation` on every key it claims). Click the scene, or tab to
+  it, and `1`/`0`/`+`/`-` mean camera; anywhere else on the page they mean
+  what they already meant. `app/keyboard.ts`'s own doc comment states the
+  three-way split this created across #100/#101/#104: scene-scoped camera
+  keys, page-global idle-worker jump (below), and table-scoped fleet
+  verbs (below) are three separate registers, not one keymap.
+- **The flight home.** `flight()` uses `d3-interpolate`'s `interpolateZoom`
+  (van Wijk & Nuij's smooth-zoom arc — the same arc a d3-zoom transition
+  would take) but caps its suggested duration at `FIT_DURATION_MAX_MS`
+  (420ms): the suggestion is proportional to arc length and comes out
+  around 2.5s from a far corner, which is the right shape and the wrong
+  length for something bound to a keypress. Reduced motion, a paused
+  scene, and a pinned test clock all skip the flight and jump straight to
+  the destination (`goTo`'s `jump` predicate).
+
+### The motion budget, as law (#101, ruling 4)
+
+`packages/web/src/scene/motion.ts` turns "a little more animation" into
+three hard-separated, test-pinned classes — nothing in the picture may
+move outside one of them:
+
+| class | what moves | budget |
+|---|---|---|
+| **ambient** | root-mass breath, idle life | 4–8s period, ≤3% amplitude, unlimited |
+| **event** | pulse travel, arrival flare, alarm throb | 400–600ms; flare 150ms in / 500ms out; **≤5 concurrent** |
+| **structural** | a lane appearing, reflowing, disconnecting | ~800ms critically damped; ≤2 at once, 60–90ms stagger |
+
+Two numbers are load-bearing rather than tuned: **≤3% ambient amplitude**
+(calm technology's claim that a display earns the periphery only if it
+can be ignored — the moment a viewer has to consciously suppress the
+motion, it has failed) and **the event cap of 5** (Pylyshyn & Storm's
+measured human object-tracking limit — a scene fires at most five
+concurrent pulses and coalesces any surplus into one aggregate pulse
+carrying a count, which is "traffic is coalesced, never invented" (prd3's
+pulse law 2, `pulses.ts`) extended from traffic to motion itself).
+
+- **The spring is hand-rolled and closed-form, not integrated.**
+  `packages/web/src/scene/spring.ts` is the exact solution of the
+  critically-damped case (ζ=1 only — there is no parameter to ask for
+  bounce, because a structural change that recoils reads as "it failed"),
+  sampled at whatever `dt` a frame actually took rather than marched
+  toward with semi-implicit Euler. The reason is measured, not aesthetic:
+  Euler at k=170 (this budget's stiffness) reaches −5.2e8 within twenty
+  10ms-nominal steps once a frame runs long (a backgrounded tab, a GC
+  pause, twenty lanes landing at once), while the closed form agrees with
+  itself whether it is stepped once at 2s or as two hundred 10ms frames —
+  `spring.test.ts` pins both the divergence being avoided and the
+  stability being bought. `STRUCTURAL_DAMPING = criticalDamping(170) ≈
+  26` is exported so the ruling's own numbers are checkable, not just
+  claimed.
+- **Two motion modes, not one.** `reduced` (`prefers-reduced-motion`) is
+  WCAG 2.3.3's exclusion made literal: colour and opacity stay, travel and
+  scale drop (`NO_MOVEMENT`). `paused` — the operator pressing the scene's
+  own pause button — is WCAG 2.2.2 (Level A: any content that moves on
+  its own past five seconds needs a stop, and an always-breathing canvas
+  is exactly that), and it is stricter: everything freezes, brightness
+  included (`FROZEN`), **except** structural motion, which is allowed to
+  finish what it started (`allowance()`'s one exception) because a
+  topology change frozen mid-flight would show a fleet that does not
+  exist. The mechanism is one line: `SceneView.tsx`'s frame loop holds a
+  `pausedAtRef` instant and feeds every mark builder that instant instead
+  of the real clock, so freezing is a property of the clock every
+  animation already reads from, not a flag each one has to check.
+- **The alarm pulse ages** (ruling 5's scene half, `alarmPulse()`): an
+  unanswered summons pulses slower and brighter the older it gets
+  (`ALARM.freshPeriodMs` = 800ms down to `agedPeriodMs` = 2,600ms,
+  `freshIntensity` 0.62 up to `maxIntensity` 1, over the same recency span
+  the geometry already drifts nodes outward on), with the phase
+  integrated over the lane's own age (a closed-form logarithm) rather than
+  sampled from wall time — `sin(now / period)` jumps by hundreds of
+  cycles the instant a lengthening period moves by a hair, because `now`
+  is an epoch and the phase scales with it.
+
+### The cord-cut (#102, ruling 3)
+
+`packages/web/src/scene/retire.ts` is the Observatory's own idiom for a
+finished lane: every graph tool surveyed (GitHub Actions, Obsidian, React
+Flow) restyles a finished node and leaves it wired in, so "is this fleet
+still working" stays a colour question. This instrument disconnects the
+edge instead, so the answer is structural — a lane that has landed is no
+longer part of the mass, full stop.
+
+A **staged** retirement (Heer & Robertson measured staged transitions
+beating single-shot ones at exactly this job — a topology change the
+viewer has to follow), three stages, one channel each, ~1.4s total:
+
+| stage | ms | channel |
+|---|---|---|
+| `tension` | 150 | curvature only — the thread goes slack at the root |
+| `retract` | 800 (= `STRUCTURAL.durationMs`) | position only — the freed end springs back, ζ=1, via `spring.ts`'s closed form |
+| `settle` | 450 | colour only — the remnant desaturates into a scar |
+| `scar` | ∞ | the resting state, drawn forever, never re-lit |
+
+Four laws, each enforced in code rather than trusted:
+
+1. **Never fades to nothing** (`SCAR_FLOOR` = 0.05, well under
+   `CALM_FLOOR`'s 0.15 and well clear of zero) — invisible completion is
+   indistinguishable from a render bug, so a scar stays on the canvas at
+   reduced ink, carrying the lane's name and its output figure. The scar's
+   ink is a mix of `ICE_600` (nothing-to-say) and `DONE` green at 0.18 —
+   deliberately not the fully-desaturated grey the research suggested,
+   because "this lane finished its work" and "the log never mentioned
+   this lane" are opposite facts that must not share a colour, and
+   deliberately not `NECROTIC` either, since landing is not dying (the
+   prd4 done/frozen separation this would otherwise contradict).
+2. **Fires once per lane, on news only.** `RetireRegistry.note()` is fed
+   from the same news tail `pulses.ts` reads, so a replayed session (or a
+   scrub across a landing) builds every scar and animates none of them —
+   the same "history never pulses" law extended to the cut. A lane
+   already retired the first time it is seen scars outright, with no
+   journey; a lane the registry watched retire live animates from that
+   instant; a collector re-reporting a worktree removal never re-fires
+   the cut for a lane that already has one scheduled.
+3. **Respects the structural cap, as a queue, not a throttle.**
+   `RetireRegistry`'s `schedule()` walks forward to the first instant that
+   clears both `STRUCTURAL.maxConcurrent` (2) and the 75ms stagger, so a
+   wave of a dozen landings retires in pairs rather than cutting twelve
+   cords at once — and every cut still happens; a lane waiting its turn
+   is drawn as the living thread it still visibly is.
+4. **Reduced motion swaps in place.** WCAG 2.3.3 excludes colour and
+   opacity from "motion animation", so under `reduced` the cut collapses
+   straight to `SETTLED_IN_PLACE` — severed and desaturated with no
+   travel, read off `allowance('structural', mode).travel` rather than
+   re-decided in `retire.ts`, so the whole scene degrades by the one rule
+   in `motion.ts`.
+
+`isRetired()` treats **done** (`agent.status: done`, or `worktree.removed`
+— the two events that mean a lane finished) and **parked** (prd4 ruling 5)
+as the same structural fact with different histories: done is a moment in
+the log and gets a cut to watch; parked is a standing declaration with no
+arrival event, so a parked lane scars from the first frame the manifest is
+read, and un-scars the instant an operator unparks it.
+
+**The hide-finished toggle** (`ScarControl` in `SceneView.tsx`,
+`useScenePref('hideFinished')`, persisted in `app/panelPrefs.ts` beside
+the other panel prefs) is the operator's own override on a default of
+*visible*: scars are shown by default, and this is the only thing that
+changes that. It carries its own count (`Hide finished · N` /
+`Show finished · N`) even while collapsed, because a filter that hides
+its own effect is a filter that quietly makes the picture a lie — the
+same law 12 the gap voice answers to elsewhere. Fully hidden lanes still
+count in the fleet table; the toggle only ever touches the scene.
+
+A geometry-side fix landed after the first pass (issue #102, `fix`
+commit): a scar's size initially held a fixed *fraction* of a thread's
+length back from the node, which put a three-o'clock lane's scar three
+times the size of a twelve-o'clock one's on the wide ellipse a landscape
+panel produces. `SCAR_LENGTH_PX` now walks a fixed arc length back over
+the sampled polyline instead, so every scar is the same size object, like
+the sigil beside it — and the remnant keeps the whole thread's gathered
+taper rather than being sliced out of it, so it reads as a wedge with its
+work-size still in it rather than evaporating on the way in.
+
+### Amber ages with the strip (#103, ruling 5)
+
+`packages/web/src/panels/attention/ageBands.ts` pins three bands so the
+chip (`AttentionStripView.tsx`) and the tab title (`useTabSignal.ts`)
+can't drift onto two different ideas of "old": **quiet** (<2min, the
+amber family's muted end — the same ink a benign wait already wears),
+**ink** (2–10min, full needs-you brightness, no motion — where a summons
+spends most of its life), and **pulse** (≥10min, a slow calm-authority
+pulse layered on the full ink, with the age figure itself emphasized).
+The ladder rung is still the only severity axis — `agingClass()` confines
+all of this to the `needs-you` rank; `broken` (already maximal) and
+`notice` (deliberately a heads-up, not a summons) never escalate or mute
+regardless of age. `useTabSignal`'s title carries the oldest summons's age
+too, once it crosses the same top band, so the signal survives a
+backgrounded tab.
+
+**An open seam, deliberately left rather than closed.** The chip's own
+pulse animation (`attention.css`'s `attention-chip-age-pulse`, a 6,800ms
+opacity breath) was landed as "a conservative literal chosen
+independently of #101's motion budget (same prd, disjoint fence)" — its
+own comment names `#101`'s alarm/event class constants as the thing that
+"may absorb it later." #101 landed afterward and did wire an aged alarm
+pulse (`motion.ts`'s `alarmPulse`, `agedPeriodMs` = 2,600ms) into the
+**scene's** node and light marks (`marks/node.ts`, `marks/light.ts`), but
+never touched `attention.css` — the two numbers (6,800ms vs. 2,600ms)
+still disagree, and the strip's pulse duration remains its own literal.
+Both readings independently satisfy ruling 5 (insistence within the rung,
+never across it) and the seam is cosmetic rather than a correctness bug,
+but a future pass reconciling the two durations under one motion-budget
+constant, the way the scene's half already is, remains open.
+
+### Orientation extras (#104, ruling 1+6)
+
+`app/keyboard.ts`'s own doc comment names the three keyboard registers
+this issue's split produced, so a fourth one doesn't get invented by
+accident later:
+
+- **Scene-scoped** (#100): `0`/`1`/`+`/`-`, live only while the canvas has
+  focus — documented above.
+- **Page-global** (#104): `n` / `Shift+n`, the SC2-style idle-worker jump.
+  `useIdleWorkerJump()` cycles the shared selection through
+  `needsYouLaneIds` — worst rung, then oldest, first, the same order the
+  ladder already presents — via the very `select`/`jump` path a click
+  already calls, so jumping opens the drawer, spotlights the scene and
+  highlights the table row exactly as a click would. When there is
+  nowhere to jump, the selection is left alone and the attention strip's
+  own DOM region flashes once (`flashAllClear`, 220ms), rather than
+  nothing visibly happening at all.
+- **Table-scoped** (#104): `f` (focus the fleet panel) / `a` (copy that
+  lane's `tmux`/`workmux` attach command, reusing the drawer's own
+  `attachPlan`/`copyToClipboard` rather than a second copy of either), a
+  k9s-style verb pair that acts on whichever lane is in hand — the DOM's
+  own focused row, or the shared selection, whichever names one
+  (`focusedLaneId`). A footer key hint (`n next needs-you · shift+n prev
+  · f focus · a attach · esc close`) is rendered in the fleet table
+  itself so the verbs are discoverable without reading this file.
+
+All three registers share the same typing guard (`isTypingTarget`) and
+ignore any keystroke held with a modifier, so a page whose single-letter
+verbs hijack a text field, or steal a browser shortcut, is not a page this
+issue shipped.
+
+### Vehicles and taste (ruling 6)
+
+No animation library was adopted — every motion in the scene is DOM/canvas
+arithmetic, and the spring itself is 15 tested lines
+(`spring.ts`), which is the whole of the case against reaching for one.
+d3-zoom + d3-interpolate (ISC) are the one exception, adopted for the
+camera's *gestures* only, proven live rather than assumed
+(`docs/research/2026-08-01-obs-prd5-implementation-vehicles.md`'s headless-
+on-canvas probe). `@xyflow/system` (MIT, xyflow/React Flow) was read for
+its drag-vs-select `clickDistance` preset and its gesture-filter shape,
+both cited in `camera.ts`'s own comments rather than vendored; tldraw was
+read for prior art only — its custom license means no code from it is in
+this tree. Build lanes loaded the installed `emil-design-eng` (animation
+decisions) and `frontend-design` (production register) skills per the
+ruling and said so in their own commit messages.
+
 ## Testing
 
 Mass on core selectors/reducers and collector parsers (fixtures captured
@@ -724,4 +1006,82 @@ hook.
   trespass) rather than a staged ALL CLEAR — left as-is rather than
   cropped or restaged, since this wave's own brief is to document what
   landed honestly, warts included.
+- 2026-08-01 — prd5 (issue #100, the camera keystone): **the camera's laws
+  are pure arithmetic over `{k, x, y}`, and d3-zoom owns only the
+  gestures.** `Camera` is structurally d3-zoom's own `ZoomTransform`, so a
+  transform coming out of a drag or a wheel event needs no adapter before
+  `camera.ts`'s functions can be applied to it or tested against it in
+  isolation. Two vehicle departures from d3's defaults, both probed live
+  before adoption (`docs/research/2026-08-01-obs-prd5-implementation-
+  vehicles.md`): `wheelDelta` drops d3's blanket ×10 ctrlKey boost (meant
+  for trackpad pinch, and a 4× jump on an actual mouse notch) in favour of
+  reading the delta's magnitude directly; `flight()` caps van Wijk's
+  suggested zoom-to-fit duration at 420ms rather than the ~2.5s the arc's
+  own length would suggest, because a control bound to a keypress that
+  takes two seconds to respond has stopped feeling like a control. See
+  [The camera (#100, ruling 2)](#the-camera-100-ruling-2) above.
+- 2026-08-01 — prd5 (issue #101, the motion budget): **the spring is a
+  closed-form step, not an integrated one, because the integrated version
+  measurably diverges.** Semi-implicit Euler at this budget's stiffness
+  (k=170) reaches −5.2e8 within twenty nominally-10ms steps the moment a
+  frame runs long — a backgrounded tab, a GC pause, twenty lanes landing
+  together are not hypothetical — while the exact solution sampled at
+  whatever `dt` a frame actually took agrees with itself whether stepped
+  once at 2s or two hundred times at 10ms. The pause control (WCAG 2.2.2)
+  freezes every mark builder by freezing the one clock they all read from,
+  with structural motion exempted so a topology change can finish rather
+  than freeze mid-flight into a picture of a fleet that doesn't exist. See
+  [The motion budget, as law (#101, ruling 4)](#the-motion-budget-as-law-101-ruling-4)
+  above.
+- 2026-08-01 — prd5 (issue #102, the cord-cut): **a finished lane
+  disconnects from the mass instead of being restyled in place**, because
+  every graph tool surveyed restyles and nothing found detaches the edge —
+  so "is this fleet still working" becomes a structural fact instead of a
+  colour a viewer could misread. Fired once per lane, on news only (a
+  replayed session builds every scar and animates none of them, the same
+  law `pulses.ts` already enforces for traffic); queued behind the
+  structural concurrency cap rather than throttled, so a wave of landings
+  never cuts more than two cords at once but every cut still happens; and
+  never fading below `SCAR_FLOOR`, because invisible completion is
+  indistinguishable from a render bug. A same-issue follow-up fix
+  (`fix(#102)`) corrected the scar's size from a fixed *fraction* of a
+  thread's length (which made a three-o'clock lane's scar three times a
+  twelve-o'clock one's, on the wide ellipse a landscape panel produces) to
+  a fixed arc length, so every scar is the same size object. See [The
+  cord-cut (#102, ruling 3)](#the-cord-cut-102-ruling-3) above.
+- 2026-08-01 — prd5 (issue #103, amber aging): **a needs-you summons's
+  insistence ages within its rung; the rung itself never changes.** Three
+  bands (quiet/ink/pulse) are pinned as shared constants
+  (`ageBands.ts`) specifically so the attention chip and the browser-tab
+  title can't independently drift onto two different ideas of "how old is
+  old" — and `broken`/`notice` are excluded from all of it by construction,
+  not by convention. The chip's own CSS pulse duration was landed as a
+  literal explicitly flagged in its own comment as provisional, pending
+  #101's motion-budget constants; #101 landed an aged pulse for the scene's
+  marks but never reconciled the strip's, so the two durations (2,600ms
+  vs. 6,800ms) still disagree — a real, open seam, documented rather than
+  silently closed by this docs issue. See [Amber ages with the strip (#103,
+  ruling 5)](#amber-ages-with-the-strip-103-ruling-5) above.
+- 2026-08-01 — prd5 (issue #104, orientation extras): **three keyboard
+  registers, not one keymap** — scene-scoped camera keys (#100),
+  page-global idle-worker jump (`n`/`Shift+n`), and table-scoped fleet
+  verbs (`f`/`a`) — named explicitly in `app/keyboard.ts`'s own comment so
+  a fourth register isn't invented by accident later. The jump reuses the
+  same `select`/`jump` path a click already takes, so it can never diverge
+  from click-driven selection in what it opens or highlights; the table
+  verbs reuse the drawer's own `attachPlan`/`copyToClipboard` for the same
+  reason. See [Orientation extras (#104, ruling 1+6)](#orientation-extras-104-ruling-16)
+  above.
+- 2026-08-01 — prd5 (issue #105, this issue): **docs, and the screenshot
+  set, regenerated against the finished application** rather than the plan
+  for it. `docs/screenshots/` now includes the prd5-era chrome (camera
+  controls, the pause button, the hide-finished toggle) on the two
+  fixtures, a paused-scene capture, and a scar-bearing scene — the
+  `finished` fixture (`fleet/fixtures.ts`'s `finishedSpec`, already used by
+  the retire/geometry/marks test suites but not wired to a keyboard key in
+  the shipped app) reached through a **temporary, uncommitted** local key
+  mapping for the capture session only, then reverted before this issue's
+  diff was cut — so the picture is the real rendering pipeline
+  (`paint.ts`/`marks/`/`retire.ts`) driven by real fixture data, and the
+  fence stays docs-and-screenshots-only in the committed tree.
 
