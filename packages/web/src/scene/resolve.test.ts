@@ -89,6 +89,32 @@ describe('resolving an event to a thread', () => {
     expect(resolveLane(index, beat)).toBeNull()
   })
 
+  it('resolves a lane declaring its own state — what the cord-cut fires on', () => {
+    // prd5 ruling 3: `agent.status: done` is what cuts a lane's cord, so it needs
+    // the same one answer to "whose lane is this?" a commit gets. workmux carries
+    // all three identities and is only *sure* of the handle — the branch and
+    // worktree are optional in the schema, because it knows what it launched
+    // before git has seen it.
+    const status = (payload: { handle: string; branch?: string }) =>
+      createEvent(
+        'agent.status',
+        {
+          handle: payload.handle,
+          status: 'done' as const,
+          ...(payload.branch === undefined ? {} : { branch: payload.branch }),
+        },
+        { id: nextId(), ts: NOW },
+      )
+
+    expect(resolveLane(index, status({ handle: '48-doctor-report' }))).toBe('48-doctor-report')
+    expect(resolveLane(index, status({ handle: 'nonsense', branch: '47-format-module' }))).toBe(
+      '47-format-module',
+    )
+    // Main declaring itself done is the mass, not a thread with a cord to cut.
+    expect(resolveLane(index, status({ handle: 'conductor', branch: 'main' }))).toBeNull()
+    expect(resolveLane(index, status({ handle: 'ghost' }))).toBeNull()
+  })
+
   it('indexes every lane the fleet actually has', () => {
     for (const lane of fleet.lanes) {
       expect(resolveLane(index, usage({ lane: lane.handles[0] ?? lane.id }))).toBe(lane.id)

@@ -7,9 +7,11 @@ import {
   FleetProvider,
   SelectionProvider,
   buildFleet,
+  finishedSpec,
   fixtureHistory,
   manifestFor,
   pathologySpec,
+  type Fleet,
 } from '../fleet/index.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
 import { SCALE_EXTENT, ZOOM_STEP } from './camera.js'
@@ -696,75 +698,80 @@ describe('the camera', () => {
  * put light in exactly the same places, with a real packet in flight and a real
  * summons throbbing, or the pause is a label rather than a pause.
  */
-describe('the pause control (WCAG 2.2.2)', () => {
-  /** A fleet with a live summons in it, so there is something to hold still. */
-  function stagedFleet() {
-    const spec = pathologySpec()
-    return buildFleet(reduceAll(fixtureHistory(spec, NOW)), {
-      now: NOW,
-      manifest: manifestFor(spec),
-    })
-  }
-
-  /**
-   * A live-clock mount with `requestAnimationFrame` driven by hand, which is the
-   * only way to watch a scene *not* move without racing it.
-   */
-  function mountMotion(options: { settle?: SettleRegistry; retire?: RetireRegistry } = {}) {
-    const frames: FrameRequestCallback[] = []
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
-      frames.push(callback),
-    )
-    vi.stubGlobal('cancelAnimationFrame', () => {})
-    vi.stubGlobal('Path2D', class {})
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(NOW)
-
-    const journal: unknown[][] = []
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
-      fakeContext([], [], journal) as unknown as CanvasRenderingContext2D,
-    )
-
-    const fleet = stagedFleet()
-    const field = new PulseField()
-    // One commit, half a second into its journey: a packet actually travelling
-    // when the operator reaches for the button.
-    field.ingest(
-      fixtureHistory(pathologySpec(), NOW)
-        .filter((event) => event.type === 'commit.landed')
-        .slice(-1),
-      laneIndex(fleet),
-      NOW - 500,
-    )
-
-    const utils = render(
-      <SceneView
-        fleet={fleet}
-        field={field}
-        settle={options.settle ?? new SettleRegistry()}
-        retire={options.retire ?? new RetireRegistry()}
-        selectedId={null}
-        onSelect={vi.fn()}
-      />,
-    )
-
-    /** One frame, and what it drew. */
-    const frame = (): string => {
-      journal.length = 0
-      const next = frames.shift()
-      act(() => next?.(0))
-      return JSON.stringify(journal)
-    }
-
-    return { ...utils, field, frame, at: (ms: number) => vi.setSystemTime(NOW + ms) }
-  }
-
-  afterEach(() => {
-    cleanup()
-    vi.useRealTimers()
+/** A fleet with a live summons in it, so there is something to hold still. */
+function stagedFleet() {
+  const spec = pathologySpec()
+  return buildFleet(reduceAll(fixtureHistory(spec, NOW)), {
+    now: NOW,
+    manifest: manifestFor(spec),
   })
+}
 
-  const pause = () => fireEvent.click(screen.getByTestId('scene-motion-pause'))
+/**
+ * A live-clock mount with `requestAnimationFrame` driven by hand, which is the
+ * only way to watch a scene *not* move without racing it.
+ */
+function mountMotion(
+  options: { settle?: SettleRegistry; retire?: RetireRegistry; fleet?: Fleet } = {},
+) {
+  const frames: FrameRequestCallback[] = []
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
+    frames.push(callback),
+  )
+  vi.stubGlobal('cancelAnimationFrame', () => {})
+  vi.stubGlobal('Path2D', class {})
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(NOW)
+
+  const journal: unknown[][] = []
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+    fakeContext([], [], journal) as unknown as CanvasRenderingContext2D,
+  )
+
+  const fleet = options.fleet ?? stagedFleet()
+  const field = new PulseField()
+  // One commit, half a second into its journey: a packet actually travelling
+  // when the operator reaches for the button.
+  field.ingest(
+    fixtureHistory(pathologySpec(), NOW)
+      .filter((event) => event.type === 'commit.landed')
+      .slice(-1),
+    laneIndex(fleet),
+    NOW - 500,
+  )
+
+  const utils = render(
+    <SceneView
+      fleet={fleet}
+      field={field}
+      settle={options.settle ?? new SettleRegistry()}
+      retire={options.retire ?? new RetireRegistry()}
+      selectedId={null}
+      onSelect={vi.fn()}
+    />,
+  )
+
+  /** One frame, and what it drew. */
+  const frame = (): string => {
+    journal.length = 0
+    const next = frames.shift()
+    act(() => next?.(0))
+    return JSON.stringify(journal)
+  }
+
+  return { ...utils, fleet, field, frame, at: (ms: number) => vi.setSystemTime(NOW + ms) }
+}
+
+const pause = () => fireEvent.click(screen.getByTestId('scene-motion-pause'))
+
+/** Every mounted-scene suite below leaves the timers and the DOM as it found them. */
+function restoreAfterMount(): void {
+  cleanup()
+  vi.useRealTimers()
+}
+
+describe('the pause control (WCAG 2.2.2)', () => {
+  afterEach(restoreAfterMount)
 
   it('is a button that says what it will do, in the tab order', () => {
     // A real button, so it answers Enter and Space and reaches the keyboard
@@ -875,6 +882,174 @@ describe('the pause control (WCAG 2.2.2)', () => {
     expect(frame()).toBe(grown)
   })
 })
+
+/**
+ * THE CORD-CUT, in the mounted scene (prd5 ruling 3).
+ *
+ * `retire.test.ts` owns the clock and `marks.test.ts` owns the display list; what
+ * is left for this file is the two things only a mounted component can answer.
+ *
+ * **Does a lane finishing while we watch actually move?** The cut is the piece the
+ * whole prd exists for, and a staged animation that is correct in the display list
+ * and never reaches a canvas is not one. So this drives real frames by hand and
+ * compares what was drawn.
+ *
+ * **Does the toggle work, and does it stay?** Scars are visible by default, the
+ * button is the only thing that changes that, and the change outlives a remount.
+ */
+describe('the cord-cut (prd5 ruling 3)', () => {
+  /** A fleet that has landed: seventeen lanes, every one of them declared done. */
+  function landedFleet(): Fleet {
+    const spec = finishedSpec()
+    return buildFleet(reduceAll(fixtureHistory(spec, NOW)), {
+      now: NOW,
+      manifest: manifestFor(spec),
+    })
+  }
+
+  /**
+   * A live-clock mount, driven by hand — the same harness the pause suite uses,
+   * because "did the picture change?" is the same question here.
+   */
+  const mountCut = mountMotion
+
+  const toggle = () => fireEvent.click(screen.getByTestId('scene-hide-finished'))
+
+  afterEach(() => {
+    restoreAfterMount()
+    localStorage.clear()
+  })
+
+  it('cuts the cord of a lane that finishes while we are watching', () => {
+    // The whole point, end to end: a real `agent.status: done` through the real
+    // registry, and three frames that are three different pictures.
+    const fleet = landedFleet()
+    const lane = fleet.lanes[0] as Fleet['lanes'][number]
+    const retire = new RetireRegistry()
+    const started = retire.note(
+      [
+        observatoryEvent(
+          'agent.status',
+          { handle: lane.handles[0] ?? lane.id, status: 'done', branch: lane.branch },
+          { id: 'done-1', ts: NOW },
+        ),
+      ],
+      laneIndex(fleet),
+      NOW,
+    )
+    expect(started).toEqual([lane.id])
+
+    const { frame, at } = mountCut({ fleet, retire })
+
+    const tension = frame()
+    at(400)
+    const retracting = frame()
+    at(1_000)
+    const settling = frame()
+
+    // Three stages, three pictures. If any pair matched, a stage would be
+    // changing nothing that reaches the canvas.
+    expect(retracting).not.toBe(tension)
+    expect(settling).not.toBe(retracting)
+
+    // And what is left is still a picture. Never fade to nothing: seventeen
+    // scarred lanes are seventeen marks on the canvas, not an empty rectangle.
+    // (That the cut *ends* is `retire.test.ts`'s and `marks.test.ts`'s — this
+    // frame cannot say it, because the root-mass is still breathing behind it.)
+    at(1_400)
+    expect(frame().length).toBeGreaterThan(1_000)
+  })
+
+  it('freezes a cut mid-flight when the operator pauses', () => {
+    const fleet = landedFleet()
+    const lane = fleet.lanes[0] as Fleet['lanes'][number]
+    const retire = new RetireRegistry()
+    retire.note(
+      [observatoryEvent('worktree.removed', { path: lane.worktreePath ?? '/x' }, { id: 'gone-1', ts: NOW })],
+      laneIndex(fleet),
+      NOW,
+    )
+
+    const { frame, at } = mountCut({ fleet, retire })
+    at(300)
+    frame()
+
+    act(() => {
+      pause()
+    })
+    const held = frame()
+    at(1_300)
+
+    // Deliberately unlike grow-in, which settles through a pause: a half-grown
+    // thread is a *false* fact about a lane's size, where a half-cut one is a
+    // true one — that lane is finishing. And the cut is the loudest thing the
+    // scene ever does, so it is the first thing somebody reaching for the pause
+    // control wants held still.
+    expect(frame()).toBe(held)
+  })
+
+  it('offers the toggle with the count of what it would hide', () => {
+    const fleet = landedFleet()
+    mountCut({ fleet })
+    const button = screen.getByTestId('scene-hide-finished')
+
+    expect(button.tagName).toBe('BUTTON')
+    expect(button).toHaveAttribute('aria-pressed', 'false')
+    expect(button).toHaveAttribute('tabindex', '0')
+    // "Hidden ≠ gone" is only true if the operator can see that something is
+    // hidden, so the number is on the button whichever way it is set.
+    expect(button.textContent).toBe(`Hide finished · ${fleet.lanes.length}`)
+  })
+
+  it('has nothing to say on a fleet where nothing has finished', () => {
+    mountCut()
+    const button = screen.getByTestId('scene-hide-finished')
+    expect(button).toHaveAttribute('aria-hidden', 'true')
+    expect(button).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('hides the scars from the canvas, and says it is doing it', () => {
+    const { frame } = mountCut({ fleet: landedFleet() })
+    const shown = frame()
+
+    act(() => {
+      toggle()
+    })
+    const hidden = frame()
+
+    expect(hidden.length).toBeLessThan(shown.length)
+    // Not an empty canvas: the root-mass and the scene's own chrome are not lanes
+    // and this hides scars, not the picture.
+    expect(hidden.length).toBeGreaterThan(200)
+    expect(screen.getByTestId('scene-hide-finished').textContent).toMatch(/^show finished/i)
+    expect(screen.getByTestId('scene-hide-finished')).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('remembers the choice across a remount', () => {
+    const fleet = landedFleet()
+    mountCut({ fleet })
+    act(() => {
+      toggle()
+    })
+    cleanup()
+
+    mountCut({ fleet })
+    expect(screen.getByTestId('scene-hide-finished')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('scene-hide-finished').textContent).toMatch(/^show finished/i)
+  })
+
+  it('names the cut lanes for a reader who cannot see the canvas', () => {
+    const fleet = landedFleet()
+    mountCut({ fleet })
+    // The cut is a change in the topology, so the words have to carry it: a
+    // reader told "17 lanes threaded to main" would be given a network that no
+    // longer exists.
+    expect(screen.getByTestId('scene-summary').textContent).toMatch(
+      new RegExp(`^0 lanes threaded to main\\. ${fleet.lanes.length} finished and cut loose\\.`),
+    )
+  })
+})
+
 
 /**
  * Records what was asked of it. Enough of a 2D context for `paint` to run.

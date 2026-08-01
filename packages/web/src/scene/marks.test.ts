@@ -10,7 +10,7 @@ import {
   type FixtureSpec,
 } from '../fleet/index.js'
 import { RECENCY_SPAN_MS, layoutScene } from './geometry.js'
-import { ALARM, EVENT, allowance } from './motion.js'
+import { ALARM, EVENT, STRUCTURAL, allowance } from './motion.js'
 import {
   brightnessOf,
   breathOf,
@@ -21,6 +21,7 @@ import {
   type MarkRole,
   type SceneFrame,
 } from './marks/index.js'
+import { CUT, SCAR, SCAR_FLOOR, cutAt, type RetireState } from './retire.js'
 import { ALARM_FLOOR, CALM_CEILING, CALM_FLOOR, RECEDE, salienceOf } from './salience.js'
 import { BROKEN, NEEDS_YOU, NOTICE } from './palette.js'
 import { PulseField } from './pulses.js'
@@ -67,6 +68,9 @@ interface FrameOptions {
   hoverId?: string | null
   /** For the aging and motion suites: a clock other than the fleet's own. */
   now?: number
+  /** For the cord-cut suite: which lanes have left the network, and how far along. */
+  retire?: ReadonlyMap<string, RetireState>
+  hideFinished?: boolean
 }
 
 function frameFor(options: FrameOptions = {}): SceneFrame {
@@ -78,7 +82,12 @@ function frameFor(options: FrameOptions = {}): SceneFrame {
 
   return {
     fleet,
-    geometry: layoutScene(fleet, { ...SIZE, now }),
+    geometry: layoutScene(fleet, {
+      ...SIZE,
+      now,
+      ...(options.retire === undefined ? {} : { retire: options.retire }),
+      ...(options.hideFinished === undefined ? {} : { hideFinished: options.hideFinished }),
+    }),
     field: options.field ?? new PulseField(),
     salience: salienceOf({
       fleet,
@@ -703,5 +712,259 @@ describe('render everything — ruling 22, at twenty lanes', () => {
       const [r, g, b] = (node as Mark).kind === 'path' ? inksOf(node as Mark)[0]!.rgb : [0, 0, 0]
       expect(g, `${lane.id}'s node was not green-dominant`).toBeGreaterThan(Math.max(r, b))
     }
+  })
+})
+
+/**
+ * THE CORD-CUT, on the display list (prd5 ruling 3).
+ *
+ * The whole reason the cut is worth building is that it answers "is this fleet
+ * still working?" *structurally* rather than by shade — so these assertions are
+ * about what the list **contains**, not about what is bright. "The lane left the
+ * living network" is `role === 'thread'` returning nothing for it, which is a fact
+ * no future retune of a brightness can quietly undo.
+ */
+describe('the cord-cut — a finished lane leaves the network', () => {
+  const LEAVING = LANE.healthy
+
+  function cut(ms: number, options: FrameOptions = {}): Mark[] {
+    return marksFor({ ...options, retire: new Map([[LEAVING, cutAt(ms)]]) })
+  }
+
+  /**
+   * The same cut on the **calm** twenty-lane fleet.
+   *
+   * The brightness laws below are pinned here rather than on the staged fixture
+   * for the same reason `CALM_FLOOR` is: the staged fleet has a broken lane
+   * holding the spotlight, so every other lane in it is correctly receded to
+   * `RECEDE` and no floor can be asserted about any of them. Getting out of a
+   * summons's way outranks being seen — that is the point of the budget — so the
+   * floor is a claim about the *quiet* reading, and the recession is its own test.
+   */
+  const CALM_LANE = '101-thread-rollup'
+  function calmCut(ms: number, options: FrameOptions = {}): Mark[] {
+    return marksFor({
+      ...options,
+      fleet: fleetFor(fleet20Spec()),
+      retire: new Map([[CALM_LANE, cutAt(ms)]]),
+    })
+  }
+
+  const mine = (marks: readonly Mark[]): Mark[] =>
+    marks.filter((mark) => mark.laneId === LEAVING)
+  const rolesOf = (marks: readonly Mark[]): Set<MarkRole> =>
+    new Set(mine(marks).map((mark) => mark.role))
+
+  it('is not part of the living network at any stage of the cut', () => {
+    for (const ms of [0, CUT.tensionMs, CUT.tensionMs + 400, CUT.totalMs]) {
+      const roles = rolesOf(cut(ms))
+      // No thread, and no second growth either: a scar is a mark, not a network.
+      for (const gone of ['thread', 'thread-bloom', 'thread-flow', 'filament', 'filament-thorn']) {
+        expect(roles.has(gone as MarkRole), `${gone} survived the cut at ${ms} ms`).toBe(false)
+      }
+      expect(roles.has('scar'), `no scar at ${ms} ms`).toBe(true)
+    }
+    // …while the fleet around it is still threaded, obviously.
+    expect(cut(CUT.totalMs).filter((mark) => mark.role === 'thread').length).toBeGreaterThan(0)
+  })
+
+  it('never lights again — no glow, no pulse, no heat', () => {
+    // Law 10 says states glow and events travel. A retired lane has no more
+    // events and is no longer a state anybody can act on, so it gets neither.
+    const marks = mine(cut(CUT.totalMs))
+    expect(marks.filter((mark) => mark.kind === 'glow')).toHaveLength(0)
+    for (const role of ['heat', 'pulse', 'pulse-wake', 'tick', 'orbit'] as MarkRole[]) {
+      expect(marks.some((mark) => mark.role === role), `${role} on a scar`).toBe(false)
+    }
+  })
+
+  it('drops the faults it was carrying — a scar cannot be summoned for', () => {
+    // The looping lane, retired: the knot goes with the thread it was tied into.
+    const marks = marksFor({ retire: new Map([[LANE.looping, cutAt(CUT.totalMs)]]) })
+    expect(of(marks, LANE.looping, 'knot')).toHaveLength(0)
+    expect(of(marks, LANE.looping, 'cartouche')).toHaveLength(0)
+    expect(of(marks, LANE.looping, 'scar').length).toBeGreaterThan(0)
+  })
+
+  describe('the three stages, in order', () => {
+    it('stage 1 keeps the thread attached and still lit', () => {
+      const roles = rolesOf(cut(CUT.tensionMs * 0.5))
+      // The bloom is still there — the light has not gone out yet — and there is
+      // no freed end to curl, because nothing has parted.
+      expect(roles.has('scar-bloom')).toBe(true)
+      expect(mine(cut(CUT.tensionMs * 0.5)).filter((m) => m.role === 'scar-mark')).toHaveLength(3)
+    })
+
+    it('stage 2 puts a curl on the freed end and starts putting the light out', () => {
+      const early = mine(cut(CUT.tensionMs + 40))
+      const late = mine(cut(CUT.tensionMs + CUT.retractMs * 0.9))
+
+      const bloom = (marks: readonly Mark[]): number => {
+        const found = marks.find((mark) => mark.role === 'scar-bloom')
+        return found === undefined ? 0 : brightnessOf(found)
+      }
+      // Light leaves before colour does, which is the right order: it was the
+      // light that was the lane working.
+      expect(bloom(early)).toBeGreaterThan(bloom(late))
+
+      // Four glyph marks now, not three: the released end has curled back.
+      expect(early.filter((mark) => mark.role === 'scar-mark')).toHaveLength(4)
+    })
+
+    it('stage 3 desaturates, and only then', () => {
+      const inkOf = (ms: number): number[] => {
+        const scar = mine(cut(ms)).find((mark) => mark.role === 'scar')
+        return [...(inksOf(scar as Mark)[0]?.rgb ?? [])]
+      }
+
+      // Colour is untouched until the settle: stages 1 and 2 move curvature and
+      // position, and nothing else.
+      expect(inkOf(0)).toEqual(inkOf(CUT.tensionMs + CUT.retractMs * 0.5))
+      expect(inkOf(CUT.totalMs)).not.toEqual(inkOf(0))
+      expect(inkOf(CUT.totalMs)).toEqual([...SCAR.thread.rgb])
+    })
+
+    it('has no bloom left once it has settled — a scar is flat', () => {
+      expect(rolesOf(cut(CUT.totalMs)).has('scar-bloom')).toBe(false)
+    })
+  })
+
+  describe('the scar that is left', () => {
+    const marks = calmCut(CUT.totalMs)
+    const scarred = (role: MarkRole): Mark => of(marks, CALM_LANE, role)[0] as Mark
+    const living = (role: MarkRole): Mark =>
+      of(marksFor({ fleet: fleetFor(fleet20Spec()) }), CALM_LANE, role)[0] as Mark
+
+    it('keeps the name and the figure', () => {
+      const name = scarred('label')
+      const figure = scarred('label-figure')
+      expect(name?.kind === 'text' && name.text).toBe(
+        (fleetFor(fleet20Spec()).lanes.find((lane) => lane.id === CALM_LANE) as { label: string })
+          .label,
+      )
+      expect(figure?.kind === 'text' && figure.text.length).toBeGreaterThan(0)
+    })
+
+    it('keeps the figure at full label brightness — the work is not diminished', () => {
+      expect(brightnessOf(scarred('label-figure'))).toBe(brightnessOf(living('label-figure')))
+    })
+
+    it('reduces the name without making it unreadable', () => {
+      expect(brightnessOf(scarred('label'))).toBeLessThan(brightnessOf(living('label')))
+      // A scar exists to be identified. Its name is held to the same body-copy
+      // footing every other name in the scene is.
+      expect(brightnessOf(scarred('label'))).toBeGreaterThan(CALM_FLOOR)
+    })
+
+    it('never fades to nothing — SCAR_FLOOR, on every mark it draws', () => {
+      // The research law: invisible completion is indistinguishable from a render
+      // bug, and the operator cannot tell which of the two they are looking at.
+      const drawn = marks.filter((mark) => mark.laneId === CALM_LANE)
+      expect(drawn.length).toBeGreaterThan(0)
+      for (const mark of drawn) {
+        expect(brightnessOf(mark), `${mark.role} faded out`).toBeGreaterThan(SCAR_FLOOR)
+      }
+    })
+
+    it('sits under the living fleet without joining it', () => {
+      const remnant = scarred('scar')
+      const threads = marks.filter((mark) => mark.role === 'thread')
+      expect(threads.length).toBeGreaterThan(0)
+      for (const thread of threads) {
+        expect(brightnessOf(remnant)).toBeLessThan(brightnessOf(thread))
+      }
+    })
+
+    it('recedes with the rest of the calm world when something needs a human', () => {
+      // Not an exception to the contrast budget. A scar is calm by construction —
+      // there is nothing to act on — so when a summons arrives it gets out of the
+      // way exactly as every other non-alarm mark does (graft g6).
+      const quiet = brightnessOf(of(cut(CUT.totalMs), LEAVING, 'scar')[0] as Mark)
+      const alone = brightnessOf(
+        of(cut(CUT.totalMs, { selectedId: LEAVING }), LEAVING, 'scar')[0] as Mark,
+      )
+      expect(quiet).toBeLessThan(alone)
+      expect(quiet / alone).toBeCloseTo(RECEDE, 6)
+    })
+
+    it('is still hollow and still sealed — landed, and not a fault', () => {
+      const glyphs = of(marks, CALM_LANE, 'scar-mark')
+      const lens = glyphs.find((mark) => mark.kind === 'path' && mark.d.startsWith('M0.04'))
+      expect(lens?.kind === 'path' && lens.stroke).toBeDefined()
+      expect(glyphs.some((mark) => mark.kind === 'stroke')).toBe(true)
+    })
+
+    it('does not breathe', () => {
+      // The ambient layer is the scene being alive, and this lane is not. Two
+      // frames half a breath apart draw the scar at exactly the same size.
+      const at = (now: number): number => {
+        const glyph = of(calmCut(CUT.totalMs, { now }), CALM_LANE, 'scar-mark').find(
+          (mark) => mark.kind === 'path' && mark.d.startsWith('M0.04'),
+        )
+        return glyph?.kind === 'path' ? glyph.size : 0
+      }
+      expect(at(NOW)).toBeGreaterThan(0)
+      expect(at(NOW + 1_350)).toBe(at(NOW))
+    })
+  })
+
+  describe('the hide-finished toggle', () => {
+    it('draws nothing at all for a hidden scar', () => {
+      const hidden = marksFor({
+        retire: new Map([[LEAVING, cutAt(CUT.totalMs)]]),
+        hideFinished: true,
+      })
+      expect(hidden.filter((mark) => mark.laneId === LEAVING)).toHaveLength(0)
+      // Everyone else is untouched — this hides scars, not lanes.
+      expect(hidden.filter((mark) => mark.role === 'thread').length).toBeGreaterThan(0)
+    })
+
+    it('still shows a cut in progress', () => {
+      const mid = marksFor({
+        retire: new Map([[LEAVING, cutAt(CUT.tensionMs + 300)]]),
+        hideFinished: true,
+      })
+      expect(mid.filter((mark) => mark.laneId === LEAVING).length).toBeGreaterThan(0)
+    })
+  })
+
+  describe('reduced motion — severed in place', () => {
+    const still = marksFor({
+      reducedMotion: true,
+      fleet: fleetFor(fleet20Spec()),
+      retire: new Map([[CALM_LANE, cutAt(0, allowance('structural', 'reduced').travel)]]),
+    })
+
+    it('shows the settled scar rather than a stage of a journey', () => {
+      const roles = new Set(still.filter((m) => m.laneId === CALM_LANE).map((m) => m.role))
+      expect(roles.has('scar')).toBe(true)
+      expect(roles.has('scar-bloom')).toBe(false)
+      expect(roles.has('thread')).toBe(false)
+    })
+
+    it('keeps the colour, which is what the success criterion excludes', () => {
+      // WCAG 2.3.3's "motion animation" is travel and scale; colour and opacity
+      // are explicitly out of scope, so they are exactly what survives.
+      const remnant = of(still, CALM_LANE, 'scar')[0] as Mark
+      expect(inksOf(remnant)[0]?.rgb).toEqual(SCAR.thread.rgb)
+      expect(brightnessOf(remnant)).toBeGreaterThan(SCAR_FLOOR)
+    })
+  })
+
+  it('lets a whole fleet retire without ever drawing more than the cap mid-cut', () => {
+    // A wave of landings queues, so at any instant at most two lanes are showing
+    // a cut that has not finished — the rest are either still threaded or already
+    // scarred. This is the display-list reading of ruling 4's structural cap.
+    const fleet = fleetFor(fleet20Spec())
+    const retire = new Map<string, RetireState>(
+      fleet.lanes.map((lane, i) => [lane.id, cutAt(i < 2 ? CUT.tensionMs + 100 : CUT.totalMs)]),
+    )
+    const marks = marksFor({ fleet, retire })
+
+    const midCut = fleet.lanes.filter(
+      (lane) => of(marks, lane.id, 'scar-bloom').length > 0,
+    )
+    expect(midCut.length).toBeLessThanOrEqual(STRUCTURAL.maxConcurrent)
+    expect(marks.filter((mark) => mark.role === 'scar')).toHaveLength(20)
   })
 })

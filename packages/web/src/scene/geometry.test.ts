@@ -13,10 +13,14 @@ import {
 import {
   LABELS_ALL_MAX,
   RECENCY_SPAN_MS,
+  SCAR_KEEP,
   layoutScene,
   ringAngles,
+  type Point,
   type SceneGeometry,
+  type ThreadGeometry,
 } from './geometry.js'
+import { CUT, cutAt, type RetireState } from './retire.js'
 
 /**
  * WHERE A LANE LIVES, and what is allowed to move it.
@@ -238,3 +242,219 @@ describe('the settle, as geometry — graft g3', () => {
     expect(layout(fleet).byLane.get('43-drawer-attach')?.growth).toBe(1)
   })
 })
+
+/**
+ * THE CORD-CUT, as shape (prd5 ruling 3).
+ *
+ * The clock is `retire.test.ts`'s; this is what those numbers do to the picture.
+ * The three claims worth pinning are the three the ruling is actually about: the
+ * thread loosens at the *root* end, the freed end travels along the thread's own
+ * path, and what is left is a short mark near the rim that still measures the work.
+ */
+describe('the cut, as geometry — prd5 ruling 3', () => {
+  const fleet = fleetFor(pathologySpec())
+  const LANE = '47-format-module'
+
+  function cutting(state: RetireState, hideFinished = false): ThreadGeometry {
+    return layoutScene(fleet, {
+      ...SIZE,
+      now: NOW,
+      retire: new Map([[LANE, state]]),
+      hideFinished,
+    }).byLane.get(LANE) as ThreadGeometry
+  }
+
+  const whole = layout(fleet).byLane.get(LANE) as ThreadGeometry
+
+  it('leaves every other lane exactly where it was', () => {
+    // One lane retiring is not a reflow. The ring is subdivided by how many lanes
+    // there *are*, and a lane leaving the network does not leave the fleet — so
+    // nobody else moves, and graft g7 survives a landing.
+    const before = layout(fleet)
+    const during = layoutScene(fleet, {
+      ...SIZE,
+      now: NOW,
+      retire: new Map([[LANE, cutAt(CUT.tensionMs + 200)]]),
+    })
+
+    for (const thread of during.threads) {
+      if (thread.laneId === LANE) continue
+      const was = before.byLane.get(thread.laneId) as ThreadGeometry
+      expect(thread.angle, `${thread.laneId} moved`).toBe(was.angle)
+      expect(thread.node).toEqual(was.node)
+      expect(thread.path).toEqual(was.path)
+    }
+  })
+
+  it('draws no cut at all for a lane the registry says nothing about', () => {
+    expect(whole.retire).toBeNull()
+  })
+
+  describe('stage 1 — the tension goes out of it', () => {
+    const slack = cutting(cutAt(CUT.tensionMs))
+
+    it('loosens the curve at the root end and leaves the node where it was', () => {
+      const drift = (at: number): number => {
+        const before = pointOn(whole, at)
+        const after = pointOn(slack, at)
+        return Math.hypot(after.x - before.x, after.y - before.y)
+      }
+
+      // The loosening is unmistakably a root-end fact: that is where the strain
+      // was, and a sag that peaked in the middle would read as something pulling
+      // on the thread rather than as the thread letting go.
+      expect(drift(0.3)).toBeGreaterThan(3)
+      expect(drift(0.3)).toBeGreaterThan(drift(0.75))
+      // Nothing has moved at the tip yet — stage 1 is curvature only.
+      expect(drift(1)).toBeCloseTo(0, 6)
+      expect(slack.node).toEqual(whole.node)
+    })
+
+    it('relaxes the taper without losing the work-size', () => {
+      const taut = whole.widthRoot - whole.widthTip
+      const released = (slack.retire?.widthRoot as number) - (slack.retire?.widthTip as number)
+      expect(released).toBeLessThan(taut)
+      expect(released).toBeGreaterThan(0)
+    })
+
+    it('is still tied into the mass — nothing has parted', () => {
+      expect(slack.retire?.from).toBe(0)
+      // The remnant is still the whole thread, so a mid-tension frame is a
+      // complete thread that has gone slack rather than a shortened one.
+      const remnant = slack.retire?.path as Point[]
+      expect(distance(remnant[0] as Point, pointOn(slack, 0))).toBeCloseTo(0, 6)
+    })
+  })
+
+  describe('stage 2 — it springs back', () => {
+    it('carries the freed end along the thread own path', () => {
+      for (const t of [0.25, 0.5, 0.75, 1]) {
+        const state = cutAt(CUT.tensionMs + CUT.retractMs * t)
+        const cut = cutting(state)
+        const freed = (cut.retire?.path as Point[])[0] as Point
+        // Not "near the path" — *on* it, at exactly the parameter the retract
+        // says it has reached. The freed end is a point travelling along a curve
+        // that already existed, which is what makes it read as the same thread
+        // rather than as a new mark flying in.
+        expect(distance(freed, pointOn(cut, cut.retire?.from as number))).toBeCloseTo(0, 6)
+      }
+    })
+
+    it('shortens the remnant monotonically, and never past the scar', () => {
+      let previous = Infinity
+      for (let t = 0; t <= 1.0001; t += 0.05) {
+        const cut = cutting(cutAt(CUT.tensionMs + CUT.retractMs * t))
+        const length = arcLength(cut.retire?.path as Point[])
+        expect(length).toBeLessThanOrEqual(previous + 1e-9)
+        previous = length
+      }
+      expect(cutting(cutAt(CUT.totalMs)).retire?.from).toBeCloseTo(1 - SCAR_KEEP, 10)
+    })
+
+    it('drifts the node outward toward the rim, a little', () => {
+      const settled = cutting(cutAt(CUT.totalMs))
+      const out = (node: Point): number =>
+        Math.hypot(node.x - SIZE.width / 2, node.y - SIZE.height / 2)
+
+      expect(out(settled.node)).toBeGreaterThan(out(whole.node))
+      // "Slightly": a drift big enough to re-read as a layout change would undo
+      // graft g7's whole promise that a lane stays where you left it.
+      expect(distance(settled.node, whole.node)).toBeLessThan(14)
+      // And it is the drift, not the retract, that does it — so reduced motion
+      // (which zeroes the drift) leaves the node exactly put.
+      const inPlace = cutting(cutAt(0, false))
+      expect(inPlace.node).toEqual(whole.node)
+      expect(inPlace.retire?.from).toBeCloseTo(1 - SCAR_KEEP, 10)
+    })
+  })
+
+  describe('stage 3 — what is left', () => {
+    const scar = cutting(cutAt(CUT.totalMs))
+
+    it('keeps a short tapering mark near the rim, not a point', () => {
+      // Ruling 22 with the volume down: a scar is still *drawn*, and a mark with
+      // no length would be a lane the operator cannot point at.
+      expect(scar.retire?.path.length).toBeGreaterThan(2)
+      const length = arcLength(scar.retire?.path as Point[])
+      expect(length).toBeGreaterThan(8)
+      expect(length).toBeLessThan(arcLength(whole.path) * 0.35)
+    })
+
+    it('still measures the work: a bigger lane scars a wider mark', () => {
+      const busiest = [...fleet.lanes].sort((a, b) => b.outputTokens - a.outputTokens)[0]
+      const smallest = [...fleet.lanes].sort((a, b) => a.outputTokens - b.outputTokens)[0]
+      const settled = cutAt(CUT.totalMs)
+      const geometry = layoutScene(fleet, {
+        ...SIZE,
+        now: NOW,
+        retire: new Map([
+          [busiest?.id as string, settled],
+          [smallest?.id as string, settled],
+        ]),
+      })
+
+      const widthOf = (id: string): number =>
+        (geometry.byLane.get(id) as ThreadGeometry).retire?.widthRoot as number
+      expect(widthOf(busiest?.id as string)).toBeGreaterThan(widthOf(smallest?.id as string))
+    })
+
+    it('lands its label on the drifted node, so the name follows the mark', () => {
+      expect(scar.label.anchor).not.toEqual(whole.label.anchor)
+      expect(distance(scar.label.anchor, scar.node)).toBeCloseTo(
+        distance(whole.label.anchor, whole.node),
+        6,
+      )
+    })
+  })
+
+  describe('the hide-finished toggle', () => {
+    it('hides a settled scar and nothing else', () => {
+      expect(cutting(cutAt(CUT.totalMs), true).retire?.hidden).toBe(true)
+      expect(cutting(cutAt(CUT.totalMs), false).retire?.hidden).toBe(false)
+    })
+
+    it('never hides a cut in progress — a completion is always announced', () => {
+      // The one thing worse than a scar the operator asked not to see is a
+      // completion they never saw at all.
+      for (const ms of [0, CUT.tensionMs, CUT.tensionMs + 400, CUT.totalMs - 1]) {
+        expect(cutting(cutAt(ms), true).retire?.hidden, `hidden at ${ms} ms`).toBe(false)
+      }
+    })
+
+    it('leaves the lane in the ring, so toggling never re-spaces the fleet', () => {
+      const shown = layoutScene(fleet, { ...SIZE, now: NOW, retire: hidden(fleet), hideFinished: false })
+      const gone = layoutScene(fleet, { ...SIZE, now: NOW, retire: hidden(fleet), hideFinished: true })
+
+      expect(gone.threads).toHaveLength(shown.threads.length)
+      for (const thread of gone.threads) {
+        expect(thread.angle).toBe((shown.byLane.get(thread.laneId) as ThreadGeometry).angle)
+      }
+    })
+  })
+
+  /** Every lane in the fleet, settled into a scar. */
+  function hidden(of: Fleet): Map<string, RetireState> {
+    return new Map(of.lanes.map((lane) => [lane.id, cutAt(CUT.totalMs)]))
+  }
+})
+
+function pointOn(thread: ThreadGeometry, t: number): Point {
+  const at = Math.max(0, Math.min(1, t)) * (thread.path.length - 1)
+  const i = Math.floor(at)
+  const a = thread.path[i] as Point
+  const b = thread.path[Math.min(thread.path.length - 1, i + 1)] as Point
+  const f = at - i
+  return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f }
+}
+
+function distance(a: Point, b: Point): number {
+  return Math.hypot(a.x - b.x, a.y - b.y)
+}
+
+function arcLength(path: readonly Point[]): number {
+  let total = 0
+  for (let i = 1; i < path.length; i += 1) {
+    total += distance(path[i - 1] as Point, path[i] as Point)
+  }
+  return total
+}
