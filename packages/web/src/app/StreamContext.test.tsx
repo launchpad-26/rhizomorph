@@ -1,6 +1,7 @@
 import { createEvent, createIdFactory, type ObservatoryEvent } from '@observatory/core'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { fixtureHistory, fleet20Spec, pathologySpec } from '../fleet/fixtures.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
 import type { FetchLike } from '../replay/api.js'
 import { ModeProvider, useReplay } from './ModeContext.js'
@@ -250,6 +251,18 @@ function SourceProbe() {
 describe('fixture switching', () => {
   /** Pinned: the fixtures generate from this instant and never tick. */
   const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
+
+  /**
+   * `StreamProvider` builds a fixture's ~2,900–8,000-event history the first
+   * time a test presses its key, inside that test's own timeout window.
+   * Warming `fixtures.ts`'s memo here — same spec singleton, same `now`, same
+   * default seed the provider uses — moves the one-time build for each
+   * fixture into setup, so the key-press tests below only pay for the fold.
+   */
+  beforeAll(() => {
+    fixtureHistory(fleet20Spec(), NOW)
+    fixtureHistory(pathologySpec(), NOW)
+  })
 
   async function renderSources() {
     let utils!: ReturnType<typeof render>

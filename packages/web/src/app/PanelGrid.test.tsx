@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PANEL_IDS, PanelGrid } from './PanelGrid.js'
 
 // Stub the lazily-imported panels so this test is about the *registry* — which
@@ -12,12 +12,6 @@ vi.mock('../panels/collisions/index.js', () => ({ default: () => <h2>Collisions<
 vi.mock('../panels/feed/index.js', () => ({ default: () => <h2>Activity</h2> }))
 vi.mock('../scene/index.js', () => ({ default: () => <div>Scene stub</div> }))
 
-beforeEach(() => {
-  localStorage.clear()
-})
-
-afterEach(cleanup)
-
 // Mocking the lazy modules (above) makes their dynamic import() trivial, but
 // it's still a real import() — React.lazy still suspends for at least one
 // promise-resolution tick before the panels commit. `findByText`/`waitFor`
@@ -28,18 +22,32 @@ afterEach(cleanup)
 // import() *before* mounting (an unbounded await with no deadline of its
 // own — it simply waits as long as it takes), so by the time PanelGrid's
 // `lazy()` calls the same import() specifier, the module record is already
-// fulfilled and there is no delay left to race. The one remaining tick —
-// React's mandatory suspend-then-resume on a lazy component's first render,
-// now against an already-resolved promise — is flushed deterministically
-// with `act(async () => {})` instead of a timed poll, so the assertions
-// that follow are plain synchronous queries with nothing left to race.
-async function renderGrid() {
+// fulfilled and there is no delay left to race.
+//
+// That resolution is a one-time cost per file (module records are cached
+// after the first import()), so it belongs in `beforeAll` rather than inside
+// the first test's own body — a test's 5s timeout should cover its own
+// assertions, not a cold import it happens to be first to trigger.
+beforeAll(async () => {
   await import('../panels/fleet/index.js')
   await import('../panels/ledger/index.js')
   await import('../panels/collisions/index.js')
   await import('../panels/feed/index.js')
   await import('../scene/index.js')
+})
 
+beforeEach(() => {
+  localStorage.clear()
+})
+
+afterEach(cleanup)
+
+// The one remaining tick — React's mandatory suspend-then-resume on a lazy
+// component's first render, now against an already-resolved promise — is
+// flushed deterministically with `act(async () => {})` instead of a timed
+// poll, so the assertions that follow are plain synchronous queries with
+// nothing left to race.
+async function renderGrid() {
   const utils = render(<PanelGrid />)
   await act(async () => {})
   return utils

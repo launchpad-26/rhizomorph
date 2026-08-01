@@ -1,8 +1,9 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { StreamProvider } from '../app/StreamContext.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
 import { FleetProvider, useFleet } from './FleetContext.js'
+import { fixtureHistory, fleet20Spec, pathologySpec } from './fixtures.js'
 import type { FetchLike } from './manifest.js'
 
 afterEach(cleanup)
@@ -15,6 +16,18 @@ afterEach(cleanup)
 
 /** Pinned, so the fixtures and the derived fleet never move under the test. */
 const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
+
+/**
+ * `StreamProvider` builds each fixture's history the first time a test presses
+ * its key, which is also the moment vitest's per-test timeout clock is
+ * running. Warming `fixtures.ts`'s memo here — same spec singleton, same
+ * `now`, same default seed the provider uses — moves that one-time ~8,000-event
+ * build into setup, so no single test pays for it under load.
+ */
+beforeAll(() => {
+  fixtureHistory(fleet20Spec(), NOW)
+  fixtureHistory(pathologySpec(), NOW)
+})
 
 class SilentEventSource implements EventSourceLike {
   onopen: ((event: Event) => void) | null = null

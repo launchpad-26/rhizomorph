@@ -373,3 +373,49 @@ describe('findCycle', () => {
     expect(findCycle(['Read', 'Edit', 'Read', 'Edit'])).toBeNull()
   })
 })
+
+// ── fixture cost (#87) ──────────────────────────────────────────────────────
+
+/**
+ * A real 20-lane fleet is ~6,500 schema-validated events, folded by the real
+ * reducer — every one of those is real cost, paid once. Every test in this
+ * file that asks for the same fixture at the same instant must get the same,
+ * frozen answer back rather than paying for a fresh build.
+ */
+describe('fixture memoisation and immutability (#87)', () => {
+  it('gives every caller the same spec identity, not a fresh rebuild', () => {
+    expect(fleet20Spec()).toBe(fleet20Spec())
+    expect(pathologySpec()).toBe(pathologySpec())
+    expect(finishedSpec()).toBe(finishedSpec())
+  })
+
+  it('freezes a spec and its lanes, so no caller can mutate the shared fixture', () => {
+    const spec = fleet20Spec()
+    expect(Object.isFrozen(spec)).toBe(true)
+    expect(Object.isFrozen(spec.lanes)).toBe(true)
+    expect(Object.isFrozen(spec.lanes[0])).toBe(true)
+    expect(Object.isFrozen(spec.lanes[0]?.fence)).toBe(true)
+    expect(Object.isFrozen(spec.lanes[0]?.touches)).toBe(true)
+    expect(() => {
+      // @ts-expect-error — proving the runtime freeze, not the type system.
+      spec.lanes.push(spec.lanes[0])
+    }).toThrow()
+  })
+
+  it('memoises the folded history for the same spec, now, and seed', () => {
+    const a = fixtureHistory(fleet20Spec(), NOW)
+    const b = fixtureHistory(fleet20Spec(), NOW)
+    expect(a).toBe(b)
+    expect(Object.isFrozen(a)).toBe(true)
+    expect(() => {
+      // @ts-expect-error — proving the runtime freeze, not the type system.
+      a.push(a[0])
+    }).toThrow()
+  })
+
+  it('does not share history across a different `now`, since the fold depends on it', () => {
+    const a = fixtureHistory(fleet20Spec(), NOW)
+    const b = fixtureHistory(fleet20Spec(), NOW + 60_000)
+    expect(a).not.toBe(b)
+  })
+})

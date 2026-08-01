@@ -127,13 +127,33 @@ const FLEET20_NAMES = [
 ]
 
 /**
+ * Every event log this file can generate is a pure function of a spec plus a
+ * `(now, seed)` pair, so nothing here needs to be rebuilt per test: the specs
+ * below are memoised singletons and {@link fixtureHistory} caches the events
+ * it folds from them. Freezing what's returned is what makes the memo safe —
+ * a fixture one test mutated would be a new class of flake for every test
+ * that shares its cache entry after it.
+ */
+function freezeSpec(spec: FixtureSpec): FixtureSpec {
+  for (const lane of spec.lanes) {
+    Object.freeze(lane.fence)
+    Object.freeze(lane.touches)
+    Object.freeze(lane)
+  }
+  Object.freeze(spec.lanes)
+  return Object.freeze(spec)
+}
+
+/**
  * Ruling 22's scale test: twenty lanes, every one of them threaded, all
  * healthy. The weight spread (0.7–1.6) is wide enough that thread thickness is
  * worth reading and tight enough that no lane reaches three times the fleet
  * median — so ALL CLEAR here is a finding, not a fixture's assertion.
  */
+let fleet20Singleton: FixtureSpec | null = null
+
 export function fleet20Spec(): FixtureSpec {
-  return {
+  fleet20Singleton ??= freezeSpec({
     id: 'fleet20',
     label: '20-LANE',
     provenance: 'synthetic · 20 lanes · real schema events',
@@ -150,7 +170,8 @@ export function fleet20Spec(): FixtureSpec {
         touches: [`${area}/${slugOf(name)}.ts`],
       }
     }),
-  }
+  })
+  return fleet20Singleton
 }
 
 // ── fixture 3: one lane per pathology ───────────────────────────────────────
@@ -164,7 +185,11 @@ export function fleet20Spec(): FixtureSpec {
  * being asked to explain a contended file. The ladder floor gets its own,
  * sharper test instead.
  */
+let pathologySingleton: FixtureSpec | null = null
+
 export function pathologySpec(): FixtureSpec {
+  if (pathologySingleton !== null) return pathologySingleton
+
   const lane = (
     name: string,
     behaviour: Behaviour,
@@ -180,7 +205,7 @@ export function pathologySpec(): FixtureSpec {
     ...overrides,
   })
 
-  return {
+  pathologySingleton = freezeSpec({
     id: 'pathology',
     label: 'PATHOLOGY',
     provenance: 'synthetic · one lane per pathology · real schema events',
@@ -218,7 +243,8 @@ export function pathologySpec(): FixtureSpec {
         subagentShare: 0.3,
       }),
     ],
-  }
+  })
+  return pathologySingleton
 }
 
 /**
@@ -227,8 +253,10 @@ export function pathologySpec(): FixtureSpec {
  * read this as seventeen finished lanes and ALL CLEAR — the single loudest way
  * it could cry wolf is to report a successful night as a wall of flatlines.
  */
+let finishedSingleton: FixtureSpec | null = null
+
 export function finishedSpec(): FixtureSpec {
-  return {
+  finishedSingleton ??= freezeSpec({
     id: 'finished',
     label: 'FINISHED',
     provenance: 'synthetic · a fleet that has landed · real schema events',
@@ -243,7 +271,8 @@ export function finishedSpec(): FixtureSpec {
         touches: [`${area}/${slugOf(name)}.ts`],
       }
     }),
-  }
+  })
+  return finishedSingleton
 }
 
 export function specFor(id: Exclude<FixtureId, 'live'>): FixtureSpec {
@@ -294,15 +323,45 @@ interface LaneRuntime {
   loopStep: number
 }
 
+/**
+ * Keyed on the spec's own identity (so it only helps callers sharing one of
+ * the frozen singletons above) and on `seed:now` beneath that, since those two
+ * numbers are the whole of what a history additionally depends on.
+ */
+const historyCache = new WeakMap<FixtureSpec, Map<string, readonly ObservatoryEvent[]>>()
+
+function cachedHistory(
+  spec: FixtureSpec,
+  seed: number,
+  now: number,
+  compute: () => ObservatoryEvent[],
+): ObservatoryEvent[] {
+  let bySeedAndNow = historyCache.get(spec)
+  if (bySeedAndNow === undefined) {
+    bySeedAndNow = new Map()
+    historyCache.set(spec, bySeedAndNow)
+  }
+
+  const key = `${seed}:${now}`
+  const cached = bySeedAndNow.get(key)
+  if (cached !== undefined) return cached as ObservatoryEvent[]
+
+  const events = Object.freeze(compute())
+  bySeedAndNow.set(key, events)
+  return events as ObservatoryEvent[]
+}
+
 export class SyntheticFleet {
   private readonly nextId = createIdFactory('fx')
   private readonly random: () => number
   private readonly lanes: LaneRuntime[]
+  private readonly seed: number
 
   constructor(
     private readonly spec: FixtureSpec,
     seed = 0x0b5e2,
   ) {
+    this.seed = seed
     this.random = mulberry32(seed)
     this.lanes = spec.lanes.map((laneSpec, i) => ({
       spec: laneSpec,
@@ -314,8 +373,23 @@ export class SyntheticFleet {
     }))
   }
 
-  /** The fleet's past, in event order. Everything is measured back from `now`. */
+  /**
+   * The fleet's past, in event order. Everything is measured back from `now`.
+   *
+   * Memoised by (spec identity, seed, now): a real 20-lane history is ~8,000
+   * validated events, and every consumer that folds the same fixture at the
+   * same instant — which is every test that pins `now` — is asking for
+   * exactly the same log. `fleet20Spec()`/`pathologySpec()` return frozen
+   * singletons for this reason: same spec object in, same cached, frozen
+   * array out. Freezing is what makes sharing it safe — a test that mutated
+   * its "own" copy would otherwise leak that mutation into every other test
+   * reading the same cache entry.
+   */
   history(now: number): ObservatoryEvent[] {
+    return cachedHistory(this.spec, this.seed, now, () => this.computeHistory(now))
+  }
+
+  private computeHistory(now: number): ObservatoryEvent[] {
     const events: ObservatoryEvent[] = []
     const start = now - HISTORY_MS
 
@@ -355,7 +429,7 @@ export class SyntheticFleet {
     // The conductor's own burn. Without it the overhead ratio has no numerator,
     // and prd1's whole point is that the orchestrator's spend is not free.
     for (let ts = start; ts <= now - 1_000; ts += 60_000) {
-      events.push(...this.conductorBurn(ts))
+      this.conductorBurn(ts, events)
     }
 
     for (const lane of this.lanes) {
@@ -369,7 +443,7 @@ export class SyntheticFleet {
       // Walk backwards from the lane's last moment so the trailing window has
       // an exact, reproducible number of requests in it.
       for (let ts = burnUntil; ts >= start + 1_000; ts -= REQUEST_EVERY_MS) {
-        events.push(...this.laneBurn(lane, ts))
+        this.laneBurn(lane, ts, events)
       }
 
       if (lane.spec.behaviour === 'looping') {
@@ -380,7 +454,7 @@ export class SyntheticFleet {
       } else {
         // Real progress, recently: this is what makes the looping lane's lack of
         // it a *finding* rather than the fixture's assertion.
-        events.push(...this.laneCommit(lane, endAt - LAST_COMMIT_BEFORE_END_MS))
+        this.laneCommit(lane, endAt - LAST_COMMIT_BEFORE_END_MS, events)
       }
 
       events.push(this.laneDirty(lane, endAt - 10_000))
@@ -440,11 +514,11 @@ export class SyntheticFleet {
 
       const chance = (behaviour === 'expensive' ? 0.3 : 0.08) * lane.spec.weight
       if (this.random() > chance) continue
-      events.push(...this.laneBurn(lane, now))
-      if (this.random() < 0.04) events.push(...this.laneCommit(lane, now))
+      this.laneBurn(lane, now, events)
+      if (this.random() < 0.04) this.laneCommit(lane, now, events)
     }
 
-    if (this.random() < 0.3) events.push(...this.conductorBurn(now))
+    if (this.random() < 0.3) this.conductorBurn(now, events)
 
     return events
   }
@@ -465,13 +539,19 @@ export class SyntheticFleet {
     }
   }
 
-  private laneBurn(lane: LaneRuntime, ts: number): ObservatoryEvent[] {
+  /**
+   * Pushes directly onto `sink` rather than building and spreading a
+   * temporary array — this is the hottest path in the generator (up to
+   * ~1,600 calls for a 20-lane history), so the intermediate allocation
+   * a return-and-spread would cost here is not incidental.
+   */
+  private laneBurn(lane: LaneRuntime, ts: number, sink: ObservatoryEvent[]): void {
     const thread: AgentThread =
       lane.spec.subagentShare > 0 && this.random() < lane.spec.subagentShare ? 'subagent' : 'main'
     const output = Math.round(OUTPUT_PER_REQUEST * lane.spec.weight)
     const cacheRead = Math.round(60_000 + this.random() * 80_000)
 
-    return [
+    sink.push(
       this.event('llm.usage', {
         lane: lane.spec.name,
         role: 'worker',
@@ -501,7 +581,11 @@ export class SyntheticFleet {
         branch: lane.spec.name,
         thread,
       }, ts, 'otel'),
-      ...Array.from({ length: 1 + Math.floor(this.random() * 3) }, (_unused, t) =>
+    )
+
+    const toolCalls = 1 + Math.floor(this.random() * 3)
+    for (let t = 0; t < toolCalls; t += 1) {
+      sink.push(
         this.event('tool.activity', {
           lane: lane.spec.name,
           tool: TOOLS[Math.floor(this.random() * TOOLS.length)] as string,
@@ -512,8 +596,8 @@ export class SyntheticFleet {
           branch: lane.spec.name,
           thread,
         }, ts + t * 60),
-      ),
-    ]
+      )
+    }
   }
 
   /** One turn of a stuck lane's wheel: the repeating cycle the detector reads. */
@@ -532,7 +616,7 @@ export class SyntheticFleet {
     }, ts)
   }
 
-  private laneCommit(lane: LaneRuntime, ts: number): ObservatoryEvent[] {
+  private laneCommit(lane: LaneRuntime, ts: number, sink: ObservatoryEvent[]): void {
     lane.commits += 1
     const sha = `sha-${lane.spec.name}-${String(lane.commits).padStart(3, '0')}`
     const files = lane.spec.touches.map((path, i) => ({
@@ -542,7 +626,7 @@ export class SyntheticFleet {
       deletions: Math.floor(this.random() * 20),
     }))
 
-    return [
+    sink.push(
       this.event('commit.landed', {
         sha,
         branch: lane.spec.name,
@@ -561,7 +645,7 @@ export class SyntheticFleet {
         aheadOfMain: lane.commits,
         behindMain: 0,
       }, ts + 20),
-    ]
+    )
   }
 
   /** The uncommitted set — what makes "where is this agent" answerable early. */
@@ -589,9 +673,9 @@ export class SyntheticFleet {
     }, ts)
   }
 
-  private conductorBurn(ts: number): ObservatoryEvent[] {
+  private conductorBurn(ts: number, sink: ObservatoryEvent[]): void {
     const output = Math.round(200 + this.random() * 700)
-    return [
+    sink.push(
       this.event('llm.usage', {
         lane: 'conductor',
         role: 'conductor',
@@ -613,7 +697,7 @@ export class SyntheticFleet {
         branch: MAIN_BRANCH,
         thread: 'main',
       }, ts, 'otel'),
-    ]
+    )
   }
 
   /**
