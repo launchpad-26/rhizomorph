@@ -2,7 +2,15 @@ import { formatSpan } from '../fleet/index.js'
 import { activityCounts, type ActivityEntry } from './activity.js'
 
 /**
- * THE ACTIVITY VIEW — the drawer's default reading (ruling 17).
+ * THE ACTIVITY VIEW — the lane's audit trail (ruling 17), now beneath the
+ * conversation rather than above it (prd4 ruling 4).
+ *
+ * Same list, less room. What it is *for* did not change — the git/file/commit
+ * record of what a lane actually did to the repo, which the conversation itself
+ * cannot prove — but it is no longer the default reading, so it takes a bounded
+ * strip and scrolls inside it instead of splitting the drawer with the
+ * conversation. Every entry stays reachable; none of them is hidden behind a
+ * fold or a filter.
  *
  * Quiet lines, mono data, newest first. It is a *ledger of what happened*, not
  * a feed that moves: nothing here animates, because ruling 10 spends motion on
@@ -24,7 +32,10 @@ export function ActivityView({ entries, now }: ActivityViewProps) {
   const counts = activityCounts(entries)
 
   return (
-    <section data-testid="drawer-activity" className="min-h-0 flex-1 overflow-auto px-4 py-3">
+    <section
+      data-testid="drawer-activity"
+      className="max-h-52 shrink-0 overflow-auto border-t border-ice-850 px-4 py-3"
+    >
       <header className="flex items-baseline justify-between">
         <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-ice-400">Activity</h3>
         <p className="figures text-[10px] text-ice-500">
@@ -35,7 +46,7 @@ export function ActivityView({ entries, now }: ActivityViewProps) {
       {entries.length === 0 ? (
         <p role="status" className="mt-2 text-[11px] text-ice-500">
           NO ACTIVITY RECORDED — this lane has produced no tool call, file change or commit in the
-          session so far — its transcript below is the only thing left to read.
+          session so far — the conversation above is the only thing left to read.
         </p>
       ) : (
         <ol className="mt-2 space-y-0.5">

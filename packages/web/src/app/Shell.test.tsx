@@ -160,13 +160,38 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
     expect(drawer.tagName).toBe('ASIDE')
   })
 
-  it('issues no transcript request on mount — the tail is collapsed until asked for', async () => {
+  /**
+   * The pin this replaces said "no transcript request on mount — the tail is
+   * collapsed until asked for". prd4 ruling 4 retires the fold: the
+   * conversation is the drawer's main view and reads as soon as it is open. The
+   * half of the claim that still holds — and is the half that matters, since it
+   * is what keeps a fleet-only page silent — is that *nothing* is requested
+   * while no lane is selected, because then no drawer is mounted at all.
+   */
+  it('issues no transcript request while nothing is selected', async () => {
     const fetchSpy = vi.fn()
     const original = globalThis.fetch
     globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch
     try {
-      await renderShell(LANE)
+      await renderShell(null)
       expect(fetchSpy).not.toHaveBeenCalled()
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
+  it('reads the selected lane\'s conversation once it is open, and only ever GETs it', async () => {
+    const fetchSpy = vi.fn(async (input: string) => ({ ok: false, url: input, json: async () => null }))
+    const original = globalThis.fetch
+    globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch
+    try {
+      await renderShell(LANE)
+
+      expect(fetchSpy.mock.calls.map((call) => call[0])).toEqual([
+        `/api/transcript/${LANE}?offset=0`,
+      ])
+      // One argument: a URL. No init object means no verb but GET.
+      expect(fetchSpy.mock.calls[0]).toHaveLength(1)
     } finally {
       globalThis.fetch = original
     }

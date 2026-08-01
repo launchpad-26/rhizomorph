@@ -4,7 +4,7 @@ import { useFleet, useSelection } from '../fleet/index.js'
 import type { FetchLike } from '../fleet/manifest.js'
 import { ActivityView } from './Activity.js'
 import { AttachButton, type CopyText } from './AttachButton.js'
-import { TranscriptPanel } from './Transcript.js'
+import { Conversation } from './Conversation.js'
 import { Vitals } from './Vitals.js'
 import { foldActivity } from './activity.js'
 import { attachPlan } from './attach.js'
@@ -19,10 +19,16 @@ import { attachPlan } from './attach.js'
  * global handler that clears the selection for every other surface — there is
  * one way out of a narrowed view (ruling 6).
  *
- * Top to bottom it is the ruling's own ordering: **vitals** (the row you just
- * clicked, opened out), **activity** (what it has been doing — the default
- * reading), **transcript** (what it actually said, expandable, live-tailing),
+ * Top to bottom (prd4 ruling 4 re-orders prd3's): **vitals** (the row you just
+ * clicked, opened out), **conversation** (what you would see at that agent's
+ * terminal — the main view, live-tailing, the largest thing here), **activity**
+ * (the compact git/file/commit audit trail the conversation cannot prove),
  * **attach** (the command to go and talk to it in your own terminal).
+ *
+ * The conversation leads because it is what an operator came for; the ledger
+ * follows because it is corroboration. prd3 had them the other way round and
+ * the operator's review found the fold in front of the transcript to be the
+ * drawer's worst moment.
  *
  * The read-only constitution holds absolutely and structurally: the only
  * network call anywhere in this directory is `GET /api/transcript/:lane`, and
@@ -30,22 +36,15 @@ import { attachPlan } from './attach.js'
  */
 
 export interface LaneDrawerProps {
-  /** Test seam for the transcript's `fetch`. */
+  /** Test seam for the conversation's `fetch`. */
   fetchTranscript?: FetchLike
-  /** Test seam: `0` reads the transcript once and never polls. */
+  /** Test seam: `0` reads the conversation once and never polls. */
   transcriptPollMs?: number
-  /** Test seam: open the transcript immediately. */
-  transcriptExpanded?: boolean
   /** Test seam for the clipboard. */
   onCopy?: CopyText
 }
 
-export default function LaneDrawer({
-  fetchTranscript,
-  transcriptPollMs,
-  transcriptExpanded,
-  onCopy,
-}: LaneDrawerProps = {}) {
+export default function LaneDrawer({ fetchTranscript, transcriptPollMs, onCopy }: LaneDrawerProps = {}) {
   const { selectedId, clear } = useSelection()
   const fleet = useFleet()
   const { state } = useStream()
@@ -94,13 +93,8 @@ export default function LaneDrawer({
       ) : (
         <>
           <Vitals lane={lane} fleet={fleet} />
+          <Conversation lane={lane.id} fetchImpl={fetchTranscript} pollMs={transcriptPollMs} />
           <ActivityView entries={entries} now={fleet.now} />
-          <TranscriptPanel
-            lane={lane.id}
-            fetchImpl={fetchTranscript}
-            pollMs={transcriptPollMs}
-            initiallyExpanded={transcriptExpanded}
-          />
           <AttachButton plan={plan} onCopy={onCopy} />
         </>
       )}
@@ -113,5 +107,6 @@ export { foldActivity, activityCounts } from './activity.js'
 export type { ActivityEntry, ActivityKind } from './activity.js'
 export { attachPlan, findTmuxIdentity, workmuxHandle } from './attach.js'
 export type { AttachPlan, TmuxIdentity } from './attach.js'
-export { useTranscript, transcriptUrl } from './useTranscript.js'
-export type { TranscriptState } from './useTranscript.js'
+export { Conversation, isAtTail } from './Conversation.js'
+export { useTranscript, transcriptUrl, parseEntries } from './useTranscript.js'
+export type { TranscriptState, TranscriptEntry, TranscriptBlock, TranscriptRole } from './useTranscript.js'

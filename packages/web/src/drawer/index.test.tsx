@@ -87,12 +87,26 @@ function laneHistory(): ObservatoryEvent[] {
   ]
 }
 
+/**
+ * The conversation is the drawer's default view now (prd4 ruling 4), so every
+ * mount reads the transcript. A test that is about the vitals or the ledger
+ * still has to answer that read, and it answers with an honest absence rather
+ * than letting the real `fetch` reach for a server that is not there.
+ */
+const noTranscript: FetchLike = async () => ({
+  ok: false,
+  json: async () => ({
+    available: false,
+    lane: LANE,
+    reason: 'NO SESSION LOG for this fixture — no session log was written for it — run: `observatory doctor`',
+  }),
+})
+
 interface HarnessOptions {
   events?: ObservatoryEvent[]
   selected?: string | null
   fetchTranscript?: FetchLike
   onCopy?: (text: string) => Promise<void>
-  transcriptExpanded?: boolean
 }
 
 async function renderDrawer(options: HarnessOptions = {}) {
@@ -111,9 +125,8 @@ async function renderDrawer(options: HarnessOptions = {}) {
       <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
         <SelectionProvider initialSelectedId={options.selected === undefined ? LANE : options.selected}>
           <LaneDrawer
-            fetchTranscript={options.fetchTranscript}
+            fetchTranscript={options.fetchTranscript ?? noTranscript}
             transcriptPollMs={0}
-            transcriptExpanded={options.transcriptExpanded}
             onCopy={options.onCopy}
           />
         </SelectionProvider>
@@ -153,7 +166,7 @@ async function renderFixtureDrawer(laneId: string) {
     <StreamProvider url="/api/stream" now={NOW} createSource={() => new ScriptedEventSource()}>
       <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
         <SelectionProvider initialSelectedId={laneId}>
-          <LaneDrawer transcriptPollMs={0} />
+          <LaneDrawer transcriptPollMs={0} fetchTranscript={noTranscript} />
         </SelectionProvider>
       </FleetProvider>
     </StreamProvider>,
@@ -284,41 +297,71 @@ describe('LaneDrawer — the activity view (the default reading)', () => {
     expect(text).toContain('packages/web/src/drawer/index.tsx')
   })
 
-  it('is above the transcript — the ruling\'s ordering, structurally', async () => {
+  it('sits below the conversation — prd4 ruling 4\'s ordering, structurally', async () => {
     await renderDrawer()
 
     const drawer = screen.getByTestId('lane-drawer')
     const order = [...drawer.querySelectorAll('[data-testid]')].map((el) => el.getAttribute('data-testid'))
-    expect(order.indexOf('drawer-vitals')).toBeLessThan(order.indexOf('drawer-activity'))
-    expect(order.indexOf('drawer-activity')).toBeLessThan(order.indexOf('drawer-transcript'))
+    expect(order.indexOf('drawer-vitals')).toBeLessThan(order.indexOf('drawer-conversation'))
+    expect(order.indexOf('drawer-conversation')).toBeLessThan(order.indexOf('drawer-activity'))
+    expect(order.indexOf('drawer-activity')).toBeLessThan(order.indexOf('drawer-attach'))
+  })
+
+  it('takes a bounded strip, not half the drawer — the conversation is the flex-1 one', async () => {
+    await renderDrawer()
+
+    expect(screen.getByTestId('drawer-activity').className).not.toContain('flex-1')
+    expect(screen.getByTestId('drawer-conversation').className).toContain('flex-1')
   })
 })
 
-describe('LaneDrawer — the transcript tail', () => {
-  it('reads the lane\'s transcript from the server when expanded', async () => {
+describe('LaneDrawer — the conversation (the main view)', () => {
+  const conversation: FetchLike = async () => ({
+    ok: true,
+    json: async () => ({
+      available: true,
+      lane: LANE,
+      sessionId: 'sess-84',
+      offset: 0,
+      nextOffset: 120,
+      size: 120,
+      eof: true,
+      restarted: false,
+      entries: [
+        { role: 'user', blocks: [{ kind: 'text', text: 'rebuild the drawer' }] },
+        {
+          role: 'assistant',
+          blocks: [
+            { kind: 'text', text: 'Reading the drawer first.' },
+            { kind: 'tool_use', name: 'Read', hint: 'packages/web/src/drawer/index.tsx' },
+          ],
+        },
+      ],
+    }),
+  })
+
+  it('reads the lane\'s conversation on open — no fold to click through first', async () => {
     const urls: string[] = []
     const fetchTranscript: FetchLike = async (input) => {
       urls.push(input)
-      return {
-        ok: true,
-        json: async () => ({
-          available: true,
-          lane: LANE,
-          sessionId: 'sess-84',
-          offset: 0,
-          nextOffset: 20,
-          size: 20,
-          eof: true,
-          restarted: false,
-          text: '▌ assistant\nreading\n\n',
-        }),
-      }
+      return conversation(input)
     }
 
-    await renderDrawer({ fetchTranscript, transcriptExpanded: true })
+    await renderDrawer({ fetchTranscript })
 
     expect(urls).toEqual([`/api/transcript/${LANE}?offset=0`])
-    expect(screen.getByTestId('transcript-body').textContent).toContain('reading')
+    const body = screen.getByTestId('conversation-body')
+    expect(body.textContent).toContain('rebuild the drawer')
+    expect(body.textContent).toContain('Reading the drawer first.')
+    expect(screen.getByTestId('tool-call').textContent).toContain('Read')
+  })
+
+  it('is the largest section, with the vitals above it and the ledger below', async () => {
+    await renderDrawer({ fetchTranscript: conversation })
+
+    const roles = [...screen.getAllByTestId('turn')].map((turn) => turn.getAttribute('data-role'))
+    expect(roles).toEqual(['user', 'assistant'])
+    expect(screen.getByTestId('drawer-conversation').className).toContain('flex-1')
   })
 })
 
