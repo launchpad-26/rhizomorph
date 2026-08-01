@@ -529,6 +529,8 @@ describe('readTranscript', () => {
     if (result.available) return
     expect(result.reason).toContain('NO SUCH LANE')
     expect(result.reason).toContain('ghost-lane')
+    // Genuinely unknown identifier — the one case that stays a 404.
+    expect(result.unknownLane).toBe(true)
   })
 
   it('is honestly absent when the lane is known but nothing attributed a session to it', async () => {
@@ -546,6 +548,8 @@ describe('readTranscript', () => {
     if (result.available) return
     expect(result.reason).toContain('NO SESSION LOG')
     expect(result.reason).toContain('no session id')
+    // A known lane, just without a session yet — expected absence, not an error.
+    expect(result.unknownLane).toBe(false)
   })
 
   /**
@@ -621,6 +625,9 @@ describe('readTranscript', () => {
       // Never the worker voice: "no such lane main" would send the operator
       // looking for a worktree that was never the point.
       expect(result.reason).not.toContain('NO SUCH LANE')
+      // `main` is a reserved identifier, not a discovered one — an
+      // uninstrumented conductor is an expected gap, never a 404.
+      expect(result.unknownLane).toBe(false)
     })
 
     it('says something else again when the conductor is instrumented but nameless', async () => {
@@ -642,6 +649,7 @@ describe('readTranscript', () => {
       expect(result.reason).toContain('NO SESSION LOG for the conductor')
       expect(result.reason).toContain('no session id')
       expect(result.reason).toContain('observatory doctor')
+      expect(result.unknownLane).toBe(false)
     })
 
     it('names the conductor, not a lane, when its log is simply not on disk', async () => {
@@ -665,6 +673,7 @@ describe('readTranscript', () => {
       expect(result.reason).toContain('NO SESSION LOG for the conductor')
       expect(result.reason).toContain('sess-conductor')
       expect(result.reason).toContain(CONDUCTOR_DIR)
+      expect(result.unknownLane).toBe(false)
     })
   })
 
@@ -680,6 +689,9 @@ describe('readTranscript', () => {
     if (result.available) return
     expect(result.reason).toContain('NO SESSION LOG')
     expect(result.reason).toContain(PROJECT_SLUG)
+    // The lane resolved to a real, attributed session — only the file is
+    // missing, which is never "unknown identifier".
+    expect(result.unknownLane).toBe(false)
   })
 })
 
@@ -750,13 +762,25 @@ describe('GET /api/transcript/:lane', () => {
     expect(second.json().offset).toBe(firstLineBytes)
   })
 
-  it('404s with the honest reason when the lane has no known session log', async () => {
+  it('404s with the honest reason for a genuinely unknown lane — the log never named it', async () => {
     const response = await (await makeApp()).inject({ method: 'GET', url: '/api/transcript/ghost' })
 
     expect(response.statusCode).toBe(404)
     expect(response.json()).toMatchObject({ available: false, lane: 'ghost' })
     expect(response.json().reason).toContain('NO SUCH LANE')
   })
+
+  it(
+    '200s (not 404s) with the honest reason for a known lane whose session log is not on disk yet — ' +
+      'expected absence, matching the /api/lanes convention',
+    async () => {
+      const response = await (await makeApp()).inject({ method: 'GET', url: `/api/transcript/${LANE}` })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toMatchObject({ available: false, lane: LANE })
+      expect(response.json().reason).toContain('NO SESSION LOG')
+    },
+  )
 
   it('400s on an offset that is not a non-negative integer', async () => {
     const app = await makeApp()
@@ -787,12 +811,18 @@ describe('GET /api/transcript/:lane', () => {
     expect(body.entries).toEqual([{ role: 'user', blocks: [{ kind: 'text', text: 'dispatch wave 1' }] }])
   })
 
-  it('404s with the gap voice, not blankness, when the conductor is uninstrumented', async () => {
-    const response = await (await makeApp()).inject({ method: 'GET', url: '/api/transcript/main' })
+  it(
+    '200s with the gap voice, not blankness or a 404, when the conductor is uninstrumented — ' +
+      'an expected absence, not a client error',
+    async () => {
+      const response = await (await makeApp()).inject({ method: 'GET', url: '/api/transcript/main' })
 
-    expect(response.statusCode).toBe(404)
-    expect(response.json().reason).toContain('CONDUCTOR NOT INSTRUMENTED')
-  })
+      expect(response.statusCode).toBe(200)
+      const body = response.json()
+      expect(body.available).toBe(false)
+      expect(body.reason).toContain('CONDUCTOR NOT INSTRUMENTED')
+    },
+  )
 
   it('accepts no verb but GET — the read-only constitution, stated in routing', async () => {
     await writeLog([userLine('hello')])

@@ -142,6 +142,15 @@ export interface TranscriptAbsent {
   lane: string
   /** WHAT is missing → WHY → what to do (law 12). Never a bare "not found". */
   reason: string
+  /**
+   * True only when `lane` itself was never named in the log at all — the
+   * `/api/lanes` convention (`readLanesManifest` in `lanes.ts`) is that a known
+   * identity with nothing to show yet is an honest 200, and only a genuinely
+   * unknown identifier is a 404 client error. Not sent on the wire — the route
+   * uses it to pick the status code and nothing else (see
+   * {@link registerTranscriptRoute}).
+   */
+  unknownLane: boolean
 }
 
 export type TranscriptResult = TranscriptChunk | TranscriptAbsent
@@ -522,10 +531,15 @@ export async function readTranscript(request: ReadTranscriptRequest): Promise<Tr
     : findLaneAttribution(events, lane)
 
   if (attribution === null) {
+    // The conductor's identity (`main`) is a reserved route, never a discovered
+    // one — its absence is always "not instrumented yet", never "unknown", so
+    // only a worker lane can fail the known-name check.
+    const unknownLane = !conductor && !laneIsKnown(events, lane)
     return {
       available: false,
       lane,
       reason: conductor ? conductorGap(events) : missingLaneGap(events, lane),
+      unknownLane,
     }
   }
 
@@ -560,6 +574,9 @@ export async function readTranscript(request: ReadTranscriptRequest): Promise<Tr
       `NO SESSION LOG for ${whose} (session ${attribution.sessionId}) — the transcript is not on ` +
       `disk where the collector tails it (${tried}), so there is nothing to read — ` +
       'run: `observatory doctor`',
+    // The lane/conductor was resolved to a real, attributed session — only the
+    // file on disk is missing, which is never "unknown identifier".
+    unknownLane: false,
   }
 }
 
@@ -603,7 +620,13 @@ export function registerTranscriptRoute(
         chunkBytes: options.chunkBytes,
       })
 
-      if (!result.available) return reply.code(404).send(result)
+      if (!result.available) {
+        // Known-but-empty is an honest 200 (the `/api/lanes` convention in
+        // `lanes.ts`'s `readLanesManifest`) — only a lane the log never named
+        // stays a 404. `unknownLane` never leaves this process.
+        const { available, lane, reason } = result
+        return reply.code(result.unknownLane ? 404 : 200).send({ available, lane, reason })
+      }
       return result
     },
   )
