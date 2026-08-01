@@ -8,6 +8,7 @@ import { useStream } from './StreamContext.js'
 
 const AttentionStrip = lazy(() => import('../panels/attention/index.js'))
 const BurnStrip = lazy(() => import('../panels/burn/index.js'))
+const LaneDrawer = lazy(() => import('../drawer/index.js'))
 
 /**
  * The curated order (ruling 6). One conductor-curated hierarchy, no drag and no
@@ -25,6 +26,13 @@ const BurnStrip = lazy(() => import('../panels/burn/index.js'))
  * *where did this come from* (provenance).
  *
  * Whitespace lives between panels, never inside them (ruling 7).
+ *
+ * The lane drawer (ruling 17, #84) sits outside that sequence on purpose: it is
+ * not a rung of the hierarchy but a layer over it, opened by the one selection
+ * and closed by Esc. It renders `null` whenever nothing is selected and is
+ * `position: fixed` when it does render, so it is out of flow and adds no row
+ * to the grid above — the curated order is unchanged whether it is open or not,
+ * which is what "the fleet stays visible" means structurally.
  */
 export function Shell() {
   return (
@@ -33,6 +41,9 @@ export function Shell() {
       <PanelGrid />
       <ReplayBar />
       <StatusBar />
+      <Suspense fallback={null}>
+        <LaneDrawer />
+      </Suspense>
     </div>
   )
 }
