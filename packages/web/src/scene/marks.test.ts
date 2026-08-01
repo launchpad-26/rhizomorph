@@ -1,4 +1,4 @@
-import { reduceAll } from '@observatory/core'
+import { createEvent, reduceAll } from '@observatory/core'
 import { describe, expect, it } from 'vitest'
 import {
   buildFleet,
@@ -9,7 +9,8 @@ import {
   type Fleet,
   type FixtureSpec,
 } from '../fleet/index.js'
-import { layoutScene } from './geometry.js'
+import { RECENCY_SPAN_MS, layoutScene } from './geometry.js'
+import { ALARM, EVENT, allowance } from './motion.js'
 import {
   brightnessOf,
   breathOf,
@@ -23,6 +24,7 @@ import {
 import { ALARM_FLOOR, CALM_CEILING, CALM_FLOOR, RECEDE, salienceOf } from './salience.js'
 import { BROKEN, NEEDS_YOU, NOTICE } from './palette.js'
 import { PulseField } from './pulses.js'
+import type { LaneIndex } from './resolve.js'
 
 /**
  * WHAT THE PICTURE CONTAINS.
@@ -92,6 +94,29 @@ function frameFor(options: FrameOptions = {}): SceneFrame {
 
 function marksFor(options: FrameOptions = {}): Mark[] {
   return sceneMarks(frameFor(options))
+}
+
+/** The lane lookup the pulse field resolves events through, for a real fleet. */
+function indexFor(fleet: Fleet): LaneIndex {
+  return {
+    byBranch: new Map(fleet.lanes.map((lane) => [lane.branch ?? lane.id, lane.id])),
+    byWorktree: new Map(),
+    byHandle: new Map(fleet.lanes.flatMap((lane) => lane.handles.map((h) => [h, lane.id]))),
+    mainBranch: fleet.root.mainBranch,
+    mainWorktree: fleet.root.worktreePath,
+  }
+}
+
+/**
+ * How much room the waiting lane's held light takes up — the throb, as one
+ * number. Summed rather than maxed because the throb is spent across several
+ * glows at once and one of them (the hand's halo) is a fixed size.
+ */
+function heldSpread(marks: readonly Mark[]): number {
+  return of(marks, LANE.waiting, 'held').reduce(
+    (total, mark) => total + (mark.kind === 'glow' ? mark.radius : 0),
+    0,
+  )
 }
 
 function of(marks: readonly Mark[], laneId: string, ...roles: MarkRole[]): Mark[] {
@@ -316,13 +341,7 @@ describe('prefers-reduced-motion', () => {
     for (const target of [moving, still]) {
       target.ingest(
         fixtureHistory(pathologySpec(), NOW).filter((event) => event.type === 'llm.usage').slice(-6),
-        {
-          byBranch: new Map(fleet.lanes.map((lane) => [lane.branch ?? lane.id, lane.id])),
-          byWorktree: new Map(),
-          byHandle: new Map(fleet.lanes.flatMap((lane) => lane.handles.map((h) => [h, lane.id]))),
-          mainBranch: fleet.root.mainBranch,
-          mainWorktree: fleet.root.worktreePath,
-        },
+        indexFor(fleet),
         // Half a second ago, so at the frame's clock they are mid-journey. A
         // pulse born exactly now has not travelled and is not yet drawn.
         NOW - 500,
@@ -356,6 +375,222 @@ describe('prefers-reduced-motion', () => {
     expect(marks.filter((mark) => mark.role === 'thread')).toHaveLength(9)
     expect(marks.filter((mark) => mark.role === 'node')).toHaveLength(9)
     expect(marks.filter((mark) => mark.role === 'label')).toHaveLength(9)
+  })
+
+  it('jump-cuts the looping wheel to the notch instead of easing it round', () => {
+    // The sanctioned degradation for a position that would otherwise animate its
+    // way to a solved value: show the solved value. The circuit is still drawn,
+    // the light is still on it, and nothing travels.
+    const fleet = fleetFor(pathologySpec())
+    const halfway = new PulseField()
+    halfway.ingest(
+      [
+        createEvent(
+          'tool.activity',
+          { lane: LANE.looping, tool: 'Read', role: 'worker', branch: LANE.looping, thread: 'main' },
+          { id: 'reduced-orbit', ts: NOW },
+        ),
+      ],
+      indexFor(fleet),
+      NOW,
+    )
+    // One frame of easing: the drawn phase is between zero and the notch.
+    halfway.step(NOW)
+    halfway.step(NOW + 60)
+
+    const eased = orbitAngle(marksFor({ fleet, field: halfway }))
+    const cut = orbitAngle(marksFor({ fleet, field: halfway, reducedMotion: true }))
+    expect(eased).not.toBeCloseTo(cut, 6)
+  })
+
+  it('keeps the whole table: colour and opacity survive, travel and scale do not', () => {
+    for (const motionClass of ['ambient', 'event', 'structural'] as const) {
+      const table = allowance(motionClass, 'reduced')
+      expect(table.travel).toBe(false)
+      expect(table.scale).toBe(false)
+      expect(table.colour).toBe(true)
+      expect(table.opacity).toBe(true)
+    }
+  })
+})
+
+/** Where the looping lane's orbiting light is, as an angle about its knot. */
+function orbitAngle(marks: readonly Mark[]): number {
+  const geometry = frameFor().geometry.byLane.get(LANE.looping)
+  const knot = geometry?.knot as { centre: { x: number; y: number } }
+  const light = of(marks, LANE.looping, 'orbit').find(
+    (mark) => mark.kind === 'glow' && mark.radius < 5,
+  )
+  const at = light?.kind === 'glow' ? light.at : { x: 0, y: 0 }
+  return Math.atan2(at.y - knot.centre.y, at.x - knot.centre.x)
+}
+
+/**
+ * PAUSE (WCAG 2.2.2) — the scene's own half of it.
+ *
+ * The component implements the pause by holding its clock still, which is what
+ * actually stops travelling light. These are the marks that must hold still
+ * *even if the clock does not*: everything a future frame loop could keep
+ * advancing without noticing it had been asked to stop.
+ */
+describe('paused', () => {
+  it('stops the root-mass breathing', () => {
+    expect(breathOf(NOW, 'paused')).toBe(1)
+    expect(breathOf(NOW + 1_350, 'paused')).toBe(1)
+    // Which reaches the picture: the node lens is scaled by the breath.
+    const lens = (now: number): number => {
+      const mark = of(marksFor({ paused: true, now }), LANE.healthy, 'node')[0]
+      return mark?.kind === 'path' ? mark.size : NaN
+    }
+    expect(lens(NOW)).toBe(lens(NOW + 1_350))
+  })
+
+  it('stops the summons throbbing, and stops it bright', () => {
+    // Sampled across more than a full cycle, with the clock advancing — which is
+    // *not* what the component does (it holds the clock still), and that is the
+    // point: the throb must be off even if something later forgets to freeze it.
+    const window = (paused: boolean): number[] =>
+      Array.from({ length: 24 }, (_unused, i) => heldSpread(marksFor({ paused, now: NOW + i * 60 })))
+
+    const held = window(true)
+    const moving = window(false)
+    const spread = (values: number[]) => Math.max(...values) - Math.min(...values)
+
+    expect(spread(held)).toBeLessThan(0.1)
+    expect(spread(moving)).toBeGreaterThan(3)
+
+    // Bright, not wherever the wave happened to be: an alarm frozen at the dim
+    // end of its own throb would be a summons the pause had quietened.
+    expect(Math.min(...held)).toBeGreaterThan(Math.min(...moving))
+  })
+})
+
+/**
+ * RULING 5, THE SCENE HALF — an unanswered summons ages.
+ *
+ * The rate law is pinned as arithmetic in `motion.test.ts`; what this suite
+ * holds is that it reaches the picture, that it stops where the ruling said it
+ * stops, and that it never buys its intensity out of the alarm band's floor.
+ */
+describe('the alarm ages', () => {
+  /**
+   * Every alpha the waiting lane's held light is drawn with. Alphas rather than
+   * radii on purpose: the throb spends *size*, the aging spends *brightness*, so
+   * this reads the aging with the oscillation filtered out.
+   */
+  const heldAlpha = (now: number): number =>
+    of(marksFor({ now }), LANE.waiting, 'held').reduce(
+      (total, mark) => total + inksOf(mark).reduce((sum, tint) => sum + tint.alpha, 0),
+      0,
+    )
+
+  it('brightens the longer nobody comes', () => {
+    const fresh = heldAlpha(NOW)
+    const stale = heldAlpha(NOW + RECENCY_SPAN_MS / 2)
+    const old = heldAlpha(NOW + RECENCY_SPAN_MS)
+
+    expect(stale).toBeGreaterThan(fresh)
+    expect(old).toBeGreaterThan(stale)
+  })
+
+  it('stops brightening at the cap rather than climbing for ever', () => {
+    expect(heldAlpha(NOW + RECENCY_SPAN_MS * 3)).toBeCloseTo(heldAlpha(NOW + RECENCY_SPAN_MS), 9)
+  })
+
+  it('never spends the alarm band to do it', () => {
+    // The palm and the held core are the marks that owe `ALARM_FLOOR` its floor.
+    // A young summons must clear it exactly as an old one does — the aging is a
+    // gradient inside the band, never a way in and out of it.
+    for (const now of [NOW, NOW + RECENCY_SPAN_MS]) {
+      const marks = marksFor({ now })
+      expect(brightest(marks, LANE.waiting)).toBeGreaterThanOrEqual(ALARM_FLOOR)
+    }
+  })
+
+  it('throbs, and throbs slower than it did when it was fresh', () => {
+    // Sampled across a window longer than either period: the fresh summons runs
+    // more complete cycles through it than the old one. Slower, never faster.
+    const peaks = (from: number): number => {
+      const window = Array.from({ length: 61 }, (_unused, i) =>
+        heldSpread(marksFor({ now: from + i * 100 })),
+      )
+      let count = 0
+      for (let i = 1; i < window.length - 1; i += 1) {
+        const before = window[i - 1] as number
+        const here = window[i] as number
+        if (here > before && here >= (window[i + 1] as number)) count += 1
+      }
+      return count
+    }
+
+    const fresh = peaks(NOW)
+    expect(fresh).toBeGreaterThan(1)
+    expect(peaks(NOW + RECENCY_SPAN_MS)).toBeLessThan(fresh)
+  })
+
+  it('pulses inside the event class, never faster than its own floor', () => {
+    expect(ALARM.freshPeriodMs).toBe(2 * EVENT.maxPulseMs)
+    expect(ALARM.agedPeriodMs).toBeGreaterThan(ALARM.freshPeriodMs)
+  })
+})
+
+/**
+ * THE MOTION CAP, IN THE PICTURE (ruling 4).
+ *
+ * `pulses.test.ts` holds the field's side — five animations, the rest folded
+ * into counts. This is the half that matters to somebody looking at the screen:
+ * that the count is *drawn*, so the coalescing is legible rather than merely
+ * honest in a data structure nobody can see.
+ */
+describe('a storm of arrivals', () => {
+  const fleet = fleetFor(pathologySpec())
+
+  function stormField(count: number): PulseField {
+    const field = new PulseField()
+    for (let i = 0; i < count; i += 1) {
+      field.ingest(
+        [
+          createEvent(
+            'commit.landed',
+            {
+              sha: `storm-${i}`,
+              branch: LANE.healthy,
+              message: 'feat: another step',
+              author: { name: 'agent', email: 'agent@observatory' },
+              files: [{ path: 'src/a.ts', status: 'modified', insertions: 2, deletions: 1 }],
+            },
+            { id: `storm-${i}`, ts: NOW },
+          ),
+        ],
+        indexFor(fleet),
+        // Half a second ago, so they are mid-journey at the frame's clock.
+        NOW - 500,
+      )
+    }
+    return field
+  }
+
+  it('draws five packets and a count, not twenty packets', () => {
+    const marks = marksFor({ fleet, field: stormField(20) })
+    const packets = of(marks, LANE.healthy, 'pulse').filter((mark) => mark.kind === 'glow')
+    const counts = of(marks, LANE.healthy, 'pulse').filter((mark) => mark.kind === 'text')
+
+    // Two glows per packet — the halo and the head — so five journeys is ten.
+    expect(packets.length).toBeLessThanOrEqual(EVENT.maxConcurrent * 2)
+    expect(counts).toHaveLength(1)
+    expect(counts[0]?.kind === 'text' && counts[0].text).toBe(`×${20 - (EVENT.maxConcurrent - 1)}`)
+  })
+
+  it('says the count in mono, because a count is a figure (law 11)', () => {
+    const count = of(marksFor({ fleet, field: stormField(8) }), LANE.healthy, 'pulse').find(
+      (mark) => mark.kind === 'text',
+    )
+    expect(count?.kind === 'text' && count.font).toBe('mono')
+  })
+
+  it('counts nothing on a quiet lane — one event is one packet', () => {
+    const marks = marksFor({ fleet, field: stormField(1) })
+    expect(of(marks, LANE.healthy, 'pulse').filter((mark) => mark.kind === 'text')).toHaveLength(0)
   })
 })
 

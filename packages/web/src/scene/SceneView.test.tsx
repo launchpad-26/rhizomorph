@@ -1,4 +1,4 @@
-import { reduceAll } from '@observatory/core'
+import { createEvent as observatoryEvent, reduceAll } from '@observatory/core'
 import { act, cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ModeProvider } from '../app/ModeContext.js'
@@ -15,6 +15,7 @@ import type { EventSourceLike } from '../hooks/useEventStream.js'
 import { SCALE_EXTENT, ZOOM_STEP } from './camera.js'
 import { layoutScene } from './geometry.js'
 import { PulseField } from './pulses.js'
+import { laneIndex } from './resolve.js'
 import { SettleRegistry } from './settle.js'
 import Scene, { SceneView } from './index.js'
 
@@ -679,11 +680,217 @@ describe('the camera', () => {
   })
 })
 
-/** Records what was asked of it. Enough of a 2D context for `paint` to run. */
-function fakeContext(calls: string[], transforms: number[][] = []) {
+/**
+ * THE PAUSE CONTROL — WCAG 2.2.2, Level A.
+ *
+ * The scene breathes for as long as it is open, which is exactly the moving
+ * content that success criterion is about: automatic, longer than five seconds,
+ * alongside other content. So this is not a preference, it is the difference
+ * between shipping and not.
+ *
+ * The control is one boolean and the mechanism is one line — while paused the
+ * component holds its own clock still — so the tests that matter are the ones
+ * that watch the *canvas* rather than the state: two frames a second apart must
+ * put light in exactly the same places, with a real packet in flight and a real
+ * summons throbbing, or the pause is a label rather than a pause.
+ */
+describe('the pause control (WCAG 2.2.2)', () => {
+  /** A fleet with a live summons in it, so there is something to hold still. */
+  function stagedFleet() {
+    const spec = pathologySpec()
+    return buildFleet(reduceAll(fixtureHistory(spec, NOW)), {
+      now: NOW,
+      manifest: manifestFor(spec),
+    })
+  }
+
+  /**
+   * A live-clock mount with `requestAnimationFrame` driven by hand, which is the
+   * only way to watch a scene *not* move without racing it.
+   */
+  function mountMotion(options: { settle?: SettleRegistry } = {}) {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
+      frames.push(callback),
+    )
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+    vi.stubGlobal('Path2D', class {})
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+
+    const journal: unknown[][] = []
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      fakeContext([], [], journal) as unknown as CanvasRenderingContext2D,
+    )
+
+    const fleet = stagedFleet()
+    const field = new PulseField()
+    // One commit, half a second into its journey: a packet actually travelling
+    // when the operator reaches for the button.
+    field.ingest(
+      fixtureHistory(pathologySpec(), NOW)
+        .filter((event) => event.type === 'commit.landed')
+        .slice(-1),
+      laneIndex(fleet),
+      NOW - 500,
+    )
+
+    const utils = render(
+      <SceneView
+        fleet={fleet}
+        field={field}
+        settle={options.settle ?? new SettleRegistry()}
+        selectedId={null}
+        onSelect={vi.fn()}
+      />,
+    )
+
+    /** One frame, and what it drew. */
+    const frame = (): string => {
+      journal.length = 0
+      const next = frames.shift()
+      act(() => next?.(0))
+      return JSON.stringify(journal)
+    }
+
+    return { ...utils, field, frame, at: (ms: number) => vi.setSystemTime(NOW + ms) }
+  }
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  const pause = () => fireEvent.click(screen.getByTestId('scene-motion-pause'))
+
+  it('is a button that says what it will do, in the tab order', () => {
+    // A real button, so it answers Enter and Space and reaches the keyboard
+    // without anyone having to find the canvas first.
+    mountMotion()
+    const button = screen.getByTestId('scene-motion-pause')
+
+    expect(button.tagName).toBe('BUTTON')
+    expect(button).toHaveAttribute('aria-pressed', 'false')
+    expect(button.textContent).toMatch(/pause motion/i)
+    expect(screen.queryByTestId('scene-motion-state')).toBeNull()
+  })
+
+  it('says MOTION PAUSED, out loud, once it is pressed', () => {
+    // A stopped scene with no words on it is indistinguishable from a quiet
+    // fleet, which is the one confusion this instrument cannot afford.
+    mountMotion()
+    act(() => {
+      pause()
+    })
+
+    expect(screen.getByTestId('scene-motion-pause')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('scene-motion-state').textContent).toMatch(/motion paused/i)
+    expect(screen.getByTestId('scene-motion-pause').textContent).toMatch(/resume/i)
+  })
+
+  it('holds the picture still — the same light in the same places, a second later', () => {
+    const { field, frame, at } = mountMotion()
+    // The premise: there is light in flight to hold still. Without it this test
+    // would pass against a scene with no motion in it at all.
+    expect(field.pulses().length).toBeGreaterThan(0)
+    frame()
+
+    act(() => {
+      pause()
+    })
+    const held = frame()
+    at(1_000)
+    const later = frame()
+
+    expect(later).toBe(held)
+    // And it is a picture, not an empty canvas: the packet in flight is still
+    // drawn, exactly where it was. Pause freezes the scene; it does not strip it.
+    expect(held.length).toBeGreaterThan(1_000)
+  })
+
+  it('moves again the moment it is released', () => {
+    const { frame, at } = mountMotion()
+    act(() => {
+      pause()
+    })
+    const held = frame()
+
+    act(() => {
+      pause()
+    })
+    at(1_000)
+    expect(frame()).not.toBe(held)
+  })
+
+  it('is the difference: the same second of an unpaused scene does move', () => {
+    // The control test for the two above. Without this, a scene that had stopped
+    // drawing entirely would pass them both.
+    const { frame, at } = mountMotion()
+    const first = frame()
+    at(1_000)
+    expect(frame()).not.toBe(first)
+  })
+
+  it('lets a thread finish growing in, then stops', () => {
+    // Structural motion is the exception the ruling carved out: a thread caught
+    // half-way through growing is a picture of a fleet that does not exist, so
+    // grow-in keeps the real clock and settles.
+    const fleet = stagedFleet()
+    const settle = new SettleRegistry()
+    const lane = fleet.lanes[0]
+    settle.note(
+      [
+        observatoryEvent(
+          'worktree.discovered',
+          {
+            path: `/repo__worktrees/${lane?.branch}`,
+            branch: lane?.branch ?? 'x',
+            head: 'a1b2c3d',
+            isMain: false,
+          },
+          { id: 'grow-1', ts: NOW },
+        ),
+      ],
+      laneIndex(fleet),
+      NOW,
+    )
+
+    const { frame, at } = mountMotion({ settle })
+    act(() => {
+      pause()
+    })
+
+    const starting = frame()
+    at(400)
+    const growing = frame()
+    expect(growing).not.toBe(starting)
+
+    // Past SETTLE_MS the thread has arrived, and now the paused scene is a still.
+    at(1_400)
+    const grown = frame()
+    at(2_400)
+    expect(frame()).toBe(grown)
+  })
+})
+
+/**
+ * Records what was asked of it. Enough of a 2D context for `paint` to run.
+ *
+ * `journal` is the optional third recorder, and it is the one the pause suite
+ * reads: it keeps the *arguments* of the calls that place light on the canvas,
+ * so "the picture did not change" is a comparison of two frames rather than a
+ * count of how many calls each of them made.
+ */
+function fakeContext(calls: string[], transforms: number[][] = [], journal: unknown[][] = []) {
   const noop = (name: string) => () => {
     calls.push(name)
   }
+  const record =
+    (name: string) =>
+    (...args: unknown[]) => {
+      calls.push(name)
+      journal.push([name, ...args])
+    }
   const gradient = { addColorStop: noop('addColorStop') }
 
   return {
@@ -692,14 +899,14 @@ function fakeContext(calls: string[], transforms: number[][] = []) {
     restore: noop('restore'),
     beginPath: noop('beginPath'),
     closePath: noop('closePath'),
-    moveTo: noop('moveTo'),
-    lineTo: noop('lineTo'),
-    arc: noop('arc'),
+    moveTo: record('moveTo'),
+    lineTo: record('lineTo'),
+    arc: record('arc'),
     fill: noop('fill'),
     stroke: noop('stroke'),
     fillRect: noop('fillRect'),
     strokeRect: noop('strokeRect'),
-    fillText: noop('fillText'),
+    fillText: record('fillText'),
     translate: noop('translate'),
     rotate: noop('rotate'),
     scale: noop('scale'),
