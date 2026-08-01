@@ -108,6 +108,26 @@ function indexFor(fleet: Fleet): LaneIndex {
 }
 
 /**
+ * A run of frames a fixed distance apart, for the suites that watch something
+ * oscillate.
+ *
+ * The layout is built **once** and the clock advanced over it. Re-laying the
+ * scene out per sample is what these assertions actually cost, and none of them
+ * are about the layout: a lane drifts outward over ten minutes, and nothing at
+ * this timescale moves it. What does advance is `now`, which is what the throb,
+ * the breath and the summons's own age all read.
+ */
+function sampled(from: number, count: number, stepMs: number, options: FrameOptions = {}): Mark[][] {
+  const base = frameFor({ ...options, now: from })
+  const mode = motionMode(base)
+
+  return Array.from({ length: count }, (_unused, i) => {
+    const now = from + i * stepMs
+    return sceneMarks({ ...base, now, breath: breathOf(now, mode) })
+  })
+}
+
+/**
  * How much room the waiting lane's held light takes up — the throb, as one
  * number. Summed rather than maxed because the throb is spent across several
  * glows at once and one of them (the hand's halo) is a fixed size.
@@ -450,7 +470,7 @@ describe('paused', () => {
     // *not* what the component does (it holds the clock still), and that is the
     // point: the throb must be off even if something later forgets to freeze it.
     const window = (paused: boolean): number[] =>
-      Array.from({ length: 24 }, (_unused, i) => heldSpread(marksFor({ paused, now: NOW + i * 60 })))
+      sampled(NOW, 24, 60, { paused }).map(heldSpread)
 
     const held = window(true)
     const moving = window(false)
@@ -511,9 +531,7 @@ describe('the alarm ages', () => {
     // Sampled across a window longer than either period: the fresh summons runs
     // more complete cycles through it than the old one. Slower, never faster.
     const peaks = (from: number): number => {
-      const window = Array.from({ length: 61 }, (_unused, i) =>
-        heldSpread(marksFor({ now: from + i * 100 })),
-      )
+      const window = sampled(from, 31, 200).map(heldSpread)
       let count = 0
       for (let i = 1; i < window.length - 1; i += 1) {
         const before = window[i - 1] as number
