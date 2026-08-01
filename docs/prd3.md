@@ -240,3 +240,22 @@ endpoint) · **#85** panel focus. Wave 4: **#86** docs/demo refresh.
 (#78–#80 ordering reflects a GitHub API outage mid-filing; recorded on
 the issues.) Verification per ruling 25 runs conductor-side after wave 3,
 then retro.
+
+## Gate-standard ruling (2026-08-01 — rulings 33–34, operator)
+
+33. **The load gate measures a busy box.** 4× concurrent suite runs beside
+    whatever the fleet happens to be doing — gates never wait for quiet.
+    Prior 12/12 greens were measured against a rate-limit-stalled fleet
+    (load ~0.3); #78's gate beside three computing agents (load ~130)
+    failed 11/12 on suite-wide fixture-cost timeouts, none of them in the
+    lane's own diff. The standard is now the honest condition: a test that
+    cannot survive contention is a latent flake, and "wait for quiet"
+    would leave it in the suite.
+34. **Suite-cost remediation precedes all landings (#87).** The keystone's
+    real-fleet fixture pattern (`reduceAll(fixtureHistory)` + `buildFleet`
+    per test) put many tests near vitest's 5s ceiling. #87 memoises at the
+    source (`fleet/fixtures.ts`) so every consumer — including files owned
+    by in-flight lanes — gets cheap without being edited. Real fixtures
+    stay real: memoise, don't mock. Every held gate (#77, #78) regates
+    behind #87's landing; #77's in-fence hoist fix continues in parallel
+    and remains valid.
