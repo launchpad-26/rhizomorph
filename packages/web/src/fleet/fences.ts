@@ -131,6 +131,34 @@ export function findTrespasses(
 }
 
 /**
+ * Parse one manifest entry into a {@link LaneFence}, or `null` when it is
+ * malformed. `fallbackHandle` is the object key when the entry came from the
+ * bare-object/`{lanes: {...}}` shape (a missing `handle` field falls back to
+ * it), or `null` for the array shape, where there is no key to fall back to —
+ * an array entry without a `handle` is simply rejected.
+ */
+function parseFenceEntry(entry: unknown, fallbackHandle: string | null): LaneFence | null {
+  if (entry === null || typeof entry !== 'object') return null
+  const record = entry as Record<string, unknown>
+
+  const handle = typeof record.handle === 'string' && record.handle.length > 0 ? record.handle : fallbackHandle
+  if (handle === null || handle.length === 0) return null
+
+  const fence = record.fence
+  if (!Array.isArray(fence)) return null
+  if (!fence.every((pattern): pattern is string => typeof pattern === 'string' && pattern.length > 0)) {
+    return null
+  }
+
+  return {
+    handle,
+    fence: [...fence],
+    issue: typeof record.issue === 'string' ? record.issue : null,
+    model: typeof record.model === 'string' ? record.model : null,
+  }
+}
+
+/**
  * Validate `/api/lanes`' payload into a manifest, or `null` when it is not one.
  *
  * Hand-rolled rather than schema-driven because this is the *consumer* side of
@@ -138,36 +166,35 @@ export function findTrespasses(
  * "no manifest" — a half-parsed manifest would fence some lanes and silently
  * un-fence others, which reads on screen as "those lanes are behaving".
  *
- * Accepts either the bare object (`{ "<handle>": {...} }`) or the `{ lanes: … }`
- * envelope the API is expected to serve, so a shape decision on #76 cannot
- * strand this side of the wire.
+ * Accepts the bare object (`{ "<handle>": {...} }`), the `{ lanes: … }`
+ * envelope keyed by handle, and — the shape `/api/lanes` (#76) actually
+ * serves — a `{ lanes: [...] }` envelope where `lanes` is an ARRAY of entries
+ * each carrying its own `handle`. Entries are folded into the manifest keyed
+ * by that handle; two entries claiming the same handle make the manifest
+ * ambiguous about who owns it, so — per the same flat-refusal philosophy as a
+ * malformed entry — the whole thing is rejected rather than picking a winner.
  */
 export function parseLaneManifest(value: unknown): LaneManifest | null {
   if (value === null || typeof value !== 'object') return null
 
   const envelope = value as { lanes?: unknown }
   const raw: unknown = envelope.lanes !== undefined ? envelope.lanes : value
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
+  if (raw === null || typeof raw !== 'object') return null
 
   const manifest: LaneManifest = {}
-  for (const [key, entry] of Object.entries(raw as Record<string, unknown>)) {
-    if (entry === null || typeof entry !== 'object') return null
-    const record = entry as Record<string, unknown>
 
-    const handle = typeof record.handle === 'string' && record.handle.length > 0 ? record.handle : key
-    if (handle.length === 0) return null
-
-    const fence = record.fence
-    if (!Array.isArray(fence)) return null
-    if (!fence.every((pattern): pattern is string => typeof pattern === 'string' && pattern.length > 0)) {
-      return null
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      const parsed = parseFenceEntry(entry, null)
+      if (parsed === null) return null
+      if (Object.prototype.hasOwnProperty.call(manifest, parsed.handle)) return null
+      manifest[parsed.handle] = parsed
     }
-
-    manifest[key] = {
-      handle,
-      fence: [...fence],
-      issue: typeof record.issue === 'string' ? record.issue : null,
-      model: typeof record.model === 'string' ? record.model : null,
+  } else {
+    for (const [key, entry] of Object.entries(raw as Record<string, unknown>)) {
+      const parsed = parseFenceEntry(entry, key)
+      if (parsed === null) return null
+      manifest[key] = parsed
     }
   }
 

@@ -122,4 +122,61 @@ describe('parseLaneManifest', () => {
     expect(parseLaneManifest('a string')).toBeNull()
     expect(parseLaneManifest({ lanes: [] })).toBeNull()
   })
+
+  // The exact envelope `GET /api/lanes` serves (packages/server/src/api/lanes.ts,
+  // pinned by packages/server/src/api/lanes.test.ts's "serves a valid manifest"
+  // case): `lanes` is an ARRAY of entries, not an object keyed by handle. A
+  // hand-rolled approximation of this shape is how the array-vs-object mismatch
+  // shipped past two green suites (#91) — so this copies the real payload.
+  const liveApiLanesPayload = {
+    available: true,
+    version: 1,
+    lanes: [
+      {
+        handle: '77-attention-strip',
+        branch: '77-attention-strip',
+        fence: ['packages/web/src/panels/attention/**'],
+        issue: '77',
+        model: 'sonnet',
+        dispatchedAt: '2026-07-31T20:30:00Z',
+      },
+      {
+        handle: '75-keystone',
+        branch: '75-keystone',
+        fence: ['packages/web/src/fleet/**', 'packages/web/src/theme/**'],
+      },
+    ],
+  }
+
+  it('parses the live `/api/lanes` array envelope into a manifest whose fences match', () => {
+    expect(parseLaneManifest(liveApiLanesPayload)).toEqual({
+      '77-attention-strip': {
+        handle: '77-attention-strip',
+        fence: ['packages/web/src/panels/attention/**'],
+        issue: '77',
+        model: 'sonnet',
+      },
+      '75-keystone': {
+        handle: '75-keystone',
+        fence: ['packages/web/src/fleet/**', 'packages/web/src/theme/**'],
+        issue: null,
+        model: null,
+      },
+    })
+  })
+
+  it('rejects an array manifest where two entries claim the same handle', () => {
+    const duplicated = {
+      ...liveApiLanesPayload,
+      lanes: [
+        ...liveApiLanesPayload.lanes,
+        { handle: '75-keystone', branch: 'other', fence: ['packages/other/**'] },
+      ],
+    }
+    expect(parseLaneManifest(duplicated)).toBeNull()
+  })
+
+  it('rejects an array entry with no handle and nothing to fall back to', () => {
+    expect(parseLaneManifest({ lanes: [{ branch: 'a', fence: ['a/**'] }] })).toBeNull()
+  })
 })
