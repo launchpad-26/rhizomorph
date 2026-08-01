@@ -405,14 +405,17 @@ export interface LayoutOptions {
   width: number
   height: number
   /**
-   * The frame's clock. Recency is continuous, so a node's drift is carried
-   * forward from the fleet snapshot by `now - fleet.now` rather than being read
-   * straight off it — otherwise every lane would jump outward once a second, in
-   * step, as the derived model is rebuilt. Ruling 32 blesses the glide.
+   * The frame's clock. Both continuous facts in the layout are carried forward
+   * from the fleet snapshot with it rather than read straight off it — the
+   * lifecycle's age term against `lane.firstSeenAt`, and recency's `ageFrac`
+   * by `now - fleet.now` — because otherwise every lane in the picture would
+   * step forward together once a second as the derived model is rebuilt. Ruling
+   * 32 blesses the glide.
    *
-   * Measured *against the snapshot* rather than as an absolute instant, so a
-   * pinned fleet rendered at its own `now` is exactly the still image the
-   * snapshot describes. That is what makes a fixture screenshot reproducible.
+   * Recency is measured *against the snapshot* rather than as an absolute
+   * instant, so a pinned fleet rendered at its own `now` is exactly the still
+   * image the snapshot describes. That is what makes a fixture screenshot
+   * reproducible.
    */
   now: number
   /** laneId → grow-in progress 0–1. Absent means "already grown" (graft g3). */
