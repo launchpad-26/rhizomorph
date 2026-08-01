@@ -58,12 +58,13 @@ const HEAT_FULL = 2.5
  */
 const SEVERED_AT = [0.68, 0.76] as const
 /**
- * How much of the thread each closure consumes. Wide enough that a sample always
- * lands inside the flat bottom of the pinch, so the ribbon genuinely parts
- * rather than necking down to a hairline.
+ * How much of the thread each closure consumes: a short neck down to nothing,
+ * and a gap you can see across at the bottom of it. Small — the reading is "this
+ * line stops", and a gap wide enough to be a third of the thread would read as
+ * three threads.
  */
-const SEVERED_SPAN = 0.07
-const SEVERED_FLAT = 0.5
+const SEVERED_SPAN = 0.06
+const SEVERED_FLAT = 0.45
 
 /**
  * EXPENSIVE's taper. The last fifth of a burning lane's thread is drawn down to

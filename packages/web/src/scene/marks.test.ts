@@ -220,12 +220,32 @@ function reachOf(mark: Mark, from: Point): number {
  * 4's promise checkable: a lane's encoded facts must be recoverable *from its
  * geometry*, however much bounded variation has been spent on it.
  */
-function widthNear(mark: Mark, t: number): number {
+/** How far a point is from a polyline — segments, not just vertices. */
+function nearestOn(path: readonly Point[], point: Point): number {
+  let best = Infinity
+  for (let i = 1; i < path.length; i += 1) {
+    const a = path[i - 1] as Point
+    const b = path[i] as Point
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const span = dx * dx + dy * dy
+    const t =
+      span === 0 ? 0 : Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / span))
+    best = Math.min(best, Math.hypot(point.x - (a.x + dx * t), point.y - (a.y + dy * t)))
+  }
+  return best
+}
+
+function nearestDrawn(mark: Mark, t: number): number {
   if (mark.kind !== 'ribbon') return NaN
   const on = pointAt(mark.path, t)
   const vertices = mark.outline.flat()
-  if (vertices.length === 0) return 0
-  return 2 * Math.min(...vertices.map((v) => Math.hypot(v.x - on.x, v.y - on.y)))
+  if (vertices.length === 0) return Infinity
+  return Math.min(...vertices.map((v) => Math.hypot(v.x - on.x, v.y - on.y)))
+}
+
+function widthNear(mark: Mark, t: number): number {
+  return 2 * nearestDrawn(mark, t)
 }
 
 /** The brightest thing a lane puts on screen — the salience comparison's unit. */
@@ -725,11 +745,16 @@ describe('a storm of arrivals', () => {
 
   it('draws five packets and a count, not twenty packets', () => {
     const marks = marksFor({ fleet, field: stormField(20) })
-    const packets = of(marks, LANE.healthy, 'pulse').filter((mark) => mark.kind === 'glow')
-    const counts = of(marks, LANE.healthy, 'pulse').filter((mark) => mark.kind === 'text')
+    const mine = of(marks, LANE.healthy, 'pulse')
+    const packets = mine.filter((mark) => mark.kind !== 'text')
+    const counts = mine.filter((mark) => mark.kind === 'text')
 
-    // Two glows per packet — the halo and the head — so five journeys is ten.
-    expect(packets.length).toBeLessThanOrEqual(EVENT.maxConcurrent * 2)
+    // One mark per journey now that a commit is a swell in the thread rather
+    // than a dot with a halo (prd7 ruling 3), so five journeys is five — and the
+    // assertion is counted over every kind, so a future packet drawn as
+    // something else again still has to obey the cap.
+    expect(packets.length).toBeGreaterThan(0)
+    expect(packets.length).toBeLessThanOrEqual(EVENT.maxConcurrent)
     expect(counts).toHaveLength(1)
     expect(counts[0]?.kind === 'text' && counts[0].text).toBe(`×${20 - (EVENT.maxConcurrent - 1)}`)
   })
@@ -990,6 +1015,227 @@ describe('render everything — ruling 22, at twenty lanes', () => {
       const [r, g, b] = (node as Mark).kind === 'path' ? inksOf(node as Mark)[0]!.rgb : [0, 0, 0]
       expect(g, `${lane.id}'s node was not green-dominant`).toBeGreaterThan(Math.max(r, b))
     }
+  })
+})
+
+/**
+ * THE SUBSTITUTION TABLE (prd7 ruling 3) — meaning moved into form.
+ *
+ * Every row of the table replaces a discrete glyph with a modulation of a
+ * channel the mark already had, and every row spends **zero new objects**. The
+ * laws about what those marks *mean* are elsewhere in this file and did not
+ * move; what is held here is the substitution itself, so a later hand cannot
+ * quietly put the chevrons back and still be green.
+ *
+ * The one row with nothing to test is "progress → ribbon length": the scene
+ * never had a progress arc, because grow-in has always been drawn by truncating
+ * the thread (graft g3) and distance from the mass has meant the lifecycle since
+ * prd6 ruling 4. The row was already satisfied.
+ */
+describe('the substitution table — meaning as form', () => {
+  const marks = marksFor()
+
+  it('severed: the thread is in pieces, not ticked', () => {
+    // The point of the substitution. A stroke across a line is a *claim* about
+    // the line; a line that stops is the fact, and it survives being looked at
+    // closely — which is what the prd5 camera made possible and prd7 is paying
+    // off. So the frozen lane's ribbon is genuinely in more than one polygon,
+    // and the waiting lane's — the state it must never be confused with — is in
+    // exactly one.
+    const frozen = of(marks, LANE.frozen, 'thread')[0]
+    const waiting = of(marks, LANE.waiting, 'thread')[0]
+    expect(frozen?.kind === 'ribbon' && frozen.outline.length).toBeGreaterThan(1)
+    expect(waiting?.kind === 'ribbon' && waiting.outline.length).toBe(1)
+
+    // …and each closure is drawn: two marks, each one a lip of the parting that
+    // closes to nothing in the middle of itself.
+    const cuts = of(marks, LANE.frozen, 'severed')
+    expect(cuts).toHaveLength(2)
+    for (const cut of cuts) {
+      expect(cut.kind).toBe('ribbon')
+      expect(cut.kind === 'ribbon' && cut.outline.length, 'a lip that did not part').toBe(2)
+      // Nothing is drawn at the closure at all: the nearest ink to the middle of
+      // a cut is further away than the mark's own width, which is what "closes
+      // to nothing" means as arithmetic rather than as a description.
+      const width = cut.kind === 'ribbon' ? cut.widthRoot : 0
+      expect(nearestDrawn(cut, 0.5), 'the cut did not close').toBeGreaterThan(width)
+      // On the thread it severs, not floating beside it.
+      const on = cut.kind === 'ribbon' ? cut.path : []
+      for (const point of on) {
+        expect(nearestOn(frozen?.kind === 'ribbon' ? frozen.path : [], point)).toBeLessThan(1)
+      }
+    }
+  })
+
+  it('expensive: the thread is needled, and nothing is a chevron', () => {
+    const licks = of(marks, LANE.expensive, 'expensive-mark')
+    expect(licks.every((mark) => mark.kind === 'ribbon')).toBe(true)
+    // Each one drawn to a point: heat leaving, rather than three of the same
+    // arrowhead stacked up.
+    for (const lick of licks) expect(widthNear(lick, 0.95)).toBeLessThan(widthNear(lick, 0.1))
+  })
+
+  it('done: the seal is a knot — the cord carries past the tip and ties off', () => {
+    const fleet = fleetFor(fleet20Spec())
+    const landed = {
+      ...fleet,
+      lanes: fleet.lanes.map((lane, i) => (i === 0 ? { ...lane, activity: 'done' as const } : lane)),
+    }
+    const id = (fleet.lanes[0] as { id: string }).id
+    const seal = of(marksFor({ fleet: landed }), id, 'done-mark')[0]
+
+    expect(seal?.kind).toBe('ribbon')
+    if (seal?.kind !== 'ribbon') return
+    // A bar has two ends and no turning. A knot goes round: more than a full
+    // turn, and it comes back to where it started.
+    let turned = 0
+    for (let i = 1; i < seal.path.length - 1; i += 1) {
+      const a = seal.path[i - 1] as Point
+      const b = seal.path[i] as Point
+      const c = seal.path[i + 1] as Point
+      let delta = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x)
+      while (delta > Math.PI) delta -= 2 * Math.PI
+      while (delta < -Math.PI) delta += 2 * Math.PI
+      turned += delta
+    }
+    expect(Math.abs(turned)).toBeGreaterThan(Math.PI * 2)
+  })
+
+  it('rank enclosure: an organic region behind the name, and never a circle', () => {
+    const blob = of(marks, LANE.frozen, 'rank-enclosure')[0]
+    expect(blob?.kind).toBe('ribbon')
+    if (blob?.kind !== 'ribbon') return
+
+    // It encloses the lane's *name*, which is the thing an operator needs
+    // bracketed at a glance — not the node, where it used to compete with the
+    // state mark it was supposed to frame.
+    const thread = frameFor().geometry.byLane.get(LANE.frozen) as { label: { anchor: Point } }
+    const centre = blob.path.reduce(
+      (sum, point) => ({ x: sum.x + point.x / blob.path.length, y: sum.y + point.y / blob.path.length }),
+      { x: 0, y: 0 },
+    )
+    expect(Math.abs(centre.y - thread.label.anchor.y)).toBeLessThan(12)
+
+    // Displaced, not struck: the radii around it are not all the same.
+    const radii = blob.path.map((point) => Math.hypot(point.x - centre.x, point.y - centre.y))
+    expect(Math.max(...radii) / Math.min(...radii)).toBeGreaterThan(1.15)
+    // …and it is one filled region rather than a stroked ring.
+    expect(blob.outline).toHaveLength(1)
+    expect(blob.widthRoot).toBe(0)
+  })
+
+  it('a commit: a swell in the thread, not a bead riding on it', () => {
+    const fleet = fleetFor(pathologySpec())
+    const field = new PulseField()
+    field.ingest(
+      [
+        createEvent(
+          'commit.landed',
+          {
+            sha: 'swell-1',
+            branch: LANE.healthy,
+            message: 'feat: a step',
+            author: { name: 'agent', email: 'agent@observatory' },
+            files: [{ path: 'src/a.ts', status: 'modified', insertions: 2, deletions: 1 }],
+          },
+          { id: 'swell-1', ts: NOW },
+        ),
+      ],
+      indexFor(fleet),
+      NOW - 500,
+    )
+
+    const marks = marksFor({ fleet, field })
+    const packet = of(marks, LANE.healthy, 'pulse')[0]
+    expect(packet?.kind).toBe('ribbon')
+    if (packet?.kind !== 'ribbon') return
+
+    // On the lane's own thread, and wider there than the thread's own encoding:
+    // the hypha bulging as the substance passes, which is a channel the thread
+    // already owned rather than an object laid over it.
+    const thread = of(marks, LANE.healthy, 'thread')[0]
+    const spine = thread?.kind === 'ribbon' ? thread.path : []
+    for (const point of packet.path) expect(nearestOn(spine, point)).toBeLessThan(1)
+    expect(widthNear(packet, 0.5)).toBeGreaterThan(packet.widthRoot * 1.5)
+
+    // Direction still reads, and it reads off the width: the wake behind it is
+    // longer than the head, which is what the seven fading glows used to buy.
+    const wake = of(marks, LANE.healthy, 'pulse-wake')[0]
+    expect(wake?.kind).toBe('ribbon')
+    const arc = (mark: Mark): number => {
+      const path = mark.kind === 'ribbon' ? mark.path : []
+      let total = 0
+      for (let i = 1; i < path.length; i += 1) {
+        total += Math.hypot(
+          (path[i] as Point).x - (path[i - 1] as Point).x,
+          (path[i] as Point).y - (path[i - 1] as Point).y,
+        )
+      }
+      return total
+    }
+    expect(arc(wake as Mark)).toBeGreaterThan(arc(packet))
+  })
+
+  it('spends no new objects doing any of it', () => {
+    // The budget claim, counted. A form change that quietly doubled the display
+    // list would be a different prd — and at twenty calm lanes the whole picture
+    // has to stay something a canvas can draw sixty times a second.
+    const calm = marksFor({ fleet: fleetFor(fleet20Spec()) })
+    expect(calm.length / 20).toBeLessThan(12)
+  })
+})
+
+/**
+ * SIXTY FRAMES A SECOND, STILL (prd7 ruling 1's standing condition).
+ *
+ * The research measured the live scene locked at 60 fps before any of this, and
+ * the ruling is explicit that prd7 is a form change rather than a renderer
+ * change — so the one thing it is not allowed to do is buy the form with the
+ * frame budget. Thirty lanes is the number the brief names.
+ *
+ * The bound here is deliberately generous rather than tight. A wall-clock
+ * assertion inside a suite that also runs four-way concurrent under
+ * `--maxWorkers=5` is a flake waiting to happen, and a flaky perf test gets
+ * deleted rather than fixed. What it is for is catching the *order of magnitude*
+ * regression — somebody rebuilding outlines per mark per frame, or uncapping the
+ * sample count — while the real number goes in the issue report.
+ */
+describe('the frame budget at thirty lanes', () => {
+  it('builds the whole display list in a fraction of a frame', () => {
+    const base = fleetFor(fleet20Spec())
+    const fleet = {
+      ...base,
+      lanes: Array.from({ length: 30 }, (_unused, i) => ({
+        ...(base.lanes[i % base.lanes.length] as (typeof base.lanes)[number]),
+        id: `lane-${i}`,
+        handles: [`lane-${i}`],
+        slot: i,
+      })),
+    }
+
+    const frame = frameFor({ fleet })
+    expect(frame.geometry.threads).toHaveLength(30)
+
+    // Everything the loop does per frame except the canvas calls themselves,
+    // which jsdom has no context for: lay the scene out, then build the display
+    // list. `SceneView` runs both on every `requestAnimationFrame`.
+    const once = (): number => {
+      const geometry = layoutScene(fleet, { ...SIZE, now: NOW })
+      return sceneMarks({ ...frame, geometry }).length
+    }
+
+    // Warm the JIT, so the number below is the steady state a running loop sees
+    // rather than the first-call cost nobody experiences twice.
+    for (let i = 0; i < 20; i += 1) once()
+
+    const runs = 60
+    const started = performance.now()
+    for (let i = 0; i < runs; i += 1) once()
+    const perFrame = (performance.now() - started) / runs
+
+    // eslint-disable-next-line no-console -- the measurement is the point
+    console.log(`layout + sceneMarks at 30 lanes: ${perFrame.toFixed(3)} ms/frame`)
+    expect(perFrame).toBeLessThan(16.7)
   })
 })
 

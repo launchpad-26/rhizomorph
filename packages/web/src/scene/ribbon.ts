@@ -144,6 +144,17 @@ export function ribbonOutline(shape: RibbonShape): Point[][] {
 
   const last = spine.length - 1
   const widths = spine.map((_unused, i) => widthOf(shape, i / last))
+
+  // A closure must actually close. The width profile is continuous, so a stop
+  // that asks for zero reaches zero at one *parameter* — and whether a sample
+  // lands on it is a fact about the resolution the ribbon happens to be drawn
+  // at, not about the lane. So the sample nearest each closure is set to zero
+  // outright: a severed thread is severed at 12 samples and at 40.
+  for (const stop of shape.stops ?? []) {
+    if (stop.scale > 0) continue
+    widths[Math.round(clamp01(stop.at) * last)] = 0
+  }
+
   const widest = Math.max(...widths)
   if (widest <= PINCH_EPSILON) return []
 

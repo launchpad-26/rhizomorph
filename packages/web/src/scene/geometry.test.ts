@@ -23,6 +23,7 @@ import {
   bornRadial,
   layoutScene,
   lifecycleFrac,
+  rimSpacing,
   ringAngles,
   scarLengthPx,
   seedSize,
@@ -31,6 +32,7 @@ import {
   type ThreadGeometry,
 } from './geometry.js'
 import { CUT, cutAt, type RetireState } from './retire.js'
+import { WANDER_MAX_SPACING } from './variation.js'
 
 /**
  * WHERE A LANE LIVES, and what is allowed to move it.
@@ -889,6 +891,140 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
   function hidden(of: Fleet): Map<string, RetireState> {
     return new Map(of.lanes.map((lane) => [lane.id, cutAt(CUT.totalMs)]))
   }
+})
+
+/**
+ * BOUNDED UNIQUENESS, IN SITU (prd7 ruling 4).
+ *
+ * `variation.test.ts` holds the channel table's arithmetic in isolation. This is
+ * the half that matters to the instrument: that the wander reached the layout,
+ * that it stayed inside its cap *in pixels on this panel*, and — the whole
+ * point — that a lane's encoded facts are still recoverable from the geometry it
+ * came out with.
+ *
+ * The threat model is worth naming, because it is the reason the ruling exists
+ * at all. Every geometric channel here already carries a fact. If the wander
+ * moved a node, the picture would report a lane as further through its life than
+ * it is; if it moved an angle, "72 lives at four o'clock" would stop being true;
+ * if it moved a width, a lane would look like it had done work it had not. None
+ * of those failures looks like a bug. They look like data.
+ */
+describe('the wander is bounded, and the encoding survives it', () => {
+  const fleet = fleetFor(fleet20Spec())
+
+  it('bends the thread — the fleet is not drafted any more', () => {
+    // The premise. Without this the three bounds below are vacuously satisfied
+    // by a scene that never varied anything.
+    const geometry = layout(fleet)
+    const bows = geometry.threads.map((thread) => {
+      const first = thread.path[0] as Point
+      const straight = (t: number): Point => ({
+        x: first.x + (thread.node.x - first.x) * t,
+        y: first.y + (thread.node.y - first.y) * t,
+      })
+      return Math.max(
+        ...thread.path.map((point, i) => distance(point, straight(i / (thread.path.length - 1)))),
+      )
+    })
+    expect(Math.min(...bows)).toBeGreaterThan(1)
+    // …and no two lanes bow the same amount, which is the "hand-grown" claim.
+    expect(new Set(bows.map((bow) => bow.toFixed(6))).size).toBe(bows.length)
+  })
+
+  it('never moves a thread further sideways than the cap allows', () => {
+    /**
+     * The wander is the *only* difference between two fleets that are identical
+     * but for their handles, because the handle is the seed and nothing else in
+     * the layout reads one. So the distance between the two pictures is exactly
+     * twice the wander, and bounding it bounds the channel — without this file
+     * having to reconstruct the curve the wander was applied to.
+     */
+    const named = (lanes: number, suffix: string): SceneGeometry =>
+      layout({
+        ...fleet,
+        lanes: Array.from({ length: lanes }, (_unused, i) => ({
+          ...(fleet.lanes[i % fleet.lanes.length] as Lane),
+          id: `lane-${i}`,
+          handles: [`lane-${i}${suffix}`],
+          slot: i,
+        })),
+      })
+
+    // The cap is a fraction of lane spacing, so it is the same *perceptual*
+    // amount at four lanes and at thirty — which is what stops the wander from
+    // reading as one lane crossing into another's territory on a busy fleet.
+    for (const lanes of [4, 12, 30]) {
+      const mine = named(lanes, '')
+      const theirs = named(lanes, '-elsewhere')
+      const cap = WANDER_MAX_SPACING * rimSpacing(mine.rx, mine.ry, lanes)
+
+      let apart = 0
+      mine.threads.forEach((thread, i) => {
+        const other = theirs.threads[i] as ThreadGeometry
+        expect(other.node).toEqual(thread.node)
+        thread.path.forEach((point, k) => {
+          apart = Math.max(apart, distance(point, other.path[k] as Point))
+        })
+      })
+
+      expect(apart, `${lanes} lanes wandered past the cap`).toBeLessThanOrEqual(2 * cap + 1e-9)
+      expect(apart, `${lanes} lanes did not wander at all`).toBeGreaterThan(cap * 0.2)
+    }
+  })
+
+  it('leaves the encoded endpoints exactly where the layout put them', () => {
+    // The invariant everything else rests on. Recomputed here from the *fleet
+    // facts* rather than read off the geometry, so it is a claim about the
+    // encoding rather than a tautology: a lane's node sits at its lifecycle
+    // radius, on its own angle, whatever the wander did in between.
+    const geometry = layout(fleet)
+    for (const thread of geometry.threads) {
+      const life = lifecycleFrac(thread.sizeFrac, NOW - thread.lane.firstSeenAt, 0)
+      const born = bornRadial(geometry.rootRadius, geometry.rx, geometry.ry)
+      const radial = born + (1 - born) * life
+
+      expect(thread.node.x, `${thread.laneId} moved off its radius`).toBeCloseTo(
+        geometry.centre.x + geometry.rx * radial * Math.cos(thread.angle),
+        9,
+      )
+      expect(thread.node.y).toBeCloseTo(
+        geometry.centre.y + geometry.ry * radial * Math.sin(thread.angle),
+        9,
+      )
+    }
+  })
+
+  it('leaves the encoded width exactly where the layout put it', () => {
+    // The ±10% jitter is spent on the *drawn outline* (`marks/`), never on the
+    // number. So the work-size channel reads back off the geometry unchanged,
+    // and prd6 ruling 1's absolute scale is untouched by prd7.
+    const geometry = layout(fleet)
+    for (const thread of geometry.threads) {
+      expect(thread.widthRoot).toBe(1.2 + 5 * seedSize(thread.lane.outputTokens))
+    }
+  })
+
+  it('draws the same fleet the same way, twice', () => {
+    // Determinism, at the level the operator sees it: same state in, same
+    // geometry out — no clock in the noise, no `Math.random`, no dependence on
+    // which lane was laid out first.
+    const once = layout(fleet)
+    const twice = layout(fleet)
+    expect(twice.threads.map((t) => t.path)).toEqual(once.threads.map((t) => t.path))
+  })
+
+  it('gives a lane the same shape however its handles arrived', () => {
+    // The seed is the handle, and two collectors can report a lane's handles in
+    // either order. A picture that changed shape depending on which collector
+    // spoke first would be reporting the collectors.
+    const swapped = {
+      ...fleet,
+      lanes: fleet.lanes.map((lane) => ({ ...lane, handles: [...lane.handles].reverse() })),
+    }
+    expect(layout(swapped).threads.map((t) => t.path)).toEqual(
+      layout(fleet).threads.map((t) => t.path),
+    )
+  })
 })
 
 function pointOn(thread: ThreadGeometry, t: number): Point {
