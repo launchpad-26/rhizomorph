@@ -21,6 +21,7 @@ import {
   type MarkRole,
   type SceneFrame,
 } from './marks/index.js'
+import { ROOT_GROWTH, rootGirth } from './marks/root.js'
 import { CUT, SCAR, SCAR_FLOOR, cutAt, type RetireState } from './retire.js'
 import { ALARM_FLOOR, CALM_CEILING, CALM_FLOOR, RECEDE, salienceOf } from './salience.js'
 import { BROKEN, NEEDS_YOU, NOTICE } from './palette.js'
@@ -646,6 +647,132 @@ describe('the root-mass', () => {
     expect(label?.kind === 'text' && label.text).toBe('MAIN')
     expect(label?.kind === 'text' && label.font).toBe('mono')
   })
+
+  /**
+   * IT THICKENS WITH THE SESSION'S LANDED WORK (prd6 ruling 2).
+   *
+   * The other end of the homeward flow. A merge means the work is part of main
+   * now, so the mass it went into is bigger for having taken it — on the same
+   * absolute-scale-with-a-hard-cap discipline as ruling 1's seeds, because a mass
+   * that could grow without limit would eat the picture it is the centre of.
+   */
+  describe('thickening with the session work', () => {
+    const fleet = fleetFor(fleet20Spec())
+
+    /** The mass's own girth, as the radius of its widest curl. */
+    function girthOf(retire?: ReadonlyMap<string, RetireState>): number {
+      const marks = marksFor({
+        fleet,
+        ...(retire === undefined ? {} : { retire }),
+      }).filter((mark) => mark.role === 'root-mass')
+      expect(marks.length).toBeGreaterThan(0)
+      return Math.max(
+        ...marks.flatMap((mark) =>
+          mark.kind === 'stroke'
+            ? mark.points.map((point) => Math.hypot(point.x - 450, point.y - 130))
+            : [0],
+        ),
+      )
+    }
+
+    /** The first `count` lanes, landed. */
+    function landed(count: number, state = cutAt(CUT.totalMs)): Map<string, RetireState> {
+      return new Map(fleet.lanes.slice(0, count).map((lane) => [lane.id, state]))
+    }
+
+    it('grows as landed work accumulates, mass and halo together', () => {
+      const bare = girthOf()
+      let previous = bare
+      for (const count of [1, 4, 10, 20]) {
+        const grown = girthOf(landed(count))
+        expect(grown, `${count} landings did not thicken the mass`).toBeGreaterThan(previous)
+        previous = grown
+      }
+      expect(previous).toBeGreaterThan(bare * 1.05)
+
+      // The halo reaches further with it: a session that has taken a lot of work
+      // home has a wider footprint, not just a fatter middle.
+      const halo = (retire?: ReadonlyMap<string, RetireState>): number => {
+        const mark = marksFor({ fleet, ...(retire === undefined ? {} : { retire }) }).find(
+          (m) => m.role === 'root-halo',
+        )
+        return mark?.kind === 'glow' ? mark.radius : 0
+      }
+      expect(halo(landed(20))).toBeGreaterThan(halo())
+    })
+
+    it('caps, however much lands on it', () => {
+      const whales = {
+        ...fleet,
+        lanes: fleet.lanes.map((lane) => ({ ...lane, outputTokens: 10_000_000 })),
+      }
+      const at = (of: Fleet): number => {
+        const marks = marksFor({ fleet: of, retire: landed(20) }).filter(
+          (mark) => mark.role === 'root-mass',
+        )
+        return Math.max(
+          ...marks.flatMap((mark) =>
+            mark.kind === 'stroke'
+              ? mark.points.map((point) => Math.hypot(point.x - 450, point.y - 130))
+              : [0],
+          ),
+        )
+      }
+
+      expect(rootGirth(ROOT_GROWTH.fullTokens)).toBe(ROOT_GROWTH.maxGirth)
+      expect(rootGirth(ROOT_GROWTH.fullTokens * 10)).toBe(ROOT_GROWTH.maxGirth)
+      expect(rootGirth(0)).toBe(0)
+      // …and the picture obeys it: a session of whales is no bigger than the cap.
+      expect(at(whales) / girthOf()).toBeLessThanOrEqual(1 + ROOT_GROWTH.maxGirth + 1e-9)
+    })
+
+    it('takes the work home as each cord parts, not when it is queued', () => {
+      // The mass grows on `homecoming`, which is the retract — so a landing still
+      // queued behind the structural cap has not arrived here either, and a wave
+      // of them reads as arrivals one at a time rather than as one lurch.
+      const queued = girthOf(new Map())
+      const parting = girthOf(landed(6, cutAt(CUT.tensionMs)))
+      const arrived = girthOf(landed(6))
+
+      expect(parting).toBe(queued)
+      expect(arrived).toBeGreaterThan(parting)
+    })
+
+    it('does not un-land work the operator asked not to look at', () => {
+      // Hiding finished lanes is a request about clutter, not a claim that the
+      // work was undone.
+      const shown = marksFor({ fleet, retire: landed(20) })
+      const hidden = marksFor({ fleet, retire: landed(20), hideFinished: true })
+      const widest = (marks: Mark[]): number =>
+        Math.max(
+          ...marks
+            .filter((mark) => mark.role === 'root-mass')
+            .flatMap((mark) =>
+              mark.kind === 'stroke'
+                ? mark.points.map((point) => Math.hypot(point.x - 450, point.y - 130))
+                : [0],
+            ),
+        )
+
+      expect(widest(hidden)).toBe(widest(shown))
+    })
+
+    it('is a size, not a movement — it holds still between frames', () => {
+      // Ambient motion is the breath and nothing else (law 10). The girth changes
+      // only when a cut advances or a snapshot brings new landed work.
+      const at = (now: number): number =>
+        Math.max(
+          ...marksFor({ fleet, retire: landed(8), now, paused: true })
+            .filter((mark) => mark.role === 'root-mass')
+            .flatMap((mark) =>
+              mark.kind === 'stroke'
+                ? mark.points.map((point) => Math.hypot(point.x - 450, point.y - 130))
+                : [0],
+            ),
+        )
+      expect(at(NOW + 2_700)).toBe(at(NOW))
+    })
+  })
 })
 
 describe('render everything — ruling 22, at twenty lanes', () => {
@@ -826,6 +953,58 @@ describe('the cord-cut — a finished lane leaves the network', () => {
 
     it('has no bloom left once it has settled — a scar is flat', () => {
       expect(rolesOf(cut(CUT.totalMs)).has('scar-bloom')).toBe(false)
+    })
+  })
+
+  /**
+   * SEVERED SUBSTANCE RETURNS HOME (prd6 ruling 2).
+   *
+   * The display-list half. What makes the claim checkable rather than a matter of
+   * taste is that the flow is a `homeward` **ribbon** and not a `pulse`: it is the
+   * hypha's own matter being reabsorbed, which is the honest reading of a merge,
+   * and it is one of the two things a cut has that a replay of one does not.
+   */
+  describe('the way home', () => {
+    const during = mine(cut(CUT.tensionMs + 120))
+
+    it('flows down the severing thread while the cut runs', () => {
+      const flow = during.filter((mark) => mark.role === 'homeward')
+      expect(flow).toHaveLength(1)
+      const parcel = flow[0] as Mark
+      expect(parcel.kind).toBe('ribbon')
+      // Matter, not light: no glow anywhere on a retiring lane, still.
+      expect(during.filter((mark) => mark.kind === 'glow')).toHaveLength(0)
+    })
+
+    it('is the thread own matter — its colour, and narrower than the thread', () => {
+      const parcel = during.find((mark) => mark.role === 'homeward') as Mark
+      const living = of(marksFor(), LEAVING, 'thread')[0] as Mark
+      expect(parcel.kind === 'ribbon' && living.kind === 'ribbon').toBe(true)
+      if (parcel.kind !== 'ribbon' || living.kind !== 'ribbon') return
+
+      expect(parcel.widthRoot).toBeLessThan(living.widthRoot)
+      // Warmed, because it is moving — and still under the calm ceiling, because
+      // work coming home is not a summons (graft g6).
+      expect(brightnessOf(parcel)).toBeGreaterThan(brightnessOf(living))
+      expect(brightnessOf(parcel)).toBeLessThanOrEqual(CALM_CEILING)
+    })
+
+    it('is absent from history and from a replay', () => {
+      // Law 2 of the cut, extended: a lane that was already retired when we first
+      // saw it is scarred outright and never animates. Sending its substance home
+      // again would be re-landing work the log is only telling us about.
+      for (const marks of [mine(cut(CUT.totalMs)), mine(cut(0))]) {
+        expect(marks.filter((mark) => mark.role === 'homeward')).toHaveLength(0)
+      }
+      expect(marksFor().filter((mark) => mark.role === 'homeward')).toHaveLength(0)
+    })
+
+    it('has no journey to make under reduced motion', () => {
+      const still = marksFor({
+        reducedMotion: true,
+        retire: new Map([[LEAVING, cutAt(0, allowance('structural', 'reduced').travel)]]),
+      })
+      expect(still.filter((mark) => mark.role === 'homeward')).toHaveLength(0)
     })
   })
 

@@ -22,6 +22,13 @@ import { resolveLane, type LaneIndex } from './resolve.js'
  *   see, so the same `worktree.discovered` arrives again whenever the collector
  *   restarts. A lane already growing (or already grown) keeps its original start
  *   instant, so nothing re-sprouts.
+ *
+ * A **germinating** lane (prd6 ruling 3) needs nothing special from this file, and
+ * that is the point: a re-dispatched handle is a new worktree, so it is a new
+ * discovery and it grows in exactly like any other. What makes it a germination
+ * rather than a stranger is where the growth happens — `geometry.ts` seats it on
+ * the seed its handle left behind, at that seed's angle and starting from the size
+ * it earned — so the same 900 ms of growth reads as the old lane coming back.
  */
 export class SettleRegistry {
   private readonly startedAt = new Map<string, number>()
