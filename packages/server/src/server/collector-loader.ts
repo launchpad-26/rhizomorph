@@ -1,6 +1,9 @@
-import type { AnyCollector } from '@observatory/core'
+import type { AnyCollector, Collector, ObservatoryEvent } from '@observatory/core'
+import { reduceAll } from '@observatory/core'
 import { gitCollector } from '../collectors/git/index.js'
+import type { DisableableSnapshot } from '../collectors/resilience.js'
 import { withResilience } from '../collectors/resilience.js'
+import { withResumeReconciliation } from '../collectors/resume-reconcile.js'
 import { tmuxCollector } from '../collectors/tmux/index.js'
 import { createWorkmuxCollector } from '../collectors/workmux/index.js'
 
@@ -19,13 +22,23 @@ import { createWorkmuxCollector } from '../collectors/workmux/index.js'
  * `collector.disabled` exactly as before); the wrapper decides how many
  * consecutive failures to tolerate before that actually sticks, and keeps
  * probing afterwards so it can un-stick itself.
+ *
+ * Then wrapped again in `withResumeReconciliation` (#111), fed the folded
+ * status of whatever session this boot is resuming (`priorEvents`, empty for
+ * a fresh session). `withResilience`'s self-heal only fires on an in-process
+ * failing→succeeding transition — a freshly booted collector starts healthy
+ * in memory and never makes that transition, so a stale `collector.disabled`
+ * already in the log would otherwise outlive every restart. This is the seam
+ * that lets the live poll catch the fold up to reality on boot.
  */
 export async function loadCollectors(
   _log: { warn: (msg: string) => void } = console,
+  priorEvents: readonly ObservatoryEvent[] = [],
 ): Promise<AnyCollector[]> {
-  return [
-    withResilience(gitCollector),
-    withResilience(tmuxCollector),
-    withResilience(createWorkmuxCollector()),
-  ]
+  const folded = reduceAll(priorEvents)
+  function wrap<S extends DisableableSnapshot>(collector: Collector<S>): AnyCollector {
+    return withResumeReconciliation(withResilience(collector), folded.collectors[collector.name])
+  }
+
+  return [wrap(gitCollector), wrap(tmuxCollector), wrap(createWorkmuxCollector())]
 }

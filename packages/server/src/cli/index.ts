@@ -119,7 +119,7 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
   const collectors =
     options.collectors ??
     [
-      ...(await loadCollectors(log)),
+      ...(await loadCollectors(log, resumed?.events)),
       createSessionlogCollector({
         claudeProjectsRoot: options.claudeProjectsRoot,
         extraSessionDirs: args.extraSessionDirs,
