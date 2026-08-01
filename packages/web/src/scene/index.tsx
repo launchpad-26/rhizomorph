@@ -3,6 +3,7 @@ import { useStream } from '../app/StreamContext.js'
 import { useFleet, useSelection } from '../fleet/index.js'
 import { laneIndex } from './resolve.js'
 import { PulseField, takeNews } from './pulses.js'
+import { RetireRegistry } from './retire.js'
 import { SceneView } from './SceneView.js'
 import { SettleRegistry } from './settle.js'
 
@@ -34,9 +35,16 @@ export default function Scene({ now }: SceneProps = {}) {
   const fleet = useFleet()
   const { selectedId, select } = useSelection()
 
-  // Re-created per source: a different log gets a different field.
-  const { field, settle } = useMemo(
-    () => ({ field: new PulseField(), settle: new SettleRegistry() }),
+  // Re-created per source: a different log gets a different field. The retire
+  // registry goes with them for the same reason and one more — it remembers which
+  // lanes it has already cut, and carrying that across a source switch would mean
+  // a lane in the new log inheriting a cut from a lane in the old one.
+  const { field, settle, retire } = useMemo(
+    () => ({
+      field: new PulseField(),
+      settle: new SettleRegistry(),
+      retire: new RetireRegistry(),
+    }),
     [source],
   )
 
@@ -62,13 +70,19 @@ export default function Scene({ now }: SceneProps = {}) {
     const now = Date.now()
     field.ingest(taken.events, indexRef.current, now)
     settle.note(taken.events, indexRef.current, now)
-  }, [state, field, settle])
+    // The third thing fed from the news tail, and the reason all three are fed
+    // from it rather than from the fleet: a cut is an *animation*, so it may only
+    // fire for something that just happened. A replayed session — or a scrub past
+    // a landing — builds every scar and cuts nothing (`retire.ts`, law 2).
+    retire.note(taken.events, indexRef.current, now)
+  }, [state, field, settle, retire])
 
   return (
     <SceneView
       fleet={fleet}
       field={field}
       settle={settle}
+      retire={retire}
       selectedId={selectedId}
       onSelect={(laneId) => select(laneId === selectedId ? null : laneId)}
       {...(now === undefined ? {} : { now })}

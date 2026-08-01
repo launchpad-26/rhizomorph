@@ -15,6 +15,11 @@ import type { Fleet } from '../fleet/index.js'
  * home, so it has no journey to make and flares the mass directly. Anything the
  * fleet has never heard of also lands here rather than being invented a thread —
  * the scene declines to draw a lane the model does not have.
+ *
+ * The list of resolvable types is "every event the scene animates on", which as
+ * of prd5 ruling 3 includes `agent.status`: a lane declaring itself `done` is
+ * what cuts its cord (`retire.ts`), so it needs the same one answer to "whose
+ * lane is this?" that a commit does.
  */
 
 export interface LaneIndex {
@@ -56,6 +61,16 @@ export function resolveLane(index: LaneIndex, event: ObservatoryEvent): string |
       return lookup(index, event.payload.branch ?? null, event.payload.path, null)
     case 'worktree.removed':
       return lookup(index, null, event.payload.path, null)
+    // workmux naming a lane's own state. It carries all three identities, and the
+    // handle is the one it is *sure* of — the branch and worktree are optional in
+    // the schema, because workmux knows what it launched before git has seen it.
+    case 'agent.status':
+      return lookup(
+        index,
+        event.payload.branch ?? null,
+        event.payload.worktreePath ?? null,
+        event.payload.handle,
+      )
     case 'llm.usage':
     case 'llm.cost':
     case 'tool.activity':

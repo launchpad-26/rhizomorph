@@ -1,4 +1,10 @@
-import { pointAt, tangentAt, type Point, type ThreadGeometry } from '../geometry.js'
+import {
+  pointAt,
+  tangentAt,
+  type Point,
+  type RetireGeometry,
+  type ThreadGeometry,
+} from '../geometry.js'
 import {
   BROKEN,
   ICE_050,
@@ -16,6 +22,7 @@ import {
   mix,
   type Ink,
 } from '../palette.js'
+import { SCAR, toward } from '../retire.js'
 import { budget, type SceneFrame } from './frame.js'
 import { THORN_OUT } from './glyphs.js'
 import type { Mark } from './types.js'
@@ -45,6 +52,11 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const { laneId } = thread
   const frozen = thread.pathology === 'frozen'
   const base = threadInk(frame, thread)
+
+  // A retiring lane is not part of the living network, and the display list says
+  // so: no `thread`, no bloom once it has settled, no heat, no standing flow, no
+  // second growth. See `scarMarks`.
+  if (thread.retire !== null) return scarMarks(frame, thread, thread.retire, base)
 
   // Bloom first, wide and faint, then the core. Two ribbons rather than a shadow
   // blur: shadows on forty paths a frame is where canvas 2D falls over.
@@ -77,6 +89,88 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   if (frame.reducedMotion) marks.push(...standingFlow(frame, thread))
 
   marks.push(...filamentMarks(frame, thread, base))
+
+  return marks
+}
+
+/**
+ * THE CORD-CUT, as marks (prd5 ruling 3) — what a lane looks like once it has
+ * stopped being part of the network.
+ *
+ * The display list is where the claim is made: a retiring lane has **no**
+ * `thread` mark, no `heat`, no `thread-flow` and no `filament`. It is not a
+ * dimmed thread, it is a different kind of object, and `marks.test.ts` can say so
+ * by counting rather than by comparing brightnesses.
+ *
+ * Three marks at most, and each drops out at the stage where it stops being true:
+ *
+ * - the **bloom** goes out over the retract. Light leaves before colour does —
+ *   which is the right order, because it is the light that was the lane working.
+ *   A settled scar has none, and that flatness is half of why it reads as past.
+ * - the **remnant** is the thread's own last fifth, tapering as it always did,
+ *   desaturating into `SCAR.thread` over the settle.
+ * - the **freed end** curls back on itself. Every terminal in this scene ends in
+ *   a hook (ruling 23); one pointing back down its own thread is an end that was
+ *   *released*, which is the fact, rather than an end that was chopped.
+ *
+ * What it deliberately does not have is a `glow`. A glow is light, and there is
+ * no light here any more — no pulse, no heat, never again.
+ */
+function scarMarks(
+  frame: SceneFrame,
+  thread: ThreadGeometry,
+  cut: RetireGeometry,
+  living: Ink,
+): Mark[] {
+  if (cut.hidden) return []
+
+  const { laneId } = thread
+  const marks: Mark[] = []
+  const cold = toward(living, SCAR.thread, cut.scar)
+
+  const lit = 1 - cut.retract
+  if (lit > 0.01) {
+    marks.push({
+      kind: 'ribbon',
+      role: 'scar-bloom',
+      laneId,
+      alarm: false,
+      path: cut.path,
+      widthRoot: cut.widthRoot * 3.6,
+      widthTip: cut.widthTip * 3.6,
+      paint: budget(frame, laneId, false, { rgb: cold.rgb, alpha: cold.alpha * 0.1 * lit }),
+    })
+  }
+
+  marks.push({
+    kind: 'ribbon',
+    role: 'scar',
+    laneId,
+    alarm: false,
+    path: cut.path,
+    widthRoot: cut.widthRoot,
+    widthTip: cut.widthTip,
+    paint: budget(frame, laneId, false, cold),
+  })
+
+  // Nothing has parted yet during the tension release, so there is no freed end
+  // to curl: the thread is still tied into the mass, just slack.
+  const freed = cut.path[0]
+  const next = cut.path[1]
+  if (cut.from > 0 && freed !== undefined && next !== undefined) {
+    marks.push({
+      kind: 'path',
+      role: 'scar-mark',
+      laneId,
+      alarm: false,
+      d: THORN_OUT,
+      at: freed,
+      size: Math.max(6, cut.widthRoot * 4),
+      // Back down its own thread, away from the mass it let go of.
+      rotate: Math.atan2(freed.y - next.y, freed.x - next.x),
+      ink: budget(frame, laneId, false, toward(living, SCAR.glyph, cut.scar)),
+    })
+  }
 
   return marks
 }
@@ -267,7 +361,10 @@ function filamentMarks(frame: SceneFrame, thread: ThreadGeometry, base: Ink): Ma
  */
 export function knotMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const knot = thread.knot
-  if (knot === null) return []
+  // A retired lane carries no faults forward. Whatever it was doing when it
+  // stopped, it has stopped — and a knot on a scar would be an accusation about
+  // a lane nobody can act on any more.
+  if (knot === null || thread.retire !== null) return []
 
   const { centre, radius, tangent } = knot
   const width = Math.max(1.2, thread.widthRoot * 0.7)
@@ -334,7 +431,9 @@ export function knotMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
  */
 export function rogueMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const rogue = thread.rogue
-  if (rogue === null) return []
+  // Same reason as the knot: a scar reaches for nothing. The fence it crossed
+  // while it was alive is the fleet table's and the replay's to remember.
+  if (rogue === null || thread.retire !== null) return []
 
   const marks: Mark[] = []
   const amber = ink(NEEDS_YOU, 0.9)

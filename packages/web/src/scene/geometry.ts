@@ -1,5 +1,6 @@
 import type { Fleet, Lane, PathologyKind } from '../fleet/index.js'
 import { clamp01 } from './palette.js'
+import type { RetireState } from './retire.js'
 import { isAlarmRank } from './salience.js'
 
 /**
@@ -65,12 +66,44 @@ export interface FilamentGeometry {
   thread: string
 }
 
+/**
+ * THE CUT, as shape (prd5 ruling 3). Null for every lane still in the network.
+ *
+ * The retirement's *timing* is `retire.ts`'s; this is what those numbers do to
+ * the picture, and it is kept beside the living geometry rather than replacing it
+ * on purpose. {@link ThreadGeometry.path} stays whole through the whole cut, so
+ * the light already in flight along it — a landing packet takes 2.8 s to reach
+ * the mass and the cut takes 1.4 — finishes the real journey it was on while the
+ * thread behind it lets go. The remnant is what gets *drawn*; the full path is
+ * what is still true.
+ */
+export interface RetireGeometry extends RetireState {
+  /** What is left of the thread: severed end → node. The mark actually drawn. */
+  path: Point[]
+  /** Where the severance sits along the parent path. 0 while still attached. */
+  from: number
+  /** The remnant's widths, with the released taper already relaxed into them. */
+  widthRoot: number
+  widthTip: number
+  /**
+   * The operator's hide-finished toggle applies to this lane, so it draws
+   * nothing at all. Only ever true of a *settled* scar — a cut in progress is
+   * news and is always shown, because the one thing worse than a scar you did
+   * not want is a completion you never saw.
+   */
+  hidden: boolean
+}
+
 export interface ThreadGeometry {
   laneId: string
   lane: Lane
   /** Stable for the session — see the note above. */
   angle: number
-  /** Sampled centreline, root-mass rim → node. Everything else indexes into it. */
+  /**
+   * Sampled centreline, root-mass rim → node. Everything else indexes into it —
+   * including, deliberately, the light in flight over a thread that is being
+   * cut. See {@link RetireGeometry}.
+   */
   path: Point[]
   node: Point
   /** Outward unit normal of the rim at this lane's angle — where its label goes. */
@@ -91,6 +124,8 @@ export interface ThreadGeometry {
   pathology: PathologyKind | null
   /** True at needs-you or broken: this lane's marks are exempt from every fade. */
   alarm: boolean
+  /** Non-null once this lane has left the living network (prd5 ruling 3). */
+  retire: RetireGeometry | null
 }
 
 export interface SceneGeometry {
@@ -128,6 +163,32 @@ export const SETTLE_MS = 900
  */
 export const LABELS_ALL_MAX = 28
 
+/**
+ * How much of its own thread a scar keeps — the last 18%, near the rim.
+ *
+ * Short enough to read as a *mark* rather than as a thread that happens to be
+ * detached, long enough to still be a tapering ribbon with a lane's work-size in
+ * its width. The freed end travels from the root-mass rim to `1 - SCAR_KEEP`,
+ * which is also why the number is here rather than in `retire.ts`: it is a fact
+ * about the shape, not about the clock.
+ */
+export const SCAR_KEEP = 0.18
+
+/** How far a retiring lane's node drifts out toward the rim. */
+const RETIRE_DRIFT_PX = 9
+
+/**
+ * How far the root end of the thread bows out as the tension leaves it, as a
+ * fraction of the smaller rim half-axis — clamped, so the slack is the same
+ * perceptible sag on a tall panel and on a letterbox one.
+ */
+const SLACK_FRACTION = 0.06
+const SLACK_MIN_PX = 4
+const SLACK_MAX_PX = 12
+
+/** How far the released taper relaxes from root width toward tip width. */
+const TAPER_RELAX = 0.5
+
 /** Neighbours leave the mass together and fan apart, the way hyphae do. */
 const BUNDLE_SIZE = 4
 
@@ -158,6 +219,21 @@ export interface LayoutOptions {
   now: number
   /** laneId → grow-in progress 0–1. Absent means "already grown" (graft g3). */
   growth?: ReadonlyMap<string, number>
+  /**
+   * laneId → where its cord-cut has got to (prd5 ruling 3). Absent means the
+   * lane is still in the living network — including a lane that has landed but
+   * whose cut is still queued behind the structural cap, which is why this is a
+   * map from `RetireRegistry` rather than something re-derived from `lane.activity`
+   * here. The layout draws what the registry says is happening, and the registry
+   * is the only thing that knows whether it *saw* it happen.
+   */
+  retire?: ReadonlyMap<string, RetireState>
+  /**
+   * The operator's hide-finished preference. Settled scars draw nothing while it
+   * is on; cuts in progress are unaffected, and the lanes stay in the ring either
+   * way so that toggling it never re-spaces the fleet (graft g7).
+   */
+  hideFinished?: boolean
 }
 
 export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry {
@@ -228,7 +304,23 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
 
     const growth = clamp01(options.growth?.get(lane.id) ?? 1)
     const full = sampleCubic(root, bundle, control, rim, THREAD_SAMPLES)
-    const path = growth >= 1 ? full : truncate(full, easeOut(growth))
+    const grown = growth >= 1 ? full : truncate(full, easeOut(growth))
+
+    // The cut's first two stages are deformations of the thread rather than
+    // separate marks: the slack bows the root end out, and the drift carries the
+    // last fifth of the thread — the part that becomes the scar — toward the rim.
+    const cut = options.retire?.get(lane.id) ?? null
+    const slack = Math.min(SLACK_MAX_PX, Math.max(SLACK_MIN_PX, Math.min(rx, ry) * SLACK_FRACTION))
+    const path =
+      cut === null
+        ? grown
+        : released(grown, {
+            along: perp,
+            side: Math.sign(lean || 1),
+            slack: slack * cut.tension,
+            outward,
+            drift: RETIRE_DRIFT_PX * cut.drift,
+          })
     const node = path[path.length - 1] as Point
 
     const sizeFrac = clamp01(Math.log1p(lane.outputTokens) / Math.log1p(maxOutput))
@@ -264,6 +356,10 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
       },
       pathology,
       alarm: isAlarmRank(lane.rank),
+      retire:
+        cut === null
+          ? null
+          : severance(cut, path, widthRoot, widthTip, options.hideFinished === true),
     })
   })
 
@@ -411,6 +507,106 @@ function layoutFilaments(
   })
 }
 
+// ── the cut, as shape ───────────────────────────────────────────────────────
+
+interface Release {
+  /** The thread's own sideways direction — the axis its bow already runs on. */
+  along: Point
+  /** Which way that bow leans, so the slack loosens the curve rather than fighting it. */
+  side: number
+  /** Peak sideways sag, in px. */
+  slack: number
+  /** The rim's outward normal at this lane's angle. */
+  outward: Point
+  /** How far the node end is carried toward the rim, in px. */
+  drift: number
+}
+
+/**
+ * The thread with the tension let out of it and its tip drifted.
+ *
+ * Two displacements, and each one is a different stage's whole contribution:
+ *
+ * - **slack**, along the thread's *own* lean. A cord released from a post does
+ *   not straighten, it sags — and sagging further along the bow it already has
+ *   reads as the same thread going loose, where sagging the other way would read
+ *   as something pulling on it. The hump peaks about a third of the way out, so
+ *   the loosening is unmistakably at the root end: that is where the strain was.
+ * - **drift**, along the rim normal, weighted so it is exactly zero at the point
+ *   the severance will reach and full at the node. That is what makes the freed
+ *   end trace the thread's own path while the node still eases outward — the two
+ *   would fight if the drift were rigid.
+ */
+function released(path: readonly Point[], release: Release): Point[] {
+  const last = path.length - 1
+  return path.map((point, i) => {
+    const t = last <= 0 ? 1 : i / last
+    const sag = release.slack * slackHump(t)
+    const out = release.drift * driftWeight(t)
+    return {
+      x: point.x + release.along.x * release.side * sag + release.outward.x * out,
+      y: point.y + release.along.y * release.side * sag + release.outward.y * out,
+    }
+  })
+}
+
+/** Zero at both ends, peak 1 at t ≈ 0.32 — the slack is a root-end fact. */
+function slackHump(t: number): number {
+  return Math.sin(Math.PI * Math.pow(clamp01(t), 0.6))
+}
+
+/** Zero everywhere but the stretch that becomes the scar, easing in and out. */
+function driftWeight(t: number): number {
+  const into = (clamp01(t) - (1 - SCAR_KEEP)) / SCAR_KEEP
+  return into <= 0 ? 0 : smooth(into)
+}
+
+/**
+ * What is left of a thread mid-cut: the stretch from the severance to the node,
+ * resampled at its own resolution, with the released taper folded into its
+ * widths.
+ *
+ * The width at the severance is read *off the taper* rather than reset, so a
+ * retracting thread stays the thread it was — a big lane's remnant is a thicker
+ * mark than a small lane's, which is the same law (`thread width = work size`)
+ * the living network is drawn under. What the release does change is the taper's
+ * steepness: the root end relaxes {@link TAPER_RELAX} of the way toward the tip's
+ * width as the tension goes out of it.
+ */
+function severance(
+  cut: RetireState,
+  path: readonly Point[],
+  widthRoot: number,
+  widthTip: number,
+  hideFinished: boolean,
+): RetireGeometry {
+  const from = cut.retract * (1 - SCAR_KEEP)
+  const relaxed = widthRoot + (widthTip - widthRoot) * TAPER_RELAX * cut.tension
+
+  return {
+    ...cut,
+    from,
+    // Enough samples that a remnant still reads as a curve at every length it
+    // passes through — the full count while it is still nearly a whole thread,
+    // a floor once it is a stub.
+    path: span(path, from, Math.max(10, Math.ceil(THREAD_SAMPLES * (1 - from)))),
+    widthRoot: relaxed + (widthTip - relaxed) * from,
+    widthTip,
+    // Only a *settled* scar is hideable. A cut in progress is news, and the one
+    // thing worse than a scar the operator asked not to see is a completion they
+    // never saw at all.
+    hidden: hideFinished && cut.stage === 'scar',
+  }
+}
+
+/** The stretch of a path from `from` to its end, resampled to `steps` segments. */
+function span(path: readonly Point[], from: number, steps: number): Point[] {
+  const start = clamp01(from)
+  const out: Point[] = []
+  for (let i = 0; i <= steps; i += 1) out.push(pointAt(path, start + (1 - start) * (i / steps)))
+  return out
+}
+
 // ── faults with a shape ─────────────────────────────────────────────────────
 
 /** A closed loop tied into the thread. A pulse going round it is going nowhere. */
@@ -533,6 +729,12 @@ function angleDelta(from: number, to: number): number {
 function easeOut(t: number): number {
   const k = clamp01(t)
   return 1 - (1 - k) * (1 - k)
+}
+
+/** Smoothstep: flat at both ends, so a weighted displacement blends in without a kink. */
+function smooth(t: number): number {
+  const k = clamp01(t)
+  return k * k * (3 - 2 * k)
 }
 
 /** Stable 0–1 from a string, so the wander is the same every frame. */

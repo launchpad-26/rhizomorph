@@ -23,9 +23,68 @@ const DEFAULT_COLLAPSED: Readonly<Record<string, boolean>> = {
   collisions: false,
 }
 
-function readStore(): Record<string, boolean> {
+export function isPanelCollapsed(id: string): boolean {
+  const stored = readAt(STORAGE_KEY)[id]
+  return typeof stored === 'boolean' ? stored : (DEFAULT_COLLAPSED[id] ?? false)
+}
+
+export function setPanelCollapsed(id: string, collapsed: boolean): void {
+  writeAt(STORAGE_KEY, { ...readAt(STORAGE_KEY), [id]: collapsed })
+}
+
+/** Collapse state for one panel, persisted to localStorage under a shared key. */
+export function usePanelCollapsed(id: string): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
+  return usePersistedFlag(STORAGE_KEY, id, DEFAULT_COLLAPSED[id] ?? false)
+}
+
+// ── the scene's own prefs ────────────────────────────────────────────────────
+
+const SCENE_KEY = 'observatory.scenePrefs.v1'
+
+/** The scene's persisted booleans. One key, so a new one is one line here. */
+export type ScenePref = 'hideFinished'
+
+/**
+ * **Scars are visible by default** (prd5 ruling 3), and this is where that
+ * default lives.
+ *
+ * A retired lane leaves a mark near the rim rather than disappearing, because
+ * invisible completion is indistinguishable from a render bug — the operator
+ * cannot tell "that lane landed" from "the scene stopped drawing it". Hiding them
+ * is therefore an operator's *choice*, made once and remembered, and never the
+ * shipped reading. Hidden is also not gone: the fleet table and replay carry every
+ * scarred lane exactly as they always did, and a cut in progress is shown either
+ * way — see `scene/retire.ts`.
+ *
+ * Deliberately a separate store from the panel-collapse one above: a scar is not
+ * a panel, and a key called `panelCollapsed` holding a scene preference is the
+ * kind of small lie that makes the next person delete the wrong thing.
+ */
+const SCENE_DEFAULTS: Readonly<Record<ScenePref, boolean>> = {
+  hideFinished: false,
+}
+
+export function isScenePref(pref: ScenePref): boolean {
+  const stored = readAt(SCENE_KEY)[pref]
+  return typeof stored === 'boolean' ? stored : SCENE_DEFAULTS[pref]
+}
+
+export function setScenePref(pref: ScenePref, value: boolean): void {
+  writeAt(SCENE_KEY, { ...readAt(SCENE_KEY), [pref]: value })
+}
+
+/** One scene preference, persisted. Same mechanism as the panel prefs above. */
+export function useScenePref(
+  pref: ScenePref,
+): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
+  return usePersistedFlag(SCENE_KEY, pref, SCENE_DEFAULTS[pref])
+}
+
+// ── the shared mechanism ────────────────────────────────────────────────────
+
+function readAt(key: string): Record<string, boolean> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(key)
     if (!raw) return {}
     const parsed: unknown = JSON.parse(raw)
     return parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, boolean>) : {}
@@ -34,39 +93,44 @@ function readStore(): Record<string, boolean> {
   }
 }
 
-function writeStore(store: Record<string, boolean>): void {
+function writeAt(key: string, store: Record<string, boolean>): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(store))
+    localStorage.setItem(key, JSON.stringify(store))
   } catch {
-    // Storage unavailable or full — collapse state just won't persist this session.
+    // Storage unavailable or full — the preference just won't persist this session.
   }
 }
 
-export function isPanelCollapsed(id: string): boolean {
-  const stored = readStore()[id]
-  return typeof stored === 'boolean' ? stored : (DEFAULT_COLLAPSED[id] ?? false)
-}
+/**
+ * A boolean in one of the stores above, as React state that writes through.
+ *
+ * The initial read is lazy so a component that never mounts never touches
+ * storage, and the write happens inside the updater so a functional set (the
+ * toggle case) persists the value it actually resolved to rather than the one the
+ * caller last rendered with.
+ */
+function usePersistedFlag(
+  key: string,
+  field: string,
+  fallback: boolean,
+): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
+  const [value, setValue] = useState(() => {
+    const stored = readAt(key)[field]
+    return typeof stored === 'boolean' ? stored : fallback
+  })
 
-export function setPanelCollapsed(id: string, collapsed: boolean): void {
-  writeStore({ ...readStore(), [id]: collapsed })
-}
-
-/** Collapse state for one panel, persisted to localStorage under a shared key. */
-export function usePanelCollapsed(id: string): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
-  const [collapsed, setCollapsedState] = useState(() => isPanelCollapsed(id))
-
-  const setCollapsed = useCallback(
+  const set = useCallback(
     (next: boolean | ((prev: boolean) => boolean)) => {
-      setCollapsedState((prev) => {
-        const value = typeof next === 'function' ? next(prev) : next
-        setPanelCollapsed(id, value)
-        return value
+      setValue((prev) => {
+        const resolved = typeof next === 'function' ? next(prev) : next
+        writeAt(key, { ...readAt(key), [field]: resolved })
+        return resolved
       })
     },
-    [id],
+    [key, field],
   )
 
-  return [collapsed, setCollapsed]
+  return [value, set]
 }
 
 /**

@@ -32,6 +32,16 @@ export type MarkRole =
   | 'thread-flow'
   | 'filament'
   | 'filament-thorn'
+  /**
+   * The cord-cut (prd5 ruling 3). A retiring lane draws **no** `thread` mark —
+   * these are what it draws instead, which is how "it left the living network"
+   * is a query over the display list rather than a matter of brightness. The
+   * bloom is present only while the cut is running: a settled scar has none,
+   * because a bloom is what a lit thread has.
+   */
+  | 'scar'
+  | 'scar-bloom'
+  | 'scar-mark'
   // light in flight
   | 'pulse'
   | 'pulse-wake'

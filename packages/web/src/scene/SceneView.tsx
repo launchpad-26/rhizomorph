@@ -20,10 +20,12 @@ import {
   type Flight,
   type Viewport,
 } from './camera.js'
+import { useScenePref } from '../app/panelPrefs.js'
 import { layoutScene, type SceneGeometry } from './geometry.js'
 import { breathOf, motionMode, sceneMarks, type SceneFrame } from './marks/index.js'
 import { paint } from './paint.js'
 import type { PulseField } from './pulses.js'
+import { isRetired, type RetireRegistry } from './retire.js'
 import { salienceOf } from './salience.js'
 import type { SettleRegistry } from './settle.js'
 
@@ -67,6 +69,8 @@ export interface SceneViewProps {
   fleet: Fleet
   field: PulseField
   settle: SettleRegistry
+  /** Which lanes have left the network, and how far along their cut is. */
+  retire: RetireRegistry
   selectedId: string | null
   onSelect: (laneId: string | null) => void
   /**
@@ -89,13 +93,22 @@ const HIT_RADIUS = 30
 const FALLBACK_WIDTH = 640
 const FALLBACK_HEIGHT = 420
 
-export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: SceneViewProps) {
+export function SceneView({
+  fleet,
+  field,
+  settle,
+  retire,
+  selectedId,
+  onSelect,
+  now,
+}: SceneViewProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const geometryRef = useRef<SceneGeometry | null>(null)
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [reducedMotion, setReducedMotion] = useState(false)
   const [paused, setPaused] = useState(false)
+  const [hideFinished, setHideFinished] = useScenePref('hideFinished')
   const [failure, setFailure] = useState<string | null>(null)
   /** The instant the operator pressed pause. The scene's clock, while it lasts. */
   const pausedAtRef = useRef<number | null>(null)
@@ -114,8 +127,30 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
   const [panning, setPanning] = useState(false)
   const [grabReady, setGrabReady] = useState(false)
 
-  const latest = useRef({ fleet, field, settle, selectedId, hoverId, reducedMotion, paused, now })
-  latest.current = { fleet, field, settle, selectedId, hoverId, reducedMotion, paused, now }
+  const latest = useRef({
+    fleet,
+    field,
+    settle,
+    retire,
+    selectedId,
+    hoverId,
+    reducedMotion,
+    paused,
+    hideFinished,
+    now,
+  })
+  latest.current = {
+    fleet,
+    field,
+    settle,
+    retire,
+    selectedId,
+    hoverId,
+    reducedMotion,
+    paused,
+    hideFinished,
+    now,
+  }
 
   useEffect(() => {
     // `matchMedia` is absent in some test environments; its absence means "no
@@ -283,14 +318,23 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
       stepFlight(real)
       current.field.step(clock)
 
+      const mode = motionMode(current)
       const geometry = layoutScene(current.fleet, {
         width,
         height,
         now: clock,
-        // Structural motion keeps the real clock: a thread caught half-way
-        // through growing in is a picture of a fleet that does not exist, so a
-        // grow-in that was already running settles and *then* stops.
+        // A grow-in keeps the real clock: a thread caught half-way through
+        // growing in is a picture of a fleet that does not exist, so one that was
+        // already running settles and *then* stops.
         growth: current.settle.progress(real),
+        // The cord-cut takes the scene's clock instead, and the difference is not
+        // an inconsistency (prd5 ruling 3). A half-grown thread is a *false* fact
+        // — that lane's work is shorter than it is. A half-cut one is a true one:
+        // this lane is finishing, which it is. And the cut is the loudest thing
+        // the scene ever does, so it is the first thing an operator reaching for
+        // the pause control wants held still.
+        retire: current.retire.progress(current.fleet, clock, mode),
+        hideFinished: current.hideFinished,
       })
       geometryRef.current = geometry
       boundsRef.current = contentBounds(geometry)
@@ -307,7 +351,7 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
         now: clock,
         reducedMotion: current.reducedMotion,
         paused: current.paused,
-        breath: breathOf(clock, motionMode(current)),
+        breath: breathOf(clock, mode),
       }
 
       // `paint` owns the transform now, camera and device scale together — the
@@ -392,6 +436,16 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
       observer?.disconnect()
     }
   }, [now, moveTo])
+
+  /**
+   * A preference that changes the picture has to produce a frame. The running
+   * loop would pick it up on its own within 16 ms; a *pinned* clock draws once
+   * and stops, so under one this is the only thing that redraws — which is what
+   * makes the toggle testable against a still image.
+   */
+  useEffect(() => {
+    redrawRef.current()
+  }, [hideFinished])
 
   /**
    * The nearest node within {@link HIT_RADIUS}, in CSS pixels.
@@ -485,6 +539,11 @@ export function SceneView({ fleet, field, settle, selectedId, onSelect, now }: S
         onClick={(event) => onSelect(laneAt(event.clientX, event.clientY))}
       />
       <MotionControl paused={paused} onToggle={() => setPaused((held) => !held)} />
+      <ScarControl
+        hidden={hideFinished}
+        scars={fleet.lanes.filter(isRetired).length}
+        onToggle={() => setHideFinished((hide) => !hide)}
+      />
       <CameraControls
         lost={lost}
         reducedMotion={reducedMotion}
@@ -571,6 +630,71 @@ function MotionControl({ paused, onToggle }: MotionControlProps) {
           Motion paused
         </span>
       )}
+    </div>
+  )
+}
+
+interface ScarControlProps {
+  hidden: boolean
+  /** How many lanes have left the network — what the toggle is a toggle over. */
+  scars: number
+  onToggle: () => void
+}
+
+/**
+ * THE HIDE-FINISHED TOGGLE (prd5 ruling 3).
+ *
+ * Scars are visible by default and this button is the only thing that changes
+ * that, which is the ordering the ruling asks for: a retired lane leaves a mark
+ * because a lane that simply vanished is indistinguishable from a lane the scene
+ * failed to draw, and the operator gets to overrule that for their own screen
+ * once, persistently (`app/panelPrefs.ts`).
+ *
+ * Three details it would be easy to get wrong:
+ *
+ * - **It carries its own count.** "Hidden ≠ gone" is only true if the operator can
+ *   still see *that* something is hidden, so the number of scars is on the button
+ *   whichever way it is set. A filter that hides its own effect is a filter that
+ *   silently makes the picture a lie, which is law 12's whole subject.
+ * - **It looks pressed when it is on**, borrowing the pause control's exact
+ *   emphasis rather than inventing a second vocabulary for "this control is
+ *   currently changing what you see".
+ * - **It fades rather than mounting.** On a fleet with nothing finished there is
+ *   nothing to hide and the control has nothing to say, but a button that
+ *   appears the instant a lane lands would pop into view at exactly the moment
+ *   the operator's eye is on the cut. Same treatment, and the same reason, as
+ *   `Recenter` below.
+ *
+ * Top-right: the one corner nothing else claims. Pause owns top-left, the camera
+ * owns bottom-right, and the gap voice is painted into the bottom-left gutter.
+ */
+function ScarControl({ hidden, scars, onToggle }: ScarControlProps) {
+  const has = scars > 0
+
+  return (
+    <div className="pointer-events-none absolute right-2 top-2">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-pressed={hidden}
+        aria-hidden={!has}
+        tabIndex={has ? 0 : -1}
+        data-testid="scene-hide-finished"
+        title={
+          hidden
+            ? 'Show the lanes that have finished — they are still in the fleet table either way'
+            : 'Hide the scars finished lanes leave behind'
+        }
+        className={`pointer-events-auto rounded border px-2 py-1 text-[10px] uppercase leading-none tracking-wide backdrop-blur-sm transition-[opacity,transform,color,border-color] duration-150 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600 active:scale-[0.97] ${
+          has ? 'opacity-100' : 'pointer-events-none opacity-0'
+        } ${
+          hidden
+            ? 'border-ice-600 bg-ice-900/90 text-ice-100'
+            : 'border-ice-850 bg-ice-950/80 text-ice-400 hover:border-ice-600 hover:text-ice-200'
+        }`}
+      >
+        {`${hidden ? 'Show' : 'Hide'} finished · ${scars}`}
+      </button>
     </div>
   )
 }
@@ -673,10 +797,16 @@ function CameraButton({ onClick, label, hint, children }: CameraButtonProps) {
  */
 function SceneSummary({ fleet }: { fleet: Fleet }) {
   const flagged = fleet.lanes.filter((lane) => lane.pathologies.length > 0)
+  // The cord-cut is a change in the *topology*, so the words have to carry it
+  // too: "threaded" stops being true of a retired lane, and a reader who cannot
+  // see the canvas would otherwise be told a network that no longer exists.
+  const scarred = fleet.lanes.filter(isRetired).length
+  const living = fleet.lanes.length - scarred
 
   return (
     <p className="sr-only" data-testid="scene-summary">
-      {`${fleet.lanes.length} lanes threaded to ${fleet.root.mainBranch ?? 'main'}. `}
+      {`${living} lanes threaded to ${fleet.root.mainBranch ?? 'main'}. `}
+      {scarred === 0 ? '' : `${scarred} finished and cut loose. `}
       {flagged.length === 0
         ? 'None flagged.'
         : flagged

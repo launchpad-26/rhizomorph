@@ -16,6 +16,7 @@ import { SCALE_EXTENT, ZOOM_STEP } from './camera.js'
 import { layoutScene } from './geometry.js'
 import { PulseField } from './pulses.js'
 import { laneIndex } from './resolve.js'
+import { RetireRegistry } from './retire.js'
 import { SettleRegistry } from './settle.js'
 import Scene, { SceneView } from './index.js'
 
@@ -359,6 +360,7 @@ describe('the camera', () => {
         fleet={fleet}
         field={new PulseField()}
         settle={new SettleRegistry()}
+        retire={new RetireRegistry()}
         selectedId={null}
         onSelect={onSelect}
         {...(options.live === true ? {} : { now: NOW })}
@@ -708,7 +710,7 @@ describe('the pause control (WCAG 2.2.2)', () => {
    * A live-clock mount with `requestAnimationFrame` driven by hand, which is the
    * only way to watch a scene *not* move without racing it.
    */
-  function mountMotion(options: { settle?: SettleRegistry } = {}) {
+  function mountMotion(options: { settle?: SettleRegistry; retire?: RetireRegistry } = {}) {
     const frames: FrameRequestCallback[] = []
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
       frames.push(callback),
@@ -740,6 +742,7 @@ describe('the pause control (WCAG 2.2.2)', () => {
         fleet={fleet}
         field={field}
         settle={options.settle ?? new SettleRegistry()}
+        retire={options.retire ?? new RetireRegistry()}
         selectedId={null}
         onSelect={vi.fn()}
       />,

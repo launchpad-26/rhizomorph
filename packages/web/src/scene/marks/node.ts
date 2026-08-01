@@ -1,6 +1,6 @@
 import { formatTokens } from '../../lib/format.js'
 import type { LadderRank, PathologyKind } from '../../fleet/index.js'
-import { tangentAt, type Point, type ThreadGeometry } from '../geometry.js'
+import { tangentAt, type Point, type RetireGeometry, type ThreadGeometry } from '../geometry.js'
 import { alarmPulse } from '../motion.js'
 import {
   ACTIVITY_HUE,
@@ -20,6 +20,7 @@ import {
   type Ink,
   type Rgb,
 } from '../palette.js'
+import { SCAR, toward } from '../retire.js'
 import { budget, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
 import { CARTOUCHE, NODE_LENS, THORN_OUT } from './glyphs.js'
 import type { Mark } from './types.js'
@@ -79,6 +80,8 @@ const LENS_HUE_FLOOR = 0.45
 const HAND_LIFT = 15
 
 export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
+  if (thread.retire !== null) return scarNodeMarks(frame, thread, thread.retire)
+
   const marks: Mark[] = []
   const { laneId, lane } = thread
   const along = tangentAt(thread.path, 1)
@@ -92,12 +95,7 @@ export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const done = lane.activity === 'done'
   const plain = thread.pathology === null && lane.rank === 'calm'
 
-  // A plain lane's lens is its activity's hue, dimmed toward ice as the lane
-  // ages — recency in the same channel the thread reads it in, so a fresh green
-  // node and a stale one are the same colour at two temperatures rather than two
-  // colours. Never mixed all the way to ice: a lane that worked an hour ago
-  // still worked.
-  const tint = mix(ICE_600, hue, LENS_HUE_FLOOR + (1 - LENS_HUE_FLOOR) * freshness)
+  const tint = lensTint(hue, freshness)
 
   // The lens. Hollow for a frozen lane and for a finished one — an outline is
   // "no longer filling with work", which is true of a corpse and of a landed
@@ -163,6 +161,100 @@ export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       stroke: 1.3,
     })
   }
+
+  if (frame.salience.spotlightId === laneId || frame.salience.hoverId === laneId) {
+    marks.push(...spotlightMarks(thread, hue, length))
+  }
+
+  return marks
+}
+
+/**
+ * A plain lane's lens hue, dimmed toward ice as the lane ages — recency in the
+ * same channel the thread reads it in, so a fresh green node and a stale one are
+ * the same colour at two temperatures rather than two colours. Never mixed all
+ * the way to ice: a lane that worked an hour ago still worked.
+ */
+function lensTint(hue: Rgb, freshness: number): Rgb {
+  return mix(ICE_600, hue, LENS_HUE_FLOOR + (1 - LENS_HUE_FLOOR) * freshness)
+}
+
+/**
+ * THE SCAR'S OWN MARK (prd5 ruling 3) — what is left at the rim.
+ *
+ * Deliberately the *same three glyphs* a landed lane already wore — hollow lens,
+ * outward thorn, seal bar — at the same inks the instant the cut begins, and
+ * desaturating into `SCAR.glyph` over the settle. That continuity is the whole
+ * point of splitting the stages by channel: the tension release changes the
+ * thread's curvature and *nothing else*, so there is no pop at the tip to
+ * distract from the one thing that is happening.
+ *
+ * Two things are taken away, and both are the same statement:
+ *
+ * - **it does not breathe.** The lens's size loses `frame.breath` entirely. The
+ *   ambient layer is the scene being alive, and this lane is not.
+ * - **it gets smaller.** A third off, over the settle — "a small desaturated
+ *   mark near the rim" — while keeping its work-size in what is left, so a big
+ *   landing scars bigger than a small one.
+ *
+ * No cartouche and no state mark: a scar cannot be an alarm, because a lane
+ * nobody can act on has nothing to summon anybody for. The spotlight ring stays,
+ * because an operator may still click a scar to read it — hidden ≠ gone applies
+ * to the *toggle*, and pointing at one has never been hiding it.
+ */
+function scarNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: RetireGeometry): Mark[] {
+  if (cut.hidden) return []
+
+  const { laneId } = thread
+  const along = tangentAt(thread.path, 1)
+  const angle = Math.atan2(along.y, along.x)
+  const hue = hueOf(thread)
+  const freshness = 1 - thread.ageFrac
+  const length = (9 + 9 * thread.sizeFrac) * (1 - 0.35 * cut.scar)
+
+  const cold = (living: Ink): Ink =>
+    budget(frame, laneId, false, toward(living, SCAR.glyph, cut.scar))
+
+  const marks: Mark[] = [
+    {
+      kind: 'path',
+      role: 'scar-mark',
+      laneId,
+      alarm: false,
+      d: NODE_LENS,
+      at: thread.node,
+      size: length,
+      squash: (0.34 + 0.42 * thread.sizeFrac) * 1.6,
+      rotate: angle,
+      ink: cold(ink(hue, 0.85)),
+      // Hollow, exactly as a landed lane's lens already is: an outline is "no
+      // longer filling with work", and that has only become more true.
+      stroke: 1,
+    },
+    {
+      kind: 'path',
+      role: 'scar-mark',
+      laneId,
+      alarm: false,
+      d: THORN_OUT,
+      at: {
+        x: thread.node.x + Math.cos(angle) * length * 0.5,
+        y: thread.node.y + Math.sin(angle) * length * 0.5,
+      },
+      size: 9,
+      rotate: angle,
+      ink: cold(ink(lensTint(hue, freshness), 0.75)),
+    },
+    {
+      kind: 'stroke',
+      role: 'scar-mark',
+      laneId,
+      alarm: false,
+      width: 1.3,
+      ink: cold(ink(ACTIVITY_HUE.done, 0.9)),
+      points: sealPoints(thread, angle, length),
+    },
+  ]
 
   if (frame.salience.spotlightId === laneId || frame.salience.hoverId === laneId) {
     marks.push(...spotlightMarks(thread, hue, length))
@@ -349,12 +441,6 @@ function sealMark(
   angle: number,
   length: number,
 ): Mark {
-  const out = length * 0.5 + 2.5
-  const across: Point = { x: -Math.sin(angle), y: Math.cos(angle) }
-  const base: Point = {
-    x: thread.node.x + Math.cos(angle) * out,
-    y: thread.node.y + Math.sin(angle) * out,
-  }
   return {
     kind: 'stroke',
     role: 'node-seal',
@@ -362,11 +448,22 @@ function sealMark(
     alarm: false,
     width: 1.3,
     ink: budget(frame, thread.laneId, false, ink(ACTIVITY_HUE.done, 0.9)),
-    points: [
-      { x: base.x - across.x * 4, y: base.y - across.y * 4 },
-      { x: base.x + across.x * 4, y: base.y + across.y * 4 },
-    ],
+    points: sealPoints(thread, angle, length),
   }
+}
+
+/** Where the seal bar sits: across the tip, just beyond the lens. */
+function sealPoints(thread: ThreadGeometry, angle: number, length: number): Point[] {
+  const out = length * 0.5 + 2.5
+  const across: Point = { x: -Math.sin(angle), y: Math.cos(angle) }
+  const base: Point = {
+    x: thread.node.x + Math.cos(angle) * out,
+    y: thread.node.y + Math.sin(angle) * out,
+  }
+  return [
+    { x: base.x - across.x * 4, y: base.y - across.y * 4 },
+    { x: base.x + across.x * 4, y: base.y + across.y * 4 },
+  ]
 }
 
 /**
@@ -400,6 +497,7 @@ export function labelMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const spotlit = frame.salience.spotlightId === laneId || frame.salience.hoverId === laneId
 
   if (frame.geometry.labelPolicy === 'hover' && !spotlit && !thread.alarm) return []
+  if (thread.retire?.hidden === true) return []
 
   const { anchor, align } = thread.label
   const flagged = thread.pathology !== null
@@ -430,6 +528,15 @@ export function labelMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
     })
   }
 
+  // A name is not a state, so an unflagged lane's name stays ice — the hue
+  // belongs to the node beside it. What changed in prd4 is only how bright: the
+  // old ramp bottomed out at `ICE_700`, where a stale lane's name was effectively
+  // unreadable against the void.
+  const living = ink(
+    flagged ? hue : mix(ICE_500, ICE_100, 1 - thread.ageFrac),
+    flagged ? 0.98 : 0.85,
+  )
+
   marks.push({
     kind: 'text',
     role: 'label',
@@ -441,18 +548,21 @@ export function labelMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
     size: 10.5,
     weight: flagged ? 700 : 500,
     align,
+    // A scar's name recedes to `SCAR.name` and stops there. It has to stay
+    // readable: the whole reason a retired lane is still drawn is so the operator
+    // can tell *which* lane retired, and a name too dim to read has deleted it
+    // while pretending not to.
     ink: budget(
       frame,
       laneId,
       thread.alarm,
-      // A name is not a state, so an unflagged lane's name stays ice — the hue
-      // belongs to the node beside it. What changed in prd4 is only how bright:
-      // the old ramp bottomed out at `ICE_700`, where a stale lane's name was
-      // effectively unreadable against the void.
-      ink(flagged ? hue : mix(ICE_500, ICE_100, 1 - thread.ageFrac), flagged ? 0.98 : 0.85),
+      thread.retire === null ? living : toward(living, SCAR.name, thread.retire.scar),
     ),
   })
 
+  // The figure is **kept**, at full label brightness, scar or not. What a lane
+  // produced is not diminished by its having finished, and the one number a
+  // retired lane is still worth reading is how much work came out of it.
   marks.push({
     kind: 'text',
     role: 'label-figure',
