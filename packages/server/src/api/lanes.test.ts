@@ -87,6 +87,47 @@ describe('GET /api/lanes', () => {
     })
   })
 
+  it('serves a parked lane with the flag intact', async () => {
+    await writeManifest(
+      JSON.stringify({
+        version: 1,
+        lanes: [
+          {
+            handle: '77-attention-strip',
+            branch: '77-attention-strip',
+            fence: ['packages/web/src/panels/attention/**'],
+            parked: true,
+          },
+        ],
+      }),
+    )
+
+    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes' })
+
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body.available).toBe(true)
+    expect(body.lanes[0].parked).toBe(true)
+  })
+
+  it('normalises a null issue/model to absent rather than failing the whole manifest', async () => {
+    await writeManifest(
+      JSON.stringify({
+        version: 1,
+        lanes: [{ handle: 'a', branch: 'a', fence: ['packages/a/**'], issue: null, model: null }],
+      }),
+    )
+
+    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes' })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({
+      available: true,
+      version: 1,
+      lanes: [{ handle: 'a', branch: 'a', fence: ['packages/a/**'] }],
+    })
+  })
+
   it('reports available: false with an honest reason when the file is absent', async () => {
     const response = await makeApp().inject({ method: 'GET', url: '/api/lanes' })
 

@@ -371,6 +371,32 @@ describe('runDoctor', () => {
       expect(report.exitCode).toBe(0)
     })
 
+    it('reports ok when a lane carries a null issue/model rather than treating the manifest as broken', async () => {
+      await mkdir(path.join(repoPath, '.swarm'), { recursive: true })
+      await writeFile(
+        path.join(repoPath, '.swarm', 'lanes.json'),
+        JSON.stringify({
+          version: 1,
+          lanes: [
+            {
+              handle: '77-attention-strip',
+              branch: '77-attention-strip',
+              fence: ['packages/web/**'],
+              issue: null,
+              model: null,
+            },
+          ],
+        }),
+      )
+
+      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot })
+
+      const laneManifest = checkFor(report.checks, 'lane-manifest')
+      expect(laneManifest.status).toBe('ok')
+      expect(laneManifest.message).toContain('1 lane')
+      expect(report.exitCode).toBe(0)
+    })
+
     it('warns with the broken-file detail when the manifest is present but malformed, and does not fail the exit code', async () => {
       await mkdir(path.join(repoPath, '.swarm'), { recursive: true })
       await writeFile(path.join(repoPath, '.swarm', 'lanes.json'), '{ not valid json')

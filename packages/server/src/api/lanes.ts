@@ -12,13 +12,35 @@ import type { ServerContext } from '../server/context.js'
  * collector. `issue`/`model`/`dispatchedAt` are dispatch metadata the
  * Observatory doesn't require to do off-fence detection.
  */
+/**
+ * Accepts `null` as well as absent and normalises both to `undefined`. A
+ * manifest is operator input, not a compiled artifact — a dispatch tool that
+ * briefly wrote `issue: null` should not un-fence the whole repo by failing
+ * the entire manifest. This is field-level tolerance, the same spirit as the
+ * web validator's `parseFenceEntry` coercing a stray non-string `issue` to
+ * `null` rather than rejecting the entry — it only diverges from the web
+ * validator's *structural* flat-refusal (a bad `handle`/`fence` still fails
+ * the whole manifest there, and a bad `fence` still fails it here too).
+ */
+const nullableOptionalString = z
+  .string()
+  .nullish()
+  .transform((value) => value ?? undefined)
+
 const laneSchema = z.object({
   handle: z.string(),
   branch: z.string(),
   fence: z.array(z.string()),
-  issue: z.string().optional(),
-  model: z.string().optional(),
+  issue: nullableOptionalString,
+  model: nullableOptionalString,
   dispatchedAt: z.string().optional(),
+  /**
+   * Operator-declared (prd4 ruling 5) — an operator marks a lane parked in
+   * `.swarm/lanes.json` so the fleet view stops alarming on silence it
+   * already knows about. Optional and defaults to absent; only ever `true`
+   * on the wire, matching the web validator's `LaneFence.parked`.
+   */
+  parked: z.boolean().optional(),
 })
 export type Lane = z.infer<typeof laneSchema>
 
