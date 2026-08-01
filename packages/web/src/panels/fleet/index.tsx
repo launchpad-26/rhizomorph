@@ -1,10 +1,10 @@
 import { useStream } from '../../app/StreamContext.js'
 import {
   RANK_GLOW_CLASS,
-  RANK_TEXT_CLASS,
   SIGIL_ROW_SIZE,
   SIGIL_WORD,
   Sigil,
+  stateTextClass,
   useFleet,
   useSelection,
   type Fleet,
@@ -37,9 +37,11 @@ import {
  *
  * The STATE column draws the scene's own {@link Sigil} at row scale (graft
  * g1) beside the pathology or activity word — the alphabet is taught here and
- * read, legend-free, in the scene. Colour is applied by the ladder rank alone
- * (law 9 / graft g4): a calm row's mark is still the ice ramp's bright end,
- * never a fifth hue.
+ * read, legend-free, in the scene. Since prd4 ruling 3 that goes for the colour
+ * too: {@link stateTextClass} inks each row in the same six hues the scene
+ * paints with, so the table is the legend for the *palette* and not only for the
+ * glyphs. A reader learns "green means getting on with it" next to the word, and
+ * then reads the picture above without one.
  */
 export default function FleetTable() {
   const { state, status } = useStream()
@@ -111,11 +113,7 @@ interface RowProps {
 
 function Row({ lane, fleet, selected, onToggle }: RowProps) {
   const sigilKind = stateSigilKind(lane)
-  const rankClass = RANK_TEXT_CLASS[lane.rank]
-  // Alarm marks are exempt from every fade (graft g2): the dimming below only
-  // ever applies to a calm-ranked row, so a needs-you/broken sigil never dims
-  // no matter how quiet or finished the lane otherwise looks.
-  const faded = lane.rank === 'calm' && (lane.activity === 'idle' || lane.activity === 'done')
+  const stateClass = stateTextClass(lane.rank, lane.activity)
   const fence = fenceCell(lane, fleet)
   const branching = branchingFilaments(lane)
 
@@ -133,16 +131,24 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
           onToggle()
         }
       }}
+      // No blanket fade on a quiet row any more. It was how an idle or landed
+      // lane used to be told from a busy one back when every calm row was the
+      // same ice, and it worked by dimming the lane's *name*, its cost and its
+      // age along with its state — facts that are exactly as true and exactly as
+      // worth reading whatever the lane is doing. Ruling 3 gives idle and done
+      // their own dimness, in the one cell that is about how the lane is
+      // (`stateTextClass`: dim green for landed, ice for idle), so the row
+      // itself can stay legible. That is the "too dark" complaint's other half.
       className={`cursor-pointer border-t border-l-2 border-t-ice-850/60 hover:bg-ice-900 ${
         selected ? 'border-l-ice-100 bg-ice-900' : 'border-l-transparent'
-      } ${faded ? 'opacity-60' : ''}`}
+      }`}
     >
       <td className="py-1 pr-2 font-mono text-ice-200" title={lane.worktreePath ?? lane.id}>
         {lane.label}
         {lane.issue === null ? null : <span className="ml-1 text-[10px] text-ice-500">#{lane.issue}</span>}
       </td>
       <td className="py-1 pr-2" title={stateTitle(lane)}>
-        <span className={`inline-flex items-center gap-1 ${rankClass}`}>
+        <span className={`inline-flex items-center gap-1 ${stateClass}`}>
           <Sigil
             kind={sigilKind}
             size={SIGIL_ROW_SIZE}

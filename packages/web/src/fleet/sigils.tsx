@@ -15,14 +15,15 @@ import { arcPath, line, polar, segment, spiral, taper, thorn } from './strokes.j
  *
  * Two laws are built into the shapes rather than remembered by the caller:
  *
- * - **Hue is severity, form is kind** (graft g4). A mark takes its colour from
- *   `currentColor`, so the ladder hue is set once by a class on the parent and
- *   the glyph itself is never the thing that decides how bad something is. The
- *   three NEEDS-YOU marks therefore share one amber and must be told apart by
- *   silhouette alone — LOOPING is round and closed, WAITING is tall and
- *   vertical, OFF-FENCE is a horizontal spear crossing vertical posts. No two
- *   of them share an axis, a fill or an enclosure.
- * - **Colour is never the sole carrier** (law 9). Every state has a mark, and
+ * - **Hue is meaning, form is kind** (graft g4, law 9a). A mark takes its colour
+ *   from `currentColor`, so the hue is set once by a class on the parent
+ *   ({@link stateTextClass}) and the glyph itself is never the thing that
+ *   decides what state it is. The three NEEDS-YOU marks therefore share one
+ *   amber and must be told apart by silhouette alone — LOOPING is round and
+ *   closed, WAITING is tall and vertical, OFF-FENCE is a horizontal spear
+ *   crossing vertical posts. No two share an axis, a fill or an enclosure. The
+ *   same now goes for the activity marks, which share the green family.
+ * - **Colour is never the sole carrier** (law 9a). Every state has a mark, and
  *   every mark survives greyscale: FROZEN is the only wide horizontal, WAITING
  *   the only tall vertical, EXPENSIVE the only radial burst.
  *
@@ -65,9 +66,13 @@ export const SIGIL_WORD: Record<SigilKind, string> = {
 }
 
 /**
- * Which ladder rung's hue a mark wears. The four non-pathological states are
- * CALM by definition — including `done`, which is a finished lane and not a
- * silent one.
+ * Which ladder rung a mark sits on. The four non-pathological states are CALM by
+ * definition — including `done`, which is a finished lane and not a silent one.
+ *
+ * A rung is no longer the same question as a hue: since ruling 3 a calm state
+ * has a colour of its own, and {@link stateTextClass} is what resolves the two
+ * together. This record stays about severity, which is what the ladder, the
+ * spotlight and the fade exemption all read.
  */
 export const SIGIL_RANK: Record<SigilKind, LadderRank> = {
   // The five pathologies keep the rungs the model gave them; `waiting` is in
@@ -81,7 +86,7 @@ export const SIGIL_RANK: Record<SigilKind, LadderRank> = {
 
 /**
  * The one place a rung becomes a colour. Every surface uses these classes, so
- * the ladder hues stay exclusive (law 9) by construction rather than by review.
+ * the status hues stay exclusive (law 9a) by construction rather than by review.
  */
 export const RANK_TEXT_CLASS: Record<LadderRank, string> = {
   calm: 'text-calm',
@@ -90,11 +95,51 @@ export const RANK_TEXT_CLASS: Record<LadderRank, string> = {
   broken: 'text-broken',
 }
 
+/**
+ * Glow is alarm grammar (law 9b), so there is deliberately nothing here for the
+ * activity states — a calm row wears its family's hue and nothing is lit.
+ */
 export const RANK_GLOW_CLASS: Record<LadderRank, string> = {
   calm: 'glow-calm',
   notice: 'glow-notice',
   'needs-you': 'glow-needs-you',
   broken: 'glow-broken',
+}
+
+/**
+ * The same map for the activity half of the scale (law 9a, prd4 ruling 3), and
+ * the panel-side mirror of `scene/palette.ts`'s `ACTIVITY_HUE`.
+ *
+ * Idle and unknown deliberately point at the ice ramp rather than at a token of
+ * their own: nothing-to-say is structure, and a lane the log has never mentioned
+ * must not be able to borrow the confidence a status hue would lend it.
+ */
+export const ACTIVITY_TEXT_CLASS: Record<LaneActivity, string> = {
+  working: 'text-working',
+  waiting: 'text-waiting-benign',
+  done: 'text-done',
+  idle: 'text-ice-400',
+  unknown: 'text-ice-600',
+}
+
+/**
+ * What colour a lane's STATE reads in — and the reason the fleet table can *be*
+ * the scene's legend (graft g1).
+ *
+ * A rung above calm wins outright: full-strength rung colour belongs to alarm
+ * marks alone (law 9b), so a summons is never softened into its family's benign
+ * end by the fact that the lane is also, technically, working. Below that the
+ * activity speaks, which is what makes the STATE column teach the same six hues
+ * the scene paints with — the reader learns "green = getting on with it" beside
+ * the word, and then reads the picture without one.
+ *
+ * `waiting` is the pair to watch: it is a member of *both* vocabularies. As a
+ * pathology it is a summons and wears NEEDS_YOU; as a bare activity it is a lane
+ * that has merely stopped, and wears the muted end of the same amber. One scale,
+ * two brightnesses — which is precisely ruling 3's claim.
+ */
+export function stateTextClass(rank: LadderRank, activity: LaneActivity): string {
+  return rank === 'calm' ? ACTIVITY_TEXT_CLASS[activity] : RANK_TEXT_CLASS[rank]
 }
 
 export interface SigilProps {

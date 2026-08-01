@@ -1,13 +1,15 @@
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { PATHOLOGY_KINDS, PATHOLOGY_RANK } from './buildFleet.js'
+import { PATHOLOGY_KINDS, PATHOLOGY_RANK, type LadderRank, type LaneActivity } from './buildFleet.js'
 import {
+  ACTIVITY_TEXT_CLASS,
   RANK_TEXT_CLASS,
   SIGIL_KINDS,
   SIGIL_RANK,
   SIGIL_ROW_SIZE,
   SIGIL_SCENE_SIZE,
   Sigil,
+  stateTextClass,
 } from './sigils.js'
 
 afterEach(cleanup)
@@ -113,6 +115,43 @@ describe('the sigil alphabet', () => {
     expect(SIGIL_RANK.frozen).toBe('broken')
   })
 
+  it('gives every activity a hue of its own, from the semantic map (law 9a)', () => {
+    // Ruling 3's half of the scale. `working` and `done` are one family at two
+    // brightnesses, `waiting` the muted end of the amber a summons wears — so a
+    // reader who has learned one end of a family has learned the other.
+    expect(ACTIVITY_TEXT_CLASS.working).toBe('text-working')
+    expect(ACTIVITY_TEXT_CLASS.done).toBe('text-done')
+    expect(ACTIVITY_TEXT_CLASS.waiting).toBe('text-waiting-benign')
+    // Nothing-to-say is structure, so it stays on the ice ramp: a lane the log
+    // has never mentioned cannot borrow a status hue's confidence (law 12).
+    expect(ACTIVITY_TEXT_CLASS.idle).toMatch(/^text-ice-/)
+    expect(ACTIVITY_TEXT_CLASS.unknown).toMatch(/^text-ice-/)
+    // And no activity may reach for the two hues that mean somebody is needed.
+    for (const activity of activities()) {
+      expect(ACTIVITY_TEXT_CLASS[activity]).not.toBe('text-needs-you')
+      expect(ACTIVITY_TEXT_CLASS[activity]).not.toBe('text-broken')
+    }
+  })
+
+  it('lets a rung outrank the activity under it, and only a rung (law 9b)', () => {
+    // Full-strength rung colour belongs to alarm marks alone. A looping lane is
+    // also, technically, working — and must not be softened into green by it.
+    for (const rank of ['notice', 'needs-you', 'broken'] as const satisfies LadderRank[]) {
+      for (const activity of activities()) {
+        expect(stateTextClass(rank, activity)).toBe(RANK_TEXT_CLASS[rank])
+      }
+    }
+    // Below that the activity speaks, which is what makes the table a legend
+    // for the palette and not only for the glyphs (graft g1).
+    for (const activity of activities()) {
+      expect(stateTextClass('calm', activity)).toBe(ACTIVITY_TEXT_CLASS[activity])
+    }
+    // `waiting` is in both vocabularies, and that is the whole of ruling 3: one
+    // amber family read at two brightnesses, severity told by the rung.
+    expect(stateTextClass('needs-you', 'waiting')).toBe('text-needs-you')
+    expect(stateTextClass('calm', 'waiting')).toBe('text-waiting-benign')
+  })
+
   it('is decorative without a label and named with one', () => {
     const bare = svgFor('frozen', SIGIL_ROW_SIZE)
     expect(bare.getAttribute('aria-hidden')).toBe('true')
@@ -124,6 +163,11 @@ describe('the sigil alphabet', () => {
     expect(named.getAttribute('aria-label')).toBe('FROZEN')
   })
 })
+
+/** Every activity, read off the class map itself so a new one cannot be missed. */
+function activities(): LaneActivity[] {
+  return Object.keys(ACTIVITY_TEXT_CLASS) as LaneActivity[]
+}
 
 /** Crude unit-space bounding box, read straight off the drawn coordinates. */
 function boundsOf(kind: (typeof SIGIL_KINDS)[number]): { width: number; height: number } {

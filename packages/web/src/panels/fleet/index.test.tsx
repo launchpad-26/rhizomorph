@@ -131,6 +131,48 @@ describe('FleetTable — the staged-pathology fixture', () => {
     }
   })
 
+  it('inks the STATE cell in the same six hues the scene paints with (graft g1)', async () => {
+    await renderFixture('3')
+
+    // The table is the scene's legend, and since ruling 3 that means the
+    // palette and not only the glyphs: a reader learns "green = getting on with
+    // it" here, beside the word, and then reads the picture without a legend.
+    const stateSpan = (laneId: string): HTMLElement => {
+      const row = rows().find((r) => r.getAttribute('data-lane') === laneId)
+      expect(row, `no row for ${laneId}`).toBeDefined()
+      const span = (row as HTMLElement).querySelectorAll('td')[1]?.querySelector('span')
+      expect(span, `no state span for ${laneId}`).not.toBeNull()
+      return span as HTMLElement
+    }
+
+    // An alarmed row keeps the rung's class outright. A looping lane is also,
+    // technically, working — and must never be softened into green by it.
+    expect(stateSpan('41-retry-parser').className).toContain('text-needs-you')
+    expect(stateSpan('42-otel-receiver').className).toContain('text-broken')
+    expect(stateSpan('44-scene-pulses').className).toContain('text-notice')
+
+    // A calm row wears its activity's own hue instead of the old blanket ice.
+    const calm = expectedFleet('pathology').lanes.find(
+      (lane) => lane.rank === 'calm' && lane.activity === 'working',
+    )
+    expect(calm, 'the fixture has no calm working lane to read').toBeDefined()
+    expect(stateSpan((calm as { id: string }).id).className).toContain('text-working')
+  })
+
+  it('keeps a quiet lane\'s facts as legible as a busy one\'s', async () => {
+    // The row-wide `opacity-60` on idle and done lanes is gone. It dimmed the
+    // lane's name, cost and age along with its state — facts exactly as true and
+    // exactly as worth reading whatever the lane is up to. Dimness now lives in
+    // the one cell that is about how the lane *is*.
+    await renderFixture('3')
+
+    for (const row of rows()) {
+      expect(row.className, `${row.getAttribute('data-lane')} was faded wholesale`).not.toContain(
+        'opacity-',
+      )
+    }
+  })
+
   it('surfaces the detector\'s own evidence string on the STATE cell, not a bare label (graft g4)', async () => {
     await renderFixture('3')
 
