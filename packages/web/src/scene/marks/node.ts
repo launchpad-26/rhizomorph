@@ -164,22 +164,10 @@ function stateMarks(
       return chevronMarks(frame, thread, angle, length)
 
     case 'looping':
-      // A ring at the node echoes the knot tied into the thread: one fault,
-      // two marks, so the eye finds it whether it lands on the tip or the line.
-      return [
-        {
-          kind: 'arc',
-          role: 'orbit',
-          laneId,
-          alarm: true,
-          at: thread.node,
-          radius: length * 0.55 + 5,
-          from: 0,
-          to: Math.PI * 2,
-          width: 1.2,
-          ink: ink(hue, 0.6),
-        },
-      ]
+      // Nothing at the tip. The fault is the knot tied into the thread and the
+      // light going round it, and both are already drawn there — a third amber
+      // ring at the node only crowds the two marks that carry the meaning.
+      return []
 
     case 'off-fence':
       // A barb on the lane's own node: this one has a hook out. The reach and

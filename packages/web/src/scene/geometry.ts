@@ -163,7 +163,9 @@ export interface LayoutOptions {
 export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry {
   const { width, height, now } = options
   const centre: Point = { x: width / 2, y: height / 2 }
-  const rootRadius = Math.max(20, Math.min(width, height) * 0.075)
+  // Big enough to read as the *mass* the threads are threaded into, rather than
+  // as one more node that happens to sit in the middle.
+  const rootRadius = Math.max(26, Math.min(width, height) * 0.11)
 
   // Labels live outside the nodes, so the rim has to leave them room — two lines
   // of 10px type radially outward, plus the widest lane name we might draw.
@@ -210,8 +212,15 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
     // A deterministic sideways lean, so no two threads are congruent and the
     // network looks grown rather than drafted. Keyed on the lane id, so it is
     // the same wander every frame and every session.
+    //
+    // Every thread gets a *minimum* bow, not just a random one: a lane whose
+    // hash lands near the middle would otherwise run dead straight out of the
+    // mass, and a straight line among curves reads as a beam rather than as a
+    // hypha. The sign is the hash's; only the magnitude is floored.
     const perp: Point = { x: -outward.y, y: outward.x }
-    const wander = (hash(lane.id) - 0.5) * Math.min(rx, ry) * 0.26
+    const lean = hash(lane.id) - 0.5
+    const wander =
+      Math.sign(lean || 1) * (0.3 + Math.abs(lean) * 1.4) * Math.min(rx, ry) * 0.45
     const control: Point = {
       x: bundle.x + (rim.x - bundle.x) * 0.6 + perp.x * wander,
       y: bundle.y + (rim.y - bundle.y) * 0.6 + perp.y * wander,

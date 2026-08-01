@@ -93,7 +93,12 @@ export function emphasisOf(
 ): number {
   if (alarm) return 1
   if (salience.spotlightId === null) return 1
-  if (laneId === null) return RECEDE
+  // The root-mass and the scene's own chrome are not lanes and are never in the
+  // running: receding them dims the thing every thread is threaded *into*, so
+  // the network stops reading as a network at precisely the moment somebody is
+  // looking hard at it. They stay under the calm ceiling like everything else,
+  // which is what keeps them out of the summons's way.
+  if (laneId === null) return 1
   if (laneId === salience.hoverId) return 1
   return laneId === salience.spotlightId ? 1 : RECEDE
 }
