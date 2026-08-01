@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ModeProvider } from '../app/ModeContext.js'
 import { StreamProvider } from '../app/StreamContext.js'
 import { FleetProvider, SelectionProvider } from '../fleet/index.js'
@@ -22,7 +22,6 @@ import Scene from './index.js'
  */
 
 afterEach(() => {
-  cleanup()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -78,44 +77,85 @@ async function pressKey(key: string) {
 }
 
 describe('the three sources, keys 1 / 2 / 3', () => {
-  it('starts on the live stream and says so honestly when it is empty', async () => {
+  /**
+   * One mount, driven through all three sources in key order across four
+   * sequential `beforeAll` hooks — not once per `it`, and not inside the
+   * timed test bodies. Each `it` below used to mount fresh and re-drive a
+   * fixture from scratch: the same per-test-rebuild cost #87 hoisted away
+   * from the attention suite, compounded here by a real ~8,000-event fold and
+   * detector pass over a real 20-lane fleet. That fold is inherently the most
+   * expensive thing this file does; it belongs in setup, timed against
+   * vitest's `hookTimeout` (10s per hook) rather than the tighter default
+   * `testTimeout` (5s) each `it` body races. A single hook doing all four
+   * steps would still have to fit the whole chain in one 10s window — worse
+   * headroom than the four independent 5s-per-test windows it replaces — so
+   * each step gets its own `beforeAll`, its own full 10s. The `it`s below
+   * only assert against the summaries already captured: same real fold, real
+   * detectors, real fixtures, paid for once and off the clock they're read on.
+   */
+  let liveSummary = ''
+  let fleet20Summary = ''
+  let pathologySummary = ''
+  let backToLiveSummary = ''
+
+  beforeAll(async () => {
     await mountScene()
+    liveSummary = summary()
+  })
+
+  beforeAll(async () => {
+    await pressKey('2')
+    fleet20Summary = summary()
+  })
+
+  beforeAll(async () => {
+    await pressKey('3')
+    pathologySummary = summary()
+  })
+
+  beforeAll(async () => {
+    await pressKey('1')
+    backToLiveSummary = summary()
+  })
+
+  afterAll(() => {
+    cleanup()
+  })
+
+  it('starts on the live stream and says so honestly when it is empty', () => {
     // Connected but idle is not the same as not connected, and neither is a
     // fleet: an empty live log threads nothing, and claims nothing either.
-    expect(summary()).toContain('0 lanes threaded')
+    expect(liveSummary).toContain('0 lanes threaded')
   })
 
-  it('threads all twenty lanes of the scale fixture on key 2', async () => {
-    await mountScene()
-    await pressKey('2')
-    expect(summary()).toContain('20 lanes threaded to main')
-    expect(summary()).toContain('None flagged')
+  it('threads all twenty lanes of the scale fixture on key 2', () => {
+    expect(fleet20Summary).toContain('20 lanes threaded to main')
+    expect(fleet20Summary).toContain('None flagged')
   })
 
-  it('finds all five pathologies in the staged fixture on key 3', async () => {
-    await mountScene()
-    await pressKey('3')
-
-    const text = summary()
-    expect(text).toContain('9 lanes threaded to main')
+  it('finds all five pathologies in the staged fixture on key 3', () => {
+    expect(pathologySummary).toContain('9 lanes threaded to main')
     for (const kind of ['looping', 'frozen', 'waiting', 'expensive']) {
-      expect(text, `the staged fixture lost its ${kind} lane`).toContain(kind)
+      expect(pathologySummary, `the staged fixture lost its ${kind} lane`).toContain(kind)
     }
     // OFF-FENCE needs a manifest, and a fixture carries the one it dispatched
     // with — so this fixture can produce it while the live stream cannot.
-    expect(text).toContain('off-fence')
+    expect(pathologySummary).toContain('off-fence')
   })
 
-  it('goes back to the live stream on key 1', async () => {
-    await mountScene()
-    await pressKey('3')
-    expect(summary()).toContain('9 lanes')
-    await pressKey('1')
-    expect(summary()).toContain('0 lanes')
+  it('goes back to the live stream on key 1', () => {
+    expect(backToLiveSummary).toContain('0 lanes')
   })
 })
 
 describe('the canvas host', () => {
+  // Unlike the describe above, each test here needs its own mount — every
+  // one installs a different `getContext` mock (null, throwing, a real fake
+  // context), so nothing here can share a single mount.
+  afterEach(() => {
+    cleanup()
+  })
+
   it('renders without a 2D context rather than taking the panel down', async () => {
     // jsdom returns null from getContext. The scene must be un-drawn, not
     // undefined: the DOM around it is what keeps the demo alive.
