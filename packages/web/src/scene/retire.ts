@@ -90,8 +90,12 @@ const TENSION_MS = 150
 /**
  * Settling to a scar. M3's `long1`: long enough for a desaturation to be
  * watched, short enough that the eye is released before it gets bored.
+ *
+ * Named for the *scar* rather than for the stage, because `geometry.ts` already
+ * exports a `SETTLE_MS` — the 900 ms a new lane takes to grow in — and two
+ * different durations under one name in one package is a trap.
  */
-const SETTLE_MS = 450
+const SCAR_SETTLE_MS = 450
 
 /** The three stages, in ms, and what they add up to. */
 export const CUT = {
@@ -102,8 +106,8 @@ export const CUT = {
    * critically damped — so this reads the budget rather than restating it.
    */
   retractMs: STRUCTURAL.durationMs,
-  settleMs: SETTLE_MS,
-  totalMs: TENSION_MS + STRUCTURAL.durationMs + SETTLE_MS,
+  settleMs: SCAR_SETTLE_MS,
+  totalMs: TENSION_MS + STRUCTURAL.durationMs + SCAR_SETTLE_MS,
 } as const
 
 /**
@@ -119,7 +123,7 @@ export const CUT = {
  * Deliberately not `NECROTIC`: that grey is a corpse, and the whole point of
  * prd4's done/frozen separation is that landing is not dying.
  */
-export const SCAR_TISSUE = mix(ICE_600, DONE, 0.18)
+const SCAR_TISSUE = mix(ICE_600, DONE, 0.18)
 
 /**
  * Nothing a scar draws may be dimmer than this, in `luminance` units, on a fleet
