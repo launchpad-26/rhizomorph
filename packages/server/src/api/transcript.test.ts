@@ -8,12 +8,14 @@ import { sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
 import {
+  TOOL_RESULT_MAX_CHARS,
   candidateTranscriptPaths,
   findLaneAttribution,
+  parseTranscript,
+  parseTranscriptEntry,
   readTranscript,
   registerTranscriptRoute,
-  renderTranscript,
-  renderTranscriptLine,
+  type TranscriptEntry,
 } from './transcript.js'
 
 /**
@@ -43,6 +45,24 @@ function userLine(text: string): string {
     sessionId: SESSION_ID,
     message: { role: 'user', content: text },
   })
+}
+
+/** An assistant turn whose content is the given raw blocks, verbatim. */
+function blocksLine(content: unknown[], extra: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    type: 'assistant',
+    sessionId: SESSION_ID,
+    message: { role: 'assistant', model: 'claude-opus-5', content },
+    ...extra,
+  })
+}
+
+/** What a line's text blocks say, joined — the shorthand most assertions want. */
+function proseOf(entry: TranscriptEntry | null): string {
+  return (entry?.blocks ?? [])
+    .map((block) => (block.kind === 'text' ? block.text : null))
+    .filter((text): text is string => text !== null)
+    .join('\n')
 }
 
 /** Events shaped exactly as the sessionlog collector emits them for this lane. */
@@ -103,67 +123,166 @@ describe('candidateTranscriptPaths', () => {
   })
 })
 
-describe('renderTranscriptLine', () => {
-  it('renders a user turn', () => {
-    expect(renderTranscriptLine(userLine('read the docs'))).toBe('▌ user\nread the docs')
+describe('parseTranscriptEntry — role mapping', () => {
+  it('reads a user turn as the user speaking', () => {
+    expect(parseTranscriptEntry(userLine('read the docs'))).toEqual({
+      role: 'user',
+      blocks: [{ kind: 'text', text: 'read the docs' }],
+    })
   })
 
-  it('renders an assistant turn', () => {
-    expect(renderTranscriptLine(assistantLine('on it'))).toBe('▌ assistant\non it')
+  it('reads an assistant turn as the assistant speaking', () => {
+    expect(parseTranscriptEntry(assistantLine('on it'))).toEqual({
+      role: 'assistant',
+      blocks: [{ kind: 'text', text: 'on it' }],
+    })
   })
 
-  it('marks a subagent turn so a reader can tell whose voice it is', () => {
-    expect(renderTranscriptLine(assistantLine('sub work', { isSidechain: true }))).toBe(
-      '▌ assistant · subagent\nsub work',
-    )
+  it('gives a sidechain turn the subagent role — whose voice it is, in the data', () => {
+    const entry = parseTranscriptEntry(assistantLine('sub work', { isSidechain: true }))
+
+    expect(entry?.role).toBe('subagent')
+    expect(proseOf(entry)).toBe('sub work')
   })
 
-  it('renders a tool call with the one input field worth showing', () => {
+  it('a sidechain user turn is the subagent too — the whole side thread is quieter', () => {
     const raw = JSON.stringify({
-      type: 'assistant',
-      message: {
-        role: 'assistant',
-        model: 'claude-opus-5',
-        content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test\n--watch' } }],
-      },
+      type: 'user',
+      isSidechain: true,
+      message: { role: 'user', content: 'go and look' },
     })
 
-    expect(renderTranscriptLine(raw)).toBe('▌ assistant\n⟨tool: Bash⟩ npm test')
+    expect(parseTranscriptEntry(raw)?.role).toBe('subagent')
   })
 
-  it('never renders thinking blocks', () => {
-    const raw = JSON.stringify({
-      type: 'assistant',
-      message: {
-        role: 'assistant',
-        content: [
-          { type: 'thinking', thinking: 'private reasoning' },
-          { type: 'text', text: 'the answer' },
-        ],
-      },
-    })
+  it('carries the log\'s own timestamp when the line has one, and omits it when it does not', () => {
+    const stamped = parseTranscriptEntry(assistantLine('later', { timestamp: '2026-08-01T12:00:00.000Z' }))
 
-    expect(renderTranscriptLine(raw)).toBe('▌ assistant\nthe answer')
-    expect(renderTranscriptLine(raw)).not.toContain('private reasoning')
+    expect(stamped?.ts).toBe('2026-08-01T12:00:00.000Z')
+    expect(parseTranscriptEntry(assistantLine('now'))).not.toHaveProperty('ts')
   })
 
   it('skips lines that are not a turn at all', () => {
-    expect(renderTranscriptLine(JSON.stringify({ type: 'summary', summary: 'x' }))).toBeNull()
-    expect(renderTranscriptLine('   ')).toBeNull()
+    expect(parseTranscriptEntry(JSON.stringify({ type: 'summary', summary: 'x' }))).toBeNull()
+    expect(parseTranscriptEntry('   ')).toBeNull()
   })
 
-  it('shows an unparsable line rather than quietly dropping it', () => {
-    expect(renderTranscriptLine('{ not json')).toBe('⟨unreadable line⟩')
+  it('keeps an unparsable line visible, in the parser\'s own voice', () => {
+    expect(parseTranscriptEntry('{ not json')).toEqual({
+      role: 'system',
+      blocks: [{ kind: 'text', text: '⟨unreadable line⟩' }],
+    })
   })
 })
 
-describe('renderTranscript', () => {
-  it('joins blocks with a blank line and ends with a newline', () => {
-    expect(renderTranscript([userLine('a'), assistantLine('b')])).toBe('▌ user\na\n\n▌ assistant\nb\n\n')
+describe('parseTranscriptEntry — blocks', () => {
+  it('reads a tool call as its name and the one input field worth showing', () => {
+    const entry = parseTranscriptEntry(
+      blocksLine([{ type: 'tool_use', name: 'Bash', input: { command: 'npm test\n--watch' } }]),
+    )
+
+    expect(entry?.blocks).toEqual([{ kind: 'tool_use', name: 'Bash', hint: 'npm test' }])
   })
 
-  it('is empty — not whitespace — when no line said anything', () => {
-    expect(renderTranscript([JSON.stringify({ type: 'summary' })])).toBe('')
+  it('hints with the file path when there is no command', () => {
+    const entry = parseTranscriptEntry(
+      blocksLine([{ type: 'tool_use', name: 'Read', input: { file_path: '/repo/README.md' } }]),
+    )
+
+    expect(entry?.blocks).toEqual([{ kind: 'tool_use', name: 'Read', hint: '/repo/README.md' }])
+  })
+
+  it('leaves the hint empty rather than inventing one, and still names the tool', () => {
+    const entry = parseTranscriptEntry(blocksLine([{ type: 'tool_use', name: 'TodoWrite', input: { todos: [] } }]))
+
+    expect(entry?.blocks).toEqual([{ kind: 'tool_use', name: 'TodoWrite', hint: '' }])
+  })
+
+  it('keeps prose and the tool calls between it in the order they were said', () => {
+    const entry = parseTranscriptEntry(
+      blocksLine([
+        { type: 'text', text: 'reading it now' },
+        { type: 'tool_use', name: 'Read', input: { file_path: 'a.ts' } },
+      ]),
+    )
+
+    expect(entry?.blocks.map((block) => block.kind)).toEqual(['text', 'tool_use'])
+  })
+
+  it('reads a tool result, whole, when it is short', () => {
+    const entry = parseTranscriptEntry(
+      JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: [{ type: 'tool_result', content: '3 files changed' }] },
+      }),
+    )
+
+    expect(entry?.blocks).toEqual([{ kind: 'tool_result', text: '3 files changed', dropped: 0 }])
+  })
+
+  it('flattens a tool result that arrived as content blocks', () => {
+    const entry = parseTranscriptEntry(
+      JSON.stringify({
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              content: [
+                { type: 'text', text: 'line one' },
+                { type: 'text', text: 'line two' },
+              ],
+            },
+          ],
+        },
+      }),
+    )
+
+    expect(entry?.blocks).toEqual([{ kind: 'tool_result', text: 'line one\nline two', dropped: 0 }])
+  })
+
+  it('truncates a long tool result and says how much it cut — never a silent trim', () => {
+    const long = 'x'.repeat(TOOL_RESULT_MAX_CHARS + 250)
+    const entry = parseTranscriptEntry(
+      JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: [{ type: 'tool_result', content: long }] },
+      }),
+    )
+
+    expect(entry?.blocks).toEqual([
+      { kind: 'tool_result', text: 'x'.repeat(TOOL_RESULT_MAX_CHARS), dropped: 250 },
+    ])
+  })
+
+  it('never emits a thinking block', () => {
+    const entry = parseTranscriptEntry(
+      blocksLine([
+        { type: 'thinking', thinking: 'private reasoning' },
+        { type: 'text', text: 'the answer' },
+      ]),
+    )
+
+    expect(entry?.blocks).toEqual([{ kind: 'text', text: 'the answer' }])
+    expect(JSON.stringify(entry)).not.toContain('private reasoning')
+  })
+
+  it('is not a turn at all when thinking was the only thing in it', () => {
+    expect(parseTranscriptEntry(blocksLine([{ type: 'thinking', thinking: 'quiet' }]))).toBeNull()
+  })
+})
+
+describe('parseTranscript', () => {
+  it('is the window\'s turns, oldest first', () => {
+    expect(parseTranscript([userLine('a'), assistantLine('b')])).toEqual([
+      { role: 'user', blocks: [{ kind: 'text', text: 'a' }] },
+      { role: 'assistant', blocks: [{ kind: 'text', text: 'b' }] },
+    ])
+  })
+
+  it('is empty when no line said anything', () => {
+    expect(parseTranscript([JSON.stringify({ type: 'summary' })])).toEqual([])
   })
 })
 
@@ -199,7 +318,10 @@ describe('readTranscript', () => {
     expect(result.available).toBe(true)
     if (!result.available) return
     expect(result.sessionId).toBe(SESSION_ID)
-    expect(result.text).toBe('▌ user\ngo\n\n▌ assistant\ngoing\n\n')
+    expect(result.entries).toEqual([
+      { role: 'user', blocks: [{ kind: 'text', text: 'go' }] },
+      { role: 'assistant', blocks: [{ kind: 'text', text: 'going' }] },
+    ])
     expect(result.eof).toBe(true)
     expect(result.nextOffset).toBe(result.size)
     expect(result.restarted).toBe(false)
@@ -210,7 +332,7 @@ describe('readTranscript', () => {
     await writeLog(lines)
 
     let offset = 0
-    const pages: string[] = []
+    const pages: TranscriptEntry[][] = []
     // Small enough that no chunk can hold two lines — paging is forced, not incidental.
     for (let guard = 0; guard < 10; guard += 1) {
       const page = await readTranscript({
@@ -223,13 +345,17 @@ describe('readTranscript', () => {
       expect(page.available).toBe(true)
       if (!page.available) return
       expect(page.offset).toBe(offset)
-      pages.push(page.text)
+      pages.push(page.entries)
       offset = page.nextOffset
       if (page.eof) break
     }
 
     expect(pages.length).toBeGreaterThan(1)
-    expect(pages.join('')).toBe(renderTranscript(lines))
+    // Every page carried at least one turn, and concatenating them is the same
+    // conversation as reading the whole log at once — paging that neither drops
+    // a turn nor repeats one.
+    expect(pages.every((page) => page.length > 0)).toBe(true)
+    expect(pages.flat()).toEqual(parseTranscript(lines))
   })
 
   it('returns nothing new, and the same offset, when the log has not grown', async () => {
@@ -252,7 +378,7 @@ describe('readTranscript', () => {
 
     expect(second.available).toBe(true)
     if (!second.available) return
-    expect(second.text).toBe('')
+    expect(second.entries).toEqual([])
     expect(second.nextOffset).toBe(first.nextOffset)
     expect(second.eof).toBe(true)
   })
@@ -278,7 +404,7 @@ describe('readTranscript', () => {
 
     expect(second.available).toBe(true)
     if (!second.available) return
-    expect(second.text).toBe('▌ assistant\nsecond\n\n')
+    expect(second.entries).toEqual([{ role: 'assistant', blocks: [{ kind: 'text', text: 'second' }] }])
   })
 
   it('leaves a half-written trailing line unread until it is complete', async () => {
@@ -296,7 +422,7 @@ describe('readTranscript', () => {
 
     expect(result.available).toBe(true)
     if (!result.available) return
-    expect(result.text).toBe('▌ user\ndone\n\n')
+    expect(result.entries).toEqual([{ role: 'user', blocks: [{ kind: 'text', text: 'done' }] }])
     expect(result.nextOffset).toBeLessThan(result.size)
     expect(result.eof).toBe(false)
   })
@@ -315,7 +441,7 @@ describe('readTranscript', () => {
     if (!result.available) return
     expect(result.restarted).toBe(true)
     expect(result.offset).toBe(0)
-    expect(result.text).toBe('▌ user\nfresh\n\n')
+    expect(result.entries).toEqual([{ role: 'user', blocks: [{ kind: 'text', text: 'fresh' }] }])
   })
 
   it('reads an extra-sessions log that lives in the declared directory itself', async () => {
@@ -333,7 +459,7 @@ describe('readTranscript', () => {
 
     expect(result.available).toBe(true)
     if (!result.available) return
-    expect(result.text).toBe('▌ assistant\nconducting\n\n')
+    expect(result.entries).toEqual([{ role: 'assistant', blocks: [{ kind: 'text', text: 'conducting' }] }])
   })
 
   it('is honestly absent, with the reason, for a lane the log never named', async () => {
@@ -423,7 +549,10 @@ describe('GET /api/transcript/:lane', () => {
     expect(response.statusCode).toBe(200)
     const body = response.json()
     expect(body.available).toBe(true)
-    expect(body.text).toBe('▌ user\nhello\n\n▌ assistant\nhi\n\n')
+    expect(body.entries).toEqual([
+      { role: 'user', blocks: [{ kind: 'text', text: 'hello' }] },
+      { role: 'assistant', blocks: [{ kind: 'text', text: 'hi' }] },
+    ])
     expect(body.nextOffset).toBe(body.size)
   })
 
@@ -439,8 +568,10 @@ describe('GET /api/transcript/:lane', () => {
       url: `/api/transcript/${LANE}?offset=${firstLineBytes}`,
     })
 
-    expect(first.json().text).toContain('hello')
-    expect(second.json().text).toBe('▌ assistant\nhi\n\n')
+    expect(proseOf(first.json().entries[0])).toBe('hello')
+    expect(second.json().entries).toEqual([
+      { role: 'assistant', blocks: [{ kind: 'text', text: 'hi' }] },
+    ])
     expect(second.json().offset).toBe(firstLineBytes)
   })
 
