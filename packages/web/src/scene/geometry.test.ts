@@ -13,7 +13,7 @@ import {
 import {
   LABELS_ALL_MAX,
   RECENCY_SPAN_MS,
-  SCAR_KEEP,
+  SCAR_LENGTH_PX,
   layoutScene,
   ringAngles,
   type Point,
@@ -348,7 +348,13 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
         expect(length).toBeLessThanOrEqual(previous + 1e-9)
         previous = length
       }
-      expect(cutting(cutAt(CUT.totalMs)).retire?.from).toBeCloseTo(1 - SCAR_KEEP, 10)
+      // …and it comes to rest about SCAR_LENGTH_PX of arc length short of the
+      // node, whatever the thread's own length is. "About" because the node has
+      // drifted outward by then, which bows the mark a little longer than the
+      // straight measure taken before the drift.
+      const scar = cutting(cutAt(CUT.totalMs))
+      expect(arcLength(scar.retire?.path as Point[])).toBeGreaterThan(SCAR_LENGTH_PX)
+      expect(arcLength(scar.retire?.path as Point[])).toBeLessThan(SCAR_LENGTH_PX * 1.3)
     })
 
     it('drifts the node outward toward the rim, a little', () => {
@@ -364,7 +370,11 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
       // (which zeroes the drift) leaves the node exactly put.
       const inPlace = cutting(cutAt(0, false))
       expect(inPlace.node).toEqual(whole.node)
-      expect(inPlace.retire?.from).toBeCloseTo(1 - SCAR_KEEP, 10)
+      // No drift, so the mark is the measured length plus only the slack's own
+      // couple of pixels of bow.
+      const still = arcLength(inPlace.retire?.path as Point[])
+      expect(still).toBeGreaterThan(SCAR_LENGTH_PX)
+      expect(still).toBeLessThan(SCAR_LENGTH_PX * 1.1)
     })
   })
 
@@ -376,8 +386,33 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
       // no length would be a lane the operator cannot point at.
       expect(scar.retire?.path.length).toBeGreaterThan(2)
       const length = arcLength(scar.retire?.path as Point[])
-      expect(length).toBeGreaterThan(8)
-      expect(length).toBeLessThan(arcLength(whole.path) * 0.35)
+      expect(length).toBeGreaterThan(SCAR_LENGTH_PX)
+      expect(length).toBeLessThan(SCAR_LENGTH_PX * 1.3)
+    })
+
+    it('is the same size mark for every lane, wherever the lane sits', () => {
+      // The rim is a wide ellipse, so a lane at three o'clock has a thread three
+      // times as long as one at noon. A scar is a mark, not a fraction of a
+      // thread: its size must not be a fact about the panel's aspect ratio.
+      const settled = cutAt(CUT.totalMs)
+      const geometry = layoutScene(fleet, {
+        ...SIZE,
+        now: NOW,
+        retire: new Map(fleet.lanes.map((lane) => [lane.id, settled])),
+      })
+
+      const lengths = geometry.threads.map(
+        (thread) => arcLength(thread.retire?.path as Point[]),
+      )
+      const threads = geometry.threads.map((thread) => arcLength(thread.path))
+      // The premise: the threads really do differ a lot in length.
+      expect(Math.max(...threads) / Math.min(...threads)).toBeGreaterThan(1.5)
+      // The claim: the scars barely differ at all.
+      expect(Math.max(...lengths) / Math.min(...lengths)).toBeLessThan(1.2)
+      for (const length of lengths) {
+        expect(length).toBeGreaterThan(SCAR_LENGTH_PX)
+        expect(length).toBeLessThan(SCAR_LENGTH_PX * 1.3)
+      }
     })
 
     it('still measures the work: a bigger lane scars a wider mark', () => {

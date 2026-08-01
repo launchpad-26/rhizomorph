@@ -164,15 +164,27 @@ export const SETTLE_MS = 900
 export const LABELS_ALL_MAX = 28
 
 /**
- * How much of its own thread a scar keeps — the last 18%, near the rim.
+ * How much of its own thread a scar keeps, **in px of arc length**.
  *
- * Short enough to read as a *mark* rather than as a thread that happens to be
- * detached, long enough to still be a tapering ribbon with a lane's work-size in
- * its width. The freed end travels from the root-mass rim to `1 - SCAR_KEEP`,
- * which is also why the number is here rather than in `retire.ts`: it is a fact
- * about the shape, not about the clock.
+ * A length rather than a fraction, and that is the whole point: the rim is a wide
+ * ellipse, so a lane at three o'clock has a thread three times as long as one at
+ * noon, and keeping a fixed *fraction* of it made a scar's size a fact about the
+ * panel's aspect ratio. Nothing means that. A scar is a **mark**, so it is the
+ * same size for every lane — like the node glyph beside it, which takes its size
+ * from the lane's work and not from where the lane happens to sit.
+ *
+ * About twice the length of that glyph: enough to still be a tapering ribbon with
+ * the lane's work-size in its width, short enough to read as a stub rather than as
+ * a thread that happens to be floating.
  */
-export const SCAR_KEEP = 0.18
+export const SCAR_LENGTH_PX = 34
+
+/**
+ * …but never more than this much of a short thread. On a cramped panel a lane's
+ * whole thread can be shorter than the mark, and a scar that consumed it would
+ * have severed nothing.
+ */
+const SCAR_MAX_FRACTION = 0.4
 
 /** How far a retiring lane's node drifts out toward the rim. */
 const RETIRE_DRIFT_PX = 9
@@ -311,6 +323,10 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
     // last fifth of the thread — the part that becomes the scar — toward the rim.
     const cut = options.retire?.get(lane.id) ?? null
     const slack = Math.min(SLACK_MAX_PX, Math.max(SLACK_MIN_PX, Math.min(rx, ry) * SLACK_FRACTION))
+    // Measured on the thread as it *was*, so the resting place of the severance —
+    // and the stretch of thread the drift is allowed to bend — do not shift under
+    // the deformation they are about to be used to compute.
+    const rest = cut === null ? 1 : scarRest(grown)
     const path =
       cut === null
         ? grown
@@ -320,6 +336,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
             slack: slack * cut.tension,
             outward,
             drift: RETIRE_DRIFT_PX * cut.drift,
+            from: rest,
           })
     const node = path[path.length - 1] as Point
 
@@ -359,7 +376,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
       retire:
         cut === null
           ? null
-          : severance(cut, path, widthRoot, widthTip, options.hideFinished === true),
+          : severance(cut, path, rest, widthRoot, widthTip, options.hideFinished === true),
     })
   })
 
@@ -520,6 +537,8 @@ interface Release {
   outward: Point
   /** How far the node end is carried toward the rim, in px. */
   drift: number
+  /** Where the severance comes to rest — the stretch of thread the drift bends. */
+  from: number
 }
 
 /**
@@ -542,7 +561,7 @@ function released(path: readonly Point[], release: Release): Point[] {
   return path.map((point, i) => {
     const t = last <= 0 ? 1 : i / last
     const sag = release.slack * slackHump(t)
-    const out = release.drift * driftWeight(t)
+    const out = release.drift * driftWeight(t, release.from)
     return {
       x: point.x + release.along.x * release.side * sag + release.outward.x * out,
       y: point.y + release.along.y * release.side * sag + release.outward.y * out,
@@ -556,9 +575,39 @@ function slackHump(t: number): number {
 }
 
 /** Zero everywhere but the stretch that becomes the scar, easing in and out. */
-function driftWeight(t: number): number {
-  const into = (clamp01(t) - (1 - SCAR_KEEP)) / SCAR_KEEP
+function driftWeight(t: number, from: number): number {
+  const span = 1 - from
+  if (span <= 0) return clamp01(t) >= 1 ? 1 : 0
+  const into = (clamp01(t) - from) / span
   return into <= 0 ? 0 : smooth(into)
+}
+
+/**
+ * The path parameter {@link SCAR_LENGTH_PX} of arc length back from the node —
+ * where the freed end comes to rest.
+ *
+ * Walked from the tip backwards over the sampled polyline, which is exact enough:
+ * the thread is 44 samples of a cubic, so a segment is a couple of pixels long and
+ * the linear interpolation inside the segment the walk stops in is the same
+ * approximation the ribbon is drawn with anyway.
+ */
+function scarRest(path: readonly Point[]): number {
+  const last = path.length - 1
+  if (last < 1) return 0
+
+  let total = 0
+  for (let i = last; i > 0; i -= 1) {
+    const a = path[i] as Point
+    const b = path[i - 1] as Point
+    const step = Math.hypot(a.x - b.x, a.y - b.y)
+    if (total + step >= SCAR_LENGTH_PX) {
+      const within = step === 0 ? 0 : (SCAR_LENGTH_PX - total) / step
+      return Math.max(1 - SCAR_MAX_FRACTION, (i - within) / last)
+    }
+    total += step
+  }
+  // The whole thread is shorter than the mark: keep the tail fraction instead.
+  return 1 - SCAR_MAX_FRACTION
 }
 
 /**
@@ -566,21 +615,28 @@ function driftWeight(t: number): number {
  * resampled at its own resolution, with the released taper folded into its
  * widths.
  *
- * The width at the severance is read *off the taper* rather than reset, so a
- * retracting thread stays the thread it was — a big lane's remnant is a thicker
- * mark than a small lane's, which is the same law (`thread width = work size`)
- * the living network is drawn under. What the release does change is the taper's
- * steepness: the root end relaxes {@link TAPER_RELAX} of the way toward the tip's
- * width as the tension goes out of it.
+ * The remnant keeps the **whole thread's** taper, gathered into whatever length is
+ * left, rather than being sliced out of it at the severance point. A cord that
+ * springs back is gathering up, not evaporating — and sliced widths would have the
+ * mark grow thinner and thinner as it retracted, which reads as the thread fading
+ * out at exactly the moment the ruling says it must not. It also keeps the whole
+ * of `thread width = work size` in the scar: a big lane's mark is a visible wedge
+ * where a small lane's is a hairline, the same range the living network is drawn
+ * over.
+ *
+ * What the release does change is the taper's *steepness*: the root end relaxes
+ * {@link TAPER_RELAX} of the way toward the tip's width as the tension goes out
+ * of it.
  */
 function severance(
   cut: RetireState,
   path: readonly Point[],
+  rest: number,
   widthRoot: number,
   widthTip: number,
   hideFinished: boolean,
 ): RetireGeometry {
-  const from = cut.retract * (1 - SCAR_KEEP)
+  const from = cut.retract * rest
   const relaxed = widthRoot + (widthTip - widthRoot) * TAPER_RELAX * cut.tension
 
   return {
@@ -590,7 +646,7 @@ function severance(
     // passes through — the full count while it is still nearly a whole thread,
     // a floor once it is a stub.
     path: span(path, from, Math.max(10, Math.ceil(THREAD_SAMPLES * (1 - from)))),
-    widthRoot: relaxed + (widthTip - relaxed) * from,
+    widthRoot: relaxed,
     widthTip,
     // Only a *settled* scar is hideable. A cut in progress is news, and the one
     // thing worse than a scar the operator asked not to see is a completion they
