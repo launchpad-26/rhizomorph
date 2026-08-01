@@ -15,9 +15,12 @@ rulings that re-aimed the whole surface at a first-time viewer, not just the
 person who built it (the **layman bar** — every screen below is written to
 be readable by someone who has never seen this tool before), and
 [`docs/prd5.md`](docs/prd5.md) for the rulings behind the scene's camera,
-its motion, and the cord-cut described below.
+its motion, and the cord-cut described below, and [`docs/prd6.md`](docs/prd6.md)
+for the rulings behind the scene's living cycle — absolute seed sizes,
+lifecycle distance, the way severed work comes home, and the root-mass's own
+drawer.
 
-![The scene as the centerpiece — a busy 20-lane fleet, every thread the same live green, ALL CLEAR above it](docs/screenshots/fixture-20-lane.png)
+![The scene as the centerpiece — a busy 20-lane fleet, every thread live green but visibly different widths for visibly different output, ALL CLEAR above it](docs/screenshots/fixture-20-lane.png)
 
 ## Prerequisites
 
@@ -203,16 +206,33 @@ instruments beneath it.
 - **Scene** (the centerpiece, [prd4 ruling 2](docs/prd4.md)) — the mycelium
   pulse-network ([ruling 28](docs/prd3.md)): root-mass at the center, one
   tendril per lane, pulses of light traveling along them for real events
-  (commits, token bursts) — never invented, never on history. Looping,
-  frozen, waiting, expensive, and off-fence lanes each read as an
+  (commits, token bursts) — never invented, never on history. Four channels,
+  each a different fact, none of them a decoration ([prd6 ruling 4](docs/prd6.md)
+  fixed the one that used to be hardest to read):
+  - **Thread width — how much a lane has produced**, on an absolute scale
+    ([prd6 ruling 1](docs/prd6.md)): a 20K-token lane draws the same width
+    whether it's alone or next to a 500K-token whale. Nothing balloons — the
+    scale is capped.
+  - **Distance from the mass — how far through its life a lane is**
+    ([prd6 ruling 4](docs/prd6.md)): born close in, growing outward as it
+    works, coming to rest at the rim when it retires. No legend needed —
+    "closer to the middle" reads as "newer" on its own.
+  - **Angle — identity**, stable for the whole session (a lane keeps its
+    slot on the ring no matter how its status changes).
+  - **Brightness — recency**: how long ago a lane last did something,
+    independent of how far through its life it is.
+
+  Looping, frozen, waiting, expensive, and off-fence lanes each read as an
   unmistakably different *shape* on their thread, not a color alone, and
   since prd4 the color carries real meaning too (see "The palette" below).
   Since prd5 it's also a place you can go: drag to pan, Ctrl/Cmd+wheel to
   zoom at the cursor, and a finished lane cuts loose from the mass rather
   than sitting there dyed a different color — see "The camera" and "The
-  cord-cut" below. Lazy-loaded behind an error boundary: if it breaks, the
-  rest of the panel grid stands alone. A "Focus Scene" button fills the
-  whole viewport with it.
+  cord-cut and the way home" below. Since prd6, the root-mass itself is
+  clickable: it opens the same drawer a lane does, on the conductor's own
+  conversation (see "Lane drawer" below). Lazy-loaded behind an error
+  boundary: if it breaks, the rest of the panel grid stands alone. A "Focus
+  Scene" button fills the whole viewport with it.
 - **Fleet table** — one dense row per lane: state, output tokens, `$`,
   request/tool counts, thread/subagent count, age, and fence status. The
   STATE column draws the scene's own glyph *and* the scene's own hue at row
@@ -245,7 +265,12 @@ instruments beneath it.
   button that copies the exact `tmux`/`workmux` command for that lane to your
   clipboard — it never runs anything; interaction happens in your own
   terminal. Closing it (**Esc**, or the drawer's own close) always takes
-  precedence over exiting panel focus.
+  precedence over exiting panel focus. **Click the root-mass and the same
+  drawer opens on the conductor** ([prd6 ruling 5](docs/prd6.md)) — the same
+  frame, the same conversation view, the same copies-never-executes ATTACH,
+  just with main's own vitals up top (branch, worktrees landed, commits
+  observed on it) instead of a lane's. An un-instrumented conductor says so
+  in the gap voice rather than showing an empty pane.
 - **Panel focus** — every panel has a "Focus" affordance that fills the view
   with just that panel; **Esc** restores it. No drag/resize/custom layouts
   (deferred per prd3).
@@ -338,7 +363,7 @@ scoped to a focused scene, on purpose (see "Keyboard reference"):
   threads go sub-pixel; further in and you're looking at a gradient, not a
   network.
 
-### The cord-cut — a finished lane leaves the network
+### The cord-cut and the way home — a finished lane leaves the network, honestly
 
 [prd5 ruling 3](docs/prd5.md): when a lane finishes — workmux declares it
 `done`, or its worktree is removed — its thread doesn't just change color.
@@ -349,20 +374,46 @@ figure for the rest of the session. It's a roughly 1.4-second sequence, not
 a jump-cut, so you can watch a lane stand down rather than just noticing it
 vanished.
 
-Two things worth knowing:
+[prd6 ruling 2](docs/prd6.md) gave that moment somewhere to go. Real
+mycelium doesn't just sever a spent hypha — it reabsorbs it, translocating
+its substance back through the network, which is exactly what a merge is.
+So as the cord parts, a short stretch of light travels back down the
+severing thread **into the root-mass**, and the mass itself **thickens** —
+visibly bigger by the end of a long session than it was at the start,
+because that work is part of `main` now. A scar at the rim isn't a dead
+end; it's what's left after the lane's substance has already gone home.
 
-- **A scar never disappears.** It's dim — well below a living lane's
-  floor — but never zero, because invisible completion looks exactly like
-  a bug. The fleet table still lists the lane too; only the scene's own
-  picture is affected by anything below.
+- **A scar never disappears, and it keeps its size** ([prd6 ruling 1](docs/prd6.md)
+  overrules prd5's "a scar is a mark, so it's the same size for every
+  lane" — the rim is where a session's finished work is on display, so a
+  lane that did more work leaves a visibly bigger scar). It's dim — well
+  below a living lane's floor — but never zero, because invisible
+  completion looks exactly like a bug. The fleet table still lists the
+  lane too; only the scene's own picture is affected by anything below.
+- **The root-mass only grows this way.** It thickens by up to 30% over a
+  session, on the same absolute, capped scale seeds use — never by more,
+  however many whales land — and nothing about it looks like motion; you
+  notice it's bigger, you never catch it growing.
 - **Hide finished** (top-right of the scene) toggles scars out of the
   picture if a long session has accumulated a lot of them — it always
   shows its own count (`Hide finished · 12`), so "hidden" never reads as
-  "gone," and it's remembered across reloads.
+  "gone," and it's remembered across reloads. Hiding a scar never shrinks
+  the root-mass back down — the work still happened.
 
 A lane you've parked on purpose (see "Parked lanes" above) scars the same
 way, just without the animation — there's no "moment" a standing
 declaration can play back.
+
+### Germinating seeds — a returning lane grows from where it left off
+
+[prd6 ruling 3](docs/prd6.md): dispatch the same handle again after it's
+retired — a re-dispatch, not a new lane — and its thread doesn't sprout from
+a stranger's spot on the other side of the ring. It **germinates from its
+own dormant seed**: same angle, same seat, and it starts already as big as
+the seed it grew from, because the worker returning is the same one that
+did that earlier work. A retired lane's seat is held for exactly this — the
+scene remembers where a lane worked, even mid-session, so the ring never
+re-spaces itself out from under you just because a handle came back.
 
 ### Motion, pause, and reduced motion
 
@@ -438,8 +489,9 @@ Every key here is ignored while you're typing into a form field.
 | | |
 |---|---|
 | ![Staged pathology fixture — five lanes, five distinct pathologies, each a different hue and shape, named in the attention strip and the fleet table's STATE column](docs/screenshots/fixture-pathology.png) | ![The lane drawer's conversation view — a real session's turns and tool calls, CLI-style, with the ATTACH button below](docs/screenshots/drawer.png) |
-| ![The live view against this project's own real, in-progress build swarm — an actual WAITING lane and off-fence trespass flagged, not staged](docs/screenshots/live.png) | ![Replay mid-scrub at 16x — the REPLAY banner, ice-register frame, timestamp and session identity](docs/screenshots/replay.png) |
-| ![The scene paused — the pause button pressed, "Motion paused" stated in words, camera and hide-finished controls visible](docs/screenshots/paused.png) | ![A scar-bearing scene — finished lanes cut loose from the mass, each a small dimmed mark near the rim, still named and still counted](docs/screenshots/scars.png) |
+| ![The live view against this project's own real, in-progress build swarm — this very docs lane WORKING beside a sibling lane that's already landed and scarred, not staged](docs/screenshots/live.png) | ![Replay mid-scrub at 16x — the REPLAY banner, ice-register frame, timestamp and session identity](docs/screenshots/replay.png) |
+| ![The scene paused — the pause button pressed, "Motion paused" stated in words, camera and hide-finished controls visible](docs/screenshots/paused.png) | ![A rim of scars, each sized to the lane's own output — the root-mass visibly thicker for having taken all of that work home](docs/screenshots/scars.png) |
+| ![MAIN's own drawer, open on the conductor's real conversation — clicked like any lane, vitals up top, ATTACH honestly reporting no pane on record](docs/screenshots/main-drawer.png) | |
 
 ## The worktrees-challenge context
 

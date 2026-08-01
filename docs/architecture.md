@@ -767,6 +767,169 @@ this tree. Build lanes loaded the installed `emil-design-eng` (animation
 decisions) and `frontend-design` (production register) skills per the
 ruling and said so in their own commit messages.
 
+## prd6 — the living cycle
+
+prd6 (`docs/prd6.md`) followed the operator's close-out review of prd5: the
+scene's *end state* read as lifeless (a scar was a dead end) and two of its
+channels didn't read as intuitively as the others ("as output grows the
+seeds should grow too"; "the distance from the node should mean something
+more intuitive"). Two issues landed it in one wave — **#106** (the scene:
+absolute sizing, lifecycle distance, the way home, root-mass growth,
+germinating seeds) and **#107** (the main node: conductor transcript
+resolution, the root-mass as a hit target, MAIN's own vitals) — followed by
+this docs pass (**#108**). What follows is the shape it took in code,
+cited against prd6's five rulings.
+
+### Absolute seeds, and the whale problem (#106, ruling 1)
+
+`seedSize(outputTokens)` (`packages/web/src/scene/geometry.ts`) replaced a
+relative reading — `log1p(output) / log1p(maxOutput)` — that shrank every
+lane's seed the moment the fleet's own busiest lane worked harder, so
+growth (the one thing the operator asked to see) never read at all.
+`seedSize` never looks at another lane: it logs a lane's own output between
+two *fixed* references (`SEED_TOKENS` = 1,000, `SEED_FULL_TOKENS` =
+100,000 — chosen so the log does its compressing between where real lanes
+actually sit, not below the first thousand tokens no lane produces),
+floored at `SEED_FLOOR` (0.08, so a fresh lane is small and present rather
+than invisible) and capped at `SEED_CEILING` (1 — "nothing balloons" as a
+number, not a hope).
+
+**This overrules #102's "a scar is a mark, so it is the same size for every
+lane."** `scarLengthPx(sizeFrac)` (still in px of arc length, keeping
+#102's aspect-ratio fix) now scales between `SCAR_LENGTH_MIN_PX` (22) and
+`SCAR_LENGTH_MAX_PX` (46) by the lane's own `sizeFrac`, because the rim is
+where a session's finished work is on display and a rim of nine identical
+stubs has thrown away the only thing it had to say about them. A
+germinated lane's `sizeFrac` is `Math.max(seedSize(lane.outputTokens),
+seedSize(seedLane.outputTokens))` — floored by whatever the seed it grew
+from had already accomplished, so a returning worker never starts over
+from nothing.
+
+### Distance is the lifecycle (#106, ruling 4)
+
+`lifecycleFrac(sizeFrac, sinceFirstSeenMs, homecoming)` blends two monotone
+terms — a radius that could go backwards would be a lane un-living part of
+its life, which doesn't happen: work done (`seedSize`, `WORK_SHARE` = 0.65
+of the blend — the dominant term, because a lane's life is measured in
+what it produced) and age since first sighting (`now - lane.firstSeenAt`
+over `LIFE_SPAN_MS` = 1 hour, the rest of the blend — what keeps the
+journey moving between snapshots for a lane with little output yet). A
+terminal pin closes whatever distance is left over the cut's own retract
+(`RetireState.drift`, not the retract itself — the one place they
+differ, since `drift` reads zero when the mode forbids travel, so reduced
+motion's existing law — sever in place, nothing crosses the picture — falls
+out for free). **This replaces prd3 graft g6's distance-as-recency**,
+which needed explaining and therefore failed the layman bar; recency keeps
+the channel it already shared, thread lightness (`ThreadGeometry.ageFrac`
+off `RECENCY_SPAN_MS`, `thread.ts`'s `freshness`) — no fact was dropped
+when the radius changed hands. Angle (graft g7) is untouched.
+
+A same-issue fix (`fix(#106)`) caught a newborn lane rendering *inside* the
+root-mass on a cramped panel: `RADIAL_BORN` (0.42) is a fraction of the
+rim, and at 240×90 the rim closes in on a mass that doesn't shrink with it.
+`bornRadial(rootRadius, rx, ry)` pushes the birth radius out far enough to
+clear the mass, measured against the *smaller* half-axis — the direction
+the rim runs closest to the mass in.
+
+### The way home (#106, ruling 2)
+
+`RetireGeometry.homeward` (`homewardFlow()` in `geometry.ts`) is a
+`HOMEWARD_LENGTH_PX` (30px) stretch of the thread's own centreline,
+travelling on the retract's own clock — the same 800ms structural stage
+the cord is parting over, under the same concurrency cap, so nothing new
+is animated and nothing new is budgeted. It grows out of the node when the
+retract begins and is absorbed into the mass when it ends (null outside
+that open interval), and is null for every scar nobody watched leave
+(history, replay, reduced motion) — a journey nobody saw start didn't
+happen on this screen.
+
+`rootGirth(landedOutputTokens)` (`packages/web/src/scene/marks/root.ts`) is
+the same two-reference, log-scaled, hard-capped discipline `seedSize` uses
+(`ROOT_GROWTH.seedTokens` = 10,000, `.fullTokens` = 500,000,
+`.maxGirth` = 0.3 — the mass thickens by up to 30% over a session, never
+more). `landedTokens()` sums `lane.outputTokens * homecoming(thread.retire)`
+over the **drawn** scene rather than off `isRetired`, so the mass grows
+exactly as each cord parts — a wave of a dozen landings reads as twelve
+arrivals over the structural queue, never one lurch — and a scar the
+operator has hidden still counts, since hiding is about clutter, not a
+claim the work was undone. The halo widens proportionally
+(`radius * (4.2 + 1.4 * (girth / ROOT_GROWTH.maxGirth))`) so a mass that
+has taken a lot of work home has a wider footprint, not just a fatter
+middle. Both girth and halo are recomputed from state, never animated on
+their own clock — the mass never *moves*, it's simply bigger the next time
+you look.
+
+### Germinating seeds (#106, ruling 3)
+
+`germination(lanes, retire)` (`geometry.ts`) maps a living lane id to the
+retired lane whose seat and size it inherits, matched on shared
+`Lane.handles` rather than `Lane.id` — a re-dispatch that reuses the branch
+is already the same lane to `buildFleet` and needs nothing here; the case
+that needs it is the one where identity moved (new worktree, new branch)
+and the handle workmux launched it under is the only thread of continuity
+left. Matched only against lanes the retire *registry* has actually
+scarred, not `isRetired` — a lane whose cut is still queued behind the
+structural cap is visibly a living thread and is not a seed anyone can
+grow out of yet. At most one sprout per seed (earliest slot first), so two
+returning lanes can't claim the same ground. `layoutScene`'s `seatKey`
+routes a germinated lane onto its seed's angle via the seat map, so the
+ring is never re-spaced by a return — the one honest exception to graft
+g7's "angle never moves," which g7 itself anticipates (a re-dispatched
+handle is the same worker returning to the same ground, not a new lane
+appearing).
+
+### MAIN's own drawer (#107, ruling 5)
+
+`MAIN_SELECTION = 'main'` (`packages/web/src/fleet/selection.tsx`) is a
+**pseudo-lane**: a value the one selection slot can hold and deliberately
+*not* a `Lane` in the derived fleet. Fabricating one would have been the
+shorter diff and the wrong model — main is not a worker, has no fence, no
+pathologies, no rung on the ladder. Keeping it out of `fleet.lanes` means
+the fleet table, the ladder, and the scene's own thread list skip it by
+construction: `selection.test.tsx` pins that no lane is ever built with
+this id and that selecting it renders the real fleet table with none of
+its rows highlighted. `isMainSelected(selectedId)` is the one predicate the
+three surfaces that *do* need to know branch on — the scene (hit-tests the
+mass, and `salienceOf` spotlights it for free since no lane matches the
+selection), the drawer (branches to the conductor's view), and the feed
+(reads "Nothing matches this filter" honestly, since no feed kind is
+conductor-attributed today).
+
+`packages/web/src/scene/SceneView.tsx` hit-tests the root-mass in the same
+world coordinates `marks/root.ts` draws it in, at a tolerance divided by
+the camera's own scale exactly like a lane node's — a lane still wins a
+contested pixel, being the smaller, more specific target — and shows the
+pointer cursor on hover, the canvas's only way to advertise a target since
+it can't put one in markup.
+
+`GET /api/transcript/main` (`packages/server/src/api/transcript.ts`,
+`CONDUCTOR_LANE = 'main'`) resolves by **role**, never by name:
+`findConductorAttribution` walks the event log backward for the newest
+`role: 'conductor'` attribution, because `--extra-sessions <dir>:<lane>`
+lets an operator call the conductor anything — a lane literally named
+`conductor` proves nothing, `role: 'conductor'` proves everything. Two
+different gaps get two different fixes (`conductorGap()`, the same law-12
+discipline the worker lanes already had): nothing instrumented at all
+names the flag to pass; telemetry with no session id attributed names
+`observatory doctor`.
+
+`LaneDrawer` (`packages/web/src/drawer/index.tsx`) branches on
+`isMainSelected(selectedId)` before it looks up a `Lane` at all, and
+renders through the same `DrawerFrame` a lane's drawer does — same width,
+same hairline, same Esc — because the conductor is another agent working
+in this repo and the operator has already learned where to read one; a
+second panel would have taught them a second place. `MainVitals`
+(`drawer/Vitals.tsx`) reuses the burn strip's own formatters
+(`formatDollarsOrGap`, `formatOverheadOrGap`, `outputHoverTitle`, …) for
+its `$`/output/overhead cells rather than computing its own, so a drawer
+that could disagree with the strip four inches to its left never gets
+written; `root.landings` and `root.commitsHome` are the derived fleet's own
+counts, not re-summed. `conductorAttachPlan` (`drawer/attach.ts`) finds the
+conductor's pane by the main worktree or a window named `conductor`, and
+returns `null` rather than fabricate a `workmux open main` that would
+create a worktree nobody asked for — ATTACH shows the reason and the
+command that puts a pane on record instead of a button that would act.
+
 ## Testing
 
 Mass on core selectors/reducers and collector parsers (fixtures captured
@@ -1083,5 +1246,79 @@ hook.
   mapping for the capture session only, then reverted before this issue's
   diff was cut — so the picture is the real rendering pipeline
   (`paint.ts`/`marks/`/`retire.ts`) driven by real fixture data, and the
+  fence stays docs-and-screenshots-only in the committed tree.
+- 2026-08-02 — prd6 (issue #106, the living cycle): **seed size went
+  absolute, and distance changed hands from recency to lifecycle.**
+  `seedSize(outputTokens)` (`packages/web/src/scene/geometry.ts`) logs a
+  lane's own output between two fixed references and caps it, so a lane's
+  size is a fact about that lane — the old relative reading
+  (`log1p(output)/log1p(maxOutput)`) shrank every seed the moment the
+  fleet's busiest lane worked harder, which is why growth never read.
+  **This overrules #102's "a scar is a mark, so it is the same size for
+  every lane"** — `scarLengthPx` now scales by the same `sizeFrac`, so the
+  rim shows what each lane actually accomplished, and a germinated lane's
+  size is floored by whatever its seed had already produced.
+  `lifecycleFrac()` blends work done (dominant) and age-since-first-seen,
+  pinned to the rim by the cut's own retract — **this replaces prd3 graft
+  g6's distance-as-recency**, which needed explaining and so failed the
+  layman bar; recency keeps thread lightness, the channel it already
+  shared. A same-issue fix pushed a newborn lane's birth radius
+  (`bornRadial`) out far enough to clear the root-mass on a cramped panel,
+  where the old fixed fraction let the rim close in on a mass that doesn't
+  shrink with it. See [prd6 — the living cycle](#prd6--the-living-cycle)
+  above.
+- 2026-08-02 — prd6 (issue #106): **severed work returns home, and the
+  root-mass grows.** `RetireGeometry.homeward` (`geometry.ts`'s
+  `homewardFlow()`) rides the cord-cut's own retract stage — no new motion
+  budgeted — so a lane's substance visibly travels down its severing
+  thread into the mass as it retires. `rootGirth()`
+  (`packages/web/src/scene/marks/root.ts`) thickens the mass by up to 30%
+  over a session, on the same absolute, two-reference log scale seeds use,
+  read off the *drawn* scene (`homecoming(retire)`) so the mass grows
+  exactly as each cord parts rather than lurching for a wave of landings.
+  A dormant seed (a scarred, retired lane) germinates a returning handle's
+  new thread from its own seat (`germination()`, matched on `Lane.handles`
+  since a re-dispatch can arrive under a new worktree/branch), so the ring
+  is never re-spaced by a lane coming back — the one exception graft g7
+  itself anticipates. See [prd6 — the living
+  cycle](#prd6--the-living-cycle) above.
+- 2026-08-02 — prd6 (issue #107, the main node): **the root-mass is
+  clickable, and answers with the conductor's own conversation.**
+  `MAIN_SELECTION` (`packages/web/src/fleet/selection.tsx`) is a
+  pseudo-lane value the one selection slot can hold — deliberately never a
+  `Lane` in `fleet.lanes`, so the fleet table, ladder and scene's thread
+  list skip it by construction rather than each learning to special-case
+  it (`selection.test.tsx` pins that no lane is ever built with this id).
+  `SceneView.tsx` hit-tests the mass in the same world coordinates it's
+  drawn in, at the same scale-divided tolerance a lane node uses, losing a
+  contested pixel to the smaller, more specific target on purpose.
+  `GET /api/transcript/main` (`packages/server/src/api/transcript.ts`)
+  resolves the conductor by **role**, never by name
+  (`findConductorAttribution`), since `--extra-sessions <dir>:<lane>` lets
+  an operator call the conductor anything. `LaneDrawer` branches on
+  `isMainSelected` before it looks up a `Lane` at all and renders through
+  the same `DrawerFrame` a lane's drawer uses; `MainVitals` reuses the
+  burn strip's own formatters for its `$`/output/overhead cells rather
+  than re-summing them, so the drawer can't disagree with the strip four
+  inches to its left. See [prd6 — the living cycle](#prd6--the-living-cycle)
+  above.
+- 2026-08-02 — prd6 (issue #108, this issue): **docs, and the screenshot
+  set, regenerated against the landed living cycle**, the same discipline
+  #96/#105 set: nothing here documents the plan, only what `git log`
+  confirms landed. `docs/screenshots/` now includes a 20-lane fleet with
+  visibly different thread widths (absolute sizing, ruling 1), a rim of
+  differently-sized scars beside a visibly thicker root-mass (ruling 1+2),
+  and the root-mass's own drawer open on a real conductor session found
+  via `--extra-sessions <dir>:conductor` against this repo's own recorded
+  telemetry-spike sessions — genuine turns, not a fixture's absent-
+  transcript gap state. The `live.png` and `drawer.png` captures were
+  regenerated against this worktree's own real, in-progress state (this
+  docs lane itself `WORKING`, a sibling lane already landed and scarred)
+  rather than staged. As with #105, `finishedSpec` was reached through a
+  **temporary, uncommitted** local key mapping (`StreamContext.tsx`'s
+  `STREAM_SOURCE_KEYS`) and a temporary, uncommitted weight spread on
+  `finishedSpec`'s lanes (`fleet/fixtures.ts`, otherwise a uniform `weight:
+  1` that would have made every scar the same size and defeated the point
+  of the capture) — both reverted before this issue's diff was cut, so the
   fence stays docs-and-screenshots-only in the committed tree.
 

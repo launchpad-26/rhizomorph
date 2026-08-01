@@ -130,19 +130,26 @@ graft g6](prd3.md)); or the fixture showing a count other than five.
 2. Give them 30 seconds of silent looking, then ask what they're looking at.
 
 **What you should see:** an explanation that covers, unprompted: threads
-reaching out from a central mass are lanes/agents; brightness and traveling
-pulses are activity (commits, tokens); green threads are getting on with it,
-amber ones are stopped and waiting on a person, a hollow red mark is dead
-([prd4 ruling 3](prd4.md)'s law 9a — hue is meaning, and each hue means one
+reaching out from a central mass are lanes/agents; a thicker thread has
+produced more, and a thin one hasn't produced much yet ([prd6
+ruling 1](prd6.md) — thread width is absolute, so a thick thread stays thick
+even next to a whale); a thread's distance from the mass is how far along
+it is — close in is newer, out at the rim means it's finishing or already
+done ([prd6 ruling 4](prd6.md)); brightness and traveling pulses are
+activity (commits, tokens); green threads are getting on with it, amber
+ones are stopped and waiting on a person, a hollow red mark is dead ([prd4
+ruling 3](prd4.md)'s law 9a — hue is meaning, and each hue means one
 thing); a stuck or orbiting pulse, a dark thread, or a white-hot thread each
 mean something is off; a lane's position doesn't drift once you've noticed it
 (a lane keeps its angular slot for the session — [graft g7](prd3.md)).
 
-**What failure looks like:** silence past 30 seconds; a guess about the wrong
-axis (e.g. "the length means how long it's been running," which it doesn't);
-needing the mycelium metaphor explained before it clicks; or needing the
-color explained as anything other than what it visibly is (green = good,
-amber = needs a person, red = dead).
+**What failure looks like:** silence past 30 seconds; a guess about the
+wrong axis (e.g. "distance means how important the lane is," or "a thicker
+thread means it's working harder right now" rather than "it's produced
+more" — both swap a lifecycle/output fact for an activity one); needing the
+mycelium metaphor explained before it clicks; or needing the color
+explained as anything other than what it visibly is (green = good, amber =
+needs a person, red = dead).
 
 ## Check 4 — MODE
 
@@ -171,8 +178,10 @@ failure ruling 16 exists to prevent).
 
 The four checks above establish that the scene reads correctly at a
 glance. prd5 (`docs/prd5.md`) added things to actually *do* with it, once
-you're looking — a first-time reader should come away knowing these exist,
-not just what the picture means.
+you're looking, and prd6 (`docs/prd6.md`) added two more — the root-mass
+now visibly grows, and the root-mass itself is something you can click — a
+first-time reader should come away knowing all of it exists, not just what
+the picture means.
 
 ### Drive the camera
 
@@ -196,7 +205,7 @@ picture rather than the point under your cursor; Recenter never appears no
 matter how far you pan away, or appears when the network is already in
 view.
 
-### Watch a lane cut loose
+### Watch a lane cut loose, and come home
 
 The two fixtures (`2`/`3`) don't include a finished lane of their own —
 they're built to stay a fixed, reproducible scale test and pathology set.
@@ -204,18 +213,60 @@ To see the cord-cut itself: let a real swarm run under `1` (live) until a
 lane lands (workmux marks it `done`, or its worktree is removed), or read
 [`docs/architecture.md`](architecture.md#the-cord-cut-102-ruling-3) for the
 stage-by-stage description backed by `retire.test.ts`. What you're looking
-for: the thread goes slack, the freed end springs back to its own node
-with no bounce, and what's left settles into a small, permanently dimmed
-mark near the rim — never gone, never re-lit. The **hide finished** button
-(top-right of the scene, appears once at least one lane has finished)
-toggles those marks out of the picture and always shows its own count, so
-"hidden" is never mistaken for "gone" — the fleet table keeps listing the
-lane regardless of the toggle.
+for: the thread goes slack, a short stretch of light travels back down it
+into the root-mass — the lane's substance going home, [prd6 ruling
+2](prd6.md) — the freed end springs back to its own node with no bounce,
+and what's left settles into a small, permanently dimmed mark near the
+rim — never gone, never re-lit, and **sized to that lane's own output**
+([prd6 ruling 1](prd6.md): a lane that did more work leaves a visibly
+bigger scar, which overrules prd5's "a scar is a mark, so it's the same
+size for every lane"). The **hide finished** button (top-right of the
+scene, appears once at least one lane has finished) toggles those marks
+out of the picture and always shows its own count, so "hidden" is never
+mistaken for "gone" — the fleet table keeps listing the lane regardless of
+the toggle, and the root-mass never shrinks back down when you hide its
+scars.
+
+Over a longer session, compare the root-mass at the start and the end:
+it's visibly thicker once a few lanes have landed, because every one of
+them sent its work home into it ([prd6 ruling 2](prd6.md)) — you notice
+it's bigger, you never catch it growing.
 
 **What failure looks like:** a finished lane's thread stays attached to
 the mass with only its color changed; a scar fades away entirely over
-time; the hide-finished button doesn't show a count, or shows one that
+time, or every scar reads as the same size regardless of how much its lane
+produced; the root-mass never visibly thickens no matter how much has
+landed; the hide-finished button doesn't show a count, or shows one that
 doesn't match the fleet table's finished-lane total.
+
+If the same handle is dispatched again after landing, its new thread
+**germinates from the seed it left behind** — same angle, same seat,
+already as big as what it grew from — rather than sprouting somewhere new
+and re-spacing the whole ring ([prd6 ruling 3](prd6.md)). There's no key to
+force this on the shipped fixtures; it's mentioned here so you know what
+you're looking at if you see it on a real swarm.
+
+### Click MAIN
+
+1. With any fixture loaded (or live), click the root-mass at the centre of
+   the scene — the same click a lane's node takes.
+2. Confirm the same drawer opens, on **`Main — the conductor`**: vitals
+   (branch, landings, commits home, output, `$`, overhead) instead of a
+   lane's, then the same conversation view tailing the conductor's own
+   session, then the same copies-never-executes ATTACH ([prd6
+   ruling 5](prd6.md)).
+
+**What you should see:** a hovered root-mass shows a pointer cursor, same
+as a lane node; the drawer that opens is visually identical in frame and
+layout to a lane's, just with main's own facts in the vitals grid; an
+un-instrumented conductor says so in words (`conductor not instrumented —
+its burn is unknown, not zero`) rather than showing an empty conversation
+or a `$0.00` that would disagree with the burn strip four inches away.
+
+**What failure looks like:** clicking the mass does nothing; the fleet
+table grows a `MAIN` row (it must not — main is a pseudo-lane, deliberately
+not one of `fleet.lanes`); the drawer shows a blank conversation instead of
+naming the gap.
 
 ### Pause the scene
 
@@ -279,3 +330,7 @@ only how insistently the same rung reads.
   entirely, and is exempt from FROZEN/WAITING even at any age — this is a
   declaration an operator made in `.swarm/lanes.json` (`"parked": true`),
   never something the read-only Observatory decided on its own.
+- **The conductor isn't instrumented:** ([prd6 ruling 5](prd6.md)) clicking
+  MAIN still opens the drawer — it says `conductor not instrumented — its
+  burn is unknown, not zero` in the vitals and conversation, rather than a
+  blank pane or a `$0.00` that would disagree with the burn strip.
