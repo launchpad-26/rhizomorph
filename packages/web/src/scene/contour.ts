@@ -130,11 +130,22 @@ export function fieldAt(p: Point, ordered: readonly Falloff[], melt: number): nu
   return fieldXY(p.x, p.y, ordered, melt)
 }
 
+/**
+ * The inner loop, and the one place in the scene where `Math.hypot` is
+ * deliberately not used: it is specified to avoid intermediate overflow, which
+ * costs several times a plain square root and buys nothing at all at the scale
+ * of a panel measured in hundreds of pixels. This runs once per lattice sample
+ * per falloff — a few tens of thousands of times a frame — and it is most of the
+ * contour's whole cost.
+ */
 function fieldXY(x: number, y: number, ordered: readonly Falloff[], melt: number): number {
   let distance = Number.NaN
-  for (const falloff of ordered) {
-    const own = Math.hypot(x - falloff.at.x, y - falloff.at.y) - falloff.radius
-    distance = Number.isNaN(distance) ? own : smin(distance, own, melt)
+  for (let i = 0; i < ordered.length; i += 1) {
+    const falloff = ordered[i] as Falloff
+    const dx = x - falloff.at.x
+    const dy = y - falloff.at.y
+    const own = Math.sqrt(dx * dx + dy * dy) - falloff.radius
+    distance = i === 0 ? own : smin(distance, own, melt)
   }
   return distance
 }

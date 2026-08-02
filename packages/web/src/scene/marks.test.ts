@@ -12,6 +12,7 @@ import {
 import { RECENCY_SPAN_MS, layoutScene, pointAt, type Point } from './geometry.js'
 import { ALARM, EVENT, STRUCTURAL, allowance } from './motion.js'
 import {
+  BREATH_PERIOD_MS,
   brightnessOf,
   breathOf,
   inksOf,
@@ -23,7 +24,7 @@ import {
   type SceneFrame,
 } from './marks/index.js'
 import { ribbonMark } from './marks/index.js'
-import { ROOT_GROWTH, rootGirth } from './marks/root.js'
+import { ROOT_GROWTH, arrivalSwell, rootGirth } from './marks/root.js'
 import { paint } from './paint.js'
 import { CUT, SCAR, SCAR_FLOOR, cutAt, type RetireState } from './retire.js'
 import { ALARM_FLOOR, CALM_CEILING, CALM_FLOOR, RECEDE, salienceOf } from './salience.js'
@@ -783,9 +784,13 @@ describe('the root-mass', () => {
     const fleet = fleetFor(pathologySpec())
     const dark = { ...fleet, root: { ...fleet.root, conductorOutputTokens: 0 } }
 
+    // Every lit part of the mass, the surface included: prd7 ruling 5 moved most
+    // of the mass's ink onto one contour, so a floor asserted over the two glows
+    // alone would now be a floor over the chrome around the thing.
     const glow = (of: Fleet): number => {
       const marks = marksFor({ fleet: of }).filter(
-        (mark) => mark.role === 'root-core' || mark.role === 'root-halo',
+        (mark) =>
+          mark.role === 'root-core' || mark.role === 'root-halo' || mark.role === 'root-mass',
       )
       expect(marks.length).toBeGreaterThan(0)
       return Math.max(...marks.map(brightnessOf))
@@ -794,6 +799,173 @@ describe('the root-mass', () => {
     expect(glow(dark)).toBeLessThan(glow(fleet))
     // Dim, not absent: the mass is still the thing every thread is threaded to.
     expect(glow(dark)).toBeGreaterThan(0)
+
+    // …and the surface on its own, which is what an operator actually looks at.
+    const surface = (of: Fleet): number =>
+      brightnessOf(marksFor({ fleet: of }).find((mark) => mark.role === 'root-mass') as Mark)
+    expect(surface(dark)).toBeLessThan(surface(fleet))
+    expect(surface(dark)).toBeGreaterThan(0)
+  })
+
+  /**
+   * IT IS ONE SURFACE (prd7 ruling 5) — a contour, not an arrangement of marks.
+   *
+   * The ruling's own words: the centre was the most obviously drawn thing on
+   * screen. So the shape of the claim is a count as much as a kind. Fifty-four
+   * curls and an expanding ring are gone; what is left is one mark carrying one
+   * closed ring, and nothing in the root-mass's family is a stroke or an arc any
+   * more.
+   */
+  describe('one organic contour', () => {
+    const mass = (options: FrameOptions = {}): Mark =>
+      marksFor(options).find((mark) => mark.role === 'root-mass') as Mark
+
+    it('is a single contour mark, and the only thing the mass is drawn as', () => {
+      const marks = marksFor()
+      const root = marks.filter((mark) => mark.role.startsWith('root-'))
+      expect(root.filter((mark) => mark.role === 'root-mass')).toHaveLength(1)
+      // The rest of the family is light and a name — nothing that draws a shape.
+      expect([...new Set(root.map((mark) => mark.role))].sort()).toEqual([
+        'root-core',
+        'root-halo',
+        'root-label',
+        'root-mass',
+      ])
+      expect(root.map((mark) => mark.kind).sort()).toEqual(['contour', 'glow', 'glow', 'text'])
+    })
+
+    it('carries one closed ring, with no step in it a grid could show through', () => {
+      const mark = mass()
+      expect(mark.kind === 'contour' && mark.rings).toHaveLength(1)
+      const ring = (mark.kind === 'contour' ? mark.rings[0] : []) as readonly Point[]
+      expect(ring.length).toBeGreaterThan(64)
+
+      // Closed: the wrap from the last vertex to the first is an edge like any
+      // other, which is what says the walk came back to where it started.
+      let longest = 0
+      for (let i = 0; i < ring.length; i += 1) {
+        const a = ring[i] as Point
+        const b = ring[(i + 1) % ring.length] as Point
+        longest = Math.max(longest, Math.hypot(b.x - a.x, b.y - a.y))
+      }
+      expect(longest).toBeLessThan(1.5)
+    })
+
+    it('is grown, not turned — the silhouette is nobody\'s circle', () => {
+      // The failure this catches is the quiet one: melt the falloffs together
+      // hard enough and the field collapses back into exactly the disc ruling 5
+      // is removing, with every test above still green.
+      const { centre } = frameFor().geometry
+      const reach = pointsOf(mass()).map((p) => Math.hypot(p.x - centre.x, p.y - centre.y))
+      expect(Math.min(...reach) / Math.max(...reach)).toBeLessThan(0.9)
+      // …and still one mass rather than a scatter of lumps.
+      expect(Math.min(...reach) / Math.max(...reach)).toBeGreaterThan(0.6)
+    })
+
+    /**
+     * THE BREATH MOVES THE CONTOUR (law 10, prd5's AMBIENT class).
+     *
+     * It used to move a tangle of curls and two glows. There is nothing else left
+     * for it to move, so this is now the whole of the scene's ambient motion
+     * reaching the picture — and both degradations are asserted against the same
+     * reading, because a breath that survived a pause would be a WCAG 2.2.2
+     * failure and one that survived reduced motion would be a ruling 4 failure.
+     */
+    it('breathes, and holds still for a pause and for reduced motion', () => {
+      const { centre } = frameFor().geometry
+      const size = (options: FrameOptions): number =>
+        Math.max(...pointsOf(mass(options)).map((p) => Math.hypot(p.x - centre.x, p.y - centre.y)))
+
+      // A quarter of the 5.4 s period apart: peak inhale against the resting size.
+      const resting = size({ now: NOW })
+      const inhaled = size({ now: NOW + BREATH_PERIOD_MS / 4 })
+      expect(inhaled).not.toBeCloseTo(resting, 3)
+      // Inside ruling 4's 3% ceiling, which is the half that makes it ambient.
+      expect(Math.abs(inhaled / resting - 1)).toBeLessThan(0.03)
+
+      for (const stopped of [{ paused: true }, { reducedMotion: true }]) {
+        expect(size({ ...stopped, now: NOW + BREATH_PERIOD_MS / 4 })).toBe(
+          size({ ...stopped, now: NOW }),
+        )
+      }
+    })
+
+    /**
+     * IT MELTS WHERE THE WORK IS ARRIVING (prd7 ruling 5, prd6 ruling 2's other
+     * half).
+     *
+     * The fact the deleted `root-arrival` ring used to carry, told properly: a
+     * ring expanding out of the centre said *something* landed, and a surface
+     * bulging at four o'clock says something landed **from four o'clock**. So the
+     * law is directional, and it has to settle back — a swell that stayed would
+     * be the girth, and the girth is a different channel.
+     */
+    describe('melting with the arrivals', () => {
+      const fleet = fleetFor(fleet20Spec())
+      const lane = fleet.lanes[0] as (typeof fleet.lanes)[number]
+
+      /** How far the surface reaches on this lane's bearing, and on the far side. */
+      function reach(retire?: ReadonlyMap<string, RetireState>): { toward: number; away: number } {
+        const frame = frameFor({ fleet, ...(retire === undefined ? {} : { retire }) })
+        const { centre } = frame.geometry
+        const angle = frame.geometry.byLane.get(lane.id)?.angle ?? 0
+        const points = pointsOf(
+          sceneMarks(frame).find((mark) => mark.role === 'root-mass') as Mark,
+        )
+        const along = (bearing: number): number =>
+          Math.max(
+            ...points
+              .map((p) => ({
+                r: Math.hypot(p.x - centre.x, p.y - centre.y),
+                a: Math.atan2(p.y - centre.y, p.x - centre.x),
+              }))
+              .filter((p) => Math.abs(Math.atan2(Math.sin(p.a - bearing), Math.cos(p.a - bearing))) < 0.3)
+              .map((p) => p.r),
+          )
+        return { toward: along(angle), away: along(angle + Math.PI) }
+      }
+
+      const cutting = (state: RetireState): Map<string, RetireState> =>
+        new Map([[lane.id, state]])
+
+      it('bulges toward the lane the substance is coming from, and only there', () => {
+        const still = reach()
+        const arriving = reach(cutting(cutAt(CUT.tensionMs + CUT.retractMs)))
+
+        // Both sides grew a little — one lane's work has landed, so the whole mass
+        // is thicker (ruling 2). The arriving bearing grew *more*, and that
+        // difference is the swell.
+        const towardGrowth = arriving.toward / still.toward
+        const awayGrowth = arriving.away / still.away
+        expect(towardGrowth).toBeGreaterThan(awayGrowth * 1.05)
+      })
+
+      it('settles back as the scar cools, leaving only the thickening behind', () => {
+        const peak = reach(cutting(cutAt(CUT.tensionMs + CUT.retractMs)))
+        const cooling = reach(cutting(cutAt(CUT.tensionMs + CUT.retractMs + 200)))
+        const settled = reach(cutting(cutAt(CUT.totalMs)))
+
+        expect(cooling.toward).toBeLessThan(peak.toward)
+        expect(settled.toward).toBeLessThan(cooling.toward)
+        // …and what is left is symmetric: the swell is gone, the girth is not.
+        expect(settled.toward / settled.away).toBeCloseTo(reach().toward / reach().away, 6)
+        expect(settled.toward).toBeGreaterThan(reach().toward)
+      })
+
+      it('does not bulge for a cut that has not parted yet, or one nobody watched', () => {
+        // Nothing is in transit during the tension release, so there is nothing to
+        // arrive; and a reduced-motion frame collapses the cut to its endpoint, so
+        // a journey the scene never watched never lands on the mass either. Same
+        // arithmetic, same reason the homeward ribbon is absent in both.
+        expect(arrivalSwell(0, 0)).toBe(0)
+        expect(arrivalSwell(1, 1)).toBe(0)
+        expect(arrivalSwell(1, 0)).toBe(1)
+        expect(reach(cutting(cutAt(CUT.tensionMs))).toward).toBe(reach().toward)
+        expect(reach(cutting(cutAt(CUT.totalMs, false))).toward).toBe(
+          reach(cutting(cutAt(CUT.totalMs))).toward,
+        )
+      })
+    })
   })
 
   it('names the branch it is, in mono (law 11)', () => {
@@ -813,20 +985,28 @@ describe('the root-mass', () => {
   describe('thickening with the session work', () => {
     const fleet = fleetFor(fleet20Spec())
 
-    /** The mass's own girth, as the radius of its widest curl. */
-    function girthOf(retire?: ReadonlyMap<string, RetireState>): number {
-      const marks = marksFor({
-        fleet,
-        ...(retire === undefined ? {} : { retire }),
-      }).filter((mark) => mark.role === 'root-mass')
-      expect(marks.length).toBeGreaterThan(0)
+    /**
+     * The mass's own girth, as how far its surface reaches from the centre.
+     *
+     * Read through `pointsOf` rather than off a mark kind, which is the same move
+     * `reachOf` already makes and for the same reason (prd7 ruling 2, applied to
+     * geometry): before ruling 5 this said `mark.kind === 'stroke' ? mark.points`,
+     * which quietly made "the mass thickens" a law about **strokes**. The mass is
+     * one contour now and the law is word for word unchanged, so the reading is
+     * what had to move.
+     */
+    function widestOf(marks: readonly Mark[]): number {
+      const mass = marks.filter((mark) => mark.role === 'root-mass')
+      expect(mass.length).toBeGreaterThan(0)
       return Math.max(
-        ...marks.flatMap((mark) =>
-          mark.kind === 'stroke'
-            ? mark.points.map((point) => Math.hypot(point.x - 450, point.y - 130))
-            : [0],
+        ...mass.flatMap((mark) =>
+          pointsOf(mark).map((point) => Math.hypot(point.x - 450, point.y - 130)),
         ),
       )
+    }
+
+    function girthOf(retire?: ReadonlyMap<string, RetireState>): number {
+      return widestOf(marksFor({ fleet, ...(retire === undefined ? {} : { retire }) }))
     }
 
     /** The first `count` lanes, landed. */
@@ -860,24 +1040,22 @@ describe('the root-mass', () => {
         ...fleet,
         lanes: fleet.lanes.map((lane) => ({ ...lane, outputTokens: 10_000_000 })),
       }
-      const at = (of: Fleet): number => {
-        const marks = marksFor({ fleet: of, retire: landed(20) }).filter(
-          (mark) => mark.role === 'root-mass',
-        )
-        return Math.max(
-          ...marks.flatMap((mark) =>
-            mark.kind === 'stroke'
-              ? mark.points.map((point) => Math.hypot(point.x - 450, point.y - 130))
-              : [0],
-          ),
-        )
-      }
+      const at = (of: Fleet): number => widestOf(marksFor({ fleet: of, retire: landed(20) }))
 
       expect(rootGirth(ROOT_GROWTH.fullTokens)).toBe(ROOT_GROWTH.maxGirth)
       expect(rootGirth(ROOT_GROWTH.fullTokens * 10)).toBe(ROOT_GROWTH.maxGirth)
       expect(rootGirth(0)).toBe(0)
       // …and the picture obeys it: a session of whales is no bigger than the cap.
+      //
+      // Exactly, not approximately, and that is a claim about the contour rather
+      // than about the arithmetic above it: the sampling lattice is a fraction of
+      // the mass's own radius, so a mass that thickened by 30% is sampled at the
+      // same relative points and comes out 30% larger to floating point. A fixed
+      // pixel grid would re-quantise the surface at every size and this could only
+      // ever have been asserted to within half a cell.
       expect(at(whales) / girthOf()).toBeLessThanOrEqual(1 + ROOT_GROWTH.maxGirth + 1e-9)
+      // …and reaches it, so the cap is a ceiling the picture actually touches.
+      expect(at(whales) / girthOf()).toBeGreaterThan(1 + ROOT_GROWTH.maxGirth - 1e-9)
     })
 
     it('takes the work home as each cord parts, not when it is queued', () => {
@@ -897,33 +1075,15 @@ describe('the root-mass', () => {
       // work was undone.
       const shown = marksFor({ fleet, retire: landed(20) })
       const hidden = marksFor({ fleet, retire: landed(20), hideFinished: true })
-      const widest = (marks: Mark[]): number =>
-        Math.max(
-          ...marks
-            .filter((mark) => mark.role === 'root-mass')
-            .flatMap((mark) =>
-              mark.kind === 'stroke'
-                ? mark.points.map((point) => Math.hypot(point.x - 450, point.y - 130))
-                : [0],
-            ),
-        )
 
-      expect(widest(hidden)).toBe(widest(shown))
+      expect(widestOf(hidden)).toBe(widestOf(shown))
     })
 
     it('is a size, not a movement — it holds still between frames', () => {
       // Ambient motion is the breath and nothing else (law 10). The girth changes
       // only when a cut advances or a snapshot brings new landed work.
       const at = (now: number): number =>
-        Math.max(
-          ...marksFor({ fleet, retire: landed(8), now, paused: true })
-            .filter((mark) => mark.role === 'root-mass')
-            .flatMap((mark) =>
-              mark.kind === 'stroke'
-                ? mark.points.map((point) => Math.hypot(point.x - 450, point.y - 130))
-                : [0],
-            ),
-        )
+        widestOf(marksFor({ fleet, retire: landed(8), now, paused: true }))
       expect(at(NOW + 2_700)).toBe(at(NOW))
     })
   })
@@ -1500,7 +1660,16 @@ describe('the display list is data, not objects (prd7 ruling 1)', () => {
 
   it('covers every kind and every optional field, so the guard is worth having', () => {
     const kinds = new Set(marks.map((mark) => mark.kind))
-    expect([...kinds].sort()).toEqual(['arc', 'chip', 'glow', 'path', 'ribbon', 'stroke', 'text'])
+    expect([...kinds].sort()).toEqual([
+      'arc',
+      'chip',
+      'contour',
+      'glow',
+      'path',
+      'ribbon',
+      'stroke',
+      'text',
+    ])
 
     const has = (predicate: (mark: Mark) => boolean): boolean => marks.some(predicate)
     expect(has((m) => m.kind === 'ribbon' && m.dashed === true), 'no dashed ribbon').toBe(true)
