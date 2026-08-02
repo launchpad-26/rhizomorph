@@ -204,7 +204,24 @@ export function contourRings(spec: ContourSpec): Point[][] {
 }
 
 /** The one level {@link contourRings} asks for: the surface itself. */
-const ZERO: readonly number[] = [0]
+const ZERO: readonly Level[] = [{ at: 0 }]
+
+/**
+ * One level of the field to walk.
+ *
+ * `smoothing` overrides the spec's for this level alone. It exists because the
+ * levels are not all worth the same: the surface is the geometry the laws read
+ * and is drawn at the mark's own edge, while a shell four levels down is a wash
+ * at five per cent alpha. Corner-cutting doubles a ring's vertices per pass, and
+ * those vertices are paid for three times over — allocated, smoothed, and filled
+ * — so spending two passes on a wash nobody can find an edge in is the sort of
+ * cost that only shows up as a dropped frame under load.
+ */
+export interface Level {
+  /** Distance from the surface, in world units. Negative is inside. */
+  at: number
+  smoothing?: number
+}
 
 /**
  * THE SAME SURFACE AT SEVERAL DEPTHS — one sampling, one ring-set per level.
@@ -223,7 +240,7 @@ const ZERO: readonly number[] = [0]
  * Order is preserved: `layers[n]` is `levels[n]`, empty when that level encloses
  * nothing (a depth deeper than the field's own minimum has no interior left).
  */
-export function contourLayers(spec: ContourSpec, levels: readonly number[]): Point[][][] {
+export function contourLayers(spec: ContourSpec, levels: readonly Level[]): Point[][][] {
   const ordered = orderFalloffs(spec.falloffs)
   if (ordered.length === 0 || levels.length === 0) return levels.map(() => [])
 
@@ -234,23 +251,38 @@ export function contourLayers(spec: ContourSpec, levels: readonly number[]): Poi
   // The lattice has to reach past the *outermost* level asked for, not just past
   // the surface: a ring that ran off the edge of the grid would be an open chain
   // and a hole in the fill. Levels inside the surface need nothing extra.
-  const outer = Math.max(0, ...levels)
+  const outer = Math.max(0, ...levels.map((level) => level.at))
   const half = Math.ceil((extent(ordered, spec.origin, melt, cell) + outer) / cell)
   const size = 2 * half + 1
   const x0 = spec.origin.x - half * cell
   const y0 = spec.origin.y - half * cell
 
   const values = new Float64Array(size * size)
+  // Each row's own range, kept as it is sampled. A row of the lattice whose
+  // values all sit on one side of a level cannot contain a crossing for it, and
+  // most rows sit on one side of most levels — so this is what stops eighteen
+  // walks costing eighteen times one. See {@link walk}'s `rowMin`/`rowMax`.
+  const rowMin = new Float64Array(size)
+  const rowMax = new Float64Array(size)
   for (let j = 0; j < size; j += 1) {
+    let low = Number.POSITIVE_INFINITY
+    let high = Number.NEGATIVE_INFINITY
     for (let i = 0; i < size; i += 1) {
-      values[j * size + i] = fieldXY(x0 + i * cell, y0 + j * cell, ordered, melt)
+      const value = fieldXY(x0 + i * cell, y0 + j * cell, ordered, melt)
+      values[j * size + i] = value
+      if (value < low) low = value
+      if (value > high) high = value
     }
+    rowMin[j] = low
+    rowMax[j] = high
   }
 
   const passes = spec.smoothing ?? MAX_SMOOTHING
   const scratch: Scratch = { vertices: new Map(), next: new Map(), spent: new Set() }
-  const grid: Lattice = { values, size, x0, y0, cell, ordered, melt, scratch }
-  return levels.map((level) => walk(grid, level).map((ring) => chaikin(ring, passes)))
+  const grid: Lattice = { values, size, x0, y0, cell, ordered, melt, scratch, rowMin, rowMax }
+  return levels.map((level) =>
+    walk(grid, level.at).map((ring) => chaikin(ring, level.smoothing ?? passes)),
+  )
 }
 
 /**
@@ -313,6 +345,9 @@ interface Lattice {
    * that frame budget is garbage collection rather than arithmetic.
    */
   scratch: Scratch
+  /** Each lattice row's own range, so a walk can skip the rows with nothing in them. */
+  rowMin: Float64Array
+  rowMax: Float64Array
 }
 
 interface Scratch {
@@ -351,7 +386,7 @@ interface Scratch {
  * the surface, and zero is what {@link contourRings} passes.
  */
 function walk(grid: Lattice, level: number): Point[][] {
-  const { values, size, x0, y0, cell, ordered, melt, scratch } = grid
+  const { values, size, x0, y0, cell, ordered, melt, scratch, rowMin, rowMax } = grid
 
   /** Edge names. Horizontal edge (i,j) runs east; vertical edge (i,j) runs south. */
   const hKey = (i: number, j: number): number => ((j * size + i) << 1) | 0
@@ -382,6 +417,14 @@ function walk(grid: Lattice, level: number): Point[][] {
   const corner = [false, false, false, false]
 
   for (let j = 0; j < size - 1; j += 1) {
+    // A band of two rows whose every sample is on one side of this level has no
+    // crossing anywhere in it, so every cell in it would have taken the
+    // all-four-corners-agree exit below. Skipping the pair outright is exactly
+    // that exit, hoisted: same rings, without visiting the cells to find out.
+    const low = Math.min(rowMin[j] as number, rowMin[j + 1] as number)
+    const high = Math.max(rowMax[j] as number, rowMax[j + 1] as number)
+    if (high < level || low >= level) continue
+
     for (let i = 0; i < size - 1; i += 1) {
       corner[0] = inside(i, j)
       corner[1] = inside(i + 1, j)

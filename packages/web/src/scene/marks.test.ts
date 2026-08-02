@@ -9,7 +9,7 @@ import {
   type Fleet,
   type FixtureSpec,
 } from '../fleet/index.js'
-import { RECENCY_SPAN_MS, layoutScene, pointAt, type Point } from './geometry.js'
+import { RECENCY_SPAN_MS, layoutScene, pointAt, seedSize, tangentAt, type Point } from './geometry.js'
 import { ALARM, EVENT, STRUCTURAL, allowance } from './motion.js'
 import {
   BREATH_PERIOD_MS,
@@ -1239,30 +1239,193 @@ describe('the substitution table — meaning as form', () => {
     for (const lick of licks) expect(widthNear(lick, 0.95)).toBeLessThan(widthNear(lick, 0.1))
   })
 
-  it('done: the seal is a knot — the cord carries past the tip and ties off', () => {
+  /**
+   * DONE: THE SEAL, RESTATED (#117).
+   *
+   * This law has had three forms and one meaning: **a landed lane is closed off
+   * by its own substance, not marked with a badge.** It was a bar struck across
+   * the tip; prd7 ruling 3 made it a knot; it is a fold now. The meaning has not
+   * moved an inch and the assertions have got stricter, which is the only way a
+   * form is allowed to change under ruling 2.
+   *
+   * What the knot's law actually said was one number — `turning > 2π` — plus a
+   * sentence in a comment that was never asserted ("it comes back to where it
+   * started"). A full turn is definitionally a ring with an eye in it, so that
+   * one number *forced* every landed lane in the fleet to wear the same small
+   * pretzel; at thirty-eight of them on one rim the badge became the loudest
+   * repeated motif in the picture, which is the exact failure ruling 3 exists to
+   * prevent. The number was the bug.
+   *
+   * Four clauses replace it, and three are new:
+   *
+   * 1. **it turns back on itself** — total turning ≥ π. The surviving half of
+   *    the old claim, at the amount a fold needs. A bar has none.
+   * 2. **it comes home** — the spine ends *inside* the node's own lens while
+   *    reaching outside it on the way. This is the half the old test only said,
+   *    and it is what tells a seal from the tail beside it, which reaches away
+   *    and ends outside.
+   * 3. **it is the cord, not a mark laid on it** — a ribbon, drawn to nothing
+   *    at the end, so it closes rather than stopping.
+   * 4. **no two lanes wear the same one** — over a fleet whose lanes have done
+   *    *identical work*, every seal is a different shape in its own node's
+   *    frame. Nothing in the old law forbade thirty-eight identical stamps.
+   *    This forbids two.
+   */
+  describe('done: the seal is the cord folding home, and no two fold alike', () => {
     const fleet = fleetFor(fleet20Spec())
-    const landed = {
-      ...fleet,
-      lanes: fleet.lanes.map((lane, i) => (i === 0 ? { ...lane, activity: 'done' as const } : lane)),
-    }
-    const id = (fleet.lanes[0] as { id: string }).id
-    const seal = of(marksFor({ fleet: landed }), id, 'done-mark')[0]
 
-    expect(seal?.kind).toBe('ribbon')
-    if (seal?.kind !== 'ribbon') return
-    // A bar has two ends and no turning. A knot goes round: more than a full
-    // turn, and it comes back to where it started.
-    let turned = 0
-    for (let i = 1; i < seal.path.length - 1; i += 1) {
-      const a = seal.path[i - 1] as Point
-      const b = seal.path[i] as Point
-      const c = seal.path[i + 1] as Point
-      let delta = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x)
-      while (delta > Math.PI) delta -= 2 * Math.PI
-      while (delta < -Math.PI) delta += 2 * Math.PI
-      turned += delta
+    /** The whole fleet landed, so there are twenty seals to compare. */
+    function allLanded(sizes?: number) {
+      return {
+        ...fleet,
+        lanes: fleet.lanes.map((lane) => ({
+          ...lane,
+          activity: 'done' as const,
+          ...(sizes === undefined ? {} : { outputTokens: sizes }),
+        })),
+      }
     }
-    expect(Math.abs(turned)).toBeGreaterThan(Math.PI * 2)
+
+    /** Total signed turning along a spine, in radians. */
+    function turning(path: readonly Point[]): number {
+      let turned = 0
+      for (let i = 1; i < path.length - 1; i += 1) {
+        const a = path[i - 1] as Point
+        const b = path[i] as Point
+        const c = path[i + 1] as Point
+        let delta = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x)
+        while (delta > Math.PI) delta -= 2 * Math.PI
+        while (delta < -Math.PI) delta += 2 * Math.PI
+        turned += delta
+      }
+      return turned
+    }
+
+    it('turns back on itself, and is the cord rather than a mark laid on it', () => {
+      const id = (fleet.lanes[0] as { id: string }).id
+      const seal = of(marksFor({ fleet: allLanded() }), id, 'done-mark')[0]
+
+      expect(seal?.kind).toBe('ribbon')
+      if (seal?.kind !== 'ribbon') return
+      // Clause 1. A bar has two ends and no turning.
+      expect(Math.abs(turning(seal.path))).toBeGreaterThanOrEqual(Math.PI)
+      // Clause 3. It closes: the cord is gone by the end of itself, which is
+      // what "sealed" means about a growing thing rather than about wax.
+      expect(seal.widthTip).toBe(0)
+      expect(seal.widthRoot).toBeGreaterThan(0)
+      expect(widthNear(seal, 0.95)).toBeLessThan(widthNear(seal, 0.1))
+    })
+
+    it('comes home — it ends inside the node it grew out of, having left it', () => {
+      // Clause 2, and the one that separates a seal from every other terminal in
+      // the scene. A tail, a thorn, a barb and a reach all end *away* from the
+      // node. This one goes out and comes back in.
+      const geometry = frameFor({ fleet: allLanded() }).geometry
+      const marks = marksFor({ fleet: allLanded() })
+
+      for (const lane of fleet.lanes) {
+        const seal = of(marks, lane.id, 'done-mark')[0]
+        expect(seal?.kind, `${lane.id} drew no seal`).toBe('ribbon')
+        if (seal?.kind !== 'ribbon') continue
+
+        const thread = geometry.byLane.get(lane.id) as { node: Point; sizeFrac: number }
+        // The lens's own half-length: what counts as "inside the body".
+        const body = (5 + 14 * thread.sizeFrac) * 0.46
+        const from = (point: Point): number =>
+          Math.hypot(point.x - thread.node.x, point.y - thread.node.y)
+
+        const last = seal.path[seal.path.length - 1] as Point
+        const furthest = Math.max(...seal.path.map(from))
+        expect(from(last), `${lane.id}'s seal did not come home`).toBeLessThan(body)
+        expect(furthest, `${lane.id}'s seal never left`).toBeGreaterThan(body)
+      }
+
+      // …and the tail beside it does the opposite, which is why the two are
+      // different marks rather than one drawn twice.
+      const laneId = (fleet.lanes[0] as { id: string }).id
+      const cutting = { fleet: allLanded(), retire: new Map([[laneId, cutAt(CUT.totalMs)]]) }
+      const scar = marksFor(cutting)
+      // The *cut* geometry: a retiring lane's node has travelled out to the rim,
+      // so the node this is measured against has to be the one it was drawn at.
+      const thread = frameFor(cutting).geometry.byLane.get(laneId) as {
+        node: Point
+        sizeFrac: number
+      }
+      const body = (5 + 14 * thread.sizeFrac) * 0.46
+      const ends = of(scar, laneId, 'scar-mark')
+        .filter((mark) => mark.kind === 'ribbon')
+        .map((mark) => {
+          const path = mark.kind === 'ribbon' ? mark.path : []
+          const last = path[path.length - 1] as Point
+          return Math.hypot(last.x - thread.node.x, last.y - thread.node.y)
+        })
+      expect(ends.some((distance) => distance < body), 'no seal among the scar marks').toBe(true)
+      expect(ends.some((distance) => distance > body), 'no reach among the scar marks').toBe(true)
+    })
+
+    it('is a different shape on every lane, even when they did identical work', () => {
+      // Clause 4 — the anti-stamp law, and the one this whole iteration exists
+      // for. Size is *supposed* to change a seal, so size is held constant here:
+      // what is being asserted is that two lanes which produced exactly the same
+      // output still do not wear the same badge. Compared in each node's own
+      // frame, so two lanes at opposite ends of the ring are compared as shapes
+      // rather than as positions.
+      const landed = allLanded(40_000)
+      const geometry = frameFor({ fleet: landed }).geometry
+      const marks = marksFor({ fleet: landed })
+
+      const shapes = fleet.lanes.map((lane) => {
+        const seal = of(marks, lane.id, 'done-mark')[0]
+        const path = seal?.kind === 'ribbon' ? seal.path : []
+        const thread = geometry.byLane.get(lane.id) as { node: Point; angle: number }
+        const along = tangentAt(
+          (geometry.byLane.get(lane.id) as { path: Point[] }).path,
+          1,
+        )
+        const facing = Math.atan2(along.y, along.x)
+        // Node-local: translated to the node and turned to face along the thread.
+        return path.map((point) => {
+          const dx = point.x - thread.node.x
+          const dy = point.y - thread.node.y
+          return {
+            x: dx * Math.cos(-facing) - dy * Math.sin(-facing),
+            y: dx * Math.sin(-facing) + dy * Math.cos(-facing),
+          }
+        })
+      })
+
+      const apart = (a: readonly Point[], b: readonly Point[]): number =>
+        Math.max(...a.map((point, i) => {
+          const other = b[i] as Point
+          return Math.hypot(point.x - other.x, point.y - other.y)
+        }))
+
+      const pairs = shapes.flatMap((a, i) => shapes.slice(i + 1).map((b) => apart(a, b)))
+      expect(pairs.length).toBeGreaterThan(100)
+      const sorted = [...pairs].sort((a, b) => a - b)
+      const at = (q: number): number => sorted[Math.floor(sorted.length * q)] as number
+      // Everything below is in units of the lens the folds grow out of, so the
+      // law is about proportions rather than about this fixture's pixels.
+      const lens = 5 + 14 * seedSize(40_000)
+
+      // **THERE IS NO MOULD.** Three readings of the same claim, and every one of
+      // them is exactly **zero** under the knot this replaced — where twenty
+      // lanes of equal work drew twenty byte-identical stamps.
+      //
+      //  · the fleet spans real shapes, not one shape jittered;
+      //  · the *typical* pair differs by a fifth of the mark, not by a hair;
+      //  · near-coincidences are the exception rather than the rule.
+      expect(Math.max(...pairs) / lens, 'the fleet folds from a mould').toBeGreaterThan(0.45)
+      expect(at(0.5) / lens, 'the fold is one shape with a wobble on it').toBeGreaterThan(0.22)
+      expect(at(0.1) / lens, 'the fleet folds in families').toBeGreaterThan(0.05)
+
+      // Not "no two are alike", and the difference is worth being honest about:
+      // the fold is a function of two hashes of the lane's own handle, so two
+      // lanes *can* draw phases close enough to fold alike, and no
+      // identity-seeded mapping can promise otherwise. What is forbidden here is
+      // a mould — a shape the fleet shares — which is the thing that was
+      // actually wrong, and which these three numbers catch at full strength.
+    })
   })
 
   it('rank enclosure: an organic region behind the name, and never a circle', () => {

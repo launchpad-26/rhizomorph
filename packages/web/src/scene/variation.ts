@@ -25,6 +25,7 @@ import type { Point } from './geometry.js'
  * | width jitter | nothing | ±{@link WIDTH_JITTER_MAX}, low-frequency only |
  * | sideways wander | nothing | ≤ {@link WANDER_MAX_SPACING} × lane spacing |
  * | curl phase | nothing | free |
+ * | second phase | nothing | free |
  *
  * Two properties make it safe to run this inside a live instrument:
  *
@@ -63,6 +64,14 @@ export const CHANNELS = {
   widthJitter: { meaning: null, permission: 'bounded', limit: 0.1 },
   wander: { meaning: null, permission: 'bounded', limit: 0.3 },
   curl: { meaning: null, permission: 'free' },
+  /**
+   * A second free phase, independent of the first. One number cannot give a
+   * lane two unrelated habits: everything seeded off {@link CHANNELS.curl}
+   * alone comes out *correlated*, so a fleet whose tails all lean the way their
+   * seals all turn reads as systematic even when no two values are equal. Two
+   * phases is what makes a habit a habit rather than a setting.
+   */
+  phase: { meaning: null, permission: 'free' },
 } as const satisfies Record<string, Channel>
 
 /** ±10% around the encoded width, and never more. */
@@ -109,6 +118,13 @@ export interface LaneVariation {
    * coincidence.
    */
   readonly curl: number
+  /**
+   * A second free 0–1, uncorrelated with {@link curl}. Salted differently, so a
+   * lane that curls hard is no more likely to turn one way than the other —
+   * which is what keeps a terminal built out of both from reading as one
+   * setting applied to the whole fleet.
+   */
+  readonly phase: number
 }
 
 /**
@@ -215,6 +231,7 @@ function build(seed: string): LaneVariation {
     // right tool for something that varies *along* a thread and the wrong one
     // for a single number per lane — see {@link LaneVariation.curl}.
     curl: cyrb128(`${seed}/curl`) / 4_294_967_296,
+    phase: cyrb128(`${seed}/phase`) / 4_294_967_296,
   }
 }
 

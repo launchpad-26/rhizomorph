@@ -272,7 +272,7 @@ const DEPTH = {
    * came out as a contour map of itself. Eighteen at 0.05 is a body you can see,
    * with no step anybody can point at.
    */
-  alpha: 0.05,
+  alpha: 0.055,
   /**
    * THE RIND — how thick the mass's skin is, in units of the radius.
    *
@@ -288,7 +288,7 @@ const DEPTH = {
    */
   rind: 0.06,
   /** How much brighter the rind is than one ordinary level. */
-  rindGain: 2.6,
+  rindGain: 3.2,
 } as const
 
 const DEPTHS: readonly { at: number; rgb: Rgb; alpha: number }[] = Array.from(
@@ -298,9 +298,16 @@ const DEPTHS: readonly { at: number; rgb: Rgb; alpha: number }[] = Array.from(
     return {
       at: -DEPTH.reach * Math.pow(t, DEPTH.bias),
       // Up the ramp as it goes deeper: thin ice at the skin, dense ice at the
-      // core. Squared, so most of the brightening happens where most of the
-      // material is rather than spreading evenly over a body that is not even.
-      rgb: mix(ICE_500, ICE_100, t * t),
+      // core. The exponent is where the lift #117's second look asked for came
+      // from, and it is the one number in the stack that has to be *tuned*
+      // rather than reasoned: squaring it put nearly all the brightening in the
+      // last few shells, so the body between the rind and the core sat at the
+      // backdrop's own weight and the mass read as faint against the vignette.
+      // Taking it under 1 lifted the middle and brought the banding straight
+      // back, because the colour step per level is largest exactly where the
+      // levels are furthest apart. 1.35 is the most lift the ramp will give
+      // before a step becomes an edge.
+      rgb: mix(ICE_500, ICE_100, Math.pow(t, 1.35)),
       alpha: DEPTH.alpha,
     }
   },
@@ -460,7 +467,15 @@ export function rootMarks(frame: SceneFrame): Mark[] {
       cell: radius * CELL,
       smoothing: SMOOTHING,
     },
-    DEPTHS.map((depth) => depth.at * radius),
+    DEPTHS.map((depth, i) => ({
+      at: depth.at * radius,
+      // The surface keeps the full corner-cutting: it is the ring the laws read
+      // and the edge the eye finds. A shell at five per cent alpha has no edge
+      // to find, so one pass is the whole of what it needs, and the vertices
+      // that buys back are paid for three times over — allocated, smoothed and
+      // filled — eighteen times a frame.
+      ...(i === 0 ? {} : { smoothing: 1 }),
+    })),
   )
 
   marks.push({
@@ -517,7 +532,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
     alarm: false,
     at: centre,
     radius: radius * (0.2 + 0.28 * surge),
-    ink: budget(frame, null, false, ink(ICE_050, 0.1 + 0.24 * intensity)),
+    ink: budget(frame, null, false, ink(ICE_050, 0.12 + 0.28 * intensity)),
   })
 
   // What used to be here was `root-arrival`: an expanding hairline circle, drawn

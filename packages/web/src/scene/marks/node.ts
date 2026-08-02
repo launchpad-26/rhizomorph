@@ -211,8 +211,9 @@ function lensTint(hue: Rgb, freshness: number): Rgb {
  * What ends a scar now is the ribbon's own taper: {@link tailMark} carries the
  * thread's substance a little past the node and draws it to nothing, at a length
  * and a lean that come off the lane's free phase, so no two lanes finish alike.
- * The tie ({@link knotMark}) is seeded the same way and wraps by anything from a
- * hook to a turn and a half.
+ * The seal ({@link sealMark}) is the same cord folding back into the body — see
+ * that function for why it stopped being a knot and how the law it carries got
+ * stricter rather than looser in the swap.
  *
  * Two things are taken away, and both are the same statement:
  *
@@ -257,7 +258,7 @@ function scarNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: RetireGeo
       stroke: 1,
     },
     tailMark('scar-mark', thread, angle, length, cold(ink(lensTint(hue, freshness), 0.75))),
-    knotMark('scar-mark', thread, angle, length, cold(ink(ACTIVITY_HUE.done, 0.9))),
+    sealMark('scar-mark', thread, angle, length, cold(ink(ACTIVITY_HUE.done, 0.9))),
   ]
 
   if (frame.salience.spotlightId === laneId || frame.salience.hoverId === laneId) {
@@ -367,7 +368,7 @@ function stateMarks(
     default:
       return thread.lane.activity === 'done'
         ? [
-            knotMark(
+            sealMark(
               'done-mark',
               thread,
               angle,
@@ -583,72 +584,200 @@ function tailMark(
 }
 
 /**
- * DONE — tied off (prd7 ruling 3).
+ * DONE — SEALED, as the cord folding back into itself (prd7 ruling 3, restated
+ * by #117).
  *
- * It was a bar struck across the tip: a second vocabulary — flat, geometric,
- * borrowed from wax seals — for a fact about a growing thing. It is now a
- * **knot**: the thread's own substance carried past the node, wrapped once and
- * drawn to nothing, distinguished from every other terminal by hue alone. Same
- * mark, same role, same green; no new shape entered the scene, and one left it.
+ * **The history matters, because this is the third form of one law.** It was a
+ * bar struck across the tip: a second vocabulary — flat, geometric, borrowed
+ * from wax seals — for a fact about a growing thing. prd7 ruling 3 made it a
+ * *knot*, which was the right idea and the wrong amount of it: the law it left
+ * behind was "the spine turns through more than a full circle", and a full turn
+ * is definitionally a ring with an eye in it. So every landed lane in the fleet
+ * wore the same small pretzel, and at thirty-eight of them on one rim that badge
+ * became the loudest repeated motif in the picture — the exact failure ruling 3
+ * exists to prevent, reintroduced by the shape its own law forced.
+ *
+ * It is now a **fold**: the lane's own substance carried past the tip, turned
+ * back through more than a half-circle, and laid down *into the body it came
+ * from*, where its width has already gone to nothing. Nothing is added at the
+ * tip; the terminal simply stops reaching and comes home. The turn's radius
+ * follows the lane's own lens, so the eye of the fold is filled by the cord's
+ * own width and there is no ring anywhere in it.
+ *
+ * **How the law survives at full strength.** The old assertion was one number
+ * (`turning > 2π`) and one unasserted sentence in a comment ("it comes back to
+ * where it started"). The restatement in `marks.test.ts` asserts four things,
+ * and three of them are new:
+ *
+ * 1. it **turns back on itself** — total turning ≥ π. A bar has none; this is
+ *    the surviving half of the old claim, at the amount a fold actually needs.
+ * 2. it **returns into the node's own body** — the spine's last point is inside
+ *    the lens, while its furthest point is outside it. This is the half the old
+ *    test only *said*; it is asserted now, and it is what separates a seal from
+ *    the tail beside it, which reaches away and ends outside.
+ * 3. it is **the cord, not a mark laid on it** — a ribbon, drawn to nothing at
+ *    the end, so it closes rather than stopping.
+ * 4. **no two lanes wear the same one.** Given a fleet whose lanes have done
+ *    *identical work*, every seal must still be a different shape in its own
+ *    node's frame. Nothing in the old law prevented thirty-eight identical
+ *    stamps; this forbids two.
+ *
+ * Only (1) is laxer than what it replaces, and it is laxer on precisely the axis
+ * that forced the badge. (2), (3) and (4) are strictly new, and (4) is the one
+ * that would have caught this.
  *
  * It wears the done green rather than a neutral, so "landed" is one reading of
- * one hue (hollow lens + tie + dim green) instead of a grey mark a viewer has to
- * be told about.
- *
- * **Seeded, since #117.** Every knot used to be the same 2.35 turns at the same
- * 3.4 px, and on a rim of thirty-seven scars that is the double-loop the review
- * called clip-art. The wrap is now anything between a hook and a turn and a
- * half, at a radius that follows the lane's own lens — so "tied off" is still
- * one reading, and no two lanes tie the same knot.
+ * one hue (hollow lens + fold + dim green) instead of a grey mark a viewer has
+ * to be told about.
  */
-function knotMark(
+function sealMark(
   role: MarkRole,
   thread: ThreadGeometry,
   angle: number,
   length: number,
   paint: Ink,
 ): Mark {
-  const habit = variationFor(variationSeed(thread.lane)).curl
+  const habit = variationFor(variationSeed(thread.lane))
   return ribbonMark({
     role,
     laneId: thread.laneId,
     alarm: false,
-    path: knotSpine(thread.node, angle, length, habit),
-    // Thick where it leaves the node and drawn to nothing round the far side:
-    // a cord tied off, not a ring drawn round something.
-    widthRoot: 1.9,
-    widthTip: 0.35,
-    taperTip: 0.3,
+    path: sealSpine(thread.node, angle, length, habit.curl, habit.phase),
+    // Thick where the cord is still cord and nothing at all by the time it has
+    // come home: a fold lying into the body, not a ring drawn round something.
+    widthRoot: sealWidth(length),
+    widthTip: 0,
+    taperTip: 0.6,
     samples: 20,
     paint,
   })
 }
 
-/**
- * Where the knot is tied: just past the tip, wrapped by the lane's own habit.
- *
- * Past about one turn the cord crosses its own back, which is what makes it a
- * knot rather than a loop — and it costs nothing, because one filled polygon
- * self-overlapping is still one fill. Under one turn it is a hook, which is the
- * same gesture arrested earlier, and both are "this was finished off".
- */
-function knotSpine(node: Point, angle: number, length: number, habit: number): Point[] {
-  // Off the lens rather than fixed, so a big lane's tie is a big lane's tie.
-  const radius = 1.3 + 0.1 * length + 1.1 * habit
-  const out = length * 0.5 + radius * 0.9
-  const centre: Point = { x: node.x + Math.cos(angle) * out, y: node.y + Math.sin(angle) * out }
-
-  const turns = Math.PI * (0.7 + 1.9 * habit)
-  // Which way round it was tied. A rim wound all one way is a rim somebody set.
-  const hand = habit < 0.5 ? -1 : 1
-  const steps = 12
-  return Array.from({ length: steps + 1 }, (_unused, i) => {
-    const theta = angle + Math.PI + hand * (i / steps) * turns
-    // Spiralling in as it goes round, so the wrap tucks under itself.
-    const r = radius * (1 - 0.28 * (i / steps))
-    return { x: centre.x + Math.cos(theta) * r, y: centre.y + Math.sin(theta) * r }
-  })
+/** How thick the cord is where it is still cord. Off the lens, like everything. */
+function sealWidth(length: number): number {
+  return Math.max(1, length * 0.13)
 }
+
+/**
+ * THE FOLD, as a spine: out past the tip, round, and home.
+ *
+ * An arc that starts outside the lens and shrinks as it sweeps, with the last
+ * third pulled into an anchor **inside** the lens. The anchor is what makes
+ * "it comes back" true by construction rather than by tuning — whatever the
+ * turn does, the last point of this path is a fixed short distance up the
+ * node's own axis, and `marks.test.ts` reads exactly that.
+ *
+ * Four things vary per lane, off the two free phases:
+ *
+ * - **how far past the tip it goes before turning** (`reach`),
+ * - **how far round it goes** (`turn`), from a half-circle to most of one,
+ * - **which hand it turns on**, which is the one that stops a rim reading as
+ *   something somebody wound,
+ * - **how tight the turn is**, which follows the lane's own lens as well, so a
+ *   big landing folds wide and a small one folds tight.
+ */
+function sealSpine(
+  node: Point,
+  angle: number,
+  length: number,
+  curl: number,
+  phase: number,
+): Point[] {
+  const forward: Point = { x: Math.cos(angle), y: Math.sin(angle) }
+  const across: Point = { x: -Math.sin(angle), y: Math.cos(angle) }
+  const at = (along: number, sideways: number): Point => ({
+    x: node.x + forward.x * along + across.x * sideways,
+    y: node.y + forward.y * along + across.y * sideways,
+  })
+
+  // Everything below is in units of the lens, which is what makes the two
+  // clauses `marks.test.ts` reads true *by construction* rather than by tuning.
+  // Which way the cord went over: a rim wound all one way is a rim somebody set.
+  const hand = phase < 0.5 ? -1 : 1
+  const reach = length * (SEAL.reach.min + SEAL.reach.span * curl)
+  // Tied to the cord's own width rather than to the lens, which is the number
+  // that decides fold-versus-ring: at half a width the two runs touch and the
+  // eye closes, and there is nothing left for the picture to read as a badge.
+  const cord = sealWidth(length)
+  const tight = cord * (SEAL.tightness.min + SEAL.tightness.span * phase)
+  const home = length * SEAL.home
+  const bow = length * SEAL.bow * (curl - 0.5) * 2
+
+  const points: Point[] = []
+
+  // THE TURN. A little over a half-circle, at a radius near the cord's own
+  // width — so the two runs lie against each other and there is no eye left
+  // over. This is the whole difference from the knot: a knot's radius was a
+  // size of its own, which is what put a ring at the end of every scar.
+  const sweep = Math.PI * (1 + SEAL.overturn * phase)
+  const arcSteps = 9
+  for (let i = 0; i <= arcSteps; i += 1) {
+    const theta = -Math.PI / 2 + (i / arcSteps) * sweep
+    points.push(at(reach + tight * Math.cos(theta), hand * (tight + tight * Math.sin(theta))))
+  }
+
+  // …AND HOME. Back down the outside of what it came out on, into the lens,
+  // where the taper has already taken it to nothing. It bows on the way, in the
+  // same hand it turned, so the return is a curve rather than a rule and the
+  // turning keeps accumulating past the half-circle.
+  const backSteps = 7
+  const from = points[points.length - 1] as Point
+  const alongFrom = (from.x - node.x) * forward.x + (from.y - node.y) * forward.y
+  const sideFrom = (from.x - node.x) * across.x + (from.y - node.y) * across.y
+  for (let i = 1; i <= backSteps; i += 1) {
+    const t = i / backSteps
+    const eased = t * t * (3 - 2 * t)
+    points.push(
+      at(
+        alongFrom + (home - alongFrom) * eased,
+        sideFrom + hand * bow * Math.sin(Math.PI * t) - sideFrom * eased * 0.35,
+      ),
+    )
+  }
+
+  return points
+}
+
+/**
+ * The fold's whole shape, in units of the lens it grows out of.
+ *
+ * Written as a table because the two structural clauses are arithmetic over it,
+ * and a reader has to be able to check them by hand. The lens's half-length is
+ * 0.46, which is what "inside the body" means:
+ *
+ * - **it leaves.** The furthest the arc reaches is `pivot + startRadius` at
+ *   `t = 0`, since the radius only shrinks from there: 0.52 at the tightest and
+ *   0.92 at the widest. Always outside the body.
+ * - **it comes home.** The turn is capped **below** 1.5 half-turns, which is
+ *   what puts the last point on the *far* side of the pivot rather than back out
+ *   where it started — `cos θ ≤ 0` over the whole of `turns`. So the last point
+ *   is at most `hypot(pivot, end)` from the node: 0.40 at the very worst, well
+ *   inside the body. Letting the turn past 1.5 would bring the cord back round
+ *   to where it began, which is a knot, which is the badge this replaced.
+ *
+ * The ranges are wide on purpose. A fold that varied by a pixel would satisfy
+ * every clause and still read as one stamp — the review's whole point — so the
+ * widest fold in a fleet is nearly three times the tightest, and how far round
+ * it goes, where it pivots and which hand it turns on all move independently.
+ */
+const SEAL = {
+  /** How far past the node the cord runs before it turns. */
+  reach: { min: 0.55, span: 0.62 },
+  /**
+   * The turn's radius, **in units of the cord's own width**. Under a half the
+   * two runs overlap and the fold is solid; the span takes the loosest lane to
+   * about three quarters, where the two runs still touch. A radius of its own —
+   * which is what the knot had — is what leaves a hole, and the hole is the
+   * badge.
+   */
+  tightness: { min: 0.34, span: 0.4 },
+  /** How far past a half-circle the turn carries, as a fraction of π. */
+  overturn: 0.22,
+  /** Where the return lands, up the node's own axis. Well inside the lens. */
+  home: 0.1,
+  /** How far the return bows on the way back, ± of the lens. */
+  bow: 0.16,
+} as const
 
 /**
  * The spotlight's own ring — two hairlines, so the one lane the ladder picked is
