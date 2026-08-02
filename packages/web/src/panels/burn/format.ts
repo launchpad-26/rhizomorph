@@ -6,9 +6,17 @@ import { formatTokenBreakdown, formatTokens, formatUsd, formatUsdPerHour } from 
  * The burn strip's two gap-voice lines (ruling 12), pinned to the exact
  * wording #80 was groomed with — never `$0.00` for a missing feed, never a
  * bare "unknown" for an uninstrumented conductor.
+ *
+ * The cost-feed line is composed from its two halves rather than written as one
+ * string, and the halves are exported (#117). Nothing about the *wording*
+ * changed — {@link NO_COST_FEED_GAP} is character for character what it was —
+ * but the strip needs to set the command apart from the sentence around it, so
+ * that a click selects the thing you paste and not the apology in front of it.
+ * A caveat an operator has to re-type by hand is a caveat that gets ignored.
  */
-export const NO_COST_FEED_GAP =
-  'NO COST FEED (OTel) — dollars unavailable — run: eval "$(observatory env <lane>)"'
+export const COST_FEED_COMMAND = 'eval "$(observatory env <lane>)"'
+export const NO_COST_FEED_LEAD = 'NO COST FEED (OTel) — dollars unavailable — run: '
+export const NO_COST_FEED_GAP = `${NO_COST_FEED_LEAD}${COST_FEED_COMMAND}`
 export const CONDUCTOR_NOT_INSTRUMENTED_GAP = 'CONDUCTOR NOT INSTRUMENTED — overhead ratio unknowable'
 
 /** Locale pinned so the exact hover figure is identical on every machine. */
