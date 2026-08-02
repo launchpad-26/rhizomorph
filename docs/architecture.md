@@ -930,6 +930,256 @@ returns `null` rather than fabricate a `workmux open main` that would
 create a worktree nobody asked for — ATTACH shows the reason and the
 command that puts a pane on record instead of a button that would act.
 
+## prd7 — procedural form
+
+prd7 (`docs/prd7.md`) followed the operator's close-out review of prd6: "the
+function should remain the same, that's locked in, but now that we've got the
+shape of it sorted, we can make it more procedurally generated, smooth,
+unique, less janky, less shapes." Research ran before any code
+(`docs/research/2026-08-02-obs-prd7-*.md`) and its measurement **reframed the
+prd**: a live Chrome profile of the running scene found it already locked to
+60fps (180 frames, median 16.70 ms, p95 16.80 ms, one dropped frame) with
+**zero `shadowBlur` calls**. "Janky" was therefore never the renderer — it
+was the form language itself: stroked centre-lines, hard edges, discrete
+glyph shapes. Three issues landed it, serial by necessity (the scene is one
+module and each wave rewrites what the next builds on): **#112** (semantic
+roles, no visual change) → **#113** (ribbons, the keystone) → **#114** (the
+root-mass contour) — followed by this docs pass (**#115**). What follows is
+the shape it took in code, cited against prd7's six rulings.
+
+### Ruling 1 — a form prd, not a renderer prd (stay canvas 2D)
+
+The profile above is the ruling's whole evidence: nothing measured pointed at
+the renderer, so nothing was spent on one. WebGL was rejected on two
+independent grounds rather than one, per `docs/research/2026-08-02-obs-prd7-renderer.md`:
+it cures nothing measured (every named cause of canvas-2D jank — DPR, blur,
+per-frame allocation — is a painter bug, not a fill-rate wall), and it costs
+real coverage — `[Ran]` jsdom 27.0.1 returns `null` for `getContext('webgl')`
+and `('webgl2')`, so a WebGL painter is one this suite could never execute,
+where today's display list at least stays queryable under any painter. The
+`shadowBlur` ban (prd3) gained a second, independent reason: MDN states its
+value "is not affected by the current transformation matrix," so a glow built
+on it would not scale under the prd5 camera even if its cost were free. The
+display list stays plain data as a *guarded* property rather than a hope:
+`marks.test.ts`'s `structuredClone` conformance test (#112) round-trips every
+mark kind through the same boundary `postMessage` uses and hand-walks the
+result naming the exact offending field, which is what keeps the painter
+swappable if a later prd ever earns a shader layer.
+
+### Ruling 2 — semantic roles before any visual change (#112)
+
+The prerequisite, landed with **zero visual diff** and proved rather than
+asserted: the serialized display list over 33 frames × 6,072 marks — every
+fixture, every cut stage, storm, reduced motion, pause, spotlight,
+no-manifest — is byte-identical with roles stripped (md5 `fe774758…`, two
+runs each side). The laws in `marks.test.ts` had been pinned to shape-named
+roles — `chevron ×3`, `cut ×2`, `raised-hand`, `cartouche`, `rogue-barb` — 31
+assertions across 9 names, 51 usages in source, and those names *were* the
+shapes ruling 3 removes next: a law written in the drawing's own vocabulary
+cannot survive the drawing changing. Roles were renamed to what they mean:
+
+| shape-named (before) | meaning-named (after) |
+|---|---|
+| `knot` | `looping-mark` |
+| `cut` | `severed` |
+| `raised-hand` | `summons` |
+| `chevron` | `expensive-mark` |
+| `cartouche` | `rank-enclosure` |
+| `rogue` | `off-fence-reach` |
+| `rogue-barb` | `off-fence-grasp` |
+| `fence` | `off-fence-victim` |
+| `node-seal` | `done-mark` |
+| `node-thorn` | `node-tip` / `off-fence-mark` (split) |
+| `filament-thorn` | `filament-tip` |
+
+`node-thorn` was two meanings sharing one word — every node's terminal hook,
+and the barb an off-fence offender wears — and splitting them is what lets
+the off-fence family name all four of its parts (reach, grasp, victim, and
+now the offender's own mark) instead of leaving one invisible to the laws.
+Kept, deliberately, because they are meaning and not silhouette: `orbit`,
+`tick`, `scar*`, `heat`, `held`, and the substance roles (`thread`, `node`,
+`label`, `pulse`, `root-*`, `homeward`, `filament`). All 70 laws were
+restated at equal or greater strength, none deleted — FROZEN keeps
+`toHaveLength(2)`, LOOPING now asserts the circuit is *closed* (2π) rather
+than merely an arc, and OFF-FENCE names all four marks on both parties where
+before only one was assertable. `glyphs.ts` and `paint.ts` still name shapes
+(`CARTOUCHE`, `NODE_LENS`, `THORN_OUT`) — naming the form is their job; what
+no longer exists is a shape name in the channel the laws read.
+
+### Ruling 3 — stop stroking lines, start filling ribbons (#113, the keystone)
+
+`packages/web/src/scene/ribbon.ts` turns a spine and a width profile into
+closed polygons the painter fills, built from three libraries each proven
+live first (`docs/research/2026-08-02-observatory-prd7-procedural-form.md`):
+**`perfect-freehand`** (MIT) builds one outline for the whole stroke with a
+real rounded cap at every turn sharper than 90°, fed the encoded width as
+per-point pressure with `simulatePressure: false` (its own velocity
+simulation is exactly the nondeterminism this scene cannot have); **`d3-shape`'s**
+centripetal Catmull-Rom (α = 0.5) smooths the spine and *interpolates* its
+waypoints, so a data-meaningful position survives smoothing bit for bit
+(`curveBasis` approximates and is banned here for exactly that reason); and
+**`simplex-noise`** seeds the per-lane wander (ruling 4). Probed cost: a
+24-point spine → an 88-point closed outline at 0.172 ms/frame for 30 ribbons,
+byte-identical across repeated calls.
+
+Six substitutions, per the ruling, **each spending zero new objects** — the
+meaning moves into the form of a mark that was already being drawn:
+
+| today | replaces | where |
+|---|---|---|
+| asymmetric needle taper + three tapered "licks" | the chevrons (direction/urgency) | `marks/thread.ts`'s `HEAT_TAPER`, `marks/node.ts`'s `expensiveMarks` |
+| a width pinch to zero, twice | the two cut strokes (FROZEN) | `marks/thread.ts`'s `severedStops`/`severedMarks` |
+| a midpoint-displaced blob behind the lane's name | the cartouche ring | `marks/node.ts`'s `enclosureMark`, `variation.ts`'s `blobRing` |
+| a hue-only knot | the seal bar (DONE) | `marks/node.ts`'s `knotMark` |
+| a travelling width swell | the commit dot + its wake glows (9 objects → 2) | `marks/light.ts`'s `swellMarks` |
+| ribbon length | the progress arc | nothing to do — distance has meant lifecycle since prd6 ruling 4 |
+
+Every thread is a filled ribbon now (`threadMarks`), narrowing from
+`widthRoot` at the mass to `widthTip` at the node in proportion to the same
+lane's own `sizeFrac` (`geometry.ts`) — the natural taper of a hypha, and the
+same absolute, capped work-size encoding prd6 ruling 1 fixed, just told as
+form rather than as a constant-width stroke. Two real bugs surfaced by
+building a throwaway, uncommitted software rasterizer to actually *look* at
+the display list rather than infer it (`fix(#113)`, "the ribbons were
+faceted under the camera"): resampling every ribbon to a constant sample
+count threw away half a thread's own spine resolution, invisible at 1× but a
+17px chord becoming a 100px straight edge at the prd5 camera's 6× — fixed by
+defaulting to the spine's own resolution, bounded to
+[`RIBBON_SAMPLES_MIN`=6, `RIBBON_SAMPLES_MAX`=48]; and the heat licks'
+alternating sides read as a zigzag — a chevron by another name, quietly
+undoing the substitution — fixed to splay one way on the lane's own free
+curl phase. `caps: false` on sub-pixel filament strands measured 66 → 34
+vertices, a 26% build saving, width unchanged to seven places.
+
+**Cost, measured in three passes as the geometry firmed up:** an early
+wall-clock assertion (4× the measured cost) flaked three times in twelve
+concurrent runs — 3.6 ms measured as 17.1 ms on a loaded box — because
+under `--maxWorkers=5` a timing assertion measures the machine, not the
+code. It was replaced with a **ratio guard**: building the display list
+costs a bounded multiple of laying the scene out, since both dilate
+together under load (measured 5.4× quiescent, 5.2–5.7× across four
+concurrent runs, against a bound of 10), plus a deterministic vertex cap
+(`< 140` vertices/ribbon, `< 40,000` total at 30 lanes) that catches a
+regression a loaded CI box would otherwise hide. The settled frame cost is
+**3.265 ms/frame** for layout + display list at 30 lanes, against roughly a
+4 ms allowance inside the 16.7 ms budget — one 24-sample ribbon outline
+costs 10.1 µs, so thirty of them are 0.30 ms, the same order as the prd7
+probe's own 0.172 ms. Bundle delta, base (#112) → landed (#113): the
+lazily-loaded scene chunk went from 93,466 → 110,428 B raw (32,357 → 38,441 B
+gzipped, +18.8%); the whole app grew 3.9% gzipped, entirely inside that one
+lazy chunk. A rebuild against this issue's own tree (`npm run build`, run
+for this docs pass) measures the scene chunk at **113.65 kB raw / 40.22 kB
+gzipped** after #114's contour landed on top — the whole app **≈174.0 kB
+gzipped** across every chunk.
+
+### Ruling 4 — bounded uniqueness, seeded from identity
+
+`packages/web/src/scene/variation.ts` is a permission system exported as
+data, not a bag of jitter — `CHANNELS`, pinned by `variation.test.ts`:
+
+| channel | carries | permission |
+|---|---|---|
+| position along life (radial) | the lifecycle (prd6 ruling 4) | **locked** |
+| hue | state (law 9a/9b) | **locked** |
+| encoded width | work size (prd6 ruling 1) | **locked**, as the baseline |
+| width jitter | nothing | ±10% (`WIDTH_JITTER_MAX`), low-frequency only |
+| sideways wander | nothing | ≤ 0.3× lane spacing (`WANDER_MAX_SPACING`) |
+| curl phase | nothing | free |
+
+Two properties make this safe inside a live instrument. First, **the wander
+is exactly zero at both ends of a thread**: `ends(t)` returns the literal `0`
+at `t = 0`/`t = 1` rather than computing it (`Math.sin(Math.PI)` is `1.2e-16`,
+not zero, and "the encoded endpoints do not move" is not a claim that
+survives being only approximately true), so a lane's radius, angle and
+label anchor come out of the noise field bit-identical —
+`geometry.test.ts` recomputes both from the fleet to prove it. Second, **the
+seed is the lane's own identity, never the clock**: `variationSeed` hashes
+the lexicographically-smallest of a lane's `handles` (never `Lane.id`, which
+is the branch and can change on a re-dispatch) with bryc's `cyrb128` into
+four 32-bit words, feeding `mulberry32` — a hash rather than a character sum
+because adjacent lane names (`113-ribbons`, `114-contour`) must not produce
+adjacent noise fields, verified live: `docs/research/2026-08-02-observatory-prd7-procedural-form.md`
+probed the same lane id returning identical samples from a **fresh**
+`simplex-noise` instance, which is the property that makes a replay recorded
+on someone else's machine redraw the same picture rather than a new random
+one. `blobRing` (Tyler Hobbs' midpoint-displaced watercolour subdivision,
+reimplemented from his prose — his writing carries no stated licence, ruling
+6) is the same seeded-noise discipline spent on the enclosure blob instead of
+the wander.
+
+### Ruling 5 — the root-mass as one surface (#114)
+
+`packages/web/src/scene/contour.ts` replaces the root-mass's concentric
+rings with a scalar field — a handful of smooth circular falloffs blended by
+Inigo Quilez's polynomial `smin` and walked into closed rings by marching
+squares on a ~6px-pitch grid, then softened with two Chaikin corner-cutting
+passes. Two measurements made the call, per
+`docs/research/2026-08-02-obs-prd7-renderer.md`'s `[Ran]` probes at
+1200×800/12 balls: **marching squares at 1.28 ms/frame** against **42.8
+ms/frame** for a per-pixel metaball evaluation (108.5 ms once that per-pixel
+version carries SDFs and a smooth minimum) — 2.5× the entire frame budget
+before a pixel is drawn. The second reason mattered as much as the first:
+marching squares emits a **contour polygon**, so the root-mass stays one
+typed mark (`role: 'contour'`) with geometry `marks.test.ts` can query,
+where a pixel buffer would have made every law about it a screenshot
+comparison. `smin` is **not associative** — `smin(smin(a,b),c) ≠
+smin(a,smin(b,c))` — so `orderFalloffs` sorts every falloff by a stable id
+(the lane handle, for an arrival) before any folding happens; an unsorted
+fold would flap the mass's own shape frame to frame with no event behind it,
+which `contour.test.ts` pins by asserting the same state, shuffled input,
+gives byte-identical rings. The grid walk itself never compares a
+coordinate to stitch segments — every crossing is named by the grid edge it
+lives on, so two cells sharing an edge are talking about the same vertex by
+construction and a ring comes out closed structurally rather than by
+tolerance.
+
+`marks/root.ts`'s `girthOf` reads whatever geometry a mark carries rather
+than assuming `mark.kind === 'stroke'`, which is the same move ruling 2 made
+for names, applied to geometry — "the mass thickens with landed work" (prd6
+ruling 2) is a law about a fact, not about strokes, and it now reads the
+contour's own points unchanged. A same-issue fix (`fix(#114)`, "the arrivals
+were faceting the mass, and I could see it") corrected an arrival's own
+falloff, found by rendering the display list to a PNG and looking at it:
+three arrivals at full swell turned the root-mass into a visible crystal,
+flat facets where each bulge met the body — caused by a large falloff
+parked deep inside the body, whose contribution is nearly flat at that
+scale, so what reached the silhouette was a facet rather than a curve.
+Moving the falloff smaller and further out (0.9 of the radius at 0.26,
+instead of 0.72 at 0.42 — the same peak reach to within a hundredth) fixed
+it and bought two properties kept on purpose: a bulge cannot appear out of
+nothing (below half swell the falloff sits entirely inside the body, so it
+*emerges* from the surface over the retract's last third), and the body's
+own fill alpha went up, because at the old alpha the mass read as fog with
+threads behind it rather than as the thing they are threaded into. This is
+also what replaced `root-arrival` — the expanding ring drawn on top of the
+mass whenever work landed, a concentric ring being the exact form the
+ruling removes, with no direction in it. The role and the ring are both
+gone; the surface itself carries the fact now, by swelling toward the lane
+substance arriving.
+
+### Ruling 6 — read for technique, never vendor
+
+Workers loaded `ui-ux-pro-max` (its "Biomimetic / Organic 2.0" style card as
+a checklist), `emil-design-eng` and `frontend-design`, per the ruling.
+Reading list: inconvergent's (Anders Hoff) *Hyphae* and *Differential Line*
+essays, the published art form closest to this scene's own metaphor, read
+for growth rules stated in prose; Tyler Hobbs on flow fields and the
+midpoint-displacement technique `blobRing` reimplements; Inigo Quilez on
+`smin` and 2D distance functions; Sighack's Chaikin corner-cutting (MIT,
+ported directly, used in both `variation.ts`'s wander envelope and
+`contour.ts`'s ring smoothing). **Licence traps, carried into every prd7
+brief rather than discovered per-issue:** jasonwebb's differential-growth
+and space-colonization repos are **CC BY-NC-SA** (non-commercial — read the
+README, never vendor the code); `thebookofshaders`' own repository is **All
+Rights Reserved** (the site is readable, the GLSL is not copyable); `p5.js`
+is **LGPL-2.1** (prototypes only, never a app dependency). Every growth
+algorithm surveyed (space colonization, differential growth, Physarum) was
+accepted only as **offline geometry authoring on topology change** —
+`contour.ts` runs its field-and-march every time the display list is built,
+never live per animation frame in the sense those algorithms mean it, and
+none of their code shipped: `perfect-freehand`, `d3-shape` and
+`simplex-noise` are the only new runtime dependencies, all MIT or ISC.
+
 ## Testing
 
 Mass on core selectors/reducers and collector parsers (fixtures captured
@@ -1321,4 +1571,92 @@ hook.
   1` that would have made every scar the same size and defeated the point
   of the capture) — both reverted before this issue's diff was cut, so the
   fence stays docs-and-screenshots-only in the committed tree.
+- 2026-08-02 — prd7 (issue #112, the prerequisite): **semantic roles are
+  renamed to what they mean before ruling 3 touches a single pixel, and the
+  rename is proved zero-diff rather than trusted.** The serialized display
+  list over 33 frames × 6,072 marks — every fixture, every cut stage, storm,
+  reduced motion, pause, spotlight, no-manifest — is byte-identical with
+  roles stripped (md5 `fe774758…`, two runs each side), which is what let
+  the conductor review a mechanical rename for weakened laws with nothing
+  else moving under it. All 70 assertions in `marks.test.ts` were restated
+  at equal or greater strength, none deleted; the one one-to-many split
+  (`node-thorn` → `node-tip` / `off-fence-mark`) is named rather than
+  smuggled, because it is the one place a worker could have quietly
+  softened a law while "migrating" it. A `structuredClone` conformance test
+  was added alongside the rename (not gated on it) — the boundary
+  `postMessage` uses, so a mark that closes over a lane object or carries a
+  live handle is caught by construction rather than by a reviewer noticing.
+  See [Ruling 2](#ruling-2--semantic-roles-before-any-visual-change-112)
+  above.
+- 2026-08-02 — prd7 (issue #113, the form keystone): **a thread is a filled
+  ribbon now, and every discrete glyph ruling 3 named a replacement for is
+  gone, at zero new objects per substitution.** `perfect-freehand` (MIT),
+  `d3-shape`'s centripetal Catmull-Rom (ISC) and `simplex-noise` (MIT) are
+  the three new runtime dependencies, each adopted only after being probed
+  live in this repo's own stack — `docs/research/2026-08-02-observatory-prd7-procedural-form.md`
+  — rather than assumed from their docs. Two real bugs surfaced only by
+  building a throwaway, uncommitted software rasterizer to actually look at
+  the display list: ribbons faceted under the prd5 camera's 6× zoom because
+  resampling to a constant sample count threw away half a thread's own
+  spine resolution (fixed by defaulting to the spine's own resolution,
+  bounded); and the heat licks alternated sides, which read as a zigzag —
+  a chevron by another name, quietly undoing the substitution it was part
+  of. A wall-clock performance assertion (four times the measured cost) was
+  its own flake under concurrent test workers — measured 3.6 ms as 17.1 ms
+  on a loaded box three times in twelve runs — and was replaced with a
+  **ratio guard** (display-list cost as a bounded multiple of layout cost,
+  since both dilate together under load) plus a deterministic vertex cap,
+  because a timing assertion under `--maxWorkers` measures the machine, not
+  the code. Settled cost: 3.265 ms/frame at 30 lanes against a ~4 ms
+  allowance inside the 16.7 ms budget; scene chunk 93,466 → 110,428 B raw
+  (+18.8% gzipped), entirely inside the lazily-loaded chunk. See [Ruling
+  3](#ruling-3--stop-stroking-lines-start-filling-ribbons-113-the-keystone)
+  and [Ruling 4](#ruling-4--bounded-uniqueness-seeded-from-identity) above.
+- 2026-08-02 — prd7 (issue #114, the root-mass): **the centre is one
+  marching-squares contour now, not fifty-four curls around two glows —
+  chosen on a measured 1.28 ms/frame against 42.8 ms/frame for a per-pixel
+  metaball field (108.5 ms with SDF+smin), and because a contour is a
+  polygon the tests can still query where a pixel buffer would not be.**
+  `smin`'s non-associativity is asserted directly (`contour.test.ts`: the
+  same field, folded in two orders, gives two different answers), which is
+  why `orderFalloffs` sorts by a stable id before any blending happens — an
+  unsorted fold would flap the mass's shape frame to frame with no event
+  behind it. A same-issue fix (`fix(#114)`, found by rendering the display
+  list to a PNG and looking at it) corrected a facet that appeared at full
+  arrival swell: a falloff parked deep inside the body contributed a
+  near-flat arc at that scale, so what reached the silhouette was a facet
+  rather than a curve; moving it smaller and further out removed the facet
+  and, as a side effect kept on purpose, made a bulge unable to appear out
+  of nothing (below half swell the falloff sits entirely inside the body).
+  `root-arrival` — the expanding ring drawn over the mass on every
+  landing — is deleted outright; the surface itself now carries that fact
+  by swelling toward the substance arriving, which is what a ring never
+  could say directionally. `girthOf` reads whatever geometry a mark carries
+  rather than assuming `mark.kind === 'stroke'`, so retuning the mass's
+  proportions cannot silently break "the mass thickens with landed work"
+  (prd6 ruling 2) the way a shape-coupled reading would. See [Ruling
+  5](#ruling-5--the-root-mass-as-one-surface-114) above.
+- 2026-08-02 — prd7 (issue #115, this issue): **docs and the screenshot set
+  regenerated against the landed form change**, the same discipline
+  #96/#105/#108 set, extended with two new close-ups this wave's own brief
+  asked for: a ribbon bundle showing individual taper and per-lane wander,
+  and the root-mass's own melted contour (`docs/screenshots/ribbon-taper.png`,
+  `organic-centre.png`). `fixture-20-lane.png`, `fixture-pathology.png`,
+  `live.png`, `drawer.png`, `main-drawer.png`, `paused.png`, `replay.png`
+  and `scars.png` were all recaptured from a live server against this
+  worktree's own repo — `live.png` and `drawer.png` show this docs lane
+  itself, alone in the fleet (the #112–#114 worktrees were already merged
+  and removed by the time this wave was dispatched, unlike #105/#108's
+  captures which caught a sibling lane still landing); `main-drawer.png`
+  honestly shows `CONDUCTOR NOT INSTRUMENTED` rather than a conversation,
+  since no `--extra-sessions` conductor was wired for this capture. As with
+  #105/#108, `scars.png` was reached through the same **temporary,
+  uncommitted** detour — a `'4': 'finished'` key added to
+  `StreamContext.tsx`'s `STREAM_SOURCE_KEYS` and a varied `weight` on
+  `finishedSpec`'s lanes (`fleet/fixtures.ts`) — verified reverted
+  (`git diff --stat` empty, and the rebuilt bundle's chunk hashes matched
+  the pre-detour build exactly) before this issue's diff was cut, so the
+  fence stays docs-and-screenshots-only in the committed tree. Root `npm
+  test` (104 files, 1,553 tests) and `npm run typecheck` both green against
+  the tree this doc describes.
 

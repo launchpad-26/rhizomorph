@@ -295,7 +295,7 @@ glyph. Six hues, each meaning exactly one thing everywhere in the app:
 | Green | Productive | `WORKING` (bright) and `done` (dimmer) — the same green at two brightnesses |
 | Amber | Blocked on a human | `waiting` (muted, benign) and `NEEDS-YOU`/`WAITING` pathology (incandescent) — again one scale, two brightnesses |
 | Red | Dead | `FROZEN` only — red never means anything softer than that |
-| Cyan | Notice/anomaly | `EXPENSIVE`'s chevrons — something changed, nobody is summoned |
+| Cyan | Notice/anomaly | `EXPENSIVE`'s needle taper and the licks coming off it — something changed, nobody is summoned |
 | Ice (blue-grey) | Structure, nothing to say | `idle`, `unknown`, and all of the chrome |
 
 You don't need this table to read the app: the **fleet table's STATE column
@@ -312,6 +312,64 @@ only a `NEEDS-YOU`/`FROZEN` mark reaches the band of luminance above it — so
 a summons is always the brightest thing on the screen, never merely "also
 colored." One lane at a time takes the spotlight; every other lane recedes
 around it rather than being drowned in more color.
+
+### The organic form — ribbons, taper, and the centre that melts
+
+[prd7](docs/prd7.md) rebuilt how every fact above is *drawn*, without moving
+a single one of the facts. A thread used to be a stroked centre-line with
+discrete glyphs glued onto it — a chevron here, a tick mark there. It is now
+a **filled ribbon whose width varies along its own length**, so the marks
+that used to sit on top of a line are now the line's own shape:
+
+- **Width is still work — a thicker ribbon has produced more** ([prd6 ruling
+  1](docs/prd6.md), untouched). What changed is only the telling: every
+  ribbon narrows a little from where it leaves the root-mass to where it
+  ends, the way a real hypha does, thick or thin in proportion to the same
+  lane's own output the whole way along.
+- **Taper is EXPENSIVE.** A lane burning far above the fleet's median draws
+  its last stretch down to a needle rather than wearing three arrow icons at
+  the tip — direction and urgency read off the width itself, which is
+  legible along the whole thread instead of at one crowded point.
+- **Pinch is FROZEN.** A dead lane's ribbon narrows to nothing at two points
+  along its own length — the thread is genuinely cut in two places, not a
+  tick mark laid across a line that quietly carries on.
+- **Swell is a commit, and swell is the way home.** A commit no longer rides
+  as a dot on top of a wire; it is a travelling widening in the ribbon's own
+  girth — matter moving through the hypha, not light skimming over it. The
+  same channel carries a finished lane's substance home: as its thread cuts
+  loose (see "The cord-cut" below), one last swell runs down the severing
+  cord into the root-mass before the freed end springs back.
+- **Length is still lifecycle** ([prd6 ruling 4](docs/prd6.md), untouched):
+  how far a thread reaches from the mass is how far through its life that
+  lane is. prd7 changed no distance, only what travels along one.
+- **The centre is one surface now, not a stack of rings.** The root-mass is
+  a single smooth, closed contour — several soft fields blended together and
+  walked into one boundary — rather than concentric circles. It **bulges
+  toward whichever lane's work is arriving**, swelling from the inside as
+  that lane's cord parts, and settles back once the merge is done, leaving
+  only the mass a little thicker than before. You never catch the bulge
+  appearing out of nothing and you never catch the mass shrinking back down.
+
+Every one of those substitutions spends **zero new objects** — a pinch, a
+taper and a swell are all the same one ribbon, doing more with the one
+channel it already had, which is what lets the discrete glyphs disappear
+without losing anything a law depended on.
+
+**Every lane looks hand-grown, and no lane misreads.** A thread also wanders
+a little off the straight line between the mass and its node, and its width
+wobbles by a few percent along its length, so twenty lanes never look like
+twenty copies of the same drafted arc. That variation is bounded and
+one-way: it is seeded from a hash of **the lane's own name**, never from the
+clock, so it can only ever add a stable, private wiggle — it can never touch
+where a thread sits on its lifecycle, what hue it wears, or how wide it is
+encoded to be, because those are the facts every other rule in this app
+depends on being true. The practical result: the same lane, in the same
+session, draws the same shape every time you look at it and every time you
+replay the recording — on your machine or on someone else's.
+
+| | |
+|---|---|
+| ![A close-up on a bundle of lanes — ribbons visibly different widths and gentle, individual wander, each narrowing toward its own node](docs/screenshots/ribbon-taper.png) | ![The root-mass as one smooth, melted surface — no rings, ribbons entering it at their own taper](docs/screenshots/organic-centre.png) |
 
 ### Parked lanes — acknowledged, never hidden
 
@@ -489,9 +547,9 @@ Every key here is ignored while you're typing into a form field.
 | | |
 |---|---|
 | ![Staged pathology fixture — five lanes, five distinct pathologies, each a different hue and shape, named in the attention strip and the fleet table's STATE column](docs/screenshots/fixture-pathology.png) | ![The lane drawer's conversation view — a real session's turns and tool calls, CLI-style, with the ATTACH button below](docs/screenshots/drawer.png) |
-| ![The live view against this project's own real, in-progress build swarm — this very docs lane WORKING beside a sibling lane that's already landed and scarred, not staged](docs/screenshots/live.png) | ![Replay mid-scrub at 16x — the REPLAY banner, ice-register frame, timestamp and session identity](docs/screenshots/replay.png) |
-| ![The scene paused — the pause button pressed, "Motion paused" stated in words, camera and hide-finished controls visible](docs/screenshots/paused.png) | ![A rim of scars, each sized to the lane's own output — the root-mass visibly thicker for having taken all of that work home](docs/screenshots/scars.png) |
-| ![MAIN's own drawer, open on the conductor's real conversation — clicked like any lane, vitals up top, ATTACH honestly reporting no pane on record](docs/screenshots/main-drawer.png) | |
+| ![The live view against this project's own real, in-progress build swarm — this very docs lane WORKING, its own thread wandering out to a single node, not staged](docs/screenshots/live.png) | ![Replay mid-scrub at 16x — the REPLAY banner, ice-register frame, timestamp and session identity](docs/screenshots/replay.png) |
+| ![The scene paused — the pause button pressed, "Motion paused" stated in words, camera and hide-finished controls visible](docs/screenshots/paused.png) | ![A rim of scars, each sized to the lane's own output, around a root-mass visibly thicker for having taken all of that work home](docs/screenshots/scars.png) |
+| ![MAIN's own drawer, open on the root-mass's own vitals — clicked like any lane, honestly reporting the conductor isn't instrumented rather than showing a conversation it doesn't have](docs/screenshots/main-drawer.png) | |
 
 ## The worktrees-challenge context
 

@@ -141,15 +141,25 @@ ones are stopped and waiting on a person, a hollow red mark is dead ([prd4
 ruling 3](prd4.md)'s law 9a — hue is meaning, and each hue means one
 thing); a stuck or orbiting pulse, a dark thread, or a white-hot thread each
 mean something is off; a lane's position doesn't drift once you've noticed it
-(a lane keeps its angular slot for the session — [graft g7](prd3.md)).
+(a lane keeps its angular slot for the session — [graft g7](prd3.md)); and,
+since [prd7](prd7.md) redrew every thread as a filled ribbon rather than a
+stroked line, a thread that visibly narrows to nothing partway along itself
+reads as *cut* (FROZEN) and one that draws down to a sharp needle near its
+tip reads as *burning hot* (EXPENSIVE) — both without any icon glued onto
+the line, because the line's own width is now doing the talking. The centre
+itself should read as one soft, organic surface — not a target made of
+rings — that a first-time viewer describes as a single blob rather than a
+stack of circles.
 
 **What failure looks like:** silence past 30 seconds; a guess about the
 wrong axis (e.g. "distance means how important the lane is," or "a thicker
 thread means it's working harder right now" rather than "it's produced
 more" — both swap a lifecycle/output fact for an activity one); needing the
-mycelium metaphor explained before it clicks; or needing the color
-explained as anything other than what it visibly is (green = good, amber =
-needs a person, red = dead).
+mycelium metaphor explained before it clicks; needing the color explained as
+anything other than what it visibly is (green = good, amber = needs a
+person, red = dead); or the centre reading as a faceted, geometric shape
+rather than an organic one (a regression — [prd7 ruling 5](prd7.md) requires
+one smooth contour, not a crystal).
 
 ## Check 4 — MODE
 
@@ -213,11 +223,15 @@ To see the cord-cut itself: let a real swarm run under `1` (live) until a
 lane lands (workmux marks it `done`, or its worktree is removed), or read
 [`docs/architecture.md`](architecture.md#the-cord-cut-102-ruling-3) for the
 stage-by-stage description backed by `retire.test.ts`. What you're looking
-for: the thread goes slack, a short stretch of light travels back down it
-into the root-mass — the lane's substance going home, [prd6 ruling
-2](prd6.md) — the freed end springs back to its own node with no bounce,
-and what's left settles into a small, permanently dimmed mark near the
-rim — never gone, never re-lit, and **sized to that lane's own output**
+for: the thread goes slack, one last swell of the ribbon's own width runs
+back down it into the root-mass — the lane's substance going home, told as
+matter moving through the hypha rather than a light travelling on top of it
+(since [prd7 ruling 3](prd7.md) — [prd6 ruling 2](prd6.md) is the fact,
+unchanged) — the mass bulges gently where it arrives and settles back
+([prd7 ruling 5](prd7.md)), the freed end springs back to its own node with
+no bounce, and what's left settles into a small, permanently dimmed mark
+near the rim — never gone, never re-lit, and **sized to that lane's own
+output**
 ([prd6 ruling 1](prd6.md): a lane that did more work leaves a visibly
 bigger scar, which overrules prd5's "a scar is a mark, so it's the same
 size for every lane"). The **hide finished** button (top-right of the
@@ -245,6 +259,28 @@ already as big as what it grew from — rather than sprouting somewhere new
 and re-spacing the whole ring ([prd6 ruling 3](prd6.md)). There's no key to
 force this on the shipped fixtures; it's mentioned here so you know what
 you're looking at if you see it on a real swarm.
+
+### Every lane hand-grown, none of them lying
+
+Look closely at either fixture (`2` is the easier read — twenty healthy
+lanes side by side) and no two threads bend the same way, even though
+several are close in output and lifecycle. That is deliberate
+([prd7 ruling 4](prd7.md)): each thread's gentle wander is seeded from a
+hash of **that lane's own name**, never from the clock, so it is bounded —
+it can nudge a thread sideways a little and make its width wobble a few
+percent, and it can never move where a thread sits on its lifecycle, what
+hue it wears, or the width that encodes its output, because those are the
+facts every other rule in this app depends on.
+
+**What you should see:** reload the page (or press `2` again) and the same
+twenty lanes bend exactly the same way — same session, same picture, every
+time, including under replay recorded on a different machine.
+
+**What failure looks like:** the fleet redrawing with different bends on a
+reload with no new data; two lanes with very different output or age
+looking identical because the wander swallowed the real difference; or a
+thread's wander being large enough that its lifecycle distance becomes hard
+to read.
 
 ### Click MAIN
 
