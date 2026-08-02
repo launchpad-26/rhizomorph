@@ -357,9 +357,17 @@ export const LABELS_ALL_MAX = 28
  * work on the same absolute scale everything else is ({@link seedSize}), between a
  * floor that still reads as a tapering ribbon and a ceiling that still reads as a
  * stub rather than as a thread left floating.
+ *
+ * **The range is 5.5×, and it used to be 2.1×** (#117). 22–46 px was a spread
+ * that existed in the arithmetic and not in the picture: with thirty-seven scars
+ * around a rim, a fifth of a stub's length is not a difference anybody reads, and
+ * the finding was exactly that — "a 216K lane and a 0K lane must be obviously
+ * different — they currently are not". They are now, in two channels at once: the
+ * big one's mark is five and a half times as long and about four times as thick,
+ * because the taper it keeps is its own.
  */
-export const SCAR_LENGTH_MIN_PX = 22
-export const SCAR_LENGTH_MAX_PX = 46
+export const SCAR_LENGTH_MIN_PX = 16
+export const SCAR_LENGTH_MAX_PX = 88
 
 /** The scar length a lane of this work-size keeps, in px of arc. */
 export function scarLengthPx(sizeFrac: number): number {
@@ -367,19 +375,57 @@ export function scarLengthPx(sizeFrac: number): number {
 }
 
 /**
+ * How much longer than {@link scarLengthPx} the mark is aimed, so the *drawn*
+ * arc lands just over the wanted length rather than just under it.
+ *
+ * The remnant is re-sampled from the thread at its own resolution, and a chord
+ * through a curve is shorter than the curve. Aiming at the exact figure
+ * therefore drew a mark a fraction of a per cent *short* of the lane's work,
+ * which is the one direction the law does not allow: the rim may round a
+ * landing up, never down. A few per cent, and nowhere near the 30% the law
+ * allows over.
+ */
+const SCAR_CHORD_ALLOWANCE = 1.06
+
+/**
  * …but never more than this much of a short thread. On a cramped panel a lane's
  * whole thread can be shorter than the mark, and a scar that consumed it would
  * have severed nothing.
+ *
+ * Raised with the ceiling above, and by less than the ceiling was: the point of
+ * the cap is that a *gap* survives, and two fifths of a thread left unattached is
+ * still unmistakably a thread that was cut.
  */
-const SCAR_MAX_FRACTION = 0.4
+const SCAR_MAX_FRACTION = 0.58
 
 /**
- * How far a retiring lane's *freed tip* relaxes outward, on top of the journey to
- * the rim the lifecycle pin is already carrying it on. A local bend, not a
- * translation: it is what makes the released end ease out while the severance
- * travels the other way.
+ * THE DRIFT BAND (#117) — how far a retiring lane's *freed tip* relaxes outward,
+ * on top of the journey to the rim the lifecycle pin is already carrying it on.
+ *
+ * A local bend, not a translation: it is what makes the released end ease out
+ * while the severance travels the other way. It was one number, nine pixels for
+ * every lane, and that was half of why a rim of scars read as eyelashes on a
+ * clock face — thirty-seven marks whose tips all sat on one perfect ellipse.
+ * It is now a **band**: each lane relaxes by its own amount between these two,
+ * so the rim is ragged the way a rim of things that finished at different times
+ * and at different sizes ought to be.
+ *
+ * **Seeded from the lane's identity, not from when it retired**, and that is a
+ * deliberate refusal. "When" is recency, and prd6 ruling 4 took recency off the
+ * radius on purpose — it needed explaining, so it failed the layman bar, and
+ * giving it back to the radius for retired lanes only would be a second meaning
+ * for the one channel whose meaning the ruling settled. What the picture needs
+ * here is *scatter*, not a second encoding, and `variation.ts`'s permission
+ * system already says exactly where scatter may come from: a channel that
+ * carries nothing, seeded off the lane's handle. Among lanes that have all
+ * finished, the radius carries nothing — they are all at `lifeFrac` 1 — so this
+ * is the free channel it looks like.
+ *
+ * Outward only, which is what keeps the ruling's own reading intact: a retired
+ * lane is at the rim or past it, a living one is inside it, and no amount of
+ * scatter can make one look like the other.
  */
-const RETIRE_DRIFT_PX = 9
+const RETIRE_RELAX_PX = { min: 3, max: 27 } as const
 
 /**
  * How long the returning substance is, in px of the thread it is made of
@@ -396,6 +442,14 @@ const HOMEWARD_LENGTH_PX = 30
 const SLACK_FRACTION = 0.06
 const SLACK_MIN_PX = 4
 const SLACK_MAX_PX = 12
+/**
+ * …times the lane's own habit. The same free phase the drift band reads, taken
+ * the other way round, so a lane that springs a long way out sags a little less
+ * on the way and no two cuts have the same silhouette. Both ends of the range
+ * are above zero: a cord that went slack by nothing would not have gone slack,
+ * and `geometry.test.ts` measures that the loosening is a root-end fact.
+ */
+const SLACK_HABIT = { min: 0.7, max: 1.5 } as const
 
 /** How far the released taper relaxes from root width toward tip width. */
 const TAPER_RELAX = 0.5
@@ -585,11 +639,21 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
     const full = smoothSpine(waypoints, THREAD_SAMPLES)
     const grown = growth >= 1 ? full : truncate(full, easeOut(growth))
 
-    const slack = Math.min(SLACK_MAX_PX, Math.max(SLACK_MIN_PX, Math.min(rx, ry) * SLACK_FRACTION))
-    // Measured on the thread as it *was*, so the resting place of the severance —
-    // and the stretch of thread the drift is allowed to bend — do not shift under
-    // the deformation they are about to be used to compute.
-    const rest = cut === null ? 1 : scarRest(grown, scarLengthPx(sizeFrac))
+    // The lane's own free phase (`variation.ts`'s `curl`), spent on the two
+    // things about a cut that carry nothing: how far its freed tip relaxes past
+    // the rim, and how deeply the released thread sags. Two lanes that finished
+    // the same work still let go differently, and a rim where they did not is
+    // the rim #117 found.
+    const habit = variation.curl
+    const relax = RETIRE_RELAX_PX.min + (RETIRE_RELAX_PX.max - RETIRE_RELAX_PX.min) * habit
+    const slack =
+      Math.min(SLACK_MAX_PX, Math.max(SLACK_MIN_PX, Math.min(rx, ry) * SLACK_FRACTION)) *
+      (SLACK_HABIT.min + (SLACK_HABIT.max - SLACK_HABIT.min) * (1 - habit))
+    // Measured on the thread as it *was*, because this is the number the
+    // deformation itself is computed from — the stretch of thread the drift is
+    // allowed to bend cannot shift under the drift.
+    const mark = scarLengthPx(sizeFrac) * SCAR_CHORD_ALLOWANCE
+    const rest = cut === null ? 1 : scarRest(grown, mark)
     const path =
       cut === null
         ? grown
@@ -598,9 +662,19 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
             side: Math.sign(lean || 1),
             slack: slack * cut.tension,
             outward,
-            drift: RETIRE_DRIFT_PX * cut.drift,
+            drift: relax * cut.drift,
             from: rest,
           })
+    // …and measured a second time on the thread as it is **drawn**, which is the
+    // one the law is about: prd6 ruling 1 says the mark left at the rim measures
+    // the lane's work, and the mark is the arc somebody can see. The release
+    // bows that arc — a lane whose freed end relaxed a long way past the rim has
+    // a longer curve to travel over the same span — so measuring only on the
+    // undeformed thread made the drawn mark a few per cent long for a small
+    // relax and a third long for a big one, which is what capped the drift band
+    // before #117 widened it. Two walks over a sampled polyline, for retiring
+    // lanes only.
+    const drawnRest = cut === null ? 1 : scarRest(path, mark)
     const node = path[path.length - 1] as Point
 
     const pathology =
@@ -637,7 +711,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
       retire:
         cut === null
           ? null
-          : severance(cut, path, rest, widthRoot, widthTip, options.hideFinished === true),
+          : severance(cut, path, drawnRest, widthRoot, widthTip, options.hideFinished === true),
     })
   })
 

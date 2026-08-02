@@ -90,6 +90,25 @@ const LENS_HUE_FLOOR = 0.45
 /** How far a raised hand stands off its node. Tall enough to clear the label. */
 const HAND_LIFT = 15
 
+/**
+ * A LENS'S LENGTH, from the lane's work — the same absolute scale everything
+ * else on this lane is drawn on (prd6 ruling 1).
+ *
+ * `9 + 9 · size` before #117: a 4× range in the encoding compressed into a 2×
+ * range on screen, which is a range nobody reads. The review's words were "a
+ * 216K lane and a 0K lane must be obviously different", and the node is the
+ * mark the eye lands on. `5 + 14 · size` spends the whole span: a lane that has
+ * produced nothing is a speck and a lane that has produced a day's work is
+ * three times it.
+ *
+ * Shared by the living node and by the scar it becomes, so nothing pops at the
+ * tip when a cord parts — the continuity the staged cut depends on is that the
+ * marks at the node do not change at the moment the thread does.
+ */
+function lensLength(sizeFrac: number): number {
+  return 5 + 14 * sizeFrac
+}
+
 export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   if (thread.retire !== null) return scarNodeMarks(frame, thread, thread.retire)
 
@@ -100,7 +119,7 @@ export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const hue = hueOf(thread)
   const alarm = thread.alarm
 
-  const length = (9 + 9 * thread.sizeFrac) * frame.breath
+  const length = lensLength(thread.sizeFrac) * frame.breath
   const freshness = 1 - thread.ageFrac
   const frozen = thread.pathology === 'frozen'
   const done = lane.activity === 'done'
@@ -177,15 +196,23 @@ function lensTint(hue: Rgb, freshness: number): Rgb {
 /**
  * THE SCAR'S OWN MARK (prd5 ruling 3) — what is left at the rim.
  *
- * Deliberately the *same three marks* a landed lane already wore — hollow lens,
- * outward thorn, and the knot it was tied off with — at the same inks the
- * instant the cut begins, and desaturating into `SCAR.glyph` over the settle.
- * (The knot was a seal bar before prd7 ruling 3; the continuity claim is what
- * matters and it is unchanged, because both ends of it moved together.) That
- * continuity is the whole
+ * The *same three marks* a landed lane wears — hollow lens, a tail, and the tie
+ * it was finished off with — at the same inks the instant the cut begins, and
+ * desaturating into `SCAR.glyph` over the settle. That continuity is the whole
  * point of splitting the stages by channel: the tension release changes the
  * thread's curvature and *nothing else*, so there is no pop at the tip to
  * distract from the one thing that is happening.
+ *
+ * **The curl glyph is gone** (#117). The thorn used to be a stamped `THORN_OUT`
+ * — the same unit-square path, at the same nine pixels, rotated onto the end of
+ * every scar on the rim. At one lane it is a terminal; at thirty-seven it is
+ * clip-art, and it was precisely the "shape" prd7 ruling 3 set out to delete,
+ * surviving because nobody had looked at a rim with thirty-seven of them on it.
+ * What ends a scar now is the ribbon's own taper: {@link tailMark} carries the
+ * thread's substance a little past the node and draws it to nothing, at a length
+ * and a lean that come off the lane's free phase, so no two lanes finish alike.
+ * The tie ({@link knotMark}) is seeded the same way and wraps by anything from a
+ * hook to a turn and a half.
  *
  * Two things are taken away, and both are the same statement:
  *
@@ -208,7 +235,7 @@ function scarNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: RetireGeo
   const angle = Math.atan2(along.y, along.x)
   const hue = hueOf(thread)
   const freshness = 1 - thread.ageFrac
-  const length = (9 + 9 * thread.sizeFrac) * (1 - 0.35 * cut.scar)
+  const length = lensLength(thread.sizeFrac) * (1 - 0.35 * cut.scar)
 
   const cold = (living: Ink): Ink =>
     budget(frame, laneId, false, toward(living, SCAR.glyph, cut.scar))
@@ -229,20 +256,7 @@ function scarNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: RetireGeo
       // longer filling with work", and that has only become more true.
       stroke: 1,
     },
-    {
-      kind: 'path',
-      role: 'scar-mark',
-      laneId,
-      alarm: false,
-      d: THORN_OUT,
-      at: {
-        x: thread.node.x + Math.cos(angle) * length * 0.5,
-        y: thread.node.y + Math.sin(angle) * length * 0.5,
-      },
-      size: 9,
-      rotate: angle,
-      ink: cold(ink(lensTint(hue, freshness), 0.75)),
-    },
+    tailMark('scar-mark', thread, angle, length, cold(ink(lensTint(hue, freshness), 0.75))),
     knotMark('scar-mark', thread, angle, length, cold(ink(ACTIVITY_HUE.done, 0.9))),
   ]
 
@@ -514,6 +528,61 @@ function summonsMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark
 }
 
 /**
+ * THE TAIL — where the thread stops, told as the thread rather than as a glyph
+ * stamped on the end of it (#117).
+ *
+ * A short run of the lane's own substance carried past the node and needled to
+ * nothing, leaning off the lane's free phase. It replaces the `THORN_OUT` a scar
+ * used to end with, and the argument is the one prd7 ruling 3 already made about
+ * chevrons and seal bars: a fixed path rotated onto forty marks is a repeated
+ * glyph however good the glyph is, and a rim of them reads as clip-art. A taper
+ * is not a glyph — it is the same ribbon, ending.
+ *
+ * Three things vary per lane, all of them from the channel that carries nothing
+ * ({@link LaneVariation.curl}): how far it reaches, which way it leans, and how
+ * hard. The lens it grows out of already carries the lane's size, so the tail
+ * takes its length from the lens and its habit from the seed — work stays in the
+ * channels that encode work.
+ */
+function tailMark(
+  role: MarkRole,
+  thread: ThreadGeometry,
+  angle: number,
+  length: number,
+  paint: Ink,
+): Mark {
+  const habit = variationFor(variationSeed(thread.lane)).curl
+  const reach = length * (0.55 + 0.85 * habit)
+  const lean = (habit - 0.5) * 1.8
+  const forward: Point = { x: Math.cos(angle), y: Math.sin(angle) }
+  const across: Point = { x: -Math.sin(angle), y: Math.cos(angle) }
+  const at = (along: number, sideways: number): Point => ({
+    x: thread.node.x + forward.x * along + across.x * sideways,
+    y: thread.node.y + forward.y * along + across.y * sideways,
+  })
+
+  return ribbonMark({
+    role,
+    laneId: thread.laneId,
+    alarm: false,
+    // Three points, bending: a straight tail would read as a whisker, and a
+    // whisker is a glyph again.
+    path: [
+      at(length * 0.42, 0),
+      at(length * 0.42 + reach * 0.55, lean * reach * 0.22),
+      at(length * 0.42 + reach, lean * reach * 0.75),
+    ],
+    // Off the lens's own girth, so it leaves the node at the width the node
+    // ends at rather than at a width of its own.
+    widthRoot: Math.max(0.9, length * 0.13),
+    widthTip: 0.2,
+    taperTip: 0.5,
+    samples: 10,
+    paint,
+  })
+}
+
+/**
  * DONE — tied off (prd7 ruling 3).
  *
  * It was a bar struck across the tip: a second vocabulary — flat, geometric,
@@ -523,8 +592,14 @@ function summonsMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark
  * mark, same role, same green; no new shape entered the scene, and one left it.
  *
  * It wears the done green rather than a neutral, so "landed" is one reading of
- * one hue (hollow lens + knot + dim green) instead of a grey mark a viewer has
- * to be told about.
+ * one hue (hollow lens + tie + dim green) instead of a grey mark a viewer has to
+ * be told about.
+ *
+ * **Seeded, since #117.** Every knot used to be the same 2.35 turns at the same
+ * 3.4 px, and on a rim of thirty-seven scars that is the double-loop the review
+ * called clip-art. The wrap is now anything between a hook and a turn and a
+ * half, at a radius that follows the lane's own lens — so "tied off" is still
+ * one reading, and no two lanes tie the same knot.
  */
 function knotMark(
   role: MarkRole,
@@ -533,11 +608,12 @@ function knotMark(
   length: number,
   paint: Ink,
 ): Mark {
+  const habit = variationFor(variationSeed(thread.lane)).curl
   return ribbonMark({
     role,
     laneId: thread.laneId,
     alarm: false,
-    path: knotSpine(thread.node, angle, length),
+    path: knotSpine(thread.node, angle, length, habit),
     // Thick where it leaves the node and drawn to nothing round the far side:
     // a cord tied off, not a ring drawn round something.
     widthRoot: 1.9,
@@ -549,20 +625,25 @@ function knotMark(
 }
 
 /**
- * Where the knot is tied: just past the tip, wrapped a little more than once so
- * the cord crosses its own back. The overlap is what makes it a knot rather than
- * a loop — and it costs nothing, because one filled polygon self-overlapping is
- * still one fill.
+ * Where the knot is tied: just past the tip, wrapped by the lane's own habit.
+ *
+ * Past about one turn the cord crosses its own back, which is what makes it a
+ * knot rather than a loop — and it costs nothing, because one filled polygon
+ * self-overlapping is still one fill. Under one turn it is a hook, which is the
+ * same gesture arrested earlier, and both are "this was finished off".
  */
-function knotSpine(node: Point, angle: number, length: number): Point[] {
-  const radius = 3.4
+function knotSpine(node: Point, angle: number, length: number, habit: number): Point[] {
+  // Off the lens rather than fixed, so a big lane's tie is a big lane's tie.
+  const radius = 1.3 + 0.1 * length + 1.1 * habit
   const out = length * 0.5 + radius * 0.9
   const centre: Point = { x: node.x + Math.cos(angle) * out, y: node.y + Math.sin(angle) * out }
 
-  const turns = Math.PI * 2.35
+  const turns = Math.PI * (0.7 + 1.9 * habit)
+  // Which way round it was tied. A rim wound all one way is a rim somebody set.
+  const hand = habit < 0.5 ? -1 : 1
   const steps = 12
   return Array.from({ length: steps + 1 }, (_unused, i) => {
-    const theta = angle + Math.PI + (i / steps) * turns
+    const theta = angle + Math.PI + hand * (i / steps) * turns
     // Spiralling in as it goes round, so the wrap tucks under itself.
     const r = radius * (1 - 0.28 * (i / steps))
     return { x: centre.x + Math.cos(theta) * r, y: centre.y + Math.sin(theta) * r }

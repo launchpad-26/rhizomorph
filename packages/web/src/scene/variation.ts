@@ -93,7 +93,21 @@ export interface LaneVariation {
   wander(t: number): number
   /** Width multiplier at `t`, inside 1 ± {@link WIDTH_JITTER_MAX}. */
   widthJitter(t: number): number
-  /** A free 0–1 phase, for habits that carry nothing: curl direction, knot lean. */
+  /**
+   * A free 0–1 phase, for habits that carry nothing: which way a lane's heat
+   * leans, how tightly it ties itself off, how far its cut end relaxes past the
+   * rim.
+   *
+   * **Uniform, and it was not** (#117). This used to be one sample of a simplex
+   * field at the fixed point (0.5, 0.5), which sounds like a random number and
+   * is not: a gradient-noise field evaluated at one point close to a lattice
+   * node returns a small set of values, and across a twenty-lane fleet the whole
+   * channel took four — 0.35, 0.50, 0.65, 0.81. Everything spent on it therefore
+   * came in four flavours, which is a pattern rather than a scatter, and it is
+   * half of why a rim of thirty-seven scars read as one mark repeated. It is a
+   * hash now, so it is flat over 0–1 and two lanes share a habit only by
+   * coincidence.
+   */
   readonly curl: number
 }
 
@@ -187,7 +201,6 @@ function build(seed: string): LaneVariation {
   // "the width jitter" depend on whether anybody asked for a wander first.
   const bend = createNoise2D(mulberry32(cyrb128(`${seed}/wander`)))
   const girth = createNoise2D(mulberry32(cyrb128(`${seed}/width`)))
-  const habit = createNoise2D(mulberry32(cyrb128(`${seed}/curl`)))
 
   return {
     wander: (t) => {
@@ -198,7 +211,10 @@ function build(seed: string): LaneVariation {
       return envelope === 0 ? 0 : bend(t * WANDER_WAVES, 0.5) * envelope
     },
     widthJitter: (t) => 1 + WIDTH_JITTER_MAX * girth(t * WIDTH_JITTER_WAVES, 0.5),
-    curl: (habit(0.5, 0.5) + 1) / 2,
+    // The hash itself, not a noise field sampled at a point. A field is the
+    // right tool for something that varies *along* a thread and the wrong one
+    // for a single number per lane — see {@link LaneVariation.curl}.
+    curl: cyrb128(`${seed}/curl`) / 4_294_967_296,
   }
 }
 

@@ -152,9 +152,11 @@ function severedStops(): WidthStop[] {
  *   A settled scar has none, and that flatness is half of why it reads as past.
  * - the **remnant** is the thread's own last fifth, tapering as it always did,
  *   desaturating into `SCAR.thread` over the settle.
- * - the **freed end** curls back on itself. Every terminal in this scene ends in
- *   a hook (ruling 23); one pointing back down its own thread is an end that was
- *   *released*, which is the fact, rather than an end that was chopped.
+ * - the **freed end** gathers. A cord that let go springs back and bunches at
+ *   the end that was holding, which is the fact — rather than an end that was
+ *   chopped. It used to be a stamped thorn curl and is now the remnant's own
+ *   substance, swollen where the tension was and needled away up its own thread
+ *   (#117): the same reading, in the material, with nothing repeated.
  *
  * What it deliberately does not have is a `glow`. A glow is light, and there is
  * no light here any more — no pulse, no heat, never again.
@@ -234,25 +236,48 @@ function scarMarks(
   }
 
   // Nothing has parted yet during the tension release, so there is no freed end
-  // to curl: the thread is still tied into the mass, just slack.
-  const freed = cut.path[0]
-  const next = cut.path[1]
-  if (cut.from > 0 && freed !== undefined && next !== undefined) {
-    marks.push({
-      kind: 'path',
-      role: 'scar-mark',
-      laneId,
-      alarm: false,
-      d: THORN_OUT,
-      at: freed,
-      size: Math.max(6, cut.widthRoot * 4),
-      // Back down its own thread, away from the mass it let go of.
-      rotate: Math.atan2(freed.y - next.y, freed.x - next.x),
-      ink: budget(frame, laneId, false, toward(living, SCAR.glyph, cut.scar)),
-    })
+  // to gather: the thread is still tied into the mass, just slack.
+  if (cut.from > 0 && cut.path.length > 2) {
+    const gathered = Math.min(0.36, GATHER_PX / Math.max(1, arcLengthOf(cut.path)))
+    marks.push(
+      ribbonMark({
+        role: 'scar-mark',
+        laneId,
+        alarm: false,
+        // The first stretch of the remnant, from the freed end inward — so it
+        // lies exactly on the mark it belongs to and cannot drift off it.
+        path: stretch(cut.path, 0, gathered, 8),
+        // Swollen at the end that let go and gone by the far end of itself: the
+        // bunching of a cord that sprang back, which is what actually happens
+        // and what the thorn was standing in for.
+        widthRoot: cut.widthRoot * 1.5,
+        widthTip: 0,
+        taperTip: 0.85,
+        samples: 8,
+        paint: budget(frame, laneId, false, toward(living, SCAR.glyph, cut.scar)),
+      }),
+    )
   }
 
   return marks
+}
+
+/**
+ * How much of the remnant the gathered end occupies, in px of arc — a length
+ * rather than a fraction, for the same reason the scar itself is measured in px
+ * (`geometry.ts`): a lane at three o'clock has a longer thread than one at noon,
+ * and how much cord bunched up when it let go is not a fact about the clock.
+ */
+const GATHER_PX = 9
+
+function arcLengthOf(path: readonly Point[]): number {
+  let total = 0
+  for (let i = 1; i < path.length; i += 1) {
+    const a = path[i - 1] as Point
+    const b = path[i] as Point
+    total += Math.hypot(b.x - a.x, b.y - a.y)
+  }
+  return total
 }
 
 /**
