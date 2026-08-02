@@ -7,7 +7,7 @@ import {
   fixtureSession,
   makeEvent,
 } from './fixtures.js'
-import { observatoryEventSchema } from './events/index.js'
+import { rhizomorphEventSchema } from './events/index.js'
 import { reduceAll } from './reduce.js'
 import { selectCollisions } from './selectors/collisions.js'
 import { selectFlatlinedPanes } from './selectors/liveness.js'
@@ -17,7 +17,7 @@ describe('the fixture factory', () => {
     const event = createEventFactory().commitLanded({ sha: 'c9' })
     expect(event.payload.sha).toBe('c9')
     expect(event.payload.branch).toBe('feature')
-    expect(observatoryEventSchema.safeParse(event).success).toBe(true)
+    expect(rhizomorphEventSchema.safeParse(event).success).toBe(true)
   })
 
   it('ticks its own clock and numbers its own ids', () => {
@@ -74,7 +74,7 @@ describe('fixtureSession', () => {
 
   it('validates end to end', () => {
     for (const event of events) {
-      expect(observatoryEventSchema.safeParse(event).success, event.type).toBe(true)
+      expect(rhizomorphEventSchema.safeParse(event).success, event.type).toBe(true)
     }
     expect(events[0]?.ts).toBe(FIXTURE_START_TS)
   })
@@ -100,7 +100,7 @@ describe('fixtureSession', () => {
 describe('the package barrel', () => {
   it('exports everything wave-2 packages build against', () => {
     for (const name of [
-      'observatoryEventSchema',
+      'rhizomorphEventSchema',
       'createEvent',
       'parseEvent',
       'createIdFactory',
@@ -125,7 +125,7 @@ describe('the package barrel', () => {
       'makeEvent',
       'DEFAULT_FLATLINE_MS',
     ] as const) {
-      expect(core[name], `@observatory/core should export ${name}`).toBeDefined()
+      expect(core[name], `@rhizomorph/core should export ${name}`).toBeDefined()
     }
   })
 })

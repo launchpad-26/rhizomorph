@@ -7,7 +7,7 @@
 
 ## One-liner
 
-Make the Observatory a beautiful instrument: an operator glances at it and
+Make the Rhizomorph a beautiful instrument: an operator glances at it and
 knows, in one second, whether anything needs them — and can point at the
 looping agent, the frozen one, the waiting one, the expensive one, and the
 one that wandered off its fence, without reading a number.
@@ -15,7 +15,7 @@ one that wandered off its fence, without reading a number.
 ## Why (the market thesis)
 
 Ops tooling is aesthetically dead; "beautiful instrument" is a gap. The
-Observatory already has an identity (neon-on-dark) and — since prd2 —
+Rhizomorph already has an identity (neon-on-dark) and — since prd2 —
 numbers that mean what they say. prd3 is the discipline pass: spend beauty
 where it carries meaning, and make agent health legible at a glance.
 
@@ -66,7 +66,7 @@ where it carries meaning, and make agent health legible at a glance.
     precision on hover, through the one shared formatter (#70).
 12. **Gap voice law.** Every gap state speaks in one terse line: WHAT is
     missing → WHY it matters → THE command that fixes it. ("NO COST FEED
-    (OTel) — dollars unavailable — run: `eval "$(observatory env <lane>)"`.)
+    (OTel) — dollars unavailable — run: `eval "$(rhizomorph env <lane>)"`.)
     Applies to: conductor-not-instrumented, unattributed spend, refused
     posts, dead collectors, empty panels. This resolves the prd2-noted
     banner contradiction.
@@ -90,7 +90,7 @@ where it carries meaning, and make agent health legible at a glance.
     is replaced by a REPLAY banner (timestamp, session, exit-to-live).
     Scrubber redesigned as chrome. No new replay features.
 17. **Chat at a click — view + copy-to-attach.** The read-only constitution
-    stands: the Observatory never sends keys. Click a lane → right-side
+    stands: the Rhizomorph never sends keys. Click a lane → right-side
     DRAWER (fleet stays visible): vitals on top, ACTIVITY view (tool calls,
     files, commits) as the default reading, expandable full transcript
     below, live-tailing. An ATTACH button copies the exact tmux/workmux
@@ -108,7 +108,7 @@ where it carries meaning, and make agent health legible at a glance.
     outside its lane — needs ruling 19).
 19. **Lane geography — the prd's one data addition.** At dispatch, the
     conductor writes `.swarm/lanes.json` (handle → fence globs → issue →
-    model); dispatch.sh gains this as a contract. The Observatory ingests
+    model); dispatch.sh gains this as a contract. The Rhizomorph ingests
     it; "where is this agent" = recently-touched files vs fence globs;
     off-fence detection falls out. No other new collectors.
 20. **Subagent visibility.** Worker nodes sprout second-generation
@@ -172,7 +172,7 @@ where it carries meaning, and make agent health legible at a glance.
 ## Non-goals
 
 New data features beyond ruling 19; replay features; publishing (name
-`@kelliherl/observatory` recorded, publish deferred past prd3 per roadmap);
+`@kelliherl/rhizomorph` recorded, publish deferred past prd3 per roadmap);
 anything the factory GUI should own (full interaction with agents).
 
 ## Pick ruling (2026-07-31 evening — rulings 28–32, operator)
@@ -190,7 +190,7 @@ reference material.
     *luminance* — B's proof that neon is luminance, not saturation — while
     the four ladder hues stay exclusive (ruling 9 intact): saturated cyan
     = NOTICE only, amber = NEEDS-YOU, magenta-red = BROKEN. C's bone-grey
-    is out: law-pure, but it isn't the Observatory.
+    is out: law-pure, but it isn't the Rhizomorph.
 30. **Named grafts from the losers** (all blessed by the operator):
     - **g1 (B)** — the fleet table's STATE column renders the scene's own
       glyphs at row scale; the table IS the legend.

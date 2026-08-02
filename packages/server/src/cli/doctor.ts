@@ -4,14 +4,14 @@ import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Exec, ExecResult } from '@observatory/core'
+import type { Exec, ExecResult } from '@rhizomorph/core'
 import { lanesManifestPath, readLanesManifest } from '../api/lanes.js'
 import { exec as realExec } from '../server/exec.js'
 
 /**
  * Read-only preflight for a stranger's first run: every check here only
  * inspects state (filesystem, a probe socket, `git rev-parse`) and never
- * changes anything. `observatory doctor` exists because the plain run
+ * changes anything. `rhizomorph doctor` exists because the plain run
  * command validates nothing and a broken setup fails silently or with a raw
  * stack trace — see docs/prd2.md scope D.
  */
@@ -73,13 +73,13 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
 
 const STATUS_LABEL: Record<CheckStatus, string> = { ok: 'ok  ', warn: 'warn', fail: 'FAIL' }
 
-/** Renders a `runDoctor` report as the lines `observatory doctor` prints. */
+/** Renders a `runDoctor` report as the lines `rhizomorph doctor` prints. */
 export function renderDoctorReport(report: DoctorReport): string {
   const lines = report.checks.map((check) => `[${STATUS_LABEL[check.status]}] ${check.message}`)
   const failing = report.checks.filter((check) => check.status === 'fail').length
   const summary =
     failing > 0
-      ? `${failing} check${failing === 1 ? '' : 's'} failed — fix these before observatory can run.`
+      ? `${failing} check${failing === 1 ? '' : 's'} failed — fix these before rhizomorph can run.`
       : 'All required checks passed.'
   return [...lines, '', summary].join('\n')
 }
@@ -135,7 +135,7 @@ async function checkTargetPath(repoPath: string, exec: Exec): Promise<DoctorChec
     return {
       id: 'target-path',
       status: 'fail',
-      message: `target path ${repoPath} does not exist — pass an existing repo, e.g. \`observatory doctor ~/code/my-repo\``,
+      message: `target path ${repoPath} does not exist — pass an existing repo, e.g. \`rhizomorph doctor ~/code/my-repo\``,
     }
   }
 
@@ -238,7 +238,7 @@ function checkTelemetryEnv(env: NodeJS.ProcessEnv): DoctorCheck {
     id: 'telemetry',
     status: 'warn',
     message:
-      'telemetry env is not set in this shell — spend stays at zero until you run `eval "$(observatory env <lane>)"` (see docs/telemetry.md)',
+      'telemetry env is not set in this shell — spend stays at zero until you run `eval "$(rhizomorph env <lane>)"` (see docs/telemetry.md)',
   }
 }
 

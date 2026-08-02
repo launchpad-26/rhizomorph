@@ -1,4 +1,4 @@
-You are a worker agent building The Observatory. You own exactly one issue.
+You are a worker agent building The Rhizomorph. You own exactly one issue.
 
 FIRST, read these three docs in order — they are the contract:
 - docs/vision.md
@@ -27,7 +27,7 @@ RULES (non-negotiable):
   worktree is invisible to the conductor.
 - Never switch branches, never push, never merge, never edit git history
   outside your own branch.
-- Import from @observatory/core rather than redefining types locally.
+- Import from @rhizomorph/core rather than redefining types locally.
 - Definition of done: from the repo root, 'npm test' and
   'npm run typecheck' both green. Then STOP and write a short summary as
   your final message. Do not pick up another issue.

@@ -1,6 +1,6 @@
 # Telemetry — enabling prd1's money layer
 
-> How to point a real `claude` process at this Observatory's OTLP receiver so
+> How to point a real `claude` process at this Rhizomorph's OTLP receiver so
 > its spend shows up live. Background and payload shapes:
 > `docs/prd1.md`, `research/2026-07-30-telemetry-capture-routes.md`.
 
@@ -12,14 +12,14 @@ an OTLP/HTTP JSON exporter pointed at this server, and an
 the right row in the spend ticker. Get the exact block for any lane with:
 
 ```sh
-observatory env <lane> [--role worker|conductor|auxiliary] [--port <n>]
+rhizomorph env <lane> [--role worker|conductor|auxiliary] [--port <n>]
 ```
 
-`--port` defaults to 4321 (the Observatory's own default); pass whatever
+`--port` defaults to 4321 (the Rhizomorph's own default); pass whatever
 `--port` you actually started the server with. The output is `export`-ready:
 
 ```sh
-eval "$(observatory env test-lane)"
+eval "$(rhizomorph env test-lane)"
 claude -p "..."
 ```
 
@@ -30,7 +30,7 @@ agent pane runs `claude` prefixed with the env block above, `lane` set to the
 worktree's own directory name (`$(basename "$PWD")`, the same handle workmux
 and the worktree table use elsewhere) and `role=worker`. Nothing to enable by
 hand; a lane created after this file landed exports telemetry automatically.
-If you retarget the Observatory to a different port, update the
+If you retarget the Rhizomorph to a different port, update the
 `OTEL_EXPORTER_OTLP_ENDPOINT` in `.workmux.yaml`'s `panes` block to match, or
 existing lanes will export to a receiver that isn't listening (a silently
 dropped export, not a crash — `claude` doesn't hard-fail on a bad OTLP
@@ -44,14 +44,14 @@ inside a workmux-managed worktree, so it needs the same env block by hand,
 wherever it happens to run:
 
 ```sh
-eval "$(observatory env conductor --role conductor)"
+eval "$(rhizomorph env conductor --role conductor)"
 ```
 
 That expands to the same env block any lane gets
 (`packages/server/src/cli/telemetry-env.ts`) — telemetry on, an OTLP/HTTP-JSON
 exporter, `OTEL_RESOURCE_ATTRIBUTES=lane=conductor,role=conductor` — so it
 works identically whether the conductor's `claude` process runs on the same
-box as the Observatory server, in a different WSL distro, or natively on
+box as the Rhizomorph server, in a different WSL distro, or natively on
 Windows while the server runs under WSL:
 
 ```sh
@@ -69,9 +69,9 @@ export OTEL_RESOURCE_ATTRIBUTES=lane=conductor,role=conductor
 `/v1/metrics` and `/v1/logs` itself.)
 
 If the conductor runs on a different machine or a different WSL distro than
-the Observatory server, point `OTEL_EXPORTER_OTLP_ENDPOINT` at wherever the
+the Rhizomorph server, point `OTEL_EXPORTER_OTLP_ENDPOINT` at wherever the
 server is actually reachable — WSL's localhost forwarding means a Windows-side
-conductor can usually still reach a WSL-side Observatory over
+conductor can usually still reach a WSL-side Rhizomorph over
 `http://127.0.0.1:<port>` (or `http://localhost:<port>`), but a genuinely
 separate machine needs the server's real host/IP and an open port. The
 otel receiver has no auth — don't expose it beyond a trusted LAN/localhost.
@@ -85,16 +85,16 @@ conductor with zero `llm.cost` events as an honest gap
 (`conductor not instrumented — see docs/telemetry.md`), not a zero, precisely
 because this is a common way to end up mid-session with no conductor cost
 data yet. See "Two overhead numbers" below for which figure that is and how
-it differs from the token ratio in `@observatory/core`.
+it differs from the token ratio in `@rhizomorph/core`.
 
 A conductor's own Claude Code **session-log** directory (the `sessionlog`
 collector's source, `~/.claude/projects/<slug>`) may also live somewhere the
-Observatory wouldn't otherwise discover — a different filesystem entirely
+Rhizomorph wouldn't otherwise discover — a different filesystem entirely
 (`/mnt/c/Users/<u>/.claude/projects/<slug>` for a Windows-side conductor
-talking to a WSL-side Observatory). Point the server at it with (repeatable):
+talking to a WSL-side Rhizomorph). Point the server at it with (repeatable):
 
 ```sh
-observatory --extra-sessions /mnt/c/Users/<u>/.claude/projects/<slug>:conductor
+rhizomorph --extra-sessions /mnt/c/Users/<u>/.claude/projects/<slug>:conductor
 ```
 
 The optional `:conductor` suffix names the lane this session dir shows up as
@@ -121,7 +121,7 @@ and the spend panel's dollar headline says so.
 **Operator ruling, 2026-07:** a "token" is not one unit. `TokenTotals`
 (`packages/core/src/events/telemetry.ts`) carries four cache tiers that price
 out very differently, so summing all four into one number and calling it "the
-tokens" hides a mix of things worth up to ~50x apart. The Observatory's
+tokens" hides a mix of things worth up to ~50x apart. The Rhizomorph's
 standing rule since this ruling: **no unlabelled all-tier total, anywhere in
 the product.** `TokenTotals.total` still exists on the type for a caller that
 genuinely wants the raw sum, but nothing sorts, ranks, or headlines by it, and
@@ -288,7 +288,7 @@ serves both without a mode switch.
 `OTEL_RESOURCE_ATTRIBUTES` lane tagging was the research note's one unrun
 claim (§ "Open questions"). It was proven live for issue #36: a real
 `claude -p` run exporting `OTEL_RESOURCE_ATTRIBUTES=lane=test-lane,role=worker`
-to a running Observatory's `/v1/metrics` produced a stored `llm.usage` /
+to a running Rhizomorph's `/v1/metrics` produced a stored `llm.usage` /
 `llm.cost` event carrying `lane: "test-lane"` — see that issue's summary for
 the exact request/response evidence.
 

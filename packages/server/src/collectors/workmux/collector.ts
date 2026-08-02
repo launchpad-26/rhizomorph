@@ -4,9 +4,9 @@ import {
   type Collector,
   type CollectorContext,
   type ExecResult,
-  type ObservatoryEvent,
+  type RhizomorphEvent,
   type PollResult,
-} from '@observatory/core'
+} from '@rhizomorph/core'
 import { parseElapsed, parseListTable, parseStatusTable } from './parse.js'
 
 interface WorkmuxAgentSnapshot {
@@ -67,7 +67,7 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
       const listByHandle = new Map(listRows.map((row) => [row.branch, row]))
 
       const nextAgents: WorkmuxSnapshot['agents'] = {}
-      const events: ObservatoryEvent[] = []
+      const events: RhizomorphEvent[] = []
 
       for (const row of statusRows) {
         const statusCheck = agentStatusSchema.safeParse(row.status)

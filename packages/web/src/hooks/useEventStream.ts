@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { EVENT_TYPES, parseEvent, type ObservatoryEvent } from '@observatory/core'
+import { EVENT_TYPES, parseEvent, type RhizomorphEvent } from '@rhizomorph/core'
 
 export type ConnectionStatus = 'connecting' | 'open' | 'error' | 'closed'
 
@@ -20,7 +20,7 @@ export type EventSourceFactory = (url: string) => EventSourceLike
 
 export interface UseEventStreamOptions<S> {
   initialState: S
-  reduce: (state: S, event: ObservatoryEvent) => S
+  reduce: (state: S, event: RhizomorphEvent) => S
   /** Overridable so tests can feed a mock stream instead of a real SSE connection. */
   createSource?: EventSourceFactory
 }

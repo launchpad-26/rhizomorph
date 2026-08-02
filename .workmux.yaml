@@ -1,33 +1,33 @@
-# Fleet config — The Observatory build day (2026-07-30).
+# Fleet config — The Rhizomorph build day (2026-07-30).
 # Ruling: workers run with skipped permissions in isolated worktrees
 # (throwaway repo, no secrets, non-root user).
 agent: claude --model sonnet --dangerously-skip-permissions
 
-merge_strategy: merge   # keep the DAG visible — the Observatory renders it
+merge_strategy: merge   # keep the DAG visible — the Rhizomorph renders it
 
 post_create:
   - "[ -f package.json ] && npm install || true"
 
 # prd1 telemetry (docs/telemetry.md): every lane's agent exports OTLP/HTTP
-# JSON straight to this repo's own Observatory server (the receiver at
+# JSON straight to this repo's own Rhizomorph server (the receiver at
 # packages/server/src/api/otel.ts), tagged lane=<worktree handle>,role=worker
 # and — since prd2 #60 — instance=<the running server's session id>.
 #
-# The block is no longer duplicated here: `observatory env <lane>` renders it,
+# The block is no longer duplicated here: `rhizomorph env <lane>` renders it,
 # including the instance id it reads from the server's /api/meta, and the pane
 # evals that. One source of truth, and the port lives in exactly one place
-# below (default 4321 — change it if the Observatory was started elsewhere).
+# below (default 4321 — change it if the Rhizomorph was started elsewhere).
 #
-# The Observatory must be running when a lane is dispatched. It always is at
+# The Rhizomorph must be running when a lane is dispatched. It always is at
 # dispatch time, and if it isn't, the pane says so and starts the agent anyway:
 # the exports then carry no instance id, the receiver answers 403 and records
 # one `telemetry.refused` event per minute, so the gap shows up as a setup gap
 # in the dashboard rather than as silently missing spend.
 panes:
   - command: >-
-      OBS_ENV=$(node packages/server/bin/observatory.mjs env "$(basename "$PWD")" --port 4321)
+      OBS_ENV=$(node packages/server/bin/rhizomorph.mjs env "$(basename "$PWD")" --port 4321)
       && eval "$OBS_ENV"
-      || echo "!! no Observatory on 127.0.0.1:4321 — this lane's telemetry will be refused (403); start it and re-dispatch to record this lane's spend";
+      || echo "!! no Rhizomorph on 127.0.0.1:4321 — this lane's telemetry will be refused (403); start it and re-dispatch to record this lane's spend";
       <agent>
     focus: true
   - split: horizontal

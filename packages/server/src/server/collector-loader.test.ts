@@ -1,5 +1,5 @@
-import type { AnyCollector, CollectorContext, Exec, ExecResult } from '@observatory/core'
-import { createEvent, createIdFactory, reduceAll } from '@observatory/core'
+import type { AnyCollector, CollectorContext, Exec, ExecResult } from '@rhizomorph/core'
+import { createEvent, createIdFactory, reduceAll } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { loadCollectors } from './collector-loader.js'
 import { createPollLoop } from './poll-loop.js'

@@ -6,7 +6,7 @@ import {
   type EventType,
   type PayloadOf,
   type SourceOf,
-} from '@observatory/core'
+} from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { parseMetricsExport, type OtelEmitter } from './parse-metrics.js'
 

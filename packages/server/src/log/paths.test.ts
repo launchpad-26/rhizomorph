@@ -4,8 +4,8 @@ import { repoSlug, sessionDirFor, sessionFileName, sessionIdFromFileName, snapsh
 
 describe('repoSlug', () => {
   it('combines a sanitized basename with a short hash of the absolute path', () => {
-    const slug = repoSlug('/home/operator/repos/Observatory')
-    expect(slug).toMatch(/^observatory-[0-9a-f]{8}$/)
+    const slug = repoSlug('/home/operator/repos/Rhizomorph')
+    expect(slug).toMatch(/^rhizomorph-[0-9a-f]{8}$/)
   })
 
   it('is stable for the same path and differs for different paths', () => {

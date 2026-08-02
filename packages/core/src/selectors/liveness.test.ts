@@ -10,7 +10,7 @@ import {
   selectWorktreeLiveness,
 } from './liveness.js'
 
-const REPO = '/repo/observatory'
+const REPO = '/repo/rhizomorph'
 const wt = (name: string) => `${REPO}-wt/${name}`
 const MINUTE = 60_000
 const T0 = 1_000_000

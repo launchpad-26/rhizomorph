@@ -1,6 +1,6 @@
 # Prior art: human-facing orientation in many-agents-at-once UIs
 
-**Date:** 2026-08-01 · **For:** Observatory prd5 grooming · **Method:** WebSearch/WebFetch, claims graded [Verified] (primary fetched), [Consensus] (multiple/secondary sources), [Thin] (single weak source).
+**Date:** 2026-08-01 · **For:** Rhizomorph prd5 grooming · **Method:** WebSearch/WebFetch, claims graded [Verified] (primary fetched), [Consensus] (multiple/secondary sources), [Thin] (single weak source).
 
 **Decision:** groom prd5 orientation/polish issues — the field has solved pieces of this (RTS solved orientation, observability solved rollup/drill-down, aviation solved status color, mission control solved the register), but no agent GUI yet combines them; the steal-list below is the shortest path to "not just a tool."
 
@@ -8,12 +8,12 @@
 
 ## Steal-list (ranked)
 
-1. **Idle-worker button** (StarCraft II) — a persistent counter above the minimap showing units that need orders; one keypress (F1) jumps to the next one. [Consensus — Liquipedia, Blizzard Game Guide] → Observatory: the attention strip should have a "N agents need you" pill with a hotkey that cycles to the next amber/red agent. This is the single highest-value transfer.
+1. **Idle-worker button** (StarCraft II) — a persistent counter above the minimap showing units that need orders; one keypress (F1) jumps to the next one. [Consensus — Liquipedia, Blizzard Game Guide] → Rhizomorph: the attention strip should have a "N agents need you" pill with a hotkey that cycles to the next amber/red agent. This is the single highest-value transfer.
 2. **Control groups + double-tap recall** (SC2) — Ctrl+number binds a group; pressing recalls selection, double-tap centers the camera. [Consensus — Blizzard Game Guide] → number keys select an agent lane; double-tap focuses/zooms it.
 3. **Minimap + alert ping doctrine** (RTS genre) — a spatially stable overview where events flash in place and clicking jumps the camera there. [Consensus] → the attention strip should be spatial (stable per-agent positions), with pings that flash then fade to a persistent dot until acknowledged.
 4. **Strategic zoom / sensors manager** (Supreme Commander; Homeworld) — SupCom zooms "smoothly and continuously" from single unit to whole theater [Consensus]; Homeworld's Sensors Manager is a separate strategic view with **icon amalgamation** — nearby units collapse into one icon at distance [Consensus — Steam/GameFAQs]. → one continuous zoom between root-mass overview and single-thread detail beats modal view-switching; amalgamate lanes when N is large.
 5. **Inverted-pyramid hierarchy** (Grafana) — organize "large to small, general to specific"; key rollup top-left (Z-scan pattern); drill-downs via parameterized dashboards, not copies; dashboards must "reduce cognitive load, not add to it." [Verified — grafana.com best-practices doc, fetched 2026-08-01]
-6. **Regulated status color** (aviation/FAA) — red = warning (act now), amber/yellow = caution (timely action), green = normal; color exists for "attention, identification, and segmentation," never decoration. [Consensus — FAA HF guidance ch. 3.7; Applied Avionics color guide] → Observatory's green/amber/red already matches the standard; enforce that nothing else on screen uses those hues.
+6. **Regulated status color** (aviation/FAA) — red = warning (act now), amber/yellow = caution (timely action), green = normal; color exists for "attention, identification, and segmentation," never decoration. [Consensus — FAA HF guidance ch. 3.7; Applied Avionics color guide] → Rhizomorph's green/amber/red already matches the standard; enforce that nothing else on screen uses those hues.
 7. **"What's different" drill-down** (Honeycomb BubbleUp / core analysis loop) — select the anomaly, system compares inside-the-box vs baseline and sorts by difference. [Consensus — honeycomb.io/platform/bubbleup, docs.honeycomb.io] → clicking a red agent should immediately answer "what changed" (last tool call, last error), not just open a transcript.
 8. **Single-keystroke contextual verbs** (k9s) — cursor on a resource, then `l` logs, `d` describe, `s` shell; real-time refresh; "faster than any monitoring dashboard because you're already in the terminal." [Consensus — k9scli.io + multiple writeups] → with an agent selected: one key for transcript, one for diff, one for interrupt.
 9. **Unit portrait / selection panel** (SC2 + RTS genre) — selecting a unit shows portrait, health, current command, and queue in a fixed panel. [Consensus] → the conversation drawer is the selection panel: fixed position, shows identity, current task, command queue; never a floating window per agent.
@@ -34,7 +34,7 @@
 - **Cursor 2.0**: "a new editor, with a sidebar for your agents and plans"; up to 8 parallel agents on one prompt via worktrees/remote machines; aggregated multi-file review "without needing to jump between individual files." Changelog is silent on status indicators or attention flags. [Verified — cursor.com/changelog/2-0, fetched 2026-08-01]
 - **Conductor** (Claude-fleet Mac app): workspaces list, one isolated worktree per agent; pitch is literally "See at a glance what they're working on," then "review and merge their changes." [Verified — conductor.build, fetched 2026-08-01] Their guidance that 3–5 parallel workspaces is the human ceiling is secondary reporting. [Thin — codepick.dev]
 - **OpenHands**: agent pauses in an explicit `WAITING_FOR_CONFIRMATION` state until the user approves/rejects; Agent Canvas connects to multiple agent servers and flips between them. [Consensus — arxiv 2511.03690, docs.openhands.dev]
-- **Pattern across all of them**: conversation transcript is the primary surface, telemetry is bolted on; none has a genre-standard answer to glanceable fleet status — that's the open lane Observatory is driving into. [Consensus]
+- **Pattern across all of them**: conversation transcript is the primary surface, telemetry is bolted on; none has a genre-standard answer to glanceable fleet status — that's the open lane Rhizomorph is driving into. [Consensus]
 
 ### 2. Observability / fleet dashboards
 
@@ -68,9 +68,9 @@ Covered in steal-list items 1–4, 9, 12. Explicit transferable idioms: **idle-w
 
 ## Open questions
 
-- What N breaks the lane metaphor? Conductor's reported 3–5 human ceiling vs Devin's 10 sessions — does Observatory need icon amalgamation/clustering above ~8 lanes? [Thin evidence either way]
+- What N breaks the lane metaphor? Conductor's reported 3–5 human ceiling vs Devin's 10 sessions — does Rhizomorph need icon amalgamation/clustering above ~8 lanes? [Thin evidence either way]
 - Should amber escalate with age? Urgency-based color-coding research for multi-UAV supervision exists (ScienceDirect, not fetched) — worth a read before styling the waiting state.
-- Audio pings: RTS orientation leans heavily on sound; does Observatory want an opt-in audio channel for red events?
+- Audio pings: RTS orientation leans heavily on sound; does Rhizomorph want an opt-in audio channel for red events?
 - Keyboard-first (k9s register) vs mouse-first: which is the drawer's primary mode, and do control-group hotkeys conflict with terminal focus?
 - Broadcast log (steal #12): separate surface or a filter on the attention strip?
 

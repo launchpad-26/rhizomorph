@@ -1,6 +1,6 @@
 import { tmpdir } from 'node:os'
-import type { Collector, CollectorContext, Exec, ExecResult, EventType, PayloadOf } from '@observatory/core'
-import { createEvent, createIdFactory } from '@observatory/core'
+import type { Collector, CollectorContext, Exec, ExecResult, EventType, PayloadOf } from '@rhizomorph/core'
+import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { createSessionlogCollector } from './sessionlog/collector.js'
 import { tmuxCollector } from './tmux/collector.js'

@@ -1,4 +1,4 @@
-import type { BranchTouch, CollisionPair } from '@observatory/core'
+import type { BranchTouch, CollisionPair } from '@rhizomorph/core'
 
 const ELLIPSIS = '…'
 

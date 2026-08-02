@@ -1,4 +1,4 @@
-import { createEventFactory, reduceAll } from '@observatory/core'
+import { createEventFactory, reduceAll } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -129,7 +129,7 @@ describe('the main pseudo-lane', () => {
   function sessionWithMain() {
     const f = createEventFactory({ startTs: NOW - 60_000, stepMs: 1_000 })
     return [
-      f.sessionStarted({ repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' }),
+      f.sessionStarted({ repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' }),
       f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-main', isMain: true }),
       f.worktreeDiscovered({ path: '/repo-wt/42', branch: '42-otel-receiver', head: 'sha-42', isMain: false }),
       f.llmUsage({ lane: 'main', branch: 'main', worktreePath: '/repo', sessionId: 'sess-main' }),

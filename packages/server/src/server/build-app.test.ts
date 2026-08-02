@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createEvent } from '@observatory/core'
+import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import { buildApp } from './build-app.js'
@@ -12,7 +12,7 @@ describe('buildApp integration', () => {
   let recorder: SessionRecorder
 
   beforeEach(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), 'observatory-app-test-'))
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-app-test-'))
     recorder = new SessionRecorder('1000', sessionFilePath(dir, '1000'))
   })
 

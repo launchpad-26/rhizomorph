@@ -1,4 +1,4 @@
-import { createEventFactory } from '@observatory/core'
+import { createEventFactory } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { activityCounts, foldActivity, type ActivityLane } from './activity.js'
 

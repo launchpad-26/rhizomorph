@@ -3,7 +3,7 @@ import { createEventFactory, fixtureSession } from './fixtures.js'
 import { reduce, reduceAll } from './reduce.js'
 import { MAX_ERRORS, initialSessionState, initialTelemetryState } from './state.js'
 
-const REPO = '/repo/observatory'
+const REPO = '/repo/rhizomorph'
 const WT = `${REPO}-wt/feature`
 
 let f = createEventFactory()
@@ -70,12 +70,12 @@ describe('reduce — system events', () => {
   it('records the session and the main branch', () => {
     const state = reduce(
       initialSessionState(),
-      f.sessionStarted({ sessionId: 's1', repoPath: REPO, repoName: 'observatory', mainBranch: 'trunk' }, { ts: 42 }),
+      f.sessionStarted({ sessionId: 's1', repoPath: REPO, repoName: 'rhizomorph', mainBranch: 'trunk' }, { ts: 42 }),
     )
     expect(state.session).toEqual({
       sessionId: 's1',
       repoPath: REPO,
-      repoName: 'observatory',
+      repoName: 'rhizomorph',
       startedAt: 42,
     })
     expect(state.mainBranch).toBe('trunk')
@@ -448,7 +448,7 @@ describe('reduce — the fixture session', () => {
   const state = reduceAll(fixtureSession())
 
   it('builds the whole picture in one fold', () => {
-    expect(state.session?.repoName).toBe('observatory')
+    expect(state.session?.repoName).toBe('rhizomorph')
     expect(state.mainBranch).toBe('main')
     expect(Object.keys(state.worktrees)).toHaveLength(4)
     expect(Object.keys(state.panes)).toHaveLength(3)

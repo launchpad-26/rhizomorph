@@ -32,7 +32,7 @@ import {
  * with the figures:
  *
  * > `BURN  2.3M OUT  NO COST FEED (OTel) — dollars unavailable — run: eval
- * > "$(observatory env <lane>)"  0 out-tok/min RATE  CONDUCTOR NOT
+ * > "$(rhizomorph env <lane>)"  0 out-tok/min RATE  CONDUCTOR NOT
  * > INSTRUMENTED — overhead ratio unknowable`
  *
  * Three unrelated facts and two apology sentences, run together at one weight,

@@ -5,7 +5,7 @@ import {
   fixtureTelemetrySession,
   reduceAll,
   selectSpendByBranch,
-} from '@observatory/core'
+} from '@rhizomorph/core'
 import { afterEach, describe, expect, it } from 'vitest'
 import { StreamProvider } from '../../app/StreamContext.js'
 import type { EventSourceLike } from '../../hooks/useEventStream.js'
@@ -95,7 +95,7 @@ describe('LedgerPanel', () => {
   it('flags a branch Landed once its worktree has been removed, and keeps its cost', () => {
     const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'land' })
     const branch = '48-branch-ledger'
-    const path = '/repo/observatory-wt/48-branch-ledger'
+    const path = '/repo/rhizomorph-wt/48-branch-ledger'
     f.sessionStarted()
     f.worktreeDiscovered({ path, branch, head: 'sha-0', isMain: false })
     f.llmUsage({
@@ -123,7 +123,7 @@ describe('LedgerPanel', () => {
   it('keeps a still-live branch Live, distinct from a landed one', () => {
     const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'live' })
     const branch = '9-still-going'
-    const path = '/repo/observatory-wt/9-still-going'
+    const path = '/repo/rhizomorph-wt/9-still-going'
     f.sessionStarted()
     f.worktreeDiscovered({ path, branch, head: 'sha-0', isMain: false })
     f.llmUsage({ lane: branch, branch, worktreePath: path, tokens: { input: 1, output: 1, cacheRead: 0, cacheCreation: 0 } })

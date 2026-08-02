@@ -1,4 +1,4 @@
-You are a worker agent building The Observatory (prd3: the instrument).
+You are a worker agent building The Rhizomorph (prd3: the instrument).
 You own exactly one issue.
 
 FIRST read, in order: docs/prd3.md IN FULL (all rulings, including the
@@ -56,7 +56,7 @@ column. Ice-neon register.
 - Root `npm test` + `npm run typecheck` green.
 
 RULES: stay strictly inside the FENCE (other agents work in parallel);
-import from @observatory/core, never redefine its types; small
+import from @rhizomorph/core, never redefine its types; small
 conventional commits (committing is REQUIRED — review happens from your
 branch); NEVER switch branches, push, merge, or run git in a sibling
 worktree; no NUL bytes; tests must be deterministic (no waitFor racing

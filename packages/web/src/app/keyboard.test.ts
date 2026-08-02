@@ -1,4 +1,4 @@
-import { initialSessionState, reduce } from '@observatory/core'
+import { initialSessionState, reduce } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'

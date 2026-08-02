@@ -1,3 +1,3 @@
-worktree /home/dev/observatory-demo
+worktree /home/dev/rhizomorph-demo
 HEAD d129e8d9ede5050302a93cd9d66ccadad0f2713d
 branch refs/heads/main

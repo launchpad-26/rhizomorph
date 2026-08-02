@@ -1,4 +1,4 @@
-# Architecture — The Observatory
+# Architecture — The Rhizomorph
 
 > **Living document.** Blessed by Lachlan 2026-07-30 before any code. Real
 > decisions made during the build get appended, not rewritten.
@@ -58,7 +58,7 @@ no tmux) → one `collector.disabled` event; everything else keeps working.
 
 ## The log lives outside the watched repo
 
-`~/.local/share/observatory/<repo-slug>/session-<ts>.jsonl`. The read-only
+`~/.local/share/rhizomorph/<repo-slug>/session-<ts>.jsonl`. The read-only
 promise means we don't even add a gitignored directory to the target repo.
 
 ## Server
@@ -101,9 +101,9 @@ globs it may touch:
 ```
 
 `handle`, `branch`, and `fence` (a string array) are required per lane;
-`issue`, `model`, and `dispatchedAt` are dispatch metadata the Observatory
+`issue`, `model`, and `dispatchedAt` are dispatch metadata the Rhizomorph
 doesn't need for its own derivation. `parked` (boolean, prd4 ruling 5) is the
-one optional field the Observatory *does* read: an operator's own declaration
+one optional field the Rhizomorph *does* read: an operator's own declaration
 that a lane is parked, absent meaning `false`. It is written only by
 whatever wrote `.swarm/lanes.json` in the first place — this read-only
 instrument never sets it — and it is not dispatch metadata like the rest:
@@ -127,13 +127,13 @@ expected state before the first dispatch:
 A present-but-unparseable-or-invalid file is a loud degradation carrying the
 parse or schema detail: `{ "available": false, "reason": "<detail>" }`. Only a
 structurally valid file serves `{ "available": true, "version": 1, "lanes": [...] }`.
-This is exactly the shape the web gap voice (ruling 12) consumes. `observatory
+This is exactly the shape the web gap voice (ruling 12) consumes. `rhizomorph
 doctor` reuses the same read/validate path for a `lane-manifest` check, in the
 existing three-state vocabulary (#73): present-and-valid is `ok`; absent and
 present-but-broken are both `warn` (an optional capability, not something the
 app needs to run) distinguished only by message.
 
-CLI entry `observatory [path]` boots collectors + server, prints the URL.
+CLI entry `rhizomorph [path]` boots collectors + server, prints the URL.
 
 ## Web
 
@@ -611,7 +611,7 @@ pulse law 2, `pulses.ts`) extended from traffic to motion itself).
 
 ### The cord-cut (#102, ruling 3)
 
-`packages/web/src/scene/retire.ts` is the Observatory's own idiom for a
+`packages/web/src/scene/retire.ts` is the Rhizomorph's own idiom for a
 finished lane: every graph tool surveyed (GitHub Actions, Obsidian, React
 Flow) restyles a finished node and leaves it wired in, so "is this fleet
 still working" stays a colour question. This instrument disconnects the
@@ -911,7 +911,7 @@ lets an operator call the conductor anything — a lane literally named
 different gaps get two different fixes (`conductorGap()`, the same law-12
 discipline the worker lanes already had): nothing instrumented at all
 names the flag to pass; telemetry with no session id attributed names
-`observatory doctor`.
+`rhizomorph doctor`.
 
 `LaneDrawer` (`packages/web/src/drawer/index.tsx`) branches on
 `isMainSelected(selectedId)` before it looks up a `Lane` at all, and
@@ -1010,7 +1010,7 @@ no longer exists is a shape name in the channel the laws read.
 
 `packages/web/src/scene/ribbon.ts` turns a spine and a width profile into
 closed polygons the painter fills, built from three libraries each proven
-live first (`docs/research/2026-08-02-observatory-prd7-procedural-form.md`):
+live first (`docs/research/2026-08-02-rhizomorph-prd7-procedural-form.md`):
 **`perfect-freehand`** (MIT) builds one outline for the whole stroke with a
 real rounded cap at every turn sharper than 90°, fed the encoded width as
 per-point pressure with `simulatePressure: false` (its own velocity
@@ -1098,7 +1098,7 @@ the lexicographically-smallest of a lane's `handles` (never `Lane.id`, which
 is the branch and can change on a re-dispatch) with bryc's `cyrb128` into
 four 32-bit words, feeding `mulberry32` — a hash rather than a character sum
 because adjacent lane names (`113-ribbons`, `114-contour`) must not produce
-adjacent noise fields, verified live: `docs/research/2026-08-02-observatory-prd7-procedural-form.md`
+adjacent noise fields, verified live: `docs/research/2026-08-02-rhizomorph-prd7-procedural-form.md`
 probed the same lane id returning identical samples from a **fresh**
 `simplex-noise` instance, which is the property that makes a replay recorded
 on someone else's machine redraw the same picture rather than a new random
@@ -1593,7 +1593,7 @@ hook.
   gone, at zero new objects per substitution.** `perfect-freehand` (MIT),
   `d3-shape`'s centripetal Catmull-Rom (ISC) and `simplex-noise` (MIT) are
   the three new runtime dependencies, each adopted only after being probed
-  live in this repo's own stack — `docs/research/2026-08-02-observatory-prd7-procedural-form.md`
+  live in this repo's own stack — `docs/research/2026-08-02-rhizomorph-prd7-procedural-form.md`
   — rather than assumed from their docs. Two real bugs surfaced only by
   building a throwaway, uncommitted software rasterizer to actually look at
   the display list: ribbons faceted under the prd5 camera's 6× zoom because

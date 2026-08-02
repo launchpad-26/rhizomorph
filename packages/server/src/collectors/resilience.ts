@@ -1,4 +1,4 @@
-import type { Collector, CollectorContext, EventOf, ObservatoryEvent, PollResult } from '@observatory/core'
+import type { Collector, CollectorContext, EventOf, RhizomorphEvent, PollResult } from '@rhizomorph/core'
 
 /**
  * The retry/backoff/self-heal policy shared by every collector whose poll
@@ -50,7 +50,7 @@ export const DEFAULT_FAILURE_THRESHOLD = 3
 export const DEFAULT_RETRY_INTERVAL_MS = 30_000
 
 function isCollectorDisabledEvent(
-  event: ObservatoryEvent,
+  event: RhizomorphEvent,
 ): event is EventOf<'collector.disabled'> {
   return event.type === 'collector.disabled'
 }
@@ -169,7 +169,7 @@ export function withResilience<S extends DisableableSnapshot>(
         },
         events: [
           // The WHAT ("<NAME> COLLECTOR DISABLED") and the command
-          // (`observatory doctor`) are assembled downstream by the gap
+          // (`rhizomorph doctor`) are assembled downstream by the gap
           // registry (buildFleet.ts) from `collector.name` and this event's
           // fixed shape — `reason` only ever needs to carry the WHY, here
           // with the count that makes it honest about how hard this tried.

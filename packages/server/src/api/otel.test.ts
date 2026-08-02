@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { EventOf } from '@observatory/core'
+import type { EventOf } from '@rhizomorph/core'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { sessionFilePath } from '../log/session-log.js'
@@ -16,7 +16,7 @@ import { INSTANCE_ATTRIBUTE, REFUSAL_THROTTLE_MS, registerOtelRoutes } from './o
  * — not just the pure parser (see `collectors/otel/parse-metrics.test.ts` for that).
  *
  * The instance id under test is the recorder's session id (`OUR_INSTANCE`),
- * which is what `/api/meta` publishes and `observatory env` writes into a
+ * which is what `/api/meta` publishes and `rhizomorph env` writes into a
  * lane's `OTEL_RESOURCE_ATTRIBUTES`.
  */
 
@@ -74,7 +74,7 @@ describe('OTLP/HTTP receiver routes', () => {
   let recorder: SessionRecorder
 
   beforeEach(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), 'observatory-otel-test-'))
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-otel-test-'))
     recorder = new SessionRecorder(OUR_INSTANCE, sessionFilePath(dir, OUR_INSTANCE))
   })
 
@@ -184,7 +184,7 @@ describe('OTLP/HTTP receiver routes', () => {
       })
 
       expect(response.statusCode).toBe(403)
-      expect(response.json()).toMatchObject({ error: expect.stringContaining('observatory env') })
+      expect(response.json()).toMatchObject({ error: expect.stringContaining('rhizomorph env') })
 
       expect(refusals()).toHaveLength(1)
       expect(refusals()[0]?.payload).toEqual({
@@ -204,12 +204,12 @@ describe('OTLP/HTTP receiver routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: '/v1/metrics',
-        payload: declaring(fixture('metrics-token-and-cost.json'), 'factory-observatory-77'),
+        payload: declaring(fixture('metrics-token-and-cost.json'), 'factory-rhizomorph-77'),
       })
 
       expect(response.statusCode).toBe(403)
       expect(refusals()[0]?.payload).toEqual({
-        instance: 'factory-observatory-77',
+        instance: 'factory-rhizomorph-77',
         expectedInstance: OUR_INSTANCE,
         count: 1,
       })
@@ -235,11 +235,11 @@ describe('OTLP/HTTP receiver routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: '/v1/metrics',
-        payload: twoResourceBlocks(OUR_INSTANCE, 'factory-observatory-77'),
+        payload: twoResourceBlocks(OUR_INSTANCE, 'factory-rhizomorph-77'),
       })
 
       expect(response.statusCode).toBe(403)
-      expect(refusals()[0]?.payload).toMatchObject({ instance: 'factory-observatory-77' })
+      expect(refusals()[0]?.payload).toMatchObject({ instance: 'factory-rhizomorph-77' })
       expect(recorder.eventsSoFar().filter((e) => e.type === 'llm.usage')).toHaveLength(0)
     })
 
@@ -288,25 +288,25 @@ describe('OTLP/HTTP receiver routes', () => {
 
       for (let i = 0; i < 4; i += 1) {
         clock.ms = start + i * 1_000
-        expect((await post(app, 'factory-observatory-77')).statusCode).toBe(403)
+        expect((await post(app, 'factory-rhizomorph-77')).statusCode).toBe(403)
       }
 
       // Four refused posts, one event: the first, standing alone.
       expect(refusals()).toHaveLength(1)
-      expect(refusals()[0]?.payload).toMatchObject({ instance: 'factory-observatory-77', count: 1 })
+      expect(refusals()[0]?.payload).toMatchObject({ instance: 'factory-rhizomorph-77', count: 1 })
 
       // One millisecond inside the window: refused, still silent in the log.
       clock.ms = start + REFUSAL_THROTTLE_MS - 1
-      expect((await post(app, 'factory-observatory-77')).statusCode).toBe(403)
+      expect((await post(app, 'factory-rhizomorph-77')).statusCode).toBe(403)
       expect(refusals()).toHaveLength(1)
 
       // The moment the window closes: one more event, counting every post
       // swallowed since the last one (four) plus this one.
       clock.ms = start + REFUSAL_THROTTLE_MS
-      expect((await post(app, 'factory-observatory-77')).statusCode).toBe(403)
+      expect((await post(app, 'factory-rhizomorph-77')).statusCode).toBe(403)
       expect(refusals()).toHaveLength(2)
       expect(refusals()[1]?.payload).toMatchObject({
-        instance: 'factory-observatory-77',
+        instance: 'factory-rhizomorph-77',
         count: 5,
       })
       expect(refusals()[1]?.ts).toBe(start + REFUSAL_THROTTLE_MS)
@@ -316,13 +316,13 @@ describe('OTLP/HTTP receiver routes', () => {
       const clock = { ms: 5_000 }
       const app = appWithClock(clock)
 
-      await post(app, 'factory-observatory-77')
-      await post(app, 'factory-observatory-77')
+      await post(app, 'factory-rhizomorph-77')
+      await post(app, 'factory-rhizomorph-77')
       await post(app, 'another-repo')
       await post(app, null)
 
       expect(refusals().map((event) => event.payload.instance)).toEqual([
-        'factory-observatory-77',
+        'factory-rhizomorph-77',
         'another-repo',
         null,
       ])

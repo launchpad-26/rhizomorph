@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildFleet, fixtureHistory, fleet20Spec, manifestFor } from '../fleet/index.js'
-import { reduceAll } from '@observatory/core'
+import { reduceAll } from '@rhizomorph/core'
 import { MAX_SMOOTHING, chaikin, contourRings, fieldAt, orderFalloffs, smin, type Falloff } from './contour.js'
 import { layoutScene, type Point } from './geometry.js'
 import { breathOf, motionMode, type SceneFrame } from './marks/index.js'

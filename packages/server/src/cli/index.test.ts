@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Collector, CollectorContext, Exec, ObservatoryEvent, PollResult } from '@observatory/core'
+import type { Collector, CollectorContext, Exec, RhizomorphEvent, PollResult } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { sessionDirFor } from '../log/paths.js'
 import { listSessions, readSessionEvents, RESUME_WINDOW_MS } from '../log/session-log.js'
@@ -32,13 +32,13 @@ function fakeExit(): (code: number) => never {
  */
 async function waitForEvent(
   recorder: SessionRecorder,
-  predicate: (event: ObservatoryEvent) => boolean,
+  predicate: (event: RhizomorphEvent) => boolean,
   timeoutMs = 5000,
-): Promise<ObservatoryEvent> {
+): Promise<RhizomorphEvent> {
   const existing = recorder.eventsSoFar().find(predicate)
   if (existing) return existing
 
-  return await new Promise<ObservatoryEvent>((resolve, reject) => {
+  return await new Promise<RhizomorphEvent>((resolve, reject) => {
     const timer = setTimeout(() => {
       unsubscribe()
       reject(new Error('timed out waiting for matching event'))
@@ -115,13 +115,13 @@ function createOffsetCollector(handles: readonly string[]): OffsetCollector {
 }
 
 /** The handles of every `agent.status` event, in order — one per source line consumed. */
-function statusHandles(events: readonly ObservatoryEvent[]): string[] {
+function statusHandles(events: readonly RhizomorphEvent[]): string[] {
   return events
-    .filter((event): event is Extract<ObservatoryEvent, { type: 'agent.status' }> => event.type === 'agent.status')
+    .filter((event): event is Extract<RhizomorphEvent, { type: 'agent.status' }> => event.type === 'agent.status')
     .map((event) => event.payload.handle)
 }
 
-function countOfType(events: readonly ObservatoryEvent[], type: ObservatoryEvent['type']): number {
+function countOfType(events: readonly RhizomorphEvent[], type: RhizomorphEvent['type']): number {
   return events.filter((event) => event.type === type).length
 }
 
@@ -130,7 +130,7 @@ describe('runCli', () => {
   let handle: CliHandle | undefined
 
   beforeEach(async () => {
-    dataRoot = await mkdtemp(path.join(tmpdir(), 'observatory-cli-test-'))
+    dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-cli-test-'))
   })
 
   afterEach(async () => {
@@ -191,8 +191,8 @@ describe('runCli', () => {
   })
 
   it('wires --extra-sessions into the default sessionlog collector, attributed role: conductor', async () => {
-    const claudeProjectsRoot = await mkdtemp(path.join(tmpdir(), 'observatory-claude-projects-'))
-    const extraDir = path.join(tmpdir(), 'observatory-conductor-workdir')
+    const claudeProjectsRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-claude-projects-'))
+    const extraDir = path.join(tmpdir(), 'rhizomorph-conductor-workdir')
     const projectDir = path.join(claudeProjectsRoot, extraDir.replace(/[/_]/g, '-'))
     await mkdir(projectDir, { recursive: true })
 
@@ -258,7 +258,7 @@ describe('runCli', () => {
 /**
  * Since #60 the env block declares the instance it belongs to, read from the
  * server on `--port` — so these boot one on an ephemeral port instead of
- * assuming the default is free (or, worse, borrowing whichever Observatory
+ * assuming the default is free (or, worse, borrowing whichever Rhizomorph
  * happens to be running on this machine). See `telemetry-env.test.ts` for the
  * renderer's own tests.
  */
@@ -267,7 +267,7 @@ describe('runCli env subcommand', () => {
   let server: CliHandle | undefined
 
   beforeEach(async () => {
-    dataRoot = await mkdtemp(path.join(tmpdir(), 'observatory-env-cli-test-'))
+    dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-env-cli-test-'))
   })
 
   afterEach(async () => {
@@ -323,7 +323,7 @@ describe('runCli env subcommand', () => {
     )
   })
 
-  it('prints a clean message + usage to stderr and exits 1 when no Observatory answers on the port', async () => {
+  it('prints a clean message + usage to stderr and exits 1 when no Rhizomorph answers on the port', async () => {
     const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     const exit = fakeExit()
 
@@ -337,7 +337,7 @@ describe('runCli env subcommand', () => {
 
     expect(thrown).toBeInstanceOf(FakeExit)
     expect((thrown as FakeExit).code).toBe(1)
-    expect(output).toContain("cannot read this Observatory's instance id on port 1")
+    expect(output).toContain("cannot read this Rhizomorph's instance id on port 1")
     expect(output).toContain('npm start -- --port 1')
     expect(output).not.toMatch(/^\s*at /m)
   })
@@ -386,7 +386,7 @@ describe('runCli env subcommand', () => {
     writeSpy.mockRestore()
     expect(thrown).toBeInstanceOf(FakeExit)
     expect((thrown as FakeExit).code).toBe(0)
-    expect(log.log).toHaveBeenCalledWith(expect.stringContaining('observatory env <lane>'))
+    expect(log.log).toHaveBeenCalledWith(expect.stringContaining('rhizomorph env <lane>'))
     expect(writeSpy).not.toHaveBeenCalled()
   })
 })
@@ -446,8 +446,8 @@ describe('runCli doctor subcommand', () => {
   it('runs a read-only preflight (no server boot) and exits 0 when healthy', async () => {
     const log = { log: vi.fn(), warn: vi.fn() }
     const exit = fakeExit()
-    const repoPath = await mkdtemp(path.join(tmpdir(), 'observatory-doctor-cli-'))
-    const webDistDir = await mkdtemp(path.join(tmpdir(), 'observatory-doctor-cli-web-'))
+    const repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-cli-'))
+    const webDistDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-cli-web-'))
     await writeFile(path.join(webDistDir, 'index.html'), '<html></html>')
 
     const fakeGitExec: Exec = async (command, cmdArgs) => {
@@ -479,7 +479,7 @@ describe('runCli doctor subcommand', () => {
   it('exits 1 and names the remedy when the target is not a git repository', async () => {
     const log = { log: vi.fn(), warn: vi.fn() }
     const exit = fakeExit()
-    const notGitDir = await mkdtemp(path.join(tmpdir(), 'observatory-doctor-cli-notgit-'))
+    const notGitDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-cli-notgit-'))
 
     const failGitExec: Exec = async (command, cmdArgs) => {
       if (command === 'git' && cmdArgs[0] === 'rev-parse') {
@@ -514,7 +514,7 @@ describe('runCli doctor subcommand', () => {
     writeSpy.mockRestore()
     expect(thrown).toBeInstanceOf(FakeExit)
     expect((thrown as FakeExit).code).toBe(0)
-    expect(log.log).toHaveBeenCalledWith(expect.stringContaining('observatory doctor [path]'))
+    expect(log.log).toHaveBeenCalledWith(expect.stringContaining('rhizomorph doctor [path]'))
     expect(writeSpy).not.toHaveBeenCalled()
   })
 
@@ -538,7 +538,7 @@ describe('runCli doctor subcommand', () => {
 describe('runCli resuming the run', () => {
   /** A fixed boot clock: session ids, event stamps and the resume window all read from it. */
   const BOOT_MS = 1_700_000_000_000
-  const repoPath = path.join(tmpdir(), 'observatory-resume-repo')
+  const repoPath = path.join(tmpdir(), 'rhizomorph-resume-repo')
   let dataRoot: string
   let handle: CliHandle | undefined
 
@@ -556,7 +556,7 @@ describe('runCli resuming the run', () => {
     })
 
   beforeEach(async () => {
-    dataRoot = await mkdtemp(path.join(tmpdir(), 'observatory-resume-test-'))
+    dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-resume-test-'))
   })
 
   afterEach(async () => {
@@ -673,7 +673,7 @@ describe('runCli port in use', () => {
   let dataRoot: string
 
   beforeEach(async () => {
-    dataRoot = await mkdtemp(path.join(tmpdir(), 'observatory-cli-port-test-'))
+    dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-cli-port-test-'))
   })
 
   afterEach(async () => {
@@ -691,7 +691,7 @@ describe('runCli port in use', () => {
 
     const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     const exit = fakeExit()
-    const repoPath = path.join(tmpdir(), 'observatory-port-busy-repo')
+    const repoPath = path.join(tmpdir(), 'rhizomorph-port-busy-repo')
 
     try {
       const thrown = await runCli([repoPath, '--port', String(busyPort)], {

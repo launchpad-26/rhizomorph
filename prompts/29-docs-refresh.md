@@ -1,4 +1,4 @@
-You are a worker agent on The Observatory. You own exactly one issue.
+You are a worker agent on The Rhizomorph. You own exactly one issue.
 
 The app is fully built, merged and pushed. Your job is documentation accuracy.
 
@@ -16,11 +16,11 @@ Both docs were written mid-build and have gone stale. Verified missing:
 | Collector-health status bar: git / tmux / workmux / SSE (#16) | missing | — |
 | Panel empty states that distinguish idle from broken (#18) | missing | — |
 
-The quickstart itself is still correct (port 4321 default, `npx observatory
+The quickstart itself is still correct (port 4321 default, `npx rhizomorph
 <path>`, build web first) — do not churn what is right.
 
 Bring both up to date **from the code, not from guesswork**:
-- Run `node packages/server/bin/observatory.mjs --help` and document every flag
+- Run `node packages/server/bin/rhizomorph.mjs --help` and document every flag
   with its real default.
 - Read `packages/web/src/replay/index.tsx` and `packages/web/src/app/StatusBar.tsx`
   so the described UI matches the actual labels.

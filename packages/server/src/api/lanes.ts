@@ -10,7 +10,7 @@ import type { ServerContext } from '../server/context.js'
  * handle, branch, and fence globs per lane, so "where is this agent" can be
  * derived downstream (recently-touched files vs fence globs) without a new
  * collector. `issue`/`model`/`dispatchedAt` are dispatch metadata the
- * Observatory doesn't require to do off-fence detection.
+ * Rhizomorph doesn't require to do off-fence detection.
  */
 /**
  * Accepts `null` as well as absent and normalises both to `undefined`. A

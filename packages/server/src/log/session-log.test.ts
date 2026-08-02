@@ -1,7 +1,7 @@
 import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createEvent } from '@observatory/core'
+import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   dropTrailingPartialLine,
@@ -22,7 +22,7 @@ describe('SessionLogWriter + readSessionEvents', () => {
   let dir: string
 
   beforeEach(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), 'observatory-log-test-'))
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-log-test-'))
   })
 
   afterEach(async () => {
@@ -85,7 +85,7 @@ describe('dropTrailingPartialLine', () => {
   let dir: string
 
   beforeEach(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), 'observatory-log-test-'))
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-log-test-'))
   })
 
   afterEach(async () => {
@@ -128,7 +128,7 @@ describe('SessionLogWriter resuming an existing file', () => {
   let dir: string
 
   beforeEach(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), 'observatory-log-test-'))
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-log-test-'))
   })
 
   afterEach(async () => {
@@ -165,7 +165,7 @@ describe('findResumableSession', () => {
   let dir: string
 
   beforeEach(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), 'observatory-log-test-'))
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-log-test-'))
   })
 
   afterEach(async () => {
@@ -239,7 +239,7 @@ describe('listSessions', () => {
   let dir: string
 
   beforeEach(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), 'observatory-log-test-'))
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-log-test-'))
   })
 
   afterEach(async () => {

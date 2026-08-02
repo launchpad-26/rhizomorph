@@ -1,4 +1,4 @@
-import type { Author, FileChange, FileStatus } from '@observatory/core'
+import type { Author, FileChange, FileStatus } from '@rhizomorph/core'
 
 /**
  * Pure parser for `git log --raw --numstat -M --pretty=format:<LOG_PRETTY>`.

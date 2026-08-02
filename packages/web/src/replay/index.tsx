@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { initialSessionState, reduceAll, selectSessionSpend } from '@observatory/core'
+import { initialSessionState, reduceAll, selectSessionSpend } from '@rhizomorph/core'
 import { useReplay } from '../app/ModeContext.js'
 import { pickRichestSession } from './api.js'
 import { formatSpend } from './format.js'

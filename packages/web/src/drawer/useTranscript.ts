@@ -167,7 +167,7 @@ export function foldChunk(previous: TranscriptState, body: unknown): TranscriptS
       reason:
         typeof chunk.reason === 'string'
           ? chunk.reason
-          : 'NO TRANSCRIPT — the server gave no reason, which is itself the bug — run: `observatory doctor`',
+          : 'NO TRANSCRIPT — the server gave no reason, which is itself the bug — run: `rhizomorph doctor`',
     }
   }
 
@@ -239,7 +239,7 @@ export function useTranscript(lane: string | null, options: UseTranscriptOptions
       setState((previous) => ({
         ...previous,
         status: 'error',
-        reason: `TRANSCRIPT UNREACHABLE — ${error instanceof Error ? error.message : String(error)} — is the Observatory server still running?`,
+        reason: `TRANSCRIPT UNREACHABLE — ${error instanceof Error ? error.message : String(error)} — is the Rhizomorph server still running?`,
       }))
     }
   }, [lane, fetchImpl])

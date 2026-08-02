@@ -1,4 +1,4 @@
-import { createEvent, reduceAll } from '@observatory/core'
+import { createEvent, reduceAll } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import {
   buildFleet,
@@ -744,7 +744,7 @@ describe('a storm of arrivals', () => {
               sha: `storm-${i}`,
               branch: LANE.healthy,
               message: 'feat: another step',
-              author: { name: 'agent', email: 'agent@observatory' },
+              author: { name: 'agent', email: 'agent@rhizomorph' },
               files: [{ path: 'src/a.ts', status: 'modified', insertions: 2, deletions: 1 }],
             },
             { id: `storm-${i}`, ts: NOW },
@@ -1624,7 +1624,7 @@ describe('the substitution table — meaning as form', () => {
             sha: 'swell-1',
             branch: LANE.healthy,
             message: 'feat: a step',
-            author: { name: 'agent', email: 'agent@observatory' },
+            author: { name: 'agent', email: 'agent@rhizomorph' },
             files: [{ path: 'src/a.ts', status: 'modified', insertions: 2, deletions: 1 }],
           },
           { id: 'swell-1', ts: NOW },
@@ -1796,7 +1796,7 @@ function corpus(): Mark[] {
           sha: 'clone-1',
           branch: LANE.healthy,
           message: 'feat: a step',
-          author: { name: 'agent', email: 'agent@observatory' },
+          author: { name: 'agent', email: 'agent@rhizomorph' },
           files: [{ path: 'src/a.ts', status: 'modified', insertions: 2, deletions: 1 }],
         },
         { id: 'clone-1', ts: NOW },

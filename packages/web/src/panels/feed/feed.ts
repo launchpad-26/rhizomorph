@@ -3,9 +3,9 @@ import {
   selectRecentCommits,
   type AgentStatus,
   type CommitRecord,
-  type ObservatoryEvent,
+  type RhizomorphEvent,
   type SessionState,
-} from '@observatory/core'
+} from '@rhizomorph/core'
 import type { Lane } from '../../fleet/buildFleet.js'
 
 /**
@@ -120,7 +120,7 @@ function resolveLane(
 
 /**
  * Mirrors `app/streamState.ts`'s `isNews` exactly (`ts >= connectedAt -
- * graceMs`), against a plain timestamp rather than an `ObservatoryEvent` — a
+ * graceMs`), against a plain timestamp rather than an `RhizomorphEvent` — a
  * folded `CommitRecord` keeps its first-sighting `landedAt` but not the event
  * object that produced it, so entries built from the fold and entries built
  * from raw events share this one predicate instead of two.
@@ -143,7 +143,7 @@ export interface BuildFeedOptions {
  * filter still fills the panel rather than mostly emptying it.
  */
 export function buildFeedEntries(
-  events: readonly ObservatoryEvent[],
+  events: readonly RhizomorphEvent[],
   session: SessionState,
   laneIndex: LaneIndex,
   options: BuildFeedOptions,

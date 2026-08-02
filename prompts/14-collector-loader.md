@@ -1,4 +1,4 @@
-You are a worker agent building The Observatory. You own exactly one issue.
+You are a worker agent building The Rhizomorph. You own exactly one issue.
 
 FIRST read docs/architecture.md and packages/server/src/server/collector-loader.ts
 (the broken code). The three collectors are already present on your branch.
@@ -12,12 +12,12 @@ The collector loader does not work. Its dynamic import uses a variable path, whi
 Vite/Rollup cannot statically analyse, so every collector fails to load at runtime:
 
 ```
-observatory: failed to load collector "git": Unknown variable dynamic import: ../collectors/git/index.js
+rhizomorph: failed to load collector "git": Unknown variable dynamic import: ../collectors/git/index.js
 ```
 
 Consequence: the server boots, emits `session.started`, then collects nothing — the
 dashboard stays empty forever. Proven by running
-`node packages/server/bin/observatory.mjs` against this repo: only `session.started`
+`node packages/server/bin/rhizomorph.mjs` against this repo: only `session.started`
 appears on `/api/stream`.
 
 Fix: replace the variable dynamic imports with **static imports** of the three
@@ -34,7 +34,7 @@ collector that throws on poll is isolated from the others.
 
 **DoD:** `npm test` and `npm run typecheck` green from the repo root — this is the
 one currently-red test, you are the fix. Then prove it end to end: run
-`node packages/server/bin/observatory.mjs --port 4399` against this repo for ~20s
+`node packages/server/bin/rhizomorph.mjs --port 4399` against this repo for ~20s
 and confirm `/api/stream` carries real `worktree.discovered` / `branch.updated`
 events, not just `session.started`. Paste that evidence in your summary. No NUL
 bytes in source. Do not push or merge.

@@ -12,8 +12,8 @@ describe('GET /api/lanes', () => {
   let sessionDir: string
 
   beforeEach(async () => {
-    repoPath = await mkdtemp(path.join(tmpdir(), 'observatory-lanes-repo-'))
-    sessionDir = await mkdtemp(path.join(tmpdir(), 'observatory-lanes-session-'))
+    repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-lanes-repo-'))
+    sessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-lanes-session-'))
   })
 
   afterEach(async () => {
@@ -193,7 +193,7 @@ describe('readLanesManifest', () => {
   let repoPath: string
 
   beforeEach(async () => {
-    repoPath = await mkdtemp(path.join(tmpdir(), 'observatory-lanes-pure-'))
+    repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-lanes-pure-'))
   })
 
   afterEach(async () => {

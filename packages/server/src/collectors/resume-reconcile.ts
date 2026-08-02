@@ -1,4 +1,4 @@
-import type { Collector, CollectorState } from '@observatory/core'
+import type { Collector, CollectorState } from '@rhizomorph/core'
 import type { DisableableSnapshot, ResilientSnapshot } from './resilience.js'
 
 /**

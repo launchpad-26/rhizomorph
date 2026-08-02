@@ -5,7 +5,7 @@ import {
   type EventEnvelopeInit,
   type EventOf,
   type EventType,
-  type ObservatoryEvent,
+  type RhizomorphEvent,
   type PayloadOf,
 } from './events/index.js'
 
@@ -18,7 +18,7 @@ import {
 /** 2026-07-30T09:00:00Z — the build day, so fixture timestamps read sensibly. */
 export const FIXTURE_START_TS = Date.UTC(2026, 6, 30, 9, 0, 0)
 
-export const FIXTURE_REPO_PATH = '/repo/observatory'
+export const FIXTURE_REPO_PATH = '/repo/rhizomorph'
 
 export interface EventFactoryOptions {
   startTs?: number
@@ -43,7 +43,7 @@ export interface EventFactory {
   /** Reset clock and id counter. */
   reset(): EventFactory
   /** Every event this factory has produced, in order. */
-  all(): ObservatoryEvent[]
+  all(): RhizomorphEvent[]
 
   make<T extends EventType>(type: T, payload: PayloadOf<T>, init?: Init<T>): EventOf<T>
 
@@ -75,7 +75,7 @@ const defaults = {
   'session.started': {
     sessionId: 'session-fixture',
     repoPath: FIXTURE_REPO_PATH,
-    repoName: 'observatory',
+    repoName: 'rhizomorph',
     mainBranch: 'main',
   },
   'collector.error': { collector: 'git', message: 'git worktree list exited 128' },
@@ -151,7 +151,7 @@ const defaults = {
     branch: 'feature',
   },
   'telemetry.refused': {
-    instance: 'other-observatory',
+    instance: 'other-rhizomorph',
     expectedInstance: 'fixture-instance',
     count: 1,
   },
@@ -164,7 +164,7 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
 
   let clock = startTs
   let nextId = createIdFactory(idPrefix)
-  const produced: ObservatoryEvent[] = []
+  const produced: RhizomorphEvent[] = []
 
   const make = <T extends EventType>(type: T, payload: PayloadOf<T>, init: Init<T> = {}) => {
     const ts = init.ts ?? clock
@@ -319,7 +319,7 @@ export const FIXTURE_NOW = FIXTURE_START_TS + 10 * 60_000
  * one pane that went quiet nine minutes ago. Enough for a panel or the scene
  * to look alive before any real data exists.
  */
-export function fixtureSession(): ObservatoryEvent[] {
+export function fixtureSession(): RhizomorphEvent[] {
   const f = createEventFactory({ stepMs: 1000 })
   const minute = 60_000
 
@@ -456,7 +456,7 @@ export function fixtureSession(): ObservatoryEvent[] {
  * - a conductor that outspends any single worker, which is the whole point of
  *   the overhead ratio.
  */
-export function fixtureTelemetrySession(): ObservatoryEvent[] {
+export function fixtureTelemetrySession(): RhizomorphEvent[] {
   const f = createEventFactory({ stepMs: 1000, idPrefix: 'tel' })
   const minute = 60_000
   const otel = { source: 'otel' } as const

@@ -1,17 +1,17 @@
-# PRD 0 — The Observatory
+# PRD 0 — The Rhizomorph
 
 > **Status:** blessed by Lachlan, 2026-07-30, before any code.
 
 ## One-liner
 
-Run `observatory` in any repo hosting a git-worktree agent swarm and get a
+Run `rhizomorph` in any repo hosting a git-worktree agent swarm and get a
 live, replayable dashboard at localhost — who's working, what's landing, and
 what's about to collide.
 
 ## Who it's for
 
 Lachlan and anyone running multi-agent worktree workflows. First real user is
-this build day itself: the Observatory watches its own construction.
+this build day itself: the Rhizomorph watches its own construction.
 
 ## The core promise
 
@@ -51,6 +51,6 @@ plugin, wrapper, or replacement — a sidecar.
 
 ## Definition of demo (end of day)
 
-The Observatory running against this very repo showing the real swarm
+The Rhizomorph running against this very repo showing the real swarm
 building it; the birth replay from the first recorded event; stretch: single
 `npx`-style invocation.

@@ -1,4 +1,4 @@
-You are a worker agent building The Observatory (prd3: the instrument).
+You are a worker agent building The Rhizomorph (prd3: the instrument).
 You own exactly one issue.
 
 FIRST read, in order: docs/prd3.md IN FULL (all rulings, including the
@@ -22,7 +22,7 @@ feed), **burn rate** (out tok/min; $/hr when dollars are authoritative),
 - All formatting through the shared formatter (`lib/format`) — SI
   abbreviations, full precision on hover (ruling 11).
 - **Gap voice** (ruling 12), one terse line each, exactly when true:
-  `NO COST FEED (OTel) — dollars unavailable — run: eval "$(observatory
+  `NO COST FEED (OTel) — dollars unavailable — run: eval "$(rhizomorph
   env <lane>)"` and `CONDUCTOR NOT INSTRUMENTED — overhead ratio
   unknowable`. Never `$0.00` for a missing feed; never an unlabelled
   total (prd2 law).
@@ -54,7 +54,7 @@ discipline. Ice-neon register.
 - Root `npm test` + `npm run typecheck` green.
 
 RULES: stay strictly inside the FENCE (other agents work in parallel);
-import from @observatory/core, never redefine its types; small
+import from @rhizomorph/core, never redefine its types; small
 conventional commits (committing is REQUIRED — review happens from your
 branch); NEVER switch branches, push, merge, or run git in a sibling
 worktree; no NUL bytes; tests must be deterministic (no waitFor racing

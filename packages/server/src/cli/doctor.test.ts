@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Exec, ExecResult } from '@observatory/core'
+import type { Exec, ExecResult } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { renderDoctorReport, runDoctor, type DoctorCheck } from './doctor.js'
 
@@ -43,9 +43,9 @@ describe('runDoctor', () => {
   let claudeProjectsRoot: string
 
   beforeEach(async () => {
-    repoPath = await mkdtemp(path.join(tmpdir(), 'observatory-doctor-repo-'))
-    webDistDir = await mkdtemp(path.join(tmpdir(), 'observatory-doctor-web-'))
-    claudeProjectsRoot = await mkdtemp(path.join(tmpdir(), 'observatory-doctor-claude-'))
+    repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-repo-'))
+    webDistDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-web-'))
+    claudeProjectsRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-claude-'))
     await writeFile(path.join(webDistDir, 'index.html'), '<html></html>')
   })
 
@@ -162,7 +162,7 @@ describe('runDoctor', () => {
   })
 
   it('fails when the web build is missing, naming the build command', async () => {
-    const emptyDistDir = await mkdtemp(path.join(tmpdir(), 'observatory-doctor-empty-dist-'))
+    const emptyDistDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-empty-dist-'))
     try {
       const report = await runDoctor({
         path: repoPath,

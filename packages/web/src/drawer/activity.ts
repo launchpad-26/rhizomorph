@@ -1,4 +1,4 @@
-import type { AgentThread, ObservatoryEvent } from '@observatory/core'
+import type { AgentThread, RhizomorphEvent } from '@rhizomorph/core'
 import type { Lane } from '../fleet/index.js'
 
 /**
@@ -77,11 +77,11 @@ function laneNames(lane: ActivityLane): Set<string> {
   return names
 }
 
-function payloadOf(event: ObservatoryEvent): Record<string, unknown> {
+function payloadOf(event: RhizomorphEvent): Record<string, unknown> {
   return event.payload as Record<string, unknown>
 }
 
-function matchesLane(event: ObservatoryEvent, names: Set<string>, worktreePath: string | null): boolean {
+function matchesLane(event: RhizomorphEvent, names: Set<string>, worktreePath: string | null): boolean {
   const payload = payloadOf(event)
   for (const key of ['lane', 'branch'] as const) {
     const value = payload[key]
@@ -135,7 +135,7 @@ export interface FoldActivityOptions {
  * derivation of the lane's *state*.
  */
 export function foldActivity(
-  events: readonly ObservatoryEvent[],
+  events: readonly RhizomorphEvent[],
   lane: ActivityLane,
   options: FoldActivityOptions = {},
 ): ActivityEntry[] {

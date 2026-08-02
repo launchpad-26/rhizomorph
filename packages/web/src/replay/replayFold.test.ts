@@ -1,4 +1,4 @@
-import { fixtureSession, initialSessionState, reduce, reduceAll } from '@observatory/core'
+import { fixtureSession, initialSessionState, reduce, reduceAll } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { foldUpTo, timeRangeOf } from './replayFold.js'
 

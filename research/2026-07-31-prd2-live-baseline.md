@@ -1,4 +1,4 @@
-# prd2 live baseline — the Observatory watching its own fleet, before A/B/C
+# prd2 live baseline — the Rhizomorph watching its own fleet, before A/B/C
 
 > Recorded 2026-07-31 ~12:45 NZST. Server restarted on main `1ecdb44` (post
 > wave-D landings #51–#53) as

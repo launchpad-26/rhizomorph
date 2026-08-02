@@ -1,4 +1,4 @@
-# Observatory prd7 — organic form for the mycelium canvas
+# Rhizomorph prd7 — organic form for the mycelium canvas
 
 **Date:** 2026-08-02 · **For:** groom prd7 rendering rulings · **Method:** WebSearch/WebFetch,
 primary sources preferred. Claims graded `[Verified]` (primary source fetched, URL cited),

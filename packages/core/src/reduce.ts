@@ -1,6 +1,6 @@
 import type {
   EventOf,
-  ObservatoryEvent,
+  RhizomorphEvent,
 } from './events/index.js'
 import { totalTokens } from './events/index.js'
 import type {
@@ -28,19 +28,19 @@ import { MAX_ERRORS, basename, initialSessionState } from './state.js'
  * The same function folds the live SSE stream and a replayed history slice —
  * that identity is the whole reason replay is free.
  */
-export function reduce(state: SessionState, event: ObservatoryEvent): SessionState {
+export function reduce(state: SessionState, event: RhizomorphEvent): SessionState {
   return applyEvent(withEnvelope(state, event), event)
 }
 
 /** Fold a whole log. Handy for replay slices and for tests. */
 export function reduceAll(
-  events: readonly ObservatoryEvent[],
+  events: readonly RhizomorphEvent[],
   state: SessionState = initialSessionState(),
 ): SessionState {
   return events.reduce(reduce, state)
 }
 
-function withEnvelope(state: SessionState, event: ObservatoryEvent): SessionState {
+function withEnvelope(state: SessionState, event: RhizomorphEvent): SessionState {
   return {
     ...state,
     eventCount: state.eventCount + 1,
@@ -49,7 +49,7 @@ function withEnvelope(state: SessionState, event: ObservatoryEvent): SessionStat
   }
 }
 
-function applyEvent(state: SessionState, event: ObservatoryEvent): SessionState {
+function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
   switch (event.type) {
     case 'session.started':
       return sessionStarted(state, event)
@@ -622,7 +622,7 @@ interface TelemetryAttribution {
  */
 function withTelemetry(
   state: SessionState,
-  event: ObservatoryEvent,
+  event: RhizomorphEvent,
   attribution: TelemetryAttribution,
   append: (telemetry: TelemetryState) => TelemetryState,
 ): SessionState {

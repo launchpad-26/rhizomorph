@@ -15,7 +15,7 @@ import {
   type LaneSpend,
   type SessionState,
   type TokenTotals,
-} from '@observatory/core'
+} from '@rhizomorph/core'
 import { findTrespasses, type LaneManifest, type Trespass } from './fences.js'
 
 /**
@@ -26,7 +26,7 @@ import { findTrespasses, type LaneManifest, type Trespass } from './fences.js'
  * that each re-derive "how many lanes are working" will eventually disagree by
  * one, in public, on the one screen whose job is to be trusted at a glance.
  *
- * Everything below is derived by `@observatory/core`'s selectors over the same
+ * Everything below is derived by `@rhizomorph/core`'s selectors over the same
  * `SessionState` every other consumer folds. Nothing is summed locally that a
  * selector already sums, no new event type is invented, and nothing the log did
  * not say is guessed:
@@ -973,7 +973,7 @@ function buildGaps(
       'no-cost-feed',
       'NO COST FEED (OTel)',
       'dollars unavailable',
-      'eval "$(observatory env <lane>)"',
+      'eval "$(rhizomorph env <lane>)"',
     )
   }
 
@@ -1002,7 +1002,7 @@ function buildGaps(
       'unattributed-spend',
       `UNATTRIBUTED SPEND (${unattributed.length} lane${unattributed.length === 1 ? '' : 's'})`,
       'burn has no declared owner',
-      'eval "$(observatory env <lane> --role worker)"',
+      'eval "$(rhizomorph env <lane> --role worker)"',
     )
   }
 
@@ -1011,7 +1011,7 @@ function buildGaps(
       'conductor-not-instrumented',
       'CONDUCTOR NOT INSTRUMENTED',
       'orchestration overhead unknowable',
-      'observatory --extra-sessions <dir>:conductor',
+      'rhizomorph --extra-sessions <dir>:conductor',
     )
   }
 
@@ -1021,7 +1021,7 @@ function buildGaps(
       `collector-disabled:${collector.name}`,
       `${collector.name.toUpperCase()} COLLECTOR DISABLED`,
       collector.disabledReason ?? 'source unavailable',
-      'observatory doctor',
+      'rhizomorph doctor',
     )
   }
 

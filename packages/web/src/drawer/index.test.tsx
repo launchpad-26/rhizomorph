@@ -3,8 +3,8 @@ import {
   createEventFactory,
   initialSessionState,
   reduce,
-  type ObservatoryEvent,
-} from '@observatory/core'
+  type RhizomorphEvent,
+} from '@rhizomorph/core'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { StreamProvider } from '../app/StreamContext.js'
 import { FleetProvider } from '../fleet/FleetContext.js'
@@ -56,15 +56,15 @@ class ScriptedEventSource implements EventSourceLike {
 }
 
 /** One lane's whole life, close enough to `NOW` that it reads as working. */
-function laneHistory(): ObservatoryEvent[] {
+function laneHistory(): RhizomorphEvent[] {
   const f = createEventFactory({ startTs: NOW - 40_000, stepMs: 2_000 })
   return [
-    f.sessionStarted({ repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' }),
+    f.sessionStarted({ repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' }),
     f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-main', isMain: true }),
     f.worktreeDiscovered({ path: WORKTREE, branch: LANE, head: 'sha-84', isMain: false }),
     f.paneDiscovered({
       paneId: '%7',
-      sessionName: 'observatory',
+      sessionName: 'rhizomorph',
       windowName: LANE,
       windowIndex: 3,
       currentPath: WORKTREE,
@@ -105,12 +105,12 @@ const noTranscript: FetchLike = async () => ({
   json: async () => ({
     available: false,
     lane: LANE,
-    reason: 'NO SESSION LOG for this fixture — no session log was written for it — run: `observatory doctor`',
+    reason: 'NO SESSION LOG for this fixture — no session log was written for it — run: `rhizomorph doctor`',
   }),
 })
 
 interface HarnessOptions {
-  events?: ObservatoryEvent[]
+  events?: RhizomorphEvent[]
   selected?: string | null
   fetchTranscript?: FetchLike
   onCopy?: (text: string) => Promise<void>
@@ -386,16 +386,16 @@ describe('LaneDrawer — MAIN, the conductor', () => {
   const LANDED = '/repo-wt/103-landed'
 
   /** A session with a conductor in it, a lane, a landing and a commit home. */
-  function mainHistory(): ObservatoryEvent[] {
+  function mainHistory(): RhizomorphEvent[] {
     const f = createEventFactory({ startTs: NOW - 60_000, stepMs: 1_000 })
     return [
-      f.sessionStarted({ repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' }),
+      f.sessionStarted({ repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' }),
       f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-main', isMain: true }),
       f.worktreeDiscovered({ path: WORKTREE, branch: LANE, head: 'sha-84', isMain: false }),
       f.worktreeDiscovered({ path: LANDED, branch: '103-landed', head: 'sha-103', isMain: false }),
       f.paneDiscovered({
         paneId: '%1',
-        sessionName: 'observatory',
+        sessionName: 'rhizomorph',
         windowName: 'conductor',
         windowIndex: 0,
         currentPath: CONDUCTOR_DIR,
@@ -530,7 +530,7 @@ describe('LaneDrawer — MAIN, the conductor', () => {
     const gap =
       "CONDUCTOR NOT INSTRUMENTED — nothing in this session's event log was recorded against " +
       'role: conductor, so the orchestrator has no session for this drawer to read — ' +
-      'run: `observatory --extra-sessions <dir>:conductor`'
+      'run: `rhizomorph --extra-sessions <dir>:conductor`'
     const uninstrumented: FetchLike = async () => ({
       ok: false,
       json: async () => ({ available: false, lane: 'main', reason: gap }),
@@ -554,9 +554,9 @@ describe('LaneDrawer — MAIN, the conductor', () => {
     fireEvent.click(screen.getByTestId('attach-copy'))
 
     expect(screen.getByTestId('attach-command').textContent).toBe(
-      'tmux attach -t observatory \\; select-window -t 0',
+      'tmux attach -t rhizomorph \\; select-window -t 0',
     )
-    expect(copied).toEqual(['tmux attach -t observatory \\; select-window -t 0'])
+    expect(copied).toEqual(['tmux attach -t rhizomorph \\; select-window -t 0'])
   })
 
   it('offers no command at all, with the reason, when no pane is on record', async () => {
@@ -593,14 +593,14 @@ describe('LaneDrawer — ATTACH (it copies, it never executes)', () => {
     await renderDrawer({ onCopy: async (text) => void copied.push(text) })
 
     expect(screen.getByTestId('attach-command').textContent).toBe(
-      'tmux attach -t observatory \\; select-window -t 3',
+      'tmux attach -t rhizomorph \\; select-window -t 3',
     )
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('attach-copy'))
     })
 
-    expect(copied).toEqual(['tmux attach -t observatory \\; select-window -t 3'])
+    expect(copied).toEqual(['tmux attach -t rhizomorph \\; select-window -t 3'])
     expect(screen.getByTestId('drawer-attach').textContent).toContain('copied to clipboard')
   })
 

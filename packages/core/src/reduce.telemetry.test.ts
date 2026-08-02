@@ -43,7 +43,7 @@ describe('reduce — llm.usage', () => {
       requestId: 'req_1',
       durationMs: 8_400,
       sessionId: 'sess-a',
-      worktreePath: '/repo/observatory-wt/feature',
+      worktreePath: '/repo/rhizomorph-wt/feature',
       branch: 'feature',
       thread: null,
     })

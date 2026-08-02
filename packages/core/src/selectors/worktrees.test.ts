@@ -3,7 +3,7 @@ import { createEventFactory, fixtureSession } from '../fixtures.js'
 import { reduceAll } from '../reduce.js'
 import { selectWorktree, selectWorktreeIndex, selectWorktreeViews } from './worktrees.js'
 
-const REPO = '/repo/observatory'
+const REPO = '/repo/rhizomorph'
 const wt = (name: string) => `${REPO}-wt/${name}`
 
 let f = createEventFactory()
@@ -65,7 +65,7 @@ describe('selectWorktreeViews', () => {
       f.worktreeDiscovered({ path: wt('alpha'), branch: 'alpha', isMain: false }, { ts: 20 }),
       f.worktreeDiscovered({ path: REPO, branch: 'main', isMain: true }, { ts: 30 }),
     ])
-    expect(selectWorktreeViews(state).map((v) => v.name)).toEqual(['observatory', 'alpha', 'zeta'])
+    expect(selectWorktreeViews(state).map((v) => v.name)).toEqual(['rhizomorph', 'alpha', 'zeta'])
   })
 
   it('counts only open panes as activity', () => {
@@ -112,7 +112,7 @@ describe('selectWorktreeViews', () => {
   it('reads the fixture swarm the way a panel would', () => {
     const state = reduceAll(fixtureSession())
     const views = selectWorktreeViews(state)
-    expect(views.map((v) => v.name)).toEqual(['observatory', '2-core', '3-git', '7-web'])
+    expect(views.map((v) => v.name)).toEqual(['rhizomorph', '2-core', '3-git', '7-web'])
 
     const core = views.find((v) => v.name === '2-core')
     expect(core).toMatchObject({ aheadOfMain: 2, dirtyCount: 0, branch: '2-core' })

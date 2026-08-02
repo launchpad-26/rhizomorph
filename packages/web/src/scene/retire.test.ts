@@ -1,4 +1,4 @@
-import { createEvent, createIdFactory, type ObservatoryEvent } from '@observatory/core'
+import { createEvent, createIdFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import type { Fleet, Lane } from '../fleet/index.js'
 import { STRUCTURAL } from './motion.js'
@@ -49,7 +49,7 @@ const INDEX: LaneIndex = {
   mainWorktree: '/repo',
 }
 
-function declared(handle: string, status: 'working' | 'waiting' | 'done'): ObservatoryEvent {
+function declared(handle: string, status: 'working' | 'waiting' | 'done'): RhizomorphEvent {
   return createEvent(
     'agent.status',
     { handle, status, branch: handle, worktreePath: `/repo__worktrees/${handle}` },
@@ -57,7 +57,7 @@ function declared(handle: string, status: 'working' | 'waiting' | 'done'): Obser
   )
 }
 
-function removed(path: string): ObservatoryEvent {
+function removed(path: string): RhizomorphEvent {
   return createEvent('worktree.removed', { path }, { id: nextId(), ts: NOW })
 }
 

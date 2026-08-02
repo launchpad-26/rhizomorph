@@ -1,4 +1,4 @@
-import { createEvent, createIdFactory, type ObservatoryEvent } from '@observatory/core'
+import { createEvent, createIdFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { SETTLE_MS } from './geometry.js'
 import type { LaneIndex } from './resolve.js'
@@ -27,7 +27,7 @@ const INDEX: LaneIndex = {
   mainWorktree: '/repo',
 }
 
-function discovered(path: string, branch: string | null, isMain = false): ObservatoryEvent {
+function discovered(path: string, branch: string | null, isMain = false): RhizomorphEvent {
   return createEvent(
     'worktree.discovered',
     { path, branch, head: 'sha-000', isMain },

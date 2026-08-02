@@ -1,4 +1,4 @@
-import { createEvent, createIdFactory, type ObservatoryEvent } from '@observatory/core'
+import { createEvent, createIdFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { fixtureHistory, fleet20Spec, pathologySpec } from '../fleet/fixtures.js'
@@ -42,7 +42,7 @@ function replaySessionEvents() {
   return [
     createEvent(
       'session.started',
-      { sessionId: 's1', repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' },
+      { sessionId: 's1', repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' },
       { id: nextId(), ts: 1000 },
     ),
     createEvent(
@@ -171,7 +171,7 @@ describe('StreamContext driven by mode', () => {
 describe('news vs history', () => {
   const connectedAt = Date.UTC(2026, 6, 31, 12, 0, 0)
 
-  function commit(sha: string, ts: number): ObservatoryEvent {
+  function commit(sha: string, ts: number): RhizomorphEvent {
     return createEvent(
       'commit.landed',
       {

@@ -5,7 +5,7 @@ symptom it was filed against is still on screen.
 
 Reproduction, just now, on `main` with #110 landed:
 
-1. `observatory doctor` → `[ok] tmux found on PATH`; the collector's own
+1. `rhizomorph doctor` → `[ok] tmux found on PATH`; the collector's own
    command runs clean (`tmux list-panes -a -F …` → exit 0).
 2. Server killed by port listener and restarted fresh — it logs
    `resuming session 1785544862176 (21908 events recorded)`.

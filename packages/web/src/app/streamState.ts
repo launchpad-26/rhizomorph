@@ -1,9 +1,9 @@
 import {
   initialSessionState,
   reduce,
-  type ObservatoryEvent,
+  type RhizomorphEvent,
   type SessionState,
-} from '@observatory/core'
+} from '@rhizomorph/core'
 
 /**
  * The shell's fold. One event log in, one `SessionState` out, through core's
@@ -37,13 +37,13 @@ const MAX_NEWS = 256
 
 export interface StreamState {
   /** The raw log in arrival order — what replay and the older panels read. */
-  events: ObservatoryEvent[]
+  events: RhizomorphEvent[]
   /** The fold, kept incrementally so nothing re-reduces the log per render. */
   session: SessionState
   /** When this connection opened: the news/history boundary. */
   connectedAt: number
   /** Most recent news events, oldest first, capped — the scene's flare queue. */
-  news: ObservatoryEvent[]
+  news: RhizomorphEvent[]
   /** How many news events have arrived in total. Cheap change detection. */
   newsCount: number
 }
@@ -52,7 +52,7 @@ export interface StreamState {
  * Whether an event is *news*. Stateless on purpose, so any consumer can ask
  * about any event without the fold having had to remember it.
  */
-export function isNews(state: Pick<StreamState, 'connectedAt'>, event: ObservatoryEvent): boolean {
+export function isNews(state: Pick<StreamState, 'connectedAt'>, event: RhizomorphEvent): boolean {
   return event.ts >= state.connectedAt - NEWS_GRACE_MS
 }
 
@@ -60,7 +60,7 @@ export function initialStreamState(connectedAt: number): StreamState {
   return { events: [], session: initialSessionState(), connectedAt, news: [], newsCount: 0 }
 }
 
-export function foldStreamEvent(state: StreamState, event: ObservatoryEvent): StreamState {
+export function foldStreamEvent(state: StreamState, event: RhizomorphEvent): StreamState {
   const news = isNews(state, event)
   return {
     events: [...state.events, event],
@@ -78,7 +78,7 @@ export function foldStreamEvent(state: StreamState, event: ObservatoryEvent): St
  */
 export function foldStreamEvents(
   state: StreamState,
-  events: readonly ObservatoryEvent[],
+  events: readonly RhizomorphEvent[],
 ): StreamState {
   if (events.length === 0) return state
 

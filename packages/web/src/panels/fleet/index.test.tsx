@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { createEventFactory, initialSessionState, reduce } from '@observatory/core'
+import { createEventFactory, initialSessionState, reduce } from '@rhizomorph/core'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { StreamProvider } from '../../app/StreamContext.js'
 import type { CopyText } from '../../drawer/AttachButton.js'
@@ -229,10 +229,10 @@ describe('FleetTable — selection wiring', () => {
 describe('FleetTable — gap-honest cells (law 12)', () => {
   async function renderGapScenario() {
     const fx = createEventFactory({ startTs: NOW - 5 * 60_000 })
-    const laneWorktreePath = '/repo/observatory__worktrees/42-gap-lane'
+    const laneWorktreePath = '/repo/rhizomorph__worktrees/42-gap-lane'
 
-    fx.sessionStarted({ repoPath: '/repo/observatory', repoName: 'observatory', mainBranch: 'main' })
-    fx.worktreeDiscovered({ path: '/repo/observatory', branch: 'main', isMain: true })
+    fx.sessionStarted({ repoPath: '/repo/rhizomorph', repoName: 'rhizomorph', mainBranch: 'main' })
+    fx.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true })
     fx.worktreeDiscovered({ path: laneWorktreePath, branch: '42-gap-lane', isMain: false })
     // A declared subagent thread and a thread the source never named — the
     // honest reading is `sub` beside `unk`, never a guess at the second one.
@@ -306,10 +306,10 @@ describe('FleetTable — parked lanes (prd4 ruling 5)', () => {
 
   async function renderParkedScenario() {
     const fx = createEventFactory({ startTs: NOW - 5 * 60_000 })
-    const laneWorktreePath = `/repo/observatory__worktrees/${PARKED_LANE}`
+    const laneWorktreePath = `/repo/rhizomorph__worktrees/${PARKED_LANE}`
 
-    fx.sessionStarted({ repoPath: '/repo/observatory', repoName: 'observatory', mainBranch: 'main' })
-    fx.worktreeDiscovered({ path: '/repo/observatory', branch: 'main', isMain: true })
+    fx.sessionStarted({ repoPath: '/repo/rhizomorph', repoName: 'rhizomorph', mainBranch: 'main' })
+    fx.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true })
     fx.worktreeDiscovered({ path: laneWorktreePath, branch: PARKED_LANE, isMain: false })
     fx.llmUsage({
       lane: PARKED_LANE,
@@ -390,12 +390,12 @@ describe('FleetTable — parked lanes (prd4 ruling 5)', () => {
 
 describe('FleetTable — prd5 ruling 1+6: single-key verbs (k9s idiom)', () => {
   const LANE_ID = '60-verbs-lane'
-  const VERBS_WORKTREE = `/repo/observatory__worktrees/${LANE_ID}`
+  const VERBS_WORKTREE = `/repo/rhizomorph__worktrees/${LANE_ID}`
 
   async function renderVerbsScenario(onCopy?: CopyText) {
     const fx = createEventFactory({ startTs: NOW - 5 * 60_000 })
-    fx.sessionStarted({ repoPath: '/repo/observatory', repoName: 'observatory', mainBranch: 'main' })
-    fx.worktreeDiscovered({ path: '/repo/observatory', branch: 'main', isMain: true })
+    fx.sessionStarted({ repoPath: '/repo/rhizomorph', repoName: 'rhizomorph', mainBranch: 'main' })
+    fx.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true })
     fx.worktreeDiscovered({ path: VERBS_WORKTREE, branch: LANE_ID, isMain: false })
     fx.llmUsage({
       lane: LANE_ID,

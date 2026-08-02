@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactElement, type ReactNode } from 'react'
-import type { AgentStatus } from '@observatory/core'
+import type { AgentStatus } from '@rhizomorph/core'
 import { useStream } from '../../app/StreamContext.js'
 import { NEWS_GRACE_MS } from '../../app/streamState.js'
 import { useFleet, useSelection } from '../../fleet/index.js'

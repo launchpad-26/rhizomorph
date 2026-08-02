@@ -1,4 +1,4 @@
-import { createEventFactory } from '@observatory/core'
+import { createEventFactory } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { attachPlan, findTmuxIdentity, shellQuote, workmuxHandle, type AttachLane } from './attach.js'
 
@@ -14,7 +14,7 @@ const LANE: AttachLane = {
 
 describe('shellQuote', () => {
   it('leaves an ordinary name bare, so the operator can read the command', () => {
-    expect(shellQuote('observatory')).toBe('observatory')
+    expect(shellQuote('rhizomorph')).toBe('rhizomorph')
     expect(shellQuote('84-chat-drawer')).toBe('84-chat-drawer')
     expect(shellQuote('3')).toBe('3')
   })
@@ -36,7 +36,7 @@ describe('findTmuxIdentity', () => {
     const events = [
       f.paneDiscovered({
         paneId: '%7',
-        sessionName: 'observatory',
+        sessionName: 'rhizomorph',
         windowName: '84-chat-drawer',
         windowIndex: 3,
         currentPath: WORKTREE,
@@ -44,7 +44,7 @@ describe('findTmuxIdentity', () => {
       }),
     ]
 
-    expect(findTmuxIdentity(events, LANE)).toEqual({ sessionName: 'observatory', window: '3', paneId: '%7' })
+    expect(findTmuxIdentity(events, LANE)).toEqual({ sessionName: 'rhizomorph', window: '3', paneId: '%7' })
   })
 
   it('falls back to the window name when no index was reported', () => {
@@ -52,7 +52,7 @@ describe('findTmuxIdentity', () => {
     const events = [
       f.paneDiscovered({
         paneId: '%7',
-        sessionName: 'observatory',
+        sessionName: 'rhizomorph',
         windowName: '84-chat-drawer',
         currentPath: WORKTREE,
         worktreePath: WORKTREE,
@@ -67,7 +67,7 @@ describe('findTmuxIdentity', () => {
     const events = [
       f.paneDiscovered({
         paneId: '%9',
-        sessionName: 'observatory',
+        sessionName: 'rhizomorph',
         windowName: '84-chat-drawer',
         currentPath: '/somewhere/else',
         worktreePath: null,
@@ -90,7 +90,7 @@ describe('findTmuxIdentity', () => {
   it('will not hand over a pane that has since closed', () => {
     const f = createEventFactory({ startTs: 1_000, stepMs: 1_000 })
     const events = [
-      f.paneDiscovered({ paneId: '%1', sessionName: 'observatory', windowName: 'w', windowIndex: 1, currentPath: WORKTREE, worktreePath: WORKTREE }),
+      f.paneDiscovered({ paneId: '%1', sessionName: 'rhizomorph', windowName: 'w', windowIndex: 1, currentPath: WORKTREE, worktreePath: WORKTREE }),
       f.paneClosed({ paneId: '%1' }),
     ]
 
@@ -118,7 +118,7 @@ describe('findTmuxIdentity', () => {
     const events = [
       f.paneDiscovered({
         paneId: '%1',
-        sessionName: 'observatory',
+        sessionName: 'rhizomorph',
         windowName: '77-attention-strip',
         windowIndex: 1,
         currentPath: '/repo-wt/77-attention-strip',
@@ -136,7 +136,7 @@ describe('attachPlan', () => {
     const events = [
       f.paneDiscovered({
         paneId: '%7',
-        sessionName: 'observatory',
+        sessionName: 'rhizomorph',
         windowName: '84-chat-drawer',
         windowIndex: 3,
         currentPath: WORKTREE,
@@ -147,7 +147,7 @@ describe('attachPlan', () => {
     const plan = attachPlan(events, LANE)
 
     expect(plan.kind).toBe('tmux')
-    expect(plan.command).toBe('tmux attach -t observatory \\; select-window -t 3')
+    expect(plan.command).toBe('tmux attach -t rhizomorph \\; select-window -t 3')
   })
 
   it('quotes a session name that would otherwise break the pasted command', () => {
@@ -187,7 +187,7 @@ describe('attachPlan', () => {
     const events = [
       f.paneDiscovered({
         paneId: '%7',
-        sessionName: 'observatory',
+        sessionName: 'rhizomorph',
         windowName: '84-chat-drawer',
         windowIndex: 3,
         currentPath: WORKTREE,
@@ -203,7 +203,7 @@ describe('attachPlan', () => {
     const events = [
       f.paneDiscovered({
         paneId: '%7',
-        sessionName: 'observatory',
+        sessionName: 'rhizomorph',
         windowName: '84-chat-drawer',
         windowIndex: 3,
         currentPath: WORKTREE,

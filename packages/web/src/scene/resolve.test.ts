@@ -1,4 +1,4 @@
-import { createEvent, createIdFactory, reduceAll } from '@observatory/core'
+import { createEvent, createIdFactory, reduceAll } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { buildFleet, fixtureHistory, manifestFor, pathologySpec } from '../fleet/index.js'
 import { laneIndex, resolveLane } from './resolve.js'
@@ -51,7 +51,7 @@ describe('resolving an event to a thread', () => {
   it('falls back to the worktree path, then to the telemetry handle', () => {
     const byPath = usage({
       lane: 'nonsense',
-      worktreePath: '/repo/observatory__worktrees/47-format-module',
+      worktreePath: '/repo/rhizomorph__worktrees/47-format-module',
     })
     expect(resolveLane(index, byPath)).toBe('47-format-module')
     expect(resolveLane(index, usage({ lane: '48-doctor-report' }))).toBe('48-doctor-report')
@@ -66,7 +66,7 @@ describe('resolving an event to a thread', () => {
         sha: 'sha-main-999',
         branch: 'main',
         message: 'chore: land',
-        author: { name: 'conductor', email: 'conductor@observatory' },
+        author: { name: 'conductor', email: 'conductor@rhizomorph' },
         files: [{ path: 'docs/roadmap.md', status: 'modified', insertions: 1, deletions: 0 }],
       },
       { id: nextId(), ts: NOW },

@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { AnyCollector, Exec } from '@observatory/core'
-import { createEvent, createIdFactory } from '@observatory/core'
+import type { AnyCollector, Exec } from '@rhizomorph/core'
+import { createEvent, createIdFactory } from '@rhizomorph/core'
 import type { FastifyInstance } from 'fastify'
 import { createSessionlogCollector } from '../collectors/sessionlog/index.js'
 import { defaultDataRoot, sessionDirFor, sessionFileName, snapshotDirFor } from '../log/paths.js'
@@ -27,7 +27,7 @@ import { fetchInstanceId, renderTelemetryEnv } from './telemetry-env.js'
 export interface RunCliOptions {
   /** Injectable clock, so tests get deterministic session ids and ticks. */
   now?: () => number
-  /** Overrides `~/.local/share/observatory` — tests point this at a temp dir. */
+  /** Overrides `~/.local/share/rhizomorph` — tests point this at a temp dir. */
   dataRoot?: string
   /** Overrides the web dist dir this server would otherwise serve statically. */
   webDistDir?: string
@@ -164,7 +164,7 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
     exit(1)
   }
   pollLoop.start()
-  log.log(`observatory running at ${url}`)
+  log.log(`rhizomorph running at ${url}`)
 
   const stop = async () => {
     await pollLoop.stop()
@@ -180,7 +180,7 @@ function defaultWebDistDir(): string {
 }
 
 /**
- * `observatory doctor [path]` — a standalone, read-only subcommand, no
+ * `rhizomorph doctor [path]` — a standalone, read-only subcommand, no
  * server boot. Same clean-usage-error contract as the main command: a bad
  * argv prints to stderr and exits 1, `--help` prints to stdout and exits 0.
  * The report's own exit code (0 or 1) is what actually terminates the
@@ -219,10 +219,10 @@ async function runDoctorCommand(
 }
 
 /**
- * `observatory env <lane>` — a standalone subcommand, no server boot of its
+ * `rhizomorph env <lane>` — a standalone subcommand, no server boot of its
  * own, but it does read the instance id off the server on `--port` (#60: the
  * block must declare which run this telemetry belongs to, and only the running
- * Observatory knows). Same clean-usage-error contract as the main command: a
+ * Rhizomorph knows). Same clean-usage-error contract as the main command: a
  * bad argv — or an unreachable server — prints to stderr and exits 1, `--help`
  * prints to stdout and exits 0, no stack trace either way (#30/#32
  * conventions). `exit` always terminates in real usage; the `Promise<never>`

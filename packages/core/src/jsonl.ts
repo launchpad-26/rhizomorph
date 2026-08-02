@@ -1,4 +1,4 @@
-import { type ObservatoryEvent, parseEvent } from './events/index.js'
+import { type RhizomorphEvent, parseEvent } from './events/index.js'
 
 /**
  * The session log is JSONL: one event per line, appended forever, read back
@@ -19,15 +19,15 @@ export interface JsonlError {
   lineNumber: number | null
 }
 
-export type JsonlResult = { ok: true; event: ObservatoryEvent } | JsonlError
+export type JsonlResult = { ok: true; event: RhizomorphEvent } | JsonlError
 
 /** One event → one line, with no trailing newline. */
-export function eventToLine(event: ObservatoryEvent): string {
+export function eventToLine(event: RhizomorphEvent): string {
   return JSON.stringify(event)
 }
 
 /** Many events → a JSONL document, newline-terminated so appends line up. */
-export function eventsToJsonl(events: readonly ObservatoryEvent[]): string {
+export function eventsToJsonl(events: readonly RhizomorphEvent[]): string {
   if (events.length === 0) return ''
   return `${events.map(eventToLine).join('\n')}\n`
 }
@@ -59,7 +59,7 @@ export function lineToEvent(line: string, lineNumber: number | null = null): Jso
 }
 
 export interface JsonlDocument {
-  events: ObservatoryEvent[]
+  events: RhizomorphEvent[]
   /** Anything unreadable, with its line number — surfaced, never silent. */
   errors: JsonlError[]
 }
@@ -69,7 +69,7 @@ export interface JsonlDocument {
  * newline is the normal shape of an appended file, not a fault.
  */
 export function parseJsonl(text: string): JsonlDocument {
-  const events: ObservatoryEvent[] = []
+  const events: RhizomorphEvent[] = []
   const errors: JsonlError[] = []
 
   const lines = text.split('\n')

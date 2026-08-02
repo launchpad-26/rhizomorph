@@ -1,5 +1,5 @@
-import { createEvent, createIdFactory } from '@observatory/core'
-import type { CollectorContext, Exec } from '@observatory/core'
+import { createEvent, createIdFactory } from '@rhizomorph/core'
+import type { CollectorContext, Exec } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { gitCollector } from './git-collector.js'
 import { LOG_PRETTY } from './parse-log.js'

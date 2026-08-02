@@ -1,4 +1,4 @@
-import type { TokenTotals } from '@observatory/core'
+import type { TokenTotals } from '@rhizomorph/core'
 import type { Burn } from '../../fleet/index.js'
 import { formatTokenBreakdown, formatTokens, formatUsd, formatUsdPerHour } from '../../lib/format.js'
 
@@ -14,7 +14,7 @@ import { formatTokenBreakdown, formatTokens, formatUsd, formatUsdPerHour } from 
  * that a click selects the thing you paste and not the apology in front of it.
  * A caveat an operator has to re-type by hand is a caveat that gets ignored.
  */
-export const COST_FEED_COMMAND = 'eval "$(observatory env <lane>)"'
+export const COST_FEED_COMMAND = 'eval "$(rhizomorph env <lane>)"'
 export const NO_COST_FEED_LEAD = 'NO COST FEED (OTel) — dollars unavailable — run: '
 export const NO_COST_FEED_GAP = `${NO_COST_FEED_LEAD}${COST_FEED_COMMAND}`
 export const CONDUCTOR_NOT_INSTRUMENTED_GAP = 'CONDUCTOR NOT INSTRUMENTED — overhead ratio unknowable'

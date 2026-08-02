@@ -1,16 +1,16 @@
-# Observatory prd5 — implementation vehicles that WORK
+# Rhizomorph prd5 — implementation vehicles that WORK
 
 > Researched + **run** 2026-08-01, for the decision: which skills, libraries
 > and repos the prd5 issues name as their implementation vehicles — "if
 > we're going to be novel, we can be novel, but we can at least find
 > something that WORKS" (operator). Claims tagged [Ran] / [Verified] /
 > [Consensus]. Companion to
-> `2026-08-01-observatory-prd5-design-inspiration.md`.
+> `2026-08-01-rhizomorph-prd5-design-inspiration.md`.
 
 ## Headline verdict
 
 **Camera: adopt d3-zoom + d3-interpolate; hand-roll nothing.** Proven by
-live probe in the Observatory's own test conditions (canvas 2D, headless
+live probe in the Rhizomorph's own test conditions (canvas 2D, headless
 jsdom), ISC-licensed, ≤23 kB gz worst-case against a 61.8 kB bundle.
 **Springs/cord-cut: hand-roll the 15-line closed-form critically-damped
 step; adopt no animation library** — the motion note's [Ran] stability

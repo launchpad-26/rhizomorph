@@ -1,4 +1,4 @@
-import { createEvent, createIdFactory, reduceAll, type ObservatoryEvent } from '@observatory/core'
+import { createEvent, createIdFactory, reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import {
   buildFleet,
@@ -221,18 +221,18 @@ function event<T extends Parameters<typeof createEvent>[0]>(
   type: T,
   payload: Parameters<typeof createEvent<T>>[1],
   ts: number,
-): ObservatoryEvent {
+): RhizomorphEvent {
   return createEvent(type, payload, { id: nextId(), ts })
 }
 
 /** Two healthy lanes, both with their hands on one file. Nothing else is wrong. */
-function collidingLog(now: number): ObservatoryEvent[] {
+function collidingLog(now: number): RhizomorphEvent[] {
   const shared = 'packages/core/src/selectors/spend.ts'
   return [
     event('session.started', {
       sessionId: 'floor',
       repoPath: '/repo',
-      repoName: 'observatory',
+      repoName: 'rhizomorph',
       mainBranch: 'main',
     }, now - 60_000),
     event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, now - 60_000),
@@ -307,7 +307,7 @@ describe('detection honesty', () => {
       event('session.started', {
         sessionId: 'infer',
         repoPath: '/repo',
-        repoName: 'observatory',
+        repoName: 'rhizomorph',
         mainBranch: 'main',
       }, NOW - 600_000),
       event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 600_000),
@@ -336,7 +336,7 @@ describe('detection honesty', () => {
       event('session.started', {
         sessionId: 'waiting-removed',
         repoPath: '/repo',
-        repoName: 'observatory',
+        repoName: 'rhizomorph',
         mainBranch: 'main',
       }, NOW - 600_000),
       event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 600_000),
@@ -398,7 +398,7 @@ describe('parked lanes', () => {
       event('session.started', {
         sessionId: 'parked-flag',
         repoPath: '/repo',
-        repoName: 'observatory',
+        repoName: 'rhizomorph',
         mainBranch: 'main',
       }, NOW - 60_000),
       event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 60_000),
@@ -416,7 +416,7 @@ describe('parked lanes', () => {
       event('session.started', {
         sessionId: 'parked-frozen',
         repoPath: '/repo',
-        repoName: 'observatory',
+        repoName: 'rhizomorph',
         mainBranch: 'main',
       }, NOW - 20 * 60_000),
       event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 20 * 60_000),
@@ -444,7 +444,7 @@ describe('parked lanes', () => {
       event('session.started', {
         sessionId: 'parked-active',
         repoPath: '/repo',
-        repoName: 'observatory',
+        repoName: 'rhizomorph',
         mainBranch: 'main',
       }, NOW - 60_000),
       event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 60_000),
@@ -483,7 +483,7 @@ describe('conductor cost visibility', () => {
       event('session.started', {
         sessionId: 'cost-vis',
         repoPath: '/repo',
-        repoName: 'observatory',
+        repoName: 'rhizomorph',
         mainBranch: 'main',
       }, NOW - 10_000),
       event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 10_000),

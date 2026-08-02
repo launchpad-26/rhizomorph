@@ -6,8 +6,8 @@ import {
   createIdFactory,
   eventSourceSchema,
   isEventOfType,
-  isObservatoryEvent,
-  observatoryEventSchema,
+  isRhizomorphEvent,
+  rhizomorphEventSchema,
   parseEvent,
   sourceOf,
 } from './index.js'
@@ -70,7 +70,7 @@ describe('event envelope', () => {
   })
 
   it('rejects an empty id and a negative timestamp', () => {
-    expect(observatoryEventSchema.safeParse({
+    expect(rhizomorphEventSchema.safeParse({
       id: '',
       ts: 1,
       source: 'system',
@@ -78,7 +78,7 @@ describe('event envelope', () => {
       payload: { collector: 'git', message: 'boom' },
     }).success).toBe(false)
 
-    expect(observatoryEventSchema.safeParse({
+    expect(rhizomorphEventSchema.safeParse({
       id: 'evt-1',
       ts: -1,
       source: 'system',
@@ -110,7 +110,7 @@ describe('event envelope', () => {
     for (const event of oneOfEach()) {
       const result = parseEvent(event)
       expect(result.ok, `${event.type} should parse`).toBe(true)
-      expect(isObservatoryEvent(event)).toBe(true)
+      expect(isRhizomorphEvent(event)).toBe(true)
     }
     expect(oneOfEach().map((e) => e.type).sort()).toEqual([...EVENT_TYPES].sort())
   })
@@ -221,7 +221,7 @@ function oneOfEach() {
     }, { id: id(), ts: 14, source: 'otel' }),
     createEvent('tool.activity', { lane: 'feat', tool: 'Bash' }, { id: id(), ts: 15 }),
     createEvent('telemetry.refused', {
-      instance: 'other-observatory',
+      instance: 'other-rhizomorph',
       expectedInstance: '1785458425389',
       count: 3,
     }, { id: id(), ts: 16 }),

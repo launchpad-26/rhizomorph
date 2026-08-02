@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readdir, readFile, stat, truncate } from 'node:fs/promises'
 import path from 'node:path'
-import type { ObservatoryEvent } from '@observatory/core'
-import { parseEvent } from '@observatory/core'
+import type { RhizomorphEvent } from '@rhizomorph/core'
+import { parseEvent } from '@rhizomorph/core'
 import { sessionFileName, sessionIdFromFileName } from './paths.js'
 
 const NEWLINE = 0x0a
@@ -32,7 +32,7 @@ export class SessionLogWriter {
     this.resuming = options.resuming ?? false
   }
 
-  async append(event: ObservatoryEvent): Promise<void> {
+  async append(event: RhizomorphEvent): Promise<void> {
     if (!this.ready) {
       this.ready = this.prepare()
     }
@@ -71,7 +71,7 @@ export async function dropTrailingPartialLine(filePath: string): Promise<boolean
  * rather than failing the whole read — a half-written last line (process
  * killed mid-append) shouldn't take the rest of the session with it.
  */
-export async function readSessionEvents(filePath: string): Promise<ObservatoryEvent[]> {
+export async function readSessionEvents(filePath: string): Promise<RhizomorphEvent[]> {
   let raw: string
   try {
     raw = await readFile(filePath, 'utf8')
@@ -79,7 +79,7 @@ export async function readSessionEvents(filePath: string): Promise<ObservatoryEv
     return []
   }
 
-  const events: ObservatoryEvent[] = []
+  const events: RhizomorphEvent[] = []
   for (const line of raw.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed) continue
@@ -141,7 +141,7 @@ export interface ResumableSession {
   sessionId: string
   filePath: string
   /** Everything already recorded, in file order — seeds the recorder's replay buffer. */
-  events: ObservatoryEvent[]
+  events: RhizomorphEvent[]
 }
 
 /**

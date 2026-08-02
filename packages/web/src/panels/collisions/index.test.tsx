@@ -6,7 +6,7 @@ import {
   initialSessionState,
   reduceAll,
   fx,
-} from '@observatory/core'
+} from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { StreamProvider } from '../../app/StreamContext.js'
 import { buildFleet } from '../../fleet/buildFleet.js'

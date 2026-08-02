@@ -1,4 +1,4 @@
-import { createEvent as observatoryEvent, reduceAll } from '@observatory/core'
+import { createEvent as rhizomorphEvent, reduceAll } from '@rhizomorph/core'
 import { act, cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ModeProvider } from '../app/ModeContext.js'
@@ -987,7 +987,7 @@ describe('the pause control (WCAG 2.2.2)', () => {
     const lane = fleet.lanes[0]
     settle.note(
       [
-        observatoryEvent(
+        rhizomorphEvent(
           'worktree.discovered',
           {
             path: `/repo__worktrees/${lane?.branch}`,
@@ -1065,7 +1065,7 @@ describe('the cord-cut (prd5 ruling 3)', () => {
     const retire = new RetireRegistry()
     const started = retire.note(
       [
-        observatoryEvent(
+        rhizomorphEvent(
           'agent.status',
           { handle: lane.handles[0] ?? lane.id, status: 'done', branch: lane.branch },
           { id: 'done-1', ts: NOW },
@@ -1102,7 +1102,7 @@ describe('the cord-cut (prd5 ruling 3)', () => {
     const lane = fleet.lanes[0] as Fleet['lanes'][number]
     const retire = new RetireRegistry()
     retire.note(
-      [observatoryEvent('worktree.removed', { path: lane.worktreePath ?? '/x' }, { id: 'gone-1', ts: NOW })],
+      [rhizomorphEvent('worktree.removed', { path: lane.worktreePath ?? '/x' }, { id: 'gone-1', ts: NOW })],
       laneIndex(fleet),
       NOW,
     )

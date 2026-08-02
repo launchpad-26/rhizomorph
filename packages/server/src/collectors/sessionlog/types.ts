@@ -1,4 +1,4 @@
-import type { AgentRole } from '@observatory/core'
+import type { AgentRole } from '@rhizomorph/core'
 
 /** Internal snapshot shape for the sessionlog collector — opaque to the poll loop. */
 

@@ -1,7 +1,7 @@
 ## Direction (prd5 ruling 3 — the cord-cut, our novel piece)
 
 **Nobody has built this.** Every graph tool restyles finished nodes and
-leaves them attached; the Observatory cuts the cord. Operator ruling:
+leaves them attached; the Rhizomorph cuts the cord. Operator ruling:
 build direct (no spike), staged retirement, **persistent scar with a
 hide-finished toggle**.
 

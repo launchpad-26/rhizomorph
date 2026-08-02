@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import type { Exec, ExecResult } from '@observatory/core'
+import type { Exec, ExecResult } from '@rhizomorph/core'
 
 /**
  * The real `Exec` implementation handed to collectors via `CollectorContext`

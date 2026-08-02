@@ -1,4 +1,4 @@
-import type { AgentThread, SpendTotals } from '@observatory/core'
+import type { AgentThread, SpendTotals } from '@rhizomorph/core'
 import { formatTokenBreakdown, formatTokens, formatUsd } from '../../lib/format.js'
 
 /** `null` reads as "still going" or "never happened" depending on the caller — never `0m`. */

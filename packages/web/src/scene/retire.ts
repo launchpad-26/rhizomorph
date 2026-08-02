@@ -1,4 +1,4 @@
-import type { ObservatoryEvent } from '@observatory/core'
+import type { RhizomorphEvent } from '@rhizomorph/core'
 import type { Fleet, Lane } from '../fleet/index.js'
 import { STRUCTURAL, allowance, type MotionMode } from './motion.js'
 import { DONE, ICE_400, ICE_600, clamp01, ink, mix, type Ink } from './palette.js'
@@ -11,7 +11,7 @@ import { springStep } from './spring.js'
  * Every graph tool we could find retires a node by *restyling* it and leaving it
  * attached: GitHub Actions swaps a status icon and keeps the dependency lines,
  * Obsidian dims an orphan and keeps it in the sim, React Flow has no lifecycle
- * for it at all. Nothing found detaches the edge. So this is the Observatory's
+ * for it at all. Nothing found detaches the edge. So this is the Rhizomorph's
  * own idiom, and the reason it is worth having is that the picture then answers
  * "is this fleet still working?" *structurally* rather than by colour: a lane
  * that has landed is no longer connected to the mass, and no amount of squinting
@@ -293,7 +293,7 @@ export class RetireRegistry {
    * lane ids that were actually scheduled, so a caller can tell a real landing
    * from a collector re-reporting one.
    */
-  note(events: readonly ObservatoryEvent[], index: LaneIndex, now: number): string[] {
+  note(events: readonly RhizomorphEvent[], index: LaneIndex, now: number): string[] {
     const scheduled: string[] = []
     for (const event of events) {
       if (!declaresDone(event)) continue
@@ -392,7 +392,7 @@ export class RetireRegistry {
  * quiet is FROZEN's evidence, not a finish, and inferring "done" from silence is
  * the single loudest way this instrument could cry wolf about a successful run.
  */
-function declaresDone(event: ObservatoryEvent): boolean {
+function declaresDone(event: RhizomorphEvent): boolean {
   if (event.type === 'worktree.removed') return true
   return event.type === 'agent.status' && event.payload.status === 'done'
 }

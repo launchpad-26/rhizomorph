@@ -1,4 +1,4 @@
-import { createEvent, createIdFactory, type ObservatoryEvent } from '@observatory/core'
+import { createEvent, createIdFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import {
   NEWS_GRACE_MS,
@@ -47,7 +47,7 @@ const INDEX: LaneIndex = {
   mainWorktree: '/repo',
 }
 
-function usage(branch: string, output: number, ts = NOW): ObservatoryEvent {
+function usage(branch: string, output: number, ts = NOW): RhizomorphEvent {
   return createEvent(
     'llm.usage',
     {
@@ -62,14 +62,14 @@ function usage(branch: string, output: number, ts = NOW): ObservatoryEvent {
   )
 }
 
-function commit(branch: string, files: number, ts = NOW): ObservatoryEvent {
+function commit(branch: string, files: number, ts = NOW): RhizomorphEvent {
   return createEvent(
     'commit.landed',
     {
       sha: `sha-${branch}-${ts}`,
       branch,
       message: 'feat: a step',
-      author: { name: 'agent', email: 'agent@observatory' },
+      author: { name: 'agent', email: 'agent@rhizomorph' },
       files: Array.from({ length: files }, (_unused, i) => ({
         path: `src/file-${i}.ts`,
         status: 'modified' as const,
@@ -81,7 +81,7 @@ function commit(branch: string, files: number, ts = NOW): ObservatoryEvent {
   )
 }
 
-function tool(branch: string, ts = NOW): ObservatoryEvent {
+function tool(branch: string, ts = NOW): RhizomorphEvent {
   return createEvent(
     'tool.activity',
     { lane: branch, tool: 'Read', role: 'worker', branch, thread: 'main' },
@@ -89,7 +89,7 @@ function tool(branch: string, ts = NOW): ObservatoryEvent {
   )
 }
 
-function paneBeat(ts = NOW): ObservatoryEvent {
+function paneBeat(ts = NOW): RhizomorphEvent {
   return createEvent(
     'pane.activity',
     { paneId: '%1', contentHash: `h-${ts}`, lines: 40 },
@@ -108,7 +108,7 @@ describe('rule 1 — history never pulses', () => {
     let state: StreamState = initialStreamState(connectedAt)
 
     // Two hours of a busy fleet, all of it already over by the time we connect.
-    const past: ObservatoryEvent[] = []
+    const past: RhizomorphEvent[] = []
     for (let i = 0; i < 400; i += 1) {
       const ts = connectedAt - 2 * 3_600_000 + i * 1_000
       past.push(usage('77-strip', 900, ts), commit('78-table', 4, ts), tool('77-strip', ts))
@@ -367,7 +367,7 @@ describe('rule 3 — an arrival flare is the end of a real journey', () => {
   })
 
   it('sends a landing home bigger than a commit', () => {
-    const of = (event: ObservatoryEvent): number => {
+    const of = (event: RhizomorphEvent): number => {
       const field = new PulseField()
       field.ingest([event], INDEX, NOW)
       field.step(NOW + 4_000)

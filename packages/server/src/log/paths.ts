@@ -7,7 +7,7 @@ import path from 'node:path'
  * we never write anything into it, not even a gitignored directory.
  */
 export function defaultDataRoot(): string {
-  return path.join(homedir(), '.local', 'share', 'observatory')
+  return path.join(homedir(), '.local', 'share', 'rhizomorph')
 }
 
 /** Repo-slug = sanitized basename + short hash of the absolute path, so two repos named the same don't collide. */

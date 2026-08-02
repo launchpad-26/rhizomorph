@@ -1,4 +1,4 @@
-You are a worker agent on The Observatory. You own exactly one issue.
+You are a worker agent on The Rhizomorph. You own exactly one issue.
 
 Read packages/web/src/App.test.tsx first — it contains the established
 vi.mock treatment for exactly this class of flake (issues #28/#31).

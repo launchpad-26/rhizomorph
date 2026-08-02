@@ -1,5 +1,5 @@
-import type { AgentThread, EventType, ObservatoryEvent, PayloadOf, SourceOf, TokenUsagePayload } from '@observatory/core'
-import { agentThreadSchema, ZERO_TOKENS } from '@observatory/core'
+import type { AgentThread, EventType, RhizomorphEvent, PayloadOf, SourceOf, TokenUsagePayload } from '@rhizomorph/core'
+import { agentThreadSchema, ZERO_TOKENS } from '@rhizomorph/core'
 import { resolveLane, resolveRole } from './attribution.js'
 import { formatZodIssues } from './format-issues.js'
 import {
@@ -17,11 +17,11 @@ import {
  * `otel` out loud rather than ride the type's default.
  */
 export interface OtelEmitter {
-  emit: <T extends EventType>(type: T, payload: PayloadOf<T>, source?: SourceOf<T>) => ObservatoryEvent
+  emit: <T extends EventType>(type: T, payload: PayloadOf<T>, source?: SourceOf<T>) => RhizomorphEvent
 }
 
 export interface ParseMetricsResult {
-  events: ObservatoryEvent[]
+  events: RhizomorphEvent[]
   /** True when the body itself isn't a valid `ExportMetricsServiceRequest` — the 400 case. */
   malformed: boolean
 }
@@ -68,7 +68,7 @@ export function parseMetricsExport(body: unknown, emitter: OtelEmitter): ParseMe
     }
   }
 
-  const events: ObservatoryEvent[] = []
+  const events: RhizomorphEvent[] = []
 
   for (const resourceMetrics of parsed.data.resourceMetrics) {
     const resourceAttrs = resourceMetrics.resource?.attributes
@@ -105,7 +105,7 @@ function buildUsageEvent(
   emitter: OtelEmitter,
   resourceAttrs: OtlpKeyValue[] | undefined,
   dp: OtlpNumberDataPoint,
-): ObservatoryEvent {
+): RhizomorphEvent {
   const type = attrString(dp.attributes, 'type')
   const value = dataPointValue(dp)
   const tier = TOKEN_TYPE_TO_TIER[type as keyof typeof TOKEN_TYPE_TO_TIER]
@@ -174,7 +174,7 @@ function buildCostEvent(
   emitter: OtelEmitter,
   resourceAttrs: OtlpKeyValue[] | undefined,
   dp: OtlpNumberDataPoint,
-): ObservatoryEvent {
+): RhizomorphEvent {
   const value = dataPointValue(dp)
   if (value === undefined || value < 0) {
     return emitter.emit('collector.error', {

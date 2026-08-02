@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createEvent, type ObservatoryEvent } from '@observatory/core'
+import { createEvent, type RhizomorphEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { readSessionEvents } from '../log/session-log.js'
 import { SessionRecorder } from './recorder.js'
@@ -14,7 +14,7 @@ describe('SessionRecorder', () => {
   let dir: string
 
   beforeEach(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), 'observatory-recorder-test-'))
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-recorder-test-'))
   })
 
   afterEach(async () => {
@@ -24,7 +24,7 @@ describe('SessionRecorder', () => {
   it('buffers, emits and persists each recorded event', async () => {
     const filePath = path.join(dir, 'session-1.jsonl')
     const recorder = new SessionRecorder('1', filePath)
-    const seen: ObservatoryEvent[] = []
+    const seen: RhizomorphEvent[] = []
     recorder.subscribe((event) => seen.push(event))
 
     const event = errorEvent('evt-1', 1)
@@ -56,7 +56,7 @@ describe('SessionRecorder', () => {
     const filePath = path.join(dir, 'session-1.jsonl')
     const already = [errorEvent('evt-1', 1)]
     const resumed = new SessionRecorder('1', filePath, { resumeFrom: already })
-    const seen: ObservatoryEvent[] = []
+    const seen: RhizomorphEvent[] = []
     resumed.subscribe((event) => seen.push(event))
 
     const next = errorEvent('evt-2', 2)

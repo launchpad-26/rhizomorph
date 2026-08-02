@@ -1,4 +1,4 @@
-import { createEventFactory, reduceAll, type SessionState } from '@observatory/core'
+import { createEventFactory, reduceAll, type SessionState } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { buildFleet } from '../../fleet/buildFleet.js'
 import {
@@ -8,7 +8,7 @@ import {
   type FeedEntry,
 } from './feed.js'
 
-const REPO = '/repo/observatory'
+const REPO = '/repo/rhizomorph'
 const WT = (name: string) => `${REPO}-wt/${name}`
 const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
 const NEWS_GRACE_MS = 4_000

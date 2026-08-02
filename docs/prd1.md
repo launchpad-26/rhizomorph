@@ -5,7 +5,7 @@
 
 ## One-liner
 
-The Observatory learns what the swarm costs: live token and dollar telemetry
+The Rhizomorph learns what the swarm costs: live token and dollar telemetry
 per lane, taken from the agents' own native signals, rendered as instruments
 and replayable like everything else.
 

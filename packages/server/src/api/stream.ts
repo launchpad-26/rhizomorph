@@ -1,9 +1,9 @@
 import type { ServerResponse } from 'node:http'
-import type { ObservatoryEvent } from '@observatory/core'
+import type { RhizomorphEvent } from '@rhizomorph/core'
 import type { FastifyInstance } from 'fastify'
 import type { ServerContext } from '../server/context.js'
 
-function writeEvent(res: ServerResponse, event: ObservatoryEvent): void {
+function writeEvent(res: ServerResponse, event: RhizomorphEvent): void {
   res.write(`id: ${event.id}\n`)
   res.write(`event: ${event.type}\n`)
   res.write(`data: ${JSON.stringify(event)}\n\n`)

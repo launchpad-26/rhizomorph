@@ -1,4 +1,4 @@
-import type { DirtyFile, FileStatus } from '@observatory/core'
+import type { DirtyFile, FileStatus } from '@rhizomorph/core'
 
 /** Pure parser for `git status --porcelain` (v1 format) output. */
 

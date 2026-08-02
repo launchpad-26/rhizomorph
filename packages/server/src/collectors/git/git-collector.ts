@@ -3,9 +3,9 @@ import type {
   CollectorContext,
   DirtyFile,
   ExecResult,
-  ObservatoryEvent,
+  RhizomorphEvent,
   PollResult,
-} from '@observatory/core'
+} from '@rhizomorph/core'
 import { LOG_PRETTY, parseGitLog } from './parse-log.js'
 import { parseForEachRef } from './parse-refs.js'
 import { parseStatusPorcelain } from './parse-status.js'
@@ -30,7 +30,7 @@ export const gitCollector: Collector<GitSnapshot> = {
       return { nextSnapshot: prevSnapshot, events: [] }
     }
 
-    const events: ObservatoryEvent[] = []
+    const events: RhizomorphEvent[] = []
 
     const worktreeListResult = await runGit(context, ['worktree', 'list', '--porcelain'], context.repoPath)
     if (worktreeListResult.failed) {
@@ -62,7 +62,7 @@ function diffWorktrees(
   worktrees: ParsedWorktree[],
   prevSnapshot: GitSnapshot,
   context: CollectorContext,
-  events: ObservatoryEvent[],
+  events: RhizomorphEvent[],
 ): Record<string, GitWorktreeState> {
   const nextWorktrees: Record<string, GitWorktreeState> = {}
 
@@ -107,7 +107,7 @@ async function diffBranches(
   worktrees: ParsedWorktree[],
   mainBranch: string | null,
   prevSnapshot: GitSnapshot,
-  events: ObservatoryEvent[],
+  events: RhizomorphEvent[],
 ): Promise<Record<string, GitBranchState>> {
   const refsResult = await runGit(
     context,
@@ -210,7 +210,7 @@ async function diffDirty(
   context: CollectorContext,
   worktrees: ParsedWorktree[],
   prevSnapshot: GitSnapshot,
-  events: ObservatoryEvent[],
+  events: RhizomorphEvent[],
 ): Promise<Record<string, DirtyFile[]>> {
   const nextDirty: Record<string, DirtyFile[]> = {}
 

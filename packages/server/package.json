@@ -1,11 +1,11 @@
 {
-  "name": "@observatory/server",
+  "name": "@rhizomorph/server",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "main": "src/index.ts",
   "bin": {
-    "observatory": "./bin/observatory.mjs"
+    "rhizomorph": "./bin/rhizomorph.mjs"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@observatory/core": "*",
+    "@rhizomorph/core": "*",
     "fastify": "5.10.0"
   },
   "devDependencies": {

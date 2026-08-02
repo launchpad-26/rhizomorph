@@ -12,7 +12,7 @@ describe('parseWorktreeList', () => {
 
     expect(worktrees).toEqual([
       {
-        path: '/home/dev/observatory-demo',
+        path: '/home/dev/rhizomorph-demo',
         head: 'd129e8d9ede5050302a93cd9d66ccadad0f2713d',
         branch: 'main',
         detached: false,
@@ -20,7 +20,7 @@ describe('parseWorktreeList', () => {
         prunable: false,
       },
       {
-        path: '/home/dev/observatory-demo-worktrees/alpha',
+        path: '/home/dev/rhizomorph-demo-worktrees/alpha',
         head: '6e164406fdc3e92168183601862506dbce13cec4',
         branch: 'feature/alpha',
         detached: false,
@@ -28,7 +28,7 @@ describe('parseWorktreeList', () => {
         prunable: false,
       },
       {
-        path: '/home/dev/observatory-demo-worktrees/beta',
+        path: '/home/dev/rhizomorph-demo-worktrees/beta',
         head: 'd129e8d9ede5050302a93cd9d66ccadad0f2713d',
         branch: 'feature/beta',
         detached: false,
@@ -36,7 +36,7 @@ describe('parseWorktreeList', () => {
         prunable: false,
       },
       {
-        path: '/home/dev/observatory-demo-worktrees/detached',
+        path: '/home/dev/rhizomorph-demo-worktrees/detached',
         head: 'd129e8d9ede5050302a93cd9d66ccadad0f2713d',
         branch: null,
         detached: true,
@@ -44,7 +44,7 @@ describe('parseWorktreeList', () => {
         prunable: false,
       },
       {
-        path: '/home/dev/observatory-demo-worktrees/locked',
+        path: '/home/dev/rhizomorph-demo-worktrees/locked',
         head: 'd129e8d9ede5050302a93cd9d66ccadad0f2713d',
         branch: 'feature/locked',
         detached: false,
@@ -57,7 +57,7 @@ describe('parseWorktreeList', () => {
 
   it('the main worktree is always the first record, per git', () => {
     const [main] = parseWorktreeList(fixture('all.txt'))
-    expect(main?.path).toBe('/home/dev/observatory-demo')
+    expect(main?.path).toBe('/home/dev/rhizomorph-demo')
     expect(main?.branch).toBe('main')
   })
 
@@ -65,7 +65,7 @@ describe('parseWorktreeList', () => {
     const worktrees = parseWorktreeList(fixture('single.txt'))
     expect(worktrees).toEqual([
       {
-        path: '/home/dev/observatory-demo',
+        path: '/home/dev/rhizomorph-demo',
         head: 'd129e8d9ede5050302a93cd9d66ccadad0f2713d',
         branch: 'main',
         detached: false,

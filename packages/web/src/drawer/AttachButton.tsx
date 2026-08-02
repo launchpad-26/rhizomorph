@@ -5,7 +5,7 @@ import type { AttachPlan } from './attach.js'
  * THE ATTACH BUTTON (ruling 17).
  *
  * It copies a string. That is the entire behaviour, and it is the constitution:
- * the Observatory shows you the command and you run it, so no key this
+ * the Rhizomorph shows you the command and you run it, so no key this
  * dashboard can reach ever reaches an agent. There is no exec path behind this
  * component to disable — `onCopy` is a clipboard write and nothing else, which
  * `drawer.readonly.test.ts` asserts at the level of the source text so it

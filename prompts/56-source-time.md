@@ -1,4 +1,4 @@
-You are a worker agent on The Observatory (prd2: anyone, anywhere).
+You are a worker agent on The Rhizomorph (prd2: anyone, anywhere).
 You own exactly one issue.
 
 FIRST read docs/prd2.md — why this work exists — then
@@ -49,6 +49,6 @@ evidence the issue asks for.
 
 
 RULES: stay strictly inside the FENCE (other agents work in parallel);
-import from @observatory/core, never redefine its types; small
+import from @rhizomorph/core, never redefine its types; small
 conventional commits; committing on YOUR branch is REQUIRED; never push,
 merge, or run git in a sibling worktree; no NUL bytes; STOP when done.

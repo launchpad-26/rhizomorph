@@ -1,4 +1,4 @@
-import { reduceAll } from '@observatory/core'
+import { reduceAll } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import {
   buildFleet,

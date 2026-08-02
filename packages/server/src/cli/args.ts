@@ -1,4 +1,4 @@
-import { AGENT_ROLES, DEFAULT_FLATLINE_MS, type AgentRole } from '@observatory/core'
+import { AGENT_ROLES, DEFAULT_FLATLINE_MS, type AgentRole } from '@rhizomorph/core'
 import { RESUME_WINDOW_MS } from '../log/session-log.js'
 
 export interface CliArgs {
@@ -49,7 +49,7 @@ interface FlagSpec {
   /**
    * True for a valueless switch: `--fresh` sets it and the *next* argv token is
    * left alone. Without this a switch would swallow the token after it, so
-   * `observatory --fresh /repo` would lose the path.
+   * `rhizomorph --fresh /repo` would lose the path.
    */
   boolean?: boolean
 }
@@ -114,7 +114,7 @@ function isAgentRole(value: string): value is AgentRole {
 }
 
 /**
- * Parses `observatory [path] [--port <n>] [--flatline-minutes <n>]
+ * Parses `rhizomorph [path] [--port <n>] [--flatline-minutes <n>]
  * [--poll-interval <ms>] [--extra-sessions <path>[:<lane>]]... [--fresh]
  * [--backfill] [--help]`.
  */
@@ -179,7 +179,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   return { path, port, flatlineMinutes, pollIntervalMs, extraSessionDirs, fresh, backfill, help: false }
 }
 
-/** Parses `observatory env <lane> [--role <role>] [--port <n>] [--help]`. */
+/** Parses `rhizomorph env <lane> [--role <role>] [--port <n>] [--help]`. */
 export interface EnvArgs {
   lane: string
   role: AgentRole
@@ -187,19 +187,19 @@ export interface EnvArgs {
   help: boolean
 }
 
-/** `observatory env`'s own usage table, distinct from the main command's. */
+/** `rhizomorph env`'s own usage table, distinct from the main command's. */
 export function envHelpText(): string {
-  return `observatory env <lane> [options]
+  return `rhizomorph env <lane> [options]
 
 Prints the exact environment block a lane (or conductor) needs to export
-telemetry to this Observatory's OTLP receiver.
+telemetry to this Rhizomorph's OTLP receiver.
 
 Arguments:
   lane                    Lane handle (workmux worktree/branch name, or "conductor")
 
 Options:
   --role <role>           ${AGENT_ROLES.join(' | ')} (default: ${DEFAULT_ROLE})
-  --port <n>              Observatory server port to target (default: ${DEFAULT_PORT})
+  --port <n>              Rhizomorph server port to target (default: ${DEFAULT_PORT})
   --help, -h              Show this help and exit
 `
 }
@@ -238,9 +238,9 @@ export function parseEnvArgs(argv: readonly string[]): EnvArgs {
 
 /** `--help` output: every flag, with its default shown. */
 export function helpText(): string {
-  return `observatory [path] [options]
-observatory doctor [path] [options]   Read-only preflight — say what's missing and how to fix it
-observatory env <lane> [options]      Print the telemetry env block for a lane
+  return `rhizomorph [path] [options]
+rhizomorph doctor [path] [options]   Read-only preflight — say what's missing and how to fix it
+rhizomorph env <lane> [options]      Print the telemetry env block for a lane
 
 Runs a live, replayable dashboard for a git-worktree agent swarm.
 
@@ -266,20 +266,20 @@ Options:
                           first tick and old timestamps.
   --help, -h              Show this help and exit
 
-Run 'observatory doctor --help' or 'observatory env --help' for a subcommand's own options.
+Run 'rhizomorph doctor --help' or 'rhizomorph env --help' for a subcommand's own options.
 `
 }
 
-/** Parses `observatory doctor [path] [--port <n>] [--help]`. */
+/** Parses `rhizomorph doctor [path] [--port <n>] [--help]`. */
 export interface DoctorArgs {
   path: string | undefined
   port: number
   help: boolean
 }
 
-/** `observatory doctor`'s own usage table, distinct from the main command's. */
+/** `rhizomorph doctor`'s own usage table, distinct from the main command's. */
 export function doctorHelpText(): string {
-  return `observatory doctor [path] [options]
+  return `rhizomorph doctor [path] [options]
 
 Read-only preflight: checks the Node version, the target path (exists and is
 a git repo), the web build, whether the port is free, Claude Code session

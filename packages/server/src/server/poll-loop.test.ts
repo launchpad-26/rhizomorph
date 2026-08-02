@@ -1,13 +1,13 @@
-import type { AnyCollector, CollectorContext, ObservatoryEvent } from '@observatory/core'
+import type { AnyCollector, CollectorContext, RhizomorphEvent } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { createPollLoop } from './poll-loop.js'
 import type { SessionRecorder } from './recorder.js'
 import type { LoadedSnapshot, SnapshotStore } from './snapshot-store.js'
 
-function createFakeRecorder(): { recorder: SessionRecorder; events: ObservatoryEvent[] } {
-  const events: ObservatoryEvent[] = []
+function createFakeRecorder(): { recorder: SessionRecorder; events: RhizomorphEvent[] } {
+  const events: RhizomorphEvent[] = []
   const recorder = {
-    record: async (event: ObservatoryEvent) => {
+    record: async (event: RhizomorphEvent) => {
       events.push(event)
     },
   } as unknown as SessionRecorder

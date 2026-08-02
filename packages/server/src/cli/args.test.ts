@@ -223,11 +223,11 @@ describe('helpText', () => {
   })
 
   it('mentions the env subcommand', () => {
-    expect(helpText()).toContain('observatory env')
+    expect(helpText()).toContain('rhizomorph env')
   })
 
   it('mentions the doctor subcommand', () => {
-    expect(helpText()).toContain('observatory doctor')
+    expect(helpText()).toContain('rhizomorph doctor')
   })
 })
 
@@ -276,7 +276,7 @@ describe('parseDoctorArgs', () => {
 describe('doctorHelpText', () => {
   it('documents the path argument, --port and --help', () => {
     const text = doctorHelpText()
-    expect(text).toContain('observatory doctor [path]')
+    expect(text).toContain('rhizomorph doctor [path]')
     expect(text).toContain('--port')
     expect(text).toContain('4321')
     expect(text).toContain('--help')
@@ -331,7 +331,7 @@ describe('parseEnvArgs', () => {
 describe('envHelpText', () => {
   it('documents the lane argument, --role, --port and --help', () => {
     const text = envHelpText()
-    expect(text).toContain('observatory env <lane>')
+    expect(text).toContain('rhizomorph env <lane>')
     expect(text).toContain('--role')
     expect(text).toContain('worker')
     expect(text).toContain('conductor')

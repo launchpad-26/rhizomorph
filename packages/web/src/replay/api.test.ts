@@ -1,4 +1,4 @@
-import { createEvent, createIdFactory } from '@observatory/core'
+import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { describe, expect, it, vi } from 'vitest'
 import { fetchSessionEvents, fetchSessions, type FetchLike } from './api.js'
 
@@ -41,7 +41,7 @@ describe('fetchSessionEvents', () => {
   it('requests the session-scoped url and validates events', async () => {
     const event = createEvent(
       'session.started',
-      { sessionId: 's1', repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' },
+      { sessionId: 's1', repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' },
       { id: nextId(), ts: 1 },
     )
     const fetchImpl = vi.fn(async (url: string | URL | Request) => {

@@ -1,8 +1,8 @@
-import { createEventFactory, initialSessionState, reduceAll, type ObservatoryEvent } from '@observatory/core'
+import { createEventFactory, initialSessionState, reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { selectCollisionColumns, selectCollisionRows } from './rows.js'
 
-const REPO = '/repo/observatory'
+const REPO = '/repo/rhizomorph'
 const wt = (name: string) => `${REPO}-wt/${name}`
 
 let f = createEventFactory()
@@ -10,7 +10,7 @@ beforeEach(() => {
   f = createEventFactory()
 })
 
-function withWorktrees(...branches: string[]): ObservatoryEvent[] {
+function withWorktrees(...branches: string[]): RhizomorphEvent[] {
   return [
     f.sessionStarted({ mainBranch: 'main' }),
     f.worktreeDiscovered({ path: REPO, branch: 'main', head: 'sha-main-0', isMain: true }),
@@ -20,7 +20,7 @@ function withWorktrees(...branches: string[]): ObservatoryEvent[] {
   ]
 }
 
-function fold(events: ObservatoryEvent[]) {
+function fold(events: RhizomorphEvent[]) {
   return reduceAll(events, initialSessionState())
 }
 

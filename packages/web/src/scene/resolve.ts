@@ -1,4 +1,4 @@
-import type { ObservatoryEvent } from '@observatory/core'
+import type { RhizomorphEvent } from '@rhizomorph/core'
 import type { Fleet } from '../fleet/index.js'
 
 /**
@@ -50,7 +50,7 @@ export function laneIndex(fleet: Fleet): LaneIndex {
   }
 }
 
-export function resolveLane(index: LaneIndex, event: ObservatoryEvent): string | null {
+export function resolveLane(index: LaneIndex, event: RhizomorphEvent): string | null {
   switch (event.type) {
     case 'commit.landed':
       return lookup(index, event.payload.branch, event.payload.worktreePath ?? null, null)

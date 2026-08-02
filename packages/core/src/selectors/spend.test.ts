@@ -6,7 +6,7 @@ import {
   fixtureSession,
   fixtureTelemetrySession,
 } from '../fixtures.js'
-import type { ObservatoryEvent } from '../events/index.js'
+import type { RhizomorphEvent } from '../events/index.js'
 import * as core from '../index.js'
 import { reduceAll } from '../reduce.js'
 import { type SessionState, initialSessionState } from '../state.js'
@@ -33,7 +33,7 @@ import {
 
 const T = FIXTURE_START_TS
 const minute = 60_000
-const WT = (name: string) => `/repo/observatory-wt/${name}`
+const WT = (name: string) => `/repo/rhizomorph-wt/${name}`
 
 /** The fixture log, folded once — the numbers below are its real arithmetic. */
 const swarm = reduceAll(fixtureTelemetrySession())
@@ -44,7 +44,7 @@ beforeEach(() => {
 })
 
 /** Fold a hand-built log without any of the v0 noise. */
-function fold(...events: ObservatoryEvent[]): SessionState {
+function fold(...events: RhizomorphEvent[]): SessionState {
   return reduceAll(events)
 }
 
@@ -1138,7 +1138,7 @@ describe('the package barrel', () => {
       // fixtures
       'fixtureTelemetrySession',
     ] as const) {
-      expect(core[name], `@observatory/core should export ${name}`).toBeDefined()
+      expect(core[name], `@rhizomorph/core should export ${name}`).toBeDefined()
     }
   })
 })

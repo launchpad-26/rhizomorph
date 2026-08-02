@@ -1,4 +1,4 @@
-import { parseEvent, type ObservatoryEvent } from '@observatory/core'
+import { parseEvent, type RhizomorphEvent } from '@rhizomorph/core'
 
 /** Mirrors the server's `SessionSummary` shape (`GET /api/sessions`). */
 export interface SessionSummary {
@@ -60,11 +60,11 @@ export function pickRichestSession(sessions: readonly SessionSummary[]): Session
 export async function fetchSessionEvents(
   sessionId: string,
   fetchImpl: FetchLike = fetch,
-): Promise<ObservatoryEvent[]> {
+): Promise<RhizomorphEvent[]> {
   const data = await fetchJson(fetchImpl, `/api/sessions/${encodeURIComponent(sessionId)}/events`)
   const raw = isRecord(data) && Array.isArray(data.events) ? data.events : []
 
-  const events: ObservatoryEvent[] = []
+  const events: RhizomorphEvent[] = []
   for (const candidate of raw) {
     const parsed = parseEvent(candidate)
     if (parsed.ok) events.push(parsed.event)

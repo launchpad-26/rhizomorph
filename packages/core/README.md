@@ -1,4 +1,4 @@
-# @observatory/core
+# @rhizomorph/core
 
 The event contract and every pure derivation over it. Server, collectors and
 web all import from here; nothing here imports from them.
@@ -7,7 +7,7 @@ web all import from here; nothing here imports from them.
 events → reduce() → SessionState → selectors → panels / scene
 ```
 
-Import everything from the package root: `import { ... } from '@observatory/core'`.
+Import everything from the package root: `import { ... } from '@rhizomorph/core'`.
 
 ## Events
 

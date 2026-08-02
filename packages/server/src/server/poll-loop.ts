@@ -1,5 +1,5 @@
-import type { AnyCollector, Exec } from '@observatory/core'
-import { createCollectorContext, createEvent, createIdFactory } from '@observatory/core'
+import type { AnyCollector, Exec } from '@rhizomorph/core'
+import { createCollectorContext, createEvent, createIdFactory } from '@rhizomorph/core'
 import type { SessionRecorder } from './recorder.js'
 import type { SnapshotStore } from './snapshot-store.js'
 

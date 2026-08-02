@@ -7,9 +7,9 @@ import {
   type AgentThread,
   type Collector,
   type CollectorContext,
-  type ObservatoryEvent,
+  type RhizomorphEvent,
   type PollResult,
-} from '@observatory/core'
+} from '@rhizomorph/core'
 import { parseAssistantLine } from './parse-session-line.js'
 import { parseWorktreePaths } from './parse-worktree-paths.js'
 import { readNewLines } from './tail.js'
@@ -113,7 +113,7 @@ export function createSessionlogCollector(
         )
       }
 
-      const events: ObservatoryEvent[] = []
+      const events: RhizomorphEvent[] = []
       const nextErroredExtraSessionDirs: Record<string, true> = {}
       const extraWatchedDirs: WatchedDir[] = []
 
@@ -259,7 +259,7 @@ async function tailProjectDir(
   claudeProjectsRoot: string,
   dir: WatchedDir,
   context: CollectorContext,
-  events: ObservatoryEvent[],
+  events: RhizomorphEvent[],
   nextFiles: Record<string, TailedFileState>,
   backfill: boolean,
 ): Promise<void> {

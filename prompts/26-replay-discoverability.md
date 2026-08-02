@@ -1,4 +1,4 @@
-You are a worker agent building The Observatory. You own exactly one issue.
+You are a worker agent building The Rhizomorph. You own exactly one issue.
 
 FIRST read docs/prd0.md, docs/demo.md (Act 2 is the feature you are fixing)
 and packages/web/src/replay/index.tsx. The app is fully merged and running.

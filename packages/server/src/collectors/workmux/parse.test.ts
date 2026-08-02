@@ -30,7 +30,7 @@ describe('parseStatusTable', () => {
         handle: '4-tmux-collector',
         status: 'working',
         elapsedSeconds: 5 * 60,
-        detail: '⠐ Implement tmux collector for The Observatory',
+        detail: '⠐ Implement tmux collector for The Rhizomorph',
       },
       {
         handle: '5-workmux-collector',

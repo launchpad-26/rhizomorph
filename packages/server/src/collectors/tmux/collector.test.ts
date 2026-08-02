@@ -1,5 +1,5 @@
-import type { CollectorContext, Exec, ExecResult } from '@observatory/core'
-import { createEvent } from '@observatory/core'
+import type { CollectorContext, Exec, ExecResult } from '@rhizomorph/core'
+import { createEvent } from '@rhizomorph/core'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { hashPaneContent } from './capture.js'
 import { tmuxCollector } from './collector.js'

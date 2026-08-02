@@ -1,5 +1,5 @@
-import type { AnyCollector, Collector, ObservatoryEvent } from '@observatory/core'
-import { reduceAll } from '@observatory/core'
+import type { AnyCollector, Collector, RhizomorphEvent } from '@rhizomorph/core'
+import { reduceAll } from '@rhizomorph/core'
 import { gitCollector } from '../collectors/git/index.js'
 import type { DisableableSnapshot } from '../collectors/resilience.js'
 import { withResilience } from '../collectors/resilience.js'
@@ -33,7 +33,7 @@ import { createWorkmuxCollector } from '../collectors/workmux/index.js'
  */
 export async function loadCollectors(
   _log: { warn: (msg: string) => void } = console,
-  priorEvents: readonly ObservatoryEvent[] = [],
+  priorEvents: readonly RhizomorphEvent[] = [],
 ): Promise<AnyCollector[]> {
   const folded = reduceAll(priorEvents)
   function wrap<S extends DisableableSnapshot>(collector: Collector<S>): AnyCollector {

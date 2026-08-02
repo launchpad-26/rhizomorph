@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { createEventFactory, type ObservatoryEvent } from '@observatory/core'
+import { createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FleetProvider } from '../fleet/FleetContext.js'
 import type { FetchLike } from '../fleet/manifest.js'
@@ -40,10 +40,10 @@ class ScriptedEventSource implements EventSourceLike {
 }
 
 /** Just enough log for one real lane to exist in the derived fleet. */
-function laneHistory(): ObservatoryEvent[] {
+function laneHistory(): RhizomorphEvent[] {
   const f = createEventFactory({ startTs: NOW - 20_000, stepMs: 2_000 })
   return [
-    f.sessionStarted({ repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' }),
+    f.sessionStarted({ repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' }),
     f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-main', isMain: true }),
     f.worktreeDiscovered({ path: WORKTREE, branch: LANE, head: 'sha-84', isMain: false }),
     f.toolActivity({ lane: LANE, branch: LANE, worktreePath: WORKTREE, sessionId: 'sess-84', tool: 'Read' }),

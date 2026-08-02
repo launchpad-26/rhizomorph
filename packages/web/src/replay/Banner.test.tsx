@@ -1,4 +1,4 @@
-import { createEvent, createIdFactory } from '@observatory/core'
+import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ModeProvider, useReplay } from '../app/ModeContext.js'
@@ -13,7 +13,7 @@ function sessionEvents() {
   return [
     createEvent(
       'session.started',
-      { sessionId: 's1', repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' },
+      { sessionId: 's1', repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' },
       { id: nextId(), ts: 1_000 },
     ),
     createEvent(
@@ -79,13 +79,13 @@ describe('ReplayBanner', () => {
   it('shows session identity — repo and recording file', async () => {
     await renderBanner()
     const identity = screen.getByTitle('session identity')
-    expect(identity).toHaveTextContent('observatory')
+    expect(identity).toHaveTextContent('rhizomorph')
     expect(identity).toHaveTextContent('session-1000.jsonl')
   })
 
   it('exits to live cleanly on click', async () => {
     await renderBanner()
-    expect(screen.getByText('observatory')).toBeInTheDocument()
+    expect(screen.getByText('rhizomorph')).toBeInTheDocument()
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Exit to live' }))

@@ -10,7 +10,7 @@ import {
 } from './collisions.js'
 import { selectFilesTouchedByBranch, selectMainShas, selectTouchesByBranch } from './touches.js'
 
-const REPO = '/repo/observatory'
+const REPO = '/repo/rhizomorph'
 const wt = (name: string) => `${REPO}-wt/${name}`
 
 let f = createEventFactory()

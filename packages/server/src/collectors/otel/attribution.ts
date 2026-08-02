@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { agentRoleSchema, UNATTRIBUTED_LANE, type AgentRole } from '@observatory/core'
+import { agentRoleSchema, UNATTRIBUTED_LANE, type AgentRole } from '@rhizomorph/core'
 import { attrString, type OtlpKeyValue } from './types.js'
 
 /**
@@ -36,7 +36,7 @@ export function resolveLane(
  * `query_source: auxiliary` maps to the auxiliary role, and anything left
  * over is an ordinary worker. Role is never inferred from the lane string —
  * a lane literally named `conductor` is not evidence of anything; only the
- * declared `role` resource attribute is. `observatory env` emits `role` for
+ * declared `role` resource attribute is. `rhizomorph env` emits `role` for
  * every lane we launch, so post-#60 every accepted post already carries it —
  * the `worker` default below is a backstop for a post that skipped that
  * block, not a channel anyone should rely on for real attribution.

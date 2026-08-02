@@ -15,14 +15,14 @@ whole orchestra from. That's the gap.
 
 ## What we want to exist
 
-Type `observatory` in any repo running a worktree swarm and get a radar
+Type `rhizomorph` in any repo running a worktree swarm and get a radar
 screen at localhost: worktrees as stations, the branch graph growing live,
 commits landing as pulses, agents glowing when active and dimming when they
 flatline. Instruments aimed at the day's real failure modes — a **collision
 matrix** that goes red when two worktrees touch the same file *before* the
 merge pain, a **flatline detector** for agents that have quietly died.
 Everything event-sourced from the first minute, so **replay** falls out free —
-and the demo is the Observatory replaying its own birth. On top: a Three.js
+and the demo is the Rhizomorph replaying its own birth. On top: a Three.js
 scene that makes the swarm look like the living thing it is.
 
 ## What this is never

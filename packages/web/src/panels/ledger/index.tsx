@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from 'react'
-import { reduceAll, selectSpendByBranch } from '@observatory/core'
+import { reduceAll, selectSpendByBranch } from '@rhizomorph/core'
 import { useStream } from '../../app/StreamContext.js'
 import { formatTokens } from '../../lib/format.js'
 import {

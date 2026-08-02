@@ -1,5 +1,5 @@
-import type { BranchSpend, LaneSpend, SessionState, ThreadSpend } from '@observatory/core'
-import { selectSpendForLane } from '@observatory/core'
+import type { BranchSpend, LaneSpend, SessionState, ThreadSpend } from '@rhizomorph/core'
+import { selectSpendForLane } from '@rhizomorph/core'
 
 /**
  * A branch row's thread sub-rows, or none when they cannot be shown honestly.

@@ -1,4 +1,4 @@
-import { createEvent, createIdFactory } from '@observatory/core'
+import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ModeProvider } from '../app/ModeContext.js'
@@ -40,7 +40,7 @@ function fixtureEvents() {
   return [
     createEvent(
       'session.started',
-      { sessionId: 's1', repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' },
+      { sessionId: 's1', repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' },
       { id: nextId(), ts: 1000 },
     ),
     createEvent(
@@ -84,7 +84,7 @@ function makeMultiSessionFetch(): FetchLike {
   const stubEvents = [
     createEvent(
       'session.started',
-      { sessionId: 'stub', repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' },
+      { sessionId: 'stub', repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' },
       { id: nextId(), ts: 500 },
     ),
   ]
@@ -203,7 +203,7 @@ function moneyEvents() {
   return [
     createEvent(
       'session.started',
-      { sessionId: 'm1', repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' },
+      { sessionId: 'm1', repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' },
       { id: nextId(), ts: 1000 },
     ),
     createEvent(

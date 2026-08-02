@@ -63,11 +63,11 @@ describe('fetchInstanceId', () => {
     }) as typeof globalThis.fetch
 
     await expect(fetchInstanceId(4321, { fetch: fetchImpl })).rejects.toThrow(
-      /cannot read this Observatory's instance id on port 4321[\s\S]*npm start -- --port 4321/,
+      /cannot read this Rhizomorph's instance id on port 4321[\s\S]*npm start -- --port 4321/,
     )
   })
 
-  it('rejects a non-200 and a body with no session id — not an Observatory', async () => {
+  it('rejects a non-200 and a body with no session id — not an Rhizomorph', async () => {
     await expect(
       fetchInstanceId(4321, { fetch: metaFetch({}, { status: 502 }) }),
     ).rejects.toThrow(/HTTP 502/)
@@ -78,12 +78,12 @@ describe('fetchInstanceId', () => {
 })
 
 /**
- * The end-to-end claim #60 makes: what `observatory env` prints is wired to the
- * instance id of the Observatory actually listening on that port. Boots a real
+ * The end-to-end claim #60 makes: what `rhizomorph env` prints is wired to the
+ * instance id of the Rhizomorph actually listening on that port. Boots a real
  * server on an ephemeral port and reads it back through the real CLI path — no
  * stubbed fetch, nothing to drift out of sync with `/api/meta`.
  */
-describe('observatory env against a live server', () => {
+describe('rhizomorph env against a live server', () => {
   let dataRoot: string
   let server: CliHandle | undefined
 
@@ -98,7 +98,7 @@ describe('observatory env against a live server', () => {
     }) as (code: number) => never
 
   beforeEach(async () => {
-    dataRoot = await mkdtemp(path.join(tmpdir(), 'observatory-env-test-'))
+    dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-env-test-'))
   })
 
   afterEach(async () => {

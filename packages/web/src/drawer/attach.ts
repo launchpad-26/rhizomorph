@@ -1,8 +1,8 @@
-import type { ObservatoryEvent } from '@observatory/core'
+import type { RhizomorphEvent } from '@rhizomorph/core'
 import { MAIN_SELECTION, type Lane, type RootMass } from '../fleet/index.js'
 
 /**
- * THE ATTACH COMMAND (ruling 17) — the one thing in the Observatory that hands
+ * THE ATTACH COMMAND (ruling 17) — the one thing in the Rhizomorph that hands
  * an operator a way to *talk* to an agent, and it does it by putting text on
  * the clipboard.
  *
@@ -75,7 +75,7 @@ export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
-function payloadOf(event: ObservatoryEvent): Record<string, unknown> {
+function payloadOf(event: RhizomorphEvent): Record<string, unknown> {
   return event.payload as Record<string, unknown>
 }
 
@@ -85,7 +85,7 @@ function payloadOf(event: ObservatoryEvent): Record<string, unknown> {
  * window that no longer exists is worse than admitting we don't know.
  */
 export function findTmuxIdentity(
-  events: readonly ObservatoryEvent[],
+  events: readonly RhizomorphEvent[],
   lane: AttachLane,
 ): TmuxIdentity | null {
   const closed = new Set<string>()
@@ -155,7 +155,7 @@ export type AttachRoot = Pick<RootMass, 'mainBranch' | 'worktreePath'>
  * plausible one that does the wrong thing.
  */
 export function conductorAttachPlan(
-  events: readonly ObservatoryEvent[],
+  events: readonly RhizomorphEvent[],
   root: AttachRoot,
 ): AttachPlan {
   const identity = findTmuxIdentity(events, {
@@ -183,11 +183,11 @@ export function conductorAttachPlan(
     note:
       'NO PANE ON RECORD for the conductor — nothing the tmux collector saw sits in ' +
       `${root.worktreePath ?? 'the main worktree'} or answers to “conductor”, so there is no ` +
-      'address to attach to — run: `observatory doctor`',
+      'address to attach to — run: `rhizomorph doctor`',
   }
 }
 
-export function attachPlan(events: readonly ObservatoryEvent[], lane: AttachLane): AttachPlan {
+export function attachPlan(events: readonly RhizomorphEvent[], lane: AttachLane): AttachPlan {
   if (!lane.present) {
     return {
       kind: 'none',

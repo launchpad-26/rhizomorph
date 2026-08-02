@@ -1,7 +1,7 @@
-# Observatory prd5 — a motion language for the mycelium canvas
+# Rhizomorph prd5 — a motion language for the mycelium canvas
 
 > Researched 2026-08-01 to serve one decision: **groom prd5 motion issues** —
-> how much more animation the Observatory scene may take, at what speeds, and
+> how much more animation the Rhizomorph scene may take, at what speeds, and
 > how completed lanes visually disconnect.
 > Claims tagged `[Ran]` / `[Verified]` / `[Consensus]` / `[Thin]`.
 
@@ -63,7 +63,7 @@ From the shipped token source [Verified —
 - `entrance` productive `[0, 0, 0.38, 0.9]`; `exit` productive `[0.2, 0, 1, 0.9]`
 
 The productive/expressive split is the useful idea: **productive = get out of
-the way, expressive = this is worth your attention.** Observatory's ambient
+the way, expressive = this is worth your attention.** Rhizomorph's ambient
 layer is productive; the disconnect is the one expressive moment.
 
 **Material 3** [Verified — `material-web/tokens/versions/v0_192/_md-sys-motion.scss`
@@ -88,7 +88,7 @@ or eliminate animations".
 **Calm technology** [Verified — calmtech.com, Amber Case, after Weiser & Brown]:
 "Technology should require the smallest possible amount of attention"; a calm
 technology "will move easily from the periphery of our attention, to the center,
-and back". That last line is the Observatory's whole design brief. Ambient
+and back". That last line is the Rhizomorph's whole design brief. Ambient
 motion earns its place only if it can be *ignored*; the moment a viewer must
 consciously suppress it, it has failed.
 
@@ -108,7 +108,7 @@ Motion's newer time-API defaults `duration` 800 ms, `bounce` 0.25, `restSpeed`
 "Spring-Physics First… but we support durations with easings as well"
 [Verified — repo README]; it does not itself argue the case.
 
-**Rule for Observatory:** springs for anything that can be *interrupted or
+**Rule for Rhizomorph:** springs for anything that can be *interrupted or
 retargeted* (lane layout when the set of lanes changes mid-animation); fixed
 curves for discrete one-shot events (pulse travel, arrival flare) where
 determinism matters because the animation encodes a fact.
@@ -242,7 +242,7 @@ WCAG 2.3.3 *Animation from Interactions* (**Level AAA**): interaction-triggered
 motion animation must be disableable "unless the animation is essential";
 "motion animation" excludes changes to colour, blur, and opacity that do not
 alter perceived position or size [Verified — W3C Understanding doc]. **That
-exclusion is the degradation map**: reduced-motion Observatory keeps colour and
+exclusion is the degradation map**: reduced-motion Rhizomorph keeps colour and
 opacity, drops travel and scale.
 
 WCAG 2.2.2 *Pause, Stop, Hide* (**Level A** — the one that actually bites): any

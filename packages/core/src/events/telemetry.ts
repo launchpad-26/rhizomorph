@@ -163,8 +163,8 @@ export const toolActivityPayloadSchema = z.object({
 export type ToolActivityPayload = z.infer<typeof toolActivityPayloadSchema>
 
 /**
- * A telemetry export this Observatory refused: prd2's ruling is one repo, one
- * Observatory, so a POST that does not carry our instance id is a
+ * A telemetry export this Rhizomorph refused: prd2's ruling is one repo, one
+ * Rhizomorph, so a POST that does not carry our instance id is a
  * misconfiguration (two servers, a stale env block, another repo's exporter) —
  * surfaced as a setup gap, never silently merged into our numbers and never
  * silently dropped.

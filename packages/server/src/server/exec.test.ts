@@ -15,7 +15,7 @@ describe('exec', () => {
   })
 
   it('reports failure with an error message for a missing binary', async () => {
-    const result = await exec('observatory-definitely-not-a-real-binary', [])
+    const result = await exec('rhizomorph-definitely-not-a-real-binary', [])
     expect(result.failed).toBe(true)
     expect(result.code).toBeNull()
     expect(result.errorMessage).toBeTruthy()

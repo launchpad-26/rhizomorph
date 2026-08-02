@@ -1,4 +1,4 @@
-import { createEvent, createIdFactory } from '@observatory/core'
+import { createEvent, createIdFactory } from '@rhizomorph/core'
 import type { FastifyError, FastifyInstance, FastifyReply } from 'fastify'
 import { parseMetricsExport, validateLogsExport } from '../collectors/otel/index.js'
 import type { ServerContext } from '../server/context.js'
@@ -14,8 +14,8 @@ import type { ServerContext } from '../server/context.js'
  * **Instance identity (prd2 wave B, #60).** The live baseline found another
  * repo's lanes inside this repo's dashboard: the receiver took any POST from
  * anyone, and `.workmux.yaml` hard-coded the default port, so whichever
- * Observatory was listening swallowed every repo's exports. The operator's
- * ruling is one repo, one Observatory — a foreign post is a misconfiguration,
+ * Rhizomorph was listening swallowed every repo's exports. The operator's
+ * ruling is one repo, one Rhizomorph — a foreign post is a misconfiguration,
  * surfaced as a setup gap, never silently merged and never silently dropped.
  *
  * So every accepted export must declare our instance id in its resource
@@ -23,7 +23,7 @@ import type { ServerContext } from '../server/context.js'
  * minted when the session starts, persisted with it, and carried across a
  * restart by the resumed run (#58) — which is exactly the lifetime a lane's env
  * block needs. It is already published on `/api/meta`, where
- * `observatory env <lane>` reads it.
+ * `rhizomorph env <lane>` reads it.
  */
 export function registerOtelRoutes(
   app: FastifyInstance,
@@ -189,7 +189,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function refusalMessage(declared: string | null, expected: string): string {
   const who = declared === null ? 'declared no instance' : `declared instance "${declared}"`
-  return `refused: this Observatory is instance ${expected}, and this export ${who} — one repo, one Observatory. Re-generate the lane's env with \`observatory env <lane> --port <port>\` against the server you meant to export to.`
+  return `refused: this Rhizomorph is instance ${expected}, and this export ${who} — one repo, one Rhizomorph. Re-generate the lane's env with \`rhizomorph env <lane> --port <port>\` against the server you meant to export to.`
 }
 
 interface RefusalThrottle {

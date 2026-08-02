@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createEventFactory, type ObservatoryEvent } from '@observatory/core'
+import { createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { StreamProvider } from '../../app/StreamContext.js'
 import { FleetProvider } from '../../fleet/FleetContext.js'
 import type { FetchLike } from '../../fleet/manifest.js'
@@ -11,7 +11,7 @@ import ActivityFeed from './index.js'
 afterEach(cleanup)
 
 const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
-const REPO = '/repo/observatory'
+const REPO = '/repo/rhizomorph'
 const WT = (name: string) => `${REPO}-wt/${name}`
 
 /** A server that has not shipped `.swarm/lanes.json` — off-fence is not this test's concern. */
@@ -53,13 +53,13 @@ function renderFeed(initialSelectedId: string | null = null) {
   )
   return {
     ...utils,
-    emit: (event: ObservatoryEvent) => act(() => source?.emit(event)),
+    emit: (event: RhizomorphEvent) => act(() => source?.emit(event)),
     open: () => act(() => source?.open()),
   }
 }
 
 /** Two lanes, one landing, one lane restart, and both flavours of collector trouble. */
-function scenarioEvents(): ObservatoryEvent[] {
+function scenarioEvents(): RhizomorphEvent[] {
   const f = createEventFactory({ startTs: NOW - 10 * 60_000, stepMs: 60_000 })
 
   f.sessionStarted()

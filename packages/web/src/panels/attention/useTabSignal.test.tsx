@@ -1,4 +1,4 @@
-import { reduceAll } from '@observatory/core'
+import { reduceAll } from '@rhizomorph/core'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
@@ -29,7 +29,7 @@ function Harness({ fleet }: { fleet: Fleet }) {
 }
 
 beforeEach(() => {
-  document.title = 'Observatory Test'
+  document.title = 'Rhizomorph Test'
   document.querySelectorAll(ICON_SELECTOR).forEach((el) => el.remove())
 })
 
@@ -44,7 +44,7 @@ describe('useTabSignal', () => {
 
     render(<Harness fleet={calm} />)
 
-    expect(document.title).toBe('Observatory Test')
+    expect(document.title).toBe('Rhizomorph Test')
     expect(document.querySelector(ICON_SELECTOR)).toBeNull()
   })
 
@@ -76,7 +76,7 @@ describe('useTabSignal', () => {
 
     rerender(<Harness fleet={calm} />)
 
-    expect(document.title).toBe('Observatory Test')
+    expect(document.title).toBe('Rhizomorph Test')
     expect(document.querySelector(ICON_SELECTOR)).toBeNull()
   })
 })

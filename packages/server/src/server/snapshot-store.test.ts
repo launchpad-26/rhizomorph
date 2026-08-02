@@ -8,7 +8,7 @@ describe('createFileSnapshotStore', () => {
   let dir: string
 
   beforeEach(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), 'observatory-snapshot-test-'))
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-snapshot-test-'))
   })
 
   afterEach(async () => {

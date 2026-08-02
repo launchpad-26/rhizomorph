@@ -1,4 +1,4 @@
-import type { DirtyFile } from '@observatory/core'
+import type { DirtyFile } from '@rhizomorph/core'
 
 /** Internal snapshot shape for the git collector — opaque to the poll loop. */
 

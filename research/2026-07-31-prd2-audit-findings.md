@@ -55,7 +55,7 @@ note carries the evidence.
   renames lanes across restarts.
 - **Open receiver.** `api/otel.ts:29-40` accepts any POST — no auth, no instance
   or repo check — and `.workmux.yaml:22` hard-codes the default port, so a second
-  repo on the same box exports into whichever Observatory is listening.
+  repo on the same box exports into whichever Rhizomorph is listening.
 - **Fallback lane churn.** An untagged agent falls back to `shortHash(session.id)`
   (`attribution.ts:28`), minting a new lane on every restart.
 
@@ -78,27 +78,27 @@ note carries the evidence.
 
 ## D. A stranger cannot run it — `[Ran]`
 
-- `npx observatory` is the only documented command (`README.md:19`,
+- `npx rhizomorph` is the only documented command (`README.md:19`,
   `docs/demo.md:12`). The root package is `private: true`, `version: 0.0.0`, with
   no `bin`; `package-lock.json:5043-5053` predates the `bin` added to
-  `packages/server`. `[Ran]` `npx --no-install observatory --help` →
-  *"could not determine executable to run"*; `node_modules/.bin/observatory` absent.
-- `[Ran]` `npm view observatory` → a real, unrelated package
+  `packages/server`. `[Ran]` `npx --no-install rhizomorph --help` →
+  *"could not determine executable to run"*; `node_modules/.bin/rhizomorph` absent.
+- `[Ran]` `npm view rhizomorph` → a real, unrelated package
   ("Beautiful UI for showing tasks running on the command line"). **A stranger
   following our README installs someone else's code.**
-- What actually works, documented nowhere: `node packages/server/bin/observatory.mjs --help`,
-  `npm exec --workspace packages/server -- observatory --help`.
+- What actually works, documented nowhere: `node packages/server/bin/rhizomorph.mjs --help`,
+  `npm exec --workspace packages/server -- rhizomorph --help`.
 - No clone URL anywhere in the repo; no `engines` despite README claiming Node 22;
   no LICENSE; no CI; no root `build`/`start` script; no doctor/status command.
 - Missing web dist → the static route is silently skipped
   (`server/build-app.ts:12-14`) and the browser gets a bare JSON 404.
 - A non-git directory emits `collector.error` **every 2 seconds forever**
   (`git-collector.ts:32-41` never latches, unlike every other collector).
-- `EADDRINUSE` is an unhandled rejection (`cli/index.ts:112`, `bin/observatory.mjs:8`).
+- `EADDRINUSE` is an unhandled rejection (`cli/index.ts:112`, `bin/rhizomorph.mjs:8`).
 - Status bar covers 3 of 5 collectors (`app/StatusBar.tsx:7-9`) — sessionlog and
   otel health are invisible, and sessionlog is the most likely thing to be broken.
 - Personal data ships in the UI: `packages/web/src/scene/fixtures.ts:39,55`
-  hardcodes `/home/operator/observatory` and real names into the demo
+  hardcodes `/home/operator/rhizomorph` and real names into the demo
   constellation rendered whenever the stream is empty.
 
 ## Verdict
@@ -112,7 +112,7 @@ trusted until they are session-scoped and correctly timestamped.
 - Is `selectOverheadRatio` on tokens or cost? The audit read
   `selectors/spend.ts:404-420` as **tokens**, while issue #47's commit message
   claims cost. Resolve before relying on the figure.
-- A published name: `observatory` is taken on npm. Scoped name, or a new one?
+- A published name: `rhizomorph` is taken on npm. Scoped name, or a new one?
   **Lachlan's call, not the fleet's.**
 - Cross-machine conductors: is a shared receiver ever wanted, or is one
-  Observatory per machine the honest model?
+  Rhizomorph per machine the honest model?

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createEventFactory, type ObservatoryEvent } from '@observatory/core'
+import { createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { sessionFilePath } from '../log/session-log.js'
@@ -28,12 +28,12 @@ import {
  * than restated.
  */
 const LANE = '84-chat-drawer'
-const WORKTREE = '/tmp/observatory-fixture/84-chat-drawer'
-const PROJECT_SLUG = '-tmp-observatory-fixture-84-chat-drawer'
+const WORKTREE = '/tmp/rhizomorph-fixture/84-chat-drawer'
+const PROJECT_SLUG = '-tmp-rhizomorph-fixture-84-chat-drawer'
 const SESSION_ID = 'sess-84'
 
 /** Where an `--extra-sessions` conductor's own log lives, in the attribution. */
-const CONDUCTOR_DIR = '/tmp/observatory-fixture/conductor'
+const CONDUCTOR_DIR = '/tmp/rhizomorph-fixture/conductor'
 
 function assistantLine(text: string, extra: Record<string, unknown> = {}): string {
   return JSON.stringify({
@@ -71,7 +71,7 @@ function proseOf(entry: TranscriptEntry | null): string {
 }
 
 /** Events shaped exactly as the sessionlog collector emits them for this lane. */
-function laneEvents(): ObservatoryEvent[] {
+function laneEvents(): RhizomorphEvent[] {
   const f = createEventFactory()
   return [
     f.llmUsage({ lane: LANE, branch: LANE, sessionId: SESSION_ID, worktreePath: WORKTREE }),
@@ -345,7 +345,7 @@ describe('readTranscript', () => {
   let projectsRoot: string
 
   beforeEach(async () => {
-    projectsRoot = await mkdtemp(path.join(tmpdir(), 'observatory-transcript-'))
+    projectsRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-transcript-'))
   })
 
   afterEach(async () => {
@@ -621,7 +621,7 @@ describe('readTranscript', () => {
       if (result.available) return
       expect(result.reason).toContain('CONDUCTOR NOT INSTRUMENTED')
       expect(result.reason).toContain('role: conductor')
-      expect(result.reason).toContain('observatory --extra-sessions <dir>:conductor')
+      expect(result.reason).toContain('rhizomorph --extra-sessions <dir>:conductor')
       // Never the worker voice: "no such lane main" would send the operator
       // looking for a worktree that was never the point.
       expect(result.reason).not.toContain('NO SUCH LANE')
@@ -648,7 +648,7 @@ describe('readTranscript', () => {
       if (result.available) return
       expect(result.reason).toContain('NO SESSION LOG for the conductor')
       expect(result.reason).toContain('no session id')
-      expect(result.reason).toContain('observatory doctor')
+      expect(result.reason).toContain('rhizomorph doctor')
       expect(result.unknownLane).toBe(false)
     })
 
@@ -700,8 +700,8 @@ describe('GET /api/transcript/:lane', () => {
   let sessionDir: string
 
   beforeEach(async () => {
-    projectsRoot = await mkdtemp(path.join(tmpdir(), 'observatory-transcript-route-'))
-    sessionDir = await mkdtemp(path.join(tmpdir(), 'observatory-transcript-session-'))
+    projectsRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-transcript-route-'))
+    sessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-transcript-session-'))
   })
 
   afterEach(async () => {
@@ -711,7 +711,7 @@ describe('GET /api/transcript/:lane', () => {
     ])
   })
 
-  async function makeApp(events: readonly ObservatoryEvent[] = laneEvents()) {
+  async function makeApp(events: readonly RhizomorphEvent[] = laneEvents()) {
     const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'), {
       resumeFrom: events,
     })

@@ -1,4 +1,4 @@
-You are a worker agent on The Observatory (prd2 follow-up, operator-ruled).
+You are a worker agent on The Rhizomorph (prd2 follow-up, operator-ruled).
 You own exactly one issue — a one-sentence-scale docs truth alignment.
 
 YOUR ISSUE — #74 (74. Align the macOS claim with what CI verifies)

@@ -1,4 +1,4 @@
-import type { Collector, CollectorContext, ObservatoryEvent, PollResult } from '@observatory/core'
+import type { Collector, CollectorContext, RhizomorphEvent, PollResult } from '@rhizomorph/core'
 import { countLines, hashPaneContent, lastNonEmptyLine } from './capture.js'
 import { LIST_PANES_FORMAT, parseListPanes } from './list-panes.js'
 import { resolveWorktreePath } from './worktree.js'
@@ -58,7 +58,7 @@ export const tmuxCollector: Collector<TmuxSnapshot> = {
       }
     }
 
-    const events: ObservatoryEvent[] = []
+    const events: RhizomorphEvent[] = []
     const nextPanes: Record<string, TmuxPaneSnapshot> = {}
     const worktreeByPath = { ...prevSnapshot.worktreeByPath }
 

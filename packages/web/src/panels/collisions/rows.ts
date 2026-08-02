@@ -5,7 +5,7 @@ import {
   selectWorktreeViews,
   type CollisionEntry,
   type SessionState,
-} from '@observatory/core'
+} from '@rhizomorph/core'
 
 /**
  * Row ordering for the matrix: collided files first (worst contention first,

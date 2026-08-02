@@ -1,4 +1,4 @@
-import { commitDiffStat, type CommitRecord } from '@observatory/core'
+import { commitDiffStat, type CommitRecord } from '@rhizomorph/core'
 
 /**
  * The feed's own formatting: a wall-clock time (mono, tabular — law 11) and a

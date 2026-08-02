@@ -27,7 +27,7 @@ keyboard shortcuts — no swarm, no telemetry, no setup beyond this:
 
 | Key | Source | What it loads |
 |---|---|---|
-| `1` | `live` | The real collectors, watching whatever repo you pointed `observatory` at |
+| `1` | `live` | The real collectors, watching whatever repo you pointed `rhizomorph` at |
 | `2` | `fleet20` | A synthetic 20-lane fleet, every lane healthy — [ruling 22](prd3.md)'s scale test |
 | `3` | `pathology` | A synthetic fleet with exactly one lane per pathology, calm neighbours around them |
 
@@ -123,7 +123,7 @@ graft g6](prd3.md)); or the fixture showing a count other than five.
 > someone already fluent in the rest of the dashboard.
 
 1. With any fixture loaded (`2` or `3` both work — `3` gives more to look at),
-   hand the screen to someone who hasn't seen the Observatory before. Show
+   hand the screen to someone who hasn't seen the Rhizomorph before. Show
    them the SCENE panel only — it's the first thing under the top dock now
    ([prd4 ruling 2](prd4.md)), so this is naturally what they see first
    anyway; collapse or ignore the rest of the page regardless.
@@ -355,17 +355,17 @@ only how insistently the same rung reads.
   rest of the panel grid stand alone; PATHOLOGY and GLANCE still pass off the
   table alone (see Check 2, step 3).
 - **No lane manifest:** OFF-FENCE detection is unavailable, named as a gap
-  rather than silently absent — `observatory doctor` has its own
+  rather than silently absent — `rhizomorph doctor` has its own
   `lane-manifest` check for this.
 - **No telemetry env set on any lane:** the burn strip shows output tokens
   only, with `NO COST FEED (OTel) — dollars unavailable — run: eval
-  "$(observatory env <lane>)"` in place of a dollar figure — say so out loud,
+  "$(rhizomorph env <lane>)"` in place of a dollar figure — say so out loud,
   same empty-state discipline as every other gap.
 - **A lane is parked:** ([prd4 ruling 5](prd4.md)) it shows a dimmed `PARKED`
   in the STATE column instead of a pathology, stays off the attention ladder
   entirely, and is exempt from FROZEN/WAITING even at any age — this is a
   declaration an operator made in `.swarm/lanes.json` (`"parked": true`),
-  never something the read-only Observatory decided on its own.
+  never something the read-only Rhizomorph decided on its own.
 - **The conductor isn't instrumented:** ([prd6 ruling 5](prd6.md)) clicking
   MAIN still opens the drawer — it says `conductor not instrumented — its
   burn is unknown, not zero` in the vitals and conversation, rather than a

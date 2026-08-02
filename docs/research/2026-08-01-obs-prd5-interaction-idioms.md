@@ -1,4 +1,4 @@
-# Observatory prd5: canvas/node-graph interaction idioms
+# Rhizomorph prd5: canvas/node-graph interaction idioms
 
 > Researched 2026-08-01 to groom prd5 interaction issues (pannable/zoomable
 > mycelium canvas, fit affordances, COMPLETED-lane disconnection). Claims
@@ -42,7 +42,7 @@
    working with (tldraw: R-tree + `getCulledShapes()` which excludes
    selected/editing shapes). [Verified — https://tldraw.dev/sdk-features/culling]
 7. **Lifecycle:** no mainstream tool physically detaches finished nodes —
-   "cut the cord" is genuinely novel for Observatory (a feature, not a
+   "cut the cord" is genuinely novel for Rhizomorph (a feature, not a
    violation). Precedent supports: status restyle + fade + *removal from the
    live simulation* with an exit animation, plus a way to still find retired
    items (Obsidian's "Orphans" toggle; CI graphs keep completed jobs
@@ -96,7 +96,7 @@ workspace, highlighting the area currently visible"; drag inside it to jump.
 
 **Obsidian graph view** — drag to pan (or arrow keys, `Shift` to
 accelerate), scroll wheel or `+`/`-` to zoom. Forces exposed as settings:
-"Center force" (pull toward center — note: this is Observatory's root-mass
+"Center force" (pull toward center — note: this is Rhizomorph's root-mass
 physics as a user-facing knob), "Repel force", "Link force", "Link distance".
 Display: "Text fade threshold" (labels fade with zoom level), "Node size",
 "Animate" (chronological time-lapse). Filters include an **"Orphans" toggle**
@@ -188,7 +188,7 @@ the pointer to get zoom-to-cursor. Transform is the matrix
 - Does zoom-to-fit fight a *live* force layout (bounds change every tick)?
   Likely needs debounced or on-demand fit, not continuous. No prior art found
   for fit-to-moving-content; needs a spike.
-- Minimap: is one warranted at Observatory's node counts (~tens of lanes)?
+- Minimap: is one warranted at Rhizomorph's node counts (~tens of lanes)?
   Node-RED/React Flow ship one for large flows; below ~50 visible items the
   fit-shortcut + recenter button may cover it. Judgment call, not sourced.
 - Culling payoff at our scale is unmeasured — profile before building the

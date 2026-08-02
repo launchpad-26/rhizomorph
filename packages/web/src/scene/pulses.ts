@@ -1,4 +1,4 @@
-import type { ObservatoryEvent } from '@observatory/core'
+import type { RhizomorphEvent } from '@rhizomorph/core'
 import type { StreamState } from '../app/streamState.js'
 import { EVENT } from './motion.js'
 import { clamp01 } from './palette.js'
@@ -140,11 +140,11 @@ export class PulseField {
    * Fold a batch of **news**. Historical events must never reach here — that is
    * enforced by the caller being {@link takeNews} and nothing else.
    */
-  ingest(events: readonly ObservatoryEvent[], index: LaneIndex, now: number): void {
+  ingest(events: readonly RhizomorphEvent[], index: LaneIndex, now: number): void {
     for (const event of events) this.ingestOne(event, index, now)
   }
 
-  private ingestOne(event: ObservatoryEvent, index: LaneIndex, now: number): void {
+  private ingestOne(event: RhizomorphEvent, index: LaneIndex, now: number): void {
     switch (event.type) {
       case 'commit.landed': {
         const laneId = resolveLane(index, event)
@@ -427,7 +427,7 @@ export class PulseField {
 export function takeNews(
   state: Pick<StreamState, 'news' | 'newsCount'>,
   cursor: number,
-): { events: readonly ObservatoryEvent[]; cursor: number } {
+): { events: readonly RhizomorphEvent[]; cursor: number } {
   if (state.newsCount <= cursor) return { events: [], cursor: state.newsCount }
   const wanted = Math.min(state.newsCount - cursor, state.news.length)
   return {

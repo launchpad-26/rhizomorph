@@ -1,4 +1,4 @@
-import { type EventType, type ObservatoryEvent, type PayloadOf, createEvent } from './events/index.js'
+import { type EventType, type RhizomorphEvent, type PayloadOf, createEvent } from './events/index.js'
 
 /**
  * The contract between the poll loop (server) and every collector, so neither
@@ -72,12 +72,12 @@ export interface CollectorContext {
     type: T,
     payload: PayloadOf<T>,
     options?: EmitOptions,
-  ) => ObservatoryEvent
+  ) => RhizomorphEvent
 }
 
 export interface PollResult<Snapshot> {
   nextSnapshot: Snapshot
-  events: ObservatoryEvent[]
+  events: RhizomorphEvent[]
 }
 
 /**

@@ -14,7 +14,7 @@ export * from './tmux.js'
 export * from './workmux.js'
 
 /** The one event union every consumer reads. Discriminates on `type`. */
-export const observatoryEventSchema = z.discriminatedUnion('type', [
+export const rhizomorphEventSchema = z.discriminatedUnion('type', [
   ...gitEventSchemas,
   ...tmuxEventSchemas,
   ...workmuxEventSchemas,
@@ -22,12 +22,12 @@ export const observatoryEventSchema = z.discriminatedUnion('type', [
   ...telemetryEventSchemas,
 ])
 
-export type ObservatoryEvent = z.infer<typeof observatoryEventSchema>
+export type RhizomorphEvent = z.infer<typeof rhizomorphEventSchema>
 
-export type EventType = ObservatoryEvent['type']
+export type EventType = RhizomorphEvent['type']
 
 /** The concrete event for one type, e.g. `EventOf<'commit.landed'>`. */
-export type EventOf<T extends EventType> = Extract<ObservatoryEvent, { type: T }>
+export type EventOf<T extends EventType> = Extract<RhizomorphEvent, { type: T }>
 
 /** The payload for one type, e.g. `PayloadOf<'commit.landed'>`. */
 export type PayloadOf<T extends EventType> = EventOf<T>['payload']
@@ -99,16 +99,16 @@ export function createEvent<T extends EventType>(
     type,
     payload,
   }
-  return observatoryEventSchema.parse(candidate) as EventOf<T>
+  return rhizomorphEventSchema.parse(candidate) as EventOf<T>
 }
 
 export type EventParseResult =
-  | { ok: true; event: ObservatoryEvent }
+  | { ok: true; event: RhizomorphEvent }
   | { ok: false; error: string; issues: z.core.$ZodIssue[] }
 
 /** Validate an unknown value as an event. Never throws. */
 export function parseEvent(value: unknown): EventParseResult {
-  const result = observatoryEventSchema.safeParse(value)
+  const result = rhizomorphEventSchema.safeParse(value)
   if (result.success) return { ok: true, event: result.data }
   return {
     ok: false,
@@ -117,13 +117,13 @@ export function parseEvent(value: unknown): EventParseResult {
   }
 }
 
-export function isObservatoryEvent(value: unknown): value is ObservatoryEvent {
-  return observatoryEventSchema.safeParse(value).success
+export function isRhizomorphEvent(value: unknown): value is RhizomorphEvent {
+  return rhizomorphEventSchema.safeParse(value).success
 }
 
 /** Narrowing helper so consumers can filter a stream without casting. */
 export function isEventOfType<T extends EventType>(
-  event: ObservatoryEvent,
+  event: RhizomorphEvent,
   type: T,
 ): event is EventOf<T> {
   return event.type === type

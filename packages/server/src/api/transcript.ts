@@ -1,7 +1,7 @@
 import { open, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
-import type { ObservatoryEvent } from '@observatory/core'
+import type { RhizomorphEvent } from '@rhizomorph/core'
 import type { FastifyInstance } from 'fastify'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
 import type { ServerContext } from '../server/context.js'
@@ -185,7 +185,7 @@ interface Attribution {
  * have recorded the handle.
  */
 export function findLaneAttribution(
-  events: readonly ObservatoryEvent[],
+  events: readonly RhizomorphEvent[],
   lane: string,
 ): Attribution | null {
   for (let i = events.length - 1; i >= 0; i -= 1) {
@@ -234,7 +234,7 @@ export const CONDUCTOR_LANE = 'main'
  * types {@link findLaneAttribution} already reads; #88 is what put the
  * conductor's `llm.cost` events in the fold for this to find.
  */
-export function findConductorAttribution(events: readonly ObservatoryEvent[]): Attribution | null {
+export function findConductorAttribution(events: readonly RhizomorphEvent[]): Attribution | null {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]
     if (!event || !ATTRIBUTED_TYPES.has(event.type)) continue
@@ -256,7 +256,7 @@ export function findConductorAttribution(events: readonly ObservatoryEvent[]): A
 }
 
 /** True when the log carries conductor telemetry at all, session id or not. */
-function conductorIsKnown(events: readonly ObservatoryEvent[]): boolean {
+function conductorIsKnown(events: readonly RhizomorphEvent[]): boolean {
   return events.some((event) => (event.payload as { role?: unknown }).role === 'conductor')
 }
 
@@ -267,23 +267,23 @@ function conductorIsKnown(events: readonly ObservatoryEvent[]): boolean {
  * operator has not passed yet, while telemetry without a session id is a
  * collector that is running and not reporting.
  */
-function conductorGap(events: readonly ObservatoryEvent[]): string {
+function conductorGap(events: readonly RhizomorphEvent[]): string {
   if (conductorIsKnown(events)) {
     return (
       'NO SESSION LOG for the conductor — the log carries its telemetry but no session id was ' +
       'attributed to it, so its transcript cannot be located — only the sessionlog collector ' +
-      'attributes one: run: `observatory doctor`'
+      'attributes one: run: `rhizomorph doctor`'
     )
   }
   return (
     "CONDUCTOR NOT INSTRUMENTED — nothing in this session's event log was recorded against " +
     'role: conductor, so the orchestrator has no session for this drawer to read — ' +
-    'run: `observatory --extra-sessions <dir>:conductor`'
+    'run: `rhizomorph --extra-sessions <dir>:conductor`'
   )
 }
 
 /** True when the log mentions this lane at all, even without a session id. */
-function laneIsKnown(events: readonly ObservatoryEvent[], lane: string): boolean {
+function laneIsKnown(events: readonly RhizomorphEvent[], lane: string): boolean {
   return events.some((event) => {
     const payload = event.payload as { lane?: unknown; branch?: unknown; path?: unknown }
     return payload.lane === lane || payload.branch === lane
@@ -291,17 +291,17 @@ function laneIsKnown(events: readonly ObservatoryEvent[], lane: string): boolean
 }
 
 /** The worker half of law 12's answer: a lane with no session, or no lane at all. */
-function missingLaneGap(events: readonly ObservatoryEvent[], lane: string): string {
+function missingLaneGap(events: readonly RhizomorphEvent[], lane: string): string {
   if (laneIsKnown(events, lane)) {
     return (
       `NO SESSION LOG for "${lane}" — the log knows this lane but no session id was attributed ` +
       'to it, so its transcript cannot be located — only the sessionlog collector attributes ' +
-      'one: run: `observatory doctor`'
+      'one: run: `rhizomorph doctor`'
     )
   }
   return (
     `NO SUCH LANE "${lane}" — nothing in this session's event log names it, so there is no ` +
-    'transcript to tail — run: `observatory doctor`'
+    'transcript to tail — run: `rhizomorph doctor`'
   )
 }
 
@@ -506,7 +506,7 @@ export function parseTranscript(lines: readonly string[]): TranscriptEntry[] {
 // ── the read, end to end ─────────────────────────────────────────────────────
 
 export interface ReadTranscriptRequest {
-  events: readonly ObservatoryEvent[]
+  events: readonly RhizomorphEvent[]
   lane: string
   offset: number
   claudeProjectsRoot: string
@@ -573,7 +573,7 @@ export async function readTranscript(request: ReadTranscriptRequest): Promise<Tr
     reason:
       `NO SESSION LOG for ${whose} (session ${attribution.sessionId}) — the transcript is not on ` +
       `disk where the collector tails it (${tried}), so there is nothing to read — ` +
-      'run: `observatory doctor`',
+      'run: `rhizomorph doctor`',
     // The lane/conductor was resolved to a real, attributed session — only the
     // file on disk is missing, which is never "unknown identifier".
     unknownLane: false,
@@ -590,7 +590,7 @@ function parseOffset(raw: string | undefined): number | null {
 }
 
 /**
- * GET only, and that is load-bearing rather than incidental: an Observatory
+ * GET only, and that is load-bearing rather than incidental: an Rhizomorph
  * that cannot be POSTed to cannot be talked through, which is the read-only
  * constitution stated in routing rather than in a comment. Every other verb on
  * this path 404s because it was never registered.

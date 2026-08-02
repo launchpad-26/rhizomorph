@@ -1,4 +1,4 @@
-import type { Exec, ExecResult } from '@observatory/core'
+import type { Exec, ExecResult } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { resolveWorktreePath } from './worktree.js'
 

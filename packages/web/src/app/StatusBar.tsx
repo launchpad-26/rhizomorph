@@ -1,4 +1,4 @@
-import type { CollectorState } from '@observatory/core'
+import type { CollectorState } from '@rhizomorph/core'
 import { useFleet } from '../fleet/index.js'
 import { CONNECTION_DOT_CLASS, CONNECTION_LABEL } from './ConnectionBadge.js'
 import { useStream } from './StreamContext.js'

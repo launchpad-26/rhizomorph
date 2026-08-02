@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { createEvent, createIdFactory } from '@observatory/core'
+import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { useEventStream, type EventSourceLike } from './useEventStream.js'
 

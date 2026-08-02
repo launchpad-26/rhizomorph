@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import type { ObservatoryEvent } from '@observatory/core'
+import type { RhizomorphEvent } from '@rhizomorph/core'
 import { SessionLogWriter } from '../log/session-log.js'
 
 export interface SessionRecorderOptions {
@@ -12,7 +12,7 @@ export interface SessionRecorderOptions {
    *
    * Present-but-empty still means resuming; absent means a new session.
    */
-  resumeFrom?: readonly ObservatoryEvent[]
+  resumeFrom?: readonly RhizomorphEvent[]
 }
 
 /**
@@ -24,7 +24,7 @@ export interface SessionRecorderOptions {
 export class SessionRecorder {
   readonly sessionId: string
   readonly filePath: string
-  private readonly buffer: ObservatoryEvent[] = []
+  private readonly buffer: RhizomorphEvent[] = []
   private readonly emitter = new EventEmitter()
   private readonly writer: SessionLogWriter
 
@@ -38,19 +38,19 @@ export class SessionRecorder {
     this.emitter.setMaxListeners(0)
   }
 
-  async record(event: ObservatoryEvent): Promise<void> {
+  async record(event: RhizomorphEvent): Promise<void> {
     this.buffer.push(event)
     this.emitter.emit('event', event)
     await this.writer.append(event)
   }
 
   /** Every event recorded so far this session, in order. */
-  eventsSoFar(): ObservatoryEvent[] {
+  eventsSoFar(): RhizomorphEvent[] {
     return [...this.buffer]
   }
 
   /** Subscribes to events recorded from this point on. Returns an unsubscribe function. */
-  subscribe(listener: (event: ObservatoryEvent) => void): () => void {
+  subscribe(listener: (event: RhizomorphEvent) => void): () => void {
     this.emitter.on('event', listener)
     return () => this.emitter.off('event', listener)
   }

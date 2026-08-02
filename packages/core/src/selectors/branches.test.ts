@@ -3,7 +3,7 @@ import { createEventFactory } from '../fixtures.js'
 import { reduceAll } from '../reduce.js'
 import { selectAheadOfMain, selectBranchIndex, selectBranches } from './branches.js'
 
-const REPO = '/repo/observatory'
+const REPO = '/repo/rhizomorph'
 
 let f = createEventFactory()
 beforeEach(() => {

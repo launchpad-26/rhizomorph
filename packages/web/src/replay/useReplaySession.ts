@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   initialSessionState,
   reduceAll,
-  type ObservatoryEvent,
+  type RhizomorphEvent,
   type SessionState,
-} from '@observatory/core'
+} from '@rhizomorph/core'
 import { fetchSessionEvents, fetchSessions, type FetchLike, type SessionSummary } from './api.js'
 import { eventsUpTo, timeRangeOf, type TimeRange } from './replayFold.js'
 import { usePlayback, type UsePlaybackResult } from './usePlayback.js'
@@ -16,12 +16,12 @@ export interface ReplaySession {
   /** Selects a session and starts playback as soon as its events finish loading. */
   selectAndPlay(id: string): void
   /** Raw log for the selected session, fetched in full up front. */
-  events: ObservatoryEvent[]
+  events: RhizomorphEvent[]
   error: string | null
   playback: UsePlaybackResult
   range: TimeRange
   /** Events at or before the scrub time — the raw shape `StreamContext` serves panels. */
-  eventsAtScrubTime: ObservatoryEvent[]
+  eventsAtScrubTime: RhizomorphEvent[]
   /** The same slice, folded through the core reducer — the replay controls' own summary. */
   state: SessionState
   isReplaying: boolean
@@ -41,7 +41,7 @@ export interface UseReplaySessionOptions {
 export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): ReplaySession {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [events, setEvents] = useState<ObservatoryEvent[]>([])
+  const [events, setEvents] = useState<RhizomorphEvent[]>([])
   const [error, setError] = useState<string | null>(null)
   /** Session id awaiting its events before auto-starting playback (`selectAndPlay`). */
   const autoplaySessionIdRef = useRef<string | null>(null)

@@ -1,4 +1,4 @@
-# Telemetry capture routes for Observatory prd1 (cost/token tracking)
+# Telemetry capture routes for Rhizomorph prd1 (cost/token tracking)
 
 > Researched 2026-07-30 for **one decision: which capture route(s) power
 > prd1's cost/token telemetry.** Claims tagged [Ran] / [Verified] / [Thin].
@@ -7,7 +7,7 @@
 
 ## The decision in one line
 
-prd1 needs per-lane token/cost data flowing into the Observatory's event log.
+prd1 needs per-lane token/cost data flowing into the Rhizomorph's event log.
 Three candidate routes (per the JV call, treated as spikes, not gospel):
 Claude Code OpenTelemetry, session-JSONL mining, LiteLLM proxy.
 
@@ -113,9 +113,9 @@ for prd1 since both target CLIs emit OTel natively.
 ## Langfuse — feed it or stay self-contained? [Verified, docs only]
 
 Langfuse (open-source, self-hostable) ingests via SDKs, OTLP, and LiteLLM;
-UI covers traces/cost/session views. It is a *platform*; the Observatory's
+UI covers traces/cost/session views. It is a *platform*; the Rhizomorph's
 identity is a zero-config sidecar with its own append-only event log.
-Stance: **Observatory remains the sink and source of truth for prd1**; an
+Stance: **Rhizomorph remains the sink and source of truth for prd1**; an
 "export OTLP onward" option (so a user's Langfuse can receive the same
 stream) is a roadmap item, informed by JV's upcoming course coverage.
 
@@ -135,7 +135,7 @@ topic scan 2026-07-30; not exhaustive.
    events with built-in lane attribution. Zero worker config. Codex session
    logs later (same collector family).
 2. **`otel` collector** (primary cost): minimal OTLP/HTTP receiver inside
-   the Observatory server; lanes dispatched with the env vars (+
+   the Rhizomorph server; lanes dispatched with the env vars (+
    `OTEL_RESOURCE_ATTRIBUTES=lane=<handle>`). Authoritative `cost_usd`
    without a pricing table, and it generalises to codex.
 

@@ -1,5 +1,5 @@
-import type { CollectorContext, CollectorState, EventType, Exec, PayloadOf } from '@observatory/core'
-import { createEvent, createIdFactory } from '@observatory/core'
+import type { CollectorContext, CollectorState, EventType, Exec, PayloadOf } from '@rhizomorph/core'
+import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { withResilience, type ResilientSnapshot } from './resilience.js'
 import { withResumeReconciliation } from './resume-reconcile.js'

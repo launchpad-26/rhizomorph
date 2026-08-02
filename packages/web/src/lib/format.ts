@@ -1,4 +1,4 @@
-import type { TokenTotals } from '@observatory/core'
+import type { TokenTotals } from '@rhizomorph/core'
 
 /**
  * The dashboard's one formatting module. prd2's ruling: output tokens are the

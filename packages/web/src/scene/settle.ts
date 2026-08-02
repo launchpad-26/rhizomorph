@@ -1,4 +1,4 @@
-import type { ObservatoryEvent } from '@observatory/core'
+import type { RhizomorphEvent } from '@rhizomorph/core'
 import { SETTLE_MS } from './geometry.js'
 import { clamp01 } from './palette.js'
 import { resolveLane, type LaneIndex } from './resolve.js'
@@ -37,7 +37,7 @@ export class SettleRegistry {
    * Record any new discoveries in this batch. Returns the lane ids that actually
    * started growing, so a caller can tell a real settle from a re-report.
    */
-  note(events: readonly ObservatoryEvent[], index: LaneIndex, now: number): string[] {
+  note(events: readonly RhizomorphEvent[], index: LaneIndex, now: number): string[] {
     const started: string[] = []
     for (const event of events) {
       if (event.type !== 'worktree.discovered') continue

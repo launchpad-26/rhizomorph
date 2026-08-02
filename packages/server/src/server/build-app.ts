@@ -10,10 +10,10 @@ function missingBuildHtml(webDistDir: string | undefined): string {
   const where = webDistDir ? `<p>Expected it at <code>${webDistDir}</code>.</p>` : ''
   return `<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8" /><title>Observatory — web build missing</title></head>
+<head><meta charset="utf-8" /><title>Rhizomorph — web build missing</title></head>
 <body style="font-family: system-ui, sans-serif; max-width: 40rem; margin: 4rem auto; line-height: 1.5;">
 <h1>The dashboard hasn't been built yet</h1>
-<p>The Observatory API is running, but <code>packages/web</code> has no build output to serve.</p>
+<p>The Rhizomorph API is running, but <code>packages/web</code> has no build output to serve.</p>
 <p>Run <code>${BUILD_COMMAND}</code>, then reload this page.</p>
 ${where}
 </body>
@@ -35,7 +35,7 @@ export function buildApp(ctx: ServerContext): FastifyInstance {
     registerStaticRoute(app, ctx.webDistDir)
   } else {
     console.warn(
-      `[observatory] web build not found${ctx.webDistDir ? ` at ${ctx.webDistDir}` : ''} — run \`${BUILD_COMMAND}\` to build the dashboard.`,
+      `[rhizomorph] web build not found${ctx.webDistDir ? ` at ${ctx.webDistDir}` : ''} — run \`${BUILD_COMMAND}\` to build the dashboard.`,
     )
     const html = missingBuildHtml(ctx.webDistDir)
     app.get('/*', async (_request, reply) => {

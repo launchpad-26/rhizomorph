@@ -1,4 +1,4 @@
-You are a worker agent on The Observatory (prd2: anyone, anywhere).
+You are a worker agent on The Rhizomorph (prd2: anyone, anywhere).
 You own the LAST issue of the prd — the stranger audit. You are the
 only lane running; your fence is the whole shipped surface, but your
 changes must be minimal fixes with every one listed file:line in your
@@ -14,7 +14,7 @@ prd2's operator observation: unstipulated, agents build software that works
 perfectly on the author's machine and nowhere else — small non-replicable
 assumptions compound into "a super cool personal project that is totally
 useless to anyone else." Wave D fixed the instances we knew (`npx
-observatory`, the `[::1]` bind, `/home/operator` in fixtures). This issue
+rhizomorph`, the `[::1]` bind, `/home/operator` in fixtures). This issue
 hunts the ones we don't.
 
 Audit everything a stranger receives:
@@ -23,7 +23,7 @@ Audit everything a stranger receives:
   personal names, hardcoded hostnames/ports outside documented defaults, and
   OS-specific assumptions (path separators, `wsl`, `brew`-only steps
   presented as universal).
-- **Run `observatory doctor` in a bare context** (fresh clone, no tmux, no
+- **Run `rhizomorph doctor` in a bare context** (fresh clone, no tmux, no
   workmux, no worktrees, empty `~/.claude/projects`) and check every gap it
   reports is loud, actionable, and true.
 - **Verify the README's degradation claims**: without tmux/workmux the

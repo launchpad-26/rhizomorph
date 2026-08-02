@@ -5,7 +5,7 @@
 
 ## One-liner
 
-Make the Observatory's numbers mean what they say, make every agent's identity
+Make the Rhizomorph's numbers mean what they say, make every agent's identity
 impossible to confuse, and make a stranger on a fresh machine able to run it by
 reading the README and nothing else.
 
@@ -25,7 +25,7 @@ foundations do not hold:
 - **Identity collides silently.** `lane` is a bare string used as a map key with
   no host, repo, or instance qualifier: two conductors both called `conductor`
   merge into one row. The OTLP receiver accepts any POST with no auth and no
-  repo check, so a second repo on the same box bleeds into whichever Observatory
+  repo check, so a second repo on the same box bleeds into whichever Rhizomorph
   is listening. Role is inferred from the literal string `'conductor'`, and
   extra-session conductors are named *positionally*, so reordering flags renames
   lanes. Every git worktree — **including the main one** — is hard-coded
@@ -37,7 +37,7 @@ foundations do not hold:
   column can only ever show tokens.
 
 And the acceptance test fails outright: **the only documented run command,
-`npx observatory`, installs an unrelated package of that name from the public
+`npx rhizomorph`, installs an unrelated package of that name from the public
 registry.** There is no clone URL, no `engines`, no LICENSE, no CI, no
 `build`/`start` script, and no way to diagnose a broken setup.
 
@@ -67,7 +67,7 @@ shown as a setup gap, not silently filed as a worker. Lane × role is queryable.
 branch and worktree so the ledger shows dollars. Parse the thread markers both
 collectors already receive, and surface per-thread sub-rows under their lane.
 
-**D — the stranger test.** A run command that exists. `observatory doctor` that
+**D — the stranger test.** A run command that exists. `rhizomorph doctor` that
 says exactly what is missing. Loud failures instead of silent ones (missing web
 build, port in use, non-git directory, all five collectors in the status bar).
 A README that starts with `git clone`. No personal paths or names in shipped UI.

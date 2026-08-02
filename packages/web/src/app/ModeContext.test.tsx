@@ -1,4 +1,4 @@
-import { createEvent, createIdFactory } from '@observatory/core'
+import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { FetchLike } from '../replay/api.js'
@@ -12,7 +12,7 @@ function sessionEvents() {
   return [
     createEvent(
       'session.started',
-      { sessionId: 's1', repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' },
+      { sessionId: 's1', repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' },
       { id: nextId(), ts: 1_000 },
     ),
   ]

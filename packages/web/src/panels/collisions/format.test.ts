@@ -1,4 +1,4 @@
-import type { CollisionPair } from '@observatory/core'
+import type { CollisionPair } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { elidePathMiddle, formatCheckedLine, formatPairEvidence, shortenBranch } from './format.js'
 
@@ -32,7 +32,7 @@ describe('shortenBranch', () => {
   })
 
   it('keeps only the last segment of a namespaced branch', () => {
-    expect(shortenBranch('feature/observatory/collision-labels')).toBe('collision-labels')
+    expect(shortenBranch('feature/rhizomorph/collision-labels')).toBe('collision-labels')
   })
 })
 
@@ -57,7 +57,7 @@ describe('formatPairEvidence', () => {
 
   it('shortens namespaced branch names the same way the columns do', () => {
     const pair: CollisionPair = {
-      branches: ['refs/heads/2-core', 'feature/observatory/collision-labels'],
+      branches: ['refs/heads/2-core', 'feature/rhizomorph/collision-labels'],
       files: ['shared.ts'],
     }
     expect(formatPairEvidence(pair)).toBe('collision: 2-core × collision-labels — shared.ts')

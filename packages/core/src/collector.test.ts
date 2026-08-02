@@ -50,7 +50,7 @@ const exampleCollector: Collector<BranchSnapshot> = {
 
 function contextWith(exec: ReturnType<typeof createStubExec>, now: number): CollectorContext {
   return createCollectorContext({
-    repoPath: '/repo/observatory',
+    repoPath: '/repo/rhizomorph',
     now,
     exec,
     nextId: createIdFactory('ex'),
@@ -73,7 +73,7 @@ describe('the Collector contract', () => {
     expect(first.nextSnapshot).toEqual({ heads: { main: 'abc123', feature: 'def456' } })
     expect(exec.calls[0]).toMatchObject({
       command: 'git',
-      options: { cwd: '/repo/observatory' },
+      options: { cwd: '/repo/rhizomorph' },
     })
   })
 

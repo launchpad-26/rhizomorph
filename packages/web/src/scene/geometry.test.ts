@@ -1,4 +1,4 @@
-import { reduceAll, type ObservatoryEvent } from '@observatory/core'
+import { reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import {
   buildFleet,
@@ -51,7 +51,7 @@ import { WANDER_MAX_SPACING } from './variation.js'
 const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
 const SIZE = { width: 900, height: 260 }
 
-function fleetFor(spec: FixtureSpec, events?: readonly ObservatoryEvent[]): Fleet {
+function fleetFor(spec: FixtureSpec, events?: readonly RhizomorphEvent[]): Fleet {
   const state = reduceAll(events ?? fixtureHistory(spec, NOW))
   return buildFleet(state, { now: NOW, manifest: manifestFor(spec) })
 }
@@ -78,13 +78,13 @@ function anglesOf(geometry: SceneGeometry): Record<string, number> {
  * shuffles and then re-sorts by timestamp: every equal-`ts` group is scrambled,
  * the causal order is kept, and each event still knows when it happened.
  */
-function reordered(events: readonly ObservatoryEvent[]): ObservatoryEvent[] {
+function reordered(events: readonly RhizomorphEvent[]): RhizomorphEvent[] {
   const out = [...events]
   let seed = 12345
   for (let i = out.length - 1; i > 0; i -= 1) {
     seed = (seed * 1103515245 + 12345) % 2147483648
     const j = seed % (i + 1)
-    ;[out[i], out[j]] = [out[j] as ObservatoryEvent, out[i] as ObservatoryEvent]
+    ;[out[i], out[j]] = [out[j] as RhizomorphEvent, out[i] as RhizomorphEvent]
   }
   return out.sort((a, b) => a.ts - b.ts)
 }

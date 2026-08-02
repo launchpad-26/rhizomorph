@@ -1,4 +1,4 @@
-You are a worker agent building The Observatory (prd3: the instrument).
+You are a worker agent building The Rhizomorph (prd3: the instrument).
 You own exactly one issue.
 
 FIRST read, in order: docs/prd3.md IN FULL (all rulings, including the
@@ -14,7 +14,7 @@ YOUR ISSUE — #84 (84. Chat at a click: the lane drawer + transcript tail (ruli
 ## Direction
 
 Click a lane → right-side DRAWER; the fleet stays visible. The read-only
-constitution stands absolutely: the Observatory never sends keys.
+constitution stands absolutely: the Rhizomorph never sends keys.
 
 **Web** (`packages/web/src/drawer/**`, new):
 - Opens from the keystone's selection context (strip chip, table row,
@@ -63,7 +63,7 @@ session log. Bounded reads (no whole-file slurps); no watch processes.
 - Root `npm test` + `npm run typecheck` green.
 
 RULES: stay strictly inside the FENCE (other agents work in parallel);
-import from @observatory/core, never redefine its types; small
+import from @rhizomorph/core, never redefine its types; small
 conventional commits (committing is REQUIRED — review happens from your
 branch); NEVER switch branches, push, merge, or run git in a sibling
 worktree; no NUL bytes; tests must be deterministic (no waitFor racing

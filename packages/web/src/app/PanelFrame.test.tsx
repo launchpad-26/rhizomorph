@@ -63,7 +63,7 @@ describe('PanelFrame', () => {
   })
 
   it('defaults the collisions panel to expanded even with unrelated stored prefs', () => {
-    localStorage.setItem('observatory.panelCollapsed.v1', JSON.stringify({ worktrees: true }))
+    localStorage.setItem('rhizomorph.panelCollapsed.v1', JSON.stringify({ worktrees: true }))
 
     render(
       <PanelFrame id="collisions" title="Collisions">

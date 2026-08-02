@@ -1,4 +1,4 @@
-You are a worker agent on The Observatory (prd2: anyone, anywhere).
+You are a worker agent on The Rhizomorph (prd2: anyone, anywhere).
 You own exactly one issue.
 
 FIRST read docs/prd2.md — why this work exists — then
@@ -30,7 +30,7 @@ tokens of root-session activity as a worker with a model badge).
   output's first entry — worktree order is stable in git — and comment why.
 - **The gap is shown, not implied.** In the spend panel: an `unattributed`
   bucket with copy telling the operator exactly how to claim it
-  (`--extra-sessions <dir>:<lane>` or `observatory env`), and a line
+  (`--extra-sessions <dir>:<lane>` or `rhizomorph env`), and a line
   surfacing #60's `telemetry.refused` counts ("N posts refused from unknown
   instance") when any exist. Follow the existing
   "CONDUCTOR NOT INSTRUMENTED" pattern in this panel: explicit gap, never a
@@ -46,6 +46,6 @@ with a short summary including any live evidence the issue asks for.
 
 
 RULES: stay strictly inside the FENCE (other agents work in parallel);
-import from @observatory/core, never redefine its types; small
+import from @rhizomorph/core, never redefine its types; small
 conventional commits; committing on YOUR branch is REQUIRED; never push,
 merge, or run git in a sibling worktree; no NUL bytes; STOP when done.

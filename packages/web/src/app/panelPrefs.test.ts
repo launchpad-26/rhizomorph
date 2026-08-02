@@ -36,7 +36,7 @@ describe('panelPrefs', () => {
     expect(isPanelCollapsed('fleet')).toBe(true)
     expect(isPanelCollapsed('collisions')).toBe(false)
 
-    const stored = JSON.parse(localStorage.getItem('observatory.panelCollapsed.v1') ?? '{}')
+    const stored = JSON.parse(localStorage.getItem('rhizomorph.panelCollapsed.v1') ?? '{}')
     expect(stored).toEqual({ fleet: true })
   })
 
@@ -57,7 +57,7 @@ describe('panelPrefs', () => {
   })
 
   it('falls back to the default when stored JSON is malformed', () => {
-    localStorage.setItem('observatory.panelCollapsed.v1', '{not json')
+    localStorage.setItem('rhizomorph.panelCollapsed.v1', '{not json')
 
     expect(isPanelCollapsed('collisions')).toBe(false)
   })
@@ -85,16 +85,16 @@ describe('the scene prefs — hide-finished (prd5 ruling 3)', () => {
     setScenePref('hideFinished', true)
     setPanelCollapsed('fleet', true)
 
-    expect(JSON.parse(localStorage.getItem('observatory.scenePrefs.v1') ?? '{}')).toEqual({
+    expect(JSON.parse(localStorage.getItem('rhizomorph.scenePrefs.v1') ?? '{}')).toEqual({
       hideFinished: true,
     })
-    expect(JSON.parse(localStorage.getItem('observatory.panelCollapsed.v1') ?? '{}')).toEqual({
+    expect(JSON.parse(localStorage.getItem('rhizomorph.panelCollapsed.v1') ?? '{}')).toEqual({
       fleet: true,
     })
   })
 
   it('falls back to visible when the stored JSON is malformed', () => {
-    localStorage.setItem('observatory.scenePrefs.v1', 'not json at all')
+    localStorage.setItem('rhizomorph.scenePrefs.v1', 'not json at all')
     expect(isScenePref('hideFinished')).toBe(false)
   })
 })

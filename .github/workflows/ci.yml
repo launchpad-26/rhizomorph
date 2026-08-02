@@ -39,7 +39,7 @@ jobs:
 
           URL=""
           for _ in $(seq 1 30); do
-            if grep -q "observatory running at" server.log; then
+            if grep -q "rhizomorph running at" server.log; then
               URL=$(grep -o 'http://[^ ]*' server.log | head -n1)
               break
             fi

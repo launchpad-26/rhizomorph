@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSelection } from '../fleet/index.js'
 
-const STORAGE_KEY = 'observatory.panelCollapsed.v1'
+const STORAGE_KEY = 'rhizomorph.panelCollapsed.v1'
 
 /**
  * Deliberate product ruling (prd1 UI section, unchanged by prd3): collisions
@@ -39,7 +39,7 @@ export function usePanelCollapsed(id: string): [boolean, (next: boolean | ((prev
 
 // ── the scene's own prefs ────────────────────────────────────────────────────
 
-const SCENE_KEY = 'observatory.scenePrefs.v1'
+const SCENE_KEY = 'rhizomorph.scenePrefs.v1'
 
 /** The scene's persisted booleans. One key, so a new one is one line here. */
 export type ScenePref = 'hideFinished'

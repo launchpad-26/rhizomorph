@@ -3,7 +3,7 @@
 %12	obs	1	wm-2-core	/home/operator/worktrees-challenge__worktrees/2-core	bash	HOST-REDACTED
 %13	obs	2	wm-3-git-collector	/home/operator/worktrees-challenge__worktrees/3-git-collector	claude	⠐ Implement Git collector with shell commands and parsers
 %14	obs	2	wm-3-git-collector	/home/operator/worktrees-challenge__worktrees/3-git-collector	bash	HOST-REDACTED
-%15	obs	3	wm-4-tmux-collector	/home/operator/worktrees-challenge__worktrees/4-tmux-collector	claude	⠐ Implement tmux collector for The Observatory
+%15	obs	3	wm-4-tmux-collector	/home/operator/worktrees-challenge__worktrees/4-tmux-collector	claude	⠐ Implement tmux collector for The Rhizomorph
 %16	obs	3	wm-4-tmux-collector	/home/operator/worktrees-challenge__worktrees/4-tmux-collector	bash	HOST-REDACTED
 %17	obs	4	wm-5-workmux-collector	/home/operator/worktrees-challenge__worktrees/5-workmux-collector	claude	⠂ Implement workmux collector with status parsing
 %18	obs	4	wm-5-workmux-collector	/home/operator/worktrees-challenge__worktrees/5-workmux-collector	bash	HOST-REDACTED

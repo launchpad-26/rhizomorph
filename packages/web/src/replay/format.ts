@@ -1,4 +1,4 @@
-import type { SpendTotals } from '@observatory/core'
+import type { SpendTotals } from '@rhizomorph/core'
 import { formatTokens, formatUsd } from '../lib/format.js'
 
 /**

@@ -1,4 +1,4 @@
-import type { Exec } from '@observatory/core'
+import type { Exec } from '@rhizomorph/core'
 
 /**
  * Maps a pane's `pane_current_path` to the worktree that contains it, via

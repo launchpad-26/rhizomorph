@@ -1,4 +1,4 @@
-# The Observatory
+# The Rhizomorph
 
 Run it in any repo hosting a git-worktree agent swarm and get a live,
 replayable instrument at localhost — one glance answers "does anything need
@@ -26,7 +26,7 @@ drawer.
 
 - **Node 22 or newer.** Enforced via `engines` in `package.json` — `npm
   install` will warn on an older Node.
-- **git.** The Observatory watches a git working tree; the directory you
+- **git.** The Rhizomorph watches a git working tree; the directory you
   point it at (default: cwd) must be one.
 - **tmux — optional.** Without it, agent-status detection stays quiet (one
   `collector.disabled` event) and the fleet table, scene, and collisions
@@ -37,7 +37,7 @@ drawer.
   affected.
 
 Neither tmux nor workmux is required to see a working dashboard. Run
-`observatory doctor` (below) at any point to see exactly which of these are
+`rhizomorph doctor` (below) at any point to see exactly which of these are
 missing and what that costs you.
 
 **Platform support:** Linux is CI-verified on every push, WSL is first-class
@@ -79,9 +79,9 @@ The server serves API and static dashboard from one origin (no CORS), so
 rebuild `packages/web` (`npm run build`) after front-end changes and restart
 `npm start` to see them.
 
-**Not published to npm.** The obvious package name (`observatory`) is already
+**Not published to npm.** The obvious package name (`rhizomorph`) is already
 taken by an unrelated project on the public registry, so there is no `npx
-observatory` yet — publishing under a different name is a later step, and
+rhizomorph` yet — publishing under a different name is a later step, and
 picking that name isn't this issue's call to make. The clone-and-run sequence
 above is the only supported way to run this today.
 
@@ -97,7 +97,7 @@ a placeholder:
   checked. `main` itself isn't a lane (a lane is a dispatched worktree), which
   is why a fresh clone with nothing but `main` checked out reads as zero.
 - The **burn strip** shows `0` output tokens and the gap-voice line `NO COST
-  FEED (OTel) — dollars unavailable — run: eval "$(observatory env <lane>)"`
+  FEED (OTel) — dollars unavailable — run: eval "$(rhizomorph env <lane>)"`
   in place of a dollar figure, plus `CONDUCTOR NOT INSTRUMENTED` in place of
   an overhead ratio.
 - The **scene**, the first thing under the two docked strips, shows a single
@@ -116,7 +116,7 @@ None of that is a bug. To tell "nothing to report" apart from "something's
 actually wrong," run the one command that explains every gap at once:
 
 ```sh
-node_modules/.bin/observatory doctor
+node_modules/.bin/rhizomorph doctor
 ```
 
 It checks the Node version, that the target path exists and is a git repo,
@@ -132,7 +132,7 @@ logs, tmux/workmux on `PATH`, the telemetry env, and the lane manifest — one
 [ok  ] Claude Code session logs found at ~/.claude/projects
 [ok  ] tmux found on PATH
 [ok  ] workmux found on PATH
-[warn] telemetry env is not set in this shell — spend stays at zero until you run `eval "$(observatory env <lane>)"` (see docs/telemetry.md)
+[warn] telemetry env is not set in this shell — spend stays at zero until you run `eval "$(rhizomorph env <lane>)"` (see docs/telemetry.md)
 [warn] no lane manifest at /path/to/worktrees-challenge/.swarm/lanes.json — dispatch has not written .swarm/lanes.json yet; off-fence detection stays unavailable until a dispatch runs
 
 All required checks passed.
@@ -144,20 +144,20 @@ not a git repo, no web build, port already taken) — everything else is a
 
 ## Telemetry (the money layer)
 
-Point a real `claude` process at this Observatory's built-in OTLP receiver and
+Point a real `claude` process at this Rhizomorph's built-in OTLP receiver and
 its spend shows up live in the burn strip and the fleet table's `$` column.
 Every lane needs `CLAUDE_CODE_ENABLE_TELEMETRY=1`, an OTLP/HTTP JSON
 exporter aimed at the running server, and an
 `OTEL_RESOURCE_ATTRIBUTES=lane=<handle>,role=<worker|conductor|auxiliary>,instance=<id>`
 tag so the event lands on the right row — the receiver refuses any export
-that doesn't carry the instance id of the Observatory it's meant for. With
+that doesn't carry the instance id of the Rhizomorph it's meant for. With
 the server already running (`env` reads that id from `/api/meta`, so it
 refuses to print a block for a port nothing is listening on), get the exact,
 export-ready block for any lane with:
 
 ```sh
-node_modules/.bin/observatory env <lane> [--role worker|conductor|auxiliary|unattributed] [--port <n>]
-eval "$(node_modules/.bin/observatory env test-lane)"   # then launch claude in the same shell
+node_modules/.bin/rhizomorph env <lane> [--role worker|conductor|auxiliary|unattributed] [--port <n>]
+eval "$(node_modules/.bin/rhizomorph env test-lane)"   # then launch claude in the same shell
 ```
 
 `.workmux.yaml` already wires this into every worker lane automatically —
@@ -374,7 +374,7 @@ replay the recording — on your machine or on someone else's.
 ### Parked lanes — acknowledged, never hidden
 
 [prd4 ruling 5](docs/prd4.md): sometimes a worktree is deliberately shelved
-rather than abandoned — a spike, an idea kept for later — and the Observatory
+rather than abandoned — a spike, an idea kept for later — and the Rhizomorph
 needs to say so without treating it as a bug. An operator (never this
 read-only instrument) declares that by adding `"parked": true` to that lane's
 entry in `.swarm/lanes.json`:
@@ -554,7 +554,7 @@ Every key here is ignored while you're typing into a form field.
 ## The worktrees-challenge context
 
 This repo is also the build log for a day of running several coding agents
-across git worktrees at once — the Observatory is the app that day built, and
+across git worktrees at once — the Rhizomorph is the app that day built, and
 its first real subject was its own construction. Skills for driving that
 workflow (`tmux-driver`, `workmux`) live in `.claude/skills/`
 (`.agent/skills` is a symlink to the same directory; recreate it with

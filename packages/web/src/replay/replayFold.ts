@@ -1,9 +1,9 @@
 import {
   initialSessionState,
   reduceAll,
-  type ObservatoryEvent,
+  type RhizomorphEvent,
   type SessionState,
-} from '@observatory/core'
+} from '@rhizomorph/core'
 
 /**
  * The events at or before scrub time T, in fold order. `StreamContext` uses
@@ -12,9 +12,9 @@ import {
  * controls' own summary line.
  */
 export function eventsUpTo(
-  events: readonly ObservatoryEvent[],
+  events: readonly RhizomorphEvent[],
   ts: number,
-): ObservatoryEvent[] {
+): RhizomorphEvent[] {
   return events.filter((event) => event.ts <= ts).sort((a, b) => a.ts - b.ts)
 }
 
@@ -23,7 +23,7 @@ export function eventsUpTo(
  * before T. Live and replay must never disagree, so this is the only logic
  * replay owns — everything else comes from `reduceAll`.
  */
-export function foldUpTo(events: readonly ObservatoryEvent[], ts: number): SessionState {
+export function foldUpTo(events: readonly RhizomorphEvent[], ts: number): SessionState {
   return reduceAll(eventsUpTo(events, ts), initialSessionState())
 }
 
@@ -33,7 +33,7 @@ export interface TimeRange {
 }
 
 /** The scrubber's bounds — null for a session with no events yet. */
-export function timeRangeOf(events: readonly ObservatoryEvent[]): TimeRange | null {
+export function timeRangeOf(events: readonly RhizomorphEvent[]): TimeRange | null {
   if (events.length === 0) return null
   let start = events[0]!.ts
   let end = events[0]!.ts

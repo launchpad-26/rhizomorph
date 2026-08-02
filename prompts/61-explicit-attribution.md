@@ -1,4 +1,4 @@
-You are a worker agent on The Observatory (prd2: anyone, anywhere).
+You are a worker agent on The Rhizomorph (prd2: anyone, anywhere).
 You own exactly one issue.
 
 FIRST read docs/prd2.md — why this work exists — then
@@ -19,7 +19,7 @@ Identity is inferred where it must be declared
   `role: conductor`. A worker whose branch happens to be called `conductor`
   becomes conductor spend; a conductor lane named anything else becomes a
   worker. **Role comes only from the explicit `role` resource attribute**
-  (which `observatory env` already emits). No lane-string matching, ever.
+  (which `rhizomorph env` already emits). No lane-string matching, ever.
   An accepted post with no `role` attribute defaults to `worker` — document
   in a comment that post-#60 every accepted post came from our own env
   block, so this default is a backstop, not an inference channel.
@@ -39,6 +39,6 @@ including any live evidence the issue asks for.
 
 
 RULES: stay strictly inside the FENCE (other agents work in parallel);
-import from @observatory/core, never redefine its types; small
+import from @rhizomorph/core, never redefine its types; small
 conventional commits; committing on YOUR branch is REQUIRED; never push,
 merge, or run git in a sibling worktree; no NUL bytes; STOP when done.

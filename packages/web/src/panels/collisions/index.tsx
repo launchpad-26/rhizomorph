@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { selectCollisionPairs, selectTouchesByBranch, type CollisionPair } from '@observatory/core'
+import { selectCollisionPairs, selectTouchesByBranch, type CollisionPair } from '@rhizomorph/core'
 import { useStream } from '../../app/StreamContext.js'
 import { elidePathMiddle, formatCheckedLine, formatPairEvidence, shortenBranch } from './format.js'
 import { MAX_VISIBLE_ROWS, selectCollisionColumns, selectCollisionRows } from './rows.js'

@@ -1,4 +1,4 @@
-You are a worker agent on The Observatory (prd1: the money layer).
+You are a worker agent on The Rhizomorph (prd1: the money layer).
 
 FIRST read docs/prd1.md, docs/architecture.md and
 research/2026-07-30-telemetry-capture-routes.md.
@@ -50,7 +50,7 @@ and paste evidence that conductor `llm.usage` events appear on `/api/stream`.
 No NUL bytes; never push/merge; no git in sibling worktrees.
 
 RULES: stay strictly inside the FENCE (another agent works in parallel);
-import from @observatory/core, never redefine its types; small conventional
+import from @rhizomorph/core, never redefine its types; small conventional
 commits; committing on YOUR branch is REQUIRED; never push, merge, or run
 git in a sibling worktree; deterministic tests only (no waitFor racing an
 async boundary); no NUL bytes; STOP with a summary including any live

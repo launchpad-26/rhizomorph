@@ -3,10 +3,10 @@ import {
   createIdFactory,
   type AgentThread,
   type EventType,
-  type ObservatoryEvent,
+  type RhizomorphEvent,
   type PayloadOf,
   type SourceOf,
-} from '@observatory/core'
+} from '@rhizomorph/core'
 import type { LaneManifest } from './fences.js'
 
 /**
@@ -33,8 +33,8 @@ import type { LaneManifest } from './fences.js'
  * fixture folds to the same fleet twice and a screenshot is reproducible.
  */
 
-const REPO_PATH = '/repo/observatory'
-const REPO_NAME = 'observatory'
+const REPO_PATH = '/repo/rhizomorph'
+const REPO_NAME = 'rhizomorph'
 const MAIN_BRANCH = 'main'
 const MODEL = 'claude-opus-5'
 
@@ -328,14 +328,14 @@ interface LaneRuntime {
  * the frozen singletons above) and on `seed:now` beneath that, since those two
  * numbers are the whole of what a history additionally depends on.
  */
-const historyCache = new WeakMap<FixtureSpec, Map<string, readonly ObservatoryEvent[]>>()
+const historyCache = new WeakMap<FixtureSpec, Map<string, readonly RhizomorphEvent[]>>()
 
 function cachedHistory(
   spec: FixtureSpec,
   seed: number,
   now: number,
-  compute: () => ObservatoryEvent[],
-): ObservatoryEvent[] {
+  compute: () => RhizomorphEvent[],
+): RhizomorphEvent[] {
   let bySeedAndNow = historyCache.get(spec)
   if (bySeedAndNow === undefined) {
     bySeedAndNow = new Map()
@@ -344,11 +344,11 @@ function cachedHistory(
 
   const key = `${seed}:${now}`
   const cached = bySeedAndNow.get(key)
-  if (cached !== undefined) return cached as ObservatoryEvent[]
+  if (cached !== undefined) return cached as RhizomorphEvent[]
 
   const events = Object.freeze(compute())
   bySeedAndNow.set(key, events)
-  return events as ObservatoryEvent[]
+  return events as RhizomorphEvent[]
 }
 
 export class SyntheticFleet {
@@ -385,12 +385,12 @@ export class SyntheticFleet {
    * its "own" copy would otherwise leak that mutation into every other test
    * reading the same cache entry.
    */
-  history(now: number): ObservatoryEvent[] {
+  history(now: number): RhizomorphEvent[] {
     return cachedHistory(this.spec, this.seed, now, () => this.computeHistory(now))
   }
 
-  private computeHistory(now: number): ObservatoryEvent[] {
-    const events: ObservatoryEvent[] = []
+  private computeHistory(now: number): RhizomorphEvent[] {
+    const events: RhizomorphEvent[] = []
     const start = now - HISTORY_MS
 
     events.push(
@@ -469,7 +469,7 @@ export class SyntheticFleet {
           sha: `sha-main-${String(i).padStart(3, '0')}`,
           branch: MAIN_BRANCH,
           message: `chore: land ${i}`,
-          author: { name: 'conductor', email: 'conductor@observatory' },
+          author: { name: 'conductor', email: 'conductor@rhizomorph' },
           authoredAt: ts,
           files: [{ path: 'docs/roadmap.md', status: 'modified', insertions: 6, deletions: 2 }],
           insertions: 6,
@@ -488,8 +488,8 @@ export class SyntheticFleet {
    * waiting lanes contribute nothing, which is the whole of their story;
    * a waiting lane's pane keeps beating, because a raised hand is still alive.
    */
-  tick(now: number): ObservatoryEvent[] {
-    const events: ObservatoryEvent[] = []
+  tick(now: number): RhizomorphEvent[] {
+    const events: RhizomorphEvent[] = []
 
     for (const lane of this.lanes) {
       const behaviour = lane.spec.behaviour
@@ -545,7 +545,7 @@ export class SyntheticFleet {
    * ~1,600 calls for a 20-lane history), so the intermediate allocation
    * a return-and-spread would cost here is not incidental.
    */
-  private laneBurn(lane: LaneRuntime, ts: number, sink: ObservatoryEvent[]): void {
+  private laneBurn(lane: LaneRuntime, ts: number, sink: RhizomorphEvent[]): void {
     const thread: AgentThread =
       lane.spec.subagentShare > 0 && this.random() < lane.spec.subagentShare ? 'subagent' : 'main'
     const output = Math.round(OUTPUT_PER_REQUEST * lane.spec.weight)
@@ -601,7 +601,7 @@ export class SyntheticFleet {
   }
 
   /** One turn of a stuck lane's wheel: the repeating cycle the detector reads. */
-  private loopStep(lane: LaneRuntime, ts: number): ObservatoryEvent {
+  private loopStep(lane: LaneRuntime, ts: number): RhizomorphEvent {
     const tool = LOOP_CYCLE[lane.loopStep % LOOP_CYCLE.length] as string
     lane.loopStep += 1
     return this.event('tool.activity', {
@@ -616,7 +616,7 @@ export class SyntheticFleet {
     }, ts)
   }
 
-  private laneCommit(lane: LaneRuntime, ts: number, sink: ObservatoryEvent[]): void {
+  private laneCommit(lane: LaneRuntime, ts: number, sink: RhizomorphEvent[]): void {
     lane.commits += 1
     const sha = `sha-${lane.spec.name}-${String(lane.commits).padStart(3, '0')}`
     const files = lane.spec.touches.map((path, i) => ({
@@ -631,7 +631,7 @@ export class SyntheticFleet {
         sha,
         branch: lane.spec.name,
         message: `feat(${issueOf(lane.spec.name) ?? lane.spec.name}): step ${lane.commits}`,
-        author: { name: lane.spec.name, email: 'agent@observatory' },
+        author: { name: lane.spec.name, email: 'agent@rhizomorph' },
         authoredAt: ts,
         files,
         insertions: files.reduce((sum, file) => sum + file.insertions, 0),
@@ -649,7 +649,7 @@ export class SyntheticFleet {
   }
 
   /** The uncommitted set — what makes "where is this agent" answerable early. */
-  private laneDirty(lane: LaneRuntime, ts: number): ObservatoryEvent {
+  private laneDirty(lane: LaneRuntime, ts: number): RhizomorphEvent {
     return this.event('worktree.dirty', {
       path: lane.worktreePath,
       branch: lane.spec.name,
@@ -662,7 +662,7 @@ export class SyntheticFleet {
    * fleet says `done` — which is what makes the frozen lane's silence a fault
    * rather than a finish.
    */
-  private laneStatus(lane: LaneRuntime, ts: number): ObservatoryEvent {
+  private laneStatus(lane: LaneRuntime, ts: number): RhizomorphEvent {
     const status =
       lane.spec.behaviour === 'waiting' ? 'waiting' : lane.spec.behaviour === 'done' ? 'done' : 'working'
     return this.event('agent.status', {
@@ -673,7 +673,7 @@ export class SyntheticFleet {
     }, ts)
   }
 
-  private conductorBurn(ts: number, sink: ObservatoryEvent[]): void {
+  private conductorBurn(ts: number, sink: RhizomorphEvent[]): void {
     const output = Math.round(200 + this.random() * 700)
     sink.push(
       this.event('llm.usage', {
@@ -710,7 +710,7 @@ export class SyntheticFleet {
     payload: PayloadOf<T>,
     ts: number,
     source?: SourceOf<T>,
-  ): ObservatoryEvent {
+  ): RhizomorphEvent {
     return createEvent(type, payload, {
       id: this.nextId(),
       ts,
@@ -720,7 +720,7 @@ export class SyntheticFleet {
 }
 
 /** A fixture's whole past, ready to fold. */
-export function fixtureHistory(spec: FixtureSpec, now: number, seed?: number): ObservatoryEvent[] {
+export function fixtureHistory(spec: FixtureSpec, now: number, seed?: number): RhizomorphEvent[] {
   return new SyntheticFleet(spec, seed).history(now)
 }
 

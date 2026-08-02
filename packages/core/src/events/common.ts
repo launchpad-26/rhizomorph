@@ -3,7 +3,7 @@ import { z } from 'zod'
 /**
  * Shared primitives for the event envelope.
  *
- * Every fact the Observatory knows arrives as one event on one append-only
+ * Every fact the Rhizomorph knows arrives as one event on one append-only
  * log: `{ id, ts, source, type, payload }`. Envelopes are validated at the
  * collector boundary (and again when a JSONL line is read back), so a bad
  * parser is loud instead of silent.

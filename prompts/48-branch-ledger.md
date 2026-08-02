@@ -1,4 +1,4 @@
-You are a worker agent on The Observatory (prd1: the money layer).
+You are a worker agent on The Rhizomorph (prd1: the money layer).
 
 FIRST read docs/prd1.md and packages/core/src/selectors/spend.ts (the
 existing spend selectors you are extending, not replacing).
@@ -46,7 +46,7 @@ and landed branches; root `npm test` + `npm run typecheck` green; deterministic
 tests only. No NUL bytes; never push/merge; no git in sibling worktrees.
 
 RULES: stay strictly inside the FENCE (two other agents work in parallel on
-the sessionlog collector and the spend panel); import from @observatory/core
+the sessionlog collector and the spend panel); import from @rhizomorph/core
 types; small conventional commits; committing on YOUR branch is REQUIRED;
 never push, merge, or run git in a sibling worktree; deterministic tests
 only; no NUL bytes; STOP with a short summary.

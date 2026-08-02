@@ -1,5 +1,5 @@
 import { cleanup, render, screen } from '@testing-library/react'
-import { createEvent, reduceAll } from '@observatory/core'
+import { createEvent, reduceAll } from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildFleet, type Burn, type CalmEvidence, type Fleet, type Ladder } from '../../fleet/buildFleet.js'
 import BurnStrip from './index.js'
@@ -106,7 +106,7 @@ describe('BurnStrip', () => {
     const { container } = renderWith({ costUsd: 0, costIsAuthoritative: null, costEventCount: 0 })
 
     expect(screen.getByTestId('burn-dollars').textContent).toBe(
-      'NO COST FEED (OTel) — dollars unavailable — run: eval "$(observatory env <lane>)"',
+      'NO COST FEED (OTel) — dollars unavailable — run: eval "$(rhizomorph env <lane>)"',
     )
     expect(container.textContent).not.toContain('$0.00')
   })
@@ -165,7 +165,7 @@ describe('BurnStrip — overhead ratio basis (real pipeline)', () => {
     const events = [
       createEvent(
         'session.started',
-        { sessionId: 'sess-1', repoPath: '/repo/observatory', repoName: 'observatory', mainBranch: 'main' },
+        { sessionId: 'sess-1', repoPath: '/repo/rhizomorph', repoName: 'rhizomorph', mainBranch: 'main' },
         { id: 'e1', ts: NOW - 100_000 },
       ),
       createEvent(

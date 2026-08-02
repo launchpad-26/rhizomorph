@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 /**
  * THE READ-ONLY CONSTITUTION, ASSERTED AT THE LEVEL OF THE SOURCE TEXT.
  *
- * "The Observatory never sends keys" (ruling 17) is not a property any single
+ * "The Rhizomorph never sends keys" (ruling 17) is not a property any single
  * behavioural test can prove — a POST added tomorrow in a branch nothing
  * renders would pass every one of them. So this file greps its own directory
  * instead: whatever the drawer grows into, it may issue GETs and nothing else,

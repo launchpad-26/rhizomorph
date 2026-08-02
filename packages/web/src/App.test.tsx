@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { createEvent, createIdFactory } from '@observatory/core'
+import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App.js'
 import { useSelection } from './fleet/index.js'
@@ -115,7 +115,7 @@ function fixtureEvents() {
   return [
     createEvent(
       'session.started',
-      { sessionId: 's1', repoPath: '/repo', repoName: 'observatory', mainBranch: 'main' },
+      { sessionId: 's1', repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' },
       { id: nextId(), ts: 1 },
     ),
     createEvent(

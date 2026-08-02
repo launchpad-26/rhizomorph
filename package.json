@@ -1,5 +1,5 @@
 {
-  "name": "observatory",
+  "name": "rhizomorph",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -13,7 +13,7 @@
     "test": "vitest run",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspace packages/web",
-    "start": "observatory",
+    "start": "rhizomorph",
     "dev:web": "npm run dev --workspace packages/web",
     "dev:server": "npm run dev --workspace packages/server"
   },
