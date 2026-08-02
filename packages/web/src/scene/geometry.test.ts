@@ -15,14 +15,18 @@ import {
   LIFE_SPAN_MS,
   RADIAL_BORN,
   RECENCY_SPAN_MS,
+  ROOT_GROWTH,
   SCAR_LENGTH_MAX_PX,
   SCAR_LENGTH_MIN_PX,
   SEED_CEILING,
   SEED_FLOOR,
   SEED_FULL_TOKENS,
   bornRadial,
+  bundleRadial,
   layoutScene,
   lifecycleFrac,
+  rootFullness,
+  rootRadiusFor,
   rimSpacing,
   ringAngles,
   scarLengthPx,
@@ -31,7 +35,7 @@ import {
   type SceneGeometry,
   type ThreadGeometry,
 } from './geometry.js'
-import { CUT, cutAt, type RetireState } from './retire.js'
+import { CUT, cutAt, homecoming, type RetireState } from './retire.js'
 import { WANDER_MAX_SPACING } from './variation.js'
 
 /**
@@ -515,6 +519,148 @@ describe('render everything, always — ruling 22', () => {
   })
 })
 
+/**
+ * THE MASS GROWS WITH THE WORK, AND THE SCENE MAKES ROOM (prd6 ruling 2, #118).
+ *
+ * The size of the centre is a geometry fact rather than a drawing one, and this
+ * is why: everything that has to stay clear of the mass — the newborn radius, the
+ * shared trunk, the point each thread leaves the surface at — is placed here,
+ * before any mark builder runs. A mass that grew after the layout had committed
+ * would simply be drawn over the youngest lane in the fleet.
+ *
+ * The cap has to be a fraction of the *scene*, not of the mass. That is the whole
+ * of #118's finding: a ceiling of "+30% of its own resting size" is a statement
+ * about the blob and says nothing about the picture, so a night of thirty-eight
+ * landings still read as a wreath around an empty middle.
+ */
+describe('the mass grows with the landed work — prd6 ruling 2, #118', () => {
+  const fleet = fleetFor(fleet20Spec())
+  const settled = cutAt(CUT.totalMs)
+
+  /** The first `count` lanes, landed. */
+  function landed(count: number): Map<string, RetireState> {
+    return new Map(fleet.lanes.slice(0, count).map((lane) => [lane.id, settled]))
+  }
+
+  function grown(
+    retire: ReadonlyMap<string, RetireState>,
+    size = SIZE,
+    of: Fleet = fleet,
+  ): SceneGeometry {
+    return layoutScene(of, { ...size, now: NOW, retire })
+  }
+
+  it('reads landed work exactly as the cord-cut reads it', () => {
+    // `layoutScene` weighs each landing by `clamp01(cut.retract)` rather than by
+    // `retire.ts`'s `homecoming`, because taking that one value would close an
+    // import cycle (`motion` → `geometry` → `retire` → `motion`). The copy is
+    // deliberate and this is what stops it drifting: same question, same answer,
+    // over every stage of a cut.
+    for (const at of [0, CUT.tensionMs, CUT.tensionMs + CUT.retractMs / 2, CUT.totalMs]) {
+      const state = cutAt(at)
+      const only = new Map([[(fleet.lanes[0] as Lane).id, state]])
+      const tokens = (fleet.lanes[0] as Lane).outputTokens
+      expect(grown(only).rootFullness).toBe(rootFullness(tokens * homecoming(state)))
+    }
+  })
+
+  it('is monotone in the work, absolute, and capped against the rim', () => {
+    let previous = layout(fleet).rootRadius
+    const resting = previous
+    for (const count of [1, 3, 8, 20]) {
+      const now = grown(landed(count)).rootRadius
+      expect(now, `${count} landings did not grow the mass`).toBeGreaterThan(previous)
+      previous = now
+    }
+    expect(previous).toBeGreaterThan(resting * 1.5)
+
+    // Absolute: a sibling's work is not in this reading. One lane landing 200K
+    // draws the same mass whether the lanes beside it hold nothing or millions.
+    const only = new Map([[(fleet.lanes[0] as Lane).id, settled]])
+    const zeroed = {
+      ...fleet,
+      lanes: fleet.lanes.map((lane, i) => (i === 0 ? lane : { ...lane, outputTokens: 0 })),
+    }
+    const whales = {
+      ...fleet,
+      lanes: fleet.lanes.map((lane, i) =>
+        i === 0 ? lane : { ...lane, outputTokens: 10_000_000 },
+      ),
+    }
+    expect(grown(only, SIZE, whales).rootRadius).toBe(grown(only, SIZE, zeroed).rootRadius)
+
+    // Capped, and the cap is the scene's own geometry — on any panel shape.
+    const everything = {
+      ...fleet,
+      lanes: fleet.lanes.map((lane) => ({ ...lane, outputTokens: 10_000_000 })),
+    }
+    for (const size of [SIZE, { width: 760, height: 640 }, { width: 1404, height: 497 }]) {
+      const geometry = grown(landed(20), size, everything)
+      expect(geometry.rootFullness).toBe(1)
+      expect(geometry.rootRadius).toBeCloseTo(
+        ROOT_GROWTH.maxReach * Math.min(geometry.rx, geometry.ry),
+        9,
+      )
+    }
+  })
+
+  it('makes room for itself: newborns, the trunk and the thread roots all clear it', () => {
+    // The reason the growth lives in this file. Every one of these is placed
+    // against the mass's radius, and every one of them would be swallowed by a
+    // full centre if it were placed against a resting one.
+    const everything = {
+      ...fleet,
+      lanes: fleet.lanes.map((lane) => ({
+        ...lane,
+        outputTokens: 10_000_000,
+        firstSeenAt: NOW,
+      })),
+    }
+
+    for (const size of [SIZE, { width: 760, height: 640 }, { width: 320, height: 120 }]) {
+      const geometry = grown(landed(20), size, everything)
+      const { rootRadius, rx, ry } = geometry
+      const where = `${size.width}×${size.height}`
+
+      // A newborn node sits outside the mass, and the trunk it leaves through
+      // sits outside it too — but inside the node, or the bundle stops bundling.
+      const born = bornRadial(rootRadius, rx, ry)
+      const trunk = bundleRadial(rootRadius, rx, ry)
+      expect(born * Math.min(rx, ry), `${where}: newborn inside the mass`).toBeGreaterThan(
+        rootRadius,
+      )
+      expect(trunk * Math.min(rx, ry), `${where}: trunk inside the mass`).toBeGreaterThan(
+        rootRadius,
+      )
+      expect(trunk, `${where}: trunk past the newborns`).toBeLessThanOrEqual(born)
+      // …and there is still a journey left to make.
+      expect(born, `${where}: nothing left of the lifecycle`).toBeLessThan(1)
+
+      // Every thread leaves the mass *at* its surface, wherever that now is.
+      for (const thread of geometry.threads) {
+        const root = thread.path[0] as Point
+        const out = Math.hypot(root.x - geometry.centre.x, root.y - geometry.centre.y)
+        expect(out / rootRadius, `${where}: ${thread.laneId} left from nowhere`).toBeCloseTo(
+          0.94,
+          6,
+        )
+      }
+    }
+  })
+
+  it('is a floor on a panel with no room to grow, never a shrink', () => {
+    // "Unknown, not zero" applies to a scene with nowhere to put the answer just
+    // as it does to a fleet with no answer: a mass whose scene-derived ceiling
+    // lands below its own resting size draws the resting size.
+    expect(rootRadiusFor(80, 60, 60, 1)).toBe(80)
+    expect(rootRadiusFor(80, 60, 60, 0.5)).toBe(80)
+    expect(rootFullness(0)).toBe(0)
+    // A quiet session looks quiet: nothing landed, nothing grown.
+    expect(layout(fleet).rootFullness).toBe(0)
+    expect(layout({ ...fleet, lanes: [] }).rootRadius).toBe(layout(fleet).rootRadius)
+  })
+})
+
 describe('the settle, as geometry — graft g3', () => {
   const fleet = fleetFor(pathologySpec())
 
@@ -565,23 +711,38 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
   /** What this lane's own work buys it at the rim (prd6 ruling 1). */
   const MARK_PX = scarLengthPx(whole.sizeFrac)
 
-  it('leaves every other lane exactly where it was', () => {
+  it('leaves every other lane on its own bearing, and only eases it outward', () => {
     // One lane retiring is not a reflow. The ring is subdivided by how many lanes
     // there *are*, and a lane leaving the network does not leave the fleet — so
-    // nobody else moves, and graft g7 survives a landing.
+    // nobody's *seat* moves, and graft g7 survives a landing.
+    //
+    // What does move, by a fraction of a pixel, is how far out everyone sits:
+    // #118 grows the mass with the landed work, and {@link bornRadial} keeps the
+    // youngest node clear of it, so a body that swelled pushes the living band
+    // out with it. That is not a reflow and it is not recency creeping back onto
+    // the radius — the *reading* is untouched, because `lifeFrac` is still a fact
+    // about the lane alone and all that changed is where "just born" is on this
+    // panel, exactly as it changes when the panel is resized. It has to be
+    // outward-only and it has to be small, and this is where both are pinned.
     const before = layout(fleet)
     const during = layoutScene(fleet, {
       ...SIZE,
       now: NOW,
       retire: new Map([[LANE, cutAt(CUT.tensionMs + 200)]]),
     })
+    const out = (p: Point): number => Math.hypot(p.x - SIZE.width / 2, p.y - SIZE.height / 2)
+    const bearing = (p: Point): number =>
+      Math.atan2(p.y - SIZE.height / 2, p.x - SIZE.width / 2)
 
     for (const thread of during.threads) {
       if (thread.laneId === LANE) continue
       const was = before.byLane.get(thread.laneId) as ThreadGeometry
       expect(thread.angle, `${thread.laneId} moved`).toBe(was.angle)
-      expect(thread.node).toEqual(was.node)
-      expect(thread.path).toEqual(was.path)
+      expect(thread.lifeFrac, `${thread.laneId} aged`).toBe(was.lifeFrac)
+      expect(bearing(thread.node), `${thread.laneId} swung`).toBeCloseTo(bearing(was.node), 9)
+      const eased = out(thread.node) - out(was.node)
+      expect(eased, `${thread.laneId} moved inward`).toBeGreaterThanOrEqual(0)
+      expect(eased, `${thread.laneId} lurched`).toBeLessThan(1)
     }
   })
 
@@ -678,9 +839,16 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
       }
 
       // Reduced motion has no travel at all: the registry hands out a state with
-      // the drift zeroed, and the node is left exactly where it was.
+      // the drift zeroed, so the lane's own journey does not advance by so much
+      // as a frame. The node is not *identical* any more and that is #118 rather
+      // than travel — this cut has landed its work, the mass is bigger for it,
+      // and `bornRadial` has eased the whole living band out by a fraction of a
+      // pixel to keep clear of it. Lifecycle unmoved, bearing unmoved, and the
+      // displacement well under the pixel that would make it visible.
       const inPlace = cutting(cutAt(0, false))
-      expect(inPlace.node).toEqual(whole.node)
+      expect(inPlace.lifeFrac).toBe(whole.lifeFrac)
+      expect(out(inPlace.node) - out(whole.node)).toBeLessThan(1)
+      expect(out(inPlace.node)).toBeGreaterThanOrEqual(out(whole.node))
       // No drift, so the mark is the measured length plus only the slack's own
       // couple of pixels of bow.
       const still = arcLength(inPlace.retire?.path as Point[])

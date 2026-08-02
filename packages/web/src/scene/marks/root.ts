@@ -13,7 +13,6 @@ import {
   type Ink,
   type Rgb,
 } from '../palette.js'
-import { homecoming } from '../retire.js'
 import { budget, type SceneFrame } from './frame.js'
 import type { Mark } from './types.js'
 
@@ -78,54 +77,23 @@ const CONDUCTOR_FULL_TOKENS = 400_000
 const RESTING_FLOOR = 0.35
 
 /**
- * HOW MUCH BIGGER A NIGHT'S WORK MAKES THE MASS (prd6 ruling 2).
+ * HOW MUCH BIGGER A NIGHT'S WORK MAKES THE MASS (prd6 ruling 2) — and why the
+ * number is no longer in this file.
  *
- * The same discipline as ruling 1's seeds, and for the same reason: an absolute
- * scale so the mass means the same thing at 9 a.m. and at midnight, a two-ended
- * log so the range is spent where landings actually sit rather than below the
- * first ten thousand tokens, and a hard cap because a root-mass that could grow
- * without limit would eat the picture it is the centre of.
+ * It used to be `ROOT_GROWTH.maxGirth`, a 30% multiplier applied here to a fixed
+ * `geometry.rootRadius`, and #118's finding against it was the whole picture: a
+ * night of thirty-eight landings still drew a small blob in a large empty middle,
+ * so the fact the encoding exists to state was invisible. What replaced it is
+ * `geometry.ts`'s {@link rootRadiusFor} — the same absolute, two-ended-log,
+ * hard-capped discipline, with the cap expressed as a fraction of the scene's own
+ * clearance to the retirement band instead of as a fraction of the mass.
  *
- * 30% is deliberately a lot more than the breath's 1.6% and deliberately far less
- * than a doubling: over a session it is unmistakable when you look away and look
- * back, and it never once reads as movement.
+ * It moved because a *drawing* decision it never was: the newborn nodes, the
+ * bundle trunk and the threads' exit from the surface all have to make room for a
+ * mass that has grown, and every one of them is placed before this file runs. So
+ * the mass's radius is a geometry fact now and this builder reads it, exactly as
+ * it reads the centre.
  */
-export const ROOT_GROWTH = {
-  /** Landed output below which the mass is still its own size. */
-  seedTokens: 10_000,
-  /** …and at which it has thickened all the way. A long night of landings. */
-  fullTokens: 500_000,
-  /** The cap. The mass thickens; it does not balloon. */
-  maxGirth: 0.3,
-} as const
-
-/** How much bigger the mass is for having taken this much landed output home. */
-export function rootGirth(landedOutputTokens: number): number {
-  const span = Math.log1p(ROOT_GROWTH.fullTokens) - Math.log1p(ROOT_GROWTH.seedTokens)
-  const above = Math.log1p(Math.max(0, landedOutputTokens)) - Math.log1p(ROOT_GROWTH.seedTokens)
-  return ROOT_GROWTH.maxGirth * clamp01(above / span)
-}
-
-/**
- * The output of every lane whose substance has come home, weighted by how far
- * along its journey is ({@link homecoming}).
- *
- * Read off the *drawn* scene rather than off `isRetired`, so a landing that is
- * still queued behind the structural cap has not landed here either — the mass
- * grows as each cord actually parts, one lane at a time, which is what makes a
- * wave of twelve landings read as twelve arrivals instead of one lurch.
- *
- * A scar the operator has hidden still counts. Hiding finished lanes is a request
- * about clutter, not a claim that the work was undone.
- */
-function landedTokens(frame: SceneFrame): number {
-  let total = 0
-  for (const thread of frame.geometry.threads) {
-    if (thread.retire === null) continue
-    total += thread.lane.outputTokens * homecoming(thread.retire)
-  }
-  return total
-}
 
 /**
  * THE BODY — the mass's own likeness, in units of its radius.
@@ -256,10 +224,17 @@ const SMOOTHING = 2
  * reached it would read as lit rather than as dense.
  */
 const DEPTH = {
-  /** Levels, the surface included. */
+  /**
+   * Levels, the surface included — **at rest**. See {@link depthsFor}: a mass
+   * that has taken a night's work home carries {@link DEPTH.countFull} of them.
+   */
   count: 18,
-  /** How far in the innermost one sits, in units of the radius. */
+  /** …and the count a full mass carries. */
+  countFull: 26,
+  /** How far in the innermost one sits, in units of the radius — at rest. */
   reach: 0.62,
+  /** …and how far a full mass reaches. */
+  reachFull: 0.76,
   /**
    * How the levels bunch. Above 1 spreads the outer steps and crowds the inner
    * ones, which is the profile a translucent body has: a long soft shoulder at
@@ -285,18 +260,65 @@ const DEPTH = {
    * itself, three pixels of it, lit because light travelling the long way
    * through a translucent body is what makes its edge visible. It thickens and
    * thins with the mass because it is measured in the field.
+   *
+   * **It does not scale with the growth** (#118), and that is the one place the
+   * "same likeness, bigger" discipline had to be broken on purpose. A skin is a
+   * material fact — how far light travels through the edge of this stuff — so a
+   * mass that has doubled has the same skin, not a skin twice as thick. Left
+   * proportional it came out at six or seven pixels on a full centre and read as
+   * exactly the thing #117 deleted: a lighter stripe laid round a fill. See
+   * {@link DEPTH.rindFull}, which is this in units of a full mass's radius.
    */
   rind: 0.06,
+  /** The same three or four pixels, in units of a *full* mass's radius. */
+  rindFull: 0.032,
   /** How much brighter the rind is than one ordinary level. */
   rindGain: 3.2,
 } as const
 
-const DEPTHS: readonly { at: number; rgb: Rgb; alpha: number }[] = Array.from(
-  { length: DEPTH.count },
-  (_unused, i) => {
-    const t = i / (DEPTH.count - 1)
+interface Depth {
+  at: number
+  rgb: Rgb
+  alpha: number
+}
+
+/**
+ * THE STACK FOR A MASS THIS FULL — where "grow the body, don't inflate a
+ * balloon" is actually paid for (#118).
+ *
+ * Everything about the silhouette is measured in units of the radius, so the
+ * outline of a mass that has doubled is *exactly* the same likeness at twice the
+ * size — which is the property the cap's law depends on, and which on its own
+ * would make a night's work read as a photocopy held closer to the eye. What a
+ * body actually does when it grows is gain **interior**: more layers between the
+ * skin and the core, and material further in than a small one has.
+ *
+ * So the two numbers that describe the inside are the ones that move with
+ * {@link SceneGeometry.rootFullness}, and neither of them touches the surface:
+ *
+ * - **count**, 18 → {@link DEPTH.countFull}. More shells over a body that has
+ *   more pixels to cover keeps the alpha step per level below the eye's ability
+ *   to find it — the same argument that set the count at eighteen in the first
+ *   place, applied at a size where eighteen is no longer enough — and it makes
+ *   the mass denser as it fills, which is the honest reading of a centre that has
+ *   more work in it.
+ * - **reach**, 0.62 → {@link DEPTH.reachFull}. The deepest shells are the ones
+ *   that break into separate components, because a multi-octave field's interior
+ *   is lumpy; reaching further in is what gives a full mass visible internal
+ *   structure — two or three dense cores with thinner material between them —
+ *   where a resting one is a single smooth interior.
+ *
+ * Both are continuous in `fullness`, so nothing steps: the count only changes on
+ * a frame where a cord actually parted, and one more shell at 5.5% alpha is not
+ * a thing anybody can see happen.
+ */
+function depthsFor(fullness: number): readonly Depth[] {
+  const count = Math.round(DEPTH.count + (DEPTH.countFull - DEPTH.count) * fullness)
+  const reach = DEPTH.reach + (DEPTH.reachFull - DEPTH.reach) * fullness
+  return Array.from({ length: count }, (_unused, i) => {
+    const t = i / (count - 1)
     return {
-      at: -DEPTH.reach * Math.pow(t, DEPTH.bias),
+      at: -reach * Math.pow(t, DEPTH.bias),
       // Up the ramp as it goes deeper: thin ice at the skin, dense ice at the
       // core. The exponent is where the lift #117's second look asked for came
       // from, and it is the one number in the stack that has to be *tuned*
@@ -308,20 +330,26 @@ const DEPTHS: readonly { at: number; rgb: Rgb; alpha: number }[] = Array.from(
       // levels are furthest apart. 1.35 is the most lift the ramp will give
       // before a step becomes an edge.
       rgb: mix(ICE_500, ICE_100, Math.pow(t, 1.35)),
-      alpha: DEPTH.alpha,
+      // Thinner per level as the stack deepens, so a mass that gained eight
+      // shells gained *structure* and not opacity: the accumulation through the
+      // middle stays where #117 tuned it, and the material simply has more
+      // gradations in it. Without this the full mass came out as a solid disc
+      // and the depth stopped reading as depth.
+      alpha: DEPTH.alpha * (DEPTH.count / count),
     }
-  },
-)
+  })
+}
 
 /**
  * The level the rind's inner edge is read off: the first one at least
  * {@link DEPTH.rind} deep. Found rather than written down, so the skin stays the
- * same thickness if the ramp above it is ever re-spaced.
+ * same thickness whatever the ramp above it is spaced at — which is now a thing
+ * that varies within a session rather than only between edits of this file.
  */
-const RIND_INDEX = Math.max(
-  1,
-  DEPTHS.findIndex((depth) => -depth.at >= DEPTH.rind),
-)
+function rindIndexOf(depths: readonly Depth[], fullness: number): number {
+  const rind = DEPTH.rind + (DEPTH.rindFull - DEPTH.rind) * fullness
+  return Math.max(1, depths.findIndex((depth) => -depth.at >= rind))
+}
 
 /**
  * How far out an arrival's swell sits, and how big it gets, in units of radius.
@@ -409,8 +437,6 @@ export function rootFalloffs(frame: SceneFrame, radius: number): Falloff[] {
   return falloffs
 }
 
-type Depth = (typeof DEPTHS)[number]
-
 /**
  * One level's ink. Every level carries the conductor's light and the arrival
  * surge in the same proportions, which is what keeps the body one material: a
@@ -428,11 +454,12 @@ export function rootMarks(frame: SceneFrame): Mark[] {
   const marks: Mark[] = []
 
   const surge = clamp01(field.surge())
-  // Not a motion: the girth changes only when a cut's retract advances (the
+  // Not a motion: the size changes only when a cut's retract advances (the
   // structural class, already capped and queued) or when a new snapshot brings
-  // work that has already landed. Nothing here animates on its own clock.
-  const girth = rootGirth(landedTokens(frame))
-  const radius = geometry.rootRadius * frame.breath * (1 + girth)
+  // work that has already landed. Nothing here animates on its own clock — the
+  // breath is the one thing on this line that does, and it is ±1.6%.
+  const fullness = clamp01(geometry.rootFullness)
+  const radius = geometry.rootRadius * frame.breath
 
   // The conductor's burn as a floor under the glow. Zero tokens → RESTING_FLOOR,
   // which is the un-instrumented case reading as dim rather than as calm.
@@ -447,18 +474,34 @@ export function rootMarks(frame: SceneFrame): Mark[] {
     laneId: null,
     alarm: false,
     at: centre,
-    // The halo reaches a little further than the mass grew: a session that has
-    // taken a lot of work home has a wider footprint, not just a fatter middle.
-    radius: radius * (4.2 + 1.4 * (girth / ROOT_GROWTH.maxGirth)),
-    ink: budget(frame, null, false, ink(hotter(ICE_200, 0.35), 0.45 * intensity)),
+    // A fixed multiple of the mass, and it used to carry a `+1.4 × fullness` term
+    // on top. That term existed because the growth it was compensating for was
+    // 30%: without it a night's work moved the footprint by almost nothing. The
+    // radius now doubles on its own, so the bonus was the same fact stated twice
+    // and it put the halo's outer edge two thirds of the way across the panel.
+    radius: radius * 4.2,
+    // …and it is the **same light** spread over that wider footprint, not more of
+    // it. Left at a fixed alpha, a mass that had grown to fill the frame lit the
+    // whole panel to a flat haze and took the depth out of the picture with it —
+    // the retired rim stopped sitting in a void and the centre stopped reading as
+    // dense. Thinning as it spreads is what keeps a full session's scene dark.
+    ink: budget(
+      frame,
+      null,
+      false,
+      ink(hotter(ICE_200, 0.35), 0.45 * intensity * (1 - 0.5 * fullness)),
+    ),
   })
 
   // THE SURFACE. One mark, whatever the field turned out to be — and it is a
   // `contour` rather than a `ribbon` because a ribbon's polygons are painted
   // independently, which is exactly wrong for a body that may enclose a hole.
   //
-  // One sampling of the field, walked at four depths: the silhouette, and three
-  // shells beneath it. See `DEPTHS`.
+  // One sampling of the field, walked at every depth in the stack: the
+  // silhouette, and the shells beneath it. See {@link depthsFor} — the stack is
+  // deeper and more finely divided the fuller the mass is.
+  const depths = depthsFor(fullness)
+  const rindIndex = rindIndexOf(depths, fullness)
   const layers = contourLayers(
     {
       falloffs: rootFalloffs(frame, radius),
@@ -467,13 +510,13 @@ export function rootMarks(frame: SceneFrame): Mark[] {
       cell: radius * CELL,
       smoothing: SMOOTHING,
     },
-    DEPTHS.map((depth, i) => ({
+    depths.map((depth, i) => ({
       at: depth.at * radius,
       // The surface keeps the full corner-cutting: it is the ring the laws read
       // and the edge the eye finds. A shell at five per cent alpha has no edge
       // to find, so one pass is the whole of what it needs, and the vertices
       // that buys back are paid for three times over — allocated, smoothed and
-      // filled — eighteen times a frame.
+      // filled — once per level per frame.
       ...(i === 0 ? {} : { smoothing: 1 }),
     })),
   )
@@ -488,7 +531,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
     // made of the same translucent ice-toned material the threads are, so a
     // thread's last inch shows through its edge and the two read as one world.
     // The body is not this number — the body is this number plus the shells.
-    fill: budget(frame, null, false, depthInk(DEPTHS[0] as Depth, surge, intensity)),
+    fill: budget(frame, null, false, depthInk(depths[0] as Depth, surge, intensity)),
     // No edge. A 1px lighter outline around a flat fill is how a sticker is
     // drawn, and it was the loudest half of the finding: an outline states a
     // boundary, where a surface with depth behind it *has* one.
@@ -496,19 +539,19 @@ export function rootMarks(frame: SceneFrame): Mark[] {
       // The rind first: surface ring and the one just inside it, in a single
       // entry, so the painter's even-odd fill lands on the band between them.
       {
-        rings: [...(layers[0] ?? []), ...(layers[RIND_INDEX] ?? [])],
+        rings: [...(layers[0] ?? []), ...(layers[rindIndex] ?? [])],
         ink: budget(
           frame,
           null,
           false,
           depthInk(
-            { ...(DEPTHS[0] as Depth), alpha: DEPTH.alpha * DEPTH.rindGain },
+            { ...(depths[0] as Depth), alpha: (depths[0] as Depth).alpha * DEPTH.rindGain },
             surge,
             intensity,
           ),
         ),
       },
-      ...DEPTHS.slice(1).map((depth, i) => ({
+      ...depths.slice(1).map((depth, i) => ({
         rings: layers[i + 1] ?? [],
         ink: budget(frame, null, false, depthInk(depth, surge, intensity)),
       })),

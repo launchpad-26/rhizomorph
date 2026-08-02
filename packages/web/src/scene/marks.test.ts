@@ -9,7 +9,17 @@ import {
   type Fleet,
   type FixtureSpec,
 } from '../fleet/index.js'
-import { RECENCY_SPAN_MS, layoutScene, pointAt, seedSize, tangentAt, type Point } from './geometry.js'
+import {
+  RECENCY_SPAN_MS,
+  ROOT_GROWTH,
+  layoutScene,
+  pointAt,
+  rootFullness,
+  rootRadiusFor,
+  seedSize,
+  tangentAt,
+  type Point,
+} from './geometry.js'
 import { ALARM, EVENT, STRUCTURAL, allowance } from './motion.js'
 import {
   BREATH_PERIOD_MS,
@@ -24,7 +34,7 @@ import {
   type SceneFrame,
 } from './marks/index.js'
 import { ribbonMark } from './marks/index.js'
-import { ROOT_GROWTH, arrivalSwell, rootGirth } from './marks/root.js'
+import { arrivalSwell } from './marks/root.js'
 import { paint } from './paint.js'
 import { CUT, SCAR, SCAR_FLOOR, cutAt, type RetireState } from './retire.js'
 import { ALARM_FLOOR, CALM_CEILING, CALM_FLOOR, RECEDE, salienceOf } from './salience.js'
@@ -975,14 +985,28 @@ describe('the root-mass', () => {
   })
 
   /**
-   * IT THICKENS WITH THE SESSION'S LANDED WORK (prd6 ruling 2).
+   * IT GROWS WITH THE SESSION'S LANDED WORK (prd6 ruling 2, #118).
    *
    * The other end of the homeward flow. A merge means the work is part of main
    * now, so the mass it went into is bigger for having taken it — on the same
    * absolute-scale-with-a-hard-cap discipline as ruling 1's seeds, because a mass
    * that could grow without limit would eat the picture it is the centre of.
+   *
+   * **The cap is a fraction of the scene, not of the mass** (#118), and that is
+   * the one thing here that is new. It used to be +30% of the mass's own resting
+   * size, and the operator's finding against that was the whole picture rather
+   * than any single number: after thirty-eight landings the scene still read as a
+   * *wreath* — a ring of retired lanes around a large empty middle with a small
+   * blob in it — so a law that was already in the code was invisible in the thing
+   * the code draws. A ceiling expressed against the mass can only ever say "a bit
+   * bigger than it was"; one expressed against the distance to the retirement
+   * band says how much of the picture the centre has taken, which is what an
+   * operator can actually see, and it is also the only form of the cap that can
+   * promise the mass will never crowd the rim or the lane labels — on a letterbox
+   * panel, on a square one, or at any zoom, since the camera magnifies the mass
+   * and the rim by the same factor.
    */
-  describe('thickening with the session work', () => {
+  describe('growing with the session work', () => {
     const fleet = fleetFor(fleet20Spec())
 
     /**
@@ -1022,7 +1046,10 @@ describe('the root-mass', () => {
         expect(grown, `${count} landings did not thicken the mass`).toBeGreaterThan(previous)
         previous = grown
       }
-      expect(previous).toBeGreaterThan(bare * 1.05)
+      // Half again as big, on a fixture whose twenty lanes are nowhere near the
+      // reference — the growth has to be *visible*, which is the whole of #118,
+      // and 5% was what it was worth before.
+      expect(previous).toBeGreaterThan(bare * 1.5)
 
       // The halo reaches further with it: a session that has taken a lot of work
       // home has a wider footprint, not just a fatter middle.
@@ -1035,27 +1062,101 @@ describe('the root-mass', () => {
       expect(halo(landed(20))).toBeGreaterThan(halo())
     })
 
-    it('caps, however much lands on it', () => {
+    it('is a fact about this session alone — a sibling cannot move it', () => {
+      // Ruling 1's discipline, on the mass instead of on a seed: absolute, so the
+      // same landed work draws the same size whatever else is in the fleet, and
+      // monotone, so nothing about the reading can go backwards.
+      expect(rootFullness(0)).toBe(0)
+      expect(rootFullness(ROOT_GROWTH.seedTokens)).toBe(0)
+      expect(rootFullness(ROOT_GROWTH.fullTokens)).toBe(1)
+      expect(rootFullness(ROOT_GROWTH.fullTokens * 10)).toBe(1)
+      let previous = -1
+      for (const tokens of [0, 25_000, 120_000, 400_000, 1_200_000, 2_000_000]) {
+        const now = rootFullness(tokens)
+        expect(now, `${tokens} went backwards`).toBeGreaterThanOrEqual(previous)
+        previous = now
+      }
+
+      // …and the picture obeys it. One lane landing 200K draws exactly the same
+      // mass whether its neighbours have landed nothing or ten million between
+      // them — the *other* lanes' work is not in this lane's reading, and a fleet
+      // whose whales have not landed cannot inflate the centre.
+      const one = new Map([[(fleet.lanes[0] as { id: string }).id, cutAt(CUT.totalMs)]])
+      const alone = { ...fleet, lanes: fleet.lanes.map((lane, i) => (i === 0 ? lane : { ...lane, outputTokens: 0 })) }
+      const beside = {
+        ...fleet,
+        lanes: fleet.lanes.map((lane, i) => (i === 0 ? lane : { ...lane, outputTokens: 10_000_000 })),
+      }
+      expect(widestOf(marksFor({ fleet: beside, retire: one }))).toBe(
+        widestOf(marksFor({ fleet: alone, retire: one })),
+      )
+    })
+
+    /**
+     * THE CAP, AND WHAT IT IS MEASURED AGAINST (#118).
+     *
+     * The claim with teeth: the ceiling is not a number of pixels and not a
+     * multiple of the mass — it is {@link ROOT_GROWTH.maxReach} of the scene's own
+     * distance to the retirement band, so it holds its meaning on any panel. The
+     * assertion is made on **two different panel shapes** for exactly that reason:
+     * a cap that had quietly become a pixel count would pass on one of them.
+     */
+    it('caps against the scene, however much lands on it', () => {
       const whales = {
         ...fleet,
         lanes: fleet.lanes.map((lane) => ({ ...lane, outputTokens: 10_000_000 })),
       }
-      const at = (of: Fleet): number => widestOf(marksFor({ fleet: of, retire: landed(20) }))
 
-      expect(rootGirth(ROOT_GROWTH.fullTokens)).toBe(ROOT_GROWTH.maxGirth)
-      expect(rootGirth(ROOT_GROWTH.fullTokens * 10)).toBe(ROOT_GROWTH.maxGirth)
-      expect(rootGirth(0)).toBe(0)
-      // …and the picture obeys it: a session of whales is no bigger than the cap.
-      //
-      // Exactly, not approximately, and that is a claim about the contour rather
-      // than about the arithmetic above it: the sampling lattice is a fraction of
-      // the mass's own radius, so a mass that thickened by 30% is sampled at the
-      // same relative points and comes out 30% larger to floating point. A fixed
-      // pixel grid would re-quantise the surface at every size and this could only
-      // ever have been asserted to within half a cell.
-      expect(at(whales) / girthOf()).toBeLessThanOrEqual(1 + ROOT_GROWTH.maxGirth + 1e-9)
-      // …and reaches it, so the cap is a ceiling the picture actually touches.
-      expect(at(whales) / girthOf()).toBeGreaterThan(1 + ROOT_GROWTH.maxGirth - 1e-9)
+      for (const panel of [SIZE, { width: 760, height: 640 }]) {
+        const geometry = layoutScene(whales, { ...panel, now: NOW, retire: landed(20) })
+        const centre = geometry.centre
+        const full = Math.max(
+          ...sceneMarks({
+            ...frameFor({ fleet: whales, retire: landed(20) }),
+            geometry,
+          })
+            .filter((mark) => mark.role === 'root-mass')
+            .flatMap((mark) => pointsOf(mark).map((p) => Math.hypot(p.x - centre.x, p.y - centre.y))),
+        )
+        const ceiling = ROOT_GROWTH.maxReach * Math.min(geometry.rx, geometry.ry)
+
+        // Never past it — the mass may touch the ceiling and may not cross it.
+        expect(full, `${panel.width}×${panel.height} crossed the cap`).toBeLessThanOrEqual(ceiling)
+        // …and it reaches it, so the cap is a ceiling the picture actually
+        // touches rather than a number nothing ever gets near. The 1% is the
+        // silhouette's own: the body's furthest lobe sits just inside its radius.
+        expect(full, `${panel.width}×${panel.height} never reached the cap`).toBeGreaterThan(
+          ceiling * 0.98,
+        )
+        // The radius the geometry hands out and the ring the painter draws are
+        // the same fact, which is what makes the hit target and the newborn
+        // clearance trustworthy.
+        expect(geometry.rootRadius).toBeCloseTo(ceiling, 9)
+        expect(geometry.rootFullness).toBe(1)
+      }
+
+      // The cap survives the contour exactly, not approximately, and that is a
+      // claim about the sampling rather than about the arithmetic above it: the
+      // lattice is a fraction of the mass's own radius, so a mass that grew is
+      // sampled at the same *relative* points and comes out scaled to floating
+      // point. A fixed pixel grid would re-quantise the surface at every size and
+      // this could only ever have been asserted to within half a cell.
+      const grown = layoutScene(whales, { ...SIZE, now: NOW, retire: landed(20) })
+      const rest = layoutScene(fleet, { ...SIZE, now: NOW })
+      expect(widestOf(marksFor({ fleet: whales, retire: landed(20) })) / girthOf()).toBeCloseTo(
+        grown.rootRadius / rest.rootRadius,
+        9,
+      )
+    })
+
+    it('never grows past its resting size on a panel with no room for it', () => {
+      // The floor is a floor. On a panel so cramped that the ceiling would land
+      // below the mass's own resting size, a night's work draws the resting mass
+      // rather than a shrunken one — "unknown, not zero" applies to a scene with
+      // nowhere to put the answer just as it does to a fleet with no answer.
+      expect(rootRadiusFor(60, 40, 40, 1)).toBe(60)
+      expect(rootRadiusFor(60, 40, 40, 0)).toBe(60)
+      expect(rootRadiusFor(60, 400, 400, 1)).toBe(200)
     })
 
     it('takes the work home as each cord parts, not when it is queued', () => {

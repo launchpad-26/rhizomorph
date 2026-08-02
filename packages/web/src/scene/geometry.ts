@@ -191,7 +191,17 @@ export interface SceneGeometry {
   width: number
   height: number
   centre: Point
+  /**
+   * The mass's radius **as this frame draws it** — its resting size grown by
+   * whatever work has landed (#118, {@link rootRadiusFor}), before the breath.
+   *
+   * Everything that has to stay clear of the mass reads this rather than a
+   * resting size: the newborn radius, the bundle trunk, the hit target and the
+   * camera's empty-scene bounds. `marks/root.ts` draws exactly this radius.
+   */
   rootRadius: number
+  /** How full the mass is, 0–1 — {@link rootFullness} of the work landed so far. */
+  rootFullness: number
   /** Half-axes of the rim: where a fully-drifted node sits. */
   rx: number
   ry: number
@@ -248,6 +258,88 @@ export function seedSize(outputTokens: number): number {
 }
 
 /**
+ * THE MASS GROWS WITH THE WORK (prd6 ruling 2) — and it is a *geometry* fact.
+ *
+ * It used to be a multiplier `marks/root.ts` applied to a fixed radius, worth 30%
+ * at the ceiling, and #118's finding against it was the picture: after thirty-eight
+ * landings and 2.5M output tokens the scene read as a **wreath** — a ring of
+ * retired lanes around a large empty middle with a small blob at the centre. The
+ * encoding was already there and simply far too weak to see. Three things had to
+ * change together, and this is where two of them live.
+ *
+ * **1. The ceiling is a fraction of the scene, not of the mass.** A cap of
+ * "+30% of its own resting size" is a statement about the mass and says nothing
+ * about the picture it sits in; the thing an operator can actually see is how much
+ * of the *gap to the retirement band* the centre has taken. So the ceiling is
+ * {@link ROOT_GROWTH.maxReach} of {@link Math.min}(`rx`, `ry`) — the direction the
+ * rim runs closest, for the same reason {@link bornRadial} measures against it —
+ * and the mass therefore cannot crowd the rim or the lane labels on a letterbox
+ * panel, on a square one, or at any zoom, since the camera magnifies the ceiling
+ * and the rim by the same factor.
+ *
+ * **2. Everything inside the rim has to make room.** A mass that grows into the
+ * space where the bundle trunk and the newborn nodes already sit would swallow
+ * them, so {@link bornRadial} and the bundle radius are measured off *this*
+ * radius rather than off a resting one. That is why the growth is computed here
+ * and not in the mark builder: by the time `root.ts` runs, every thread has
+ * already been laid out against a radius that was wrong.
+ *
+ * The discipline is ruling 1's, unchanged and for the same reasons as
+ * {@link seedSize}: a two-ended log so the range is spent where landings actually
+ * sit, an **absolute** scale so a sibling landing cannot move it and the same
+ * session always draws the same size, and a hard cap so nothing balloons.
+ */
+export const ROOT_GROWTH = {
+  /** Landed output below which the mass is still its own resting size. */
+  seedTokens: 10_000,
+  /**
+   * …and at which it has grown all the way. A long night: #118's own session had
+   * landed 2.5M by the time the ruling was written, so the ruler has to run to
+   * something of that order or every session past the first hour draws the same.
+   */
+  fullTokens: 2_000_000,
+  /**
+   * THE CAP, as a fraction of the distance from the centre to the nearest point
+   * of the retirement band.
+   *
+   * Half. Found by looking at rendered frames at 2× rather than reasoned, and the
+   * two failures either side of it are different: below about 0.42 the mass never
+   * gets past where a newborn node already sits, so the empty annulus the ruling
+   * is about survives and only the blob in it is slightly larger; past about 0.55
+   * the lifecycle band — born to rim, the one channel prd6 ruling 4 put distance
+   * on — is squeezed into the outer third of the picture and a lane's journey
+   * stops being readable. At 0.5 the centre is unmistakably the biggest thing in
+   * the frame and the living band still has half the radius to run in.
+   */
+  maxReach: 0.5,
+} as const
+
+/**
+ * How full the mass is, 0–1 — the fraction of its growth it has taken home.
+ *
+ * Monotone, absolute and capped, exactly as {@link seedSize} is: ten times the
+ * reference draws the same as the reference, and no other lane's work is in it.
+ */
+export function rootFullness(landedOutputTokens: number): number {
+  const span = Math.log1p(ROOT_GROWTH.fullTokens) - Math.log1p(ROOT_GROWTH.seedTokens)
+  const above = Math.log1p(Math.max(0, landedOutputTokens)) - Math.log1p(ROOT_GROWTH.seedTokens)
+  return clamp01(above / span)
+}
+
+/**
+ * The mass's radius on this panel, having taken this much landed work home.
+ *
+ * `resting` is the floor and the ceiling is the scene's own: a panel too cramped
+ * for the mass to grow at all (the ceiling below its resting size) simply does not
+ * grow it, rather than shrinking it — the un-instrumented floor law is that an
+ * empty fleet's mass is a floor, not a void, and a cramped one is no different.
+ */
+export function rootRadiusFor(resting: number, rx: number, ry: number, fullness: number): number {
+  const ceiling = Math.max(resting, ROOT_GROWTH.maxReach * Math.max(1, Math.min(rx, ry)))
+  return resting + (ceiling - resting) * clamp01(fullness)
+}
+
+/**
  * THE LIFECYCLE JOURNEY (prd6 ruling 4) — what distance from the mass means.
  *
  * "How far through its life is this?" needs no legend, which is exactly what
@@ -299,16 +391,40 @@ export const RADIAL_BORN = 0.42
 export const RADIAL_RIM = 1
 /** How much daylight a newborn node keeps between itself and the mass. */
 const BORN_CLEARANCE_PX = 10
+/**
+ * …and how much the bundle trunk keeps. Less, because it is a control point on a
+ * curve rather than a drawn node: it only has to sit *outside* the surface, so
+ * that a thread leaving the mass leans toward its neighbours instead of bowing
+ * back into the body it just came out of.
+ */
+const BUNDLE_CLEARANCE_PX = 4
+/**
+ * Where neighbours share a trunk on the way out, as a fraction of the rim
+ * (see {@link BUNDLE_SIZE}) — the floor, on a scene whose mass has not grown.
+ */
+const RADIAL_BUNDLE = 0.32
 
 /**
  * {@link RADIAL_BORN}, pushed out far enough that a newborn node clears the mass
  * on this panel. Measured against the *smaller* half-axis, because that is the
  * direction the rim runs closest to the mass in — a lane born at the top of a
  * letterbox ellipse must clear it as surely as one born at the side.
+ *
+ * `rootRadius` is the mass's radius **as this frame draws it** (#118), grown by
+ * whatever has landed. It has to be: the whole point of growing the mass is that
+ * it fills the empty middle, and the empty middle is where the newborn nodes are.
+ * A born radius pinned to a resting size would have the mass swallow the youngest
+ * lane in the fleet on any session that had landed a night's work.
  */
 export function bornRadial(rootRadius: number, rx: number, ry: number): number {
   const smaller = Math.max(1, Math.min(rx, ry))
   return Math.min(0.9, Math.max(RADIAL_BORN, (rootRadius + BORN_CLEARANCE_PX) / smaller))
+}
+
+/** The same, for the shared trunk — always inside {@link bornRadial}. */
+export function bundleRadial(rootRadius: number, rx: number, ry: number): number {
+  const smaller = Math.max(1, Math.min(rx, ry))
+  return Math.min(0.88, Math.max(RADIAL_BUNDLE, (rootRadius + BUNDLE_CLEARANCE_PX) / smaller))
 }
 
 /**
@@ -521,8 +637,10 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
   const { width, height, now } = options
   const centre: Point = { x: width / 2, y: height / 2 }
   // Big enough to read as the *mass* the threads are threaded into, rather than
-  // as one more node that happens to sit in the middle.
-  const rootRadius = Math.max(26, Math.min(width, height) * 0.11)
+  // as one more node that happens to sit in the middle. This is the mass at rest,
+  // before anything has landed on it — a quiet session's centre, and the floor
+  // the un-instrumented case sits at.
+  const resting = Math.max(26, Math.min(width, height) * 0.11)
 
   // Labels live outside the nodes, so the rim has to leave them room — two lines
   // of 10px type radially outward, plus the widest lane name we might draw.
@@ -545,7 +663,31 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
   const angles = ringAngles(seatKeys.length, rx, ry)
   const spacing = rimSpacing(rx, ry, seatKeys.length)
 
+  // THE MASS, AS THIS FRAME DRAWS IT (prd6 ruling 2, #118). Read off the
+  // registry rather than off `isRetired`, so a landing still queued behind the
+  // structural cap has not arrived here either and a wave of twelve reads as
+  // twelve arrivals instead of one lurch. A scar the operator asked not to look
+  // at still counts: hiding finished lanes is a request about clutter, not a
+  // claim that the work was undone.
+  //
+  // `clamp01(cut.retract)` rather than `retire.ts`'s `homecoming`, which is the
+  // same expression under a better name — and the duplication is deliberate.
+  // `motion.ts` imports this file and `retire.ts` imports `motion.ts`, so taking
+  // one value out of `retire.ts` closes a cycle and leaves `STRUCTURAL`
+  // undefined at module-evaluation time. The dependency on `retire.ts` stays
+  // type-only, exactly as it was, and `geometry.test.ts` pins the two readings
+  // equal so the copy cannot drift.
+  let landedOutputTokens = 0
+  for (const lane of lanes) {
+    const cut = options.retire?.get(lane.id)
+    if (cut === undefined) continue
+    landedOutputTokens += lane.outputTokens * clamp01(cut.retract)
+  }
+  const fullness = rootFullness(landedOutputTokens)
+  const rootRadius = rootRadiusFor(resting, rx, ry, fullness)
+
   const born = bornRadial(rootRadius, rx, ry)
+  const bundleAt = bundleRadial(rootRadius, rx, ry)
 
   const sinceSnapshot = Math.max(0, now - fleet.now)
 
@@ -590,8 +732,8 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
     // twenty threads read as a starburst rather than as a network.
     const bundleAngle = angles[bundleLeader(seat, seatKeys.length)] as number
     const bundle: Point = {
-      x: centre.x + rx * 0.32 * Math.cos(bundleAngle),
-      y: centre.y + ry * 0.32 * Math.sin(bundleAngle),
+      x: centre.x + rx * bundleAt * Math.cos(bundleAngle),
+      y: centre.y + ry * bundleAt * Math.sin(bundleAngle),
     }
 
     // It leaves the mass already leaning toward its bundle.
@@ -734,6 +876,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
     height,
     centre,
     rootRadius,
+    rootFullness: fullness,
     rx,
     ry,
     threads,
