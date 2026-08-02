@@ -33,6 +33,8 @@ export interface CliArgs {
   backfill: boolean
   /** True when `--help`/`-h` was passed; other fields are defaults and should be ignored. */
   help: boolean
+  /** True when `--version` was passed; other fields are defaults and should be ignored. */
+  version: boolean
 }
 
 export const DEFAULT_PORT = 4321
@@ -94,11 +96,11 @@ function parseFlags(argv: readonly string[], specs: readonly FlagSpec[]): string
         continue
       }
 
-      // Unknown flag (including misspellings like "--prot" and "--version", which
-      // this CLI doesn't support): fail loudly instead of silently ignoring it and
-      // booting with whatever default the flag was meant to override. The CLI
-      // boundary (runCli) is responsible for appending the usage table before
-      // printing this to the user — keep this message on its own.
+      // Unknown flag (including misspellings like "--prot"): fail loudly instead
+      // of silently ignoring it and booting with whatever default the flag was
+      // meant to override. The CLI boundary (runCli) is responsible for
+      // appending the usage table before printing this to the user — keep this
+      // message on its own.
       const flagName = arg.includes('=') ? arg.slice(0, arg.indexOf('=')) : arg
       throw new Error(`unknown option: "${flagName}"`)
     }
@@ -116,7 +118,7 @@ function isAgentRole(value: string): value is AgentRole {
 /**
  * Parses `rhizomorph [path] [--port <n>] [--flatline-minutes <n>]
  * [--poll-interval <ms>] [--extra-sessions <path>[:<lane>]]... [--fresh]
- * [--backfill] [--help]`.
+ * [--backfill] [--version] [--help]`.
  */
 export function parseArgs(argv: readonly string[]): CliArgs {
   if (argv.includes('--help') || argv.includes('-h')) {
@@ -129,6 +131,21 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       fresh: false,
       backfill: false,
       help: true,
+      version: false,
+    }
+  }
+
+  if (argv.includes('--version')) {
+    return {
+      path: undefined,
+      port: DEFAULT_PORT,
+      flatlineMinutes: DEFAULT_FLATLINE_MINUTES,
+      pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
+      extraSessionDirs: [],
+      fresh: false,
+      backfill: false,
+      help: false,
+      version: true,
     }
   }
 
@@ -176,7 +193,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     return raw
   })
 
-  return { path, port, flatlineMinutes, pollIntervalMs, extraSessionDirs, fresh, backfill, help: false }
+  return { path, port, flatlineMinutes, pollIntervalMs, extraSessionDirs, fresh, backfill, help: false, version: false }
 }
 
 /** Parses `rhizomorph env <lane> [--role <role>] [--port <n>] [--help]`. */
@@ -264,6 +281,7 @@ Options:
   --backfill              Read session logs from the beginning instead of starting at
                           end-of-file: ingest history on purpose. Expect a large
                           first tick and old timestamps.
+  --version               Print the installed rhizomorph version and exit
   --help, -h              Show this help and exit
 
 Run 'rhizomorph doctor --help' or 'rhizomorph env --help' for a subcommand's own options.

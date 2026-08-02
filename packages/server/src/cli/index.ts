@@ -23,6 +23,7 @@ import {
 } from './args.js'
 import { renderDoctorReport, runDoctor } from './doctor.js'
 import { fetchInstanceId, renderTelemetryEnv } from './telemetry-env.js'
+import { readPackageVersion } from './version.js'
 
 export interface RunCliOptions {
   /** Injectable clock, so tests get deterministic session ids and ticks. */
@@ -35,6 +36,8 @@ export interface RunCliOptions {
   collectors?: readonly AnyCollector[]
   /** Overrides the sessionlog collector's Claude project-logs root; tests point this at a fixture dir instead of the real `~/.claude/projects`. */
   claudeProjectsRoot?: string
+  /** Overrides the root `package.json` path `--version` reads from; tests point this at a fixture file. */
+  rootPackageJsonPath?: string
   exec?: Exec
   intervalMs?: number
   log?: Pick<Console, 'log' | 'warn'>
@@ -57,10 +60,10 @@ export interface CliHandle {
  * `--fresh` opts out), so a restart continues one run rather than recording a
  * second copy of it. Pure bootstrap otherwise: no signal handlers — that belongs to whichever entrypoint
  * actually owns the process (see `src/index.ts`), so this stays callable
- * from tests. The exceptions are `--help`, which prints to stdout and exits
- * 0, and a bad argv (unknown flag or invalid value), which prints the
- * message plus usage to stderr and exits 1 — both same as any CLI tool, and
- * neither should surface as a thrown-Error stack trace.
+ * from tests. The exceptions are `--help` and `--version`, which print to
+ * stdout and exit 0, and a bad argv (unknown flag or invalid value), which
+ * prints the message plus usage to stderr and exits 1 — all same as any CLI
+ * tool, and none should surface as a thrown-Error stack trace.
  */
 export async function runCli(argv: readonly string[], options: RunCliOptions = {}): Promise<CliHandle> {
   const now = options.now ?? Date.now
@@ -86,6 +89,11 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
 
   if (args.help) {
     log.log(helpText())
+    exit(0)
+  }
+
+  if (args.version) {
+    log.log(await readPackageVersion(options.rootPackageJsonPath))
     exit(0)
   }
 

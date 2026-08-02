@@ -52,6 +52,20 @@ find out what before you loosen it. `docs/architecture.md`'s decisions log
 has several examples of a law getting *stricter* after a bug slipped through
 a version of it that was too lax to catch it.
 
+## Releases and semver
+
+Every user-visible change belongs in [`CHANGELOG.md`](CHANGELOG.md), Keep a
+Changelog style, under an `[Unreleased]` heading until it ships. That file's
+own header is the semver policy — read it before deciding whether a change
+is breaking: the short version is that the CLI's flags/subcommands and the
+shape of `.swarm/lanes.json` are the public contract (a major bump), while
+the scene's visual grammar, internal telemetry, and the session-log format
+are free to change release to release (minor or patch).
+
+Publishing itself is a human act, done from a `v*` tag by whoever holds the
+`NPM_TOKEN` — see `.github/workflows/release.yml`. Nothing in CI publishes
+on a push to `main`.
+
 ## Docs
 
 `docs/architecture.md` is the decision record — append to its decisions log

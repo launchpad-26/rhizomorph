@@ -1,0 +1,94 @@
+name: Release
+
+# Fires ONLY on a `v*` tag push — never on a push to main, never on a pull
+# request. Publishing is still a human act: someone has to `git tag vX.Y.Z
+# && git push origin vX.Y.Z` before this ever runs, and the actual `npm
+# publish` step still needs a real NPM_TOKEN repo secret (see the comment on
+# that step below) or it fails closed with no token to publish with.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write # required for `npm publish --provenance`
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node (from engines)
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install (clean, lockfile-honest)
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Packaging guard — npm pack ships only the allowlist
+        run: |
+          set -e
+          node <<'NODE_EOF'
+          const { execSync } = require('node:child_process')
+          const out = execSync('npm pack --dry-run --json').toString()
+          const [pkg] = JSON.parse(out)
+          const allowed = [
+            /^package\.json$/,
+            /^README\.md$/,
+            /^LICENSE$/,
+            /^packages\/server\/dist\//,
+            /^packages\/server\/bin\//,
+            /^packages\/web\/dist\//,
+          ]
+          const files = pkg.files.map((f) => f.path)
+          const unexpected = files.filter((f) => !allowed.some((re) => re.test(f)))
+          if (unexpected.length > 0) {
+            console.error('Packaging guard failed — unexpected files in npm pack output:')
+            for (const f of unexpected) console.error(`  ${f}`)
+            process.exit(1)
+          }
+          console.log(`Packaging guard passed — ${files.length} files, all allowlisted.`)
+          NODE_EOF
+
+      - name: Version guard — tag, package.json, and --version all agree
+        run: |
+          set -e
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match package.json version ${PKG_VERSION} — bump package.json (and CHANGELOG.md) before tagging"
+            exit 1
+          fi
+
+          CLI_VERSION=$(node packages/server/bin/rhizomorph.mjs --version)
+          if [ "$CLI_VERSION" != "$PKG_VERSION" ]; then
+            echo "rhizomorph --version printed ${CLI_VERSION}, expected ${PKG_VERSION} — the CLI and package.json have drifted"
+            exit 1
+          fi
+
+          echo "tag ${GITHUB_REF_NAME}, package.json, and --version all agree on ${PKG_VERSION}"
+
+      # Requires the repo secret NPM_TOKEN: an npm "Automation" (or
+      # "Granular Access", publish-only) token from
+      # https://www.npmjs.com/settings/<you>/tokens, added at
+      # Settings -> Secrets and variables -> Actions -> New repository
+      # secret, name NPM_TOKEN. Not set here, and not settable by this
+      # workflow — that step is a human act with a human's credentials.
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -10,6 +10,7 @@ const defaults = {
   fresh: false,
   backfill: false,
   help: false,
+  version: false,
 }
 
 describe('parseArgs', () => {
@@ -117,8 +118,17 @@ describe('parseArgs', () => {
     }
   })
 
-  it('rejects --version instead of booting the server', () => {
-    expect(() => parseArgs(['--version'])).toThrow(/unknown option.*"--version"/is)
+  it('parses --version', () => {
+    expect(parseArgs(['--version'])).toEqual({ ...defaults, version: true })
+  })
+
+  it('short-circuits to version even when other args are otherwise invalid', () => {
+    expect(() => parseArgs(['--port', 'nope', '--version'])).not.toThrow()
+    expect(parseArgs(['--port', 'nope', '--version']).version).toBe(true)
+  })
+
+  it('prefers --help over --version when both are passed', () => {
+    expect(parseArgs(['--version', '--help'])).toEqual({ ...defaults, help: true })
   })
 
   it('treats "--" as the end of flags, so a later "--foo" is a positional, not a flag', () => {
@@ -214,6 +224,7 @@ describe('helpText', () => {
     expect(text).toContain('[:<lane>]')
     expect(text).toContain('--fresh')
     expect(text).toContain('--backfill')
+    expect(text).toContain('--version')
     expect(text).toContain('--help')
   })
 

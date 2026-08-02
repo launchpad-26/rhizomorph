@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Collector, CollectorContext, Exec, RhizomorphEvent, PollResult } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { sessionDirFor } from '../log/paths.js'
@@ -396,14 +397,14 @@ describe('runCli argument errors', () => {
     const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     const exit = fakeExit()
 
-    const thrown = await runCli(['--version'], { exit }).catch((err: unknown) => err)
+    const thrown = await runCli(['--bogus'], { exit }).catch((err: unknown) => err)
 
     const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
     writeSpy.mockRestore()
 
     expect(thrown).toBeInstanceOf(FakeExit)
     expect((thrown as FakeExit).code).toBe(1)
-    expect(output).toContain('unknown option: "--version"')
+    expect(output).toContain('unknown option: "--bogus"')
     expect(output).toContain('Options:')
     expect(output).toContain('--port')
     expect(output).not.toMatch(/^\s*at /m)
@@ -439,6 +440,56 @@ describe('runCli argument errors', () => {
     expect((thrown as FakeExit).code).toBe(0)
     expect(log.log).toHaveBeenCalledWith(expect.stringContaining('Options:'))
     expect(writeSpy).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Reads the version straight off the root package.json instead of hardcoding
+ * a string, so this test fails the moment the CLI's `--version` output and
+ * the published package's own version can drift apart — the pairing the
+ * release brief calls out as the thing a test must pin.
+ */
+describe('runCli --version', () => {
+  it("prints the root package.json's version and exits 0", async () => {
+    const rootPackageJsonPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '..',
+      '..',
+      '..',
+      '..',
+      'package.json',
+    )
+    const rootPkg = JSON.parse(await readFile(rootPackageJsonPath, 'utf8')) as { version: string }
+
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['--version'], { log, exit }).catch((err: unknown) => err)
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    expect(log.log).toHaveBeenCalledWith(rootPkg.version)
+  })
+
+  it('honours an overridden rootPackageJsonPath, same as doctor does for engines.node', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-version-cli-test-'))
+    const pkgPath = path.join(dir, 'package.json')
+    await writeFile(pkgPath, JSON.stringify({ version: '9.9.9' }))
+
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    try {
+      const thrown = await runCli(['--version'], { log, exit, rootPackageJsonPath: pkgPath }).catch(
+        (err: unknown) => err,
+      )
+
+      expect(thrown).toBeInstanceOf(FakeExit)
+      expect((thrown as FakeExit).code).toBe(0)
+      expect(log.log).toHaveBeenCalledWith('9.9.9')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })
 
