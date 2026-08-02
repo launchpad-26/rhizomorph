@@ -248,11 +248,9 @@ export function contourLayers(spec: ContourSpec, levels: readonly number[]): Poi
   }
 
   const passes = spec.smoothing ?? MAX_SMOOTHING
-  return levels.map((level) =>
-    walk({ values, size, x0, y0, cell, ordered, melt }, level).map((ring) =>
-      chaikin(ring, passes),
-    ),
-  )
+  const scratch: Scratch = { vertices: new Map(), next: new Map(), spent: new Set() }
+  const grid: Lattice = { values, size, x0, y0, cell, ordered, melt, scratch }
+  return levels.map((level) => walk(grid, level).map((ring) => chaikin(ring, passes)))
 }
 
 /**
@@ -304,6 +302,23 @@ interface Lattice {
   cell: number
   ordered: readonly Falloff[]
   melt: number
+  /**
+   * The walk's working tables, handed in so that a lattice walked at eighteen
+   * levels allocates three maps rather than fifty-four.
+   *
+   * They are pure scratch — cleared at the top of every walk, and nothing
+   * outside {@link walk} ever reads them — so this is a saving and not a shared
+   * state anybody has to reason about. It is worth having because the root-mass
+   * is walked once per level per frame at sixty frames a second, and the tail of
+   * that frame budget is garbage collection rather than arithmetic.
+   */
+  scratch: Scratch
+}
+
+interface Scratch {
+  vertices: Map<number, Point>
+  next: Map<number, number>
+  spent: Set<number>
 }
 
 /**
@@ -336,7 +351,7 @@ interface Lattice {
  * the surface, and zero is what {@link contourRings} passes.
  */
 function walk(grid: Lattice, level: number): Point[][] {
-  const { values, size, x0, y0, cell, ordered, melt } = grid
+  const { values, size, x0, y0, cell, ordered, melt, scratch } = grid
 
   /** Edge names. Horizontal edge (i,j) runs east; vertical edge (i,j) runs south. */
   const hKey = (i: number, j: number): number => ((j * size + i) << 1) | 0
@@ -345,8 +360,10 @@ function walk(grid: Lattice, level: number): Point[][] {
   const at = (i: number, j: number): number => (values[j * size + i] as number) - level
   const inside = (i: number, j: number): boolean => at(i, j) < 0
 
-  const vertices = new Map<number, Point>()
-  const next = new Map<number, number>()
+  const { vertices, next, spent } = scratch
+  vertices.clear()
+  next.clear()
+  spent.clear()
 
   /** The crossing on a grid edge, always interpolated in the edge's own direction. */
   const hPoint = (i: number, j: number): Point => {
@@ -416,7 +433,6 @@ function walk(grid: Lattice, level: number): Point[][] {
   }
 
   const rings: Point[][] = []
-  const spent = new Set<number>()
   for (const start of next.keys()) {
     if (spent.has(start)) continue
     const ring: Point[] = []
