@@ -29,6 +29,31 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Packaging guard — npm pack ships only the allowlist
+        run: |
+          set -e
+          node <<'NODE_EOF'
+          const { execSync } = require('node:child_process')
+          const out = execSync('npm pack --dry-run --json').toString()
+          const [pkg] = JSON.parse(out)
+          const allowed = [
+            /^package\.json$/,
+            /^README\.md$/,
+            /^LICENSE$/,
+            /^packages\/server\/dist\//,
+            /^packages\/server\/bin\//,
+            /^packages\/web\/dist\//,
+          ]
+          const files = pkg.files.map((f) => f.path)
+          const unexpected = files.filter((f) => !allowed.some((re) => re.test(f)))
+          if (unexpected.length > 0) {
+            console.error('Packaging guard failed — unexpected files in npm pack output:')
+            for (const f of unexpected) console.error(`  ${f}`)
+            process.exit(1)
+          }
+          console.log(`Packaging guard passed — ${files.length} files, all allowlisted.`)
+          NODE_EOF
+
       - name: Boot smoke — start server, hit /api/meta and /, shut down
         run: |
           set -e
