@@ -1195,12 +1195,17 @@ describe('the substitution table — meaning as form', () => {
  * change — so the one thing it is not allowed to do is buy the form with the
  * frame budget. Thirty lanes is the number the brief names.
  *
- * The bound here is deliberately generous rather than tight. A wall-clock
- * assertion inside a suite that also runs four-way concurrent under
- * `--maxWorkers=5` is a flake waiting to happen, and a flaky perf test gets
- * deleted rather than fixed. What it is for is catching the *order of magnitude*
- * regression — somebody rebuilding outlines per mark per frame, or uncapping the
- * sample count — while the real number goes in the issue report.
+ * **Nothing here asserts a wall-clock number**, and that is a correction rather
+ * than a shortcut. It did, at a bound four times the measured cost, and it still
+ * failed three times in twelve concurrent runs — the box was loaded enough that
+ * a 3.6 ms frame measured 17.1. Which is the whole lesson: under
+ * `--maxWorkers=5` the clock measures the machine, not the code, so a wall-clock
+ * assertion is not a weak guard, it is a *wrong* one. It is reported instead.
+ *
+ * The two laws left in its place both hold on a loaded box exactly as they do on
+ * a quiet one: the display list's size, which is deterministic, and the ratio of
+ * building it to laying it out, which dilates with whatever the machine is doing
+ * to both.
  */
 describe('the frame budget at thirty lanes', () => {
   it('builds the whole display list in a fraction of a frame', () => {
@@ -1219,25 +1224,38 @@ describe('the frame budget at thirty lanes', () => {
     expect(frame.geometry.threads).toHaveLength(30)
 
     // Everything the loop does per frame except the canvas calls themselves,
-    // which jsdom has no context for: lay the scene out, then build the display
-    // list. `SceneView` runs both on every `requestAnimationFrame`.
-    const once = (): number => {
-      const geometry = layoutScene(fleet, { ...SIZE, now: NOW })
-      return sceneMarks({ ...frame, geometry }).length
+    // which jsdom has no context for. `SceneView` runs both on every
+    // `requestAnimationFrame`.
+    const lay = (): unknown => layoutScene(fleet, { ...SIZE, now: NOW })
+    const build = (): number => sceneMarks({ ...frame, geometry: lay() as never }).length
+
+    // Warm the JIT, so the numbers below are the steady state a running loop
+    // sees rather than the first-call cost nobody experiences twice.
+    for (let i = 0; i < 20; i += 1) build()
+
+    const time = (work: () => unknown, runs: number): number => {
+      const started = performance.now()
+      for (let i = 0; i < runs; i += 1) work()
+      return (performance.now() - started) / runs
     }
 
-    // Warm the JIT, so the number below is the steady state a running loop sees
-    // rather than the first-call cost nobody experiences twice.
-    for (let i = 0; i < 20; i += 1) once()
+    // The denominator gets more runs: it is the shorter of the two, so it is the
+    // noisier, and a ratio is only as stable as its least stable half.
+    const layout = time(lay, 240)
+    const whole = time(build, 60)
 
-    const runs = 60
-    const started = performance.now()
-    for (let i = 0; i < runs; i += 1) once()
-    const perFrame = (performance.now() - started) / runs
+    // eslint-disable-next-line no-console -- the measurement is the deliverable
+    console.log(
+      `layout + sceneMarks at 30 lanes: ${whole.toFixed(3)} ms/frame (layout ${layout.toFixed(3)})`,
+    )
 
-    // eslint-disable-next-line no-console -- the measurement is the point
-    console.log(`layout + sceneMarks at 30 lanes: ${perFrame.toFixed(3)} ms/frame`)
-    expect(perFrame).toBeLessThan(16.7)
+    // The load-proof form of the same guard: the display list costs a bounded
+    // multiple of the layout it is built from. Both dilate together when the box
+    // is busy, so this holds under four-way concurrency — and it still catches
+    // the regression the clock was there to catch, because rebuilding an outline
+    // per mark or uncapping the sample count moves the numerator and not the
+    // denominator. Measured between 4× and 5.5×.
+    expect(whole / layout).toBeLessThan(10)
   })
 
   it('caps the geometry it hands the painter, whatever the clock says', () => {
