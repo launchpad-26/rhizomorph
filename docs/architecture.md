@@ -843,21 +843,24 @@ that open interval), and is null for every scar nobody watched leave
 (history, replay, reduced motion) — a journey nobody saw start didn't
 happen on this screen.
 
-`rootGirth(landedOutputTokens)` (`packages/web/src/scene/marks/root.ts`) is
-the same two-reference, log-scaled, hard-capped discipline `seedSize` uses
-(`ROOT_GROWTH.seedTokens` = 10,000, `.fullTokens` = 500,000,
-`.maxGirth` = 0.3 — the mass thickens by up to 30% over a session, never
-more). `landedTokens()` sums `lane.outputTokens * homecoming(thread.retire)`
-over the **drawn** scene rather than off `isRetired`, so the mass grows
-exactly as each cord parts — a wave of a dozen landings reads as twelve
-arrivals over the structural queue, never one lurch — and a scar the
-operator has hidden still counts, since hiding is about clutter, not a
-claim the work was undone. The halo widens proportionally
-(`radius * (4.2 + 1.4 * (girth / ROOT_GROWTH.maxGirth))`) so a mass that
-has taken a lot of work home has a wider footprint, not just a fatter
-middle. Both girth and halo are recomputed from state, never animated on
+`rootGirth(landedOutputTokens)` (`packages/web/src/scene/marks/root.ts`) was
+originally the same two-reference, log-scaled, hard-capped discipline
+`seedSize` uses (`ROOT_GROWTH.seedTokens` = 10,000, `.fullTokens` = 500,000,
+`.maxGirth` = 0.3 — the mass thickened by up to 30% over a session, never
+more), applied as a multiplier on top of a fixed radius. `landedTokens()`
+sums `lane.outputTokens * homecoming(thread.retire)` over the **drawn**
+scene rather than off `isRetired`, so the mass grows exactly as each cord
+parts — a wave of a dozen landings reads as twelve arrivals over the
+structural queue, never one lurch — and a scar the operator has hidden
+still counts, since hiding is about clutter, not a claim the work was
+undone. Both girth and halo are recomputed from state, never animated on
 their own clock — the mass never *moves*, it's simply bigger the next time
 you look.
+
+**Superseded by #118** — the 30%-of-resting-size cap read as a wreath after
+a long session (a ring of retired lanes around a large empty middle with a
+barely-bigger blob); see "Beyond prd7 — the fold, and a mass that grows with
+the scene" below for the growth law that replaced it.
 
 ### Germinating seeds (#106, ruling 3)
 
@@ -1030,7 +1033,7 @@ meaning moves into the form of a mark that was already being drawn:
 | asymmetric needle taper + three tapered "licks" | the chevrons (direction/urgency) | `marks/thread.ts`'s `HEAT_TAPER`, `marks/node.ts`'s `expensiveMarks` |
 | a width pinch to zero, twice | the two cut strokes (FROZEN) | `marks/thread.ts`'s `severedStops`/`severedMarks` |
 | a midpoint-displaced blob behind the lane's name | the cartouche ring | `marks/node.ts`'s `enclosureMark`, `variation.ts`'s `blobRing` |
-| a hue-only knot | the seal bar (DONE) | `marks/node.ts`'s `knotMark` |
+| a hue-only knot (superseded — see "Beyond prd7" below) | the seal bar (DONE) | `marks/node.ts`'s `knotMark` (removed; see `sealMark`) |
 | a travelling width swell | the commit dot + its wake glows (9 objects → 2) | `marks/light.ts`'s `swellMarks` |
 | ribbon length | the progress arc | nothing to do — distance has meant lifecycle since prd6 ruling 4 |
 
@@ -1180,6 +1183,92 @@ never live per animation frame in the sense those algorithms mean it, and
 none of their code shipped: `perfect-freehand`, `d3-shape` and
 `simplex-noise` are the only new runtime dependencies, all MIT or ISC.
 
+## Beyond prd7 — the fold, and a mass that grows with the scene (#117, #118)
+
+A post-prd7 visual review ("beautification pass," operator, 2026-08-02) found
+two things prd7 had shipped but not yet gotten right at real fleet scale, and
+landed both without a numbered prd of their own.
+
+### The fold replaces the knot (#117)
+
+prd7 ruling 3's DONE mark was a **knot**: the seal was pinned as
+`turning > 2π`, and a full turn is definitionally a ring with an eye in it.
+At 2x, on a fleet of thirty-eight retired lanes, every one of them wore the
+same pretzel — the single most repeated shape in the picture, because the
+one number every landed lane was checked against was also the thing forcing
+them all into one stamp.
+
+The seal is a **fold** now (`sealMark`, `marks/node.ts`): the cord runs past
+the tip, turns at a radius near its own width — so the two runs lie against
+each other and no eye is left over — and comes back down into the lens,
+where the taper has already taken it to nothing. Reach, tightness, overturn,
+bow and hand all come off the lane's own two free phases, which is why the
+tips no longer rhyme. `marks.test.ts` restates the law in four clauses where
+it had one:
+
+1. **it turns back on itself** (≥ π) — the surviving half of the old claim,
+   at the amount a fold needs. A bar has none.
+2. **it comes home** — the spine ends inside the lens having reached
+   outside it. The old test only *said* this in a comment; it's asserted
+   now, and it's what tells a seal from the tail beside it.
+3. **it is the cord, not a mark laid on it** — a ribbon, drawn to nothing.
+4. **there is no mould** — over a fleet of identical work, the spread of
+   shapes is measured three ways, and all three read exactly zero under the
+   knot. This is the clause that would have caught the original bug.
+
+Only clause 1 is laxer than what it replaced, on precisely the axis that
+forced the badge. Honest about its limit: this is not "no two are alike" —
+the fold is a function of two hashes of the lane's handle, so two lanes can
+draw phases close enough to fold alike, and no identity-seeded mapping can
+promise otherwise. What is forbidden is a shape the whole fleet *shares*.
+
+`knotMark` (the mark this replaced) no longer exists in source — see the
+prd7 ruling 3 table above, which is left as the historical record of what
+prd7 shipped, with a pointer here to what it became.
+
+### A mass that grows with the scene, not with itself (#118)
+
+Also superseded here: prd6 ruling 2's `rootGirth`, a multiplier on a fixed
+radius worth up to 30% at the ceiling ("The way home" above). After
+thirty-eight landings and 2.5M output tokens in this project's own build
+session, the scene read as a **wreath** — a ring of retired lanes around a
+large, mostly empty middle with a small blob in it. The encoding was already
+there; it was simply too weak to see against the picture it sits in.
+
+Two things changed together, both in `geometry.ts` (`ROOT_GROWTH`,
+`rootRadiusFor`, `rootFullness`):
+
+1. **The ceiling is a fraction of the scene, not of the mass.** "+30% of its
+   own resting size" is a claim about the mass and says nothing about the
+   picture around it. The cap (`ROOT_GROWTH.maxReach` = 0.5) is now half the
+   distance from the centre to the nearest point of the retirement band —
+   the direction the rim runs closest, measured the same way `bornRadial`
+   already measured it — so the mass can never crowd the rim or the lane
+   labels on a letterbox panel, a square one, or at any zoom, since the
+   camera magnifies the ceiling and the rim by the same factor. The
+   reference tokens moved too (`seedTokens` = 10,000 unchanged,
+   `fullTokens` = 2,000,000 — this project's own build session had already
+   landed 2.5M by the time the ruling was written).
+2. **Everything inside the rim makes room for it.** The newborn radius, the
+   bundle trunk, and the point each thread leaves the surface at are now
+   placed against `rootRadius` — a geometry fact computed before any mark
+   builder runs — rather than against a resting size, so a full mass can't
+   grow into ground a newborn node already occupies.
+
+A follow-up finding (`marks/root.ts`'s `DEPTH`) split what "grown" actually
+means: growing the *silhouette* alone just re-photographs the same shape
+larger, so the growth is carried entirely by **interior resolution** instead
+— the shell count that paints the mass's depth goes from 18 (resting) to 26
+(a full mass), each one thinner in proportion, so a full mass gains visible
+internal structure rather than a bigger outline of the same likeness. The
+reach the shells sample to (`DEPTH.reach` = 0.62, in units of the radius)
+does **not** grow with fullness — a first attempt at deepening it bought
+shells that enclosed nothing at all, since the underlying field bottoms out
+around 0.58 of the radius regardless of size — and the rind (the mass's lit
+skin) stays a fixed few pixels rather than scaling with girth, since a skin
+is a material fact about how far light travels through this stuff, not a
+proportion of how big the stuff is.
+
 ## Testing
 
 Mass on core selectors/reducers and collector parsers (fixtures captured
@@ -1278,6 +1367,23 @@ hook.
   training them to read a token ratio as a dollar figure. Cost is the one
   metric; provenance (`authoritative` vs. estimated) is shown on it; a gap in
   it is shown as a gap.
+- 2026-08-02 — #117: a law pinned to a single number (`turning > 2π`) turned
+  out to also be the thing forcing every retired lane into one identical
+  shape, because a full turn *is* a ring with an eye in it. The fold that
+  replaced the knot is asserted by four clauses instead of one specifically
+  so a future regression that re-introduces a shared shape (a "mould") has
+  something to trip — clause 4 measures the spread of shapes across an
+  identical fleet and would have caught the original bug outright. See
+  "Beyond prd7" above.
+- 2026-08-02 — #118: an absolute-and-capped growth law can still fail to
+  read if the cap is stated as a fraction of the thing growing rather than
+  of the picture it grows into — "+30% of resting size" was correct and
+  invisible at once, on a fleet with thirty-eight landings. The fix was to
+  re-anchor the cap against the scene (half the distance to the retirement
+  band) rather than against the mass's own resting radius, and to carry the
+  extra growth as interior resolution (more depth shells) rather than a
+  larger silhouette — the same lesson as ruling 1's absolute seed sizing,
+  applied one level up. See "Beyond prd7" above.
 
 ## Platform — pinned versions (issue #1, 2026-07-30)
 
@@ -1522,11 +1628,15 @@ hook.
   `homewardFlow()`) rides the cord-cut's own retract stage — no new motion
   budgeted — so a lane's substance visibly travels down its severing
   thread into the mass as it retires. `rootGirth()`
-  (`packages/web/src/scene/marks/root.ts`) thickens the mass by up to 30%
+  (`packages/web/src/scene/marks/root.ts`) thickened the mass by up to 30%
   over a session, on the same absolute, two-reference log scale seeds use,
   read off the *drawn* scene (`homecoming(retire)`) so the mass grows
-  exactly as each cord parts rather than lurching for a wave of landings.
-  A dormant seed (a scarred, retired lane) germinates a returning handle's
+  exactly as each cord parts rather than lurching for a wave of landings —
+  **the 30%-of-resting-size cap itself was superseded by #118** (see
+  "Beyond prd7" above), which re-anchors the ceiling against the scene
+  rather than the mass and carries the growth as interior resolution
+  instead of a larger silhouette. A dormant seed (a scarred, retired lane)
+  germinates a returning handle's
   new thread from its own seat (`germination()`, matched on `Lane.handles`
   since a re-dispatch can arrive under a new worktree/branch), so the ring
   is never re-spaced by a lane coming back — the one exception graft g7
