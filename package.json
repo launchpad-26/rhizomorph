@@ -1,21 +1,53 @@
 {
   "name": "rhizomorph",
-  "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "A live, replayable localhost dashboard for a git-worktree agent swarm — watches worktrees, branches, tmux panes, and workmux state, read-only.",
+  "keywords": [
+    "claude-code",
+    "git-worktree",
+    "agent-swarm",
+    "dashboard",
+    "telemetry",
+    "cli",
+    "observability"
+  ],
+  "license": "MIT",
+  "author": "Lachlan Kelliher",
+  "homepage": "https://github.com/KelliherL/worktrees-challenge#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KelliherL/worktrees-challenge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/KelliherL/worktrees-challenge/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=22"
   },
+  "bin": {
+    "rhizomorph": "packages/server/bin/rhizomorph.mjs"
+  },
+  "files": [
+    "packages/server/dist",
+    "packages/server/bin",
+    "packages/web/dist",
+    "README.md",
+    "LICENSE"
+  ],
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
     "test": "vitest run",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "build": "npm run build --workspace packages/web",
+    "build": "npm run build --workspace packages/server && npm run build --workspace packages/web",
     "start": "rhizomorph",
     "dev:web": "npm run dev --workspace packages/web",
     "dev:server": "npm run dev --workspace packages/server"
+  },
+  "dependencies": {
+    "fastify": "5.10.0"
   },
   "devDependencies": {
     "@types/node": "22.20.1",
