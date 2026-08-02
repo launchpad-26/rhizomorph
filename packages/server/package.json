@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "build": "esbuild src/cli/index.ts --bundle --platform=node --format=esm --target=es2022 --outfile=dist/cli/index.js --external:fastify",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -17,6 +18,7 @@
     "fastify": "5.10.0"
   },
   "devDependencies": {
+    "esbuild": "0.28.1",
     "tsx": "4.23.1"
   }
 }
