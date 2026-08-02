@@ -40,12 +40,22 @@ import type { Point } from './geometry.js'
  */
 
 /**
- * How finely a ribbon's spine is sampled before it is widened. Twenty-four
- * points is the number the prd7 probe measured (a 24-point spine yields an
- * 88-point closed outline at 0.172 ms for thirty ribbons), and it is well past
- * the point where a thread stops looking faceted at 6× zoom.
+ * How finely a ribbon's spine is sampled before it is widened.
+ *
+ * By default: **whatever resolution the spine already has**, between these two
+ * bounds. That is a correction, and the reason is worth keeping. Resampling
+ * every ribbon to a constant threw away half of a thread's 48-segment spine, and
+ * the loss did not show at 1× — it showed at 6×, where the prd5 camera makes a
+ * 17px chord a 100px straight edge and a lane bending hard through the bundle
+ * turns visibly polygonal. Faceting under zoom is precisely the jank this file
+ * exists to remove, so the default cannot be a number chosen for a thread seen
+ * from far away.
+ *
+ * A caller that knows better still says so: a bloom at 10% alpha has no edge
+ * anybody can find, and a 30px filament has no room for forty-eight of anything.
  */
-export const RIBBON_SAMPLES = 24
+export const RIBBON_SAMPLES_MIN = 6
+export const RIBBON_SAMPLES_MAX = 48
 
 /** Below this, a ribbon has closed: the run ends and a new one begins. */
 export const PINCH_EPSILON = 0.02
@@ -100,6 +110,14 @@ export interface RibbonShape {
   taperTip?: number
   /** Short runs with gaps: a line that is broken rather than merely thin. */
   dashed?: boolean
+  /**
+   * Round the two ends off. On by default, and worth turning off for a ribbon
+   * thin enough that its cap is sub-pixel: the caps are 42 of the 66 vertices a
+   * hairline filament costs, which is most of a mark spent on a curve nobody can
+   * resolve. Measured: 66 → 34 vertices and 26% off the build, with the width
+   * unchanged to seven places.
+   */
+  caps?: boolean
   /** Override the sample count — fewer for the soft wide blooms nobody reads an edge on. */
   samples?: number
 }
@@ -138,7 +156,7 @@ export function widthOf(shape: RibbonShape, t: number): number {
  * mechanism with the runs chosen by index rather than by width.
  */
 export function ribbonOutline(shape: RibbonShape): Point[][] {
-  const samples = shape.samples ?? RIBBON_SAMPLES
+  const samples = shape.samples ?? sampleCount(shape.spine)
   const spine = resample(shape.spine, samples)
   if (spine.length < 2) return []
 
@@ -160,7 +178,7 @@ export function ribbonOutline(shape: RibbonShape): Point[][] {
 
   return runs(last, shape.dashed === true)
     .flatMap((run) => pinched(run, widths))
-    .map(([from, to]) => outlineOf(spine, widths, from, to, widest))
+    .map(([from, to]) => outlineOf(spine, widths, from, to, widest, shape.caps !== false))
     .filter((polygon) => polygon.length > 2)
 }
 
@@ -181,6 +199,7 @@ function outlineOf(
   from: number,
   to: number,
   widest: number,
+  caps: boolean,
 ): Point[] {
   const points: [number, number, number][] = []
   for (let i = from; i <= to; i += 1) {
@@ -196,6 +215,7 @@ function outlineOf(
     streamline: 0,
     simulatePressure: false,
     last: true,
+    ...(caps ? {} : { start: { cap: false }, end: { cap: false } }),
   }).map(([x, y]) => ({ x, y }))
 }
 
@@ -327,6 +347,11 @@ function cubicAt(segment: Segment, t: number): Point {
     x: a * segment.from.x + b * segment.c1.x + c * segment.c2.x + d * segment.to.x,
     y: a * segment.from.y + b * segment.c1.y + c * segment.c2.y + d * segment.to.y,
   }
+}
+
+/** Keep the spine's own resolution, inside the bounds. See {@link RIBBON_SAMPLES_MAX}. */
+export function sampleCount(spine: readonly Point[]): number {
+  return Math.min(RIBBON_SAMPLES_MAX, Math.max(RIBBON_SAMPLES_MIN, spine.length - 1))
 }
 
 /** `steps + 1` points evenly spaced in path parameter — the ribbon's own resolution. */

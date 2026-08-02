@@ -105,6 +105,9 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       path: thread.path,
       widthRoot: thread.widthRoot * 3.6,
       widthTip: thread.widthTip * 3.6,
+      // Half the thread's resolution: a wash at 10% alpha has no edge anybody
+      // can find a facet in, and it is the second-widest ribbon on screen.
+      samples: 24,
       paint: budget(frame, laneId, false, { rgb: base.rgb, alpha: base.alpha * 0.1 }),
     }),
     ribbonMark({
@@ -297,6 +300,7 @@ function heatMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       widthRoot: thread.widthRoot * 7,
       widthTip: thread.widthTip * 7,
       taperTip: HEAT_TAPER,
+      samples: 24,
       paint: budget(frame, laneId, false, ink(ICE_050, 0.06)),
     }),
     ribbonMark({
@@ -423,6 +427,10 @@ function filamentMarks(frame: SceneFrame, thread: ThreadGeometry, base: Ink): Ma
           // strand has no edge anybody reads at 6× (`ribbon.ts`).
           modulate: habit.widthJitter,
           samples: 12,
+          // A strand is under a pixel wide and ends in a thorn glyph; its round
+          // caps would be two thirds of the mark spent on a curve nobody can
+          // resolve. Sixty-six strands a frame at thirty lanes, so it counts.
+          caps: false,
           paint: budget(frame, thread.laneId, false, { rgb: base.rgb, alpha: base.alpha * 0.62 }),
         }),
       )

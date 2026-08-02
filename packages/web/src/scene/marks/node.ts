@@ -278,7 +278,7 @@ function enclosureMark(thread: ThreadGeometry, hue: Rgb): Mark {
   const { anchor, align } = thread.label
   // The block the name and its figure occupy — roughly, and roughly is right: a
   // blob has no edge to line up with anyway.
-  const width = thread.lane.label.length * 5.9 + 16
+  const width = thread.lane.label.length * 5.9 + 14
   const centre: Point = {
     x: align === 'left' ? anchor.x + width / 2 - 5 : align === 'right' ? anchor.x - width / 2 + 5 : anchor.x,
     y: anchor.y + 1,
@@ -288,8 +288,13 @@ function enclosureMark(thread: ThreadGeometry, hue: Rgb): Mark {
     role: 'rank-enclosure',
     laneId: thread.laneId,
     alarm: true,
-    ring: blobRing(centre, width / 2, 15, variationSeed(thread.lane)),
-    paint: ink(hue, 0.14),
+    // Sized to the two lines it sits under and no further, and faint: it is the
+    // ground a name stands on. The displacement can push it a third past these
+    // radii, which is why they are inside the block rather than around it — a
+    // blob that read as an object in its own right would be a fifth hue in a
+    // picture that has four.
+    ring: blobRing(centre, width * 0.44, 12, variationSeed(thread.lane)),
+    paint: ink(hue, 0.1),
   })
 }
 
@@ -390,11 +395,16 @@ function expensiveMarks(
   const across: Point = { x: -Math.sin(angle), y: Math.cos(angle) }
   const forward: Point = { x: Math.cos(angle), y: Math.sin(angle) }
   // Free channel: which way the licks lean is a habit, and habits carry nothing.
-  const lean = (variationFor(variationSeed(thread.lane)).curl - 0.5) * 2
+  const curl = variationFor(variationSeed(thread.lane)).curl
+  const lean = (curl - 0.5) * 2
+  // All three the same way, splaying as they rise — heat comes off a thing in a
+  // plume. Alternating them read as a zigzag, which is a chevron by another
+  // name and would have quietly undone the substitution.
+  const side = curl >= 0.5 ? 1 : -1
 
   return [0, 1, 2].map((i) => {
     const reach = out + 5 + i * 5.5
-    const side = i % 2 === 0 ? 1 : -1
+    const splay = 1 + i * 0.45
     const at = (along: number, sideways: number): Point => ({
       x: thread.node.x + forward.x * along + across.x * sideways,
       y: thread.node.y + forward.y * along + across.y * sideways,
@@ -406,8 +416,8 @@ function expensiveMarks(
       alarm: false,
       path: [
         at(reach, 0),
-        at(reach + 4.2, side * (1.4 + lean)),
-        at(reach + 8.4, side * (4 + lean * 2)),
+        at(reach + 4.2, side * splay * (1.4 + lean)),
+        at(reach + 8.4, side * splay * (4 + lean * 2)),
       ],
       // Wide where it leaves the tip and gone by the end of itself. Bigger than
       // the chevrons were: a 5px lick is a smudge, and the whole argument for

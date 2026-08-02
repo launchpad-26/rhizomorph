@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { Point } from './geometry.js'
 import {
   PINCH_EPSILON,
-  RIBBON_SAMPLES,
+  RIBBON_SAMPLES_MAX,
+  sampleCount,
   ribbonOutline,
   smoothSpine,
   widthOf,
@@ -60,7 +61,7 @@ function at(path: readonly Point[], t: number): Point {
  * the thing it claims to.
  */
 function snap(shape: RibbonShape, t: number): number {
-  const samples = shape.samples ?? RIBBON_SAMPLES
+  const samples = shape.samples ?? sampleCount(shape.spine)
   return Math.round(t * samples) / samples
 }
 
@@ -182,10 +183,14 @@ describe('the outline is the encoding, drawn', () => {
   })
 
   it('keeps its point count bounded, so a fleet cannot subdivide its way to jank', () => {
+    const samples = sampleCount(SPINE)
     const points = ribbonOutline(shapeOf()).flat().length
-    // Two sides plus the two round caps — the count the prd7 probe measured.
-    expect(points).toBeGreaterThan(RIBBON_SAMPLES * 2)
-    expect(points).toBeLessThan(RIBBON_SAMPLES * 2 + 60)
+    // Two sides plus the two round caps — the shape the prd7 probe measured.
+    expect(points).toBeGreaterThan(samples * 2)
+    expect(points).toBeLessThan(samples * 2 + 60)
+    // …and however dense a spine it is handed, it stops sampling somewhere.
+    const dense = Array.from({ length: 400 }, (_unused, i) => at(SPINE, i / 399))
+    expect(sampleCount(dense)).toBe(RIBBON_SAMPLES_MAX)
   })
 })
 
