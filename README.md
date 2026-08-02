@@ -1,63 +1,44 @@
 # The Rhizomorph
 
-Run it in any repo hosting a git-worktree agent swarm and get a live,
-replayable instrument at localhost — one glance answers "does anything need
-me," and you can point at the looping agent, the frozen one, the waiting one,
-the expensive one, and the one that wandered off its fence, without reading a
-number. It discovers worktrees and branches (git), agent panes (tmux), and
-workmux state if present, each source optional and each degrading
-gracefully, and reflects reality within a couple of seconds via polling.
-Read-only, always: it never sends keys, launches agents, or merges anything —
-see [`docs/vision.md`](docs/vision.md) for the full pitch,
-[`docs/prd3.md`](docs/prd3.md) for the visualization design rulings behind
-what's on screen, [`docs/prd4.md`](docs/prd4.md) for the operator-review
-rulings that re-aimed the whole surface at a first-time viewer, not just the
-person who built it (the **layman bar** — every screen below is written to
-be readable by someone who has never seen this tool before), and
-[`docs/prd5.md`](docs/prd5.md) for the rulings behind the scene's camera,
-its motion, and the cord-cut described below, and [`docs/prd6.md`](docs/prd6.md)
-for the rulings behind the scene's living cycle — absolute seed sizes,
-lifecycle distance, the way severed work comes home, and the root-mass's own
-drawer.
+A read-only instrument you point at a repo full of git worktrees: it shows
+what a swarm of coding agents is doing, live, and can replay the session
+afterward.
 
 ![The scene as the centerpiece — a busy 20-lane fleet, every thread live green but visibly different widths for visibly different output, ALL CLEAR above it](docs/screenshots/fixture-20-lane.png)
 
-## Prerequisites
+It discovers worktrees and branches (git), agent panes (tmux), and
+[workmux](https://github.com/raine/workmux) state if present — each source
+optional, each degrading gracefully — and reflects reality within a couple
+of seconds via polling. It never sends a keystroke, launches an agent, or
+merges anything. If you're deciding whether to run this on the machine
+where your agents work, the next two sections are the ones that matter;
+everything past them is depth for once you've decided.
 
-- **Node 22 or newer.** Enforced via `engines` in `package.json` — `npm
-  install` will warn on an older Node.
-- **git.** The Rhizomorph watches a git working tree; the directory you
-  point it at (default: cwd) must be one.
-- **tmux — optional.** Without it, agent-status detection stays quiet (one
-  `collector.disabled` event) and the fleet table, scene, and collisions
-  panel all keep working off git alone.
-- **[workmux](https://github.com/raine/workmux) — optional.** Without it,
-  the same graceful degradation applies to workmux-specific state (lane
-  labels, pane↔worktree wiring, the WAITING pathology); nothing else is
-  affected.
-
-Neither tmux nor workmux is required to see a working dashboard. Run
-`rhizomorph doctor` (below) at any point to see exactly which of these are
-missing and what that costs you.
-
-**Platform support:** Linux is CI-verified on every push, WSL is first-class
-and exercised daily, and macOS is expected to work (no platform-specific
-code, paths go through `node:path`, and collectors degrade loudly rather
-than fail silently) but is not CI-verified.
-
-## Quickstart
+## Install and run
 
 ```sh
-git clone https://github.com/KelliherL/worktrees-challenge
-cd worktrees-challenge
+npx rhizomorph <path-to-repo>
+```
+
+That builds nothing and installs nothing permanent — `npx` fetches the
+package, runs it, and prints a URL (`http://127.0.0.1:4321` by default).
+Open it in a browser. Omit the path to watch the current directory.
+
+If you'd rather build it yourself, or want to read the source before
+running it — a reasonable instinct for a tool that reads your agent
+sessions, see [Trust](#trust) below — clone and run it directly:
+
+```sh
+git clone https://github.com/KelliherL/worktrees-challenge rhizomorph
+cd rhizomorph
 npm install
 npm run build   # builds the dashboard once; the server serves it statically
 npm start       # boots collectors + API on http://127.0.0.1:4321, watching the cwd
 ```
 
-Then open the printed URL in a browser. To watch a different repo or pass
-flags, forward them after `--`: `npm start -- <path-to-repo> --port 5000`.
-Flags (`npm start -- --help` prints the same table):
+Both paths run the same code. To watch a different repo or pass flags,
+forward them after `--`: `npm start -- <path-to-repo> --port 5000`
+(clone-and-run) or `npx rhizomorph <path-to-repo> --port 5000` (npx).
 
 | Flag | Default | Meaning |
 |---|---|---|
@@ -69,40 +50,126 @@ Flags (`npm start -- --help` prints the same table):
 | `--backfill` | — | Read session logs from the beginning instead of end-of-file — ingest history on purpose; expect a large first tick |
 | `--help`, `-h` | — | Show usage and exit |
 
-Two more keyboard shortcuts matter once the dashboard is open: press **`2`**
-or **`3`** to load a synthetic fixture (a 20-lane healthy fleet, or a
-staged fleet with one lane per pathology) without any swarm running at all —
-see [`docs/demo.md`](docs/demo.md) for the full walkthrough — and press
-**`1`** to return to the real, live collectors.
+Not sure something's missing rather than actually broken? Run the one
+command that explains every gap at once:
 
-The server serves API and static dashboard from one origin (no CORS), so
-rebuild `packages/web` (`npm run build`) after front-end changes and restart
-`npm start` to see them.
+```sh
+npx rhizomorph doctor <path-to-repo>
+```
 
-**Not published to npm.** The obvious package name (`rhizomorph`) is already
-taken by an unrelated project on the public registry, so there is no `npx
-rhizomorph` yet — publishing under a different name is a later step, and
-picking that name isn't this issue's call to make. The clone-and-run sequence
-above is the only supported way to run this today.
+It checks the Node version, that the target path exists and is a git repo,
+that the web build is present, that the port is free, Claude Code session
+logs, tmux/workmux on `PATH`, the telemetry env, and the lane manifest — one
+`ok`/`warn`/`FAIL` line per check, each with its exact remedy. It exits
+non-zero only when the app genuinely cannot run at all (bad path, not a git
+repo, no web build, port already taken); everything else is a `warn` that
+degrades gracefully rather than a reason to stop.
+
+## Trust
+
+This is a tool that reads your machine's own record of what your coding
+agents have been doing, so here is plainly what it does and doesn't do —
+not a footnote, the second thing in this file.
+
+**What it reads:** the git state of the repo you point it at (worktrees,
+branches, commits — read-only, no writes); tmux panes and
+[workmux](https://github.com/raine/workmux) state, if either is installed
+(neither is required); and, to show an agent's actual conversation in the
+lane drawer, your own Claude Code session logs under `~/.claude/projects`.
+
+**Where it listens:** `127.0.0.1` only, on the port you choose (default
+`4321`). It does not bind a public interface. If you also point a live
+`claude` process at its telemetry receiver (see [Telemetry](#telemetry-the-money-layer)
+below), that receiver listens on the same loopback address, on the same
+port, for the same reason.
+
+**What it sends, and to whom:** nothing, ever, off this machine. There is
+no analytics call, no update check, no phone-home of any kind anywhere in
+this codebase. Everything it shows is read from local files and local
+processes and rendered in your own browser.
+
+If you'd rather verify that yourself than take it on faith — the right
+instinct for exactly this kind of tool — the source is right here: the
+collectors that read git/tmux/workmux live under
+`packages/server/src/collectors/`, the one that tails your session logs is
+`packages/server/src/collectors/sessionlog/`, and the server that binds the
+port is `packages/server/src/index.ts`. Grep for `fetch(`, `http.request`,
+or any outbound socket; there isn't one.
+
+## Support matrix
+
+| Platform | Status |
+|---|---|
+| Linux | CI-verified on every push (`.github/workflows/ci.yml`) |
+| WSL | The daily development platform — exercised constantly, just not by CI |
+| macOS | **Unverified.** No platform-specific code exists (paths go through `node:path`, collectors degrade loudly rather than fail silently), but nobody has run it on macOS and confirmed that. Treat it as untested, not as "should work." If you try it, [an issue](https://github.com/KelliherL/worktrees-challenge/issues) saying what happened is genuinely useful. |
+
+**Node >= 22** — enforced via `engines` in `package.json`; older Node warns
+on install and may not run at all.
+
+## What it does not do
+
+Read-only is the whole point, not a caveat:
+
+- It never writes to the repo it's watching — no commits, no branches, no
+  file changes.
+- It never runs a git command that mutates anything (no merge, no rebase,
+  no checkout, no push) — only read commands like `git worktree list`,
+  `git log`, `git status`.
+- It never sends a keystroke to an agent, never starts one, never stops one.
+- It never merges a worktree or otherwise acts on what it shows you. The
+  lane drawer's **ATTACH** button copies a `tmux`/`workmux` command to your
+  clipboard; it never runs it. Every action after that is yours, in your
+  own terminal.
+
+## Maintenance
+
+Released as-is. Issues are welcome, but there's no promise of response
+times — this is a solo project maintained alongside everything else in
+life, not a supported product with an SLA. If something's broken, file an
+issue with what you ran and what happened; if you'd like to fix it
+yourself, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+Everything below this line is depth for once you've decided to run it:
+what the picture on screen means, how replay works, the keyboard map, and
+where the rest of the documentation lives.
+
+## Prerequisites, restated
+
+- **git.** The Rhizomorph watches a git working tree; the directory you
+  point it at (default: cwd) must be one.
+- **tmux — optional.** Without it, agent-status detection stays quiet (one
+  `collector.disabled` event) and the fleet table, scene, and collisions
+  panel all keep working off git alone.
+- **[workmux](https://github.com/raine/workmux) — optional.** Without it,
+  the same graceful degradation applies to workmux-specific state (lane
+  labels, pane↔worktree wiring, the WAITING pathology); nothing else is
+  affected.
+
+Neither tmux nor workmux is required to see a working dashboard — `doctor`
+(above) tells you exactly which of these are missing and what that costs.
 
 ## First run, nothing else set up
 
-Point it at a fresh clone of some other repo — no worktrees beyond `main`, no
-tmux session, no telemetry configured — and here's exactly what you get, not
-a placeholder:
+Point it at a fresh clone of some other repo — no worktrees beyond `main`,
+no tmux session, no telemetry configured — and here's exactly what you get,
+not a placeholder:
 
-- The **attention strip** at the top reads `ALL CLEAR`, with an evidence line
-  ("0 lanes · 0 branches · 0 files checked · collisions 0") rather than bare
-  reassurance — every figure in it is something the fleet object already
-  checked. `main` itself isn't a lane (a lane is a dispatched worktree), which
-  is why a fresh clone with nothing but `main` checked out reads as zero.
+- The **attention strip** at the top reads `ALL CLEAR`, with an evidence
+  line ("0 lanes · 0 branches · 0 files checked · collisions 0") rather than
+  bare reassurance — every figure in it is something the fleet object
+  already checked. `main` itself isn't a lane (a lane is a dispatched
+  worktree), which is why a fresh clone with nothing but `main` checked out
+  reads as zero.
 - The **burn strip** shows `0` output tokens and the gap-voice line `NO COST
   FEED (OTel) — dollars unavailable — run: eval "$(rhizomorph env <lane>)"`
   in place of a dollar figure, plus `CONDUCTOR NOT INSTRUMENTED` in place of
   an overhead ratio.
 - The **scene**, the first thing under the two docked strips, shows a single
-  lit mass (`main`) with nothing reaching out from it, and the **fleet table**
-  right beneath it shows no rows at all — nothing dispatched yet.
+  lit mass (`main`) with nothing reaching out from it, and the **fleet
+  table** right beneath it shows no rows at all — nothing dispatched yet.
 - The **ledger** and **collisions** panel stay at their own honest-empty
   states ("collisions: 0 — checked 0 branches / 0 files") until something
   commits or two branches touch the same file.
@@ -112,35 +179,8 @@ a placeholder:
   it's erroring, so "nothing to report" never looks like "something's
   wrong."
 
-None of that is a bug. To tell "nothing to report" apart from "something's
-actually wrong," run the one command that explains every gap at once:
-
-```sh
-node_modules/.bin/rhizomorph doctor
-```
-
-It checks the Node version, that the target path exists and is a git repo,
-that the web build is present, that the port is free, Claude Code session
-logs, tmux/workmux on `PATH`, the telemetry env, and the lane manifest — one
-`ok`/`warn`/`FAIL` line per check, each with its exact remedy:
-
-```
-[ok  ] Node v22.23.2 satisfies the required >=22
-[ok  ] /path/to/worktrees-challenge exists and is a git repository
-[ok  ] web build present at /path/to/worktrees-challenge/packages/web/dist/index.html
-[ok  ] port 4321 is free
-[ok  ] Claude Code session logs found at ~/.claude/projects
-[ok  ] tmux found on PATH
-[ok  ] workmux found on PATH
-[warn] telemetry env is not set in this shell — spend stays at zero until you run `eval "$(rhizomorph env <lane>)"` (see docs/telemetry.md)
-[warn] no lane manifest at /path/to/worktrees-challenge/.swarm/lanes.json — dispatch has not written .swarm/lanes.json yet; off-fence detection stays unavailable until a dispatch runs
-
-All required checks passed.
-```
-
-It exits non-zero only when the app genuinely cannot run at all (bad path,
-not a git repo, no web build, port already taken) — everything else is a
-`warn` that degrades gracefully rather than a reason to stop.
+None of that is a bug — it's `doctor`'s job (above) to tell "nothing to
+report" apart from "something's actually wrong."
 
 ## Telemetry (the money layer)
 
@@ -156,8 +196,8 @@ refuses to print a block for a port nothing is listening on), get the exact,
 export-ready block for any lane with:
 
 ```sh
-node_modules/.bin/rhizomorph env <lane> [--role worker|conductor|auxiliary|unattributed] [--port <n>]
-eval "$(node_modules/.bin/rhizomorph env test-lane)"   # then launch claude in the same shell
+npx rhizomorph env <lane> [--role worker|conductor|auxiliary|unattributed] [--port <n>]
+eval "$(npx rhizomorph env test-lane)"   # then launch claude in the same shell
 ```
 
 `.workmux.yaml` already wires this into every worker lane automatically —
@@ -207,8 +247,7 @@ instruments beneath it.
   pulse-network ([ruling 28](docs/prd3.md)): root-mass at the center, one
   tendril per lane, pulses of light traveling along them for real events
   (commits, token bursts) — never invented, never on history. Four channels,
-  each a different fact, none of them a decoration ([prd6 ruling 4](docs/prd6.md)
-  fixed the one that used to be hardest to read):
+  each a different fact, none of them a decoration:
   - **Thread width — how much a lane has produced**, on an absolute scale
     ([prd6 ruling 1](docs/prd6.md)): a 20K-token lane draws the same width
     whether it's alone or next to a 500K-token whale. Nothing balloons — the
@@ -223,16 +262,14 @@ instruments beneath it.
     independent of how far through its life it is.
 
   Looping, frozen, waiting, expensive, and off-fence lanes each read as an
-  unmistakably different *shape* on their thread, not a color alone, and
-  since prd4 the color carries real meaning too (see "The palette" below).
-  Since prd5 it's also a place you can go: drag to pan, Ctrl/Cmd+wheel to
-  zoom at the cursor, and a finished lane cuts loose from the mass rather
-  than sitting there dyed a different color — see "The camera" and "The
-  cord-cut and the way home" below. Since prd6, the root-mass itself is
-  clickable: it opens the same drawer a lane does, on the conductor's own
-  conversation (see "Lane drawer" below). Lazy-loaded behind an error
-  boundary: if it breaks, the rest of the panel grid stands alone. A "Focus
-  Scene" button fills the whole viewport with it.
+  unmistakably different *shape* on their thread, not a color alone (see
+  "The palette" below). It's also a place you can go: drag to pan, Ctrl/Cmd
+  + wheel to zoom at the cursor, and a finished lane cuts loose from the
+  mass rather than sitting there dyed a different color — see "The camera"
+  and "The cord-cut" below. The root-mass itself is clickable: it opens the
+  same drawer a lane does, on the conductor's own conversation. Lazy-loaded
+  behind an error boundary: if it breaks, the rest of the panel grid stands
+  alone. A "Focus Scene" button fills the whole viewport with it.
 - **Fleet table** — one dense row per lane: state, output tokens, `$`,
   request/tool counts, thread/subagent count, age, and fence status. The
   STATE column draws the scene's own glyph *and* the scene's own hue at row
@@ -249,31 +286,29 @@ instruments beneath it.
   carries evidence (`collisions: 0 — checked N branches / M files`) rather
   than bare reassurance.
 - **Activity feed** — commits, landings, lane starts/stops, and collector
-  events in one quiet, filterable-by-kind-and-by-lane stream (the old commit
-  ticker's one kind grown into four).
+  events in one quiet, filterable-by-kind-and-by-lane stream.
 - **Provenance bar** (docked bottom) — one dot per collector (Git, Tmux,
   Workmux, Sessionlog, OTel) plus the SSE connection dot; a dead collector
   escalates to the strip too, and speaks the same gap voice here.
 - **Lane drawer** — click any fleet row to open it. The main, largest section
-  is the **conversation** ([prd4 ruling 4](docs/prd4.md)): the same thing
-  you'd see sitting at that agent's own terminal — user turns marked with a
-  `›` prompt, assistant prose in the page's own type, tool calls as quiet
-  one-line bullets between them (`● Read — path/to/file`, `⎿ result, …+2K
-  more` when a result was cut). It tails the session log live and follows the
-  bottom until you scroll up, at which point it pauses and says so. Above it:
-  vitals (state, output, cost, age, fence, worktree). Below it, an **ATTACH**
-  button that copies the exact `tmux`/`workmux` command for that lane to your
-  clipboard — it never runs anything; interaction happens in your own
-  terminal. Closing it (**Esc**, or the drawer's own close) always takes
-  precedence over exiting panel focus. **Click the root-mass and the same
-  drawer opens on the conductor** ([prd6 ruling 5](docs/prd6.md)) — the same
-  frame, the same conversation view, the same copies-never-executes ATTACH,
-  just with main's own vitals up top (branch, worktrees landed, commits
-  observed on it) instead of a lane's. An un-instrumented conductor says so
-  in the gap voice rather than showing an empty pane.
+  is the **conversation**: the same thing you'd see sitting at that agent's
+  own terminal — user turns marked with a `›` prompt, assistant prose in the
+  page's own type, tool calls as quiet one-line bullets between them
+  (`● Read — path/to/file`, `⎿ result, …+2K more` when a result was cut). It
+  tails the session log live and follows the bottom until you scroll up, at
+  which point it pauses and says so. Above it: vitals (state, output, cost,
+  age, fence, worktree). Below it, an **ATTACH** button that copies the
+  exact `tmux`/`workmux` command for that lane to your clipboard — it never
+  runs anything; interaction happens in your own terminal. Closing it
+  (**Esc**, or the drawer's own close) always takes precedence over exiting
+  panel focus. **Click the root-mass and the same drawer opens on the
+  conductor** — the same frame, the same conversation view, the same
+  copies-never-executes ATTACH, just with main's own vitals up top (branch,
+  worktrees landed, commits observed on it) instead of a lane's. An
+  un-instrumented conductor says so in the gap voice rather than showing an
+  empty pane.
 - **Panel focus** — every panel has a "Focus" affordance that fills the view
-  with just that panel; **Esc** restores it. No drag/resize/custom layouts
-  (deferred per prd3).
+  with just that panel; **Esc** restores it. No drag/resize/custom layouts.
 - **Replay** — a full mode shift, not a tinted live view: the attention strip
   is replaced outright by a REPLAY banner (timestamp, session identity, an
   "Exit to live" button) in an ice-register frame, never a ladder hue, so a
@@ -287,8 +322,8 @@ instruments beneath it.
 
 ### The palette — the fleet table teaches it, the scene speaks it
 
-[prd4 ruling 3](docs/prd4.md) gives every state a real color, not just a
-glyph. Six hues, each meaning exactly one thing everywhere in the app:
+Every state gets a real color, not just a glyph. Six hues, each meaning
+exactly one thing everywhere in the app:
 
 | Hue | Means | Where you'll see it |
 |---|---|---|
@@ -303,8 +338,6 @@ is the legend**, in both senses. It draws the scene's own glyph (a coil for
 LOOPING, a severed bar for FROZEN, a raised hand for WAITING, a radial burst
 for EXPENSIVE, fence posts and a barb for OFF-FENCE) at row scale next to the
 plain-English word, in the same hue the scene paints that lane's thread with.
-Learn a pathology from a row and you already know what it looks like — and
-what color it is — in the picture above.
 
 Brightness, not color exclusivity, is what marks an alarm: a calm lane may
 wear its hue at a healthy brightness (no more "too dark to read" fleet), but
@@ -315,57 +348,54 @@ around it rather than being drowned in more color.
 
 ### The organic form — ribbons, taper, and the centre that melts
 
-[prd7](docs/prd7.md) rebuilt how every fact above is *drawn*, without moving
-a single one of the facts. A thread used to be a stroked centre-line with
-discrete glyphs glued onto it — a chevron here, a tick mark there. It is now
-a **filled ribbon whose width varies along its own length**, so the marks
-that used to sit on top of a line are now the line's own shape:
+A thread is a **filled ribbon whose width varies along its own length**,
+not a stroked centre-line with glyphs glued onto it:
 
-- **Width is still work — a thicker ribbon has produced more** ([prd6 ruling
-  1](docs/prd6.md), untouched). What changed is only the telling: every
-  ribbon narrows a little from where it leaves the root-mass to where it
-  ends, the way a real hypha does, thick or thin in proportion to the same
-  lane's own output the whole way along.
+- **Width is still work** — a thicker ribbon has produced more, on the same
+  absolute, capped scale as thread width above. Every ribbon narrows a
+  little from where it leaves the root-mass to where it ends, the way a
+  real hypha does.
 - **Taper is EXPENSIVE.** A lane burning far above the fleet's median draws
-  its last stretch down to a needle rather than wearing three arrow icons at
-  the tip — direction and urgency read off the width itself, which is
-  legible along the whole thread instead of at one crowded point.
+  its last stretch down to a needle, plus three short ribbons peeling away
+  from the tip like heat leaving it.
 - **Pinch is FROZEN.** A dead lane's ribbon narrows to nothing at two points
-  along its own length — the thread is genuinely cut in two places, not a
-  tick mark laid across a line that quietly carries on.
-- **Swell is a commit, and swell is the way home.** A commit no longer rides
-  as a dot on top of a wire; it is a travelling widening in the ribbon's own
-  girth — matter moving through the hypha, not light skimming over it. The
-  same channel carries a finished lane's substance home: as its thread cuts
-  loose (see "The cord-cut" below), one last swell runs down the severing
-  cord into the root-mass before the freed end springs back.
-- **Length is still lifecycle** ([prd6 ruling 4](docs/prd6.md), untouched):
-  how far a thread reaches from the mass is how far through its life that
-  lane is. prd7 changed no distance, only what travels along one.
-- **The centre is one surface now, not a stack of rings.** The root-mass is
-  a single smooth, closed contour — several soft fields blended together and
-  walked into one boundary — rather than concentric circles. It **bulges
-  toward whichever lane's work is arriving**, swelling from the inside as
-  that lane's cord parts, and settles back once the merge is done, leaving
-  only the mass a little thicker than before. You never catch the bulge
-  appearing out of nothing and you never catch the mass shrinking back down.
+  along its own length — the thread is genuinely cut in two places.
+- **A fold at the tip is done.** A finished lane's cord runs past its node,
+  turns back on itself near its own width, and comes home into the lens —
+  no two lanes fold quite alike, since the fold's reach, tightness, and bow
+  all come off that lane's own name.
+- **Swell is a commit, and swell is the way home.** A commit rides as a
+  travelling widening in the ribbon's own girth — matter moving through the
+  hypha — and the same channel carries a finished lane's substance home: one
+  last swell runs down the severing cord into the root-mass before the
+  freed end springs back.
+- **Length is lifecycle** — how far a thread reaches from the mass is how
+  far through its life that lane is.
 
-Every one of those substitutions spends **zero new objects** — a pinch, a
-taper and a swell are all the same one ribbon, doing more with the one
-channel it already had, which is what lets the discrete glyphs disappear
-without losing anything a law depended on.
+**The centre is one surface**, not a stack of rings — several soft fields
+blended together and walked into one closed contour. It bulges toward
+whichever lane's work is arriving, swelling as that lane's cord parts, and
+settles back once the merge is done, leaving only the mass a little thicker
+than before. **It grows with the session's landed work**: every lane whose
+cord has been cut has sent its substance back down the thread, so the mass
+is visibly bigger by the end of a night than at the start — the honest
+reading of a merge, the work is part of `main` now. The cap is absolute and
+bounded to half the distance from the centre to the nearest point of the
+retirement band, so the mass can never crowd the rim or the lane labels at
+any zoom; what a fuller mass gains is interior structure (more layers
+resolved between the skin and the core), not a bigger silhouette relative to
+its own likeness.
 
 **Every lane looks hand-grown, and no lane misreads.** A thread also wanders
 a little off the straight line between the mass and its node, and its width
 wobbles by a few percent along its length, so twenty lanes never look like
-twenty copies of the same drafted arc. That variation is bounded and
-one-way: it is seeded from a hash of **the lane's own name**, never from the
-clock, so it can only ever add a stable, private wiggle — it can never touch
-where a thread sits on its lifecycle, what hue it wears, or how wide it is
-encoded to be, because those are the facts every other rule in this app
-depends on being true. The practical result: the same lane, in the same
-session, draws the same shape every time you look at it and every time you
-replay the recording — on your machine or on someone else's.
+twenty copies of the same drafted arc. That variation is seeded from a hash
+of **the lane's own name**, never from the clock, so it can only ever add a
+stable, private wiggle — it never touches where a thread sits on its
+lifecycle, what hue it wears, or how wide it's encoded to be. The practical
+result: the same lane, in the same session, draws the same shape every time
+you look at it and every time you replay the recording — on your machine or
+on someone else's.
 
 | | |
 |---|---|
@@ -373,11 +403,10 @@ replay the recording — on your machine or on someone else's.
 
 ### Parked lanes — acknowledged, never hidden
 
-[prd4 ruling 5](docs/prd4.md): sometimes a worktree is deliberately shelved
-rather than abandoned — a spike, an idea kept for later — and the Rhizomorph
-needs to say so without treating it as a bug. An operator (never this
-read-only instrument) declares that by adding `"parked": true` to that lane's
-entry in `.swarm/lanes.json`:
+Sometimes a worktree is deliberately shelved rather than abandoned — a
+spike, an idea kept for later — and the Rhizomorph needs to say so without
+treating it as a bug. An operator (never this read-only instrument) declares
+that by adding `"parked": true` to that lane's entry in `.swarm/lanes.json`:
 
 ```json
 {
@@ -397,9 +426,9 @@ never the evidence.
 
 ### The camera — drag, zoom, and a way home
 
-[prd5 ruling 2](docs/prd5.md): the scene is a place you navigate, not a
-picture that sits still. Click or tab into it first — the keys below are
-scoped to a focused scene, on purpose (see "Keyboard reference"):
+The scene is a place you navigate, not a picture that sits still. Click or
+tab into it first — the keys below are scoped to a focused scene, on
+purpose (see "Keyboard reference"):
 
 - **Drag** (left or middle button) pans.
 - **Ctrl/Cmd + scroll** zooms at the pointer — the point under your cursor
@@ -415,113 +444,66 @@ scoped to a focused scene, on purpose (see "Keyboard reference"):
   trackpad-only reader never needs the keyboard.
 - **Recenter** fades in automatically, in the same corner, whenever you've
   panned or zoomed the network out of view entirely — a click brings it
-  back. It never appears at any other time, so it can't blink into view at
-  the moment you'd have looked away.
+  back.
 - The zoom range is deliberately bounded (0.4×–6×): further out and the
   threads go sub-pixel; further in and you're looking at a gradient, not a
   network.
 
-### The cord-cut and the way home — a finished lane leaves the network, honestly
+### The cord-cut — a finished lane leaves the network, honestly
 
-[prd5 ruling 3](docs/prd5.md): when a lane finishes — workmux declares it
-`done`, or its worktree is removed — its thread doesn't just change color.
-It **cuts loose**: the thread goes slack at the root, the freed end springs
-back toward its own node, and what's left settles into a small, permanently
-dimmed **scar** near the rim, carrying the lane's name and its output
-figure for the rest of the session. It's a roughly 1.4-second sequence, not
-a jump-cut, so you can watch a lane stand down rather than just noticing it
-vanished.
+When a lane finishes — workmux declares it `done`, or its worktree is
+removed — its thread doesn't just change color. It **cuts loose**: the
+thread goes slack at the root, the freed end springs back toward its own
+node, and what's left settles into a small, permanently dimmed **scar** near
+the rim, carrying the lane's name and its output figure for the rest of the
+session. It's a roughly 1.4-second sequence, not a jump-cut, so you can
+watch a lane stand down rather than just noticing it vanished.
 
-[prd6 ruling 2](docs/prd6.md) gave that moment somewhere to go. Real
-mycelium doesn't just sever a spent hypha — it reabsorbs it, translocating
-its substance back through the network, which is exactly what a merge is.
-So as the cord parts, a short stretch of light travels back down the
-severing thread **into the root-mass**, and the mass itself **thickens** —
-visibly bigger by the end of a long session than it was at the start,
-because that work is part of `main` now. A scar at the rim isn't a dead
-end; it's what's left after the lane's substance has already gone home.
-
-- **A scar never disappears, and it keeps its size** ([prd6 ruling 1](docs/prd6.md)
-  overrules prd5's "a scar is a mark, so it's the same size for every
-  lane" — the rim is where a session's finished work is on display, so a
-  lane that did more work leaves a visibly bigger scar). It's dim — well
-  below a living lane's floor — but never zero, because invisible
-  completion looks exactly like a bug. The fleet table still lists the
-  lane too; only the scene's own picture is affected by anything below.
-- **The root-mass only grows this way.** It thickens by up to 30% over a
-  session, on the same absolute, capped scale seeds use — never by more,
-  however many whales land — and nothing about it looks like motion; you
-  notice it's bigger, you never catch it growing.
+- **A scar never disappears, and it keeps its size** — a lane that did more
+  work leaves a visibly bigger scar. It's dim, well below a living lane's
+  floor, but never zero, because invisible completion looks exactly like a
+  bug. The fleet table still lists the lane too; only the scene's own
+  picture is affected by anything below.
 - **Hide finished** (top-right of the scene) toggles scars out of the
-  picture if a long session has accumulated a lot of them — it always
-  shows its own count (`Hide finished · 12`), so "hidden" never reads as
-  "gone," and it's remembered across reloads. Hiding a scar never shrinks
-  the root-mass back down — the work still happened.
+  picture if a long session has accumulated a lot of them — it always shows
+  its own count (`Hide finished · 12`), so "hidden" never reads as "gone,"
+  and it's remembered across reloads. Hiding a scar never shrinks the
+  root-mass back down — the work still happened.
 
-A lane you've parked on purpose (see "Parked lanes" above) scars the same
-way, just without the animation — there's no "moment" a standing
-declaration can play back.
+A lane you've parked on purpose scars the same way, just without the
+animation — there's no "moment" a standing declaration can play back.
 
 ### Germinating seeds — a returning lane grows from where it left off
 
-[prd6 ruling 3](docs/prd6.md): dispatch the same handle again after it's
-retired — a re-dispatch, not a new lane — and its thread doesn't sprout from
-a stranger's spot on the other side of the ring. It **germinates from its
-own dormant seed**: same angle, same seat, and it starts already as big as
-the seed it grew from, because the worker returning is the same one that
-did that earlier work. A retired lane's seat is held for exactly this — the
-scene remembers where a lane worked, even mid-session, so the ring never
-re-spaces itself out from under you just because a handle came back.
+Dispatch the same handle again after it's retired — a re-dispatch, not a new
+lane — and its thread doesn't sprout from a stranger's spot on the other
+side of the ring. It **germinates from its own dormant seed**: same angle,
+same seat, and it starts already as big as the seed it grew from, because
+the worker returning is the same one that did that earlier work.
 
 ### Motion, pause, and reduced motion
 
-[prd5 ruling 4](docs/prd5.md): the scene breathes gently and pulses on real
-events, but every bit of that motion is budgeted, not decorative:
-
-- **Ambient** life (the root-mass's slow breath) is subtle by design — at
-  most 3% — because it's meant to sit at the edge of your attention and be
-  ignorable, not a fidget you have to consciously tune out.
-- **Event** motion (a pulse traveling to say a commit landed, tokens
-  arrived) is capped at five pulses moving at once — the point past which
-  people stop being able to track individual moving things anyway. A busier
-  moment doesn't spawn a sixth pulse; it folds the overflow into one
-  pulse carrying a count, the same "coalesced, never invented" rule the
-  scene already applies to traffic.
-- **Structural** motion (a lane appearing, reflowing, or cutting loose) is
-  the one deliberately larger movement, and it never bounces — a spring
-  that recoiled would read as "this failed," which is never true of a
-  lane finishing its work.
-- An unanswered summons's pulse also **ages**: the longer a lane has been
-  waiting on you, the slower and brighter it throbs — insistent, never
-  frantic (see "Amber ages with attention" below).
+The scene breathes gently and pulses on real events, but every bit of that
+motion is budgeted, not decorative — ambient motion (the root-mass's slow
+breath) stays under 3%, event motion (a pulse for a commit or a token burst)
+caps at five moving at once and folds overflow into one pulse carrying a
+count, and structural motion (a lane appearing, reflowing, or cutting loose)
+never bounces.
 
 **Pause motion** (top-left of the scene) stops all of that outright — every
 ambient and event animation freezes at the instant you press it, and it
-says so in words (`Motion paused`), not just by looking different. This
-exists because WCAG's accessibility rules require a way to stop
-self-starting motion that runs more than a few seconds, and a scene that
-breathes forever without one fails that outright. The one exception: a
-cord-cut already in flight finishes and settles rather than freezing
-half-severed, since a half-cut thread is still a true picture of what's
-happening and a half-grown one would not be.
-
-If your system is set to reduce motion (`prefers-reduced-motion`), the
-scene keeps every color and brightness change but drops travel and
-scale — camera flights become instant jumps, pulses stop moving without
-disappearing, and the cord-cut swaps straight to its finished state in
-place rather than visibly retracting.
+says so in words (`Motion paused`), not just by looking different. If your
+system is set to reduce motion (`prefers-reduced-motion`), the scene keeps
+every color and brightness change but drops travel and scale on its own,
+with no button needed.
 
 ### Amber ages with attention
 
-[prd5 ruling 5](docs/prd5.md): a `NEEDS-YOU` chip in the attention strip
-tells you *how long* it's been true, and that duration changes how
-insistent it reads — a summons that just fired reads at the quieter end of
-amber, the same one a benign wait already wears; past two minutes it's at
-full needs-you brightness; past ten, it adds a slow, deliberate pulse and
-brightens the age figure itself. What never changes is *which rung* it's
-on — age makes the same fault read more urgently, it never promotes a
-lane to a worse one, and `BROKEN`/`NOTICE` chips are unaffected regardless
-of age.
+A `NEEDS-YOU` chip in the attention strip tells you *how long* it's been
+true, and that duration changes how insistent it reads — quieter right when
+it fires, full brightness past two minutes, a slow deliberate pulse past
+ten. What never changes is *which rung* it's on — age makes the same fault
+read more urgently, it never promotes a lane to a worse one.
 
 ### Keyboard reference
 
@@ -547,91 +529,25 @@ Every key here is ignored while you're typing into a form field.
 | | |
 |---|---|
 | ![Staged pathology fixture — five lanes, five distinct pathologies, each a different hue and shape, named in the attention strip and the fleet table's STATE column](docs/screenshots/fixture-pathology.png) | ![The lane drawer's conversation view — a real session's turns and tool calls, CLI-style, with the ATTACH button below](docs/screenshots/drawer.png) |
-| ![The live view against this project's own real, in-progress build swarm — this very docs lane WORKING, its own thread wandering out to a single node, not staged](docs/screenshots/live.png) | ![Replay mid-scrub at 16x — the REPLAY banner, ice-register frame, timestamp and session identity](docs/screenshots/replay.png) |
-| ![The scene paused — the pause button pressed, "Motion paused" stated in words, camera and hide-finished controls visible](docs/screenshots/paused.png) | ![A rim of scars, each sized to the lane's own output, around a root-mass visibly thicker for having taken all of that work home](docs/screenshots/scars.png) |
+| ![The live view against this project's own real, in-progress build swarm, with a genuine OFF-FENCE alarm firing on a sibling lane](docs/screenshots/live.png) | ![Replay mid-scrub at 16x against this project's own real build history — the REPLAY banner, ice-register frame, timestamp and session identity](docs/screenshots/replay.png) |
+| ![The scene paused — the pause button pressed, "Motion paused" stated in words, camera and hide-finished controls visible](docs/screenshots/paused.png) | ![A rim of scars from this project's own real, 43-worktree build history, around a root-mass visibly thicker for having taken all of that work home](docs/screenshots/scars.png) |
 | ![MAIN's own drawer, open on the root-mass's own vitals — clicked like any lane, honestly reporting the conductor isn't instrumented rather than showing a conversation it doesn't have](docs/screenshots/main-drawer.png) | |
 
-## The worktrees-challenge context
+A note on the header: the app itself still shows the wordmark **THE
+OBSERVATORY** on screen — the project's original name, kept there as a
+design element. The package, the CLI, and the command are all `rhizomorph`;
+only that one piece of on-screen chrome hasn't caught up, on purpose.
+
+## The build-day context
 
 This repo is also the build log for a day of running several coding agents
-across git worktrees at once — the Rhizomorph is the app that day built, and
-its first real subject was its own construction. Skills for driving that
-workflow (`tmux-driver`, `workmux`) live in `.claude/skills/`
-(`.agent/skills` is a symlink to the same directory; recreate it with
-`ln -sfn ../.claude/skills .agent/skills` if it goes missing).
-
-**tmux and workmux setup:**
-
-```sh
-brew install tmux      # macOS
-sudo apt install tmux  # Debian/Ubuntu
-```
-
-`workmux` lives at [github.com/raine/workmux](https://github.com/raine/workmux);
-install it from there, following that README, then confirm with
-`workmux --version`.
-
-Recommended `~/.tmux.conf` for pane navigation and worktree-friendly splits:
-
-```tmux
-unbind C-b
-set -g prefix C-space
-bind Space send-prefix
-
-set -g mouse on
-
-# Move between panes with Ctrl-h/j/k/l, no prefix needed.
-# The is_vim guard passes the key through to vim when vim has focus,
-# so the same keys move between vim splits and tmux panes.
-# See github.com/christoomey/vim-tmux-navigator
-is_vim="ps -o state= -o comm= -t '#{pane_tty}' \
-    | grep -iqE '^[^TXZ ]+ +(\\S+\\/)?g?(view|n?vim?x?)(diff)?$'"
-bind-key -n 'C-h' if-shell "$is_vim" 'send-keys C-h' 'select-pane -L'
-bind-key -n 'C-j' if-shell "$is_vim" 'send-keys C-j' 'select-pane -D'
-bind-key -n 'C-k' if-shell "$is_vim" 'send-keys C-k' 'select-pane -U'
-bind-key -n 'C-l' if-shell "$is_vim" 'send-keys C-l' 'select-pane -R'
-
-# New panes and windows open in the current pane's directory rather than
-# wherever you started tmux. Matters once you are in a worktree.
-bind-key '"' split-window -v -c '#{pane_current_path}'
-bind-key % split-window -h -c '#{pane_current_path}'
-bind-key c new-window -c '#{pane_current_path}'
-```
-
-Reload without restarting: `tmux source-file ~/.tmux.conf`. Once agents are
-running in several worktrees, these workmux keys are worth adding too:
-
-```tmux
-bind-key -T prefix C-s display-popup -h 30 -w 100 -E "workmux dashboard"
-bind-key -T prefix Tab run-shell "workmux last-agent"
-bind-key -n M-j run-shell "workmux sidebar next"
-bind-key -n M-k run-shell "workmux sidebar prev"
-bind-key -n M-1 run-shell "workmux sidebar jump 1"
-bind-key -n M-2 run-shell "workmux sidebar jump 2"
-bind-key -n M-3 run-shell "workmux sidebar jump 3"
-```
-
-## Skills layout
-
-Skills live in `.claude/skills/`. `.agent/skills` is a symlink to it, so both
-paths resolve to the same directory and either tool convention finds the same
-skills:
-
-```
-.claude/skills/          <- the real directory
-.agent/skills -> ../.claude/skills
-```
-
-Git stores the symlink, so a fresh clone gets it for free. Check with
-`ls -l .agent/`.
-
-| Skill | What it covers |
-|---|---|
-| `tmux-driver` | Finding sessions, windows and panes; capturing output; sending keys to an interactive program and verifying it fired |
-| `workmux` | `workmux add/list/merge/remove`, talking to agents in other worktrees, and configuration |
-
-`workmux` is a CLI that must be installed separately; the skill is a reference
-for driving it, not a copy of it.
+across git worktrees at once — the Rhizomorph is the app that day built,
+and its first real subject was its own construction. `docs/` has the full
+decision record: [`docs/vision.md`](docs/vision.md) for the pitch,
+[`docs/architecture.md`](docs/architecture.md) for how it's built and why,
+and `docs/prd0.md` through `docs/prd8.md` for the rulings behind each stage.
+If you want to run the same multi-agent workflow yourself, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
