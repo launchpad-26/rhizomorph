@@ -197,6 +197,8 @@ function pointsOf(mark: Mark): Point[] {
   switch (mark.kind) {
     case 'ribbon':
       return [...mark.path]
+    case 'contour':
+      return mark.rings.flatMap((ring) => [...ring])
     case 'stroke':
       return [...mark.points]
     case 'glow':

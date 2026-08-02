@@ -34,7 +34,7 @@ import { ribbonOutline, type RibbonShape } from '../ribbon.js'
  * tests that hold WAITING's *meaning*.
  *
  * So the shape names went where the shapes are. `glyphs.ts` still says
- * `NODE_LENS` and `THORN_OUT`, and `paint.ts` still knows seven `kind`s of
+ * `NODE_LENS` and `THORN_OUT`, and `paint.ts` still knows eight `kind`s of
  * geometry — those files *are* the form layer, and naming the form is their job.
  * What no longer exists is a shape name in the one channel the laws read. A
  * future painter may draw a summons as anything it likes; what it may not do is
@@ -62,9 +62,14 @@ import { ribbonOutline, type RibbonShape } from '../ribbon.js'
 export type MarkRole =
   // the root-mass
   | 'root-halo'
+  /**
+   * The mass's own surface — one `contour`, not a set of shapes (prd7 ruling 5).
+   * `root-arrival` used to sit beside it, an expanding ring drawn on top of the
+   * mass whenever work landed; the surface carries that fact now, by swelling
+   * toward the lane it is coming from, so the role went with the ring.
+   */
   | 'root-mass'
   | 'root-core'
-  | 'root-arrival'
   | 'root-label'
   // threads and second growth
   | 'thread'
@@ -190,6 +195,30 @@ export interface RibbonMark extends MarkBase {
   dashed?: boolean
 }
 
+/**
+ * AN ISO-CONTOUR of a scalar field: closed rings, filled as one region (prd7
+ * ruling 5).
+ *
+ * Not a {@link RibbonMark}, and the difference is the winding. A ribbon's
+ * polygons are independent runs of one broken stripe, so the painter fills each
+ * separately and two of them may safely overlap. A contour's rings are one
+ * region's boundary — an island beside the body, or a hole inside it — so they
+ * are filled together under the even-odd rule, where a ring inside a ring is a
+ * hole rather than a second lobe painted over the first.
+ *
+ * `rings` is the geometry the laws read: where the root-mass's surface actually
+ * is, after the field has been sampled and the corners cut. Everything about
+ * *how* it got that way lives in `contour.ts`; what arrives here is vertices.
+ */
+export interface ContourMark extends MarkBase {
+  kind: 'contour'
+  /** Closed rings, in world coordinates. Each is implicitly closed — no repeated first point. */
+  rings: readonly (readonly Point[])[]
+  fill: Ink
+  /** The lit skin. Absent for a surface that is meant to read as a shadow. */
+  edge?: { width: number; ink: Ink }
+}
+
 /** A soft radial blob. Light, always — the only thing in the scene that glows. */
 export interface GlowMark extends MarkBase {
   kind: 'glow'
@@ -261,6 +290,7 @@ export interface ChipMark extends MarkBase {
 
 export type Mark =
   | RibbonMark
+  | ContourMark
   | GlowMark
   | StrokeMark
   | ArcMark
@@ -330,6 +360,8 @@ export function inksOf(mark: Mark): readonly Ink[] {
   switch (mark.kind) {
     case 'ribbon':
       return isLinear(mark.paint) ? mark.paint.stops.map((stop) => stop.ink) : [mark.paint]
+    case 'contour':
+      return mark.edge === undefined ? [mark.fill] : [mark.fill, mark.edge.ink]
     case 'chip':
       return [mark.fill, mark.border]
     default:

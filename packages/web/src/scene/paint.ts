@@ -5,6 +5,7 @@ import {
   isLinear,
   type ArcMark,
   type ChipMark,
+  type ContourMark,
   type GlowMark,
   type Mark,
   type PathMark,
@@ -19,7 +20,7 @@ import {
  * the only one with no opinion about the picture.
  *
  * Every decision (what is bright, what is faded, what shape a state takes) is
- * already made by the time a mark arrives here; this file turns seven mark kinds
+ * already made by the time a mark arrives here; this file turns eight mark kinds
  * into canvas calls and nothing else. That seam is what makes the encodings
  * testable: `marks.test.ts` asks the display list what it contains, rather than
  * a screenshot what it looks like.
@@ -111,6 +112,8 @@ function draw(ctx: CanvasRenderingContext2D, mark: Mark): void {
   switch (mark.kind) {
     case 'ribbon':
       return ribbon(ctx, mark)
+    case 'contour':
+      return contour(ctx, mark)
     case 'glow':
       return glow(ctx, mark)
     case 'stroke':
@@ -152,6 +155,42 @@ function ribbon(ctx: CanvasRenderingContext2D, mark: RibbonMark): void {
     ctx.closePath()
     ctx.fill()
   }
+}
+
+/**
+ * An iso-contour: every ring in **one** path, filled even-odd (prd7 ruling 5).
+ *
+ * The opposite call from {@link ribbon}, and for the opposite reason. A ribbon's
+ * polygons are separate runs of one stripe and must not interact, so they get a
+ * `fill()` each. A contour's rings are one region's boundary, so they must
+ * interact: a ring drawn inside another ring is a *hole* in the surface, and
+ * even-odd is what makes it one. Filling them separately would paint the hole
+ * back in.
+ *
+ * The rim is stroked over the same path rather than a rebuilt one, so it can
+ * never disagree with the edge it is supposed to be on.
+ */
+function contour(ctx: CanvasRenderingContext2D, mark: ContourMark): void {
+  let drawn = 0
+  ctx.beginPath()
+  for (const ring of mark.rings) {
+    if (ring.length < 3) continue
+    ring.forEach((point, i) => {
+      if (i === 0) ctx.moveTo(point.x, point.y)
+      else ctx.lineTo(point.x, point.y)
+    })
+    ctx.closePath()
+    drawn += 1
+  }
+  if (drawn === 0) return
+
+  ctx.fillStyle = cssColour(mark.fill)
+  ctx.fill('evenodd')
+
+  if (mark.edge === undefined) return
+  ctx.lineWidth = mark.edge.width
+  ctx.strokeStyle = cssColour(mark.edge.ink)
+  ctx.stroke()
 }
 
 /** A soft radial falloff. The only thing in the scene that glows. */

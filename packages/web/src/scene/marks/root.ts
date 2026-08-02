@@ -1,3 +1,4 @@
+import { contourRings, type Falloff } from '../contour.js'
 import type { Point } from '../geometry.js'
 import { ICE_050, ICE_200, ICE_300, clamp01, hotter, ink } from '../palette.js'
 import { homecoming } from '../retire.js'
@@ -7,8 +8,14 @@ import type { Mark } from './types.js'
 /**
  * MAIN — the root-mass everything grows out of and lands back into.
  *
- * A dense tangle of curls rather than a disc, so it reads as *mass*: the thing
- * the threads are threaded to. Four facts are drawn into it and nothing else is:
+ * **One organic contour** (prd7 ruling 5), not a set of shapes. What was here
+ * before was fifty-four curls inside a pair of concentric glows, and it was the
+ * most obviously *drawn* thing in the picture at exactly the place the eye rests
+ * longest. It is now a surface: a field of smooth falloffs, sampled and walked
+ * into a closed ring by `contour.ts`, whose silhouette is a consequence of what
+ * is currently in the mass rather than an arrangement of marks around it.
+ *
+ * Five facts are drawn into it and nothing else is:
  *
  * - **its resting glow is the conductor's own burn.** prd2's point is that
  *   orchestration is not free, so the mass at the centre of the picture is lit by
@@ -22,11 +29,14 @@ import type { Mark } from './types.js'
  *   is where it went: the mass is visibly bigger by the end of a night than it was
  *   at the start of it, which is the honest reading of a merge — the work is part
  *   of main now. See {@link rootGirth}.
- * - **it breathes**, ±1.6%, which is the one ambient motion in the instrument.
+ * - **it melts where substance is arriving.** Each cord still parting adds a
+ *   falloff of its own at that lane's bearing, so the surface swells toward the
+ *   lane the work is coming from and settles back as the scar cools. That is what
+ *   replaced the expanding arrival ring: an arrival is now something the mass
+ *   *does*, not a circle drawn on top of it. See {@link arrivalSwell}.
+ * - **it breathes**, ±1.6%, which is the one ambient motion in the instrument —
+ *   and it is the contour that breathes, since there is nothing else left to.
  */
-
-/** How many curls the tangle is made of. Fixed, so the mass has a likeness. */
-const CURLS = 54
 
 /** Conductor output tokens that read as a fully warm root. */
 const CONDUCTOR_FULL_TOKENS = 400_000
@@ -93,6 +103,146 @@ function landedTokens(frame: SceneFrame): number {
   return total
 }
 
+/**
+ * THE BODY — the mass's own likeness, in units of its radius.
+ *
+ * Authored rather than generated, and fixed, for the reason the old tangle's
+ * golden-angle placement was fixed: the mass has to be recognisably *itself*
+ * every frame and every session. Six falloffs is few enough that the smooth
+ * minimum reads as one surface and enough that the surface is not a disc — which
+ * matters, because a disc is what a shape looks like and this has to look like a
+ * thing that grew.
+ *
+ * The proportions were picked by measuring the silhouette, not by eye: a body
+ * whose narrowest bearing is about four fifths of its widest reads as *grown*,
+ * while anything above about 0.9 has collapsed back into the circle the ruling is
+ * removing and anything below about 0.7 has come apart into an egg. The furthest
+ * any lobe reaches is 0.99 of the radius, so the finished contour sits on the rim
+ * — which is where the hit target already is (`SceneView`'s `ROOT_HIT_SLACK`).
+ * The old curls overshot the rim by a third and were only survivable because
+ * they were faint.
+ */
+const BODY: readonly { id: string; angle: number; distance: number; radius: number }[] = [
+  { id: 'body-0', angle: 0, distance: 0, radius: 0.58 },
+  { id: 'body-1', angle: 0.5, distance: 0.49, radius: 0.51 },
+  { id: 'body-2', angle: 1.9, distance: 0.55, radius: 0.4 },
+  { id: 'body-3', angle: 3.1, distance: 0.44, radius: 0.56 },
+  { id: 'body-4', angle: 4.3, distance: 0.58, radius: 0.37 },
+  { id: 'body-5', angle: 5.4, distance: 0.4, radius: 0.47 },
+]
+
+/**
+ * How far the falloffs melt into each other, in units of the radius.
+ *
+ * The one number that decides whether this reads as an organism or as a bag of
+ * circles. Measured on the same silhouette ratio the body is tuned against: at
+ * 0.14 the lobes are still legible as separate circles welded together, at 0.46
+ * the field has swallowed them whole and the contour comes out a disc to within
+ * 4%. A quarter of the radius is the fillet that reads as one continuous surface
+ * with something going on inside it.
+ */
+const MELT = 0.24
+
+/**
+ * The grid pitch, in units of the radius — **~6 px at the scale the scene
+ * actually runs at**, which is the grid the research measured (1.28 ms/frame,
+ * against 42.8 ms for per-pixel metaballs and 108.5 ms with SDF + smin).
+ *
+ * A fraction of the radius rather than an absolute six pixels, and that is a
+ * decision worth its own paragraph. The whole lattice — pitch, origin, extent —
+ * is then a *similarity transform* of the mass, so a mass that has thickened by
+ * 30% has a contour exactly 30% larger rather than one re-quantised against a
+ * fixed grid. It is what lets prd6 ruling 2's cap be an exact law about the
+ * picture instead of a law about the picture give or take half a cell, and it
+ * also means the silhouette is the same likeness at every scene size instead of
+ * gaining detail on a big panel.
+ */
+const CELL = 0.13
+
+/**
+ * Corner-cutting passes. Two, of the three the ruling allows: at this pitch the
+ * second pass already puts the vertices well under a pixel apart, and the third
+ * would only buy points.
+ */
+const SMOOTHING = 2
+
+/**
+ * How far out an arrival's swell sits, and how big it gets, in units of radius.
+ *
+ * Just inside the rim rather than outside it, so that what the eye sees is the
+ * *surface* being pushed out from within by something arriving — not a separate
+ * blob docking with it. At full swell the contour reaches about 1.15 of the
+ * radius on that bearing, which is a fifth of the mass's width and unmissable,
+ * and still inside the slack the mass's hit target already carries.
+ */
+const ARRIVAL = { distance: 0.72, radius: 0.42 } as const
+
+/**
+ * HOW MUCH THIS LANE IS CURRENTLY BULGING THE SURFACE, 0–1.
+ *
+ * Squared on the retract, so the swell is concentrated at the end of the
+ * journey: the substance is still out on the thread for most of the cut and only
+ * arrives here at the finish. Then `1 - scar` melts it away again over the
+ * settle, which is what makes it an arrival rather than a permanent lump — the
+ * permanent part is {@link rootGirth}, and it is a different channel on purpose.
+ *
+ * The three motion regimes fall out of this rather than being special-cased:
+ *
+ * - **reduced motion** collapses the cut to its endpoint (`cutAt`'s
+ *   `SETTLED_IN_PLACE`: retract 1, scar 1), so the product is exactly 0 and no
+ *   swell ever happens — the same reason a reduced-motion frame draws no homeward
+ *   ribbon;
+ * - **pause** freezes the clock, so the state stops advancing and the swell holds
+ *   wherever it was, rather than snapping back to nothing;
+ * - **history and replay** arrive already settled, so a scar the scene never
+ *   watched leave never bulges the mass it did not land in.
+ */
+export function arrivalSwell(retract: number, scar: number): number {
+  const arriving = clamp01(retract)
+  return arriving * arriving * (1 - clamp01(scar))
+}
+
+/**
+ * The whole field, as falloffs — the body, plus one per cord currently parting.
+ *
+ * The ids are what the blend is sorted by (`contour.ts`), and an arrival's id is
+ * the **lane handle**, which is the only identifier here that is stable across a
+ * frame in which lanes were added, retired or re-sorted. Exported because the
+ * order-independence law is worth pinning against the real field rather than
+ * against a fixture of three circles.
+ */
+export function rootFalloffs(frame: SceneFrame, radius: number): Falloff[] {
+  const { centre } = frame.geometry
+
+  const falloffs: Falloff[] = BODY.map((part) => ({
+    id: part.id,
+    at: {
+      x: centre.x + radius * part.distance * Math.cos(part.angle),
+      y: centre.y + radius * part.distance * Math.sin(part.angle),
+    },
+    radius: radius * part.radius,
+  }))
+
+  for (const thread of frame.geometry.threads) {
+    const cut = thread.retire
+    if (cut === null) continue
+    // Weighted by the lane's own work: a big merge arrives as a bigger parcel,
+    // on the same absolute scale the thread's width is already drawn on.
+    const swell = arrivalSwell(cut.retract, cut.scar) * (0.55 + 0.45 * clamp01(thread.sizeFrac))
+    if (swell <= 0) continue
+    falloffs.push({
+      id: `arrival:${thread.laneId}`,
+      at: {
+        x: centre.x + radius * ARRIVAL.distance * Math.cos(thread.angle),
+        y: centre.y + radius * ARRIVAL.distance * Math.sin(thread.angle),
+      },
+      radius: radius * ARRIVAL.radius * swell,
+    })
+  }
+
+  return falloffs
+}
+
 export function rootMarks(frame: SceneFrame): Mark[] {
   const { geometry, field, fleet } = frame
   const { centre } = geometry
@@ -124,40 +274,35 @@ export function rootMarks(frame: SceneFrame): Mark[] {
     ink: budget(frame, null, false, ink(hotter(ICE_200, 0.35), 0.45 * intensity)),
   })
 
-  // The tangle. Golden-angle placement, deterministic by index — the mass looks
-  // grown, and it looks the same every frame.
-  const golden = Math.PI * (3 - Math.sqrt(5))
-  for (let i = 0; i < CURLS; i += 1) {
-    const angle = i * golden
-    const spiral = 0.24 + 0.76 * Math.sqrt((i + 0.5) / CURLS)
-    const r = radius * spiral
-    const sweep = 0.7 + ((i * 37) % 11) / 12
-    const start: Point = { x: centre.x + r * Math.cos(angle), y: centre.y + r * Math.sin(angle) }
-    const control: Point = {
-      x: centre.x + r * 1.32 * Math.cos(angle + sweep * 0.5),
-      y: centre.y + r * 1.32 * Math.sin(angle + sweep * 0.5),
-    }
-    const end: Point = {
-      x: centre.x + r * 1.02 * Math.cos(angle + sweep),
-      y: centre.y + r * 1.02 * Math.sin(angle + sweep),
-    }
-
-    marks.push({
-      kind: 'stroke',
-      role: 'root-mass',
-      laneId: null,
-      alarm: false,
-      points: quad(start, control, end, 8),
-      width: 0.5 + 1.5 * (1 - spiral),
-      // Inner curls are brighter: the mass has a lit core and a soft edge.
+  // THE SURFACE. One mark, whatever the field turned out to be — and it is a
+  // `contour` rather than a `ribbon` because a ribbon's polygons are painted
+  // independently, which is exactly wrong for a body that may enclose a hole.
+  marks.push({
+    kind: 'contour',
+    role: 'root-mass',
+    laneId: null,
+    alarm: false,
+    rings: contourRings({
+      falloffs: rootFalloffs(frame, radius),
+      origin: centre,
+      melt: radius * MELT,
+      cell: radius * CELL,
+      smoothing: SMOOTHING,
+    }),
+    fill: budget(frame, null, false, ink(hotter(ICE_200, 0.2 + 0.4 * surge), 0.2 + 0.24 * intensity)),
+    // A rim, so the surface has an edge and not just an extent. It is the one
+    // place the mass is allowed to be brighter than its own body — a lit skin is
+    // what stops a flat fill reading as a sticker laid over the threads.
+    edge: {
+      width: 1.1,
       ink: budget(
         frame,
         null,
         false,
-        ink(hotter(ICE_200, 0.2 + 0.5 * surge), 0.16 + 0.5 * (1 - spiral) + 0.3 * surge),
+        ink(hotter(ICE_200, 0.3 + 0.45 * surge), 0.3 + 0.34 * intensity),
       ),
-    })
-  }
+    },
+  })
 
   // The core: the point every packet is running to. It carries the conductor's
   // burn too, through `intensity` — the mass at the centre of the picture is lit
@@ -173,21 +318,13 @@ export function rootMarks(frame: SceneFrame): Mark[] {
     ink: budget(frame, null, false, ink(ICE_050, 0.34 + 0.42 * intensity)),
   })
 
-  // The arrival ring, only while a real surge is decaying.
-  if (surge > 0.04 && !frame.reducedMotion) {
-    marks.push({
-      kind: 'arc',
-      role: 'root-arrival',
-      laneId: null,
-      alarm: false,
-      at: centre,
-      radius: radius * (1.1 + (1 - surge) * 2.4),
-      from: 0,
-      to: Math.PI * 2,
-      width: 1.2,
-      ink: budget(frame, null, false, ink(hotter(ICE_200, 0.5), 0.32 * surge)),
-    })
-  }
+  // What used to be here was `root-arrival`: an expanding hairline circle, drawn
+  // over the mass whenever the surge was decaying. It is gone, and deliberately
+  // not replaced. It was a concentric ring — the exact form ruling 5 is removing
+  // — and the fact it carried is now carried by the surface itself, which swells
+  // toward whichever lane the substance is coming from instead of announcing an
+  // arrival with a shape that has no direction in it. The light half of the same
+  // fact stays where it was, in the halo and the core.
 
   marks.push({
     kind: 'text',
@@ -205,17 +342,4 @@ export function rootMarks(frame: SceneFrame): Mark[] {
   })
 
   return marks
-}
-
-function quad(p0: Point, p1: Point, p2: Point, steps: number): Point[] {
-  const out: Point[] = []
-  for (let i = 0; i <= steps; i += 1) {
-    const t = i / steps
-    const u = 1 - t
-    out.push({
-      x: u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x,
-      y: u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y,
-    })
-  }
-  return out
 }
