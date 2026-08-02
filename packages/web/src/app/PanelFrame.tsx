@@ -35,6 +35,32 @@ export interface PanelFrameProps {
  * itself is never touched — restoring lands back on whatever it already was,
  * with no round-trip needed.
  */
+/**
+ * THE GRID'S OWN CONTROLS — one idiom, shared with the scene's (#117).
+ *
+ * Three things changed and none of them is a new hue:
+ *
+ * - **it is ice, not cyan.** Cyan is NOTICE in this instrument and means
+ *   "something changed; nobody is needed" (law 9a). A collapse button that
+ *   borrowed it to get itself noticed was spending a colour the fleet needs, and
+ *   spending it on furniture. It is also the exact reason the scene's own
+ *   controls are ice and say so in `SceneView` — this is that decision, applied
+ *   where it had been missed.
+ * - **it has a fold.** A single border and a single fill at one radius is the
+ *   shape of a rectangle, not of a control. A top edge one step up the ramp from
+ *   the other three reads as a lit lip, which is the cheapest thing in the world
+ *   and the difference between a considered shell and a generated one.
+ * - **the hover and the press mean something.** The border and the ink come up
+ *   together on hover, and the press scales by 3% over 150 ms — the same
+ *   `active:scale-[0.97]` the scene's buttons already answer with, so a control
+ *   feels the same wherever the hand finds one.
+ *
+ * The focused state borrows the pause control's emphasis rather than inventing
+ * a second vocabulary for "this control is currently changing what you see".
+ */
+const CHROME_BUTTON =
+  'rounded border border-ice-850 border-t-ice-800 bg-ice-950/70 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ice-400 transition-[transform,color,border-color] duration-150 ease-out hover:border-ice-600 hover:text-ice-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600 active:scale-[0.97]'
+
 export function PanelFrame({ id, title, children, hidden = false, onFocusChange }: PanelFrameProps) {
   const [collapsed, setCollapsed] = usePanelCollapsed(id)
   const { focused, focus, restore } = usePanelFocus(onFocusChange)
@@ -61,7 +87,7 @@ export function PanelFrame({ id, title, children, hidden = false, onFocusChange 
             aria-expanded={!collapsed}
             aria-controls={contentId}
             onClick={() => setCollapsed((value) => !value)}
-            className="rounded border border-void-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-400 hover:border-neon-cyan hover:text-neon-cyan focus:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan"
+            className={CHROME_BUTTON}
           >
             {collapsed ? `Expand ${title}` : `Collapse ${title}`}
           </button>
@@ -70,7 +96,7 @@ export function PanelFrame({ id, title, children, hidden = false, onFocusChange 
           type="button"
           aria-pressed={focused}
           onClick={focused ? restore : focus}
-          className="rounded border border-void-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-400 hover:border-neon-cyan hover:text-neon-cyan focus:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan"
+          className={focused ? `${CHROME_BUTTON} border-ice-600 bg-ice-900 text-ice-100` : CHROME_BUTTON}
         >
           {focused ? `Restore ${title}` : `Focus ${title}`}
         </button>
