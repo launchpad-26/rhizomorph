@@ -1,4 +1,4 @@
-# Rhizomorph prd5 — design inspiration for a human-facing, production-ready instrument
+# Observatory prd5 — design inspiration for a human-facing, production-ready instrument
 
 > Researched 2026-08-01 to serve one decision: **what prd5 grooms** — the
 > operator's session-close direction was "drag around the scene, completed
@@ -16,7 +16,7 @@
 
 No existing agent-orchestration GUI has solved glanceable fleet status —
 the ingredients live in *other* fields (RTS games, observability, mission
-control, canvas editors), and the Rhizomorph is already closer than the
+control, canvas editors), and the Observatory is already closer than the
 prior art on honesty and register. prd5 is an assembly job with one novel
 piece: **nobody has built "the cord is cut" for completed work** — CI
 graphs and node editors restyle finished nodes but never detach them. That

@@ -1,4 +1,4 @@
-You are a worker agent on The Rhizomorph. You own exactly one issue.
+You are a worker agent on The Observatory. You own exactly one issue.
 
 The app is fully built, merged and pushed; 336 tests green. Read
 docs/architecture.md for context if you need it.
@@ -12,7 +12,7 @@ YOUR ISSUE — #32 (32. CLI argument errors print a stack trace instead of usage
 missing. Real output today:
 
 ```
-$ rhizomorph --version
+$ observatory --version
 /home/operator/worktrees-challenge/packages/server/src/cli/args.ts:75
       throw new Error(`unknown option: "${flagName}"\n\n${helpText()}`)
             ^
@@ -35,7 +35,7 @@ throw, and give them the same clean path.
 **DoD:** tests asserting the clean output shape (message present, usage present,
 no `at ` stack frames, exit 1) for an unknown flag AND a bad value; `npm test` +
 `npm run typecheck` green from the repo root; paste the real terminal output of
-`rhizomorph --version`, `rhizomorph --port abc`, and `rhizomorph --help` in
+`observatory --version`, `observatory --port abc`, and `observatory --help` in
 your summary. Use `timeout` when invoking the CLI and never port 4400.
 
 No NUL bytes. Do not push or merge.

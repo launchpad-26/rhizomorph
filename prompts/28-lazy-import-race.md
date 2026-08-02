@@ -1,4 +1,4 @@
-You are a worker agent on The Rhizomorph. You own exactly one issue.
+You are a worker agent on The Observatory. You own exactly one issue.
 
 Context: the app is merged, green and pushed. This issue is about the test
 suite's reliability under concurrent load — it guards every merge, and a

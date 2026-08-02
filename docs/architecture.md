@@ -1010,7 +1010,7 @@ no longer exists is a shape name in the channel the laws read.
 
 `packages/web/src/scene/ribbon.ts` turns a spine and a width profile into
 closed polygons the painter fills, built from three libraries each proven
-live first (`docs/research/2026-08-02-rhizomorph-prd7-procedural-form.md`):
+live first (`docs/research/2026-08-02-observatory-prd7-procedural-form.md`):
 **`perfect-freehand`** (MIT) builds one outline for the whole stroke with a
 real rounded cap at every turn sharper than 90°, fed the encoded width as
 per-point pressure with `simulatePressure: false` (its own velocity
@@ -1098,7 +1098,7 @@ the lexicographically-smallest of a lane's `handles` (never `Lane.id`, which
 is the branch and can change on a re-dispatch) with bryc's `cyrb128` into
 four 32-bit words, feeding `mulberry32` — a hash rather than a character sum
 because adjacent lane names (`113-ribbons`, `114-contour`) must not produce
-adjacent noise fields, verified live: `docs/research/2026-08-02-rhizomorph-prd7-procedural-form.md`
+adjacent noise fields, verified live: `docs/research/2026-08-02-observatory-prd7-procedural-form.md`
 probed the same lane id returning identical samples from a **fresh**
 `simplex-noise` instance, which is the property that makes a replay recorded
 on someone else's machine redraw the same picture rather than a new random
@@ -1593,7 +1593,7 @@ hook.
   gone, at zero new objects per substitution.** `perfect-freehand` (MIT),
   `d3-shape`'s centripetal Catmull-Rom (ISC) and `simplex-noise` (MIT) are
   the three new runtime dependencies, each adopted only after being probed
-  live in this repo's own stack — `docs/research/2026-08-02-rhizomorph-prd7-procedural-form.md`
+  live in this repo's own stack — `docs/research/2026-08-02-observatory-prd7-procedural-form.md`
   — rather than assumed from their docs. Two real bugs surfaced only by
   building a throwaway, uncommitted software rasterizer to actually look at
   the display list: ribbons faceted under the prd5 camera's 6× zoom because

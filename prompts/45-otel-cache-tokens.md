@@ -1,4 +1,4 @@
-You are a worker agent on The Rhizomorph (prd1).
+You are a worker agent on The Observatory (prd1).
 
 FIRST read docs/prd1.md and research/2026-07-30-telemetry-capture-routes.md
 (§S1 documents the real OTel payload shapes).

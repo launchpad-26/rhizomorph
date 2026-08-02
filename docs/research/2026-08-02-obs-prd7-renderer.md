@@ -1,4 +1,4 @@
-# Rhizomorph prd7 — renderer ruling: canvas 2D, hybrid, or WebGL?
+# Observatory prd7 — renderer ruling: canvas 2D, hybrid, or WebGL?
 
 > Researched **2026-08-02**, for the decision: **groom the prd7 renderer ruling**.
 > Operator wants the scene "smooth, less janky, procedurally generated".

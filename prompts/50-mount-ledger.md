@@ -1,4 +1,4 @@
-You are a worker agent on The Rhizomorph (prd1: the money layer).
+You are a worker agent on The Observatory (prd1: the money layer).
 
 FIRST read docs/prd1.md, docs/telemetry.md and the files your issue names.
 
@@ -30,7 +30,7 @@ the file family that keeps breaking under load). No NUL bytes; never push/merge;
 no git in sibling worktrees.
 
 RULES: stay strictly inside the FENCE (another agent works in parallel);
-import from @rhizomorph/core, never redefine its types; small conventional
+import from @observatory/core, never redefine its types; small conventional
 commits; COMMITTING ON YOUR OWN BRANCH IS REQUIRED (the prohibition is only
 on pushing, merging, and switching branches); never run git in a sibling
 worktree; deterministic tests only; no NUL bytes; STOP with a summary

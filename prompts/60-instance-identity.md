@@ -1,4 +1,4 @@
-You are a worker agent on The Rhizomorph (prd2: anyone, anywhere).
+You are a worker agent on The Observatory (prd2: anyone, anywhere).
 You own exactly one issue.
 
 FIRST read docs/prd2.md — why this work exists — then
@@ -15,16 +15,16 @@ YOUR ISSUE — #60 (60. Keystone B: instance identity; the receiver refuses fore
 The live baseline showed factory-workstream lanes (`factory-p1p2-conductor`,
 `HEAD`) inside this repo's dashboard: `api/otel.ts:29-40` accepts any POST —
 no auth, no instance check — and `.workmux.yaml` hard-codes the default port,
-so whichever Rhizomorph is listening swallows every repo's exports.
+so whichever Observatory is listening swallows every repo's exports.
 
 **Operator ruling (Lachlan, 2026-07-31): refuse foreign traffic, loudly.**
-One repo, one Rhizomorph; a foreign post is a misconfiguration surfaced as a
+One repo, one Observatory; a foreign post is a misconfiguration surfaced as a
 setup gap, never silently merged and never silently dropped.
 
 - **Every run has an instance id.** Minted when a session starts, persisted
   with the session so a resumed run (#58) keeps its id across server
   restarts. Exposed on `/api/meta`.
-- **Agents carry it.** `rhizomorph env <lane>` includes
+- **Agents carry it.** `observatory env <lane>` includes
   `instance=<id>` in `OTEL_RESOURCE_ATTRIBUTES`, reading the id from the
   running server's `/api/meta` on the given `--port` (document that the
   server must be up when generating env — it always is at dispatch time).
@@ -46,13 +46,13 @@ setup gap, never silently merged and never silently dropped.
 waitFor racing an async boundary); no NUL bytes. Tests must prove: matching
 instance accepted; missing and mismatched instance each refused with 403 plus
 a recorded `telemetry.refused`; refusal events are throttled per offender;
-`rhizomorph env` output carries the live server's instance id. Never push,
+`observatory env` output carries the live server's instance id. Never push,
 merge, or run git in a sibling worktree — committing on YOUR branch is
 required. Finish with a short summary including any live evidence the issue
 asks for.
 
 
 RULES: stay strictly inside the FENCE (other agents work in parallel);
-import from @rhizomorph/core, never redefine its types; small
+import from @observatory/core, never redefine its types; small
 conventional commits; committing on YOUR branch is REQUIRED; never push,
 merge, or run git in a sibling worktree; no NUL bytes; STOP when done.

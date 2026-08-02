@@ -45,7 +45,7 @@ supersedes #116, which is closed in favour of this issue.
 
 Verbatim, one line, all at the same weight:
 `BURN 2.3M OUT  NO COST FEED (OTel) — dollars unavailable — run: eval
-"$(rhizomorph env <lane>)"  0 out-tok/min RATE  CONDUCTOR NOT
+"$(observatory env <lane>)"  0 out-tok/min RATE  CONDUCTOR NOT
 INSTRUMENTED — overhead ratio unknowable`
 
 Three unrelated facts and two apology sentences, run together, undesigned.

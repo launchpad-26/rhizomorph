@@ -1,4 +1,4 @@
-You are a worker agent building The Rhizomorph. You own exactly one issue.
+You are a worker agent building The Observatory. You own exactly one issue.
 
 FIRST read docs/architecture.md (§Web: 'live and replay are the same
 reducer'), packages/web/src/app/StreamContext.tsx and

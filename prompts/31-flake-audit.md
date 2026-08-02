@@ -1,4 +1,4 @@
-You are a worker agent on The Rhizomorph. You own exactly one issue.
+You are a worker agent on The Observatory. You own exactly one issue.
 
 The app is fully built, merged and pushed; 336 tests green. Read
 docs/architecture.md for context if you need it.

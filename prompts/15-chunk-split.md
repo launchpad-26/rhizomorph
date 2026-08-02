@@ -1,4 +1,4 @@
-You are a worker agent building The Rhizomorph. You own exactly one issue.
+You are a worker agent building The Observatory. You own exactly one issue.
 
 FIRST read docs/prd0.md and docs/architecture.md — they are the contract.
 The whole spine is already merged on main: core, server, three collectors,

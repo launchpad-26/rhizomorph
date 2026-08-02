@@ -1,4 +1,4 @@
-You are a worker agent building The Rhizomorph. You own exactly one issue.
+You are a worker agent building The Observatory. You own exactly one issue.
 
 FIRST read docs/architecture.md, packages/server/src/api/stream.ts (what the
 server really sends) and packages/web/src/hooks/useEventStream.ts (the bug).

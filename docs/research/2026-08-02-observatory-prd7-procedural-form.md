@@ -1,4 +1,4 @@
-# Rhizomorph prd7 — procedural form: what to change, and what the evidence says not to
+# Observatory prd7 — procedural form: what to change, and what the evidence says not to
 
 > Researched + measured 2026-08-02 for one decision: **how to rebuild the
 > scene's graphics** after the operator's note — "the function should remain

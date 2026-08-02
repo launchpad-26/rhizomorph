@@ -1,4 +1,4 @@
-You are a worker agent building The Rhizomorph (prd3: the instrument).
+You are a worker agent building The Observatory (prd3: the instrument).
 You own exactly one issue.
 
 FIRST read, in order: docs/prd3.md IN FULL (all rulings, including the
@@ -24,7 +24,7 @@ The spine of prd3 — everything wave 2 reads. Four deliverables, one branch:
    `tabular-nums` for ALL data). Every token commented with its law.
 2. **The one derived fleet object** (graft g4/C's structural insistence).
    New `packages/web/src/fleet/`: a `buildFleet(state)` that joins
-   `@rhizomorph/core` selectors into per-lane vitals + the five pathology
+   `@observatory/core` selectors into per-lane vitals + the five pathology
    detectors + the alarm ladder + the gap registry. All four wave-2 surfaces
    will read THIS and nothing else, so they cannot disagree. Requirements:
    - Detectors with **evidence strings** (`Read→Edit→Bash ×6, no commit`;
@@ -110,7 +110,7 @@ Nothing. **Model:** opus. **Wave:** 1.
 - Root `npm test` + `npm run typecheck` green.
 
 RULES: stay strictly inside the FENCE (other agents work in parallel);
-import from @rhizomorph/core, never redefine its types; small
+import from @observatory/core, never redefine its types; small
 conventional commits (committing is REQUIRED — review happens from your
 branch); NEVER switch branches, push, merge, or run git in a sibling
 worktree; no NUL bytes; tests must be deterministic (no waitFor racing

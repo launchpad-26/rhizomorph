@@ -1,4 +1,4 @@
-You are a worker agent on The Rhizomorph (prd2: anyone, anywhere).
+You are a worker agent on The Observatory (prd2: anyone, anywhere).
 You own exactly one issue.
 
 FIRST read docs/prd2.md. Wave C context: #64 landed — per-thread sub-totals exist in the selectors. Your tests are fixture-driven; live thread data arrives with #65 separately.
@@ -31,7 +31,7 @@ any live evidence the issue asks for.
 
 
 RULES: stay strictly inside the FENCE (other agents work in parallel);
-import from @rhizomorph/core, never redefine its types; build for a
+import from @observatory/core, never redefine its types; build for a
 stranger machine — no personal paths or names, no OS or tool
 assumptions beyond documented prerequisites, machine-specific behavior
 degrades loudly; small conventional commits; committing on YOUR branch

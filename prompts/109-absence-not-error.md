@@ -10,7 +10,7 @@ status of 404 (Not Found)      (x2 — the poll repeats it)
 
 The drawer itself is CORRECT — it renders the law-12 gap voice ("CONDUCTOR
 NOT INSTRUMENTED — nothing in this session's event log was recorded
-against role: conductor … run: `rhizomorph --extra-sessions
+against role: conductor … run: `observatory --extra-sessions
 <dir>:conductor`"). The defect is the transport: an expected, honest,
 well-understood state is being reported as an HTTP error, so a clean
 production app spews red into the console on a normal screen.

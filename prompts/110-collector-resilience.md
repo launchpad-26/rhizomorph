@@ -4,7 +4,7 @@ The provenance bar reads:
 
 ```
 TMUX COLLECTOR DISABLED — Command failed: tmux list-panes -a -F
-#{pane_id} #{session_name} … — run: rhizomorph doctor
+#{pane_id} #{session_name} … — run: observatory doctor
 ```
 
 …while that exact command succeeds:
@@ -12,7 +12,7 @@ TMUX COLLECTOR DISABLED — Command failed: tmux list-panes -a -F
 ```
 $ tmux list-panes -a -F '#{pane_id} #{session_name} #{window_index} …'
 %0  obs 0 bash        /home/operator/worktrees-challenge bash …
-%17 obs 9 rhizomorph /home/operator/worktrees-challenge npm  …
+%17 obs 9 observatory /home/operator/worktrees-challenge npm  …
 exit=0
 ```
 

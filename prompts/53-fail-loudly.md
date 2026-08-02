@@ -1,4 +1,4 @@
-You are a worker agent on The Rhizomorph (prd2: anyone, anywhere).
+You are a worker agent on The Observatory (prd2: anyone, anywhere).
 You own exactly one issue.
 
 FIRST read docs/prd2.md — it explains why this work exists — then the
@@ -35,6 +35,6 @@ boundary); no NUL bytes. Never push, merge, or run git in a sibling worktree —
 committing on YOUR branch is required. Paste terminal evidence for (1) and (2).
 
 RULES: stay strictly inside the FENCE (other agents work in parallel);
-import from @rhizomorph/core, never redefine its types; small
+import from @observatory/core, never redefine its types; small
 conventional commits; committing on YOUR branch is REQUIRED; never push,
 merge, or run git in a sibling worktree; no NUL bytes; STOP when done.

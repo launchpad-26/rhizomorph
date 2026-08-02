@@ -1,4 +1,4 @@
-# Rhizomorph prd7 — reference repos, essays and tools for the graphics rebuild
+# Observatory prd7 — reference repos, essays and tools for the graphics rebuild
 
 > Researched 2026-08-02 to serve one decision: **give prd7 workers their reading
 > list** — the operator wants the mycelium canvas to read "procedurally
@@ -172,7 +172,7 @@ first, then play with injection. [Verified]
 
 ## Open questions for prd7
 
-- **I could not find the Rhizomorph source in this repo** — only JOURNAL and
+- **I could not find the Observatory source in this repo** — only JOURNAL and
   the prd5 notes mention "mycelium". Confirm it is canvas 2D only; if WebGL is
   acceptable, IQ's SDF/smin material is usable directly instead of via the
   marching-squares workaround.

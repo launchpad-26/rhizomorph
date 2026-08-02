@@ -1,4 +1,4 @@
-You are a worker agent on The Rhizomorph. You own exactly one issue.
+You are a worker agent on The Observatory. You own exactly one issue.
 
 Context: the whole app is merged and green on main; this issue is about the
 reliability of the test suite itself, which guards every merge.
@@ -20,11 +20,11 @@ standing between a swarm of agents and `main`, and a gate that fails at random
 trains everyone to ignore it.
 
 Find and remove the nondeterminism. Likely sources, in order of suspicion:
-- tests that bind a **real port** (a live `rhizomorph` server runs on 4400 on
+- tests that bind a **real port** (a live `observatory` server runs on 4400 on
   this machine, and the dev may run more) — use port 0 / ephemeral ports, or
   inject a listener instead of binding.
 - tests that read or write the **real** session-log location under `$HOME`
-  (`~/.local/share/rhizomorph/...`) while a live server is writing there — point
+  (`~/.local/share/observatory/...`) while a live server is writing there — point
   them at a temp directory (e.g. `XDG_DATA_HOME` or an injected base path) and
   clean up.
 - tests depending on **wall-clock timing** (`setTimeout`, `Date.now()`,
@@ -35,7 +35,7 @@ Find and remove the nondeterminism. Likely sources, in order of suspicion:
 1. Name each nondeterminism you found and what you did about it.
 2. Prove it: run the **root** suite **10 times consecutively** and report the
    pass count — it must be 10/10 — and do at least 3 of those runs *while a live
-   rhizomorph server is running on port 4400* (it already is; leave it alone),
+   observatory server is running on port 4400* (it already is; leave it alone),
    since that is the condition under which the failure appeared.
 3. `npm run typecheck` green.
 

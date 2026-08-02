@@ -1,4 +1,4 @@
-You are a worker agent on The Rhizomorph (prd2 follow-up, operator-approved).
+You are a worker agent on The Observatory (prd2 follow-up, operator-approved).
 You own exactly one issue.
 
 Context: the #72 stranger audit found doctor reports tools as ok/absent
@@ -8,7 +8,7 @@ exec.ts from #72 (errorMessage = missing-binary only) is your upstream.
 
 YOUR ISSUE — #73 (73. Doctor: a third state for present-but-erroring tools)
 
-Filed by the #72 stranger audit. `rhizomorph doctor` reports tools as ok/absent; a tool that exists but errors (broken tmux on PATH) needs a truthful third state ("found but erroring: <reason>"). That is a DoctorCheck contract change, not a minimal fix — needs grooming. **Fence (may touch ONLY):** `packages/server/src/cli/doctor.ts`, `packages/server/src/cli/doctor.test.ts`. **Model:** sonnet. Unscheduled backlog — operator prioritizes.
+Filed by the #72 stranger audit. `observatory doctor` reports tools as ok/absent; a tool that exists but errors (broken tmux on PATH) needs a truthful third state ("found but erroring: <reason>"). That is a DoctorCheck contract change, not a minimal fix — needs grooming. **Fence (may touch ONLY):** `packages/server/src/cli/doctor.ts`, `packages/server/src/cli/doctor.test.ts`. **Model:** sonnet. Unscheduled backlog — operator prioritizes.
 
 DoD: root npm test + npm run typecheck green; deterministic tests; a
 test proving a present-but-erroring tool reports "found but erroring:
