@@ -243,6 +243,17 @@ describe('the canvas host', () => {
 
     await mountWithCanvas()
     await pressKey('3')
+    // …and then make it draw a frame *of that fleet*. Under a pinned clock the
+    // loop draws once, at mount, so everything above this line was painted
+    // before the fixture arrived — a picture of an empty fleet, which is the
+    // root-mass and nothing else. Toggling the scar control is the operator
+    // gesture that redraws (`SceneView`'s `hideFinished` effect), and it is
+    // needed for this test to be about what it says it is about: until #117
+    // took the hard outline off the mass, the one `stroke` this ever saw was
+    // that outline, and no thread, cut or fence was in the picture at all.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('scene-hide-finished'))
+    })
 
     // The whole vocabulary reached the canvas: filled ribbons and glyphs,
     // stroked cuts and fences, and the names over the top of them.

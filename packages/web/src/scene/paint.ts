@@ -1,4 +1,5 @@
 import { IDENTITY, type Camera } from './camera.js'
+import type { Point } from './geometry.js'
 import { cssColour } from './palette.js'
 import {
   BACKDROP,
@@ -169,28 +170,44 @@ function ribbon(ctx: CanvasRenderingContext2D, mark: RibbonMark): void {
  *
  * The rim is stroked over the same path rather than a rebuilt one, so it can
  * never disagree with the edge it is supposed to be on.
+ *
+ * The shells are the same call again, one level of the field deeper each time.
+ * Painted in the order they arrive and each one translucent, so what the eye
+ * reads is accumulated density rather than a stack of discs — the material
+ * getting thicker toward the middle, which is what the field is actually saying.
  */
 function contour(ctx: CanvasRenderingContext2D, mark: ContourMark): void {
-  let drawn = 0
-  ctx.beginPath()
-  for (const ring of mark.rings) {
-    if (ring.length < 3) continue
-    ring.forEach((point, i) => {
-      if (i === 0) ctx.moveTo(point.x, point.y)
-      else ctx.lineTo(point.x, point.y)
-    })
-    ctx.closePath()
-    drawn += 1
+  const trace = (rings: readonly (readonly Point[])[]): number => {
+    let drawn = 0
+    ctx.beginPath()
+    for (const ring of rings) {
+      if (ring.length < 3) continue
+      ring.forEach((point, i) => {
+        if (i === 0) ctx.moveTo(point.x, point.y)
+        else ctx.lineTo(point.x, point.y)
+      })
+      ctx.closePath()
+      drawn += 1
+    }
+    return drawn
   }
-  if (drawn === 0) return
+
+  if (trace(mark.rings) === 0) return
 
   ctx.fillStyle = cssColour(mark.fill)
   ctx.fill('evenodd')
 
-  if (mark.edge === undefined) return
-  ctx.lineWidth = mark.edge.width
-  ctx.strokeStyle = cssColour(mark.edge.ink)
-  ctx.stroke()
+  if (mark.edge !== undefined) {
+    ctx.lineWidth = mark.edge.width
+    ctx.strokeStyle = cssColour(mark.edge.ink)
+    ctx.stroke()
+  }
+
+  for (const shell of mark.shells ?? []) {
+    if (trace(shell.rings) === 0) continue
+    ctx.fillStyle = cssColour(shell.ink)
+    ctx.fill('evenodd')
+  }
 }
 
 /** A soft radial falloff. The only thing in the scene that glows. */

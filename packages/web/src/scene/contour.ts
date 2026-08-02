@@ -37,6 +37,16 @@ import { clamp01 } from './palette.js'
  * two passes over a closed ring. It is spent here rather than in the painter for
  * the same reason the ribbon outlines are: what is filled has to be what the
  * tests can read.
+ *
+ * **4. The lattice is sampled once and walked at several depths**
+ * ({@link contourLayers}). A surface with a flat fill is a sticker; the way to
+ * give it a body is to draw the field's *interior* as well as its edge, and the
+ * only honest source for that is the same scalar field the silhouette came from.
+ * Sampling costs (a few tens of thousands of square roots); walking is a pass
+ * over a grid of booleans. So one sampling and four walks costs barely more than
+ * one walk, and the alternative — a radial gradient sprite sized by hand — is
+ * two objects pretending to be one, which is exactly what #117 found at the
+ * centre of the picture.
  */
 
 /**
@@ -190,14 +200,42 @@ export function chaikin(ring: readonly Point[], passes: number): Point[] {
  * stitching tolerance: see {@link walk}.
  */
 export function contourRings(spec: ContourSpec): Point[][] {
+  return contourLayers(spec, ZERO)[0] ?? []
+}
+
+/** The one level {@link contourRings} asks for: the surface itself. */
+const ZERO: readonly number[] = [0]
+
+/**
+ * THE SAME SURFACE AT SEVERAL DEPTHS — one sampling, one ring-set per level.
+ *
+ * A `level` is a distance in world units, in the field's own sign convention:
+ * **0 is the surface**, negative is inside it (a smaller, deeper ring) and
+ * positive is outside (a larger one, the shape the surface would have if it were
+ * that much fatter). So `[-6, 0]` is the silhouette plus the shell six pixels in.
+ *
+ * Every level is walked over the *same* lattice, so they nest by construction:
+ * two rings from one grid of samples cannot cross, whatever the field is doing.
+ * That is the whole reason this exists rather than three calls to
+ * {@link contourRings} — three calls would also re-sample the field three times,
+ * and the sampling is essentially the entire cost.
+ *
+ * Order is preserved: `layers[n]` is `levels[n]`, empty when that level encloses
+ * nothing (a depth deeper than the field's own minimum has no interior left).
+ */
+export function contourLayers(spec: ContourSpec, levels: readonly number[]): Point[][][] {
   const ordered = orderFalloffs(spec.falloffs)
-  if (ordered.length === 0) return []
+  if (ordered.length === 0 || levels.length === 0) return levels.map(() => [])
 
   const melt = Math.max(0, spec.melt)
   const cell = pitch(ordered, spec.origin, melt, spec.cell)
-  if (!(cell > 0)) return []
+  if (!(cell > 0)) return levels.map(() => [])
 
-  const half = Math.ceil(extent(ordered, spec.origin, melt, cell) / cell)
+  // The lattice has to reach past the *outermost* level asked for, not just past
+  // the surface: a ring that ran off the edge of the grid would be an open chain
+  // and a hole in the fill. Levels inside the surface need nothing extra.
+  const outer = Math.max(0, ...levels)
+  const half = Math.ceil((extent(ordered, spec.origin, melt, cell) + outer) / cell)
   const size = 2 * half + 1
   const x0 = spec.origin.x - half * cell
   const y0 = spec.origin.y - half * cell
@@ -209,9 +247,12 @@ export function contourRings(spec: ContourSpec): Point[][] {
     }
   }
 
-  const rings = walk({ values, size, x0, y0, cell, ordered, melt })
   const passes = spec.smoothing ?? MAX_SMOOTHING
-  return rings.map((ring) => chaikin(ring, passes))
+  return levels.map((level) =>
+    walk({ values, size, x0, y0, cell, ordered, melt }, level).map((ring) =>
+      chaikin(ring, passes),
+    ),
+  )
 }
 
 /**
@@ -287,15 +328,21 @@ interface Lattice {
  * genuine choice, and it is settled by evidence: the field is sampled at the
  * cell's centre, and the two inside corners are joined if the centre is inside
  * them. Two extra samples per contour, at most.
+ *
+ * `level` shifts what "inside" means, and it is the only thing that separates
+ * the silhouette from the shells beneath it: every comparison and every
+ * interpolation below is against it rather than against zero, so a level of −6
+ * walks the surface the field would have if it were six pixels thinner. Zero is
+ * the surface, and zero is what {@link contourRings} passes.
  */
-function walk(grid: Lattice): Point[][] {
+function walk(grid: Lattice, level: number): Point[][] {
   const { values, size, x0, y0, cell, ordered, melt } = grid
 
   /** Edge names. Horizontal edge (i,j) runs east; vertical edge (i,j) runs south. */
   const hKey = (i: number, j: number): number => ((j * size + i) << 1) | 0
   const vKey = (i: number, j: number): number => ((j * size + i) << 1) | 1
 
-  const at = (i: number, j: number): number => values[j * size + i] as number
+  const at = (i: number, j: number): number => (values[j * size + i] as number) - level
   const inside = (i: number, j: number): boolean => at(i, j) < 0
 
   const vertices = new Map<number, Point>()
@@ -358,7 +405,7 @@ function walk(grid: Lattice): Point[][] {
       // boundary, which is the pairing that leaves the two inside corners in one
       // region; the alternative cuts them apart. The centre sample decides.
       const joined =
-        fieldXY(x0 + (i + 0.5) * cell, y0 + (j + 0.5) * cell, ordered, melt) < 0
+        fieldXY(x0 + (i + 0.5) * cell, y0 + (j + 0.5) * cell, ordered, melt) - level < 0
       for (const exit of exits) {
         const first = entries[0] as number
         const second = entries[1] as number

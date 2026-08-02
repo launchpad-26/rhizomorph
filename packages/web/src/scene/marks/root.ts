@@ -1,5 +1,18 @@
-import { contourRings, type Falloff } from '../contour.js'
-import { ICE_050, ICE_200, ICE_300, clamp01, hotter, ink } from '../palette.js'
+import { contourLayers, type Falloff } from '../contour.js'
+import {
+  ICE_050,
+  ICE_100,
+  ICE_200,
+  ICE_300,
+  ICE_400,
+  ICE_500,
+  clamp01,
+  hotter,
+  ink,
+  mix,
+  type Ink,
+  type Rgb,
+} from '../palette.js'
 import { homecoming } from '../retire.js'
 import { budget, type SceneFrame } from './frame.js'
 import type { Mark } from './types.js'
@@ -35,6 +48,18 @@ import type { Mark } from './types.js'
  *   *does*, not a circle drawn on top of it. See {@link arrivalSwell}.
  * - **it breathes**, ±1.6%, which is the one ambient motion in the instrument —
  *   and it is the contour that breathes, since there is nothing else left to.
+ *
+ * **What #117 changed, and why it was the same bug twice.** The first pass at
+ * ruling 5 got the *idea* right and the material wrong: a flat opaque fill, a
+ * 1px lighter outline round it, and a radial-gradient core sitting inside the
+ * silhouette without being aligned to it. Three objects pretending to be one, in
+ * a substance nothing else on screen shares — everything else in this instrument
+ * is thin, translucent and ice-toned. So the mass is now painted from the field
+ * rather than over it: one body, no outline, {@link DEPTHS} levels of the same
+ * scalar field accumulating into density, a {@link DEPTH.rind} of skin where the
+ * light travels furthest through it, and a core glow reduced to the small bright
+ * thing at the bottom of all that. The silhouette gained two more octaves at the
+ * same time, for the same reason: one wavelength is a shape, three is a thing.
  */
 
 /** Conductor output tokens that read as a fully warm root. */
@@ -107,47 +132,76 @@ function landedTokens(frame: SceneFrame): number {
  *
  * Authored rather than generated, and fixed, for the reason the old tangle's
  * golden-angle placement was fixed: the mass has to be recognisably *itself*
- * every frame and every session. Six falloffs is few enough that the smooth
- * minimum reads as one surface and enough that the surface is not a disc — which
- * matters, because a disc is what a shape looks like and this has to look like a
- * thing that grew.
+ * every frame and every session.
  *
- * The proportions were picked by measuring the silhouette, not by eye: a body
- * whose narrowest bearing is about four fifths of its widest reads as *grown*,
- * while anything above about 0.9 has collapsed back into the circle the ruling is
- * removing and anything below about 0.7 has come apart into an egg. The furthest
- * any lobe reaches is 0.99 of the radius, so the finished contour sits on the rim
- * — which is where the hit target already is (`SceneView`'s `ROOT_HIT_SLACK`).
- * The old curls overshot the rim by a third and were only survivable because
- * they were faint.
+ * **Three octaves, not one** (#117). The first pass at this was six falloffs of
+ * roughly one size, and the finding against it was precise: the silhouette had a
+ * single wavelength, so every lobe was the same lobe and the whole thing read as
+ * a shape rather than as a thing. Nature does not have one wavelength. So the
+ * body is now a *trunk* of four large falloffs, a set of five *shoulders* at
+ * half their size sitting further out, and eight *grains* at a fifth of it out
+ * near the skin — and the silhouette that comes off the field has features at
+ * three scales, which is what "multi-octave" buys and the only thing it buys.
+ *
+ * Two constraints held the tuning down, and both are pinned elsewhere:
+ *
+ * - **the narrowest bearing stays between 0.6 and 0.9 of the widest**
+ *   (`marks.test.ts`). Above 0.9 it has collapsed back into the circle prd7
+ *   ruling 5 is removing; below 0.6 it has come apart into a scatter of lumps.
+ * - **every lobe overlaps its neighbours**, so the field is one component at any
+ *   melt. An island would be a second ring, and the mass is one closed ring by
+ *   law — `contour.test.ts` walks this exact table at the coarse melt to say so.
+ *
+ * The furthest anything reaches is ~0.99 of the radius including the fillet's
+ * own overshoot, so the finished contour sits on the rim — which is where the
+ * hit target already is (`SceneView`'s `ROOT_HIT_SLACK`).
  */
 const BODY: readonly { id: string; angle: number; distance: number; radius: number }[] = [
-  { id: 'body-0', angle: 0, distance: 0, radius: 0.58 },
-  { id: 'body-1', angle: 0.5, distance: 0.49, radius: 0.51 },
-  { id: 'body-2', angle: 1.9, distance: 0.55, radius: 0.4 },
-  { id: 'body-3', angle: 3.1, distance: 0.44, radius: 0.56 },
-  { id: 'body-4', angle: 4.3, distance: 0.58, radius: 0.37 },
-  { id: 'body-5', angle: 5.4, distance: 0.4, radius: 0.47 },
+  // The trunk: unequal on purpose, so the mass has a direction to it.
+  { id: 'body-0', angle: 0.3, distance: 0.0696, radius: 0.6032 },
+  { id: 'body-1', angle: 1.15, distance: 0.348, radius: 0.522 },
+  { id: 'body-2', angle: 2.85, distance: 0.406, radius: 0.4292 },
+  { id: 'body-3', angle: 4.35, distance: 0.3364, radius: 0.4988 },
+  // Shoulders: half the trunk's size, sitting out where they show on the skin.
+  { id: 'body-4', angle: 0.7, distance: 0.6032, radius: 0.3364 },
+  { id: 'body-5', angle: 2.02, distance: 0.638, radius: 0.2668 },
+  { id: 'body-6', angle: 3.6, distance: 0.5916, radius: 0.3132 },
+  { id: 'body-7', angle: 5, distance: 0.58, radius: 0.348 },
+  { id: 'body-8', angle: 6, distance: 0.5452, radius: 0.29 },
+  // Grain: a third of the trunk, near the surface, and the only reason the edge
+  // has any texture on it at all.
+  { id: 'body-a', angle: 0.46, distance: 0.7888, radius: 0.2079 },
+  { id: 'body-b', angle: 1.42, distance: 0.7308, radius: 0.1689 },
+  { id: 'body-c', angle: 2.4, distance: 0.7656, radius: 0.2209 },
+  { id: 'body-d', angle: 3.24, distance: 0.696, radius: 0.1559 },
+  { id: 'body-e', angle: 4.12, distance: 0.7772, radius: 0.1949 },
+  { id: 'body-f', angle: 4.72, distance: 0.7076, radius: 0.1429 },
+  { id: 'body-g', angle: 5.54, distance: 0.7656, radius: 0.2079 },
+  { id: 'body-h', angle: 6.28, distance: 0.6844, radius: 0.1689 },
 ]
 
 /**
  * How far the falloffs melt into each other, in units of the radius.
  *
  * The one number that decides whether this reads as an organism or as a bag of
- * circles. Measured on the same silhouette ratio the body is tuned against: at
- * 0.14 the lobes are still legible as separate circles welded together, at 0.46
- * the field has swallowed them whole and the contour comes out a disc to within
- * 4%. A quarter of the radius is the fillet that reads as one continuous surface
- * with something going on inside it.
+ * circles — and it had to come *down* when the body gained its second and third
+ * octaves, because a fillet is a low-pass filter over the silhouette. At the
+ * 0.24 the single-octave body used, a grain of radius 0.13 is entirely inside
+ * the weld and changes the outline not at all: the finer octaves would have been
+ * paid for and then smoothed away. At 0.13 the trunk and the shoulders still
+ * read as one continuous surface (they overlap by much more than the fillet)
+ * while the grain survives as texture on the skin.
  */
-const MELT = 0.24
+const MELT = 0.13
 
 /**
- * The grid pitch, in units of the radius — **~6 px at the scale the scene
- * actually runs at**, which is the grid the research measured (1.28 ms/frame,
- * against 42.8 ms for per-pixel metaballs and 108.5 ms with SDF + smin).
+ * The grid pitch, in units of the radius — **~4 px at the scale the scene
+ * actually runs at**. Down from the 6 px the single-octave body used, for the
+ * same reason the melt came down: a lattice cannot resolve a feature smaller
+ * than about two of its cells, and the grain octave is 0.11–0.17 of the radius.
+ * A 6 px grid would have quantised it into the same smooth outline as before.
  *
- * A fraction of the radius rather than an absolute six pixels, and that is a
+ * A fraction of the radius rather than an absolute pixel count, and that is a
  * decision worth its own paragraph. The whole lattice — pitch, origin, extent —
  * is then a *similarity transform* of the mass, so a mass that has thickened by
  * 30% has a contour exactly 30% larger rather than one re-quantised against a
@@ -156,7 +210,7 @@ const MELT = 0.24
  * also means the silhouette is the same likeness at every scene size instead of
  * gaining detail on a big panel.
  */
-const CELL = 0.13
+const CELL = 0.078
 
 /**
  * Corner-cutting passes. Two, of the three the ruling allows: at this pitch the
@@ -164,6 +218,103 @@ const CELL = 0.13
  * would only buy points.
  */
 const SMOOTHING = 2
+
+/**
+ * THE BODY, AS DEPTH — the levels of the field the mass is painted from.
+ *
+ * `at` is a distance in units of the radius, in the field's own sign convention:
+ * 0 is the surface (the ring the laws read), negative is inside it. So this is
+ * the silhouette and seventeen shells beneath it, each a real level of the same
+ * scalar field, sampled once and walked eighteen times (`contour.ts`).
+ *
+ * They are painted outermost first and every one of them is nearly transparent,
+ * so what the eye reads is the **accumulation**: about 0.05 where only the skin
+ * is in the way and about 0.7 where all eighteen are. That is a translucent
+ * body, and it is a thing a fill plus an outline cannot be at any alpha — which
+ * was the finding. Nothing here is a gradient sprite: every edge in the stack is
+ * the field's own, so the depth breathes, thickens and takes arrivals along with
+ * the silhouette, with nothing to keep in step by hand.
+ *
+ * Three properties were tuned by looking at it at 2×, and all three took more
+ * than one attempt:
+ *
+ * - **the spacing widens toward the skin.** Evenly spaced levels put most of the
+ *   ramp in the first fifth and gave the mass a hard shoulder again. The outer
+ *   steps are the big ones, so the edge fades over most of the radius.
+ * - **the count is what kills the banding, not the total.** Nine levels at 0.06
+ *   is the same density as eighteen at 0.03 and comes out as a contour map of
+ *   itself: a 6% alpha step on this backdrop is an edge the eye finds. Fifteen
+ *   at 0.058 still showed it faintly around the core; eighteen at 0.05 does not.
+ * - **the interior is lumpy, and stays lumpy.** A multi-octave body has a
+ *   multi-octave inside: the deeper levels come out as two or three components
+ *   rather than one disc, because that is what the field is. At these alphas it
+ *   reads as mottling — the material being denser in some places than others —
+ *   which is the honest picture and a better one than a smooth ball.
+ *
+ * Up the ICE ramp as they go deeper, and no further than {@link ICE_100}: the
+ * ramp's ceiling belongs to light — pulses, and the core glow — and a body that
+ * reached it would read as lit rather than as dense.
+ */
+const DEPTH = {
+  /** Levels, the surface included. */
+  count: 18,
+  /** How far in the innermost one sits, in units of the radius. */
+  reach: 0.62,
+  /**
+   * How the levels bunch. Above 1 spreads the outer steps and crowds the inner
+   * ones, which is the profile a translucent body has: a long soft shoulder at
+   * the skin, and the density arriving in the last third.
+   */
+  bias: 1.45,
+  /**
+   * Per level. Small enough that no single step is visible as an edge — the
+   * number that had to be found by looking, because a stack of nine at 0.06
+   * came out as a contour map of itself. Eighteen at 0.05 is a body you can see,
+   * with no step anybody can point at.
+   */
+  alpha: 0.05,
+  /**
+   * THE RIND — how thick the mass's skin is, in units of the radius.
+   *
+   * The band between the surface and the level just inside it, painted as one
+   * shell with a hole in it (the painter fills a shell's rings even-odd, so two
+   * nested rings in one entry *are* the band between them). It is what gives the
+   * silhouette an edge now that the hard outline is gone, and it is a different
+   * thing from that outline in the way that matters: an outline is a stroke laid
+   * on a boundary at whatever width somebody typed, and this is the material
+   * itself, three pixels of it, lit because light travelling the long way
+   * through a translucent body is what makes its edge visible. It thickens and
+   * thins with the mass because it is measured in the field.
+   */
+  rind: 0.06,
+  /** How much brighter the rind is than one ordinary level. */
+  rindGain: 2.6,
+} as const
+
+const DEPTHS: readonly { at: number; rgb: Rgb; alpha: number }[] = Array.from(
+  { length: DEPTH.count },
+  (_unused, i) => {
+    const t = i / (DEPTH.count - 1)
+    return {
+      at: -DEPTH.reach * Math.pow(t, DEPTH.bias),
+      // Up the ramp as it goes deeper: thin ice at the skin, dense ice at the
+      // core. Squared, so most of the brightening happens where most of the
+      // material is rather than spreading evenly over a body that is not even.
+      rgb: mix(ICE_500, ICE_100, t * t),
+      alpha: DEPTH.alpha,
+    }
+  },
+)
+
+/**
+ * The level the rind's inner edge is read off: the first one at least
+ * {@link DEPTH.rind} deep. Found rather than written down, so the skin stays the
+ * same thickness if the ramp above it is ever re-spaced.
+ */
+const RIND_INDEX = Math.max(
+  1,
+  DEPTHS.findIndex((depth) => -depth.at >= DEPTH.rind),
+)
 
 /**
  * How far out an arrival's swell sits, and how big it gets, in units of radius.
@@ -251,6 +402,19 @@ export function rootFalloffs(frame: SceneFrame, radius: number): Falloff[] {
   return falloffs
 }
 
+type Depth = (typeof DEPTHS)[number]
+
+/**
+ * One level's ink. Every level carries the conductor's light and the arrival
+ * surge in the same proportions, which is what keeps the body one material: a
+ * mass whose skin dimmed while its core did not would have come apart into two
+ * objects again, and the un-instrumented floor is asserted over the mass as a
+ * whole (`marks.test.ts`) rather than over whichever part is brightest.
+ */
+function depthInk(depth: Depth, surge: number, intensity: number): Ink {
+  return ink(hotter(depth.rgb, 0.14 * surge), depth.alpha * (0.5 + 0.5 * intensity))
+}
+
 export function rootMarks(frame: SceneFrame): Mark[] {
   const { geometry, field, fleet } = frame
   const { centre } = geometry
@@ -285,48 +449,75 @@ export function rootMarks(frame: SceneFrame): Mark[] {
   // THE SURFACE. One mark, whatever the field turned out to be — and it is a
   // `contour` rather than a `ribbon` because a ribbon's polygons are painted
   // independently, which is exactly wrong for a body that may enclose a hole.
-  marks.push({
-    kind: 'contour',
-    role: 'root-mass',
-    laneId: null,
-    alarm: false,
-    rings: contourRings({
+  //
+  // One sampling of the field, walked at four depths: the silhouette, and three
+  // shells beneath it. See `DEPTHS`.
+  const layers = contourLayers(
+    {
       falloffs: rootFalloffs(frame, radius),
       origin: centre,
       melt: radius * MELT,
       cell: radius * CELL,
       smoothing: SMOOTHING,
-    }),
-    // Substantial, but not opaque: the threads are painted under the mass, and
-    // seeing their last inch faintly through it is what makes them read as
-    // threaded *into* the thing rather than as lines that stop behind it.
-    fill: budget(frame, null, false, ink(hotter(ICE_200, 0.2 + 0.4 * surge), 0.26 + 0.3 * intensity)),
-    // A rim, so the surface has an edge and not just an extent. It is the one
-    // place the mass is allowed to be brighter than its own body — a lit skin is
-    // what stops a flat fill reading as a sticker laid over the threads.
-    edge: {
-      width: 1.1,
-      ink: budget(
-        frame,
-        null,
-        false,
-        ink(hotter(ICE_200, 0.3 + 0.45 * surge), 0.34 + 0.36 * intensity),
-      ),
     },
+    DEPTHS.map((depth) => depth.at * radius),
+  )
+
+  marks.push({
+    kind: 'contour',
+    role: 'root-mass',
+    laneId: null,
+    alarm: false,
+    rings: layers[0] ?? [],
+    // Thin at the skin, and that is the whole change #117 asked for: the mass is
+    // made of the same translucent ice-toned material the threads are, so a
+    // thread's last inch shows through its edge and the two read as one world.
+    // The body is not this number — the body is this number plus the shells.
+    fill: budget(frame, null, false, depthInk(DEPTHS[0] as Depth, surge, intensity)),
+    // No edge. A 1px lighter outline around a flat fill is how a sticker is
+    // drawn, and it was the loudest half of the finding: an outline states a
+    // boundary, where a surface with depth behind it *has* one.
+    shells: [
+      // The rind first: surface ring and the one just inside it, in a single
+      // entry, so the painter's even-odd fill lands on the band between them.
+      {
+        rings: [...(layers[0] ?? []), ...(layers[RIND_INDEX] ?? [])],
+        ink: budget(
+          frame,
+          null,
+          false,
+          depthInk(
+            { ...(DEPTHS[0] as Depth), alpha: DEPTH.alpha * DEPTH.rindGain },
+            surge,
+            intensity,
+          ),
+        ),
+      },
+      ...DEPTHS.slice(1).map((depth, i) => ({
+        rings: layers[i + 1] ?? [],
+        ink: budget(frame, null, false, depthInk(depth, surge, intensity)),
+      })),
+    ],
   })
 
   // The core: the point every packet is running to. It carries the conductor's
   // burn too, through `intensity` — the mass at the centre of the picture is lit
   // by the orchestrator, so an un-instrumented one has to read as dim all the
   // way through rather than keeping a bright core that says nothing.
+  //
+  // Much smaller than it was, and that is the other half of the sticker finding.
+  // It used to be a half-radius radial gradient sitting inside a silhouette it
+  // had no relationship to — two objects pretending to be one. The depth is the
+  // shells' job now, so all this has left to do is be the light at the bottom of
+  // them, and a light at the bottom of something is small.
   marks.push({
     kind: 'glow',
     role: 'root-core',
     laneId: null,
     alarm: false,
     at: centre,
-    radius: radius * (0.5 + 0.35 * surge),
-    ink: budget(frame, null, false, ink(ICE_050, 0.34 + 0.42 * intensity)),
+    radius: radius * (0.2 + 0.28 * surge),
+    ink: budget(frame, null, false, ink(ICE_050, 0.1 + 0.24 * intensity)),
   })
 
   // What used to be here was `root-arrival`: an expanding hairline circle, drawn

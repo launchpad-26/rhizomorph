@@ -217,6 +217,21 @@ export interface ContourMark extends MarkBase {
   fill: Ink
   /** The lit skin. Absent for a surface that is meant to read as a shadow. */
   edge?: { width: number; ink: Ink }
+  /**
+   * THE SAME FIELD, FURTHER IN — what gives a surface a body instead of a face.
+   *
+   * Each shell is another iso-level of the scalar field this mark's `rings` are
+   * the zero-level of (`contour.ts`'s {@link contourLayers}), painted over the
+   * fill in order. Because they all come off one sampling of one field they nest
+   * by construction, and the density that builds up where they overlap *is* the
+   * field getting deeper — which is the difference between a translucent body
+   * and a flat shape with a gradient sprite laid on top of it (#117).
+   *
+   * Not part of `rings`, and deliberately: `rings` is the geometry the laws read
+   * — where the mass's surface is — and a shell is not the surface. It is the
+   * same claim at a different depth, and no law is written about it.
+   */
+  shells?: readonly { rings: readonly (readonly Point[])[]; ink: Ink }[]
 }
 
 /** A soft radial blob. Light, always — the only thing in the scene that glows. */
@@ -361,7 +376,14 @@ export function inksOf(mark: Mark): readonly Ink[] {
     case 'ribbon':
       return isLinear(mark.paint) ? mark.paint.stops.map((stop) => stop.ink) : [mark.paint]
     case 'contour':
-      return mark.edge === undefined ? [mark.fill] : [mark.fill, mark.edge.ink]
+      // The shells count. They are ink this mark puts on the canvas, so a
+      // brightness law asserted over the mass has to see the brightest of them
+      // — otherwise depth would be a way of smuggling light past the budget.
+      return [
+        mark.fill,
+        ...(mark.edge === undefined ? [] : [mark.edge.ink]),
+        ...(mark.shells ?? []).map((shell) => shell.ink),
+      ]
     case 'chip':
       return [mark.fill, mark.border]
     default:
