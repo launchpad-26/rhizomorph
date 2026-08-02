@@ -1,5 +1,4 @@
 import { contourRings, type Falloff } from '../contour.js'
-import type { Point } from '../geometry.js'
 import { ICE_050, ICE_200, ICE_300, clamp01, hotter, ink } from '../palette.js'
 import { homecoming } from '../retire.js'
 import { budget, type SceneFrame } from './frame.js'
