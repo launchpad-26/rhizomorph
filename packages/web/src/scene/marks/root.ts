@@ -299,24 +299,24 @@ interface Depth {
  * outline of a mass that has doubled is *exactly* the same likeness at twice the
  * size — which is the property the cap's law depends on, and which on its own
  * would make a night's work read as a photocopy held closer to the eye. What a
- * body actually does when it grows is gain **interior**: more layers between the
- * skin and the core, and material further in than a small one has.
+ * body actually does when it grows is gain **interior**: more layers of material
+ * between the skin and the core, resolved finely enough to see.
  *
- * So the two numbers that describe the inside are the ones that move with
- * {@link SceneGeometry.rootFullness}, and neither of them touches the surface:
- *
- * - **count**, 18 → {@link DEPTH.countFull}. More shells over a body that has
- *   more pixels to cover keeps the alpha step per level below the eye's ability
- *   to find it — the same argument that set the count at eighteen in the first
- *   place, applied at a size where eighteen is no longer enough — and it makes
- *   the mass denser as it fills, which is the honest reading of a centre that has
- *   more work in it.
- * The *depth* the stack reaches does not move with it, and that was the first
- * thing tried: see {@link DEPTH.reach}. What the extra levels buy is resolution,
- * and resolution is what the interior of a multi-octave field has to spare — its
+ * So exactly one number moves with {@link SceneGeometry.rootFullness}, and it is
+ * the **count**: 18 shells at rest, {@link DEPTH.countFull} at a full centre,
+ * each one thinner in proportion so the accumulation through the middle stays
+ * where #117 tuned it. What the extra levels buy is **resolution**, and
+ * resolution is what the interior of a multi-octave field has to spare — its
  * deeper levels break into two, three and four separate components, because that
  * is what the material is, and a stack fine enough to land between them is what
- * makes a full mass read as having an inside rather than a middle.
+ * makes a full mass read as having an inside rather than a middle. It is also the
+ * same argument that set the count at eighteen in the first place, applied at a
+ * size where eighteen is no longer enough: a body with four times the pixels in
+ * it needs a finer ramp before a step becomes an edge.
+ *
+ * The **depth** the stack reaches deliberately does not move with it, and that
+ * was the first thing tried — see {@link DEPTH.reach}, where the measurement that
+ * killed it is written down.
  *
  * It is continuous in `fullness`, so nothing steps: the count only changes on a
  * frame where a cord actually parted, and one more shell at 5.5% alpha is not a
