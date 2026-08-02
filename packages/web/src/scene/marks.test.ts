@@ -1180,6 +1180,67 @@ describe('the root-mass', () => {
       expect(widestOf(hidden)).toBe(widestOf(shown))
     })
 
+    /**
+     * IT GROWS A BODY, NOT A BALLOON (#118).
+     *
+     * The silhouette is a similarity transform of the radius by construction, and
+     * has to be — the cap's law is exact because of it. On its own that makes a
+     * night's work read as the same creature held closer to the eye. What a body
+     * actually does when it grows is gain *interior*, so the depth stack is what
+     * moves with the fullness: more shells, reaching further in, and a skin that
+     * stays a skin instead of becoming a stripe painted round a fill.
+     */
+    it('gains interior as it fills, rather than being scaled up whole', () => {
+      const stack = (retire?: ReadonlyMap<string, RetireState>) => {
+        const mark = marksFor({ fleet, ...(retire === undefined ? {} : { retire }) }).find(
+          (m) => m.role === 'root-mass',
+        )
+        if (mark?.kind !== 'contour') throw new Error('the mass is not a contour')
+        const shells = mark.shells ?? []
+        const rings = shells.map((shell) => shell.rings.length)
+        return {
+          shells: rings.length,
+          // The shells that actually enclose something. A level asked for deeper
+          // than the field's own minimum draws nothing, so this is what says the
+          // extra layers are material rather than empty walks.
+          drawn: rings.filter((count) => count > 0).length,
+          // The deepest interior's component count. A multi-octave field comes
+          // apart into two, three and four islands as you go in, and resolving
+          // more of them is what "gains detail" means here.
+          islands: Math.max(...rings),
+          // Every surface the interior is drawn as, over the whole stack.
+          surfaces: rings.reduce((total, count) => total + count, 0),
+          alpha: shells[shells.length - 1]?.ink.alpha ?? 0,
+          surface: mark.rings.length,
+        }
+      }
+
+      const rest = stack()
+      const full = stack(landed(20))
+
+      // More layers between the skin and the core, and every one of them is
+      // drawing: the alpha step per level stays under the eye over a body with
+      // four times the pixels in it.
+      expect(full.shells).toBeGreaterThan(rest.shells)
+      expect(full.drawn).toBeGreaterThan(rest.drawn)
+      expect(full.shells - full.drawn).toBeLessThanOrEqual(rest.shells - rest.drawn + 1)
+
+      // …and the finer stack lands between the interior's own components, so a
+      // full mass has an inside where a resting one has a middle. The deepest
+      // island count is the same or better — it is bounded by what the field
+      // actually contains, not by how finely it is sliced — while the number of
+      // surfaces the interior is drawn as goes up with the resolution.
+      expect(full.islands).toBeGreaterThanOrEqual(rest.islands)
+      expect(full.surfaces).toBeGreaterThan(rest.surfaces)
+
+      // Structure, not opacity. Each level is thinner in proportion, so the mass
+      // gained gradations rather than turning into a solid disc — and it is still
+      // one surface, which is what keeps it one object.
+      expect(full.alpha).toBeLessThan(rest.alpha)
+      expect(full.surface).toBe(1)
+      expect(rest.surface).toBe(1)
+    })
+
     it('is a size, not a movement — it holds still between frames', () => {
       // Ambient motion is the breath and nothing else (law 10). The girth changes
       // only when a cut advances or a snapshot brings new landed work.

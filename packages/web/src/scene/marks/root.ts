@@ -35,11 +35,13 @@ import type { Mark } from './types.js'
  *   the gap voice elsewhere (law 12); the scene's job is to not fake the light.
  * - **it surges when work comes home**, and only ever because a packet's journey
  *   ended here (ruling 32). No arrival without a commit.
- * - **it thickens with the session's landed work** (prd6 ruling 2). Every lane
- *   whose cord has been cut has sent its substance back down the thread, and this
- *   is where it went: the mass is visibly bigger by the end of a night than it was
- *   at the start of it, which is the honest reading of a merge — the work is part
- *   of main now. See {@link rootGirth}.
+ * - **it grows with the session's landed work** (prd6 ruling 2). Every lane whose
+ *   cord has been cut has sent its substance back down the thread, and this is
+ *   where it went: the mass is visibly bigger by the end of a night than it was at
+ *   the start of it, which is the honest reading of a merge — the work is part of
+ *   main now. The size itself is `geometry.rootRadius`, because everything that
+ *   has to stay clear of the mass is placed before this file runs (#118); what is
+ *   left here is what the growth does to the *material*. See {@link depthsFor}.
  * - **it melts where substance is arriving.** Each cord still parting adds a
  *   falloff of its own at that lane's bearing, so the surface swells toward the
  *   lane the work is coming from and settles back as the scar cools. That is what
@@ -54,7 +56,7 @@ import type { Mark } from './types.js'
  * silhouette without being aligned to it. Three objects pretending to be one, in
  * a substance nothing else on screen shares — everything else in this instrument
  * is thin, translucent and ice-toned. So the mass is now painted from the field
- * rather than over it: one body, no outline, {@link DEPTHS} levels of the same
+ * rather than over it: one body, no outline, {@link depthsFor} levels of the same
  * scalar field accumulating into density, a {@link DEPTH.rind} of skin where the
  * light travels furthest through it, and a core glow reduced to the small bright
  * thing at the bottom of all that. The silhouette gained two more octaves at the
@@ -231,10 +233,17 @@ const DEPTH = {
   count: 18,
   /** …and the count a full mass carries. */
   countFull: 26,
-  /** How far in the innermost one sits, in units of the radius — at rest. */
+  /**
+   * How far in the innermost one sits, in units of the radius.
+   *
+   * Unchanged by the growth, and #118 tried the other thing first: taking it to
+   * 0.76 on a full mass bought five shells that enclosed nothing at all. The
+   * field bottoms out around 0.58 of the radius — that is where the trunk's own
+   * falloffs run out of depth — so a level asked for past it is an empty ring,
+   * walked and allocated and skipped every frame for no picture. 0.62 puts the
+   * last one just past the bottom, which is where it belongs at any size.
+   */
   reach: 0.62,
-  /** …and how far a full mass reaches. */
-  reachFull: 0.76,
   /**
    * How the levels bunch. Above 1 spreads the outer steps and crowds the inner
    * ones, which is the profile a translucent body has: a long soft shoulder at
@@ -302,23 +311,23 @@ interface Depth {
  *   place, applied at a size where eighteen is no longer enough — and it makes
  *   the mass denser as it fills, which is the honest reading of a centre that has
  *   more work in it.
- * - **reach**, 0.62 → {@link DEPTH.reachFull}. The deepest shells are the ones
- *   that break into separate components, because a multi-octave field's interior
- *   is lumpy; reaching further in is what gives a full mass visible internal
- *   structure — two or three dense cores with thinner material between them —
- *   where a resting one is a single smooth interior.
+ * The *depth* the stack reaches does not move with it, and that was the first
+ * thing tried: see {@link DEPTH.reach}. What the extra levels buy is resolution,
+ * and resolution is what the interior of a multi-octave field has to spare — its
+ * deeper levels break into two, three and four separate components, because that
+ * is what the material is, and a stack fine enough to land between them is what
+ * makes a full mass read as having an inside rather than a middle.
  *
- * Both are continuous in `fullness`, so nothing steps: the count only changes on
- * a frame where a cord actually parted, and one more shell at 5.5% alpha is not
- * a thing anybody can see happen.
+ * It is continuous in `fullness`, so nothing steps: the count only changes on a
+ * frame where a cord actually parted, and one more shell at 5.5% alpha is not a
+ * thing anybody can see happen.
  */
 function depthsFor(fullness: number): readonly Depth[] {
   const count = Math.round(DEPTH.count + (DEPTH.countFull - DEPTH.count) * fullness)
-  const reach = DEPTH.reach + (DEPTH.reachFull - DEPTH.reach) * fullness
   return Array.from({ length: count }, (_unused, i) => {
     const t = i / (count - 1)
     return {
-      at: -reach * Math.pow(t, DEPTH.bias),
+      at: -DEPTH.reach * Math.pow(t, DEPTH.bias),
       // Up the ramp as it goes deeper: thin ice at the skin, dense ice at the
       // core. The exponent is where the lift #117's second look asked for came
       // from, and it is the one number in the stack that has to be *tuned*
@@ -378,7 +387,8 @@ const ARRIVAL = { distance: 0.9, radius: 0.26 } as const
  * journey: the substance is still out on the thread for most of the cut and only
  * arrives here at the finish. Then `1 - scar` melts it away again over the
  * settle, which is what makes it an arrival rather than a permanent lump — the
- * permanent part is {@link rootGirth}, and it is a different channel on purpose.
+ * permanent part is the mass's own growth (`geometry.rootRadius`), and it is a
+ * different channel on purpose.
  *
  * The three motion regimes fall out of this rather than being special-cased:
  *

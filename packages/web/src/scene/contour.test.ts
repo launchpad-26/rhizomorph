@@ -268,40 +268,109 @@ describe('marching squares — the rings are closed by construction', () => {
  *
  * The grid pitch is a fraction of the mass's own radius rather than a fixed
  * number of pixels, so scaling the field scales the contour and does not
- * re-quantise it. Without this, "the mass grew by exactly 30%" would be true of
- * the field and only approximately true of the picture, and the cap could only
+ * re-quantise it. Without this, "the mass grew to exactly the cap" would be true
+ * of the field and only approximately true of the picture, and the cap could only
  * ever be asserted to within half a cell.
+ *
+ * **The range is now a doubling, not #117's 1.3×** (#118). The cap used to be
+ * +30% of the mass's resting size and is now half the scene's own distance to the
+ * retirement band, which on a real panel is very near 2× — so the range this has
+ * to hold over is the range the mass actually grows through.
  */
 describe('scaling the field scales the contour, exactly', () => {
-  it('holds to floating-point across a 1.3× thickening', () => {
-    const build = (scale: number): Point[][] =>
-      contourRings({
-        falloffs: [
-          circle('a', 0, 0, 24 * scale),
-          circle('b', 15 * scale, 6 * scale, 14 * scale),
-          circle('c', -12 * scale, 11 * scale, 10 * scale),
-        ],
-        origin: ORIGIN,
-        melt: 6 * scale,
-        cell: 3 * scale,
-        smoothing: 2,
-      })
+  const build = (scale: number): Point[][] =>
+    contourRings({
+      falloffs: [
+        circle('a', 0, 0, 24 * scale),
+        circle('b', 15 * scale, 6 * scale, 14 * scale),
+        circle('c', -12 * scale, 11 * scale, 10 * scale),
+      ],
+      origin: ORIGIN,
+      melt: 6 * scale,
+      cell: 3 * scale,
+      smoothing: 2,
+    })
 
+  const reach = (rings: Point[][]): number => Math.max(...rings.flatMap((ring) => radii(ring)))
+
+  /**
+   * THE PART THE CAP RESTS ON, and the part that holds at *every* ratio.
+   *
+   * "The mass grew to exactly the ceiling" is a claim about how far the contour
+   * reaches, so this is the assertion prd6 ruling 2's cap actually leans on — and
+   * it is exact to the last bit at every growth factor, because the lattice's
+   * sample positions are a fixed set of multiples of the cell about the origin
+   * and scaling the field scales that set with it.
+   */
+  it('scales the reach to the last bit, at every factor the mass grows by', () => {
+    const unit = reach(build(1))
+    for (const scale of [1.3, 1.71, 1.9, 1.98, 2, 2.4]) {
+      expect(reach(build(scale)) / unit / scale, `${scale}× re-quantised the mass`).toBeCloseTo(
+        1,
+        12,
+      )
+    }
+  })
+
+  /**
+   * …and vertex for vertex, at a factor where the lattice's own extent rounds the
+   * same way. `half` is a `Math.ceil` of a ratio that is scale-invariant in real
+   * arithmetic and not quite in floating point, so a handful of ratios buy or
+   * lose one outer ring of cells and a few marginal crossings with it. That moves
+   * no vertex the eye could find and moves the reach not at all (above), but it
+   * does mean the vertex-for-vertex form of the claim has one honest caveat, and
+   * writing the caveat down is better than picking the factor that hides it.
+   */
+  it('scales every vertex with it, in order, across a doubling', () => {
     const unit = build(1)
-    const grown = build(1.3)
+    const grown = build(2)
     expect(grown).toHaveLength(unit.length)
 
-    const reach = (rings: Point[][]): number => Math.max(...rings.flatMap((ring) => radii(ring)))
-    expect(reach(grown) / reach(unit)).toBeCloseTo(1.3, 9)
-
-    // Not just the extent: every vertex, in order.
     const flat = (rings: Point[][]): Point[] => rings.flat()
     expect(flat(grown)).toHaveLength(flat(unit).length)
     flat(unit).forEach((point, i) => {
       const scaled = flat(grown)[i] as Point
-      expect(scaled.x / 1.3).toBeCloseTo(point.x, 9)
-      expect(scaled.y / 1.3).toBeCloseTo(point.y, 9)
+      expect(scaled.x / 2).toBeCloseTo(point.x, 9)
+      expect(scaled.y / 2).toBeCloseTo(point.y, 9)
     })
+  })
+
+  /**
+   * …AND THE REAL FIELD STAYS ONE BODY THE WHOLE WAY UP.
+   *
+   * The similarity above is a claim about the technique; this is the claim about
+   * the mass. Every distance in the body table is in units of the radius, so the
+   * lobes overlap by the same amount at every size and the surface cannot come
+   * apart as it grows — but "cannot" is the sort of word that stops being true
+   * when somebody adds an octave, and a centre that had quietly become two
+   * islands is exactly the failure #118's growth would make most visible.
+   */
+  it('walks the growing root-mass into one closed ring at every size', () => {
+    let previous = 0
+    for (const count of [0, 1, 6, 20]) {
+      const frame = frameFor(count === 0 ? undefined : landed(count, cutAt(CUT.totalMs)))
+      const radius = frame.geometry.rootRadius
+      const rings = contourRings({
+        falloffs: rootFalloffs(frame, radius),
+        origin: frame.geometry.centre,
+        melt: radius * 0.13,
+        cell: radius * 0.078,
+        smoothing: 2,
+      })
+
+      expect(rings, `${count} landings split the mass`).toHaveLength(1)
+      const ring = rings[0] as Point[]
+      // Still a body rather than a disc or a scatter, at every size.
+      const out = radii(ring, frame.geometry.centre)
+      expect(Math.min(...out) / Math.max(...out)).toBeLessThan(0.9)
+      expect(Math.min(...out) / Math.max(...out)).toBeGreaterThan(0.6)
+      // …and the grid still never shows: the lattice grew with the mass, so the
+      // vertices stay under a pixel apart however big the body got.
+      expect(longestEdge(ring), `${count} landings showed the grid`).toBeLessThan(1.5)
+
+      expect(Math.max(...out)).toBeGreaterThan(previous)
+      previous = Math.max(...out)
+    }
   })
 })
 
