@@ -169,13 +169,22 @@ const SMOOTHING = 2
 /**
  * How far out an arrival's swell sits, and how big it gets, in units of radius.
  *
- * Just inside the rim rather than outside it, so that what the eye sees is the
- * *surface* being pushed out from within by something arriving — not a separate
- * blob docking with it. At full swell the contour reaches about 1.15 of the
- * radius on that bearing, which is a fifth of the mass's width and unmissable,
- * and still inside the slack the mass's hit target already carries.
+ * Out at the rim and **small**, which took three passes at a rendered frame to
+ * get right and is worth writing down. A large falloff parked deep inside the
+ * body does not read as a bulge at all: its own arc is nearly flat at this scale,
+ * so what appears on the silhouette is a *facet*, and three arrivals at once turn
+ * the mass into a crystal. A small one at the rim reads as the surface being
+ * pushed out from within, which is the thing that is actually happening.
+ *
+ * It never appears out of nothing, either, and that also falls out of the
+ * geometry rather than needing a rule: below about half swell the falloff is
+ * still entirely inside the body and changes the silhouette not at all, so the
+ * bulge emerges *from* the surface in the last third of the retract instead of
+ * popping into existence beside it. At full swell it reaches about 1.16 of the
+ * radius on that bearing — unmissable, and still inside the slack the mass's hit
+ * target already carries.
  */
-const ARRIVAL = { distance: 0.72, radius: 0.42 } as const
+const ARRIVAL = { distance: 0.9, radius: 0.26 } as const
 
 /**
  * HOW MUCH THIS LANE IS CURRENTLY BULGING THE SURFACE, 0–1.
@@ -289,7 +298,10 @@ export function rootMarks(frame: SceneFrame): Mark[] {
       cell: radius * CELL,
       smoothing: SMOOTHING,
     }),
-    fill: budget(frame, null, false, ink(hotter(ICE_200, 0.2 + 0.4 * surge), 0.2 + 0.24 * intensity)),
+    // Substantial, but not opaque: the threads are painted under the mass, and
+    // seeing their last inch faintly through it is what makes them read as
+    // threaded *into* the thing rather than as lines that stop behind it.
+    fill: budget(frame, null, false, ink(hotter(ICE_200, 0.2 + 0.4 * surge), 0.26 + 0.3 * intensity)),
     // A rim, so the surface has an edge and not just an extent. It is the one
     // place the mass is allowed to be brighter than its own body — a lit skin is
     // what stops a flat fill reading as a sticker laid over the threads.
@@ -299,7 +311,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
         frame,
         null,
         false,
-        ink(hotter(ICE_200, 0.3 + 0.45 * surge), 0.3 + 0.34 * intensity),
+        ink(hotter(ICE_200, 0.3 + 0.45 * surge), 0.34 + 0.36 * intensity),
       ),
     },
   })
