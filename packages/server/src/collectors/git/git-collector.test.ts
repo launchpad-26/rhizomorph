@@ -152,6 +152,7 @@ describe('gitCollector', () => {
       'branch.updated',
       'commit.landed',
       'branch.updated',
+      'branch.removed',
       'worktree.dirty',
       'worktree.dirty',
     ])
@@ -163,6 +164,12 @@ describe('gitCollector', () => {
 
     const removed = poll2.events.find((event) => event.type === 'worktree.removed')
     expect(removed?.payload).toEqual({ path: '/repo-worktrees/feature-y' })
+
+    // feature-y's ref is gone from POLL_2_REFS too — the branch itself was
+    // deleted, not just its worktree. #137: without this, the collision
+    // matrix would keep comparing feature-y's commits forever.
+    const branchRemoved = poll2.events.find((event) => event.type === 'branch.removed')
+    expect(branchRemoved?.payload).toEqual({ branch: 'feature-y' })
 
     const featureXUpdate = poll2.events.find(
       (event) => event.type === 'branch.updated' && event.payload.branch === 'feature-x',
@@ -198,6 +205,36 @@ describe('gitCollector', () => {
 
     expect(poll2.nextSnapshot.worktrees['/repo-worktrees/feature-y']).toBeUndefined()
     expect(poll2.nextSnapshot.dirty['/repo-worktrees/feature-y']).toBeUndefined()
+    expect(poll2.nextSnapshot.branches['feature-y']).toBeUndefined()
+  })
+
+  it('emits branch.removed for a ref that vanishes with no worktree change at all — a plain `git branch -d`', async () => {
+    const worktrees = `worktree /repo
+HEAD 1111111111111111111111111111111111111111
+branch refs/heads/main
+`
+    const exec1 = scriptedExec({
+      'git worktree list --porcelain::/repo': worktrees,
+      'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo':
+        'main 1111111111111111111111111111111111111111\nstale 6666666666666666666666666666666666666666\n',
+      'git rev-list --left-right --count main...stale::/repo': '0\t1',
+      'git status --porcelain::/repo': '',
+    })
+    const { nextSnapshot } = await gitCollector.poll(gitCollector.initialSnapshot(), makeContext(exec1, 1000))
+    expect(nextSnapshot.branches['stale']).toBeDefined()
+
+    const exec2 = scriptedExec({
+      'git worktree list --porcelain::/repo': worktrees,
+      'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo':
+        'main 1111111111111111111111111111111111111111\n',
+      'git status --porcelain::/repo': '',
+    })
+    const poll2 = await gitCollector.poll(nextSnapshot, makeContext(exec2, 2000))
+
+    expect(poll2.events.map((event) => event.type)).toEqual(['branch.removed'])
+    expect(poll2.events[0]?.payload).toEqual({ branch: 'stale' })
+    expect(poll2.nextSnapshot.branches['stale']).toBeUndefined()
+    expect(poll2.nextSnapshot.branches['main']).toBeDefined()
   })
 
   it('latches disabled (not a repeating collector.error) when worktree list fails, e.g. a non-git directory', async () => {

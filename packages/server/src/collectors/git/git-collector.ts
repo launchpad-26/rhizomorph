@@ -171,6 +171,12 @@ async function diffBranches(
     }
   }
 
+  for (const name of Object.keys(prevSnapshot.branches)) {
+    if (!nextBranches[name]) {
+      events.push(context.emit('branch.removed', { branch: name }))
+    }
+  }
+
   return nextBranches
 }
 
