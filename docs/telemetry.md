@@ -261,13 +261,85 @@ both honest, both incomplete.
 ## Threads
 
 `llm.usage`, `llm.cost` and `tool.activity` each carry an optional
-`thread: main | subagent | auxiliary | null`, and `LaneSpend.threads` exposes
-per-thread sub-totals under the lane (prd2's ruling: sub-rows under the parent
-lane, never a lane of their own). `null` means *the source did not say* and is
-rendered as unknown, never as `main`. Both collectors already receive the
-markers — OTel's `query_source` attribute and the session log's `isSidechain`
-— and parsing them into the field is issue #65; until then every record reads
-`null` and no sub-rows appear.
+`thread: main | subagent | auxiliary | null`, and `LaneSpend.threads`
+(`packages/core/src/selectors/spend.ts`) exposes per-thread sub-totals under
+the parent lane (prd2's ruling: sub-rows under the parent lane, never a lane
+of their own), dearest first. `null` means *the source did not say* and is
+rendered as unknown, never as `main`.
+
+Both collectors populate the field (issue #65, shipped):
+
+- **OTel** reads the `query_source` attribute and stores it verbatim through
+  `resolveThread` (`packages/server/src/collectors/otel/parse-metrics.ts`)
+  when it's a value the core schema recognises (`main | subagent |
+  auxiliary`) — `null` for anything else, including absent, rather than
+  guessing.
+- **sessionlog** reads the line's own `isSidechain` marker
+  (`packages/server/src/collectors/sessionlog/collector.ts`): `true` maps to
+  `subagent`, everything else to `main`.
+
+A lane's sub-rows are built only when at least one record in that lane
+actually named a thread — an all-unknown lane gets no sub-rows at all, never
+a single row of unknowns, so `LaneSpend.threads` always sums back to the
+lane's own total.
+
+## Enabling beta traces
+
+prd9 (`docs/prd9.md`) adds a trace layer on top of the money layer above.
+Claude Code 2.1.220 — the version already installed, no CLI upgrade needed —
+exports OTLP traces behind a beta gate
+(`research/2026-08-03-trace-era-captures.md` §1). On top of the metrics/logs
+block earlier in this doc, three more lines turn it on:
+
+```sh
+export CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1   # beta gate for traces
+export OTEL_TRACES_EXPORTER=otlp
+export OTEL_TRACES_EXPORT_INTERVAL=1000         # default 5000
+```
+
+(`OTEL_EXPORTER_OTLP_PROTOCOL=http/json` is already in the block above; traces
+POST to the same base endpoint's `/v1/traces`.) These lines are additive to
+what `rhizomorph env` already renders
+(`packages/server/src/cli/telemetry-env.ts`); wiring them into that renderer
+automatically, plus a `doctor` check for trace reachability and
+fixture-vs-CLI drift, is issue #126, this wave's sibling lane — add them by
+hand until it lands.
+
+**Spans export when they end, not live** (prd9 ruling 6). A lane's open,
+unfinished span is invisible until it closes, so the trace instrument reports
+how long a lane SAT waiting on a human and what was decided — always after
+the fact. LIVE waiting, an open permission prompt right now, stays the
+attention strip's own job; no surface built on the trace layer may imply
+otherwise.
+
+**Beta span names can churn.** The parser stores the raw span `name` verbatim
+and derives a stable `kind` from it; an unrecognised name lands on `other`,
+never an error. Fixtures are pinned to claude 2.1.220 — a CLI upgrade that
+renames a span is a fixture update, not a schema migration.
+
+## Coexisting with Langfuse
+
+The Rhizomorph is a pure sink for the OTLP stream it receives at
+`/v1/traces` (and `/v1/metrics`, `/v1/logs`) — it only ever reads. Nothing it
+does sends that stream, or anything derived from it, anywhere else; the
+Trust section's promise (`docs/prd8.md` ruling 6 — "nothing is ever sent
+anywhere") holds for traces exactly as it does for the money layer.
+
+An organization already running Langfuse does not have to choose between the
+two. The fan-out happens on the **emitting** side, not the Rhizomorph's: an
+OTel Collector, or the agent CLI's own exporter config, can point at more
+than one OTLP endpoint at once, so the same span stream reaches an org's
+Langfuse instance and a developer's local Rhizomorph simultaneously, with
+neither aware of the other. `research/2026-08-03-trace-era-captures.md` §3
+confirms Langfuse (v4.1.0, MIT core) already auto-classifies Claude Code's
+beta spans (`llm_request` → `GENERATION`, `tool.execution` → `TOOL`) — the
+same span vocabulary this parser reads.
+
+An **opt-in forwarder** — the Rhizomorph itself relaying to Langfuse or
+another sink — is deliberately not built. prd9 ruling 9 keeps all outbound
+forwarding out this week and until re-ruled; a forwarder is filed as a
+future issue, gated on a re-ruling of the Trust section that would have to
+explicitly bless an exception to "nothing leaves the machine."
 
 ## The subscription-dollars honesty note
 
