@@ -93,8 +93,14 @@ export function PanelGrid() {
         </Suspense>
       </PanelFrame>
 
-      {/* The rest: read after the first-second question has been answered. */}
-      <div className="grid auto-rows-fr gap-4 lg:grid-cols-3">
+      {/*
+        The rest: read after the first-second question has been answered.
+        Two-up rather than three below ~1400px (prd9 legibility): three dense
+        panels squeezed into a laptop-width column was the "crowded" half of
+        the operator's complaint, so the third column waits for room instead
+        of shrinking to fit.
+      */}
+      <div className="grid auto-rows-fr gap-4 md:grid-cols-2 min-[1400px]:grid-cols-3">
         <PanelFrame
           id="ledger"
           title="Ledger"
