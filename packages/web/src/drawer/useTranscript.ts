@@ -25,8 +25,28 @@ import type { FetchLike } from '../fleet/manifest.js'
 /** How often an open, following transcript asks for what's new. */
 export const TRANSCRIPT_POLL_MS = 2_000
 
+/**
+ * How many forward pages one {@link useTranscript}'s `refresh` will chase in a
+ * single eager burst before yielding to the next poll tick (#134). A backstop
+ * against a pathological server that never reaches `eof`, not a number a
+ * healthy tail should ever approach — one page is normal, a handful is a slow
+ * poll cadence catching up, and the cap exists only so a bug elsewhere cannot
+ * turn a single `refresh()` into an unbounded loop.
+ */
+const MAX_CATCHUP_PAGES = 64
+
 export function transcriptUrl(lane: string, offset: number): string {
   return `/api/transcript/${encodeURIComponent(lane)}?offset=${offset}`
+}
+
+/** The tail-first open (#134): the newest page, plus where it started. */
+export function transcriptTailUrl(lane: string): string {
+  return `/api/transcript/${encodeURIComponent(lane)}?tail=1`
+}
+
+/** "Load earlier" — the page immediately before `before`. */
+export function transcriptBeforeUrl(lane: string, before: number): string {
+  return `/api/transcript/${encodeURIComponent(lane)}?before=${before}`
 }
 
 /**
@@ -70,6 +90,14 @@ export interface TranscriptState {
   eof: boolean
   /** Bytes in the log, so a reader can see the tail is genuinely at the end. */
   size: number
+  /**
+   * Byte offset the earliest loaded page started at (#134). `0` means the
+   * loaded window already reaches the top of the log — there is no earlier
+   * history to page into, and "load earlier" has nothing to do.
+   */
+  earliestOffset: number
+  /** A "load earlier" request is in flight. */
+  loadingEarlier: boolean
 }
 
 export const IDLE_TRANSCRIPT: TranscriptState = {
@@ -79,12 +107,15 @@ export const IDLE_TRANSCRIPT: TranscriptState = {
   offset: 0,
   eof: true,
   size: 0,
+  earliestOffset: 0,
+  loadingEarlier: false,
 }
 
 interface ChunkBody {
   available?: unknown
   reason?: unknown
   entries?: unknown
+  offset?: unknown
   nextOffset?: unknown
   size?: unknown
   eof?: unknown
@@ -174,7 +205,14 @@ export function foldChunk(previous: TranscriptState, body: unknown): TranscriptS
   const entries = parseEntries(chunk.entries)
   // A restarted log is a different log: appending to it would splice two
   // sessions into one unreadable conversation.
-  const base = chunk.restarted === true ? [] : previous.entries
+  const restarted = chunk.restarted === true
+  const base = restarted ? [] : previous.entries
+  // The very first page this hook has ever folded in — whether it arrived
+  // via `tail=1` or a plain forward read — is where the loaded window's
+  // earliest edge starts; a restart is the same thing, a fresh window on a
+  // different log. Every later forward page just extends the same window
+  // from its far end, so the earliest edge does not move.
+  const firstWindow = previous.status !== 'ready' || restarted
 
   return {
     status: 'ready',
@@ -183,6 +221,28 @@ export function foldChunk(previous: TranscriptState, body: unknown): TranscriptS
     offset: asNumber(chunk.nextOffset, previous.offset),
     eof: chunk.eof === true,
     size: asNumber(chunk.size, previous.size),
+    earliestOffset: firstWindow ? asNumber(chunk.offset, 0) : previous.earliestOffset,
+    loadingEarlier: false,
+  }
+}
+
+/**
+ * A "load earlier" page, prepended to what is already loaded (#134) — the
+ * mirror of {@link foldChunk}'s append, for history read backward instead of
+ * forward. Never touches the forward cursor (`offset`/`eof`/`size`): paging
+ * into history does not change where the tail's own follow loop resumes.
+ */
+export function foldEarlierChunk(previous: TranscriptState, body: unknown): TranscriptState {
+  const chunk = (typeof body === 'object' && body !== null ? body : {}) as ChunkBody
+
+  if (chunk.available !== true) return { ...previous, loadingEarlier: false }
+
+  const entries = parseEntries(chunk.entries)
+  return {
+    ...previous,
+    entries: [...entries, ...previous.entries],
+    earliestOffset: asNumber(chunk.offset, previous.earliestOffset),
+    loadingEarlier: false,
   }
 }
 
@@ -194,55 +254,108 @@ export interface UseTranscriptOptions {
 }
 
 export interface TranscriptTail extends TranscriptState {
-  /** Ask now. Returns when the request has been folded in. */
+  /** Ask now, forward from where the tail left off. Returns once folded in. */
   refresh: () => Promise<void>
+  /** Fetch the page immediately before what is loaded, and prepend it. */
+  loadEarlier: () => Promise<void>
 }
 
 export function useTranscript(lane: string | null, options: UseTranscriptOptions = {}): TranscriptTail {
   const { fetchImpl, pollMs = TRANSCRIPT_POLL_MS } = options
   const [state, setState] = useState<TranscriptState>(IDLE_TRANSCRIPT)
 
-  // The offset lives in a ref as well as in state so a poll can read the latest
-  // one without the effect having to restart every time a chunk lands — a
-  // resubscribing interval is how a two-second tail becomes a request storm.
-  const offsetRef = useRef(0)
+  // The authoritative copy an in-flight call reads and folds against.
+  // `setState`'s own updater is not safe for this: React does not guarantee
+  // it runs before the next line, so a catch-up burst deciding "was that
+  // `eof`?" from a variable closed over inside the updater can read a stale
+  // default instead of the fold it just computed. This ref is written
+  // synchronously, in the same statement as the fold, so `refresh`'s loop
+  // condition is never guessing.
+  const stateRef = useRef<TranscriptState>(IDLE_TRANSCRIPT)
   const liveRef = useRef(true)
 
   useEffect(() => {
-    offsetRef.current = 0
-    setState(lane === null ? IDLE_TRANSCRIPT : { ...IDLE_TRANSCRIPT, status: 'loading' })
+    const next = lane === null ? IDLE_TRANSCRIPT : { ...IDLE_TRANSCRIPT, status: 'loading' as const }
+    stateRef.current = next
+    setState(next)
   }, [lane])
 
+  const fetchJson = useCallback(
+    async (url: string): Promise<unknown> => {
+      const impl = fetchImpl ?? defaultFetch()
+      if (impl === null) {
+        throw new Error('NO FETCH in this environment — the transcript cannot be requested at all.')
+      }
+      const response = await impl(url)
+      return response.json().catch(() => null)
+    },
+    [fetchImpl],
+  )
+
+  const fail = useCallback((error: unknown) => {
+    if (!liveRef.current) return
+    const next: TranscriptState = {
+      ...stateRef.current,
+      status: 'error',
+      reason: `TRANSCRIPT UNREACHABLE — ${error instanceof Error ? error.message : String(error)} — is the Rhizomorph server still running?`,
+    }
+    stateRef.current = next
+    setState(next)
+  }, [])
+
+  // The initial open, and every lane change: land on the newest page in one
+  // round trip rather than chasing `nextOffset` up from byte zero (#134).
+  const open = useCallback(async () => {
+    if (lane === null) return
+    try {
+      const body = await fetchJson(transcriptTailUrl(lane))
+      if (!liveRef.current) return
+      const next = foldChunk(stateRef.current, body)
+      stateRef.current = next
+      setState(next)
+    } catch (error) {
+      fail(error)
+    }
+  }, [lane, fetchJson, fail])
+
+  // Forward follow, eager rather than one-page-per-tick (#134): as long as the
+  // server says there is more beyond the page just read, this asks again in
+  // the same call instead of waiting for the next poll — a bounded, awaited
+  // burst, never a multi-tick lag behind a bursty writer.
   const refresh = useCallback(async () => {
     if (lane === null) return
-    const impl = fetchImpl ?? defaultFetch()
-    if (impl === null) {
-      setState((previous) => ({
-        ...previous,
-        status: 'error',
-        reason: 'NO FETCH in this environment — the transcript cannot be requested at all.',
-      }))
-      return
+    for (let page = 0; page < MAX_CATCHUP_PAGES; page += 1) {
+      let body: unknown
+      try {
+        body = await fetchJson(transcriptUrl(lane, stateRef.current.offset))
+      } catch (error) {
+        fail(error)
+        return
+      }
+      if (!liveRef.current) return
+      const next = foldChunk(stateRef.current, body)
+      stateRef.current = next
+      setState(next)
+      if (next.eof) return
     }
+  }, [lane, fetchJson, fail])
 
+  // "Load earlier": the one page immediately before what is already loaded.
+  const loadEarlier = useCallback(async () => {
+    if (lane === null || stateRef.current.earliestOffset <= 0) return
+    const loading = { ...stateRef.current, loadingEarlier: true }
+    stateRef.current = loading
+    setState(loading)
     try {
-      const response = await impl(transcriptUrl(lane, offsetRef.current))
-      const body = await response.json().catch(() => null)
+      const body = await fetchJson(transcriptBeforeUrl(lane, loading.earliestOffset))
       if (!liveRef.current) return
-      setState((previous) => {
-        const next = foldChunk(previous, body)
-        offsetRef.current = next.offset
-        return next
-      })
+      const next = foldEarlierChunk(stateRef.current, body)
+      stateRef.current = next
+      setState(next)
     } catch (error) {
-      if (!liveRef.current) return
-      setState((previous) => ({
-        ...previous,
-        status: 'error',
-        reason: `TRANSCRIPT UNREACHABLE — ${error instanceof Error ? error.message : String(error)} — is the Rhizomorph server still running?`,
-      }))
+      fail(error)
     }
-  }, [lane, fetchImpl])
+  }, [lane, fetchJson, fail])
 
   useEffect(() => {
     liveRef.current = true
@@ -253,11 +366,11 @@ export function useTranscript(lane: string | null, options: UseTranscriptOptions
 
   useEffect(() => {
     if (lane === null) return
-    void refresh()
+    void open()
     if (pollMs <= 0) return
     const timer = setInterval(() => void refresh(), pollMs)
     return () => clearInterval(timer)
-  }, [lane, pollMs, refresh])
+  }, [lane, pollMs, open, refresh])
 
-  return { ...state, refresh }
+  return { ...state, refresh, loadEarlier }
 }
