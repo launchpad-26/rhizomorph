@@ -12,16 +12,24 @@ an OTLP/HTTP JSON exporter pointed at this server, and an
 the right row in the spend ticker. Get the exact block for any lane with:
 
 ```sh
-rhizomorph env <lane> [--role worker|conductor|auxiliary] [--port <n>]
+rhizomorph env <lane> [--role worker|conductor|auxiliary] [--port <n>] [--shell sh|powershell|cmd]
 ```
 
 `--port` defaults to 4321 (the Rhizomorph's own default); pass whatever
-`--port` you actually started the server with. The output is `export`-ready:
+`--port` you actually started the server with. `--shell` defaults to `sh`
+and picks the assignment syntax the block is printed in — `sh`'s
+`export NAME=value`, PowerShell's `$env:NAME = "value"`, or cmd's
+`set NAME=value` — same variables, same live-fetched instance id, every
+shell. The `sh` output is `export`-ready:
 
 ```sh
 eval "$(rhizomorph env test-lane)"
 claude -p "..."
 ```
+
+A Windows conductor with no `export`/`eval` uses `--shell powershell` and
+pipes the output into `Invoke-Expression` instead — see "Wiring the
+conductor" below for the full copy-paste form.
 
 ## Workers (workmux)
 
@@ -36,23 +44,74 @@ existing lanes will export to a receiver that isn't listening (a silently
 dropped export, not a crash — `claude` doesn't hard-fail on a bad OTLP
 endpoint).
 
-## A conductor (setup-agnostic — works from Windows, WSL, or elsewhere)
+## Wiring the conductor (setup-agnostic — works from Windows, WSL, or elsewhere)
 
 The conductor is often the largest single spender (prd1's whole point:
 orchestration overhead is real and otherwise invisible) and it doesn't run
 inside a workmux-managed worktree, so it needs the same env block by hand,
-wherever it happens to run:
+wherever it happens to run — **before** you hand off to it, since
+instrumentation only attaches at launch (see below). Pick the block below for
+whichever shell the conductor is about to run `claude` in.
+
+### sh / bash / zsh (Linux, macOS, WSL)
 
 ```sh
 eval "$(rhizomorph env conductor --role conductor)"
+claude
 ```
+
+### PowerShell (Windows, native)
+
+`export`/`eval` don't exist in PowerShell, so `--shell powershell` prints
+`$env:NAME = "value"` lines instead, and `Invoke-Expression` (`iex`) is the
+PowerShell equivalent of `eval "$(...)"` — it runs each printed line as a
+command in the current session, which is what actually sets the vars for the
+`claude` launched right after:
+
+```powershell
+node packages/server/bin/rhizomorph.mjs env conductor --role conductor --shell powershell | Invoke-Expression
+claude
+```
+
+(Same command, `rhizomorph env conductor --role conductor --shell powershell | iex`, if `rhizomorph` is on PATH.)
+
+### cmd.exe
+
+`set` has no piping-into-itself trick like `Invoke-Expression`, so print the
+block once and paste its lines by hand — there's no one-liner:
+
+```bat
+node packages/server\bin\rhizomorph.mjs env conductor --role conductor --shell cmd
+:: paste the printed "set NAME=value" lines here, then:
+claude
+```
+
+### If the server isn't running yet: degrade loudly, don't block the launch
+
+`rhizomorph env` reads the *live* instance id off a running Rhizomorph's
+`/api/meta` (#60) — there is no static block to fall back to, because a
+per-server-session id can't be guessed. If nothing answers on `--port`, the
+command fails loudly instead of printing something the receiver would refuse:
+
+```
+cannot read this Rhizomorph's instance id on port 4321: ...
+Start the server first (`npm start -- --port 4321`) — `rhizomorph env` reads the id from its /api/meta, ...
+```
+
+That is the correct failure — **say so, then launch uninstrumented anyway**
+rather than let a missing server block the conductor from starting at all.
+An uninstrumented conductor session is not silently miscounted: the spend
+panel's dollar headline shows `conductor not instrumented — see
+docs/telemetry.md`, an honest gap rather than an invented `$0.00` (see
+"Instrumentation attaches at launch" just below for why that gap can't be
+closed retroactively once the session's running).
 
 That expands to the same env block any lane gets
 (`packages/server/src/cli/telemetry-env.ts`) — telemetry on, an OTLP/HTTP-JSON
 exporter, `OTEL_RESOURCE_ATTRIBUTES=lane=conductor,role=conductor` — so it
 works identically whether the conductor's `claude` process runs on the same
 box as the Rhizomorph server, in a different WSL distro, or natively on
-Windows while the server runs under WSL:
+Windows while the server runs under WSL. The `sh` form, spelled out in full:
 
 ```sh
 export CLAUDE_CODE_ENABLE_TELEMETRY=1
@@ -80,12 +139,14 @@ otel receiver has no auth — don't expose it beyond a trusted LAN/localhost.
 environment variables read once when a `claude` process starts; a conductor
 session already running when you read this cannot be retro-instrumented by
 exporting the vars into its shell afterward — it has to be restarted with the
-env block already in place. The spend panel's dollar headline treats a
-conductor with zero `llm.cost` events as an honest gap
-(`conductor not instrumented — see docs/telemetry.md`), not a zero, precisely
-because this is a common way to end up mid-session with no conductor cost
-data yet. See "Two overhead numbers" below for which figure that is and how
-it differs from the token ratio in `@rhizomorph/core`.
+env block already in place. This is exactly why the block above must be
+wired **before** handover, on whichever shell the conductor actually runs:
+there is no supported way to attach it after the fact. The spend panel's
+dollar headline treats a conductor with zero `llm.cost` events as an honest
+gap (`conductor not instrumented — see docs/telemetry.md`), not a zero,
+precisely because this is a common way to end up mid-session with no
+conductor cost data yet. See "Two overhead numbers" below for which figure
+that is and how it differs from the token ratio in `@rhizomorph/core`.
 
 A conductor's own Claude Code **session-log** directory (the `sessionlog`
 collector's source, `~/.claude/projects/<slug>`) may also live somewhere the
