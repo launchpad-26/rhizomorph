@@ -295,7 +295,7 @@ describe('doctorHelpText', () => {
 })
 
 describe('parseEnvArgs', () => {
-  const envDefaults = { lane: 'my-lane', role: 'worker', port: 4321, help: false }
+  const envDefaults = { lane: 'my-lane', role: 'worker', port: 4321, shell: 'sh', help: false }
 
   it('defaults role to worker and port to 4321', () => {
     expect(parseEnvArgs(['my-lane'])).toEqual(envDefaults)
@@ -315,6 +315,22 @@ describe('parseEnvArgs', () => {
 
   it('parses --port', () => {
     expect(parseEnvArgs(['my-lane', '--port', '5000'])).toEqual({ ...envDefaults, port: 5000 })
+  })
+
+  it('defaults --shell to sh', () => {
+    expect(parseEnvArgs(['my-lane'])).toEqual({ ...envDefaults, shell: 'sh' })
+  })
+
+  it('parses --shell powershell', () => {
+    expect(parseEnvArgs(['my-lane', '--shell', 'powershell'])).toEqual({ ...envDefaults, shell: 'powershell' })
+  })
+
+  it('parses --shell=cmd', () => {
+    expect(parseEnvArgs(['my-lane', '--shell=cmd'])).toEqual({ ...envDefaults, shell: 'cmd' })
+  })
+
+  it('throws on an invalid --shell', () => {
+    expect(() => parseEnvArgs(['my-lane', '--shell', 'fish'])).toThrow(/invalid --shell/)
   })
 
   it('throws when the lane is missing', () => {
@@ -340,7 +356,7 @@ describe('parseEnvArgs', () => {
 })
 
 describe('envHelpText', () => {
-  it('documents the lane argument, --role, --port and --help', () => {
+  it('documents the lane argument, --role, --port, --shell and --help', () => {
     const text = envHelpText()
     expect(text).toContain('rhizomorph env <lane>')
     expect(text).toContain('--role')
@@ -349,6 +365,9 @@ describe('envHelpText', () => {
     expect(text).toContain('auxiliary')
     expect(text).toContain('--port')
     expect(text).toContain('4321')
+    expect(text).toContain('--shell')
+    expect(text).toContain('powershell')
+    expect(text).toContain('cmd')
     expect(text).toContain('--help')
   })
 })

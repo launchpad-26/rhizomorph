@@ -19,6 +19,15 @@ import type { AgentRole } from '@rhizomorph/core'
  * That is why {@link fetchInstanceId} reads it from the live server rather than
  * guessing: the running Rhizomorph is the only authority on which run this is.
  */
+/**
+ * The shells `rhizomorph env` can render for (#140): a Windows conductor has
+ * no `export`/`eval` and needs its own native assignment syntax. `sh` is the
+ * default and must stay byte-for-byte what it always was — `.workmux.yaml`
+ * and every doc built on it assume that exact output.
+ */
+export const ENV_SHELLS = ['sh', 'powershell', 'cmd'] as const
+export type EnvShell = (typeof ENV_SHELLS)[number]
+
 export interface TelemetryEnvOptions {
   lane: string
   role: AgentRole
@@ -28,6 +37,8 @@ export interface TelemetryEnvOptions {
    * `/api/meta`. Required, not defaulted: a block without it is refused.
    */
   instance: string
+  /** Which shell's assignment syntax to render. Defaults to `sh` (today's only form). */
+  shell?: EnvShell
 }
 
 const METRIC_EXPORT_INTERVAL_MS = 5000
@@ -44,7 +55,19 @@ export function metaUrl(port: number): string {
   return `${otlpEndpoint(port)}/api/meta`
 }
 
-export function renderTelemetryEnv({ lane, role, port, instance }: TelemetryEnvOptions): string {
+/** One assignment line, in the target shell's own syntax. */
+function renderAssignment(shell: EnvShell, key: string, value: string): string {
+  switch (shell) {
+    case 'sh':
+      return `export ${key}=${value}`
+    case 'powershell':
+      return `$env:${key} = "${value}"`
+    case 'cmd':
+      return `set ${key}=${value}`
+  }
+}
+
+export function renderTelemetryEnv({ lane, role, port, instance, shell = 'sh' }: TelemetryEnvOptions): string {
   const vars: Array<[string, string]> = [
     ['CLAUDE_CODE_ENABLE_TELEMETRY', '1'],
     ['CLAUDE_CODE_ENHANCED_TELEMETRY_BETA', '1'],
@@ -59,7 +82,7 @@ export function renderTelemetryEnv({ lane, role, port, instance }: TelemetryEnvO
     ['OTEL_RESOURCE_ATTRIBUTES', `lane=${lane},role=${role},instance=${instance}`],
   ]
 
-  return `${vars.map(([key, value]) => `export ${key}=${value}`).join('\n')}\n`
+  return `${vars.map(([key, value]) => renderAssignment(shell, key, value)).join('\n')}\n`
 }
 
 export interface FetchInstanceIdOptions {

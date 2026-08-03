@@ -372,6 +372,26 @@ describe('runCli env subcommand', () => {
     )
   })
 
+  it('honours --shell, rendering the PowerShell form end to end', async () => {
+    const { port, instance } = await bootServer()
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(
+      ['env', 'test-lane', '--port', String(port), '--shell', 'powershell'],
+      { log, exit },
+    ).catch((err: unknown) => err)
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    const output = log.log.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('$env:CLAUDE_CODE_ENABLE_TELEMETRY = "1"')
+    expect(output).toContain(`$env:OTEL_EXPORTER_OTLP_ENDPOINT = "http://127.0.0.1:${port}"`)
+    expect(output).toContain(
+      `$env:OTEL_RESOURCE_ATTRIBUTES = "lane=test-lane,role=worker,instance=${instance}"`,
+    )
+  })
+
   it('prints a clean message + usage to stderr and exits 1 when no Rhizomorph answers on the port', async () => {
     const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     const exit = fakeExit()
