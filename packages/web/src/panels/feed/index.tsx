@@ -20,13 +20,24 @@ import {
 import { formatClock, formatDiffStat } from './format.js'
 import './feed.css'
 
+export interface ActivityFeedProps {
+  /**
+   * Header + latest line only, no list, no filters — `PanelFrame`'s
+   * controlled-collapse peek (prd9 legibility round: the feed defaults
+   * collapsed, unlike every other panel, so it still has to say *something*
+   * rather than vanish). Defaults open, so every stand-alone render (every
+   * test in this file among them) is unaffected.
+   */
+  collapsed?: boolean
+}
+
 /**
  * THE ACTIVITY FEED (ruling 15) — one quiet, filterable feed: commits,
  * landings, lane starts and stops, collector events. The commit ticker's one
  * kind grows into these four, filterable by kind and by the keystone's one
  * lane selection.
  */
-export default function ActivityFeed() {
+export default function ActivityFeed({ collapsed = false }: ActivityFeedProps = {}) {
   const { state, status } = useStream()
   const fleet = useFleet()
   const { selectedId, clear } = useSelection()
@@ -43,13 +54,30 @@ export default function ActivityFeed() {
     [state.events, state.session, laneIndex, state.connectedAt],
   )
 
-  const entries = useMemo(
-    () => filterFeedEntries(allEntries, activeKinds, selectedId).slice(0, FEED_LIMIT),
-    [allEntries, activeKinds, selectedId],
-  )
-
   /** Same signal StatusBar/ConnectionBadge read, plus proof at least one event has folded. */
   const connected = status === 'open' && state.events.length > 0
+
+  if (collapsed) {
+    // The true latest entry, unfiltered — a peek answers "what just
+    // happened", not "what does the current filter show".
+    const latest = allEntries[0] ?? null
+    return (
+      <section className="flex flex-col gap-1.5 rounded-lg border border-ice-850 bg-ice-950 p-4" data-panel="feed">
+        <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-ice-400">Activity</h2>
+        {latest === null ? (
+          <p className="text-sm text-ice-400">
+            {connected ? 'No activity yet this session.' : 'Waiting for the stream…'}
+          </p>
+        ) : (
+          <div className="figures text-xs" data-testid="feed-entry" data-kind={latest.kind}>
+            <FeedRow entry={latest} />
+          </div>
+        )}
+      </section>
+    )
+  }
+
+  const entries = filterFeedEntries(allEntries, activeKinds, selectedId).slice(0, FEED_LIMIT)
   const filtered = selectedId !== null || activeKinds.size < FEED_KINDS.length
 
   function toggleKind(kind: FeedKind): void {

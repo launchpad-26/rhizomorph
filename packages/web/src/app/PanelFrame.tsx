@@ -20,6 +20,16 @@ export interface PanelFrameProps {
    * Optional — a standalone frame manages focus with no listener at all.
    */
   onFocusChange?: (focused: boolean) => void
+  /**
+   * Controlled collapse (prd9's feed peek): pass this and `onCollapsedChange`
+   * together when `children` should stay mounted through a collapse and draw
+   * its own compact reading, rather than disappearing the way every
+   * uncontrolled panel's does. Omit both for the default behaviour untouched
+   * below — the frame owns `usePanelCollapsed(id)` itself and collapsing
+   * simply stops rendering `children`.
+   */
+  collapsed?: boolean
+  onCollapsedChange?: (next: boolean) => void
 }
 
 /**
@@ -61,14 +71,30 @@ export interface PanelFrameProps {
 const CHROME_BUTTON =
   'rounded border border-ice-850 border-t-ice-800 bg-ice-950/70 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ice-400 transition-[transform,color,border-color] duration-150 ease-out hover:border-ice-600 hover:text-ice-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600 active:scale-[0.97]'
 
-export function PanelFrame({ id, title, children, hidden = false, onFocusChange }: PanelFrameProps) {
-  const [collapsed, setCollapsed] = usePanelCollapsed(id)
+export function PanelFrame({
+  id,
+  title,
+  children,
+  hidden = false,
+  onFocusChange,
+  collapsed: collapsedProp,
+  onCollapsedChange,
+}: PanelFrameProps) {
+  const [internalCollapsed, setInternalCollapsed] = usePanelCollapsed(id)
   const { focused, focus, restore } = usePanelFocus(onFocusChange)
   const contentId = `panel-frame-${id}-content`
 
   if (hidden) return null
 
-  const showContent = focused || !collapsed
+  const controlled = collapsedProp !== undefined
+  const collapsed = controlled ? collapsedProp : internalCollapsed
+  const toggleCollapsed = () =>
+    controlled ? onCollapsedChange?.(!collapsed) : setInternalCollapsed((value) => !value)
+
+  // A controlled panel keeps `children` mounted through a collapse and draws
+  // its own compact reading (the feed's peek); every uncontrolled panel keeps
+  // the plain rule above — collapsing just stops rendering it.
+  const showContent = controlled || focused || !collapsed
 
   return (
     <div
@@ -86,7 +112,7 @@ export function PanelFrame({ id, title, children, hidden = false, onFocusChange 
             type="button"
             aria-expanded={!collapsed}
             aria-controls={contentId}
-            onClick={() => setCollapsed((value) => !value)}
+            onClick={toggleCollapsed}
             className={CHROME_BUTTON}
           >
             {collapsed ? `Expand ${title}` : `Collapse ${title}`}

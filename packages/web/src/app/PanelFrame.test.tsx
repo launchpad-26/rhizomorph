@@ -78,6 +78,28 @@ describe('PanelFrame', () => {
     )
   })
 
+  describe('controlled collapse (prd9\'s feed peek)', () => {
+    it('keeps children mounted through a collapse, and the caller owns the flag', () => {
+      const changes: boolean[] = []
+      render(
+        <PanelFrame
+          id="feed"
+          title="Activity"
+          collapsed={true}
+          onCollapsedChange={(next) => changes.push(next)}
+        >
+          <p>peek or full, the child decides</p>
+        </PanelFrame>,
+      )
+
+      // Unlike the uncontrolled default, `children` stays in the DOM.
+      expect(screen.getByText('peek or full, the child decides')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Expand Activity' }))
+      expect(changes).toEqual([false])
+    })
+  })
+
   describe('focus (ruling 6)', () => {
     it('fills the view on Focus, and restores on the same control', () => {
       render(

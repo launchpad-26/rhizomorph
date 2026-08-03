@@ -64,10 +64,19 @@ describe('PanelGrid', () => {
   it('renders every registered panel expanded by default, collisions included', async () => {
     await renderGrid()
 
-    for (const title of ['Fleet', 'Ledger', 'Collisions', 'Activity']) {
+    for (const title of ['Fleet', 'Ledger', 'Collisions']) {
       expect(screen.getByText(title)).toBeInTheDocument()
       expect(screen.getByRole('button', { name: `Collapse ${title}` })).toBeInTheDocument()
     }
+  })
+
+  it('starts Activity collapsed to a header-and-latest-line peek (prd9 legibility)', async () => {
+    await renderGrid()
+
+    expect(screen.getByRole('button', { name: 'Expand Activity' })).toBeInTheDocument()
+    // The peek still says something rather than vanishing — same title, no filter row.
+    expect(screen.getByText('Activity')).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Filter by kind' })).not.toBeInTheDocument()
   })
 
   it('mounts the panels in the conductor-curated order, scene above the fleet table', async () => {

@@ -18,9 +18,19 @@ const STORAGE_KEY = 'rhizomorph.panelCollapsed.v1'
  * and burn strips are deliberately absent — ruling 5 makes the strip
  * always-present, so it has no collapse state to persist, and neither has the
  * burn strip docked with it.
+ *
+ * prd9 legibility round: `feed` defaults collapsed, the opposite of every
+ * other panel's default. It is a stream of history, never the day's own
+ * failure mode the way collisions is, so a header-and-latest-line peek costs
+ * an operator nothing they need at a glance — and the row it used to take at
+ * full height was some of the "crowded" the operator's ruling names. Unlike
+ * every other panel here, `feed`'s own collapsed reading isn't just "gone":
+ * see `PanelFrame`'s controlled-collapse mode and `panels/feed/index.tsx`'s
+ * own peek render.
  */
 const DEFAULT_COLLAPSED: Readonly<Record<string, boolean>> = {
   collisions: false,
+  feed: true,
 }
 
 export function isPanelCollapsed(id: string): boolean {

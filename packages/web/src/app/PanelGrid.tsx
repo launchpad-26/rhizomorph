@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from 'react'
 import { ErrorBoundary } from './ErrorBoundary.js'
 import { PanelFrame } from './PanelFrame.js'
-import { useFocusRequest, usePanelFocus } from './panelPrefs.js'
+import { useFocusRequest, usePanelCollapsed, usePanelFocus } from './panelPrefs.js'
 import { SceneSlot } from './SceneSlot.js'
 
 /**
@@ -70,6 +70,10 @@ function PanelFallback() {
 
 export function PanelGrid() {
   const [focusedId, setFocusedId] = useState<string | null>(null)
+  // Lifted here, not left to PanelFrame's own internal store, so the same
+  // flag can also tell FeedPanel to draw its collapsed peek rather than
+  // disappear (PanelFrame's controlled-collapse mode).
+  const [feedCollapsed, setFeedCollapsed] = usePanelCollapsed('feed')
 
   const hiddenFor = (id: string) => focusedId !== null && focusedId !== id
   const onFocusChangeFor = (id: string) => (focused: boolean) => setFocusedId(focused ? id : null)
@@ -126,9 +130,13 @@ export function PanelGrid() {
           title="Activity"
           hidden={hiddenFor('feed')}
           onFocusChange={onFocusChangeFor('feed')}
+          collapsed={feedCollapsed}
+          onCollapsedChange={setFeedCollapsed}
         >
           <Suspense fallback={<PanelFallback />}>
-            <FeedPanel />
+            {/* Focusing a collapsed feed expands it for the duration, same as
+                every other panel's own focus/collapse interaction. */}
+            <FeedPanel collapsed={feedCollapsed && focusedId !== 'feed'} />
           </Suspense>
         </PanelFrame>
       </div>

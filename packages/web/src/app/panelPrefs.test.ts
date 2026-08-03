@@ -18,12 +18,14 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('panelPrefs', () => {
-  it('defaults every panel to expanded, including collisions (deliberate ruling)', () => {
+  it('defaults every panel to expanded, including collisions (deliberate ruling) — feed is the one deliberate exception', () => {
     expect(isPanelCollapsed('collisions')).toBe(false)
     expect(isPanelCollapsed('fleet')).toBe(false)
-    expect(isPanelCollapsed('feed')).toBe(false)
     expect(isPanelCollapsed('scene')).toBe(false)
     expect(isPanelCollapsed('some-future-panel')).toBe(false)
+    // prd9 legibility round: the feed is a history stream, not the day's own
+    // failure mode the way collisions is, so it starts as a peek.
+    expect(isPanelCollapsed('feed')).toBe(true)
   })
 
   it('round-trips the scene\'s own collapse toggle (prd4 ruling 2 — one mechanism, not two)', () => {
@@ -59,7 +61,8 @@ describe('panelPrefs', () => {
 
     expect(isPanelCollapsed('fleet')).toBe(true)
     expect(isPanelCollapsed('collisions')).toBe(true)
-    expect(isPanelCollapsed('feed')).toBe(false)
+    // Untouched by either explicit set — falls back to its own default (true).
+    expect(isPanelCollapsed('feed')).toBe(true)
   })
 
   it('falls back to the default when stored JSON is malformed', () => {
