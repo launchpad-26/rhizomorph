@@ -9,7 +9,8 @@
 - npm-workspaces monorepo:
   - `packages/core` — event schema + pure logic (reducer, selectors)
   - `packages/server` — collectors + API + CLI
-  - `packages/web` — Vite + React + Tailwind 4 + react-three-fiber
+  - `packages/web` — Vite + React + Tailwind 4; the scene is hand-rolled
+    canvas 2D, no 3D library (prd7 ruling 1)
 - Vitest everywhere.
 - Exact versions are pinned at scaffold time (issue #1) and recorded here by
   the scaffold worker, not remembered.
@@ -153,9 +154,14 @@ and prd3's fenced waves.
 
 ## The scene
 
-react-three-fiber, lazy-loaded behind an error boundary, consuming the same
-selectors — no bespoke data path. If it breaks, the panel grid stands alone;
-the demo survives.
+A hand-rolled canvas 2D painter, lazy-loaded behind an error boundary,
+consuming the same selectors — no bespoke data path. If it breaks, the panel
+grid stands alone; the demo survives. **This was originally scaffolded on
+react-three-fiber; prd7 ruling 1 confirmed canvas 2D over WebGL by
+measurement** (a live profile found the running scene already locked to
+60fps with zero `shadowBlur` calls — "janky" was the form language, not the
+renderer) **and the dependency is gone from the tree.** See [prd7 — procedural
+form](#prd7--procedural-form) below.
 
 ## The instrument (prd3)
 
@@ -1269,6 +1275,114 @@ skin) stays a fixed few pixels rather than scaling with girth, since a skin
 is a material fact about how far light travels through this stuff, not a
 proportion of how big the stuff is.
 
+## prd8 — from private project to published software
+
+prd8 (`docs/prd8.md`) is the publishing round: turning a private,
+`private: true` scaffold into something a stranger can find, trust, install
+and run. Four issues landed it in fenced waves — **#119** (the rename,
+mechanical and everywhere, landed alone since every other wave depends on the
+name being settled) then **#120** (the publishable package) ∥ **#121** (the
+stranger's documentation) together, then **#122** (release engineering).
+
+- **The rename (#119).** The app and the npm package, bin, and command are
+  all `rhizomorph` — in mycology, the root-like cord of bundled hyphae that
+  transports nutrients across distance to the colony, the thing this app
+  draws.
+- **The publishable package (#120).** `package.json` had `private: true`, no
+  `files`, and no `.npmignore` — a publish would have shipped `.claude/`,
+  `.swarm/`, `prompts/`, `docs/research/` and the whole conductor toolkit to
+  the registry. A `files` allowlist now bounds what ships, verified by
+  inspecting `npm pack`'s actual output rather than assumed; the server CLI
+  is bundled with esbuild for publishing, and CI guards the pack allowlist so
+  it can't regress silently.
+- **The stranger's documentation (#121).** The README was rewritten for
+  users and gained a Trust section: WHAT this tool reads (`~/.claude/projects`
+  — the operator's own agent conversations), WHERE it listens (127.0.0.1
+  only), and that nothing is ever sent anywhere — behaviour that already
+  existed but had never been stated. CONTRIBUTING and SECURITY were added,
+  alongside a pass on prd7's docs staleness. The licence question was
+  settled by investigation, not permission (ruling 4): four upstream-authored
+  paths were removed from the published tree rather than relicensed;
+  everything else is Lachlan Kelliher's own work, MIT.
+- **Release engineering (#122).** Semver 0.1.0, a CHANGELOG, a `--version`
+  flag, and a tag-gated release workflow that stays dormant until a tag is
+  pushed rather than running on every merge.
+- **The support matrix, claimed only where verified (ruling 7):** Linux is
+  CI-verified on every push; WSL is the daily development platform; macOS is
+  unverified and labelled as such.
+
+prd8 ruling 2's install story (`npx rhizomorph <path>`) is itself superseded
+one prd later — see [prd9](#prd9--the-trace-era-in-flight) below and
+[docs/roadmap.md](roadmap.md).
+
+## prd9 — the trace era (in flight)
+
+prd9 (`docs/prd9.md`) is the one-week handover push: a junior-proof front
+door, and a trace layer built on live captures
+(`research/2026-08-03-trace-era-captures.md`), not documentation — a research
+day probed Claude Code 2.1.220's beta OTLP trace export and Langfuse's
+ingestion of it before any ruling was written.
+
+### The trace keystone (#123, landed)
+
+`packages/core/src/events/trace.ts` is the whole of the trace layer's
+contract so far: one event type, `trace.span`, sourced only from `otel` — the
+same `/v1/traces` door prd1's metrics use. The payload's `name` field is the
+raw span name string, never an enum (ruling 3 — beta churn is data, not
+schema); the parser-derived `kind` is the stable classification every
+surface reads: `interaction | llm_request | tool | tool_blocked |
+tool_execution | hook | other`, with an unrecognised name landing on `other`,
+never erroring. A `decision` field (`accept | reject | unknown`) captures
+what a human decided about a blocked tool call — `unknown` is a real,
+observed value (a pre-allowed tool), not an absence.
+
+`trace.test.ts` states four laws, so the keystone is asserted rather than
+assumed:
+
+1. **No spend from spans** (ruling 4) — a state built from only `trace.span`
+   events is indistinguishable from an empty one through every spend
+   selector, and adding spans to a log that already has spend moves no
+   number. `llm_request` spans carry the same four token tiers `llm.usage`
+   already counts; the tokens on a span are waterfall annotation only, never
+   a source of dollars. A span's `requestId` may JOIN a spend record for
+   enrichment; it may never create one.
+2. **Idempotent re-delivery** — the fold keys on `(traceId, spanId)`; the
+   same pair delivered twice folds to one record, first delivery wins, and
+   the event still counts in the envelope.
+3. **JSONL roundtrip** — stringify → parse → reduce folds identically, and a
+   line whose payload smuggles an attributes map reads back without it.
+4. **The allowlist is structural** — the payload's field list IS the privacy
+   allowlist (ruling 5): there is no attributes map, so `user.email`,
+   `user.account_*` and `organization.id` — present on every span both CLIs
+   emit — have no field to land in.
+
+### Wave A: receiver, selectors, CLI/doctor (#124–#126, building in parallel)
+
+Fenced and parallel per the plan: the `/v1/traces` receiver plus a pure
+Claude-profile parser plus fixtures pinned to claude 2.1.220 (including the
+`resourceSpans` instance-gate fix); span selectors (trees, waiting-on-human,
+interaction summaries — token sums from `llm_request` spans only);
+`rhizomorph env` emitting the two beta env lines and `doctor` checking trace
+reachability and fixture-vs-CLI drift. See
+[docs/telemetry.md](telemetry.md#enabling-beta-traces) for the env block.
+
+### Blocked-on-human is retrospective-exact (ruling 6)
+
+The capture confirmed spans export only once they end — a lane's open,
+unfinished span is invisible until it closes. So the trace instrument
+reports how long a lane SAT waiting and what was decided, always after the
+fact; LIVE waiting stays the attention strip's own job, unchanged. No surface
+built on `trace.span` may imply it knows about an open wait.
+
+### What's next
+
+Day 3 (wave B): the lane-drawer waterfall, pricing vendored from Langfuse's
+MIT `default-model-prices.json` pinned to a commit SHA, and the README's
+clone-first rewrite. Days 4–5: the handover train (email scrub, repo-home
+decision, macOS leg), dogfooding the fleet under its own trace layer, and
+good-first-issues. See [docs/roadmap.md](roadmap.md) for what's scoped in
+this week versus left for the cohort.
+
 ## Testing
 
 Mass on core selectors/reducers and collector parsers (fixtures captured
@@ -1402,10 +1516,6 @@ hook.
 | @types/react-dom | 19.2.3 |
 | tailwindcss | 4.3.3 |
 | @tailwindcss/vite | 4.3.3 |
-| @react-three/fiber | 9.6.1 |
-| @react-three/drei | 10.7.7 |
-| three | 0.185.1 |
-| @types/three | 0.185.1 |
 | jsdom | 30.0.1 |
 | @testing-library/react | 16.3.2 |
 | @testing-library/jest-dom | 7.0.0 |
