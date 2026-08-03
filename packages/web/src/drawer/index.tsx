@@ -5,6 +5,7 @@ import type { FetchLike } from '../fleet/manifest.js'
 import { ActivityView } from './Activity.js'
 import { AttachButton, type CopyText } from './AttachButton.js'
 import { Conversation } from './Conversation.js'
+import { TraceSection } from './Trace.js'
 import { MainVitals, Vitals } from './Vitals.js'
 import { foldActivity } from './activity.js'
 import { attachPlan, conductorAttachPlan } from './attach.js'
@@ -136,6 +137,7 @@ export default function LaneDrawer({ fetchTranscript, transcriptPollMs, onCopy }
           <Vitals lane={lane} fleet={fleet} />
           <Conversation lane={lane.id} fetchImpl={fetchTranscript} pollMs={transcriptPollMs} />
           <ActivityView entries={entries} now={fleet.now} />
+          <TraceSection state={state.session} lane={lane.id} />
           <AttachButton plan={plan} onCopy={onCopy} />
         </>
       )}
@@ -194,5 +196,6 @@ export { attachPlan, conductorAttachPlan, findTmuxIdentity, workmuxHandle } from
 export type { AttachPlan, AttachRoot, TmuxIdentity } from './attach.js'
 export { MainVitals, Vitals } from './Vitals.js'
 export { Conversation, isAtTail } from './Conversation.js'
+export { TraceSection } from './Trace.js'
 export { useTranscript, transcriptUrl, parseEntries } from './useTranscript.js'
 export type { TranscriptState, TranscriptEntry, TranscriptBlock, TranscriptRole } from './useTranscript.js'

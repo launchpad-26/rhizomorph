@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import {
   createEventFactory,
+  fixtureTraceSpans,
   initialSessionState,
   reduce,
   type RhizomorphEvent,
@@ -316,7 +317,8 @@ describe('LaneDrawer — the activity view (the default reading)', () => {
     const order = [...drawer.querySelectorAll('[data-testid]')].map((el) => el.getAttribute('data-testid'))
     expect(order.indexOf('drawer-vitals')).toBeLessThan(order.indexOf('drawer-conversation'))
     expect(order.indexOf('drawer-conversation')).toBeLessThan(order.indexOf('drawer-activity'))
-    expect(order.indexOf('drawer-activity')).toBeLessThan(order.indexOf('drawer-attach'))
+    expect(order.indexOf('drawer-activity')).toBeLessThan(order.indexOf('drawer-trace'))
+    expect(order.indexOf('drawer-trace')).toBeLessThan(order.indexOf('drawer-attach'))
   })
 
   it('takes a bounded strip, not half the drawer — the conversation is the flex-1 one', async () => {
@@ -324,6 +326,27 @@ describe('LaneDrawer — the activity view (the default reading)', () => {
 
     expect(screen.getByTestId('drawer-activity').className).not.toContain('flex-1')
     expect(screen.getByTestId('drawer-conversation').className).toContain('flex-1')
+  })
+})
+
+describe('LaneDrawer — the trace section (prd9 B1a)', () => {
+  it('renders the lane\'s span tree below the activity ledger', async () => {
+    const events = [...laneHistory(), ...fixtureTraceSpans({ lane: LANE, sessionId: 'sess-84' })]
+    await renderDrawer({ events })
+
+    const trace = screen.getByTestId('drawer-trace')
+    expect(trace.querySelector('[data-testid="trace-tree"]')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('trace-interaction-toggle'))
+    expect(screen.getAllByTestId('trace-row').length).toBeGreaterThan(0)
+  })
+
+  it('is the honest gap when the lane has produced no trace telemetry', async () => {
+    await renderDrawer() // `laneHistory()` alone carries no `trace.span` events.
+
+    const trace = screen.getByTestId('drawer-trace')
+    expect(trace.textContent).toContain('no trace telemetry from this lane')
+    expect(trace.textContent).toContain('docs/telemetry.md')
   })
 })
 
