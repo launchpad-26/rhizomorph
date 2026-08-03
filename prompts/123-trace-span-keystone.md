@@ -67,7 +67,7 @@ selectors, no UI.
 - `packages/core/src/reduce.telemetry.test.ts`
 - `packages/core/src/fixtures.ts`
 - `packages/core/src/fixtures.test.ts`
-- `packages/core/src/index.ts` (barrel export only, if needed)
+- `packages/core/src/index.ts` (barrel export lines only)
 
 ## Blocked by
 
