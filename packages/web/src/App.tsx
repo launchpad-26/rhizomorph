@@ -1,10 +1,14 @@
+import { Suspense, lazy } from 'react'
 import { ModeProvider } from './app/ModeContext.js'
+import { useRoute } from './app/router.js'
 import { Shell } from './app/Shell.js'
 import { StreamProvider } from './app/StreamContext.js'
 import { FleetProvider } from './fleet/FleetContext.js'
 import type { FetchLike } from './fleet/manifest.js'
 import { SelectionProvider } from './fleet/selection.js'
 import type { EventSourceFactory } from './hooks/useEventStream.js'
+
+const LanePage = lazy(() => import('./lane-page/index.js'))
 
 /**
  * The instrument's four nested facts, outermost first:
@@ -18,6 +22,12 @@ import type { EventSourceFactory } from './hooks/useEventStream.js'
  *
  * Each provider takes an injectable seam (`createSource`, `now`, `fetchLanes`)
  * so a test drives the real code deterministically instead of mocking around it.
+ *
+ * Above `Shell` sits the one route switch (prd9 B1b, #135): `/` renders the
+ * balcony unchanged, `/lane/:handle` renders the deep-linkable lane page.
+ * The switch lives here, inside every provider, so the lane page shares the
+ * exact same stream/fleet/selection state the balcony does — there is no
+ * second read of the log for it to disagree with.
  */
 
 export interface AppProps {
@@ -31,12 +41,20 @@ export interface AppProps {
 }
 
 export function App({ streamUrl = '/api/stream', createSource, now, fetchLanes }: AppProps = {}) {
+  const route = useRoute()
+
   return (
     <ModeProvider>
       <StreamProvider url={streamUrl} createSource={createSource} now={now}>
         <FleetProvider now={now} fetchLanes={fetchLanes}>
           <SelectionProvider>
-            <Shell />
+            {route.name === 'lane' ? (
+              <Suspense fallback={null}>
+                <LanePage handle={route.handle} />
+              </Suspense>
+            ) : (
+              <Shell />
+            )}
           </SelectionProvider>
         </FleetProvider>
       </StreamProvider>

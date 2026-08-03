@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App.js'
+import { laneUrl, navigate } from './app/router.js'
 import { useSelection } from './fleet/index.js'
 import type { EventSourceLike } from './hooks/useEventStream.js'
 
@@ -88,9 +89,11 @@ async function renderApp() {
     import('./panels/feed/index.js'),
     import('./replay/index.js'),
     import('./scene/index.js'),
-    // Real (unmocked) drawer — Shell mounts its `Suspense` unconditionally, so
-    // it is on the same one-tick clock as every mocked lazy module above.
+    // Real (unmocked) drawer and lane page — `Shell`/`App` mount their own
+    // `Suspense` unconditionally, so both are on the same one-tick clock as
+    // every mocked lazy module above.
     import('./drawer/index.js'),
+    import('./lane-page/index.js'),
   ])
 
   let source: FakeEventSource | undefined
@@ -206,6 +209,80 @@ describe('App', () => {
       fireEvent.keyDown(window, { key: 'Escape' })
       expect(screen.getByRole('button', { name: 'Focus Fleet' })).toBeInTheDocument()
       expect(screen.getByText('Ledger')).toBeInTheDocument()
+    })
+  })
+
+  describe('the deep-linkable lane page (prd9 B1b, #135)', () => {
+    const LANE_HANDLE = '42-otel-receiver'
+
+    function laneFixtureEvents() {
+      return [
+        ...fixtureEvents(),
+        createEvent(
+          'worktree.discovered',
+          { path: `/repo-wt/${LANE_HANDLE}`, branch: LANE_HANDLE, head: 'sha-1', isMain: false },
+          { id: nextId(), ts: 3 },
+        ),
+      ]
+    }
+
+    afterEach(() => {
+      window.history.replaceState(null, '', '/')
+    })
+
+    it('deep-links cold (fresh load) to a working lane page, and Esc returns to the balcony', async () => {
+      window.history.replaceState(null, '', laneUrl(LANE_HANDLE))
+      const { source } = await renderApp()
+
+      act(() => source()?.open())
+      for (const event of laneFixtureEvents()) act(() => source()?.emit(event))
+      await waitFor(() => expect(screen.getByTestId('lane-page-header')).toBeInTheDocument())
+
+      // The balcony never mounted at all — this is a route switch, not an overlay.
+      expect(screen.queryByText('THE OBSERVATORY')).not.toBeInTheDocument()
+      expect(screen.getByTestId('lane-page-branch').textContent).toBe(LANE_HANDLE)
+
+      await act(async () => {
+        fireEvent.keyDown(window, { key: 'Escape' })
+      })
+
+      expect(window.location.pathname).toBe('/')
+      expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
+    })
+
+    it('the browser back button returns from the lane page to the balcony', async () => {
+      const { source } = await renderApp()
+      expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
+
+      act(() => source()?.open())
+      for (const event of laneFixtureEvents()) act(() => source()?.emit(event))
+
+      // The same navigation the drawer's "open page ↗" affordance performs.
+      act(() => navigate(laneUrl(LANE_HANDLE)))
+      await waitFor(() => expect(screen.getByTestId('lane-page-header')).toBeInTheDocument())
+
+      await act(async () => {
+        const popped = new Promise<void>((resolve) =>
+          window.addEventListener('popstate', () => resolve(), { once: true }),
+        )
+        window.history.back()
+        await popped
+      })
+
+      expect(window.location.pathname).toBe('/')
+      expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
+    })
+
+    it('says the honest gap for a handle no lane in this session carries — never a crash or a blank', async () => {
+      window.history.replaceState(null, '', laneUrl('never-existed'))
+      const { source } = await renderApp()
+
+      act(() => source()?.open())
+      for (const event of fixtureEvents()) act(() => source()?.emit(event))
+
+      const gap = await screen.findByTestId('lane-page-unknown')
+      expect(gap.textContent).toContain('never-existed')
+      expect(gap.textContent).toContain('this session')
     })
   })
 })
