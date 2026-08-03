@@ -4,6 +4,7 @@
  * so live view and replay can never disagree.
  */
 
+export * from './activity.js'
 export * from './branches.js'
 export * from './collisions.js'
 export * from './commits.js'
