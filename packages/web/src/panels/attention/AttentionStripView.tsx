@@ -1,3 +1,4 @@
+import type { SpanDecision } from '@rhizomorph/core'
 import type { MouseEvent, ReactElement, ReactNode } from 'react'
 import {
   formatSpan,
@@ -14,8 +15,10 @@ import {
   type LadderRank,
   type PathologyKind,
 } from '../../fleet/index.js'
+import { DECISION_WORD } from '../../trace/index.js'
 import { ageBand } from './ageBands.js'
 import { useReducedMotion } from './useReducedMotion.js'
+import { selectWaitedChips, type WaitedChip } from './waitedChips.js'
 
 /**
  * THE ATTENTION STRIP's presentation (ruling 5) — a pure read of the one
@@ -67,6 +70,7 @@ export function AttentionStripView({
           reducedMotion={reducedMotion}
         />
       )}
+      <WaitedChipsRow lanes={fleet.lanes} selectedId={selectedId} onToggle={onToggle} />
     </div>
   )
 }
@@ -131,6 +135,89 @@ function AttentionRow({
         ) : null}
       </div>
     </>
+  )
+}
+
+/**
+ * THE STRIP'S RETROSPECTIVE CHIPS (#143, prd9 ruling 6 / prd10 ruling 9) — a
+ * QUIET right-aligned region for what a lane SAT waiting, not what it is
+ * doing now. This is memory, not a summons: it reads no rung, raises no
+ * item, and its ink never leaves the ice ramp — no `RANK_TEXT_CLASS`, no
+ * `RANK_GLOW_CLASS`, no cartouche, no arrival flare. Every text node still
+ * clears the legibility floor (`ice-400` or brighter; prd9's operator
+ * ruling), which is what "sub-ceiling" means for a DOM chip rather than a
+ * canvas mark: dim enough to defer to an alarm, never so dim it fails
+ * `9b`'s own floor test.
+ */
+function WaitedChipsRow({
+  lanes,
+  selectedId,
+  onToggle,
+}: {
+  lanes: Fleet['lanes']
+  selectedId: string | null
+  onToggle: (laneId: string) => void
+}): ReactElement | null {
+  const chips = selectWaitedChips(lanes)
+  if (chips.length === 0) return null
+
+  return (
+    <div
+      data-testid="waited-chips"
+      className="ml-auto flex shrink-0 items-center gap-1.5 overflow-hidden"
+    >
+      {chips.map((chip) => (
+        <WaitedChipButton
+          key={chip.laneId}
+          chip={chip}
+          selected={chip.laneId === selectedId}
+          onToggle={onToggle}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** A fact already decided is never a ladder hue (same law `trace/glyphs.tsx`'s `DECISION_CLASS` follows). */
+const DECISION_GLYPH: Record<SpanDecision, string> = {
+  accept: '✓',
+  reject: '✕',
+  unknown: '·',
+}
+
+function WaitedChipButton({
+  chip,
+  selected,
+  onToggle,
+}: {
+  chip: WaitedChip
+  selected: boolean
+  onToggle: (laneId: string) => void
+}): ReactElement {
+  const glyph = chip.decision === null ? '?' : DECISION_GLYPH[chip.decision]
+  const decisionWord = chip.decision === null ? 'unknown' : DECISION_WORD[chip.decision]
+  const duration = formatSpan(chip.waitMs)
+  const title = `${chip.label} waited ${duration}${chip.toolName === null ? '' : ` on ${chip.toolName}`} — ${decisionWord}`
+
+  return (
+    <button
+      type="button"
+      data-waited-chip={chip.laneId}
+      title={title}
+      aria-pressed={selected}
+      onClick={() => onToggle(chip.laneId)}
+      className={[
+        'flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 normal-case tracking-normal text-ice-400',
+        selected ? 'border-ice-200 bg-ice-900' : 'border-ice-800 bg-ice-950',
+      ].join(' ')}
+    >
+      <span className="max-w-[7rem] truncate font-medium text-ice-300">{chip.label}</span>
+      <span className="figures whitespace-nowrap">waited {duration}</span>
+      <span aria-hidden>▸</span>
+      <span aria-hidden className="text-ice-300">
+        {glyph}
+      </span>
+    </button>
   )
 }
 

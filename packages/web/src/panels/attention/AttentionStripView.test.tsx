@@ -1,4 +1,4 @@
-import { reduceAll } from '@rhizomorph/core'
+import { createEvent, createIdFactory, reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -14,6 +14,7 @@ import {
 } from '../../fleet/index.js'
 import { AGE_INK_MAX_MS, AGE_QUIET_MAX_MS } from './ageBands.js'
 import { AttentionStripView, MAX_CHIPS } from './AttentionStripView.js'
+import { MAX_WAITED_CHIPS } from './waitedChips.js'
 
 /**
  * The presentational half of the strip is a pure function of a `Fleet`, so
@@ -250,6 +251,124 @@ describe('AttentionStripView — amber ages (prd5 ruling 5)', () => {
     const chip = screen.getByRole('button') as HTMLButtonElement
     expect(chip.className).toContain('text-notice')
     expect(chip.className).not.toContain('attention-chip-age-pulse')
+  })
+})
+
+// ── #143: the strip's retrospective chips ───────────────────────────────────
+
+describe('AttentionStripView — retrospective waited chips', () => {
+  const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
+  const nextId = createIdFactory('waited')
+
+  function ev<T extends Parameters<typeof createEvent>[0]>(
+    type: T,
+    payload: Parameters<typeof createEvent<T>>[1],
+    ts: number,
+  ): RhizomorphEvent {
+    return createEvent(type, payload, { id: nextId(), ts })
+  }
+
+  /** A calm lane with one retrospective wait on record — no live pathology. */
+  function blockedLog(handles: readonly { handle: string; waitMs: number }[]): RhizomorphEvent[] {
+    const log: RhizomorphEvent[] = [
+      ev('session.started', {
+        sessionId: 'waited-strip',
+        repoPath: '/repo',
+        repoName: 'rhizomorph',
+        mainBranch: 'main',
+      }, NOW - 60_000),
+      ev('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 60_000),
+    ]
+    for (const { handle, waitMs } of handles) {
+      log.push(
+        ev('worktree.discovered', { path: `/repo-wt/${handle}`, branch: handle, head: `sha-${handle}`, isMain: false }, NOW - 60_000),
+        ev(
+          'trace.span',
+          {
+            lane: handle,
+            role: 'worker',
+            traceId: `trace-${handle}`,
+            spanId: `span-${handle}`,
+            parentSpanId: null,
+            name: 'claude_code.tool.blocked_on_user',
+            kind: 'tool_blocked',
+            startTs: NOW - 30_000 - waitMs,
+            endTs: NOW - 30_000,
+            status: 'ok',
+            decision: 'accept',
+            toolName: 'Bash',
+          },
+          NOW - 30_000,
+        ),
+      )
+    }
+    return log
+  }
+
+  function chipButtons(): HTMLButtonElement[] {
+    return screen.getAllByTestId('waited-chips').flatMap((row) =>
+      Array.from(row.querySelectorAll('button')),
+    ) as HTMLButtonElement[]
+  }
+
+  it('says "waited", never "waiting" — prd9 ruling 6\'s wording', () => {
+    const fleet = buildFleet(reduceAll(blockedLog([{ handle: 'a', waitMs: 12_000 }])), { now: NOW })
+    render(<AttentionStripView fleet={fleet} selectedId={null} onToggle={vi.fn()} />)
+
+    const chip = chipButtons()[0] as HTMLButtonElement
+    expect(chip.textContent).toContain('waited')
+    expect(chip.textContent).not.toMatch(/\bwaiting\b/)
+  })
+
+  it('stays below the calm ceiling — no ladder hue, no glow, no cartouche', () => {
+    const fleet = buildFleet(reduceAll(blockedLog([{ handle: 'a', waitMs: 12_000 }])), { now: NOW })
+    render(<AttentionStripView fleet={fleet} selectedId={null} onToggle={vi.fn()} />)
+
+    const chip = chipButtons()[0] as HTMLButtonElement
+    for (const forbidden of ['text-needs-you', 'text-broken', 'text-notice', 'glow-', 'attention-chip-flare', 'attention-chip-age-pulse']) {
+      expect(chip.className).not.toContain(forbidden)
+    }
+    // Every class actually used stays in the ice register.
+    expect(chip.className.split(/\s+/).every((cls) => !cls.startsWith('text-') || cls.startsWith('text-ice'))).toBe(true)
+  })
+
+  it('caps the quiet region at MAX_WAITED_CHIPS even with more lanes waited', () => {
+    const handles = [
+      { handle: 'a', waitMs: 10_000 },
+      { handle: 'b', waitMs: 40_000 },
+      { handle: 'c', waitMs: 20_000 },
+      { handle: 'd', waitMs: 50_000 },
+      { handle: 'e', waitMs: 30_000 },
+    ]
+    const fleet = buildFleet(reduceAll(blockedLog(handles)), { now: NOW })
+    render(<AttentionStripView fleet={fleet} selectedId={null} onToggle={vi.fn()} />)
+
+    expect(chipButtons()).toHaveLength(MAX_WAITED_CHIPS)
+  })
+
+  it('never raises the ladder or a pathology — this is memory, not a summons', () => {
+    const fleet = buildFleet(reduceAll(blockedLog([{ handle: 'a', waitMs: 12_000 }])), { now: NOW })
+    expect(fleet.rank).toBe('calm')
+    expect(fleet.ladder.rank).toBe('calm')
+
+    render(<AttentionStripView fleet={fleet} selectedId={null} onToggle={vi.fn()} />)
+    expect(screen.getByText('ALL CLEAR')).toBeInTheDocument()
+    expect(chipButtons()).toHaveLength(1)
+  })
+
+  it('clicking a waited chip focuses that lane via the shared selection', () => {
+    const onToggle = vi.fn()
+    const fleet = buildFleet(reduceAll(blockedLog([{ handle: 'a', waitMs: 12_000 }])), { now: NOW })
+    render(<AttentionStripView fleet={fleet} selectedId={null} onToggle={onToggle} />)
+
+    fireEvent.click(chipButtons()[0] as HTMLButtonElement)
+    expect(onToggle).toHaveBeenCalledWith('a')
+  })
+
+  it('renders no quiet region at all when no lane has ever sat blocked on a human', () => {
+    const fleet = fleetFor(fleet20Spec())
+    render(<AttentionStripView fleet={fleet} selectedId={null} onToggle={vi.fn()} />)
+    expect(screen.queryByTestId('waited-chips')).not.toBeInTheDocument()
   })
 })
 
