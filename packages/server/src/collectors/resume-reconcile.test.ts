@@ -1,8 +1,8 @@
-import type { CollectorContext, CollectorState, EventType, Exec, PayloadOf } from '@rhizomorph/core'
+import type { Collector, CollectorContext, CollectorState, EventType, Exec, PayloadOf } from '@rhizomorph/core'
 import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { withResilience, type ResilientSnapshot } from './resilience.js'
-import { withResumeReconciliation } from './resume-reconcile.js'
+import { withBranchReconciliation, withResumeReconciliation } from './resume-reconcile.js'
 
 function makeContext(exec: Exec, now: number): CollectorContext {
   const nextId = createIdFactory('evt')
@@ -139,6 +139,91 @@ describe('withResumeReconciliation — fold and memory already agree', () => {
     const inner = fakeCollector('flaky', ['ok'])
     const resilient = withResilience(inner)
     const reconciled = withResumeReconciliation(resilient, foldedState({ status: 'healthy' }))
+
+    const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+
+    expect(result.events).toHaveLength(0)
+  })
+})
+
+interface FakeBranchSnapshot {
+  branches: Record<string, { head: string }>
+}
+
+function fakeBranchCollector(
+  name: string,
+  responses: readonly Record<string, { head: string }>[],
+): Collector<FakeBranchSnapshot> {
+  const branchQueue = [...responses]
+  return {
+    name,
+    initialSnapshot: (): FakeBranchSnapshot => ({ branches: {} }),
+    poll: (_prev: FakeBranchSnapshot, _ctx: CollectorContext) => {
+      const branches = branchQueue.shift() ?? {}
+      return { nextSnapshot: { branches }, events: [] }
+    },
+  }
+}
+
+describe('withBranchReconciliation — fold holds ghost branches, reality has moved on', () => {
+  it('emits one branch.removed per ghost the fold believes live but for-each-ref lacks', async () => {
+    const inner = fakeBranchCollector('git', [{ main: { head: 'aaa' } }])
+    const reconciled = withBranchReconciliation(inner, new Set(['132-old-feature', '134-something', 'main']))
+
+    const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+
+    expect(result.events.map((event) => event.type)).toEqual(['branch.removed', 'branch.removed'])
+    expect(result.events.map((event) => event.payload)).toEqual([
+      { branch: '132-old-feature' },
+      { branch: '134-something' },
+    ])
+  })
+
+  it('reconciles only once — a later poll does not re-emit for the same ghosts', async () => {
+    const inner = fakeBranchCollector('git', [{ main: { head: 'aaa' } }, { main: { head: 'aaa' } }])
+    const reconciled = withBranchReconciliation(inner, new Set(['132-old-feature']))
+
+    const first = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+    expect(first.events.map((event) => event.type)).toEqual(['branch.removed'])
+
+    const second = await reconciled.poll(first.nextSnapshot, makeContext(nullExec, 2000))
+    expect(second.events).toHaveLength(0)
+  })
+
+  it('does not double-report a ghost the inner collector already reported this same poll', async () => {
+    // The inner collector's own diff (e.g. #137's snapshot-diff) got to
+    // '132-old-feature' independently, in the same poll — reconciliation
+    // must not pile a second branch.removed on top of it.
+    const inner: Collector<FakeBranchSnapshot> = {
+      name: 'git',
+      initialSnapshot: (): FakeBranchSnapshot => ({ branches: {} }),
+      poll: (_prev, ctx) => ({
+        nextSnapshot: { branches: {} },
+        events: [ctx.emit('branch.removed', { branch: '132-old-feature' })],
+      }),
+    }
+    const reconciled = withBranchReconciliation(inner, new Set(['132-old-feature']))
+
+    const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0]?.payload).toEqual({ branch: '132-old-feature' })
+  })
+})
+
+describe('withBranchReconciliation — fold and reality already agree', () => {
+  it('passes through untouched when there is no folded branch history', async () => {
+    const inner = fakeBranchCollector('git', [{ main: { head: 'aaa' } }])
+    const reconciled = withBranchReconciliation(inner, undefined)
+
+    const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+
+    expect(result.events).toHaveLength(0)
+  })
+
+  it('passes through untouched when every folded branch is still present in reality', async () => {
+    const inner = fakeBranchCollector('git', [{ main: { head: 'aaa' } }])
+    const reconciled = withBranchReconciliation(inner, new Set(['main']))
 
     const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
 
