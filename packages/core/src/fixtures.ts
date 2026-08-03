@@ -56,6 +56,7 @@ export interface EventFactory {
   worktreeRemoved(payload?: Partial<PayloadOf<'worktree.removed'>>, init?: Init<'worktree.removed'>): EventOf<'worktree.removed'>
   worktreeDirty(payload?: Partial<PayloadOf<'worktree.dirty'>>, init?: Init<'worktree.dirty'>): EventOf<'worktree.dirty'>
   branchUpdated(payload?: Partial<PayloadOf<'branch.updated'>>, init?: Init<'branch.updated'>): EventOf<'branch.updated'>
+  branchRemoved(payload?: Partial<PayloadOf<'branch.removed'>>, init?: Init<'branch.removed'>): EventOf<'branch.removed'>
   commitLanded(payload?: Partial<PayloadOf<'commit.landed'>>, init?: Init<'commit.landed'>): EventOf<'commit.landed'>
   paneDiscovered(payload?: Partial<PayloadOf<'pane.discovered'>>, init?: Init<'pane.discovered'>): EventOf<'pane.discovered'>
   paneClosed(payload?: Partial<PayloadOf<'pane.closed'>>, init?: Init<'pane.closed'>): EventOf<'pane.closed'>
@@ -105,6 +106,7 @@ const defaults = {
     files: [{ path: 'src/a.ts', status: 'modified' }],
   },
   'branch.updated': { branch: 'feature', head: 'sha-feature-1' },
+  'branch.removed': { branch: 'feature' },
   'commit.landed': {
     sha: 'sha-feature-1',
     branch: 'feature',
@@ -242,6 +244,7 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
     worktreeRemoved: sugar('worktree.removed'),
     worktreeDirty: sugar('worktree.dirty'),
     branchUpdated: sugar('branch.updated'),
+    branchRemoved: sugar('branch.removed'),
     commitLanded: sugar('commit.landed'),
     paneDiscovered: sugar('pane.discovered'),
     paneClosed: sugar('pane.closed'),
