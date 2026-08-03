@@ -45,7 +45,7 @@ export function PageHeader({ lane, onClose }: PageHeaderProps) {
       <h1 className="min-w-0 truncate font-mono text-sm text-ice-100">
         {lane.label}
         {lane.issue === null ? null : (
-          <span className="ml-1 text-[11px] text-ice-500">#{lane.issue}</span>
+          <span className="ml-1 text-[11px] text-ice-400">#{lane.issue}</span>
         )}
       </h1>
 
@@ -67,7 +67,7 @@ export function PageHeader({ lane, onClose }: PageHeaderProps) {
 
       <span
         data-testid="lane-page-role"
-        className="shrink-0 text-[11px] uppercase tracking-wider text-ice-500"
+        className="shrink-0 text-[11px] uppercase tracking-wider text-ice-400"
         title="declared role"
       >
         {lane.role}

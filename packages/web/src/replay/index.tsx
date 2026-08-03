@@ -44,7 +44,7 @@ export default function ReplayControls() {
   }
 
   return (
-    <div className="flex flex-col gap-2 border-t border-ice-850 px-4 py-2 text-xs uppercase tracking-wide text-ice-500">
+    <div className="flex flex-col gap-2 border-t border-ice-850 px-4 py-2 text-xs uppercase tracking-wide text-ice-400">
       <div className="flex flex-wrap items-center gap-3">
         <span className="font-semibold tracking-widest text-ice-300">Replay</span>
         <span className="font-semibold text-ice-100">
@@ -62,7 +62,7 @@ export default function ReplayControls() {
         </button>
 
         <label className="flex items-center gap-2 normal-case tracking-normal">
-          <span className="uppercase tracking-wide text-ice-600">session</span>
+          <span className="uppercase tracking-wide text-ice-400">session</span>
           <select
             value={selectedId ?? ''}
             onChange={(event) => selectSession(event.target.value === '' ? null : event.target.value)}
@@ -79,7 +79,7 @@ export default function ReplayControls() {
 
         {isReplaying && (
           <span
-            className="normal-case tracking-normal text-ice-600"
+            className="normal-case tracking-normal text-ice-400"
             title="total spend for this whole recorded session, not just up to the scrub time"
           >
             total {formatSpend(sessionTotal)}
@@ -136,14 +136,14 @@ export default function ReplayControls() {
       {error !== null && <p className="normal-case tracking-normal text-broken">{error}</p>}
 
       {isReplaying && (
-        <p className="normal-case tracking-normal text-ice-600">
+        <p className="normal-case tracking-normal text-ice-400">
           {Object.keys(state.worktrees).length} worktrees · {Object.keys(state.commits).length}{' '}
           commits · {formatSpend(scrubSpend)} as of scrub time
         </p>
       )}
 
       {sessions.length === 0 && error === null && (
-        <p className="normal-case tracking-normal text-ice-700">no recorded sessions yet</p>
+        <p className="normal-case tracking-normal text-ice-400">no recorded sessions yet</p>
       )}
     </div>
   )

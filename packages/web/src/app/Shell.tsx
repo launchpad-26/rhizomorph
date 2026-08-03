@@ -115,7 +115,7 @@ function ReplayBanner() {
       className="flex h-9 items-center gap-3 bg-ice-900 px-4 text-xs uppercase tracking-[0.2em] text-ice-100"
     >
       <span className="font-semibold">Replay</span>
-      <span className="figures text-[11px] normal-case tracking-normal text-ice-500">#83</span>
+      <span className="figures text-[11px] normal-case tracking-normal text-ice-400">#83</span>
       <span className="normal-case tracking-normal text-ice-400">
         this is the past — exit to live below
       </span>

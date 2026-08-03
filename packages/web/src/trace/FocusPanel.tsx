@@ -18,7 +18,7 @@ export default function TraceFocusPanel() {
 
   if (selectedId === null || isMainSelected(selectedId)) {
     return (
-      <p role="status" className="px-4 py-3 text-[11px] leading-snug text-ice-500">
+      <p role="status" className="px-4 py-3 text-[11px] leading-snug text-ice-400">
         NO LANE OPEN — trace focus needs a lane's drawer open first; select one from the fleet,
         then use its TRACE section's FOCUS ↗.
       </p>

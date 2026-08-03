@@ -63,7 +63,7 @@ export function SceneSlot() {
 
 function SceneFallback() {
   return (
-    <div className="flex h-full items-center justify-center text-xs uppercase tracking-widest text-ice-600">
+    <div className="flex h-full items-center justify-center text-xs uppercase tracking-widest text-ice-400">
       loading scene…
     </div>
   )

@@ -19,7 +19,7 @@ export function Scrubber({ start, end, value, onChange, disabled = false }: Scru
 
   return (
     <div className="flex flex-1 items-center gap-2 normal-case tracking-normal">
-      <span className="figures text-ice-500">{formatElapsed(clamped - start)}</span>
+      <span className="figures text-ice-400">{formatElapsed(clamped - start)}</span>
       <input
         type="range"
         aria-label="Replay scrubber"
@@ -30,7 +30,7 @@ export function Scrubber({ start, end, value, onChange, disabled = false }: Scru
         onChange={(event) => onChange(Number(event.target.value))}
         className="h-1 flex-1 accent-ice-200"
       />
-      <span className="figures text-ice-500">{formatElapsed(end - start)}</span>
+      <span className="figures text-ice-400">{formatElapsed(end - start)}</span>
     </div>
   )
 }

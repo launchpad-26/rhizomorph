@@ -49,7 +49,7 @@ export function TraceTree({ state, lane }: TraceTreeProps) {
               data-testid="trace-interaction-toggle"
               className="flex w-full items-baseline gap-2 text-left font-mono text-[11px] text-ice-200 hover:text-ice-100"
             >
-              <span className="w-3 shrink-0 text-ice-500">{isOpen ? '▾' : '▸'}</span>
+              <span className="w-3 shrink-0 text-ice-400">{isOpen ? '▾' : '▸'}</span>
               <span className="min-w-0 flex-1 truncate">
                 interaction #{ordinal} · {formatSpan(view.summary.wallDurationMs)} · Σ
                 {formatSpan(sumLeafDurationsMs(view.root))}

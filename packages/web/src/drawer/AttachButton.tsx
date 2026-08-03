@@ -44,7 +44,7 @@ export function AttachButton({ plan, onCopy = copyToClipboard }: AttachButtonPro
   if (plan.command === null) {
     return (
       <div data-testid="drawer-attach" className="border-t border-ice-850 px-4 py-2">
-        <p role="status" className="font-mono text-[11px] leading-snug text-ice-500">
+        <p role="status" className="font-mono text-[11px] leading-snug text-ice-400">
           {plan.note}
         </p>
       </div>
@@ -69,7 +69,7 @@ export function AttachButton({ plan, onCopy = copyToClipboard }: AttachButtonPro
         >
           Attach
         </button>
-        <span className="figures text-[10px] uppercase tracking-wider text-ice-500">{plan.kind}</span>
+        <span className="figures text-[10px] uppercase tracking-wider text-ice-400">{plan.kind}</span>
         {copied === 'idle' ? null : (
           <span
             role="status"
@@ -91,7 +91,7 @@ export function AttachButton({ plan, onCopy = copyToClipboard }: AttachButtonPro
       >
         {command}
       </code>
-      <p className="mt-1 text-[10px] leading-snug text-ice-600">{plan.note}</p>
+      <p className="mt-1 text-[10px] leading-snug text-ice-400">{plan.note}</p>
     </div>
   )
 }

@@ -125,7 +125,7 @@ function AttentionRow({
           />
         ))}
         {overflow > 0 ? (
-          <span className="figures shrink-0 text-ice-500" data-testid="chip-overflow">
+          <span className="figures shrink-0 text-ice-400" data-testid="chip-overflow">
             +{overflow}
           </span>
         ) : null}
@@ -194,7 +194,7 @@ function Chip({ item, selected, onToggle, reducedMotion }: ChipProps): ReactElem
       <span className="max-w-[9rem] truncate font-medium">{item.label}</span>
       <span className="max-w-[18rem] truncate text-ice-300">{evidence}</span>
       {age === null ? null : (
-        <span className={`figures shrink-0 ${aging.ageEmphasized ? 'text-needs-you font-semibold' : 'text-ice-500'}`}>
+        <span className={`figures shrink-0 ${aging.ageEmphasized ? 'text-needs-you font-semibold' : 'text-ice-400'}`}>
           {age}
         </span>
       )}

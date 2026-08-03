@@ -89,8 +89,8 @@ export default function LaneDrawer({ fetchTranscript, transcriptPollMs, onCopy }
             </span>
             <span
               data-testid="drawer-main-branch"
-              className={`min-w-0 truncate font-mono text-[11px] ${
-                fleet.root.mainBranch === null ? 'text-ice-600' : 'text-ice-400'
+              className={`min-w-0 truncate font-mono text-[11px] text-ice-400 ${
+                fleet.root.mainBranch === null ? 'italic' : ''
               }`}
             >
               {fleet.root.mainBranch ?? 'no main branch on record'}

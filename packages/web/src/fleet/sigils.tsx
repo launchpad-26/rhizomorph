@@ -119,7 +119,7 @@ export const ACTIVITY_TEXT_CLASS: Record<LaneActivity, string> = {
   waiting: 'text-waiting-benign',
   done: 'text-done',
   idle: 'text-ice-400',
-  unknown: 'text-ice-600',
+  unknown: 'text-ice-400',
 }
 
 /**

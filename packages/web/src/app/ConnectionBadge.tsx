@@ -39,11 +39,11 @@ export function ConnectionBadge({ status }: { status: ConnectionStatus }) {
       <span className="inline-flex items-center gap-2 text-xs uppercase tracking-wide">
         <span className="h-2 w-2 rounded-full bg-ice-100 glow-calm" aria-hidden="true" />
         <span className="font-semibold text-ice-100">replay</span>
-        <span className="figures text-ice-500">
+        <span className="figures text-ice-400">
           {elapsed} / {total}
         </span>
         <span
-          className="inline-flex items-center gap-1 normal-case tracking-normal text-ice-600"
+          className="inline-flex items-center gap-1 normal-case tracking-normal text-ice-400"
           title={`Stream: ${CONNECTION_LABEL[status]}`}
         >
           <span className={`h-1.5 w-1.5 rounded-full ${CONNECTION_DOT_CLASS[status]}`} aria-hidden="true" />

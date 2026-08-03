@@ -55,10 +55,10 @@ export default function CollisionsPanel() {
 
   return (
     <section className="flex h-full flex-col rounded-lg border border-ice-850 bg-ice-950 p-4">
-      <h2 className="text-xs font-semibold uppercase tracking-widest text-ice-500">Collisions</h2>
+      <h2 className="text-xs font-semibold uppercase tracking-widest text-ice-400">Collisions</h2>
 
       {!connected ? (
-        <p className="mt-2 text-sm text-ice-600">Waiting for the stream…</p>
+        <p className="mt-2 text-sm text-ice-400">Waiting for the stream…</p>
       ) : (
         <>
           {hasCollisions ? (
@@ -87,7 +87,7 @@ export default function CollisionsPanel() {
               <table className="w-full min-w-max border-collapse text-left text-xs">
                 <thead>
                   <tr>
-                    <th className="sticky top-0 z-10 min-w-[14rem] bg-ice-950 px-2 py-1 font-medium text-ice-500">
+                    <th className="sticky top-0 z-10 min-w-[14rem] bg-ice-950 px-2 py-1 font-medium text-ice-400">
                       File
                     </th>
                     {columns.map((branch) => (
@@ -95,7 +95,7 @@ export default function CollisionsPanel() {
                         key={branch}
                         scope="col"
                         title={branch}
-                        className="sticky top-0 z-10 min-w-14 truncate bg-ice-950 px-2 py-1 text-center font-medium text-ice-500"
+                        className="sticky top-0 z-10 min-w-14 truncate bg-ice-950 px-2 py-1 text-center font-medium text-ice-400"
                       >
                         {shortenBranch(branch)}
                       </th>
@@ -143,7 +143,7 @@ export default function CollisionsPanel() {
               </table>
 
               {hiddenCount > 0 ? (
-                <p className="mt-1 text-[10px] text-ice-600">
+                <p className="mt-1 text-[10px] text-ice-400">
                   +{hiddenCount} more file{hiddenCount === 1 ? '' : 's'} touched, not shown
                 </p>
               ) : null}

@@ -32,14 +32,14 @@ export function ReplayBanner() {
       <span className="figures text-[11px] normal-case tracking-normal text-ice-200" title="timestamp being viewed">
         {formatWallClock(playback.currentTs)}
       </span>
-      <span className="figures text-[11px] normal-case tracking-normal text-ice-600">
+      <span className="figures text-[11px] normal-case tracking-normal text-ice-400">
         {formatElapsed(playback.currentTs - range.start)} / {formatElapsed(range.end - range.start)}
       </span>
 
       {session !== null && (
-        <span className="normal-case tracking-normal text-ice-500" title="session identity">
+        <span className="normal-case tracking-normal text-ice-400" title="session identity">
           {session.repoName}
-          {fileName !== null && <span className="figures text-ice-600"> · {fileName}</span>}
+          {fileName !== null && <span className="figures text-ice-400"> · {fileName}</span>}
         </span>
       )}
 

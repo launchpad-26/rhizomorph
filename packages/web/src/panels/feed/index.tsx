@@ -81,7 +81,7 @@ export default function ActivityFeed() {
               className={`rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
                 activeKinds.has(kind)
                   ? 'border-ice-600 text-ice-200'
-                  : 'border-ice-800 text-ice-700'
+                  : 'border-ice-800 text-ice-400'
               }`}
             >
               {FEED_KIND_LABEL[kind]}
@@ -91,14 +91,14 @@ export default function ActivityFeed() {
       </div>
 
       {selectedId !== null ? (
-        <div className="mt-1.5 flex items-center gap-2 text-[11px] text-ice-500">
+        <div className="mt-1.5 flex items-center gap-2 text-[11px] text-ice-400">
           <span>
             lane <span className="figures text-ice-300">{selectedId}</span>
           </span>
           <button
             type="button"
             data-testid="feed-clear-lane"
-            className="text-ice-600 hover:text-ice-300 hover:underline"
+            className="text-ice-400 hover:text-ice-300 hover:underline"
             onClick={clear}
           >
             clear
@@ -107,7 +107,7 @@ export default function ActivityFeed() {
       ) : null}
 
       {entries.length === 0 && !connected ? (
-        <p className="mt-2 text-sm text-ice-500">Waiting for the stream…</p>
+        <p className="mt-2 text-sm text-ice-400">Waiting for the stream…</p>
       ) : entries.length === 0 ? (
         <p className="mt-2 text-sm text-ice-300" role="status">
           {filtered ? 'Nothing matches this filter.' : 'No activity yet this session.'}
@@ -144,7 +144,7 @@ function FeedRow({ entry }: { entry: FeedEntry }): ReactElement {
 }
 
 function Clock({ ts }: { ts: number }): ReactElement {
-  return <span className="shrink-0 text-ice-600">{formatClock(ts)}</span>
+  return <span className="shrink-0 text-ice-400">{formatClock(ts)}</span>
 }
 
 function KindTag({ children }: { children: ReactNode }): ReactElement {
@@ -166,7 +166,7 @@ function CommitRow({ entry }: { entry: CommitFeedEntry }): ReactElement {
         </span>
       ))}
       <span className="min-w-0 flex-1 truncate text-ice-300">{commit.message}</span>
-      <span className="shrink-0 text-ice-500">{formatDiffStat(commit)}</span>
+      <span className="shrink-0 text-ice-400">{formatDiffStat(commit)}</span>
     </div>
   )
 }

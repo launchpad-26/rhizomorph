@@ -40,7 +40,7 @@ export function TraceGantt({ state, lane }: TraceGanttProps) {
 
   return (
     <div data-testid="trace-gantt" className="overflow-x-auto rounded border border-ice-850 bg-ice-1000">
-      <div className="flex items-baseline justify-between px-2 py-1 text-[10px] text-ice-600" style={{ minWidth: `${trackWidthPx}px` }}>
+      <div className="flex items-baseline justify-between px-2 py-1 text-[10px] text-ice-400" style={{ minWidth: `${trackWidthPx}px` }}>
         <span>0s</span>
         <span>{formatSpan(totalMs)}</span>
       </div>

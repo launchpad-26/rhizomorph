@@ -34,16 +34,23 @@
    * rules and every non-status surface are built out of this ramp alone.
    * Lightness is the identity channel, so these steps are the only way a
    * calm surface is allowed to distinguish itself from another calm surface.
+   *
+   * The legibility floor (prd9 operator ruling, 2026-08-03): text may not wear
+   * anything dimmer than `ice-400` (5.1:1 against the `ice-1000` floor).
+   * `ice-500` and `ice-600` measure 3.3:1 and 2.4:1 — under WCAG's 4.5:1 body
+   * threshold — so they are structure-and-disabled-marks tokens only, never
+   * text. A de-emphasis that used to reach for one of them now reaches for
+   * size, weight or the spacing around it instead.
    */
   --color-ice-1000: #04060c; /* the void — the page's floor */
   --color-ice-950: #080b14; /* raised: panels, docks, the strips */
   --color-ice-900: #0d1220; /* raised-2: rows on hover, inset wells */
   --color-ice-850: #131a2b; /* hairlines and panel borders */
   --color-ice-800: #1b2438; /* stronger dividers, table rules */
-  --color-ice-700: #26334d; /* absent/disabled marks */
-  --color-ice-600: #364768; /* the quietest legible ink */
-  --color-ice-500: #4c6289; /* de-emphasised labels */
-  --color-ice-400: #6a81a8; /* secondary labels */
+  --color-ice-700: #26334d; /* absent/disabled marks — never text */
+  --color-ice-600: #364768; /* decorative structure, disabled marks — never text (prd9 legibility: 2.4:1, below floor) */
+  --color-ice-500: #4c6289; /* decorative structure, disabled marks — never text (prd9 legibility: 3.3:1, below floor) */
+  --color-ice-400: #6a81a8; /* secondary labels — the legibility floor: no text goes dimmer than this */
   --color-ice-300: #8ea3c4; /* body copy */
   --color-ice-200: #b3c6de; /* primary data ink — the calm neon */
   --color-ice-100: #d6e2f2; /* emphasis: the headline number */

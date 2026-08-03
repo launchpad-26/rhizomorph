@@ -36,7 +36,7 @@ export function RowLabel({ node }: RowLabelProps) {
       <KindTag kind={span.kind} />
       <span className="min-w-0 truncate font-mono text-[11px] text-ice-200">{rowName(span)}</span>
       {span.kind === 'llm_request' && span.ttftMs !== null ? (
-        <span className="shrink-0 text-[10px] text-ice-500">ttft {formatSpan(span.ttftMs)}</span>
+        <span className="shrink-0 text-[10px] text-ice-400">ttft {formatSpan(span.ttftMs)}</span>
       ) : null}
     </span>
   )
@@ -57,7 +57,7 @@ export function RowMeta({ node }: RowMetaProps) {
     return <DecisionBadge decision={span.decision} waitedFor={formatSpan(span.endTs - span.startTs)} />
   }
   return (
-    <span data-testid="trace-duration" className="text-[10px] text-ice-500">
+    <span data-testid="trace-duration" className="text-[10px] text-ice-400">
       {formatSpan(span.endTs - span.startTs)}
     </span>
   )

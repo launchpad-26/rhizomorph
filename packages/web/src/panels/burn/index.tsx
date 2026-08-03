@@ -69,7 +69,7 @@ export default function BurnStrip() {
   return (
     <div className="border-t border-ice-850 bg-ice-950" data-panel="burn">
       <div className="flex h-9 items-center gap-3 px-4 text-xs">
-        <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.2em] text-ice-600">
+        <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.2em] text-ice-400">
           Burn
         </span>
 
@@ -148,8 +148,9 @@ interface FigureProps {
 
 /**
  * One reading. Mono with tabular numerals (law 11) and the brightest ink on the
- * bar; the unit beside it is deliberately two steps down the ramp and outside
- * the test-id, so what a hover reports and what a test reads is the figure.
+ * bar; the unit beside it sits at the legibility floor (`ice-400`, prd9) rather
+ * than the figure's own brightness, and outside the test-id, so what a hover
+ * reports and what a test reads is the figure.
  */
 function Figure({ testId, title, unit, lead, children }: FigureProps) {
   return (
@@ -182,7 +183,7 @@ function Figure({ testId, title, unit, lead, children }: FigureProps) {
 function Missing({ unit, title }: { unit: string; title: string }) {
   return (
     <span className="flex shrink-0 items-baseline gap-1" title={title}>
-      <span className="figures text-[13px] text-ice-600" aria-hidden>
+      <span className="figures text-[13px] text-ice-400" aria-hidden>
         —
       </span>
       <Unit>{unit}</Unit>
@@ -192,7 +193,7 @@ function Missing({ unit, title }: { unit: string; title: string }) {
 
 function Unit({ children }: { children: ReactNode }) {
   return (
-    <span className="text-[10px] font-normal uppercase tracking-wide text-ice-600">{children}</span>
+    <span className="text-[10px] font-normal uppercase tracking-wide text-ice-400">{children}</span>
   )
 }
 
@@ -208,8 +209,8 @@ function Rule() {
  */
 function GapVoice({ children }: { children: ReactNode }) {
   return (
-    <p className="flex min-w-0 items-baseline gap-2 text-[10px] leading-snug text-ice-500">
-      <span className="shrink-0 text-[9px] uppercase tracking-[0.18em] text-ice-700">Gap</span>
+    <p className="flex min-w-0 items-baseline gap-2 text-[10px] leading-snug text-ice-400">
+      <span className="shrink-0 text-[9px] uppercase tracking-[0.18em] text-ice-400">Gap</span>
       {children}
     </p>
   )

@@ -41,8 +41,8 @@ export const KIND_CLASS: Record<SpanKind, string> = {
   tool: 'text-ice-400',
   tool_blocked: 'text-ice-400',
   tool_execution: 'text-ice-300',
-  hook: 'text-ice-600',
-  other: 'text-ice-600',
+  hook: 'text-ice-400',
+  other: 'text-ice-400',
 }
 
 export interface KindTagProps {
@@ -79,7 +79,7 @@ export const DECISION_WORD: Record<SpanDecision, string> = {
 const DECISION_CLASS: Record<SpanDecision, string> = {
   accept: 'text-ice-300',
   reject: 'text-ice-200',
-  unknown: 'text-ice-500',
+  unknown: 'text-ice-400',
 }
 
 export interface DecisionBadgeProps {
@@ -90,7 +90,7 @@ export interface DecisionBadgeProps {
 
 export function DecisionBadge({ decision, waitedFor }: DecisionBadgeProps) {
   return (
-    <span data-testid="trace-decision" data-decision={decision} className="text-[10px] text-ice-500">
+    <span data-testid="trace-decision" data-decision={decision} className="text-[10px] text-ice-400">
       waited {waitedFor} ·{' '}
       <span className={`uppercase tracking-wide ${DECISION_CLASS[decision]}`}>
         {DECISION_WORD[decision]}

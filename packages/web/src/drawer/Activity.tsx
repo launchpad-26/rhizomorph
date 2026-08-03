@@ -38,13 +38,13 @@ export function ActivityView({ entries, now }: ActivityViewProps) {
     >
       <header className="flex items-baseline justify-between">
         <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-ice-400">Activity</h3>
-        <p className="figures text-[10px] text-ice-500">
+        <p className="figures text-[10px] text-ice-400">
           {counts.tool} tools · {counts.file} files · {counts.commit} commits
         </p>
       </header>
 
       {entries.length === 0 ? (
-        <p role="status" className="mt-2 text-[11px] text-ice-500">
+        <p role="status" className="mt-2 text-[11px] text-ice-400">
           NO ACTIVITY RECORDED — this lane has produced no tool call, file change or commit in the
           session so far — the conversation above is the only thing left to read.
         </p>
@@ -57,7 +57,7 @@ export function ActivityView({ entries, now }: ActivityViewProps) {
               data-kind={entry.kind}
               className="flex items-baseline gap-2 border-t border-ice-850/60 py-0.5 first:border-t-0"
             >
-              <span className="figures w-10 shrink-0 text-right text-[10px] text-ice-600">
+              <span className="figures w-10 shrink-0 text-right text-[10px] text-ice-400">
                 {relative(entry.ts, now)}
               </span>
               <span className={`w-14 shrink-0 text-[10px] uppercase tracking-wider ${KIND_CLASS[entry.kind]}`}>
@@ -82,7 +82,7 @@ const KIND_WORD = { tool: 'tool', file: 'file', commit: 'commit' } as const
  * colour.
  */
 const KIND_CLASS = {
-  tool: 'text-ice-500',
+  tool: 'text-ice-300',
   file: 'text-ice-400',
   commit: 'text-ice-200',
 } as const
@@ -92,8 +92,8 @@ function EntryBody({ entry }: { entry: ActivityEntry }) {
     return (
       <>
         <span className="text-ice-200">{entry.tool}</span>
-        {entry.count > 1 ? <span className="ml-1 text-ice-500">×{entry.count}</span> : null}
-        {entry.thread === 'subagent' ? <span className="ml-1 text-ice-600">sub</span> : null}
+        {entry.count > 1 ? <span className="ml-1 text-ice-400">×{entry.count}</span> : null}
+        {entry.thread === 'subagent' ? <span className="ml-1 text-ice-400">sub</span> : null}
       </>
     )
   }
@@ -101,15 +101,15 @@ function EntryBody({ entry }: { entry: ActivityEntry }) {
   if (entry.kind === 'file') {
     return (
       <>
-        <span className="text-ice-500">{entry.status}</span> <span className="truncate">{entry.path}</span>
+        <span className="text-ice-400">{entry.status}</span> <span className="truncate">{entry.path}</span>
       </>
     )
   }
 
   return (
     <>
-      <span className="text-ice-500">{entry.sha.slice(0, 7)}</span> {entry.subject}
-      <span className="ml-1 text-ice-600">
+      <span className="text-ice-400">{entry.sha.slice(0, 7)}</span> {entry.subject}
+      <span className="ml-1 text-ice-400">
         {entry.fileCount} file{entry.fileCount === 1 ? '' : 's'}
         {entry.insertions === null ? '' : ` +${entry.insertions}`}
         {entry.deletions === null ? '' : ` −${entry.deletions}`}

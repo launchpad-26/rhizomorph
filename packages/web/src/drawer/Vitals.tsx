@@ -68,7 +68,7 @@ export function Vitals({ lane, fleet }: VitalsProps) {
         />
         <span className="figures text-xs uppercase tracking-[0.18em]">{SIGIL_WORD[sigilKind]}</span>
         {lane.pathologies.length > 1 ? (
-          <span className="figures text-[10px] text-ice-500">+{lane.pathologies.length - 1} more</span>
+          <span className="figures text-[10px] text-ice-400">+{lane.pathologies.length - 1} more</span>
         ) : null}
       </div>
 
@@ -231,9 +231,9 @@ interface VitalProps {
 function Vital({ label, value, title, muted = false, alarm = false }: VitalProps) {
   return (
     <div className="min-w-0" title={title}>
-      <dt className="text-[10px] uppercase tracking-wider text-ice-500">{label}</dt>
+      <dt className="text-[10px] uppercase tracking-wider text-ice-400">{label}</dt>
       <dd
-        className={`figures truncate ${alarm ? 'text-needs-you' : muted ? 'text-ice-600' : 'text-ice-200'}`}
+        className={`figures truncate ${alarm ? 'text-needs-you' : muted ? 'text-ice-400' : 'text-ice-200'}`}
       >
         {value}
       </dd>

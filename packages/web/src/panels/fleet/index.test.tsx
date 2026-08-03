@@ -383,7 +383,8 @@ describe('FleetTable — parked lanes (prd4 ruling 5)', () => {
     expect(stateCell.querySelector('svg[data-sigil]')).toBeNull()
 
     const span = stateCell.querySelector('span') as HTMLElement
-    expect(span.className).toContain('text-ice-700')
+    expect(span.className).toContain('text-ice-400')
+    expect(span.className).toContain('italic')
     expect(stateCell.getAttribute('title')).toMatch(/parked/i)
   })
 

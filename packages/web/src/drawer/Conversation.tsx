@@ -85,7 +85,7 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
           Conversation
         </h3>
         {unreadable ? null : (
-          <span data-testid="conversation-tail-state" className="figures text-[10px] text-ice-500">
+          <span data-testid="conversation-tail-state" className="figures text-[10px] text-ice-400">
             {following ? 'tailing ▾' : 'paused ▴'}
           </span>
         )}
@@ -108,13 +108,13 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
                 type="button"
                 onClick={() => void tail.loadEarlier()}
                 disabled={tail.loadingEarlier}
-                className="mb-2 w-full border-b border-ice-850 pb-1.5 text-center text-[10px] uppercase tracking-wider text-ice-500 hover:bg-ice-900 disabled:opacity-50"
+                className="mb-2 w-full border-b border-ice-850 pb-1.5 text-center text-[10px] uppercase tracking-wider text-ice-400 hover:bg-ice-900 disabled:opacity-50"
               >
                 {tail.loadingEarlier ? 'loading earlier…' : 'load earlier'}
               </button>
             ) : null}
             {tail.entries.length === 0 ? (
-              <p role="status" className="text-[11px] leading-snug text-ice-500">
+              <p role="status" className="text-[11px] leading-snug text-ice-400">
                 {tail.status === 'loading'
                   ? 'reading the session log…'
                   : 'NOTHING SAID YET — the session log for this lane carries no turn so far, so ' +
@@ -161,7 +161,7 @@ function Turn({ entry }: { entry: TranscriptEntry }) {
       className={`mt-2 first:mt-0 ${entry.role === 'subagent' ? 'border-l border-ice-850 pl-2' : ''}`}
     >
       {entry.role === 'subagent' ? (
-        <p className="text-[9px] uppercase tracking-[0.18em] text-ice-600">subagent</p>
+        <p className="text-[9px] uppercase tracking-[0.18em] text-ice-400">subagent</p>
       ) : null}
       {entry.blocks.map((block, index) => (
         <Block key={index} block={block} role={entry.role} />
@@ -175,8 +175,9 @@ function Block({ block, role }: { block: TranscriptBlock; role: TranscriptRole }
     return (
       <p
         data-testid="tool-call"
-        className="flex items-baseline gap-1.5 py-0.5 font-mono text-[10px] leading-snug text-ice-500"
+        className="flex items-baseline gap-1.5 py-0.5 font-mono text-[10px] leading-snug text-ice-400"
       >
+        {/* aria-hidden bullet: decorative line-start mark, no information of its own — legibility.test.ts allowlist */}
         <span aria-hidden className="text-ice-600">
           ●
         </span>
@@ -195,8 +196,9 @@ function Block({ block, role }: { block: TranscriptBlock; role: TranscriptRole }
     return (
       <p
         data-testid="tool-result"
-        className="whitespace-pre-wrap break-words pl-3.5 font-mono text-[10px] leading-snug text-ice-600"
+        className="whitespace-pre-wrap break-words pl-3.5 font-mono text-[10px] leading-snug text-ice-400"
       >
+        {/* aria-hidden glyph: decorative line-start mark, no information of its own — legibility.test.ts allowlist */}
         <span aria-hidden className="text-ice-700">
           ⎿{' '}
         </span>
@@ -207,7 +209,7 @@ function Block({ block, role }: { block: TranscriptBlock; role: TranscriptRole }
           // less than it did. Abbreviated through the one shared count formatter
           // (law 11) — it is spelled `formatTokens` because tokens were its
           // first caller, but it is an SI count.
-          <span className="text-ice-700"> … +{formatTokens(block.dropped)} more</span>
+          <span className="text-ice-400"> … +{formatTokens(block.dropped)} more</span>
         ) : null}
       </p>
     )
@@ -229,7 +231,7 @@ function Block({ block, role }: { block: TranscriptBlock; role: TranscriptRole }
   if (role === 'system') {
     // Not a voice from the log — the parser reporting a line it could not read.
     return (
-      <p data-testid="turn-prose" className="py-0.5 font-mono text-[10px] leading-snug text-ice-600">
+      <p data-testid="turn-prose" className="py-0.5 font-mono text-[10px] leading-snug text-ice-400">
         {block.text}
       </p>
     )

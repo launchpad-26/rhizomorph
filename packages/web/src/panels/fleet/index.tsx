@@ -121,7 +121,7 @@ export default function FleetTable({ onCopy = copyToClipboard }: FleetTableProps
       <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-ice-400">Fleet</h2>
 
       {fleet.lanes.length === 0 && !connected ? (
-        <p className="mt-2 text-sm text-ice-500">Waiting for the stream…</p>
+        <p className="mt-2 text-sm text-ice-400">Waiting for the stream…</p>
       ) : fleet.lanes.length === 0 ? (
         <p className="mt-2 text-sm text-ice-300" role="status">
           No lanes discovered yet.
@@ -141,7 +141,7 @@ export default function FleetTable({ onCopy = copyToClipboard }: FleetTableProps
               <col style={{ width: '56px' }} />
             </colgroup>
             <thead>
-              <tr className="text-[10px] uppercase tracking-wider text-ice-500">
+              <tr className="text-[10px] uppercase tracking-wider text-ice-400">
                 <th className="pb-1 pr-2 font-medium">lane</th>
                 <th className="pb-1 pr-2 font-medium">state</th>
                 <th className="pb-1 pr-2 text-right font-medium">output</th>
@@ -170,11 +170,11 @@ export default function FleetTable({ onCopy = copyToClipboard }: FleetTableProps
 
       <footer
         data-testid="fleet-key-hint"
-        className="mt-2 flex shrink-0 items-center gap-2 border-t border-ice-850 pt-1 font-mono text-[10px] text-ice-600"
+        className="mt-2 flex shrink-0 items-center gap-2 border-t border-ice-850 pt-1 font-mono text-[10px] text-ice-400"
       >
         <span>n next needs-you · shift+n prev · f focus · a attach · esc close</span>
         {copyStatus === 'idle' ? null : (
-          <span role="status" className={copyStatus === 'copied' ? 'text-notice' : 'text-ice-500'}>
+          <span role="status" className={copyStatus === 'copied' ? 'text-notice' : 'text-ice-400'}>
             {copyStatus === 'copied' ? 'attach copied' : 'clipboard unavailable'}
           </span>
         )}
@@ -237,7 +237,7 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
     >
       <td className="py-1 pr-2 font-mono text-ice-200" title={lane.worktreePath ?? lane.id}>
         {lane.label}
-        {lane.issue === null ? null : <span className="ml-1 text-[10px] text-ice-500">#{lane.issue}</span>}
+        {lane.issue === null ? null : <span className="ml-1 text-[10px] text-ice-400">#{lane.issue}</span>}
       </td>
       <td className="py-1 pr-2" title={stateTitle(lane)}>
         <span className={`inline-flex items-center gap-1 ${stateClass}`}>
@@ -251,41 +251,41 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
           <span className="figures uppercase tracking-wide">{lane.parked ? 'PARKED' : SIGIL_WORD[sigilKind]}</span>
         </span>
         {!lane.parked && lane.pathologies.some((p) => p.inferred) ? (
-          <span className="ml-1 text-ice-500" title="inferred from a weaker signal">
+          <span className="ml-1 text-ice-400" title="inferred from a weaker signal">
             ~
           </span>
         ) : null}
         {!lane.parked && lane.pathologies.length > 1 ? (
-          <span className="figures ml-1 text-[10px] text-ice-500">+{lane.pathologies.length - 1}</span>
+          <span className="figures ml-1 text-[10px] text-ice-400">+{lane.pathologies.length - 1}</span>
         ) : null}
       </td>
       <td className="figures py-1 pr-2 text-right text-ice-200" title={outputCellTitle(lane)}>
         {outputCellText(lane)}
       </td>
       <td
-        className={`figures py-1 pr-2 text-right ${lane.costEventCount === 0 ? 'text-ice-600' : 'text-ice-200'}`}
+        className={`figures py-1 pr-2 text-right ${lane.costEventCount === 0 ? 'text-ice-400' : 'text-ice-200'}`}
         title={costCellTitle(lane, fleet.gaps)}
       >
         {costCellText(lane)}
         {lane.costIsAuthoritative === false ? (
-          <span className="ml-1 text-[10px] font-normal text-ice-500">est.</span>
+          <span className="ml-1 text-[10px] font-normal text-ice-400">est.</span>
         ) : null}
       </td>
-      <td className={`figures py-1 pr-2 text-right ${lane.requestCount === 0 ? 'text-ice-600' : 'text-ice-200'}`}>
+      <td className={`figures py-1 pr-2 text-right ${lane.requestCount === 0 ? 'text-ice-400' : 'text-ice-200'}`}>
         {lane.requestCount}
       </td>
-      <td className={`figures py-1 pr-2 text-right ${lane.toolCallCount === 0 ? 'text-ice-600' : 'text-ice-200'}`}>
+      <td className={`figures py-1 pr-2 text-right ${lane.toolCallCount === 0 ? 'text-ice-400' : 'text-ice-200'}`}>
         {lane.toolCallCount}
       </td>
       <td className="py-1 pr-2 text-ice-400" title={threadsCellTitle(lane)}>
         {lane.filaments.length === 0 ? (
-          <span className="text-ice-600">—</span>
+          <span className="text-ice-400">—</span>
         ) : branching.length === 0 ? (
-          <span className="text-ice-600">main only</span>
+          <span className="text-ice-400">main only</span>
         ) : (
           branching.map((filament, i) => (
             <span key={`${filament.thread ?? 'unk'}-${i}`} className="mr-1.5 inline-flex items-baseline gap-0.5">
-              <span className="uppercase text-ice-500">{threadShort(filament.thread)}</span>
+              <span className="uppercase text-ice-400">{threadShort(filament.thread)}</span>
               <span className="figures text-ice-300">{formatTokens(filament.outputTokens)}</span>
             </span>
           ))
@@ -296,7 +296,7 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
       </td>
       <td
         className={`figures py-1 text-right ${
-          fence.kind === 'breach' ? 'text-needs-you' : fence.kind === 'clean' ? 'text-ice-300' : 'text-ice-600'
+          fence.kind === 'breach' ? 'text-needs-you' : fence.kind === 'clean' ? 'text-ice-300' : 'text-ice-400'
         }`}
         title={fence.title}
       >

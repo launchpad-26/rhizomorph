@@ -67,7 +67,7 @@ export function SpendDetail({ lane, fleet, state }: SpendDetailProps) {
       </dl>
 
       {threads.length === 0 ? (
-        <p className="mt-2 text-[10px] leading-snug text-ice-600">
+        <p className="mt-2 text-[10px] leading-snug text-ice-400">
           {lane.handles.length > 1
             ? 'thread breakdown unavailable — this lane spans more than one telemetry handle'
             : 'no thread breakdown reported for this lane'}
@@ -80,12 +80,12 @@ export function SpendDetail({ lane, fleet, state }: SpendDetailProps) {
               data-testid="lane-page-spend-thread"
               className="flex items-baseline justify-between gap-2 border-t border-ice-850/60 pt-1 font-mono text-[10px] text-ice-400 first:border-t-0"
             >
-              <span className="uppercase text-ice-500">{threadShort(thread.thread)}</span>
+              <span className="uppercase text-ice-400">{threadShort(thread.thread)}</span>
               <span title={threadTokensTitle(thread)}>{formatTokens(thread.tokens.output)} out</span>
               <span title={threadCostTitle(thread)}>
                 {threadCostText(thread)}
                 {thread.costIsAuthoritative === false ? (
-                  <span className="ml-1 text-ice-500">est.</span>
+                  <span className="ml-1 text-ice-400">est.</span>
                 ) : null}
               </span>
             </li>
@@ -107,11 +107,11 @@ interface CellProps {
 function Cell({ label, value, title, muted = false, suffix }: CellProps) {
   return (
     <div className="min-w-0" title={title}>
-      <dt className="text-[10px] uppercase tracking-wider text-ice-500">{label}</dt>
-      <dd className={`figures truncate ${muted ? 'text-ice-600' : 'text-ice-200'}`}>
+      <dt className="text-[10px] uppercase tracking-wider text-ice-400">{label}</dt>
+      <dd className={`figures truncate ${muted ? 'text-ice-400' : 'text-ice-200'}`}>
         {value}
         {suffix === undefined ? null : (
-          <span className="ml-1 text-[10px] font-normal text-ice-500">{suffix}</span>
+          <span className="ml-1 text-[10px] font-normal text-ice-400">{suffix}</span>
         )}
       </dd>
     </div>

@@ -40,12 +40,13 @@ const ACTIVITY_TITLE: Record<Lane['activity'], string> = {
 }
 
 /**
- * The dimmed ice class the STATE column wears for an operator-parked lane
- * (prd4 ruling 5) — `ice-700`, tailwind's own "absent/disabled marks" step and
- * clearly dimmer than idle's `ice-400`, so parked always reads as more
- * stood-down than a lane that merely went quiet on its own.
+ * The class the STATE column wears for an operator-parked lane (prd4 ruling
+ * 5). Same floor ink as idle (`ice-400` — prd9's legibility floor forbids a
+ * dimmer one), so "more stood-down than a lane that merely went quiet" is now
+ * carried by style, not luminance: italic reads as an aside the way it does in
+ * prose, the way idle's own plain ink does not.
  */
-export const PARKED_TEXT_CLASS = 'text-ice-700'
+export const PARKED_TEXT_CLASS = 'text-ice-400 italic'
 
 /** The STATE cell's title for a parked lane: an acknowledgement, not a mute. */
 export function parkedTitle(): string {
