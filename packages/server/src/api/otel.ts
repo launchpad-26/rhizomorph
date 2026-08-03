@@ -1,6 +1,6 @@
 import { createEvent, createIdFactory } from '@rhizomorph/core'
 import type { FastifyError, FastifyInstance, FastifyReply } from 'fastify'
-import { parseMetricsExport, validateLogsExport } from '../collectors/otel/index.js'
+import { parseMetricsExport, parseTracesExport, validateLogsExport } from '../collectors/otel/index.js'
 import type { ServerContext } from '../server/context.js'
 
 /**
@@ -112,6 +112,29 @@ export function registerOtelRoutes(
       // route's whole job is accepting the exporter's traffic without a crash.
       return reply.code(200).send({})
     })
+
+    instance.post('/v1/traces', async (request, reply) => {
+      // Same parse-first, refuse-second order as /v1/metrics: a malformed
+      // body is a 400 whoever sent it, so identity is only checked once the
+      // body is known to be OTLP-shaped.
+      const result = parseTracesExport(request.body, {
+        emit: (type, payload, source) => createEvent(type, payload, { id: nextId(), ts: now(), source }),
+      })
+      if (result.malformed) {
+        for (const event of result.events) {
+          await ctx.recorder.record(event)
+        }
+        return reply.code(400).send({ error: 'malformed OTLP traces export request' })
+      }
+
+      const declared = foreignInstance(request.body, ctx.recorder.sessionId)
+      if (declared !== ACCEPTED) return await refuse(reply, declared)
+
+      for (const event of result.events) {
+        await ctx.recorder.record(event)
+      }
+      return reply.code(200).send({})
+    })
   })
 }
 
@@ -154,17 +177,21 @@ function foreignInstance(body: unknown, expected: string): string | null | typeo
 
 /**
  * The `instance` resource attribute of every resource block in an OTLP body,
- * metrics or logs — `null` for a block that declares none.
+ * metrics, logs or traces — `null` for a block that declares none.
  *
  * Deliberately reads the raw body rather than a parsed OTLP shape: the logs
  * route models its resource blocks as `unknown` (prd1 never needed to look
  * inside them), and an identity check that only worked on the shapes we happen
  * to parse would be no check at all.
+ *
+ * `resourceSpans` (prd9) must be listed here or every correctly-tagged trace
+ * POST is refused as foreign — the body declares no instance this check knows
+ * to look for (research 2026-08-03-trace-era-captures.md "What to avoid").
  */
 function declaredInstances(body: unknown): Array<string | null> {
   if (!isRecord(body)) return []
   const blocks: unknown[] = []
-  for (const key of ['resourceMetrics', 'resourceLogs'] as const) {
+  for (const key of ['resourceMetrics', 'resourceLogs', 'resourceSpans'] as const) {
     const value = body[key]
     if (Array.isArray(value)) blocks.push(...value)
   }

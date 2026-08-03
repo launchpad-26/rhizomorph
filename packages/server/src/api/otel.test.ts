@@ -39,7 +39,7 @@ function declaring(
   options: { onlyFirstBlock?: boolean } = {},
 ): Record<string, unknown> {
   const stamped = structuredClone(body)
-  for (const key of ['resourceMetrics', 'resourceLogs']) {
+  for (const key of ['resourceMetrics', 'resourceLogs', 'resourceSpans']) {
     const blocks = stamped[key]
     if (!Array.isArray(blocks)) continue
     blocks.forEach((block, index) => {
@@ -173,6 +173,39 @@ describe('OTLP/HTTP receiver routes', () => {
     expect(errors[0]?.payload).toMatchObject({ collector: 'otel' })
   })
 
+  it('POST /v1/traces declaring our instance records trace.span events, source: otel', async () => {
+    const app = makeApp()
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/traces',
+      payload: declaring(fixture('claude-code-2.1.220-traces-llm-request.json'), OUR_INSTANCE),
+    })
+
+    expect(response.statusCode).toBe(200)
+    const spans = recorder.eventsSoFar().filter((e) => e.type === 'trace.span')
+    expect(spans).toHaveLength(1)
+    expect(spans[0]?.source).toBe('otel')
+    expect(spans[0]?.payload).toMatchObject({ kind: 'llm_request', model: 'claude-haiku-4-5-20251001' })
+    expect(refusals()).toHaveLength(0)
+  })
+
+  it('POST /v1/traces with a structurally malformed body responds 400 and records one collector.error, without crashing', async () => {
+    const app = makeApp()
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/traces',
+      payload: { notResourceSpans: [] },
+    })
+
+    expect(response.statusCode).toBe(400)
+    const errors = recorder.eventsSoFar().filter((e) => e.type === 'collector.error')
+    expect(errors).toHaveLength(1)
+    expect(errors[0]?.payload).toMatchObject({ collector: 'otel' })
+    expect(refusals()).toHaveLength(0)
+  })
+
   describe('foreign traffic is refused, loudly', () => {
     it('refuses a metrics export that declares no instance: 403, telemetry.refused, and not one token recorded', async () => {
       const app = makeApp()
@@ -254,6 +287,57 @@ describe('OTLP/HTTP receiver routes', () => {
 
       expect(response.statusCode).toBe(403)
       expect(refusals()[0]?.payload).toMatchObject({ instance: null, count: 1 })
+    })
+
+    it('refuses a traces export that declares no instance: 403, telemetry.refused, and not one span recorded', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/traces',
+        payload: fixture('claude-code-2.1.220-traces-llm-request.json'),
+      })
+
+      expect(response.statusCode).toBe(403)
+      expect(refusals()[0]?.payload).toEqual({ instance: null, expectedInstance: OUR_INSTANCE, count: 1 })
+      expect(recorder.eventsSoFar().filter((e) => e.type === 'trace.span')).toHaveLength(0)
+    })
+
+    it('refuses a traces export that declares someone else, and names them in the event', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/traces',
+        payload: declaring(fixture('claude-code-2.1.220-traces-llm-request.json'), 'factory-rhizomorph-77'),
+      })
+
+      expect(response.statusCode).toBe(403)
+      expect(refusals()[0]?.payload).toEqual({
+        instance: 'factory-rhizomorph-77',
+        expectedInstance: OUR_INSTANCE,
+        count: 1,
+      })
+      expect(recorder.eventsSoFar().filter((e) => e.type === 'trace.span')).toHaveLength(0)
+    })
+
+    /**
+     * The gate fix this issue exists to prove: without `resourceSpans` in
+     * `declaredInstances()`, a correctly-tagged trace POST declares an
+     * instance the check never looks for and is refused as foreign.
+     */
+    it('accepts a correctly-tagged trace POST rather than refusing it as foreign (the resourceSpans gate fix)', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/traces',
+        payload: declaring(fixture('claude-code-2.1.220-traces-llm-request.json'), OUR_INSTANCE),
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(refusals()).toHaveLength(0)
+      expect(recorder.eventsSoFar().filter((e) => e.type === 'trace.span')).toHaveLength(1)
     })
   })
 
