@@ -403,7 +403,53 @@ describe('runDoctor', () => {
     expect(report.exitCode).toBe(0)
   })
 
-  it('warns when telemetry env is not configured, pointing at docs/telemetry.md', async () => {
+  it('warns in the sh voice by default, pointing at docs/telemetry.md', async () => {
+    const report = await runDoctor({
+      path: repoPath,
+      port: 0,
+      exec: healthyExec,
+      webDistDir,
+      claudeProjectsRoot,
+      env: {},
+      platform: 'linux',
+    })
+
+    const telemetry = checkFor(report.checks, 'telemetry')
+    expect(telemetry.status).toBe('warn')
+    expect(telemetry.message).toContain('docs/telemetry.md')
+    expect(telemetry.message).toContain('eval')
+    expect(telemetry.message).not.toContain('powershell')
+    // Audit stumble (prd9 ruling 8): a clone user has no `rhizomorph` binary on PATH,
+    // so the remedy must not tell them to run a bare one.
+    expect(telemetry.message).not.toMatch(/[`"]rhizomorph /)
+    expect(telemetry.message).toContain('packages/server/bin/rhizomorph.mjs')
+    expect(report.exitCode).toBe(0)
+  })
+
+  it('warns in the PowerShell voice on win32, naming --shell powershell instead of eval', async () => {
+    const report = await runDoctor({
+      path: repoPath,
+      port: 0,
+      exec: healthyExec,
+      webDistDir,
+      claudeProjectsRoot,
+      env: {},
+      platform: 'win32',
+    })
+
+    const telemetry = checkFor(report.checks, 'telemetry')
+    expect(telemetry.status).toBe('warn')
+    expect(telemetry.message).toContain('docs/telemetry.md')
+    expect(telemetry.message).toContain('--shell powershell')
+    expect(telemetry.message).toContain('Invoke-Expression')
+    expect(telemetry.message).not.toContain('eval')
+    // Same no-bare-binary rule (#126) applies in the PowerShell voice too.
+    expect(telemetry.message).not.toMatch(/[`"]rhizomorph /)
+    expect(telemetry.message).toContain('packages/server/bin/rhizomorph.mjs')
+    expect(report.exitCode).toBe(0)
+  })
+
+  it('defaults to process.platform\'s own voice when platform is not overridden', async () => {
     const report = await runDoctor({
       path: repoPath,
       port: 0,
@@ -415,12 +461,7 @@ describe('runDoctor', () => {
 
     const telemetry = checkFor(report.checks, 'telemetry')
     expect(telemetry.status).toBe('warn')
-    expect(telemetry.message).toContain('docs/telemetry.md')
-    // Audit stumble (prd9 ruling 8): a clone user has no `rhizomorph` binary on PATH,
-    // so the remedy must not tell them to run a bare one.
-    expect(telemetry.message).not.toMatch(/[`"]rhizomorph /)
-    expect(telemetry.message).toContain('packages/server/bin/rhizomorph.mjs')
-    expect(report.exitCode).toBe(0)
+    expect(telemetry.message).toContain(process.platform === 'win32' ? '--shell powershell' : 'eval')
   })
 
   describe('cli version drift check', () => {

@@ -44,6 +44,8 @@ export interface DoctorOptions {
   rootPackageJsonPath?: string
   /** Overrides `process.env` for the telemetry check. */
   env?: NodeJS.ProcessEnv
+  /** Overrides `process.platform` for the telemetry check's remedy voice — tests inject `'win32'` deterministically. */
+  platform?: string
   /** Injectable `fetch`, so the own-server-on-a-busy-port probe needs no real socket in tests. Defaults to the global. */
   fetch?: typeof globalThis.fetch
 }
@@ -66,7 +68,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
     checkClaudeProjects(options.claudeProjectsRoot),
     await checkOptionalTool('tmux', 'tmux', ['-V'], exec),
     await checkOptionalTool('workmux', 'workmux', ['status'], exec),
-    checkTelemetryEnv(options.env ?? process.env),
+    checkTelemetryEnv(options.env ?? process.env, options.platform ?? process.platform),
     await checkLaneManifest(repoPath),
     await checkCliVersionDrift(exec),
   ]
@@ -291,17 +293,29 @@ function describeToolError(result: ExecResult): string {
   return `exited with code ${result.code}`
 }
 
-function checkTelemetryEnv(env: NodeJS.ProcessEnv): DoctorCheck {
+/**
+ * Names the wiring command in the reader's own shell (#140): a Windows
+ * conductor's doctor run has no `eval`, so telling it to run one is a remedy
+ * that cannot work. `win32` gets the PowerShell pipe form; every other
+ * platform (the vast majority — WSL, Linux, macOS) keeps the `eval` form
+ * unchanged.
+ */
+function checkTelemetryEnv(env: NodeJS.ProcessEnv, platform: string): DoctorCheck {
   if (env.CLAUDE_CODE_ENABLE_TELEMETRY === '1') {
     return { id: 'telemetry', status: 'ok', message: 'CLAUDE_CODE_ENABLE_TELEMETRY=1 is set in this shell' }
   }
+
+  // A clone user has no `rhizomorph` binary on PATH (audit stumble, prd9 ruling 8) — name the
+  // forms that actually work from a plain clone instead.
+  const remedy =
+    platform === 'win32'
+      ? 'run `node packages/server/bin/rhizomorph.mjs env <lane> --shell powershell | Invoke-Expression` (PowerShell)'
+      : 'run `eval "$(node packages/server/bin/rhizomorph.mjs env <lane>)"` (or `npm start -- env <lane>` from the repo root)'
+
   return {
     id: 'telemetry',
     status: 'warn',
-    message:
-      // A clone user has no `rhizomorph` binary on PATH (audit stumble, prd9 ruling 8) — name the
-      // forms that actually work from a plain clone instead.
-      'telemetry env is not set in this shell — spend stays at zero until you run `eval "$(node packages/server/bin/rhizomorph.mjs env <lane>)"` (or `npm start -- env <lane>` from the repo root) (see docs/telemetry.md)',
+    message: `telemetry env is not set in this shell — spend stays at zero until you ${remedy} (see docs/telemetry.md)`,
   }
 }
 
