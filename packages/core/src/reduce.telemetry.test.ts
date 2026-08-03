@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createEventFactory, fixtureSession, fixtureTelemetrySession } from './fixtures.js'
+import {
+  createEventFactory,
+  fixtureSession,
+  fixtureTelemetrySession,
+  fixtureTraceSpans,
+} from './fixtures.js'
 import { reduce, reduceAll } from './reduce.js'
 import { initialSessionState } from './state.js'
 
@@ -631,6 +636,31 @@ describe('reduce — additivity', () => {
     const next = reduce(empty, f.llmCost({ lane: 'a' }))
     expect(empty.telemetry.costs).toEqual([])
     expect(next.telemetry.costs).toHaveLength(1)
+  })
+
+  it('leaves traces empty for a log that has none', () => {
+    expect(reduceAll(fixtureTelemetrySession()).traces).toEqual({
+      spans: [],
+      byTrace: {},
+      bySession: {},
+    })
+  })
+
+  /**
+   * prd9's spans are annotation, not spend (ruling 4), so they stay out of the
+   * money layer's records AND out of its lane and session indexes — a span must
+   * not be able to invent a lane the ledger then reports zero dollars for. The
+   * full law is in `events/trace.test.ts`; this is the fold's half of it.
+   */
+  it('a span writes nothing into the telemetry slice', () => {
+    const money = reduceAll(fixtureTelemetrySession())
+    const withSpans = reduceAll([
+      ...fixtureTelemetrySession(),
+      ...fixtureTraceSpans({ lane: 'lane-only-a-span-ever-mentioned' }),
+    ])
+    expect(withSpans.telemetry).toEqual(money.telemetry)
+    expect(Object.keys(withSpans.telemetry.lanes)).not.toContain('lane-only-a-span-ever-mentioned')
+    expect(withSpans.traces.spans).toHaveLength(5)
   })
 })
 

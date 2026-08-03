@@ -5,6 +5,7 @@ import {
   FIXTURE_START_TS,
   createEventFactory,
   fixtureSession,
+  fixtureTraceSpans,
   makeEvent,
 } from './fixtures.js'
 import { rhizomorphEventSchema } from './events/index.js'
@@ -97,6 +98,49 @@ describe('fixtureSession', () => {
   })
 })
 
+describe('fixtureTraceSpans', () => {
+  const spans = fixtureTraceSpans()
+
+  it('is deterministic — two calls give identical logs', () => {
+    expect(fixtureTraceSpans()).toEqual(spans)
+  })
+
+  it('validates end to end', () => {
+    for (const event of spans) {
+      expect(rhizomorphEventSchema.safeParse(event).success, event.payload.name).toBe(true)
+    }
+  })
+
+  it('is the tree the capture found, delivered leaves-first', () => {
+    expect(spans.map((event) => event.payload.name)).toEqual([
+      'claude_code.llm_request',
+      'claude_code.tool.blocked_on_user',
+      'claude_code.tool.execution',
+      'claude_code.tool',
+      'claude_code.interaction',
+    ])
+    // Export-on-end: every envelope ts follows its span's end, and the root's
+    // is last of all.
+    for (const event of spans) {
+      expect(event.ts).toBeGreaterThan(event.payload.endTs)
+    }
+    expect(spans[spans.length - 1]?.ts).toBe(Math.max(...spans.map((event) => event.ts)))
+  })
+
+  it('puts tokens on the llm_request span and nowhere else', () => {
+    const withTokens = spans.filter((event) => event.payload.tokens != null)
+    expect(withTokens.map((event) => event.payload.kind)).toEqual(['llm_request'])
+  })
+
+  it('takes a lane, a session and a trace id, so a test can build a fleet', () => {
+    const other = fixtureTraceSpans({ lane: '7-web', traceId: 'trace-x', idPrefix: 'web-span' })
+    expect(new Set(other.map((event) => event.payload.lane))).toEqual(new Set(['7-web']))
+    expect(new Set(other.map((event) => event.payload.traceId))).toEqual(new Set(['trace-x']))
+    expect(new Set(other.map((event) => event.payload.sessionId))).toEqual(new Set(['sess-7-web']))
+    expect(other[0]?.id).toBe('web-span-000001')
+  })
+})
+
 describe('the package barrel', () => {
   it('exports everything wave-2 packages build against', () => {
     for (const name of [
@@ -122,7 +166,11 @@ describe('the package barrel', () => {
       'selectCommits',
       'createEventFactory',
       'fixtureSession',
+      'fixtureTraceSpans',
       'makeEvent',
+      'traceSpanPayloadSchema',
+      'spanKindSchema',
+      'initialTraceState',
       'DEFAULT_FLATLINE_MS',
     ] as const) {
       expect(core[name], `@rhizomorph/core should export ${name}`).toBeDefined()
