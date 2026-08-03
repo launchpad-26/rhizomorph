@@ -654,6 +654,133 @@ describe('runCli doctor subcommand', () => {
   })
 })
 
+describe('runCli export-record and replay subcommands', () => {
+  let dataRoot: string
+  let repoPath: string
+  let replayServer: CliHandle | undefined
+
+  beforeEach(async () => {
+    dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-record-cli-test-'))
+    repoPath = path.join(tmpdir(), 'record-cli-repo')
+  })
+
+  afterEach(async () => {
+    await replayServer?.stop()
+    replayServer = undefined
+    await rm(dataRoot, { recursive: true, force: true })
+  })
+
+  /** Boots a live session, lets the fake collector emit one tick's worth of events, then shuts down — leaving a real session-*.jsonl on disk for export-record to read. */
+  async function recordASession(): Promise<void> {
+    const server = await runCli([repoPath, '--port', '0'], {
+      dataRoot,
+      collectors: [fakeCollector],
+      log: silentLog,
+    })
+    await server.pollLoop.tick()
+    await server.stop()
+  }
+
+  it('export-record --help prints usage and exits 0', async () => {
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['export-record', '--help'], { log, exit }).catch((err: unknown) => err)
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    expect(log.log).toHaveBeenCalledWith(expect.stringContaining('rhizomorph export-record [path]'))
+  })
+
+  it('replay --help prints usage and exits 0', async () => {
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['replay', '--help'], { log, exit }).catch((err: unknown) => err)
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    expect(log.log).toHaveBeenCalledWith(expect.stringContaining('rhizomorph replay <record-file>'))
+  })
+
+  it('exits 1 naming the repo when there is nothing recorded to export', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+    const thrown = await runCli(['export-record', repoPath], { dataRoot, log: silentLog, exit }).catch(
+      (err: unknown) => err,
+    )
+    const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(1)
+    expect(output).toContain('no recorded sessions')
+  })
+
+  it('exports a recorded session, then replay verifies its chain and serves the same fold read-only', async () => {
+    await recordASession()
+    const outFile = path.join(dataRoot, 'out.rhizorecord.json')
+
+    const exportLog = { log: vi.fn(), warn: vi.fn() }
+    const exportThrown = await runCli(
+      ['export-record', repoPath, '--out', outFile, '--handle', 'alice'],
+      { dataRoot, log: exportLog, exit: fakeExit() },
+    ).catch((err: unknown) => err)
+    expect(exportThrown).toBeInstanceOf(FakeExit)
+    expect((exportThrown as FakeExit).code).toBe(0)
+    const exportOutput = exportLog.log.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(exportOutput).toContain(outFile)
+    expect(exportOutput).toContain('alice')
+
+    const written = JSON.parse(await readFile(outFile, 'utf8')) as {
+      manifest: { eventCount: number; actor: { handle: string; declared: boolean } }
+    }
+    expect(written.manifest.actor).toEqual({ handle: 'alice', declared: true, instance: expect.any(String) })
+
+    replayServer = await runCli(['replay', outFile, '--port', '0'], { log: silentLog, exit: fakeExit() })
+    expect(replayServer.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
+
+    const sessionsResponse = await fetch(`${replayServer.url}/api/sessions`)
+    const { sessions } = (await sessionsResponse.json()) as { sessions: Array<{ id: string }> }
+    expect(sessions).toHaveLength(1)
+
+    const eventsResponse = await fetch(`${replayServer.url}/api/sessions/${sessions[0]!.id}/events`)
+    const { events } = (await eventsResponse.json()) as { events: Array<{ type: string }> }
+    expect(events).toHaveLength(written.manifest.eventCount)
+    expect(events[0]?.type).toBe('session.started')
+    expect(events.some((e) => e.type === 'agent.status')).toBe(true)
+  })
+
+  it('refuses to replay a tampered record, loudly, instead of serving it', async () => {
+    await recordASession()
+    const outFile = path.join(dataRoot, 'out.rhizorecord.json')
+    await runCli(['export-record', repoPath, '--out', outFile], {
+      dataRoot,
+      log: silentLog,
+      exit: fakeExit(),
+    }).catch(() => {})
+
+    const raw = JSON.parse(await readFile(outFile, 'utf8')) as { body: Array<{ line: string }> }
+    const tamperIndex = raw.body.findIndex((link) => link.line.includes('"working"'))
+    expect(tamperIndex).toBeGreaterThanOrEqual(0)
+    raw.body[tamperIndex]!.line = raw.body[tamperIndex]!.line.replace('"working"', '"tampered"')
+    await writeFile(outFile, JSON.stringify(raw), 'utf8')
+
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+    const thrown = await runCli(['replay', outFile, '--port', '0'], { log: silentLog, exit }).catch(
+      (err: unknown) => err,
+    )
+    const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(1)
+    expect(output).toContain('verification failed')
+    expect(output).toContain('chain-broken')
+  })
+})
+
 describe('runCli resuming the run', () => {
   /** A fixed boot clock: session ids, event stamps and the resume window all read from it. */
   const BOOT_MS = 1_700_000_000_000

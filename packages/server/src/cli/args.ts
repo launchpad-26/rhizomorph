@@ -275,6 +275,8 @@ export function helpText(): string {
   return `rhizomorph [path] [options]
 rhizomorph doctor [path] [options]   Read-only preflight — say what's missing and how to fix it
 rhizomorph env <lane> [options]      Print the telemetry env block for a lane
+rhizomorph export-record [path] [options]   Write a portable session record (federation wire format)
+rhizomorph replay <record-file> [options]   Serve a session record read-only, foreign or local
 
 Runs a live, replayable dashboard for a git-worktree agent swarm.
 
@@ -301,7 +303,8 @@ Options:
   --version               Print the installed rhizomorph version and exit
   --help, -h              Show this help and exit
 
-Run 'rhizomorph doctor --help' or 'rhizomorph env --help' for a subcommand's own options.
+Run 'rhizomorph doctor --help', 'rhizomorph env --help', 'rhizomorph export-record --help'
+or 'rhizomorph replay --help' for a subcommand's own options.
 `
 }
 
@@ -348,4 +351,115 @@ export function parseDoctorArgs(argv: readonly string[]): DoctorArgs {
   }
 
   return { path, port, help: false }
+}
+
+/** Parses `rhizomorph export-record [path] [--session <id>] [--out <file>] [--handle <name>] [--help]`. */
+export interface ExportRecordArgs {
+  path: string | undefined
+  /** Session id to export; defaults to the most recently recorded one. */
+  sessionId: string | undefined
+  /** Output file path; defaults to alongside the session logs (see `export-record.ts`). */
+  out: string | undefined
+  /** Human-declared actor name; defaults to the OS username, marked `declared: false`. */
+  handle: string | undefined
+  help: boolean
+}
+
+/** `rhizomorph export-record`'s own usage table, distinct from the main command's. */
+export function exportRecordHelpText(): string {
+  return `rhizomorph export-record [path] [options]
+
+Writes a portable, integrity-checked session record — prd11's federation wire
+format — for one of this repo's recorded sessions. The artifact is written
+OUTSIDE the watched repo (default: alongside its session logs), named
+"<repo-slug>-<session-id>.rhizorecord.json". Hand the file to anyone; they
+replay it read-only with 'rhizomorph replay <file>'.
+
+Arguments:
+  path                    Repo whose recorded sessions to read (default: current directory)
+
+Options:
+  --session <id>          Session id to export (default: the most recently recorded session)
+  --out <file>            Output file path (default: alongside the session logs)
+  --handle <name>         Human-declared actor name (default: the OS username, marked undeclared)
+  --help, -h              Show this help and exit
+`
+}
+
+export function parseExportRecordArgs(argv: readonly string[]): ExportRecordArgs {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    return { path: undefined, sessionId: undefined, out: undefined, handle: undefined, help: true }
+  }
+
+  let sessionArg: string | undefined
+  let outArg: string | undefined
+  let handleArg: string | undefined
+
+  const specs: FlagSpec[] = [
+    { flag: '--session', read: (v) => { sessionArg = v } },
+    { flag: '--out', read: (v) => { outArg = v } },
+    { flag: '--handle', read: (v) => { handleArg = v } },
+  ]
+
+  const positionals = parseFlags(argv, specs)
+  const path = positionals[0]
+
+  if (sessionArg !== undefined && sessionArg.trim().length === 0) {
+    throw new Error('invalid --session value: (must be a non-empty session id)')
+  }
+  if (outArg !== undefined && outArg.trim().length === 0) {
+    throw new Error('invalid --out value: (must be a non-empty file path)')
+  }
+  if (handleArg !== undefined && handleArg.trim().length === 0) {
+    throw new Error('invalid --handle value: (must be a non-empty name)')
+  }
+
+  return { path, sessionId: sessionArg, out: outArg, handle: handleArg, help: false }
+}
+
+/** Parses `rhizomorph replay <record-file> [--port <n>] [--help]`. */
+export interface ReplayArgs {
+  file: string
+  port: number
+  help: boolean
+}
+
+/** `rhizomorph replay`'s own usage table, distinct from the main command's. */
+export function replayHelpText(): string {
+  return `rhizomorph replay <record-file> [options]
+
+Verifies a portable session record's hash chain — refusing a tampered file
+loudly — then serves it read-only through the same dashboard the live
+command uses: a foreign actor's record renders exactly as a local recording
+does. Nothing is executed and nothing is written back into the record.
+
+Arguments:
+  record-file             Path to a '.rhizorecord.json' file written by 'rhizomorph export-record'
+
+Options:
+  --port <n>              Port to listen on (default: ${DEFAULT_PORT})
+  --help, -h              Show this help and exit
+`
+}
+
+export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    return { file: '', port: DEFAULT_PORT, help: true }
+  }
+
+  let portArg: string | undefined
+  const specs: FlagSpec[] = [{ flag: '--port', read: (v) => { portArg = v } }]
+
+  const positionals = parseFlags(argv, specs)
+  const file = positionals[0]
+  if (file === undefined || file.trim().length === 0) {
+    throw new Error('missing required argument: <record-file>')
+  }
+
+  const port = portArg === undefined ? DEFAULT_PORT : Number(portArg)
+  if (!Number.isInteger(port) || port < 0) {
+    throw new Error(`invalid --port value: "${portArg}" (must be a non-negative integer)`)
+  }
+
+  return { file, port, help: false }
 }

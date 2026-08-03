@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { doctorHelpText, envHelpText, helpText, parseArgs, parseDoctorArgs, parseEnvArgs } from './args.js'
+import {
+  doctorHelpText,
+  envHelpText,
+  exportRecordHelpText,
+  helpText,
+  parseArgs,
+  parseDoctorArgs,
+  parseEnvArgs,
+  parseExportRecordArgs,
+  parseReplayArgs,
+  replayHelpText,
+} from './args.js'
 
 const defaults = {
   path: undefined,
@@ -368,6 +379,97 @@ describe('envHelpText', () => {
     expect(text).toContain('--shell')
     expect(text).toContain('powershell')
     expect(text).toContain('cmd')
+    expect(text).toContain('--help')
+  })
+})
+
+describe('parseExportRecordArgs', () => {
+  const exportDefaults = { path: undefined, sessionId: undefined, out: undefined, handle: undefined, help: false }
+
+  it('defaults everything to undefined', () => {
+    expect(parseExportRecordArgs([])).toEqual(exportDefaults)
+  })
+
+  it('takes the first non-flag token as the path', () => {
+    expect(parseExportRecordArgs(['../some-repo'])).toEqual({ ...exportDefaults, path: '../some-repo' })
+  })
+
+  it('parses --session', () => {
+    expect(parseExportRecordArgs(['--session', '123'])).toEqual({ ...exportDefaults, sessionId: '123' })
+  })
+
+  it('parses --out=<file>', () => {
+    expect(parseExportRecordArgs(['--out=/tmp/x.rhizorecord.json'])).toEqual({
+      ...exportDefaults,
+      out: '/tmp/x.rhizorecord.json',
+    })
+  })
+
+  it('parses --handle', () => {
+    expect(parseExportRecordArgs(['--handle', 'alice'])).toEqual({ ...exportDefaults, handle: 'alice' })
+  })
+
+  it('throws on an empty --session value', () => {
+    expect(() => parseExportRecordArgs(['--session', ''])).toThrow(/invalid --session/)
+  })
+
+  it('throws on an unknown flag, naming it', () => {
+    expect(() => parseExportRecordArgs(['--foo'])).toThrow(/unknown option.*"--foo"/is)
+  })
+
+  it('parses --help without requiring anything else', () => {
+    expect(parseExportRecordArgs(['--help']).help).toBe(true)
+    expect(parseExportRecordArgs(['-h']).help).toBe(true)
+  })
+})
+
+describe('exportRecordHelpText', () => {
+  it('documents path, --session, --out, --handle and --help', () => {
+    const text = exportRecordHelpText()
+    expect(text).toContain('rhizomorph export-record')
+    expect(text).toContain('--session')
+    expect(text).toContain('--out')
+    expect(text).toContain('--handle')
+    expect(text).toContain('--help')
+  })
+})
+
+describe('parseReplayArgs', () => {
+  it('takes the first positional as the record file', () => {
+    expect(parseReplayArgs(['./out.rhizorecord.json'])).toEqual({
+      file: './out.rhizorecord.json',
+      port: 4321,
+      help: false,
+    })
+  })
+
+  it('parses --port', () => {
+    expect(parseReplayArgs(['./out.rhizorecord.json', '--port', '5000'])).toEqual({
+      file: './out.rhizorecord.json',
+      port: 5000,
+      help: false,
+    })
+  })
+
+  it('throws when the record file is missing', () => {
+    expect(() => parseReplayArgs([])).toThrow(/missing required argument.*<record-file>/is)
+  })
+
+  it('throws on a non-numeric --port', () => {
+    expect(() => parseReplayArgs(['./out.rhizorecord.json', '--port', 'nope'])).toThrow(/invalid --port/)
+  })
+
+  it('parses --help without requiring a file', () => {
+    expect(parseReplayArgs(['--help']).help).toBe(true)
+    expect(parseReplayArgs(['-h']).help).toBe(true)
+  })
+})
+
+describe('replayHelpText', () => {
+  it('documents the record-file argument, --port and --help', () => {
+    const text = replayHelpText()
+    expect(text).toContain('rhizomorph replay <record-file>')
+    expect(text).toContain('--port')
     expect(text).toContain('--help')
   })
 })
