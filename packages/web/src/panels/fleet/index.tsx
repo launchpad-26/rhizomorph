@@ -17,8 +17,8 @@ import {
 } from '../../fleet/index.js'
 import { formatTokens } from '../../lib/format.js'
 import {
-  ageCellText,
-  ageCellTitle,
+  ageActiveCellText,
+  ageActiveCellTitle,
   branchingFilaments,
   costCellText,
   costCellTitle,
@@ -137,7 +137,7 @@ export default function FleetTable({ onCopy = copyToClipboard }: FleetTableProps
               <col style={{ width: '40px' }} />
               <col style={{ width: '40px' }} />
               <col style={{ width: '100px' }} />
-              <col style={{ width: '56px' }} />
+              <col style={{ width: '96px' }} />
               <col style={{ width: '56px' }} />
             </colgroup>
             <thead>
@@ -149,7 +149,7 @@ export default function FleetTable({ onCopy = copyToClipboard }: FleetTableProps
                 <th className="pb-1.5 pr-2 text-right font-medium">req</th>
                 <th className="pb-1.5 pr-2 text-right font-medium">tool</th>
                 <th className="pb-1.5 pr-2 font-medium">threads/sub</th>
-                <th className="pb-1.5 pr-2 text-right font-medium">age</th>
+                <th className="pb-1.5 pr-2 text-right font-medium">age / active</th>
                 <th className="pb-1.5 text-right font-medium">fence</th>
               </tr>
             </thead>
@@ -291,8 +291,8 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
           ))
         )}
       </td>
-      <td className="figures py-1.5 pr-2 text-right text-ice-400" title={ageCellTitle(lane)}>
-        {ageCellText(lane)}
+      <td className="figures py-1.5 pr-2 text-right text-ice-400" title={ageActiveCellTitle(lane)}>
+        {ageActiveCellText(lane)}
       </td>
       <td
         className={`figures py-1.5 text-right ${

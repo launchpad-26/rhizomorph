@@ -604,6 +604,80 @@ describe('conductor cost visibility', () => {
   })
 })
 
+// ── active time (#141) ───────────────────────────────────────────────────────
+
+describe('Lane.activeSeconds', () => {
+  function baseLog(now: number) {
+    return [
+      event('session.started', {
+        sessionId: 'active-time',
+        repoPath: '/repo',
+        repoName: 'rhizomorph',
+        mainBranch: 'main',
+      }, now - 60_000),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, now - 60_000),
+      event('worktree.discovered', { path: '/repo-wt/act', branch: 'act', head: 'sha-act', isMain: false }, now - 60_000),
+    ]
+  }
+
+  it('is null for a lane no OTel active-time reading has ever reached — never an invented zero', () => {
+    const fleet = buildFleet(reduceAll(baseLog(NOW)), { now: NOW })
+    expect(laneIn(fleet, 'act').activeSeconds).toBeNull()
+  })
+
+  it('reports the one reading a lane sent', () => {
+    const log = [
+      ...baseLog(NOW),
+      createEvent(
+        'agent.activeTime',
+        { lane: 'act', role: 'worker', activeSeconds: 300, sessionId: 'sess-act' },
+        { id: nextId(), ts: NOW - 5_000, source: 'otel' },
+      ),
+    ]
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    expect(laneIn(fleet, 'act').activeSeconds).toBe(300)
+  })
+
+  it('takes the high-water mark within a session that reset, not its latest reading', () => {
+    // Same shape as `selectors/activity.ts`'s own tests: a session climbs to
+    // 250s, restarts (a fresh CLI process reports a lower number), and the
+    // fleet must keep crediting the lane with the peak it actually reached.
+    const log = [
+      ...baseLog(NOW),
+      createEvent(
+        'agent.activeTime',
+        { lane: 'act', role: 'worker', activeSeconds: 250, sessionId: 'sess-act' },
+        { id: nextId(), ts: NOW - 10_000, source: 'otel' },
+      ),
+      createEvent(
+        'agent.activeTime',
+        { lane: 'act', role: 'worker', activeSeconds: 40, sessionId: 'sess-act' },
+        { id: nextId(), ts: NOW - 5_000, source: 'otel' },
+      ),
+    ]
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    expect(laneIn(fleet, 'act').activeSeconds).toBe(250)
+  })
+
+  it('sums two sessions the same lane has run', () => {
+    const log = [
+      ...baseLog(NOW),
+      createEvent(
+        'agent.activeTime',
+        { lane: 'act', role: 'worker', activeSeconds: 200, sessionId: 'sess-1' },
+        { id: nextId(), ts: NOW - 10_000, source: 'otel' },
+      ),
+      createEvent(
+        'agent.activeTime',
+        { lane: 'act', role: 'worker', activeSeconds: 150, sessionId: 'sess-2' },
+        { id: nextId(), ts: NOW - 5_000, source: 'otel' },
+      ),
+    ]
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    expect(laneIn(fleet, 'act').activeSeconds).toBe(350)
+  })
+})
+
 // ── pointability (graft g7) ─────────────────────────────────────────────────
 
 describe('lane slots', () => {

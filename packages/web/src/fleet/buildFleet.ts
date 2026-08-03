@@ -1,6 +1,7 @@
 import {
   DEFAULT_SPEND_WINDOW_MS,
   compareStrings,
+  selectActiveSecondsByLaneIndex,
   selectCollisions,
   selectLaneSpend,
   selectRoleSpend,
@@ -263,6 +264,15 @@ export interface Lane {
   lastWorkTs: number | null
   workAgeMs: number | null
   firstSeenAt: number
+  /**
+   * #141 — OTel's ignored `claude_code.active_time.total` counter, finally
+   * read: how much of this lane's age was the agent actually active, summed
+   * across whatever sessions it has run (`selectActiveSecondsByLaneIndex`
+   * already resolves a counter reset per session). Null when no OTel reading
+   * has ever reached this lane — the fleet table's gap-honesty rule (law 12):
+   * a lane with no feed shows AGE alone, never an invented zero ACTIVE.
+   */
+  activeSeconds: number | null
 
   // diagnosis
   /** Tool names inside the loop window, oldest first — the loop evidence. */
@@ -431,6 +441,7 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
   // the one collector that ever emits `llm.cost`.
   const roleSplit = selectRoleSpend(state, { origins: TOKEN_ORIGINS })
   const costRoleSplit = selectRoleSpend(state)
+  const activeSecondsByLane = selectActiveSecondsByLaneIndex(state)
 
   const worktrees = selectWorktreeViews(state, { includeRemoved: true })
   const touches = selectTouchesByBranch(state)
@@ -543,6 +554,7 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
     )
     const lastEventTs = maxTs(lastWorkTs, draft.paneActivityTs)
     const fence = manifest === null ? undefined : fenceFor(manifest, draft, handles)
+    const activeSeconds = sumActiveSeconds(handles, activeSecondsByLane)
 
     lanes.push({
       id: draft.id,
@@ -579,6 +591,7 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       lastWorkTs,
       workAgeMs: lastWorkTs === null ? null : Math.max(0, now - lastWorkTs),
       firstSeenAt: draft.firstSeenAt,
+      activeSeconds,
 
       recentTools: handles.flatMap((handle) => toolsByHandle.get(handle) ?? []),
       pathologies: [],
@@ -1134,6 +1147,23 @@ function fenceFor(manifest: LaneManifest, draft: Draft, handles: readonly string
     if (fence !== undefined) return fence
   }
   return manifest[draft.id] ?? (draft.branch === null ? undefined : manifest[draft.branch])
+}
+
+/**
+ * Sums a lane's active seconds across every handle that resolves to it — the
+ * same "two collector names, one lane" merge `mergeSpend` does for tokens.
+ * Null when NO handle has ever reported a reading (law 12): a lane git can
+ * see but OTel never reached must read as a gap, not a summed zero.
+ */
+function sumActiveSeconds(
+  handles: readonly string[],
+  activeSecondsByLane: Readonly<Record<string, number>>,
+): number | null {
+  return handles.reduce<number | null>((acc, handle) => {
+    const seconds = activeSecondsByLane[handle]
+    if (seconds === undefined) return acc
+    return (acc ?? 0) + seconds
+  }, null)
 }
 
 function indexByLane(rows: readonly LaneSpend[]): Record<string, LaneSpend> {

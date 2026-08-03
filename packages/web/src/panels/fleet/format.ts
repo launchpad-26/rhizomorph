@@ -95,6 +95,24 @@ export function ageCellTitle(lane: Lane): string {
   return lane.ageMs === null ? 'no event recorded for this lane yet' : `last event ${formatSpan(lane.ageMs)} ago`
 }
 
+/**
+ * #141 — the fleet table's AGE column reads AGE / ACTIVE: how old the lane is
+ * beside how much of that age OTel actually measured as active
+ * (`claude_code.active_time.total`). Gap-honest (law 12): a lane with no OTel
+ * reading shows AGE alone, never an invented `/ 0s`.
+ */
+export function ageActiveCellText(lane: Lane): string {
+  const age = ageCellText(lane)
+  if (lane.activeSeconds === null) return age
+  return `${age} / ${formatSpan(lane.activeSeconds * 1000)}`
+}
+
+export function ageActiveCellTitle(lane: Lane): string {
+  const age = ageCellTitle(lane)
+  if (lane.activeSeconds === null) return `${age} · no OTel active-time reading for this lane`
+  return `${age} · active ${formatSpan(lane.activeSeconds * 1000)} (claude_code.active_time.total, OTel)`
+}
+
 const THREAD_SHORT: Record<string, string> = {
   main: 'main',
   subagent: 'sub',

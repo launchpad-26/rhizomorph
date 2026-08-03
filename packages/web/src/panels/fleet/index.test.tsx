@@ -396,6 +396,77 @@ describe('FleetTable — parked lanes (prd4 ruling 5)', () => {
   })
 })
 
+describe('FleetTable — AGE / ACTIVE column (#141)', () => {
+  const LANE_ID = '70-active-lane'
+  const LANE_WORKTREE = `/repo/rhizomorph__worktrees/${LANE_ID}`
+
+  async function renderActiveTimeScenario(activeSeconds?: number) {
+    const fx = createEventFactory({ startTs: NOW - 5 * 60_000 })
+    fx.sessionStarted({ repoPath: '/repo/rhizomorph', repoName: 'rhizomorph', mainBranch: 'main' })
+    fx.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true })
+    fx.worktreeDiscovered({ path: LANE_WORKTREE, branch: LANE_ID, isMain: false })
+    // Gives the lane a real work-age, independent of whether OTel ever
+    // reaches it — otherwise this lane's age is itself unknown, and the
+    // AGE/ACTIVE distinction this describe block tests would be moot.
+    fx.agentStatus({ handle: LANE_ID, status: 'working', worktreePath: LANE_WORKTREE, branch: LANE_ID })
+    if (activeSeconds !== undefined) {
+      fx.agentActiveTime({
+        lane: LANE_ID,
+        branch: LANE_ID,
+        worktreePath: LANE_WORKTREE,
+        sessionId: `sess-${LANE_ID}`,
+        activeSeconds,
+      })
+    }
+
+    let source: FakeEventSource | undefined
+    await act(async () => {
+      render(
+        <StreamProvider
+          url="/api/stream"
+          now={NOW}
+          createSource={() => {
+            source = new FakeEventSource()
+            return source
+          }}
+        >
+          <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
+            <SelectionProvider>
+              <FleetTable />
+            </SelectionProvider>
+          </FleetProvider>
+        </StreamProvider>,
+      )
+    })
+    await act(async () => {
+      source?.open()
+      for (const event of fx.all()) source?.emit(event)
+    })
+
+    return rows().find((r) => r.getAttribute('data-lane') === LANE_ID) as HTMLElement
+  }
+
+  it('renders the combined "age / active" header', async () => {
+    await renderActiveTimeScenario(300)
+    expect(screen.getByText('age / active')).toBeInTheDocument()
+  })
+
+  it('shows AGE alone when no OTel active-time reading has reached the lane (law 12)', async () => {
+    const row = await renderActiveTimeScenario()
+    const cell = row.querySelectorAll('td')[7] as HTMLElement
+    expect(cell.textContent).not.toContain('/')
+    expect(cell.textContent).not.toBe('')
+    expect(cell.getAttribute('title')).toMatch(/no OTel active-time reading/)
+  })
+
+  it('shows AGE / ACTIVE once OTel has reported active time for the lane', async () => {
+    const row = await renderActiveTimeScenario(300)
+    const cell = row.querySelectorAll('td')[7] as HTMLElement
+    expect(cell.textContent).toMatch(/^.+ \/ 5m00s$/)
+    expect(cell.getAttribute('title')).toMatch(/claude_code\.active_time\.total/)
+  })
+})
+
 describe('FleetTable — prd5 ruling 1+6: single-key verbs (k9s idiom)', () => {
   const LANE_ID = '60-verbs-lane'
   const VERBS_WORKTREE = `/repo/rhizomorph__worktrees/${LANE_ID}`
