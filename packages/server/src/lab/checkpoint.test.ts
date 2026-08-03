@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -17,6 +17,16 @@ let sessionFilePath: string
 
 function git(args: string[], cwd = repoDir): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' })
+}
+
+/**
+ * A literal id here would be a machine-wide collision under concurrent test
+ * runs (checkpoint.ts's own temp index path no longer derives from it, but a
+ * fixed id in a test is still a smell worth not reintroducing) — pid + a
+ * fresh uuid per call.
+ */
+function uniqueCheckpointId(label: string): string {
+  return `ckpt-${label}-${process.pid}-${randomUUID()}`
 }
 
 function status(): string {
@@ -74,6 +84,7 @@ describe('captureCheckpoint', () => {
 
   it('captures tracked-modified, staged AND untracked in one commit, reachable via the ref, HEAD unmoved', async () => {
     const headBefore = git(['rev-parse', 'HEAD']).trim()
+    const checkpointId = uniqueCheckpointId('one-commit')
 
     const { event } = await captureCheckpoint({
       lane: '148-lab-checkpoint',
@@ -83,10 +94,10 @@ describe('captureCheckpoint', () => {
       dataRoot,
       claudeProjectsRoot,
       now: () => 1_000_000,
-      checkpointId: 'ckpt-abc',
+      checkpointId,
     })
 
-    expect(event.payload.snapshotRef).toBe('refs/rhizomorph/checkpoints/ckpt-abc')
+    expect(event.payload.snapshotRef).toBe(`refs/rhizomorph/checkpoints/${checkpointId}`)
     expect(event.payload.headSha).toBe(headBefore)
     expect(git(['rev-parse', 'HEAD']).trim()).toBe(headBefore) // HEAD never moved
 
@@ -192,7 +203,7 @@ describe('captureCheckpoint', () => {
       dataRoot,
       claudeProjectsRoot,
       now,
-      checkpointId: 'ckpt-1',
+      checkpointId: uniqueCheckpointId('first'),
     })
     expect(first.event.payload.eventIndex).toBe(0)
 
@@ -205,7 +216,7 @@ describe('captureCheckpoint', () => {
       dataRoot,
       claudeProjectsRoot,
       now,
-      checkpointId: 'ckpt-2',
+      checkpointId: uniqueCheckpointId('second'),
     })
     expect(second.event.payload.eventIndex).toBe(1)
     expect(second.recordedTo).toBe(first.recordedTo)

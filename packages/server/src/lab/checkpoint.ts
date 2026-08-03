@@ -115,7 +115,15 @@ async function snapshotWorkspace(
   const headSha = (await runGit(exec, worktreePath, ['rev-parse', 'HEAD'])).trim()
 
   const realIndexPath = path.join(gitDir, 'index')
-  const tmpIndexPath = path.join(tmpdir(), `rhizomorph-checkpoint-${checkpointId}-index`)
+  // Never derived from `checkpointId` alone: `tmpdir()` is a single
+  // machine-wide directory, and a caller-supplied id (a test, or two
+  // concurrent captures that happen to mint the same id) is not guaranteed
+  // unique. `pid` + a fresh uuid makes this path unique per *invocation*,
+  // independent of anything the caller passed in.
+  const tmpIndexPath = path.join(
+    tmpdir(),
+    `rhizomorph-checkpoint-index-${process.pid}-${randomUUID()}`,
+  )
   await copyFile(realIndexPath, tmpIndexPath)
 
   try {
