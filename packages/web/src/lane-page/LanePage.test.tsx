@@ -188,6 +188,83 @@ describe('LanePage — spend detail', () => {
   })
 })
 
+describe('LanePage — the conductor’s own page (#138)', () => {
+  /**
+   * The conductor's own telemetry: `role: 'conductor'` is what keeps
+   * `buildFleet` from ever claiming it into a `Lane` (`fleet/buildFleet.ts`'s
+   * `isRootSpend`), matching the real CLI's own attribution
+   * (`fleet/fixtures.ts`'s `conductorBurn`) — no worktree, no branch of its
+   * own, a bare telemetry lane named `conductor`.
+   */
+  function conductorHistory(): RhizomorphEvent[] {
+    const f = createEventFactory({ startTs: NOW - 40_000, stepMs: 2_000 })
+    return [
+      f.sessionStarted({ repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' }),
+      f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-main', isMain: true }),
+      f.llmUsage({
+        lane: 'conductor',
+        role: 'conductor',
+        branch: null,
+        worktreePath: null,
+        sessionId: 'sess-conductor',
+        model: 'test-model-unpriced',
+        thread: 'main',
+        tokens: { input: 8, output: 4_200, cacheRead: 90_000, cacheCreation: 1_000 },
+      }),
+      f.llmCost({
+        lane: 'conductor',
+        role: 'conductor',
+        branch: null,
+        worktreePath: null,
+        sessionId: 'sess-conductor',
+        model: 'test-model-unpriced',
+        costUsd: 0.32,
+        authoritative: true,
+      }),
+    ]
+  }
+
+  it('"main" resolves to the conductor’s own page — transcript, spend, and the honest trace gap', async () => {
+    await renderLanePage({ handle: 'main', events: conductorHistory() })
+
+    expect(screen.queryByTestId('lane-page-unknown')).toBeNull()
+
+    const header = screen.getByTestId('lane-page-header')
+    expect(header.textContent).toContain('Main')
+    expect(header.textContent).toContain('the conductor')
+    expect(screen.getByTestId('lane-page-role').textContent).toBe('conductor')
+    // No branch chip invented from the repo's own main branch — the honest gap dash.
+    expect(screen.getByTestId('lane-page-branch').textContent).toBe('—')
+
+    const spend = screen.getByTestId('lane-page-spend')
+    const cellByLabel = (label: string) =>
+      [...spend.querySelectorAll('div')].find((cell) => cell.querySelector('dt')?.textContent === label)
+    expect(cellByLabel('output')?.querySelector('dd')?.textContent).toBe('4.2K')
+    expect(cellByLabel('$')?.querySelector('dd')?.textContent).toBe('$0.32')
+
+    // No trace.span for the conductor's telemetry lane yet — its CLI is not
+    // relaunched with the env block — so the existing honest-gap copy shows,
+    // not a blank panel.
+    expect(screen.getByText(/NO TRACE TELEMETRY/)).toBeTruthy()
+  })
+
+  it('"conductor" redirects client-side to "main" — the telemetry lane finds the same page', async () => {
+    window.history.replaceState(null, '', '/lane/conductor')
+    await renderLanePage({ handle: 'conductor', events: conductorHistory() })
+
+    expect(window.location.pathname).toBe('/lane/main')
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('an unknown handle still gaps honestly', async () => {
+    await renderLanePage({ handle: 'no-such-lane', events: conductorHistory() })
+
+    const gap = screen.getByTestId('lane-page-unknown')
+    expect(gap.textContent).toContain('no-such-lane')
+    expect(screen.queryByTestId('lane-page-header')).toBeNull()
+  })
+})
+
 describe('LanePage — Esc returns to the balcony', () => {
   it('navigates to / on Escape', async () => {
     window.history.replaceState(null, '', `/lane/${LANE}`)
