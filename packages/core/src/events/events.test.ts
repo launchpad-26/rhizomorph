@@ -241,5 +241,12 @@ function oneOfEach() {
       status: 'ok',
       sessionId: 'sess-1',
     }, { id: id(), ts: 19 }),
+    // #141: OTel's ignored active-time counter, finally wired.
+    createEvent('agent.activeTime', {
+      lane: 'feat',
+      role: 'worker',
+      activeSeconds: 542,
+      sessionId: 'sess-1',
+    }, { id: id(), ts: 20 }),
   ]
 }

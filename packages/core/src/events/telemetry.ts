@@ -163,6 +163,22 @@ export const toolActivityPayloadSchema = z.object({
 export type ToolActivityPayload = z.infer<typeof toolActivityPayloadSchema>
 
 /**
+ * Cumulative seconds Claude Code itself considers the agent "active" — OTel's
+ * `claude_code.active_time.total` counter, exported on every metrics POST and
+ * silently ignored until now (research note §"Live-dashboard gaps"). Only our
+ * own OTLP receiver produces this, so `activeSeconds` is always the metric's
+ * raw cumulative value, never a delta: a counter can reset to zero when a
+ * session restarts, and folding that into a running total is a selector's job
+ * (`selectors/activity.ts`), never this event's or the reducer's.
+ */
+export const activeTimePayloadSchema = z.object({
+  ...attribution,
+  role: agentRoleSchema,
+  activeSeconds: z.number().nonnegative(),
+})
+export type ActiveTimePayload = z.infer<typeof activeTimePayloadSchema>
+
+/**
  * A telemetry export this Rhizomorph refused: prd2's ruling is one repo, one
  * Rhizomorph, so a POST that does not carry our instance id is a
  * misconfiguration (two servers, a stale env block, another repo's exporter) —
@@ -212,11 +228,15 @@ export const telemetryRefusedEventSchema = envelope(
   telemetryRefusedPayloadSchema,
 )
 
+/** Only our own OTLP receiver produces this metric, so this one has a single source too. */
+export const agentActiveTimeEventSchema = envelope('otel', 'agent.activeTime', activeTimePayloadSchema)
+
 export const telemetryEventSchemas = [
   llmUsageEventSchema,
   llmCostEventSchema,
   toolActivityEventSchema,
   telemetryRefusedEventSchema,
+  agentActiveTimeEventSchema,
 ] as const
 
 /** Sum of the four tiers — the one number a token total always means. */

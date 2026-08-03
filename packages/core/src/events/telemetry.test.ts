@@ -5,6 +5,7 @@ import {
   UNATTRIBUTED_LANE,
   ZERO_TOKENS,
   addTokens,
+  agentActiveTimeEventSchema,
   agentThreadSchema,
   createEvent,
   llmCostEventSchema,
@@ -274,6 +275,75 @@ describe('telemetry.refused', () => {
   })
 })
 
+describe('agent.activeTime', () => {
+  const activeTime = { lane: '33-core', role: 'worker' as const, activeSeconds: 542 }
+
+  it('is otel-only, like telemetry.refused — no other collector produces it', () => {
+    expect(sourceOf('agent.activeTime')).toBe('otel')
+    const event = createEvent('agent.activeTime', activeTime, { id: 'evt-1', ts: 1 })
+    expect(event.source).toBe('otel')
+    expect(event.payload.activeSeconds).toBe(542)
+  })
+
+  it('rejects a source other than otel', () => {
+    expect(
+      agentActiveTimeEventSchema.safeParse({
+        id: 'evt-1',
+        ts: 1,
+        source: 'sessionlog',
+        type: 'agent.activeTime',
+        payload: activeTime,
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a negative reading — a counter never goes below zero', () => {
+    expect(() =>
+      createEvent('agent.activeTime', { ...activeTime, activeSeconds: -1 }, { id: 'evt-1', ts: 1 }),
+    ).toThrow()
+  })
+
+  it('allows a genuine zero — a session that just started has been active for none of it', () => {
+    const event = createEvent(
+      'agent.activeTime',
+      { ...activeTime, activeSeconds: 0 },
+      { id: 'evt-1', ts: 1 },
+    )
+    expect(event.payload.activeSeconds).toBe(0)
+  })
+
+  it('requires a role, same as every other telemetry payload', () => {
+    expect(() =>
+      createEvent(
+        'agent.activeTime',
+        // @ts-expect-error — role is required
+        { lane: 'l', activeSeconds: 1 },
+        { id: 'evt-1', ts: 1 },
+      ),
+    ).toThrow()
+  })
+
+  it('takes a nullable sessionId, like its siblings', () => {
+    const event = createEvent(
+      'agent.activeTime',
+      { ...activeTime, sessionId: null },
+      { id: 'evt-1', ts: 1 },
+    )
+    expect(event.payload.sessionId).toBeNull()
+  })
+
+  it('is part of the one event union every consumer reads', () => {
+    const parsed = parseEvent({
+      id: 'evt-1',
+      ts: 1,
+      source: 'otel',
+      type: 'agent.activeTime',
+      payload: activeTime,
+    })
+    expect(parsed.ok).toBe(true)
+  })
+})
+
 describe('the thread dimension', () => {
   const cost = { lane: '33-core', role: 'worker' as const, model: 'claude-sonnet-5', costUsd: 1, authoritative: true }
 
@@ -296,6 +366,13 @@ describe('the thread dimension', () => {
       createEvent('tool.activity', { lane: 'l', tool: 'Bash', thread: 'auxiliary' }, { id: 'evt-3', ts: 1 })
         .payload.thread,
     ).toBe('auxiliary')
+    expect(
+      createEvent(
+        'agent.activeTime',
+        { lane: 'l', role: 'worker', activeSeconds: 1, thread: 'main' },
+        { id: 'evt-4', ts: 1 },
+      ).payload.thread,
+    ).toBe('main')
   })
 
   it('is optional, and explicitly nullable for a source that does not say', () => {

@@ -70,6 +70,11 @@ export interface EventFactory {
   llmUsage(payload?: Partial<PayloadOf<'llm.usage'>>, init?: Init<'llm.usage'>): EventOf<'llm.usage'>
   llmCost(payload?: Partial<PayloadOf<'llm.cost'>>, init?: Init<'llm.cost'>): EventOf<'llm.cost'>
   toolActivity(payload?: Partial<PayloadOf<'tool.activity'>>, init?: Init<'tool.activity'>): EventOf<'tool.activity'>
+  /** #141: OTel's `claude_code.active_time.total` counter, finally wired. */
+  agentActiveTime(
+    payload?: Partial<PayloadOf<'agent.activeTime'>>,
+    init?: Init<'agent.activeTime'>,
+  ): EventOf<'agent.activeTime'>
 
   /**
    * prd9 traces. The default is one `llm_request` span of the shape the
@@ -163,6 +168,15 @@ const defaults = {
     expectedInstance: 'fixture-instance',
     count: 1,
   },
+  // #141: a believable mid-session reading of the ignored active-time counter.
+  'agent.activeTime': {
+    lane: 'feature',
+    role: 'worker',
+    activeSeconds: 542,
+    sessionId: 'sess-feature',
+    worktreePath: `${FIXTURE_REPO_PATH}-wt/feature`,
+    branch: 'feature',
+  },
   // prd9: one `llm_request` span, shaped like the 2026-08-03 capture (§1) —
   // raw beta name, derived kind, tokens present but annotation-only.
   'trace.span': {
@@ -253,6 +267,7 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
     llmUsage: sugar('llm.usage'),
     llmCost: sugar('llm.cost'),
     toolActivity: sugar('tool.activity'),
+    agentActiveTime: sugar('agent.activeTime'),
     traceSpan: sugar('trace.span'),
   }
 

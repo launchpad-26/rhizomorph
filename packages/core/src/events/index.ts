@@ -67,6 +67,8 @@ export const EVENT_SOURCE_BY_TYPE = {
   'telemetry.refused': 'otel',
   // prd9: spans come off our own `/v1/traces` receiver and nowhere else.
   'trace.span': 'otel',
+  // #141: the active-time counter only ever arrives on our own metrics POST.
+  'agent.activeTime': 'otel',
 } as const satisfies Record<EventType, EventSource>
 
 export const EVENT_TYPES = Object.keys(EVENT_SOURCE_BY_TYPE) as EventType[]
