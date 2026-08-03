@@ -22,12 +22,13 @@ import { describe, expect, it } from 'vitest'
  * rendered assertion a differently-shaped regression could slip past.
  *
  * Scoped to the ice ramp specifically — the register this ruling is about.
- * `panels/ledger/index.tsx` still paints in stock Tailwind `slate-*` and the
- * pre-prd3 `void`/`neon-cyan` aliases; `theme.css`'s own "legacy aliases"
- * comment already tracks that debt for #77–#83's dissolution to retire, and
- * re-theming it wholesale here would be exactly the "organs, not air and ink"
- * this issue's brief rules out. It is out of this law's pattern by
- * construction, not by a silent allowlist.
+ * `panels/ledger/` used to paint in stock Tailwind `slate-*` and the
+ * pre-prd3 `void`/`neon-cyan` aliases, exempted here by construction while
+ * that debt waited on its own issue. #142 re-inked it into the ice ramp and
+ * status tokens, so it is walked like every other surface now — and, because
+ * the debt this test used to carve around must never silently return, the
+ * `the ledger names no legacy ink` describe below greps `panels/ledger/`
+ * itself for zero `slate-`/`void`/`neon-` classes, not just for the floor.
  *
  * `scene/` is excluded by the fence (#136 never touches canvas geometry), so
  * nothing under it is walked here either — the gate's own `git diff --stat`
@@ -133,5 +134,42 @@ describe('theme.css states the floor rather than just following it', () => {
   it('documents that text may not go dimmer than ice-400', () => {
     const theme = readFileSync(path.join(SRC_DIR, 'theme', 'theme.css'), 'utf8')
     expect(theme).toMatch(/anything\s+dimmer than `ice-400`/)
+  })
+})
+
+/**
+ * #142's own law: the ledger was the one surface this file used to carve out
+ * of the ice ramp entirely, painting in stock Tailwind `slate-*` and the
+ * pre-prd3 `void`/`neon-*` aliases while that debt waited on its own issue.
+ * Now that it is re-inked, the debt must never silently return — so this
+ * greps the ledger's own directory for the three legacy spellings directly,
+ * rather than trusting the ice-ramp-scoped checks above (which never named
+ * `slate`/`void`/`neon` in the first place) to catch a regression.
+ */
+describe('the ledger names no legacy ink', () => {
+  const LEDGER_PREFIX = 'panels/ledger/'
+  // `void` alone (TypeScript's return type) must not trip this — only the
+  // class shapes theme.css's legacy aliases actually take: `void-line`,
+  // `void-raised`, or a `bg-`/`text-`/`border-` prefix hyphenated onto `void`.
+  const LEGACY_CLASS = /\b(slate-[a-z0-9]+|[a-z]+-void(-[a-z]+)?|void-[a-z]+|neon-[a-z]+)\b/
+
+  function ledgerFiles(): { name: string; text: string }[] {
+    return sourceFiles().filter((f) => f.name.startsWith(LEDGER_PREFIX))
+  }
+
+  it('has ledger files to check at all — an empty walk proves nothing', () => {
+    expect(ledgerFiles().length).toBeGreaterThan(0)
+  })
+
+  it('never reaches for slate-, void or neon- anywhere under panels/ledger/', () => {
+    for (const file of ledgerFiles()) {
+      const lines = file.text.split('\n')
+      lines.forEach((line, index) => {
+        expect(
+          LEGACY_CLASS.test(line),
+          `${file.name}:${index + 1} still wears a legacy alias or stock Tailwind slate ink:\n  ${line.trim()}`,
+        ).toBe(false)
+      })
+    }
   })
 })
