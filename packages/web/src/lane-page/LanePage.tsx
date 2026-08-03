@@ -7,6 +7,7 @@ import { Conversation } from '../drawer/Conversation.js'
 import { foldActivity } from '../drawer/activity.js'
 import { MAIN_SELECTION, useFleet } from '../fleet/index.js'
 import type { FetchLike } from '../fleet/manifest.js'
+import { WhySurface } from '../why/index.js'
 import { PageHeader } from './PageHeader.js'
 import { SpendDetail } from './SpendDetail.js'
 import { TraceColumn } from './TraceColumn.js'
@@ -110,6 +111,14 @@ export function LanePage({ handle, fetchTranscript, transcriptPollMs }: LanePage
           <SpendDetail subject={{ kind: 'conductor' }} fleet={fleet} state={state.session} />
         </div>
 
+        <WhySurface
+          state={state.session}
+          laneLabel="the conductor"
+          laneHandle={CONDUCTOR_TELEMETRY_LANE}
+          now={fleet.now}
+          fetchTranscript={fetchTranscript}
+        />
+
         <ReplayBar />
       </div>
     )
@@ -157,6 +166,14 @@ export function LanePage({ handle, fetchTranscript, transcriptPollMs }: LanePage
         <SpendDetail subject={{ kind: 'lane', lane }} fleet={fleet} state={state.session} />
         <ActivityView entries={entries} now={fleet.now} />
       </div>
+
+      <WhySurface
+        state={state.session}
+        laneLabel={lane.label}
+        laneHandle={lane.handles.length === 1 ? lane.handles[0]! : null}
+        now={fleet.now}
+        fetchTranscript={fetchTranscript}
+      />
 
       <ReplayBar />
     </div>

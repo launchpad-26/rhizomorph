@@ -3,6 +3,7 @@ import { laneUrl, navigate } from '../app/router.js'
 import { useStream } from '../app/StreamContext.js'
 import { isMainSelected, MAIN_SELECTION, useFleet, useSelection } from '../fleet/index.js'
 import type { FetchLike } from '../fleet/manifest.js'
+import { WhySurface } from '../why/index.js'
 import { ActivityView } from './Activity.js'
 import { AttachButton, type CopyText } from './AttachButton.js'
 import { Conversation } from './Conversation.js'
@@ -141,6 +142,13 @@ export default function LaneDrawer({ fetchTranscript, transcriptPollMs, onCopy }
           <Vitals lane={lane} fleet={fleet} />
           <Conversation lane={lane.id} fetchImpl={fetchTranscript} pollMs={transcriptPollMs} />
           <ActivityView entries={entries} now={fleet.now} />
+          <WhySurface
+            state={state.session}
+            laneLabel={lane.label}
+            laneHandle={lane.handles.length === 1 ? lane.handles[0]! : null}
+            now={fleet.now}
+            fetchTranscript={fetchTranscript}
+          />
           <TraceSection state={state.session} lane={lane.id} />
           <AttachButton plan={plan} onCopy={onCopy} />
         </>
