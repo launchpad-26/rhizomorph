@@ -9,6 +9,7 @@ import {
 } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { parseMetricsExport, type OtelEmitter } from './parse-metrics.js'
+import type { OtlpKeyValue } from './types.js'
 
 function fixture(name: string): unknown {
   return JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'))
@@ -189,9 +190,99 @@ describe('parseMetricsExport', () => {
   })
 
   it('ignores metrics it does not recognise, silently — no events, no error', () => {
-    const result = parseMetricsExport(fixture('metrics-unknown-only.json'), testEmitter())
+    const trulyUnknown = {
+      resourceMetrics: [
+        {
+          scopeMetrics: [
+            { metrics: [{ name: 'claude_code.session.count', sum: { dataPoints: [{ asInt: '1' }] } }] },
+          ],
+        },
+      ],
+    }
+    const result = parseMetricsExport(trulyUnknown, testEmitter())
     expect(result.malformed).toBe(false)
     expect(result.events).toEqual([])
+  })
+
+  describe('claude_code.active_time.total (#141)', () => {
+    it('turns a datapoint into an agent.activeTime event — the metric this fixture was named for', () => {
+      // metrics-unknown-only.json predates this issue: it was captured as "a
+      // metric this receiver doesn't read yet", and it happens to be exactly
+      // `claude_code.active_time.total` — no `model` attribute, just
+      // `session.id`, the shape this metric actually sends.
+      const result = parseMetricsExport(fixture('metrics-unknown-only.json'), testEmitter())
+      expect(result.malformed).toBe(false)
+      expect(result.events).toHaveLength(1)
+      expect(result.events[0]).toMatchObject({
+        type: 'agent.activeTime',
+        source: 'otel',
+        payload: {
+          lane: '3-git',
+          role: 'worker',
+          activeSeconds: 42.5,
+          sessionId: 'sess-3-git',
+          worktreePath: null,
+          branch: null,
+        },
+      })
+    })
+
+    function activeTimeBody(dataPoint: Record<string, unknown>, resourceAttrs: OtlpKeyValue[] = []) {
+      return {
+        resourceMetrics: [
+          {
+            resource: { attributes: resourceAttrs },
+            scopeMetrics: [
+              { metrics: [{ name: 'claude_code.active_time.total', unit: 's', sum: { dataPoints: [dataPoint] } }] },
+            ],
+          },
+        ],
+      }
+    }
+
+    it('maps query_source to role and thread, exactly like the token/cost metrics', () => {
+      const result = parseMetricsExport(
+        activeTimeBody(
+          { attributes: [{ key: 'query_source', value: { stringValue: 'subagent' } }], asDouble: 10 },
+          [{ key: 'lane', value: { stringValue: '2-core' } }],
+        ),
+        testEmitter(),
+      )
+      expect(result.events[0]?.payload).toMatchObject({ role: 'worker', thread: 'subagent' })
+    })
+
+    it('never infers role from a lane literally named "conductor"', () => {
+      const result = parseMetricsExport(
+        activeTimeBody({ asDouble: 5 }, [{ key: 'lane', value: { stringValue: 'conductor' } }]),
+        testEmitter(),
+      )
+      expect(result.events[0]?.payload).toMatchObject({ lane: 'conductor', role: 'worker' })
+    })
+
+    it('falls back to the unattributed lane for an untagged session, never a hash lane', () => {
+      const result = parseMetricsExport(
+        activeTimeBody({ attributes: [{ key: 'session.id', value: { stringValue: 'sess-untagged' } }], asDouble: 8 }),
+        testEmitter(),
+      )
+      expect(result.events[0]?.payload).toMatchObject({ lane: 'unattributed' })
+    })
+
+    it('records a malformed datapoint (missing value) as a collector.error, not a thrown exception', () => {
+      const result = parseMetricsExport(activeTimeBody({ attributes: [] }), testEmitter())
+      expect(result.malformed).toBe(false)
+      expect(result.events).toHaveLength(1)
+      expect(result.events[0]).toMatchObject({ type: 'collector.error', payload: { collector: 'otel' } })
+    })
+
+    it('rejects a negative reading the same way it rejects a negative cost', () => {
+      const result = parseMetricsExport(activeTimeBody({ asDouble: -1 }), testEmitter())
+      expect(result.events[0]).toMatchObject({ type: 'collector.error' })
+    })
+
+    it('never requires a model attribute — unlike token.usage and cost.usage', () => {
+      const result = parseMetricsExport(activeTimeBody({ asDouble: 99 }), testEmitter())
+      expect(result.events[0]?.type).toBe('agent.activeTime')
+    })
   })
 
   it('records one collector.error per malformed datapoint but still processes the rest of the request', () => {

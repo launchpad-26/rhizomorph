@@ -28,6 +28,8 @@ export interface ParseMetricsResult {
 
 const TOKEN_USAGE_METRIC = 'claude_code.token.usage'
 const COST_USAGE_METRIC = 'claude_code.cost.usage'
+/** #141: exported on every metrics POST alongside the two above, ignored until now. */
+const ACTIVE_TIME_METRIC = 'claude_code.active_time.total'
 
 /** `type` attribute values `claude_code.token.usage` sends, mapped to the core event's token tiers (research §S1). */
 const TOKEN_TYPE_TO_TIER = {
@@ -38,9 +40,9 @@ const TOKEN_TYPE_TO_TIER = {
 } as const satisfies Record<string, keyof TokenUsagePayload>
 
 /**
- * Parses one `POST /v1/metrics` body into `llm.usage` / `llm.cost` events.
- * Pure: no I/O, no clock — the caller's `emitter` supplies ids and timestamps,
- * same as every other collector.
+ * Parses one `POST /v1/metrics` body into `llm.usage` / `llm.cost` /
+ * `agent.activeTime` events. Pure: no I/O, no clock — the caller's `emitter`
+ * supplies ids and timestamps, same as every other collector.
  *
  * Two failure modes stay distinct on purpose:
  * - the whole body isn't OTLP-shaped → `malformed: true`, no events, the route
@@ -50,8 +52,9 @@ const TOKEN_TYPE_TO_TIER = {
  *   request still succeeds, same as a poll collector logging one bad row
  *   without failing the whole tick.
  *
- * A metric name that isn't `claude_code.token.usage` or `claude_code.cost.usage`
- * is ignored silently — not an error, just a signal this receiver doesn't read yet.
+ * A metric name that isn't `claude_code.token.usage`, `claude_code.cost.usage`
+ * or `claude_code.active_time.total` is ignored silently — not an error, just
+ * a signal this receiver doesn't read yet.
  */
 export function parseMetricsExport(body: unknown, emitter: OtelEmitter): ParseMetricsResult {
   const parsed = exportMetricsRequestSchema.safeParse(body)
@@ -81,6 +84,10 @@ export function parseMetricsExport(body: unknown, emitter: OtelEmitter): ParseMe
         } else if (metric.name === COST_USAGE_METRIC) {
           for (const dp of metricDataPoints(metric)) {
             events.push(buildCostEvent(emitter, resourceAttrs, dp))
+          }
+        } else if (metric.name === ACTIVE_TIME_METRIC) {
+          for (const dp of metricDataPoints(metric)) {
+            events.push(buildActiveTimeEvent(emitter, resourceAttrs, dp))
           }
         }
       }
@@ -206,6 +213,43 @@ function buildCostEvent(
     estimateSource: null,
     // Same absence as buildUsageEvent's requestId: null — see the comment there.
     requestId: null,
+    sessionId,
+    worktreePath: null,
+    branch: null,
+    thread,
+  })
+}
+
+/**
+ * #141: `claude_code.active_time.total` carries no `model` attribute (unlike
+ * the two metrics above), so this is the one datapoint builder in the file
+ * that never checks for one. Everything else — lane/role resolution, the
+ * `session.id` join key, `thread` — reads through the same attribute
+ * allowlist `buildUsageEvent`/`buildCostEvent` already use.
+ */
+function buildActiveTimeEvent(
+  emitter: OtelEmitter,
+  resourceAttrs: OtlpKeyValue[] | undefined,
+  dp: OtlpNumberDataPoint,
+): RhizomorphEvent {
+  const value = dataPointValue(dp)
+  if (value === undefined || value < 0) {
+    return emitter.emit('collector.error', {
+      collector: 'otel',
+      message: `malformed ${ACTIVE_TIME_METRIC} datapoint: missing or invalid value`,
+    })
+  }
+
+  const lane = resolveLane(resourceAttrs, dp.attributes)
+  const querySource = attrString(dp.attributes, 'query_source')
+  const role = resolveRole(resourceAttrs, lane, querySource)
+  const thread = resolveThread(querySource)
+  const sessionId = attrString(dp.attributes, 'session.id') ?? null
+
+  return emitter.emit('agent.activeTime', {
+    lane,
+    role,
+    activeSeconds: value,
     sessionId,
     worktreePath: null,
     branch: null,
