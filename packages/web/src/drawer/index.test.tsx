@@ -233,6 +233,37 @@ describe('LaneDrawer — opening and closing from the one selection', () => {
   })
 })
 
+describe('LaneDrawer — the open-page affordance (prd9 B1b, #135)', () => {
+  it('links a real lane to its own deep-linkable page', async () => {
+    await renderDrawer()
+
+    const link = screen.getByTestId('drawer-open-page')
+    expect(link.tagName).toBe('A')
+    expect(link.getAttribute('href')).toBe(`/lane/${LANE}`)
+  })
+
+  it('navigates the SPA in place on a plain click, rather than reloading', async () => {
+    await renderDrawer()
+    window.history.replaceState(null, '', '/')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('drawer-open-page'), { button: 0 })
+    })
+
+    expect(window.location.pathname).toBe(`/lane/${LANE}`)
+    // The drawer is untouched by this click — it is a navigation, not a close.
+    expect(screen.getByTestId('lane-drawer')).toBeTruthy()
+
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('offers no such link for MAIN — the conductor is not a lane the page answers to', async () => {
+    await renderDrawer({ selected: MAIN_SELECTION, events: laneHistory() })
+
+    expect(screen.queryByTestId('drawer-open-page')).toBeNull()
+  })
+})
+
 describe('LaneDrawer — vitals', () => {
   it('shows the state glyph, its word and the evidence string', async () => {
     await renderDrawer()

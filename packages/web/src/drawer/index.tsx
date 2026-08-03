@@ -1,4 +1,5 @@
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, type MouseEvent, type ReactNode } from 'react'
+import { laneUrl, navigate } from '../app/router.js'
 import { useStream } from '../app/StreamContext.js'
 import { isMainSelected, MAIN_SELECTION, useFleet, useSelection } from '../fleet/index.js'
 import type { FetchLike } from '../fleet/manifest.js'
@@ -118,7 +119,10 @@ export default function LaneDrawer({ fetchTranscript, transcriptPollMs, onCopy }
       label={`Lane ${selectedId}`}
       onClose={clear}
       title={
-        <h2 className="min-w-0 truncate font-mono text-sm text-ice-100">{lane?.label ?? selectedId}</h2>
+        <span className="flex min-w-0 items-baseline gap-2">
+          <h2 className="min-w-0 truncate font-mono text-sm text-ice-100">{lane?.label ?? selectedId}</h2>
+          {lane === null ? null : <OpenPageLink handle={lane.id} />}
+        </span>
       }
     >
       {lane === null || plan === null ? (
@@ -142,6 +146,34 @@ export default function LaneDrawer({ fetchTranscript, transcriptPollMs, onCopy }
         </>
       )}
     </DrawerFrame>
+  )
+}
+
+/**
+ * THE OPEN-PAGE AFFORDANCE (prd9 B1b, #135) — the drawer's own entry point to
+ * the deep-linkable lane page. A real `<a href>`, not a bare button, so the
+ * usual modifier-click/middle-click ways of opening a link in a new tab keep
+ * working; a plain click instead swaps the SPA to the page in place, over
+ * the same `navigate` the page's own Esc/back uses, rather than a full
+ * reload the browser's default navigation would cost.
+ */
+function OpenPageLink({ handle }: { handle: string }) {
+  const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.defaultPrevented || event.button !== 0) return
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    event.preventDefault()
+    navigate(laneUrl(handle))
+  }
+
+  return (
+    <a
+      href={laneUrl(handle)}
+      onClick={onClick}
+      data-testid="drawer-open-page"
+      className="shrink-0 rounded border border-ice-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-ice-400 transition-[color,border-color] duration-150 ease-out hover:border-ice-600 hover:text-ice-100"
+    >
+      open page ↗
+    </a>
   )
 }
 
