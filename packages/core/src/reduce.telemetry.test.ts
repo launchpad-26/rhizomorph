@@ -540,6 +540,54 @@ describe('reduce — tool.activity', () => {
   })
 })
 
+describe('reduce — agent.activeTime', () => {
+  it('records the reading whole, exactly as reported — no accumulation in the fold', () => {
+    const state = reduceAll([
+      f.agentActiveTime(
+        { lane: '33-core', role: 'worker', activeSeconds: 542, sessionId: 'sess-a' },
+        { ts: 5_000 },
+      ),
+    ])
+    expect(state.telemetry.activeTime).toHaveLength(1)
+    expect(state.telemetry.activeTime[0]).toEqual({
+      eventId: 'evt-000001',
+      ts: 5_000,
+      origin: 'otel',
+      lane: '33-core',
+      role: 'worker',
+      activeSeconds: 542,
+      sessionId: 'sess-a',
+      worktreePath: '/repo/rhizomorph-wt/feature',
+      branch: 'feature',
+      thread: null,
+    })
+  })
+
+  it('keeps every reading, even two from the same session — folding a reset is the selector layer\'s job', () => {
+    const state = reduceAll([
+      f.agentActiveTime({ lane: 'a', sessionId: 'sess-a', activeSeconds: 250 }, { ts: 1_000 }),
+      // A lower reading than the one before it — a counter reset — is still
+      // recorded verbatim; the reducer never decides which reading "wins".
+      f.agentActiveTime({ lane: 'a', sessionId: 'sess-a', activeSeconds: 40 }, { ts: 2_000 }),
+    ])
+    expect(state.telemetry.activeTime.map((record) => record.activeSeconds)).toEqual([250, 40])
+  })
+
+  it('teaches the lane index, same as usage/cost/tool', () => {
+    const state = reduceAll([
+      f.agentActiveTime({ lane: 'new-lane', sessionId: 'sess-new', activeSeconds: 12 }),
+    ])
+    expect(state.telemetry.lanes['new-lane']).toBeDefined()
+  })
+
+  it('does not touch usage, costs or tools', () => {
+    const state = reduceAll([f.agentActiveTime({ lane: 'a' })])
+    expect(state.telemetry.usage).toEqual([])
+    expect(state.telemetry.costs).toEqual([])
+    expect(state.telemetry.tools).toEqual([])
+  })
+})
+
 describe('reduce — the lane index', () => {
   it('learns a lane from whichever telemetry event arrives first', () => {
     const state = reduceAll([
@@ -605,7 +653,14 @@ describe('reduce — the lane index', () => {
 describe('reduce — additivity', () => {
   it('leaves telemetry empty for a log that has none', () => {
     const state = reduceAll(fixtureSession())
-    expect(state.telemetry).toEqual({ usage: [], costs: [], tools: [], lanes: {}, sessions: {} })
+    expect(state.telemetry).toEqual({
+      usage: [],
+      costs: [],
+      tools: [],
+      activeTime: [],
+      lanes: {},
+      sessions: {},
+    })
   })
 
   it('folds the v0 half of a telemetry log to exactly the same state', () => {

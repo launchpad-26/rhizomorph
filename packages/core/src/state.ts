@@ -249,17 +249,41 @@ export interface SessionPlace {
   lastSeenAt: number
 }
 
+/**
+ * One reading of OTel's `claude_code.active_time.total` counter, kept whole —
+ * same rule as {@link UsageRecord} and {@link CostRecord}. `activeSeconds` is
+ * the raw cumulative value the export carried; nothing here sums readings
+ * together, because the counter can reset mid-session and only a selector
+ * that knows to watch for that (`selectors/activity.ts`) can fold it honestly.
+ */
+export interface ActiveTimeRecord {
+  eventId: string
+  ts: number
+  /** Always `otel` today — no other collector produces this metric. */
+  origin: TelemetryOrigin
+  lane: string
+  role: AgentRole
+  activeSeconds: number
+  sessionId: string | null
+  worktreePath: string | null
+  branch: string | null
+  /** Which thread of the session this reading belongs to; null when the source didn't say. */
+  thread: AgentThread | null
+}
+
 export interface TelemetryState {
   usage: UsageRecord[]
   costs: CostRecord[]
   tools: ToolActivityRecord[]
+  /** #141: OTel's active-time counter, one entry per reading. */
+  activeTime: ActiveTimeRecord[]
   lanes: Record<string, LaneAttribution>
   /** Session id → where it ran. See {@link SessionPlace}. */
   sessions: Record<string, SessionPlace>
 }
 
 export function initialTelemetryState(): TelemetryState {
-  return { usage: [], costs: [], tools: [], lanes: {}, sessions: {} }
+  return { usage: [], costs: [], tools: [], activeTime: [], lanes: {}, sessions: {} }
 }
 
 /**

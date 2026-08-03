@@ -4,6 +4,7 @@ import type {
 } from './events/index.js'
 import { totalTokens } from './events/index.js'
 import type {
+  ActiveTimeRecord,
   AgentState,
   BranchState,
   CollectorState,
@@ -88,6 +89,8 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       return llmCost(state, event)
     case 'tool.activity':
       return toolActivity(state, event)
+    case 'agent.activeTime':
+      return agentActiveTime(state, event)
     case 'telemetry.refused':
       // A refusal is a setup gap, not spend: it stays in the log (and on the
       // stream) for the UI to surface, and contributes nothing to any total.
@@ -618,6 +621,33 @@ function toolActivity(state: SessionState, event: EventOf<'tool.activity'>): Ses
   return withTelemetry(state, event, p, (telemetry) => ({
     ...telemetry,
     tools: [...telemetry.tools, record],
+  }))
+}
+
+/**
+ * The active-time counter, kept whole (#141). No accumulation happens here —
+ * a reading can be lower than the last one the same session sent (a restart
+ * reset the counter to zero), so summing at fold time would silently corrupt
+ * the record. `selectors/activity.ts` is where the honest fold — max reading
+ * per session, then summed per lane — happens, on read.
+ */
+function agentActiveTime(state: SessionState, event: EventOf<'agent.activeTime'>): SessionState {
+  const p = event.payload
+  const record: ActiveTimeRecord = {
+    eventId: event.id,
+    ts: event.ts,
+    origin: event.source,
+    lane: p.lane,
+    role: p.role,
+    activeSeconds: p.activeSeconds,
+    sessionId: p.sessionId ?? null,
+    worktreePath: p.worktreePath ?? null,
+    branch: p.branch ?? null,
+    thread: p.thread ?? null,
+  }
+  return withTelemetry(state, event, p, (telemetry) => ({
+    ...telemetry,
+    activeTime: [...telemetry.activeTime, record],
   }))
 }
 
