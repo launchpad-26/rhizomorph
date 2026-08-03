@@ -16,29 +16,23 @@ everything past them is depth for once you've decided.
 
 ## Install and run
 
-```sh
-npx rhizomorph <path-to-repo>
-```
-
-That builds nothing and installs nothing permanent — `npx` fetches the
-package, runs it, and prints a URL (`http://127.0.0.1:4321` by default).
-Open it in a browser. Omit the path to watch the current directory.
-
-If you'd rather build it yourself, or want to read the source before
-running it — a reasonable instinct for a tool that reads your agent
-sessions, see [Trust](#trust) below — clone and run it directly:
+There's no published package (see
+[When this is published to npm](#when-this-is-published-to-npm) below) — the
+cohort inherits a clonable repo, so the clone block below *is* the install
+story. Four commands, on a plain terminal, no undocumented steps:
 
 ```sh
 git clone https://github.com/KelliherL/worktrees-challenge rhizomorph
 cd rhizomorph
 npm install
 npm run build   # builds the dashboard once; the server serves it statically
-npm start       # boots collectors + API on http://127.0.0.1:4321, watching the cwd
+npm start -- <path-to-repo>   # boots collectors + API on http://127.0.0.1:4321
 ```
 
-Both paths run the same code. To watch a different repo or pass flags,
-forward them after `--`: `npm start -- <path-to-repo> --port 5000`
-(clone-and-run) or `npx rhizomorph <path-to-repo> --port 5000` (npx).
+Omit the path (just `npm start`) to watch the current directory instead of
+some other repo. Either way it prints the URL it's listening on
+(`http://127.0.0.1:4321` by default) — open it in a browser. To pass other
+flags, forward them the same way: `npm start -- <path-to-repo> --port 5000`.
 
 | Flag | Default | Meaning |
 |---|---|---|
@@ -54,7 +48,7 @@ Not sure something's missing rather than actually broken? Run the one
 command that explains every gap at once:
 
 ```sh
-npx rhizomorph doctor <path-to-repo>
+npm start -- doctor <path-to-repo>
 ```
 
 It checks the Node version, that the target path exists and is a git repo,
@@ -64,6 +58,17 @@ logs, tmux/workmux on `PATH`, the telemetry env, and the lane manifest — one
 non-zero only when the app genuinely cannot run at all (bad path, not a git
 repo, no web build, port already taken); everything else is a `warn` that
 degrades gracefully rather than a reason to stop.
+
+### When this is published to npm
+
+Not yet true — flagged here so it reads as a stated future, not a command
+you can run. The operator's ruling for this handover is no npm publish: the
+cohort inherits this clonable repo instead, and the release machinery stays
+dormant, not deleted. Right now, `npx rhizomorph <path-to-repo>` 404s
+(`npm error 404 'rhizomorph@*' is not in this registry`) — there is no
+package to fetch. Once one is published, that single command will fetch and
+run it with nothing installed permanently, no clone required — the same
+code the clone path above runs today, just fewer steps to get there.
 
 ## Trust
 
@@ -76,6 +81,13 @@ branches, commits — read-only, no writes); tmux panes and
 [workmux](https://github.com/raine/workmux) state, if either is installed
 (neither is required); and, to show an agent's actual conversation in the
 lane drawer, your own Claude Code session logs under `~/.claude/projects`.
+
+**What it writes:** its own recording of what it saw — a plain JSON-lines
+session log under `~/.local/share/rhizomorph/<repo-slug>/`, one file per
+session (a restart within a few hours resumes the same one; see `--fresh`
+above), never anything inside the repo you're watching. That log is what
+makes Replay possible; delete the directory and the next boot starts a
+fresh recording with nothing lost from the repo itself.
 
 **Where it listens:** `127.0.0.1` only, on the port you choose (default
 `4321`). It does not bind a public interface. If you also point a live
@@ -196,9 +208,13 @@ refuses to print a block for a port nothing is listening on), get the exact,
 export-ready block for any lane with:
 
 ```sh
-npx rhizomorph env <lane> [--role worker|conductor|auxiliary|unattributed] [--port <n>]
-eval "$(npx rhizomorph env test-lane)"   # then launch claude in the same shell
+npm start --silent -- env <lane> [--role worker|conductor|auxiliary|unattributed] [--port <n>]
+eval "$(npm start --silent -- env test-lane)"   # then launch claude in the same shell
 ```
+
+(`--silent` is npm's flag, not rhizomorph's — it just keeps npm's own
+`> rhizomorph@0.1.0 start` banner out of the block that `eval` reads;
+without it, `eval` chokes on that first line.)
 
 `.workmux.yaml` already wires this into every worker lane automatically —
 nothing to enable by hand for a worker. A conductor, or any lane whose Claude
