@@ -1,15 +1,21 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { cleanup, render } from '@testing-library/react'
+import { createElement } from 'react'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   escapeShouldExitFocus,
   isPanelCollapsed,
   isScenePref,
+  requestPanelFocus,
   setPanelCollapsed,
   setScenePref,
+  useFocusRequest,
 } from './panelPrefs.js'
 
 beforeEach(() => {
   localStorage.clear()
 })
+
+afterEach(cleanup)
 
 describe('panelPrefs', () => {
   it('defaults every panel to expanded, including collisions (deliberate ruling)', () => {
@@ -96,6 +102,37 @@ describe('the scene prefs — hide-finished (prd5 ruling 3)', () => {
   it('falls back to visible when the stored JSON is malformed', () => {
     localStorage.setItem('rhizomorph.scenePrefs.v1', 'not json at all')
     expect(isScenePref('hideFinished')).toBe(false)
+  })
+})
+
+describe('requestPanelFocus / useFocusRequest (prd9 B1a — FOCUS TRACE\'s own trigger)', () => {
+  function Listener({ id, onRequest }: { id: string; onRequest: () => void }) {
+    useFocusRequest(id, onRequest)
+    return null
+  }
+
+  it('reaches a listener registered for that id, and no other', () => {
+    const heard: string[] = []
+    render(createElement(Listener, { id: 'trace', onRequest: () => heard.push('trace') }))
+    render(createElement(Listener, { id: 'fleet', onRequest: () => heard.push('fleet') }))
+
+    requestPanelFocus('trace')
+
+    expect(heard).toEqual(['trace'])
+  })
+
+  it('is inert when nobody is listening for that id — a request with no owner is not an error', () => {
+    expect(() => requestPanelFocus('nobody-home')).not.toThrow()
+  })
+
+  it('stops hearing once its component unmounts', () => {
+    const heard: string[] = []
+    const { unmount } = render(createElement(Listener, { id: 'trace', onRequest: () => heard.push('trace') }))
+
+    unmount()
+    requestPanelFocus('trace')
+
+    expect(heard).toEqual([])
   })
 })
 

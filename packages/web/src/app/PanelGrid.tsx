@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from 'react'
 import { ErrorBoundary } from './ErrorBoundary.js'
 import { PanelFrame } from './PanelFrame.js'
-import { usePanelFocus } from './panelPrefs.js'
+import { useFocusRequest, usePanelFocus } from './panelPrefs.js'
 import { SceneSlot } from './SceneSlot.js'
 
 /**
@@ -39,6 +39,7 @@ const LedgerPanel = lazy(() => import('../panels/ledger/index.js'))
 const CollisionsPanel = lazy(() => import('../panels/collisions/index.js'))
 const FeedPanel = lazy(() => import('../panels/feed/index.js'))
 const Scene = lazy(() => import('../scene/index.js'))
+const TraceFocusPanel = lazy(() => import('../trace/FocusPanel.js'))
 
 /**
  * Panel ids, in curated order — what `panelPrefs` persists collapse state
@@ -51,6 +52,15 @@ export const PANEL_IDS = ['scene', 'fleet', 'ledger', 'collisions', 'feed'] as c
 
 /** The id `PanelGrid` uses to track the scene's own focus alongside the rest. */
 const SCENE_ID = 'scene'
+
+/**
+ * prd9 B1a's FOCUS TRACE (prd3 #85's mechanism, one more panel). Not in
+ * {@link PANEL_IDS}: that list is specifically the collapse-persistence ids
+ * (`usePanelCollapsed`), and trace has no collapsed state to persist — it has
+ * no inline presence in the curated order at all, only a focused one, opened
+ * from the drawer's own `FOCUS ↗` rather than a button drawn here.
+ */
+const TRACE_ID = 'trace'
 
 function PanelFallback() {
   return (
@@ -116,6 +126,63 @@ export function PanelGrid() {
           </Suspense>
         </PanelFrame>
       </div>
+
+      {/* No inline slot: focused only, requested from the drawer's TRACE
+          section rather than a button in this grid — see `FocusableTrace`. */}
+      <FocusableTrace hidden={hiddenFor(TRACE_ID)} onFocusChange={onFocusChangeFor(TRACE_ID)} />
+    </div>
+  )
+}
+
+/**
+ * FOCUS TRACE's own chrome (prd3 #85, applied to prd9's gantt). Unlike every
+ * other panel here it draws nothing when unfocused — the compact tree already
+ * lives in the drawer, so the curated order gains no new row for it — and it
+ * is never focused by a button of its own: `useFocusRequest` is what the
+ * drawer's `FOCUS ↗` reaches, the same `usePanelFocus` every other panel
+ * already answers Esc and "one at a time" through.
+ */
+function FocusableTrace({
+  hidden,
+  onFocusChange,
+}: {
+  hidden: boolean
+  onFocusChange: (focused: boolean) => void
+}) {
+  const { focused, focus, restore } = usePanelFocus(onFocusChange)
+  useFocusRequest(TRACE_ID, focus)
+
+  if (hidden || !focused) return null
+
+  return (
+    <div className="fixed inset-0 z-30 flex flex-col bg-ice-1000 p-4">
+      <div className="mb-1 flex items-center justify-between px-1">
+        <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-ice-400">Trace</h2>
+        <button
+          type="button"
+          aria-pressed={true}
+          onClick={restore}
+          className="rounded border border-ice-850 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ice-400 hover:border-ice-600 hover:text-ice-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600"
+        >
+          Restore Trace
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        <ErrorBoundary fallback={<TraceErrorFallback />}>
+          <Suspense fallback={<PanelFallback />}>
+            <TraceFocusPanel />
+          </Suspense>
+        </ErrorBoundary>
+      </div>
+    </div>
+  )
+}
+
+/** Law 12's voice even here: what is missing, and what is unaffected by it. */
+function TraceErrorFallback() {
+  return (
+    <div className="flex h-full items-center justify-center px-4 text-center text-xs uppercase tracking-widest text-broken">
+      trace unavailable — other panels are unaffected
     </div>
   )
 }

@@ -165,6 +165,39 @@ export interface PanelFocusHandle {
  * panel at a time invariant lives one level up, in whoever renders more than
  * one of these.
  */
+/**
+ * FOCUS TRACE's own trigger (prd9 B1a): the drawer's `FOCUS ↗` affordance and
+ * the panel it focuses are siblings under `Shell`, not parent/child, so there
+ * is no prop path between "the button was clicked" and "this panel's own
+ * `usePanelFocus` should flip on". This is that path — a request by panel id,
+ * heard by whichever `usePanelFocus` owner is listening for it — rather than
+ * a second, competing focus mechanism. Deliberately not persisted (unlike the
+ * stores above): a reload must land back on the curated order, same as every
+ * other focus, never mid-request.
+ */
+const focusRequestListeners = new Map<string, Set<() => void>>()
+
+/** Ask whichever panel is listening for `id` to focus itself. */
+export function requestPanelFocus(id: string): void {
+  for (const listener of focusRequestListeners.get(id) ?? []) listener()
+}
+
+/** Hear `requestPanelFocus(id)` calls from elsewhere in the tree. */
+export function useFocusRequest(id: string, onRequest: () => void): void {
+  const onRequestRef = useRef(onRequest)
+  onRequestRef.current = onRequest
+
+  useEffect(() => {
+    const listener = () => onRequestRef.current()
+    const listeners = focusRequestListeners.get(id) ?? new Set()
+    listeners.add(listener)
+    focusRequestListeners.set(id, listeners)
+    return () => {
+      listeners.delete(listener)
+    }
+  }, [id])
+}
+
 export function usePanelFocus(onChange?: (focused: boolean) => void): PanelFocusHandle {
   const [focused, setFocused] = useState(false)
   const { selectedId } = useSelection()

@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PANEL_IDS, PanelGrid } from './PanelGrid.js'
+import { requestPanelFocus } from './panelPrefs.js'
 
 // Stub the lazily-imported panels so this test is about the *registry* — which
 // panels are mounted, in what order, and whether collapse stays per-panel —
@@ -11,6 +12,11 @@ vi.mock('../panels/ledger/index.js', () => ({ default: () => <h2>Ledger</h2> }))
 vi.mock('../panels/collisions/index.js', () => ({ default: () => <h2>Collisions</h2> }))
 vi.mock('../panels/feed/index.js', () => ({ default: () => <h2>Activity</h2> }))
 vi.mock('../scene/index.js', () => ({ default: () => <div>Scene stub</div> }))
+// prd9 B1a: the real content needs `StreamProvider`/`SelectionProvider`, which
+// this file deliberately doesn't wire up (see the comment above) — the grid's
+// own focus chrome (`FocusableTrace`) is what's under test here, not the
+// gantt's real data.
+vi.mock('../trace/FocusPanel.js', () => ({ default: () => <h2>Trace</h2> }))
 
 // Mocking the lazy modules (above) makes their dynamic import() trivial, but
 // it's still a real import() — React.lazy still suspends for at least one
@@ -34,6 +40,7 @@ beforeAll(async () => {
   await import('../panels/collisions/index.js')
   await import('../panels/feed/index.js')
   await import('../scene/index.js')
+  await import('../trace/FocusPanel.js')
 })
 
 beforeEach(() => {
@@ -161,6 +168,34 @@ describe('PanelGrid', () => {
       expect(screen.getByText('Scene stub')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /collapse scene/i })).toBeInTheDocument()
       expect(screen.getByText('Fleet')).toBeInTheDocument()
+    })
+
+    it('FOCUS TRACE (prd9 B1a): drawn nowhere in the curated order, requested externally, and behaves exactly like every other focus', async () => {
+      await renderGrid()
+
+      // No inline slot at all — unlike every other panel, trace has nothing to
+      // show until it is focused (the compact tree already lives in the
+      // drawer).
+      expect(screen.queryByText('Trace')).not.toBeInTheDocument()
+
+      // The drawer's own `FOCUS ↗` button is what calls this in the real app —
+      // this test drives the same request without mounting the drawer.
+      act(() => requestPanelFocus('trace'))
+      await act(async () => {})
+
+      // Both the focus chrome's own header and the (mocked) gantt content say
+      // "Trace" — two elements, not zero, is the thing under test.
+      expect(screen.getAllByText('Trace')).toHaveLength(2)
+      expect(screen.getByRole('button', { name: 'Restore Trace' })).toBeInTheDocument()
+      expect(screen.queryByText('Fleet')).not.toBeInTheDocument()
+      expect(screen.queryByText('Ledger')).not.toBeInTheDocument()
+      expect(screen.queryByText('Scene stub')).not.toBeInTheDocument()
+
+      fireEvent.keyDown(window, { key: 'Escape' })
+
+      expect(screen.queryByText('Trace')).not.toBeInTheDocument()
+      expect(screen.getByText('Fleet')).toBeInTheDocument()
+      expect(screen.getByText('Scene stub')).toBeInTheDocument()
     })
   })
 })
