@@ -26,6 +26,40 @@ describe('renderTelemetryEnv', () => {
     )
   })
 
+  /**
+   * prd9 — the trace era: `rhizomorph env` learns the trace beta gate (research
+   * note §1's "two extra lines"). Pinned to the exact full block, in order, so
+   * this fails the moment a new line lands anywhere but where it was placed, or
+   * an existing line moves.
+   */
+  it('emits exactly the three new trace-beta lines, with every existing line unmoved', () => {
+    const block = renderTelemetryEnv({ lane: 'test-lane', role: 'worker', port: 4321, instance })
+
+    expect(block).toBe(
+      [
+        'export CLAUDE_CODE_ENABLE_TELEMETRY=1',
+        'export CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1',
+        'export OTEL_METRICS_EXPORTER=otlp',
+        'export OTEL_LOGS_EXPORTER=otlp',
+        'export OTEL_TRACES_EXPORTER=otlp',
+        'export OTEL_EXPORTER_OTLP_PROTOCOL=http/json',
+        'export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4321',
+        'export OTEL_METRIC_EXPORT_INTERVAL=5000',
+        'export OTEL_LOGS_EXPORT_INTERVAL=2000',
+        'export OTEL_TRACES_EXPORT_INTERVAL=1000',
+        `export OTEL_RESOURCE_ATTRIBUTES=lane=test-lane,role=worker,instance=${instance}`,
+        '',
+      ].join('\n'),
+    )
+  })
+
+  it('does not set OTEL_EXPORTER_OTLP_ENDPOINT per-signal — the SDK appends /v1/traces to the shared base', () => {
+    // Ruling: protocol/endpoint lines already cover traces once OTEL_TRACES_EXPORTER
+    // is set, so there must be no separate traces endpoint line.
+    const block = renderTelemetryEnv({ lane: 'test-lane', role: 'worker', port: 4321, instance })
+    expect(block).not.toMatch(/OTEL_EXPORTER_OTLP_TRACES_ENDPOINT/)
+  })
+
   it('carries the role through for a conductor', () => {
     const block = renderTelemetryEnv({ lane: 'conductor', role: 'conductor', port: 9000, instance })
     expect(block).toContain(

@@ -5,10 +5,12 @@ import type { AgentRole } from '@rhizomorph/core'
  * process exports OTLP/HTTP JSON straight to this server's receiver
  * (`packages/server/src/api/otel.ts`, routes registered at the app root).
  * `OTEL_EXPORTER_OTLP_ENDPOINT` is the *base* endpoint — the OTel SDK appends
- * `/v1/metrics` and `/v1/logs` itself, which is exactly where those routes
- * live. Export intervals are shortened from the SDK's 60s default so the
- * spend ticker reads as live, not stale (research note §S1 used the same
- * env vars, just shorter still, for a one-shot `-p` capture).
+ * `/v1/metrics`, `/v1/logs` and (once `OTEL_TRACES_EXPORTER` is set,
+ * prd9 ruling 3) `/v1/traces` itself, which is exactly where those routes
+ * live. Export intervals are shortened from the SDK's 60s (traces: 5s)
+ * default so the spend ticker and the trace waterfall both read as live, not
+ * stale (research note §S1 used the same env vars, just shorter still, for a
+ * one-shot `-p` capture).
  *
  * Identity is declared here and nowhere else (prd2's ruling): the block names
  * the lane, its role, and — since #60 — the **instance** the telemetry belongs
@@ -30,6 +32,8 @@ export interface TelemetryEnvOptions {
 
 const METRIC_EXPORT_INTERVAL_MS = 5000
 const LOGS_EXPORT_INTERVAL_MS = 2000
+/** Shortened from the SDK's 5000ms beta default (research note §1), same reasoning as the other two intervals. */
+const TRACES_EXPORT_INTERVAL_MS = 1000
 
 export function otlpEndpoint(port: number): string {
   return `http://127.0.0.1:${port}`
@@ -43,12 +47,15 @@ export function metaUrl(port: number): string {
 export function renderTelemetryEnv({ lane, role, port, instance }: TelemetryEnvOptions): string {
   const vars: Array<[string, string]> = [
     ['CLAUDE_CODE_ENABLE_TELEMETRY', '1'],
+    ['CLAUDE_CODE_ENHANCED_TELEMETRY_BETA', '1'],
     ['OTEL_METRICS_EXPORTER', 'otlp'],
     ['OTEL_LOGS_EXPORTER', 'otlp'],
+    ['OTEL_TRACES_EXPORTER', 'otlp'],
     ['OTEL_EXPORTER_OTLP_PROTOCOL', 'http/json'],
     ['OTEL_EXPORTER_OTLP_ENDPOINT', otlpEndpoint(port)],
     ['OTEL_METRIC_EXPORT_INTERVAL', String(METRIC_EXPORT_INTERVAL_MS)],
     ['OTEL_LOGS_EXPORT_INTERVAL', String(LOGS_EXPORT_INTERVAL_MS)],
+    ['OTEL_TRACES_EXPORT_INTERVAL', String(TRACES_EXPORT_INTERVAL_MS)],
     ['OTEL_RESOURCE_ATTRIBUTES', `lane=${lane},role=${role},instance=${instance}`],
   ]
 
