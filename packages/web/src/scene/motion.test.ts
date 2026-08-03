@@ -223,11 +223,18 @@ describe('the alarm pulse ages (ruling 5)', () => {
     // period moves, because `now` is an epoch. This is the assertion that
     // catches anyone who reintroduces it.
     let previous = alarmPulse(0, 'full').throb
+    let maxJump = 0
+    let maxJumpAge = 0
     for (let age = 8; age <= RECENCY_SPAN_MS * 1.5; age += 8) {
       const { throb } = alarmPulse(age, 'full')
-      expect(Math.abs(throb - previous), `throb jumped at age ${age}ms`).toBeLessThan(0.05)
+      const jump = Math.abs(throb - previous)
+      if (jump > maxJump) {
+        maxJump = jump
+        maxJumpAge = age
+      }
       previous = throb
     }
+    expect(maxJump, `throb jumped at age ${maxJumpAge}ms`).toBeLessThan(0.05)
   })
 
   it('stays inside its band and completes real cycles', () => {
