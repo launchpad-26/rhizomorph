@@ -1,5 +1,6 @@
 import type { AgentRole, AgentThread, TelemetryOrigin, TokenUsagePayload } from '../events/index.js'
 import { AGENT_ROLES, AGENT_THREADS, ZERO_TOKENS, addTokens, totalTokens } from '../events/index.js'
+import { estimateCostUsd } from '../pricing/index.js'
 import type { CostRecord, SessionState, ToolActivityRecord, UsageRecord } from '../state.js'
 import { compareStrings } from './touches.js'
 
@@ -8,7 +9,7 @@ import { compareStrings } from './touches.js'
  * calls whole; every total, rate, split and ratio is computed here, so the live
  * ticker and a replay scrubbed to the same moment cannot disagree.
  *
- * Two honesty rules run through the whole file:
+ * Three honesty rules run through the whole file:
  *
  * 1. **Dollars are never invented.** `costUsd` counts only what a `llm.cost`
  *    event carried, and `costIsAuthoritative` says whether the agent CLI
@@ -20,6 +21,14 @@ import { compareStrings } from './touches.js'
  *    log, not a bug to paper over here, so every selector takes an `origins`
  *    filter and the caller picks a token authority (`origins: ['sessionlog']`
  *    is the usual answer, since it is the one with cache-tier detail).
+ * 3. **A lane with no cost telemetry at all gets a flagged estimate, never a
+ *    silent gap.** prd9 ruling 7: when a lane has never reported a single
+ *    `llm.cost` (authoritative or otherwise), its `llm.usage` tokens are
+ *    priced on read from the vendored table (`../pricing`) — per usage
+ *    record, so a model the table's patterns miss stays an honest gap even
+ *    inside an otherwise-priced lane. The moment a lane reports even one real
+ *    cost event, this file leaves it alone entirely — see
+ *    {@link SpendTotals.estimateSources}.
  */
 
 /**
@@ -65,6 +74,16 @@ export interface SpendTotals {
   costEventCount: number
   /** How many of those were our estimate rather than the CLI's own number. */
   estimatedCostEventCount: number
+  /**
+   * Which vendored pricing tables contributed a dollar to this total, e.g.
+   * `['langfuse-prices@cfac485']` — empty whenever `estimatedCostUsd` is zero.
+   * `estimatedCostUsd` is never a bare number: this is the "flagged" half of
+   * prd9 ruling 7's estimate vocabulary at the selector level (the per-event
+   * half is `CostRecord.estimateSource`). Optional only so a hand-built
+   * `SpendTotals` literal predating this field (a formatter unit test, say)
+   * still type-checks; every selector in this file always sets it.
+   */
+  estimateSources?: string[]
   toolCallCount: number
   /** Distinct models, alphabetical. */
   models: string[]
@@ -142,7 +161,8 @@ export interface LaneRoleSpend extends SpendTotals {
 
 export function selectSessionSpend(state: SessionState, filter: SpendFilter = {}): SpendTotals {
   const acc = createAcc()
-  for (const record of usageIn(state, filter)) addUsage(acc, record)
+  const coverage = costCoverage(state, filter)
+  for (const record of usageIn(state, filter)) addUsage(acc, record, coverage)
   for (const record of costsIn(state, filter)) addCost(acc, record)
   for (const record of toolsIn(state, filter)) addTool(acc, record)
   return finalise(acc)
@@ -178,10 +198,11 @@ export function selectLaneSpend(state: SessionState, filter: SpendFilter = {}): 
     return fresh
   }
 
+  const coverage = costCoverage(state, filter)
   for (const lane of Object.keys(state.telemetry.lanes)) laneAcc(lane)
   for (const record of usageIn(state, filter)) {
-    addUsage(laneAcc(record.lane), record)
-    addUsage(threadAcc(record.lane, record.thread), record)
+    addUsage(laneAcc(record.lane), record, coverage)
+    addUsage(threadAcc(record.lane, record.thread), record, coverage)
   }
   for (const record of costsIn(state, filter)) {
     addCost(laneAcc(record.lane), record)
@@ -280,8 +301,9 @@ export function selectSpendByLaneRole(
     return fresh
   }
 
+  const coverage = costCoverage(state, filter)
   for (const record of usageIn(state, filter)) {
-    addUsage(laneRoleAcc(record.lane, record.role), record)
+    addUsage(laneRoleAcc(record.lane, record.role), record, coverage)
   }
   for (const record of costsIn(state, filter)) {
     addCost(laneRoleAcc(record.lane, record.role), record)
@@ -368,9 +390,10 @@ export function selectSpendByBranch(state: SessionState, filter: SpendFilter = {
   for (const record of state.telemetry.costs) if (record.branch !== null) branchAcc(record.branch)
   for (const record of state.telemetry.tools) if (record.branch !== null) branchAcc(record.branch)
 
+  const coverage = costCoverage(state, filter)
   for (const record of usageIn(state, filter)) {
     if (record.branch === null) continue
-    addUsage(branchAcc(record.branch), record)
+    addUsage(branchAcc(record.branch), record, coverage)
     track(record.branch, record.lane)
   }
   for (const record of costsIn(state, filter)) {
@@ -456,7 +479,10 @@ export function selectModelSpend(state: SessionState, filter: SpendFilter = {}):
     return fresh
   }
 
-  for (const record of usageIn(state, filter)) addUsage(modelAcc(record.model, record.lane), record)
+  const coverage = costCoverage(state, filter)
+  for (const record of usageIn(state, filter)) {
+    addUsage(modelAcc(record.model, record.lane), record, coverage)
+  }
   for (const record of costsIn(state, filter)) addCost(modelAcc(record.model, record.lane), record)
 
   return [...accs.entries()]
@@ -523,7 +549,10 @@ export function selectRoleSpend(state: SessionState, filter: SpendFilter = {}): 
     return fresh
   }
 
-  for (const record of usageIn(state, filter)) addUsage(track(record.role, record.lane), record)
+  const coverage = costCoverage(state, filter)
+  for (const record of usageIn(state, filter)) {
+    addUsage(track(record.role, record.lane), record, coverage)
+  }
   for (const record of costsIn(state, filter)) addCost(track(record.role, record.lane), record)
   for (const record of toolsIn(state, filter)) {
     // A tool call with no reported role is counted in the session totals but
@@ -713,6 +742,7 @@ interface Acc {
   requestCount: number
   costEventCount: number
   estimatedCostEventCount: number
+  estimateSources: Set<string>
   toolCallCount: number
   models: Set<string>
   roles: Set<AgentRole>
@@ -729,6 +759,7 @@ function createAcc(): Acc {
     requestCount: 0,
     costEventCount: 0,
     estimatedCostEventCount: 0,
+    estimateSources: new Set(),
     toolCallCount: 0,
     models: new Set(),
     roles: new Set(),
@@ -744,12 +775,56 @@ function touch(acc: Acc, ts: number, origin: TelemetryOrigin): void {
   acc.lastTs = acc.lastTs === null ? ts : Math.max(acc.lastTs, ts)
 }
 
-function addUsage(acc: Acc, record: UsageRecord): void {
+/**
+ * Every lane, and every session id, that has reported at least one real
+ * `llm.cost` event within the current filter window — see
+ * {@link costCoverage}. Computed once per selector call, independent of
+ * whichever dimension (lane, model, role, branch…) this particular `acc`
+ * represents, so a usage record's estimate-or-not fact is the same no matter
+ * which selector groups it. That is what keeps `selectModelSpend`'s totals
+ * reconciling with `selectLaneSpend`'s: pricing a per-model bucket by its OWN
+ * cost-event count would double-decide the same tokens two different ways
+ * depending on the grouping.
+ *
+ * `sessions` exists because dollars and tokens for one real session can land
+ * under two different lane handles — OTel's cost event carries no cwd, so
+ * it is attributed under whatever `lane=` resource attribute it had (or
+ * none), while sessionlog's usage carries the real worktree lane. That is
+ * the exact join `selectSpendForBranch` already relies on (see "cost that
+ * reaches the rollups", prd2 wave C); a usage record already priced via that
+ * join must not gain a second, selector-derived estimate under its own lane.
+ */
+interface CostCoverage {
+  lanes: ReadonlySet<string>
+  sessions: ReadonlySet<string>
+}
+
+/**
+ * A lane or session already in `coverage` is left untouched here — prd9
+ * ruling 7's "a lane with real llm.cost is unchanged". Anything else gets
+ * priced per record, per its own model, from the vendored table; a model the
+ * table's patterns miss stays an honest gap (no estimate for that record),
+ * even while other records in the same lane succeed.
+ */
+function addUsage(acc: Acc, record: UsageRecord, coverage: CostCoverage): void {
   acc.tokens = addTokens(acc.tokens, record.tokens)
   acc.requestCount += 1
   acc.models.add(record.model)
   acc.roles.add(record.role)
   touch(acc, record.ts, record.origin)
+
+  const covered =
+    coverage.lanes.has(record.lane) ||
+    (record.sessionId !== null && coverage.sessions.has(record.sessionId))
+  if (!covered) {
+    const estimate = estimateCostUsd(record.model, record.tokens)
+    if (estimate !== null) {
+      acc.estimatedCostUsd += estimate.costUsd
+      acc.estimatedCostEventCount += 1
+      acc.costEventCount += 1
+      acc.estimateSources.add(estimate.source)
+    }
+  }
 }
 
 function addCost(acc: Acc, record: CostRecord): void {
@@ -783,6 +858,7 @@ function finalise(acc: Acc): SpendTotals {
     requestCount: acc.requestCount,
     costEventCount: acc.costEventCount,
     estimatedCostEventCount: acc.estimatedCostEventCount,
+    estimateSources: [...acc.estimateSources].sort(compareStrings),
     toolCallCount: acc.toolCallCount,
     models: [...acc.models].sort(compareStrings),
     roles: AGENT_ROLES.filter((role) => acc.roles.has(role)),
@@ -802,6 +878,7 @@ function mergeTotals(entries: readonly SpendTotals[]): SpendTotals {
     acc.requestCount += entry.requestCount
     acc.costEventCount += entry.costEventCount
     acc.estimatedCostEventCount += entry.estimatedCostEventCount
+    for (const source of entry.estimateSources ?? []) acc.estimateSources.add(source)
     acc.toolCallCount += entry.toolCallCount
     for (const model of entry.models) acc.models.add(model)
     for (const role of entry.roles) acc.roles.add(role)
@@ -845,6 +922,27 @@ function toolsIn(state: SessionState, filter: SpendFilter): ToolActivityRecord[]
   return state.telemetry.tools.filter(
     (record) => inWindow(record.ts, filter) && fromOrigin(record.origin, filter),
   )
+}
+
+/**
+ * Every lane and session id with at least one real `llm.cost` event inside
+ * the same window and origin filter as everything else — but never narrowed
+ * by `filter.costs`. That option asks "which dollars should I *render*"
+ * (authoritative-only, estimated-only); it is not a claim that the other
+ * kind stopped existing, so a `{ costs: 'estimated' }` read must not treat an
+ * authoritative-only lane as uncovered and pile a second, selector-derived
+ * estimate on top of it. See {@link CostCoverage} for why sessions ride
+ * alongside lanes here.
+ */
+function costCoverage(state: SessionState, filter: SpendFilter): CostCoverage {
+  const lanes = new Set<string>()
+  const sessions = new Set<string>()
+  for (const record of state.telemetry.costs) {
+    if (!inWindow(record.ts, filter) || !fromOrigin(record.origin, filter)) continue
+    lanes.add(record.lane)
+    if (record.sessionId !== null) sessions.add(record.sessionId)
+  }
+  return { lanes, sessions }
 }
 
 /**

@@ -8,6 +8,7 @@ import {
 } from '../fixtures.js'
 import type { RhizomorphEvent } from '../events/index.js'
 import * as core from '../index.js'
+import { PRICE_SOURCE_NAME, estimateCostUsd } from '../pricing/index.js'
 import { reduceAll } from '../reduce.js'
 import { type SessionState, initialSessionState } from '../state.js'
 import {
@@ -60,6 +61,17 @@ const tokens = (
   cacheCreation,
 })
 
+/**
+ * `f.llmUsage`'s own default model is `claude-opus-5` — a real entry in the
+ * vendored pricing table (prd9 ruling 7). Every test below that predates
+ * pricing and means "no cost data at all, full stop" (dedup, filters, thread
+ * math, the overhead ratio…) uses this instead, so its fixture stays an
+ * honest gap against the real table rather than picking up a selector-side
+ * estimate it never asked for. Tests that DO want the estimate law exercised
+ * pass `claude-opus-5` (or another real model) explicitly.
+ */
+const NO_PRICE_MODEL = 'rhizomorph-test-fixture/no-price-match'
+
 describe('selectSessionSpend', () => {
   it('reports honest nothing for a state with no telemetry', () => {
     const totals = selectSessionSpend(initialSessionState())
@@ -72,6 +84,7 @@ describe('selectSessionSpend', () => {
       requestCount: 0,
       costEventCount: 0,
       estimatedCostEventCount: 0,
+      estimateSources: [],
       toolCallCount: 0,
       models: [],
       roles: [],
@@ -118,7 +131,7 @@ describe('selectSessionSpend', () => {
   })
 
   it('says "unknown", not "free", for a session with tokens and no dollars', () => {
-    const state = fold(f.llmUsage({ lane: 'a', tokens: tokens(1, 2) }))
+    const state = fold(f.llmUsage({ lane: 'a', model: NO_PRICE_MODEL, tokens: tokens(1, 2) }))
     const totals = selectSessionSpend(state)
     expect(totals.tokens.total).toBe(3)
     expect(totals.costUsd).toBe(0)
@@ -360,6 +373,7 @@ describe('cost that reaches the rollups (prd2 wave C)', () => {
       {
         lane: 'sessionlog-lane',
         role: 'worker',
+        model: NO_PRICE_MODEL,
         sessionId: 'sess-64',
         worktreePath: PATH,
         branch: BRANCH,
@@ -1097,6 +1111,129 @@ describe('tool activity', () => {
   })
 })
 
+describe('selector-side pricing estimates (prd9 ruling 7)', () => {
+  const REAL_MODEL = 'claude-opus-5'
+  // research/2026-08-03-trace-era-captures.md §3's canonical live miss:
+  // Langfuse's own catalog failed to match this bracketed variant, and the
+  // vendored table's anchored patterns have the same hole.
+  const MISS_MODEL = 'claude-opus-5[1m]'
+
+  it('flags a tokens-only lane with a real estimate — never a bare number', () => {
+    const usageTokens = tokens(100, 200, 50, 10)
+    const state = fold(f.llmUsage({ lane: 'tokens-only', model: REAL_MODEL, tokens: usageTokens }))
+    const expected = estimateCostUsd(REAL_MODEL, usageTokens)
+    expect(expected).not.toBeNull()
+
+    const lane = selectSpendForLane(state, 'tokens-only')
+    expect(lane?.costUsd).toBeCloseTo(expected!.costUsd, 10)
+    expect(lane?.estimatedCostUsd).toBeCloseTo(expected!.costUsd, 10)
+    expect(lane?.authoritativeCostUsd).toBe(0)
+    expect(lane?.costIsAuthoritative).toBe(false)
+    expect(lane?.estimateSources).toEqual([PRICE_SOURCE_NAME])
+
+    // The session total carries the same flag, not a silent number.
+    const session = selectSessionSpend(state)
+    expect(session.costIsAuthoritative).toBe(false)
+    expect(session.estimateSources).toEqual([PRICE_SOURCE_NAME])
+  })
+
+  it('gives no estimate at all for a model no vendored pattern covers — an honest gap', () => {
+    expect(estimateCostUsd(MISS_MODEL, tokens(0, 100))).toBeNull()
+
+    const state = fold(f.llmUsage({ lane: 'no-match', model: MISS_MODEL, tokens: tokens(0, 100) }))
+    const lane = selectSpendForLane(state, 'no-match')
+    expect(lane?.tokens.total).toBe(100)
+    expect(lane?.costUsd).toBe(0)
+    expect(lane?.costIsAuthoritative).toBeNull()
+    expect(lane?.estimateSources).toEqual([])
+  })
+
+  it('leaves a lane with real llm.cost telemetry entirely unchanged', () => {
+    const state = fold(
+      f.llmUsage({ lane: 'priced', model: REAL_MODEL, tokens: tokens(0, 1_000) }),
+      f.llmCost({ lane: 'priced', model: REAL_MODEL, costUsd: 0.5, authoritative: true }),
+    )
+    const lane = selectSpendForLane(state, 'priced')
+    // Not the vendored estimate (1_000 output tokens at claude-opus-5's rate)
+    // — the real number, with nothing added on top of it.
+    expect(lane?.costUsd).toBe(0.5)
+    expect(lane?.authoritativeCostUsd).toBe(0.5)
+    expect(lane?.estimatedCostUsd).toBe(0)
+    expect(lane?.costIsAuthoritative).toBe(true)
+    expect(lane?.estimateSources).toEqual([])
+  })
+
+  it('never silently mixes estimated dollars into an authoritative total, even sharing a model bucket', () => {
+    // Same model, two lanes: one already priced by the CLI, one not. The
+    // per-model rollup carries both — real dollars from the priced lane, a
+    // flagged estimate for the other — and says so, never blending them into
+    // one unlabelled number.
+    const state = fold(
+      f.llmUsage({ lane: 'priced', model: REAL_MODEL, tokens: tokens(0, 1_000) }),
+      f.llmCost({ lane: 'priced', model: REAL_MODEL, costUsd: 0.5, authoritative: true }),
+      f.llmUsage({ lane: 'unpriced', model: REAL_MODEL, sessionId: 'sess-unpriced', tokens: tokens(0, 2_000) }),
+    )
+    const expectedEstimate = estimateCostUsd(REAL_MODEL, tokens(0, 2_000))!
+    const model = selectModelSpend(state).find((entry) => entry.model === REAL_MODEL)
+    expect(model?.authoritativeCostUsd).toBe(0.5)
+    expect(model?.estimatedCostUsd).toBeCloseTo(expectedEstimate.costUsd, 10)
+    expect(model?.costUsd).toBeCloseTo(0.5 + expectedEstimate.costUsd, 10)
+    expect(model?.costIsAuthoritative).toBe(false)
+    expect(model?.estimateSources).toEqual([PRICE_SOURCE_NAME])
+  })
+
+  it('reconciles across selectors: the model rollup and the lane rollup agree on the same mixed total', () => {
+    // Guards the reason `addUsage` decides estimate-eligibility from a
+    // session-wide lane/session cost-coverage set rather than per-`Acc`: a
+    // per-bucket decision would price the same tokens differently depending
+    // on whether the caller grouped by lane or by model.
+    const state = fold(
+      f.llmUsage({ lane: 'priced', model: REAL_MODEL, tokens: tokens(0, 1_000) }),
+      f.llmCost({ lane: 'priced', model: REAL_MODEL, costUsd: 0.5, authoritative: true }),
+      f.llmUsage({ lane: 'unpriced', model: REAL_MODEL, sessionId: 'sess-unpriced', tokens: tokens(0, 2_000) }),
+    )
+    const modelTotal = selectModelSpend(state).find((entry) => entry.model === REAL_MODEL)?.costUsd
+    const laneTotal =
+      (selectSpendForLane(state, 'priced')?.costUsd ?? 0) +
+      (selectSpendForLane(state, 'unpriced')?.costUsd ?? 0)
+    expect(modelTotal).toBeCloseTo(laneTotal, 10)
+    expect(selectSessionSpend(state).costUsd).toBeCloseTo(modelTotal ?? NaN, 10)
+  })
+
+  it('joins usage and cost across a shared sessionId, not just a shared lane', () => {
+    // The same cross-collector shape `selectSpendForBranch` already relies on
+    // (prd2 wave C, above): OTel's dollars and sessionlog's tokens can land
+    // under two different lane handles for one real session. A lane must not
+    // get a second, selector-derived estimate stacked on top of dollars it
+    // already has via that join.
+    const state = fold(
+      f.llmUsage({
+        lane: 'sessionlog-side',
+        model: REAL_MODEL,
+        sessionId: 'sess-joined',
+        tokens: tokens(0, 1_000),
+      }),
+      f.llmCost({
+        lane: 'otel-side',
+        model: REAL_MODEL,
+        sessionId: 'sess-joined',
+        costUsd: 0.5,
+        authoritative: true,
+      }),
+    )
+    expect(selectSpendForLane(state, 'sessionlog-side')?.costUsd).toBe(0)
+    expect(selectSpendForLane(state, 'sessionlog-side')?.estimateSources).toEqual([])
+    expect(selectSessionSpend(state).costUsd).toBe(0.5)
+  })
+
+  it('derives the exact same number the pricing module would, cache tiers included', () => {
+    const usageTokens = tokens(10, 20, 1_000, 500)
+    const state = fold(f.llmUsage({ lane: 'cache-heavy', model: REAL_MODEL, tokens: usageTokens }))
+    const expected = estimateCostUsd(REAL_MODEL, usageTokens)!
+    expect(selectSpendForLane(state, 'cache-heavy')?.costUsd).toBeCloseTo(expected.costUsd, 10)
+  })
+})
+
 describe('the package barrel', () => {
   it('exports everything the prd1 collectors and panels build against', () => {
     for (const name of [
@@ -1135,6 +1272,9 @@ describe('the package barrel', () => {
       'selectRecentToolActivity',
       'selectTelemetryOrigins',
       'DEFAULT_SPEND_WINDOW_MS',
+      // pricing (prd9 ruling 7)
+      'estimateCostUsd',
+      'PRICE_SOURCE_NAME',
       // fixtures
       'fixtureTelemetrySession',
     ] as const) {
