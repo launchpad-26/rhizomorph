@@ -113,7 +113,7 @@ export default function FleetTable({ onCopy = copyToClipboard }: FleetTableProps
     <section
       className={
         focused
-          ? 'fixed inset-0 z-30 flex flex-col overflow-auto bg-ice-1000 p-4'
+          ? 'fixed inset-0 z-30 flex flex-col overflow-auto bg-ice-1000 p-4 [scrollbar-gutter:stable]'
           : 'flex h-full flex-col rounded-lg border border-ice-850 bg-ice-950 p-4'
       }
       data-panel="fleet"
@@ -127,7 +127,7 @@ export default function FleetTable({ onCopy = copyToClipboard }: FleetTableProps
           No lanes discovered yet.
         </p>
       ) : (
-        <div className="mt-2 flex-1 overflow-auto">
+        <div className="mt-2 flex-1 overflow-auto [scrollbar-gutter:stable]">
           <table className="w-full border-collapse text-left text-xs">
             <colgroup>
               <col style={{ width: 'auto' }} />

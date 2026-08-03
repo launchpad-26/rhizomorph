@@ -74,7 +74,7 @@ export function PanelFrame({ id, title, children, hidden = false, onFocusChange 
     <div
       className={
         focused
-          ? 'fixed inset-0 z-30 flex flex-col overflow-auto bg-ice-1000 p-4'
+          ? 'fixed inset-0 z-30 flex flex-col overflow-auto bg-ice-1000 p-4 [scrollbar-gutter:stable]'
           : collapsed
             ? 'flex flex-col self-start'
             : 'flex h-full flex-col'

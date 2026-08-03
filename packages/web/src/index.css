@@ -20,6 +20,35 @@ body {
 }
 
 /*
+ * prd9 legibility round: a scrollbar is chrome, not a status, so it is thin
+ * and ice-toned rather than the browser default's wide, undyed slab — the
+ * same "structure, not status" reasoning theme.css gives the ice ramp itself.
+ * Set globally, once, so a scroll container added later never has to ask.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ice-700) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-ice-700);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-ice-600);
+}
+
+/*
  * Law 10: `prefers-reduced-motion` is respected globally rather than
  * per-component, so a surface added later cannot forget. The scene's own
  * degradations (static bright dot for the WAITING throb, the glide kept as a

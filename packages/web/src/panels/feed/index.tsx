@@ -113,7 +113,7 @@ export default function ActivityFeed() {
           {filtered ? 'Nothing matches this filter.' : 'No activity yet this session.'}
         </p>
       ) : (
-        <ol className="mt-2 flex-1 space-y-1.5 overflow-auto figures text-xs">
+        <ol className="mt-2 flex-1 space-y-1.5 overflow-auto figures text-xs [scrollbar-gutter:stable]">
           {entries.map((entry) => (
             <li
               key={entry.id}

@@ -19,7 +19,7 @@ export function TraceSection({ state, lane }: TraceSectionProps) {
   return (
     <section
       data-testid="drawer-trace"
-      className="max-h-64 shrink-0 overflow-auto border-t border-ice-850 px-4 py-3"
+      className="max-h-64 shrink-0 overflow-auto border-t border-ice-850 px-4 py-3 [scrollbar-gutter:stable]"
     >
       <header className="flex items-baseline justify-between">
         <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-ice-400">Trace</h3>

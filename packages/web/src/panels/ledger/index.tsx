@@ -59,7 +59,7 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
           No branch spend recorded yet this session.
         </p>
       ) : (
-        <div className="mt-2 flex min-h-0 flex-1 flex-col gap-2 overflow-auto">
+        <div className="mt-2 flex min-h-0 flex-1 flex-col gap-2 overflow-auto [scrollbar-gutter:stable]">
           <p className="text-[11px] text-slate-500" data-testid="ledger-honesty">
             Dollars are notional on subscription plans — the real signal here is efficiency and
             rate-limit budget. Estimated dollars are flagged "est."; nothing here is invented.

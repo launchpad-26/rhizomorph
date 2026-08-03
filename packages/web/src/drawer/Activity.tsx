@@ -34,7 +34,7 @@ export function ActivityView({ entries, now }: ActivityViewProps) {
   return (
     <section
       data-testid="drawer-activity"
-      className="max-h-52 shrink-0 overflow-auto border-t border-ice-850 px-4 py-3"
+      className="max-h-52 shrink-0 overflow-auto border-t border-ice-850 px-4 py-3 [scrollbar-gutter:stable]"
     >
       <header className="flex items-baseline justify-between">
         <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-ice-400">Activity</h3>

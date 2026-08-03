@@ -75,7 +75,7 @@ export function PanelGrid() {
   const onFocusChangeFor = (id: string) => (focused: boolean) => setFocusedId(focused ? id : null)
 
   return (
-    <div className="flex min-h-0 flex-col gap-4 overflow-auto p-4">
+    <div className="flex min-h-0 flex-col gap-4 overflow-auto p-4 [scrollbar-gutter:stable]">
       {/* The centerpiece (prd4 ruling 2): "what is the fleet doing?" answered
           before anything else, hero-sized directly beneath the dock. */}
       <FocusableScene hidden={hiddenFor(SCENE_ID)} onFocusChange={onFocusChangeFor(SCENE_ID)} />
@@ -167,7 +167,7 @@ function FocusableTrace({
           Restore Trace
         </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
         <ErrorBoundary fallback={<TraceErrorFallback />}>
           <Suspense fallback={<PanelFallback />}>
             <TraceFocusPanel />

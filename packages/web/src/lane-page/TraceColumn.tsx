@@ -32,7 +32,7 @@ export function TraceColumn({ state, lane }: TraceColumnProps) {
           {view === 'tree' ? 'Gantt ↗' : 'Tree ↗'}
         </button>
       </header>
-      <div className="min-h-0 flex-1 overflow-auto px-1">
+      <div className="min-h-0 flex-1 overflow-auto px-1 [scrollbar-gutter:stable]">
         {view === 'tree' ? <TraceTree state={state} lane={lane} /> : <TraceGantt state={state} lane={lane} />}
       </div>
     </section>

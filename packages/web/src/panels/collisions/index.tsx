@@ -83,7 +83,7 @@ export default function CollisionsPanel() {
           )}
 
           {hasData ? (
-            <div className="mt-2 flex-1 overflow-auto">
+            <div className="mt-2 flex-1 overflow-auto [scrollbar-gutter:stable]">
               <table className="w-full min-w-max border-collapse text-left text-xs">
                 <thead>
                   <tr>

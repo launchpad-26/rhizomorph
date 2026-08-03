@@ -101,7 +101,7 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
             ref={bodyRef}
             data-testid="conversation-body"
             onScroll={(event) => setFollowing(isAtTail(event.currentTarget))}
-            className="min-h-32 flex-1 overflow-auto bg-ice-1000 px-4 py-2"
+            className="min-h-32 flex-1 overflow-auto bg-ice-1000 px-4 py-2 [scrollbar-gutter:stable]"
           >
             {tail.earliestOffset > 0 ? (
               <button

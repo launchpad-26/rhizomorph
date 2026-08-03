@@ -73,7 +73,7 @@ export function SpendDetail({ lane, fleet, state }: SpendDetailProps) {
             : 'no thread breakdown reported for this lane'}
         </p>
       ) : (
-        <ol data-testid="lane-page-spend-threads" className="mt-2 space-y-1 overflow-auto">
+        <ol data-testid="lane-page-spend-threads" className="mt-2 space-y-1 overflow-auto [scrollbar-gutter:stable]">
           {threads.map((thread) => (
             <li
               key={thread.thread ?? 'unknown'}
