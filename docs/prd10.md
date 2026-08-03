@@ -70,6 +70,27 @@ commissioned).
    voice. This keeps prd2's "sub-rows are never a lane of their own":
    a bud is anatomy of its parent, not a lane.
 
+## Rulings appended after the spike (operator, 2026-08-04)
+
+10. **The motion law gains a fourth class: `dissolution`.** Purpose-built
+    for return: pooled sprite motes, hard-capped (~240), luminance-only
+    fades, only ever spawned by a severance or an absorption — never by
+    ambient state. Ambient/event/structural caps do not move; the class
+    ships with its bounds as tests.
+11. **The accent is `#6b4fa8` cold violet** (OKLCH H 295.5, low chroma —
+    measured 41° clear of ice, 87° from notice-cyan, 78° from
+    broken-red), shipped as the five-step tissue ramp
+    `#1e1833 / #322752 / #4b3a7a / #6b4fa8 / #8f6fd6`. Below text
+    contrast by design — it is never text (the legibility law is
+    untouched because tissue is not ink).
+12. **Motes wear family hue at birth, cool through the accent as they
+    return.** A severed lane's matter is born in its dim done-family
+    colour — it IS the lane's substance — and crossfades through the
+    tissue ramp as it drifts home. Status meaning preserved at the cut,
+    tissue meaning at the heart: the composting story told in colour.
+    This is the ruled answer to the spike's open question; the accent
+    touches motes only along that cooling gradient.
+
 ## Implementation
 
 One solo scene lane (opus — aesthetic judgment work), wide fence landing
