@@ -7,6 +7,7 @@ import type {
   ActiveTimeRecord,
   AgentState,
   BranchState,
+  CheckpointRecord,
   CollectorState,
   CommitRecord,
   CostPlaceSource,
@@ -98,6 +99,8 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       return state
     case 'trace.span':
       return traceSpan(state, event)
+    case 'fork.checkpoint':
+      return forkCheckpoint(state, event)
     default: {
       // Exhaustive today; an unknown future type must never break a replay.
       const _never: never = event
@@ -862,6 +865,36 @@ function traceSpan(state: SessionState, event: EventOf<'trace.span'>): SessionSt
               ...traces.bySession,
               [record.sessionId]: [...(traces.bySession[record.sessionId] ?? []), at],
             },
+    },
+  }
+}
+
+// --- lab (prd12) --------------------------------------------------------------
+
+function forkCheckpoint(state: SessionState, event: EventOf<'fork.checkpoint'>): SessionState {
+  const p = event.payload
+  const record: CheckpointRecord = {
+    eventId: event.id,
+    ts: event.ts,
+    lane: p.lane,
+    checkpointId: p.checkpointId,
+    eventIndex: p.eventIndex,
+    sessionFile: p.sessionFile,
+    sessionCutByte: p.sessionCutByte,
+    sessionDigest: p.sessionDigest,
+    snapshotRef: p.snapshotRef,
+    snapshotSha: p.snapshotSha,
+    headSha: p.headSha,
+    capturedBy: p.capturedBy,
+  }
+
+  const checkpoints = state.checkpoints
+  const at = checkpoints.records.length
+  return {
+    ...state,
+    checkpoints: {
+      records: [...checkpoints.records, record],
+      byLane: { ...checkpoints.byLane, [p.lane]: [...(checkpoints.byLane[p.lane] ?? []), at] },
     },
   }
 }

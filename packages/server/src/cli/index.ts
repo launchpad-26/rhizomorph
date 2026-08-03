@@ -7,6 +7,9 @@ import { createEvent, createIdFactory, eventsToJsonl, lineToEvent, reduceAll, se
 import { parseRecord, verifyRecord } from '@rhizomorph/core/src/record/index.js'
 import type { FastifyInstance } from 'fastify'
 import { createSessionlogCollector } from '../collectors/sessionlog/index.js'
+// The one importer the lab namespace law (prd12 ruling 1) allows: this is
+// the explicit CLI wiring point, never a collector or background loop.
+import { captureCheckpoint } from '../lab/checkpoint.js'
 import { defaultDataRoot, sessionDirFor, sessionFileName, snapshotDirFor } from '../log/paths.js'
 import { findResumableSession, RESUME_WINDOW_MS } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
@@ -20,10 +23,13 @@ import {
   envHelpText,
   exportRecordHelpText,
   helpText,
+  labCheckpointHelpText,
+  labHelpText,
   parseArgs,
   parseDoctorArgs,
   parseEnvArgs,
   parseExportRecordArgs,
+  parseLabCheckpointArgs,
   parseReplayArgs,
   replayHelpText,
   type CliArgs,
@@ -92,6 +98,10 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
 
   if (argv[0] === 'replay') {
     return runReplayCommand(argv.slice(1), log, exit, options)
+  }
+
+  if (argv[0] === 'lab') {
+    return runLabCommand(argv.slice(1), log, exit, options)
   }
 
   let args: CliArgs
@@ -476,4 +486,79 @@ async function runReplayCommand(
   }
 
   return { app, recorder, pollLoop, url, stop }
+}
+
+/**
+ * `rhizomorph lab <subcommand>` — the laboratory's namespace (prd12 ruling
+ * 1). Today `checkpoint` is the only subcommand; an unknown one or a bare
+ * `rhizomorph lab` prints the namespace's own usage table.
+ */
+async function runLabCommand(
+  rest: readonly string[],
+  log: Pick<Console, 'log' | 'warn'>,
+  exit: (code: number) => never,
+  options: RunCliOptions,
+): Promise<never> {
+  if (rest[0] === 'checkpoint') {
+    return runLabCheckpointCommand(rest.slice(1), log, exit, options)
+  }
+
+  if (rest.length === 0 || rest.includes('--help') || rest.includes('-h')) {
+    log.log(labHelpText())
+    exit(0)
+  }
+
+  process.stderr.write(`unknown lab subcommand: "${rest[0]}"\n\n${labHelpText()}`)
+  exit(1)
+}
+
+/**
+ * `rhizomorph lab checkpoint <lane>` — the explicit hand prd12 ruling 1
+ * requires: a one-shot, standalone subcommand (no server boot) that captures
+ * a live workspace + session snapshot and emits it as a `fork.checkpoint`
+ * event. Same clean-usage-error contract as every other subcommand here.
+ */
+async function runLabCheckpointCommand(
+  rest: readonly string[],
+  log: Pick<Console, 'log' | 'warn'>,
+  exit: (code: number) => never,
+  options: RunCliOptions,
+): Promise<never> {
+  let args
+  try {
+    args = parseLabCheckpointArgs(rest)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`${message}\n\n${labCheckpointHelpText()}`)
+    exit(1)
+  }
+
+  if (args.help) {
+    log.log(labCheckpointHelpText())
+    exit(0)
+  }
+
+  const worktreePath = path.resolve(args.path ?? process.cwd())
+
+  try {
+    const { event } = await captureCheckpoint({
+      lane: args.lane,
+      worktreePath,
+      capturedBy: args.capturedBy,
+      exec: options.exec,
+      now: options.now,
+      dataRoot: options.dataRoot,
+      claudeProjectsRoot: options.claudeProjectsRoot,
+    })
+    log.log(
+      `checkpoint ${event.payload.checkpointId} captured for lane "${event.payload.lane}" — ` +
+        `${event.payload.snapshotRef} @ ${event.payload.snapshotSha.slice(0, 12)}, ` +
+        `session cut at byte ${event.payload.sessionCutByte}`,
+    )
+  } catch (err) {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+    exit(1)
+  }
+
+  exit(0)
 }

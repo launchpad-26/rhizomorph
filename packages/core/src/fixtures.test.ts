@@ -64,6 +64,14 @@ describe('the fixture factory', () => {
     // @ts-expect-error — status is an enum, not free text
     expect(() => createEventFactory().agentStatus({ status: 'vibing' })).toThrow()
   })
+
+  it('builds a fork.checkpoint with source "lab"', () => {
+    const event = createEventFactory().forkCheckpoint({ lane: '148-lab-checkpoint' })
+    expect(event.source).toBe('lab')
+    expect(event.payload.lane).toBe('148-lab-checkpoint')
+    expect(event.payload.snapshotRef).toBe('refs/rhizomorph/checkpoints/checkpoint-fixture-1')
+    expect(rhizomorphEventSchema.safeParse(event).success).toBe(true)
+  })
 })
 
 describe('fixtureSession', () => {
@@ -172,6 +180,8 @@ describe('the package barrel', () => {
       'spanKindSchema',
       'initialTraceState',
       'DEFAULT_FLATLINE_MS',
+      'forkCheckpointPayloadSchema',
+      'initialCheckpointState',
     ] as const) {
       expect(core[name], `@rhizomorph/core should export ${name}`).toBeDefined()
     }

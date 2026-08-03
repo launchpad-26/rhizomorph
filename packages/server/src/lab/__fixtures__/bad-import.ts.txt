@@ -1,0 +1,10 @@
+// Deliberately-violating fixture for namespace-law.test.ts (prd12 ruling 1).
+// Not a real source file — .ts.txt so tsc and npm test never see it as one.
+// It exists only to prove the law test's detector actually fires: an
+// observer-side file importing from the laboratory is exactly what ruling 1
+// forbids ("no observer code path may call the lab module").
+import { captureCheckpoint } from '../lab/checkpoint.js'
+
+export function calledFromAnObserverCollector() {
+  return captureCheckpoint
+}

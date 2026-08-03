@@ -3,6 +3,7 @@ import { createEventFactory, fixtureSession } from './fixtures.js'
 import { reduce, reduceAll } from './reduce.js'
 import {
   MAX_ERRORS,
+  initialCheckpointState,
   initialSessionState,
   initialTelemetryState,
   initialTraceState,
@@ -32,6 +33,7 @@ describe('reduce — envelope bookkeeping', () => {
       errors: [],
       telemetry: initialTelemetryState(),
       traces: initialTraceState(),
+      checkpoints: initialCheckpointState(),
       eventCount: 0,
       firstEventTs: null,
       lastEventTs: null,
@@ -491,5 +493,44 @@ describe('reduce — the fixture session', () => {
     expect(state.branches['2-core']?.commits).toEqual(['sha-core-1', 'sha-core-2'])
     expect(state.collectors['tmux']?.status).toBe('error')
     expect(state.eventCount).toBe(fixtureSession().length)
+  })
+})
+
+describe('reduce — fork.checkpoint (prd12)', () => {
+  it('an old log with no fork.checkpoint events folds checkpoints to its initial value — additive, unchanged replay', () => {
+    const state = reduceAll(fixtureSession())
+    expect(state.checkpoints).toEqual(initialCheckpointState())
+  })
+
+  it('appends a checkpoint record and indexes it by lane', () => {
+    const state = reduceAll([
+      f.forkCheckpoint({ lane: '148-lab-checkpoint', checkpointId: 'ckpt-1' }, { ts: 100 }),
+    ])
+    expect(state.checkpoints.records).toHaveLength(1)
+    expect(state.checkpoints.records[0]).toMatchObject({
+      lane: '148-lab-checkpoint',
+      checkpointId: 'ckpt-1',
+      ts: 100,
+    })
+    expect(state.checkpoints.byLane['148-lab-checkpoint']).toEqual([0])
+  })
+
+  it('indexes multiple checkpoints for the same lane in observation order', () => {
+    const state = reduceAll([
+      f.forkCheckpoint({ lane: 'a', checkpointId: 'ckpt-1' }, { ts: 100 }),
+      f.forkCheckpoint({ lane: 'b', checkpointId: 'ckpt-2' }, { ts: 200 }),
+      f.forkCheckpoint({ lane: 'a', checkpointId: 'ckpt-3' }, { ts: 300 }),
+    ])
+    expect(state.checkpoints.records.map((r) => r.checkpointId)).toEqual(['ckpt-1', 'ckpt-2', 'ckpt-3'])
+    expect(state.checkpoints.byLane['a']).toEqual([0, 2])
+    expect(state.checkpoints.byLane['b']).toEqual([1])
+  })
+
+  it('is pure — folding a checkpoint does not mutate the prior state', () => {
+    const before = initialSessionState()
+    const snapshot = JSON.parse(JSON.stringify(before)) as unknown
+    const after = reduce(before, f.forkCheckpoint())
+    expect(before).toEqual(snapshot)
+    expect(after.checkpoints).not.toBe(before.checkpoints)
   })
 })

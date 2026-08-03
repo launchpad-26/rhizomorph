@@ -81,6 +81,12 @@ export interface EventFactory {
    * 2026-08-03 capture showed; {@link fixtureTraceSpans} builds a whole tree.
    */
   traceSpan(payload?: Partial<PayloadOf<'trace.span'>>, init?: Init<'trace.span'>): EventOf<'trace.span'>
+
+  /** prd12 ruling 2: the laboratory's checkpoint keystone, source `lab`. */
+  forkCheckpoint(
+    payload?: Partial<PayloadOf<'fork.checkpoint'>>,
+    init?: Init<'fork.checkpoint'>,
+  ): EventOf<'fork.checkpoint'>
 }
 
 const defaults = {
@@ -198,6 +204,20 @@ const defaults = {
     worktreePath: `${FIXTURE_REPO_PATH}-wt/feature`,
     branch: 'feature',
   },
+  // prd12 ruling 2: a plausible live capture — session cut mid-file, snapshot
+  // ref under the amended namespace.
+  'fork.checkpoint': {
+    lane: 'feature',
+    checkpointId: 'checkpoint-fixture-1',
+    eventIndex: 12,
+    sessionFile: '/home/fixture/.claude/projects/-repo-rhizomorph-wt-feature/session-fixture.jsonl',
+    sessionCutByte: 11_840,
+    sessionDigest: 'f'.repeat(64),
+    snapshotRef: 'refs/rhizomorph/checkpoints/checkpoint-fixture-1',
+    snapshotSha: 'sha-checkpoint-1',
+    headSha: 'sha-feature-1',
+    capturedBy: 'operator',
+  },
 } as const satisfies { [T in EventType]: PayloadOf<T> }
 
 export function createEventFactory(options: EventFactoryOptions = {}): EventFactory {
@@ -269,6 +289,7 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
     toolActivity: sugar('tool.activity'),
     agentActiveTime: sugar('agent.activeTime'),
     traceSpan: sugar('trace.span'),
+    forkCheckpoint: sugar('fork.checkpoint'),
   }
 
   return factory

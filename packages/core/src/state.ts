@@ -5,6 +5,7 @@ import type {
   Author,
   DirtyFile,
   FileChange,
+  ForkCheckpointCapturedBy,
   SpanDecision,
   SpanKind,
   SpanStatus,
@@ -359,6 +360,40 @@ export function initialTraceState(): TraceState {
   return { spans: [], byTrace: {}, bySession: {} }
 }
 
+/**
+ * One `fork.checkpoint` capture, kept whole and in observation order — same
+ * rule as every other record here. prd12 ruling 2: the laboratory's own
+ * slice, additive alongside everything the observer folds.
+ */
+export interface CheckpointRecord {
+  eventId: string
+  ts: number
+  lane: string
+  checkpointId: string
+  eventIndex: number
+  sessionFile: string
+  sessionCutByte: number
+  sessionDigest: string
+  snapshotRef: string
+  snapshotSha: string
+  headSha: string
+  capturedBy: ForkCheckpointCapturedBy
+}
+
+/**
+ * prd12's lab slice. Mirrors {@link TraceState}'s shape: records in arrival
+ * order, plus a lane index holding positions into `records`, not copies.
+ */
+export interface CheckpointState {
+  records: CheckpointRecord[]
+  /** lane → positions in `records`, in observation order. */
+  byLane: Record<string, number[]>
+}
+
+export function initialCheckpointState(): CheckpointState {
+  return { records: [], byLane: {} }
+}
+
 export interface SessionState {
   session: SessionInfo | null
   /** Branch everything is measured against; null until we learn it. */
@@ -377,6 +412,8 @@ export interface SessionState {
   telemetry: TelemetryState
   /** prd9: the span tree. Additive again, and read by no spend selector. */
   traces: TraceState
+  /** prd12 ruling 2: the laboratory's checkpoint captures. Additive again. */
+  checkpoints: CheckpointState
   eventCount: number
   firstEventTs: number | null
   lastEventTs: number | null
@@ -399,6 +436,7 @@ export function initialSessionState(): SessionState {
     errors: [],
     telemetry: initialTelemetryState(),
     traces: initialTraceState(),
+    checkpoints: initialCheckpointState(),
     eventCount: 0,
     firstEventTs: null,
     lastEventTs: null,

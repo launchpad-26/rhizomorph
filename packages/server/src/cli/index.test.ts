@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -5,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Collector, CollectorContext, Exec, RhizomorphEvent, PollResult } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
 import { sessionDirFor } from '../log/paths.js'
 import { listSessions, readSessionEvents, RESUME_WINDOW_MS } from '../log/session-log.js'
 import type { SessionRecorder } from '../server/recorder.js'
@@ -959,5 +961,166 @@ describe('runCli port in use', () => {
       writeSpy.mockRestore()
       await new Promise<void>((resolve) => server.close(() => resolve()))
     }
+  })
+})
+
+describe('runCli lab checkpoint subcommand', () => {
+  let root: string
+  let repoDir: string
+  let dataRoot: string
+  let claudeProjectsRoot: string
+
+  function git(args: string[]): string {
+    return execFileSync('git', args, { cwd: repoDir, encoding: 'utf8' })
+  }
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'rhizomorph-lab-cli-test-'))
+    repoDir = path.join(root, 'repo')
+    dataRoot = path.join(root, 'data')
+    claudeProjectsRoot = path.join(root, 'claude-projects')
+
+    await mkdir(repoDir, { recursive: true })
+    git(['init', '-b', 'main'])
+    git(['config', 'user.email', 'test@example.com'])
+    git(['config', 'user.name', 'Test'])
+    await writeFile(path.join(repoDir, 'tracked.txt'), 'v1\n')
+    git(['add', 'tracked.txt'])
+    git(['commit', '-m', 'initial commit'])
+    // Dirty on entry — the real thing this command exists to snapshot.
+    await writeFile(path.join(repoDir, 'tracked.txt'), 'v2\n')
+    await writeFile(path.join(repoDir, 'untracked.txt'), 'new\n')
+
+    const projectDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(repoDir))
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(path.join(projectDir, 'session-fixture.jsonl'), '{"line":1}\n')
+  })
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('captures a checkpoint end-to-end on a real worktree, leaves it untouched, and logs a summary', async () => {
+    const statusBefore = execFileSync('git', ['status', '--porcelain'], { cwd: repoDir, encoding: 'utf8' })
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['lab', 'checkpoint', '148-lab-checkpoint', '--path', repoDir], {
+      log,
+      exit,
+      dataRoot,
+      claudeProjectsRoot,
+    }).catch((err: unknown) => err)
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+
+    const statusAfter = execFileSync('git', ['status', '--porcelain'], { cwd: repoDir, encoding: 'utf8' })
+    expect(statusAfter).toBe(statusBefore)
+
+    const output = log.log.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('captured for lane "148-lab-checkpoint"')
+    expect(output).toContain('refs/rhizomorph/checkpoints/')
+
+    const sessionDir = sessionDirFor(repoDir, dataRoot)
+    const sessions = await listSessions(sessionDir)
+    expect(sessions).toHaveLength(1)
+    const session = sessions[0]
+    if (!session) throw new Error('expected one recorded session')
+
+    const events = await readSessionEvents(path.join(sessionDir, session.fileName))
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      type: 'fork.checkpoint',
+      source: 'lab',
+      payload: { lane: '148-lab-checkpoint', capturedBy: 'operator' },
+    })
+  })
+
+  it('accepts --captured-by and threads it through to the emitted event', async () => {
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(
+      ['lab', 'checkpoint', '148-lab-checkpoint', '--path', repoDir, '--captured-by', 'gate'],
+      { log, exit, dataRoot, claudeProjectsRoot },
+    ).catch((err: unknown) => err)
+    expect((thrown as FakeExit).code).toBe(0)
+
+    const sessionDir = sessionDirFor(repoDir, dataRoot)
+    const sessions = await listSessions(sessionDir)
+    const session = sessions[0]
+    if (!session) throw new Error('expected one recorded session')
+    const events = await readSessionEvents(path.join(sessionDir, session.fileName))
+    expect(events[0]).toMatchObject({ payload: { capturedBy: 'gate' } })
+  })
+
+  it('prints lab checkpoint --help to stdout and exits 0, without touching stderr', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['lab', 'checkpoint', '--help'], { log, exit }).catch((err: unknown) => err)
+
+    writeSpy.mockRestore()
+    expect((thrown as FakeExit).code).toBe(0)
+    expect(log.log).toHaveBeenCalledWith(expect.stringContaining('rhizomorph lab checkpoint <lane>'))
+    expect(writeSpy).not.toHaveBeenCalled()
+  })
+
+  it('prints the bare "rhizomorph lab" usage table and exits 0', async () => {
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['lab'], { log, exit }).catch((err: unknown) => err)
+
+    expect((thrown as FakeExit).code).toBe(0)
+    expect(log.log).toHaveBeenCalledWith(expect.stringContaining('rhizomorph lab <subcommand>'))
+  })
+
+  it('exits 1 on an unknown lab subcommand, naming it', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+
+    const thrown = await runCli(['lab', 'nope'], { exit }).catch((err: unknown) => err)
+
+    const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+    expect((thrown as FakeExit).code).toBe(1)
+    expect(output).toContain('unknown lab subcommand: "nope"')
+  })
+
+  it('exits 1 and prints usage when the lane is missing', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+
+    const thrown = await runCli(['lab', 'checkpoint'], { exit }).catch((err: unknown) => err)
+
+    const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+    expect((thrown as FakeExit).code).toBe(1)
+    expect(output).toContain('missing required argument: <lane>')
+  })
+
+  it('exits 1 with a clean message (no stack trace) when the lane has no session file', async () => {
+    await rm(path.join(claudeProjectsRoot, worktreePathToProjectSlug(repoDir)), {
+      recursive: true,
+      force: true,
+    })
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+
+    const thrown = await runCli(['lab', 'checkpoint', '148-lab-checkpoint', '--path', repoDir], {
+      exit,
+      dataRoot,
+      claudeProjectsRoot,
+    }).catch((err: unknown) => err)
+
+    const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+    expect((thrown as FakeExit).code).toBe(1)
+    expect(output).toMatch(/session/)
+    expect(output).not.toMatch(/^\s*at /m)
+    expect(output).not.toContain('.ts:')
   })
 })
