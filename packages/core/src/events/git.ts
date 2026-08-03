@@ -29,6 +29,16 @@ export const worktreeRemovedPayloadSchema = z.object({
 })
 export type WorktreeRemovedPayload = z.infer<typeof worktreeRemovedPayloadSchema>
 
+/**
+ * A ref the collector's `for-each-ref` snapshot saw last poll and no longer
+ * sees. Raw fact only: the branch is gone from the repo, nothing about why
+ * (merged, deleted, renamed) — the fold decides what that means for state.
+ */
+export const branchRemovedPayloadSchema = z.object({
+  branch: nonEmptyString,
+})
+export type BranchRemovedPayload = z.infer<typeof branchRemovedPayloadSchema>
+
 export const branchUpdatedPayloadSchema = z.object({
   branch: nonEmptyString,
   head: nonEmptyString,
@@ -78,6 +88,11 @@ export const worktreeRemovedEventSchema = envelope(
   'worktree.removed',
   worktreeRemovedPayloadSchema,
 )
+export const branchRemovedEventSchema = envelope(
+  'git',
+  'branch.removed',
+  branchRemovedPayloadSchema,
+)
 export const branchUpdatedEventSchema = envelope(
   'git',
   'branch.updated',
@@ -98,6 +113,7 @@ export const gitEventSchemas = [
   worktreeDiscoveredEventSchema,
   worktreeRemovedEventSchema,
   branchUpdatedEventSchema,
+  branchRemovedEventSchema,
   commitLandedEventSchema,
   worktreeDirtyEventSchema,
 ] as const

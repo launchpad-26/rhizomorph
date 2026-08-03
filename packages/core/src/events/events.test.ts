@@ -176,6 +176,7 @@ function oneOfEach() {
       id: id(),
       ts: 6,
     }),
+    createEvent('branch.removed', { branch: 'feat' }, { id: id(), ts: 6 }),
     createEvent('commit.landed', {
       sha: 'c3',
       branch: 'feat',

@@ -48,6 +48,7 @@ export const EVENT_SOURCE_BY_TYPE = {
   'worktree.discovered': 'git',
   'worktree.removed': 'git',
   'branch.updated': 'git',
+  'branch.removed': 'git',
   'commit.landed': 'git',
   'worktree.dirty': 'git',
   'pane.discovered': 'tmux',
