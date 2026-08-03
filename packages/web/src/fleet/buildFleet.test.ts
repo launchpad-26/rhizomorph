@@ -376,6 +376,110 @@ describe('detection honesty', () => {
   })
 })
 
+// ── the second witness (#133) ───────────────────────────────────────────────
+
+/** One trace span, attributed to `lane`, received at `ts`. */
+function span(lane: string, worktreePath: string, ts: number): RhizomorphEvent {
+  return createEvent(
+    'trace.span',
+    {
+      lane,
+      role: 'worker',
+      sessionId: null,
+      worktreePath,
+      branch: lane,
+      thread: 'subagent',
+      traceId: `trace-${lane}`,
+      spanId: `span-${lane}-${ts}`,
+      parentSpanId: null,
+      name: 'claude_code.tool',
+      kind: 'tool',
+      startTs: ts - 500,
+      endTs: ts,
+      status: 'ok',
+    },
+    { id: nextId(), ts },
+  )
+}
+
+describe('the second witness: telemetry recency alongside pane stillness', () => {
+  it('reads a delegating lane as working when its pane is still but its trace keeps talking (the recorded false positive)', () => {
+    // The dogfooding incident (#133): a lane's pane goes silent — no
+    // content-hash change — for as long as it delegates to a subagent, which
+    // is exactly when it is busiest. Before the second witness, that silence
+    // alone read FROZEN even though the lane's own trace was live throughout.
+    const HANDLE = 'f'
+    const log = [
+      event('session.started', {
+        sessionId: 'span-witness-ok',
+        repoPath: '/repo',
+        repoName: 'rhizomorph',
+        mainBranch: 'main',
+      }, NOW - 20 * 60_000),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 20 * 60_000),
+      event('worktree.discovered', { path: '/repo-wt/f', branch: HANDLE, head: 'sha-f', isMain: false }, NOW - 20 * 60_000),
+      event('pane.discovered', { paneId: '%40', windowName: HANDLE, currentPath: '/repo-wt/f', worktreePath: '/repo-wt/f' }, NOW - 20 * 60_000),
+      event('pane.activity', { paneId: '%40', contentHash: 'h0', preview: 'delegating to Explore…' }, NOW - 12 * 60_000),
+      event('agent.status', { handle: HANDLE, status: 'working', worktreePath: '/repo-wt/f', branch: HANDLE }, NOW - 12 * 60_000),
+      span(HANDLE, '/repo-wt/f', NOW - 4_000),
+    ]
+
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    const lane = laneIn(fleet, HANDLE)
+
+    expect(lane.pathologies.map((pathology) => pathology.kind)).not.toContain('frozen')
+    expect(lane.pathologies.map((pathology) => pathology.kind)).not.toContain('waiting')
+    expect(lane.activity).toBe('working')
+  })
+
+  it('still calls FROZEN when the trace is as silent as the pane — the real flatline is not weakened', () => {
+    const HANDLE = 'g'
+    const log = [
+      event('session.started', {
+        sessionId: 'span-witness-still-frozen',
+        repoPath: '/repo',
+        repoName: 'rhizomorph',
+        mainBranch: 'main',
+      }, NOW - 20 * 60_000),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 20 * 60_000),
+      event('worktree.discovered', { path: '/repo-wt/g', branch: HANDLE, head: 'sha-g', isMain: false }, NOW - 20 * 60_000),
+      event('pane.discovered', { paneId: '%41', windowName: HANDLE, currentPath: '/repo-wt/g', worktreePath: '/repo-wt/g' }, NOW - 20 * 60_000),
+      event('pane.activity', { paneId: '%41', contentHash: 'h0', preview: 'delegating to Explore…' }, NOW - 15 * 60_000),
+      event('agent.status', { handle: HANDLE, status: 'working', worktreePath: '/repo-wt/g', branch: HANDLE }, NOW - 15 * 60_000),
+      // Older than `SPAN_WITNESS_WINDOW_MS`: too old to speak for the lane
+      // now, so it must not rescue it either.
+      span(HANDLE, '/repo-wt/g', NOW - 15 * 60_000),
+    ]
+
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+
+    expect(kindsFor(fleet, HANDLE)).toContain('frozen')
+  })
+
+  it('lets pane silence alone govern FROZEN when a lane carries no telemetry at all — the uninstrumented case', () => {
+    // The common junior setup: no OTel, no sessionlog collector, just
+    // workmux's own pane feed. The second witness must never turn an absent
+    // signal into a reprieve — degraded setups keep their flatline detection.
+    const HANDLE = 'j'
+    const log = [
+      event('session.started', {
+        sessionId: 'span-witness-no-telemetry',
+        repoPath: '/repo',
+        repoName: 'rhizomorph',
+        mainBranch: 'main',
+      }, NOW - 20 * 60_000),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 20 * 60_000),
+      event('worktree.discovered', { path: '/repo-wt/j', branch: HANDLE, head: 'sha-j', isMain: false }, NOW - 20 * 60_000),
+      event('pane.discovered', { paneId: '%42', windowName: HANDLE, currentPath: '/repo-wt/j', worktreePath: '/repo-wt/j' }, NOW - 20 * 60_000),
+      event('pane.activity', { paneId: '%42', contentHash: 'h0', preview: '$ ' }, NOW - 15 * 60_000),
+    ]
+
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+
+    expect(kindsFor(fleet, HANDLE)).toContain('frozen')
+  })
+})
+
 // ── parked (prd4 ruling 5) ───────────────────────────────────────────────────
 
 describe('parked lanes', () => {

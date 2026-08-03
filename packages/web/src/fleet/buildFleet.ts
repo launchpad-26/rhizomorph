@@ -69,6 +69,25 @@ export const LOOP_MIN_REPEATS = 3
  */
 export const FROZEN_AFTER_MS = 8 * 60_000
 
+/**
+ * The second witness (dogfooding-born, #133): a pane's own repaint is one sign
+ * of life, but a delegating lane looks visually still — no content-hash change
+ * — for exactly as long as its subagent is busiest, which is precisely when a
+ * pane-only reading is most wrong. `llm.usage`/`tool.activity` already reach
+ * `lastWorkTs` through `LaneSpend.lastTs`; `trace.span` does not — `spend.ts`
+ * keeps spans out of the money layer by design (prd9 ruling 4) — so this file
+ * reads `state.traces.spans` directly and folds a lane's latest span into the
+ * same `lastWorkTs` FROZEN and WAITING already read. A lane is only silent on
+ * the work witness when NEITHER a usage/tool event NOR a span has landed
+ * recently; a still pane with a live trace reads `working`, not a summons.
+ *
+ * Windowed to `FROZEN_AFTER_MS` — the widest silence any detector in this file
+ * cares about — because a span older than that could not rescue a lane from
+ * FROZEN either way, and scanning further back would just be paying to learn
+ * a number nothing downstream will use.
+ */
+export const SPAN_WITNESS_WINDOW_MS = FROZEN_AFTER_MS
+
 /** Silence this long, with the pane still moving, smells like a raised hand. */
 export const WAITING_QUIET_MS = 75_000
 /** …and the pane must have moved this recently for that inference to hold. */
@@ -236,10 +255,10 @@ export interface Lane {
   ageMs: number | null
   /**
    * Newest sign of the agent actually *working*: a model request, a tool call,
-   * a commit, a dirty-set change, a declared status. Pane activity is
-   * deliberately excluded — a terminal repainting a prompt is a sign of life,
-   * not a sign of progress, and conflating the two is precisely what would hide
-   * a lane sitting on a confirmation dialog.
+   * a trace span, a commit, a dirty-set change, a declared status. Pane
+   * activity is deliberately excluded — a terminal repainting a prompt is a
+   * sign of life, not a sign of progress, and conflating the two is precisely
+   * what would hide a lane sitting on a confirmation dialog.
    */
   lastWorkTs: number | null
   workAgeMs: number | null
@@ -417,6 +436,7 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
   const touches = selectTouchesByBranch(state)
   const collisions = selectCollisions(state)
   const toolsByHandle = recentToolsByHandle(state, now - LOOP_WINDOW_MS)
+  const spanTsByHandle = latestSpanTsByLane(state, now - SPAN_WITNESS_WINDOW_MS)
   const commitTsByBranch = latestCommitTsByBranch(state)
 
   const main = worktrees.find((view) => view.isMain) ?? null
@@ -509,7 +529,18 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       (sum, handle) => sum + perMinute(tokenRates[handle]?.totals.tokens.output ?? 0, windowMs),
       0,
     )
-    const lastWorkTs = maxTs(draft.lastWorkTs, tokens?.lastTs ?? null, costs?.lastTs ?? null)
+    // A lane whose only telemetry is spans (no usage/cost/tool event ever
+    // claimed a handle for it) has nothing in `handles` to look span recency
+    // up by, so the lookup also tries the lane's own id and branch — the same
+    // fallback order `fenceHandleFor` uses to resolve a lane to a handle.
+    const lastWorkTs = maxTs(
+      draft.lastWorkTs,
+      tokens?.lastTs ?? null,
+      costs?.lastTs ?? null,
+      spanTsByHandle.get(draft.id) ?? null,
+      draft.branch === null ? null : (spanTsByHandle.get(draft.branch) ?? null),
+      ...handles.map((handle) => spanTsByHandle.get(handle) ?? null),
+    )
     const lastEventTs = maxTs(lastWorkTs, draft.paneActivityTs)
     const fence = manifest === null ? undefined : fenceFor(manifest, draft, handles)
 
@@ -1181,6 +1212,22 @@ function recentToolsByHandle(state: SessionState, since: number): Map<string, st
     byHandle.set(record.lane, list)
   }
   return byHandle
+}
+
+/**
+ * Each lane's newest span receipt within the witness window — the second
+ * witness `lastWorkTs` folds in alongside usage/tool recency (#133). Spans
+ * live in `state.traces`, never `state.telemetry` (prd9 ruling 4), so this
+ * reads that slice directly rather than through `LaneSpend`.
+ */
+function latestSpanTsByLane(state: SessionState, since: number): Map<string, number> {
+  const latest = new Map<string, number>()
+  for (const span of state.traces.spans) {
+    if (span.ts < since) continue
+    const current = latest.get(span.lane)
+    if (current === undefined || span.ts > current) latest.set(span.lane, span.ts)
+  }
+  return latest
 }
 
 function latestCommitTsByBranch(state: SessionState): Map<string, number> {
