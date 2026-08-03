@@ -211,6 +211,10 @@ export interface ToolActivityRecord {
   branch: string | null
   /** Which thread of the session ran it; null when the source didn't say. */
   thread: AgentThread | null
+  /** prd11 ruling 1/2: where the tool touched. Null for non-file tools (Bash) and pre-prd11 events. */
+  filePath: string | null
+  /** prd11 ruling 1/2: the join key to `trace.span.toolUseId`. Null when the source didn't carry one. */
+  toolUseId: string | null
 }
 
 /**

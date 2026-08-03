@@ -220,7 +220,10 @@ function oneOfEach() {
       costUsd: 0.0588372,
       authoritative: true,
     }, { id: id(), ts: 14, source: 'otel' }),
-    createEvent('tool.activity', { lane: 'feat', tool: 'Bash' }, { id: id(), ts: 15 }),
+    createEvent('tool.activity', { lane: 'feat', tool: 'Edit', filePath: 'src/a.ts', toolUseId: 'toolu_1' }, {
+      id: id(),
+      ts: 15,
+    }),
     createEvent('telemetry.refused', {
       instance: 'other-rhizomorph',
       expectedInstance: '1785458425389',

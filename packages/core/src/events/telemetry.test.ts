@@ -215,6 +215,44 @@ describe('tool.activity', () => {
       }).success,
     ).toBe(false)
   })
+
+  it('carries the sessionlog-derived filePath and toolUseId (prd11 ruling 2)', () => {
+    const event = createEvent(
+      'tool.activity',
+      { lane: '33-core', tool: 'Edit', filePath: 'packages/core/src/index.ts', toolUseId: 'toolu_01abc' },
+      { id: 'evt-1', ts: 1 },
+    )
+    expect(event.payload.filePath).toBe('packages/core/src/index.ts')
+    expect(event.payload.toolUseId).toBe('toolu_01abc')
+  })
+
+  it('leaves filePath and toolUseId undefined when not passed — additive, never defaulted to null', () => {
+    const event = createEvent('tool.activity', { lane: '33-core', tool: 'Bash' }, { id: 'evt-1', ts: 1 })
+    expect(event.payload.filePath).toBeUndefined()
+    expect(event.payload.toolUseId).toBeUndefined()
+  })
+
+  it('accepts an explicit null filePath — Bash and other non-file tools, never a guess', () => {
+    const event = createEvent(
+      'tool.activity',
+      { lane: '33-core', tool: 'Bash', filePath: null, toolUseId: 'toolu_01abc' },
+      { id: 'evt-1', ts: 1 },
+    )
+    expect(event.payload.filePath).toBeNull()
+  })
+
+  it('parses a pre-prd11 event with neither field — the additive law', () => {
+    // Exactly the shape every `tool.activity` ever logged before prd11 has:
+    // no `filePath`, no `toolUseId` key at all.
+    const result = toolActivityEventSchema.safeParse({
+      id: 'evt-1',
+      ts: 1,
+      source: 'sessionlog',
+      type: 'tool.activity',
+      payload: { lane: 'l', tool: 'Bash' },
+    })
+    expect(result.success).toBe(true)
+  })
 })
 
 describe('telemetry.refused', () => {

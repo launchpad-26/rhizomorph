@@ -682,9 +682,36 @@ export function fixtureTelemetrySession(): RhizomorphEvent[] {
   })
   cost('conductor', 'conductor', 'claude-sonnet-5', 0.9)
 
-  f.toolActivity({ lane: '2-core', tool: 'Write', role: 'worker', sessionId: 'sess-2-core', worktreePath: WT('2-core'), branch: '2-core' })
-  f.toolActivity({ lane: '2-core', tool: 'Bash', role: 'worker', sessionId: 'sess-2-core', worktreePath: WT('2-core'), branch: '2-core' })
-  f.toolActivity({ lane: '3-git', tool: 'Bash', role: 'worker', sessionId: 'sess-3-git', worktreePath: WT('3-git'), branch: '3-git' })
+  // filePath/toolUseId (prd11 ruling 2): the file-touching call carries both,
+  // Bash carries only the id — never a guessed path.
+  f.toolActivity({
+    lane: '2-core',
+    tool: 'Write',
+    role: 'worker',
+    sessionId: 'sess-2-core',
+    worktreePath: WT('2-core'),
+    branch: '2-core',
+    filePath: 'packages/core/src/index.ts',
+    toolUseId: 'toolu_2-core_1',
+  })
+  f.toolActivity({
+    lane: '2-core',
+    tool: 'Bash',
+    role: 'worker',
+    sessionId: 'sess-2-core',
+    worktreePath: WT('2-core'),
+    branch: '2-core',
+    toolUseId: 'toolu_2-core_2',
+  })
+  f.toolActivity({
+    lane: '3-git',
+    tool: 'Bash',
+    role: 'worker',
+    sessionId: 'sess-3-git',
+    worktreePath: WT('3-git'),
+    branch: '3-git',
+    toolUseId: 'toolu_3-git_1',
+  })
 
   // t+3m — the CLI's own auxiliary haiku call, inside 2-core's session.
   f.at(FIXTURE_START_TS + 3 * minute)
@@ -720,7 +747,15 @@ export function fixtureTelemetrySession(): RhizomorphEvent[] {
     // collector; otel is the only thing allowed to claim authority.
     { source: 'sessionlog' },
   )
-  f.toolActivity({ lane: '7-web', tool: 'Edit', role: 'worker', worktreePath: WT('7-web'), branch: '7-web' })
+  f.toolActivity({
+    lane: '7-web',
+    tool: 'Edit',
+    role: 'worker',
+    worktreePath: WT('7-web'),
+    branch: '7-web',
+    filePath: 'packages/web/src/App.tsx',
+    toolUseId: 'toolu_7-web_1',
+  })
 
   // t+6m — the conductor spends again, because it never stops.
   f.at(FIXTURE_START_TS + 6 * minute)

@@ -617,6 +617,8 @@ function toolActivity(state: SessionState, event: EventOf<'tool.activity'>): Ses
     worktreePath: p.worktreePath ?? null,
     branch: p.branch ?? null,
     thread: p.thread ?? null,
+    filePath: p.filePath ?? null,
+    toolUseId: p.toolUseId ?? null,
   }
   return withTelemetry(state, event, p, (telemetry) => ({
     ...telemetry,

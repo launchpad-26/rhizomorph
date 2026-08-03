@@ -159,6 +159,20 @@ export const toolActivityPayloadSchema = z.object({
   /** Known when the collector knows the lane's role; never guessed. */
   role: agentRoleSchema.nullable().optional(),
   durationMs: z.number().int().nonnegative().nullable().optional(),
+  /**
+   * Where the tool touched — repo-relative when the sessionlog's tool_use
+   * block reported a path under the lane's worktree, else the raw path
+   * exactly as reported. prd11 ruling 2: Edit/Write/Read and kin carry it
+   * (their `input.file_path`); Bash and other non-file tools never guess and
+   * stay null. Additive: absent on every `tool.activity` logged before prd11.
+   */
+  filePath: nonEmptyString.nullable().optional(),
+  /**
+   * The CLI's own `tool_use` id — the same id `trace.span.toolUseId` carries,
+   * the join key that marries this causal chain to the OTel waterfall.
+   * Additive, same as {@link filePath}.
+   */
+  toolUseId: nonEmptyString.nullable().optional(),
 })
 export type ToolActivityPayload = z.infer<typeof toolActivityPayloadSchema>
 

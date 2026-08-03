@@ -538,6 +538,45 @@ describe('reduce — tool.activity', () => {
       ['Edit', null],
     ])
   })
+
+  it('records filePath and toolUseId when the sessionlog reported them (prd11 ruling 2)', () => {
+    const state = reduceAll([
+      f.toolActivity(
+        { lane: 'a', tool: 'Edit', filePath: 'packages/core/src/reduce.ts', toolUseId: 'toolu_01abc' },
+        { ts: 1 },
+      ),
+    ])
+    expect(state.telemetry.tools[0]).toMatchObject({
+      filePath: 'packages/core/src/reduce.ts',
+      toolUseId: 'toolu_01abc',
+    })
+  })
+
+  it('folds both to null when the payload never carried them — the law: a pre-prd11 event replays unchanged', () => {
+    const state = reduceAll([f.toolActivity({ lane: 'a', tool: 'Bash' }, { ts: 1 })])
+    expect(state.telemetry.tools[0]).toMatchObject({ filePath: null, toolUseId: null })
+  })
+
+  it('folds a raw pre-prd11 tool.activity event (no filePath/toolUseId keys at all) to the same shape', () => {
+    // Exactly the envelope shape every `tool.activity` line logged before
+    // prd11 has — no `filePath`, no `toolUseId` key. Replay must land on null
+    // for both, never throw and never invent a value.
+    const raw = {
+      id: 'evt-legacy-1',
+      ts: 1,
+      source: 'sessionlog' as const,
+      type: 'tool.activity' as const,
+      payload: { lane: 'a', tool: 'Bash', role: 'worker' as const },
+    }
+    const state = reduce(initialSessionState(), raw)
+    expect(state.telemetry.tools).toHaveLength(1)
+    expect(state.telemetry.tools[0]).toMatchObject({
+      tool: 'Bash',
+      role: 'worker',
+      filePath: null,
+      toolUseId: null,
+    })
+  })
 })
 
 describe('reduce — agent.activeTime', () => {
