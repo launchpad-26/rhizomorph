@@ -217,8 +217,9 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
     try {
       await renderShell(LANE)
 
+      // #134: the conversation opens at the tail, not offset zero.
       expect(fetchSpy.mock.calls.map((call) => call[0])).toEqual([
-        `/api/transcript/${LANE}?offset=0`,
+        `/api/transcript/${LANE}?tail=1`,
       ])
       // One argument: a URL. No init object means no verb but GET.
       expect(fetchSpy.mock.calls[0]).toHaveLength(1)

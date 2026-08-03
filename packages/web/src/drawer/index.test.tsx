@@ -415,7 +415,8 @@ describe('LaneDrawer — the conversation (the main view)', () => {
 
     await renderDrawer({ fetchTranscript })
 
-    expect(urls).toEqual([`/api/transcript/${LANE}?offset=0`])
+    // #134: the conversation opens at the tail, not offset zero.
+    expect(urls).toEqual([`/api/transcript/${LANE}?tail=1`])
     const body = screen.getByTestId('conversation-body')
     expect(body.textContent).toContain('rebuild the drawer')
     expect(body.textContent).toContain('Reading the drawer first.')
@@ -583,7 +584,8 @@ describe('LaneDrawer — MAIN, the conductor', () => {
 
     await renderMain({ fetchTranscript })
 
-    expect(urls).toEqual(['/api/transcript/main?offset=0'])
+    // #134: the conversation opens at the tail, not offset zero.
+    expect(urls).toEqual(['/api/transcript/main?tail=1'])
     const body = screen.getByTestId('conversation-body')
     expect(body.textContent).toContain('dispatch wave 1')
     expect(body.textContent).toContain('Three briefs written.')

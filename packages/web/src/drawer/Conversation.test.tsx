@@ -6,6 +6,8 @@ import {
   IDLE_TRANSCRIPT,
   foldChunk,
   parseEntries,
+  transcriptBeforeUrl,
+  transcriptTailUrl,
   transcriptUrl,
   useTranscript,
   type TranscriptEntry,
@@ -216,7 +218,7 @@ describe('useTranscript — the tail', () => {
     })
 
     expect(fetchImpl.urls).toEqual([
-      '/api/transcript/84-chat-drawer?offset=0',
+      transcriptTailUrl('84-chat-drawer'),
       '/api/transcript/84-chat-drawer?offset=6',
     ])
     expect(screen.getByTestId('tail-count').textContent).toBe('2')
@@ -253,7 +255,7 @@ describe('Conversation — the CLI-style session (prd4 ruling 4)', () => {
       render(<Conversation lane="84-chat-drawer" fetchImpl={fetchImpl} pollMs={0} />)
     })
 
-    expect(fetchImpl.urls).toEqual(['/api/transcript/84-chat-drawer?offset=0'])
+    expect(fetchImpl.urls).toEqual([transcriptTailUrl('84-chat-drawer')])
     expect(screen.getByTestId('conversation-body').textContent).toContain('on it')
     expect(screen.queryByRole('button', { name: /expand|conversation/i })).toBeNull()
   })
@@ -395,10 +397,44 @@ describe('Conversation — the CLI-style session (prd4 ruling 4)', () => {
       rerender(<Conversation lane="lane-b" fetchImpl={fetchImpl} pollMs={0} />)
     })
 
-    // Lane b's conversation, from its own offset 0, and following again.
-    expect(fetchImpl.urls).toEqual(['/api/transcript/lane-a?offset=0', '/api/transcript/lane-b?offset=0'])
+    // Lane b's conversation, opened at its own tail, and following again.
+    expect(fetchImpl.urls).toEqual([transcriptTailUrl('lane-a'), transcriptTailUrl('lane-b')])
     expect(screen.getByTestId('conversation-body').textContent).toContain('lane b')
     expect(screen.getByTestId('conversation-body').textContent).not.toContain('lane a')
     expect(screen.getByTestId('conversation-tail-state').textContent).toContain('tailing')
+  })
+
+  it('shows a "load earlier" affordance when the loaded window does not start at byte zero, and pages backward on click', async () => {
+    const fetchImpl = scriptedFetch([
+      chunk([said('assistant', 'newest turn')], 900, { offset: 700 }),
+      chunk([said('assistant', 'earlier turn')], 700, { offset: 400 }),
+    ])
+
+    await act(async () => {
+      render(<Conversation lane="84-chat-drawer" fetchImpl={fetchImpl} pollMs={0} />)
+    })
+
+    const loadEarlier = screen.getByRole('button', { name: /load earlier/i })
+    expect(screen.getByTestId('conversation-body').textContent).toContain('newest turn')
+    expect(screen.getByTestId('conversation-body').textContent).not.toContain('earlier turn')
+
+    await act(async () => {
+      fireEvent.click(loadEarlier)
+    })
+
+    expect(fetchImpl.urls).toEqual([transcriptTailUrl('84-chat-drawer'), transcriptBeforeUrl('84-chat-drawer', 700)])
+    // Prepended, not appended — the earlier turn reads before the newest one.
+    const turns = screen.getAllByTestId('turn-prose')
+    expect(turns.map((turn) => turn.textContent)).toEqual(['earlier turn', 'newest turn'])
+  })
+
+  it('has nothing to load earlier once the loaded window reaches byte zero', async () => {
+    const fetchImpl = scriptedFetch([chunk([said('assistant', 'the whole log')], 40, { offset: 0 })])
+
+    await act(async () => {
+      render(<Conversation lane="84-chat-drawer" fetchImpl={fetchImpl} pollMs={0} />)
+    })
+
+    expect(screen.queryByRole('button', { name: /load earlier/i })).toBeNull()
   })
 })
