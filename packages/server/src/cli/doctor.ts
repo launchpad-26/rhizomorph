@@ -44,6 +44,8 @@ export interface DoctorOptions {
   rootPackageJsonPath?: string
   /** Overrides `process.env` for the telemetry check. */
   env?: NodeJS.ProcessEnv
+  /** Injectable `fetch`, so the own-server-on-a-busy-port probe needs no real socket in tests. Defaults to the global. */
+  fetch?: typeof globalThis.fetch
 }
 
 /** Falls back to this when the root `package.json` has no `engines.node` yet (README already states it). */
@@ -53,18 +55,20 @@ const FAILING_CHECK_IDS: ReadonlySet<string> = new Set(['target-path', 'web-buil
 
 export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
   const exec = options.exec ?? realExec
+  const fetchImpl = options.fetch ?? globalThis.fetch
   const repoPath = path.resolve(options.path ?? process.cwd())
 
   const checks: DoctorCheck[] = [
     await checkNodeVersion(options),
     await checkTargetPath(repoPath, exec),
     checkWebBuild(options.webDistDir ?? defaultWebDistDir()),
-    await checkPort(options.port),
+    await checkPort(options.port, repoPath, fetchImpl),
     checkClaudeProjects(options.claudeProjectsRoot),
     await checkOptionalTool('tmux', 'tmux', ['-V'], exec),
     await checkOptionalTool('workmux', 'workmux', ['status'], exec),
     checkTelemetryEnv(options.env ?? process.env),
     await checkLaneManifest(repoPath),
+    await checkCliVersionDrift(exec),
   ]
 
   const exitCode = checks.some((check) => FAILING_CHECK_IDS.has(check.id) && check.status === 'fail') ? 1 : 0
@@ -163,15 +167,72 @@ function checkWebBuild(webDistDir: string): DoctorCheck {
   }
 }
 
-async function checkPort(port: number): Promise<DoctorCheck> {
+/**
+ * A busy port used to be an unconditional FAIL — the audit's worst stumble:
+ * a healthy rhizomorph already serving this very port reported
+ * `[FAIL] port in use … fix these before rhizomorph can run` (prd9 ruling 8).
+ * So a busy port now gets one more look before it is condemned: probe
+ * `/api/meta` and, if it answers with a rhizomorph's own meta shape, that is
+ * exactly the thing working as intended.
+ */
+async function checkPort(
+  port: number,
+  targetRepoPath: string,
+  fetchImpl: typeof globalThis.fetch,
+): Promise<DoctorCheck> {
   const free = await isPortFree(port)
   if (free) {
     return { id: 'port', status: 'ok', message: `port ${port} is free` }
   }
+
+  const ownMeta = await probeRhizomorphMeta(port, fetchImpl)
+  if (ownMeta) {
+    const startedAt = new Date(ownMeta.startedAt).toISOString()
+    const which = ownMeta.repoPath === targetRepoPath ? 'this repo' : ownMeta.repoName
+    return {
+      id: 'port',
+      status: 'ok',
+      message: `a rhizomorph is already serving ${which} on port ${port} (started ${startedAt}) — nothing to fix`,
+    }
+  }
+
   return {
     id: 'port',
     status: 'fail',
     message: `port ${port} is already in use — pass a different one with --port <n>`,
+  }
+}
+
+interface RhizomorphMeta {
+  repoPath: string
+  repoName: string
+  sessionId: string
+  startedAt: number
+}
+
+function isRhizomorphMeta(body: unknown): body is RhizomorphMeta {
+  if (typeof body !== 'object' || body === null) return false
+  const meta = body as Record<string, unknown>
+  return (
+    typeof meta.repoPath === 'string' &&
+    typeof meta.repoName === 'string' &&
+    typeof meta.sessionId === 'string' &&
+    typeof meta.startedAt === 'number'
+  )
+}
+
+/** Whatever is on `port` is a rhizomorph only if it answers `/api/meta` with that exact shape — anything else (a stray dev server, a typo'd port) stays a FAIL. */
+async function probeRhizomorphMeta(
+  port: number,
+  fetchImpl: typeof globalThis.fetch,
+): Promise<RhizomorphMeta | null> {
+  try {
+    const response = await fetchImpl(`http://127.0.0.1:${port}/api/meta`)
+    if (!response.ok) return null
+    const body: unknown = await response.json()
+    return isRhizomorphMeta(body) ? body : null
+  } catch {
+    return null
   }
 }
 
@@ -238,8 +299,70 @@ function checkTelemetryEnv(env: NodeJS.ProcessEnv): DoctorCheck {
     id: 'telemetry',
     status: 'warn',
     message:
-      'telemetry env is not set in this shell — spend stays at zero until you run `eval "$(rhizomorph env <lane>)"` (see docs/telemetry.md)',
+      // A clone user has no `rhizomorph` binary on PATH (audit stumble, prd9 ruling 8) — name the
+      // forms that actually work from a plain clone instead.
+      'telemetry env is not set in this shell — spend stays at zero until you run `eval "$(node packages/server/bin/rhizomorph.mjs env <lane>)"` (or `npm start -- env <lane>` from the repo root) (see docs/telemetry.md)',
   }
+}
+
+/**
+ * The trace parser's fixtures are pinned to this same captured CLI version
+ * (research/2026-08-03-trace-era-captures.md §1); a beta span-name rename between
+ * that version and what's actually installed is a fixture update, not a schema
+ * migration (prd9 ruling 3) — but it is worth a loud warning so a stale fixture
+ * doesn't look like a parser bug. The receiver/parser lane pins this value
+ * independently in its own fixtures and cannot be imported from here (it runs
+ * in a parallel, separately-fenced lane this week) — this is a deliberate
+ * duplicate, not a drift bug of its own; consolidating the two pins is
+ * follow-up work.
+ */
+const TRACE_FIXTURE_CLI_VERSION = '2.1.220'
+
+async function checkCliVersionDrift(exec: Exec): Promise<DoctorCheck> {
+  const result = await exec('claude', ['--version'])
+
+  if (isMissingBinary(result)) {
+    return {
+      id: 'cli-version-drift',
+      status: 'warn',
+      message: `claude not found on PATH — cannot check it against the pinned trace fixture version ${TRACE_FIXTURE_CLI_VERSION}`,
+    }
+  }
+  if (result.failed) {
+    return {
+      id: 'cli-version-drift',
+      status: 'warn',
+      message: `claude --version errored: ${describeToolError(result)} — cannot check it against the pinned trace fixture version ${TRACE_FIXTURE_CLI_VERSION}`,
+    }
+  }
+
+  const installed = parseClaudeVersion(result.stdout)
+  if (installed === null) {
+    return {
+      id: 'cli-version-drift',
+      status: 'warn',
+      message: `could not parse a version out of \`claude --version\` output "${result.stdout.trim()}" — cannot check it against the pinned trace fixture version ${TRACE_FIXTURE_CLI_VERSION}`,
+    }
+  }
+
+  if (installed === TRACE_FIXTURE_CLI_VERSION) {
+    return {
+      id: 'cli-version-drift',
+      status: 'ok',
+      message: `claude ${installed} matches the pinned trace fixture version ${TRACE_FIXTURE_CLI_VERSION}`,
+    }
+  }
+
+  return {
+    id: 'cli-version-drift',
+    status: 'warn',
+    message: `claude ${installed} does not match the pinned trace fixture version ${TRACE_FIXTURE_CLI_VERSION} — beta span names may have drifted from the pinned fixtures; the parser maps any unrecognised span name to "other", never an error, but trace kinds may be miscategorised until the fixtures are refreshed`,
+  }
+}
+
+function parseClaudeVersion(stdout: string): string | null {
+  const match = /(\d+\.\d+\.\d+)/.exec(stdout)
+  return match?.[1] ?? null
 }
 
 /**

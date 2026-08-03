@@ -23,12 +23,26 @@ function toolError(stderr: string, code = 1): ExecResult {
   return { stdout: '', stderr, code, failed: true }
 }
 
+/** Matches the fixture version pinned in doctor.ts (`TRACE_FIXTURE_CLI_VERSION`) so the healthy-machine test stays all-`ok`. */
+const PINNED_CLI_VERSION = '2.1.220'
+
 /** Everything a fully healthy machine would report. */
 const healthyExec: Exec = async (command, args) => {
   if (command === 'git' && args[0] === 'rev-parse') return okResult('true\n')
   if (command === 'tmux') return okResult('tmux 3.3a\n')
   if (command === 'workmux') return okResult('handle  status\n')
+  if (command === 'claude' && args[0] === '--version') return okResult(`${PINNED_CLI_VERSION} (Claude Code)\n`)
   return { stdout: '', stderr: 'not stubbed', code: 1, failed: true, errorMessage: 'not stubbed' }
+}
+
+/** A `fetch` that never answers — the default for tests that don't care about the own-server probe. */
+const unreachableFetch: typeof globalThis.fetch = (async () => {
+  throw new Error('fetch failed')
+}) as typeof globalThis.fetch
+
+/** A `fetch` that answers one `/api/meta`-shaped (or not) body, without a socket. */
+function metaFetch(body: unknown, init: ResponseInit = {}): typeof globalThis.fetch {
+  return (async () => new Response(JSON.stringify(body), init)) as typeof globalThis.fetch
 }
 
 function checkFor(checks: readonly DoctorCheck[], id: string): DoctorCheck {
@@ -84,6 +98,7 @@ describe('runDoctor', () => {
       'workmux',
       'telemetry',
       'lane-manifest',
+      'cli-version-drift',
     ])
   })
 
@@ -199,13 +214,14 @@ describe('runDoctor', () => {
       await new Promise<void>((resolve) => server.close(() => resolve()))
     })
 
-    it('fails when the requested port is already in use, naming --port', async () => {
+    it('fails when the requested port is already in use by something unreachable at /api/meta, naming --port', async () => {
       const report = await runDoctor({
         path: repoPath,
         port: busyPort,
         exec: healthyExec,
         webDistDir,
         claudeProjectsRoot,
+        fetch: unreachableFetch,
       })
 
       const port = checkFor(report.checks, 'port')
@@ -215,13 +231,74 @@ describe('runDoctor', () => {
       expect(report.exitCode).toBe(1)
     })
 
-    it('treats port 0 as always free', async () => {
+    it('fails when the busy port answers /api/meta but not with a rhizomorph-shaped body — a stranger, not a healthy self', async () => {
+      const report = await runDoctor({
+        path: repoPath,
+        port: busyPort,
+        exec: healthyExec,
+        webDistDir,
+        claudeProjectsRoot,
+        fetch: metaFetch({ hello: 'world' }),
+      })
+
+      const port = checkFor(report.checks, 'port')
+      expect(port.status).toBe('fail')
+      expect(port.message).toContain(String(busyPort))
+      expect(report.exitCode).toBe(1)
+    })
+
+    it('reports ok — not FAIL — when the busy port is a rhizomorph already serving this repo (prd9 ruling 8)', async () => {
+      const report = await runDoctor({
+        path: repoPath,
+        port: busyPort,
+        exec: healthyExec,
+        webDistDir,
+        claudeProjectsRoot,
+        fetch: metaFetch({
+          repoPath,
+          repoName: 'my-repo',
+          sessionId: '1785458425389',
+          startedAt: 1785458425389,
+        }),
+      })
+
+      const port = checkFor(report.checks, 'port')
+      expect(port.status).toBe('ok')
+      expect(port.message).toContain('this repo')
+      expect(port.message).toContain(new Date(1785458425389).toISOString())
+      expect(report.exitCode).toBe(0)
+    })
+
+    it('reports ok and names the other repo when the busy port is a rhizomorph serving a different repo', async () => {
+      const report = await runDoctor({
+        path: repoPath,
+        port: busyPort,
+        exec: healthyExec,
+        webDistDir,
+        claudeProjectsRoot,
+        fetch: metaFetch({
+          repoPath: '/somewhere/else',
+          repoName: 'other-repo',
+          sessionId: '1785458425389',
+          startedAt: 1785458425389,
+        }),
+      })
+
+      const port = checkFor(report.checks, 'port')
+      expect(port.status).toBe('ok')
+      expect(port.message).toContain('other-repo')
+      expect(port.message).not.toContain('this repo')
+      expect(report.exitCode).toBe(0)
+    })
+
+    it('treats port 0 as always free without ever probing /api/meta', async () => {
       const report = await runDoctor({
         path: repoPath,
         port: 0,
         exec: healthyExec,
         webDistDir,
         claudeProjectsRoot,
+        fetch: unreachableFetch,
       })
 
       expect(checkFor(report.checks, 'port').status).toBe('ok')
@@ -339,7 +416,66 @@ describe('runDoctor', () => {
     const telemetry = checkFor(report.checks, 'telemetry')
     expect(telemetry.status).toBe('warn')
     expect(telemetry.message).toContain('docs/telemetry.md')
+    // Audit stumble (prd9 ruling 8): a clone user has no `rhizomorph` binary on PATH,
+    // so the remedy must not tell them to run a bare one.
+    expect(telemetry.message).not.toMatch(/[`"]rhizomorph /)
+    expect(telemetry.message).toContain('packages/server/bin/rhizomorph.mjs')
     expect(report.exitCode).toBe(0)
+  })
+
+  describe('cli version drift check', () => {
+    it('reports ok when the installed claude matches the pinned trace fixture version', async () => {
+      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot })
+
+      const drift = checkFor(report.checks, 'cli-version-drift')
+      expect(drift.status).toBe('ok')
+      expect(drift.message).toContain(PINNED_CLI_VERSION)
+      expect(report.exitCode).toBe(0)
+    })
+
+    it('warns naming both versions and the consequence when the installed claude differs from the pinned fixture', async () => {
+      const driftedExec: Exec = async (command, args) => {
+        if (command === 'claude' && args[0] === '--version') return okResult('2.2.0 (Claude Code)\n')
+        return healthyExec(command, args)
+      }
+
+      const report = await runDoctor({ path: repoPath, port: 0, exec: driftedExec, webDistDir, claudeProjectsRoot })
+
+      const drift = checkFor(report.checks, 'cli-version-drift')
+      expect(drift.status).toBe('warn')
+      expect(drift.message).toContain('2.2.0')
+      expect(drift.message).toContain(PINNED_CLI_VERSION)
+      expect(drift.message).toContain('other')
+      expect(report.exitCode).toBe(0)
+    })
+
+    it('warns (not fails) when claude is not on PATH', async () => {
+      const noClaudeExec: Exec = async (command, args) => {
+        if (command === 'claude') return missingBinary('claude')
+        return healthyExec(command, args)
+      }
+
+      const report = await runDoctor({ path: repoPath, port: 0, exec: noClaudeExec, webDistDir, claudeProjectsRoot })
+
+      const drift = checkFor(report.checks, 'cli-version-drift')
+      expect(drift.status).toBe('warn')
+      expect(drift.message).toContain('not found on PATH')
+      expect(report.exitCode).toBe(0)
+    })
+
+    it('warns without throwing when `claude --version` output has no parseable version', async () => {
+      const unparseableExec: Exec = async (command, args) => {
+        if (command === 'claude' && args[0] === '--version') return okResult('unknown\n')
+        return healthyExec(command, args)
+      }
+
+      const report = await runDoctor({ path: repoPath, port: 0, exec: unparseableExec, webDistDir, claudeProjectsRoot })
+
+      const drift = checkFor(report.checks, 'cli-version-drift')
+      expect(drift.status).toBe('warn')
+      expect(drift.message).toContain('could not parse')
+      expect(report.exitCode).toBe(0)
+    })
   })
 
   describe('lane manifest check', () => {
