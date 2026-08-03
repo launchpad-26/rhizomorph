@@ -4,6 +4,7 @@ import { gitEventSchemas } from './git.js'
 import { systemEventSchemas } from './system.js'
 import { telemetryEventSchemas } from './telemetry.js'
 import { tmuxEventSchemas } from './tmux.js'
+import { traceEventSchemas } from './trace.js'
 import { workmuxEventSchemas } from './workmux.js'
 
 export * from './common.js'
@@ -11,6 +12,7 @@ export * from './git.js'
 export * from './system.js'
 export * from './telemetry.js'
 export * from './tmux.js'
+export * from './trace.js'
 export * from './workmux.js'
 
 /** The one event union every consumer reads. Discriminates on `type`. */
@@ -20,6 +22,7 @@ export const rhizomorphEventSchema = z.discriminatedUnion('type', [
   ...workmuxEventSchemas,
   ...systemEventSchemas,
   ...telemetryEventSchemas,
+  ...traceEventSchemas,
 ])
 
 export type RhizomorphEvent = z.infer<typeof rhizomorphEventSchema>
@@ -61,6 +64,8 @@ export const EVENT_SOURCE_BY_TYPE = {
   'tool.activity': 'sessionlog',
   // Only the OTLP receiver can refuse a post, so `otel` is not just primary here.
   'telemetry.refused': 'otel',
+  // prd9: spans come off our own `/v1/traces` receiver and nowhere else.
+  'trace.span': 'otel',
 } as const satisfies Record<EventType, EventSource>
 
 export const EVENT_TYPES = Object.keys(EVENT_SOURCE_BY_TYPE) as EventType[]

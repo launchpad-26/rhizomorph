@@ -225,5 +225,20 @@ function oneOfEach() {
       expectedInstance: '1785458425389',
       count: 3,
     }, { id: id(), ts: 16 }),
+    // prd9's trace keystone. The allowlist and the laws are stated in
+    // `trace.test.ts`; here it is just another member of the census.
+    createEvent('trace.span', {
+      lane: 'feat',
+      role: 'worker',
+      traceId: 'trace-1',
+      spanId: 'span-1',
+      parentSpanId: null,
+      name: 'claude_code.interaction',
+      kind: 'interaction',
+      startTs: 17,
+      endTs: 18,
+      status: 'ok',
+      sessionId: 'sess-1',
+    }, { id: id(), ts: 19 }),
   ]
 }

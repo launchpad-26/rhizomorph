@@ -15,6 +15,7 @@ import type {
   PaneState,
   SessionPlace,
   SessionState,
+  SpanRecord,
   TelemetryState,
   ToolActivityRecord,
   UsageRecord,
@@ -90,6 +91,8 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       // stream) for the UI to surface, and contributes nothing to any total.
       // #62 gives it a home in state.
       return state
+    case 'trace.span':
+      return traceSpan(state, event)
     default: {
       // Exhaustive today; an unknown future type must never break a replay.
       const _never: never = event
@@ -736,6 +739,79 @@ function upsertLane(
         : [...sessionIds, sessionId],
     firstSeenAt: prev === undefined ? ts : Math.min(prev.firstSeenAt, ts),
     lastSeenAt: prev === undefined ? ts : Math.max(prev.lastSeenAt, ts),
+  }
+}
+
+// --- traces (prd9) ----------------------------------------------------------
+
+/**
+ * One span, appended whole, with the two lookups kept in step.
+ *
+ * **Idempotent on `(traceId, spanId)`.** Whether the CLI's exporter retries a
+ * delivery was never established ([Ran] left it open, research §Open questions
+ * 7), and a replayed log can hand us the same span twice regardless — so a span
+ * we already hold is a no-op rather than a second bar in the waterfall. The
+ * envelope bookkeeping above still counts the event, because the event really
+ * did arrive; it is the *span* that is not duplicated.
+ *
+ * Deliberately does not touch `state.telemetry`. Spans carry tokens the money
+ * layer already counts (prd9 ruling 4), so keeping them in their own slice is
+ * what makes "a span-only state spends nothing" true by construction rather
+ * than by every future selector remembering to exclude them. It also means the
+ * lane and session indexes stay the money layer's own record of who was
+ * spending, unpolluted by annotation.
+ */
+function traceSpan(state: SessionState, event: EventOf<'trace.span'>): SessionState {
+  const p = event.payload
+  const traces = state.traces
+  const seen = traces.byTrace[p.traceId]
+  if (seen !== undefined && seen.some((at) => traces.spans[at]?.spanId === p.spanId)) {
+    return state
+  }
+
+  const record: SpanRecord = {
+    eventId: event.id,
+    ts: event.ts,
+    lane: p.lane,
+    role: p.role,
+    thread: p.thread ?? null,
+    sessionId: p.sessionId ?? null,
+    worktreePath: p.worktreePath ?? null,
+    branch: p.branch ?? null,
+    traceId: p.traceId,
+    spanId: p.spanId,
+    parentSpanId: p.parentSpanId,
+    name: p.name,
+    kind: p.kind,
+    startTs: p.startTs,
+    endTs: p.endTs,
+    status: p.status,
+    model: p.model ?? null,
+    tokens: p.tokens ?? null,
+    ttftMs: p.ttftMs ?? null,
+    requestId: p.requestId ?? null,
+    agentId: p.agentId ?? null,
+    parentAgentId: p.parentAgentId ?? null,
+    toolName: p.toolName ?? null,
+    toolUseId: p.toolUseId ?? null,
+    subagentType: p.subagentType ?? null,
+    decision: p.decision ?? null,
+  }
+
+  const at = traces.spans.length
+  return {
+    ...state,
+    traces: {
+      spans: [...traces.spans, record],
+      byTrace: { ...traces.byTrace, [p.traceId]: [...(seen ?? []), at] },
+      bySession:
+        record.sessionId === null
+          ? traces.bySession
+          : {
+              ...traces.bySession,
+              [record.sessionId]: [...(traces.bySession[record.sessionId] ?? []), at],
+            },
+    },
   }
 }
 

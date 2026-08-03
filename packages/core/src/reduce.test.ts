@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createEventFactory, fixtureSession } from './fixtures.js'
 import { reduce, reduceAll } from './reduce.js'
-import { MAX_ERRORS, initialSessionState, initialTelemetryState } from './state.js'
+import {
+  MAX_ERRORS,
+  initialSessionState,
+  initialTelemetryState,
+  initialTraceState,
+} from './state.js'
 
 const REPO = '/repo/rhizomorph'
 const WT = `${REPO}-wt/feature`
@@ -26,6 +31,7 @@ describe('reduce — envelope bookkeeping', () => {
       collectors: {},
       errors: [],
       telemetry: initialTelemetryState(),
+      traces: initialTraceState(),
       eventCount: 0,
       firstEventTs: null,
       lastEventTs: null,

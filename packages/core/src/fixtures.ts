@@ -69,6 +69,12 @@ export interface EventFactory {
   llmUsage(payload?: Partial<PayloadOf<'llm.usage'>>, init?: Init<'llm.usage'>): EventOf<'llm.usage'>
   llmCost(payload?: Partial<PayloadOf<'llm.cost'>>, init?: Init<'llm.cost'>): EventOf<'llm.cost'>
   toolActivity(payload?: Partial<PayloadOf<'tool.activity'>>, init?: Init<'tool.activity'>): EventOf<'tool.activity'>
+
+  /**
+   * prd9 traces. The default is one `llm_request` span of the shape the
+   * 2026-08-03 capture showed; {@link fixtureTraceSpans} builds a whole tree.
+   */
+  traceSpan(payload?: Partial<PayloadOf<'trace.span'>>, init?: Init<'trace.span'>): EventOf<'trace.span'>
 }
 
 const defaults = {
@@ -155,6 +161,27 @@ const defaults = {
     expectedInstance: 'fixture-instance',
     count: 1,
   },
+  // prd9: one `llm_request` span, shaped like the 2026-08-03 capture (§1) —
+  // raw beta name, derived kind, tokens present but annotation-only.
+  'trace.span': {
+    lane: 'feature',
+    role: 'worker',
+    traceId: 'trace-fixture-1',
+    spanId: 'span-fixture-1',
+    parentSpanId: null,
+    name: 'claude_code.llm_request',
+    kind: 'llm_request',
+    startTs: FIXTURE_START_TS,
+    endTs: FIXTURE_START_TS + 9_400,
+    status: 'ok',
+    model: 'claude-opus-5',
+    tokens: { input: 2, output: 1_700, cacheRead: 99_700, cacheCreation: 1_900 },
+    ttftMs: 1_200,
+    requestId: 'req_fixture_1',
+    sessionId: 'sess-feature',
+    worktreePath: `${FIXTURE_REPO_PATH}-wt/feature`,
+    branch: 'feature',
+  },
 } as const satisfies { [T in EventType]: PayloadOf<T> }
 
 export function createEventFactory(options: EventFactoryOptions = {}): EventFactory {
@@ -181,8 +208,12 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
   const sugar =
     <T extends EventType>(type: T) =>
     (payload: Partial<PayloadOf<T>> = {}, init: Init<T> = {}) =>
-      // The spread of a generic partial widens; the schema still validates.
-      make(type, { ...(defaults[type] as PayloadOf<T>), ...payload } as PayloadOf<T>, init)
+      // The spread of a generic partial widens, and `PayloadOf<T>` for an
+      // unresolved `T` narrows to the intersection of every payload — which is
+      // uninhabited now that `agent.status` and `trace.span` both have a
+      // `status` field of their own enum. Hence the double cast; each caller's
+      // own signature above is still exact, and the schema still validates.
+      make(type, { ...defaults[type], ...payload } as unknown as PayloadOf<T>, init)
 
   const factory: EventFactory = {
     now: () => clock,
@@ -219,6 +250,7 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
     llmUsage: sugar('llm.usage'),
     llmCost: sugar('llm.cost'),
     toolActivity: sugar('tool.activity'),
+    traceSpan: sugar('trace.span'),
   }
 
   return factory
@@ -438,6 +470,116 @@ export function fixtureSession(): RhizomorphEvent[] {
   f.agentStatus({ handle: '3-git', status: 'waiting', worktreePath: WT('3-git'), branch: '3-git' })
 
   return f.all()
+}
+
+export interface TraceFixtureOptions {
+  lane?: string
+  /** Defaults to `sess-<lane>`, the same join key the telemetry fixtures use. */
+  sessionId?: string
+  traceId?: string
+  /** When the root interaction began. Everything else is offset from it. */
+  startTs?: number
+  idPrefix?: string
+}
+
+/**
+ * One interaction's span tree, exactly the shape the 2026-08-03 capture found
+ * (research §1): `claude_code.interaction` at the root, an `llm_request` and a
+ * `tool` under it, and the tool's own `blocked_on_user` + `execution` pair
+ * below that.
+ *
+ * Two properties are deliberate, because they are the ones a consumer will get
+ * wrong otherwise:
+ *
+ * - **Arrival order is not tree order.** Spans export when they END ([Ran]), so
+ *   the leaves arrive first and the root arrives last. Each event's envelope
+ *   `ts` is its span's `endTs` plus one export interval, which is what the
+ *   capture measured.
+ * - **Only the `llm_request` carries tokens**, and they are annotation: prd9
+ *   ruling 4 keeps every one of these spans out of spend.
+ *
+ * Call it twice with different `traceId`s for a multi-trace session, or with
+ * the same one to fake an exporter re-delivery.
+ */
+export function fixtureTraceSpans(options: TraceFixtureOptions = {}): EventOf<'trace.span'>[] {
+  const lane = options.lane ?? '2-core'
+  const sessionId = options.sessionId ?? `sess-${lane}`
+  const traceId = options.traceId ?? `trace-${lane}-1`
+  const t0 = options.startTs ?? FIXTURE_START_TS
+  const f = createEventFactory({ idPrefix: options.idPrefix ?? `span-${lane}` })
+
+  /** One export interval, per the capture's `OTEL_TRACES_EXPORT_INTERVAL=1000`. */
+  const interval = 1_000
+  const place = { lane, sessionId, worktreePath: WT(lane), branch: lane, role: 'worker' } as const
+  // `make`, not the `traceSpan` sugar: the sugar's default payload is a whole
+  // `llm_request`, and a `tool` span that inherited its tokens would be exactly
+  // the double-count prd9 ruling 4 exists to prevent.
+  const span = (
+    payload: Omit<PayloadOf<'trace.span'>, 'lane' | 'role' | 'sessionId' | 'worktreePath' | 'branch' | 'traceId'>,
+  ) => f.make('trace.span', { ...place, traceId, ...payload }, { ts: payload.endTs + interval })
+
+  const root = `${traceId}-interaction`
+  const tool = `${traceId}-tool`
+
+  // Leaves first: each one is exported as it ends, and the root is last because
+  // it is still open until the whole interaction is done.
+  const llm = span({
+    spanId: `${traceId}-llm`,
+    parentSpanId: root,
+    name: 'claude_code.llm_request',
+    kind: 'llm_request',
+    startTs: t0 + 200,
+    endTs: t0 + 9_600,
+    status: 'ok',
+    model: 'claude-opus-5',
+    tokens: { input: 4, output: 3_100, cacheRead: 180_000, cacheCreation: 6_400 },
+    ttftMs: 1_400,
+    requestId: `req-${lane}-1`,
+  })
+  const blocked = span({
+    spanId: `${traceId}-blocked`,
+    parentSpanId: tool,
+    name: 'claude_code.tool.blocked_on_user',
+    kind: 'tool_blocked',
+    startTs: t0 + 9_700,
+    endTs: t0 + 9_702,
+    status: 'ok',
+    // `unknown` is what a pre-allowed tool actually reports — nobody was asked.
+    decision: 'unknown',
+    toolName: 'Bash',
+  })
+  const execution = span({
+    spanId: `${traceId}-execution`,
+    parentSpanId: tool,
+    name: 'claude_code.tool.execution',
+    kind: 'tool_execution',
+    startTs: t0 + 9_702,
+    endTs: t0 + 13_900,
+    status: 'ok',
+    toolName: 'Bash',
+  })
+  const toolSpan = span({
+    spanId: tool,
+    parentSpanId: root,
+    name: 'claude_code.tool',
+    kind: 'tool',
+    startTs: t0 + 9_650,
+    endTs: t0 + 13_950,
+    status: 'ok',
+    toolName: 'Bash',
+    toolUseId: `toolu_${lane}_1`,
+  })
+  const interaction = span({
+    spanId: root,
+    parentSpanId: null,
+    name: 'claude_code.interaction',
+    kind: 'interaction',
+    startTs: t0,
+    endTs: t0 + 14_100,
+    status: 'ok',
+  })
+
+  return [llm, blocked, execution, toolSpan, interaction]
 }
 
 /**

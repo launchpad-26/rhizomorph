@@ -5,6 +5,9 @@ import type {
   Author,
   DirtyFile,
   FileChange,
+  SpanDecision,
+  SpanKind,
+  SpanStatus,
   TelemetryOrigin,
   TokenUsagePayload,
 } from './events/index.js'
@@ -259,6 +262,75 @@ export function initialTelemetryState(): TelemetryState {
   return { usage: [], costs: [], tools: [], lanes: {}, sessions: {} }
 }
 
+/**
+ * One span of an agent CLI's trace export, kept whole and in observation order —
+ * the same rule the telemetry records follow. Nothing is accumulated: a trace's
+ * duration, its token sum, how long a lane sat blocked, are all subtraction a
+ * selector does, so live and replay cannot disagree about them.
+ *
+ * Fields mirror `trace.span`'s payload one for one (`events/trace.ts`), with
+ * the optionals normalised to `null`. The allowlist is the payload's, and this
+ * record adds nothing to it: no attributes map reaches state because none
+ * reaches the event.
+ */
+export interface SpanRecord {
+  eventId: string
+  /** Envelope ts — when we RECEIVED the span, which is after `endTs`. */
+  ts: number
+  lane: string
+  role: AgentRole
+  thread: AgentThread | null
+  sessionId: string | null
+  worktreePath: string | null
+  branch: string | null
+  traceId: string
+  spanId: string
+  parentSpanId: string | null
+  /** Raw, as the CLI emitted it. {@link kind} is what surfaces should read. */
+  name: string
+  kind: SpanKind
+  startTs: number
+  endTs: number
+  status: SpanStatus
+  model: string | null
+  /**
+   * Annotation only. prd9 ruling 4: these duplicate what the money layer
+   * already counts, so no spend selector reads this slice.
+   */
+  tokens: TokenUsagePayload | null
+  ttftMs: number | null
+  /** May JOIN a spend record for enrichment; may never create one. */
+  requestId: string | null
+  agentId: string | null
+  parentAgentId: string | null
+  toolName: string | null
+  toolUseId: string | null
+  subagentType: string | null
+  decision: SpanDecision | null
+}
+
+/**
+ * prd9's trace slice. Spans in the order they arrived, plus the two lookups
+ * every future selector starts from — a trace's own spans (the waterfall) and a
+ * session's spans across however many traces it produced (the capture showed
+ * background requests landing in traces of their own).
+ *
+ * The indexes hold POSITIONS in {@link spans}, not copies: spans are only ever
+ * appended, so a position is stable for the life of the fold, and there is
+ * exactly one copy of each record to reason about.
+ */
+export interface TraceState {
+  spans: SpanRecord[]
+  /** traceId → positions in `spans`, in observation order. */
+  byTrace: Record<string, number[]>
+  /** sessionId → positions in `spans`. Spans with no session id are not indexed here. */
+  bySession: Record<string, number[]>
+}
+
+export function initialTraceState(): TraceState {
+  return { spans: [], byTrace: {}, bySession: {} }
+}
+
 export interface SessionState {
   session: SessionInfo | null
   /** Branch everything is measured against; null until we learn it. */
@@ -275,6 +347,8 @@ export interface SessionState {
   errors: ErrorRecord[]
   /** prd1: tokens, dollars and tool calls. Additive — nothing above changed. */
   telemetry: TelemetryState
+  /** prd9: the span tree. Additive again, and read by no spend selector. */
+  traces: TraceState
   eventCount: number
   firstEventTs: number | null
   lastEventTs: number | null
@@ -296,6 +370,7 @@ export function initialSessionState(): SessionState {
     collectors: {},
     errors: [],
     telemetry: initialTelemetryState(),
+    traces: initialTraceState(),
     eventCount: 0,
     firstEventTs: null,
     lastEventTs: null,
