@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AnyCollector, Exec } from '@rhizomorph/core'
-import { createEvent, createIdFactory } from '@rhizomorph/core'
+import { createEvent, createIdFactory, reduceAll, selectBranches, selectWorktreeViews } from '@rhizomorph/core'
 import type { FastifyInstance } from 'fastify'
 import { createSessionlogCollector } from '../collectors/sessionlog/index.js'
 import { defaultDataRoot, sessionDirFor, sessionFileName, snapshotDirFor } from '../log/paths.js'
@@ -172,7 +172,20 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
     exit(1)
   }
   pollLoop.start()
+  // pollLoop.start() already fired the first tick fire-and-forget; awaiting
+  // tick() here dedupes onto that same in-flight promise (see poll-loop.ts)
+  // rather than forcing a second one, so the boot line below reports real
+  // counts from the first poll instead of an invented zero.
+  await pollLoop.tick()
+
   log.log(`rhizomorph running at ${url}`)
+  const bootState = reduceAll(recorder.eventsSoFar())
+  const worktreeCount = selectWorktreeViews(bootState).length
+  const branchCount = selectBranches(bootState).length
+  log.log(
+    `watching ${repoPath} — ${worktreeCount} worktree${worktreeCount === 1 ? '' : 's'}, ` +
+      `${branchCount} branch${branchCount === 1 ? '' : 'es'} · recording to ${filePath}`,
+  )
 
   const stop = async () => {
     await pollLoop.stop()

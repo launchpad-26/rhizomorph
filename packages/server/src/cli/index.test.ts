@@ -153,7 +153,9 @@ describe('runCli', () => {
     const metaResponse = await fetch(`${handle.url}/api/meta`)
     expect(await metaResponse.json()).toMatchObject({ repoPath, repoName: 'my-repo' })
 
-    // start() already fires one tick immediately; wait for it, then force one more.
+    // runCli's own boot already awaited the first tick before returning `handle`
+    // (see index.ts); these two force two more, guaranteeing the loop keeps
+    // advancing after boot rather than proving anything about the first tick.
     await handle.pollLoop.tick()
     await handle.pollLoop.tick()
 
@@ -162,6 +164,52 @@ describe('runCli', () => {
     expect(events[0]?.type).toBe('session.started')
     expect(events.slice(1).every((e) => e.type === 'agent.status')).toBe(true)
     expect(events.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('boot line names the watched repo with real worktree/branch counts from the first poll, and the session log path', async () => {
+    const repoPath = path.join(tmpdir(), 'boot-line-repo')
+
+    // Stands in for the git collector: discovers two worktrees and two
+    // branches on its very first poll, so the boot line has real, non-zero
+    // counts to report instead of the zeroes a fresh SessionState would give.
+    const discoveryCollector: Collector<{ discovered: boolean }> = {
+      name: 'fake-git',
+      initialSnapshot: () => ({ discovered: false }),
+      poll: (prev, context: CollectorContext): PollResult<{ discovered: boolean }> => {
+        if (prev.discovered) return { nextSnapshot: prev, events: [] }
+        return {
+          nextSnapshot: { discovered: true },
+          events: [
+            context.emit('worktree.discovered', {
+              path: repoPath,
+              branch: 'main',
+              head: 'sha-main',
+              isMain: true,
+            }),
+            context.emit('worktree.discovered', {
+              path: path.join(tmpdir(), 'boot-line-repo-lane-a'),
+              branch: 'lane-a',
+              head: 'sha-lane-a',
+              isMain: false,
+            }),
+            context.emit('branch.updated', { branch: 'main', head: 'sha-main' }),
+            context.emit('branch.updated', { branch: 'lane-a', head: 'sha-lane-a' }),
+          ],
+        }
+      },
+    }
+
+    const log = { log: vi.fn(), warn: vi.fn() }
+    handle = await runCli([repoPath, '--port', '0'], {
+      dataRoot,
+      collectors: [discoveryCollector],
+      log,
+    })
+
+    const output = log.log.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain(
+      `watching ${repoPath} — 2 worktrees, 2 branches · recording to ${handle.recorder.filePath}`,
+    )
   })
 
   it('survives a collector that throws by recording collector.error and moving on', async () => {
