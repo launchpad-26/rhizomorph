@@ -3,19 +3,21 @@ import { clamp01 } from './palette.js'
 import { criticalDamping } from './spring.js'
 
 /**
- * THE MOTION BUDGET (prd5 ruling 4, adopted as law).
+ * THE MOTION BUDGET (prd5 ruling 4, adopted as law; prd10 ruling 10 adds the
+ * fourth class).
  *
  * The scene was granted "a little more animation", and this file is the whole
- * of what that grant means. Three classes, hard-separated; **nothing in the
+ * of what that grant means. Four classes, hard-separated; **nothing in the
  * picture may move outside one of them**, and every number below is a ruling
  * rather than a taste, so `motion.test.ts` reads them the way `salience.test.ts`
  * reads `CALM_FLOOR`.
  *
- * | class          | what moves                                  | budget                                  |
- * | -------------- | ------------------------------------------- | --------------------------------------- |
- * | **ambient**    | the root-mass breath, any idle life         | 4–8 s period, ≤3% amplitude, unlimited  |
- * | **event**      | pulse travel, arrival flare, alarm throb    | 400–600 ms; flare 150 in / 500 out; ≤5  |
- * | **structural** | a lane appearing, reflowing, disconnecting  | ~800 ms critically damped; ≤2, staggered |
+ * | class            | what moves                                  | budget                                  |
+ * | ---------------- | ------------------------------------------- | --------------------------------------- |
+ * | **ambient**      | the root-mass breath, any idle life         | 4–8 s period, ≤3% amplitude, unlimited  |
+ * | **event**        | pulse travel, arrival flare, alarm throb    | 400–600 ms; flare 150 in / 500 out; ≤5  |
+ * | **structural**   | a lane appearing, reflowing, disconnecting  | ~800 ms critically damped; ≤2, staggered |
+ * | **dissolution**  | matter returning: composting, absorption    | ≤240 pooled motes, luminance-only fade  |
  *
  * Two of those caps are load-bearing rather than decorative:
  *
@@ -44,7 +46,7 @@ import { criticalDamping } from './spring.js'
  *   it stops.
  */
 
-export type MotionClass = 'ambient' | 'event' | 'structural'
+export type MotionClass = 'ambient' | 'event' | 'structural' | 'dissolution'
 
 export type MotionMode = 'full' | 'reduced' | 'paused'
 
@@ -87,6 +89,81 @@ export const STRUCTURAL = {
 export const STRUCTURAL_DAMPING = criticalDamping(STRUCTURAL.stiffness)
 
 /**
+ * THE FOURTH CLASS (prd10 ruling 10) — **matter returning**, and nothing else.
+ *
+ * Three classes were enough while everything that moved was either the scene
+ * breathing, an event arriving or the topology changing. Ruling 2's composting
+ * decay is none of those: a severed cord coming apart into motes that drift home
+ * is hundreds of small objects with lives of their own, which is exactly the
+ * shape the event class's cap of five exists to forbid — and rightly, because
+ * five is what a person can *track*. Nobody tracks a mote. A drift of them is
+ * read as one substance, the way a viewer reads smoke rather than counting it,
+ * so it needs a budget written in the units it actually costs (how many, how
+ * bright) rather than in the units attention is spent in.
+ *
+ * Hence a class of its own, with the three older caps **untouched** —
+ * `motion.test.ts` asserts that, because the cheapest way to smuggle a sixth
+ * simultaneous pulse into this scene would be to widen `EVENT.maxConcurrent`
+ * while adding this.
+ *
+ * Four bounds, and each one is a refusal:
+ *
+ * - **{@link maxLive}** — a hard ceiling on live motes, pooled and never
+ *   allocated per frame (the spike's sprite-blit verdict; `perf.test.ts`
+ *   measures the difference). 240 is what a 60 fps frame holds alongside the
+ *   existing scene on the dev box.
+ * - **{@link maxPerLane}** — so one enormous landing cannot spend the whole
+ *   pool and leave the two cords beside it drawing nothing.
+ * - **luminance-only fades** — a mote dims, it never shrinks. That is what
+ *   {@link allowance} refuses for this class in *every* mode, including `full`:
+ *   a scaling mote would read as a thing coming toward the viewer, and nothing
+ *   in this picture has a Z axis.
+ * - **{@link CAUSES}** — the class may only ever be spawned by a severance or an
+ *   absorption. Never by ambient state, and this is the one bound that is a
+ *   *type* rather than a number: {@link DissolutionCause} makes "some idle lane
+ *   started emitting motes because it looked nice" unwriteable rather than
+ *   merely forbidden.
+ */
+export const DISSOLUTION = {
+  /** The pool. Live motes across the whole scene, all lanes together. */
+  maxLive: 240,
+  /** …and the most any one lane may take of it. */
+  maxPerLane: 40,
+  /**
+   * How long one mote lives: born on the cord, home in the mass, gone. Inside
+   * the event class's own travel band at the short end, because a mote that
+   * took three seconds to cross would still be in flight when its cord had
+   * finished parting.
+   */
+  moteLifeMs: 900,
+  /**
+   * How long a whole cord takes to come apart — the window the birth delays are
+   * spread over, plus the last mote's own life.
+   *
+   * Longer than the cut itself (`CUT.totalMs`, 1.4 s) on purpose: the cord parts
+   * first and *then* finishes composting, so the two acts read as cause and
+   * consequence rather than as one blur. It is also what makes "the severed
+   * ribbon geometry is gone when the dissolve completes" a later instant than
+   * "the cut has settled", which is the seam every existing cord-cut law is
+   * written against.
+   */
+  spanMs: 2_400,
+} as const
+
+/**
+ * What may spawn a dissolution. Exhaustive, and there will not be a third:
+ * both are the same act at two scales (ruling 2, and ruling 9's "completion
+ * absorbs the bud back into its parent").
+ */
+export type DissolutionCause = 'severance' | 'absorption'
+
+/** The same list at runtime, so the exhaustiveness is a test rather than a hope. */
+export const DISSOLUTION_CAUSES = [
+  'severance',
+  'absorption',
+] as const satisfies readonly DissolutionCause[]
+
+/**
  * What a class may animate in a given mode.
  *
  * Every field is about *change over time* — `colour: false` does not mean a mark
@@ -106,11 +183,29 @@ export interface MotionAllowance {
 const FULL: MotionAllowance = { travel: true, scale: true, colour: true, opacity: true }
 const NO_MOVEMENT: MotionAllowance = { travel: false, scale: false, colour: true, opacity: true }
 const FROZEN: MotionAllowance = { travel: false, scale: false, colour: false, opacity: false }
+/**
+ * A mote's whole allowance: it goes somewhere and it dims on the way, and those
+ * are the only two things it is ever allowed to do. `scale: false` even under
+ * `full` is ruling 10's "luminance-only fades" as a mechanism rather than as an
+ * instruction — see {@link DISSOLUTION}.
+ */
+const LUMINANCE_ONLY: MotionAllowance = {
+  travel: true,
+  scale: false,
+  colour: true,
+  opacity: true,
+}
 
 export function allowance(motionClass: MotionClass, mode: MotionMode): MotionAllowance {
-  if (mode === 'full') return FULL
+  if (mode === 'full') return motionClass === 'dissolution' ? LUMINANCE_ONLY : FULL
+  // Reduced motion drops travel, which for this class is the whole of it: a cut
+  // that never crossed the picture (`cutAt`'s `SETTLED_IN_PLACE`) has no journey
+  // to compost, exactly as it has no homeward ribbon.
   if (mode === 'reduced') return NO_MOVEMENT
-  // Paused. Structural is allowed to finish what it started; nothing else is.
+  // Paused. Structural is allowed to finish what it started; nothing else is —
+  // and a dissolution is *not* structural, so it holds still with the clock. A
+  // frozen drift of motes is the picture the operator pressed the button on,
+  // which is what pause is for; the topology it belongs to is settled either way.
   return motionClass === 'structural' ? FULL : FROZEN
 }
 
