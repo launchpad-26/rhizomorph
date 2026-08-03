@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createEventFactory } from '../fixtures.js'
+import type { RhizomorphEvent } from '../events/index.js'
 import { reduceAll } from '../reduce.js'
 import { initialSessionState } from '../state.js'
 import {
@@ -216,6 +217,68 @@ describe('selectCollisionMap / selectCollisions', () => {
     ])
     expect(selectCollisions(state)).toEqual([])
     expect(selectCollidingBranches(state)).toEqual([])
+  })
+
+  // #137: the false positive dogfooding actually hit. A squash-merge lands one
+  // new sha on main — the feature branch's own shas never join `mainShas`, so
+  // without `branch.removed` the committed touch below would count against a
+  // branch whose worktree is long gone, forever. `worktree.removed` alone does
+  // not clear it: it only wipes a worktree's *dirty* set, and committed touches
+  // are read straight off `state.branches`, not the worktree.
+  describe('the ghost collision — branch.removed quiets it', () => {
+    it('drops only the removed side out of a three-way collision, not the others', () => {
+      const state = reduceAll([
+        ...withWorktrees('a', 'b', 'c'),
+        f.commitLanded({ sha: 'c1', branch: 'a', files: [{ path: 'shared.ts', status: 'modified' }] }),
+        f.commitLanded({ sha: 'c2', branch: 'b', files: [{ path: 'shared.ts', status: 'modified' }] }),
+        f.commitLanded({ sha: 'c3', branch: 'c', files: [{ path: 'shared.ts', status: 'modified' }] }),
+      ])
+      expect(selectCollisions(state)[0]).toMatchObject({ branches: ['a', 'b', 'c'], branchCount: 3 })
+
+      const afterMergeA = reduceAll(
+        [f.worktreeRemoved({ path: wt('a') }), f.branchRemoved({ branch: 'a' })],
+        state,
+      )
+      expect(selectCollisions(afterMergeA)[0]).toMatchObject({ branches: ['b', 'c'], branchCount: 2 })
+      expect(selectCollidingBranches(afterMergeA)).toEqual(['b', 'c'])
+    })
+
+    it('reaches ALL CLEAR once the only other side of a pair is removed too', () => {
+      const state = reduceAll([
+        ...withWorktrees('a', 'b'),
+        f.commitLanded({ sha: 'c1', branch: 'a', files: [{ path: 'shared.ts', status: 'modified' }] }),
+        f.commitLanded({ sha: 'c2', branch: 'b', files: [{ path: 'shared.ts', status: 'modified' }] }),
+      ])
+      expect(selectCollisions(state)).toHaveLength(1)
+
+      // Both lanes merged and both branches went away — the real #137 shape.
+      const afterBothMerged = reduceAll(
+        [
+          f.worktreeRemoved({ path: wt('a') }),
+          f.worktreeRemoved({ path: wt('b') }),
+          f.branchRemoved({ branch: 'a' }),
+          f.branchRemoved({ branch: 'b' }),
+        ],
+        state,
+      )
+      expect(selectCollisions(afterBothMerged)).toEqual([])
+      expect(selectCollidingBranches(afterBothMerged)).toEqual([])
+    })
+
+    it('replays an old log with no branch.removed events exactly as before — forward-compat', () => {
+      const events: RhizomorphEvent[] = [
+        ...withWorktrees('a', 'b'),
+        f.commitLanded({ sha: 'c1', branch: 'a', files: [{ path: 'shared.ts', status: 'modified' }] }),
+        f.commitLanded({ sha: 'c2', branch: 'b', files: [{ path: 'shared.ts', status: 'modified' }] }),
+        f.worktreeRemoved({ path: wt('a') }),
+        f.worktreeRemoved({ path: wt('b') }),
+      ]
+      expect(events.some((event) => event.type === 'branch.removed')).toBe(false)
+      const state = reduceAll(events)
+      // No branch.removed in the log — the ghost stays exactly as it always did.
+      expect(selectCollisions(state)).toHaveLength(1)
+      expect(selectCollidingBranches(state)).toEqual(['a', 'b'])
+    })
   })
 })
 
