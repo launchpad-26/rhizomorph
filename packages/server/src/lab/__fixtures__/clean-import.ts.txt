@@ -1,0 +1,7 @@
+// Negative-control fixture for namespace-law.test.ts — an ordinary observer
+// import, so the detector is proven not to fire on everything.
+import { readSessionEvents } from '../log/session-log.js'
+
+export function calledFromAnObserverCollector() {
+  return readSessionEvents
+}
