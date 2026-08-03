@@ -360,6 +360,69 @@ describe('LaneDrawer — the activity view (the default reading)', () => {
   })
 })
 
+describe('LaneDrawer — the WHY surface (prd11 ruling 5)', () => {
+  /**
+   * A tool call and a commit naming the same file, plus a trace span sharing
+   * the tool call's `toolUseId` — the DoD's "fixture session with tool
+   * activity + commits renders the chain", not just the honest empty state.
+   */
+  function whyHistory(): RhizomorphEvent[] {
+    const f = createEventFactory({ startTs: NOW - 40_000, stepMs: 2_000 })
+    return [
+      f.sessionStarted({ repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' }),
+      f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-main', isMain: true }),
+      f.worktreeDiscovered({ path: WORKTREE, branch: LANE, head: 'sha-84', isMain: false }),
+      f.toolActivity({
+        lane: LANE,
+        branch: LANE,
+        worktreePath: WORKTREE,
+        sessionId: 'sess-84',
+        tool: 'Edit',
+        filePath: 'packages/web/src/drawer/index.tsx',
+        toolUseId: 'toolu_why_1',
+      }),
+      f.traceSpan({
+        lane: LANE,
+        sessionId: 'sess-84',
+        traceId: 'trace-why-1',
+        spanId: 'span-why-1',
+        kind: 'tool',
+        name: 'claude_code.tool',
+        toolName: 'Edit',
+        toolUseId: 'toolu_why_1',
+      }),
+      f.commitLanded({
+        branch: LANE,
+        sha: 'abc1234def5678',
+        message: 'feat(drawer): the lane drawer',
+        files: [{ path: 'packages/web/src/drawer/index.tsx', status: 'added' }],
+        insertions: 90,
+        deletions: 0,
+        worktreePath: WORKTREE,
+      }),
+    ]
+  }
+
+  it('renders the chain — the tool call joined to its span, and the commit that landed the file', async () => {
+    await renderDrawer({ events: whyHistory() })
+
+    expect(screen.getByTestId('why-surface')).toBeTruthy()
+    expect(screen.getByTestId('why-tool-call').textContent).toContain('Edit')
+    expect(screen.getByTestId('trace-kind').getAttribute('data-kind')).toBe('tool')
+    expect(screen.getByTestId('why-commit').textContent).toContain('abc1234')
+    expect(screen.queryByTestId('why-gap')).toBeNull()
+  })
+
+  it('sits below the activity ledger and above the trace section', async () => {
+    await renderDrawer({ events: whyHistory() })
+
+    const drawer = screen.getByTestId('lane-drawer')
+    const order = [...drawer.querySelectorAll('[data-testid]')].map((el) => el.getAttribute('data-testid'))
+    expect(order.indexOf('drawer-activity')).toBeLessThan(order.indexOf('why-surface'))
+    expect(order.indexOf('why-surface')).toBeLessThan(order.indexOf('drawer-trace'))
+  })
+})
+
 describe('LaneDrawer — the trace section (prd9 B1a)', () => {
   it('renders the lane\'s span tree below the activity ledger', async () => {
     const events = [...laneHistory(), ...fixtureTraceSpans({ lane: LANE, sessionId: 'sess-84' })]

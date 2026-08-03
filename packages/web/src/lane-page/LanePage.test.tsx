@@ -161,6 +161,68 @@ describe('LanePage — reuse, not a fork', () => {
   })
 })
 
+describe('LanePage — the WHY surface (prd11 ruling 5)', () => {
+  /**
+   * A tool call and a commit that both name the same file, plus a trace span
+   * sharing the tool call's `toolUseId` — the fixture the DoD asks for: one
+   * that actually renders a chain, not just the honest empty state.
+   */
+  function whyHistory(): RhizomorphEvent[] {
+    const f = createEventFactory({ startTs: NOW - 40_000, stepMs: 2_000 })
+    return [
+      f.sessionStarted({ repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' }),
+      f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-main', isMain: true }),
+      f.worktreeDiscovered({ path: WORKTREE, branch: LANE, head: 'sha-135', isMain: false }),
+      f.toolActivity({
+        lane: LANE,
+        branch: LANE,
+        worktreePath: WORKTREE,
+        sessionId: 'sess-135',
+        tool: 'Edit',
+        filePath: 'packages/web/src/lane-page/LanePage.tsx',
+        toolUseId: 'toolu_why_1',
+      }),
+      f.traceSpan({
+        lane: LANE,
+        sessionId: 'sess-135',
+        traceId: 'trace-why-1',
+        spanId: 'span-why-1',
+        kind: 'tool',
+        name: 'claude_code.tool',
+        toolName: 'Edit',
+        toolUseId: 'toolu_why_1',
+      }),
+      f.commitLanded({
+        branch: LANE,
+        sha: 'abc1234def5678',
+        message: 'feat(lane-page): the lane page',
+        files: [{ path: 'packages/web/src/lane-page/LanePage.tsx', status: 'added' }],
+        insertions: 90,
+        deletions: 0,
+        worktreePath: WORKTREE,
+      }),
+    ]
+  }
+
+  it('renders the chain — the tool call joined to its span, and the commit that landed the file', async () => {
+    await renderLanePage({ events: whyHistory() })
+
+    expect(screen.getByTestId('why-surface')).toBeTruthy()
+    const toolCall = screen.getByTestId('why-tool-call')
+    expect(toolCall.textContent).toContain('Edit')
+    expect(screen.getByTestId('trace-kind').getAttribute('data-kind')).toBe('tool')
+    const commit = screen.getByTestId('why-commit')
+    expect(commit.textContent).toContain('abc1234')
+    expect(screen.queryByTestId('why-gap')).toBeNull()
+  })
+
+  it("shares the drawer's own component rather than a fork — same test ids either surface", async () => {
+    await renderLanePage({ events: whyHistory() })
+    expect(screen.getByTestId('why-file-list')).toBeTruthy()
+    expect(screen.getByTestId('why-chain')).toBeTruthy()
+  })
+})
+
 describe('LanePage — spend detail', () => {
   it("shows output-led tokens and the gap-honest dollar cell, per the fleet table's own rules", async () => {
     await renderLanePage()
