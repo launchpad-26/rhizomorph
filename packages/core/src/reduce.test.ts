@@ -365,6 +365,34 @@ describe('reduce — branches and commits', () => {
     ])
     expect(state.commits['c1']?.files).toEqual([{ path: 'a.ts', status: 'added' }])
   })
+
+  it('drops a removed branch from state.branches entirely, keeping its commits', () => {
+    const state = reduceAll([
+      f.branchUpdated({ branch: 'feature', head: 'sha1' }, { ts: 10 }),
+      f.commitLanded({ sha: 'c1', branch: 'feature' }, { ts: 20 }),
+      f.branchRemoved({ branch: 'feature' }, { ts: 300 }),
+    ])
+    expect(state.branches['feature']).toBeUndefined()
+    expect(Object.keys(state.branches)).toHaveLength(0)
+    // The work still happened — commit history is not removal's business.
+    expect(state.commits['c1']).toMatchObject({ sha: 'c1', branches: ['feature'] })
+    expect(state.commitOrder).toEqual(['c1'])
+  })
+
+  it('ignores removal of a branch it never saw', () => {
+    const before = initialSessionState()
+    const after = reduce(before, f.branchRemoved({ branch: 'nope' }))
+    expect(after.branches).toEqual({})
+  })
+
+  it('is unaffected by branch.removed events an old log never recorded', () => {
+    // A log from before this event type existed has no `branch.removed` at
+    // all — replaying it must land on exactly the branches it always did.
+    const events = fixtureSession()
+    expect(events.some((event) => event.type === 'branch.removed')).toBe(false)
+    const state = reduceAll(events)
+    expect(Object.keys(state.branches).sort()).toEqual(['2-core', '3-git', '7-web', 'main'])
+  })
 })
 
 describe('reduce — panes and agents', () => {

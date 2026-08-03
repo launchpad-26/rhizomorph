@@ -70,6 +70,8 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       return worktreeDirty(state, event)
     case 'branch.updated':
       return branchUpdated(state, event)
+    case 'branch.removed':
+      return branchRemoved(state, event)
     case 'commit.landed':
       return commitLanded(state, event)
     case 'pane.discovered':
@@ -284,6 +286,23 @@ function branchUpdated(state: SessionState, event: EventOf<'branch.updated'>): S
   }
 
   return next
+}
+
+/**
+ * The ghost fix: a branch gone from `for-each-ref` is dropped from
+ * `state.branches` outright, not just flagged absent. Unlike worktrees and
+ * panes, nothing downstream filters on a branch's presence — the collision
+ * matrix's committed-touch pass walks every entry in this map — so a record
+ * kept around with a `present: false` flag would keep comparing a ghost
+ * against live branches forever. `state.commits` is untouched: the work that
+ * landed is still history, only the live branch pointing at it is gone.
+ */
+function branchRemoved(state: SessionState, event: EventOf<'branch.removed'>): SessionState {
+  const { branch } = event.payload
+  if (state.branches[branch] === undefined) return state
+  const branches = { ...state.branches }
+  delete branches[branch]
+  return { ...state, branches }
 }
 
 function commitLanded(state: SessionState, event: EventOf<'commit.landed'>): SessionState {
