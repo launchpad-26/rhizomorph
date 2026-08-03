@@ -166,6 +166,21 @@ describe('createSessionlogCollector', () => {
       'Read',
       'Bash',
     ])
+    // filePath/toolUseId (prd11 ruling 2): the fixture's file_path lives under
+    // the real worktree the session ran in, not the fake one `alpha` tails
+    // here — honest raw paths, never a guessed rewrite, and Bash stays null.
+    expect(tools.map((e) => (e.payload as { filePath: string | null }).filePath)).toEqual([
+      '/home/operator/worktrees-challenge__worktrees/4-tmux-collector/docs/vision.md',
+      '/home/operator/worktrees-challenge__worktrees/4-tmux-collector/docs/prd0.md',
+      '/home/operator/worktrees-challenge__worktrees/4-tmux-collector/docs/architecture.md',
+      null,
+    ])
+    expect(tools.map((e) => (e.payload as { toolUseId: string | null }).toolUseId)).toEqual([
+      'toolu_019fAq2GB1eeu9rh63n1BfU6',
+      'toolu_01BNpUfRjed6SWA9Se4HGWY3',
+      'toolu_01SzR2F33CgoyztWPJ6thcC1',
+      'toolu_016mhV6ZLsSUsgv9fAENhG3A',
+    ])
 
     for (const event of [...usage, ...tools]) {
       expect(event.source).toBe('sessionlog')
@@ -197,6 +212,52 @@ describe('createSessionlogCollector', () => {
       Date.parse('2026-07-30T00:49:19.739Z'),
       Date.parse('2026-07-30T00:49:22.966Z'),
     ])
+  })
+
+  it('normalizes filePath to repo-relative when it sits under the lane\'s own worktree (prd11 ruling 2)', async () => {
+    // worker-2-core.jsonl's tool_use reports
+    // /home/operator/worktrees-challenge__worktrees/2-core/docs/vision.md — real
+    // capture from a session that ran with that exact cwd as its worktree.
+    const worktreePath = '/home/operator/worktrees-challenge__worktrees/2-core'
+    const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(
+      path.join(projectDir, '95f42357-058c-4ea2-84d4-de7b1eb58635.jsonl'),
+      await readFixture('worker-2-core.jsonl'),
+      'utf8',
+    )
+
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+
+    const tools = result.events.filter((e) => e.type === 'tool.activity')
+    expect(tools).toHaveLength(1)
+    expect(tools[0]?.payload).toMatchObject({ tool: 'Read', filePath: 'docs/vision.md' })
+  })
+
+  it('keeps the raw path when it does not sit under the lane\'s worktree — no guessed rewrite', async () => {
+    // Same fixture, tailed as a *different* worktree than the one the session
+    // actually ran with: the reported file_path is honestly outside it.
+    const worktreePath = '/fake/worktrees/alpha'
+    const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(
+      path.join(projectDir, '95f42357-058c-4ea2-84d4-de7b1eb58635.jsonl'),
+      await readFixture('worker-2-core.jsonl'),
+      'utf8',
+    )
+
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+
+    const tools = result.events.filter((e) => e.type === 'tool.activity')
+    expect(tools).toHaveLength(1)
+    expect(tools[0]?.payload).toMatchObject({
+      tool: 'Read',
+      filePath: '/home/operator/worktrees-challenge__worktrees/2-core/docs/vision.md',
+    })
   })
 
   it('emits thread: "subagent" for an isSidechain: true line, on both llm.usage and tool.activity (#65)', async () => {

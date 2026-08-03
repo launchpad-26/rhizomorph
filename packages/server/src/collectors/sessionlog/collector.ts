@@ -314,7 +314,7 @@ async function tailProjectDir(
         lastUsageRequestId = facts.requestId
       }
 
-      for (const tool of facts.toolUses) {
+      for (const toolUse of facts.toolUses) {
         events.push(
           context.emit(
             'tool.activity',
@@ -324,9 +324,11 @@ async function tailProjectDir(
               worktreePath: dir.worktreePath,
               branch: facts.gitBranch,
               thread,
-              tool,
+              tool: toolUse.tool,
               role: dir.role,
               durationMs: null,
+              filePath: repoRelativeFilePath(toolUse.filePath, dir.worktreePath),
+              toolUseId: toolUse.toolUseId,
             },
             emitOptions,
           ),
@@ -367,4 +369,18 @@ async function statOrNull(target: string): Promise<Awaited<ReturnType<typeof sta
 function basenameOf(target: string): string | null {
   const base = path.basename(target)
   return base.length > 0 ? base : null
+}
+
+/**
+ * Normalizes a tool_use's reported `file_path` to repo-relative when it sits
+ * under the lane's own worktree — the common case, since Claude Code reports
+ * absolute paths from the cwd it ran in. Anywhere else (a path outside the
+ * worktree, a foreign-lane conductor path, a Windows path) is kept exactly as
+ * reported: honest about what we don't know rather than a guessed rewrite.
+ */
+function repoRelativeFilePath(filePath: string | null, worktreePath: string): string | null {
+  if (filePath === null) return null
+  const relative = path.relative(worktreePath, filePath)
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) return filePath
+  return relative
 }

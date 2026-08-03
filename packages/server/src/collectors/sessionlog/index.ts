@@ -1,7 +1,7 @@
 export { createSessionlogCollector } from './collector.js'
 export type { SessionlogCollectorConfig } from './collector.js'
 export { parseAssistantLine } from './parse-session-line.js'
-export type { AssistantLineFacts } from './parse-session-line.js'
+export type { AssistantLineFacts, ToolUseFacts } from './parse-session-line.js'
 export { parseWorktreePaths } from './parse-worktree-paths.js'
 export { readNewLines } from './tail.js'
 export type { TailResult } from './tail.js'

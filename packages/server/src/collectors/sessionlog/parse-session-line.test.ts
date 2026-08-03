@@ -35,11 +35,17 @@ describe('parseAssistantLine', () => {
     })
   })
 
-  it('parses a tool_use assistant line and reports the tool name', () => {
+  it('parses a tool_use assistant line and reports the tool name, its id and file_path', () => {
     const lines = fixtureLines('worker-2-core.jsonl')
     const facts = parseAssistantLine(lines[1] as string)
 
-    expect(facts?.toolUses).toEqual(['Read'])
+    expect(facts?.toolUses).toEqual([
+      {
+        tool: 'Read',
+        toolUseId: 'toolu_01GqsDLd5PHv36rnrXqFqrLx',
+        filePath: '/home/operator/worktrees-challenge__worktrees/2-core/docs/vision.md',
+      },
+    ])
     // Same reply, split across two lines: usage and requestId repeat verbatim.
     expect(facts?.requestId).toBe('req_011CdXK9nHfLfMD1xWUP4FYL')
     expect(facts?.tokens).toEqual({
@@ -57,13 +63,49 @@ describe('parseAssistantLine', () => {
     expect(first?.requestId).toBe('req_011CdXKgL7B2nj6xkUSoy4tk')
     expect(second?.requestId).toBe(first?.requestId)
     expect(third?.requestId).toBe(first?.requestId)
-    expect(first?.toolUses).toEqual(['Read'])
-    expect(second?.toolUses).toEqual(['Read'])
-    expect(third?.toolUses).toEqual(['Read'])
+    expect(first?.toolUses.map((t) => t.tool)).toEqual(['Read'])
+    expect(second?.toolUses.map((t) => t.tool)).toEqual(['Read'])
+    expect(third?.toolUses.map((t) => t.tool)).toEqual(['Read'])
 
     // A later, distinct reply in the same file gets its own requestId.
     expect(fourth?.requestId).toBe('req_011CdXKgfbwmprh37TF3u2MZ')
-    expect(fourth?.toolUses).toEqual(['Bash'])
+    expect(fourth?.toolUses).toEqual([
+      { tool: 'Bash', toolUseId: 'toolu_016mhV6ZLsSUsgv9fAENhG3A', filePath: null },
+    ])
+  })
+
+  it('populates filePath for Edit/Write/Read (a file_path input), leaves it null for Bash (a command input)', () => {
+    const lines = fixtureLines('worker-4-tmux-collector.jsonl')
+    const facts = lines.map((line) => parseAssistantLine(line))
+    expect(facts.map((f) => f?.toolUses[0]?.filePath)).toEqual([
+      '/home/operator/worktrees-challenge__worktrees/4-tmux-collector/docs/vision.md',
+      '/home/operator/worktrees-challenge__worktrees/4-tmux-collector/docs/prd0.md',
+      '/home/operator/worktrees-challenge__worktrees/4-tmux-collector/docs/architecture.md',
+      null,
+    ])
+  })
+
+  it('always reports the tool_use block\'s own id, file tool or not', () => {
+    const lines = fixtureLines('worker-4-tmux-collector.jsonl')
+    const facts = lines.map((line) => parseAssistantLine(line))
+    expect(facts.map((f) => f?.toolUses[0]?.toolUseId)).toEqual([
+      'toolu_019fAq2GB1eeu9rh63n1BfU6',
+      'toolu_01BNpUfRjed6SWA9Se4HGWY3',
+      'toolu_01SzR2F33CgoyztWPJ6thcC1',
+      'toolu_016mhV6ZLsSUsgv9fAENhG3A',
+    ])
+  })
+
+  it('never guesses a filePath for a tool block whose input has no file_path key', () => {
+    const base = '{"type":"assistant","message":{"model":"x","usage":{},"content":['
+    const line = `${base}{"type":"tool_use","id":"toolu_x","name":"Glob","input":{"pattern":"**/*.ts"}}]}}`
+    expect(parseAssistantLine(line)?.toolUses).toEqual([{ tool: 'Glob', toolUseId: 'toolu_x', filePath: null }])
+  })
+
+  it('reports a null toolUseId when the tool_use block has no id', () => {
+    const base = '{"type":"assistant","message":{"model":"x","usage":{},"content":['
+    const line = `${base}{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}`
+    expect(parseAssistantLine(line)?.toolUses).toEqual([{ tool: 'Bash', toolUseId: null, filePath: null }])
   })
 
   it('attributes a conductor session (cwd is the repo root, not a worktree) the same way', () => {

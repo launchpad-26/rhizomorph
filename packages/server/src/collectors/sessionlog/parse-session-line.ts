@@ -13,6 +13,19 @@
  *   `requestId` and this module just reports it per line so that's possible.
  */
 
+/**
+ * One `tool_use` content block's facts. `filePath` is populated straight from
+ * the block's own `input.file_path` — present on Edit/Write/Read and kin,
+ * absent on Bash and everything else that isn't a file tool. Never inferred,
+ * never guessed: a tool that didn't report `input.file_path` gets `null`.
+ */
+export interface ToolUseFacts {
+  tool: string
+  /** The block's own `tool_use` id, when present — the join key to `trace.span.toolUseId`. */
+  toolUseId: string | null
+  filePath: string | null
+}
+
 export interface AssistantLineFacts {
   sessionId: string | null
   cwd: string | null
@@ -25,8 +38,8 @@ export interface AssistantLineFacts {
     cacheRead: number
     cacheCreation: number
   }
-  /** Tool names from every `tool_use` content block on this line, in order. */
-  toolUses: string[]
+  /** Every `tool_use` content block on this line, in order. */
+  toolUses: ToolUseFacts[]
   /**
    * Epoch millis parsed from the line's own `timestamp` (when the agent
    * actually said this), or null when absent/unparsable — the caller falls
@@ -95,8 +108,17 @@ export function parseAssistantLine(raw: string): AssistantLineFacts | null {
   const toolUses = content
     .map((block) => asRecord(block))
     .filter((block): block is Record<string, unknown> => block !== null && block.type === 'tool_use')
-    .map((block) => asString(block.name))
-    .filter((name): name is string => name !== null)
+    .map((block): ToolUseFacts | null => {
+      const tool = asString(block.name)
+      if (!tool) return null
+      const input = asRecord(block.input)
+      return {
+        tool,
+        toolUseId: asString(block.id),
+        filePath: input ? asString(input.file_path) : null,
+      }
+    })
+    .filter((toolUse): toolUse is ToolUseFacts => toolUse !== null)
 
   return {
     sessionId: asString(line.sessionId),
