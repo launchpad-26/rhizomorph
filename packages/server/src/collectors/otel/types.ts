@@ -102,6 +102,54 @@ export const exportLogsRequestSchema = z
   .passthrough()
 export type ExportLogsRequest = z.infer<typeof exportLogsRequestSchema>
 
+/**
+ * `POST /v1/traces` body: `ExportTraceServiceRequest`. Only `traceId`/`spanId`/
+ * `name`/the two nano timestamps are ever required by `parse-traces.ts`, and
+ * even those stay optional here — a span missing one is a per-span
+ * `collector.error`, not a whole-request 400 (mirrors `numberDataPointSchema`
+ * above: structural validation here, business validation in the parser).
+ */
+const spanStatusOtlpSchema = z
+  .object({
+    code: z.number().optional(),
+  })
+  .passthrough()
+
+const otlpSpanSchema = z
+  .object({
+    traceId: z.string().optional(),
+    spanId: z.string().optional(),
+    parentSpanId: z.string().optional(),
+    name: z.string().optional(),
+    startTimeUnixNano: z.union([z.string(), z.number()]).optional(),
+    endTimeUnixNano: z.union([z.string(), z.number()]).optional(),
+    attributes: attributesSchema,
+    status: spanStatusOtlpSchema.optional(),
+  })
+  .passthrough()
+export type OtlpSpan = z.infer<typeof otlpSpanSchema>
+
+const scopeSpansSchema = z
+  .object({
+    spans: z.array(otlpSpanSchema).optional(),
+  })
+  .passthrough()
+
+const resourceSpansSchema = z
+  .object({
+    resource: resourceSchema.optional(),
+    scopeSpans: z.array(scopeSpansSchema).optional(),
+  })
+  .passthrough()
+export type OtlpResourceSpans = z.infer<typeof resourceSpansSchema>
+
+export const exportTraceRequestSchema = z
+  .object({
+    resourceSpans: z.array(resourceSpansSchema),
+  })
+  .passthrough()
+export type ExportTraceRequest = z.infer<typeof exportTraceRequestSchema>
+
 /** Extracts the one populated field of an `AnyValue`, stringified. */
 export function anyValueToString(value: OtlpAnyValue | undefined): string | undefined {
   if (!value) return undefined
@@ -116,6 +164,14 @@ export function anyValueToString(value: OtlpAnyValue | undefined): string | unde
 export function attrString(attrs: OtlpKeyValue[] | undefined, key: string): string | undefined {
   const found = attrs?.find((attr) => attr.key === key)
   return anyValueToString(found?.value)
+}
+
+/** Looks up one attribute's numeric form (`intValue`/`doubleValue`) from a `KeyValue[]`, by key. */
+export function attrInt(attrs: OtlpKeyValue[] | undefined, key: string): number | undefined {
+  const str = attrString(attrs, key)
+  if (str === undefined) return undefined
+  const n = Number(str)
+  return Number.isFinite(n) ? Math.trunc(n) : undefined
 }
 
 /** A datapoint's numeric value — `asDouble` for dollars, `asInt` for counts. */
