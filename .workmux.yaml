@@ -23,20 +23,14 @@ post_create:
 # the exports then carry no instance id, the receiver answers 403 and records
 # one `telemetry.refused` event per minute, so the gap shows up as a setup gap
 # in the dashboard rather than as silently missing spend.
-# SCAR (2026-08-04): the env command must run from the MAIN checkout, not the
-# lane's worktree — `dist/` is built, never committed, so a fresh worktree has
-# no CLI and the whole block silently fell to the warning branch: every lane
-# since the trace beta launched UNINSTRUMENTED (sessionlog tokens + estimate
-# dollars masked it). `git rev-parse --git-common-dir` names the main
-# checkout's .git from any linked worktree; its parent always has the built
-# dist (the landing gate builds post-merge).
+# SCAR (2026-08-04, twice-learned): a pane-command env prefix NEVER reaches
+# the agent — workmux launches the agent outside the pane command's shell
+# (proven via /proc/<agent>/environ after two prefix "fixes" changed
+# nothing). Telemetry env now lives in scripts/lane-agent.sh, which evals it
+# in the SAME process that execs claude — inheritance by construction.
+# Dispatch with: -a "bash scripts/lane-agent.sh <model>".
 panes:
-  - command: >-
-      OBS_MAIN=$(dirname "$(git rev-parse --git-common-dir)")
-      && OBS_ENV=$(node "$OBS_MAIN/packages/server/bin/rhizomorph.mjs" env "$(basename "$PWD")" --port 4321)
-      && eval "$OBS_ENV"
-      || echo "!! no Rhizomorph env (server down on 127.0.0.1:4321, or main checkout unbuilt) — this lane's telemetry will be refused (403); fix and re-dispatch to record this lane's spend";
-      <agent>
+  - command: <agent>
     focus: true
   - split: horizontal
 
