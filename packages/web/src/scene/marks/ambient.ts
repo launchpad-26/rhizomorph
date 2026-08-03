@@ -77,10 +77,27 @@ const FLORA_POINTS = 4
  * step of the ramp is nearly the void's own luminance, so what it does is *tint*
  * the far field rather than lighten it.
  */
-const FOG = { from: 0.18, to: 1.02, alpha: 0.5 } as const
+const FOG = { from: 0.18, to: 1.02, alpha: 0.28 } as const
 
 /** …and the vignette over it, in the void's own colour. Corners, not edges. */
-const VIGNETTE = { from: 0.62, to: 1.18, alpha: 0.62 } as const
+const VIGNETTE = { from: 0.62, to: 1.18, alpha: 0.5 } as const
+
+/**
+ * WHERE THE DEPTH HAD TO STOP, and it is not a taste.
+ *
+ * Both washes are painted in the chrome pass, which puts them **over** the world —
+ * including over the lane names, which live at the rim, which is exactly where a
+ * radial wash is thickest. So a fog tuned by eye against the threads would quietly
+ * be a fog tuned against prd4's legibility floor, and nothing in the display list
+ * would notice: a `text` mark's own ink is unchanged by a wash laid on top of it.
+ *
+ * Hence {@link RIM_VEIL}, and a test that reads it. The two alphas above are
+ * whatever they need to be *given* that ceiling, rather than the ceiling being
+ * whatever the alphas happened to produce — which is the difference between a
+ * bound and a note. The gap voice is exempt by construction: it is chrome too, and
+ * it is drawn after both.
+ */
+export const RIM_VEIL = 0.3
 
 /** The grain: one cached tile, and the step rate that keeps it texture. */
 const GRAIN = { tile: 64, alpha: 0.016, fps: 12 } as const

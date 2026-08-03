@@ -37,6 +37,22 @@ import { salienceOf } from './salience.js'
  * reported and never asserted** (under `--maxWorkers` a wall clock measures the
  * machine, not the code), and the laws beside them are counts, which are
  * deterministic on a loaded CI box and on a quiet laptop alike.
+ *
+ * **What it measured, on the dev box, before and after #144** (ruling 7's
+ * before/after, written down rather than left in a terminal):
+ *
+ * | measurement                          | before  | after   | budget |
+ * | ------------------------------------ | ------- | ------- | ------ |
+ * | 240 motes, per-frame gradient-glow   | 0.063ms | 0.073ms | —      |
+ * | 240 motes, sprite-blit               | 0.017ms | 0.024ms | —      |
+ * | whole frame, 30 lanes + 2 cuts       | 5.109ms | 7.499ms | 16.67  |
+ * | …as a share of a 60 fps frame        | 30.7%   | 45.0%   | 100%   |
+ * | marks in that frame                  | 203     | 329     | —      |
+ *
+ * So the answer to the handoff is yes with room: the ruled technique is a third of
+ * the cost of the one it replaces and allocates nothing, and the whole gorgeous
+ * round — apices, buds, the heart's rings, the ambient layer and a composting cord
+ * — spends about 2.4 ms of the 11.5 ms that was spare.
  */
 
 const N = DISSOLUTION.maxLive

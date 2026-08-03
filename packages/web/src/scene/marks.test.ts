@@ -39,6 +39,7 @@ import {
 } from './marks/index.js'
 import { ribbonMark } from './marks/index.js'
 import { arrivalSwell } from './marks/root.js'
+import { RIM_VEIL } from './marks/ambient.js'
 import { paint } from './paint.js'
 import { CUT, RetireRegistry, SCAR, SCAR_FLOOR, cutAt, isRetired, type RetireState } from './retire.js'
 import {
@@ -3158,5 +3159,61 @@ describe('subagent buds (prd10 ruling 9)', () => {
     const buds = marksFor({ fleet }).filter((mark) => mark.role === 'bud')
     expect(buds).toHaveLength(1)
     expect(buds[0]?.laneId).toBe('102-cost-authority')
+  })
+})
+
+/**
+ * THE DEPTH MAY NOT EAT THE NAMES (prd10 ruling 6, against prd4's legibility law).
+ *
+ * The one way ruling 6 could have broken something without any existing test
+ * noticing. The fog and the vignette are painted in the chrome pass, which puts
+ * them *over* the world — and the world is where the lane names are, at the rim,
+ * which is exactly where a radial wash is thickest. A `text` mark's own ink is
+ * unchanged by a wash laid on top of it, so the display list looks fine and the
+ * screen does not.
+ *
+ * So the veil is bounded, and this is where the bound is read.
+ */
+describe('the panel depth stays off the labels', () => {
+  /** A wash's alpha at `at` fractions of the half-diagonal — `paint.ts`'s own ramp. */
+  function veilAt(mark: Mark, at: number): number {
+    if (mark.kind !== 'wash') return 0
+    const t = (at - mark.from) / (mark.to - mark.from)
+    if (t <= 0) return 0
+    return mark.outer.alpha * Math.min(1, t)
+  }
+
+  it('veils the rim by less than a third, fog and vignette together', () => {
+    const fleet = fleetFor(fleet20Spec())
+    const geometry = layoutScene(fleet, { ...SIZE, now: NOW })
+    const washes = marksFor({ fleet }).filter((mark) => mark.kind === 'wash')
+    expect(washes).toHaveLength(2)
+
+    // Where a name actually sits: the furthest label anchor from the middle, as a
+    // fraction of the panel's half-diagonal — the unit the washes are measured in.
+    const half = Math.hypot(SIZE.width / 2, SIZE.height / 2)
+    const furthest = Math.max(
+      ...geometry.threads.map((thread) =>
+        Math.hypot(
+          thread.label.anchor.x - geometry.centre.x,
+          thread.label.anchor.y - geometry.centre.y,
+        ),
+      ),
+    )
+    const at = furthest / half
+    expect(at).toBeGreaterThan(0.5)
+
+    const veil = washes.reduce((total, mark) => total + veilAt(mark, at), 0)
+    expect(veil, 'the depth is eating the lane names').toBeLessThanOrEqual(RIM_VEIL)
+  })
+
+  it('leaves the middle alone entirely — depth is a falloff, not a tint', () => {
+    // At the centre both washes are transparent, so the mass and everything near it
+    // are painted at exactly the ink they were built with. A wash with a floor would
+    // be a filter over the whole picture, which is a different thing from depth.
+    for (const mark of marksFor().filter((wash) => wash.kind === 'wash')) {
+      expect(veilAt(mark, 0)).toBe(0)
+      expect(mark.kind === 'wash' && mark.inner.alpha).toBe(0)
+    }
   })
 })
