@@ -1,5 +1,6 @@
 import { AGENT_ROLES, DEFAULT_FLATLINE_MS, type AgentRole } from '@rhizomorph/core'
 import { RESUME_WINDOW_MS } from '../log/session-log.js'
+import { ENV_SHELLS, type EnvShell } from './telemetry-env.js'
 
 export interface CliArgs {
   /** Target repo path, or undefined to default to cwd. */
@@ -42,6 +43,7 @@ const DEFAULT_FLATLINE_MINUTES = DEFAULT_FLATLINE_MS / 60_000
 const DEFAULT_POLL_INTERVAL_MS = 2000
 const MIN_POLL_INTERVAL_MS = 250
 const DEFAULT_ROLE: AgentRole = 'worker'
+const DEFAULT_SHELL: EnvShell = 'sh'
 /** Only for the help text — the boundary itself lives in one place, `RESUME_WINDOW_MS`. */
 const RESUME_WINDOW_HOURS = RESUME_WINDOW_MS / 3_600_000
 
@@ -113,6 +115,10 @@ function parseFlags(argv: readonly string[], specs: readonly FlagSpec[]): string
 
 function isAgentRole(value: string): value is AgentRole {
   return (AGENT_ROLES as readonly string[]).includes(value)
+}
+
+function isEnvShell(value: string): value is EnvShell {
+  return (ENV_SHELLS as readonly string[]).includes(value)
 }
 
 /**
@@ -196,11 +202,12 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   return { path, port, flatlineMinutes, pollIntervalMs, extraSessionDirs, fresh, backfill, help: false, version: false }
 }
 
-/** Parses `rhizomorph env <lane> [--role <role>] [--port <n>] [--help]`. */
+/** Parses `rhizomorph env <lane> [--role <role>] [--port <n>] [--shell <shell>] [--help]`. */
 export interface EnvArgs {
   lane: string
   role: AgentRole
   port: number
+  shell: EnvShell
   help: boolean
 }
 
@@ -217,21 +224,26 @@ Arguments:
 Options:
   --role <role>           ${AGENT_ROLES.join(' | ')} (default: ${DEFAULT_ROLE})
   --port <n>              Rhizomorph server port to target (default: ${DEFAULT_PORT})
+  --shell <shell>         ${ENV_SHELLS.join(' | ')} (default: ${DEFAULT_SHELL}) — which
+                          shell's assignment syntax to print (powershell:
+                          $env:NAME = "value", cmd: set NAME=value)
   --help, -h              Show this help and exit
 `
 }
 
 export function parseEnvArgs(argv: readonly string[]): EnvArgs {
   if (argv.includes('--help') || argv.includes('-h')) {
-    return { lane: '', role: DEFAULT_ROLE, port: DEFAULT_PORT, help: true }
+    return { lane: '', role: DEFAULT_ROLE, port: DEFAULT_PORT, shell: DEFAULT_SHELL, help: true }
   }
 
   let roleArg: string | undefined
   let portArg: string | undefined
+  let shellArg: string | undefined
 
   const specs: FlagSpec[] = [
     { flag: '--role', read: (v) => { roleArg = v } },
     { flag: '--port', read: (v) => { portArg = v } },
+    { flag: '--shell', read: (v) => { shellArg = v } },
   ]
 
   const positionals = parseFlags(argv, specs)
@@ -250,7 +262,12 @@ export function parseEnvArgs(argv: readonly string[]): EnvArgs {
     throw new Error(`invalid --port value: "${portArg}" (must be a non-negative integer)`)
   }
 
-  return { lane, role, port, help: false }
+  const shell = shellArg === undefined ? DEFAULT_SHELL : shellArg
+  if (!isEnvShell(shell)) {
+    throw new Error(`invalid --shell value: "${shellArg}" (must be one of ${ENV_SHELLS.join(', ')})`)
+  }
+
+  return { lane, role, port, shell, help: false }
 }
 
 /** `--help` output: every flag, with its default shown. */
