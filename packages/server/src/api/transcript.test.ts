@@ -695,6 +695,198 @@ describe('readTranscript', () => {
   })
 })
 
+describe('readTranscript — tail-first open and backward paging (#134)', () => {
+  let projectsRoot: string
+
+  beforeEach(async () => {
+    projectsRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-transcript-tail-'))
+  })
+
+  afterEach(async () => {
+    await rm(projectsRoot, { recursive: true, force: true })
+  })
+
+  async function writeLog(lines: string[]): Promise<string> {
+    const dir = path.join(projectsRoot, PROJECT_SLUG)
+    await mkdir(dir, { recursive: true })
+    const file = path.join(dir, `${SESSION_ID}.jsonl`)
+    await writeFile(file, lines.map((line) => `${line}\n`).join(''))
+    return file
+  }
+
+  /** Ten turns — enough that an 80-byte chunk cannot hold them all one way. */
+  function tenTurns(): string[] {
+    return Array.from({ length: 10 }, (_, i) =>
+      i % 2 === 0 ? userLine(`turn ${i}`) : assistantLine(`turn ${i}`),
+    )
+  }
+
+  it('a small log opened at the tail is identical to reading it from zero', async () => {
+    await writeLog([userLine('go'), assistantLine('going')])
+
+    const result = await readTranscript({
+      events: laneEvents(),
+      lane: LANE,
+      tail: true,
+      claudeProjectsRoot: projectsRoot,
+    })
+
+    expect(result.available).toBe(true)
+    if (!result.available) return
+    expect(result.offset).toBe(0)
+    expect(result.entries).toEqual([
+      { role: 'user', blocks: [{ kind: 'text', text: 'go' }] },
+      { role: 'assistant', blocks: [{ kind: 'text', text: 'going' }] },
+    ])
+    expect(result.nextOffset).toBe(result.size)
+    expect(result.eof).toBe(true)
+  })
+
+  it('a tail open on a large log lands on the newest page in one round trip, not the oldest', async () => {
+    const lines = tenTurns()
+    await writeLog(lines)
+
+    const result = await readTranscript({
+      events: laneEvents(),
+      lane: LANE,
+      tail: true,
+      claudeProjectsRoot: projectsRoot,
+      chunkBytes: 80,
+    })
+
+    expect(result.available).toBe(true)
+    if (!result.available) return
+    // The newest turn is here...
+    expect(proseOf(result.entries.at(-1) ?? null)).toBe('turn 9')
+    // ...and the oldest is not — a tail read is a page, not the whole log.
+    expect(result.entries.some((entry) => proseOf(entry) === 'turn 0')).toBe(false)
+    expect(result.nextOffset).toBe(result.size)
+    expect(result.eof).toBe(true)
+    // The window started somewhere past byte zero — there is more before it.
+    expect(result.offset).toBeGreaterThan(0)
+  })
+
+  it('leaves a half-written trailing line unread at the tail too', async () => {
+    const dir = path.join(projectsRoot, PROJECT_SLUG)
+    await mkdir(dir, { recursive: true })
+    const file = path.join(dir, `${SESSION_ID}.jsonl`)
+    await writeFile(file, `${userLine('done')}\n${'{"type":"assistant","mess'}`)
+
+    const result = await readTranscript({
+      events: laneEvents(),
+      lane: LANE,
+      tail: true,
+      claudeProjectsRoot: projectsRoot,
+    })
+
+    expect(result.available).toBe(true)
+    if (!result.available) return
+    expect(result.entries).toEqual([{ role: 'user', blocks: [{ kind: 'text', text: 'done' }] }])
+    expect(result.nextOffset).toBeLessThan(result.size)
+    expect(result.eof).toBe(false)
+  })
+
+  it('paging backward from the tail\'s own offset returns the page immediately before it', async () => {
+    const lines = tenTurns()
+    await writeLog(lines)
+
+    const tail = await readTranscript({
+      events: laneEvents(),
+      lane: LANE,
+      tail: true,
+      claudeProjectsRoot: projectsRoot,
+      chunkBytes: 80,
+    })
+    expect(tail.available).toBe(true)
+    if (!tail.available) return
+
+    const earlier = await readTranscript({
+      events: laneEvents(),
+      lane: LANE,
+      before: tail.offset,
+      claudeProjectsRoot: projectsRoot,
+      chunkBytes: 80,
+    })
+    expect(earlier.available).toBe(true)
+    if (!earlier.available) return
+
+    // Contiguous: the earlier page ends exactly where the tail page starts.
+    expect(earlier.nextOffset).toBe(tail.offset)
+    // And it is genuinely earlier history, not a repeat of the tail's own turns.
+    expect(earlier.entries.length).toBeGreaterThan(0)
+    for (const entry of earlier.entries) {
+      expect(tail.entries).not.toContainEqual(entry)
+    }
+  })
+
+  it('walking backward page by page reassembles the whole log, oldest first', async () => {
+    const lines = tenTurns()
+    await writeLog(lines)
+
+    const tail = await readTranscript({
+      events: laneEvents(),
+      lane: LANE,
+      tail: true,
+      claudeProjectsRoot: projectsRoot,
+      chunkBytes: 80,
+    })
+    expect(tail.available).toBe(true)
+    if (!tail.available) return
+
+    const pages: TranscriptEntry[][] = [tail.entries]
+    let before = tail.offset
+    for (let guard = 0; guard < 20 && before > 0; guard += 1) {
+      const page = await readTranscript({
+        events: laneEvents(),
+        lane: LANE,
+        before,
+        claudeProjectsRoot: projectsRoot,
+        chunkBytes: 80,
+      })
+      expect(page.available).toBe(true)
+      if (!page.available) return
+      pages.unshift(page.entries)
+      before = page.offset
+    }
+
+    expect(pages.flat()).toEqual(parseTranscript(lines))
+  })
+
+  it('is empty, not an error, when asked for history before the very start', async () => {
+    await writeLog([userLine('only one')])
+
+    const result = await readTranscript({
+      events: laneEvents(),
+      lane: LANE,
+      before: 0,
+      claudeProjectsRoot: projectsRoot,
+    })
+
+    expect(result.available).toBe(true)
+    if (!result.available) return
+    expect(result.entries).toEqual([])
+    expect(result.offset).toBe(0)
+  })
+
+  it('tail takes precedence over an offset also present on the request', async () => {
+    const lines = tenTurns()
+    await writeLog(lines)
+
+    const result = await readTranscript({
+      events: laneEvents(),
+      lane: LANE,
+      tail: true,
+      offset: 0,
+      claudeProjectsRoot: projectsRoot,
+      chunkBytes: 80,
+    })
+
+    expect(result.available).toBe(true)
+    if (!result.available) return
+    expect(proseOf(result.entries.at(-1) ?? null)).toBe('turn 9')
+  })
+})
+
 describe('GET /api/transcript/:lane', () => {
   let projectsRoot: string
   let sessionDir: string
@@ -711,13 +903,14 @@ describe('GET /api/transcript/:lane', () => {
     ])
   })
 
-  async function makeApp(events: readonly RhizomorphEvent[] = laneEvents()) {
+  async function makeApp(events: readonly RhizomorphEvent[] = laneEvents(), chunkBytes?: number) {
     const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'), {
       resumeFrom: events,
     })
     const app = Fastify()
     registerTranscriptRoute(app, { repoPath: '/repo', repoName: 'repo', sessionDir, recorder }, {
       claudeProjectsRoot: projectsRoot,
+      chunkBytes,
     })
     return app
   }
@@ -789,6 +982,46 @@ describe('GET /api/transcript/:lane', () => {
       const response = await app.inject({ method: 'GET', url: `/api/transcript/${LANE}?offset=${bad}` })
       expect(response.statusCode).toBe(400)
     }
+  })
+
+  it('400s on a before that is not a non-negative integer', async () => {
+    const app = await makeApp()
+
+    for (const bad of ['-1', 'abc', '1.5']) {
+      const response = await app.inject({ method: 'GET', url: `/api/transcript/${LANE}?before=${bad}` })
+      expect(response.statusCode).toBe(400)
+    }
+  })
+
+  it('?tail=1 opens at the newest page, so a fresh drawer is caught up in one round trip', async () => {
+    const lines = Array.from({ length: 10 }, (_, i) =>
+      i % 2 === 0 ? userLine(`turn ${i}`) : assistantLine(`turn ${i}`),
+    )
+    await writeLog(lines)
+    const app = await makeApp(laneEvents(), 80)
+
+    const response = await app.inject({ method: 'GET', url: `/api/transcript/${LANE}?tail=1` })
+
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body.available).toBe(true)
+    expect(proseOf(body.entries.at(-1) ?? null)).toBe('turn 9')
+    expect(body.entries.some((entry: TranscriptEntry) => proseOf(entry) === 'turn 0')).toBe(false)
+    expect(body.eof).toBe(true)
+  })
+
+  it('?before= pages backward from a given offset, contiguous with it', async () => {
+    await writeLog([userLine('hello'), assistantLine('hi')])
+    const app = await makeApp()
+    const firstLineBytes = `${userLine('hello')}\n`.length
+
+    const response = await app.inject({ method: 'GET', url: `/api/transcript/${LANE}?before=${firstLineBytes}` })
+
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body.available).toBe(true)
+    expect(body.entries).toEqual([{ role: 'user', blocks: [{ kind: 'text', text: 'hello' }] }])
+    expect(body.offset).toBe(0)
   })
 
   it('serves the conductor on the same route, under `main` — no route of its own', async () => {

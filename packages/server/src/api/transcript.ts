@@ -380,6 +380,75 @@ async function readBoundedLines(
   return { offset, nextOffset: offset + lastNewline + 1, size, restarted, lines }
 }
 
+/**
+ * Reads at most `chunkBytes` of whole lines ending at `endOffset` (clamped to
+ * the file's current size) — the mirror of {@link readBoundedLines}, growing
+ * backward from a fixed end instead of forward from a fixed start (#134).
+ * Powers both `tail=1` (`endOffset: Infinity`, i.e. as much of the end as
+ * fits) and `before=N` ("load earlier" history paging, ending exactly where
+ * the currently-loaded window began).
+ */
+async function readBoundedLinesBefore(
+  filePath: string,
+  endOffset: number,
+  chunkBytes: number,
+): Promise<RawChunk> {
+  const info = await stat(filePath)
+  const size = info.size
+  const end = Math.min(endOffset, size)
+
+  if (end <= 0) return { offset: 0, nextOffset: 0, size, restarted: false, lines: [] }
+
+  const windowStart = Math.max(0, end - chunkBytes)
+  const length = end - windowStart
+  const buffer = Buffer.alloc(length)
+  const handle = await open(filePath, 'r')
+  try {
+    await handle.read(buffer, 0, length, windowStart)
+  } finally {
+    await handle.close()
+  }
+  const text = buffer.toString('utf8')
+
+  // A window that does not start at byte 0 may begin mid-line; skip to the
+  // first newline so the earliest line handed back is whole.
+  let leadingCut = 0
+  if (windowStart > 0) {
+    const firstNewline = text.indexOf('\n')
+    if (firstNewline === -1) {
+      // One line longer than the whole chunk — grow backward for this one
+      // read rather than either skipping it or returning nothing.
+      return readBoundedLinesBefore(filePath, endOffset, chunkBytes * 2)
+    }
+    leadingCut = firstNewline + 1
+  }
+
+  const body = text.slice(leadingCut)
+  const offset = windowStart + leadingCut
+  // The window's end may itself land mid-line — only possible for `tail`,
+  // where `endOffset` is the file's live size and the last line may still be
+  // mid-write; a `before` offset was already aligned to a newline by the read
+  // that produced it, so this is a no-op there.
+  const lastNewline = body.lastIndexOf('\n')
+  if (lastNewline === -1) {
+    // Cutting the leading fragment left no complete line at all — the one
+    // newline the window found was its own trailing terminator, not a
+    // boundary between two lines (e.g. a window that lands entirely inside
+    // one long line near the end of the file). Growing backward is the same
+    // move as the "no newline anywhere" case above; reached byte zero with
+    // still nothing complete means the file has no whole line yet.
+    if (windowStart === 0) return { offset, nextOffset: offset, size, restarted: false, lines: [] }
+    return readBoundedLinesBefore(filePath, endOffset, chunkBytes * 2)
+  }
+
+  const lines = body
+    .slice(0, lastNewline)
+    .split('\n')
+    .filter((line) => line.length > 0)
+
+  return { offset, nextOffset: offset + lastNewline + 1, size, restarted: false, lines }
+}
+
 // ── parsing ──────────────────────────────────────────────────────────────────
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -508,13 +577,21 @@ export function parseTranscript(lines: readonly string[]): TranscriptEntry[] {
 export interface ReadTranscriptRequest {
   events: readonly RhizomorphEvent[]
   lane: string
-  offset: number
+  /** Forward read start. Ignored when `tail` or `before` is set. */
+  offset?: number
+  /**
+   * Open at the newest page instead of chasing `nextOffset` up from byte zero
+   * (#134) — the tail-first open. Takes precedence over `before`.
+   */
+  tail?: boolean
+  /** Read the page immediately before this offset — "load earlier" history paging. */
+  before?: number
   claudeProjectsRoot: string
   chunkBytes?: number
 }
 
 export async function readTranscript(request: ReadTranscriptRequest): Promise<TranscriptResult> {
-  const { events, lane, offset, claudeProjectsRoot } = request
+  const { events, lane, claudeProjectsRoot } = request
   const chunkBytes = request.chunkBytes ?? TRANSCRIPT_CHUNK_BYTES
 
   /*
@@ -547,7 +624,13 @@ export async function readTranscript(request: ReadTranscriptRequest): Promise<Tr
   for (const filePath of candidates) {
     let chunk: RawChunk
     try {
-      chunk = await readBoundedLines(filePath, offset, chunkBytes)
+      if (request.tail === true) {
+        chunk = await readBoundedLinesBefore(filePath, Number.POSITIVE_INFINITY, chunkBytes)
+      } else if (typeof request.before === 'number') {
+        chunk = await readBoundedLinesBefore(filePath, request.before, chunkBytes)
+      } else {
+        chunk = await readBoundedLines(filePath, request.offset ?? 0, chunkBytes)
+      }
     } catch {
       continue // not this one — try the next candidate location
     }
@@ -589,6 +672,14 @@ function parseOffset(raw: string | undefined): number | null {
   return value
 }
 
+/** `undefined` when the query never named `before` at all — distinct from `0`. */
+function parseBefore(raw: string | undefined): number | null | undefined {
+  if (raw === undefined) return undefined
+  const value = Number(raw)
+  if (!Number.isSafeInteger(value) || value < 0) return null
+  return value
+}
+
 /**
  * GET only, and that is load-bearing rather than incidental: an Rhizomorph
  * that cannot be POSTed to cannot be talked through, which is the read-only
@@ -602,9 +693,18 @@ export function registerTranscriptRoute(
 ): void {
   const claudeProjectsRoot = options.claudeProjectsRoot ?? defaultClaudeProjectsRoot()
 
-  app.get<{ Params: { lane: string }; Querystring: { offset?: string } }>(
+  app.get<{ Params: { lane: string }; Querystring: { offset?: string; tail?: string; before?: string } }>(
     '/api/transcript/:lane',
     async (request, reply) => {
+      const tail = request.query.tail === '1'
+
+      const before = parseBefore(request.query.before)
+      if (before === null) {
+        return reply
+          .code(400)
+          .send({ error: `before must be a non-negative integer, got "${request.query.before}"` })
+      }
+
       const offset = parseOffset(request.query.offset)
       if (offset === null) {
         return reply
@@ -616,6 +716,8 @@ export function registerTranscriptRoute(
         events: ctx.recorder.eventsSoFar(),
         lane: request.params.lane,
         offset,
+        tail,
+        before,
         claudeProjectsRoot,
         chunkBytes: options.chunkBytes,
       })
