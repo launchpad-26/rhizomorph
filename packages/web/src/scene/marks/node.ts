@@ -286,8 +286,15 @@ function branchlets(
   // Vivid: the family hue at its live end rather than the aged tint the lens
   // wears. The apex is the newest part of the organism, so recency has nothing to
   // say about it — this is the one mark on a lane whose brightness is *not* its age.
+  //
+  // **This is where a commit is legible**, not in the glow below. The band between
+  // `CALM_CEILING` and `TIP_CEILING` is three hundredths wide by design — it is a
+  // door, not a channel — so a glow living inside it has almost no range to spend.
+  // The branchlets have the whole calm world to move in, so the arrival rides here
+  // and the amendment's glow stays what the ruling calls it: small and *steady*.
+  const arriving = clamp01(frame.field.energyOf(laneId).inbound / 1.4)
   const vivid = ink(
-    hotter(hue, 0.25 + 0.4 * tuft.flare),
+    hotter(hue, 0.25 + 0.35 * arriving + 0.4 * tuft.flare),
     0.9 * clamp01(tuft.strength) * (1 + 0.1 * tuft.flare),
   )
   const base = length * 0.46
@@ -331,8 +338,7 @@ function branchlets(
   // a tip that is bright is a tip work has just come out of. Nothing here is on a
   // clock of its own — the energy decays over about one agent turn and the glow
   // goes with it.
-  const energy = frame.field.energyOf(laneId)
-  const lit = clamp01(TIP_LIGHT.floor + TIP_LIGHT.commit * clamp01(energy.inbound / 1.4))
+  const lit = clamp01(TIP_LIGHT.floor + TIP_LIGHT.commit * arriving)
   marks.push({
     kind: 'glow',
     role: 'tuft-glow',
@@ -351,13 +357,14 @@ function branchlets(
 /**
  * How bright a working apex sits, and how much of that a commit buys.
  *
- * The floor is what "a small **steady** glow" means: an apex is lit because it is
- * growing, not because something just happened, so a lane working quietly still
- * has one. The commit term is the part that pulses, and it is capped so that the
- * two together stay inside `TIP_CEILING` after `spendTip` — which holds it there
- * anyway, and this is the belt as well as the braces.
+ * The floor is what "a small **steady** glow" means, and it is high: a quiet
+ * working tip has to clear `CALM_CEILING` on its own, or the amendment would only
+ * apply to lanes that happened to have just committed and law 9b would have been
+ * amended for nothing. The commit term is small for the same reason the door is —
+ * `spendTip` caps the pair at `TIP_CEILING` regardless, and the *visible* response
+ * to an arrival is the branchlets above, which have the whole calm world to move in.
  */
-const TIP_LIGHT = { floor: 0.5, commit: 0.4 } as const
+const TIP_LIGHT = { floor: 0.95, commit: 0.05 } as const
 
 /**
  * A plain lane's lens hue, dimmed toward ice as the lane ages — recency in the

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { RECENCY_SPAN_MS } from './geometry.js'
+import { CUT } from './retire.js'
 import {
   ALARM,
   AMBIENT,
+  DISSOLUTION,
+  DISSOLUTION_CAUSES,
   EVENT,
   STRUCTURAL,
   STRUCTURAL_DAMPING,
@@ -29,7 +32,9 @@ import { BREATH_DEPTH, BREATH_PERIOD_MS, breathOf } from './marks/frame.js'
  * doing.
  */
 
-const CLASSES: MotionClass[] = ['ambient', 'event', 'structural']
+const CLASSES: MotionClass[] = ['ambient', 'event', 'structural', 'dissolution']
+/** The three prd5 ruling 4 pinned. The fourth is prd10 ruling 10's, below. */
+const ORIGINAL: MotionClass[] = ['ambient', 'event', 'structural']
 
 describe('the ambient class — sub-threshold or nothing', () => {
   it('breathes inside the amplitude ceiling', () => {
@@ -134,10 +139,91 @@ describe('the structural class — 800 ms, damped, staggered', () => {
   })
 })
 
+/**
+ * THE FOURTH CLASS (prd10 ruling 10) — its bounds, as the ruling asked for them:
+ * "the class ships with its bounds as tests".
+ *
+ * Four of the five clauses below are about what the class may **not** do, which is
+ * the shape a new motion class has to be pinned in. A budget's failure mode is not
+ * that a number is wrong; it is that the number quietly stops applying — so the
+ * assertions are the cap, the per-lane share, the luminance-only rule in *every*
+ * mode, and the exhaustive list of things allowed to spawn one.
+ */
+describe('the dissolution class — matter returning, and nothing else', () => {
+  it('caps the pool where a frame can still hold it', () => {
+    // 240, measured against the existing scene in `perf.test.ts` — a sprite blit
+    // at this count is 0.017 ms/frame of a 16.67 ms budget, alongside a 30-lane
+    // picture that costs about five.
+    expect(DISSOLUTION.maxLive).toBe(240)
+    // …and no single lane may take more than a sixth of it, so a huge landing
+    // cannot starve the two cords beside it (the structural cap allows two at
+    // once, and the queue means more than two can be composting).
+    expect(DISSOLUTION.maxPerLane).toBeLessThanOrEqual(DISSOLUTION.maxLive / 6)
+  })
+
+  it('fades in luminance only — in every mode, including full', () => {
+    // The rule the class exists to enforce, and the one place a "within reason"
+    // reading would have quietly killed it: `scale` is refused even when nothing
+    // else is. A mote that grew as it dimmed would read as coming toward the
+    // viewer, and nothing in this picture has a Z axis.
+    for (const mode of ['full', 'reduced', 'paused'] as MotionMode[]) {
+      expect(allowance('dissolution', mode).scale, `scaling while ${mode}`).toBe(false)
+    }
+    // It does travel, though — a return that stayed put would not be a return.
+    expect(allowance('dissolution', 'full').travel).toBe(true)
+    expect(allowance('dissolution', 'full').opacity).toBe(true)
+  })
+
+  it('holds still under pause, unlike the structural act that caused it', () => {
+    // A cut is allowed to finish through a pause because a half-cut cord is a
+    // picture of a topology that does not exist. A half-composted one is not: the
+    // topology is settled either way, so the drift freezes with everything else
+    // the operator asked to stop.
+    expect(allowance('dissolution', 'paused')).toEqual(allowance('ambient', 'paused'))
+    expect(allowance('dissolution', 'paused')).not.toEqual(allowance('structural', 'paused'))
+  })
+
+  it('may only ever be spawned by a severance or an absorption', () => {
+    // Exhaustive, and a *type* rather than a convention: `DissolutionCause` makes
+    // "some idle lane started emitting motes because it looked nice" unwriteable.
+    // The runtime list is what makes the exhaustiveness checkable — a third member
+    // added to the union without a reason would fail here.
+    expect([...DISSOLUTION_CAUSES].sort()).toEqual(['absorption', 'severance'])
+  })
+
+  it('ends the moment its last mote lands, and not before', () => {
+    // The two spans have to agree or the act reads wrong at one end: too short and
+    // the last mote is cut off in flight (an amputation, which is the one thing
+    // ruling 1 forbids a return to look like); too long and the dissolve sits
+    // finished with nothing on screen. One mote's life inside one cord's span.
+    expect(DISSOLUTION.moteLifeMs).toBeLessThan(DISSOLUTION.spanMs)
+    // …and the cord outlives the cut it came from, which is what makes "the
+    // geometry is gone when the dissolve completes" a later instant than "the cut
+    // has settled" — every prd5 cord-cut law is written against the earlier one.
+    expect(DISSOLUTION.spanMs).toBeGreaterThan(CUT.totalMs)
+    expect(CUT.dissolvedMs).toBeGreaterThan(CUT.totalMs)
+  })
+
+  it('moves none of the three caps that were already law', () => {
+    // The cheapest way to smuggle a sixth simultaneous pulse into this scene would
+    // be to widen the event cap while adding a class nobody was watching.
+    expect(AMBIENT.maxAmplitude).toBe(0.03)
+    expect(EVENT.maxConcurrent).toBe(5)
+    expect(STRUCTURAL.maxConcurrent).toBe(2)
+    expect(STRUCTURAL.durationMs).toBe(800)
+    // …and the older three still degrade exactly as they did.
+    for (const motionClass of ORIGINAL) {
+      expect(allowance(motionClass, 'full').scale, `${motionClass} lost its scale`).toBe(true)
+    }
+  })
+})
+
 describe('the degradation table', () => {
   it('keeps colour and opacity and drops travel and scale, under reduced motion', () => {
     // WCAG 2.3.3 excludes colour, blur and opacity from "motion animation".
-    // That exclusion is the whole map, and it applies to all three classes.
+    // That exclusion is the whole map, and it applies to every class — the fourth
+    // included, which is why a reduced-motion cut composts nothing: it never
+    // travelled, so there was no journey to come apart along.
     for (const motionClass of CLASSES) {
       expect(allowance(motionClass, 'reduced')).toEqual({
         travel: false,
@@ -167,7 +253,10 @@ describe('the degradation table', () => {
   })
 
   it('allows everything at full', () => {
-    for (const motionClass of CLASSES) {
+    // The three prd5 pinned. The fourth is luminance-only by construction and has
+    // its own clause above — a class that fades rather than scales is the whole of
+    // what ruling 10 added, so it is deliberately not in this loop.
+    for (const motionClass of ORIGINAL) {
       expect(allowance(motionClass, 'full')).toEqual({
         travel: true,
         scale: true,

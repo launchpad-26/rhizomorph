@@ -1,7 +1,11 @@
-import { createEvent, reduceAll } from '@rhizomorph/core'
+import { readFileSync, readdirSync } from 'node:fs'
+import { dirname, join, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { DEFAULT_SUBAGENT_RECENCY_MS, createEvent, reduceAll } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import {
   buildFleet,
+  finishedSpec,
   fixtureHistory,
   fleet20Spec,
   manifestFor,
@@ -20,7 +24,7 @@ import {
   tangentAt,
   type Point,
 } from './geometry.js'
-import { ALARM, EVENT, STRUCTURAL, allowance } from './motion.js'
+import { ALARM, AMBIENT, DISSOLUTION, EVENT, STRUCTURAL, allowance } from './motion.js'
 import {
   BREATH_PERIOD_MS,
   brightnessOf,
@@ -36,9 +40,17 @@ import {
 import { ribbonMark } from './marks/index.js'
 import { arrivalSwell } from './marks/root.js'
 import { paint } from './paint.js'
-import { CUT, SCAR, SCAR_FLOOR, cutAt, type RetireState } from './retire.js'
-import { ALARM_FLOOR, CALM_CEILING, CALM_FLOOR, RECEDE, salienceOf } from './salience.js'
-import { BROKEN, NEEDS_YOU, NOTICE } from './palette.js'
+import { CUT, RetireRegistry, SCAR, SCAR_FLOOR, cutAt, isRetired, type RetireState } from './retire.js'
+import {
+  ALARM_FLOOR,
+  CALM_CEILING,
+  CALM_FLOOR,
+  RECEDE,
+  TIP_CEILING,
+  TIP_GLOW_RADIUS,
+  salienceOf,
+} from './salience.js'
+import { BROKEN, NEEDS_YOU, NOTICE, TISSUE_400, type Ink } from './palette.js'
 import { PulseField } from './pulses.js'
 import type { LaneIndex } from './resolve.js'
 
@@ -1291,12 +1303,20 @@ describe('render everything — ruling 22, at twenty lanes', () => {
     // is wear *alarm* ink — the full-strength rung colours, or the band above
     // the calm ceiling. Attention is bought by the band and the grammar now, so
     // the band is what the law defends.
+    //
+    // prd10 ruling 4 amends the band clause for exactly one mark — a working lane's
+    // apex — and *only* that clause: a tip glow is still not an alarm, still wears
+    // no alarm ink, still recedes, and is still capped, at `TIP_CEILING`. Its four
+    // bounds are asserted in "law 9b, amended within reason" below; what this test
+    // keeps is everything the amendment did not touch.
     const alarmInk = [NOTICE, NEEDS_YOU, BROKEN].map(String)
     for (const mark of marks) {
       expect(mark.alarm, `${mark.role} claimed alarm on a calm fleet`).toBe(false)
+      const ceiling = mark.role === 'tuft-glow' ? TIP_CEILING : CALM_CEILING
       expect(brightnessOf(mark), `${mark.role} broke into the alarm band`).toBeLessThanOrEqual(
-        CALM_CEILING + 1e-9,
+        ceiling + 1e-9,
       )
+      expect(brightnessOf(mark)).toBeLessThan(ALARM_FLOOR)
       for (const value of inksOf(mark)) {
         expect(alarmInk, `${mark.role} wore alarm ink on a calm fleet`).not.toContain(
           String(value.rgb),
@@ -1865,6 +1885,11 @@ function corpus(): Mark[] {
     ...marksFor({ fleet, field: storm }),
     // A cut mid-flight: the scar family and the homeward ribbon.
     ...marksFor({ fleet, retire: new Map([[LANE.healthy, cutAt(CUT.tensionMs + 120)]]) }),
+    // …and one far enough along that its matter has cooled into the accent (prd10
+    // ruling 12): the earliest motes of a cut are still their lane's own green, so a
+    // corpus that only ever saw a fresh cut would never contain a tissue-coloured
+    // mote at all — and the accent's own law would pass by never being exercised.
+    ...marksFor({ fleet, retire: new Map([[LANE.healthy, cutAt(CUT.tensionMs + 900)]]) }),
     // The gap voice, which is chrome rather than a lane's.
     ...marksFor({ fleet: fleetFor(pathologySpec(), false) }),
   ]
@@ -2457,3 +2482,681 @@ describe('the cord-cut — a finished lane leaves the network', () => {
   })
 })
 
+
+/**
+ * THE COMPOSTING DECAY (prd10 ruling 2) — the return, as a query over the picture.
+ *
+ * Ruling 1 is the judge of everything in this round: a replay has to read as
+ * emergence, flourishing and **return**, and a choice that looks good live but
+ * makes the replay read as clutter or amputation is wrong. Ruling 2 is that
+ * judgement applied to the loudest thing the scene does. A cut cord used to hang
+ * there afterwards; now it comes apart into motes that carry its matter home, and
+ * when the last one lands there is no cord left.
+ *
+ * The laws below are the ones a future retune could break without noticing.
+ */
+describe('the severed cord composts (prd10 ruling 2)', () => {
+  const LEAVING = LANE.healthy
+  const cut = (ms: number, options: FrameOptions = {}): Mark[] =>
+    marksFor({ ...options, retire: new Map([[LEAVING, cutAt(ms)]]) })
+  const mine = (marks: readonly Mark[]): Mark[] => marks.filter((mark) => mark.laneId === LEAVING)
+
+  it('emits a drift of motes along its own path while the cord parts', () => {
+    const drift = of(cut(CUT.tensionMs + 300), LEAVING, 'dissolution')
+    expect(drift).toHaveLength(1)
+    const mark = drift[0] as Mark
+    expect(mark.kind).toBe('motes')
+    if (mark.kind !== 'motes') return
+    expect(mark.items.length).toBeGreaterThan(4)
+
+    // On the cord it came off, not beside it: every mote sits on the lane's own
+    // spine, which is what makes this the hypha decomposing rather than a spray of
+    // particles thrown over the top of it.
+    const spine = (of(marksFor(), LEAVING, 'thread')[0] as Mark & { kind: 'ribbon' }).path
+    for (const mote of mark.items) expect(nearestOn(spine, mote.at)).toBeLessThan(14)
+  })
+
+  it('is matter rather than light — no glow, and never a pulse', () => {
+    // prd5's law about a retiring lane survives unweakened: a cut lane has no
+    // events left, so it gets no `glow` and nothing from the light-in-flight
+    // vocabulary. A mote is neither — it is the cord itself, which is why it is a
+    // `motes` mark under its own role and its own motion class.
+    const during = mine(cut(CUT.tensionMs + 300))
+    expect(during.filter((mark) => mark.kind === 'glow')).toHaveLength(0)
+    for (const role of ['pulse', 'pulse-wake', 'tick', 'heat'] as MarkRole[]) {
+      expect(during.some((mark) => mark.role === role), `${role} on a composting cord`).toBe(false)
+    }
+  })
+
+  it('takes the cord with it — no ribbon geometry survives the dissolve', () => {
+    // Ruling 2's "no stubs persist", as the display list. The cord is drawn while
+    // it is coming apart and gone when it has; what stays at the rim is prd5 law
+    // 1's own list — the lens, the name and the figure — so a completion is still
+    // identifiable rather than merely invisible.
+    const composting = mine(cut(CUT.totalMs))
+    expect(composting.some((mark) => mark.role === 'scar')).toBe(true)
+
+    const done = mine(cut(CUT.dissolvedMs))
+    expect(done.filter((mark) => mark.kind === 'ribbon'), 'a stub survived').toHaveLength(0)
+    expect(done.some((mark) => mark.role === 'dissolution'), 'motes outlived the act').toBe(false)
+    expect(done.some((mark) => mark.role === 'scar-mark'), 'the lane lost its lens').toBe(true)
+    expect(done.some((mark) => mark.role === 'label')).toBe(true)
+    expect(done.some((mark) => mark.role === 'label-figure')).toBe(true)
+  })
+
+  it('lets go at the end rather than snapping out', () => {
+    // The cord holds its ink while its matter leaves and fades over the last
+    // stretch, so the final act is a letting-go rather than a disappearance. The
+    // hold is also what keeps every prd5 brightness law reading the ink it always
+    // did at `CUT.totalMs`.
+    const inkOf = (ms: number): number => {
+      const scar = mine(cut(ms)).find((mark) => mark.role === 'scar')
+      return scar === undefined ? 0 : brightnessOf(scar)
+    }
+    expect(inkOf(CUT.totalMs)).toBeCloseTo(inkOf(CUT.tensionMs + CUT.retractMs + CUT.settleMs), 9)
+    expect(inkOf(CUT.dissolvedMs - 200)).toBeLessThan(inkOf(CUT.totalMs))
+    expect(inkOf(CUT.dissolvedMs - 200)).toBeGreaterThan(0)
+  })
+
+  it('composts nothing in a replay, and nothing under reduced motion', () => {
+    // The same law as the homeward ribbon's, extended: a return nobody watched
+    // start is a return that did not happen on this screen. History arrives with
+    // `dissolve` already at 1, so a scrub past a landing builds the ring and
+    // animates nothing.
+    for (const marks of [mine(cut(CUT.dissolvedMs)), mine(cut(0))]) {
+      expect(marks.filter((mark) => mark.role === 'dissolution')).toHaveLength(0)
+    }
+    const still = marksFor({
+      reducedMotion: true,
+      retire: new Map([[LEAVING, cutAt(0, allowance('structural', 'reduced').travel)]]),
+    })
+    expect(still.filter((mark) => mark.role === 'dissolution')).toHaveLength(0)
+  })
+
+  it('composts nothing for a hidden scar', () => {
+    // A settled scar, because only a settled one is hideable — a cut in progress is
+    // news and is always shown. This one is still composting (`dissolve` outlives
+    // the cut), so without the check it would drift motes over a lane the operator
+    // asked not to see, which would be the loudest thing the toggle failed to hide.
+    const settled = cutAt(CUT.totalMs)
+    expect(settled.stage).toBe('scar')
+    expect(settled.dissolve).toBeLessThan(1)
+    expect(
+      of(marksFor({ retire: new Map([[LEAVING, settled]]) }), LEAVING, 'dissolution'),
+    ).toHaveLength(1)
+
+    const hidden = marksFor({ retire: new Map([[LEAVING, settled]]), hideFinished: true })
+    expect(hidden.filter((mark) => mark.laneId === LEAVING)).toHaveLength(0)
+  })
+
+  it('never puts more than the pool on the canvas, whatever lands at once', () => {
+    // Twenty lanes composting together — more than the queue would ever allow, and
+    // the point: the ceiling is enforced over the *scene*, not per lane, so a wave
+    // cannot spend two thousand motes.
+    const fleet = fleetFor(fleet20Spec())
+    const retire = new Map<string, RetireState>(
+      fleet.lanes.map((lane) => [lane.id, cutAt(CUT.tensionMs + 400)]),
+    )
+    const marks = marksFor({ fleet, retire })
+    const live = marks
+      .filter((mark) => mark.role === 'dissolution')
+      .reduce((total, mark) => total + (mark.kind === 'motes' ? mark.items.length : 0), 0)
+
+    expect(live).toBeGreaterThan(0)
+    expect(live, 'the dissolution pool overflowed').toBeLessThanOrEqual(DISSOLUTION.maxLive)
+  })
+})
+
+/**
+ * A RECORDED SESSION, SCRUBBED TO THE END (prd10 rulings 1 and 2).
+ *
+ * The round's own judge, as a test. Ruling 1 says every visual decision is judged
+ * by how a full-session replay reads — and the specific failure it names is
+ * *amputation*: a night of landed work that leaves a rim of cut-off stubs. This
+ * folds a fleet that has landed, drives the **real** retire registry the way a
+ * replay drives it (history, so nothing is ever `note`d as news), and asks the
+ * display list what is left.
+ */
+describe('a replay at scrub-end leaves no orphan geometry', () => {
+  const finished = (): Fleet => fleetFor(finishedSpec())
+
+  /**
+   * The registry as a replay leaves it: every landing is history, so none of them
+   * was ever scheduled, and `progress` scars each one outright. This is the same
+   * object `SceneView` paints through — nothing here hand-builds a state.
+   */
+  function scrubEnd(fleet: Fleet): ReadonlyMap<string, RetireState> {
+    return new RetireRegistry().progress(fleet, NOW, 'full')
+  }
+
+  it('scars every landed lane without animating one of them', () => {
+    const fleet = finished()
+    const retire = scrubEnd(fleet)
+    const landed = fleet.lanes.filter(isRetired)
+    expect(landed.length).toBeGreaterThan(10)
+    expect(retire.size).toBe(landed.length)
+    for (const [laneId, state] of retire) {
+      expect(state.stage, `${laneId} was mid-cut in a replay`).toBe('scar')
+      expect(state.dissolve).toBe(1)
+      expect(state.elapsedMs, `${laneId} claimed we watched it leave`).toBeNull()
+    }
+  })
+
+  it('draws no cord, no stub and no drift for any of them', () => {
+    const fleet = finished()
+    const marks = marksFor({ fleet, retire: scrubEnd(fleet) })
+    const landed = new Set(fleet.lanes.filter(isRetired).map((lane) => lane.id))
+
+    for (const mark of marks) {
+      if (mark.laneId === null || !landed.has(mark.laneId)) continue
+      expect(mark.kind, `${mark.laneId} left ${mark.role} ribbon geometry behind`).not.toBe('ribbon')
+      for (const role of ['scar', 'scar-bloom', 'homeward', 'dissolution', 'thread'] as MarkRole[]) {
+        expect(mark.role, `${mark.laneId} still carries a ${role}`).not.toBe(role)
+      }
+    }
+  })
+
+  it('still says which lanes those were — completion is never invisible', () => {
+    // prd5's law 1, which ruling 2 did *not* overrule: the scene may forget the
+    // thread's geometry because the ledger remembers the thread, but the operator
+    // still has to be able to see that a lane finished and read which one.
+    const fleet = finished()
+    const marks = marksFor({ fleet, retire: scrubEnd(fleet) })
+    for (const lane of fleet.lanes.filter(isRetired)) {
+      const drawn = marks.filter((mark) => mark.laneId === lane.id)
+      expect(drawn.length, `${lane.id} vanished entirely`).toBeGreaterThan(0)
+      expect(drawn.some((mark) => mark.role === 'label')).toBe(true)
+      for (const mark of drawn) {
+        expect(brightnessOf(mark), `${mark.role} faded out`).toBeGreaterThan(SCAR_FLOOR)
+      }
+    }
+  })
+
+  it('remembers every landing in the heart instead — one ring each', () => {
+    // Where the memoir went. The rim is clear and the middle carries the night:
+    // one growth ring per landed lane, permanent, and deposited by the arrival
+    // rather than drawn because a lane exists.
+    const fleet = finished()
+    const marks = marksFor({ fleet, retire: scrubEnd(fleet) })
+    const rings = marks.filter((mark) => mark.role === 'growth-ring')
+    expect(rings).toHaveLength(fleet.lanes.filter(isRetired).length)
+
+    // …and a fleet that has landed nothing has no rings at all: the memoir is a
+    // record, not an ornament that scales with the fleet.
+    const working = marksFor({ fleet: fleetFor(fleet20Spec()) })
+    expect(working.filter((mark) => mark.role === 'growth-ring')).toHaveLength(0)
+    // The lattice is there either way — it is anatomy, not history.
+    expect(working.filter((mark) => mark.role === 'hyphal-fan')).toHaveLength(1)
+  })
+
+  it('reads as return rather than amputation — the rim is clear and the heart is full', () => {
+    // The whole of ruling 1, in two counts. This is the assertion that would have
+    // failed before this round: thirty-seven stubs on the rim and nothing in the
+    // middle to show for them.
+    const fleet = finished()
+    const marks = marksFor({ fleet, retire: scrubEnd(fleet) })
+    const ribbons = marks.filter((mark) => mark.kind === 'ribbon')
+    const landed = new Set(fleet.lanes.filter(isRetired).map((lane) => lane.id))
+
+    expect(ribbons.filter((mark) => mark.laneId !== null && landed.has(mark.laneId))).toHaveLength(0)
+    expect(marks.filter((mark) => mark.role === 'growth-ring').length).toBe(landed.size)
+  })
+})
+
+/**
+ * THE 9b AMENDMENT (prd10 ruling 4), RESTATED — stricter in its bounds than the
+ * law it amends.
+ *
+ * Law 9b says the band above `CALM_CEILING` belongs to the alarms, and prd4 made
+ * that band *the* salience mechanism once hue exclusivity was dropped. Ruling 4
+ * opens it a hair: a working lane's tip may carry a small steady glow above the
+ * ceiling. That is exactly the kind of amendment that erodes a law, so the ruling
+ * bounds it in four ways and every one of them is asserted here.
+ *
+ * The old assertion — "every calm mark is under the ceiling" — is *kept*, with one
+ * named exception whose own ceiling, radius, eligibility and fade behaviour are all
+ * pinned. Three of those four clauses did not exist before.
+ */
+describe('law 9b, amended within reason (prd10 ruling 4)', () => {
+  /** A fleet with nothing wrong: no spotlight, so nothing is receded and the tip is at full. */
+  const calm = (): Fleet => fleetFor(fleet20Spec())
+  const tipGlows = (marks: readonly Mark[]): Mark[] =>
+    marks.filter((mark) => mark.role === 'tuft-glow')
+
+  it('still holds every calm mark under the ceiling — except a working tip', () => {
+    const marks = marksFor({ fleet: calm() })
+    for (const mark of marks) {
+      if (mark.alarm || mark.role === 'tuft-glow') continue
+      expect(brightnessOf(mark), `${mark.role} broke the calm ceiling`).toBeLessThanOrEqual(
+        CALM_CEILING + 1e-9,
+      )
+    }
+  })
+
+  it('lets a working tip past the ceiling and never past the alarm floor', () => {
+    const glows = tipGlows(marksFor({ fleet: calm() }))
+    expect(glows.length).toBeGreaterThan(0)
+    for (const glow of glows) {
+      const bright = brightnessOf(glow)
+      expect(bright, 'a tip glow stayed inside the calm world').toBeGreaterThan(CALM_CEILING)
+      expect(bright, 'a tip glow took the alarm band').toBeLessThanOrEqual(TIP_CEILING + 1e-9)
+      expect(bright).toBeLessThan(ALARM_FLOOR)
+    }
+  })
+
+  it('occupies a small radius, and one that carries nothing', () => {
+    // "A small radius" is a bound rather than a channel: a tip glow that grew with
+    // the lane's work, or its heat, would be spending the band on a quantity.
+    const glows = tipGlows(marksFor({ fleet: calm() }))
+    const radii = new Set<number>()
+    for (const glow of glows) {
+      expect(glow.kind).toBe('glow')
+      if (glow.kind !== 'glow') continue
+      expect(glow.radius).toBeLessThanOrEqual(TIP_GLOW_RADIUS)
+      radii.add(glow.radius)
+    }
+    // Every lane's is the same size, whatever that lane has done.
+    expect(radii.size).toBe(1)
+  })
+
+  it('wears none of the alarm grammar — no cartouche, and no fade exemption', () => {
+    const marks = marksFor({ fleet: calm() })
+    for (const glow of tipGlows(marks)) {
+      expect(glow.alarm, 'a tip glow claimed the alarm exemption').toBe(false)
+      // The enclosure is the one instrument nothing calm may ever wear, and a lane
+      // with a tuft is calm by construction.
+      expect(of(marks, glow.laneId as string, 'rank-enclosure')).toHaveLength(0)
+    }
+
+    // The load-bearing half: it recedes like every other calm mark. One lane
+    // spotlit, the rest at `RECEDE` — including their tips.
+    const spotlit = marksFor({ fleet: calm(), selectedId: '101-thread-rollup' })
+    const other = tipGlows(spotlit).find((mark) => mark.laneId !== '101-thread-rollup') as Mark
+    const held = tipGlows(spotlit).find((mark) => mark.laneId === '101-thread-rollup') as Mark
+    expect(brightnessOf(other) / brightnessOf(held)).toBeCloseTo(RECEDE, 6)
+    expect(brightnessOf(other)).toBeLessThan(CALM_CEILING)
+  })
+
+  it('is a *working* tip only — nothing else in the fleet has one', () => {
+    // The eligibility clause, on the staged fixture: a waiting lane's apex is not
+    // growing, a frozen one's is dead, a landed one's has stopped, and a lane in
+    // any of those states already has its own vocabulary at the node.
+    const marks = marksFor()
+    for (const laneId of [LANE.waiting, LANE.frozen, LANE.looping, LANE.expensive, LANE.offFence]) {
+      expect(of(marks, laneId, 'tuft-glow'), `${laneId} grew an apex`).toHaveLength(0)
+      expect(of(marks, laneId, 'tuft'), `${laneId} grew branchlets`).toHaveLength(0)
+    }
+    // …and a landed lane's tuft goes with its cord.
+    const landed = marksFor({ retire: new Map([[LANE.healthy, cutAt(CUT.dissolvedMs)]]) })
+    expect(of(landed, LANE.healthy, 'tuft-glow')).toHaveLength(0)
+  })
+
+  it('lets an alarm anywhere on screen still dominate at a glance', () => {
+    // The claim the whole amendment has to survive, and the one an operator would
+    // actually notice breaking. On the staged fixture every summons still out-reads
+    // every tip in the fleet — by the band, not by luck.
+    const marks = marksFor()
+    const tips = tipGlows(marks).map(brightnessOf)
+    for (const laneId of [LANE.looping, LANE.waiting, LANE.offFence]) {
+      const summons = brightest(marks, laneId)
+      expect(summons).toBeGreaterThanOrEqual(ALARM_FLOOR)
+      for (const tip of tips) expect(summons, 'a tip out-read a summons').toBeGreaterThan(tip)
+    }
+  })
+
+  it('grows two or three branchlets, in the family hue, off the tip', () => {
+    // Ruling 4's form, as far as a law may go: the count and the placement. The
+    // *shape* is `node.ts`'s to change (prd7 ruling 2 — a role is the law layer's
+    // word, and the law layer may not know the drawing).
+    const fleet = calm()
+    const marks = marksFor({ fleet })
+    const geometry = layoutScene(fleet, { ...SIZE, now: NOW })
+
+    for (const thread of geometry.threads) {
+      const tuft = of(marks, thread.laneId, 'tuft')
+      expect(tuft.length, `${thread.laneId} has the wrong apex`).toBeGreaterThanOrEqual(2)
+      expect(tuft.length).toBeLessThanOrEqual(3)
+      // Off the node, reaching away from it: a growth cone is where the organism is
+      // still happening, so it is the furthest thing out on the lane.
+      for (const branchlet of tuft) {
+        expect(reachOf(branchlet, thread.node)).toBeGreaterThan(0)
+        expect(reachOf(branchlet, geometry.centre)).toBeGreaterThan(
+          Math.hypot(thread.node.x - geometry.centre.x, thread.node.y - geometry.centre.y) * 0.8,
+        )
+      }
+    }
+  })
+})
+
+/**
+ * THE ACCENT'S OWN LAW (prd10 ruling 5) — "the accent class may appear only in
+ * scene tissue draws".
+ *
+ * Two halves, because the ruling makes two different claims and only one of them is
+ * about the picture. The first is a claim about this repository: the tokens exist
+ * for the scene's organic tissue and for nothing else, so a panel that reached for
+ * `--color-tissue-*` would be a violation no display-list test could see. The
+ * second is about the marks: no text, no status mark and no chrome may wear it.
+ *
+ * The source scan is deliberately the strict one — a grep over the real tree rather
+ * than a list of files somebody remembered to update.
+ */
+describe('the tissue accent appears only in tissue draws (prd10 ruling 5)', () => {
+  /** Every source file in the web package, so nothing can hide from the scan. */
+  function sources(dir: string): string[] {
+    const out: string[] = []
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) out.push(...sources(path))
+      else if (/\.(ts|tsx|css)$/.test(entry.name)) out.push(path)
+    }
+    return out
+  }
+
+  const WEB = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+  it('names the tokens in the theme and reaches for them only from the scene', () => {
+    const offenders: string[] = []
+    for (const path of sources(WEB)) {
+      const text = readFileSync(path, 'utf8')
+      if (!/tissue/i.test(text)) continue
+      const isTheme = path.endsWith(join('theme', 'theme.css'))
+      const isScene = path.includes(`${sep}scene${sep}`)
+      // `retire.ts`'s `SCAR_TISSUE` is a different word for a different thing (the
+      // desaturated green a remnant settles into) and predates the accent, so the
+      // scan looks for the token family rather than for the word.
+      if (isTheme || isScene) continue
+      if (/--color-tissue|tissue-(900|700|500|400|200)|TISSUE_/.test(text)) offenders.push(path)
+    }
+    expect(offenders, 'the accent escaped the scene').toEqual([])
+  })
+
+  it('never lets a status mark, a name or the chrome wear it', () => {
+    // The display-list half. A tissue-hued ink is one whose hue sits in the accent's
+    // own window and which is saturated enough for that window to mean anything —
+    // the same OKLCH reading `palette.test.ts` measures the ruling's angles in.
+    const marks = corpus()
+    for (const mark of marks) {
+      if (!inksOf(mark).some(isTissue)) continue
+      expect(TISSUE_ROLES, `${mark.role} wore the accent`).toContain(mark.role)
+      // Never ink: not a name, not a figure, not a plate behind one.
+      expect(['text', 'chip']).not.toContain(mark.kind)
+    }
+  })
+
+  it('is actually spent — the law would be free if nothing wore it', () => {
+    // A permission test passes trivially when nobody uses the permission, so the
+    // corpus has to contain the draws the ruling names: the heart's depths, the
+    // thread underglow, the spore motes, and the cooling gradient of a return.
+    const worn = new Set(
+      corpus()
+        .filter((mark) => inksOf(mark).some(isTissue))
+        .map((mark) => mark.role),
+    )
+    for (const role of ['spore', 'depth-fog', 'dissolution'] as MarkRole[]) {
+      expect(worn, `nothing draws ${role} in tissue`).toContain(role)
+    }
+  })
+
+  it('gives a thread its underglow without touching the thread itself', () => {
+    // Ruling 5's second named home, and the one that had to be spent *without* a
+    // new object: the bloom was already the widest, faintest ribbon on every lane,
+    // so the undertone is a change of colour. The law is the pair — the light around
+    // a thread is bioluminal, and the mark carrying the lane's own family hue is
+    // untouched, because that hue is the state (law 9a).
+    const marks = marksFor({ fleet: fleetFor(fleet20Spec()) })
+    const lane = '101-thread-rollup'
+    const thread = (inksOf(of(marks, lane, 'thread')[0] as Mark)[0] as Ink).rgb
+    const bloom = (inksOf(of(marks, lane, 'thread-bloom')[0] as Mark)[0] as Ink).rgb
+
+    // The bloom has moved toward the accent — bluer and less green than the thread.
+    expect(bloom[2] - bloom[1]).toBeGreaterThan(thread[2] - thread[1])
+    // …and the thread is still unmistakably its family's colour.
+    expect(thread[1]).toBeGreaterThan(Math.max(thread[0] as number, thread[2] as number))
+  })
+})
+
+/** Where the accent is allowed: organic tissue, and nowhere else (ruling 5). */
+const TISSUE_ROLES: readonly MarkRole[] = [
+  'root-mass',
+  'growth-ring',
+  'hyphal-fan',
+  'thread-bloom',
+  'spore',
+  'rim-flora',
+  'depth-fog',
+  'dissolution',
+  'absorption',
+]
+
+/**
+ * Is this ink wearing the accent?
+ *
+ * The **violet signature**, and it is chosen to separate the accent from the one
+ * thing it could plausibly be confused with in this instrument: the ice ramp. Ice
+ * is a cold blue at every step and runs `r < g < b` (`#b3c6de`); the tissue ramp is
+ * red-shifted violet and runs `g < r < b` (`#6b4fa8`). So green sitting *below*
+ * red, with real blue above both, is a reading no step of the ice ramp and no
+ * status hue can produce — the exact 41° of daylight ruling 11 measured, in the
+ * cheapest form that cannot be argued with. The angles themselves are asserted in
+ * `palette.test.ts`, where the ramp is.
+ */
+function isTissue(value: Ink): boolean {
+  const [r, g, b] = value.rgb
+  return b > r && r > g && b - g >= 10
+}
+
+/**
+ * TISSUE'S FOURTH HOME (prd10 ruling 6) — the ambient layer, and the caps it does
+ * not move.
+ */
+describe('depth, texture and ambient life (prd10 ruling 6)', () => {
+  const marks = marksFor({ fleet: fleetFor(fleet20Spec()) })
+
+  it('lays the panel depth in the chrome pass, not in the world', () => {
+    // A vignette that panned with the scene would be a moving smudge: it is a fact
+    // about the picture plane. The washes carry the panel's own size, which is what
+    // `paint.ts` keys its cached gradient on — one build per resize.
+    const washes = marks.filter((mark) => mark.kind === 'wash')
+    expect(washes.map((mark) => mark.role).sort()).toEqual(['depth-fog', 'vignette'])
+    for (const wash of washes) {
+      expect(wash.kind === 'wash' && wash.width).toBe(SIZE.width)
+      expect(wash.kind === 'wash' && wash.height).toBe(SIZE.height)
+      expect(wash.laneId).toBeNull()
+    }
+  })
+
+  it('steps the grain at twelve frames a second and no faster', () => {
+    // The tile is cached; what moves is its offset, and it may move at most twelve
+    // times a second. Sixty would be a screen door — the one texture in this
+    // instrument that would genuinely read as motion.
+    const tickAt = (now: number): number => {
+      const grain = marksFor({ now }).find((mark) => mark.kind === 'grain')
+      return grain?.kind === 'grain' ? grain.tick : -1
+    }
+    // Two frames 16 ms apart are the same tile phase…
+    expect(tickAt(NOW + 16)).toBe(tickAt(NOW))
+    // …and a twelfth of a second apart, exactly one step.
+    expect(tickAt(NOW + 84) - tickAt(NOW)).toBe(1)
+    expect(tickAt(NOW + 1000) - tickAt(NOW)).toBe(12)
+  })
+
+  it('holds the grain still when the operator pauses', () => {
+    const held = marksFor({ paused: true }).find((mark) => mark.kind === 'grain')
+    expect(held?.kind === 'grain' && held.tick).toBe(0)
+  })
+
+  it('drifts spores that carry nothing and cost the same at any fleet size', () => {
+    const drift = marks.find((mark) => mark.role === 'spore')
+    expect(drift?.kind).toBe('motes')
+    if (drift?.kind !== 'motes') return
+    expect(drift.items.length).toBeGreaterThan(8)
+    // Ambient, not dissolution: a spore is not a lane's matter coming home, so it
+    // is deliberately outside the pool a composting cord draws from.
+    expect(drift.role).not.toBe('dissolution')
+    expect(drift.laneId).toBeNull()
+  })
+
+  it('shimmers each thread inside the ambient ceiling, and out of phase', () => {
+    // The drawn amplitude rather than the constant: a thread's ink over a whole
+    // shimmer cycle stays inside ±3% of its resting brightness.
+    const fleet = fleetFor(fleet20Spec())
+    const lane = '101-thread-rollup'
+    const at = (now: number): number =>
+      brightnessOf(of(marksFor({ fleet, now }), lane, 'thread')[0] as Mark)
+
+    const samples = Array.from({ length: 24 }, (_unused, i) => at(NOW + i * 280))
+    const middle = (Math.max(...samples) + Math.min(...samples)) / 2
+    for (const sample of samples) {
+      expect(Math.abs(sample / middle - 1)).toBeLessThanOrEqual(AMBIENT.maxAmplitude + 1e-9)
+    }
+    // It actually moves — a shimmer nothing can see is a shimmer nobody wrote.
+    expect(Math.max(...samples)).toBeGreaterThan(Math.min(...samples))
+  })
+
+  it('shimmers in luminance only, never in hue (law 9a)', () => {
+    const fleet = fleetFor(fleet20Spec())
+    const lane = '101-thread-rollup'
+    // `sampled` builds the layout once and advances the clock over it, which is
+    // what isolates the shimmer: re-laying the scene out per sample would also
+    // advance the lane's *recency*, and a thread going paler with age is law 9a
+    // working rather than a shimmer touching a hue.
+    const hues = new Set(
+      sampled(NOW, 12, 400, { fleet }).map((frame) =>
+        (inksOf(of(frame, lane, 'thread')[0] as Mark)[0] as Ink).rgb.join(','),
+      ),
+    )
+    expect(hues.size, 'a shimmer touched a hue').toBe(1)
+  })
+})
+
+/**
+ * SUBAGENT BUDS (prd10 ruling 9) — anatomy of a parent, never a lane.
+ *
+ * The data-honesty clauses are the ones worth pinning: liveness comes from the
+ * vital the chips lane landed, a lane with no telemetry grows no buds and loses
+ * nothing else, and a bud is one level deep because `parent_agent_id` is
+ * uncaptured. The return grammar is the fourth: a bud that has finished is
+ * *absorbed* rather than deleted.
+ */
+describe('subagent buds (prd10 ruling 9)', () => {
+  const LIVE = '101-thread-rollup'
+
+  /**
+   * The twenty-lane fleet with **every** subagent vital cleared.
+   *
+   * Worth its own helper rather than an assumption: the fixture's lanes run real
+   * subagent threads, so `buildFleet` reports vitals for several of them and a test
+   * that assumed "no buds by default" would be testing the fixture rather than the
+   * rule. This is the no-telemetry case, built explicitly.
+   */
+  function noBuds(): Fleet {
+    const fleet = fleetFor(fleet20Spec())
+    return { ...fleet, lanes: fleet.lanes.map((lane) => ({ ...lane, subagents: null })) }
+  }
+
+  /** …and the same fleet with exactly one lane's vital set. Read, never re-derived. */
+  function withBud(sinceMs: number, laneId = LIVE): Fleet {
+    const fleet = noBuds()
+    return {
+      ...fleet,
+      lanes: fleet.lanes.map((lane) =>
+        lane.id === laneId
+          ? {
+              ...lane,
+              subagents: {
+                lane: lane.id,
+                lastActivityTs: NOW - sinceMs,
+                agentId: 'agent-1',
+                subagentType: 'Explore',
+              },
+            }
+          : lane,
+      ),
+    }
+  }
+
+  it('grows no bud at all when nothing reported one', () => {
+    // The gap-honesty clause, and the majority case: `lane.subagents` is null
+    // whenever no thread-marked telemetry reached the lane, and null means no bud
+    // rather than an empty one. Nothing else about the lane changes.
+    const bare = marksFor({ fleet: noBuds() })
+    expect(bare.filter((mark) => mark.role === 'bud')).toHaveLength(0)
+    expect(bare.filter((mark) => mark.role === 'bud-flare')).toHaveLength(0)
+    expect(of(bare, LIVE, 'thread').length).toBeGreaterThan(0)
+  })
+
+  it('buds from its own parent thread, one level deep', () => {
+    const fleet = withBud(1_000)
+    const marks = marksFor({ fleet })
+    const buds = marks.filter((mark) => mark.role === 'bud')
+    // One lane reported one, so there is one bud — never a second level, because
+    // nothing in the log has ever named a nested agent.
+    expect(buds).toHaveLength(1)
+    expect(buds[0]?.laneId).toBe(LIVE)
+
+    // On its parent's thread: the junction sits on the lane's own spine, which is
+    // what makes a bud anatomy rather than a lane of its own (prd2's rule).
+    const geometry = layoutScene(fleet, { ...SIZE, now: NOW })
+    const parent = geometry.byLane.get(LIVE) as { path: Point[] }
+    const bud = buds[0] as Mark & { kind: 'ribbon' }
+    expect(nearestOn(parent.path, bud.path[0] as Point)).toBeLessThan(1)
+    // …and it reaches away from the thread rather than lying along it.
+    expect(nearestOn(parent.path, bud.path[bud.path.length - 1] as Point)).toBeGreaterThan(4)
+  })
+
+  it('flares when its subagent just spoke, and not a minute later', () => {
+    // Event class, read off the freshest thing the vital reports: `lastActivityTs`.
+    // Nothing here holds state or starts a clock, which is what makes a replay draw
+    // the same bud as the session that recorded it.
+    expect(marksFor({ fleet: withBud(20) }).some((mark) => mark.role === 'bud-flare')).toBe(true)
+    expect(marksFor({ fleet: withBud(60_000) }).some((mark) => mark.role === 'bud-flare')).toBe(
+      false,
+    )
+  })
+
+  it('is absorbed back into its parent rather than blinking out', () => {
+    // Ruling 2's grammar in miniature, and ruling 9 asks for it by name. As the
+    // reading goes stale the branchlet retracts and gives its matter back — to the
+    // *parent*, not to the mass, which is the one thing that makes it an absorption
+    // rather than a small severance.
+    const live = marksFor({ fleet: withBud(1_000) })
+    const going = marksFor({ fleet: withBud(DEFAULT_SUBAGENT_RECENCY_MS - 900) })
+    const gone = marksFor({ fleet: withBud(DEFAULT_SUBAGENT_RECENCY_MS) })
+
+    const reach = (marks: readonly Mark[]): number => {
+      const bud = marks.find((mark) => mark.role === 'bud')
+      if (bud?.kind !== 'ribbon') return 0
+      const from = bud.path[0] as Point
+      const to = bud.path[bud.path.length - 1] as Point
+      return Math.hypot(to.x - from.x, to.y - from.y)
+    }
+
+    expect(reach(going)).toBeLessThan(reach(live))
+    expect(going.some((mark) => mark.role === 'absorption')).toBe(true)
+    // And when the evidence expires, so does the bud — with nothing left over.
+    expect(gone.some((mark) => mark.role === 'bud')).toBe(false)
+    expect(gone.some((mark) => mark.role === 'absorption')).toBe(false)
+  })
+
+  it('never buds from a lane that is leaving', () => {
+    // Whatever it had handed out, a landing lane has finished: a bud on a cord that
+    // is composting would be work carrying on inside something that has left.
+    const marks = marksFor({
+      fleet: withBud(1_000),
+      retire: new Map([[LIVE, cutAt(CUT.tensionMs + 200)]]),
+    })
+    expect(marks.filter((mark) => mark.role === 'bud')).toHaveLength(0)
+  })
+
+  it('reads the vital rather than re-deriving it', () => {
+    // The instruction the issue is explicit about, as a behaviour: change nothing
+    // but `lane.subagents` and the bud appears. No telemetry is folded, no window is
+    // recomputed, and no lane name is inspected — if the vital says a lane has a
+    // live subagent, the scene draws one, and otherwise it does not.
+    const fleet = withBud(1_000, '102-cost-authority')
+    const buds = marksFor({ fleet }).filter((mark) => mark.role === 'bud')
+    expect(buds).toHaveLength(1)
+    expect(buds[0]?.laneId).toBe('102-cost-authority')
+  })
+})

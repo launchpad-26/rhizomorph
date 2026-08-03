@@ -112,6 +112,7 @@ export function dissolutionMotes(job: Dissolve, budget: number): Mote[] {
 
   const wanted = Math.min(moteCount(job.sizeFrac), DISSOLUTION.maxPerLane, budget)
   const life = DISSOLUTION.moteLifeMs / DISSOLUTION.spanMs
+  const salt = saltOf(job.seed)
   const motes: Mote[] = []
 
   for (let i = 0; i < wanted; i += 1) {
@@ -130,11 +131,18 @@ export function dissolutionMotes(job: Dissolve, budget: number): Mote[] {
     const envelope = Math.sin(Math.PI * age) ** ENVELOPE
     motes.push({
       at,
-      // Fixed for its whole life, and a little different per mote so a drift does
-      // not read as a stencil. Off the index rather than off a field: this is one
-      // number per mote and a gradient noise field is the wrong tool for that
-      // (the same finding `variation.ts`'s `curl` records).
-      radius: MOTE_RADIUS.min + MOTE_RADIUS.span * ((i * 7 + job.seed.length) % 5) / 4 +
+      // Fixed for its whole life (ruling 10's luminance-only fade), and a little
+      // different per mote so a drift does not read as a stencil.
+      //
+      // Off a **hash** of the lane's seed rather than off the string's length,
+      // which is what this was first written as and is the same bug `variation.ts`
+      // records against character sums: two lanes whose names happen to be
+      // congruent got bit-identical motes. A drift is one of the few things in this
+      // scene with no encoded channel at all, so the one thing it owes the picture
+      // is that no two lanes' matter looks like the same stencil.
+      radius:
+        MOTE_RADIUS.min +
+        (MOTE_RADIUS.span * ((i * 7 + salt) % 5)) / 4 +
         MOTE_RADIUS.work * clamp01(job.sizeFrac),
       ink: returningInk(job.family, journey, job.peak * envelope),
     })
@@ -150,3 +158,20 @@ export function dissolutionMotes(job: Dissolve, budget: number): Mote[] {
  * pixels — a sprite scaled *down* is resampled cleanly, one scaled up is a blur.
  */
 const MOTE_RADIUS = { min: 2, span: 1.4, work: 1.6 } as const
+
+/**
+ * A lane's seed as one small whole number — FNV-1a, the same hash `geometry.ts`
+ * keys its wander on.
+ *
+ * A hash rather than anything cheaper for the reason `variation.ts` writes down at
+ * length: adjacent lane names (`113-ribbons`, `114-contour`) must not produce
+ * adjacent — or, as the first version of this managed, *identical* — results.
+ */
+function saltOf(seed: string): number {
+  let hash = 2166136261
+  for (let i = 0; i < seed.length; i += 1) {
+    hash ^= seed.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0) % 997
+}
