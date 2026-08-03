@@ -54,12 +54,30 @@ commissioned).
    accent (status hues gain no new uses); glance-legibility (prd4's layman
    bar) is re-checked by the operator on the live scene AND a replay
    before this round closes.
+9. **Subagents are buds on their parent's thread** (operator ruling,
+   2026-08-04). A lane's live subagent renders as a side-branchlet budding
+   from THAT lane's thread — never from MAIN's structure — and the
+   conductor's subagents bud from MAIN's own anatomy. Spawn is one
+   event-class act; completion absorbs the bud back into its parent
+   (the same return grammar as ruling 2, in miniature). Data honesty:
+   liveness comes from thread-marked sessionlog telemetry
+   (`isSidechain` → `thread: subagent`), which exists for EVERY lane and
+   for the tailed conductor — trace spans (`agentId`, `subagentType`)
+   enrich the bud where the lane is instrumented, and buds are one level
+   deep until nested-agent traces are observed in the wild
+   (`parent_agent_id` remains uncaptured). A lane with no telemetry at
+   all grows no buds and loses nothing else — the existing gap-honesty
+   voice. This keeps prd2's "sub-rows are never a lane of their own":
+   a bud is anatomy of its parent, not a lane.
 
 ## Implementation
 
-One solo scene lane (opus — aesthetic judgment work), wide scene fence
-(`packages/web/src/scene/**` + the accent token in `theme/theme.css` +
-scene law tests), landing alone behind the full gate. The operator
-eyeballs live + replay before the round closes (GATE: the art call is
-his). The spike's verdicts bind technique choices; its accent candidates
-go to the operator with rendered swatches at review.
+One solo scene lane (opus — aesthetic judgment work), wide fence landing
+alone behind the full gate: `packages/web/src/scene/**`, the accent token
+in `theme/theme.css`, scene law tests, and the small core selector ruling
+9 needs (`selectors/subagents.ts` — per-lane live subagent presence from
+thread-marked telemetry recency, trace-enriched where available — plus its
+barrel lines; dispatched only after the active-time lane frees the
+barrels). The operator eyeballs live + replay before the round closes
+(GATE: the art call is his). The spike's verdicts bind technique choices;
+its accent candidates go to the operator with rendered swatches at review.
