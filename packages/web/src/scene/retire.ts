@@ -1,6 +1,6 @@
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import type { Fleet, Lane } from '../fleet/index.js'
-import { STRUCTURAL, allowance, type MotionMode } from './motion.js'
+import { DISSOLUTION, STRUCTURAL, allowance, type MotionMode } from './motion.js'
 import { DONE, ICE_400, ICE_600, clamp01, ink, mix, type Ink } from './palette.js'
 import { resolveLane, type LaneIndex } from './resolve.js'
 import { springStep } from './spring.js'
@@ -33,6 +33,18 @@ import { springStep } from './spring.js'
  * and dimmed and slackened at once would read as "something happened"; three
  * stages that each change one thing read as "let go — sprang back — went cold",
  * which is a sentence.
+ *
+ * prd10 ruling 2 adds a **fourth channel** and, unusually, one that outlives the
+ * other three: {@link RetireState.dissolve}, the cord composting into motes that
+ * carry its matter home (`motes.ts`). It begins as the cord parts and ends about a
+ * second after the cut has settled, and when it ends the cord's ribbon geometry is
+ * *gone* — "no stubs persist; the scene may forget the thread's geometry because
+ * the LEDGER remembers the thread". The sentence gains a clause: "let go — sprang
+ * back — went cold — and came home", which is the difference between a scene that
+ * amputates and one that returns (ruling 1). What stays at the rim is the lane's
+ * lens, its name and its figure — prd5's law 1 in its own words, and the reason
+ * completion is still never invisible — plus the permanent growth ring the arrival
+ * deposits in the heart (ruling 3).
  *
  * prd6 ruling 2 hangs two more things off the **retract**, and deliberately off
  * that stage rather than off a new one: the lane's substance travelling home down
@@ -87,6 +99,39 @@ export interface RetireState {
   drift: number
   /** 0–1 how far the remnant has gone cold. Stage 3's only output. */
   scar: number
+  /**
+   * 0–1 HOW FAR THE CORD HAS COMPOSTED (prd10 ruling 2) — the fourth channel,
+   * and the one stage that outlives the cut.
+   *
+   * It starts when the cord actually parts (the end of `tension`) and runs for
+   * {@link DISSOLUTION.spanMs}, which is longer than the whole three-stage cut. So
+   * `progress` reaching 1 means "the cord has let go, sprung back and gone cold"
+   * and *this* reaching 1 means "and its matter has finished coming home" — at
+   * which point the lane's ribbon geometry is gone, because there is nothing left
+   * of the cord to draw (`marks/thread.ts`). Two different instants, deliberately:
+   * every cord-cut law prd5 wrote is about the first one and is untouched.
+   *
+   * 1 from the first frame for a scar nobody watched leave — history, a replay,
+   * and a reduced-motion frame, exactly as {@link retract} is. A cord that never
+   * travelled never composted on this screen; what the operator sees is the end
+   * state, which is a heart with a ring in it and a rim with no stub on it.
+   */
+  dissolve: number
+  /**
+   * HOW LONG AGO THIS CUT BEGAN, in ms — or **null** for a scar nobody watched
+   * leave.
+   *
+   * One consumer, and it needs exactly this shape: the heart's growth rings are
+   * ordered oldest-landing innermost (prd10 ruling 3's tree-ring memoir), and
+   * "oldest" is a fact about *when* rather than about how far through. A lane the
+   * scene never saw retire is older than anything it did see, which is what null
+   * means here and why it sorts furthest in — history is the wood at the centre.
+   *
+   * Deliberately not an absolute instant: every other number in this record is
+   * relative, `cutAt` is pure in its elapsed time, and a state carrying an epoch
+   * would be a state that could not be tested on a number.
+   */
+  elapsedMs: number | null
 }
 
 /**
@@ -108,6 +153,12 @@ const SCAR_SETTLE_MS = 450
 /** The three stages, in ms, and what they add up to. */
 export const CUT = {
   tensionMs: TENSION_MS,
+  /**
+   * When the cord has finished composting, measured from the same instant every
+   * other number here is (prd10 ruling 2). The dissolve begins as the cord parts
+   * and outlives the cut by about a second — see {@link RetireState.dissolve}.
+   */
+  dissolvedMs: TENSION_MS + DISSOLUTION.spanMs,
   /**
    * The retract is not a number of its own. A lane disconnecting *is* the
    * structural motion class, and ruling 4 already priced that at 800 ms
@@ -174,6 +225,11 @@ const SETTLED: RetireState = {
   retract: 1,
   drift: 1,
   scar: 1,
+  dissolve: 1,
+  // Null: this is the state a lane rests in *and* the state history arrives in.
+  // `cutAt` stamps the elapsed time back on whenever the cut is one we watched, so
+  // a null here means exactly "nobody saw this happen" (see `elapsedMs`).
+  elapsedMs: null,
 }
 
 /** The same, without the drift — reduced motion's swap in place. */
@@ -206,9 +262,15 @@ export function cutAt(elapsedMs: number, travel = true): RetireState {
   if (!travel) return SETTLED_IN_PLACE
 
   const elapsed = Math.max(0, elapsedMs)
-  if (elapsed >= CUT.totalMs) return SETTLED
+  // Past *both* clocks: the cut has settled and the cord has finished composting.
+  // The order matters — `SETTLED` is what every "already retired" reading in the
+  // instrument means, so it has to be the state a lane rests in for ever, and the
+  // dissolve is the reason that instant is now later than `CUT.totalMs`.
+  if (elapsed >= CUT.dissolvedMs) return { ...SETTLED, elapsedMs: elapsed }
 
-  const progress = elapsed / CUT.totalMs
+  const progress = clamp01(elapsed / CUT.totalMs)
+  // The composting starts as the cord parts and runs on its own span (ruling 2).
+  const dissolve = clamp01((elapsed - CUT.tensionMs) / DISSOLUTION.spanMs)
 
   if (elapsed < CUT.tensionMs) {
     return {
@@ -218,17 +280,53 @@ export function cutAt(elapsedMs: number, travel = true): RetireState {
       retract: 0,
       drift: 0,
       scar: 0,
+      dissolve,
+      elapsedMs: elapsed,
     }
   }
 
   const afterTension = elapsed - CUT.tensionMs
   if (afterTension < CUT.retractMs) {
     const retract = retractAt(afterTension)
-    return { stage: 'retract', progress, tension: 1, retract, drift: retract, scar: 0 }
+    return {
+      stage: 'retract',
+      progress,
+      tension: 1,
+      retract,
+      drift: retract,
+      scar: 0,
+      dissolve,
+      elapsedMs: elapsed,
+    }
   }
 
-  const scar = easeOut((afterTension - CUT.retractMs) / CUT.settleMs)
-  return { stage: 'settle', progress, tension: 1, retract: 1, drift: 1, scar }
+  if (afterTension < CUT.retractMs + CUT.settleMs) {
+    const scar = easeOut((afterTension - CUT.retractMs) / CUT.settleMs)
+    return {
+      stage: 'settle',
+      progress,
+      tension: 1,
+      retract: 1,
+      drift: 1,
+      scar,
+      dissolve,
+      elapsedMs: elapsed,
+    }
+  }
+
+  // The cut is over and the cord is still coming apart. `scar` is the resting
+  // state's own name, so this *is* a settled scar — it simply still has matter in
+  // the air above it, which is the one thing that has not finished.
+  return {
+    stage: 'scar',
+    progress: 1,
+    tension: 1,
+    retract: 1,
+    drift: 1,
+    scar: 1,
+    dissolve,
+    elapsedMs: elapsed,
+  }
 }
 
 /**

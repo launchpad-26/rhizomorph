@@ -1,19 +1,23 @@
 import { IDENTITY, type Camera } from './camera.js'
 import type { Point } from './geometry.js'
-import { cssColour } from './palette.js'
+import { cssColour, type Rgb } from './palette.js'
 import {
   BACKDROP,
   isLinear,
   type ArcMark,
+  type BakedMark,
   type ChipMark,
   type ContourMark,
   type GlowMark,
+  type GrainMark,
   type Mark,
+  type MotesMark,
   type PathMark,
   type Paint,
   type RibbonMark,
   type StrokeMark,
   type TextMark,
+  type WashMark,
 } from './marks/index.js'
 
 /**
@@ -50,6 +54,92 @@ export interface PaintOptions {
 
 /** Cached by path data: the same glyph is drawn on every frame, at every node. */
 const glyphCache = new Map<string, Path2D>()
+
+/**
+ * THE FOUR CACHES prd10 ruling 6 and the spike's verdict ask for, and the one
+ * property they share: **nothing in this file allocates a raster or a gradient on
+ * a frame that could have reused one.**
+ *
+ * That is not a general optimisation instinct, it is where the whole gorgeous
+ * round's frame budget went. Four things were about to be built per frame — a
+ * radial gradient per mote (240 of them), the heart's ring geometry (breathing, so
+ * ostensibly new every frame), a panel-sized fog and vignette, and a grain tile —
+ * and every one of them is instead built once and keyed on the thing that actually
+ * changes: a colour, a landing, a resize.
+ *
+ * Each cache is bounded and each bound is a leak-stop rather than a policy: a
+ * session sees a few dozen ring rosters and a few dozen mote colours, so `clear()`
+ * at the ceiling is both correct and never reached in practice.
+ */
+const CACHE_MAX = 128
+
+/** `bake` + index → the unit-space path. See {@link BakedMark}. */
+const bakedCache = new Map<string, Path2D>()
+/** A pre-rendered mote: one soft falloff, in one quantised colour. */
+const spriteCache = new Map<number, CanvasImageSource | null>()
+/** A wash's gradient, keyed on everything that could change it. */
+const washCache = new Map<string, CanvasGradient>()
+/** The grain tile, and the pattern made from it. */
+const grainCache = new Map<string, CanvasPattern | null>()
+
+/** How big a mote sprite is rasterised. The spike's number; see {@link motes}. */
+const SPRITE_PX = 32
+
+/**
+ * How coarsely a mote's colour is quantised before it becomes a sprite key.
+ *
+ * Five bits per channel. The alternative — one sprite per exact colour — would
+ * rasterise a new 32 px tile for every step of ruling 12's cooling gradient on
+ * every lane, which is the per-frame allocation the sprite exists to remove,
+ * arrived at from the other direction. Five bits is a step of 8/255 in a soft
+ * falloff at low alpha: below anything anyone can see, and it collapses a whole
+ * dissolve to a handful of tiles.
+ */
+function spriteKey(rgb: Rgb): number {
+  return ((rgb[0] >> 3) << 10) | ((rgb[1] >> 3) << 5) | (rgb[2] >> 3)
+}
+
+/** A scratch canvas, or null where there is no DOM (jsdom, a worker, a test). */
+function scratch(size: number): CanvasRenderingContext2D | null {
+  if (typeof document === 'undefined') return null
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  return canvas.getContext('2d')
+}
+
+/**
+ * One mote, rasterised once — the spike's verdict against `paint.ts:214`.
+ *
+ * The falloff is `1 - r` squared rather than a linear ramp, because a linear
+ * radial gradient has a visible edge where it reaches zero and a squared one does
+ * not; at 240 overlapping stamps under `lighter` that edge is the difference
+ * between a drift of light and a field of discs. Null (and therefore skipped)
+ * wherever no canvas can be made, which is what keeps `paint` runnable under test.
+ */
+function spriteFor(rgb: Rgb): CanvasImageSource | null {
+  const key = spriteKey(rgb)
+  const known = spriteCache.get(key)
+  if (known !== undefined) return known
+
+  const ctx = scratch(SPRITE_PX)
+  let sprite: CanvasImageSource | null = null
+  if (ctx !== null) {
+    const half = SPRITE_PX / 2
+    const gradient = ctx.createRadialGradient(half, half, 0, half, half, half)
+    for (let i = 0; i <= 8; i += 1) {
+      const t = i / 8
+      gradient.addColorStop(t, cssColour({ rgb, alpha: (1 - t) ** 2 }))
+    }
+    ctx.fillStyle = gradient
+    ctx.fillRect(0, 0, SPRITE_PX, SPRITE_PX)
+    sprite = ctx.canvas
+  }
+
+  if (spriteCache.size >= CACHE_MAX) spriteCache.clear()
+  spriteCache.set(key, sprite)
+  return sprite
+}
 
 /**
  * Two passes, and the difference between them is the camera.
@@ -99,13 +189,28 @@ export function paint({
   ctx.restore()
 }
 
-/** What the camera does not move: the scene's own voice, in the gutter. */
+/**
+ * What the camera does not move: the scene's own voice in the gutter, and the
+ * panel's own depth (prd10 ruling 6).
+ *
+ * The fog, the vignette and the grain join the gap voice here for the same reason
+ * it is here: they are facts about the *picture plane* rather than about the world
+ * — light falls off toward the edges of a frame, and film grain sits on the print
+ * — so panning must not slide them across the scene and zooming must not magnify
+ * a grain tile into porridge. They are drawn in the chrome pass, in list order,
+ * before the gap voice, so a caveat is never dimmed by the fog laid over the
+ * picture it is a caveat about.
+ */
 function isChrome(mark: Mark): boolean {
-  return mark.role === 'gap'
+  return mark.role === 'gap' || mark.kind === 'wash' || mark.kind === 'grain'
 }
 
 function blend(ctx: CanvasRenderingContext2D, mark: Mark): void {
-  ctx.globalCompositeOperation = mark.kind === 'glow' ? 'lighter' : 'source-over'
+  // Light adds, ink covers — and a drift of motes is light, which is the whole of
+  // why it is one mark: the block is opened once for the drift rather than once
+  // per mote (`perf.test.ts` counts the difference).
+  const lit = mark.kind === 'glow' || mark.kind === 'motes'
+  ctx.globalCompositeOperation = lit ? 'lighter' : 'source-over'
   draw(ctx, mark)
 }
 
@@ -117,6 +222,14 @@ function draw(ctx: CanvasRenderingContext2D, mark: Mark): void {
       return contour(ctx, mark)
     case 'glow':
       return glow(ctx, mark)
+    case 'motes':
+      return motes(ctx, mark)
+    case 'baked':
+      return baked(ctx, mark)
+    case 'wash':
+      return wash(ctx, mark)
+    case 'grain':
+      return grain(ctx, mark)
     case 'stroke':
       return stroke(ctx, mark)
     case 'arc':
@@ -221,6 +334,171 @@ function glow(ctx: CanvasRenderingContext2D, mark: GlowMark): void {
   ctx.beginPath()
   ctx.arc(x, y, mark.radius, 0, Math.PI * 2)
   ctx.fill()
+}
+
+/**
+ * A DRIFT OF MOTES — one sprite, stamped (prd10 ruling 10, the spike's verdict).
+ *
+ * The `glow` above is what this is not, and the difference is the whole of the
+ * spike's finding about `paint.ts:214`: that function builds a `CanvasGradient`
+ * every time it runs, which is correct for the handful of glows a frame has and
+ * ruinous for two hundred and forty. Here the falloff was rasterised once per
+ * quantised colour ({@link spriteFor}) and a mote costs one `drawImage`.
+ *
+ * `globalAlpha` carries the mote's own luminance rather than a per-mote sprite,
+ * which is what makes ruling 10's "luminance-only fades" free: dimming is a
+ * multiply the compositor was going to do anyway, where a fading *sprite* would be
+ * a new raster per step. The size is the mote's own diameter, always **down** from
+ * the 32 px tile — a sprite scaled up is a blur, and every mote in this scene is
+ * under 6 px (`motes.ts`'s `MOTE_RADIUS`).
+ */
+function motes(ctx: CanvasRenderingContext2D, mark: MotesMark): void {
+  const before = ctx.globalAlpha
+  for (const mote of mark.items) {
+    if (mote.radius <= 0.1 || mote.ink.alpha <= 0.002) continue
+    const sprite = spriteFor(mote.ink.rgb)
+    if (sprite === null) continue
+    const size = mote.radius * 2
+    ctx.globalAlpha = mote.ink.alpha
+    ctx.drawImage(sprite, mote.at.x - mote.radius, mote.at.y - mote.radius, size, size)
+  }
+  ctx.globalAlpha = before
+}
+
+/**
+ * BAKED GEOMETRY, PLACED (prd10 ruling 3) — the heart's rings and its hyphal fan.
+ *
+ * Two things are happening, and the second is why this exists at all. The
+ * `Path2D` is built once per {@link BakedMark.bake} and kept, exactly as a glyph
+ * is; and the *placement* is a `translate`/`scale` rather than new coordinates, so
+ * a mass that is breathing and growing all session redraws the same cached path at
+ * a different size instead of rebuilding it sixty times a second.
+ *
+ * The line width is divided back out of the scale for the reason the glyph painter
+ * already documents: the transform is in unit space, so a width in pixels would
+ * otherwise be multiplied by the mass's radius and a hairline ring would come out
+ * a hundred pixels thick.
+ */
+function baked(ctx: CanvasRenderingContext2D, mark: BakedMark): void {
+  if (mark.paths.length === 0 || mark.scale <= 0) return
+
+  const scaleY = mark.scaleY ?? mark.scale
+  ctx.save()
+  ctx.translate(mark.at.x, mark.at.y)
+  ctx.scale(mark.scale, scaleY)
+
+  mark.paths.forEach((points, i) => {
+    if (points.length < 2) return
+    const key = `${mark.bake}#${i}`
+    let path = bakedCache.get(key)
+    if (path === undefined) {
+      path = new Path2D()
+      points.forEach((point, at) => {
+        if (at === 0) path?.moveTo(point.x, point.y)
+        else path?.lineTo(point.x, point.y)
+      })
+      if (mark.closed) path.closePath()
+      if (bakedCache.size >= CACHE_MAX * 8) bakedCache.clear()
+      bakedCache.set(key, path)
+    }
+
+    if (mark.width <= 0) {
+      ctx.fillStyle = cssColour(mark.ink)
+      ctx.fill(path)
+      return
+    }
+    // The mean of the two scales, so an anisotropic placement still strokes at
+    // about the width that was asked for rather than at the wider axis's.
+    ctx.lineWidth = (mark.width * 2) / (mark.scale + scaleY)
+    ctx.strokeStyle = cssColour(mark.ink)
+    ctx.stroke(path)
+  })
+
+  ctx.restore()
+}
+
+/**
+ * A RADIAL WASH over the panel — the depth fog and the vignette (prd10 ruling 6).
+ *
+ * The gradient is cached on everything that could change it, which in practice
+ * means it is built **once per resize** and then reused for the life of the panel.
+ * That is the ruling's own instruction, and it is the difference between depth
+ * being free and depth costing a panel-sized gradient allocation sixty times a
+ * second — the same mistake at panel scale that the mote sprite fixes at mote
+ * scale.
+ */
+function wash(ctx: CanvasRenderingContext2D, mark: WashMark): void {
+  if (mark.width <= 0 || mark.height <= 0) return
+  const key = `${mark.role}:${mark.width}x${mark.height}:${mark.from},${mark.to}:${cssColour(mark.inner)}>${cssColour(mark.outer)}`
+
+  let gradient = washCache.get(key)
+  if (gradient === undefined) {
+    const cx = mark.width / 2
+    const cy = mark.height / 2
+    const half = Math.hypot(cx, cy)
+    gradient = ctx.createRadialGradient(cx, cy, half * mark.from, cx, cy, half * mark.to)
+    gradient.addColorStop(0, cssColour(mark.inner))
+    gradient.addColorStop(1, cssColour(mark.outer))
+    if (washCache.size >= CACHE_MAX) washCache.clear()
+    washCache.set(key, gradient)
+  }
+
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, mark.width, mark.height)
+}
+
+/**
+ * GRAIN — one rasterised tile, repeated (prd10 ruling 6).
+ *
+ * The tile is a fixed noise field built once and cached; the mark's `tick` (which
+ * advances at most twelve times a second) offsets the pattern, so the grain
+ * *crawls* rather than boiling. Both halves are deliberate: a per-frame grain is
+ * the one texture in this instrument that would genuinely read as movement, and
+ * WCAG's whole point about ambient motion is that a viewer must be able to ignore
+ * it. Twelve steps a second of a 1–2% wash is texture; sixty is a screen door.
+ *
+ * The tile is deterministic — a fixed hash walk, not `Math.random` — so two panels
+ * in one session, or a replay on another machine, carry the same grain.
+ */
+function grain(ctx: CanvasRenderingContext2D, mark: GrainMark): void {
+  if (mark.width <= 0 || mark.height <= 0 || mark.ink.alpha <= 0.002) return
+  const key = `${mark.tile}:${cssColour({ rgb: mark.ink.rgb, alpha: 1 })}`
+
+  let pattern = grainCache.get(key)
+  if (pattern === undefined) {
+    pattern = null
+    const tile = scratch(mark.tile)
+    if (tile !== null) {
+      const image = tile.createImageData(mark.tile, mark.tile)
+      const [r, g, b] = mark.ink.rgb
+      let hash = 0x9e3779b9
+      for (let i = 0; i < image.data.length; i += 4) {
+        // xorshift over the pixel index: deterministic, and flat enough that no
+        // structure appears when the tile repeats across a 900 px panel.
+        hash ^= hash << 13
+        hash ^= hash >>> 17
+        hash ^= hash << 5
+        hash |= 0
+        image.data[i] = r
+        image.data[i + 1] = g
+        image.data[i + 2] = b
+        image.data[i + 3] = (hash >>> 24) & 0xff
+      }
+      tile.putImageData(image, 0, 0)
+      pattern = ctx.createPattern(tile.canvas, 'repeat')
+    }
+    if (grainCache.size >= CACHE_MAX) grainCache.clear()
+    grainCache.set(key, pattern)
+  }
+
+  if (pattern === null) return
+  const shift = mark.tick % mark.tile
+  ctx.save()
+  ctx.globalAlpha = mark.ink.alpha
+  ctx.translate(-shift, -((mark.tick * 7) % mark.tile))
+  ctx.fillStyle = pattern
+  ctx.fillRect(0, 0, mark.width + mark.tile, mark.height + mark.tile)
+  ctx.restore()
 }
 
 function stroke(ctx: CanvasRenderingContext2D, mark: StrokeMark): void {

@@ -63,6 +63,44 @@ export const CALM_CEILING = 0.78
 export const ALARM_FLOOR = 0.84
 
 /**
+ * THE 9b AMENDMENT'S CEILING (prd10 ruling 4) — the one door in the band, and
+ * how narrow it is.
+ *
+ * Ruling 4 grants a **working lane's tip, and only while it is working**, a small
+ * steady glow above {@link CALM_CEILING}. That is a real amendment to law 9b and
+ * worth being precise about, because the band *is* the salience mechanism since
+ * prd4 dropped hue exclusivity: anything allowed past the ceiling is spending
+ * attention the alarms were promised.
+ *
+ * So the amendment ships with four bounds, and every one of them is enforced
+ * somewhere a test can read rather than trusted to a mark builder:
+ *
+ * 1. **It stays below {@link ALARM_FLOOR}.** This constant, and it is closer to
+ *    the calm ceiling than to the alarm floor on purpose — the tip is a little
+ *    brighter than the fleet, not nearly as bright as a summons.
+ * 2. **It is a small radius.** {@link TIP_GLOW_RADIUS} — a few pixels at the very
+ *    end of one thread. An alarm's own halo is twenty, and there is one summons
+ *    against thirty tips.
+ * 3. **It wears none of the alarm grammar's other instruments.** No cartouche
+ *    (`rank-enclosure` is still alarm-only), and — the important one — **no fade
+ *    exemption**: it passes through {@link emphasisOf} like every other calm
+ *    mark, so the instant something needs a human every tip in the fleet recedes
+ *    to {@link RECEDE} and the summons is alone above the band. That is what
+ *    makes "an alarm anywhere on screen must still dominate at a glance" true by
+ *    arithmetic rather than by taste.
+ * 4. **Only a working tip.** Not a waiting one, not a landed one, not a scar —
+ *    `marks/node.ts` is the only caller and `marks.test.ts` walks the fixture to
+ *    prove no other lane has one.
+ *
+ * The amended law is therefore *stricter* than the one it replaces in three
+ * places (a stated ceiling, a stated radius, a stated eligibility) and laxer in
+ * exactly one number, which is the trade the ruling makes.
+ */
+export const TIP_CEILING = 0.81
+/** …and the radius, in px. Small enough that the band it enters is a hairline's worth. */
+export const TIP_GLOW_RADIUS = 6.5
+
+/**
  * The floor under a living lane's thread on a calm fleet — the "too dark to
  * read" regression, pinned so it cannot come back. Nothing enforces this in
  * code; it is a claim about `activityInk`'s alpha ramp that `marks.test.ts`
@@ -123,8 +161,15 @@ export function salienceOf({ fleet, hoverId, selectedId }: SalienceInputs): Sali
  * How much of its brightness a mark keeps. Alarm marks keep all of it, always
  * (graft g2); a hovered or spotlit lane keeps all of it; everything else recedes
  * once there is something worth receding for.
+ *
+ * Exported for the one caller that cannot use {@link spend}: a drift of two
+ * hundred motes whose colours are a *gradient* (ruling 12), where spending the
+ * budget per mote would be two hundred cap calculations for a set of inks that is
+ * already built under the ceiling by construction. The recession still applies —
+ * it is applied once, to the drift's peak — which is what keeps a composting cord
+ * out of a summons's way like everything else calm.
  */
-function emphasisOf(
+export function emphasisOf(
   salience: Salience,
   laneId: string | null,
   alarm: boolean,
@@ -158,6 +203,21 @@ export function spend(
   if (alarm) return source
   const faded = fade(source, emphasisOf(salience, laneId, alarm))
   return capLuminance(faded, CALM_CEILING)
+}
+
+/**
+ * The budget as a **working tip** spends it (prd10 ruling 4's amendment).
+ *
+ * The same two steps `spend` takes — recede, then cap — with one number changed
+ * and nothing else. Written as its own function rather than as a flag on `spend`
+ * so that the amendment has exactly one door and `marks.test.ts` can name every
+ * caller of it: a tip glow is the only mark in the instrument that reaches this,
+ * and a future hand that wanted a second one would have to write it down here.
+ */
+export function spendTip(source: Ink, salience: Salience, laneId: string | null): Ink {
+  // Not exempt from the fade, and that is the load-bearing half: a summons
+  // arrives and every tip in the fleet gets out of its way.
+  return capLuminance(fade(source, emphasisOf(salience, laneId, false)), TIP_CEILING)
 }
 
 /** Scales alpha down — never up — until the ink is no brighter than `ceiling`. */

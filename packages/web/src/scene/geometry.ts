@@ -1,3 +1,4 @@
+import { DEFAULT_SUBAGENT_RECENCY_MS } from '@rhizomorph/core'
 import type { Fleet, Lane, PathologyKind } from '../fleet/index.js'
 import { clamp01 } from './palette.js'
 import type { RetireState } from './retire.js'
@@ -91,6 +92,80 @@ export interface FilamentGeometry {
 }
 
 /**
+ * A SUBAGENT BUD (prd10 ruling 9) — a side-branchlet off the parent's own thread.
+ *
+ * Null for a lane with no live subagent reading, which is the *majority* case and
+ * carries no apology: `lane.subagents` is `null` whenever no `thread: 'subagent'`
+ * telemetry has reached that lane inside core's own recency window, and "no bud"
+ * is then the honest picture rather than a gap the scene has to talk about (the
+ * ruling's own words: a lane with no telemetry grows no buds and loses nothing
+ * else).
+ *
+ * The one number worth reading twice is {@link vitality}. The vital the chips lane
+ * landed reports the *newest* thread-marked reading, not a start and an end — so
+ * "the bud is live" is a claim with an expiry rather than a state with an off
+ * switch, and this file draws exactly that: the branchlet is full while the
+ * evidence is fresh and **retracts into its parent over the last
+ * {@link BUD_ABSORB_MS} of the window**, so it is gone at the instant the reading
+ * would have expired. That is ruling 2's return grammar in miniature (ruling 9's
+ * own instruction), and it is stateless — no registry, no remembered spawn, and
+ * therefore identical in a live scene and in a replay.
+ */
+export interface BudGeometry {
+  /** Where it branches off the parent thread. 0 = root-mass, 1 = node. */
+  at: number
+  /** Junction → tip. Shortens as the bud is absorbed. */
+  path: Point[]
+  width: number
+  /** The tip, kept because both the flare and the absorption are drawn there. */
+  tip: Point
+  /** 0–1: 1 while the reading is fresh, 0 once it has expired. */
+  vitality: number
+  /** 0–1 through the absorption. 0 while the bud is simply live. */
+  absorb: number
+  /** ms since the newest thread-marked reading — what the spawn flare rides. */
+  sinceMs: number
+  /**
+   * `subagentType` from a matching trace span, or null. Enrichment only: a lane
+   * can be live with no trace, never the other way round (`selectSubagentActivity`).
+   */
+  kind: string | null
+}
+
+/**
+ * How long the absorption takes, in ms — and it is deliberately the same span the
+ * composting decay runs over (`DISSOLUTION.spanMs`), because it is the same act at
+ * a smaller scale.
+ *
+ * Restated here rather than imported: `motion.ts` imports this file for
+ * {@link RECENCY_SPAN_MS}, so reaching the other way would close a module cycle
+ * and leave a `const` undefined at evaluation time — the same trap the landed-work
+ * sum below already documents. `geometry.test.ts` pins the two numbers equal so
+ * the copy cannot drift.
+ */
+export const BUD_ABSORB_MS = 2_400
+
+/** How far along the parent a bud branches off, and how far it reaches. */
+const BUD_AT = 0.46
+const BUD_LENGTH_PX = { min: 13, span: 15 } as const
+
+/**
+ * HOW ALIVE A BUD IS, given how stale its newest reading has got (prd10 ruling 9).
+ *
+ * The one piece of arithmetic that turns core's *expiring claim* into the scene's
+ * *retracting branchlet*, and it is exported because two things read it: a worker's
+ * bud (below) and the conductor's, which grows off the mass rather than off a
+ * thread and therefore cannot come through this file's per-lane layout at all
+ * (`marks/root.ts`). One function, so the two can never disagree about when a
+ * subagent has finished.
+ */
+export function budLife(sinceMs: number): { vitality: number; absorb: number } {
+  const expiring = Math.max(0, DEFAULT_SUBAGENT_RECENCY_MS - BUD_ABSORB_MS)
+  const absorb = clamp01((Math.max(0, sinceMs) - expiring) / BUD_ABSORB_MS)
+  return { vitality: 1 - absorb, absorb }
+}
+
+/**
  * THE CUT, as shape (prd5 ruling 3). Null for every lane still in the network.
  *
  * The retirement's *timing* is `retire.ts`'s; this is what those numbers do to
@@ -176,6 +251,12 @@ export interface ThreadGeometry {
   /** 0–1 grow-in progress. 1 for every lane that was already there (graft g3). */
   growth: number
   filaments: FilamentGeometry[]
+  /**
+   * This lane's live subagent branchlet (prd10 ruling 9), or null. One level deep,
+   * and one bud: `parent_agent_id` is uncaptured and the vital reports one row per
+   * lane, so a second level would be a number nothing measured.
+   */
+  bud: BudGeometry | null
   knot: Knot | null
   rogue: Rogue | null
   label: { anchor: Point; align: 'left' | 'right' | 'centre' }
@@ -842,6 +923,8 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
       germinatedFrom: seed ?? null,
       growth,
       filaments: layoutFilaments(lane, path, widthTip, perp),
+      // A retiring lane grows no bud: whatever it had handed out, it has finished.
+      bud: cut === null ? layoutBud(lane, path, perp, now, variation.phase) : null,
       knot: pathology === 'looping' ? knotAt(path, 0.78, 8 + 5 * sizeFrac) : null,
       rogue: null, // needs every node placed first; filled in below
       label: {
@@ -1066,6 +1149,68 @@ function layoutFilaments(
       thread: filament.thread ?? 'unknown',
     }
   })
+}
+
+// ── subagent buds ───────────────────────────────────────────────────────────
+
+/**
+ * THIS LANE'S BUD, or null (prd10 ruling 9).
+ *
+ * Everything about liveness is **read**, never re-derived: `lane.subagents` is the
+ * vital the chips lane landed off `selectSubagentActivity`, whose whole discipline
+ * is that liveness comes from thread-marked sessionlog telemetry and a trace span
+ * may only ever *enrich* it. This file measures one thing the vital cannot — how
+ * stale the reading has got by the frame's own clock — and turns that into a
+ * length, which is what makes the bud absorb rather than blink out.
+ *
+ * The branchlet leaves the parent at {@link BUD_AT}, well inside the filaments'
+ * band (0.58 and out) so a bud and a lane's second growth never sit on top of each
+ * other, and on the side the lane's free phase says — the same channel the tails
+ * and seals lean on, because which way a bud points carries nothing.
+ */
+function layoutBud(
+  lane: Lane,
+  path: readonly Point[],
+  perp: Point,
+  now: number,
+  phase: number,
+): BudGeometry | null {
+  const vital = lane.subagents
+  if (vital === null) return null
+
+  const sinceMs = Math.max(0, now - vital.lastActivityTs)
+  // The window is core's, not ours (`DEFAULT_SUBAGENT_RECENCY_MS`): the vital and
+  // the picture have to agree about what "live" means, and one of them owns it.
+  const { vitality, absorb } = budLife(sinceMs)
+  // Absorbed and gone. The vital will drop to null on the next fleet rebuild; the
+  // picture does not wait for it, because it can already see the reading expire.
+  if (vitality <= 0) return null
+
+  const origin = pointAt(path, BUD_AT)
+  const along = tangentAt(path, BUD_AT)
+  const side = phase < 0.5 ? -1 : 1
+  const reach = (BUD_LENGTH_PX.min + BUD_LENGTH_PX.span * phase) * vitality
+
+  const tip: Point = {
+    x: origin.x + along.x * reach * 0.42 + perp.x * side * reach * 0.86,
+    y: origin.y + along.y * reach * 0.42 + perp.y * side * reach * 0.86,
+  }
+  const control: Point = {
+    x: origin.x + along.x * reach * 0.58 + perp.x * side * reach * 0.24,
+    y: origin.y + along.y * reach * 0.58 + perp.y * side * reach * 0.24,
+  }
+
+  return {
+    at: BUD_AT,
+    path: sampleQuad(origin, control, tip, 10),
+    // Finer than the parent's tip: a bud is anatomy of its thread, not a thread.
+    width: 0.8,
+    tip,
+    vitality,
+    absorb,
+    sinceMs,
+    kind: vital.subagentType,
+  }
 }
 
 // ── the cut, as shape ───────────────────────────────────────────────────────

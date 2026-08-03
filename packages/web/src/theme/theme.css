@@ -110,6 +110,31 @@
    * its own. */
   --color-necrotic: #4a5266;
 
+  /* ── living tissue: the one accent (prd10 rulings 5 and 11) ─────────────
+   * A five-step cold-violet ramp, and it is NOT a status hue. Ruling 29 used
+   * to forbid the instrument any colour outside the six above; prd10 amends it
+   * for exactly one purpose — ORGANIC TISSUE in the scene: the heart's depths,
+   * the thread underglow, the spore motes, and the cooling gradient a severed
+   * lane's matter travels home along (ruling 12).
+   *
+   * The hue was chosen for distance rather than for taste, and the numbers are
+   * the ruling's own: OKLCH H 295.5 at low chroma, measured 41° clear of ice,
+   * 87° from notice-cyan and 78° from broken-red. So no reader can mistake
+   * tissue for a state, and no state can pass itself off as tissue.
+   *
+   * **It is never text, and it is never chrome.** Every step here sits below
+   * the prd9 legibility floor by design, which is not a compromise: tissue is
+   * not ink, so the legibility law is untouched rather than bent. `--color-
+   * tissue-*` appearing anywhere outside `scene/`'s tissue draws is a law
+   * violation with a test of its own (`marks.test.ts`, the accent's law), and
+   * that test scans this repo's own source rather than trusting the rule.
+   */
+  --color-tissue-900: #1e1833; /* the heart's deepest wash — nearly the void */
+  --color-tissue-700: #322752; /* interior depth, one step up */
+  --color-tissue-500: #4b3a7a; /* the middle of the cooling gradient */
+  --color-tissue-400: #6b4fa8; /* THE ACCENT (ruling 11): cold violet, H 295.5 */
+  --color-tissue-200: #8f6fd6; /* the light end — a mote at its brightest */
+
   /* ── type (law 11) ──────────────────────────────────────────────────────
    * Sans for labels and copy. Mono WITH TABULAR NUMERALS for all data:
    * numbers, branches, shas, ids, timestamps, durations. The rule is

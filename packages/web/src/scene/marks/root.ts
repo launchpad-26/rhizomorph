@@ -1,11 +1,17 @@
 import { contourLayers, type Falloff } from '../contour.js'
+import { budLife, type BudGeometry, type Point, type ThreadGeometry } from '../geometry.js'
+import { heartAnatomy, type HeartRing } from '../heart.js'
+import { DISSOLUTION, STRUCTURAL } from '../motion.js'
 import {
+  ACTIVITY_HUE,
   ICE_050,
   ICE_100,
   ICE_200,
   ICE_300,
   ICE_400,
   ICE_500,
+  TISSUE_400,
+  TISSUE_700,
   clamp01,
   hotter,
   ink,
@@ -13,8 +19,10 @@ import {
   type Ink,
   type Rgb,
 } from '../palette.js'
+import { variationFor, variationSeed } from '../variation.js'
 import { budget, type SceneFrame } from './frame.js'
-import type { Mark } from './types.js'
+import { flareAt } from './thread.js'
+import { ribbonMark, type Mark } from './types.js'
 
 /**
  * MAIN — the root-mass everything grows out of and lands back into.
@@ -285,6 +293,9 @@ const DEPTH = {
   rindGain: 3.2,
 } as const
 
+/** How far the deepest shell is washed toward the accent (prd10 ruling 3). */
+const DEPTH_TISSUE = 0.32
+
 interface Depth {
   at: number
   rgb: Rgb
@@ -338,7 +349,13 @@ function depthsFor(fullness: number): readonly Depth[] {
       // back, because the colour step per level is largest exactly where the
       // levels are furthest apart. 1.35 is the most lift the ramp will give
       // before a step becomes an edge.
-      rgb: mix(ICE_500, ICE_100, Math.pow(t, 1.35)),
+      // …and washed toward the tissue ramp's dark steps as it goes (prd10 ruling
+      // 3). Only the deep half, and only a third of the way: what the accent is
+      // doing here is giving the material an *undertone*, so the mass reads as
+      // something with living depth rather than as thickening ice. Squared, so the
+      // skin is untouched — the rind is where the picture's edge is, and an edge
+      // that had picked up a hue would be a second thing to explain.
+      rgb: mix(mix(ICE_500, ICE_100, Math.pow(t, 1.35)), TISSUE_700, DEPTH_TISSUE * t * t),
       // Thinner per level as the stack deepens, so a mass that gained eight
       // shells gained *structure* and not opacity: the accumulation through the
       // middle stays where #117 tuned it, and the material simply has more
@@ -568,6 +585,12 @@ export function rootMarks(frame: SceneFrame): Mark[] {
     ],
   })
 
+  // THE ANATOMY INSIDE THE BODY (prd10 ruling 3) — the growth rings and the
+  // hyphal fan, over the surface and *under* the core, so the light at the bottom
+  // of the mass suffuses them rather than being crossed by them.
+  marks.push(...heartMarks(frame, radius, intensity))
+  marks.push(...conductorBudMarks(frame, radius))
+
   // The core: the point every packet is running to. It carries the conductor's
   // burn too, through `intensity` — the mass at the centre of the picture is lit
   // by the orchestrator, so an un-instrumented one has to read as dim all the
@@ -612,4 +635,235 @@ export function rootMarks(frame: SceneFrame): Mark[] {
   })
 
   return marks
+}
+
+// ── the mycorrhizal anatomy (prd10 ruling 3) ────────────────────────────────
+
+/**
+ * At what point in a lane's dissolve its ring has *arrived* — the instant the
+ * retract ends, expressed on the dissolve's own clock.
+ *
+ * "Arrival deposits the lane's growth ring", so the ring cannot be there before the
+ * matter is: it fades in over what is left of the composting, which is the same
+ * stretch the last motes are landing in. Derived from the two budgets rather than
+ * typed, so it stays true if either span is ever retuned.
+ */
+const RING_ARRIVES = STRUCTURAL.durationMs / DISSOLUTION.spanMs
+
+/**
+ * THE HEART'S RINGS AND ITS FAN.
+ *
+ * Every ring is a real landing (ruling 3's data-honesty clause) and the roster is
+ * read straight off the cuts the registry is running: nothing here can deposit a
+ * ring for a lane that has not sent its substance home, and nothing can *remove*
+ * one, because a landing is not a thing that un-happens.
+ *
+ * Ordered **oldest landing innermost**, which is what makes it a memoir rather than
+ * a set of circles: `elapsedMs` is how long ago each cut began, and a scar the scene
+ * never watched leave (history, a replay) has none — so it is older than anything we
+ * saw, and sits furthest in. A session's replay therefore grows its rings outward in
+ * the order the night actually happened.
+ *
+ * The geometry is baked (`heart.ts`) and the *ink* is per frame, which is the whole
+ * of why this is affordable: a ring's contour is 72 noise samples and is built once
+ * when its lane lands, while its brightness — which breathes, recedes with the
+ * budget and fades in on arrival — costs nothing.
+ */
+function heartMarks(frame: SceneFrame, radius: number, intensity: number): Mark[] {
+  const landed = landings(frame)
+  const anatomy = heartAnatomy(
+    landed.map((entry) => ({
+      laneId: entry.thread.laneId,
+      seed: variationSeed(entry.thread.lane),
+      sizeFrac: entry.thread.sizeFrac,
+    })),
+    frame.fleet.root.mainBranch ?? 'main',
+  )
+
+  const marks: Mark[] = [
+    {
+      kind: 'baked',
+      role: 'hyphal-fan',
+      laneId: null,
+      alarm: false,
+      bake: `${anatomy.bake}:fan`,
+      at: frame.geometry.centre,
+      scale: radius,
+      paths: anatomy.fan,
+      closed: false,
+      // Tissue, faint, and lit by the conductor's own burn like everything else in
+      // the mass — so an un-instrumented centre has a dim lattice rather than a
+      // bright one, and the gap honesty survives into the anatomy.
+      ink: budget(frame, null, false, ink(TISSUE_400, 0.16 * (0.5 + 0.5 * intensity))),
+      width: 0.75,
+    },
+  ]
+
+  anatomy.rings.forEach((ring: HeartRing, i: number) => {
+    const arriving = landed[i]
+    if (arriving === undefined) return
+    const deposit = clamp01((arriving.dissolve - RING_ARRIVES) / (1 - RING_ARRIVES))
+    if (deposit <= 0) return
+
+    marks.push({
+      kind: 'baked',
+      role: 'growth-ring',
+      // **The heart's, not the lane's** — and the choice is load-bearing in three
+      // places. A ring deposited by a lane is still the *mass's* anatomy: it must
+      // not recede when another lane takes the spotlight (the mass never does), it
+      // must not vanish when the operator hides finished lanes (hiding scars is a
+      // request about clutter at the rim, never a claim that the work was undone —
+      // the same reading `geometry.ts` takes for the mass's own growth), and it is
+      // not one of the marks prd5's `SCAR_FLOOR` is a floor under, because a scar's
+      // floor is about the mark that identifies a lane and this identifies a
+      // *landing*. Which landing is still recorded — the roster is in `bake`, and
+      // the ring count is asserted against the fleet's own landings.
+      laneId: null,
+      alarm: false,
+      bake: `${anatomy.bake}:ring:${i}`,
+      at: frame.geometry.centre,
+      scale: radius,
+      paths: [ring.ring],
+      closed: true,
+      // A whisper of the done green over the tissue: the ring is a landing, so the
+      // family that landed is still faintly in it (the same argument `SCAR_TISSUE`
+      // makes about a remnant — "finished" and "nothing to say" must not share a
+      // colour), and the accent is what it has cooled into.
+      ink: budget(frame, null, false, ink(mix(TISSUE_400, ACTIVITY_HUE.done, RING_GREEN), 0.3 * deposit)),
+      // THE WORK SIZE, KEPT (prd6 ruling 1). It used to be the length of the stub a
+      // lane left at the rim; ruling 2 has just taken those stubs away, so the
+      // channel moved to the one permanent mark a landing leaves — a big landing
+      // lays down a heavier ring, on the same absolute scale as everything else.
+      width: RING_WIDTH.min + RING_WIDTH.span * ring.sizeFrac,
+    })
+  })
+
+  return marks
+}
+
+/** How much of the done green survives in a ring, over the accent. */
+const RING_GREEN = 0.22
+/** A ring's weight, in world px — the work-size channel (prd6 ruling 1). */
+const RING_WIDTH = { min: 0.7, span: 1.6 } as const
+
+/** Every lane whose matter has come home, oldest landing first. */
+function landings(frame: SceneFrame): { thread: ThreadGeometry; dissolve: number }[] {
+  const out: { thread: ThreadGeometry; dissolve: number; age: number }[] = []
+  for (const thread of frame.geometry.threads) {
+    const cut = thread.retire
+    // The matter has to have *arrived*: a cord still retracting has not deposited
+    // anything yet. A hidden scar still counts — hiding finished lanes is a request
+    // about clutter at the rim, not a claim that the work was undone, which is the
+    // same reading `geometry.ts` takes for the mass's own growth.
+    if (cut === null || cut.retract < 1) continue
+    out.push({
+      thread,
+      dissolve: cut.dissolve,
+      // No `elapsedMs` means a cut nobody watched — history, older than anything
+      // this session saw, so it sorts innermost.
+      age: cut.elapsedMs ?? Number.POSITIVE_INFINITY,
+    })
+  }
+  return out.sort((a, b) => b.age - a.age).map(({ thread, dissolve }) => ({ thread, dissolve }))
+}
+
+/**
+ * THE CONDUCTOR'S OWN BUD (prd10 ruling 9) — "the conductor's subagents bud from
+ * MAIN's own anatomy".
+ *
+ * A worker's bud grows off its own thread (`marks/thread.ts`); the conductor has no
+ * thread, because MAIN is the mass rather than a lane, so its bud grows off the
+ * mass's rim. One level deep and one bud, exactly as a worker's is.
+ *
+ * **Where the liveness comes from, and the gap it leaves.** A lane reads
+ * `lane.subagents`, the vital built from `selectSubagentActivity`. MAIN has no such
+ * vital — `RootMass` carries no subagent field, and adding one is a change to the
+ * fleet model rather than to the scene — so the scene reads the *same signal* from
+ * the one place it can reach: thread-marked `llm.usage`/`tool.activity` news
+ * resolving to main (`pulses.ts`'s `conductorSubagentAt`). Same marker
+ * (`thread: 'subagent'`, prd1's thread dimension), same meaning, one honest
+ * difference: it is fed from the **news tail**, so a replayed conductor grows no
+ * bud. That is the existing gap-honesty voice rather than a new one — no telemetry
+ * reaching the scene means no bud and nothing else lost — and it is recorded here
+ * so the next hand can close it by giving `RootMass` the vital.
+ */
+export function conductorBudMarks(frame: SceneFrame, radius: number): Mark[] {
+  const bud = conductorBud(frame, radius)
+  if (bud === null) return []
+
+  const marks: Mark[] = [
+    ribbonMark({
+      role: 'bud',
+      laneId: null,
+      alarm: false,
+      path: bud.path,
+      widthRoot: 1.5,
+      widthTip: 0.2,
+      taperTip: 0.5,
+      samples: 10,
+      caps: false,
+      // Ice, not a family hue: the conductor is not a lane and has no activity to
+      // wear (`theme.css` on why MAIN gets no token of its own).
+      paint: budget(frame, null, false, ink(hotter(ICE_400, 0.3), 0.6 * bud.vitality)),
+    }),
+  ]
+
+  const struck = flareAt(bud.sinceMs)
+  if (struck > 0.02) {
+    marks.push({
+      kind: 'glow',
+      role: 'bud-flare',
+      laneId: null,
+      alarm: false,
+      at: bud.tip,
+      radius: 4 + 3 * struck,
+      ink: budget(frame, null, false, ink(hotter(ICE_200, 0.5), 0.45 * struck * bud.vitality)),
+    })
+  }
+
+  return marks
+}
+
+/**
+ * The conductor's bud, or null — geometry only, so `marks/dissolve.ts` can draw its
+ * absorption off the same shape rather than guessing at it.
+ *
+ * The bearing is seeded off the main branch's name and nothing else, so the bud
+ * grows from the same place on the mass all session and in every replay of it.
+ */
+export function conductorBud(frame: SceneFrame, radius: number): BudGeometry | null {
+  const at = frame.field.conductorSubagentAt()
+  if (at === null) return null
+
+  const life = budLife(Math.max(0, frame.now - at))
+  if (life.vitality <= 0) return null
+
+  const { centre } = frame.geometry
+  const habit = variationFor(`conductor/${frame.fleet.root.mainBranch ?? 'main'}`)
+  const bearing = habit.phase * Math.PI * 2
+  const reach = (10 + 12 * habit.curl) * life.vitality
+  const out: Point = { x: Math.cos(bearing), y: Math.sin(bearing) }
+  const across: Point = { x: -out.y, y: out.x }
+  const root: Point = { x: centre.x + out.x * radius * 0.92, y: centre.y + out.y * radius * 0.92 }
+  const tip: Point = {
+    x: root.x + out.x * reach * 0.8 + across.x * reach * 0.5,
+    y: root.y + out.y * reach * 0.8 + across.y * reach * 0.5,
+  }
+
+  return {
+    at: 0,
+    path: [
+      root,
+      { x: root.x + out.x * reach * 0.55, y: root.y + out.y * reach * 0.55 },
+      tip,
+    ],
+    width: 1.5,
+    tip,
+    vitality: life.vitality,
+    absorb: life.absorb,
+    sinceMs: Math.max(0, frame.now - at),
+    // Enrichment is a per-lane trace fact and the conductor's bud is not built from
+    // a vital, so there is nothing honest to put here.
+    kind: null,
+  }
 }

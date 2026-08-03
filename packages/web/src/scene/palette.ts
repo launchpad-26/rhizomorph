@@ -81,6 +81,77 @@ export const NOTICE: Rgb = [77, 234, 255]
  */
 export const NECROTIC: Rgb = [74, 82, 102]
 
+// ── living tissue: the one accent (prd10 rulings 5, 11, 12) ─────────────────
+
+/**
+ * THE TISSUE RAMP — the only hue in the instrument that is not a status and not
+ * ice, and the only one whose permission is written as a *place* rather than as
+ * a meaning.
+ *
+ * Ruling 29 bought salience by forbidding the calm world colour; prd4 replaced
+ * that with the brightness band, and prd10 ruling 5 opens the one remaining door
+ * a hair: a cold bioluminal violet, for **organic tissue only**. The heart's
+ * depths, the thread's underglow, spore motes, and the gradient a severed lane's
+ * matter cools through on its way home (ruling 12). Never a status, never data
+ * ink, never chrome.
+ *
+ * Why it is safe, in numbers rather than in assurances (ruling 11): H 295.5 in
+ * OKLCH, at low chroma — 41° clear of the ice ramp, 87° from notice-cyan, 78°
+ * from broken-red. `palette.test.ts` measures all three, so the accent cannot
+ * drift toward a hue that already means something. And the whole ramp sits below
+ * the text-contrast floor by design: tissue is not ink, so prd4's legibility law
+ * is untouched rather than traded against.
+ */
+export const TISSUE_900: Rgb = [30, 24, 51]
+export const TISSUE_700: Rgb = [50, 39, 82]
+export const TISSUE_500: Rgb = [75, 58, 122]
+/** THE ACCENT itself (ruling 11) — `#6b4fa8`. */
+export const TISSUE_400: Rgb = [107, 79, 168]
+export const TISSUE_200: Rgb = [143, 111, 214]
+
+/**
+ * The ramp in order, dark to light. Read as a *gradient* rather than as five
+ * choices: {@link tissueAt} is the only way anything in the scene reaches for a
+ * step, which is what keeps the accent one continuous material instead of five
+ * swatches somebody picked between.
+ */
+export const TISSUE_RAMP: readonly Rgb[] = [
+  TISSUE_900,
+  TISSUE_700,
+  TISSUE_500,
+  TISSUE_400,
+  TISSUE_200,
+]
+
+/** Sample the tissue ramp, 0 = its deepest step and 1 = its lightest. */
+export function tissueAt(t: number): Rgb {
+  const last = TISSUE_RAMP.length - 1
+  const on = clamp01(t) * last
+  const i = Math.min(last - 1, Math.floor(on))
+  return mix(TISSUE_RAMP[i] as Rgb, TISSUE_RAMP[i + 1] as Rgb, on - i)
+}
+
+/**
+ * RULING 12, AS ONE FUNCTION — a returning mote's colour at `t` of its journey.
+ *
+ * Born in the lane's own dim done-family colour (it *is* the lane's substance,
+ * so status meaning is preserved at the cut) and cooling through the tissue ramp
+ * as it drifts home (tissue meaning at the heart). The composting story told in
+ * colour, and the only place in the instrument where a status hue and the accent
+ * are allowed to touch: along this gradient and nowhere else.
+ *
+ * The ramp is entered from its light end and travelled downward, because that is
+ * what "cooling" means — a mote arrives at the heart as one of its own dark
+ * depths rather than as a bright violet dot laid on top of them.
+ */
+export function returningInk(family: Rgb, journey: number, luminance: number): Ink {
+  const t = clamp01(journey)
+  // The hand-off is early and soft: a mote is unmistakably its lane's colour for
+  // the first third, and unmistakably tissue by the last.
+  const cooled = mix(family, tissueAt(1 - t), Math.min(1, t * 1.4))
+  return ink(cooled, clamp01(luminance))
+}
+
 /**
  * THE CHOKEPOINT — the one place a lane's activity becomes a colour.
  *

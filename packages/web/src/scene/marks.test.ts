@@ -212,6 +212,22 @@ function pointsOf(mark: Mark): Point[] {
       return mark.rings.flatMap((ring) => [...ring])
     case 'stroke':
       return [...mark.points]
+    case 'motes':
+      return mark.items.map((mote) => mote.at)
+    // Unit-space geometry placed by a transform (prd10 ruling 3): the points a law
+    // about *where* would want are the placed ones, so they are mapped here rather
+    // than left in the space they were baked in.
+    case 'baked':
+      return mark.paths.flatMap((path) =>
+        path.map((point) => ({
+          x: mark.at.x + point.x * mark.scale,
+          y: mark.at.y + point.y * (mark.scaleY ?? mark.scale),
+        })),
+      )
+    // Screen-space washes over the whole panel. They are not *at* anywhere.
+    case 'wash':
+    case 'grain':
+      return []
     case 'glow':
     case 'arc':
     case 'path':
@@ -1665,14 +1681,47 @@ describe('the substitution table — meaning as form', () => {
     expect(arc(wake as Mark)).toBeGreaterThan(arc(packet))
   })
 
-  it('spends no new objects doing any of it', () => {
-    // The budget claim, counted. A form change that quietly doubled the display
-    // list would be a different prd — and at twenty calm lanes the whole picture
-    // has to stay something a canvas can draw sixty times a second.
+  it('spends no new objects doing any of it, and adds none that scale', () => {
+    // The budget claim, counted — restated for prd10 rather than relaxed, because
+    // the two rounds make *different* promises and the old number was measuring
+    // prd7's. prd7 ruling 3 was a substitution: chevrons became tapers, a knot
+    // became a fold, and the display list was not allowed to grow at all. prd10 is
+    // an addition — an apex on every growing tip (ruling 4), a bud where telemetry
+    // says there is one (ruling 9), substrate and depth (ruling 6) — so a per-lane
+    // ceiling alone can only ever ratchet upward as rulings land, and a ceiling that
+    // ratchets is not a law.
+    //
+    // So the claim is now two, and the second is the one that would actually catch
+    // the regression this test exists for:
     const calm = marksFor({ fleet: fleetFor(fleet20Spec()) })
-    expect(calm.length / 20).toBeLessThan(12)
+    // 1. the per-lane cost stays inside a frame's worth of objects. The number is
+    //    the measured 13.4 with headroom, and `perf.test.ts` is where the frame
+    //    budget itself is measured rather than proxied.
+    expect(calm.length / 20).toBeLessThan(15)
+
+    // 2. **the ambient layer is O(1) in the fleet.** Ruling 6's spores, flora, fog,
+    //    vignette and grain are substrate: the picture may not spend more of them
+    //    because more lanes turned up, or "ambient" would be a per-lane cost wearing
+    //    the word. Two fleets, three times the lanes, the same overhead — and the
+    //    same claim in reverse says a viewer cannot read the substrate as a count.
+    const ambient = (fleet: Fleet): number =>
+      marksFor({ fleet }).filter((mark) => AMBIENT_ROLES.includes(mark.role)).length
+    const small = fleetFor(pathologySpec())
+    const large = fleetFor(fleet20Spec())
+    expect(large.lanes.length).toBeGreaterThan(small.lanes.length * 2)
+    expect(ambient(large)).toBe(ambient(small))
+    expect(ambient(large)).toBeGreaterThan(0)
   })
 })
+
+/** Ruling 6's whole grant: substrate, depth and texture. Nothing per-lane. */
+const AMBIENT_ROLES: readonly MarkRole[] = [
+  'spore',
+  'rim-flora',
+  'depth-fog',
+  'vignette',
+  'grain',
+]
 
 /**
  * SIXTY FRAMES A SECOND, STILL (prd7 ruling 1's standing condition).
@@ -1879,6 +1928,18 @@ describe('paint executes the display list (prd7 ruling 3)', () => {
       setLineDash: note('setLineDash'),
       createRadialGradient: note('createRadialGradient'),
       createLinearGradient: note('createLinearGradient'),
+      // prd10's sprite blit and grain tile — the two calls the mote drift and the
+      // texture wash reach for. `createPattern` answering null is the honest
+      // jsdom reading (no tile can be rasterised), and the painter skips.
+      drawImage: note('drawImage'),
+      createPattern: () => null,
+      createImageData: (w: number, h: number) => ({
+        width: w,
+        height: h,
+        data: new Uint8ClampedArray(w * h * 4),
+      }),
+      putImageData: note('putImageData'),
+      globalAlpha: 1,
       globalCompositeOperation: 'source-over',
       fillStyle: '',
       strokeStyle: '',
@@ -1896,8 +1957,14 @@ describe('paint executes the display list (prd7 ruling 3)', () => {
   function withPath2D<T>(work: () => T): T {
     const had = 'Path2D' in globalThis
     if (!had) {
+      // A *shape*, not an empty class: the painter builds the heart's baked ring
+      // geometry imperatively (prd10 ruling 3) as well as stamping glyphs from SVG
+      // data, so a stub with no methods would fail on a call a browser answers.
       ;(globalThis as { Path2D?: unknown }).Path2D = class {
         constructor(public d?: string) {}
+        moveTo(): void {}
+        lineTo(): void {}
+        closePath(): void {}
       }
     }
     try {
@@ -1987,13 +2054,22 @@ describe('the display list is data, not objects (prd7 ruling 1)', () => {
     const kinds = new Set(marks.map((mark) => mark.kind))
     expect([...kinds].sort()).toEqual([
       'arc',
+      // prd10's four: the heart's baked geometry, the grain tile, the mote drift and
+      // the two cached washes. Every one of them has to be in the corpus for the
+      // clone guards below to mean anything — a `motes` mark carrying a live pooled
+      // record, or a `baked` one carrying a `Path2D`, would be exactly the kind of
+      // "the display list stopped being data" this suite exists to refuse.
+      'baked',
       'chip',
       'contour',
       'glow',
+      'grain',
+      'motes',
       'path',
       'ribbon',
       'stroke',
       'text',
+      'wash',
     ])
 
     const has = (predicate: (mark: Mark) => boolean): boolean => marks.some(predicate)
@@ -2333,19 +2409,33 @@ describe('the cord-cut — a finished lane leaves the network', () => {
       retire: new Map([[CALM_LANE, cutAt(0, allowance('structural', 'reduced').travel)]]),
     })
 
-    it('shows the settled scar rather than a stage of a journey', () => {
-      const roles = new Set(still.filter((m) => m.laneId === CALM_LANE).map((m) => m.role))
-      expect(roles.has('scar')).toBe(true)
-      expect(roles.has('scar-bloom')).toBe(false)
+    it('shows the end state rather than a stage of a journey', () => {
+      // Restated for prd10 ruling 2, and the law it is a reading of is unchanged:
+      // reduced motion is the **swap without the journey**. What moved is what the
+      // swap now ends at — a cord that never travelled never composted either, so
+      // the end state is the one the composting arrives at: no cord, no bloom, no
+      // stage of anything, and the lane still identified at the rim.
+      const mine = still.filter((mark) => mark.laneId === CALM_LANE)
+      const roles = new Set(mine.map((mark) => mark.role))
       expect(roles.has('thread')).toBe(false)
+      expect(roles.has('scar-bloom')).toBe(false)
+      expect(roles.has('scar')).toBe(false)
+      // …and *nothing* of the cord: no ribbon geometry anywhere on the lane, which
+      // is the same claim the no-orphan replay law makes at scrub-end.
+      expect(mine.filter((mark) => mark.kind === 'ribbon')).toHaveLength(0)
+      // Still drawn, and still identifiable — prd5 law 1's own list.
+      expect(roles.has('scar-mark')).toBe(true)
+      expect(roles.has('label')).toBe(true)
     })
 
     it('keeps the colour, which is what the success criterion excludes', () => {
       // WCAG 2.3.3's "motion animation" is travel and scale; colour and opacity
-      // are explicitly out of scope, so they are exactly what survives.
-      const remnant = of(still, CALM_LANE, 'scar')[0] as Mark
-      expect(inksOf(remnant)[0]?.rgb).toEqual(SCAR.thread.rgb)
-      expect(brightnessOf(remnant)).toBeGreaterThan(SCAR_FLOOR)
+      // are explicitly out of scope, so they are exactly what survives. Read off the
+      // mark that is left rather than off the cord that is not: the desaturation
+      // still happened, in place, with no journey.
+      const lens = of(still, CALM_LANE, 'scar-mark')[0] as Mark
+      expect(inksOf(lens)[0]?.rgb).toEqual(SCAR.glyph.rgb)
+      expect(brightnessOf(lens)).toBeGreaterThan(SCAR_FLOOR)
     })
   })
 

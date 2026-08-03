@@ -145,6 +145,9 @@ function withPath2D<T>(work: () => T): T {
   if (!had) {
     ;(globalThis as { Path2D?: unknown }).Path2D = class {
       constructor(public d?: string) {}
+      moveTo(): void {}
+      lineTo(): void {}
+      closePath(): void {}
     }
   }
   try {

@@ -234,7 +234,7 @@ describe('the canvas host', () => {
     // The real executor, against a real-shaped context: proof that the display
     // list survives the trip to canvas calls, in an environment that has one.
     // jsdom implements neither `Path2D` nor a 2D context; a browser has both.
-    vi.stubGlobal('Path2D', class {})
+    vi.stubGlobal('Path2D', PATH2D)
     const calls: string[] = []
     const context = fakeContext(calls)
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
@@ -354,7 +354,7 @@ describe('the camera', () => {
       toJSON() {},
     }
     vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect').mockReturnValue(hostRect as DOMRect)
-    vi.stubGlobal('Path2D', class {})
+    vi.stubGlobal('Path2D', PATH2D)
     if (options.reducedMotion === true) {
       vi.stubGlobal('matchMedia', () => ({
         matches: true,
@@ -856,7 +856,7 @@ function mountMotion(
     frames.push(callback),
   )
   vi.stubGlobal('cancelAnimationFrame', () => {})
-  vi.stubGlobal('Path2D', class {})
+  vi.stubGlobal('Path2D', PATH2D)
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
 
@@ -1189,6 +1189,19 @@ describe('the cord-cut (prd5 ruling 3)', () => {
 
 
 /**
+ * jsdom implements neither `Path2D` nor a 2D context, and a browser has both. The
+ * shim is a *shape* rather than an empty class because the painter now builds paths
+ * imperatively as well as from SVG data (prd10 ruling 3's baked ring geometry), so a
+ * stub with no methods would fail on a call a browser answers.
+ */
+const PATH2D = class {
+  constructor(public d?: string) {}
+  moveTo(): void {}
+  lineTo(): void {}
+  closePath(): void {}
+}
+
+/**
  * Records what was asked of it. Enough of a 2D context for `paint` to run.
  *
  * `journal` is the optional third recorder, and it is the one the pause suite
@@ -1233,6 +1246,20 @@ function fakeContext(calls: string[], transforms: number[][] = [], journal: unkn
     measureText: () => ({ width: 40 }),
     createRadialGradient: () => gradient,
     createLinearGradient: () => gradient,
+    // prd10's sprite stamps and grain tile. Both are journalled: a mote's position
+    // is exactly the sort of "light on the canvas" the pause suite compares, and a
+    // drift that kept moving under a held clock would otherwise go unnoticed.
+    drawImage: record('drawImage'),
+    createPattern: () => null,
+    // The grain tile rasterises into a scratch canvas, which under this mock is
+    // this same context: a browser has both of these, so the shim does too.
+    createImageData: (w: number, h: number) => ({
+      width: w,
+      height: h,
+      data: new Uint8ClampedArray(w * h * 4),
+    }),
+    putImageData: noop('putImageData'),
+    globalAlpha: 1,
     globalCompositeOperation: 'source-over',
     lineCap: 'round',
     lineJoin: 'round',

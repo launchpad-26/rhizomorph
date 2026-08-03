@@ -24,6 +24,7 @@ import type { Point } from './geometry.js'
  * | encoded width | work size (prd6 ruling 1) | LOCKED as the baseline |
  * | width jitter | nothing | ±{@link WIDTH_JITTER_MAX}, low-frequency only |
  * | sideways wander | nothing | ≤ {@link WANDER_MAX_SPACING} × lane spacing |
+ * | luminance shimmer | nothing | ±{@link SHIMMER_MAX}, ambient class |
  * | curl phase | nothing | free |
  * | second phase | nothing | free |
  *
@@ -63,6 +64,16 @@ export const CHANNELS = {
   width: { meaning: 'work size', permission: 'locked' },
   widthJitter: { meaning: null, permission: 'bounded', limit: 0.1 },
   wander: { meaning: null, permission: 'bounded', limit: 0.3 },
+  /**
+   * prd10 ruling 6's iridescence, and it is in this table for one reason: a
+   * shimmer is a *luminance* wobble, and luminance in this scene is spent by the
+   * contrast budget on recency, heat and the alarm band. So the amplitude has to
+   * be small enough that it cannot be mistaken for any of them — ±3%, which is
+   * the ambient class's own ceiling (`motion.ts`), an order of magnitude under
+   * the gap between two steps of the ice ramp. Hue-less by construction: it
+   * scales the alpha a mark already has and never touches its rgb.
+   */
+  shimmer: { meaning: null, permission: 'bounded', limit: 0.03 },
   curl: { meaning: null, permission: 'free' },
   /**
    * A second free phase, independent of the first. One number cannot give a
@@ -90,6 +101,17 @@ export const WANDER_MAX_SPACING: number = CHANNELS.wander.limit
 /** One lazy bend along a thread, not a wave train. */
 export const WANDER_WAVES = 1.1
 
+/** ±3% of whatever alpha a mark already has, and never more (ruling 6). */
+export const SHIMMER_MAX: number = CHANNELS.shimmer.limit
+/**
+ * How long one lane's shimmer takes to come round, in ms. Inside ruling 4's 4–8 s
+ * ambient band and deliberately **not** the breath's own 5.4 s: two ambient
+ * cycles at the same period would beat together into one pulse across the whole
+ * scene, which is a thing a viewer notices — and a thing an ambient layer is
+ * defined by not being.
+ */
+export const SHIMMER_PERIOD_MS = 6_700
+
 /**
  * One lane's allowance, evaluated along its own thread. Every method is a pure
  * function of the seed and the path parameter — no clock, no frame, no state.
@@ -102,6 +124,20 @@ export interface LaneVariation {
   wander(t: number): number
   /** Width multiplier at `t`, inside 1 ± {@link WIDTH_JITTER_MAX}. */
   widthJitter(t: number): number
+  /**
+   * LUMINANCE MULTIPLIER at `phase` laps of the shimmer cycle, inside
+   * 1 ± {@link SHIMMER_MAX} (ruling 6).
+   *
+   * The clock stays outside, exactly as it does for everything else in this file:
+   * the caller passes `now / SHIMMER_PERIOD_MS`, so a paused scene (whose clock
+   * is held still) stops shimmering without this file knowing pause exists, and a
+   * replay of somebody else's log shimmers identically.
+   *
+   * Each lane's own phase offset comes off the seed, so twenty threads breathe
+   * light at twenty different moments — which is the difference between a scene
+   * that is alive and a scene with one pulse in it.
+   */
+  shimmer(phase: number): number
   /**
    * A free 0–1 phase, for habits that carry nothing: which way a lane's heat
    * leans, how tightly it ties itself off, how far its cut end relaxes past the
@@ -217,8 +253,21 @@ function build(seed: string): LaneVariation {
   // "the width jitter" depend on whether anybody asked for a wander first.
   const bend = createNoise2D(mulberry32(cyrb128(`${seed}/wander`)))
   const girth = createNoise2D(mulberry32(cyrb128(`${seed}/width`)))
+  const glimmer = cyrb128(`${seed}/shimmer`) / 4_294_967_296
 
   return {
+    /**
+     * Two sines an octave apart rather than one, so the shimmer has no obvious
+     * period and never reads as a blink; and a *sine* rather than the noise
+     * fields above, because this one is sampled along a clock that runs for
+     * hours and a gradient-noise walk that long would need a wrapping argument
+     * nobody could check. Bounded by construction: the two terms sum to at most
+     * 1, so the multiplier cannot leave 1 ± SHIMMER_MAX whatever the phase.
+     */
+    shimmer: (phase) => {
+      const turn = (phase + glimmer) * Math.PI * 2
+      return 1 + SHIMMER_MAX * (0.68 * Math.sin(turn) + 0.32 * Math.sin(turn * 2.3))
+    },
     wander: (t) => {
       const envelope = ends(t)
       // Not `noise * 0`: that is −0 for half the fleet, and a signed zero is the

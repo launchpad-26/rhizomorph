@@ -1,4 +1,5 @@
 import type { Point } from '../geometry.js'
+import type { Mote } from '../motes.js'
 import { luminance, type Ink } from '../palette.js'
 import { ribbonOutline, type RibbonShape } from '../ribbon.js'
 
@@ -63,6 +64,14 @@ export type MarkRole =
   // the root-mass
   | 'root-halo'
   /**
+   * THE MYCORRHIZAL ANATOMY (prd10 ruling 3). A growth ring is one landing — the
+   * session's tree-ring memoir — and the fan is the lattice that makes the mass
+   * the middle of a network rather than a lump the network is tied to. Both are
+   * baked (`heart.ts`); neither is ever built per frame.
+   */
+  | 'growth-ring'
+  | 'hyphal-fan'
+  /**
    * The mass's own surface — one `contour`, not a set of shapes (prd7 ruling 5).
    * `root-arrival` used to sit beside it, an expanding ring drawn on top of the
    * mass whenever work landed; the surface carries that fact now, by swelling
@@ -95,6 +104,17 @@ export type MarkRole =
    * actually watched is retracting, so a replay never draws one.
    */
   | 'homeward'
+  /**
+   * THE COMPOSTING DECAY (prd10 ruling 2) — the severed cord coming apart into
+   * motes along its own path, every one of them travelling home. It is the same
+   * fact `homeward` carries, told in the channel a *decomposition* is legible in:
+   * `homeward` is the parcel of matter still inside the hypha, this is the hypha
+   * itself becoming matter. Both are present during a cut, and when the last mote
+   * lands the cord's ribbon geometry is gone (ruling 2's "no stubs persist").
+   */
+  | 'dissolution'
+  /** …and ruling 9's miniature of it: a finished subagent's bud, taken back. */
+  | 'absorption'
   // light in flight
   | 'pulse'
   | 'pulse-wake'
@@ -126,10 +146,30 @@ export type MarkRole =
   | 'off-fence-reach'
   | 'off-fence-grasp'
   | 'off-fence-victim'
+  /**
+   * SUBAGENT BUDS (prd10 ruling 9) — a side-branchlet off the parent's *own*
+   * thread, never a lane of its own (prd2's "sub-rows are never a lane"), and
+   * one level deep until nested-agent traces are observed in the wild. The flare
+   * is the freshest thing the telemetry reports; the absorption above is what
+   * completion looks like.
+   */
+  | 'bud'
+  | 'bud-flare'
   // nodes and naming
   | 'node'
   /** Where a lane's thread stops. Every reach in this scene ends deliberately. */
   | 'node-tip'
+  /**
+   * APICAL TUFTS (prd10 ruling 4) — a growing tip taper into two or three fine
+   * branchlets, in its family's vivid hue. `tuft-glow` is the ruling's *amendment*
+   * to law 9b and the only calm mark in the instrument allowed past
+   * `CALM_CEILING`: a working lane's tip, only while it is working, at a small
+   * radius, below `ALARM_FLOOR`, wearing none of the alarm grammar's other
+   * instruments. See `salience.ts`'s `TIP_CEILING`, which is where the bound is
+   * enforced rather than trusted.
+   */
+  | 'tuft'
+  | 'tuft-glow'
   /** DONE — landed, and not a fault. */
   | 'done-mark'
   /** The enclosure a lane above calm wears. Nothing calm may ever wear one. */
@@ -138,6 +178,18 @@ export type MarkRole =
   | 'label'
   | 'label-figure'
   | 'label-chip'
+  /**
+   * DEPTH, TEXTURE AND AMBIENT LIFE (prd10 ruling 6) — all ambient class, all
+   * inside the budget's existing caps. `depth-fog` and `vignette` are the two
+   * gradients cached on resize; `grain` is one `createPattern` tile stepped at
+   * ≤12 fps; `spore` and `rim-flora` ride the breath cycle that was already
+   * there and start no clock of their own.
+   */
+  | 'depth-fog'
+  | 'vignette'
+  | 'grain'
+  | 'spore'
+  | 'rim-flora'
   /** The scene's own gap voice (law 12) — what it cannot show, and why. */
   | 'gap'
 
@@ -242,6 +294,109 @@ export interface GlowMark extends MarkBase {
   ink: Ink
 }
 
+/**
+ * A DRIFT OF MOTES — many small lights, as **one** mark (prd10 ruling 10).
+ *
+ * One mark rather than one per mote, and that is the whole of the spike's verdict
+ * against `paint.ts:214` expressed in the display list. A `glow` builds a fresh
+ * `createRadialGradient` and opens its own `lighter` block *per mark*; at the
+ * dissolution class's cap that is 240 gradient allocations and 480 blend switches
+ * in a frame, measured in `perf.test.ts`. Here the falloff is a pre-rendered
+ * sprite the painter keeps, so a whole drift costs one blend switch and one
+ * `drawImage` each — and the count of blend blocks is O(1) in the number of motes
+ * rather than O(n).
+ *
+ * It is deliberately *not* a `glow` with a list of positions: a mote carries its
+ * own colour (ruling 12's cooling gradient) and its own luminance, which is what
+ * makes the drift read as substance at different depths of its journey rather
+ * than as a spray of identical dots.
+ */
+export interface MotesMark extends MarkBase {
+  kind: 'motes'
+  items: readonly Mote[]
+}
+
+/**
+ * GEOMETRY BAKED ONCE, PLACED PER FRAME (prd10 ruling 3).
+ *
+ * The mark carries **unit-space** paths and the transform that puts them on the
+ * canvas, rather than world coordinates. That separation is the ruling's "baked
+ * as `Path2D` once per landing, never per frame": the mass breathes ±1.6% and
+ * grows all session, so world-space geometry would be rebuilt sixty times a
+ * second, while a `Path2D` in unit space is built once and drawn through a
+ * `translate`/`scale` for ever after. {@link bake} is what the painter caches it
+ * under — it changes when the geometry does and at no other time.
+ *
+ * `width` is in **world** px and the painter divides it back out of the scale, so
+ * a hairline stays a hairline whatever size the mass has grown to — the same
+ * correction `paint.ts`'s glyph painter already makes for a stroked sigil.
+ */
+export interface BakedMark extends MarkBase {
+  kind: 'baked'
+  /** Stable while the geometry is. The painter's `Path2D` cache key. */
+  bake: string
+  at: Point
+  scale: number
+  /**
+   * A different vertical scale, for geometry baked on a *circle* and placed on the
+   * scene's rim **ellipse** (the rim flora). Absent means isotropic, which is the
+   * heart's case: the mass is a circle and its rings are placed on one.
+   */
+  scaleY?: number
+  /** Unit-space polylines — |p| = 1 is the placed radius. */
+  paths: readonly (readonly Point[])[]
+  closed: boolean
+  ink: Ink
+  /** Stroke width in world px, or 0 for a fill. */
+  width: number
+}
+
+/**
+ * A RADIAL WASH over the panel (prd10 ruling 6) — the depth fog and the vignette.
+ *
+ * Screen-space and camera-independent, for the reason the gap voice is: it is a
+ * fact about the *panel* (light falls off toward the edges of a picture) rather
+ * than about the world, and a vignette that panned with the scene would be a
+ * moving smudge. Measured in fractions of the panel's half-diagonal so it lands
+ * the same way on a letterbox slot and a square one.
+ *
+ * The gradient itself is cached by the painter on `(role, size, colours)` — built
+ * once per resize, which is the ruling's own instruction and the difference
+ * between a wash and a per-frame allocation the size of the panel.
+ */
+export interface WashMark extends MarkBase {
+  kind: 'wash'
+  /** The panel, in CSS px. */
+  width: number
+  height: number
+  /** Where the wash starts and ends, as fractions of the half-diagonal. */
+  from: number
+  to: number
+  inner: Ink
+  outer: Ink
+}
+
+/**
+ * GRAIN — one tiled pattern over the panel (prd10 ruling 6).
+ *
+ * The tile is rasterised once by the painter and repeated by `createPattern`,
+ * which is the only way film grain is affordable in canvas 2D: the alternative is
+ * per-pixel work, per frame, over the whole panel. {@link tick} is a *step*
+ * counter rather than a clock — it advances at most twelve times a second, so the
+ * grain crawls (which reads as texture) instead of boiling (which reads as
+ * noise, and costs sixty pattern offsets a second to do it).
+ */
+export interface GrainMark extends MarkBase {
+  kind: 'grain'
+  width: number
+  height: number
+  /** Tile edge in px. One cached raster, whatever the panel size. */
+  tile: number
+  /** Which phase the tile is offset to. Steps at ≤12 fps by construction. */
+  tick: number
+  ink: Ink
+}
+
 export interface StrokeMark extends MarkBase {
   kind: 'stroke'
   points: readonly Point[]
@@ -307,6 +462,10 @@ export type Mark =
   | RibbonMark
   | ContourMark
   | GlowMark
+  | MotesMark
+  | BakedMark
+  | WashMark
+  | GrainMark
   | StrokeMark
   | ArcMark
   | PathMark
@@ -386,6 +545,13 @@ export function inksOf(mark: Mark): readonly Ink[] {
       ]
     case 'chip':
       return [mark.fill, mark.border]
+    case 'motes':
+      // Every mote's own ink. A drift is not one colour — ruling 12's gradient is
+      // spent *across* it — so a brightness law asserted over a dissolve has to
+      // see the brightest mote in it rather than an average nobody paints.
+      return mark.items.map((mote) => mote.ink)
+    case 'wash':
+      return [mark.inner, mark.outer]
     default:
       return [mark.ink]
   }

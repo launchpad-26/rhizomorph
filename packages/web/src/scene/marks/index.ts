@@ -1,4 +1,6 @@
 import { ICE_300, ICE_1000, ink } from '../palette.js'
+import { ambientScreenMarks, ambientWorldMarks } from './ambient.js'
+import { dissolveMarks } from './dissolve.js'
 import { lightMarks } from './light.js'
 import { labelMarks, nodeMarks } from './node.js'
 import { rootMarks } from './root.js'
@@ -20,27 +22,41 @@ export * from './types.js'
  * The order below is the picture's depth, and each layer is where it is for a
  * reason rather than by accident:
  *
+ * 0. **the ambient substrate** (prd10 ruling 6) — spores in the void and flora on
+ *    the fold, *underneath* everything, so a thread passes in front of a spore and
+ *    the mass covers the ones behind it. Substrate drawn over the network would be
+ *    decoration; substrate the network sits on top of is depth;
  * 1. **threads and second growth** — the substrate everything else sits on;
  * 2. **off-fence reaches, then the boundaries they crossed** — the victim's
  *    marking last, so the reach is visibly *through* it rather than behind it;
- * 3. **the root-mass** — drawn over the threads' inner ends, so they read as
- *    threaded *into* it rather than as lines that stop nearby;
+ * 3. **the root-mass and its anatomy** — drawn over the threads' inner ends, so
+ *    they read as threaded *into* it rather than as lines that stop nearby, and
+ *    carrying the heart's growth rings and hyphal fan inside its own body;
  * 4. **light in flight** — above the substrate it travels on, always;
- * 5. **the states, at the nodes** — over the light, because a summons must never
+ * 5. **matter returning** (prd10 ruling 2) — the composting drift, over the cord it
+ *    is coming off and under the states, because a mote must never occlude a
+ *    summons however many of them there are;
+ * 6. **the states, at the nodes** — over the light, because a summons must never
  *    be occluded by traffic;
- * 6. **labels** — last, over everything, so a name is never half-drawn.
+ * 7. **labels** — over everything in the world, so a name is never half-drawn;
+ * 8. **the panel's own depth** (prd10 ruling 6) — fog, vignette and grain, painted
+ *    in the chrome pass at screen scale, then the gap voice over them so a caveat
+ *    is never dimmed by the fog laid over the picture it is about.
  */
 export function sceneMarks(frame: SceneFrame): Mark[] {
   const { threads } = frame.geometry
   const marks: Mark[] = []
 
+  marks.push(...ambientWorldMarks(frame))
   for (const thread of threads) marks.push(...threadMarks(frame, thread))
   for (const thread of threads) marks.push(...offFenceMarks(frame, thread))
   marks.push(...rootMarks(frame))
   for (const thread of threads) marks.push(...lightMarks(frame, thread))
   for (const thread of threads) marks.push(...loopingMarks(frame, thread))
+  marks.push(...dissolveMarks(frame))
   for (const thread of threads) marks.push(...nodeMarks(frame, thread))
   for (const thread of threads) marks.push(...labelMarks(frame, thread))
+  marks.push(...ambientScreenMarks(frame))
   marks.push(...chromeMarks(frame))
 
   return marks

@@ -1,4 +1,5 @@
 import { pointAt, type Point, type RetireGeometry, type ThreadGeometry } from '../geometry.js'
+import { EVENT, allowance } from '../motion.js'
 import {
   BROKEN,
   ICE_050,
@@ -8,8 +9,10 @@ import {
   ICE_700,
   NECROTIC,
   NEEDS_YOU,
+  TISSUE_500,
   activityInk,
   clamp01,
+  fade,
   hotter,
   incandescent,
   ink,
@@ -18,8 +21,8 @@ import {
 } from '../palette.js'
 import { SCAR, toward } from '../retire.js'
 import type { WidthStop } from '../ribbon.js'
-import { variationFor, variationSeed } from '../variation.js'
-import { budget, type SceneFrame } from './frame.js'
+import { SHIMMER_PERIOD_MS, variationFor, variationSeed } from '../variation.js'
+import { budget, motionMode, type SceneFrame } from './frame.js'
 import { THORN_OUT } from './glyphs.js'
 import { ribbonMark, type Mark } from './types.js'
 
@@ -78,12 +81,15 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const marks: Mark[] = []
   const { laneId } = thread
   const frozen = thread.pathology === 'frozen'
-  const base = threadInk(frame, thread)
+  const resting = threadInk(frame, thread)
 
   // A retiring lane is not part of the living network, and the display list says
   // so: no `thread`, no bloom once it has settled, no heat, no standing flow, no
-  // second growth. See `scarMarks`.
-  if (thread.retire !== null) return scarMarks(frame, thread, thread.retire, base)
+  // second growth. See `scarMarks`. It also does not shimmer — the iridescence
+  // below is the lane being alive, and this one is not.
+  if (thread.retire !== null) return scarMarks(frame, thread, thread.retire, resting)
+
+  const base = frozen ? resting : shimmered(frame, thread, resting)
 
   // The form this lane's thread takes, in three parts, and all three are shared
   // by the bloom so the two read as one object: the cuts that close it, the
@@ -108,7 +114,17 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       // Half the thread's resolution: a wash at 10% alpha has no edge anybody
       // can find a facet in, and it is the second-widest ribbon on screen.
       samples: 24,
-      paint: budget(frame, laneId, false, { rgb: base.rgb, alpha: base.alpha * 0.1 }),
+      // THE THREAD UNDERGLOW (prd10 ruling 5) — the bloom, mixed toward the
+      // accent. It is the ruling's second named tissue draw, and it costs nothing:
+      // the widest, faintest ribbon on the lane was already being painted, so the
+      // undertone is a change of colour rather than a new object. A third of the
+      // way to `TISSUE_500` keeps the lane's own family unmistakable in the mark
+      // above it while the light *around* it reads as bioluminal — which is the
+      // whole difference between a lit line and a living one.
+      paint: budget(frame, laneId, false, {
+        rgb: mix(base.rgb, TISSUE_500, UNDERGLOW),
+        alpha: base.alpha * 0.1,
+      }),
     }),
     ribbonMark({
       ...shape,
@@ -127,8 +143,119 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   if (frame.reducedMotion) marks.push(...standingFlow(frame, thread))
 
   marks.push(...filamentMarks(frame, thread, base))
+  marks.push(...budMarks(frame, thread, base))
 
   return marks
+}
+
+/** How far a thread's bloom is mixed toward the accent (prd10 ruling 5). */
+const UNDERGLOW = 0.34
+
+/**
+ * PER-THREAD IRIDESCENCE (prd10 ruling 6) — ±3%, in luminance and nothing else.
+ *
+ * Ambient class, and the two things that keep it inside the class are both here:
+ * the amplitude is `variation.ts`'s own cap (a bounded channel that carries
+ * nothing, seeded off the lane so twenty threads shimmer out of phase), and the
+ * channel is **alpha**, never rgb — a hue that wobbled would be a lane whose
+ * *state* wobbled, which is law 9a's whole subject.
+ *
+ * No motion gate, and that is not an oversight. Opacity is exactly what WCAG 2.3.3
+ * excludes from "motion animation", so reduced motion keeps it; and pause holds the
+ * scene's clock still, so `frame.now` stops advancing and the shimmer stops with
+ * everything else that is a function of it. One mechanism, no special cases — the
+ * property `SceneView`'s pause comment promises for animations added later by
+ * somebody who never read it.
+ */
+function shimmered(frame: SceneFrame, thread: ThreadGeometry, resting: Ink): Ink {
+  const habit = variationFor(variationSeed(thread.lane))
+  return {
+    rgb: resting.rgb,
+    alpha: clamp01(resting.alpha * habit.shimmer(frame.now / SHIMMER_PERIOD_MS)),
+  }
+}
+
+/**
+ * SUBAGENT BUDS (prd10 ruling 9) — a side-branchlet off **this lane's** thread.
+ *
+ * Two marks at most, and the second only while something is actually happening:
+ *
+ * - the **bud** itself, a fine ribbon of the lane's own substance tapering to
+ *   nothing, at the lane's own colour. It is anatomy of its parent, not a lane
+ *   (prd2's "sub-rows are never a lane of their own"), and it reads that way
+ *   because it is drawn in the parent's ink at the parent's habit;
+ * - the **flare**, an event-class response at the tip to the freshest thing the
+ *   telemetry reports. `sinceMs` is the age of the newest thread-marked reading,
+ *   so this is a bud pulsing when its subagent works — fast in and slow out over
+ *   the event class's own flare envelope, and nothing at all once the reading is
+ *   older than that envelope.
+ *
+ * The absorption is not here: a bud coming back is a *dissolution*, and it is drawn
+ * where every other return is (`marks/dissolve.ts`).
+ *
+ * Liveness is **read**, never re-derived — `geometry.ts`'s `layoutBud` is the only
+ * thing that touches the vital, and this file only draws what it was handed. A lane
+ * with no telemetry has `bud === null` and loses nothing else, which is the ruling's
+ * own gap-honesty clause.
+ */
+function budMarks(frame: SceneFrame, thread: ThreadGeometry, base: Ink): Mark[] {
+  const bud = thread.bud
+  if (bud === null) return []
+
+  const { laneId } = thread
+  const marks: Mark[] = [
+    ribbonMark({
+      role: 'bud',
+      laneId,
+      alarm: false,
+      path: bud.path,
+      // Off the parent's own tip width, so a bud on a big lane is a little thicker
+      // than one on a small lane — the same absolute scale everything else on this
+      // thread is drawn on, and no new channel.
+      widthRoot: bud.width + thread.widthTip * 0.5,
+      widthTip: 0.2,
+      taperTip: 0.5,
+      samples: 10,
+      caps: false,
+      paint: budget(frame, laneId, false, {
+        rgb: base.rgb,
+        // Dimming as it is absorbed: the branchlet goes quiet before it goes.
+        alpha: base.alpha * 0.7 * bud.vitality,
+      }),
+    }),
+  ]
+
+  // The flare. Fast in, slow out (`EVENT.flareInMs`/`flareOutMs`) off the age of
+  // the newest reading — so a bud whose subagent just spoke is briefly bright and
+  // one that has been quiet for a minute is not, without anything here holding
+  // state or starting a clock.
+  const struck = flareAt(bud.sinceMs)
+  if (struck > 0.02 && allowance('event', motionMode(frame)).opacity) {
+    marks.push({
+      kind: 'glow',
+      role: 'bud-flare',
+      laneId,
+      alarm: false,
+      at: bud.tip,
+      radius: 4 + 3 * struck,
+      ink: budget(frame, laneId, false, ink(hotter(base.rgb, 0.55), 0.5 * struck * bud.vitality)),
+    })
+  }
+
+  return marks
+}
+
+/**
+ * The event class's flare envelope, read off an age rather than a start time:
+ * fast in over {@link EVENT.flareInMs}, slow out over {@link EVENT.flareOutMs}, and
+ * zero past both. "A flare is struck, not faded up" — `motion.ts` owns the numbers
+ * and this is the only place they are shaped.
+ */
+export function flareAt(sinceMs: number): number {
+  const age = Math.max(0, sinceMs)
+  if (age < EVENT.flareInMs) return age / EVENT.flareInMs
+  const out = (age - EVENT.flareInMs) / EVENT.flareOutMs
+  return out >= 1 ? 0 : 1 - out
 }
 
 /** The two closures, as width stops the thread and its bloom both carry. */
@@ -176,10 +303,20 @@ function scarMarks(
   living: Ink,
 ): Mark[] {
   if (cut.hidden) return []
+  // THE CORD IS GONE (prd10 ruling 2): "no stubs persist; the scene may forget the
+  // thread's geometry because the LEDGER remembers the thread". Once the last mote
+  // has landed there is nothing left of this cord to draw, so nothing is drawn —
+  // which is what makes a scrubbed-to-the-end replay a heart full of rings rather
+  // than a wreath of amputated stubs (ruling 1's judgement). What survives at the
+  // rim is prd5 law 1's own list, and only that list: the lane's lens, its name and
+  // its figure, so completion is still never invisible and the operator can still
+  // read *which* lane finished (`scarNodeMarks`).
+  if (cut.dissolve >= 1) return []
 
   const { laneId } = thread
   const marks: Mark[] = []
-  const cold = toward(living, SCAR.thread, cut.scar)
+  const leaving = composting(cut.dissolve)
+  const cold = fade(toward(living, SCAR.thread, cut.scar), leaving)
 
   const lit = 1 - cut.retract
   if (lit > 0.01) {
@@ -208,7 +345,7 @@ function scarMarks(
     }),
   )
 
-  if (cut.homeward !== null) {
+  if (cut.homeward !== null && leaving > 0) {
     marks.push(
       ribbonMark({
         role: 'homeward',
@@ -254,13 +391,37 @@ function scarMarks(
         widthTip: 0,
         taperTip: 0.85,
         samples: 8,
-        paint: budget(frame, laneId, false, toward(living, SCAR.glyph, cut.scar)),
+        paint: budget(frame, laneId, false, fade(toward(living, SCAR.glyph, cut.scar), leaving)),
       }),
     )
   }
 
   return marks
 }
+
+/**
+ * How much of a cord is left to draw, as a multiplier on its ink (prd10 ruling 2).
+ *
+ * 1 for three quarters of the dissolve and then out over the last quarter, and the
+ * shape is the point. The cord does not dim while its matter is leaving — the motes
+ * *are* the matter leaving, and a cord that faded in step with them would be saying
+ * the same thing twice while looking like a rendering artefact. It goes at the end,
+ * over about half a second, so that the last thing to happen is the cord letting go
+ * of the picture rather than the cord snapping out of it.
+ *
+ * The quarter matters for one more reason: `CUT.totalMs` lands at dissolve ≈ 0.52,
+ * which is inside the flat stretch. Every brightness law prd5 wrote about a settled
+ * scar reads exactly the ink it always did.
+ */
+export function composting(dissolve: number): number {
+  const out = (clamp01(dissolve) - COMPOST_HOLD) / (1 - COMPOST_HOLD)
+  if (out <= 0) return 1
+  const eased = clamp01(out)
+  return 1 - eased * eased * (3 - 2 * eased)
+}
+
+/** How long the cord holds its ink before it lets go. */
+const COMPOST_HOLD = 0.75
 
 /**
  * How much of the remnant the gathered end occupies, in px of arc — a length

@@ -13,6 +13,8 @@ import {
   ICE_950,
   NEEDS_YOU,
   NOTICE,
+  clamp01,
+  fade,
   hotter,
   incandescent,
   ink,
@@ -21,9 +23,11 @@ import {
   type Rgb,
 } from '../palette.js'
 import { SCAR, toward } from '../retire.js'
+import { TIP_GLOW_RADIUS, spendTip } from '../salience.js'
 import { blobRing, variationFor, variationSeed } from '../variation.js'
 import { budget, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
 import { NODE_LENS, THORN_OUT } from './glyphs.js'
+import { composting } from './thread.js'
 import { regionMark, ribbonMark, type Mark, type MarkRole } from './types.js'
 
 /**
@@ -172,6 +176,7 @@ export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
     ink: budget(frame, laneId, alarm, ink(plain ? tint : hue, plain ? 0.75 : 0.9)),
   })
 
+  marks.push(...tuftMarks(frame, thread, hue, angle, length))
   marks.push(...stateMarks(frame, thread, hue, angle, length))
 
   if (alarm) marks.push(enclosureMark(thread, hue))
@@ -182,6 +187,177 @@ export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
 
   return marks
 }
+
+/**
+ * APICAL TUFTS (prd10 ruling 4) — a growing tip is a growth cone, not a full stop.
+ *
+ * "Growing thread ends taper into fine 2–3 branchlet growth-cones in vivid family
+ * hue." What was at the tip before is a `node-tip` thorn, which says *this reach
+ * ended deliberately* — true of every lane, and therefore silent about the one
+ * distinction the north star is about: a lane that is still growing versus a lane
+ * that has stopped. A hypha's growing end is its apex; it is where the organism is
+ * actually happening, and it looks like it.
+ *
+ * So a **working** lane's tip splits into two or three fine branchlets, and a lane
+ * that is not working keeps the thorn alone. Three things ride the tuft, and each
+ * one is a fact the lane already carries:
+ *
+ * - **the branchlet count** is 2 or 3 off the lane's free phase, so no two apices
+ *   are congruent (`variation.ts`'s permission table: the count carries nothing);
+ * - **the reach** is the lens's own length, so a big lane's apex is bigger — the
+ *   work-size channel, unchanged;
+ * - **the light** is the lane's own event energy. "Commits pulse through to the
+ *   tip": a commit raises `inbound`, which decays over about one agent turn, and
+ *   the tuft's glow is that number. A landing (the biggest arrival the fleet makes)
+ *   flares it once, over the event class's own envelope — see {@link tipFlare}.
+ *
+ * The glow is the 9b amendment and the only calm mark in the instrument permitted
+ * past `CALM_CEILING`. Its bounds are `salience.ts`'s (`TIP_CEILING`,
+ * `TIP_GLOW_RADIUS`) rather than this file's, and `spendTip` is the only door: it
+ * recedes like every other calm mark, so a summons anywhere still owns the band.
+ */
+function tuftMarks(
+  frame: SceneFrame,
+  thread: ThreadGeometry,
+  hue: Rgb,
+  angle: number,
+  length: number,
+): Mark[] {
+  const cut = thread.retire
+  // THE LANDING FLARE (ruling 4), and the *whole* of what a retiring lane's apex
+  // does: the branchlets blaze once and go out with the cord.
+  //
+  // Deliberately not a glow. prd5's cord-cut carries a law — "no glow anywhere on
+  // a retiring lane; matter, not light" — and it survives here unweakened, because
+  // a flare does not need a halo to be a flare: the apex's own substance goes
+  // bright, which is what a growth cone burning out actually looks like. The 9b
+  // amendment's glow is for a **working** tip and nothing else, exactly as the
+  // ruling scopes it, so a landing lane has none.
+  if (cut !== null) {
+    if (cut.hidden || cut.retract >= 1) return []
+    return branchlets(frame, thread, hue, angle, length, {
+      // Fast in over the tension, out over the retract — `EVENT`'s own shape, read
+      // off the cut's own stages rather than off a clock of its own.
+      strength: 1 - cut.retract,
+      flare: cut.tension * (1 - cut.retract),
+      glow: false,
+    })
+  }
+
+  // Otherwise: only a *growing* tip. A waiting lane's apex is not growing, a landed
+  // one's has stopped and a frozen one's is dead — each of those has its own
+  // vocabulary at the node already, and a tuft on top of it would be a second claim.
+  if (thread.lane.activity !== 'working' || thread.pathology !== null) return []
+
+  return branchlets(frame, thread, hue, angle, length, {
+    strength: 1,
+    flare: 0,
+    glow: true,
+  })
+}
+
+interface Tuft {
+  /** How much of the tuft is there at all — 1 while growing, out over a cut. */
+  strength: number
+  /** The landing's once-only brightening, 0–1. */
+  flare: number
+  /** Whether this apex carries the 9b amendment's glow. Working tips only. */
+  glow: boolean
+}
+
+function branchlets(
+  frame: SceneFrame,
+  thread: ThreadGeometry,
+  hue: Rgb,
+  angle: number,
+  length: number,
+  tuft: Tuft,
+): Mark[] {
+  const { laneId } = thread
+  const habit = variationFor(variationSeed(thread.lane))
+  const branchlets = habit.phase < 0.45 ? 2 : 3
+  const forward: Point = { x: Math.cos(angle), y: Math.sin(angle) }
+  const across: Point = { x: -Math.sin(angle), y: Math.cos(angle) }
+  const at = (along: number, sideways: number): Point => ({
+    x: thread.node.x + forward.x * along + across.x * sideways,
+    y: thread.node.y + forward.y * along + across.y * sideways,
+  })
+
+  // Vivid: the family hue at its live end rather than the aged tint the lens
+  // wears. The apex is the newest part of the organism, so recency has nothing to
+  // say about it — this is the one mark on a lane whose brightness is *not* its age.
+  const vivid = ink(
+    hotter(hue, 0.25 + 0.4 * tuft.flare),
+    0.9 * clamp01(tuft.strength) * (1 + 0.1 * tuft.flare),
+  )
+  const base = length * 0.46
+  const reach = length * (0.42 + 0.3 * habit.curl) * clamp01(0.55 + 0.45 * tuft.strength)
+
+  const marks: Mark[] = []
+  for (let i = 0; i < branchlets; i += 1) {
+    // Splayed about the thread's own direction, unevenly: a fan of equal angles is
+    // a diagram of a growth cone rather than one.
+    const spread = ((i - (branchlets - 1) / 2) / Math.max(1, branchlets - 1)) * 2
+    const lean = spread * (0.5 + 0.4 * habit.curl)
+    marks.push(
+      ribbonMark({
+        role: 'tuft',
+        laneId,
+        alarm: false,
+        path: [
+          at(base, 0),
+          at(base + reach * 0.55, lean * reach * 0.3),
+          at(base + reach, lean * reach * 0.62 + (0.2 - 0.4 * habit.phase) * reach * 0.2),
+        ],
+        // Off the thread's own tip width: a branchlet leaves the apex at the width
+        // the thread arrived at, and needles away to nothing.
+        widthRoot: Math.max(0.8, thread.widthTip * 0.85),
+        widthTip: 0.15,
+        taperTip: 0.6,
+        samples: 8,
+        caps: false,
+        paint: budget(frame, laneId, false, vivid),
+      }),
+    )
+  }
+
+  if (!tuft.glow) return marks
+
+  // THE AMENDMENT. A small steady glow at the apex, above the calm ceiling and
+  // below the alarm floor — the light of a tip that is actually growing.
+  //
+  // "Commits pulse through to the tip": the brightness is the lane's own decaying
+  // inbound energy, which only a real `commit.landed` ever raises (`pulses.ts`), so
+  // a tip that is bright is a tip work has just come out of. Nothing here is on a
+  // clock of its own — the energy decays over about one agent turn and the glow
+  // goes with it.
+  const energy = frame.field.energyOf(laneId)
+  const lit = clamp01(TIP_LIGHT.floor + TIP_LIGHT.commit * clamp01(energy.inbound / 1.4))
+  marks.push({
+    kind: 'glow',
+    role: 'tuft-glow',
+    laneId,
+    alarm: false,
+    at: at(base + reach * 0.7, 0),
+    // Small, and *fixed* small: the radius is a bound (`TIP_GLOW_RADIUS`), not a
+    // channel. A tip glow that grew with anything would be spending the band.
+    radius: TIP_GLOW_RADIUS,
+    ink: spendTip(ink(hotter(hue, 0.5), lit), frame.salience, laneId),
+  })
+
+  return marks
+}
+
+/**
+ * How bright a working apex sits, and how much of that a commit buys.
+ *
+ * The floor is what "a small **steady** glow" means: an apex is lit because it is
+ * growing, not because something just happened, so a lane working quietly still
+ * has one. The commit term is the part that pulses, and it is capped so that the
+ * two together stay inside `TIP_CEILING` after `spendTip` — which holds it there
+ * anyway, and this is the belt as well as the braces.
+ */
+const TIP_LIGHT = { floor: 0.5, commit: 0.4 } as const
 
 /**
  * A plain lane's lens hue, dimmed toward ice as the lane ages — recency in the
@@ -257,9 +433,30 @@ function scarNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: RetireGeo
       // longer filling with work", and that has only become more true.
       stroke: 1,
     },
-    tailMark('scar-mark', thread, angle, length, cold(ink(lensTint(hue, freshness), 0.75))),
-    sealMark('scar-mark', thread, angle, length, cold(ink(ACTIVITY_HUE.done, 0.9))),
   ]
+
+  // THE APEX'S LAST ACT (prd10 ruling 4) — the tuft flares once as the cord parts,
+  // and is gone by the time it has sprung back.
+  marks.push(...tuftMarks(frame, thread, hue, angle, length))
+
+  // THE TAIL AND THE SEAL are the cord's own substance, so they go when the cord
+  // does (prd10 ruling 2): once the last mote has landed there is no ribbon
+  // geometry left on this lane anywhere. The lens above stays, and so do the name
+  // and the figure (`labelMarks`) — prd5 law 1's own list, which is what keeps a
+  // completion identifiable rather than merely invisible.
+  const leaving = composting(cut.dissolve)
+  if (leaving > 0) {
+    marks.push(
+      tailMark(
+        'scar-mark',
+        thread,
+        angle,
+        length,
+        fade(cold(ink(lensTint(hue, freshness), 0.75)), leaving),
+      ),
+      sealMark('scar-mark', thread, angle, length, fade(cold(ink(ACTIVITY_HUE.done, 0.9)), leaving)),
+    )
+  }
 
   if (frame.salience.spotlightId === laneId || frame.salience.hoverId === laneId) {
     marks.push(...spotlightMarks(thread, hue, length))

@@ -2,7 +2,7 @@ import type { RhizomorphEvent } from '@rhizomorph/core'
 import type { StreamState } from '../app/streamState.js'
 import { EVENT } from './motion.js'
 import { clamp01 } from './palette.js'
-import { resolveLane, type LaneIndex } from './resolve.js'
+import { resolveLane, resolvesToMain, type LaneIndex } from './resolve.js'
 
 /**
  * THE PULSE FIELD — every pulse is an event (ruling 32, law).
@@ -135,6 +135,25 @@ export class PulseField {
   private surgeLevel = 0
   private lastStep = 0
   private droppedPulses = 0
+  /**
+   * When the **conductor's own subagent thread** was last seen working, or null
+   * (prd10 ruling 9).
+   *
+   * The one fact this class carries that is not a pulse, and it is here rather than
+   * in the fleet model for a stated reason: every lane gets its subagent liveness
+   * from `selectSubagentActivity` as a vital (`Lane.subagents`), and MAIN gets none
+   * because MAIN is not a lane. The scene still has to draw the conductor's buds
+   * from MAIN's anatomy, so it reads the *same marker* the selector reads — a
+   * `thread: 'subagent'` telemetry record filed against main — off the news tail it
+   * already folds.
+   *
+   * The honest difference from a vital, recorded once here and again at the mark
+   * builder: news only. A replayed conductor grows no bud, exactly as a replayed
+   * lane fires no pulse (rule 1). It is a gap, it is the existing gap-honesty voice
+   * — no telemetry, no bud, nothing else lost — and closing it means giving
+   * `RootMass` the vital, which is a fleet-model change rather than a scene one.
+   */
+  private conductorSubagentTs: number | null = null
 
   /**
    * Fold a batch of **news**. Historical events must never reach here — that is
@@ -145,6 +164,15 @@ export class PulseField {
   }
 
   private ingestOne(event: RhizomorphEvent, index: LaneIndex, now: number): void {
+    // Ruling 9's conductor half, before the lane switch below: a thread-marked
+    // record filed against main is the conductor's subagent working, and it is the
+    // *only* thing that sets this. `resolveLane` returning null would not do — it
+    // means "main **or** a lane the fleet has never heard of", and a bud on MAIN
+    // for an unknown lane's subagent would be an invented fact.
+    if (isSubagentThread(event) && resolvesToMain(index, event)) {
+      this.conductorSubagentTs = now
+    }
+
     switch (event.type) {
       case 'commit.landed': {
         const laneId = resolveLane(index, event)
@@ -305,6 +333,15 @@ export class PulseField {
   }
 
   /**
+   * When the conductor's subagent thread last spoke, or null — prd10 ruling 9's
+   * MAIN half. See {@link PulseField.conductorSubagentTs}, including what it does
+   * not know.
+   */
+  conductorSubagentAt(): number | null {
+    return this.conductorSubagentTs
+  }
+
+  /**
    * Pulses refused outright at {@link MAX_PULSES} — not the ones the motion cap
    * coalesced, which are still counted and still drawn. Surfaced by the scene
    * rather than swallowed: a cap that silently eats traffic makes the picture a
@@ -408,6 +445,20 @@ export class PulseField {
     this.energies.set(laneId, created)
     return created
   }
+}
+
+/**
+ * Is this event a **subagent thread** speaking? (prd10 ruling 9's liveness marker.)
+ *
+ * The same two record kinds and the same field `selectSubagentActivity` reads —
+ * prd1's thread dimension, where a session log's `isSidechain: true` and OTel's
+ * `query_source: subagent` both land. Absent or null means *the source did not say*
+ * and is deliberately not treated as `subagent`: a bud drawn on a maybe would be
+ * the one thing ruling 9's data-honesty clause forbids.
+ */
+function isSubagentThread(event: RhizomorphEvent): boolean {
+  if (event.type !== 'llm.usage' && event.type !== 'tool.activity') return false
+  return event.payload.thread === 'subagent'
 }
 
 /**
