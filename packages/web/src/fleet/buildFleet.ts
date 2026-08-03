@@ -7,15 +7,20 @@ import {
   selectRoleSpend,
   selectSessionSpend,
   selectSpendRateByLane,
+  selectSubagentActivityIndex,
   selectTouchesByBranch,
+  selectWaitingOnHuman,
   selectWorktreeViews,
   type AgentRole,
   type AgentStatus,
   type AgentThread,
   type CollisionEntry,
   type LaneSpend,
+  type LaneSubagentActivity,
   type SessionState,
+  type SpanDecision,
   type TokenTotals,
+  type WaitingOnHumanSummary,
 } from '@rhizomorph/core'
 import { findTrespasses, type LaneManifest, type Trespass } from './fences.js'
 
@@ -200,6 +205,28 @@ export interface Filament {
   requestCount: number
 }
 
+/**
+ * #143 — {@link WaitingOnHumanSummary} (`selectWaitingOnHuman`, #125), merged
+ * across every handle this lane resolves to, plus one derived fact the raw
+ * selector cannot carry: which decision belongs to `longestWait` itself. The
+ * selector's own `decisions` field is a lane-wide census (how many of each),
+ * not a property of any one wait, so the retrospective chip's decision glyph
+ * is resolved here, from the exact span `longestWait.spanId` names, the one
+ * place in this file that already reads `state.traces.spans` directly (prd9
+ * ruling 4 keeps spans out of every selector spend reads, so nothing upstream
+ * could have carried this fact for us).
+ *
+ * Always present, never null: a lane that has never sat blocked on a human
+ * gets the selector's own honest zeroed shape (`waitCount: 0`,
+ * `longestWait: null`), which is a real computed fact ("checked, found
+ * nothing"), not a gap — the detection-honesty convention this field follows
+ * is {@link WaitingOnHumanSummary}'s own, unchanged.
+ */
+export interface LaneWaitedOnHuman extends WaitingOnHumanSummary {
+  /** Null whenever `longestWait` is null, or — honest gap — the span it names somehow is not in the log. */
+  longestWaitDecision: SpanDecision | null
+}
+
 export interface Lane {
   /** Stable key: the branch when known, else the worktree path, else the handle. */
   id: string
@@ -273,6 +300,17 @@ export interface Lane {
    * a lane with no feed shows AGE alone, never an invented zero ACTIVE.
    */
   activeSeconds: number | null
+  /** #143 — how long this lane has SAT waiting on a human, retrospectively. See {@link LaneWaitedOnHuman}. */
+  waitedOnHuman: LaneWaitedOnHuman
+  /**
+   * #143 — this lane's live subagent bud, from thread-marked telemetry
+   * recency (`selectSubagentActivity`, prd10 ruling 9's data layer),
+   * trace-enriched where the lane is instrumented. Null when no
+   * `thread: 'subagent'` reading has reached this lane inside the window —
+   * never a zeroed bud: the scene reads null as "no bud to draw", exactly
+   * `activeSeconds`' own gap-honesty rule.
+   */
+  subagents: LaneSubagentActivity | null
 
   // diagnosis
   /** Tool names inside the loop window, oldest first — the loop evidence. */
@@ -442,6 +480,7 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
   const roleSplit = selectRoleSpend(state, { origins: TOKEN_ORIGINS })
   const costRoleSplit = selectRoleSpend(state)
   const activeSecondsByLane = selectActiveSecondsByLaneIndex(state)
+  const subagentActivityByLane = selectSubagentActivityIndex(state, { now })
 
   const worktrees = selectWorktreeViews(state, { includeRemoved: true })
   const touches = selectTouchesByBranch(state)
@@ -449,6 +488,7 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
   const toolsByHandle = recentToolsByHandle(state, now - LOOP_WINDOW_MS)
   const spanTsByHandle = latestSpanTsByLane(state, now - SPAN_WITNESS_WINDOW_MS)
   const commitTsByBranch = latestCommitTsByBranch(state)
+  const spanDecisionByKey = spanDecisionsByKey(state)
 
   const main = worktrees.find((view) => view.isMain) ?? null
   const mainBranch = state.mainBranch ?? main?.branch ?? null
@@ -555,6 +595,8 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
     const lastEventTs = maxTs(lastWorkTs, draft.paneActivityTs)
     const fence = manifest === null ? undefined : fenceFor(manifest, draft, handles)
     const activeSeconds = sumActiveSeconds(handles, activeSecondsByLane)
+    const waitedOnHuman = waitedOnHumanFor(state, draft.id, draft.branch, handles, spanDecisionByKey)
+    const subagents = subagentActivityFor(subagentActivityByLane, draft.id, draft.branch, handles)
 
     lanes.push({
       id: draft.id,
@@ -592,6 +634,8 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       workAgeMs: lastWorkTs === null ? null : Math.max(0, now - lastWorkTs),
       firstSeenAt: draft.firstSeenAt,
       activeSeconds,
+      waitedOnHuman,
+      subagents,
 
       recentTools: handles.flatMap((handle) => toolsByHandle.get(handle) ?? []),
       pathologies: [],
@@ -1164,6 +1208,96 @@ function sumActiveSeconds(
     if (seconds === undefined) return acc
     return (acc ?? 0) + seconds
   }, null)
+}
+
+/**
+ * A lane's whole waited-on-human picture (#143), merged across every key it
+ * could be filed under — `selectWaitingOnHuman` filters by one exact `lane`
+ * string, and a lane in this file can resolve two collector handles into one
+ * row, so each candidate key is queried and the summaries added together, the
+ * same fallback order `spanTsByHandle` reads (id, branch, every handle). A
+ * key with no `tool_blocked` spans at all just contributes the selector's own
+ * zeroed summary, which is harmless to add.
+ */
+function waitedOnHumanFor(
+  state: SessionState,
+  laneId: string,
+  branch: string | null,
+  handles: readonly string[],
+  spanDecisionByKey: ReadonlyMap<string, SpanDecision | null>,
+): LaneWaitedOnHuman {
+  const keys = new Set<string>([laneId, ...handles])
+  if (branch !== null) keys.add(branch)
+
+  const summary = mergeWaitingOnHuman(
+    [...keys].map((lane) => selectWaitingOnHuman(state, { lane })),
+  )
+  const longestWaitDecision =
+    summary.longestWait === null
+      ? null
+      : (spanDecisionByKey.get(spanKey(summary.longestWait.traceId, summary.longestWait.spanId)) ?? null)
+
+  return { ...summary, longestWaitDecision }
+}
+
+function mergeWaitingOnHuman(
+  summaries: readonly WaitingOnHumanSummary[],
+): WaitingOnHumanSummary {
+  return summaries.reduce<WaitingOnHumanSummary>(
+    (acc, summary) => ({
+      totalWaitMs: acc.totalWaitMs + summary.totalWaitMs,
+      waitCount: acc.waitCount + summary.waitCount,
+      decisions: {
+        accept: acc.decisions.accept + summary.decisions.accept,
+        reject: acc.decisions.reject + summary.decisions.reject,
+        unknown: acc.decisions.unknown + summary.decisions.unknown,
+      },
+      longestWait:
+        summary.longestWait === null
+          ? acc.longestWait
+          : acc.longestWait === null || summary.longestWait.waitMs > acc.longestWait.waitMs
+            ? summary.longestWait
+            : acc.longestWait,
+    }),
+    {
+      totalWaitMs: 0,
+      waitCount: 0,
+      decisions: { accept: 0, reject: 0, unknown: 0 },
+      longestWait: null,
+    },
+  )
+}
+
+function spanKey(traceId: string, spanId: string): string {
+  return `${traceId}::${spanId}`
+}
+
+/** Every span's own `decision`, keyed by `(traceId, spanId)` — the fact `LongestWait` itself does not carry. */
+function spanDecisionsByKey(state: SessionState): Map<string, SpanDecision | null> {
+  const index = new Map<string, SpanDecision | null>()
+  for (const span of state.traces.spans) index.set(spanKey(span.traceId, span.spanId), span.decision)
+  return index
+}
+
+/**
+ * The freshest subagent-activity row across every key a lane could be filed
+ * under — same fallback order as {@link waitedOnHumanFor}. Null when none of
+ * them has one (law 12's gap-honesty, not a zeroed bud).
+ */
+function subagentActivityFor(
+  byLane: Readonly<Record<string, LaneSubagentActivity>>,
+  laneId: string,
+  branch: string | null,
+  handles: readonly string[],
+): LaneSubagentActivity | null {
+  const keys = [laneId, ...(branch === null ? [] : [branch]), ...handles]
+  let best: LaneSubagentActivity | null = null
+  for (const key of keys) {
+    const entry = byLane[key]
+    if (entry === undefined) continue
+    if (best === null || entry.lastActivityTs > best.lastActivityTs) best = entry
+  }
+  return best
 }
 
 function indexByLane(rows: readonly LaneSpend[]): Record<string, LaneSpend> {

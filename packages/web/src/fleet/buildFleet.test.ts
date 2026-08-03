@@ -678,6 +678,183 @@ describe('Lane.activeSeconds', () => {
   })
 })
 
+// ── #143: waited-on-human vitals ────────────────────────────────────────────
+
+describe('Lane.waitedOnHuman', () => {
+  function baseLog(now: number, extraLane?: string) {
+    return [
+      event('session.started', {
+        sessionId: 'wait',
+        repoPath: '/repo',
+        repoName: 'rhizomorph',
+        mainBranch: 'main',
+      }, now - 60_000),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, now - 60_000),
+      event('worktree.discovered', { path: '/repo-wt/w', branch: 'w', head: 'sha-w', isMain: false }, now - 60_000),
+      ...(extraLane === undefined
+        ? []
+        : [event('worktree.discovered', { path: `/repo-wt/${extraLane}`, branch: extraLane, head: 'sha-x', isMain: false }, now - 60_000)]),
+    ]
+  }
+
+  function blockedSpan(
+    lane: string,
+    spanId: string,
+    waitMs: number,
+    decision: 'accept' | 'reject' | 'unknown',
+    ts: number,
+  ): RhizomorphEvent {
+    return event(
+      'trace.span',
+      {
+        lane,
+        role: 'worker',
+        traceId: `trace-${lane}`,
+        spanId,
+        parentSpanId: null,
+        name: 'claude_code.tool.blocked_on_user',
+        kind: 'tool_blocked',
+        startTs: ts - waitMs,
+        endTs: ts,
+        status: 'ok',
+        decision,
+        toolName: 'Bash',
+      },
+      ts,
+    )
+  }
+
+  it("is the selector's own honest zero for a lane that never sat blocked on a human", () => {
+    const fleet = buildFleet(reduceAll(baseLog(NOW)), { now: NOW })
+    expect(laneIn(fleet, 'w').waitedOnHuman).toEqual({
+      totalWaitMs: 0,
+      waitCount: 0,
+      decisions: { accept: 0, reject: 0, unknown: 0 },
+      longestWait: null,
+      longestWaitDecision: null,
+    })
+  })
+
+  it('reports the total waited, the decision census, and the longest wait with its OWN decision', () => {
+    const log = [
+      ...baseLog(NOW),
+      blockedSpan('w', 'blocked-1', 5_000, 'accept', NOW - 40_000),
+      blockedSpan('w', 'blocked-2', 12_000, 'reject', NOW - 20_000),
+    ]
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    const waited = laneIn(fleet, 'w').waitedOnHuman
+
+    expect(waited.totalWaitMs).toBe(17_000)
+    expect(waited.waitCount).toBe(2)
+    expect(waited.decisions).toEqual({ accept: 1, reject: 1, unknown: 0 })
+    // The census counts both; the chip needs the ONE that belongs to the
+    // longest wait specifically — the 12s reject, not the 5s accept.
+    expect(waited.longestWait?.waitMs).toBe(12_000)
+    expect(waited.longestWaitDecision).toBe('reject')
+  })
+
+  it("never lets another lane's longer wait leak into this one", () => {
+    const log = [
+      ...baseLog(NOW, 'other'),
+      blockedSpan('w', 'blocked-w', 3_000, 'accept', NOW - 30_000),
+      blockedSpan('other', 'blocked-o', 90_000, 'reject', NOW - 10_000),
+    ]
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    expect(laneIn(fleet, 'w').waitedOnHuman.longestWait?.waitMs).toBe(3_000)
+    expect(laneIn(fleet, 'w').waitedOnHuman.longestWaitDecision).toBe('accept')
+    expect(laneIn(fleet, 'other').waitedOnHuman.longestWait?.waitMs).toBe(90_000)
+    expect(laneIn(fleet, 'other').waitedOnHuman.longestWaitDecision).toBe('reject')
+  })
+
+  it('never turns a wait into a pathology or moves the ladder off calm — memory, not a summons', () => {
+    const log = [...baseLog(NOW), blockedSpan('w', 'blocked-big', 20 * 60_000, 'reject', NOW - 5_000)]
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    expect(fleet.ladder.rank).toBe('calm')
+    expect(laneIn(fleet, 'w').pathologies).toEqual([])
+  })
+})
+
+describe('Lane.subagents', () => {
+  function baseLog(now: number) {
+    return [
+      event('session.started', {
+        sessionId: 'buds',
+        repoPath: '/repo',
+        repoName: 'rhizomorph',
+        mainBranch: 'main',
+      }, now - 60_000),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, now - 60_000),
+      event('worktree.discovered', { path: '/repo-wt/s', branch: 's', head: 'sha-s', isMain: false }, now - 60_000),
+    ]
+  }
+
+  it('is null — never a zeroed bud — for a lane with no thread-marked subagent telemetry', () => {
+    const fleet = buildFleet(reduceAll(baseLog(NOW)), { now: NOW })
+    expect(laneIn(fleet, 's').subagents).toBeNull()
+  })
+
+  it('reports a live, trace-enriched bud for a lane with recent thread: subagent telemetry', () => {
+    const log = [
+      ...baseLog(NOW),
+      event(
+        'llm.usage',
+        {
+          lane: 's',
+          role: 'worker',
+          model: 'claude-opus-5',
+          tokens: { input: 1, output: 2, cacheRead: 0, cacheCreation: 0 },
+          thread: 'subagent',
+        },
+        NOW - 30_000,
+      ),
+      event(
+        'trace.span',
+        {
+          lane: 's',
+          role: 'worker',
+          traceId: 'trace-s',
+          spanId: 'span-s-1',
+          parentSpanId: null,
+          name: 'claude_code.tool',
+          kind: 'tool',
+          startTs: NOW - 31_000,
+          endTs: NOW - 30_500,
+          status: 'ok',
+          toolName: 'Task',
+          agentId: 'agent-9',
+          subagentType: 'Explore',
+        },
+        NOW - 30_000,
+      ),
+    ]
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    expect(laneIn(fleet, 's').subagents).toEqual({
+      lane: 's',
+      lastActivityTs: NOW - 30_000,
+      agentId: 'agent-9',
+      subagentType: 'Explore',
+    })
+  })
+
+  it('leaves the bud unenriched — never null — when the lane is live but uninstrumented by traces', () => {
+    const log = [
+      ...baseLog(NOW),
+      event(
+        'tool.activity',
+        { lane: 's', tool: 'Read', thread: 'subagent' },
+        NOW - 20_000,
+      ),
+    ]
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    expect(laneIn(fleet, 's').subagents).toEqual({
+      lane: 's',
+      lastActivityTs: NOW - 20_000,
+      agentId: null,
+      subagentType: null,
+    })
+  })
+})
+
 // ── pointability (graft g7) ─────────────────────────────────────────────────
 
 describe('lane slots', () => {
