@@ -147,7 +147,7 @@ export default function ActivityFeed({ collapsed = false }: ActivityFeedProps = 
               key={entry.id}
               data-testid="feed-entry"
               data-kind={entry.kind}
-              className={`rounded px-1.5 py-1${entry.news ? ' feed-entry-pulse' : ''}`}
+              className={`rounded px-1.5 py-1.5 leading-relaxed${entry.news ? ' feed-entry-pulse' : ''}`}
             >
               <FeedRow entry={entry} />
             </li>

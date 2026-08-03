@@ -55,7 +55,7 @@ export function ActivityView({ entries, now }: ActivityViewProps) {
               key={entry.id}
               data-testid="activity-entry"
               data-kind={entry.kind}
-              className="flex items-baseline gap-2 border-t border-ice-850/60 py-0.5 first:border-t-0"
+              className="flex items-baseline gap-2 border-t border-ice-850/60 py-1 first:border-t-0"
             >
               <span className="figures w-10 shrink-0 text-right text-[10px] text-ice-400">
                 {relative(entry.ts, now)}
@@ -63,7 +63,7 @@ export function ActivityView({ entries, now }: ActivityViewProps) {
               <span className={`w-14 shrink-0 text-[10px] uppercase tracking-wider ${KIND_CLASS[entry.kind]}`}>
                 {KIND_WORD[entry.kind]}
               </span>
-              <span className="min-w-0 flex-1 font-mono text-[11px] leading-snug text-ice-300">
+              <span className="min-w-0 flex-1 font-mono text-[11px] leading-relaxed text-ice-300">
                 <EntryBody entry={entry} />
               </span>
             </li>

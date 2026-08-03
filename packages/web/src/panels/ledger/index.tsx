@@ -163,12 +163,12 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
                             data-testid="ledger-subrow"
                             className="border-t border-void-line/30 text-xs"
                           >
-                            <td className="py-1 pr-2 pl-6 font-mono text-slate-400">
+                            <td className="py-1.5 pr-2 pl-6 font-mono text-slate-400">
                               {threadLabel(thread.thread)}
                             </td>
-                            <td className="py-1 pr-2 text-slate-600">—</td>
+                            <td className="py-1.5 pr-2 text-slate-600">—</td>
                             <td
-                              className="py-1 pr-2 font-mono text-slate-300"
+                              className="py-1.5 pr-2 font-mono text-slate-300"
                               data-testid="ledger-subrow-cost"
                               title={costCellTitle(thread)}
                             >
@@ -180,19 +180,19 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
                               ) : null}
                             </td>
                             <td
-                              className="py-1 pr-2 font-mono text-slate-400"
+                              className="py-1.5 pr-2 font-mono text-slate-400"
                               data-testid="ledger-subrow-tokens"
                               title={tokensCellTitle(thread)}
                             >
                               {formatTokens(thread.tokens.output)}
                               <span className="ml-1 text-[10px] text-slate-500">out</span>
                             </td>
-                            <td className="py-1 pr-2 text-slate-400">
+                            <td className="py-1.5 pr-2 text-slate-400">
                               {thread.models.length === 0 ? '—' : thread.models.join(', ')}
                             </td>
-                            <td className="py-1 pr-2 text-slate-600">—</td>
-                            <td className="py-1 pr-2 text-slate-600">—</td>
-                            <td className="py-1 text-slate-600">—</td>
+                            <td className="py-1.5 pr-2 text-slate-600">—</td>
+                            <td className="py-1.5 pr-2 text-slate-600">—</td>
+                            <td className="py-1.5 text-slate-600">—</td>
                           </tr>
                         ))
                       : null}

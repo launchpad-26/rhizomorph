@@ -87,7 +87,7 @@ export default function CollisionsPanel() {
               <table className="w-full min-w-max border-collapse text-left text-xs">
                 <thead>
                   <tr>
-                    <th className="sticky top-0 z-10 min-w-[14rem] bg-ice-950 px-2 py-1 font-medium text-ice-400">
+                    <th className="sticky top-0 z-10 min-w-[14rem] bg-ice-950 px-2 py-1.5 font-medium text-ice-400">
                       File
                     </th>
                     {columns.map((branch) => (
@@ -95,7 +95,7 @@ export default function CollisionsPanel() {
                         key={branch}
                         scope="col"
                         title={branch}
-                        className="sticky top-0 z-10 min-w-14 truncate bg-ice-950 px-2 py-1 text-center font-medium text-ice-400"
+                        className="sticky top-0 z-10 min-w-14 truncate bg-ice-950 px-2 py-1.5 text-center font-medium text-ice-400"
                       >
                         {shortenBranch(branch)}
                       </th>
@@ -116,7 +116,7 @@ export default function CollisionsPanel() {
                     >
                       <td
                         title={row.path}
-                        className={`figures min-w-[14rem] truncate px-2 py-1 ${
+                        className={`figures min-w-[14rem] truncate px-2 py-1.5 leading-relaxed ${
                           row.collided ? 'glow-needs-you text-needs-you' : 'text-ice-300'
                         }`}
                       >
@@ -125,7 +125,7 @@ export default function CollisionsPanel() {
                       {columns.map((branch) => (
                         <td
                           key={branch}
-                          className={`px-2 py-1 text-center ${row.collided ? 'glow-needs-you' : ''}`}
+                          className={`px-2 py-1.5 text-center ${row.collided ? 'glow-needs-you' : ''}`}
                         >
                           {row.branches.includes(branch) ? (
                             <span
