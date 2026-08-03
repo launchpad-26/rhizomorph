@@ -52,8 +52,14 @@ describe('event envelope', () => {
   })
 
   it('maps each type to exactly one declared source', () => {
+    // prd12 ruling 1: 'lab' is the laboratory's own source — a second,
+    // explicitly-invoked actor deliberately kept out of `eventSourceSchema`
+    // (that enum means "which collector saw it"; the lab is not a
+    // collector — see events/lab.ts). Declared here instead, so this stays
+    // an exhaustive, closed check rather than one that got quietly loosened.
+    const knownSources: readonly string[] = [...eventSourceSchema.options, 'lab']
     for (const type of EVENT_TYPES) {
-      expect([...eventSourceSchema.options]).toContain(sourceOf(type))
+      expect(knownSources).toContain(sourceOf(type))
       expect(EVENT_SOURCE_BY_TYPE[type]).toBe(sourceOf(type))
     }
   })
@@ -251,5 +257,18 @@ function oneOfEach() {
       activeSeconds: 542,
       sessionId: 'sess-1',
     }, { id: id(), ts: 20 }),
+    // prd12 ruling 2: the laboratory's keystone event, source 'lab'.
+    createEvent('fork.checkpoint', {
+      lane: 'feat',
+      checkpointId: 'ckpt-1',
+      eventIndex: 20,
+      sessionFile: '/home/x/.claude/projects/-repo-wt-feat/session.jsonl',
+      sessionCutByte: 4096,
+      sessionDigest: 'a'.repeat(64),
+      snapshotRef: 'refs/rhizomorph/checkpoints/ckpt-1',
+      snapshotSha: 'snap1',
+      headSha: 'head1',
+      capturedBy: 'operator',
+    }, { id: id(), ts: 21 }),
   ]
 }

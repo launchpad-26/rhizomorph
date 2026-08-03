@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { EventSource } from './common.js'
 import { gitEventSchemas } from './git.js'
+import { labEventSchemas } from './lab.js'
 import { systemEventSchemas } from './system.js'
 import { telemetryEventSchemas } from './telemetry.js'
 import { tmuxEventSchemas } from './tmux.js'
@@ -9,6 +10,7 @@ import { workmuxEventSchemas } from './workmux.js'
 
 export * from './common.js'
 export * from './git.js'
+export * from './lab.js'
 export * from './system.js'
 export * from './telemetry.js'
 export * from './tmux.js'
@@ -23,6 +25,7 @@ export const rhizomorphEventSchema = z.discriminatedUnion('type', [
   ...systemEventSchemas,
   ...telemetryEventSchemas,
   ...traceEventSchemas,
+  ...labEventSchemas,
 ])
 
 export type RhizomorphEvent = z.infer<typeof rhizomorphEventSchema>
@@ -69,7 +72,12 @@ export const EVENT_SOURCE_BY_TYPE = {
   'trace.span': 'otel',
   // #141: the active-time counter only ever arrives on our own metrics POST.
   'agent.activeTime': 'otel',
-} as const satisfies Record<EventType, EventSource>
+  // prd12 ruling 1: the lab's own hand — a distinct, explicitly-invoked
+  // actor, not a seventh collector. `'lab'` is deliberately absent from
+  // `EventSource`/`eventSourceSchema` (see events/lab.ts); the satisfies
+  // clause below is widened by exactly that one literal to say so.
+  'fork.checkpoint': 'lab',
+} as const satisfies Record<EventType, EventSource | 'lab'>
 
 export const EVENT_TYPES = Object.keys(EVENT_SOURCE_BY_TYPE) as EventType[]
 
