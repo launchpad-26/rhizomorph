@@ -236,10 +236,16 @@ describe('FleetTable — gap-honest cells (law 12)', () => {
     fx.worktreeDiscovered({ path: laneWorktreePath, branch: '42-gap-lane', isMain: false })
     // A declared subagent thread and a thread the source never named — the
     // honest reading is `sub` beside `unk`, never a guess at the second one.
+    // `model` is pinned to an id no vendored pricing pattern covers (prd9
+    // ruling 7): this scenario's whole point is "no cost feed reached the
+    // lane" law 12 tests, and the real fixture default (`claude-opus-5`) is
+    // now a real vendored entry that would earn a selector-side estimate —
+    // an honest, different fact this describe block does not mean to cover.
     fx.llmUsage({
       lane: '42-gap-lane',
       branch: '42-gap-lane',
       worktreePath: laneWorktreePath,
+      model: 'test-model-unpriced',
       thread: 'subagent',
       tokens: { input: 5, output: 120, cacheRead: 10, cacheCreation: 20 },
     })
@@ -247,6 +253,7 @@ describe('FleetTable — gap-honest cells (law 12)', () => {
       lane: '42-gap-lane',
       branch: '42-gap-lane',
       worktreePath: laneWorktreePath,
+      model: 'test-model-unpriced',
       tokens: { input: 5, output: 80, cacheRead: 5, cacheCreation: 5 },
     })
     fx.toolActivity({ lane: '42-gap-lane', branch: '42-gap-lane', worktreePath: laneWorktreePath, tool: 'Read' })

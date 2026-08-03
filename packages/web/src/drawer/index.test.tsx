@@ -70,11 +70,16 @@ function laneHistory(): RhizomorphEvent[] {
       currentPath: WORKTREE,
       worktreePath: WORKTREE,
     }),
+    // `model` is pinned to an id no vendored pricing pattern covers (prd9
+    // ruling 7): this fixture's `$` cell means "no cost feed reached the
+    // lane" (law 12), and the real default model (`claude-opus-5`) is now a
+    // real vendored entry that would earn a selector-side estimate instead.
     f.llmUsage({
       lane: LANE,
       branch: LANE,
       worktreePath: WORKTREE,
       sessionId: 'sess-84',
+      model: 'test-model-unpriced',
       thread: 'main',
       tokens: { input: 10, output: 4_200, cacheRead: 90_000, cacheCreation: 1_000 },
     }),
@@ -401,11 +406,17 @@ describe('LaneDrawer — MAIN, the conductor', () => {
         currentPath: CONDUCTOR_DIR,
         worktreePath: CONDUCTOR_DIR,
       }),
+      // `model` is pinned to an id no vendored pricing pattern covers (prd9
+      // ruling 7): both tests reading this fixture's dollars mean "nobody
+      // instrumented cost telemetry here" (law 12 / the conductor gap), and
+      // the real default model (`claude-opus-5`) is now a real vendored
+      // entry that would earn a selector-side estimate instead of a gap.
       f.llmUsage({
         lane: LANE,
         branch: LANE,
         worktreePath: WORKTREE,
         sessionId: 'sess-84',
+        model: 'test-model-unpriced',
         tokens: { input: 10, output: 4_200, cacheRead: 90_000, cacheCreation: 1_000 },
       }),
       f.llmUsage({
@@ -414,6 +425,7 @@ describe('LaneDrawer — MAIN, the conductor', () => {
         branch: null,
         worktreePath: CONDUCTOR_DIR,
         sessionId: 'sess-conductor',
+        model: 'test-model-unpriced',
         tokens: { input: 40, output: 12_000, cacheRead: 5_000, cacheCreation: 0 },
       }),
       f.commitLanded({

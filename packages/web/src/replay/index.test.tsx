@@ -1,4 +1,4 @@
-import { createEvent, createIdFactory } from '@rhizomorph/core'
+import { createEvent, createIdFactory, estimateCostUsd } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ModeProvider } from '../app/ModeContext.js'
@@ -244,7 +244,14 @@ function makeMoneyFetch(): FetchLike {
 }
 
 describe('ReplayControls — spend', () => {
-  it('shows tokens in the scrub line before any cost telemetry has landed', async () => {
+  it('shows a flagged estimate at the scrub point where only tokens have landed (prd9 ruling 7)', async () => {
+    // Reconciled for ruling 7: at ts=3000 the `llm.cost` event (ts=4000) has not
+    // scrubbed into view yet, so this usage genuinely has no authoritative cost
+    // AT THIS SCRUB POINT — exactly the case the vendored pricing table now
+    // estimates on read, rather than the pre-pricing "1 tok out" fallback this
+    // test used to assert. `formatSpend` does not distinguish authoritative
+    // from estimated (see its own doc comment), so the scrub line renders the
+    // same tiny dollar figure `estimateCostUsd` would.
     await renderReplay(makeMoneyFetch())
 
     const select = screen.getByLabelText('session')
@@ -252,9 +259,10 @@ describe('ReplayControls — spend', () => {
 
     const scrubber = screen.getByLabelText('Replay scrubber')
     fireEvent.change(scrubber, { target: { value: '3000' } })
-    // Only the token-only llm.usage event has landed — no cost event yet.
-    // The fallback is output-led (1), never the unlabelled all-tier sum (2).
-    await waitFor(() => expect(screen.getByText(/1 tok out as of scrub time/)).toBeInTheDocument())
+    const estimate = estimateCostUsd('claude-opus-5', { input: 1, output: 1, cacheRead: 0, cacheCreation: 0 })
+    expect(estimate).not.toBeNull()
+    expect(estimate!.costUsd).toBeLessThan(0.01)
+    await waitFor(() => expect(screen.getByText(/<\$0\.01 as of scrub time/)).toBeInTheDocument())
   })
 
   it('switches the scrub line to dollars once an authoritative cost event lands', async () => {
