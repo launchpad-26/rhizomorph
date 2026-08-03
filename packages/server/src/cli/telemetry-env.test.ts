@@ -13,6 +13,76 @@ function metaFetch(body: unknown, init: ResponseInit = {}): typeof globalThis.fe
 describe('renderTelemetryEnv', () => {
   const instance = '1785458425389'
 
+  /**
+   * prd9 #140 — `--shell` learns powershell and cmd, but the default (`sh`,
+   * unspecified) must stay byte-for-byte what it always was: `.workmux.yaml`
+   * and every existing doc depend on this exact output.
+   */
+  it('renders the sh form byte-identical to before --shell existed, whether shell is omitted or explicit', () => {
+    const withoutShell = renderTelemetryEnv({ lane: 'test-lane', role: 'worker', port: 4321, instance })
+    const withShell = renderTelemetryEnv({ lane: 'test-lane', role: 'worker', port: 4321, instance, shell: 'sh' })
+
+    expect(withoutShell).toBe(withShell)
+    expect(withoutShell).toBe(
+      [
+        'export CLAUDE_CODE_ENABLE_TELEMETRY=1',
+        'export CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1',
+        'export OTEL_METRICS_EXPORTER=otlp',
+        'export OTEL_LOGS_EXPORTER=otlp',
+        'export OTEL_TRACES_EXPORTER=otlp',
+        'export OTEL_EXPORTER_OTLP_PROTOCOL=http/json',
+        'export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4321',
+        'export OTEL_METRIC_EXPORT_INTERVAL=5000',
+        'export OTEL_LOGS_EXPORT_INTERVAL=2000',
+        'export OTEL_TRACES_EXPORT_INTERVAL=1000',
+        `export OTEL_RESOURCE_ATTRIBUTES=lane=test-lane,role=worker,instance=${instance}`,
+        '',
+      ].join('\n'),
+    )
+  })
+
+  it('renders the powershell form, every line as $env:NAME = "value", including the quoted OTEL_RESOURCE_ATTRIBUTES', () => {
+    const block = renderTelemetryEnv({ lane: 'test-lane', role: 'worker', port: 4321, instance, shell: 'powershell' })
+
+    expect(block).toBe(
+      [
+        '$env:CLAUDE_CODE_ENABLE_TELEMETRY = "1"',
+        '$env:CLAUDE_CODE_ENHANCED_TELEMETRY_BETA = "1"',
+        '$env:OTEL_METRICS_EXPORTER = "otlp"',
+        '$env:OTEL_LOGS_EXPORTER = "otlp"',
+        '$env:OTEL_TRACES_EXPORTER = "otlp"',
+        '$env:OTEL_EXPORTER_OTLP_PROTOCOL = "http/json"',
+        '$env:OTEL_EXPORTER_OTLP_ENDPOINT = "http://127.0.0.1:4321"',
+        '$env:OTEL_METRIC_EXPORT_INTERVAL = "5000"',
+        '$env:OTEL_LOGS_EXPORT_INTERVAL = "2000"',
+        '$env:OTEL_TRACES_EXPORT_INTERVAL = "1000"',
+        `$env:OTEL_RESOURCE_ATTRIBUTES = "lane=test-lane,role=worker,instance=${instance}"`,
+        '',
+      ].join('\n'),
+    )
+  })
+
+  it('renders the cmd form, every line as set NAME=value, unquoted', () => {
+    const block = renderTelemetryEnv({ lane: 'test-lane', role: 'worker', port: 4321, instance, shell: 'cmd' })
+
+    expect(block).toBe(
+      [
+        'set CLAUDE_CODE_ENABLE_TELEMETRY=1',
+        'set CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1',
+        'set OTEL_METRICS_EXPORTER=otlp',
+        'set OTEL_LOGS_EXPORTER=otlp',
+        'set OTEL_TRACES_EXPORTER=otlp',
+        'set OTEL_EXPORTER_OTLP_PROTOCOL=http/json',
+        'set OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4321',
+        'set OTEL_METRIC_EXPORT_INTERVAL=5000',
+        'set OTEL_LOGS_EXPORT_INTERVAL=2000',
+        'set OTEL_TRACES_EXPORT_INTERVAL=1000',
+        `set OTEL_RESOURCE_ATTRIBUTES=lane=test-lane,role=worker,instance=${instance}`,
+        '',
+      ].join('\n'),
+    )
+  })
+
   it('emits an exportable env block pointed at this server\'s OTLP receiver', () => {
     const block = renderTelemetryEnv({ lane: 'test-lane', role: 'worker', port: 4321, instance })
 
