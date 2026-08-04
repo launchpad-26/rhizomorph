@@ -59,6 +59,39 @@ import { salienceOf } from './salience.js'
  * the cost of the one it replaces and allocates nothing, and the whole gorgeous
  * round — apices, buds, the heart's rings, the ambient layer and a composting cord
  * — spends about 2.4 ms of the 11.5 ms that was spare.
+ *
+ * ---
+ *
+ * **#157's OWN BEFORE/AFTER**, taken because the operator suspected a frame-rate
+ * cost in the round above. Six paired rounds, before and after **interleaved** so
+ * both saw the same machine — which mattered: the same code measured 6.6 ms on a
+ * quiet box and 22 ms while four sibling worktrees ran their suites, and a
+ * before/after taken an hour apart would have "found" a 3× regression that was
+ * the load average. Median of the quiet rounds:
+ *
+ * | measurement                          | before  | after   | budget |
+ * | ------------------------------------ | ------- | ------- | ------ |
+ * | whole frame, 30 lanes + 2 cuts       | 6.61ms  | 6.40ms  | 16.67  |
+ * | …worst frame of sixty                | 9.9ms   | 8.8ms   | 16.67  |
+ * | …as a share of a 60 fps frame        | 39.7%   | 38.4%   | 100%   |
+ * | layout / marks / paint (after)       | 0.64 / 5.13 / 0.51 ms    ||
+ * | marks by builder (after)             | thread 1.63 · root 1.36 · node 0.54 ||
+ *
+ * **No change, and by construction rather than by luck**: #157 moved colour
+ * constants, and its one new per-frame call (`ambientLift`/`ambientVeil`) returns
+ * its argument unchanged when `frame.vibrancy` is 1, which it always is live. The
+ * two numbers above differ by less than the run-to-run spread on an idle box.
+ *
+ * **So the scene was not over budget and nothing was optimised**, which was the
+ * brief's own condition. What the profile *does* say, for whoever needs it later:
+ * the marks stage is 80% of the frame, and inside it `root` is the one builder
+ * doing avoidable work — `contourLayers` re-samples the heart's scalar field and
+ * re-walks 18–26 levels every frame for a shape that differs by the breath's
+ * ±1.6%. Baking that field in unit space and *placing* it by a transform (what
+ * `BakedMark` already does for the rim flora) would cache it across every calm
+ * frame and take ~1.3 ms out of 6.4. That is the next win, and it is a real
+ * refactor rather than a tweak — worth taking when the budget is tight, and not
+ * worth the regression risk while the frame sits at 38% of it.
  */
 
 const N = DISSOLUTION.maxLive
