@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type MouseEvent } from 'react'
 import { isTypingTarget } from '../../app/keyboard.js'
 import { usePanelFocus } from '../../app/panelPrefs.js'
+import { laneUrl, navigate } from '../../app/router.js'
 import { useStream } from '../../app/StreamContext.js'
 import { copyToClipboard, type CopyText } from '../../drawer/AttachButton.js'
 import { attachPlan } from '../../drawer/attach.js'
@@ -16,6 +17,7 @@ import {
   type Lane,
 } from '../../fleet/index.js'
 import { formatTokens } from '../../lib/format.js'
+import { Sparkline } from '../../spark/index.js'
 import {
   ageActiveCellText,
   ageActiveCellTitle,
@@ -132,7 +134,7 @@ export default function FleetTable({ onCopy = copyToClipboard }: FleetTableProps
             <colgroup>
               <col style={{ width: 'auto' }} />
               <col style={{ width: '128px' }} />
-              <col style={{ width: '56px' }} />
+              <col style={{ width: '96px' }} />
               <col style={{ width: '56px' }} />
               <col style={{ width: '40px' }} />
               <col style={{ width: '40px' }} />
@@ -238,6 +240,7 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
       <td className="py-1.5 pr-2 font-mono text-ice-200" title={lane.worktreePath ?? lane.id}>
         {lane.label}
         {lane.issue === null ? null : <span className="ml-1 text-[10px] text-ice-400">#{lane.issue}</span>}
+        <OpenLaneLink handle={lane.id} label={lane.label} />
       </td>
       <td className="py-1.5 pr-2" title={stateTitle(lane)}>
         <span className={`inline-flex items-center gap-1 ${stateClass}`}>
@@ -260,7 +263,10 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
         ) : null}
       </td>
       <td className="figures py-1.5 pr-2 text-right text-ice-200" title={outputCellTitle(lane)}>
-        {outputCellText(lane)}
+        <span className="inline-flex items-center justify-end gap-1.5">
+          <Sparkline values={lane.recentOutputTokens} width={36} height={12} className="shrink-0 text-ice-400" />
+          {outputCellText(lane)}
+        </span>
       </td>
       <td
         className={`figures py-1.5 pr-2 text-right ${lane.costEventCount === 0 ? 'text-ice-400' : 'text-ice-200'}`}
@@ -303,5 +309,38 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
         {fence.text}
       </td>
     </tr>
+  )
+}
+
+/**
+ * THE ROW DRILL-DOWN (issue #159, Grafana's data-link pattern) — a lane row
+ * already selects on click (opens the drawer); this is the *other* way out,
+ * an explicit affordance beside the name that goes straight to `/lane/:handle`
+ * (#135) instead. It must not hijack the row's own click, so it stops the
+ * click (and the Enter/Space keydown the row's own handler listens for) from
+ * ever reaching the `<tr>` — the same modifier-aware, real-`<a href>`
+ * convention the drawer's own `OpenPageLink` uses, so ctrl/cmd/shift/middle
+ * click still open a new tab.
+ */
+function OpenLaneLink({ handle, label }: { handle: string; label: string }) {
+  const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.stopPropagation()
+    if (event.defaultPrevented || event.button !== 0) return
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    event.preventDefault()
+    navigate(laneUrl(handle))
+  }
+
+  return (
+    <a
+      href={laneUrl(handle)}
+      onClick={onClick}
+      onKeyDown={(event) => event.stopPropagation()}
+      data-testid="fleet-row-open"
+      aria-label={`Open ${label}'s page`}
+      className="ml-1 rounded text-ice-400 hover:text-ice-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600"
+    >
+      ↗
+    </a>
   )
 }

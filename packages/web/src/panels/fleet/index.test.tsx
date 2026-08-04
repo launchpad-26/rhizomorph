@@ -226,6 +226,187 @@ describe('FleetTable — selection wiring', () => {
   })
 })
 
+describe('FleetTable — row drill-down (issue #159)', () => {
+  const LANE_ID = '90-drilldown'
+  const LANE_WORKTREE = `/repo/rhizomorph__worktrees/${LANE_ID}`
+
+  async function renderDrillDownScenario() {
+    const fx = createEventFactory({ startTs: NOW - 5 * 60_000 })
+    fx.sessionStarted({ repoPath: '/repo/rhizomorph', repoName: 'rhizomorph', mainBranch: 'main' })
+    fx.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true })
+    fx.worktreeDiscovered({ path: LANE_WORKTREE, branch: LANE_ID, isMain: false })
+    fx.llmUsage({
+      lane: LANE_ID,
+      branch: LANE_ID,
+      worktreePath: LANE_WORKTREE,
+      tokens: { input: 5, output: 90, cacheRead: 0, cacheCreation: 0 },
+    })
+
+    let source: FakeEventSource | undefined
+    await act(async () => {
+      render(
+        <StreamProvider
+          url="/api/stream"
+          now={NOW}
+          createSource={() => {
+            source = new FakeEventSource()
+            return source
+          }}
+        >
+          <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
+            <SelectionProvider>
+              <FleetTable />
+            </SelectionProvider>
+          </FleetProvider>
+        </StreamProvider>,
+      )
+    })
+    await act(async () => {
+      source?.open()
+      for (const event of fx.all()) source?.emit(event)
+    })
+
+    return rows().find((r) => r.getAttribute('data-lane') === LANE_ID) as HTMLElement
+  }
+
+  it('links a real lane to its own deep-linkable page, keyboard-reachable', async () => {
+    const row = await renderDrillDownScenario()
+    const link = row.querySelector('[data-testid="fleet-row-open"]') as HTMLElement
+
+    expect(link.tagName).toBe('A')
+    expect(link.getAttribute('href')).toBe(`/lane/${LANE_ID}`)
+    expect(link.tabIndex).not.toBe(-1)
+  })
+
+  it('navigates on click without hijacking the row\'s own select-on-click', async () => {
+    const row = await renderDrillDownScenario()
+    window.history.replaceState(null, '', '/')
+    const link = row.querySelector('[data-testid="fleet-row-open"]') as HTMLElement
+
+    await act(async () => {
+      fireEvent.click(link, { button: 0 })
+    })
+
+    expect(window.location.pathname).toBe(`/lane/${LANE_ID}`)
+    // The click never reached the row's own handler — the drawer did not open.
+    expect(row.getAttribute('aria-selected')).toBe('false')
+
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('leaves a plain click on the row free to select it, exactly as before', async () => {
+    const row = await renderDrillDownScenario()
+
+    await act(async () => {
+      fireEvent.click(row)
+    })
+
+    expect(row.getAttribute('aria-selected')).toBe('true')
+  })
+})
+
+describe('FleetTable — OUTPUT sparkline (issue #159)', () => {
+  it('draws a spark once the lane has at least three honest buckets of history', async () => {
+    const LANE_ID = '91-sparkline'
+    const LANE_WORKTREE = `/repo/rhizomorph__worktrees/${LANE_ID}`
+    const fx = createEventFactory({ startTs: NOW - 30 * 60_000 })
+    fx.sessionStarted({ repoPath: '/repo/rhizomorph', repoName: 'rhizomorph', mainBranch: 'main' })
+    fx.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true })
+    fx.worktreeDiscovered({ path: LANE_WORKTREE, branch: LANE_ID, isMain: false })
+    // Three requests, well apart, so they land in three distinct 3-minute buckets.
+    fx.llmUsage(
+      { lane: LANE_ID, branch: LANE_ID, worktreePath: LANE_WORKTREE, tokens: { input: 1, output: 100, cacheRead: 0, cacheCreation: 0 } },
+      { ts: NOW - 25 * 60_000 },
+    )
+    fx.llmUsage(
+      { lane: LANE_ID, branch: LANE_ID, worktreePath: LANE_WORKTREE, tokens: { input: 1, output: 200, cacheRead: 0, cacheCreation: 0 } },
+      { ts: NOW - 15 * 60_000 },
+    )
+    fx.llmUsage(
+      { lane: LANE_ID, branch: LANE_ID, worktreePath: LANE_WORKTREE, tokens: { input: 1, output: 300, cacheRead: 0, cacheCreation: 0 } },
+      { ts: NOW - 1_000 },
+    )
+
+    let source: FakeEventSource | undefined
+    await act(async () => {
+      render(
+        <StreamProvider
+          url="/api/stream"
+          now={NOW}
+          createSource={() => {
+            source = new FakeEventSource()
+            return source
+          }}
+        >
+          <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
+            <SelectionProvider>
+              <FleetTable />
+            </SelectionProvider>
+          </FleetProvider>
+        </StreamProvider>,
+      )
+    })
+    await act(async () => {
+      source?.open()
+      for (const event of fx.all()) source?.emit(event)
+    })
+
+    const row = rows().find((r) => r.getAttribute('data-lane') === LANE_ID) as HTMLElement
+    const outputCell = row.querySelectorAll('td')[2] as HTMLElement
+    const spark = outputCell.querySelector('svg[data-testid="sparkline"]')
+
+    expect(spark).not.toBeNull()
+    expect(spark?.getAttribute('aria-hidden')).toBe('true')
+    // The real number stays the truth beside the spark, not replaced by it.
+    expect(outputCell.textContent).toContain('600')
+  })
+
+  it('draws nothing for a lane too young to have three honest buckets — never a fabricated flat line', async () => {
+    const LANE_ID = '92-too-young'
+    const LANE_WORKTREE = `/repo/rhizomorph__worktrees/${LANE_ID}`
+    const fx = createEventFactory({ startTs: NOW - 60_000 })
+    fx.sessionStarted({ repoPath: '/repo/rhizomorph', repoName: 'rhizomorph', mainBranch: 'main' })
+    fx.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true })
+    fx.worktreeDiscovered({ path: LANE_WORKTREE, branch: LANE_ID, isMain: false })
+    fx.llmUsage({
+      lane: LANE_ID,
+      branch: LANE_ID,
+      worktreePath: LANE_WORKTREE,
+      tokens: { input: 1, output: 50, cacheRead: 0, cacheCreation: 0 },
+    })
+
+    let source: FakeEventSource | undefined
+    await act(async () => {
+      render(
+        <StreamProvider
+          url="/api/stream"
+          now={NOW}
+          createSource={() => {
+            source = new FakeEventSource()
+            return source
+          }}
+        >
+          <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
+            <SelectionProvider>
+              <FleetTable />
+            </SelectionProvider>
+          </FleetProvider>
+        </StreamProvider>,
+      )
+    })
+    await act(async () => {
+      source?.open()
+      for (const event of fx.all()) source?.emit(event)
+    })
+
+    const row = rows().find((r) => r.getAttribute('data-lane') === LANE_ID) as HTMLElement
+    const outputCell = row.querySelectorAll('td')[2] as HTMLElement
+
+    expect(outputCell.querySelector('svg[data-testid="sparkline"]')).toBeNull()
+    expect(outputCell.textContent).toContain('50')
+  })
+})
+
 describe('FleetTable — gap-honest cells (law 12)', () => {
   async function renderGapScenario() {
     const fx = createEventFactory({ startTs: NOW - 5 * 60_000 })
