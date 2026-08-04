@@ -38,7 +38,16 @@ end no worse than it started; if you cannot hold that, ship less.
    lanes, fix the cheapest offender first (the spike's guidance: sprite
    blits over per-frame gradients, cached patterns, bake what does not
    change). Report before/after numbers.
-4. Laws restated stronger, never weakened; scene fence only.
+4. **The scene's own clock audit** (reassigned here because you own
+   `scene/**`): `scene/index.tsx` and `scene/SceneView.tsx` read
+   `Date.now()`. Split them honestly — ANIMATION timing (frame deltas,
+   spring integration, flight tweens) is real wall-clock even in replay
+   and stays; anything that judges STATE by age (recency, aging, decay
+   scheduling driven by event timestamps) must use the mode clock that
+   #155 threads through context. Comment each surviving `Date.now()` with
+   why it is legitimately real-time. If #155 has not landed when you get
+   here, take the clock from the same context it uses and say so.
+5. Laws restated stronger, never weakened; scene fence only.
 
 ## Fence (may touch ONLY)
 

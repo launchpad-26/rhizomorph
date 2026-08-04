@@ -22,13 +22,16 @@ read as growth and life, and instead it reads as a graveyard.
    Thread the replay clock from the replay/mode context (it already knows
    the scrub time) into `FleetProvider`, and stop the 1s wall-clock timer
    entirely while in replay (a paused scrub must not drift).
-2. **Audit every other consumer of "now"** in web and fix the same way
-   where the same bug exists: `panels/ledger/index.tsx` (nowOverride ??
-   Date.now()), `scene/index.tsx:73`, `scene/SceneView.tsx:319`,
-   `app/StreamContext.tsx` news-vs-history tagging. Each either takes the
-   mode clock or documents in a comment WHY wall-clock is correct there
-   (e.g. animation frame timing is real time even in replay — that is a
-   legitimate exception; recency/aging/flatline is not).
+2. **Audit every other consumer of "now"** inside your fence and fix the
+   same way where the same bug exists: `panels/ledger/index.tsx`
+   (nowOverride ?? Date.now()), `app/StreamContext.tsx` news-vs-history
+   tagging. Each either takes the mode clock or documents in a comment
+   WHY wall-clock is correct there (animation frame timing is real time
+   even in replay — a legitimate exception; recency/aging/flatline is
+   not). NOTE: the scene's own clock consumers (`scene/index.tsx`,
+   `scene/SceneView.tsx`) are OUT of your fence and are handled by the
+   scene lane (#157) — make the mode clock available to them through the
+   context you thread, and say in your summary what you exposed.
 3. **Laws, test-stated**:
    - A replayed state scrubbed to a moment when lanes were WORKING
      renders them working — not flatlined (the exact reported bug).
