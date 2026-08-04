@@ -775,17 +775,16 @@ function landings(frame: SceneFrame): { thread: ThreadGeometry; dissolve: number
  * thread, because MAIN is the mass rather than a lane, so its bud grows off the
  * mass's rim. One level deep and one bud, exactly as a worker's is.
  *
- * **Where the liveness comes from, and the gap it leaves.** A lane reads
- * `lane.subagents`, the vital built from `selectSubagentActivity`. MAIN has no such
- * vital — `RootMass` carries no subagent field, and adding one is a change to the
- * fleet model rather than to the scene — so the scene reads the *same signal* from
- * the one place it can reach: thread-marked `llm.usage`/`tool.activity` news
- * resolving to main (`pulses.ts`'s `conductorSubagentAt`). Same marker
- * (`thread: 'subagent'`, prd1's thread dimension), same meaning, one honest
- * difference: it is fed from the **news tail**, so a replayed conductor grows no
- * bud. That is the existing gap-honesty voice rather than a new one — no telemetry
- * reaching the scene means no bud and nothing else lost — and it is recorded here
- * so the next hand can close it by giving `RootMass` the vital.
+ * **Where the liveness comes from (#154).** MAIN reads `fleet.root.subagents`, the
+ * same shape and the same `selectSubagentActivity` vital `lane.subagents` is built
+ * from — `RootMass` carries it now, resolved off the conductor's own telemetry
+ * handles exactly as a lane's is (`buildFleet.ts`'s `isRootSpend`). One vital, one
+ * `budLife`, read here and in `geometry.ts`'s `layoutBud`: a worker's bud and the
+ * conductor's cannot disagree about when a subagent has finished, because neither
+ * derives its own answer. Because the vital comes off the fleet snapshot rather
+ * than the live news tail, a replayed conductor session grows its bud exactly where
+ * a live one would — the gap `pulses.ts` used to carry (`conductorSubagentAt`,
+ * news-only) is closed.
  */
 export function conductorBudMarks(frame: SceneFrame, radius: number): Mark[] {
   const bud = conductorBud(frame, radius)
@@ -832,10 +831,11 @@ export function conductorBudMarks(frame: SceneFrame, radius: number): Mark[] {
  * grows from the same place on the mass all session and in every replay of it.
  */
 export function conductorBud(frame: SceneFrame, radius: number): BudGeometry | null {
-  const at = frame.field.conductorSubagentAt()
-  if (at === null) return null
+  const vital = frame.fleet.root.subagents
+  if (vital === null) return null
 
-  const life = budLife(Math.max(0, frame.now - at))
+  const sinceMs = Math.max(0, frame.now - vital.lastActivityTs)
+  const life = budLife(sinceMs)
   if (life.vitality <= 0) return null
 
   const { centre } = frame.geometry
@@ -861,9 +861,9 @@ export function conductorBud(frame: SceneFrame, radius: number): BudGeometry | n
     tip,
     vitality: life.vitality,
     absorb: life.absorb,
-    sinceMs: Math.max(0, frame.now - at),
-    // Enrichment is a per-lane trace fact and the conductor's bud is not built from
-    // a vital, so there is nothing honest to put here.
-    kind: null,
+    sinceMs,
+    // Enrichment where the conductor's own telemetry is trace-instrumented, exactly
+    // a worker's own bud (`layoutBud`) — read off the vital, never re-derived.
+    kind: vital.subagentType,
   }
 }

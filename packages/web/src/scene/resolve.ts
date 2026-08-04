@@ -85,34 +85,6 @@ export function resolveLane(index: LaneIndex, event: RhizomorphEvent): string | 
   }
 }
 
-/**
- * Is this event **main's own**, as opposed to a lane's or nobody's?
- *
- * {@link resolveLane} answers `null` for two very different facts — "this is the
- * root-mass" and "the fleet has never heard of this" — which is exactly right for a
- * pulse (both have no thread to travel) and exactly wrong for anything that wants to
- * draw *on* MAIN. prd10 ruling 9's conductor buds are the first caller: a bud on the
- * mass has to come from the conductor's own telemetry, and an unknown lane's
- * telemetry must not be able to grow one.
- *
- * The test is the same two identities `lookup` checks first, and only those: main is
- * a branch and a worktree, never a handle.
- */
-export function resolvesToMain(index: LaneIndex, event: RhizomorphEvent): boolean {
-  switch (event.type) {
-    case 'llm.usage':
-    case 'llm.cost':
-    case 'tool.activity': {
-      const branch = event.payload.branch ?? null
-      const worktreePath = event.payload.worktreePath ?? null
-      if (branch !== null) return branch === index.mainBranch
-      return worktreePath !== null && worktreePath === index.mainWorktree
-    }
-    default:
-      return false
-  }
-}
-
 function lookup(
   index: LaneIndex,
   branch: string | null,
