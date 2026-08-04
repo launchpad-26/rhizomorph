@@ -110,12 +110,20 @@ import { springStep } from './spring.js'
 /**
  * How thin, as a fraction of the living strand's own width at the same point.
  *
- * Under a half, and found by looking at thirty of them: at 0.6 a field of
- * finished lanes still reads as a fleet at work, and below about 0.3 the big
- * lanes stop showing the work-size channel the whole scene is drawn on
- * (`seedSize`). 0.42 keeps the wedge-versus-hairline range between a 200K lane
- * and an empty one and still leaves the thinnest living thread visibly fatter
- * than the fattest finished one at the same size.
+ * Under a half, and the bounds either side of it are arithmetic rather than
+ * taste. **Above about 0.5** the claim in ruling 14 stops being safe: a lane's
+ * thread runs 1.2–6.2 px at the root (`geometry.ts`), so a finished big lane at
+ * 0.5 draws 3.1 px against a living small lane's 1.2 and the *finished* one is
+ * the fatter line — "thicker" would have become a statement about work size
+ * rather than about liveness. **Below about 0.3** the small end goes the other
+ * way: a 0.36 px strand is under a device pixel at 1× and the work-size channel
+ * the whole scene is drawn on stops reading at the bottom of its range.
+ *
+ * 0.42 keeps the wedge-versus-hairline span between a 200K lane and an empty one
+ * and leaves a comfortable margin at both bounds. It is a *starting* number for
+ * the density judgement, not a settled one: ruling 16 says a field that stops
+ * reading is answered with more hierarchy, and this is the first dial to turn.
+ * The operator's eye on a thirty-lane replay is the gate (ruling 8).
  */
 export const PERSIST_WIDTH_SCALE = 0.42
 
