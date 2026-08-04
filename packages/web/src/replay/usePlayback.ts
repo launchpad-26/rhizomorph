@@ -29,6 +29,13 @@ const TICK_MS = 100
  * Drives the scrubber clock forward in real time, scaled by speed, while
  * playing. Live and replay never touch this — it only exists to move the
  * `ts` that `foldUpTo` folds against.
+ *
+ * #155 audit: the one legitimate wall-clock read in the whole replay path.
+ * This is not judging a lane's recency against real time (the bug) — it is
+ * converting real elapsed seconds into simulated timeline seconds, which is
+ * the transport's entire job. `currentTs` is what `ModeContext.useModeClock`
+ * reads while replaying; nothing downstream of that ever calls `Date.now()`
+ * on its own account.
  */
 export function usePlayback({ start, end, now = Date.now }: UsePlaybackOptions): UsePlaybackResult {
   const [currentTs, setCurrentTs] = useState(start)

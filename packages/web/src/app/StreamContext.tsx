@@ -72,6 +72,11 @@ const StreamContext = createContext<StreamContextValue | null>(null)
  * boundary sits beyond any real timestamp rather than at the scrub head. A
  * replayed session builds state and lights nothing (ruling 32's adopted pulse
  * rules); #83 owns what the mode *looks* like.
+ *
+ * #155 audit: this is the news/history boundary's own clock, and it is
+ * already immune to the wall-clock bug that hit `FleetContext` and the
+ * ledger — it is a fixed constant, never `Date.now()`, so nothing here reads
+ * real time at all regardless of mode.
  */
 const REPLAY_CONNECTED_AT = Number.MAX_SAFE_INTEGER
 
@@ -89,6 +94,11 @@ export interface StreamProviderProps {
 }
 
 export function StreamProvider({ url, children, createSource, now }: StreamProviderProps) {
+  // #155 audit: wall-clock is correct here. This is the LIVE SSE connection's
+  // own news/history boundary — it exists whether or not the app is ever put
+  // into replay mode, and when `mode === 'replay'` the value below (`value`,
+  // further down) never even reads `live.state`, so this clock cannot leak
+  // into a replayed reading.
   const [initialLive] = useState(() => initialStreamState(now ?? Date.now()))
   const live = useEventStream(url, {
     initialState: initialLive,
@@ -160,6 +170,12 @@ interface FixtureStream {
  * A synthetic fleet, folded exactly like the live stream: its history arrives
  * as history (so it builds state and lights nothing) and its tick arrives as
  * news (so the scene has real events to move on).
+ *
+ * #155 audit: the `Date.now()` calls below (and the generator's own tick
+ * timer) are correct as wall-clock. A fixture only ever drives `source`
+ * (keys 1/2/3), and `StreamProvider`'s `value` always prefers the replay
+ * fold whenever `mode === 'replay'` — a fixture cannot be "in replay", so
+ * there is no scrub position for this clock to disagree with.
  */
 function useFixtureStream(
   source: StreamSource,
