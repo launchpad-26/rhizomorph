@@ -20,9 +20,9 @@ import { useRef, type KeyboardEvent } from 'react'
  * global listener), and this only ever calls `preventDefault` on the arrow/home/
  * end keys it actually consumes, so Escape keeps bubbling untouched.
  */
-export type TabId = 'conversation' | 'activity' | 'why' | 'trace'
+export type TabId = 'activity' | 'conversation' | 'why' | 'trace'
 
-export const TAB_ORDER: readonly TabId[] = ['conversation', 'activity', 'why', 'trace']
+export const TAB_ORDER: readonly TabId[] = ['activity', 'conversation', 'why', 'trace']
 
 export interface DrawerTab {
   id: TabId

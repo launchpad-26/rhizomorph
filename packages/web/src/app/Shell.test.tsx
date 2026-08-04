@@ -141,9 +141,10 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
     const drawer = screen.getByTestId('lane-drawer')
     expect(drawer.getAttribute('data-lane')).toBe(LANE)
     expect(screen.getByTestId('drawer-vitals')).toBeInTheDocument()
-    // #163: one tab body at a time (CONVERSATION by default) — ACTIVITY is
-    // reachable via its own tab rather than mounted alongside it.
-    expect(screen.getByTestId('drawer-tab-activity')).toBeInTheDocument()
+    // #163: one tab body at a time. #164: it opens on ACTIVITY, the tab most
+    // reliably populated for any lane, live or folded — not on CONVERSATION,
+    // which can be a gap voice alone.
+    expect(screen.getByTestId('drawer-tab-activity').getAttribute('aria-selected')).toBe('true')
     expect(screen.getByTestId('drawer-attach')).toBeInTheDocument()
   })
 
@@ -194,11 +195,12 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
 
   /**
    * The pin this replaces said "no transcript request on mount — the tail is
-   * collapsed until asked for". prd4 ruling 4 retires the fold: the
-   * conversation is the drawer's main view and reads as soon as it is open. The
-   * half of the claim that still holds — and is the half that matters, since it
-   * is what keeps a fleet-only page silent — is that *nothing* is requested
-   * while no lane is selected, because then no drawer is mounted at all.
+   * collapsed until asked for". prd4 ruling 4 retired that fold; #164 (ACTIVITY
+   * now the default tab) means CONVERSATION goes back to not reading on open
+   * either, but for a different reason — it simply is not the tab that
+   * mounted. Either way, *nothing* is requested while no lane is selected,
+   * because then no drawer is mounted at all — that is the half of the claim
+   * that matters, since it is what keeps a fleet-only page silent.
    */
   it('issues no transcript request while nothing is selected', async () => {
     const fetchSpy = vi.fn()
@@ -212,12 +214,28 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
     }
   })
 
-  it('reads the selected lane\'s conversation once it is open, and only ever GETs it', async () => {
+  it('issues no transcript request on open either — ACTIVITY is the default tab (#164), not CONVERSATION', async () => {
     const fetchSpy = vi.fn(async (input: string) => ({ ok: false, url: input, json: async () => null }))
     const original = globalThis.fetch
     globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch
     try {
       await renderShell(LANE)
+      expect(fetchSpy).not.toHaveBeenCalled()
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
+  it('reads the selected lane\'s conversation once its own tab is picked, and only ever GETs it', async () => {
+    const fetchSpy = vi.fn(async (input: string) => ({ ok: false, url: input, json: async () => null }))
+    const original = globalThis.fetch
+    globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch
+    try {
+      await renderShell(LANE)
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('drawer-tab-conversation'))
+      })
 
       // #134: the conversation opens at the tail, not offset zero.
       expect(fetchSpy.mock.calls.map((call) => call[0])).toEqual([

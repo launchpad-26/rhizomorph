@@ -27,7 +27,7 @@ import { attachPlan, conductorAttachPlan } from './attach.js'
  * one way out of a narrowed view (ruling 6).
  *
  * Top to bottom: **vitals** (the row you just clicked, opened out — never
- * hides, ruling 17), **tabs** — CONVERSATION, ACTIVITY, WHY, TRACE, one body
+ * hides, ruling 17), **tabs** — ACTIVITY, CONVERSATION, WHY, TRACE, one body
  * at a time, each getting the whole drawer's remaining height — and
  * **attach** (the command to go and talk to it in your own terminal).
  *
@@ -97,28 +97,31 @@ export default function LaneDrawer({ fetchTranscript, transcriptPollMs, onCopy }
     [state.session, lane],
   )
 
-  const [activeTab, setActiveTab] = useState<TabId>('conversation')
+  const [activeTab, setActiveTab] = useState<TabId>('activity')
   const [activityHighlight, setActivityHighlight] = useState<string | null>(null)
 
   /**
-   * A new lane defaults to CONVERSATION — but not when the reason the drawer
-   * is opening on it is #159's own exemplar jump, which asks for TRACE by name
-   * (`select(laneId)` then `requestPanelFocus('trace')`, fired back to back in
-   * the same handler). Both land in the same React batch, so this is decided
-   * here, in render, rather than in an effect: an effect keyed on `selectedId`
-   * would run after `useFocusRequest`'s listener has already asked for TRACE
-   * and clobber it back to CONVERSATION. `traceFocusPendingRef` is the flag
-   * that lets this render see "a trace focus request landed with this very
-   * selection change" — read and cleared every render, not just when the
-   * lane-change branch below fires, so a request against a lane already open
-   * never leaks into the *next*, unrelated lane change.
+   * A new lane defaults to ACTIVITY (operator ruling 2026-08-05, #164) — the
+   * tab most reliably populated for any lane, live or folded, so the drawer
+   * opens on something rather than an absence. Not when the reason the
+   * drawer is opening on it is #159's own exemplar jump, though, which asks
+   * for TRACE by name (`select(laneId)` then `requestPanelFocus('trace')`,
+   * fired back to back in the same handler). Both land in the same React
+   * batch, so this is decided here, in render, rather than in an effect: an
+   * effect keyed on `selectedId` would run after `useFocusRequest`'s listener
+   * has already asked for TRACE and clobber it back to ACTIVITY.
+   * `traceFocusPendingRef` is the flag that lets this render see "a trace
+   * focus request landed with this very selection change" — read and cleared
+   * every render, not just when the lane-change branch below fires, so a
+   * request against a lane already open never leaks into the *next*,
+   * unrelated lane change.
    */
   const prevSelectedIdRef = useRef(selectedId)
   const traceFocusPendingRef = useRef(false)
   if (prevSelectedIdRef.current !== selectedId) {
     prevSelectedIdRef.current = selectedId
     if (!traceFocusPendingRef.current) {
-      setActiveTab('conversation')
+      setActiveTab('activity')
       setActivityHighlight(null)
     }
   }
@@ -141,8 +144,8 @@ export default function LaneDrawer({ fetchTranscript, transcriptPollMs, onCopy }
   }
 
   const tabs: DrawerTab[] = [
-    { id: 'conversation', label: 'Conversation', count: null },
     { id: 'activity', label: 'Activity', count: entries.length === 0 ? '—' : String(entries.length) },
+    { id: 'conversation', label: 'Conversation', count: null },
     {
       id: 'why',
       label: 'Why',

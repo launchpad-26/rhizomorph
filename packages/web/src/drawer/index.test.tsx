@@ -111,10 +111,11 @@ function laneHistory(): RhizomorphEvent[] {
 }
 
 /**
- * The conversation is the drawer's default view now (prd4 ruling 4), so every
- * mount reads the transcript. A test that is about the vitals or the ledger
- * still has to answer that read, and it answers with an honest absence rather
- * than letting the real `fetch` reach for a server that is not there.
+ * Any test that opens the CONVERSATION tab reads the transcript — and since
+ * `renderFixtureDrawer` and a few others switch tabs via keyboard/synthetic
+ * jumps rather than a click this harness controls, every render wires this in
+ * regardless of which tab ends up active. It answers with an honest absence
+ * rather than letting the real `fetch` reach for a server that is not there.
  */
 const noTranscript: FetchLike = async () => ({
   ok: false,
@@ -354,14 +355,15 @@ describe('LaneDrawer — the activity view, in its own tab', () => {
     expect(text).toContain('packages/web/src/drawer/index.tsx')
   })
 
-  it('is not mounted at all until its tab is selected — only one body renders at a time', async () => {
+  it('is mounted by default (#164) — only one body renders at a time, and the other tabs are not it', async () => {
     await renderDrawer()
 
-    expect(screen.queryByTestId('drawer-activity')).toBeNull()
-
-    await openTab('activity')
     expect(screen.getByTestId('drawer-activity')).toBeTruthy()
     expect(screen.queryByTestId('drawer-conversation')).toBeNull()
+
+    await openTab('conversation')
+    expect(screen.queryByTestId('drawer-activity')).toBeNull()
+    expect(screen.getByTestId('drawer-conversation')).toBeTruthy()
   })
 })
 
@@ -392,6 +394,7 @@ describe('LaneDrawer — one flow column, one scroll region (#151, #163)', () =>
 
   it('the conversation section is a clip boundary, not just a shrinkable one — #151 root cause', async () => {
     await renderDrawer()
+    await openTab('conversation')
 
     const section = screen.getByTestId('drawer-conversation')
     expect(section.className).toContain('min-h-0')
@@ -415,6 +418,7 @@ describe('LaneDrawer — one flow column, one scroll region (#151, #163)', () =>
       }),
     })
     await renderDrawer({ fetchTranscript })
+    await openTab('conversation')
 
     const body = screen.getByTestId('conversation-body')
     expect(body.className).toContain('min-h-0')
@@ -471,17 +475,17 @@ describe('LaneDrawer — one flow column, one scroll region (#151, #163)', () =>
 })
 
 describe('LaneDrawer — the tab bar (#163)', () => {
-  it('renders the four tabs, in order, CONVERSATION first and active by default', async () => {
+  it('renders the four tabs, in order, ACTIVITY first and active by default (#164)', async () => {
     await renderDrawer()
 
     const tabs = screen.getAllByRole('tab')
     expect(tabs.map((tab) => tab.getAttribute('data-testid'))).toEqual([
-      'drawer-tab-conversation',
       'drawer-tab-activity',
+      'drawer-tab-conversation',
       'drawer-tab-why',
       'drawer-tab-trace',
     ])
-    expect(screen.getByTestId('drawer-tab-conversation').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('drawer-tab-activity').getAttribute('aria-selected')).toBe('true')
   })
 
   it('carries counts on ACTIVITY and WHY, the honest gap on TRACE when the lane has produced none', async () => {
@@ -532,18 +536,18 @@ describe('LaneDrawer — the tab bar (#163)', () => {
   it('ArrowRight/ArrowLeft cycle the active tab, wrapping at either end', async () => {
     await renderDrawer()
 
-    const conversationTab = screen.getByTestId('drawer-tab-conversation')
-    conversationTab.focus()
+    const activityTab = screen.getByTestId('drawer-tab-activity')
+    activityTab.focus()
 
     await act(async () => {
-      fireEvent.keyDown(conversationTab, { key: 'ArrowRight' })
+      fireEvent.keyDown(activityTab, { key: 'ArrowRight' })
     })
-    expect(screen.getByTestId('drawer-tab-activity').getAttribute('aria-selected')).toBe('true')
-    expect(document.activeElement).toBe(screen.getByTestId('drawer-tab-activity'))
+    expect(screen.getByTestId('drawer-tab-conversation').getAttribute('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(screen.getByTestId('drawer-tab-conversation'))
 
-    // Wraps forward past TRACE, back to CONVERSATION.
+    // Wraps forward past TRACE, back to ACTIVITY.
     await act(async () => {
-      fireEvent.keyDown(screen.getByTestId('drawer-tab-activity'), { key: 'ArrowRight' })
+      fireEvent.keyDown(screen.getByTestId('drawer-tab-conversation'), { key: 'ArrowRight' })
     })
     await act(async () => {
       fireEvent.keyDown(screen.getByTestId('drawer-tab-why'), { key: 'ArrowRight' })
@@ -551,11 +555,11 @@ describe('LaneDrawer — the tab bar (#163)', () => {
     await act(async () => {
       fireEvent.keyDown(screen.getByTestId('drawer-tab-trace'), { key: 'ArrowRight' })
     })
-    expect(screen.getByTestId('drawer-tab-conversation').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('drawer-tab-activity').getAttribute('aria-selected')).toBe('true')
 
-    // And wraps backward past CONVERSATION, to TRACE.
+    // And wraps backward past ACTIVITY, to TRACE.
     await act(async () => {
-      fireEvent.keyDown(screen.getByTestId('drawer-tab-conversation'), { key: 'ArrowLeft' })
+      fireEvent.keyDown(screen.getByTestId('drawer-tab-activity'), { key: 'ArrowLeft' })
     })
     expect(screen.getByTestId('drawer-tab-trace').getAttribute('aria-selected')).toBe('true')
   })
@@ -640,13 +644,13 @@ describe('LaneDrawer — the WHY surface (prd11 ruling 5)', () => {
     expect(screen.queryByTestId('why-gap')).toBeNull()
   })
 
-  it('is reachable from its own tab, alongside CONVERSATION, ACTIVITY and TRACE — the tab bar is the ordering now', async () => {
+  it('is reachable from its own tab, alongside ACTIVITY, CONVERSATION and TRACE — the tab bar is the ordering now', async () => {
     await renderDrawer({ events: whyHistory() })
 
     const order = screen.getAllByRole('tab').map((tab) => tab.getAttribute('data-testid'))
     expect(order).toEqual([
-      'drawer-tab-conversation',
       'drawer-tab-activity',
+      'drawer-tab-conversation',
       'drawer-tab-why',
       'drawer-tab-trace',
     ])
@@ -711,7 +715,7 @@ describe('LaneDrawer — the trace section (prd9 B1a)', () => {
    */
   it('a requestPanelFocus("trace") call switches the drawer to its own TRACE tab', async () => {
     await renderDrawer()
-    expect(screen.getByTestId('drawer-tab-conversation').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('drawer-tab-activity').getAttribute('aria-selected')).toBe('true')
 
     await act(async () => {
       requestPanelFocus('trace')
@@ -720,7 +724,7 @@ describe('LaneDrawer — the trace section (prd9 B1a)', () => {
     expect(screen.getByTestId('drawer-tab-trace').getAttribute('aria-selected')).toBe('true')
   })
 
-  it('the exemplar jump\'s own sequence — select a lane, then request trace focus, in the same handler — still lands on TRACE, not the fresh lane\'s CONVERSATION default', async () => {
+  it('the exemplar jump\'s own sequence — select a lane, then request trace focus, in the same handler — still lands on TRACE, not the fresh lane\'s ACTIVITY default', async () => {
     const OTHER_LANE = 'other-lane'
     const OTHER_WORKTREE = '/repo-wt/other-lane'
 
@@ -792,7 +796,7 @@ describe('LaneDrawer — the trace section (prd9 B1a)', () => {
       }
     })
     expect(screen.getByTestId('lane-drawer').getAttribute('data-lane')).toBe(LANE)
-    expect(screen.getByTestId('drawer-tab-conversation').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('drawer-tab-activity').getAttribute('aria-selected')).toBe('true')
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('test-exemplar-jump'))
@@ -828,7 +832,7 @@ describe('LaneDrawer — the conversation (the main view)', () => {
     }),
   })
 
-  it('reads the lane\'s conversation on open — no fold to click through first', async () => {
+  it('reads the lane\'s conversation as soon as its tab is opened — no fold to click through first once there', async () => {
     const urls: string[] = []
     const fetchTranscript: FetchLike = async (input) => {
       urls.push(input)
@@ -836,6 +840,7 @@ describe('LaneDrawer — the conversation (the main view)', () => {
     }
 
     await renderDrawer({ fetchTranscript })
+    await openTab('conversation')
 
     // #134: the conversation opens at the tail, not offset zero.
     expect(urls).toEqual([`/api/transcript/${LANE}?tail=1`])
@@ -845,8 +850,9 @@ describe('LaneDrawer — the conversation (the main view)', () => {
     expect(screen.getByTestId('tool-call').textContent).toContain('Read')
   })
 
-  it('is the default tab, and fills the whole tab body — vitals above, tabs below', async () => {
+  it('fills the whole tab body once selected — vitals above, tabs below (#164: no longer the default tab)', async () => {
     await renderDrawer({ fetchTranscript: conversation })
+    await openTab('conversation')
 
     const roles = [...screen.getAllByTestId('turn')].map((turn) => turn.getAttribute('data-role'))
     expect(roles).toEqual(['user', 'assistant'])

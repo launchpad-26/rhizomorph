@@ -15,11 +15,12 @@ import { useTranscript } from './useTranscript.js'
  * **Supersedes prd3 #84's collapsed-by-default ruling.** That ruling put the
  * activity ledger first, on the argument that it tells you whether the
  * transcript is worth reading; the operator's review found the opposite in
- * practice — the conversation *is* the reading, and a fold in front of it is a
- * click between an operator and the only thing on the screen that says what is
- * actually happening. It is now default-on, `flex-1`, and polls the whole time
- * the drawer is open. Nothing polls when no lane is selected, because then no
- * drawer is mounted at all.
+ * practice — the conversation *is* the reading, not a fold in front of it.
+ * It reads at the tail and polls the whole time its own tab is mounted.
+ * (ACTIVITY is the drawer's default tab as of operator ruling 2026-08-05,
+ * #164 — CONVERSATION is a click away rather than the first thing shown, but
+ * this component's own behavior once selected is unchanged.) Nothing polls
+ * when no lane is selected, because then no drawer is mounted at all.
  *
  * Not a `<pre>` (law 11): prose is prose and gets the sans face, while figures
  * — tool names, hints, results — stay monospace. A wall of monospace was the
