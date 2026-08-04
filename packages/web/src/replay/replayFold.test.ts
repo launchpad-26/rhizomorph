@@ -8,6 +8,7 @@ import {
   foldUpTo,
   initialFoldCursor,
   isSorted,
+  lowerBoundaryIndex,
   sortEvents,
   timeRangeOf,
 } from './replayFold.js'
@@ -120,6 +121,43 @@ describe('boundaryIndex / eventsUpTo', () => {
     const midpoint = events[Math.floor(events.length / 2)]!
     expect(eventsUpTo(events, midpoint.ts)).toEqual(
       events.filter((event) => event.ts <= midpoint.ts),
+    )
+  })
+})
+
+describe('lowerBoundaryIndex', () => {
+  const events = fixtureSession()
+
+  it('counts every event strictly before T — the complement of ts >= T', () => {
+    const midpoint = events[Math.floor(events.length / 2)]!
+    const expected = events.filter((event) => event.ts < midpoint.ts).length
+    expect(lowerBoundaryIndex(events, midpoint.ts)).toBe(expected)
+  })
+
+  it('is 0 at/before the first event and events.length strictly after the last', () => {
+    expect(lowerBoundaryIndex(events, events[0]!.ts)).toBe(0)
+    expect(lowerBoundaryIndex(events, events[0]!.ts - 1)).toBe(0)
+    expect(lowerBoundaryIndex(events, events[events.length - 1]!.ts + 1)).toBe(events.length)
+  })
+
+  it('excludes every event sharing the boundary timestamp — the point ts >= T starts from', () => {
+    const tied = [
+      { ...events[0]!, ts: 100 },
+      { ...events[1]!, ts: 100 },
+      { ...events[2]!, ts: 200 },
+    ]
+    expect(lowerBoundaryIndex(tied, 100)).toBe(0)
+    expect(lowerBoundaryIndex(tied, 200)).toBe(2)
+    expect(lowerBoundaryIndex(tied, 201)).toBe(3)
+  })
+
+  it('agrees with boundaryIndex off by exactly the events tied on T', () => {
+    // boundaryIndex(T) counts ts <= T; lowerBoundaryIndex(T) counts ts < T.
+    // The gap between them is exactly the events sharing ts === T.
+    const midpoint = events[Math.floor(events.length / 2)]!
+    const tiedCount = events.filter((event) => event.ts === midpoint.ts).length
+    expect(boundaryIndex(events, midpoint.ts) - lowerBoundaryIndex(events, midpoint.ts)).toBe(
+      tiedCount,
     )
   })
 })

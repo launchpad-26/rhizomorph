@@ -49,6 +49,25 @@ export function boundaryIndex(events: readonly RhizomorphEvent[], ts: number): n
 }
 
 /**
+ * The index of the first event with `ts >= T` in a `ts`-ascending array —
+ * {@link boundaryIndex}'s sibling for a threshold that events cross rather
+ * than a scrub prefix that ends: replay's news/history split (`StreamContext`,
+ * #162) sits at a single fixed `ts`, so which events are "news" is this
+ * boundary intersected with a scrub prefix, not something that needs folding
+ * per tick to answer.
+ */
+export function lowerBoundaryIndex(events: readonly RhizomorphEvent[], ts: number): number {
+  let lo = 0
+  let hi = events.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (events[mid]!.ts < ts) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+/**
  * The events at or before scrub time T, in fold order. `StreamContext` uses
  * this directly to serve panels the same raw-event shape they read live.
  * Precondition: `events` is already `ts`-ascending (pass it through
