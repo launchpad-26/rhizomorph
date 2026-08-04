@@ -274,6 +274,46 @@ first, then land the TIDE whole rather than half.
    wants felt evidence before ruling, 20 minutes on `play.grafana.org` or `demo.perses.dev` beats
    this section.
 
+## Felt evidence — the browser pass [Ran, 2026-08-04]
+
+Question 5, answered. The operator ruled yes, so this records what a real state timeline *does*
+rather than what its docs say. Run against Grafana's own example dashboard,
+`play.grafana.org/d/qD-rVv6Mz/state-timeline-and-status-history`. **`demo.perses.dev` was down** —
+an error page, not retried — so every claim below is Grafana-only and Perses remains unfelt.
+
+1. **Bands carry their state as TEXT, not only colour** [Ran]. `LOW` / `HIGH` / `NORMAL` /
+   `CRITICAL` are printed inside the band, so a state timeline is *self-legending* at low
+   density — precisely the thing our scene cannot be.
+2. **The tooltip leads with the range and makes DURATION first-class** [Ran]:
+   `2026-08-04 19:39:02 – 20:59:02 · Level B CRITICAL · Duration 1h 20m`. The most stealable
+   detail in the study: three of prd3 r18's five pathologies are duration facts, and WAITING's
+   insult *is* its length. Steal the shape exactly.
+3. **Density kills the labels, and Grafana's answer is a LEGEND** [Ran]. The dense panel
+   (`Series A 1..3`) prints no text at all and grows a footer legend (`< 50°`, `50°+`, `300°+`) —
+   **the crutch the operator has already ruled against.** Our escape: we need no per-panel
+   legend, because the ladder hues are taught by the fleet table (README — "the fleet table
+   teaches it, the scene speaks it"), so a colour-only band inherits a legend that already exists
+   on the page. Grafana must re-teach per panel; we must not.
+4. **Sub-pixel slivers are unreadable and unhoverable** [Ran] — `Series A 3` carries 1–2px bands
+   you cannot land a cursor on. Coalescing is not a nicety; it is the difference between a
+   surface and a texture.
+5. **Drag-to-zoom drives the WHOLE dashboard — and the honesty trap was witnessed, not
+   reasoned** [Ran]. Dragging inside one panel rewrote the global time range (`now-6h` →
+   `2026-08-04T06:57:16Z–09:44:41Z`, visible in the URL) and every other panel silently
+   re-queried: Status history's Cellar row went `13° 11° 15° 22°…` → `11° 7° -3° -10°…`.
+   **Nothing on the changed panels said they were now windowed** — the sole signal is one small
+   time picker in the far corner. Exactly the law-12 hazard §6 predicted, and the reason the
+   operator's opt-in ruling is the right one.
+6. **A zoomed range is deep-linkable** [Ran] — it lives in `from`/`to` URL params, so a window is
+   shareable. Worth stealing for `/lane/:handle`.
+7. **Grafana pairs the picker with an explicit zoom-out control and `<<` / `>>` window-shift
+   buttons** [Ran] — cheap navigation affordances our bare scrubber has none of.
+
+**Rulings taken on this evidence (operator, 2026-08-04):** live window = *session-to-now
+compression*; lane order = *stable for the session*; zoom *drives everything but only opt-in*,
+with the scoped state visible. The burn strip's fifth/sixth number was already settled in #159
+(errors yes, latency no) and is not reopened.
+
 ## Sources — all accessed 2026-08-04
 
 **Licence [Verified/Ran]:** https://github.com/grafana/grafana/blob/main/LICENSE ·
