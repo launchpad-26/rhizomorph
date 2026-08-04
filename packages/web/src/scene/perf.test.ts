@@ -107,6 +107,19 @@ const NOW = Date.UTC(2026, 7, 4, 12, 0, 0)
 const SIZE = { width: 900, height: 260 }
 /** 60 fps. The number every report below is read against. */
 const FRAME_MS = 1000 / 60
+/**
+ * How long a benchmark in this file may take, wall-clock.
+ *
+ * Every `it` below is given it explicitly, because vitest's 5 s default is a
+ * *timing* assertion and this file's whole discipline is that timings are
+ * reported and never asserted. Each of these draws sixty to a hundred and eighty
+ * thirty-lane frames, and under `--maxWorkers` it does so alongside 144 other
+ * test files: the same sixty frames that take 0.4 s on a quiet box took 7.7 s
+ * while four sibling worktrees ran their suites, which is a failure about the
+ * load average rather than about the scene. Generous enough that only a genuine
+ * hang trips it.
+ */
+const BENCH_TIMEOUT_MS = 120_000
 
 interface Counters {
   gradients: number
@@ -362,7 +375,7 @@ describe(`sprite-blit vs per-frame gradient-glow at N=${N}`, () => {
     // workers measures the box. The numbers go in the issue's summary.
     expect(gradientMs).toBeGreaterThan(0)
     expect(blitMs).toBeGreaterThan(0)
-  })
+  }, BENCH_TIMEOUT_MS)
 })
 
 /**
@@ -471,7 +484,7 @@ describe('the whole frame, before and after', () => {
       expect(whole.worstMs).toBeGreaterThanOrEqual(whole.medianMs)
       expect(marks).toBeGreaterThan(0)
     })
-  })
+  }, BENCH_TIMEOUT_MS)
 })
 
 /**
@@ -639,7 +652,7 @@ describe('thirty lanes where most have finished, before and after', () => {
       )
       expect(strands).toHaveLength(24)
     })
-  }, 60_000)
+  }, BENCH_TIMEOUT_MS)
 })
 
 interface Stages {
@@ -728,5 +741,5 @@ describe('the marks stage, by builder', () => {
     // out of the profile.
     expect(ranked).toHaveLength(10)
     for (const [name, ms] of ranked) expect(ms, `${name} was not measured`).toBeGreaterThanOrEqual(0)
-  })
+  }, BENCH_TIMEOUT_MS)
 })
