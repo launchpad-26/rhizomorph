@@ -167,8 +167,9 @@ export function ambientScreenMarks(frame: SceneFrame): Mark[] {
       // Floor of the clock in twelfths of a second: the tile offset can change at
       // most twelve times a second however often this frame is drawn, and stops
       // changing entirely when the scene's clock is held (pause).
-      // The animation clock, and legitimately so (#157): the grain crawls at a rate
-      // an eye reads, not at a rate history happened.
+      //
+      // `frame.now` — the ANIMATION clock, and legitimately so in a replay (#157).
+      // The grain crawls at a rate an eye reads, not at the rate history happened.
       tick: still ? 0 : Math.floor((frame.now / 1000) * GRAIN.fps),
       // The one ambient mark `frame.vibrancy` deliberately does NOT reach. Grain is
       // texture rather than light — brightening it adds noise, not vibrancy — and a
