@@ -7,9 +7,11 @@ import {
   selectSpendByBranch,
 } from '@rhizomorph/core'
 import { afterEach, describe, expect, it } from 'vitest'
+import { ModeProvider, useReplay } from '../../app/ModeContext.js'
 import { StreamProvider } from '../../app/StreamContext.js'
 import type { EventSourceLike } from '../../hooks/useEventStream.js'
 import { formatTokenBreakdown, formatTokens, formatUsd } from '../../lib/format.js'
+import type { FetchLike as ReplayFetchLike } from '../../replay/api.js'
 import LedgerPanel from './index.js'
 
 afterEach(cleanup)
@@ -330,5 +332,86 @@ describe('LedgerPanel', () => {
     expect(remaining.some((row) => row.textContent?.includes('auxiliary'))).toBe(true)
     expect(remaining.some((row) => row.textContent?.includes('subagent'))).toBe(false)
     expect(betaToggle).toHaveAttribute('aria-expanded', 'true')
+  })
+})
+
+// ── the one clock rule (#155) ───────────────────────────────────────────────
+
+describe('LedgerPanel — replay clock', () => {
+  /** Long before this suite runs, so a wall-clock leak reads as ages, not seconds. */
+  const T0 = Date.UTC(2020, 0, 1)
+  const BRANCH = 'ledger-lawlane'
+  const PATH = `/repo-wt/${BRANCH}`
+
+  function replayEvents() {
+    const f = createEventFactory({ startTs: T0, idPrefix: 'ledgerlaw' })
+    f.sessionStarted()
+    f.at(T0 + 1_000).worktreeDiscovered({ path: PATH, branch: BRANCH, head: 'sha-0', isMain: false })
+    f.at(T0 + 5_000).llmUsage({ lane: BRANCH, branch: BRANCH, worktreePath: PATH })
+    // Far past the work event, giving the scrubber room to seek in between.
+    f.at(T0 + 900_000).llmUsage({ lane: BRANCH, branch: BRANCH, worktreePath: PATH })
+    return f.all()
+  }
+
+  function replayFetch(): ReplayFetchLike {
+    return (async (url: string | URL | Request) => {
+      const href = String(url)
+      if (href === '/api/sessions') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            sessions: [{ id: 'law', fileName: 'law.jsonl', startedAt: T0, sizeBytes: 100 }],
+          }),
+        } as unknown as Response
+      }
+      if (href === '/api/sessions/law/events') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ events: replayEvents() }),
+        } as unknown as Response
+      }
+      throw new Error(`unexpected fetch: ${href}`)
+    }) as unknown as ReplayFetchLike
+  }
+
+  /** Selects the one recorded session and scrubs to 10s after its work event. */
+  function ReplayDriver() {
+    const { sessions, selectSession, playback } = useReplay()
+    return (
+      <div>
+        <button onClick={() => selectSession(sessions[0]?.id ?? null)}>select session</button>
+        <button onClick={() => playback.seek(T0 + 15_000)}>seek</button>
+      </div>
+    )
+  }
+
+  it('reads "last seen" against the scrub position, not the wall clock (no `now` override)', async () => {
+    await act(async () => {
+      render(
+        <ModeProvider fetchImpl={replayFetch()}>
+          <StreamProvider url="/api/stream" createSource={() => new FakeEventSource()}>
+            <ReplayDriver />
+            <LedgerPanel />
+          </StreamProvider>
+        </ModeProvider>,
+      )
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('select session'))
+    })
+    act(() => {
+      fireEvent.click(screen.getByText('seek'))
+    })
+
+    const row = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes(BRANCH))!
+    // Judged against the scrub position (10s after the work event), FIRST
+    // SEEN and LAST SEEN both read "just now". Judged against the real wall
+    // clock instead — the exact reported bug — this T0-relative branch would
+    // read as years stale ("…d ago"), never "just now".
+    expect(row).toHaveTextContent('just now')
+    expect(row).not.toHaveTextContent('ago')
   })
 })

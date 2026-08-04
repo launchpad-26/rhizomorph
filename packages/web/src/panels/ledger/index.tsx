@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState } from 'react'
 import { reduceAll, selectSpendByBranch } from '@rhizomorph/core'
+import { useModeClock } from '../../app/ModeContext.js'
 import { useStream } from '../../app/StreamContext.js'
 import { formatTokens } from '../../lib/format.js'
 import {
@@ -23,10 +24,16 @@ export interface LedgerPanelProps {
  * first. This is the row that survives `workmux merge` deleting the worktree —
  * everywhere else in the UI that spend goes with it, this panel still has it,
  * because it is keyed on the branch rather than the worktree path.
+ *
+ * FIRST SEEN / LAST SEEN / ELAPSED read the mode's clock (#155), not the wall
+ * clock directly: a replayed branch's "last seen" must age against the scrub
+ * position, or a session recorded hours ago reads as hours-stale the instant
+ * replay opens it, however recently — by scrub time — that branch last spoke.
  */
 export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {}) {
   const { state, status } = useStream()
-  const now = nowOverride ?? Date.now()
+  const modeClock = useModeClock()
+  const now = nowOverride ?? modeClock
   const session = useMemo(() => reduceAll(state.events), [state.events])
   const rows = useMemo(() => selectSpendByBranch(session), [session])
   const threadsByBranch = useMemo(
