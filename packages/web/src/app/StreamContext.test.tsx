@@ -6,7 +6,13 @@ import type { EventSourceLike } from '../hooks/useEventStream.js'
 import type { FetchLike } from '../replay/api.js'
 import { ModeProvider, useReplay } from './ModeContext.js'
 import { StreamProvider, useStream } from './StreamContext.js'
-import { NEWS_GRACE_MS, foldStreamEvents, initialStreamState, isNews } from './streamState.js'
+import {
+  NEWS_GRACE_MS,
+  foldStreamEvent,
+  foldStreamEvents,
+  initialStreamState,
+  isNews,
+} from './streamState.js'
 
 afterEach(cleanup)
 
@@ -231,6 +237,118 @@ describe('news vs history', () => {
       Object.keys(batched.session.commits).sort(),
     )
   })
+
+  /**
+   * #166's own law, stated as a property of the two fold functions
+   * themselves: batching a burst through `foldStreamEvents` in one pass must
+   * not change the result by one field from folding it through the per-event
+   * `foldStreamEvent` one at a time — proven bit-for-bit, over a burst that
+   * arrives out of order and repeats an id (a duplicate SSE delivery, or two
+   * collectors racing the same commit). This holds regardless of which
+   * function `StreamProvider` actually wires the live connection to (see its
+   * own `#166` comment for why that's still `foldStreamEvent`): it is what
+   * makes `foldStreamEvents` safe to wire in later, without re-proving it.
+   */
+  it('batched folding matches per-event folding exactly, including out-of-order arrival and a duplicate id (#166)', () => {
+    const burst = [
+      commit('c3', connectedAt - 30_000),
+      commit('c1', connectedAt - 600_000),
+      commit('c1', connectedAt - 600_000), // duplicate: same id, same payload, arrives twice
+      commit('c4', connectedAt - 5_000),
+      commit('c2', connectedAt - 120_000),
+      commit('c4', connectedAt - 5_000), // duplicate of the most recent, not the first
+    ]
+
+    const batched = foldStreamEvents(initialStreamState(connectedAt), burst)
+    const perEvent = burst.reduce(
+      (state, event) => foldStreamEvent(state, event),
+      initialStreamState(connectedAt),
+    )
+
+    expect(batched).toEqual(perEvent)
+  })
+})
+
+/**
+ * #166's OWN BEFORE/AFTER: `foldStreamEvent` does `events: [...state.events,
+ * event]`, an O(n) copy per event — O(n²) over a burst, which is exactly the
+ * shape a reconnect replay has (`/api/stream` replays the whole session
+ * before it live-tails). `foldStreamEvents` folds the same burst in one O(n)
+ * pass. Sized for CI (moderate N, generous timeout) rather than the live
+ * session's real ~46k events — see `useEventStream.ts`'s docstring for the
+ * one-off measurement at that scale, which this is the repeatable proof of.
+ *
+ * Reported, not asserted (`scene/perf.test.ts`'s own discipline, restated
+ * here): a wall clock under concurrent workers measures the machine, not the
+ * code. The law beside the report is the identity above, not a threshold.
+ */
+describe('#166: batching cost, per-event vs batched', () => {
+  const BENCH_TIMEOUT_MS = 120_000
+  const ROUNDS = 3
+  const connectedAt = Date.UTC(2026, 6, 31, 12, 0, 0)
+  const paths = ['/repo/wt-a', '/repo/wt-b', '/repo/wt-c']
+
+  /**
+   * `worktree.dirty`, not `commit.landed`: `@rhizomorph/core`'s reducer keeps
+   * an ever-growing `commits` map (one key per landed commit, `O(n)` to copy
+   * per event, `O(n²)` over a run of commits), which would swamp the number
+   * this benchmark exists to isolate — `foldStreamEvent`'s own
+   * `events: [...state.events, event]` copy. Cycling three worktree paths
+   * keeps `@rhizomorph/core`'s own state `O(1)` per event so what's left is
+   * exactly `streamState.ts`'s contribution, the one #166 fixed.
+   */
+  function dirty(i: number, ts: number): RhizomorphEvent {
+    const path = paths[i % paths.length]!
+    return createEvent(
+      'worktree.dirty',
+      { path, branch: path.split('/').pop()!, files: [{ path: `file-${i}.ts`, status: 'modified' }] },
+      { id: nextId(), ts },
+    )
+  }
+
+  function median(samples: readonly number[]): number {
+    const sorted = [...samples].sort((a, b) => a - b)
+    return sorted[Math.floor(sorted.length / 2)] ?? 0
+  }
+
+  function burst(n: number): RhizomorphEvent[] {
+    return Array.from({ length: n }, (_unused, i) => dirty(i, connectedAt - n * 1000 + i * 1000))
+  }
+
+  it('folds a multi-thousand-event burst identically both ways, and reports the cost of each', () => {
+    const events = burst(16000)
+
+    const perEventFold = () =>
+      events.reduce((state, event) => foldStreamEvent(state, event), initialStreamState(connectedAt))
+    const batchedFold = () => foldStreamEvents(initialStreamState(connectedAt), events)
+
+    // Warm the JIT: the steady state a real reconnect sees, not the first call.
+    perEventFold()
+    batchedFold()
+
+    // INTERLEAVED: one of each per round, so both see the same machine load
+    // at the same instant — #157's lesson, restated by #161's benchmark.
+    const perEventSamples: number[] = []
+    const batchedSamples: number[] = []
+    for (let i = 0; i < ROUNDS; i += 1) {
+      let started = performance.now()
+      perEventFold()
+      perEventSamples.push(performance.now() - started)
+
+      started = performance.now()
+      batchedFold()
+      batchedSamples.push(performance.now() - started)
+    }
+
+    // eslint-disable-next-line no-console -- the measurement is the deliverable
+    console.log(
+      `${events.length} events: per-event fold ${median(perEventSamples).toFixed(2)} ms · ` +
+        `batched fold ${median(batchedSamples).toFixed(2)} ms median ` +
+        `(${ROUNDS} interleaved rounds)`,
+    )
+
+    expect(perEventFold()).toEqual(batchedFold())
+  }, BENCH_TIMEOUT_MS)
 })
 
 // ── fixture switching (ruling 24's three sources, one reducer) ──────────────

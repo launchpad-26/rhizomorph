@@ -101,6 +101,24 @@ export function StreamProvider({ url, children, createSource, now }: StreamProvi
   // further down) never even reads `live.state`, so this clock cannot leak
   // into a replayed reading.
   const [initialLive] = useState(() => initialStreamState(now ?? Date.now()))
+  // #166 evaluated batching this through `foldStreamEvents` — `useEventStream`
+  // handing `reduce` a whole reconnect burst at once, folded in one O(n) pass
+  // instead of an O(n) copy per event, proven ~1,000× at 46k events in this
+  // file's own `#166` test suite below. It stayed unwired here: the only way
+  // to actually coalesce a burst is to defer the fold at least one tick past
+  // the synchronous `handleMessage` call, and any such defer (microtask,
+  // animation frame) breaks several already-existing test suites elsewhere in
+  // this package that assert on state synchronously right after a plain
+  // `act(() => source.emit(event))` with nothing awaited — outside this
+  // issue's fence. #166 ships the other lever instead: `/api/stream`'s
+  // `Last-Event-ID` resume (`packages/server/src/api/stream.ts`) means a
+  // tab-back reconnect no longer replays the whole session in the first
+  // place, which is the burst that made this path slow. `foldStreamEvent`
+  // remains what's wired here, unchanged; a per-event bottleneck for the
+  // *first* connect at full session size is untouched by that fix and is
+  // `foldStreamEvents`' still-open next step, gated on migrating those
+  // suites' `act()` calls to the `await act(async () => …)` form the rest of
+  // this file's own tests already use.
   const live = useEventStream(url, {
     initialState: initialLive,
     reduce: foldStreamEvent,
