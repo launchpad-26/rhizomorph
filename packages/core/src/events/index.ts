@@ -80,6 +80,9 @@ export const EVENT_SOURCE_BY_TYPE = {
   // `EventSource`/`eventSourceSchema` (see events/lab.ts); the satisfies
   // clause below is widened by exactly that one literal to say so.
   'fork.checkpoint': 'lab',
+  // prd12 ruling 3, phase 2: the same second hand, at dispatch. Its existence
+  // is what marks an arm's lane synthetic — see events/lab.ts.
+  'fork.dispatched': 'lab',
   // prd11 ruling 6b, phase 1: the semantic judge's structural organ — a real
   // polled collector, unlike `lab`, but `'judge'` is still absent from
   // `eventSourceSchema` because this issue's fence (#152) doesn't reach

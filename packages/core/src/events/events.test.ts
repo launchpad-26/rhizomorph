@@ -273,6 +273,16 @@ function oneOfEach() {
       headSha: 'head1',
       capturedBy: 'operator',
     }, { id: id(), ts: 21 }),
+    // prd12 ruling 3, phase 2: one arm handed to workmux, source 'lab'.
+    createEvent('fork.dispatched', {
+      forkId: 'fork-1',
+      parentLane: 'feat',
+      checkpointId: 'ckpt-1',
+      arm: 1,
+      treatment: { model: 'opus', promptDigest: 'b'.repeat(64) },
+      laneHandle: 'fork-1-arm-1',
+      worktreePath: '/data/rhizomorph/lab/worktrees/fork-1/arm-1',
+    }, { id: id(), ts: 21 }),
     // prd11 ruling 6b, phase 1: the judge organ's own keystone, source 'judge'.
     createEvent('judge.finding', {
       kind: 'symbol-overlap',

@@ -110,6 +110,18 @@ export interface AgentState {
   detail: string | null
   firstSeenAt: number
   updatedAt: number
+  /**
+   * prd12 ruling 3: present and `true` exactly when this handle is a fork arm
+   * — set by the existence of a `fork.dispatched` naming it, and never unset.
+   *
+   * Optional-and-only-ever-`true`, not `boolean`, because the ruling's
+   * additivity is literal: a lane the observer discovered folds to the same
+   * object it folded to before this field existed, key-for-key. A reader asks
+   * `agent.synthetic === true`; nothing has to be backfilled, and no replay of
+   * an older log changes shape. A fork's spend is real spend; this flag says
+   * whose reality it was spent in, and nothing else.
+   */
+  synthetic?: true
 }
 
 export interface CollectorState {
@@ -234,6 +246,8 @@ export interface LaneAttribution {
   sessionIds: string[]
   firstSeenAt: number
   lastSeenAt: number
+  /** prd12 ruling 3 — see {@link AgentState.synthetic}. Same flag, same absent-unless-true rule, the ledger's side of it. */
+  synthetic?: true
 }
 
 /**
@@ -397,6 +411,45 @@ export function initialCheckpointState(): CheckpointState {
 }
 
 /**
+ * One `fork.dispatched` arm, kept whole and in observation order — same rule
+ * as {@link CheckpointRecord}. prd12 ruling 3, phase 2: the launch half of
+ * the laboratory's slice.
+ */
+export interface ForkDispatchRecord {
+  eventId: string
+  ts: number
+  forkId: string
+  parentLane: string
+  checkpointId: string
+  /** 1-based arm number within its fork. */
+  arm: number
+  /** Null when the arm inherits the fleet default model. */
+  model: string | null
+  /** sha256 of the arm's prompt file, or null when it was dispatched without one. */
+  promptDigest: string | null
+  laneHandle: string
+  worktreePath: string
+}
+
+/**
+ * prd12's dispatch slice. Same shape as {@link CheckpointState}, with two
+ * indexes rather than one: a comparison surface asks "which arms belong to
+ * this fork" and every lane-keyed surface asks "is this lane an arm, and of
+ * what". Both hold positions into `dispatches`, never copies.
+ */
+export interface ForkState {
+  dispatches: ForkDispatchRecord[]
+  /** forkId → positions in `dispatches`, in observation order. */
+  byFork: Record<string, number[]>
+  /** Synthetic lane handle → positions in `dispatches`. One arm per handle in practice. */
+  byLane: Record<string, number[]>
+}
+
+export function initialForkState(): ForkState {
+  return { dispatches: [], byFork: {}, byLane: {} }
+}
+
+/**
  * One `judge.finding` capture, kept whole and in observation order — same
  * rule as {@link CheckpointRecord}. prd11 ruling 6b, phase 1: the structural
  * organ's own slice, additive alongside everything else the observer folds.
@@ -449,6 +502,8 @@ export interface SessionState {
   traces: TraceState
   /** prd12 ruling 2: the laboratory's checkpoint captures. Additive again. */
   checkpoints: CheckpointState
+  /** prd12 ruling 3: the laboratory's dispatched arms. Additive again. */
+  forks: ForkState
   /** prd11 ruling 6b, phase 1: the judge's structural-organ findings. Additive again. */
   judge: JudgeState
   eventCount: number
@@ -474,6 +529,7 @@ export function initialSessionState(): SessionState {
     telemetry: initialTelemetryState(),
     traces: initialTraceState(),
     checkpoints: initialCheckpointState(),
+    forks: initialForkState(),
     judge: initialJudgeState(),
     eventCount: 0,
     firstEventTs: null,

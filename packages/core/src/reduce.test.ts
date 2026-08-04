@@ -4,6 +4,7 @@ import { reduce, reduceAll } from './reduce.js'
 import {
   MAX_ERRORS,
   initialCheckpointState,
+  initialForkState,
   initialJudgeState,
   initialSessionState,
   initialTelemetryState,
@@ -35,6 +36,7 @@ describe('reduce — envelope bookkeeping', () => {
       telemetry: initialTelemetryState(),
       traces: initialTraceState(),
       checkpoints: initialCheckpointState(),
+      forks: initialForkState(),
       judge: initialJudgeState(),
       eventCount: 0,
       firstEventTs: null,
@@ -534,6 +536,90 @@ describe('reduce — fork.checkpoint (prd12)', () => {
     const after = reduce(before, f.forkCheckpoint())
     expect(before).toEqual(snapshot)
     expect(after.checkpoints).not.toBe(before.checkpoints)
+  })
+})
+
+describe('reduce — fork.dispatched (prd12 ruling 3)', () => {
+  it('an old log with no fork.dispatched events folds forks to its initial value — additive, unchanged replay', () => {
+    const state = reduceAll(fixtureSession())
+    expect(state.forks).toEqual(initialForkState())
+  })
+
+  it('appends an arm and indexes it by fork and by lane', () => {
+    const state = reduceAll([
+      f.forkDispatched(
+        { forkId: 'fork-1', parentLane: 'feature', arm: 1, laneHandle: 'fork-1-arm-1' },
+        { ts: 100 },
+      ),
+    ])
+    expect(state.forks.dispatches).toHaveLength(1)
+    expect(state.forks.dispatches[0]).toMatchObject({
+      forkId: 'fork-1',
+      parentLane: 'feature',
+      arm: 1,
+      laneHandle: 'fork-1-arm-1',
+      model: 'opus',
+      ts: 100,
+    })
+    expect(state.forks.byFork['fork-1']).toEqual([0])
+    expect(state.forks.byLane['fork-1-arm-1']).toEqual([0])
+  })
+
+  it('groups three arms of one fork under one forkId, in arm order', () => {
+    const state = reduceAll(
+      [1, 2, 3].map((arm) =>
+        f.forkDispatched({ forkId: 'fork-1', arm, laneHandle: `fork-1-arm-${arm}` }, { ts: 100 + arm }),
+      ),
+    )
+    expect(state.forks.byFork['fork-1']).toEqual([0, 1, 2])
+    expect(state.forks.dispatches.map((d) => d.arm)).toEqual([1, 2, 3])
+  })
+
+  it('marks a lane that appears AFTER the dispatch synthetic — the forward direction', () => {
+    const state = reduceAll([
+      f.forkDispatched({ forkId: 'fork-1', laneHandle: 'fork-1-arm-1' }, { ts: 100 }),
+      f.agentStatus({ handle: 'fork-1-arm-1', status: 'working' }, { ts: 200 }),
+      f.llmUsage({ lane: 'fork-1-arm-1' }, { ts: 300 }),
+    ])
+    expect(state.agents['fork-1-arm-1']?.synthetic).toBe(true)
+    expect(state.telemetry.lanes['fork-1-arm-1']?.synthetic).toBe(true)
+  })
+
+  it('marks a lane that appeared BEFORE the dispatch synthetic too — the fold is order-independent', () => {
+    const state = reduceAll([
+      f.agentStatus({ handle: 'fork-1-arm-1', status: 'working' }, { ts: 100 }),
+      f.llmUsage({ lane: 'fork-1-arm-1' }, { ts: 150 }),
+      f.forkDispatched({ forkId: 'fork-1', laneHandle: 'fork-1-arm-1' }, { ts: 200 }),
+    ])
+    expect(state.agents['fork-1-arm-1']?.synthetic).toBe(true)
+    expect(state.telemetry.lanes['fork-1-arm-1']?.synthetic).toBe(true)
+  })
+
+  it('never unsets the mark — a later status poll cannot un-fork a lane', () => {
+    const state = reduceAll([
+      f.forkDispatched({ forkId: 'fork-1', laneHandle: 'fork-1-arm-1' }, { ts: 100 }),
+      f.agentStatus({ handle: 'fork-1-arm-1', status: 'working' }, { ts: 200 }),
+      f.agentStatus({ handle: 'fork-1-arm-1', status: 'done' }, { ts: 300 }),
+    ])
+    expect(state.agents['fork-1-arm-1']?.synthetic).toBe(true)
+  })
+
+  it('leaves the parent lane and every other lane exactly as they were — no key added', () => {
+    const state = reduceAll([
+      f.agentStatus({ handle: 'feature', status: 'working' }, { ts: 100 }),
+      f.llmUsage({ lane: 'feature' }, { ts: 150 }),
+      f.forkDispatched({ forkId: 'fork-1', parentLane: 'feature', laneHandle: 'fork-1-arm-1' }, { ts: 200 }),
+    ])
+    expect(state.agents['feature']).not.toHaveProperty('synthetic')
+    expect(state.telemetry.lanes['feature']).not.toHaveProperty('synthetic')
+  })
+
+  it('is pure — folding a dispatch does not mutate the prior state', () => {
+    const before = initialSessionState()
+    const snapshot = JSON.parse(JSON.stringify(before)) as unknown
+    const after = reduce(before, f.forkDispatched())
+    expect(before).toEqual(snapshot)
+    expect(after.forks).not.toBe(before.forks)
   })
 })
 

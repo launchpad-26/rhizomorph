@@ -13,6 +13,7 @@ import type {
   CostPlaceSource,
   CostRecord,
   ErrorRecord,
+  ForkDispatchRecord,
   JudgeFindingRecord,
   LaneAttribution,
   PaneState,
@@ -102,6 +103,8 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       return traceSpan(state, event)
     case 'fork.checkpoint':
       return forkCheckpoint(state, event)
+    case 'fork.dispatched':
+      return forkDispatched(state, event)
     case 'judge.finding':
       return judgeFinding(state, event)
     default: {
@@ -413,6 +416,9 @@ function agentStatus(state: SessionState, event: EventOf<'agent.status'>): Sessi
     detail: p.detail ?? null,
     firstSeenAt: prev?.firstSeenAt ?? event.ts,
     updatedAt: event.ts,
+    // Present only when true, and once present never removed: a status poll
+    // cannot un-fork a lane, and an ordinary lane's record is untouched.
+    ...(prev?.synthetic === true || isSyntheticLane(state, p.handle) ? { synthetic: true as const } : {}),
   }
   return { ...state, agents: { ...state.agents, [p.handle]: agent } }
 }
@@ -691,7 +697,12 @@ function withTelemetry(
   const place = attribution.sessionId == null ? undefined : sessions[attribution.sessionId]
   const lanes = {
     ...appended.lanes,
-    [attribution.lane]: upsertLane(appended.lanes[attribution.lane], attribution, event.ts),
+    [attribution.lane]: upsertLane(
+      appended.lanes[attribution.lane],
+      attribution,
+      event.ts,
+      isSyntheticLane(state, attribution.lane),
+    ),
   }
   return {
     ...state,
@@ -783,6 +794,7 @@ function upsertLane(
   prev: LaneAttribution | undefined,
   p: TelemetryAttribution,
   ts: number,
+  synthetic: boolean,
 ): LaneAttribution {
   const sessionIds = prev?.sessionIds ?? []
   const sessionId = p.sessionId ?? null
@@ -796,6 +808,8 @@ function upsertLane(
         : [...sessionIds, sessionId],
     firstSeenAt: prev === undefined ? ts : Math.min(prev.firstSeenAt, ts),
     lastSeenAt: prev === undefined ? ts : Math.max(prev.lastSeenAt, ts),
+    // Present only when true, never removed — see AgentState.synthetic.
+    ...(prev?.synthetic === true || synthetic ? { synthetic: true as const } : {}),
   }
 }
 
@@ -900,6 +914,69 @@ function forkCheckpoint(state: SessionState, event: EventOf<'fork.checkpoint'>):
       byLane: { ...checkpoints.byLane, [p.lane]: [...(checkpoints.byLane[p.lane] ?? []), at] },
     },
   }
+}
+
+/**
+ * prd12 ruling 3: an arm's dispatch, kept whole — and the ONLY thing that
+ * marks a lane synthetic. There is no separate flag an emitter could forget:
+ * a lane is a fork exactly when the log says an arm was dispatched under its
+ * handle.
+ *
+ * The mark is applied in both directions so the fold is order-independent.
+ * Forward: an `agent.status` or a telemetry event arriving after this one
+ * reads `forks.byLane` and is born synthetic ({@link isSyntheticLane}).
+ * Backward: a record already folded under this handle — a replay whose
+ * collector saw the pane before the operator's dispatch line was recorded —
+ * is marked here. Neither direction ever unsets the flag.
+ */
+function forkDispatched(state: SessionState, event: EventOf<'fork.dispatched'>): SessionState {
+  const p = event.payload
+  const record: ForkDispatchRecord = {
+    eventId: event.id,
+    ts: event.ts,
+    forkId: p.forkId,
+    parentLane: p.parentLane,
+    checkpointId: p.checkpointId,
+    arm: p.arm,
+    model: p.treatment.model,
+    promptDigest: p.treatment.promptDigest,
+    laneHandle: p.laneHandle,
+    worktreePath: p.worktreePath,
+  }
+
+  const forks = state.forks
+  const at = forks.dispatches.length
+  const withDispatch: SessionState = {
+    ...state,
+    forks: {
+      dispatches: [...forks.dispatches, record],
+      byFork: { ...forks.byFork, [p.forkId]: [...(forks.byFork[p.forkId] ?? []), at] },
+      byLane: { ...forks.byLane, [p.laneHandle]: [...(forks.byLane[p.laneHandle] ?? []), at] },
+    },
+  }
+
+  return markLaneSynthetic(withDispatch, p.laneHandle)
+}
+
+/** Retro-marks whatever this handle has already folded to. Absent records need nothing: they are born marked. */
+function markLaneSynthetic(state: SessionState, laneHandle: string): SessionState {
+  const agent = state.agents[laneHandle]
+  const lane = state.telemetry.lanes[laneHandle]
+  if (agent === undefined && lane === undefined) return state
+
+  return {
+    ...state,
+    agents: agent === undefined ? state.agents : { ...state.agents, [laneHandle]: { ...agent, synthetic: true } },
+    telemetry:
+      lane === undefined
+        ? state.telemetry
+        : { ...state.telemetry, lanes: { ...state.telemetry.lanes, [laneHandle]: { ...lane, synthetic: true } } },
+  }
+}
+
+/** True once a `fork.dispatched` has named this handle. The forward half of {@link markLaneSynthetic}. */
+function isSyntheticLane(state: SessionState, laneHandle: string): boolean {
+  return state.forks.byLane[laneHandle] !== undefined
 }
 
 // --- judge (prd11 ruling 6b) --------------------------------------------------

@@ -73,6 +73,19 @@ describe('the fixture factory', () => {
     expect(rhizomorphEventSchema.safeParse(event).success).toBe(true)
   })
 
+  it('builds a fork.dispatched with source "lab", arm and treatment intact', () => {
+    const event = createEventFactory().forkDispatched({ arm: 2, laneHandle: 'fork-fixture-1-arm-2' })
+    expect(event.source).toBe('lab')
+    expect(event.payload.arm).toBe(2)
+    expect(event.payload.laneHandle).toBe('fork-fixture-1-arm-2')
+    expect(event.payload.treatment.model).toBe('opus')
+    expect(rhizomorphEventSchema.safeParse(event).success).toBe(true)
+  })
+
+  it('refuses a fork.dispatched whose arm claims its own parent lane — the fixture validates like the real thing', () => {
+    expect(() => createEventFactory().forkDispatched({ laneHandle: 'feature' })).toThrow()
+  })
+
   it('builds a judge.finding with source "judge", silent-log severity', () => {
     const event = createEventFactory().judgeFinding({ lanes: ['2-core', '7-web'] })
     expect(event.source).toBe('judge')

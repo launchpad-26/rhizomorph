@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createEvent, parseEvent, rhizomorphEventSchema } from './index.js'
-import { forkCheckpointPayloadSchema } from './lab.js'
+import { forkCheckpointPayloadSchema, forkDispatchedPayloadSchema } from './lab.js'
 
 const DIGEST = 'a'.repeat(64)
 
@@ -63,6 +63,73 @@ describe('fork.checkpoint', () => {
 
   it('round-trips through parseEvent', () => {
     const event = createEvent('fork.checkpoint', validPayload(), { id: 'evt-1', ts: 1 })
+    const result = parseEvent(event)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.event).toEqual(event)
+  })
+})
+
+function validDispatch() {
+  return {
+    forkId: 'fork-1',
+    parentLane: '148-lab-checkpoint',
+    checkpointId: 'ckpt-1',
+    arm: 1,
+    treatment: { model: 'opus', promptDigest: DIGEST },
+    laneHandle: 'fork-1-arm-1',
+    worktreePath: '/home/x/.local/share/rhizomorph/lab/worktrees/fork-1/arm-1',
+  }
+}
+
+describe('fork.dispatched', () => {
+  it('accepts a valid payload', () => {
+    expect(forkDispatchedPayloadSchema.safeParse(validDispatch()).success).toBe(true)
+  })
+
+  it('accepts a control arm — neither model nor prompt varied', () => {
+    const control = { ...validDispatch(), treatment: { model: null, promptDigest: null } }
+    expect(forkDispatchedPayloadSchema.safeParse(control).success).toBe(true)
+  })
+
+  it('stamps source "lab" — the same second hand as the checkpoint, not a collector', () => {
+    const event = createEvent('fork.dispatched', validDispatch(), { id: 'evt-1', ts: 1 })
+    expect(event.source).toBe('lab')
+    expect(rhizomorphEventSchema.safeParse(event).success).toBe(true)
+  })
+
+  it('refuses an arm that claims its own parent lane — the mark-synthetic clause, enforced at the schema', () => {
+    const bad = { ...validDispatch(), laneHandle: '148-lab-checkpoint' }
+    expect(forkDispatchedPayloadSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects arm 0 and a negative arm — arms are 1-based', () => {
+    expect(forkDispatchedPayloadSchema.safeParse({ ...validDispatch(), arm: 0 }).success).toBe(false)
+    expect(forkDispatchedPayloadSchema.safeParse({ ...validDispatch(), arm: -1 }).success).toBe(false)
+  })
+
+  it('rejects a promptDigest that is not a sha256 hex digest', () => {
+    const bad = { ...validDispatch(), treatment: { model: 'opus', promptDigest: 'nope' } }
+    expect(forkDispatchedPayloadSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects a missing treatment — an arm with no declared treatment is not a treatment arm', () => {
+    const { treatment: _omitted, ...bad } = validDispatch()
+    expect(forkDispatchedPayloadSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects a source other than "lab" for this type', () => {
+    const result = parseEvent({
+      id: 'evt-1',
+      ts: 1,
+      source: 'workmux',
+      type: 'fork.dispatched',
+      payload: validDispatch(),
+    })
+    expect(result.ok).toBe(false)
+  })
+
+  it('round-trips through parseEvent', () => {
+    const event = createEvent('fork.dispatched', validDispatch(), { id: 'evt-1', ts: 1 })
     const result = parseEvent(event)
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.event).toEqual(event)

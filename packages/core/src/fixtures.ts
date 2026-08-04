@@ -88,6 +88,12 @@ export interface EventFactory {
     init?: Init<'fork.checkpoint'>,
   ): EventOf<'fork.checkpoint'>
 
+  /** prd12 ruling 3, phase 2: one arm handed to workmux, source `lab`. Its existence marks `laneHandle` synthetic. */
+  forkDispatched(
+    payload?: Partial<PayloadOf<'fork.dispatched'>>,
+    init?: Init<'fork.dispatched'>,
+  ): EventOf<'fork.dispatched'>
+
   /** prd11 ruling 6b, phase 1: the judge organ's own keystone, source `judge`, silent-log only. */
   judgeFinding(
     payload?: Partial<PayloadOf<'judge.finding'>>,
@@ -227,6 +233,15 @@ const defaults = {
   // prd11 ruling 6b, phase 1: a believable structural-organ finding — two
   // lanes independently adding the same helper, the spike's own headline
   // example (research §the verdict).
+  'fork.dispatched': {
+    forkId: 'fork-fixture-1',
+    parentLane: 'feature',
+    checkpointId: 'checkpoint-fixture-1',
+    arm: 1,
+    treatment: { model: 'opus', promptDigest: 'b'.repeat(64) },
+    laneHandle: 'fork-fixture-1-arm-1',
+    worktreePath: '/data/rhizomorph/lab/worktrees/fork-fixture-1/arm-1',
+  },
   'judge.finding': {
     kind: 'symbol-overlap',
     lanes: ['2-core', '3-git'],
@@ -306,6 +321,7 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
     agentActiveTime: sugar('agent.activeTime'),
     traceSpan: sugar('trace.span'),
     forkCheckpoint: sugar('fork.checkpoint'),
+    forkDispatched: sugar('fork.dispatched'),
     judgeFinding: sugar('judge.finding'),
   }
 
