@@ -92,6 +92,14 @@ import { salienceOf } from './salience.js'
  * frame and take ~1.3 ms out of 6.4. That is the next win, and it is a real
  * refactor rather than a tweak — worth taking when the budget is tight, and not
  * worth the regression risk while the frame sits at 38% of it.
+ *
+ * ---
+ *
+ * **#161's OWN BEFORE/AFTER** is the third suite below, and it has its own
+ * header: prd10 ruling 13 made a finished lane keep its strand, so the question
+ * became what a thirty-lane field of mostly-finished lanes costs now that the
+ * deletion is gone. Short answer, and the operator's own condition: **less than
+ * the same lanes cost while they were alive**.
  */
 
 const N = DISSOLUTION.maxLive
@@ -464,6 +472,174 @@ describe('the whole frame, before and after', () => {
       expect(marks).toBeGreaterThan(0)
     })
   })
+})
+
+/**
+ * A FIELD WHERE MOST LANES HAVE FINISHED (#161, prd10 rulings 13–16).
+ *
+ * The round's own measurement, and the condition the operator attached to it:
+ * *"do not let persistent strands cost more than living ones did."* Before this
+ * round a finished lane drew nothing at all — prd10 ruling 2 erased its geometry
+ * when the dissolve completed — so a night of landed work emptied the canvas and
+ * cost nothing to draw. Ruling 13 rescinds that, and the question is what a
+ * thirty-lane field of mostly-finished lanes now costs.
+ *
+ * **Three frames, and they are measured INTERLEAVED** — one frame of each per
+ * round, sixty rounds, in one process. #157 recorded why that matters and the
+ * number that proved it: the same code measured 6.6 ms on a quiet box and 22 ms
+ * while four sibling worktrees ran their suites, so a before and an after taken
+ * even minutes apart would "find" a regression that was the load average. Round
+ * robin is the only comparison that survives a busy machine, and it is what makes
+ * these three numbers comparable to each other on any box, including a CI one.
+ *
+ * | frame                                    | what it is                        |
+ * | ---------------------------------------- | --------------------------------- |
+ * | **living** — 30 working lanes            | the ceiling the ruling caps against |
+ * | **persistent** — 24 finished, 6 working  | what a long session now draws     |
+ * | **hidden** — the same, HIDE FINISHED on  | the field the deletion used to leave |
+ *
+ * The same thirty lanes in all three, so nothing but their state differs. The
+ * `hidden` frame is the closest thing the shipped code has to the old world: with
+ * the toggle on, a settled lane contributes no marks at all, which is what every
+ * settled lane did unconditionally before this round. It is a slight *under*-count
+ * of the old cost (the old code still drew a finished lane's lens, name and
+ * figure), so the gap it reports is the pessimistic reading of what persistence
+ * bought — and it is also what ruling 16's load-bearing control is worth in ms.
+ *
+ * **What it measured, on the dev box** — median of the interleaved rounds, itself
+ * the median of four consecutive runs, all four taken in the same session so the
+ * rows are comparable to each other:
+ *
+ * | frame                                     | median  | worst   | marks | budget |
+ * | ----------------------------------------- | ------- | ------- | ----- | ------ |
+ * | 30 living lanes — the ceiling             | 6.79 ms | 13.2 ms |  331  | 16.67  |
+ * | 24 persistent + 6 living — **after**      | 6.57 ms | 11.9 ms |  195  | 16.67  |
+ * | …with HIDE FINISHED on — **before**       | 4.08 ms |  7.9 ms |   99  | 16.67  |
+ * | whole frame, 30 lanes + 2 cuts (#157's)   | 8.45 ms | 13.0 ms |  327  | 16.67  |
+ *
+ * So the answer to the operator's condition is **yes**: a field where twenty-four
+ * of thirty lanes have finished draws 195 marks where the same thirty lanes alive
+ * draw 331, and it timed at or under the living frame in three of the four runs
+ * and within the run-to-run spread in the fourth — 6.57 against 6.79 at the
+ * median. The two are close enough that the honest reading is *no more
+ * expensive* rather than *cheaper*, with the mark count being the part that will
+ * still be true on somebody else's box. Persistence over deletion costs 2.5 ms of a 16.67 ms frame,
+ * which is also exactly what ruling 16's load-bearing toggle is worth in ms.
+ *
+ * **The absolutes in that table are a loaded box and the ratios are not.** Taken
+ * twenty minutes earlier on the same machine while it was quiet, the same four
+ * rows read 5.31 / 4.87 / 3.14 / 6.52 ms — every number about 25% lower, every
+ * ordering identical. #157's own benchmark is therefore unmoved (6.52 against its
+ * recorded 6.40, inside the run-to-run spread on an idle box), which is the check
+ * that this round did not make a *living* frame more expensive on the way past;
+ * the 8.45 in the table is that same measurement under the load the other three
+ * rows were taken under.
+ *
+ * A loaded box is where the interleave earns its keep: on one round taken while
+ * sibling suites ran, all four numbers roughly doubled (11.7 / 11.2 / 7.5 / 12.5)
+ * and the *ordering* did not move by so much as a pair. That is the property a
+ * before and an after taken minutes apart cannot have — and it is why the
+ * assertion beside the report is a count and the timeout below is generous.
+ *
+ * The law beside the report is a **count**, for the reason the header gives: a
+ * wall clock under concurrent workers measures the box. A persistent field draws
+ * strictly fewer marks than the same lanes did while they were alive — a finished
+ * lane spends one ribbon and three glyphs where a living one spends a bloom, a
+ * thread, its filaments and their tips, its bud, its node, its tuft and its state
+ * marks — so "persistent strands cost no more than living ones did" is true by
+ * construction of the display list rather than by a timing that happened to
+ * come out that way.
+ */
+describe('thirty lanes where most have finished, before and after', () => {
+  /** 24 of the 30 settled, past the last mote: the resting state of a long night. */
+  function mostlyFinished(fleet: Fleet): ReadonlyMap<string, RetireState> {
+    const settled = returnAt(RETURN.dissolvedMs)
+    return new Map(fleet.lanes.slice(0, 24).map((lane) => [lane.id, settled]))
+  }
+
+  /**
+   * Enough rounds that the median is a median rather than a sample. Three of
+   * these frames per round is why the timeout below is generous: under
+   * `--maxWorkers` this suite runs alongside 144 other files, and 180 thirty-lane
+   * frames take as long as the box lets them.
+   */
+  const ROUNDS = 60
+
+  it('reports all three interleaved, and draws fewer marks than the living field', () => {
+    const fleet = fleet30()
+    const retire = mostlyFinished(fleet)
+    const draw = stub()
+
+    /** One whole frame — layout, marks, paint — for one configuration. */
+    const frame = (
+      now: number,
+      of: ReadonlyMap<string, RetireState> | undefined,
+      hideFinished: boolean,
+    ): number => {
+      const geometry = layoutScene(fleet, { ...SIZE, now, retire: of, hideFinished })
+      const marks = sceneMarks(frameFor(fleet, geometry, now))
+      paint({ ctx: draw.ctx, marks, ...SIZE, dpr: 2 })
+      return marks.length
+    }
+
+    const living = () => frame(clock, undefined, false)
+    const persistent = () => frame(clock, retire, false)
+    const hidden = () => frame(clock, retire, true)
+
+    let clock = NOW
+    withPath2D(() => {
+      // Warm the JIT on all three, so the first round is the steady state.
+      for (let i = 0; i < 8; i += 1) {
+        clock = NOW + i * 16
+        living()
+        persistent()
+        hidden()
+      }
+
+      // INTERLEAVED: one frame of each per round, so all three see the same
+      // machine at the same instant. Never three separate `costOf` calls.
+      const samples = { living: [] as number[], persistent: [] as number[], hidden: [] as number[] }
+      for (let i = 0; i < ROUNDS; i += 1) {
+        clock += 16
+        for (const [name, work] of [
+          ['living', living],
+          ['persistent', persistent],
+          ['hidden', hidden],
+        ] as const) {
+          const started = performance.now()
+          work()
+          samples[name].push(performance.now() - started)
+        }
+      }
+
+      const worst = (of: readonly number[]): number => Math.max(...of)
+      const counts = { living: living(), persistent: persistent(), hidden: hidden() }
+
+      for (const name of ['living', 'persistent', 'hidden'] as const) {
+        report(
+          `30 lanes, ${name}: ${median(samples[name]).toFixed(3)} ms median · ` +
+            `${worst(samples[name]).toFixed(3)} ms worst · ${counts[name]} marks ` +
+            `(60fps budget ${FRAME_MS.toFixed(2)} ms — ` +
+            `${((median(samples[name]) / FRAME_MS) * 100).toFixed(1)}% median)`,
+        )
+      }
+
+      // THE LAW, and it is a count. 24 of these 30 lanes have finished, and the
+      // frame that draws them is strictly cheaper than the frame that drew the
+      // same lanes alive — which is the operator's condition, met by construction.
+      expect(counts.persistent).toBeLessThan(counts.living)
+      // …and the toggle really does take them off the canvas, which is what makes
+      // it load-bearing rather than decorative (ruling 16).
+      expect(counts.hidden).toBeLessThan(counts.persistent)
+      // Every one of the 24 is still drawn when it is not hidden: the count is
+      // lower because a strand is cheap, never because a lane went missing.
+      const geometry = layoutScene(fleet, { ...SIZE, now: clock, retire })
+      const strands = sceneMarks(frameFor(fleet, geometry, clock)).filter(
+        (mark) => mark.role === 'persist',
+      )
+      expect(strands).toHaveLength(24)
+    })
+  }, 60_000)
 })
 
 interface Stages {
