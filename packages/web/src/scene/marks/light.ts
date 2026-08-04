@@ -68,6 +68,11 @@ export function lightMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
 }
 
 function pulseMarks(frame: SceneFrame, thread: ThreadGeometry, pulse: Pulse): Mark[] {
+  // The ANIMATION clock (#157), and it is the same one the pulse was stamped with
+  // at ingest (`scene/index.tsx`). A pulse's whole life is a 400–600 ms envelope
+  // out of the event class's budget; put it on the scrub clock instead and a
+  // replay at 8× would fire that envelope in 60 ms and the class would be out of
+  // its own band. Held still by the pause control, like everything else here.
   const progress = PulseField.progress(pulse, frame.now)
   // A staggered mote is born in the future; it has not left yet.
   if (progress <= 0) return []

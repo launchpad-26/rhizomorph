@@ -27,9 +27,14 @@ import {
   TISSUE_700,
   TISSUE_900,
   TISSUE_RAMP,
+  CALM_BODY_FLOOR,
+  REPLAY_VIBRANCY,
+  TUFT_WASH,
   WAITING_BENIGN,
   WORKING,
   activityInk,
+  ambientLift,
+  ambientVeil,
   cssColour,
   hotter,
   incandescent,
@@ -37,7 +42,9 @@ import {
   luminance,
   mix,
   returningInk,
+  saturate,
   tissueAt,
+  type Ink,
   type Rgb,
 } from './palette.js'
 import { ALARM_FLOOR, CALM_CEILING, CALM_FLOOR, spend } from './salience.js'
@@ -463,3 +470,119 @@ function linear(byte: number): number {
   const c = byte / 255
   return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
 }
+
+/**
+ * THE VIBRANCY DIALS (#157) — and the property that makes all of them safe.
+ *
+ * The operator asked for more vibrancy and the band the alarms own is six
+ * hundredths of luminance wide. Both of those can be true at once for exactly one
+ * reason: **`luminance` is a weighted mean of the three channels, so chroma is
+ * free.** Swing a colour away from its own grey and the number the contrast
+ * budget is denominated in does not move at all.
+ *
+ * That is what this suite pins. Not the values of the dials — those are taste, and
+ * a future round will retune them — but the invariant that lets them be turned:
+ * every hundredth of vibrancy this round bought came out of chroma or out of the
+ * *floor*, and none of it came out of the alarms' band.
+ */
+describe('the vibrancy dials, and the ceiling they do not touch (#157)', () => {
+  /** How far a colour is from grey, in the crude units a byte triple has. */
+  const chromaOf = (rgb: Rgb): number => Math.max(...rgb) - Math.min(...rgb)
+
+  it('saturates without moving the number the budget is spent in', () => {
+    // The whole justification for the chroma dial, as one assertion. `saturate`
+    // pivots on the luminance weighting itself, so a mark can be made visibly more
+    // itself without spending a hundredth against `CALM_CEILING`.
+    for (const hue of [WORKING, DONE, WAITING_BENIGN, NOTICE, TISSUE_400]) {
+      const richer = saturate(hue, 1.4)
+      const before = luminance(ink(hue, 1))
+      const after = luminance(ink(richer, 1))
+      expect(chromaOf(richer)).toBeGreaterThan(chromaOf(hue))
+
+      // The direction is the load-bearing half, and it is exact rather than
+      // approximate: the pivot *is* the luminance weighting, so the only thing
+      // that can move the mean is a channel hitting the edge of the byte range —
+      // and a clamp can only pull a channel back toward grey. Saturating is
+      // therefore never a way to buy brightness the budget did not grant.
+      expect(after, `${cssColour(ink(hue, 1))} gained luminance`).toBeLessThanOrEqual(
+        before + 1 / 255,
+      )
+      // …and it does not quietly cost much either: a cyan whose blue clips loses
+      // about a hundredth, which is under a fifth of the alarm band.
+      expect(after).toBeGreaterThan(before - 0.02)
+    }
+  })
+
+  it('keeps a saturated colour in its own family and in the byte range', () => {
+    // A gain, not a mix: hue survives because all three channels move along one
+    // ray from the grey point, and the bytes clamp rather than wrapping.
+    expect(hueGap(saturate(WORKING, 1.4), WORKING)).toBeLessThan(12)
+    for (const byte of saturate(NEEDS_YOU, 6)) {
+      expect(byte).toBeGreaterThanOrEqual(0)
+      expect(byte).toBeLessThanOrEqual(255)
+    }
+    // Below 1 walks toward grey, which is what makes it a dial and not a switch.
+    expect(chromaOf(saturate(WORKING, 0.5))).toBeLessThan(chromaOf(WORKING))
+    expect(saturate(WORKING, 1)).toEqual(WORKING)
+  })
+
+  it('raises the calm world from its floor, not from its ceiling', () => {
+    // The floor moved (this is the "richer thread body" half) and the ceiling did
+    // not: a thread with nothing going on at all is drawn at `CALM_BODY_FLOOR`,
+    // and a maximally fresh, maximally hot one is still held at `CALM_CEILING` by
+    // the budget exactly as it was before the dial existed.
+    expect(activityInk('working', 0, 0).alpha).toBe(CALM_BODY_FLOOR)
+    expect(CALM_BODY_FLOOR).toBeGreaterThan(CALM_FLOOR)
+    expect(CALM_BODY_FLOOR).toBeLessThan(1)
+
+    const calm = { spotlightId: null, hoverId: null }
+    const hottest = spend(activityInk('working', 1, 1), calm, 'a-lane', false)
+    expect(luminance(hottest)).toBeLessThanOrEqual(CALM_CEILING + 1e-9)
+    // …and the ceiling is genuinely binding, which is what makes the sentence
+    // above worth writing: the ramp overshoots and `spend` is what holds it.
+    expect(luminance(activityInk('working', 1, 1))).toBeGreaterThan(CALM_CEILING)
+  })
+
+  it('wears more of its family than the ice it is mixed into, at every activity', () => {
+    // The chroma half, and the layman bar it is for: a stranger has to be able to
+    // guess "green means productive" off the thread body alone. Each living family
+    // keeps most of its own chroma after the tint, rather than most of the ramp's.
+    const families = { working: WORKING, waiting: WAITING_BENIGN, done: DONE } as const
+    for (const [activity, hue] of Object.entries(families)) {
+      const drawn = activityInk(activity as keyof typeof families, 1, 0)
+      expect(chromaOf(drawn.rgb), `${activity} read as ice`).toBeGreaterThan(chromaOf(hue) * 0.35)
+    }
+  })
+
+  it('keeps an apical tuft vivid rather than washed out', () => {
+    // `TUFT_WASH` is the wash toward white a growing tip starts from. Small, and
+    // the assertion is what "small" has to mean: the branchlet keeps most of its
+    // family's chroma, and still sits under the calm ceiling at full opacity —
+    // which is the amendment's own bound, untouched by this dial.
+    const vivid = hotter(WORKING, TUFT_WASH)
+    expect(chromaOf(vivid)).toBeGreaterThan(chromaOf(WORKING) * 0.7)
+    expect(luminance(ink(vivid, 1))).toBeLessThanOrEqual(CALM_CEILING)
+    // …and it is a real wash rather than a no-op: the apex is still hotter than
+    // the family colour a resting mark wears.
+    expect(TUFT_WASH).toBeGreaterThan(0)
+    expect(luminance(ink(vivid, 1))).toBeGreaterThan(luminance(ink(WORKING, 1)))
+  })
+
+  it('lifts an ambient ink in both channels, and a veil in neither', () => {
+    const spore: Ink = ink(TISSUE_400, 0.2)
+    const lifted = ambientLift(spore, REPLAY_VIBRANCY)
+    expect(lifted.alpha).toBeGreaterThan(spore.alpha)
+    expect(chromaOf(lifted.rgb)).toBeGreaterThan(chromaOf(spore.rgb))
+
+    const veil: Ink = ink(TISSUE_900, 0.28)
+    const relaxed = ambientVeil(veil, REPLAY_VIBRANCY)
+    expect(relaxed.alpha).toBeLessThan(veil.alpha)
+    // A veil is not tinted on its way out of the picture's way.
+    expect(relaxed.rgb).toEqual(veil.rgb)
+
+    // Live is exactly the identity, in both directions — which is what makes "the
+    // live scene is unchanged by the replay dial" true by construction.
+    expect(ambientLift(spore, 1)).toBe(spore)
+    expect(ambientVeil(veil, 1)).toBe(veil)
+  })
+})

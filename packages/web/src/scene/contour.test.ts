@@ -462,6 +462,8 @@ function frameFor(retire?: ReadonlyMap<string, RetireState>): SceneFrame {
     field: new PulseField(),
     salience: salienceOf({ fleet: FLEET, hoverId: null, selectedId: null }),
     now: NOW,
+    asOf: NOW,
+    vibrancy: 1,
     reducedMotion: false,
     paused: false,
     breath: breathOf(NOW, motionMode({ reducedMotion: false, paused: false })),

@@ -337,6 +337,8 @@ describe('the whole frame, before and after', () => {
         field: new PulseField(),
         salience: salienceOf({ fleet, hoverId: null, selectedId: null }),
         now,
+        asOf: now,
+        vibrancy: 1,
         reducedMotion: false,
         paused: false,
         breath: breathOf(now, mode),

@@ -13,6 +13,7 @@ import {
   ICE_950,
   NEEDS_YOU,
   NOTICE,
+  TUFT_WASH,
   clamp01,
   fade,
   hotter,
@@ -292,10 +293,17 @@ function branchlets(
   // door, not a channel — so a glow living inside it has almost no range to spend.
   // The branchlets have the whole calm world to move in, so the arrival rides here
   // and the amendment's glow stays what the ruling calls it: small and *steady*.
+  //
+  // The wash toward white is `TUFT_WASH` (#157), and it is deliberately the
+  // *smallest* of the three terms: every hundredth of it is a hundredth of the
+  // family's chroma sold for luminance the calm ceiling will not let the mark keep
+  // anyway. What it gives up there it takes back in alpha — a fully vivid apex is
+  // drawn at full opacity — so the branchlets are more saturated at about the same
+  // brightness, and `budget()` still holds the pair under `CALM_CEILING`.
   const arriving = clamp01(frame.field.energyOf(laneId).inbound / 1.4)
   const vivid = ink(
-    hotter(hue, 0.25 + 0.35 * arriving + 0.4 * tuft.flare),
-    0.9 * clamp01(tuft.strength) * (1 + 0.1 * tuft.flare),
+    hotter(hue, TUFT_WASH + 0.35 * arriving + 0.4 * tuft.flare),
+    clamp01(tuft.strength) * (1 + 0.1 * tuft.flare),
   )
   const base = length * 0.46
   const reach = length * (0.42 + 0.3 * habit.curl) * clamp01(0.55 + 0.45 * tuft.strength)

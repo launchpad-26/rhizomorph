@@ -22,7 +22,14 @@ import {
 } from './camera.js'
 import { useScenePref } from '../app/panelPrefs.js'
 import { layoutScene, type SceneGeometry } from './geometry.js'
-import { breathOf, motionMode, sceneMarks, type Mark, type SceneFrame } from './marks/index.js'
+import {
+  breathOf,
+  motionMode,
+  sceneMarks,
+  vibrancyOf,
+  type Mark,
+  type SceneFrame,
+} from './marks/index.js'
 import { paint } from './paint.js'
 import { ICE_200, ink } from './palette.js'
 import type { PulseField } from './pulses.js'
@@ -79,6 +86,18 @@ export interface SceneViewProps {
    * test asserts against a still image rather than racing an interval.
    */
   now?: number
+  /**
+   * THE STATE CLOCK (#157) — the instant the scene should judge the fleet's ages
+   * against. Absent means "the same instant it is animating at", which is exactly
+   * right live and exactly wrong in a replay; `scene/index.tsx` supplies the scrub
+   * position for the replay case.
+   */
+  asOf?: number
+  /**
+   * Whether this frame is a performance of history rather than a live instrument.
+   * The only thing it changes is `frame.vibrancy` — see `REPLAY_VIBRANCY`.
+   */
+  replaying?: boolean
 }
 
 /** How close to a node a pointer must be to have picked it, in CSS pixels. */
@@ -115,6 +134,8 @@ export function SceneView({
   selectedId,
   onSelect,
   now,
+  asOf,
+  replaying = false,
 }: SceneViewProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -124,8 +145,13 @@ export function SceneView({
   const [paused, setPaused] = useState(false)
   const [hideFinished, setHideFinished] = useScenePref('hideFinished')
   const [failure, setFailure] = useState<string | null>(null)
-  /** The instant the operator pressed pause. The scene's clock, while it lasts. */
-  const pausedAtRef = useRef<number | null>(null)
+  /**
+   * The instant the operator pressed pause — **both** of the scene's clocks, while
+   * it lasts. Pause holds the picture still, and a picture whose ages went on
+   * advancing while its animations were frozen would be a still image quietly
+   * drifting outward (#157's split).
+   */
+  const pausedAtRef = useRef<{ real: number; asOf: number } | null>(null)
 
   // The camera's own live state. `cameraRef` is what the loop paints through;
   // the two booleans are the only parts React has to know about, and both flip
@@ -152,6 +178,8 @@ export function SceneView({
     paused,
     hideFinished,
     now,
+    asOf,
+    replaying,
   })
   latest.current = {
     fleet,
@@ -164,6 +192,8 @@ export function SceneView({
     paused,
     hideFinished,
     now,
+    asOf,
+    replaying,
   }
 
   useEffect(() => {
@@ -217,6 +247,11 @@ export function SceneView({
         moveTo(camera)
         return
       }
+      // LEGITIMATELY REAL TIME (#157's audit). A camera flight is a tween across
+      // the operator's own screen over `path.durationMs` — it is a fact about the
+      // hand that pressed Fit, not about the fleet, and it is stepped by `real`
+      // rather than by the scene's clock for the same reason. A replay scrubbing
+      // must not scrub somebody's zoom-to-fit.
       flightRef.current = { path, startedAt: Date.now() }
     },
     [moveTo],
@@ -316,18 +351,38 @@ export function SceneView({
 
     const drawFrame = () => {
       const current = latest.current
+      /**
+       * THE ANIMATION CLOCK — real wall time, and legitimately so in a replay
+       * (#157's audit). Every envelope in the scene is a duration a *person*
+       * watches: a pulse's 400–600 ms, a cut's 1.4 s, a mote's 900 ms, the breath's
+       * 5.4 s, a camera flight's ease. None of them is a fact about the fleet, so
+       * none of them may be scrubbed — putting them on the transport's clock would
+       * make the motion budget's own figures a function of the playback speed.
+       */
       const real = current.now ?? Date.now()
+      /**
+       * THE STATE CLOCK — the instant the fleet's *ages* are judged against.
+       *
+       * Live it is the same number, which is why the fallback is `real` rather
+       * than something cleverer. In a replay it is the scrub position, threaded in
+       * from `ModeContext` by `scene/index.tsx`, so a recorded session's lanes
+       * drift and grey by how old they were *then* rather than by how long ago the
+       * recording was made.
+       */
+      const asOfReal = current.asOf ?? real
       const ctx = canvas.getContext('2d')
       // jsdom has no 2D context. The scene is then simply not drawn — the DOM
       // it lives in still renders, and so does everything around it.
       if (ctx === null) return
 
-      // The pause, in three lines. The scene's clock stops at the instant the
-      // control was pressed and every ambient and event animation stops with it,
-      // because every one of them is a function of this number.
+      // The pause, in three lines. BOTH of the scene's clocks stop at the instant
+      // the control was pressed — every ambient and event animation stops with the
+      // first, and every age the picture is drawn from stops with the second,
+      // because every one of them is a function of one of these two numbers.
       if (!current.paused) pausedAtRef.current = null
-      else if (pausedAtRef.current === null) pausedAtRef.current = real
-      const clock = pausedAtRef.current ?? real
+      else if (pausedAtRef.current === null) pausedAtRef.current = { real, asOf: asOfReal }
+      const clock = pausedAtRef.current?.real ?? real
+      const asOfClock = pausedAtRef.current?.asOf ?? asOfReal
 
       stepFlight(real)
       current.field.step(clock)
@@ -336,7 +391,8 @@ export function SceneView({
       const geometry = layoutScene(current.fleet, {
         width,
         height,
-        now: clock,
+        // The state clock: everything `layoutScene` reads this for is an age.
+        now: asOfClock,
         // A grow-in keeps the real clock: a thread caught half-way through
         // growing in is a picture of a fleet that does not exist, so one that was
         // already running settles and *then* stops.
@@ -363,6 +419,8 @@ export function SceneView({
           selectedId: current.selectedId,
         }),
         now: clock,
+        asOf: asOfClock,
+        vibrancy: vibrancyOf(current.replaying),
         reducedMotion: current.reducedMotion,
         paused: current.paused,
         breath: breathOf(clock, mode),

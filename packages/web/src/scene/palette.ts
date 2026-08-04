@@ -37,6 +37,132 @@ export interface Ink {
   readonly alpha: number
 }
 
+// ── THE VIBRANCY DIALS (#157) — and the ceiling every one of them respects ───
+
+/**
+ * WHERE THE CALM WORLD'S HEADROOM WENT, in four numbers rather than in a sweep.
+ *
+ * The operator's review of the gorgeous round asked for "a LITTLE more vibrancy"
+ * live, and the temptation is to take it from the one place it is cheapest: raise
+ * `CALM_CEILING` and let the fleet climb. That would be the wrong trade and it is
+ * worth saying why, because a future hand will be tempted the same way.
+ *
+ * Since prd4 dropped hue exclusivity, **the band between `CALM_CEILING` (0.78) and
+ * `ALARM_FLOOR` (0.84) IS the salience mechanism** — it is the entire difference
+ * between a green fleet and an amber summons. Six hundredths of luminance is all
+ * an alarm has. Spending any of it on ambient prettiness would buy vibrancy with
+ * the one property the instrument cannot lose, and law 9b would be *weakened*
+ * rather than restated.
+ *
+ * So none of the numbers below moves a ceiling. Every one of them raises what the
+ * calm world reaches **under** a ceiling that has not moved, in the two channels
+ * the band does not own:
+ *
+ * - **chroma** ({@link ACTIVITY_TINT}, {@link TUFT_WASH}) — how much of its family
+ *   a mark actually wears. `luminance()` is a weighted mean of the channels, so
+ *   swinging a colour away from grey at constant mean costs the budget *nothing*
+ *   and is the single largest visible gain available. A working thread now reads
+ *   green rather than blue-grey-with-a-green-idea.
+ * - **the floor** ({@link CALM_BODY_FLOOR}) — a quiet fleet is drawn from the
+ *   bottom of the ramp, and the bottom is where "murky" lives. The ceiling binds
+ *   for one lane in twenty; the floor binds for the other nineteen.
+ *
+ * `palette.test.ts` sweeps every activity at every freshness and heat through
+ * `spend` and holds the pair to `CALM_CEILING`, so these dials cannot be turned
+ * far enough to break the band even by accident.
+ */
+
+/**
+ * How much of its family's hue a resting mark takes — the chroma dial.
+ *
+ * Raised across the board from prd4's values (working 0.45, waiting 0.50, done
+ * 0.35). Still well below 1 for all of them, and that bound is the *original*
+ * reason for the number rather than a leftover: a thread is a lit line with a
+ * temperature, not a swatch, and twenty saturated cords would read as a bag of
+ * colours instead of one picture. What moved is where inside that bound the calm
+ * world sits — closer to its families, at the same luminance.
+ *
+ * `waiting` stays the highest of the three: benign amber is the state most easily
+ * confused with a green at a glance, and hue is the channel that separates them.
+ */
+const ACTIVITY_TINT: Record<LaneActivity, number> = {
+  working: 0.56,
+  waiting: 0.6,
+  done: 0.44,
+  // Already ice. Tinting ice with ice would only round the numbers.
+  idle: 0,
+  unknown: 0,
+}
+
+/**
+ * The alpha a living thread is drawn at with nothing going on at all — the floor
+ * of {@link activityInk}'s ramp, and the number a *calm* fleet is actually made of.
+ *
+ * prd4 opened on "too dark and pale to read" and pinned the fix at 0.5 (up from a
+ * regressed 0.22); `CALM_FLOOR` in `salience.ts` is what stops it drifting back
+ * down. This raises it again, by the amount the ceiling leaves free: a maximally
+ * fresh, maximally hot thread still lands over `CALM_CEILING` and is still held
+ * there by `spend`, so the top of the band has not moved a hair — what has changed
+ * is that the *bottom* of it is no longer nearly half transparent.
+ */
+export const CALM_BODY_FLOOR = 0.58
+
+/**
+ * How far an apical tuft is washed toward the ice ramp's white before its own
+ * energy is added (prd10 ruling 4's "vivid family hue").
+ *
+ * Lowered from 0.25, and lowering it is what *raises* the vividness: `hotter()`
+ * mixes toward {@link ICE_050}, so every hundredth of it is a hundredth of the
+ * family's chroma traded for white. The apex is the one mark on a lane whose
+ * brightness is not its age — it should look like the newest part of the organism,
+ * which means more of the lane's colour and not more of the ramp's.
+ *
+ * The luminance it gives up doing so is given back in alpha (`marks/node.ts`), and
+ * the pair still passes through `budget()` → `CALM_CEILING` like every other calm
+ * mark. The amendment's own bounds (`TIP_CEILING`, `TIP_GLOW_RADIUS`, working tips
+ * only, no fade exemption) are untouched: this dial cannot reach them, because it
+ * is on the branchlets and the branchlets are not the glow.
+ */
+export const TUFT_WASH = 0.16
+
+/**
+ * THE ONE MODE MULTIPLIER (#157) — **live is a working instrument, replay is a
+ * retrospective.**
+ *
+ * The scene is dimmed on purpose. Ambient depth, a fog at the rim, a vignette in
+ * the corners and a substrate kept faint are all there for one reason: a live
+ * instrument has to be *glanceable*, and a glanceable display spends nothing on
+ * the periphery that the operator would have to consciously suppress. That
+ * argument is about **live**. Nobody glances at a replay — they sit down and watch
+ * it, deliberately, knowing it already happened. A performance of history has no
+ * summons in it that anyone can answer, so the calm budget it is paying for buys
+ * nothing, and the ambient dimming can relax.
+ *
+ * Hence one number, applied in exactly one place — `marks/ambient.ts` — and it is
+ * worth being explicit about what it is **not** allowed to reach, because a mode
+ * that could touch any of these would be a second vocabulary for facts the
+ * instrument already has one for:
+ *
+ * - **never a status hue's meaning.** Green still means productive at whatever
+ *   vibrancy. Law 9a is a property of `ACTIVITY_HUE`, and nothing here goes near it.
+ * - **never the alarm grammar.** `CALM_CEILING`, `ALARM_FLOOR`, `TIP_CEILING`, the
+ *   spotlight, the fade exemption, the cartouche: all untouched, in both modes.
+ *   A replayed summons is exactly as far above its fleet as the live one was.
+ * - **never the ladder.** Which lane is worst is the fleet's fact, not the
+ *   transport's.
+ * - **never the motion budget.** Not one period, amplitude or cap moves. A replay
+ *   is *brighter*, not busier — `motion.test.ts` still owns every number that says
+ *   how much the scene may move.
+ *
+ * What it does reach is the substrate: the spores and the rim flora are lit by it,
+ * and the fog and the vignette are *relaxed* by it (`ambientVeil` — they are the
+ * dimming, so the same number has to divide them rather than multiply). The rim
+ * legibility law (`RIM_VEIL`) therefore comes out **stricter** in replay than live,
+ * and `marks.test.ts` asserts it in both modes rather than only the one it was
+ * written for.
+ */
+export const REPLAY_VIBRANCY = 1.4
+
 // ── the ice ramp: the calm world ────────────────────────────────────────────
 
 /** The void the network hangs in. */
@@ -176,29 +302,14 @@ export const ACTIVITY_HUE: Record<LaneActivity, Rgb> = {
 }
 
 /**
- * How much of its family's hue a resting mark takes. Below 1 for all of them:
- * a thread is a lit *line* with a temperature, not a swatch, so the hue is
- * mixed into the ice ramp rather than replacing it — which is also what keeps
- * a twenty-lane fleet reading as one picture instead of a bag of colours.
- */
-const ACTIVITY_TINT: Record<LaneActivity, number> = {
-  working: 0.45,
-  waiting: 0.5,
-  done: 0.35,
-  // Already ice. Tinting ice with ice would only round the numbers.
-  idle: 0,
-  unknown: 0,
-}
-
-/**
  * A living lane's resting ink: its family's hue, at its own freshness and heat.
  *
  * Freshness — the same fact the node's distance from the mass carries — is read
  * a second time as lightness, because two channels saying the same thing is what
  * makes recency legible without a legend. The alpha floor is deliberately high
- * (0.5 with nothing going on at all): the "too dark and pale to read" complaint
- * prd4 opens with was an alpha floor of 0.22, and `CALM_FLOOR` in `salience.ts`
- * pins the fix so it cannot be tuned back out.
+ * ({@link CALM_BODY_FLOOR} with nothing going on at all): the "too dark and pale
+ * to read" complaint prd4 opens with was an alpha floor of 0.22, and `CALM_FLOOR`
+ * in `salience.ts` pins the fix so it cannot be tuned back out.
  *
  * `done` is the one state scaled down rather than up. It is the same green as
  * `working` and must stay legible, but a finished lane that shouted as loudly as
@@ -212,7 +323,9 @@ export function activityInk(activity: LaneActivity, freshness: number, heat: num
   const fresh = clamp01(freshness)
   const warm = clamp01(heat)
   const resting = mix(ICE_500, ICE_100, fresh)
-  const alpha = 0.5 + 0.3 * fresh + 0.2 * warm
+  // The three terms still sum to over 1 at the top of the ramp, which is what
+  // makes the ceiling the *budget's* job rather than this function's — see below.
+  const alpha = CALM_BODY_FLOOR + 0.3 * fresh + 0.2 * warm
 
   return ink(
     mix(resting, ACTIVITY_HUE[activity], ACTIVITY_TINT[activity]),
@@ -246,6 +359,66 @@ export function mix(a: Rgb, b: Rgb, t: number): Rgb {
  */
 export function hotter(rgb: Rgb, amount: number): Rgb {
   return mix(rgb, ICE_050, amount)
+}
+
+/**
+ * AWAY FROM ITS OWN GREY — the chroma channel, on its own.
+ *
+ * The exact complement of {@link hotter}, and the reason both exist: `hotter`
+ * spends **luminance**, which is the channel the alarm band is denominated in and
+ * therefore the expensive one. This spends **chroma**, which the band does not
+ * measure at all — the pivot is the colour's own {@link luminance} weighting, so
+ * the weighted mean is preserved exactly and `spend`'s cap sees the same number
+ * before and after. That is what makes it the right dial for "more vibrancy
+ * without touching the ceiling".
+ *
+ * `amount` is a gain, not a mix: 1 is unchanged, above 1 saturates, below 1 walks
+ * toward grey. Hue survives (all three channels move on the same ray) and the
+ * bytes are clamped, so a colour already at the edge of the gamut simply stops.
+ */
+export function saturate(rgb: Rgb, amount: number): Rgb {
+  const grey = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+  return [byte(grey + (rgb[0] - grey) * amount), byte(grey + (rgb[1] - grey) * amount), byte(grey + (rgb[2] - grey) * amount)]
+}
+
+/**
+ * AMBIENT LIGHT, AT THIS FRAME'S VIBRANCY (#157) — one of the two doors
+ * {@link REPLAY_VIBRANCY} has, and the whole of what it does to a lit mark.
+ *
+ * Both channels the multiplier is permitted, and neither of the ones it is not:
+ * luminance through alpha, chroma through {@link saturate}, and the hue itself
+ * untouched. Only `marks/ambient.ts` calls this — a substrate mark carries no
+ * fact by construction (its count is fixed and its positions are seeded), which
+ * is exactly why it is the layer a mode is allowed to brighten.
+ */
+export function ambientLift(source: Ink, vibrancy: number): Ink {
+  if (vibrancy === 1) return source
+  return { rgb: saturate(source.rgb, vibrancy), alpha: clamp01(source.alpha * vibrancy) }
+}
+
+/**
+ * AMBIENT DIMMING, RELAXED (#157) — the other door, and the reason the same
+ * number has to divide here rather than multiply.
+ *
+ * The fog and the vignette are *negative* light: they are laid over the picture in
+ * the void's own colours to push the rim away and keep the live scene calm. So
+ * "the ambient dimming can relax" means less of them, and a multiplier applied
+ * naively would have made a replay murkier while calling itself vibrancy. Colour
+ * is untouched — a veil that saturated would be tinting the picture rather than
+ * getting out of its way.
+ *
+ * Because it only ever *reduces* a veil, `RIM_VEIL` (the legibility bound on how
+ * much of the rim the two washes may cover) comes out stricter in replay than in
+ * live, never laxer.
+ */
+export function ambientVeil(source: Ink, vibrancy: number): Ink {
+  if (vibrancy === 1) return source
+  return { rgb: source.rgb, alpha: clamp01(source.alpha / Math.max(1, vibrancy)) }
+}
+
+/** Round into the byte range. Shared by {@link saturate}, which can overshoot it. */
+function byte(value: number): number {
+  return value < 0 ? 0 : value > 255 ? 255 : Math.round(value)
 }
 
 /**

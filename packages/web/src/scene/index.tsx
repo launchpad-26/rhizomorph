@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
+import { useMode, useReplay } from '../app/ModeContext.js'
 import { useStream } from '../app/StreamContext.js'
 import { useFleet, useSelection } from '../fleet/index.js'
 import { laneIndex } from './resolve.js'
@@ -23,6 +24,20 @@ import { SettleRegistry } from './settle.js'
  * The field and the settle registry are per-source. Switching to a fixture (keys
  * 1/2/3) is switching to a different event log, and carrying one log's pulses
  * into another would be inventing traffic the new log never reported.
+ *
+ * **THE TWO CLOCKS** (#157's audit) are also wired here, because wiring is what
+ * this file is for. The scene needs both and they are not interchangeable:
+ *
+ * - **animation time** is real wall time and is taken inside `SceneView`'s own
+ *   loop, in a replay exactly as live. Every envelope in the picture is a duration
+ *   a person watches, and a person does not scrub.
+ * - **state time** — the instant the fleet's ages are judged against — is the
+ *   replay scrub position when there is one, and wall time when there is not. It
+ *   is read from `ModeContext`, which is the same context #155 threads its own
+ *   clock through and the same fold the replay controls and `StreamContext` read;
+ *   at the time of writing #155 has not landed, so this takes the scrub position
+ *   from `useReplay().playback.currentTs` directly rather than inventing a second
+ *   source of replay truth to be reconciled later.
  */
 export interface SceneProps {
   /**
@@ -37,6 +52,9 @@ export default function Scene({ now }: SceneProps = {}) {
   const { state, source } = useStream()
   const fleet = useFleet()
   const { selectedId, select } = useSelection()
+  const mode = useMode()
+  const replay = useReplay()
+  const replaying = mode === 'replay'
 
   // Re-created per source: a different log gets a different field. The retire
   // registry goes with them for the same reason and one more — it remembers which
@@ -70,6 +88,18 @@ export default function Scene({ now }: SceneProps = {}) {
     cursor.current = taken.cursor
     if (taken.events.length === 0) return
 
+    // LEGITIMATELY REAL TIME (#157's audit), and the only clock these three may
+    // take. Every one of them is stamping the *start of an animation* — "this just
+    // arrived, light it for 600 ms", "this lane just appeared, grow it in over
+    // 800 ms", "this lane just landed, part its cord over 1.4 s" — and none of
+    // them is judging a state by its age. They must also agree with the clock the
+    // loop steps them on (`SceneView`'s `real`/`clock`), or a pulse born on one
+    // and aged on the other would live for ever or die on arrival.
+    //
+    // The replay case is honest by construction rather than by this line: `state`
+    // only ever carries what the fold tagged as *news*, and a replayed session
+    // produces none (`pulses.ts`'s `takeNews`, ruling 32), so `taken.events` is
+    // empty and nothing here fires at all.
     const now = Date.now()
     field.ingest(taken.events, indexRef.current, now)
     settle.note(taken.events, indexRef.current, now)
@@ -88,6 +118,11 @@ export default function Scene({ now }: SceneProps = {}) {
       retire={retire}
       selectedId={selectedId}
       onSelect={(laneId) => select(laneId === selectedId ? null : laneId)}
+      replaying={replaying}
+      // The scrub position is "now" for a replay and there is no such thing live,
+      // so the prop is absent live and `SceneView` falls back to its own real
+      // clock — one source of replay truth, and no second one to disagree with it.
+      {...(replaying ? { asOf: replay.playback.currentTs } : {})}
       {...(now === undefined ? {} : { now })}
     />
   )

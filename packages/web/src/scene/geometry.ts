@@ -682,12 +682,20 @@ export interface LayoutOptions {
   width: number
   height: number
   /**
-   * The frame's clock. Both continuous facts in the layout are carried forward
-   * from the fleet snapshot with it rather than read straight off it — the
-   * lifecycle's age term against `lane.firstSeenAt`, and recency's `ageFrac`
-   * by `now - fleet.now` — because otherwise every lane in the picture would
-   * step forward together once a second as the derived model is rebuilt. Ruling
-   * 32 blesses the glide.
+   * The frame's **state** clock — `SceneFrame.asOf`, never `SceneFrame.now`
+   * (#157's clock audit).
+   *
+   * Every use of it in this file judges a state by its age: the lifecycle's term
+   * against `lane.firstSeenAt`, recency's `ageFrac` by `now - fleet.now`, and a
+   * bud's staleness against its vital's last reading. Not one of them is an
+   * animation — the two animations the layout takes part in (`growth` and
+   * `retire`) arrive as their own already-integrated progress below, on the
+   * real-time clock, which is the seam that lets this one follow a scrub.
+   *
+   * Both continuous facts are carried forward from the fleet snapshot with it
+   * rather than read straight off it, because otherwise every lane in the picture
+   * would step forward together once a second as the derived model is rebuilt.
+   * Ruling 32 blesses the glide.
    *
    * Recency is measured *against the snapshot* rather than as an absolute
    * instant, so a pinned fleet rendered at its own `now` is exactly the still

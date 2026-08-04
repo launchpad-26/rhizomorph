@@ -8,6 +8,8 @@ import {
   TISSUE_200,
   TISSUE_500,
   TISSUE_900,
+  ambientLift,
+  ambientVeil,
   clamp01,
   ink,
 } from '../palette.js'
@@ -44,6 +46,16 @@ import type { Mark } from './types.js'
  *
  * The accent lives here too (ruling 5): the fog, the spores and the flora are
  * organic tissue, which is exactly what the tissue ramp is permitted for.
+ *
+ * **AND THIS FILE IS THE ONLY THING A MODE MAY TOUCH** (#157). `frame.vibrancy` is
+ * 1 live and {@link REPLAY_VIBRANCY} in a replay, and every mark below is drawn
+ * through `ambientLift` (the lit ones) or `ambientVeil` (the two washes that dim).
+ * The argument is the one this header already makes, read backwards: everything
+ * here is faint *because a live instrument must be glanceable*, and a replay is not
+ * glanced at. Nothing else in the scene is dimmed for that reason, so nothing else
+ * in the scene is brightened by this number — no status hue, no alarm mark, no
+ * ladder rung, and not one figure in the motion budget. A replay is brighter, not
+ * busier, and it says the same things about the fleet that the live scene did.
  */
 
 /** How many spores drift in the void. Fixed: a count that varied would be a claim. */
@@ -115,6 +127,7 @@ export function ambientScreenMarks(frame: SceneFrame): Mark[] {
   // from the definition. What the frozen clock *does* take away is the grain's
   // crawl, below.
   const still = !allowance('ambient', motionMode(frame)).opacity
+  const { vibrancy } = frame
 
   return [
     {
@@ -127,7 +140,9 @@ export function ambientScreenMarks(frame: SceneFrame): Mark[] {
       from: FOG.from,
       to: FOG.to,
       inner: ink(TISSUE_900, 0),
-      outer: ink(TISSUE_900, FOG.alpha),
+      // Relaxed rather than lifted (#157): the fog is what holds the rim back, and
+      // in a retrospective the rim is worth seeing.
+      outer: ambientVeil(ink(TISSUE_900, FOG.alpha), vibrancy),
     },
     {
       kind: 'wash',
@@ -139,7 +154,7 @@ export function ambientScreenMarks(frame: SceneFrame): Mark[] {
       from: VIGNETTE.from,
       to: VIGNETTE.to,
       inner: ink(ICE_1000, 0),
-      outer: ink(ICE_1000, VIGNETTE.alpha),
+      outer: ambientVeil(ink(ICE_1000, VIGNETTE.alpha), vibrancy),
     },
     {
       kind: 'grain',
@@ -152,7 +167,13 @@ export function ambientScreenMarks(frame: SceneFrame): Mark[] {
       // Floor of the clock in twelfths of a second: the tile offset can change at
       // most twelve times a second however often this frame is drawn, and stops
       // changing entirely when the scene's clock is held (pause).
+      // The animation clock, and legitimately so (#157): the grain crawls at a rate
+      // an eye reads, not at a rate history happened.
       tick: still ? 0 : Math.floor((frame.now / 1000) * GRAIN.fps),
+      // The one ambient mark `frame.vibrancy` deliberately does NOT reach. Grain is
+      // texture rather than light — brightening it adds noise, not vibrancy — and a
+      // multiplier on a 1.6% wash that crawls is the one place this number could
+      // have turned into movement. The motion budget stays exactly where it was.
       ink: ink(ICE_200, GRAIN.alpha),
     },
   ]
@@ -208,10 +229,17 @@ function sporeMarks(frame: SceneFrame): Mark {
       },
       radius: 1.6 + 1.1 * ((i * 3) % 4) / 3,
       // Cooling outward: bright tissue near the middle, deep tissue at the rim,
-      // which is the fog's own gradient read on a moving thing.
-      ink: ink(
-        mixTissue(clamp01((radius / smaller - SPORE_BAND.from) / (SPORE_BAND.to - SPORE_BAND.from))),
-        0.1 + 0.14 * (0.5 + 0.5 * drift(t * 11.7, phase * 0.5)),
+      // which is the fog's own gradient read on a moving thing. Lifted at this
+      // frame's vibrancy (#157) — the drift is the most visible thing in the
+      // substrate, so it is where a retrospective's extra light does the most.
+      ink: ambientLift(
+        ink(
+          mixTissue(
+            clamp01((radius / smaller - SPORE_BAND.from) / (SPORE_BAND.to - SPORE_BAND.from)),
+          ),
+          0.1 + 0.14 * (0.5 + 0.5 * drift(t * 11.7, phase * 0.5)),
+        ),
+        frame.vibrancy,
       ),
     }
   })
@@ -257,8 +285,9 @@ function floraMark(frame: SceneFrame): Mark {
     paths: floraPaths(smaller),
     closed: false,
     // Breathing in luminance only — the one ambient channel a hairline can spend
-    // without moving. Deep tissue: the rim is the furthest thing from the light.
-    ink: ink(TISSUE_500, 0.24 * frame.breath),
+    // without moving. Deep tissue: the rim is the furthest thing from the light,
+    // and at replay vibrancy it is the furthest thing worth looking at.
+    ink: ambientLift(ink(TISSUE_500, 0.24 * frame.breath), frame.vibrancy),
     width: 0.9,
   }
 }

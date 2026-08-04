@@ -33,6 +33,7 @@ import {
   isLinear,
   motionMode,
   sceneMarks,
+  vibrancyOf,
   type Mark,
   type MarkRole,
   type SceneFrame,
@@ -51,7 +52,7 @@ import {
   TIP_GLOW_RADIUS,
   salienceOf,
 } from './salience.js'
-import { BROKEN, NEEDS_YOU, NOTICE, TISSUE_400, type Ink } from './palette.js'
+import { BROKEN, NEEDS_YOU, NOTICE, REPLAY_VIBRANCY, TISSUE_400, type Ink } from './palette.js'
 import { PulseField } from './pulses.js'
 import type { LaneIndex } from './resolve.js'
 
@@ -126,6 +127,11 @@ interface FrameOptions {
   /** For the cord-cut suite: which lanes have left the network, and how far along. */
   retire?: ReadonlyMap<string, RetireState>
   hideFinished?: boolean
+  /**
+   * Draw this frame as a replay rather than as a live instrument (#157). The only
+   * thing it changes is `frame.vibrancy`, which the ambient layer alone reads.
+   */
+  replaying?: boolean
 }
 
 function frameFor(options: FrameOptions = {}): SceneFrame {
@@ -150,6 +156,10 @@ function frameFor(options: FrameOptions = {}): SceneFrame {
       selectedId: options.selectedId ?? null,
     }),
     now,
+    // The two clocks are the same number in every fixture here, which is exactly
+    // what they are live — the suites that care about the split say so explicitly.
+    asOf: now,
+    vibrancy: vibrancyOf(options.replaying ?? false),
     reducedMotion,
     paused,
     breath: breathOf(now, mode),
@@ -178,8 +188,13 @@ function indexFor(fleet: Fleet): LaneIndex {
  * The layout is built **once** and the clock advanced over it. Re-laying the
  * scene out per sample is what these assertions actually cost, and none of them
  * are about the layout: a lane drifts outward over ten minutes, and nothing at
- * this timescale moves it. What does advance is `now`, which is what the throb,
- * the breath and the summons's own age all read.
+ * this timescale moves it. What does advance is the clock, which is what the
+ * throb, the breath and the summons's own age all read.
+ *
+ * **Both** clocks advance together, because that is what a live scene is (#157):
+ * `SceneView` falls back to one number for the pair and only a replay ever pulls
+ * them apart. The suites that are *about* the split move them separately and say
+ * so — see "the scene's two clocks".
  */
 function sampled(from: number, count: number, stepMs: number, options: FrameOptions = {}): Mark[][] {
   const base = frameFor({ ...options, now: from })
@@ -187,7 +202,7 @@ function sampled(from: number, count: number, stepMs: number, options: FrameOpti
 
   return Array.from({ length: count }, (_unused, i) => {
     const now = from + i * stepMs
-    return sceneMarks({ ...base, now, breath: breathOf(now, mode) })
+    return sceneMarks({ ...base, now, asOf: now, breath: breathOf(now, mode) })
   })
 }
 
@@ -3259,14 +3274,9 @@ describe('the panel depth stays off the labels', () => {
     return mark.outer.alpha * Math.min(1, t)
   }
 
-  it('veils the rim by less than a third, fog and vignette together', () => {
-    const fleet = fleetFor(fleet20Spec())
+  /** How far out the furthest lane name actually sits, in half-diagonals. */
+  function rimAt(fleet: Fleet): number {
     const geometry = layoutScene(fleet, { ...SIZE, now: NOW })
-    const washes = marksFor({ fleet }).filter((mark) => mark.kind === 'wash')
-    expect(washes).toHaveLength(2)
-
-    // Where a name actually sits: the furthest label anchor from the middle, as a
-    // fraction of the panel's half-diagonal — the unit the washes are measured in.
     const half = Math.hypot(SIZE.width / 2, SIZE.height / 2)
     const furthest = Math.max(
       ...geometry.threads.map((thread) =>
@@ -3276,11 +3286,30 @@ describe('the panel depth stays off the labels', () => {
         ),
       ),
     )
-    const at = furthest / half
+    return furthest / half
+  }
+
+  it('veils the rim by less than a third, fog and vignette together — in both modes', () => {
+    const fleet = fleetFor(fleet20Spec())
+    // Where a name actually sits, as a fraction of the panel's half-diagonal —
+    // the unit the washes are measured in.
+    const at = rimAt(fleet)
     expect(at).toBeGreaterThan(0.5)
 
-    const veil = washes.reduce((total, mark) => total + veilAt(mark, at), 0)
-    expect(veil, 'the depth is eating the lane names').toBeLessThanOrEqual(RIM_VEIL)
+    const veilOf = (replaying: boolean): number => {
+      const washes = marksFor({ fleet, replaying }).filter((mark) => mark.kind === 'wash')
+      expect(washes).toHaveLength(2)
+      return washes.reduce((total, mark) => total + veilAt(mark, at), 0)
+    }
+
+    const live = veilOf(false)
+    const replay = veilOf(true)
+    expect(live, 'the depth is eating the lane names').toBeLessThanOrEqual(RIM_VEIL)
+    // …and the law comes out STRICTER in a replay rather than laxer (#157). The
+    // multiplier only ever divides a veil, so the bound written for live mode is
+    // the binding one for both, and a replay has strictly more room under it.
+    expect(replay, 'the depth is eating the lane names in replay').toBeLessThanOrEqual(RIM_VEIL)
+    expect(replay).toBeLessThan(live)
   })
 
   it('leaves the middle alone entirely — depth is a falloff, not a tint', () => {
@@ -3291,5 +3320,189 @@ describe('the panel depth stays off the labels', () => {
       expect(veilAt(mark, 0)).toBe(0)
       expect(mark.kind === 'wash' && mark.inner.alpha).toBe(0)
     }
+  })
+})
+
+/**
+ * ONE MULTIPLIER, ONE LAYER (#157) — "live is a working instrument, replay is a
+ * retrospective", as arithmetic rather than as a mode switch.
+ *
+ * The honest framing the ruling is built on: the scene is dimmed on purpose,
+ * because a *live* instrument has to be glanceable and a glanceable display
+ * spends nothing on the periphery. Nobody glances at a replay. So the ambient
+ * dimming — and only the ambient dimming — may relax.
+ *
+ * That framing is only worth anything if the multiplier cannot reach past the
+ * substrate, because the cheapest way to make a replay look better would be to
+ * brighten the fleet, and a brighter fleet is a fleet whose *states* have moved.
+ * This suite is the fence around it: what it lifts, and the four things it may
+ * not touch. Each of the four is checked as "the display list is identical",
+ * which is stronger than checking a bound — a mode that changed a status ink by
+ * a thousandth would fail it.
+ */
+describe('replay vibrancy reaches the substrate and nothing else (#157)', () => {
+  const FLEET = fleetFor(fleet20Spec())
+
+  /** Everything that is not the ambient substrate, as a comparable list. */
+  const AMBIENT_ROLES: readonly MarkRole[] = ['spore', 'rim-flora', 'depth-fog', 'vignette']
+
+  function marksOf(replaying: boolean): Mark[] {
+    return marksFor({ fleet: FLEET, replaying })
+  }
+
+  function without(marks: readonly Mark[]): Mark[] {
+    return marks.filter((mark) => !AMBIENT_ROLES.includes(mark.role))
+  }
+
+  it('is one number, and it is above 1 — the law would be free at parity', () => {
+    expect(REPLAY_VIBRANCY).toBeGreaterThan(1)
+    expect(vibrancyOf(false)).toBe(1)
+    expect(vibrancyOf(true)).toBe(REPLAY_VIBRANCY)
+  })
+
+  it('lifts the substrate — spores and flora, in luminance and in chroma', () => {
+    const lit = (marks: readonly Mark[], role: MarkRole): number =>
+      Math.max(0, ...marks.filter((mark) => mark.role === role).map(brightnessOf))
+
+    for (const role of ['spore', 'rim-flora'] as const) {
+      expect(lit(marksOf(true), role), `${role} was not lifted`).toBeGreaterThan(
+        lit(marksOf(false), role),
+      )
+    }
+
+    // Chroma as well as luminance, which is the half a plain alpha bump would
+    // have missed: the substrate is the accent's own home (ruling 5), and a
+    // retrospective is where the tissue ramp is worth actually seeing.
+    const chroma = (marks: readonly Mark[]): number => {
+      const spores = marks.find((mark) => mark.kind === 'motes' && mark.role === 'spore')
+      if (spores?.kind !== 'motes') return 0
+      return Math.max(
+        ...spores.items.map((mote) => Math.max(...mote.ink.rgb) - Math.min(...mote.ink.rgb)),
+      )
+    }
+    expect(chroma(marksOf(true))).toBeGreaterThan(chroma(marksOf(false)))
+  })
+
+  it('relaxes the dimming rather than deepening it', () => {
+    const veil = (marks: readonly Mark[], role: MarkRole): number => {
+      const wash = marks.find((mark) => mark.role === role)
+      return wash?.kind === 'wash' ? wash.outer.alpha : NaN
+    }
+
+    for (const role of ['depth-fog', 'vignette'] as const) {
+      expect(veil(marksOf(true), role), `${role} got heavier in replay`).toBeLessThan(
+        veil(marksOf(false), role),
+      )
+    }
+  })
+
+  it('leaves every other mark in the picture byte-identical', () => {
+    // The whole of the fence, in one assertion. Threads, nodes, names, the mass,
+    // the light, the chrome and the gap voice: a mode may not move one of them.
+    expect(without(marksOf(true))).toEqual(without(marksOf(false)))
+  })
+
+  it('never touches a status hue, an alarm, the ladder or the grain', () => {
+    const staged = fleetFor(pathologySpec())
+    const live = marksFor({ fleet: staged, replaying: false })
+    const replay = marksFor({ fleet: staged, replaying: true })
+
+    // The alarm grammar, mark for mark: a replayed summons sits exactly where the
+    // live one did, relative to a fleet that is exactly as bright as it was.
+    const alarms = (marks: readonly Mark[]) => marks.filter((mark) => mark.alarm)
+    expect(alarms(replay)).toEqual(alarms(live))
+    expect(alarms(replay).length).toBeGreaterThan(0)
+
+    // …and the calm ceiling still binds every non-alarm mark that is not a tuft
+    // glow, at replay vibrancy exactly as at live.
+    for (const mark of replay) {
+      if (mark.alarm || mark.role === 'tuft-glow') continue
+      expect(brightnessOf(mark), `${mark.role} broke the ceiling in replay`).toBeLessThanOrEqual(
+        CALM_CEILING + 1e-9,
+      )
+    }
+
+    // The grain is ambient too, and deliberately outside the multiplier's reach:
+    // brightening a crawling 1.6% wash adds noise, not vibrancy, and it is the one
+    // ambient mark where this number could have turned into movement.
+    const grain = (marks: readonly Mark[]) => marks.filter((mark) => mark.kind === 'grain')
+    expect(grain(replay)).toEqual(grain(live))
+  })
+
+  it('spends nothing from the motion budget — brighter, not busier', () => {
+    // The picture is the same size and shape in both modes: same marks, same
+    // count, same geometry. Only four inks differ, and all four are substrate.
+    const live = marksOf(false)
+    const replay = marksOf(true)
+    expect(replay).toHaveLength(live.length)
+
+    const differing = replay.filter((mark, i) => {
+      const other = live[i] as Mark
+      return JSON.stringify(mark) !== JSON.stringify(other)
+    })
+    for (const mark of differing) {
+      expect(AMBIENT_ROLES, `${mark.role} changed with the mode`).toContain(mark.role)
+    }
+    expect(differing.length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * THE SCENE'S TWO CLOCKS (#157's audit, inherited from #155's fence overlap).
+ *
+ * `SceneFrame` carries two numbers where it used to carry one, and the split is
+ * the whole of the audit's finding: **animation timing is real wall time even in
+ * a replay, and anything that judges a state by its age is not.**
+ *
+ * Live they are the same number and nothing below can tell them apart — which is
+ * why the split had to be pinned here rather than left to a reading of the code.
+ * Each test moves exactly one of the two and names what must and must not follow.
+ */
+describe("the scene's two clocks", () => {
+  const FLEET = fleetFor(pathologySpec())
+
+  function frameAt(now: number, asOf: number): Mark[] {
+    const base = frameFor({ fleet: FLEET, now })
+    return sceneMarks({ ...base, now, asOf, breath: breathOf(now, motionMode(base)) })
+  }
+
+  /** The grain's tile offset — an ambient animation, on the animation clock. */
+  function grainTick(marks: readonly Mark[]): number {
+    const mark = marks.find((candidate) => candidate.kind === 'grain')
+    return mark?.kind === 'grain' ? mark.tick : NaN
+  }
+
+  it('runs the animations on wall time, however far the scrub has moved', () => {
+    // The scrub held still, the wall clock advanced: everything that *moves* moves.
+    const before = frameAt(NOW, NOW)
+    const after = frameAt(NOW + 4_000, NOW)
+
+    expect(grainTick(after)).toBeGreaterThan(grainTick(before))
+    // …and the breath with it. A replay paused on a frame is still a living
+    // picture; freezing it is the pause control's job and nobody else's.
+    expect(breathOf(NOW + 1_350, 'full')).not.toBe(breathOf(NOW, 'full'))
+  })
+
+  it('judges every age on the state clock, however long the wall clock has run', () => {
+    // The wall clock held still, the scrub advanced ten minutes: the fleet ages.
+    const before = frameAt(NOW, NOW)
+    const after = frameAt(NOW, NOW + RECENCY_SPAN_MS)
+
+    const held = (marks: readonly Mark[]): number =>
+      of(marks, LANE.waiting, 'held').reduce(
+        (total, mark) => total + (mark.kind === 'glow' ? mark.radius : 0),
+        0,
+      )
+    // Ruling 5: an unanswered summons intensifies with its own age. That age is a
+    // state, so it follows the scrub and not the wall.
+    expect(held(after)).not.toBe(held(before))
+  })
+
+  it('leaves the picture exactly as it was when the two clocks agree', () => {
+    // The property that makes the split safe: live is unchanged by construction,
+    // because live is the case where both numbers are the same number.
+    expect(frameAt(NOW + 900, NOW + 900)).toEqual(
+      sceneMarks(frameFor({ fleet: FLEET, now: NOW + 900 })),
+    )
   })
 })

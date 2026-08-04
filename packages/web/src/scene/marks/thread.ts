@@ -171,6 +171,10 @@ function shimmered(frame: SceneFrame, thread: ThreadGeometry, resting: Ink): Ink
   const habit = variationFor(variationSeed(thread.lane))
   return {
     rgb: resting.rgb,
+    // `frame.now` and not `frame.asOf` (#157): a shimmer is a period an eye reads,
+    // so it runs on real time in a replay exactly as it does live. Scrubbing must
+    // not scrub the shimmer — that would make the ambient class's own period a
+    // function of the transport speed.
     alpha: clamp01(resting.alpha * habit.shimmer(frame.now / SHIMMER_PERIOD_MS)),
   }
 }

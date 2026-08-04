@@ -293,8 +293,25 @@ const DEPTH = {
   rindGain: 3.2,
 } as const
 
-/** How far the deepest shell is washed toward the accent (prd10 ruling 3). */
-const DEPTH_TISSUE = 0.32
+/**
+ * How far the deepest shell is washed toward the accent (prd10 ruling 3), and how
+ * far #157 was willing to take it.
+ *
+ * Raised from 0.32. This is the "deeper tissue undertone in the heart's interior"
+ * the operator's review asked for, and it is the cheapest vibrancy in the scene
+ * because of *where* it lands: the wash is squared in `t`, so it is nearly absent
+ * at the skin and concentrated in the core — the one region of the picture that is
+ * large, still, and carries no state. Nothing legible is tinted; the material the
+ * fleet is threaded into simply stops reading as thickening ice.
+ *
+ * It is a **colour** change and not a brightness one — `depthsFor` mixes toward
+ * {@link TISSUE_700}, which sits near the deep shells' own luminance — so the mass
+ * gains an undertone without gaining a single hundredth against `CALM_CEILING`.
+ * The rind is still untouched (the edge of the picture stays ice, so an edge never
+ * becomes a second thing to explain), and the accent is still in the one place
+ * ruling 5 permits it: organic tissue.
+ */
+const DEPTH_TISSUE = 0.44
 
 interface Depth {
   at: number
@@ -834,7 +851,10 @@ export function conductorBud(frame: SceneFrame, radius: number): BudGeometry | n
   const vital = frame.fleet.root.subagents
   if (vital === null) return null
 
-  const sinceMs = Math.max(0, frame.now - vital.lastActivityTs)
+  // The STATE clock (#157). "How stale is the conductor's newest reading" is an
+  // age judged against an event timestamp, so it follows the scrub in a replay —
+  // otherwise every recorded session's conductor is a bud that died days ago.
+  const sinceMs = Math.max(0, frame.asOf - vital.lastActivityTs)
   const life = budLife(sinceMs)
   if (life.vitality <= 0) return null
 
