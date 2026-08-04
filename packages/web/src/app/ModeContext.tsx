@@ -69,3 +69,25 @@ export function useMode(): Mode {
 export function useReplay(): ReplaySession {
   return useContext(ModeContext).replay
 }
+
+/**
+ * THE ONE CLOCK RULE (#155): every surface that derives liveness, recency or
+ * age reads THIS, never `Date.now()` directly. Live mode's "now" is the wall
+ * clock; replay's "now" is the scrub position `useReplay().playback.currentTs`
+ * already tracks. A selector that reads the wall clock while replaying judges
+ * a moment from hours ago against right now — every lane reads stale, and a
+ * replay that should look like growth reads like a graveyard instead (the
+ * bug this issue fixed).
+ *
+ * This does not tick on its own. A caller that must keep moving while live
+ * (a 1s poll, an animation frame) still owns that loop and re-reads this each
+ * tick; a caller that only reads once per render gets a value already correct
+ * for the render it is in. Either way, nothing here ever advances on a timer
+ * while replaying — a paused scrub reading this twice gets the same number
+ * both times, because `playback.currentTs` only moves when the scrub position
+ * does.
+ */
+export function useModeClock(): number {
+  const { mode, replay } = useContext(ModeContext)
+  return mode === 'replay' ? replay.playback.currentTs : Date.now()
+}

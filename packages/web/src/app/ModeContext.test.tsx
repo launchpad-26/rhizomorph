@@ -2,7 +2,7 @@ import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { FetchLike } from '../replay/api.js'
-import { ModeProvider, REPLAY_CHROME_CLASSES, useReplay } from './ModeContext.js'
+import { ModeProvider, REPLAY_CHROME_CLASSES, useModeClock, useReplay } from './ModeContext.js'
 
 afterEach(cleanup)
 
@@ -106,5 +106,48 @@ describe('ModeProvider — shell-level frame and tint', () => {
     utils.unmount()
     expect(document.body.dataset.mode).toBeUndefined()
     for (const cls of REPLAY_CHROME_CLASSES) expect(document.body.classList.contains(cls)).toBe(false)
+  })
+})
+
+// ── useModeClock (#155's one clock rule) ────────────────────────────────────
+
+function ClockProbe() {
+  const clock = useModeClock()
+  return <span data-testid="mode-clock">{clock}</span>
+}
+
+describe('useModeClock', () => {
+  it('reads the wall clock while live', () => {
+    const before = Date.now()
+    render(
+      <ModeProvider fetchImpl={makeFetch()}>
+        <ClockProbe />
+      </ModeProvider>,
+    )
+    const after = Date.now()
+
+    const clock = Number(screen.getByTestId('mode-clock').textContent)
+    expect(clock).toBeGreaterThanOrEqual(before)
+    expect(clock).toBeLessThanOrEqual(after)
+  })
+
+  it('reads the scrub position, not the wall clock, while replaying', async () => {
+    await act(async () => {
+      render(
+        <ModeProvider fetchImpl={makeFetch()}>
+          <ReplayDriver />
+          <ClockProbe />
+        </ModeProvider>,
+      )
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('select session'))
+    })
+
+    // `sessionEvents()`'s one event sits at ts 1000, far below any real wall
+    // clock — the scrub position starts at the session's first event, so a
+    // reading here that matched `Date.now()` instead would be unmistakable.
+    expect(screen.getByTestId('mode-clock').textContent).toBe('1000')
   })
 })
