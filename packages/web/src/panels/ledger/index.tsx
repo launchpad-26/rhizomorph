@@ -1,8 +1,13 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useMemo, useState, type MouseEvent } from 'react'
 import { reduceAll, selectSpendByBranch } from '@rhizomorph/core'
 import { useModeClock } from '../../app/ModeContext.js'
+import { requestPanelFocus } from '../../app/panelPrefs.js'
+import { laneUrl, navigate } from '../../app/router.js'
 import { useStream } from '../../app/StreamContext.js'
+import { useFleet, useSelection } from '../../fleet/index.js'
 import { formatTokens } from '../../lib/format.js'
+import { Sparkline } from '../../spark/index.js'
+import { exemplarForBranch, heaviestLlmRequestSpanByLane } from './exemplar.js'
 import {
   costCellText,
   costCellTitle,
@@ -11,6 +16,7 @@ import {
   threadLabel,
   tokensCellTitle,
 } from './format.js'
+import { branchOutputSpark, usageEventsByBranch } from './sparkline.js'
 import { selectThreadRowsForBranch } from './threads.js'
 
 export interface LedgerPanelProps {
@@ -40,6 +46,14 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
     () => new Map(rows.map((row) => [row.branch, selectThreadRowsForBranch(session, row)])),
     [session, rows],
   )
+  const fleet = useFleet()
+  const { select } = useSelection()
+  // #159 — the TOKENS sparkline and the exemplar jump: one pass each over
+  // `state.traces`/`state.telemetry.usage`, read once for the whole table
+  // rather than per row (the same shape `buildFleet.ts` already takes over
+  // the identical arrays).
+  const usageByBranch = useMemo(() => usageEventsByBranch(session.telemetry.usage), [session])
+  const exemplarsByLane = useMemo(() => heaviestLlmRequestSpanByLane(session), [session])
 
   /** Branches with their sub-rows open — keyed by branch, so one lane's toggle never affects another's. */
   const [expandedBranches, setExpandedBranches] = useState<ReadonlySet<string>>(() => new Set())
@@ -89,6 +103,14 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
                 const threads = threadsByBranch.get(row.branch) ?? []
                 const expandable = threads.length > 0
                 const expanded = expandable && expandedBranches.has(row.branch)
+                // #159 — the branch's own lane identity for navigation/selection
+                // (the fleet table's own `Lane.id`, falling back to the branch
+                // name itself for a branch the derived fleet has no live lane
+                // for — `/lane/:handle` reads that gracefully as NO LANE rather
+                // than needing a guard here).
+                const laneId = fleet.lanes.find((lane) => lane.branch === row.branch)?.id ?? row.branch
+                const spark = branchOutputSpark(usageByBranch.get(row.branch) ?? [], now, row.firstTs)
+                const exemplar = exemplarForBranch(exemplarsByLane, row.branch, row.lanes)
                 return (
                   <Fragment key={row.branch}>
                     <tr
@@ -112,6 +134,7 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
                         {row.issue === null ? null : (
                           <span className="ml-1 text-[10px] text-ice-400">#{row.issue}</span>
                         )}
+                        <OpenLaneLink handle={laneId} label={row.branch} />
                       </td>
                       <td className="py-1.5 pr-2">
                         <span
@@ -149,8 +172,14 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
                         data-testid="ledger-tokens"
                         title={tokensCellTitle(row)}
                       >
-                        {formatTokens(row.tokens.output)}
-                        <span className="ml-1 text-[10px] text-ice-400">out</span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Sparkline values={spark} className="shrink-0 text-ice-400" />
+                          {formatTokens(row.tokens.output)}
+                          <span className="text-[10px] text-ice-400">out</span>
+                          {exemplar === null ? null : (
+                            <ExemplarJumpButton laneId={laneId} exemplar={exemplar} select={select} />
+                          )}
+                        </span>
                       </td>
                       <td className="py-1.5 pr-2 text-ice-400">
                         {row.models.length === 0 ? '—' : row.models.join(', ')}
@@ -211,5 +240,69 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
         </div>
       )}
     </section>
+  )
+}
+
+/**
+ * THE ROW DRILL-DOWN (issue #159, Grafana's data-link pattern) — a branch row
+ * has no click-to-select today (only its thread-expand toggle), so there is
+ * nothing here to hijack; this is still the same modifier-aware, real-`<a
+ * href>` convention the drawer's own `OpenPageLink` and the fleet table's
+ * `OpenLaneLink` both use, so ctrl/cmd/shift/middle click keep opening a new
+ * tab and a plain click swaps the SPA in place.
+ */
+function OpenLaneLink({ handle, label }: { handle: string; label: string }) {
+  const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.defaultPrevented || event.button !== 0) return
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    event.preventDefault()
+    navigate(laneUrl(handle))
+  }
+
+  return (
+    <a
+      href={laneUrl(handle)}
+      onClick={onClick}
+      data-testid="ledger-row-open"
+      aria-label={`Open ${label}'s page`}
+      className="ml-1 rounded text-ice-400 hover:text-ice-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600"
+    >
+      ↗
+    </a>
+  )
+}
+
+/**
+ * THE EXEMPLAR JUMP (issue #159, Grafana's exemplars) — opens this branch's
+ * lane at the drawer's own TRACE section, over the two mechanisms that
+ * already do exactly that for every other surface: the shared selection
+ * (`useSelection().select`, which is what opens the drawer at all) and
+ * `requestPanelFocus('trace')` (the same call the drawer's own `Focus ↗`
+ * button makes, `drawer/Trace.tsx`). No new API, no new state — the trace
+ * section then shows this lane's own spans, the heaviest `llm_request` among
+ * them included, using its own existing rendering.
+ */
+function ExemplarJumpButton({
+  laneId,
+  exemplar,
+  select,
+}: {
+  laneId: string
+  exemplar: { tokens: number }
+  select: (laneId: string) => void
+}) {
+  return (
+    <button
+      type="button"
+      data-testid="ledger-exemplar-jump"
+      title={`jump to trace — heaviest llm_request, ${formatTokens(exemplar.tokens)} tok`}
+      onClick={() => {
+        select(laneId)
+        requestPanelFocus('trace')
+      }}
+      className="rounded border border-ice-850 px-1 text-[10px] text-ice-400 hover:border-ice-600 hover:text-ice-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600"
+    >
+      ⇥ trace
+    </button>
   )
 }

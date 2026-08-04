@@ -8,13 +8,19 @@ import {
 } from '@rhizomorph/core'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ModeProvider, useReplay } from '../../app/ModeContext.js'
+import { useFocusRequest } from '../../app/panelPrefs.js'
 import { StreamProvider } from '../../app/StreamContext.js'
+import { FleetProvider } from '../../fleet/FleetContext.js'
+import type { FetchLike } from '../../fleet/manifest.js'
+import { SelectionProvider, useSelection } from '../../fleet/selection.js'
 import type { EventSourceLike } from '../../hooks/useEventStream.js'
 import { formatTokenBreakdown, formatTokens, formatUsd } from '../../lib/format.js'
 import type { FetchLike as ReplayFetchLike } from '../../replay/api.js'
 import LedgerPanel from './index.js'
 
 afterEach(cleanup)
+
+const noLaneManifest: FetchLike = async () => ({ ok: false, json: async () => null })
 
 class FakeEventSource implements EventSourceLike {
   onopen: ((event: Event) => void) | null = null
@@ -35,6 +41,18 @@ class FakeEventSource implements EventSourceLike {
 /** Matches the moment `core`'s own spend fixtures were authored against. */
 const NOW = FIXTURE_START_TS + 10 * 60_000
 
+/** Test-only witness for the exemplar jump's `requestPanelFocus` call — the same `useFocusRequest` `PanelGrid` uses. */
+function FocusListener({ id, onRequest }: { id: string; onRequest: () => void }) {
+  useFocusRequest(id, onRequest)
+  return null
+}
+
+/** Test-only witness for the exemplar jump's `select` call. */
+function SelectionProbe() {
+  const { selectedId } = useSelection()
+  return <div data-testid="selection-probe">{selectedId ?? ''}</div>
+}
+
 function renderPanel(events: readonly unknown[] = [], open = true) {
   let source: FakeEventSource | undefined
   const utils = render(
@@ -45,7 +63,11 @@ function renderPanel(events: readonly unknown[] = [], open = true) {
         return source
       }}
     >
-      <LedgerPanel now={NOW} />
+      <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
+        <SelectionProvider>
+          <LedgerPanel now={NOW} />
+        </SelectionProvider>
+      </FleetProvider>
     </StreamProvider>,
   )
   if (open) act(() => source?.open())
@@ -59,7 +81,11 @@ describe('LedgerPanel', () => {
   it('renders a header and a waiting state before any connection or data', () => {
     render(
       <StreamProvider url="/api/stream" createSource={() => new FakeEventSource()}>
-        <LedgerPanel now={NOW} />
+        <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
+          <SelectionProvider>
+            <LedgerPanel now={NOW} />
+          </SelectionProvider>
+        </FleetProvider>
       </StreamProvider>,
     )
     expect(screen.getByText('Ledger')).toBeInTheDocument()
@@ -335,6 +361,148 @@ describe('LedgerPanel', () => {
   })
 })
 
+// ── connective tissue (#159) ────────────────────────────────────────────────
+
+describe('LedgerPanel — row drill-down (issue #159)', () => {
+  it('links a branch row to its own deep-linkable page', () => {
+    const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'drilldown' })
+    const branch = '77-drilldown'
+    f.sessionStarted()
+    f.llmUsage({ lane: branch, branch, tokens: { input: 1, output: 10, cacheRead: 0, cacheCreation: 0 } })
+
+    renderPanel(f.all())
+
+    const row = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes(branch))!
+    const link = within(row).getByTestId('ledger-row-open')
+    expect(link.tagName).toBe('A')
+    expect(link.getAttribute('href')).toBe(`/lane/${branch}`)
+  })
+
+  it('navigates the SPA in place on a plain click', () => {
+    const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'drilldownclick' })
+    const branch = '78-drilldown-click'
+    f.sessionStarted()
+    f.llmUsage({ lane: branch, branch, tokens: { input: 1, output: 10, cacheRead: 0, cacheCreation: 0 } })
+
+    renderPanel(f.all())
+    window.history.replaceState(null, '', '/')
+
+    const row = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes(branch))!
+    const link = within(row).getByTestId('ledger-row-open')
+
+    act(() => {
+      fireEvent.click(link, { button: 0 })
+    })
+
+    expect(window.location.pathname).toBe(`/lane/${branch}`)
+    window.history.replaceState(null, '', '/')
+  })
+})
+
+describe('LedgerPanel — TOKENS sparkline (issue #159)', () => {
+  it('draws a spark once the branch has at least three honest buckets of history', () => {
+    const branch = '79-sparkline'
+    const f = createEventFactory({ startTs: NOW - 30 * 60_000, idPrefix: 'sparkline' })
+    f.sessionStarted()
+    // Three requests, well apart, so they land in three distinct 3-minute buckets.
+    f.llmUsage(
+      { lane: branch, branch, tokens: { input: 1, output: 100, cacheRead: 0, cacheCreation: 0 } },
+      { ts: NOW - 25 * 60_000 },
+    )
+    f.llmUsage(
+      { lane: branch, branch, tokens: { input: 1, output: 200, cacheRead: 0, cacheCreation: 0 } },
+      { ts: NOW - 15 * 60_000 },
+    )
+    f.llmUsage(
+      { lane: branch, branch, tokens: { input: 1, output: 300, cacheRead: 0, cacheCreation: 0 } },
+      { ts: NOW - 1_000 },
+    )
+
+    renderPanel(f.all())
+
+    const row = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes(branch))!
+    const tokensCell = within(row).getByTestId('ledger-tokens')
+    const spark = tokensCell.querySelector('svg[data-testid="sparkline"]')
+
+    expect(spark).not.toBeNull()
+    expect(spark?.getAttribute('aria-hidden')).toBe('true')
+    expect(tokensCell.textContent).toContain(formatTokens(600))
+  })
+
+  it('draws nothing for a branch too young to have three honest buckets', () => {
+    const branch = '80-too-young'
+    const f = createEventFactory({ startTs: NOW - 60_000, idPrefix: 'tooyoung' })
+    f.sessionStarted()
+    f.llmUsage({ lane: branch, branch, tokens: { input: 1, output: 50, cacheRead: 0, cacheCreation: 0 } })
+
+    renderPanel(f.all())
+
+    const row = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes(branch))!
+    const tokensCell = within(row).getByTestId('ledger-tokens')
+
+    expect(tokensCell.querySelector('svg[data-testid="sparkline"]')).toBeNull()
+    expect(tokensCell.textContent).toContain(formatTokens(50))
+  })
+})
+
+describe('LedgerPanel — the exemplar jump (issue #159)', () => {
+  it('offers no jump for a branch with no trace spans behind it', () => {
+    const branch = '81-no-trace'
+    const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'notrace' })
+    f.sessionStarted()
+    f.llmUsage({ lane: branch, branch, tokens: { input: 1, output: 10, cacheRead: 0, cacheCreation: 0 } })
+
+    renderPanel(f.all())
+
+    const row = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes(branch))!
+    expect(within(row).queryByTestId('ledger-exemplar-jump')).toBeNull()
+  })
+
+  it('selects the lane and opens the trace focus request for a branch with spans behind it', () => {
+    const branch = '82-exemplar'
+    const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'exemplar' })
+    f.sessionStarted()
+    f.llmUsage({ lane: branch, branch, tokens: { input: 1, output: 10, cacheRead: 0, cacheCreation: 0 } })
+    f.traceSpan({
+      lane: branch, branch, traceId: 'trace-82', spanId: 'span-82',
+      tokens: { input: 5, output: 200, cacheRead: 0, cacheCreation: 0 },
+    })
+
+    let requested = false
+    let source: FakeEventSource | undefined
+    render(
+      <StreamProvider
+        url="/api/stream"
+        createSource={() => {
+          source = new FakeEventSource()
+          return source
+        }}
+      >
+        <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
+          <SelectionProvider>
+            <FocusListener id="trace" onRequest={() => { requested = true }} />
+            <SelectionProbe />
+            <LedgerPanel now={NOW} />
+          </SelectionProvider>
+        </FleetProvider>
+      </StreamProvider>,
+    )
+    act(() => {
+      source?.open()
+      for (const event of f.all()) source?.emit(event)
+    })
+
+    const row = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes(branch))!
+    const jump = within(row).getByTestId('ledger-exemplar-jump')
+    expect(jump.title).toContain(formatTokens(205))
+
+    fireEvent.click(jump)
+
+    expect(requested).toBe(true)
+    expect(screen.getByTestId('selection-probe').textContent).toBe(branch)
+  })
+})
+
 // ── the one clock rule (#155) ───────────────────────────────────────────────
 
 describe('LedgerPanel — replay clock', () => {
@@ -392,8 +560,12 @@ describe('LedgerPanel — replay clock', () => {
       render(
         <ModeProvider fetchImpl={replayFetch()}>
           <StreamProvider url="/api/stream" createSource={() => new FakeEventSource()}>
-            <ReplayDriver />
-            <LedgerPanel />
+            <FleetProvider fetchLanes={noLaneManifest}>
+              <SelectionProvider>
+                <ReplayDriver />
+                <LedgerPanel />
+              </SelectionProvider>
+            </FleetProvider>
           </StreamProvider>
         </ModeProvider>,
       )
