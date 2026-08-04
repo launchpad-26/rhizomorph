@@ -400,6 +400,7 @@ function singleItemFleet(rank: Exclude<LadderRank, 'calm'>, forMs: number): Flee
       conductorOutputTokens: 0,
       overheadRatio: null,
       lastCommitTs: null,
+      subagents: null,
     },
     lanes: [],
     ladder: { rank, items: [item] },

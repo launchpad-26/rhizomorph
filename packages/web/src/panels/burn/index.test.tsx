@@ -58,6 +58,7 @@ function makeFleet(burnOverrides: Partial<Burn> = {}): Fleet {
       conductorOutputTokens: 0,
       overheadRatio: null,
       lastCommitTs: null,
+      subagents: null,
     },
     lanes: [],
     ladder: CALM_LADDER,

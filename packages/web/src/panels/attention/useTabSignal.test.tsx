@@ -149,6 +149,7 @@ function fleetWithItems(items: [AttentionItem, ...AttentionItem[]]): Fleet {
       conductorOutputTokens: 0,
       overheadRatio: null,
       lastCommitTs: null,
+      subagents: null,
     },
     lanes: [],
     ladder: { rank, items },
