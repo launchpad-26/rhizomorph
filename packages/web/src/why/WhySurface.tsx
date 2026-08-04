@@ -30,6 +30,19 @@ import { NearestEntry } from './NearestEntry.js'
  * show** — the same rule `SpendDetail` already applies to its own thread
  * breakdown, for the same reason: merging two collectors' tool activity under
  * one lane risks double-booking a call neither collector actually shares.
+ *
+ * **Two layouts, one component (#163).** `fill` is what the drawer's own WHY
+ * tab passes: no self max-height, header and the file-chip strip pinned above
+ * a `flex-1 overflow-y-auto` chain — the tab body is the drawer's one scroll
+ * region and this fills all of it. Without `fill` (the default), this is the
+ * bounded, self-scrolling strip `LanePage` still lays out unchanged, since
+ * that page is outside this issue's fence.
+ *
+ * **Causality survives tabbing (#163).** Losing the old side-by-side view of
+ * a commit and its WHY chain was the named cost of moving to tabs; `onJumpToActivity`
+ * pays it back the other direction — a small affordance beside the active
+ * file's chain that switches the drawer to ACTIVITY with this file scrolled
+ * to and marked, so the same evidence is one click away instead of gone.
  */
 export interface WhySurfaceProps {
   state: SessionState
@@ -41,9 +54,21 @@ export interface WhySurfaceProps {
   now: number
   /** Test seam for the conversation deep-link's own `fetch`. */
   fetchTranscript?: FetchLike
+  /** True inside the drawer's own WHY tab — fills the tab body instead of a bounded strip. */
+  fill?: boolean
+  /** The drawer's own navigation to ACTIVITY, scoped to a file (#163). Absent outside the drawer. */
+  onJumpToActivity?: (path: string) => void
 }
 
-export function WhySurface({ state, laneLabel, laneHandle, now, fetchTranscript }: WhySurfaceProps) {
+export function WhySurface({
+  state,
+  laneLabel,
+  laneHandle,
+  now,
+  fetchTranscript,
+  fill = false,
+  onJumpToActivity,
+}: WhySurfaceProps) {
   const touches = useMemo(
     () => (laneHandle === null ? [] : selectLaneTouches(state, laneHandle)),
     [state, laneHandle],
@@ -62,32 +87,80 @@ export function WhySurface({ state, laneLabel, laneHandle, now, fetchTranscript 
     [state, laneHandle, activePath],
   )
 
+  const header = (
+    <>
+      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-ice-400">Why</h3>
+      <p className="text-[10px] text-ice-400">FILE granularity — hunk attribution is future work</p>
+    </>
+  )
+
+  const gapOrEmpty =
+    laneHandle === null ? (
+      <p role="status" data-testid="why-multi-handle" className="text-[11px] leading-snug text-ice-400">
+        WHY UNAVAILABLE — {laneLabel} spans more than one telemetry handle, so there is no single
+        causal chain that is provably its own.
+      </p>
+    ) : touches.length === 0 ? (
+      <p role="status" data-testid="why-empty" className="text-[11px] leading-snug text-ice-400">
+        NO FILES TOUCHED YET — no tool call carrying a file path, and no landed commit, has been
+        recorded for {laneLabel} so far.
+      </p>
+    ) : null
+
+  const fileList =
+    gapOrEmpty === null ? (
+      <FileList touches={touches} activePath={activePath} onSelect={setRequestedPath} now={now} />
+    ) : null
+
+  const chainBody =
+    gapOrEmpty !== null || chain === null ? null : (
+      <>
+        {onJumpToActivity === undefined || activePath === null ? null : (
+          <div className="flex items-center justify-between gap-2">
+            <p className="min-w-0 truncate font-mono text-[10px] text-ice-400">{activePath}</p>
+            <button
+              type="button"
+              data-testid="why-open-in-activity"
+              onClick={() => onJumpToActivity(activePath)}
+              title="jumps to ACTIVITY, scrolled to and marking this file's own entries"
+              className="shrink-0 rounded border border-ice-850 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-ice-400 hover:border-ice-600 hover:text-ice-200"
+            >
+              activity ↗
+            </button>
+          </div>
+        )}
+        <FileChain chain={chain} now={now} fetchTranscript={fetchTranscript} />
+      </>
+    )
+
+  if (fill) {
+    return (
+      <section data-testid="why-surface" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <header className="flex items-baseline justify-between px-4 pb-1 pt-2">{header}</header>
+        {gapOrEmpty === null ? (
+          <>
+            <div className="px-4">{fileList}</div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-3 [scrollbar-gutter:stable]">
+              <div className="space-y-2">{chainBody}</div>
+            </div>
+          </>
+        ) : (
+          <div className="px-4 pb-3">{gapOrEmpty}</div>
+        )}
+      </section>
+    )
+  }
+
   return (
     <section
       data-testid="why-surface"
       className="flex max-h-72 shrink-0 flex-col gap-2 overflow-auto border-t border-ice-850 px-4 py-3 [scrollbar-gutter:stable]"
     >
-      <header className="flex items-baseline justify-between">
-        <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-ice-400">Why</h3>
-        <p className="text-[10px] text-ice-400">FILE granularity — hunk attribution is future work</p>
-      </header>
-
-      {laneHandle === null ? (
-        <p role="status" data-testid="why-multi-handle" className="text-[11px] leading-snug text-ice-400">
-          WHY UNAVAILABLE — {laneLabel} spans more than one telemetry handle, so there is no single
-          causal chain that is provably its own.
-        </p>
-      ) : touches.length === 0 ? (
-        <p role="status" data-testid="why-empty" className="text-[11px] leading-snug text-ice-400">
-          NO FILES TOUCHED YET — no tool call carrying a file path, and no landed commit, has been
-          recorded for {laneLabel} so far.
-        </p>
-      ) : (
+      <header className="flex items-baseline justify-between">{header}</header>
+      {gapOrEmpty ?? (
         <>
-          <FileList touches={touches} activePath={activePath} onSelect={setRequestedPath} now={now} />
-          {chain === null ? null : (
-            <FileChain chain={chain} now={now} fetchTranscript={fetchTranscript} />
-          )}
+          {fileList}
+          {chainBody}
         </>
       )}
     </section>

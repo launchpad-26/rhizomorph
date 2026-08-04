@@ -150,4 +150,76 @@ describe('WhySurface', () => {
     fireEvent.click(screen.getByTestId('why-tool-call-jump'))
     await waitFor(() => expect(fetchCount).toBeGreaterThan(0))
   })
+
+  /**
+   * FILL MODE (#163) — what the drawer's own WHY tab passes: no self
+   * max-height, since the tab body is the drawer's one scroll region now.
+   * `LanePage` (outside this issue's fence) never sets `fill`, so its own
+   * bounded strip stays exactly as it was — covered by every test above,
+   * none of which pass `fill`.
+   */
+  it('fill mode carries no self max-height and fills its container instead', () => {
+    f = createEventFactory({ startTs: NOW - 60_000 })
+    const state = reduceAll([
+      f.toolActivity({ lane: 'feature', tool: 'Edit', branch: 'feature', filePath: 'src/a.ts', toolUseId: 'toolu_1' }),
+    ])
+
+    render(
+      <WhySurface state={state} laneLabel="feature" laneHandle="feature" now={NOW} fetchTranscript={noTranscript} fill />,
+    )
+
+    const surface = screen.getByTestId('why-surface')
+    expect(surface.className).not.toMatch(/max-h-\d+/)
+    expect(surface.className).not.toContain('overflow-auto')
+    expect(surface.className).toContain('flex-1')
+    expect(surface.className).toContain('min-h-0')
+  })
+
+  /**
+   * CAUSALITY SURVIVES TABBING (#163) — `onJumpToActivity` is the drawer's
+   * own navigation across the tab boundary; absent (as every `LanePage` call
+   * leaves it), the affordance simply does not render.
+   */
+  it('offers no "activity ↗" jump when onJumpToActivity is not given', () => {
+    f = createEventFactory({ startTs: NOW - 60_000 })
+    const state = reduceAll([
+      f.toolActivity({ lane: 'feature', tool: 'Edit', branch: 'feature', filePath: 'src/a.ts', toolUseId: 'toolu_1' }),
+    ])
+
+    render(
+      <WhySurface state={state} laneLabel="feature" laneHandle="feature" now={NOW} fetchTranscript={noTranscript} fill />,
+    )
+
+    expect(screen.queryByTestId('why-open-in-activity')).toBeNull()
+  })
+
+  it('the "activity ↗" jump names the active file', () => {
+    f = createEventFactory({ startTs: NOW - 60_000 })
+    const state = reduceAll([
+      f.toolActivity({ lane: 'feature', tool: 'Edit', branch: 'feature', filePath: 'src/a.ts', toolUseId: 'toolu_1' }),
+      f.toolActivity({ lane: 'feature', tool: 'Write', branch: 'feature', filePath: 'src/b.ts', toolUseId: 'toolu_2' }),
+    ])
+    const jumped: string[] = []
+
+    render(
+      <WhySurface
+        state={state}
+        laneLabel="feature"
+        laneHandle="feature"
+        now={NOW}
+        fetchTranscript={noTranscript}
+        fill
+        onJumpToActivity={(path) => jumped.push(path)}
+      />,
+    )
+
+    // b.ts was touched last, so it is the default selection (same rule the
+    // file-list test above pins).
+    fireEvent.click(screen.getByTestId('why-open-in-activity'))
+    expect(jumped).toEqual(['src/b.ts'])
+
+    fireEvent.click(screen.getAllByTestId('why-file')[1]!) // src/a.ts
+    fireEvent.click(screen.getByTestId('why-open-in-activity'))
+    expect(jumped).toEqual(['src/b.ts', 'src/a.ts'])
+  })
 })

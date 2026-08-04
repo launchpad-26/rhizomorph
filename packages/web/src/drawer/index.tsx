@@ -1,12 +1,16 @@
-import { useMemo, type MouseEvent, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { selectLaneTouches } from '@rhizomorph/core'
+import { useFocusRequest } from '../app/panelPrefs.js'
 import { laneUrl, navigate } from '../app/router.js'
 import { useStream } from '../app/StreamContext.js'
 import { isMainSelected, MAIN_SELECTION, useFleet, useSelection } from '../fleet/index.js'
 import type { FetchLike } from '../fleet/manifest.js'
+import { selectLaneInteractionViews } from '../trace/model.js'
 import { WhySurface } from '../why/index.js'
 import { ActivityView } from './Activity.js'
 import { AttachButton, type CopyText } from './AttachButton.js'
 import { Conversation } from './Conversation.js'
+import { TabBar, tabPanelId, type DrawerTab, type TabId } from './Tabs.js'
 import { TraceSection } from './Trace.js'
 import { MainVitals, Vitals } from './Vitals.js'
 import { foldActivity } from './activity.js'
@@ -22,16 +26,21 @@ import { attachPlan, conductorAttachPlan } from './attach.js'
  * global handler that clears the selection for every other surface — there is
  * one way out of a narrowed view (ruling 6).
  *
- * Top to bottom (prd4 ruling 4 re-orders prd3's): **vitals** (the row you just
- * clicked, opened out), **conversation** (what you would see at that agent's
- * terminal — the main view, live-tailing, the largest thing here), **activity**
- * (the compact git/file/commit audit trail the conversation cannot prove),
+ * Top to bottom: **vitals** (the row you just clicked, opened out — never
+ * hides, ruling 17), **tabs** — CONVERSATION, ACTIVITY, WHY, TRACE, one body
+ * at a time, each getting the whole drawer's remaining height — and
  * **attach** (the command to go and talk to it in your own terminal).
  *
- * The conversation leads because it is what an operator came for; the ledger
- * follows because it is corroboration. prd3 had them the other way round and
- * the operator's review found the fold in front of the transcript to be the
- * drawer's worst moment.
+ * **Tabs, not four boxes with their own caps (#163).** prd4 ruling 4 stacked
+ * conversation/activity/why/trace as independently-scrolling, height-capped
+ * sections; the operator's 2026-08-04 review of the live drawer ruled that
+ * structure itself cramped and occluded — four fixed caps claimed more than a
+ * 1080p viewport before conversation got anything. One tab at a time, full
+ * height, is the fix. Losing the ability to see a commit and its WHY chain
+ * side by side is the named cost of that move; `WhySurface`'s own
+ * `onJumpToActivity` and this file's `useFocusRequest('trace', …)` (the same
+ * channel #159's ledger exemplar jump already calls) are how causality still
+ * reaches across a tab boundary in one click instead of vanishing behind one.
  *
  * The read-only constitution holds absolutely and structurally: the only
  * network call anywhere in this directory is `GET /api/transcript/:lane`, and
@@ -74,6 +83,76 @@ export default function LaneDrawer({ fetchTranscript, transcriptPollMs, onCopy }
     () => (main ? conductorAttachPlan(state.events, fleet.root) : null),
     [main, state.events, fleet.root],
   )
+
+  // The one telemetry handle this lane answers to (or null, spanning more than
+  // one) — computed here, not just inside `WhySurface`, because the WHY tab's
+  // own count needs it too and the two must never disagree.
+  const laneHandle = lane === null ? null : lane.handles.length === 1 ? lane.handles[0]! : null
+  const touches = useMemo(
+    () => (laneHandle === null ? [] : selectLaneTouches(state.session, laneHandle)),
+    [state.session, laneHandle],
+  )
+  const traceViews = useMemo(
+    () => (lane === null ? [] : selectLaneInteractionViews(state.session, lane.id)),
+    [state.session, lane],
+  )
+
+  const [activeTab, setActiveTab] = useState<TabId>('conversation')
+  const [activityHighlight, setActivityHighlight] = useState<string | null>(null)
+
+  /**
+   * A new lane defaults to CONVERSATION — but not when the reason the drawer
+   * is opening on it is #159's own exemplar jump, which asks for TRACE by name
+   * (`select(laneId)` then `requestPanelFocus('trace')`, fired back to back in
+   * the same handler). Both land in the same React batch, so this is decided
+   * here, in render, rather than in an effect: an effect keyed on `selectedId`
+   * would run after `useFocusRequest`'s listener has already asked for TRACE
+   * and clobber it back to CONVERSATION. `traceFocusPendingRef` is the flag
+   * that lets this render see "a trace focus request landed with this very
+   * selection change" — read and cleared every render, not just when the
+   * lane-change branch below fires, so a request against a lane already open
+   * never leaks into the *next*, unrelated lane change.
+   */
+  const prevSelectedIdRef = useRef(selectedId)
+  const traceFocusPendingRef = useRef(false)
+  if (prevSelectedIdRef.current !== selectedId) {
+    prevSelectedIdRef.current = selectedId
+    if (!traceFocusPendingRef.current) {
+      setActiveTab('conversation')
+      setActivityHighlight(null)
+    }
+  }
+  traceFocusPendingRef.current = false
+
+  useFocusRequest('trace', () => {
+    traceFocusPendingRef.current = true
+    setActiveTab('trace')
+  })
+
+  const selectTab = (id: TabId) => {
+    setActiveTab(id)
+    if (id !== 'activity') setActivityHighlight(null)
+  }
+
+  /** WHY's own navigation across the tab boundary (#163) — the file stays on screen, just in ACTIVITY's own reading of it. */
+  const jumpToActivity = (path: string) => {
+    setActivityHighlight(path)
+    setActiveTab('activity')
+  }
+
+  const tabs: DrawerTab[] = [
+    { id: 'conversation', label: 'Conversation', count: null },
+    { id: 'activity', label: 'Activity', count: entries.length === 0 ? '—' : String(entries.length) },
+    {
+      id: 'why',
+      label: 'Why',
+      count:
+        laneHandle === null || touches.length === 0
+          ? '—'
+          : `${touches.length} file${touches.length === 1 ? '' : 's'}`,
+    },
+    { id: 'trace', label: 'Trace', count: traceViews.length === 0 ? '—' : String(traceViews.length) },
+  ]
 
   if (selectedId === null) return null
 
@@ -140,16 +219,31 @@ export default function LaneDrawer({ fetchTranscript, transcriptPollMs, onCopy }
       ) : (
         <>
           <Vitals lane={lane} fleet={fleet} />
-          <Conversation lane={lane.id} fetchImpl={fetchTranscript} pollMs={transcriptPollMs} />
-          <ActivityView entries={entries} now={fleet.now} />
-          <WhySurface
-            state={state.session}
-            laneLabel={lane.label}
-            laneHandle={lane.handles.length === 1 ? lane.handles[0]! : null}
-            now={fleet.now}
-            fetchTranscript={fetchTranscript}
-          />
-          <TraceSection state={state.session} lane={lane.id} />
+          <TabBar tabs={tabs} active={activeTab} onSelect={selectTab} />
+          <div
+            role="tabpanel"
+            id={tabPanelId(activeTab)}
+            aria-labelledby={`drawer-tab-${activeTab}`}
+            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          >
+            {activeTab === 'conversation' ? (
+              <Conversation lane={lane.id} fetchImpl={fetchTranscript} pollMs={transcriptPollMs} />
+            ) : activeTab === 'activity' ? (
+              <ActivityView entries={entries} now={fleet.now} fill highlightPath={activityHighlight} />
+            ) : activeTab === 'why' ? (
+              <WhySurface
+                state={state.session}
+                laneLabel={lane.label}
+                laneHandle={laneHandle}
+                now={fleet.now}
+                fetchTranscript={fetchTranscript}
+                fill
+                onJumpToActivity={jumpToActivity}
+              />
+            ) : (
+              <TraceSection state={state.session} lane={lane.id} />
+            )}
+          </div>
           <AttachButton plan={plan} onCopy={onCopy} />
         </>
       )}
@@ -210,7 +304,7 @@ function DrawerFrame({ selectedId, label, title, onClose, children }: DrawerFram
       data-testid="lane-drawer"
       data-lane={selectedId}
       aria-label={label}
-      className="fixed inset-y-0 right-0 z-40 flex w-[min(34rem,100vw)] flex-col border-l border-ice-850 bg-ice-950 shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.9)]"
+      className="fixed inset-y-0 right-0 z-40 flex w-[min(48rem,92vw)] flex-col border-l border-ice-850 bg-ice-950 shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.9)]"
     >
       <header className="flex items-center justify-between gap-2 border-b border-ice-850 px-4 py-2">
         {title}

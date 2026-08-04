@@ -7,6 +7,7 @@ import {
   type RhizomorphEvent,
 } from '@rhizomorph/core'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { requestPanelFocus } from '../app/panelPrefs.js'
 import { StreamProvider } from '../app/StreamContext.js'
 import { FleetProvider } from '../fleet/FleetContext.js'
 import {
@@ -17,6 +18,7 @@ import {
   pathologySpec,
   specFor,
   SyntheticFleet,
+  useSelection,
 } from '../fleet/index.js'
 import type { FetchLike } from '../fleet/manifest.js'
 import { SelectionProvider } from '../fleet/selection.js'
@@ -29,8 +31,16 @@ import {
 } from '../panels/burn/format.js'
 import { costCellText, outputCellText } from '../panels/fleet/format.js'
 import LaneDrawer from './index.js'
+import type { TabId } from './Tabs.js'
 
 afterEach(cleanup)
+
+/** Switches the drawer's own active tab by clicking the tab bar — the same path a mouse takes. */
+async function openTab(id: TabId): Promise<void> {
+  await act(async () => {
+    fireEvent.click(screen.getByTestId(`drawer-tab-${id}`))
+  })
+}
 
 /** Pinned, so the fixture, the derived fleet and every age string are still. */
 const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
@@ -316,9 +326,10 @@ describe('LaneDrawer — vitals', () => {
   })
 })
 
-describe('LaneDrawer — the activity view (the default reading)', () => {
+describe('LaneDrawer — the activity view, in its own tab', () => {
   it('folds the three kinds out of the lane\'s own events, newest first', async () => {
     await renderDrawer()
+    await openTab('activity')
 
     const kinds = [...screen.getAllByTestId('activity-entry')].map((li) => li.getAttribute('data-kind'))
     expect(kinds).toEqual(['commit', 'file', 'tool', 'tool'])
@@ -326,6 +337,7 @@ describe('LaneDrawer — the activity view (the default reading)', () => {
 
   it('coalesces the repeated tool call and shows the count', async () => {
     await renderDrawer()
+    await openTab('activity')
 
     const entries = screen.getAllByTestId('activity-entry')
     const read = entries.find((li) => li.textContent?.includes('Read'))
@@ -334,6 +346,7 @@ describe('LaneDrawer — the activity view (the default reading)', () => {
 
   it('names the commit and the file it touched', async () => {
     await renderDrawer()
+    await openTab('activity')
 
     const text = screen.getByTestId('drawer-activity').textContent ?? ''
     expect(text).toContain('abc1234')
@@ -341,43 +354,34 @@ describe('LaneDrawer — the activity view (the default reading)', () => {
     expect(text).toContain('packages/web/src/drawer/index.tsx')
   })
 
-  it('sits below the conversation — prd4 ruling 4\'s ordering, structurally', async () => {
+  it('is not mounted at all until its tab is selected — only one body renders at a time', async () => {
     await renderDrawer()
 
-    const drawer = screen.getByTestId('lane-drawer')
-    const order = [...drawer.querySelectorAll('[data-testid]')].map((el) => el.getAttribute('data-testid'))
-    expect(order.indexOf('drawer-vitals')).toBeLessThan(order.indexOf('drawer-conversation'))
-    expect(order.indexOf('drawer-conversation')).toBeLessThan(order.indexOf('drawer-activity'))
-    expect(order.indexOf('drawer-activity')).toBeLessThan(order.indexOf('drawer-trace'))
-    expect(order.indexOf('drawer-trace')).toBeLessThan(order.indexOf('drawer-attach'))
-  })
+    expect(screen.queryByTestId('drawer-activity')).toBeNull()
 
-  it('takes a bounded strip, not half the drawer — the conversation is the flex-1 one', async () => {
-    await renderDrawer()
-
-    expect(screen.getByTestId('drawer-activity').className).not.toContain('flex-1')
-    expect(screen.getByTestId('drawer-conversation').className).toContain('flex-1')
+    await openTab('activity')
+    expect(screen.getByTestId('drawer-activity')).toBeTruthy()
+    expect(screen.queryByTestId('drawer-conversation')).toBeNull()
   })
 })
 
 /**
- * #151 REGRESSION COVERAGE — one flow column, structurally.
+ * #151/#163 REGRESSION COVERAGE — one flow column, one scroll region.
  *
- * jsdom has no layout engine, so none of this can *prove* the sections stop
- * overprinting one another in a real window; it can only prove the DOM shape
- * a browser lays out never invites the overlap in the first place — every
- * section a plain flow sibling, and the one flex-grow section boxed with a
- * clip boundary rather than left free to bleed. The gate's browser check is
- * the actual proof.
+ * jsdom has no layout engine, so none of this can *prove* the drawer reads
+ * right in a real window; it can only prove the DOM shape a browser lays out
+ * never invites the old overlap (#151) or the old fixed-height-claims-more-
+ * than-the-viewport crush (#163) in the first place. The gate's browser check
+ * is the actual proof.
  */
-describe('LaneDrawer — one flow column, not overprinted (#151)', () => {
+describe('LaneDrawer — one flow column, one scroll region (#151, #163)', () => {
   it('every top-level section is a plain flow sibling — none pulled out of flow to stack on another', async () => {
     await renderDrawer({ events: [...laneHistory(), ...fixtureTraceSpans({ lane: LANE, sessionId: 'sess-84' })] })
 
     const drawer = screen.getByTestId('lane-drawer')
     const children = [...drawer.children]
-    // header + vitals + conversation + activity + why + trace + attach.
-    expect(children.length).toBeGreaterThanOrEqual(7)
+    // header + vitals + tab bar + the active tab's panel + attach.
+    expect(children.length).toBeGreaterThanOrEqual(5)
     for (const child of children) {
       const el = child as HTMLElement
       expect(el.className).not.toMatch(/(?:^|\s)(?:absolute|fixed)(?:\s|$)/)
@@ -421,14 +425,156 @@ describe('LaneDrawer — one flow column, not overprinted (#151)', () => {
     expect(body.className).not.toMatch(/min-h-(?!0\b)\d/)
   })
 
-  it('ACTIVITY, WHY and TRACE each cap their own height and scroll internally instead of growing unbounded', async () => {
+  it('ACTIVITY, WHY and TRACE carry no self max-height or self overflow-auto — the tab body is the drawer\'s one scroll region (#163)', async () => {
     await renderDrawer({ events: [...laneHistory(), ...fixtureTraceSpans({ lane: LANE, sessionId: 'sess-84' })] })
 
-    for (const testId of ['drawer-activity', 'why-surface', 'drawer-trace']) {
+    for (const tab of ['activity', 'why', 'trace'] as const) {
+      await openTab(tab)
+      const testId = tab === 'activity' ? 'drawer-activity' : tab === 'why' ? 'why-surface' : 'drawer-trace'
       const el = screen.getByTestId(testId)
-      expect(el.className).toMatch(/max-h-\d+/)
-      expect(el.className).toContain('overflow-auto')
+      expect(el.className).not.toMatch(/max-h-\d+/)
+      expect(el.className).not.toContain('overflow-auto')
+      // Each fills the tab body the same way CONVERSATION always has.
+      expect(el.className).toContain('flex-1')
+      expect(el.className).toContain('min-h-0')
     }
+  })
+
+  it('each tab body owns exactly one overflow-y-auto region', async () => {
+    const fetchTranscript: FetchLike = async () => ({
+      ok: true,
+      json: async () => ({
+        available: true,
+        lane: LANE,
+        sessionId: 'sess-84',
+        offset: 0,
+        nextOffset: 10,
+        size: 10,
+        eof: true,
+        restarted: false,
+        entries: [{ role: 'user', blocks: [{ kind: 'text', text: 'hi' }] }],
+      }),
+    })
+    await renderDrawer({
+      events: [...laneHistory(), ...fixtureTraceSpans({ lane: LANE, sessionId: 'sess-84' })],
+      fetchTranscript,
+    })
+
+    for (const tab of ['conversation', 'activity', 'why', 'trace'] as const) {
+      await openTab(tab)
+      const panel = document.getElementById('drawer-tabpanel-' + tab)
+      expect(panel).toBeTruthy()
+      const scrollers = panel!.querySelectorAll('.overflow-y-auto')
+      expect(scrollers.length).toBe(1)
+    }
+  })
+})
+
+describe('LaneDrawer — the tab bar (#163)', () => {
+  it('renders the four tabs, in order, CONVERSATION first and active by default', async () => {
+    await renderDrawer()
+
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs.map((tab) => tab.getAttribute('data-testid'))).toEqual([
+      'drawer-tab-conversation',
+      'drawer-tab-activity',
+      'drawer-tab-why',
+      'drawer-tab-trace',
+    ])
+    expect(screen.getByTestId('drawer-tab-conversation').getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('carries counts on ACTIVITY and WHY, the honest gap on TRACE when the lane has produced none', async () => {
+    await renderDrawer()
+
+    // laneHistory() folds to 4 activity entries and one commit-landed file
+    // touch (index.tsx) — no trace.span events at all, so TRACE reads the gap.
+    expect(screen.getByTestId('drawer-tab-activity').textContent).toContain('4')
+    expect(screen.getByTestId('drawer-tab-why').textContent).toContain('1 file')
+    expect(screen.getByTestId('drawer-tab-trace').textContent).toContain('—')
+  })
+
+  it('reads the honest gap on WHY too, for a lane that has touched nothing', async () => {
+    const f = createEventFactory({ startTs: NOW - 10_000, stepMs: 1_000 })
+    await renderDrawer({
+      events: [
+        f.sessionStarted({ repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' }),
+        f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-main', isMain: true }),
+        f.worktreeDiscovered({ path: WORKTREE, branch: LANE, head: 'sha-84', isMain: false }),
+        // A registered handle, so this is the "zero touches" gap, not the
+        // "spans more than one handle" gap — the same distinction
+        // `WhySurface.test.tsx` draws at the component level.
+        f.llmUsage({
+          lane: LANE,
+          branch: LANE,
+          worktreePath: WORKTREE,
+          sessionId: 'sess-84',
+          model: 'test-model-unpriced',
+          tokens: { input: 1, output: 1, cacheRead: 0, cacheCreation: 0 },
+        }),
+      ],
+    })
+
+    expect(screen.getByTestId('drawer-tab-why').textContent).toContain('—')
+  })
+
+  it('clicking a tab shows only that tab\'s body', async () => {
+    await renderDrawer()
+    await openTab('why')
+
+    expect(screen.getByTestId('drawer-tab-why').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('why-surface')).toBeTruthy()
+    expect(screen.queryByTestId('drawer-conversation')).toBeNull()
+    expect(screen.queryByTestId('drawer-activity')).toBeNull()
+    expect(screen.queryByTestId('drawer-trace')).toBeNull()
+  })
+
+  it('ArrowRight/ArrowLeft cycle the active tab, wrapping at either end', async () => {
+    await renderDrawer()
+
+    const conversationTab = screen.getByTestId('drawer-tab-conversation')
+    conversationTab.focus()
+
+    await act(async () => {
+      fireEvent.keyDown(conversationTab, { key: 'ArrowRight' })
+    })
+    expect(screen.getByTestId('drawer-tab-activity').getAttribute('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(screen.getByTestId('drawer-tab-activity'))
+
+    // Wraps forward past TRACE, back to CONVERSATION.
+    await act(async () => {
+      fireEvent.keyDown(screen.getByTestId('drawer-tab-activity'), { key: 'ArrowRight' })
+    })
+    await act(async () => {
+      fireEvent.keyDown(screen.getByTestId('drawer-tab-why'), { key: 'ArrowRight' })
+    })
+    await act(async () => {
+      fireEvent.keyDown(screen.getByTestId('drawer-tab-trace'), { key: 'ArrowRight' })
+    })
+    expect(screen.getByTestId('drawer-tab-conversation').getAttribute('aria-selected')).toBe('true')
+
+    // And wraps backward past CONVERSATION, to TRACE.
+    await act(async () => {
+      fireEvent.keyDown(screen.getByTestId('drawer-tab-conversation'), { key: 'ArrowLeft' })
+    })
+    expect(screen.getByTestId('drawer-tab-trace').getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('Esc still closes the drawer even with the tab bar focused — the tab bar does not eat the keystroke', async () => {
+    await renderDrawer()
+    screen.getByTestId('drawer-tab-conversation').focus()
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Escape' })
+    })
+
+    expect(screen.queryByTestId('lane-drawer')).toBeNull()
+  })
+
+  it('is w-[min(48rem,92vw)] — widened from the pre-#163 34rem to use a single full-height section\'s own room', async () => {
+    await renderDrawer()
+
+    expect(screen.getByTestId('lane-drawer').className).toContain('w-[min(48rem,92vw)]')
   })
 })
 
@@ -463,6 +609,14 @@ describe('LaneDrawer — the WHY surface (prd11 ruling 5)', () => {
         toolName: 'Edit',
         toolUseId: 'toolu_why_1',
       }),
+      // A `worktree.dirty` snapshot too, so ACTIVITY's own fold (which reads
+      // this event, not `commit.landed`, for its `file` kind) has an entry for
+      // the same path — the WHY→ACTIVITY jump test below needs one to mark.
+      f.worktreeDirty({
+        path: WORKTREE,
+        branch: LANE,
+        files: [{ path: 'packages/web/src/drawer/index.tsx', status: 'modified' }],
+      }),
       f.commitLanded({
         branch: LANE,
         sha: 'abc1234def5678',
@@ -477,6 +631,7 @@ describe('LaneDrawer — the WHY surface (prd11 ruling 5)', () => {
 
   it('renders the chain — the tool call joined to its span, and the commit that landed the file', async () => {
     await renderDrawer({ events: whyHistory() })
+    await openTab('why')
 
     expect(screen.getByTestId('why-surface')).toBeTruthy()
     expect(screen.getByTestId('why-tool-call').textContent).toContain('Edit')
@@ -485,20 +640,49 @@ describe('LaneDrawer — the WHY surface (prd11 ruling 5)', () => {
     expect(screen.queryByTestId('why-gap')).toBeNull()
   })
 
-  it('sits below the activity ledger and above the trace section', async () => {
+  it('is reachable from its own tab, alongside CONVERSATION, ACTIVITY and TRACE — the tab bar is the ordering now', async () => {
     await renderDrawer({ events: whyHistory() })
 
-    const drawer = screen.getByTestId('lane-drawer')
-    const order = [...drawer.querySelectorAll('[data-testid]')].map((el) => el.getAttribute('data-testid'))
-    expect(order.indexOf('drawer-activity')).toBeLessThan(order.indexOf('why-surface'))
-    expect(order.indexOf('why-surface')).toBeLessThan(order.indexOf('drawer-trace'))
+    const order = screen.getAllByRole('tab').map((tab) => tab.getAttribute('data-testid'))
+    expect(order).toEqual([
+      'drawer-tab-conversation',
+      'drawer-tab-activity',
+      'drawer-tab-why',
+      'drawer-tab-trace',
+    ])
+  })
+
+  /**
+   * CAUSALITY SURVIVES TABBING (#163) — the named cost of moving off one flow
+   * column was losing the side-by-side view of a commit and its own WHY
+   * chain. `onJumpToActivity` pays it back: the active file's own "activity
+   * ↗" switches the drawer to ACTIVITY with that exact file scrolled to and
+   * marked, never hidden behind a filter (`Activity.tsx` keeps its
+   * deliberate no-filter-chips rule).
+   */
+  it('a file\'s "activity ↗" jumps to ACTIVITY, scoped to that file', async () => {
+    await renderDrawer({ events: whyHistory() })
+    await openTab('why')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('why-open-in-activity'))
+    })
+
+    expect(screen.getByTestId('drawer-tab-activity').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('drawer-activity')).toBeTruthy()
+    const marked = screen
+      .getAllByTestId('activity-entry')
+      .find((li) => li.getAttribute('data-highlighted') === 'true')
+    expect(marked, 'no activity entry was marked by the WHY jump').toBeDefined()
+    expect(marked?.textContent).toContain('packages/web/src/drawer/index.tsx')
   })
 })
 
 describe('LaneDrawer — the trace section (prd9 B1a)', () => {
-  it('renders the lane\'s span tree below the activity ledger', async () => {
+  it('renders the lane\'s span tree in its own tab', async () => {
     const events = [...laneHistory(), ...fixtureTraceSpans({ lane: LANE, sessionId: 'sess-84' })]
     await renderDrawer({ events })
+    await openTab('trace')
 
     const trace = screen.getByTestId('drawer-trace')
     expect(trace.querySelector('[data-testid="trace-tree"]')).toBeTruthy()
@@ -509,10 +693,113 @@ describe('LaneDrawer — the trace section (prd9 B1a)', () => {
 
   it('is the honest gap when the lane has produced no trace telemetry', async () => {
     await renderDrawer() // `laneHistory()` alone carries no `trace.span` events.
+    await openTab('trace')
 
     const trace = screen.getByTestId('drawer-trace')
     expect(trace.textContent).toContain('no trace telemetry from this lane')
     expect(trace.textContent).toContain('docs/telemetry.md')
+  })
+
+  /**
+   * #159's OWN JUMP, LANDING ON ITS TARGET TAB (#163) — the ledger's exemplar
+   * jump does exactly `select(laneId)` then `requestPanelFocus('trace')`
+   * (`panels/ledger/index.tsx`'s `ExemplarJumpButton`, unmodified by this
+   * issue's fence). This drawer now listens on that same channel
+   * (`useFocusRequest('trace', …)`) and switches its own active tab, so the
+   * jump still lands where it always did — it no longer has to, since every
+   * section used to be visible at once, but tabbing must not silently drop it.
+   */
+  it('a requestPanelFocus("trace") call switches the drawer to its own TRACE tab', async () => {
+    await renderDrawer()
+    expect(screen.getByTestId('drawer-tab-conversation').getAttribute('aria-selected')).toBe('true')
+
+    await act(async () => {
+      requestPanelFocus('trace')
+    })
+
+    expect(screen.getByTestId('drawer-tab-trace').getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('the exemplar jump\'s own sequence — select a lane, then request trace focus, in the same handler — still lands on TRACE, not the fresh lane\'s CONVERSATION default', async () => {
+    const OTHER_LANE = 'other-lane'
+    const OTHER_WORKTREE = '/repo-wt/other-lane'
+
+    function twoLaneHistory(): RhizomorphEvent[] {
+      const f = createEventFactory({ startTs: NOW - 40_000, stepMs: 2_000 })
+      return [
+        f.sessionStarted({ repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' }),
+        f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-main', isMain: true }),
+        f.worktreeDiscovered({ path: WORKTREE, branch: LANE, head: 'sha-84', isMain: false }),
+        f.worktreeDiscovered({ path: OTHER_WORKTREE, branch: OTHER_LANE, head: 'sha-other', isMain: false }),
+        f.llmUsage({
+          lane: LANE,
+          branch: LANE,
+          worktreePath: WORKTREE,
+          sessionId: 'sess-84',
+          model: 'test-model-unpriced',
+          tokens: { input: 1, output: 1, cacheRead: 0, cacheCreation: 0 },
+        }),
+        f.llmUsage({
+          lane: OTHER_LANE,
+          branch: OTHER_LANE,
+          worktreePath: OTHER_WORKTREE,
+          sessionId: 'sess-other',
+          model: 'test-model-unpriced',
+          tokens: { input: 1, output: 1, cacheRead: 0, cacheCreation: 0 },
+        }),
+      ]
+    }
+
+    function ExemplarJumpStub({ to }: { to: string }) {
+      const { select } = useSelection()
+      return (
+        <button
+          type="button"
+          data-testid="test-exemplar-jump"
+          onClick={() => {
+            // The exact sequence `ExemplarJumpButton` (panels/ledger/index.tsx) runs.
+            select(to)
+            requestPanelFocus('trace')
+          }}
+        >
+          jump
+        </button>
+      )
+    }
+
+    let source: ScriptedEventSource | null = null
+    render(
+      <StreamProvider
+        url="/api/stream"
+        now={NOW}
+        createSource={() => {
+          source = new ScriptedEventSource()
+          return source
+        }}
+      >
+        <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
+          <SelectionProvider initialSelectedId={LANE}>
+            <ExemplarJumpStub to={OTHER_LANE} />
+            <LaneDrawer fetchTranscript={noTranscript} transcriptPollMs={0} />
+          </SelectionProvider>
+        </FleetProvider>
+      </StreamProvider>,
+    )
+    await act(async () => {
+      source?.onopen?.(new Event('open'))
+      for (const event of twoLaneHistory()) {
+        source?.onmessage?.({ data: JSON.stringify(event) } as MessageEvent<string>)
+      }
+    })
+    expect(screen.getByTestId('lane-drawer').getAttribute('data-lane')).toBe(LANE)
+    expect(screen.getByTestId('drawer-tab-conversation').getAttribute('aria-selected')).toBe('true')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('test-exemplar-jump'))
+    })
+
+    expect(screen.getByTestId('lane-drawer').getAttribute('data-lane')).toBe(OTHER_LANE)
+    expect(screen.getByTestId('drawer-tab-trace').getAttribute('aria-selected')).toBe('true')
   })
 })
 
@@ -558,7 +845,7 @@ describe('LaneDrawer — the conversation (the main view)', () => {
     expect(screen.getByTestId('tool-call').textContent).toContain('Read')
   })
 
-  it('is the largest section, with the vitals above it and the ledger below', async () => {
+  it('is the default tab, and fills the whole tab body — vitals above, tabs below', async () => {
     await renderDrawer({ fetchTranscript: conversation })
 
     const roles = [...screen.getAllByTestId('turn')].map((turn) => turn.getAttribute('data-role'))
