@@ -42,7 +42,16 @@ import { ribbonMark } from './marks/index.js'
 import { arrivalSwell } from './marks/root.js'
 import { RIM_VEIL } from './marks/ambient.js'
 import { paint } from './paint.js'
-import { RETURN, RetireRegistry, PERSIST, PERSIST_FLOOR, returnAt, isRetired, type RetireState } from './retire.js'
+import {
+  RETURN,
+  RetireRegistry,
+  PERSIST,
+  PERSIST_FLOOR,
+  PERSIST_WIDTH_SCALE,
+  returnAt,
+  isRetired,
+  type RetireState,
+} from './retire.js'
 import {
   ALARM_FLOOR,
   CALM_CEILING,
@@ -2169,15 +2178,19 @@ describe('the display list is data, not objects (prd7 ruling 1)', () => {
 })
 
 /**
- * THE CORD-RETURN, on the display list (prd5 ruling 3).
+ * THE RETURN, on the display list (prd10 rulings 13–16).
  *
- * The whole reason the cut is worth building is that it answers "is this fleet
- * still working?" *structurally* rather than by shade — so these assertions are
- * about what the list **contains**, not about what is bright. "The lane left the
- * living network" is `role === 'thread'` returning nothing for it, which is a fact
- * no future retune of a brightness can quietly undo.
+ * The whole reason it is worth building this way is that it answers "is this
+ * fleet still working?" *structurally* rather than by shade — so these assertions
+ * are about what the list **contains**, not about what is bright. "The lane left
+ * the living network" is `role === 'thread'` returning nothing for it, which is a
+ * fact no future retune of a brightness can quietly undo.
+ *
+ * What ruling 13 changed is the other half of that sentence: leaving the living
+ * network is no longer leaving the *picture*. A finished lane draws a `persist`
+ * strand instead of a `thread`, and it draws it for the rest of the session.
  */
-describe('the cord-cut — a finished lane leaves the network', () => {
+describe('the return — a finished lane leaves the living network and keeps its strand', () => {
   const LEAVING = LANE.healthy
 
   function cut(ms: number, options: FrameOptions = {}): Mark[] {
@@ -2208,14 +2221,18 @@ describe('the cord-cut — a finished lane leaves the network', () => {
   const rolesOf = (marks: readonly Mark[]): Set<MarkRole> =>
     new Set(mine(marks).map((mark) => mark.role))
 
-  it('is not part of the living network at any stage of the cut', () => {
-    for (const ms of [0, RETURN.tensionMs, RETURN.tensionMs + 400, RETURN.totalMs]) {
+  it('is not part of the living network at any stage of the return, and never stops being drawn', () => {
+    // Past `dissolvedMs` deliberately, and a long way past it: that is the instant
+    // the old code deleted the lane's geometry at, and the one a regression would
+    // reappear at (prd10 ruling 13).
+    for (const ms of [0, RETURN.tensionMs, RETURN.tensionMs + 400, RETURN.totalMs, RETURN.dissolvedMs, RETURN.dissolvedMs + 60_000]) {
       const roles = rolesOf(cut(ms))
-      // No thread, and no second growth either: a scar is a mark, not a network.
+      // No thread, and no second growth either: a finished lane is a different
+      // kind of object, not a dimmer version of a living one.
       for (const gone of ['thread', 'thread-bloom', 'thread-flow', 'filament', 'filament-tip']) {
-        expect(roles.has(gone as MarkRole), `${gone} survived the cut at ${ms} ms`).toBe(false)
+        expect(roles.has(gone as MarkRole), `${gone} survived the return at ${ms} ms`).toBe(false)
       }
-      expect(roles.has('persist'), `no scar at ${ms} ms`).toBe(true)
+      expect(roles.has('persist'), `no strand at ${ms} ms`).toBe(true)
     }
     // …while the fleet around it is still threaded, obviously.
     expect(cut(RETURN.totalMs).filter((mark) => mark.role === 'thread').length).toBeGreaterThan(0)
@@ -2227,11 +2244,11 @@ describe('the cord-cut — a finished lane leaves the network', () => {
     const marks = mine(cut(RETURN.totalMs))
     expect(marks.filter((mark) => mark.kind === 'glow')).toHaveLength(0)
     for (const role of ['heat', 'pulse', 'pulse-wake', 'tick', 'orbit'] as MarkRole[]) {
-      expect(marks.some((mark) => mark.role === role), `${role} on a scar`).toBe(false)
+      expect(marks.some((mark) => mark.role === role), `${role} on a finished lane`).toBe(false)
     }
   })
 
-  it('drops the faults it was carrying — a scar cannot be summoned for', () => {
+  it('drops the faults it was carrying — a finished lane cannot be summoned for', () => {
     // The looping lane, retired: the knot goes with the thread it was tied into.
     const marks = marksFor({ retire: new Map([[LANE.looping, returnAt(RETURN.totalMs)]]) })
     expect(of(marks, LANE.looping, 'looping-mark')).toHaveLength(0)
@@ -2245,15 +2262,15 @@ describe('the cord-cut — a finished lane leaves the network', () => {
   })
 
   describe('the three stages, in order', () => {
-    it('stage 1 keeps the thread attached and still lit', () => {
+    it('stage 1 keeps the strand attached and still lit', () => {
       const roles = rolesOf(cut(RETURN.tensionMs * 0.5))
-      // The bloom is still there — the light has not gone out yet — and there is
-      // no freed end to curl, because nothing has parted.
+      // The bloom is still there — the light has not gone out yet — and the node
+      // wears the same three marks it wore while the lane was working.
       expect(roles.has('persist-bloom')).toBe(true)
       expect(mine(cut(RETURN.tensionMs * 0.5)).filter((m) => m.role === 'persist-mark')).toHaveLength(3)
     })
 
-    it('stage 2 puts a curl on the freed end and starts putting the light out', () => {
+    it('stage 2 sends the matter home and starts putting the light out', () => {
       const early = mine(cut(RETURN.tensionMs + 40))
       const late = mine(cut(RETURN.tensionMs + RETURN.withdrawMs * 0.9))
 
@@ -2265,45 +2282,84 @@ describe('the cord-cut — a finished lane leaves the network', () => {
       // light that was the lane working.
       expect(bloom(early)).toBeGreaterThan(bloom(late))
 
-      // Four glyph marks now, not three: the released end has curled back.
-      expect(early.filter((mark) => mark.role === 'persist-mark')).toHaveLength(4)
+      // Still three glyph marks. The fourth used to be the gathered freed end —
+      // the bunching of a cord that had sprung back off the mass — and ruling 13
+      // has taken the springing back away, so there is no freed end to gather.
+      expect(early.filter((mark) => mark.role === 'persist-mark')).toHaveLength(3)
+      // What *is* new is the matter in transit.
+      expect(early.some((mark) => mark.role === 'homeward')).toBe(true)
     })
 
-    it('stage 3 desaturates, and only then', () => {
+    it('stage 3 cools, and only then', () => {
       const inkOf = (ms: number): number[] => {
-        const scar = mine(cut(ms)).find((mark) => mark.role === 'persist')
-        return [...(inksOf(scar as Mark)[0]?.rgb ?? [])]
+        const strand = mine(cut(ms)).find((mark) => mark.role === 'persist')
+        return [...(inksOf(strand as Mark)[0]?.rgb ?? [])]
       }
 
       // Colour is untouched until the settle: stages 1 and 2 move curvature and
       // position, and nothing else.
       expect(inkOf(0)).toEqual(inkOf(RETURN.tensionMs + RETURN.withdrawMs * 0.5))
       expect(inkOf(RETURN.totalMs)).not.toEqual(inkOf(0))
-      expect(inkOf(RETURN.totalMs)).toEqual([...PERSIST.thread.rgb])
+      expect(inkOf(RETURN.totalMs)).toEqual([...PERSIST.strand.rgb])
     })
 
-    it('has no bloom left once it has settled — a scar is flat', () => {
+    /**
+     * …AND THINS, ON THE SAME NUMBER (prd10 ruling 14).
+     *
+     * The settle's one output is spent on two drawn channels, because a lane
+     * going quiet is one fact and not two. This is the width half; the ink half
+     * is above.
+     */
+    it('stage 3 thins the strand into its resting gauge, monotonically', () => {
+      const widthOf = (ms: number): number => {
+        const strand = mine(cut(ms)).find((mark) => mark.role === 'persist')
+        return strand?.kind === 'ribbon' ? strand.widthRoot : 0
+      }
+
+      // Untouched through the withdraw, exactly as the colour is. (Measured from
+      // the end of the tension rather than from zero: stage 1 relaxes the taper's
+      // *steepness* as the strain goes out, which is its own long-standing
+      // channel and not the thinning.)
+      expect(widthOf(RETURN.tensionMs + RETURN.withdrawMs * 0.5)).toBeCloseTo(
+        widthOf(RETURN.tensionMs),
+        9,
+      )
+
+      let previous = Infinity
+      for (let t = 0; t <= 1.0001; t += 0.05) {
+        const at = widthOf(RETURN.tensionMs + RETURN.withdrawMs + RETURN.settleMs * t)
+        expect(at).toBeLessThanOrEqual(previous + 1e-9)
+        previous = at
+      }
+      // …and it stops there rather than thinning away for ever.
+      expect(widthOf(RETURN.dissolvedMs + 60_000)).toBeCloseTo(widthOf(RETURN.totalMs), 9)
+      expect(widthOf(RETURN.totalMs)).toBeGreaterThan(0)
+    })
+
+    it('has no bloom left once it has settled — luminous, without glow', () => {
       expect(rolesOf(cut(RETURN.totalMs)).has('persist-bloom')).toBe(false)
     })
   })
 
   /**
-   * SEVERED SUBSTANCE RETURNS HOME (prd6 ruling 2).
+   * THE SUBSTANCE RETURNS HOME (prd6 ruling 2) — untouched by ruling 13.
    *
    * The display-list half. What makes the claim checkable rather than a matter of
    * taste is that the flow is a `homeward` **ribbon** and not a `pulse`: it is the
    * hypha's own matter being reabsorbed, which is the honest reading of a merge,
-   * and it is one of the two things a cut has that a replay of one does not.
+   * and it is one of the two things a watched landing has that a replay of one
+   * does not. Ruling 15 keeps the beat exactly as it was built — what changed is
+   * only that the strand it runs down is still there afterwards.
    */
   describe('the way home', () => {
     const during = mine(cut(RETURN.tensionMs + 120))
 
-    it('flows down the severing thread while the cut runs', () => {
+    it('flows down the strand while the return runs', () => {
       const flow = during.filter((mark) => mark.role === 'homeward')
       expect(flow).toHaveLength(1)
       const parcel = flow[0] as Mark
       expect(parcel.kind).toBe('ribbon')
-      // Matter, not light: no glow anywhere on a retiring lane, still.
+      // Matter, not light: no glow anywhere on a finishing lane, still.
       expect(during.filter((mark) => mark.kind === 'glow')).toHaveLength(0)
     })
 
@@ -2321,9 +2377,9 @@ describe('the cord-cut — a finished lane leaves the network', () => {
     })
 
     it('is absent from history and from a replay', () => {
-      // Law 2 of the cut, extended: a lane that was already retired when we first
-      // saw it is scarred outright and never animates. Sending its substance home
-      // again would be re-landing work the log is only telling us about.
+      // Law 2 of the return, extended: a lane that was already retired when we
+      // first saw it arrives settled and never animates. Sending its substance
+      // home again would be re-landing work the log is only telling us about.
       for (const marks of [mine(cut(RETURN.totalMs)), mine(cut(0))]) {
         expect(marks.filter((mark) => mark.role === 'homeward')).toHaveLength(0)
       }
@@ -2339,15 +2395,15 @@ describe('the cord-cut — a finished lane leaves the network', () => {
     })
   })
 
-  describe('the scar that is left', () => {
+  describe('the strand that stays', () => {
     const marks = calmCut(RETURN.totalMs)
-    const scarred = (role: MarkRole): Mark => of(marks, CALM_LANE, role)[0] as Mark
+    const finished = (role: MarkRole): Mark => of(marks, CALM_LANE, role)[0] as Mark
     const living = (role: MarkRole): Mark =>
       of(marksFor({ fleet: fleetFor(fleet20Spec()) }), CALM_LANE, role)[0] as Mark
 
     it('keeps the name and the figure', () => {
-      const name = scarred('label')
-      const figure = scarred('label-figure')
+      const name = finished('label')
+      const figure = finished('label-figure')
       expect(name?.kind === 'text' && name.text).toBe(
         (fleetFor(fleet20Spec()).lanes.find((lane) => lane.id === CALM_LANE) as { label: string })
           .label,
@@ -2356,14 +2412,14 @@ describe('the cord-cut — a finished lane leaves the network', () => {
     })
 
     it('keeps the figure at full label brightness — the work is not diminished', () => {
-      expect(brightnessOf(scarred('label-figure'))).toBe(brightnessOf(living('label-figure')))
+      expect(brightnessOf(finished('label-figure'))).toBe(brightnessOf(living('label-figure')))
     })
 
     it('reduces the name without making it unreadable', () => {
-      expect(brightnessOf(scarred('label'))).toBeLessThan(brightnessOf(living('label')))
-      // A scar exists to be identified. Its name is held to the same body-copy
-      // footing every other name in the scene is.
-      expect(brightnessOf(scarred('label'))).toBeGreaterThan(CALM_FLOOR)
+      expect(brightnessOf(finished('label'))).toBeLessThan(brightnessOf(living('label')))
+      // A finished lane exists to be identified. Its name is held to the same
+      // body-copy footing every other name in the scene is.
+      expect(brightnessOf(finished('label'))).toBeGreaterThan(CALM_FLOOR)
     })
 
     it('never fades to nothing — PERSIST_FLOOR, on every mark it draws', () => {
@@ -2376,19 +2432,78 @@ describe('the cord-cut — a finished lane leaves the network', () => {
       }
     })
 
-    it('sits under the living fleet without joining it', () => {
-      const remnant = scarred('persist')
-      const threads = marks.filter((mark) => mark.role === 'thread')
-      expect(threads.length).toBeGreaterThan(0)
-      for (const thread of threads) {
-        expect(brightnessOf(remnant)).toBeLessThan(brightnessOf(thread))
-      }
+    /**
+     * LIVING STRANDS ARE UNMISTAKABLY DOMINANT (prd10 ruling 14) — at a glance,
+     * and here as three numbers rather than as a screenshot.
+     *
+     * *"Living strands must stay unmistakably dominant at a glance: thicker,
+     * brighter, moving."* Each clause is a query over the display list, and the
+     * comparison is the **same lane** working versus finished, so nothing about
+     * one lane's work size can flatter the answer.
+     */
+    describe('living versus finished, on the same lane', () => {
+      const strand = finished('persist')
+      const thread = living('thread')
+
+      it('is thinner — at the root and at the tip', () => {
+        expect(strand.kind === 'ribbon' && thread.kind === 'ribbon').toBe(true)
+        if (strand.kind !== 'ribbon' || thread.kind !== 'ribbon') return
+        expect(strand.widthRoot).toBeLessThan(thread.widthRoot)
+        expect(strand.widthTip).toBeLessThan(thread.widthTip)
+        // Under half at both ends, which is "thin" rather than merely "less".
+        // The exact arithmetic is `retire.ts`'s `persistWidths` and is pinned in
+        // `retire.test.ts` over the whole work-size range; what this adds is that
+        // the display list really is drawn from it — the ratio here is a shade
+        // under {@link PERSIST_WIDTH_SCALE} rather than equal to it, because the
+        // tension release has already relaxed the strand's taper by then.
+        expect(strand.widthRoot / thread.widthRoot).toBeLessThan(PERSIST_WIDTH_SCALE)
+        expect(strand.widthTip / thread.widthTip).toBeLessThan(0.5)
+      })
+
+      it('is dimmer — under every living thread on the canvas', () => {
+        const threads = marks.filter((mark) => mark.role === 'thread')
+        expect(threads.length).toBeGreaterThan(0)
+        for (const each of threads) {
+          expect(brightnessOf(strand), `out-read ${each.laneId}`).toBeLessThan(brightnessOf(each))
+        }
+      })
+
+      it('is below the floor every living mark is held above — and still visible', () => {
+        expect(brightnessOf(strand)).toBeLessThan(CALM_FLOOR)
+        expect(brightnessOf(strand)).toBeGreaterThan(PERSIST_FLOOR)
+      })
+
+      it('is still — no shimmer, where a living thread has one', () => {
+        // The iridescence (ruling 6) runs on `frame.now`, so two frames a third
+        // of a shimmer period apart move a living thread's alpha and must not
+        // move a finished one's by so much as a hundredth.
+        const at = (now: number, role: MarkRole, target: string): number => {
+          const found = of(calmCut(RETURN.totalMs, { now }), target, role)[0]
+          return found === undefined ? 0 : brightnessOf(found)
+        }
+        const other = (fleetFor(fleet20Spec()).lanes.find((lane) => lane.id !== CALM_LANE) as {
+          id: string
+        }).id
+
+        expect(at(NOW, 'persist', CALM_LANE)).toBe(at(NOW + 1_700, 'persist', CALM_LANE))
+        expect(at(NOW, 'thread', other)).not.toBe(at(NOW + 1_700, 'thread', other))
+      })
+
+      it('sits behind the living network — byDepth, not brightness', () => {
+        // Ruling 16's third channel. The claim is about the *list*: every mark a
+        // finished lane draws is issued before the first living `thread`, so the
+        // painter puts the living network on top without sorting anything.
+        const strandAt = marks.findIndex((mark) => mark.role === 'persist')
+        const firstThread = marks.findIndex((mark) => mark.role === 'thread')
+        expect(strandAt).toBeGreaterThanOrEqual(0)
+        expect(firstThread).toBeGreaterThan(strandAt)
+      })
     })
 
     it('recedes with the rest of the calm world when something needs a human', () => {
-      // Not an exception to the contrast budget. A scar is calm by construction —
-      // there is nothing to act on — so when a summons arrives it gets out of the
-      // way exactly as every other non-alarm mark does (graft g6).
+      // Not an exception to the contrast budget. A finished lane is calm by
+      // construction — there is nothing to act on — so when a summons arrives it
+      // gets out of the way exactly as every other non-alarm mark does (graft g6).
       const quiet = brightnessOf(of(cut(RETURN.totalMs), LEAVING, 'persist')[0] as Mark)
       const alone = brightnessOf(
         of(cut(RETURN.totalMs, { selectedId: LEAVING }), LEAVING, 'persist')[0] as Mark,
@@ -2404,14 +2519,14 @@ describe('the cord-cut — a finished lane leaves the network', () => {
       // The seal, which is the knot now (prd7 ruling 3) rather than a bar struck
       // across the tip. Exactly as discriminating as the reading it replaces: the
       // lens and the thorn are glyphs, so the one mark of the three that is not a
-      // glyph is the seal, and a scar that had stopped carrying one would fail
-      // here as loudly as it did before.
+      // glyph is the seal, and a finished lane that had stopped carrying one would
+      // fail here as loudly as it did before.
       expect(glyphs.some((mark) => mark.kind === 'ribbon')).toBe(true)
     })
 
     it('does not breathe', () => {
       // The ambient layer is the scene being alive, and this lane is not. Two
-      // frames half a breath apart draw the scar at exactly the same size.
+      // frames half a breath apart draw the node at exactly the same size.
       const at = (now: number): number => {
         const glyph = of(calmCut(RETURN.totalMs, { now }), CALM_LANE, 'persist-mark').find(
           (mark) => mark.kind === 'path' && mark.d.startsWith('M0.04'),
@@ -2423,18 +2538,47 @@ describe('the cord-cut — a finished lane leaves the network', () => {
     })
   })
 
+  /**
+   * THE HIDE-FINISHED TOGGLE (prd10 ruling 16) — load-bearing, and therefore
+   * tested as a mechanism rather than as a nicety.
+   *
+   * With the network persisting it is the only thing that takes a finished lane
+   * off the canvas, so "it still works" is a law now: on and everything finished
+   * is gone, off and all of it is back, and a return in progress is never hidden
+   * either way because a completion the operator never saw is the one failure the
+   * toggle must not be able to cause.
+   */
   describe('the hide-finished toggle', () => {
-    it('draws nothing at all for a hidden scar', () => {
+    const hiddenFleet = () => fleetFor(fleet20Spec())
+
+    it('draws nothing at all for a hidden lane', () => {
       const hidden = marksFor({
         retire: new Map([[LEAVING, returnAt(RETURN.totalMs)]]),
         hideFinished: true,
       })
       expect(hidden.filter((mark) => mark.laneId === LEAVING)).toHaveLength(0)
-      // Everyone else is untouched — this hides scars, not lanes.
+      // Everyone else is untouched — this hides finished lanes, not lanes.
       expect(hidden.filter((mark) => mark.role === 'thread').length).toBeGreaterThan(0)
     })
 
-    it('still shows a cut in progress', () => {
+    it('takes a whole field of finished lanes off the canvas and puts it back', () => {
+      const fleet = hiddenFleet()
+      const retire = new Map<string, RetireState>(
+        fleet.lanes.map((lane) => [lane.id, returnAt(RETURN.dissolvedMs)]),
+      )
+
+      const shown = marksFor({ fleet, retire })
+      const hidden = marksFor({ fleet, retire, hideFinished: true })
+
+      expect(shown.filter((mark) => mark.role === 'persist')).toHaveLength(fleet.lanes.length)
+      expect(hidden.filter((mark) => mark.role === 'persist')).toHaveLength(0)
+      // Nothing of any lane survives the toggle, and the mass and its memoir do:
+      // hiding is a request about clutter, never a claim that the work was undone.
+      expect(hidden.filter((mark) => mark.laneId !== null)).toHaveLength(0)
+      expect(hidden.filter((mark) => mark.role === 'growth-ring')).toHaveLength(fleet.lanes.length)
+    })
+
+    it('still shows a return in progress', () => {
       const mid = marksFor({
         retire: new Map([[LEAVING, returnAt(RETURN.tensionMs + 300)]]),
         hideFinished: true,
@@ -2443,37 +2587,39 @@ describe('the cord-cut — a finished lane leaves the network', () => {
     })
   })
 
-  describe('reduced motion — severed in place', () => {
+  describe('reduced motion — stilled in place', () => {
     const still = marksFor({
       reducedMotion: true,
       fleet: fleetFor(fleet20Spec()),
       retire: new Map([[CALM_LANE, returnAt(0, allowance('structural', 'reduced').travel)]]),
     })
 
-    it('shows the end state rather than a stage of a journey', () => {
-      // Restated for prd10 ruling 2, and the law it is a reading of is unchanged:
-      // reduced motion is the **swap without the journey**. What moved is what the
-      // swap now ends at — a cord that never travelled never composted either, so
-      // the end state is the one the composting arrives at: no cord, no bloom, no
-      // stage of anything, and the lane still identified at the rim.
+    it('shows the end state rather than a stage of a journey — and keeps the strand', () => {
+      // Restated for prd10 ruling 13, and stronger than it was: reduced motion is
+      // the **swap without the journey**, and the end state the swap arrives at is
+      // now a lane whose strand is still threaded into the mass. The version of
+      // this test that ruling 13 rescinded asserted the opposite — no ribbon
+      // geometry at all — because the composting had erased it. A still line is
+      // not motion, so there was never a WCAG reason to take it away.
       const mine = still.filter((mark) => mark.laneId === CALM_LANE)
       const roles = new Set(mine.map((mark) => mark.role))
       expect(roles.has('thread')).toBe(false)
+      // No bloom and no journey: the light is out and nothing travelled.
       expect(roles.has('persist-bloom')).toBe(false)
-      expect(roles.has('persist')).toBe(false)
-      // …and *nothing* of the cord: no ribbon geometry anywhere on the lane, which
-      // is the same claim the no-orphan replay law makes at scrub-end.
-      expect(mine.filter((mark) => mark.kind === 'ribbon')).toHaveLength(0)
-      // Still drawn, and still identifiable — prd5 law 1's own list.
+      expect(roles.has('homeward')).toBe(false)
+      expect(roles.has('dissolution')).toBe(false)
+      // …and the strand itself, thinned and cooled in place.
+      expect(roles.has('persist')).toBe(true)
+      expect(mine.filter((mark) => mark.kind === 'ribbon').length).toBeGreaterThan(0)
+      // Still identified at the rim.
       expect(roles.has('persist-mark')).toBe(true)
       expect(roles.has('label')).toBe(true)
     })
 
     it('keeps the colour, which is what the success criterion excludes', () => {
       // WCAG 2.3.3's "motion animation" is travel and scale; colour and opacity
-      // are explicitly out of scope, so they are exactly what survives. Read off the
-      // mark that is left rather than off the cord that is not: the desaturation
-      // still happened, in place, with no journey.
+      // are explicitly out of scope, so they are exactly what survives. The
+      // cooling still happened, in place, with no journey.
       const lens = of(still, CALM_LANE, 'persist-mark')[0] as Mark
       expect(inksOf(lens)[0]?.rgb).toEqual(PERSIST.glyph.rgb)
       expect(brightnessOf(lens)).toBeGreaterThan(PERSIST_FLOOR)
@@ -2500,24 +2646,29 @@ describe('the cord-cut — a finished lane leaves the network', () => {
 
 
 /**
- * THE COMPOSTING DECAY (prd10 ruling 2) — the return, as a query over the picture.
+ * THE RETURN BEAT (prd10 rulings 2, 12 and 15) — as a query over the picture.
  *
  * Ruling 1 is the judge of everything in this round: a replay has to read as
  * emergence, flourishing and **return**, and a choice that looks good live but
  * makes the replay read as clutter or amputation is wrong. Ruling 2 is that
- * judgement applied to the loudest thing the scene does. A cut cord used to hang
- * there afterwards; now it comes apart into motes that carry its matter home, and
- * when the last one lands there is no cord left.
+ * judgement applied to the loudest thing the scene does: a landed lane's matter
+ * lifts off its cord and streams home, and the heart takes a ring for it.
+ *
+ * **Ruling 15 keeps the beat and rescinds only its ending.** It used to finish by
+ * erasing the cord — "when the last one lands there is no cord left" — and the
+ * suite below used to assert exactly that. What travels home is the lane's
+ * vitality, not its existence, so the last assertion inverts: the motes end and
+ * the strand stays.
  *
  * The laws below are the ones a future retune could break without noticing.
  */
-describe('the severed cord composts (prd10 ruling 2)', () => {
+describe('the return beat, and the strand it leaves standing', () => {
   const LEAVING = LANE.healthy
   const cut = (ms: number, options: FrameOptions = {}): Mark[] =>
     marksFor({ ...options, retire: new Map([[LEAVING, returnAt(ms)]]) })
   const mine = (marks: readonly Mark[]): Mark[] => marks.filter((mark) => mark.laneId === LEAVING)
 
-  it('emits a drift of motes along its own path while the cord parts', () => {
+  it('emits a drift of motes along its own path while the matter lifts', () => {
     const drift = of(cut(RETURN.tensionMs + 300), LEAVING, 'dissolution')
     expect(drift).toHaveLength(1)
     const mark = drift[0] as Mark
@@ -2525,9 +2676,9 @@ describe('the severed cord composts (prd10 ruling 2)', () => {
     if (mark.kind !== 'motes') return
     expect(mark.items.length).toBeGreaterThan(4)
 
-    // On the cord it came off, not beside it: every mote sits on the lane's own
-    // spine, which is what makes this the hypha decomposing rather than a spray of
-    // particles thrown over the top of it.
+    // On the strand it came off, not beside it: every mote sits on the lane's own
+    // spine, which is what makes this the hypha releasing its substance rather
+    // than a spray of particles thrown over the top of it.
     const spine = (of(marksFor(), LEAVING, 'thread')[0] as Mark & { kind: 'ribbon' }).path
     for (const mote of mark.items) expect(nearestOn(spine, mote.at)).toBeLessThan(14)
   })
@@ -2540,38 +2691,52 @@ describe('the severed cord composts (prd10 ruling 2)', () => {
     const during = mine(cut(RETURN.tensionMs + 300))
     expect(during.filter((mark) => mark.kind === 'glow')).toHaveLength(0)
     for (const role of ['pulse', 'pulse-wake', 'tick', 'heat'] as MarkRole[]) {
-      expect(during.some((mark) => mark.role === role), `${role} on a composting cord`).toBe(false)
+      expect(during.some((mark) => mark.role === role), `${role} on a returning lane`).toBe(false)
     }
   })
 
-  it('takes the cord with it — no ribbon geometry survives the dissolve', () => {
-    // Ruling 2's "no stubs persist", as the display list. The cord is drawn while
-    // it is coming apart and gone when it has; what stays at the rim is prd5 law
-    // 1's own list — the lens, the name and the figure — so a completion is still
-    // identifiable rather than merely invisible.
+  /**
+   * THE INVERTED LAW (prd10 ruling 15) — this is the assertion the issue turns on.
+   *
+   * It used to read "takes the cord with it — no ribbon geometry survives the
+   * dissolve", and it was the thing that made a scrubbed-to-the-end replay an
+   * empty rim. The motes still end exactly when they always did; what they leave
+   * behind is a strand rather than a gap.
+   */
+  it('leaves the strand standing when the last mote lands', () => {
     const composting = mine(cut(RETURN.totalMs))
     expect(composting.some((mark) => mark.role === 'persist')).toBe(true)
 
     const done = mine(cut(RETURN.dissolvedMs))
-    expect(done.filter((mark) => mark.kind === 'ribbon'), 'a stub survived').toHaveLength(0)
     expect(done.some((mark) => mark.role === 'dissolution'), 'motes outlived the act').toBe(false)
+    expect(done.some((mark) => mark.role === 'persist'), 'the strand was deleted').toBe(true)
+    expect(done.filter((mark) => mark.kind === 'ribbon').length).toBeGreaterThan(0)
+    // …and everything that says *which* lane it was, exactly as before.
     expect(done.some((mark) => mark.role === 'persist-mark'), 'the lane lost its lens').toBe(true)
     expect(done.some((mark) => mark.role === 'label')).toBe(true)
     expect(done.some((mark) => mark.role === 'label-figure')).toBe(true)
+
+    // A long time later, and unchanged: the strand is a resting state, not a
+    // slow fade with a longer clock on it.
+    const later = mine(cut(RETURN.dissolvedMs + 3_600_000))
+    expect(later.map((mark) => mark.role).sort()).toEqual(done.map((mark) => mark.role).sort())
   })
 
-  it('lets go at the end rather than snapping out', () => {
-    // The cord holds its ink while its matter leaves and fades over the last
-    // stretch, so the final act is a letting-go rather than a disappearance. The
-    // hold is also what keeps every prd5 brightness law reading the ink it always
-    // did at `RETURN.totalMs`.
+  it('holds its ink to the end rather than letting go of the picture', () => {
+    // The cord used to hold its ink while its matter left and then fade out over
+    // the last quarter of the dissolve — `composting()`, deleted with the erasure
+    // it was the last frame of. There is nothing left for the ink to trend
+    // toward, so it simply stops where the settle put it.
     const inkOf = (ms: number): number => {
-      const scar = mine(cut(ms)).find((mark) => mark.role === 'persist')
-      return scar === undefined ? 0 : brightnessOf(scar)
+      const strand = mine(cut(ms)).find((mark) => mark.role === 'persist')
+      return strand === undefined ? 0 : brightnessOf(strand)
     }
-    expect(inkOf(RETURN.totalMs)).toBeCloseTo(inkOf(RETURN.tensionMs + RETURN.withdrawMs + RETURN.settleMs), 9)
-    expect(inkOf(RETURN.dissolvedMs - 200)).toBeLessThan(inkOf(RETURN.totalMs))
-    expect(inkOf(RETURN.dissolvedMs - 200)).toBeGreaterThan(0)
+    const settled = inkOf(RETURN.totalMs)
+    expect(settled).toBeGreaterThan(0)
+    expect(inkOf(RETURN.tensionMs + RETURN.withdrawMs + RETURN.settleMs)).toBeCloseTo(settled, 9)
+    expect(inkOf(RETURN.dissolvedMs - 200)).toBeCloseTo(settled, 9)
+    expect(inkOf(RETURN.dissolvedMs)).toBeCloseTo(settled, 9)
+    expect(inkOf(RETURN.dissolvedMs + 3_600_000)).toBeCloseTo(settled, 9)
   })
 
   it('composts nothing in a replay, and nothing under reduced motion', () => {
@@ -2589,11 +2754,12 @@ describe('the severed cord composts (prd10 ruling 2)', () => {
     expect(still.filter((mark) => mark.role === 'dissolution')).toHaveLength(0)
   })
 
-  it('composts nothing for a hidden scar', () => {
-    // A settled scar, because only a settled one is hideable — a cut in progress is
-    // news and is always shown. This one is still composting (`dissolve` outlives
-    // the cut), so without the check it would drift motes over a lane the operator
-    // asked not to see, which would be the loudest thing the toggle failed to hide.
+  it('composts nothing for a hidden lane', () => {
+    // A settled lane, because only a settled one is hideable — a return in
+    // progress is news and is always shown. This one is still composting
+    // (`dissolve` outlives the settle), so without the check it would drift motes
+    // over a lane the operator asked not to see, which would be the loudest thing
+    // the toggle failed to hide.
     const settled = returnAt(RETURN.totalMs)
     expect(settled.stage).toBe('persistent')
     expect(settled.dissolve).toBeLessThan(1)
@@ -2606,7 +2772,7 @@ describe('the severed cord composts (prd10 ruling 2)', () => {
   })
 
   it('never puts more than the pool on the canvas, whatever lands at once', () => {
-    // Twenty lanes composting together — more than the queue would ever allow, and
+    // Twenty lanes returning together — more than the queue would ever allow, and
     // the point: the ceiling is enforced over the *scene*, not per lane, so a wave
     // cannot spend two thousand motes.
     const fleet = fleetFor(fleet20Spec())
@@ -2624,58 +2790,76 @@ describe('the severed cord composts (prd10 ruling 2)', () => {
 })
 
 /**
- * A RECORDED SESSION, SCRUBBED TO THE END (prd10 rulings 1 and 2).
+ * A RECORDED SESSION, SCRUBBED TO THE END (prd10 rulings 1, 13 and 16).
  *
- * The round's own judge, as a test. Ruling 1 says every visual decision is judged
- * by how a full-session replay reads — and the specific failure it names is
- * *amputation*: a night of landed work that leaves a rim of cut-off stubs. This
- * folds a fleet that has landed, drives the **real** retire registry the way a
+ * The round's own judge, as a test — and the suite the operator's replay review
+ * overturned. Ruling 1 says every visual decision is judged by how a full-session
+ * replay reads, and it named *amputation* as the failure: a night of landed work
+ * that leaves a rim of cut-off stubs. prd10 ruling 2 answered that by deleting the
+ * stubs, and this file used to assert the deletion — "leaves no orphan geometry",
+ * "draws no cord, no stub and no drift".
+ *
+ * The operator watched the result and ruled the other way (13): an emptying field
+ * is the opposite of what this organism is, and a mycelial network does not delete
+ * the cords that carried its nutrients. So the same replay is asked the same
+ * question and the expected answer has inverted — a night of landed work is a
+ * *network*, thin and still and lit, with the heart full in the middle of it.
+ *
+ * It folds a fleet that has landed, drives the **real** retire registry the way a
  * replay drives it (history, so nothing is ever `note`d as news), and asks the
- * display list what is left.
+ * display list what is there.
  */
-describe('a replay at scrub-end leaves no orphan geometry', () => {
+describe('a replay at scrub-end leaves the whole network standing', () => {
   const finished = (): Fleet => fleetFor(finishedSpec())
 
   /**
    * The registry as a replay leaves it: every landing is history, so none of them
-   * was ever scheduled, and `progress` scars each one outright. This is the same
+   * was ever scheduled, and `progress` settles each one outright. This is the same
    * object `SceneView` paints through — nothing here hand-builds a state.
    */
   function scrubEnd(fleet: Fleet): ReadonlyMap<string, RetireState> {
     return new RetireRegistry().progress(fleet, NOW, 'full')
   }
 
-  it('scars every landed lane without animating one of them', () => {
+  it('settles every landed lane without animating one of them', () => {
     const fleet = finished()
     const retire = scrubEnd(fleet)
     const landed = fleet.lanes.filter(isRetired)
     expect(landed.length).toBeGreaterThan(10)
     expect(retire.size).toBe(landed.length)
     for (const [laneId, state] of retire) {
-      expect(state.stage, `${laneId} was mid-cut in a replay`).toBe('persistent')
+      expect(state.stage, `${laneId} was mid-return in a replay`).toBe('persistent')
       expect(state.dissolve).toBe(1)
       expect(state.elapsedMs, `${laneId} claimed we watched it leave`).toBeNull()
     }
   })
 
-  it('draws no cord, no stub and no drift for any of them', () => {
+  it('draws a strand for every one of them, and no traffic for any', () => {
     const fleet = finished()
     const marks = marksFor({ fleet, retire: scrubEnd(fleet) })
-    const landed = new Set(fleet.lanes.filter(isRetired).map((lane) => lane.id))
+    const landed = fleet.lanes.filter(isRetired)
 
+    // One strand each. This is the assertion the round inverted.
+    expect(marks.filter((mark) => mark.role === 'persist')).toHaveLength(landed.length)
+    for (const lane of landed) {
+      expect(of(marks, lane.id, 'persist'), `${lane.id} lost its strand`).toHaveLength(1)
+    }
+
+    // …and nothing that would claim the scene watched it happen: a return nobody
+    // saw start is a return that did not happen on this screen.
+    const landedIds = new Set(landed.map((lane) => lane.id))
     for (const mark of marks) {
-      if (mark.laneId === null || !landed.has(mark.laneId)) continue
-      expect(mark.kind, `${mark.laneId} left ${mark.role} ribbon geometry behind`).not.toBe('ribbon')
-      for (const role of ['persist', 'persist-bloom', 'homeward', 'dissolution', 'thread'] as MarkRole[]) {
+      if (mark.laneId === null || !landedIds.has(mark.laneId)) continue
+      for (const role of ['persist-bloom', 'homeward', 'dissolution', 'thread'] as MarkRole[]) {
         expect(mark.role, `${mark.laneId} still carries a ${role}`).not.toBe(role)
       }
     }
   })
 
   it('still says which lanes those were — completion is never invisible', () => {
-    // prd5's law 1, which ruling 2 did *not* overrule: the scene may forget the
-    // thread's geometry because the ledger remembers the thread, but the operator
-    // still has to be able to see that a lane finished and read which one.
+    // prd5's law 1, which nothing in this round overrules and which ruling 13
+    // strengthens: the operator has to be able to see that a lane finished and
+    // read which one, and now the network it was part of says so too.
     const fleet = finished()
     const marks = marksFor({ fleet, retire: scrubEnd(fleet) })
     for (const lane of fleet.lanes.filter(isRetired)) {
@@ -2688,10 +2872,11 @@ describe('a replay at scrub-end leaves no orphan geometry', () => {
     }
   })
 
-  it('remembers every landing in the heart instead — one ring each', () => {
-    // Where the memoir went. The rim is clear and the middle carries the night:
-    // one growth ring per landed lane, permanent, and deposited by the arrival
-    // rather than drawn because a lane exists.
+  it('remembers every landing in the heart as well — one ring each', () => {
+    // The memoir stands: one growth ring per landed lane, permanent, and
+    // deposited by the arrival rather than drawn because a lane exists. It is no
+    // longer the *only* record of the night, which is ruling 13's whole point —
+    // the network is the other one.
     const fleet = finished()
     const marks = marksFor({ fleet, retire: scrubEnd(fleet) })
     const rings = marks.filter((mark) => mark.role === 'growth-ring')
@@ -2705,17 +2890,59 @@ describe('a replay at scrub-end leaves no orphan geometry', () => {
     expect(working.filter((mark) => mark.role === 'hyphal-fan')).toHaveLength(1)
   })
 
-  it('reads as return rather than amputation — the rim is clear and the heart is full', () => {
-    // The whole of ruling 1, in two counts. This is the assertion that would have
-    // failed before this round: thirty-seven stubs on the rim and nothing in the
-    // middle to show for them.
+  /**
+   * DENSITY BY HIERARCHY (prd10 ruling 16) — the replay's real test, and the one
+   * the operator will look at first.
+   *
+   * "With dozens of finished lanes the field must still read." The reading is
+   * bought in three channels and all three are asserted at once, on a fleet where
+   * most lanes have finished: every finished strand is thinner than every living
+   * thread, dimmer than every living thread, and issued before all of them.
+   */
+  it('reads as a network rather than a mesh — every strand under every thread', () => {
     const fleet = finished()
     const marks = marksFor({ fleet, retire: scrubEnd(fleet) })
-    const ribbons = marks.filter((mark) => mark.kind === 'ribbon')
+    const strands = marks.filter((mark) => mark.role === 'persist')
+    const threads = marks.filter((mark) => mark.role === 'thread')
+
+    // The premise: this really is a field of mostly-finished lanes.
+    expect(strands.length).toBeGreaterThan(10)
+    expect(strands.length).toBeGreaterThan(threads.length)
+
+    const widest = (marks: readonly Mark[]): number =>
+      Math.max(...marks.map((mark) => (mark.kind === 'ribbon' ? mark.widthRoot : 0)))
+    const brightest = (marks: readonly Mark[]): number =>
+      Math.max(...marks.map((mark) => brightnessOf(mark)))
+
+    if (threads.length > 0) {
+      const thinnestThread = Math.min(
+        ...threads.map((mark) => (mark.kind === 'ribbon' ? mark.widthRoot : Infinity)),
+      )
+      const dimmestThread = Math.min(...threads.map((mark) => brightnessOf(mark)))
+      expect(widest(strands), 'a finished strand out-weighed a living thread').toBeLessThan(
+        thinnestThread,
+      )
+      expect(brightest(strands), 'a finished strand out-read a living thread').toBeLessThan(
+        dimmestThread,
+      )
+      // Depth: the last strand is issued before the first thread.
+      const lastStrand = marks.map((mark) => mark.role).lastIndexOf('persist')
+      const firstThread = marks.findIndex((mark) => mark.role === 'thread')
+      expect(firstThread).toBeGreaterThan(lastStrand)
+    }
+  })
+
+  it('hands the operator one control that empties the field — ruling 16', () => {
+    // Load-bearing, so it is tested against the same replay the ruling is about.
+    const fleet = finished()
+    const retire = scrubEnd(fleet)
+    const hidden = marksFor({ fleet, retire, hideFinished: true })
     const landed = new Set(fleet.lanes.filter(isRetired).map((lane) => lane.id))
 
-    expect(ribbons.filter((mark) => mark.laneId !== null && landed.has(mark.laneId))).toHaveLength(0)
-    expect(marks.filter((mark) => mark.role === 'growth-ring').length).toBe(landed.size)
+    expect(hidden.filter((mark) => mark.laneId !== null && landed.has(mark.laneId))).toHaveLength(0)
+    // The heart keeps its memoir either way: hiding is about clutter, never a
+    // claim that the work was undone.
+    expect(hidden.filter((mark) => mark.role === 'growth-ring')).toHaveLength(landed.size)
   })
 })
 

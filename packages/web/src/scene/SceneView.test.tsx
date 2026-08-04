@@ -246,7 +246,7 @@ describe('the canvas host', () => {
     // …and then make it draw a frame *of that fleet*. Under a pinned clock the
     // loop draws once, at mount, so everything above this line was painted
     // before the fixture arrived — a picture of an empty fleet, which is the
-    // root-mass and nothing else. Toggling the scar control is the operator
+    // root-mass and nothing else. Toggling the hide-finished control is the operator
     // gesture that redraws (`SceneView`'s `hideFinished` effect), and it is
     // needed for this test to be about what it says it is about: until #117
     // took the hard outline off the mass, the one `stroke` this ever saw was
@@ -1054,7 +1054,7 @@ describe('the pause control (WCAG 2.2.2)', () => {
  * **Does the toggle work, and does it stay?** Scars are visible by default, the
  * button is the only thing that changes that, and the change outlives a remount.
  */
-describe('the cord-cut (prd5 ruling 3)', () => {
+describe('the return, and the network it leaves standing (prd10 rulings 13–16)', () => {
   /** A fleet that has landed: seventeen lanes, every one of them declared done. */
   function landedFleet(): Fleet {
     const spec = finishedSpec()
@@ -1109,10 +1109,11 @@ describe('the cord-cut (prd5 ruling 3)', () => {
     expect(retracting).not.toBe(tension)
     expect(settling).not.toBe(retracting)
 
-    // And what is left is still a picture. Never fade to nothing: seventeen
-    // scarred lanes are seventeen marks on the canvas, not an empty rectangle.
-    // (That the cut *ends* is `retire.test.ts`'s and `marks.test.ts`'s — this
-    // frame cannot say it, because the root-mass is still breathing behind it.)
+    // And what is left is still a picture. Never fade to nothing, and since
+    // ruling 13 never delete either: seventeen finished lanes are seventeen
+    // strands on the canvas, not an empty rectangle. (That the return *ends* is
+    // `retire.test.ts`'s and `marks.test.ts`'s — this frame cannot say it,
+    // because the root-mass is still breathing behind it.)
     at(1_400)
     expect(frame().length).toBeGreaterThan(1_000)
   })
@@ -1165,7 +1166,7 @@ describe('the cord-cut (prd5 ruling 3)', () => {
     expect(button).toHaveAttribute('tabindex', '-1')
   })
 
-  it('hides the scars from the canvas, and says it is doing it', () => {
+  it('hides the finished lanes from the canvas, and says it is doing it', () => {
     const { frame } = mountCut({ fleet: landedFleet() })
     const shown = frame()
 
@@ -1176,7 +1177,7 @@ describe('the cord-cut (prd5 ruling 3)', () => {
 
     expect(hidden.length).toBeLessThan(shown.length)
     // Not an empty canvas: the root-mass and the scene's own chrome are not lanes
-    // and this hides scars, not the picture.
+    // and this hides finished lanes, not the picture.
     expect(hidden.length).toBeGreaterThan(200)
     expect(screen.getByTestId('scene-hide-finished').textContent).toMatch(/^show finished/i)
     expect(screen.getByTestId('scene-hide-finished')).toHaveAttribute('aria-pressed', 'true')
@@ -1195,14 +1196,14 @@ describe('the cord-cut (prd5 ruling 3)', () => {
     expect(screen.getByTestId('scene-hide-finished').textContent).toMatch(/^show finished/i)
   })
 
-  it('names the cut lanes for a reader who cannot see the canvas', () => {
+  it('names the finished lanes for a reader who cannot see the canvas', () => {
     const fleet = landedFleet()
     mountCut({ fleet })
-    // The cut is a change in the topology, so the words have to carry it: a
-    // reader told "17 lanes threaded to main" would be given a network that no
-    // longer exists.
+    // The words carry the topology, and under prd10 ruling 13 the topology is
+    // that a finished lane is still threaded to the mass. A reader told "cut
+    // loose" would be given a network the canvas no longer draws.
     expect(screen.getByTestId('scene-summary').textContent).toMatch(
-      new RegExp(`^0 lanes threaded to main\\. ${fleet.lanes.length} finished and cut loose\\.`),
+      new RegExp(`^0 lanes threaded to main\\. ${fleet.lanes.length} finished, still threaded\\.`),
     )
   })
 })
