@@ -6,10 +6,10 @@ import { createPollLoop } from './poll-loop.js'
 import type { SessionRecorder } from './recorder.js'
 
 describe('loadCollectors', () => {
-  it('registers all three collectors', async () => {
+  it('registers all four collectors', async () => {
     const collectors = await loadCollectors({ warn: () => {} })
 
-    expect(collectors.map((c) => c.name).sort()).toEqual(['git', 'tmux', 'workmux'])
+    expect(collectors.map((c) => c.name).sort()).toEqual(['git', 'judge', 'tmux', 'workmux'])
   })
 
   it('never warns for the real collectors, which are always present', async () => {
