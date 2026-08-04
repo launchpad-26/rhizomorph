@@ -82,12 +82,38 @@ branches, commits — read-only, no writes); tmux panes and
 (neither is required); and, to show an agent's actual conversation in the
 lane drawer, your own Claude Code session logs under `~/.claude/projects`.
 
+**When it records:** always, from the moment the server starts — there is
+no opt-in flag and no way to run it without recording. Every run either
+starts a fresh session or resumes the most recent one for this repo (see
+`--fresh` above); either way, everything the collectors see from boot
+onward lands in the log.
+
 **What it writes:** its own recording of what it saw — a plain JSON-lines
 session log under `~/.local/share/rhizomorph/<repo-slug>/`, one file per
-session (a restart within a few hours resumes the same one; see `--fresh`
-above), never anything inside the repo you're watching. That log is what
-makes Replay possible; delete the directory and the next boot starts a
-fresh recording with nothing lost from the repo itself.
+session, never anything inside the repo you're watching. The log is
+*exactly* the event stream every panel already reads: whatever privacy
+allowlisting a collector applies happens before an event is even built, so
+the log was never a second copy with more in it, and it never gains fields
+after the fact. That's what makes Replay possible; delete the directory
+and the next boot starts a fresh recording with nothing lost from the repo
+itself.
+
+**Where it writes it:** the exact path is printed at boot —
+`watching <repo> — N worktrees, M branches · recording to <path>` — so you
+never have to go looking for it.
+
+**Finding, labelling and replaying a recording:** `rhizomorph sessions
+[path]` lists every session recorded for a repo — newest first, each with a
+title *derived from its own events* (`2026-08-04 · 6 lanes · 5 landed ·
+#144 #148 #152`, or `2026-08-04 · no activity recorded` for an empty one),
+when it ran, how long, lanes, landings, tokens, cost and file size. The same
+titles show up in the replay picker in the dashboard itself. If an
+auto-title isn't the name you'd give it, `rhizomorph label <sessionId>
+"<text>"` sets one that wins — written to a sidecar file next to the log
+(`session-<id>.label.json`), never a mutation of the log itself. Once
+you've found the one you want, either replay it from the dashboard's own
+picker, or hand the file to someone else first with `rhizomorph
+export-record` (see [the record format](docs/record-format.md)).
 
 **Where it listens:** `127.0.0.1` only, on the port you choose (default
 `4321`). It does not bind a public interface. If you also point a live
@@ -333,8 +359,11 @@ instruments beneath it.
   session with the most history and jumps straight into playback — plus a
   session dropdown, speed control (1x/4x/16x), and a scrubber; live and
   replay share one reducer, so every panel above freezes to the scrubbed
-  instant exactly as it would live. See [`docs/demo.md`](docs/demo.md) for
-  the full replay check.
+  instant exactly as it would live. The dropdown names each session by its
+  title — an operator label if one was set (`rhizomorph label`), else the
+  auto-title `rhizomorph sessions` also shows — never a bare timestamp you'd
+  have to decode. See [`docs/demo.md`](docs/demo.md) for the full replay
+  check.
 
 ### The palette — the fleet table teaches it, the scene speaks it
 

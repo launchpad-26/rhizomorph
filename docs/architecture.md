@@ -1383,6 +1383,86 @@ decision, macOS leg), dogfooding the fleet under its own trace layer, and
 good-first-issues. See [docs/roadmap.md](roadmap.md) for what's scoped in
 this week versus left for the cohort.
 
+## Recordings as first-class artefacts (#156)
+
+The operator's ask (2026-08-04): "when do we record, how do we record, and
+we need some kind of recording naming system for easy finding." Every server
+run has always auto-recorded (see [The log lives outside the watched
+repo](#the-log-lives-outside-the-watched-repo) above for WHEN/WHERE/WHAT);
+what was missing was a way to tell twenty session files apart without
+opening each one. This issue adds a name to a recording, never a new kind of
+one — the log's own shape (`docs/record-format.md`) is unchanged.
+
+### Auto-titles, derived and never invented
+
+`packages/server/src/log/title.ts`'s `computeSessionMeta` folds a session's
+events through the core reducer and reads three facts straight off
+`selectSpendByBranch` (branch is this app's existing "lane" identity — every
+worktree carries one): **lanes** (branches other than main the log ever
+mentioned), **landed** (`BranchSpend.landed` — the same "its worktree is
+gone" definition the ledger already uses, not a new liveness source), and
+**issues** (`BranchSpend.issue` — the fenced-issue convention's leading
+digits, e.g. `144` for `144-something`, deduped and sorted ascending).
+`autoTitle` turns that into `2026-08-04 · 6 lanes · 5 landed · #144 #148
+#152` — date first (UTC, so the same recording reads identically on a
+stranger's machine), issue numbers capped at three with a named `+N`
+overflow rather than a silent truncation. Zero lanes is its own honest
+sentence, `2026-08-04 · no activity recorded`, never a blank or a
+placeholder. Nothing here is a guess: every word in a title traces back to a
+real event, and `title.test.ts` pins the empty case alongside the populated
+one.
+
+### A label wins, and it never touches the log
+
+`rhizomorph label <sessionId> "<text>"` (`packages/server/src/cli/label.ts`)
+writes a sidecar, `session-<id>.label.json`, beside the log — never inside
+it. This is the same append-only law the log format itself already keeps
+(`docs/record-format.md`'s law 1): a recording is evidence, and evidence
+that can be silently rewritten stops being evidence. `readSessionLabel`
+(`packages/server/src/log/label.ts`) treats a missing, unreadable or
+malformed sidecar as "unlabelled" rather than an error — the auto-title is
+always a safe fallback, never a crash. `label` refuses a session id nothing
+was actually recorded under (the same loud, exact refusal `export-record`
+already gives for the identical mistake) rather than writing an orphaned
+sidecar for a session that doesn't exist.
+
+### One listing, shared by the API and the CLI
+
+`packages/server/src/log/listing.ts`'s `listSessionListings` composes a
+session's summary (id, filename, start time, file size — unchanged), its
+auto-title, its label, and its lane/landing/spend counts into one
+`SessionListing` row, and both new surfaces read the exact same function:
+
+- **`GET /api/sessions`** (`packages/server/src/api/sessions.ts`) now
+  returns this shape instead of the bare summary, so the replay picker
+  (`packages/web/src/replay/index.tsx`) can render a title instead of a raw
+  timestamp — a label wins when set, else the auto-title, else (for a server
+  that hasn't grown these fields yet) the timestamp it always showed. That
+  fallback chain lives in the web package alone: `packages/web/src/replay/
+  api.ts` and `useReplaySession.ts` sit outside this issue's fence, so
+  `index.tsx` reads the extra fields off the same fetched objects through a
+  local, all-optional type extension rather than widening `SessionSummary`
+  itself — the JSON already carries them; only the type needed catching up.
+- **`rhizomorph sessions [path]`** (`packages/server/src/cli/sessions.ts`)
+  renders the same rows as a newest-first table — id, title, when, duration,
+  lanes, landed, output tokens, cost (flagged `(est.)` exactly when
+  `costIsAuthoritative` is `false`, and `—` rather than a fabricated
+  `$0.00` when it's `null`), file size. This is the "find the one where the
+  scene landed" command the operator asked for.
+
+Both call sites do a **full parse** of every session's events, not a bounded
+head/tail sample. This is a deliberate choice, not an oversight: a lane's
+landing can occur anywhere in a session's timeline, and sampling only the
+head or tail would silently miss a landing that happened in the middle of a
+long session — exactly the fact this feature exists to surface. The cost is
+acceptable because neither call site repeats often enough for it to matter:
+the replay picker fetches `/api/sessions` once per mount, not on a poll, and
+`rhizomorph sessions` is a one-shot CLI invocation. The live session is a
+special case either way — `listSessionListings` reads it from the
+recorder's own in-memory buffer (`ctx.recorder.eventsSoFar()`) instead of
+its file on disk, the same race-avoidance rule `GET /api/sessions/:id/events`
+already followed before this issue.
+
 ## Testing
 
 Mass on core selectors/reducers and collector parsers (fixtures captured
@@ -1498,6 +1578,15 @@ hook.
   extra growth as interior resolution (more depth shells) rather than a
   larger silhouette — the same lesson as ruling 1's absolute seed sizing,
   applied one level up. See "Beyond prd7" above.
+- 2026-08-04 — #156: a session's title is derived from `selectSpendByBranch`
+  (lanes, landings, issue numbers), never a separate summary an author has
+  to keep in sync with what the reducer already knows — and never invented
+  when a session has nothing to say ("no activity recorded" is a real,
+  tested value, not an empty string a view has to special-case). The label
+  sidecar (`session-<id>.label.json`) is a second file rather than a field
+  bolted onto the log for the same reason the log itself lives outside the
+  watched repo: evidence that can be edited after the fact isn't evidence.
+  See "Recordings as first-class artefacts" above.
 
 ## Platform — pinned versions (issue #1, 2026-07-30)
 
