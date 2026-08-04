@@ -198,6 +198,68 @@ describe('ReplayControls', () => {
   })
 })
 
+describe('ReplayControls — session titles (#156)', () => {
+  function makeFetchWithMeta(
+    session: Record<string, unknown>,
+    events: ReturnType<typeof fixtureEvents> = fixtureEvents(),
+  ): FetchLike {
+    return (async (url: string | URL | Request) => {
+      const href = String(url)
+      if (href === '/api/sessions') {
+        return jsonResponse({ sessions: [session] })
+      }
+      if (href === `/api/sessions/${session.id as string}/events`) {
+        return jsonResponse({ events })
+      }
+      throw new Error(`unexpected fetch: ${href}`)
+    }) as unknown as FetchLike
+  }
+
+  it('shows the auto-title from the server when no label was set', async () => {
+    await renderReplay(
+      makeFetchWithMeta({
+        id: 's1',
+        fileName: 'session-1000.jsonl',
+        startedAt: 1000,
+        sizeBytes: 100,
+        title: '2026-08-04 · 6 lanes · 5 landed · #144 #148 #152',
+        label: null,
+        lanes: 6,
+        landed: 5,
+      }),
+    )
+
+    expect(
+      screen.getByRole('option', { name: '2026-08-04 · 6 lanes · 5 landed · #144 #148 #152' }),
+    ).toBeInTheDocument()
+  })
+
+  it('shows the operator label instead of the auto-title once one is set', async () => {
+    await renderReplay(
+      makeFetchWithMeta({
+        id: 's1',
+        fileName: 'session-1000.jsonl',
+        startedAt: 1000,
+        sizeBytes: 100,
+        title: '2026-08-04 · 6 lanes · 5 landed · #144 #148 #152',
+        label: 'the scene lands',
+        lanes: 6,
+        landed: 5,
+      }),
+    )
+
+    expect(screen.getByRole('option', { name: 'the scene lands' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('option', { name: '2026-08-04 · 6 lanes · 5 landed · #144 #148 #152' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('falls back to the raw timestamp when a server has not grown a title yet', async () => {
+    await renderReplay(makeFetch(fixtureEvents()))
+    expect(screen.getByRole('option', { name: /^1970-01-01T00:00:01/ })).toBeInTheDocument()
+  })
+})
+
 /** Same shape as `fixtureEvents`, plus one lane's tokens and a dollar cost landing later. */
 function moneyEvents() {
   return [

@@ -1,10 +1,36 @@
 import { useMemo } from 'react'
 import { initialSessionState, reduceAll, selectSessionSpend } from '@rhizomorph/core'
 import { useReplay } from '../app/ModeContext.js'
-import { pickRichestSession } from './api.js'
+import { pickRichestSession, type SessionSummary } from './api.js'
 import { formatSpend } from './format.js'
 import { Scrubber } from './Scrubber.js'
 import { PLAYBACK_SPEEDS } from './usePlayback.js'
+
+/**
+ * `GET /api/sessions` now serves a title (a label if the operator set one
+ * with `rhizomorph label`, else an auto-title derived from the session's own
+ * events) and lane counts alongside the summary fields `SessionSummary`
+ * already types (#156). `api.ts`/`useReplaySession.ts` sit outside this
+ * issue's fence, so their `SessionSummary` type hasn't grown those fields —
+ * but the raw fetch response carries them on the same objects regardless
+ * (JSON passes through a type guard unchanged), so this local, optional
+ * extension reads them without that file needing to change. Every field is
+ * optional so a session from a server that hasn't grown them yet still
+ * renders — see {@link sessionDisplayName}'s fallback.
+ */
+interface SessionListing extends SessionSummary {
+  title?: string
+  label?: string | null
+  lanes?: number
+  landed?: number
+}
+
+/** A label always wins; the auto-title is next; the raw timestamp is the last-resort fallback for a server that hasn't grown a title yet. */
+function sessionDisplayName(session: SessionListing): string {
+  if (typeof session.label === 'string' && session.label.length > 0) return session.label
+  if (typeof session.title === 'string' && session.title.length > 0) return session.title
+  return new Date(session.startedAt).toISOString()
+}
 
 /**
  * Session picker + scrubber. All replay state (session list, selection,
@@ -69,9 +95,9 @@ export default function ReplayControls() {
             className="rounded border border-ice-850 bg-ice-1000 px-2 py-1 text-ice-200"
           >
             <option value="">Replay a recorded session…</option>
-            {sessions.map((session) => (
+            {(sessions as SessionListing[]).map((session) => (
               <option key={session.id} value={session.id}>
-                {new Date(session.startedAt).toISOString()}
+                {sessionDisplayName(session)}
               </option>
             ))}
           </select>
