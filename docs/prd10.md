@@ -91,6 +91,34 @@ commissioned).
     This is the ruled answer to the spike's open question; the accent
     touches motes only along that cooling gradient.
 
+## Rulings appended after the operator's replay review (2026-08-04)
+
+13. **The network PERSISTS. Completed strands are never removed.** This
+    knowingly rescinds prd5's cord-cut (completed lanes disconnect and
+    scar) and the deletion half of ruling 2 (the cord decomposes to
+    nothing). The reasoning is the metaphor itself: a rhizomorph is a
+    root-cord network, and a mycelial network does not delete the cords
+    that carried its nutrients — it keeps them. Accumulated strands ARE
+    the picture of growth; an emptying field is the opposite of what this
+    organism is.
+14. **Luminous, but not alive.** A completed strand stays visible as a
+    thin, still, luminous filament — light without animation, without
+    glow, without the alarm grammar, below the calm ceiling. The living
+    hierarchy must remain unmistakable at a glance: living strands are
+    thicker, brighter and moving; completed ones are quiet light. A
+    reader must never have to ask which lanes are working.
+15. **Completion becomes a transformation, not a deletion.** The return
+    beat survives intact — motes lift and stream home, the heart takes
+    its ring (rulings 2, 3, 12 stand) — but at the end of it the strand
+    REMAINS, thinned and stilled, instead of vanishing. What the motes
+    carry home is the lane's *vitality*, not its existence.
+16. **Density is managed by hierarchy, not by removal.** As sessions
+    accumulate dozens of finished lanes, legibility is bought with
+    thinness, stillness and depth layering — and the existing HIDE
+    FINISHED control, which becomes load-bearing and must stay obvious.
+    If a full field ever stops reading, the answer is more hierarchy,
+    never deleting history.
+
 ## Implementation
 
 One solo scene lane (opus — aesthetic judgment work), wide fence landing
