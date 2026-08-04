@@ -975,6 +975,117 @@ describe('lane slots', () => {
   })
 })
 
+// ── the fleet table's sparkline (#159) ──────────────────────────────────────
+
+describe('Lane.recentOutputTokens', () => {
+  const HANDLE = 'sk'
+  const WORKTREE = '/repo-wt/sk'
+
+  function baseLog(startedAt: number): RhizomorphEvent[] {
+    return [
+      event('session.started', { sessionId: 'spark', repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' }, startedAt),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, startedAt),
+      event('worktree.discovered', { path: WORKTREE, branch: HANDLE, head: 'sha-sk', isMain: false }, startedAt),
+    ]
+  }
+
+  it('sums output tokens into the trailing window, honestly trimmed to the lane\'s own lifetime', () => {
+    const startedAt = NOW - 12 * 60_000 // younger than the 30-minute window
+    const log = [
+      ...baseLog(startedAt),
+      event('llm.usage', {
+        lane: HANDLE, role: 'worker', model: 'claude-opus-5', branch: HANDLE, worktreePath: WORKTREE,
+        tokens: { input: 1, output: 400, cacheRead: 0, cacheCreation: 0 },
+      }, NOW - 1_000),
+    ]
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    const series = laneIn(fleet, HANDLE).recentOutputTokens
+
+    // 12 minutes of a 30-minute, 10-bucket window (3-minute buckets) is 4
+    // whole buckets — a lane this young must not claim the other 6.
+    expect(series).toHaveLength(4)
+    expect(series.reduce((sum, v) => sum + v, 0)).toBe(400)
+    // The event landed in the newest bucket.
+    expect(series.at(-1)).toBe(400)
+  })
+
+  it('counts only the sessionlog origin — the same collector every other output-token figure reads', () => {
+    const startedAt = NOW - 30 * 60_000
+    const log = [
+      ...baseLog(startedAt),
+      event('llm.usage', {
+        lane: HANDLE, role: 'worker', model: 'claude-opus-5', branch: HANDLE, worktreePath: WORKTREE,
+        tokens: { input: 1, output: 300, cacheRead: 0, cacheCreation: 0 },
+      }, NOW - 1_000),
+      createEvent('llm.usage', {
+        lane: HANDLE, role: 'worker', model: 'claude-opus-5', branch: HANDLE, worktreePath: WORKTREE,
+        tokens: { input: 1, output: 5_000, cacheRead: 0, cacheCreation: 0 },
+      }, { id: nextId(), ts: NOW - 1_000, source: 'otel' }),
+    ]
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    const total = laneIn(fleet, HANDLE).recentOutputTokens.reduce((sum, v) => sum + v, 0)
+    expect(total).toBe(300)
+  })
+
+  it('reads as real zeros for the lane\'s own lifetime, never padded with buckets before it existed', () => {
+    // A lane a full 30-minute window old with no usage at all: every bucket is
+    // a real "nothing happened", so all ten are honest zeros.
+    const log = baseLog(NOW - 30 * 60_000)
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    expect(laneIn(fleet, HANDLE).recentOutputTokens).toEqual(new Array(10).fill(0))
+  })
+
+  it('is a single real zero for a lane one bucket-width old, not ten fabricated ones', () => {
+    const log = baseLog(NOW - 60_000)
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    expect(laneIn(fleet, HANDLE).recentOutputTokens).toEqual([0])
+  })
+})
+
+// ── the burn strip's error figure (#159) ────────────────────────────────────
+
+describe('Burn.errorCount', () => {
+  it('sums blocked (unparked WAITING), parked, and off-fence lanes off the staged-pathology fixture', () => {
+    const fleet = fleetFor(pathologySpec())
+
+    // Fixture facts this reuses rather than re-derives: '43-drawer-attach' is
+    // the WAITING lane, '45-ledger-subrows' the OFF-FENCE one (see the
+    // top-of-file describe block), and nothing in this fixture is parked.
+    expect(fleet.burn.errorBlockedCount).toBe(1)
+    expect(fleet.burn.errorOffFenceCount).toBe(1)
+    expect(fleet.burn.errorParkedCount).toBe(0)
+    expect(fleet.burn.errorCount).toBe(2)
+  })
+
+  it('is a calm, real zero for a fleet with nothing wrong', () => {
+    const fleet = fleetFor(finishedSpec())
+    expect(fleet.burn.errorCount).toBe(0)
+    expect(fleet.burn.errorBlockedCount).toBe(0)
+    expect(fleet.burn.errorParkedCount).toBe(0)
+    expect(fleet.burn.errorOffFenceCount).toBe(0)
+  })
+
+  it('counts a parked lane once, never doubling into "blocked" even when workmux still declares it waiting', () => {
+    const HANDLE = 'pk'
+    const manifest: LaneManifest = {
+      [HANDLE]: { handle: HANDLE, fence: ['packages/parked/**'], issue: null, model: null, parked: true },
+    }
+    const log = [
+      event('session.started', { sessionId: 'parked-waiting', repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' }, NOW - 60_000),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 60_000),
+      event('worktree.discovered', { path: '/repo-wt/pk', branch: HANDLE, head: 'sha-pk', isMain: false }, NOW - 60_000),
+      event('agent.status', { handle: HANDLE, status: 'waiting', worktreePath: '/repo-wt/pk', branch: HANDLE }, NOW - 30_000),
+    ]
+    const fleet = buildFleet(reduceAll(log), { now: NOW, manifest })
+
+    expect(laneIn(fleet, HANDLE).parked).toBe(true)
+    expect(kindsFor(fleet, HANDLE)).toContain('waiting')
+    expect(fleet.burn.errorParkedCount).toBe(1)
+    expect(fleet.burn.errorBlockedCount).toBe(0)
+    expect(fleet.burn.errorCount).toBe(1)
+  })
+})
+
 // ── the loop detector, directly ─────────────────────────────────────────────
 
 describe('findCycle', () => {

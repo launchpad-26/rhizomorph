@@ -19,9 +19,11 @@ import {
   type LaneSubagentActivity,
   type SessionState,
   type SpanDecision,
+  type TelemetryOrigin,
   type TokenTotals,
   type WaitingOnHumanSummary,
 } from '@rhizomorph/core'
+import { bucketizeSeries } from '../spark/bucketize.js'
 import { findTrespasses, type LaneManifest, type Trespass } from './fences.js'
 
 /**
@@ -59,6 +61,16 @@ import { findTrespasses, type LaneManifest, type Trespass } from './fences.js'
  * reports would double-count every request they both saw.
  */
 const TOKEN_ORIGINS = ['sessionlog'] as const
+
+/**
+ * #159 — the fleet table's own OUTPUT-cell sparkline (dashboard-IA spike §3
+ * medium-value item, "legend-as-table + sparklines in cells"): a trailing
+ * half hour, sliced into six-minute buckets. Same {@link TOKEN_ORIGINS}
+ * filter every other output-token number in this file already uses, so the
+ * spark's shape never disagrees with the headline figure it sits beside.
+ */
+export const SPARK_WINDOW_MS = 30 * 60_000
+export const SPARK_BUCKET_COUNT = 10
 
 /** How far back LOOPING looks for a repeating tool cycle. */
 export const LOOP_WINDOW_MS = 4 * 60_000
@@ -264,6 +276,15 @@ export interface Lane {
   toolCallCount: number
   /** Output tokens per minute over the trailing window — the outlier test's unit. */
   outputPerMin: number
+  /**
+   * #159 — output tokens over the trailing {@link SPARK_WINDOW_MS}, bucketed
+   * for the fleet table's own sparkline cell. Oldest first, trimmed to the
+   * lane's own lifetime (`bucketizeSeries`' honesty gate): a lane younger than
+   * the window has a shorter array, never a longer one padded with invented
+   * silence. `Sparkline` itself declines to draw fewer than three points, so
+   * this can be arbitrarily short — that gate lives there, not here.
+   */
+  recentOutputTokens: readonly number[]
   filaments: Filament[]
   model: string | null
 
@@ -441,6 +462,29 @@ export interface Burn {
   overheadRatio: number | null
   conductorInstrumented: boolean
   windowMs: number
+  /**
+   * #159 — the dashboard-IA spike's golden-signal gap, closed: the burn strip's
+   * one error figure. `errorBlockedCount + errorParkedCount + errorOffFenceCount`
+   * — a lane can count toward more than one bucket (a parked lane workmux still
+   * declares WAITING is both blocked and parked), so the sum can exceed the
+   * fleet's own lane count; that is the honest arithmetic of "how many distinct
+   * problems", not "how many lanes have one". Zero is a real, calm zero — never
+   * omitted and never dressed up as reassurance (ruling 14's law, restated for
+   * a number instead of a word).
+   *
+   * Optional, not because `buildFleet` ever omits it — every `Burn` it returns
+   * carries all four fields — but because `Burn` fixtures hand-built outside
+   * this change's fence (`panels/attention/`) predate this field and cannot be
+   * updated here; `BurnStrip` below reads each with a `?? 0` fallback so an
+   * older fixture renders a calm zero rather than `undefined`.
+   */
+  errorCount?: number
+  /** Lanes with a live WAITING pathology (blocked on a human), parked lanes excluded — their alarm is already muted by the operator's own declaration. */
+  errorBlockedCount?: number
+  /** Lanes the operator declared parked (`.swarm/lanes.json`) — a deliberate stand-down, still worth a count. */
+  errorParkedCount?: number
+  /** Lanes currently touching files outside their declared fence — a gate failure, in `buildLadder`'s own `off-fence` terms. */
+  errorOffFenceCount?: number
 }
 
 // ── the fleet ───────────────────────────────────────────────────────────────
@@ -498,6 +542,7 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
   const touches = selectTouchesByBranch(state)
   const collisions = selectCollisions(state)
   const toolsByHandle = recentToolsByHandle(state, now - LOOP_WINDOW_MS)
+  const usageEventsByHandle = outputTokenEventsByHandle(state, now - SPARK_WINDOW_MS, TOKEN_ORIGINS)
   const spanTsByHandle = latestSpanTsByLane(state, now - SPAN_WITNESS_WINDOW_MS)
   const commitTsByBranch = latestCommitTsByBranch(state)
   const spanDecisionByKey = spanDecisionsByKey(state)
@@ -617,6 +662,10 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
     const lastEventTs = maxTs(lastWorkTs, draft.paneActivityTs)
     const fence = manifest === null ? undefined : fenceFor(manifest, draft, handles)
     const activeSeconds = sumActiveSeconds(handles, activeSecondsByLane)
+    const recentOutputTokens = bucketizeSeries(
+      handles.flatMap((handle) => usageEventsByHandle.get(handle) ?? []),
+      { now, windowMs: SPARK_WINDOW_MS, bucketCount: SPARK_BUCKET_COUNT, sinceTs: draft.firstSeenAt },
+    )
     const waitedOnHuman = waitedOnHumanFor(state, draft.id, draft.branch, handles, spanDecisionByKey)
     const subagents = subagentActivityFor(subagentActivityByLane, [
       draft.id,
@@ -646,6 +695,7 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       requestCount: tokens?.requestCount ?? 0,
       toolCallCount: tokens?.toolCallCount ?? 0,
       outputPerMin,
+      recentOutputTokens,
       filaments: filamentsOf(tokens),
       model: fence?.model ?? null,
 
@@ -714,6 +764,7 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
 
   const evidence = calmEvidenceOf(lanes, touches, collisions)
   const ladder = buildLadder(lanes, collisions, state, now, evidence)
+  const errorCounts = errorCountsOf(lanes)
 
   const commitsHome = mainBranch === null ? 0 : (state.branches[mainBranch]?.commits.length ?? 0)
   const rootSubagents = subagentActivityFor(subagentActivityByLane, [
@@ -751,6 +802,10 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       overheadRatio: roleSplit.overheadRatio,
       conductorInstrumented: costRoleSplit.conductor.costEventCount > 0,
       windowMs,
+      errorCount: errorCounts.total,
+      errorBlockedCount: errorCounts.blocked,
+      errorParkedCount: errorCounts.parked,
+      errorOffFenceCount: errorCounts.offFence,
     },
     collisions,
     gaps: buildGaps(state, costTotals, lanes, manifest),
@@ -1046,6 +1101,26 @@ function buildLadder(
   )
 
   return { rank, items: items as [AttentionItem, ...AttentionItem[]] }
+}
+
+/**
+ * #159 — the burn strip's one error figure (golden signals, dashboard-IA
+ * spike §1's "errors and latency are absent from the top dock" finding; the
+ * operator's own ruling keeps latency out and takes errors). Three existing,
+ * already-computed facts, summed rather than re-detected: a lane counts as
+ * `blocked` only when unparked (a parked lane workmux still marks WAITING is
+ * the operator's own stand-down, not a fresh alarm — `parked` already covers
+ * it), so the same lane never inflates both buckets at once.
+ */
+function errorCountsOf(
+  lanes: readonly Lane[],
+): { total: number; blocked: number; parked: number; offFence: number } {
+  const blocked = lanes.filter(
+    (lane) => !lane.parked && lane.pathologies.some((p) => p.kind === 'waiting'),
+  ).length
+  const parked = lanes.filter((lane) => lane.parked).length
+  const offFence = lanes.filter((lane) => lane.pathologies.some((p) => p.kind === 'off-fence')).length
+  return { total: blocked + parked + offFence, blocked, parked, offFence }
 }
 
 /** Ruling 14: ALL CLEAR has to say what was checked to have earned it. */
@@ -1391,6 +1466,29 @@ function filamentsOf(spend: LaneSpend | undefined): Filament[] {
     }
   }
   return [...byThread.values()].sort((a, b) => b.outputTokens - a.outputTokens)
+}
+
+/**
+ * #159 — each origin-filtered `llm.usage` record inside the spark window, as
+ * a bare `{ts, value}` per telemetry handle, oldest first. Raw events rather
+ * than pre-bucketed sums: a lane can resolve two handles, and only after
+ * they're merged (by the caller, per lane) does "which bucket" become a
+ * meaningful question — the same two-step `recentToolsByHandle` and
+ * `latestSpanTsByLane` already take.
+ */
+function outputTokenEventsByHandle(
+  state: SessionState,
+  since: number,
+  origins: readonly TelemetryOrigin[],
+): Map<string, { ts: number; value: number }[]> {
+  const byHandle = new Map<string, { ts: number; value: number }[]>()
+  for (const record of state.telemetry.usage) {
+    if (record.ts < since || !origins.includes(record.origin)) continue
+    const list = byHandle.get(record.lane) ?? []
+    list.push({ ts: record.ts, value: record.tokens.output })
+    byHandle.set(record.lane, list)
+  }
+  return byHandle
 }
 
 /** Tool names per telemetry handle inside the loop window, oldest first. */
