@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMode, useModeClock } from '../app/ModeContext.js'
 import { useStream } from '../app/StreamContext.js'
 import { buildFleet, type Fleet } from './buildFleet.js'
 import { useLaneManifest, type FetchLike } from './manifest.js'
@@ -16,6 +17,13 @@ import { useLaneManifest, type FetchLike } from './manifest.js'
  * means the passage of time alone moves the instrument — a lane crosses the
  * frozen threshold because eight minutes went by, not because something
  * arrived to tell us so.
+ *
+ * That beat is the WALL clock, and only while live (#155's one clock rule,
+ * `ModeContext.useModeClock`). While replaying, the beat stops entirely and
+ * `buildFleet`'s `now` follows the scrub position instead: a paused scrub
+ * must read as a still frame, not as a lane aging in real time toward
+ * FROZEN, and scrubbing to a moment when a lane was working must render it
+ * working — not judged against a wall clock hours ahead of the recording.
  */
 
 export interface FleetContextValue {
@@ -39,16 +47,20 @@ export interface FleetProviderProps {
 
 export function FleetProvider({ children, now, fetchLanes }: FleetProviderProps) {
   const { state, source, fixtureManifest } = useStream()
-  const [clock, setClock] = useState(() => now ?? Date.now())
+  const mode = useMode()
+  const modeClock = useModeClock()
+  // Only ever consulted while live and unpinned: the replay clock comes
+  // straight from `modeClock` below, no timer of this provider's own.
+  const [liveClock, setLiveClock] = useState(() => now ?? modeClock)
 
   useEffect(() => {
-    if (now !== undefined) {
-      setClock(now)
-      return
-    }
-    const timer = setInterval(() => setClock(Date.now()), FLEET_TICK_MS)
+    if (now !== undefined || mode === 'replay') return
+    setLiveClock(Date.now())
+    const timer = setInterval(() => setLiveClock(Date.now()), FLEET_TICK_MS)
     return () => clearInterval(timer)
-  }, [now])
+  }, [now, mode])
+
+  const clock = now ?? (mode === 'replay' ? modeClock : liveClock)
 
   // A fixture brings the manifest it was dispatched with; only the live stream
   // has to go and ask the server for one.
