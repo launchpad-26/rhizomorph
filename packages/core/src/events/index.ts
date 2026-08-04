@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { EventSource } from './common.js'
 import { gitEventSchemas } from './git.js'
+import { judgeEventSchemas } from './judge.js'
 import { labEventSchemas } from './lab.js'
 import { systemEventSchemas } from './system.js'
 import { telemetryEventSchemas } from './telemetry.js'
@@ -10,6 +11,7 @@ import { workmuxEventSchemas } from './workmux.js'
 
 export * from './common.js'
 export * from './git.js'
+export * from './judge.js'
 export * from './lab.js'
 export * from './system.js'
 export * from './telemetry.js'
@@ -26,6 +28,7 @@ export const rhizomorphEventSchema = z.discriminatedUnion('type', [
   ...telemetryEventSchemas,
   ...traceEventSchemas,
   ...labEventSchemas,
+  ...judgeEventSchemas,
 ])
 
 export type RhizomorphEvent = z.infer<typeof rhizomorphEventSchema>
@@ -77,7 +80,13 @@ export const EVENT_SOURCE_BY_TYPE = {
   // `EventSource`/`eventSourceSchema` (see events/lab.ts); the satisfies
   // clause below is widened by exactly that one literal to say so.
   'fork.checkpoint': 'lab',
-} as const satisfies Record<EventType, EventSource | 'lab'>
+  // prd11 ruling 6b, phase 1: the semantic judge's structural organ — a real
+  // polled collector, unlike `lab`, but `'judge'` is still absent from
+  // `eventSourceSchema` because this issue's fence (#152) doesn't reach
+  // `events/common.ts`. See the doc comment on `judgeFindingEventSchema`
+  // (events/judge.ts) for the full story.
+  'judge.finding': 'judge',
+} as const satisfies Record<EventType, EventSource | 'lab' | 'judge'>
 
 export const EVENT_TYPES = Object.keys(EVENT_SOURCE_BY_TYPE) as EventType[]
 

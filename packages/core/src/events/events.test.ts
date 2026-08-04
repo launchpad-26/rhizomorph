@@ -57,7 +57,10 @@ describe('event envelope', () => {
     // (that enum means "which collector saw it"; the lab is not a
     // collector — see events/lab.ts). Declared here instead, so this stays
     // an exhaustive, closed check rather than one that got quietly loosened.
-    const knownSources: readonly string[] = [...eventSourceSchema.options, 'lab']
+    // prd11 ruling 6b: 'judge' is out of `eventSourceSchema` too, but for a
+    // narrower reason — it IS a collector, just declared outside this
+    // issue's fence (see events/judge.ts).
+    const knownSources: readonly string[] = [...eventSourceSchema.options, 'lab', 'judge']
     for (const type of EVENT_TYPES) {
       expect(knownSources).toContain(sourceOf(type))
       expect(EVENT_SOURCE_BY_TYPE[type]).toBe(sourceOf(type))
@@ -270,5 +273,13 @@ function oneOfEach() {
       headSha: 'head1',
       capturedBy: 'operator',
     }, { id: id(), ts: 21 }),
+    // prd11 ruling 6b, phase 1: the judge organ's own keystone, source 'judge'.
+    createEvent('judge.finding', {
+      kind: 'symbol-overlap',
+      lanes: ['2-core', '3-git'],
+      evidence: { symbols: ['formatDuration'] },
+      severity: 'log',
+      detectedAt: 22,
+    }, { id: id(), ts: 22 }),
   ]
 }
