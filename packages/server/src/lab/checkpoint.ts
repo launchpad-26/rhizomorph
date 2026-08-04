@@ -9,6 +9,7 @@ import { defaultDataRoot, sessionDirFor, sessionFileName } from '../log/paths.js
 import { findResumableSession, RESUME_WINDOW_MS } from '../log/session-log.js'
 import { exec as realExec } from '../server/exec.js'
 import { SessionRecorder } from '../server/recorder.js'
+import { runGit } from './git.js'
 
 /**
  * prd12 ruling 2's capture module — the laboratory's own hand. Everything
@@ -154,20 +155,6 @@ async function snapshotWorkspace(
   } finally {
     await rm(tmpIndexPath, { force: true })
   }
-}
-
-async function runGit(
-  exec: Exec,
-  cwd: string,
-  args: readonly string[],
-  env?: Record<string, string>,
-): Promise<string> {
-  const result = await exec('git', args, { cwd, env })
-  if (result.failed) {
-    const detail = result.stderr.trim() || result.errorMessage || `exit ${result.code}`
-    throw new Error(`git ${args.join(' ')} failed: ${detail}`)
-  }
-  return result.stdout
 }
 
 interface SessionCut {
