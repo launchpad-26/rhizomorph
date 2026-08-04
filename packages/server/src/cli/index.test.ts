@@ -1124,3 +1124,138 @@ describe('runCli lab checkpoint subcommand', () => {
     expect(output).not.toContain('.ts:')
   })
 })
+
+describe('runCli lab fork + compare subcommands (prd12 phase 2)', () => {
+  let root: string
+  let repoDir: string
+  let dataRoot: string
+  let claudeProjectsRoot: string
+
+  function git(args: string[], cwd = repoDir): string {
+    return execFileSync('git', args, { cwd, encoding: 'utf8' })
+  }
+
+  /** Runs a `rhizomorph lab …` invocation and returns its exit code plus stdout. */
+  async function lab(argv: string[]): Promise<{ code: number; out: string; err: string }> {
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const thrown = await runCli(argv, {
+      log,
+      exit: fakeExit(),
+      dataRoot,
+      claudeProjectsRoot,
+    }).catch((err: unknown) => err)
+    const err = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+    if (!(thrown instanceof FakeExit)) throw thrown
+    return { code: thrown.code, out: log.log.mock.calls.map((call) => String(call[0])).join('\n'), err }
+  }
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'rhizomorph-lab-fork-cli-test-'))
+    repoDir = path.join(root, 'repo')
+    dataRoot = path.join(root, 'data')
+    claudeProjectsRoot = path.join(root, 'claude-projects')
+
+    await mkdir(repoDir, { recursive: true })
+    git(['init', '-b', 'main'])
+    git(['config', 'user.email', 'test@example.com'])
+    git(['config', 'user.name', 'Test'])
+    await writeFile(path.join(repoDir, 'tracked.txt'), 'v1\n')
+    git(['add', '.'])
+    git(['commit', '-m', 'initial commit'])
+    await writeFile(path.join(repoDir, 'tracked.txt'), 'v2 in flight\n')
+
+    const projectDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(repoDir))
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(path.join(projectDir, 'aaaaaaaa-0000-4000-8000-000000000000.jsonl'), '{"cwd":"x"}\n')
+  })
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  /** The forkId the CLI printed, so a later `compare` can name it. */
+  function forkIdFrom(out: string): string {
+    const match = /^fork (\S+) —/m.exec(out)
+    if (!match?.[1]) throw new Error(`no fork id in output:\n${out}`)
+    return match[1]
+  }
+
+  it('forks a lane end-to-end and reports each arm, without launching anything', async () => {
+    expect((await lab(['lab', 'checkpoint', 'demo-lane', '--path', repoDir])).code).toBe(0)
+
+    const before = git(['status', '--porcelain'])
+    const fork = await lab(['lab', 'fork', 'demo-lane', '--path', repoDir, '--arms', '3', '--model', 'opus'])
+
+    expect(fork.code).toBe(0)
+    expect(fork.out).toMatch(/3 arm\(s\) of lane "demo-lane"/)
+    expect(fork.out).toContain('arm 1')
+    expect(fork.out).toContain('arm 3')
+    expect(fork.out).toContain('paths rewritten to this tree')
+    expect(fork.out).toContain('not run — run it yourself: workmux add')
+    expect(fork.out).toContain('rhizomorph lab compare')
+    // The watched repo is untouched.
+    expect(git(['status', '--porcelain'])).toBe(before)
+  })
+
+  it('compares the fork it just made: a table, a distribution, and no winner', async () => {
+    await lab(['lab', 'checkpoint', 'demo-lane', '--path', repoDir])
+    const forkId = forkIdFrom((await lab(['lab', 'fork', 'demo-lane', '--path', repoDir, '--arms', '3'])).out)
+
+    const compare = await lab(['lab', 'compare', forkId, '--path', repoDir, '--no-verify'])
+
+    expect(compare.code).toBe(0)
+    expect(compare.out).toContain('arm  lane')
+    expect(compare.out).toContain('distribution over 3 arms')
+    expect(compare.out).toContain('no winner is named')
+  })
+
+  it('refuses to rank a two-arm fork, printing the runs instead', async () => {
+    await lab(['lab', 'checkpoint', 'demo-lane', '--path', repoDir])
+    const forkId = forkIdFrom((await lab(['lab', 'fork', 'demo-lane', '--path', repoDir, '--arms', '2'])).out)
+
+    const compare = await lab(['lab', 'compare', forkId, '--path', repoDir, '--no-verify'])
+
+    expect(compare.code).toBe(0)
+    expect(compare.out).toContain('runs only')
+    expect(compare.out).toContain('Ranking needs n >= 3')
+    expect(compare.out).not.toContain('distribution over')
+  })
+
+  it('exits 1 with a clean message when the lane has no checkpoint to fork from', async () => {
+    const fork = await lab(['lab', 'fork', 'never-checkpointed', '--path', repoDir])
+
+    expect(fork.code).toBe(1)
+    expect(fork.err).toContain('no fork.checkpoint recorded for lane "never-checkpointed"')
+    expect(fork.err).not.toMatch(/^\s*at /m)
+  })
+
+  it('exits 1 with usage when the lane or fork id is missing', async () => {
+    const fork = await lab(['lab', 'fork'])
+    expect(fork.code).toBe(1)
+    expect(fork.err).toContain('missing required argument: <lane>')
+    expect(fork.err).toContain('rhizomorph lab fork <lane>')
+
+    const compare = await lab(['lab', 'compare'])
+    expect(compare.code).toBe(1)
+    expect(compare.err).toContain('missing required argument: <fork-id>')
+  })
+
+  it('exits 1 with a clean message on an unknown fork id', async () => {
+    const compare = await lab(['lab', 'compare', 'no-such-fork', '--path', repoDir, '--no-verify'])
+    expect(compare.code).toBe(1)
+    expect(compare.err).toContain('no fork "no-such-fork" recorded')
+    expect(compare.err).not.toMatch(/^\s*at /m)
+  })
+
+  it('prints each subcommand\'s own help and exits 0', async () => {
+    const fork = await lab(['lab', 'fork', '--help'])
+    expect(fork.code).toBe(0)
+    expect(fork.out).toContain('rhizomorph lab fork <lane>')
+
+    const compare = await lab(['lab', 'compare', '--help'])
+    expect(compare.code).toBe(0)
+    expect(compare.out).toContain('rhizomorph lab compare <fork-id>')
+  })
+})

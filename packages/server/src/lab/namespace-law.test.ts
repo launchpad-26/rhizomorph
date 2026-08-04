@@ -1,7 +1,16 @@
+import { execFileSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
+import { exec as realExec } from '../server/exec.js'
+import { captureCheckpoint } from './checkpoint.js'
+import { dispatchFork } from './fork.js'
+import { isInside, labRoot } from './paths.js'
 
 /**
  * prd12 ruling 1's law test — the amendment's own condition: "the observer's
@@ -16,10 +25,19 @@ import { describe, expect, it } from 'vitest'
  * 2. Every git ref this package's lab module writes to is confined to
  *    `refs/rhizomorph/`, and no lab source file ever shells out to a
  *    disallowed git verb (`push`, `merge`, `checkout`, `branch -D`).
+ * 3. (#153) The lab has no clock of its own — no `setInterval`/`setTimeout`
+ *    anywhere under `lab/` — so "never runs without a human's explicit
+ *    command" holds structurally and not just by convention.
+ * 4. (#153) A live pass of the whole phase-2 write surface: `lab fork`
+ *    against a real fixture repo writes NOTHING outside `refs/rhizomorph/`,
+ *    the lab's own worktrees, the lab data dir, and the synthesized-session
+ *    artifacts ruling 1 names — asserted by walking the filesystem before and
+ *    after, not by reading the source.
  *
- * Grep-style, per the issue: this walks real source text with regexes, not
- * an AST. That is deliberately as legible as the readonly law tests it sits
- * beside — a reader should be able to verify the check by eye.
+ * Halves 1–3 are grep-style, per the issue: real source text, regexes, no
+ * AST. That is deliberately as legible as the readonly law tests it sits
+ * beside — a reader should be able to verify the check by eye. Half 4 is the
+ * one that cannot be fooled by a clever spelling: it runs the thing.
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -185,5 +203,247 @@ describe('the lab namespace law (prd12 ruling 1)', () => {
       const proseOnly = 'Nothing here ever runs `push`, `merge`, or `checkout`.'
       expect(forbiddenVerbPattern('push').test(proseOnly)).toBe(false)
     })
+
+    // #153 extends the forbidden set to the verbs that rewrite a working tree
+    // or an operator ref. `commit-tree`, `rev-list` and `worktree add` — the
+    // three the lab genuinely needs — are unaffected: the pattern matches a
+    // whole quoted argv token, so `'commit-tree'` is not `'commit'`.
+    const PHASE_2_FORBIDDEN = ['reset', 'clean', 'commit', 'rebase', 'cherry-pick', 'stash', 'branch', 'tag']
+
+    it('never shells out to a verb that rewrites a working tree or an operator ref', () => {
+      const offenders: string[] = []
+      for (const file of labSourceFiles()) {
+        const source = readFileSync(file, 'utf8')
+        for (const verb of PHASE_2_FORBIDDEN) {
+          if (forbiddenVerbPattern(verb).test(source)) {
+            offenders.push(`${path.relative(REPO_ROOT, file)}: "${verb}"`)
+          }
+        }
+      }
+      expect(offenders).toEqual([])
+    })
+
+    it('the extended detector bites, and does not fire on the verbs the lab legitimately uses', () => {
+      expect(forbiddenVerbPattern('reset').test(`exec('git', ['reset', '--hard'])`)).toBe(true)
+      expect(forbiddenVerbPattern('branch').test(`exec('git', ['branch', '-D', 'x'])`)).toBe(true)
+      // The real argv literals in lab/ source, which must NOT trip it.
+      expect(forbiddenVerbPattern('commit').test(`exec('git', ['commit-tree', tree, '-p', head])`)).toBe(false)
+      expect(forbiddenVerbPattern('branch').test(`exec('git', ['rev-list', '--count', range])`)).toBe(false)
+    })
+  })
+
+  describe('the lab has no clock of its own', () => {
+    it('no lab source file schedules work — "never runs without a human\'s explicit command", structurally', () => {
+      const offenders: string[] = []
+      for (const file of walkSourceFiles(LAB_DIR, [path.join(LAB_DIR, '__fixtures__')])) {
+        if (file.endsWith('.test.ts')) continue
+        const source = readFileSync(file, 'utf8')
+        if (/\b(setInterval|setTimeout|setImmediate)\s*\(/.test(source)) {
+          offenders.push(path.relative(REPO_ROOT, file))
+        }
+      }
+      expect(offenders).toEqual([])
+    })
+
+    it('that detector bites — a scheduled lab would be caught', () => {
+      expect(/\b(setInterval|setTimeout|setImmediate)\s*\(/.test('setInterval(() => capture(), 60_000)')).toBe(true)
+    })
+  })
+})
+
+/**
+ * The live half. Everything above reads source text; this runs `lab fork`
+ * against a real fixture repo and asserts, by walking the filesystem and the
+ * ref namespace before and after, that ruling 1's fence held.
+ *
+ * Hermetic under 4x concurrency: one `mkdtemp` root per test, pid+uuid ids.
+ */
+describe('the lab namespace law, live (prd12 ruling 1, #153)', () => {
+  let root: string
+  let repoDir: string
+  let dataRoot: string
+  let claudeProjectsRoot: string
+
+  function git(args: string[], cwd = repoDir): string {
+    return execFileSync('git', args, { cwd, encoding: 'utf8' })
+  }
+
+  /** Every path under `dir`, relative and sorted — a fingerprint of a tree. */
+  function treeListing(dir: string): string[] {
+    const out: string[] = []
+    const visit = (current: string) => {
+      let entries: string[]
+      try {
+        entries = readdirSync(current)
+      } catch {
+        return
+      }
+      for (const entry of entries) {
+        const full = path.join(current, entry)
+        out.push(path.relative(dir, full))
+        if (statSync(full).isDirectory()) visit(full)
+      }
+    }
+    visit(dir)
+    return out.sort()
+  }
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'rhizomorph-lab-law-test-'))
+    repoDir = path.join(root, 'repo')
+    dataRoot = path.join(root, 'data')
+    claudeProjectsRoot = path.join(root, 'claude-projects')
+
+    await mkdir(repoDir, { recursive: true })
+    git(['init', '-b', 'main'])
+    git(['config', 'user.email', 'test@example.com'])
+    git(['config', 'user.name', 'Test'])
+    await writeFile(path.join(repoDir, 'tracked.txt'), 'v1\n')
+    git(['add', '.'])
+    git(['commit', '-m', 'initial commit'])
+    await writeFile(path.join(repoDir, 'tracked.txt'), 'v2 dirty\n')
+    await writeFile(path.join(repoDir, 'untracked.txt'), 'new\n')
+
+    const projectDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(repoDir))
+    await mkdir(projectDir, { recursive: true })
+    const sessionId = randomUUID()
+    await writeFile(
+      path.join(projectDir, `${sessionId}.jsonl`),
+      `${JSON.stringify({ type: 'user', sessionId, cwd: repoDir })}\n`,
+    )
+  })
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  async function forkThreeArms(): Promise<void> {
+    await captureCheckpoint({
+      lane: 'law-lane',
+      worktreePath: repoDir,
+      capturedBy: 'operator',
+      exec: realExec,
+      dataRoot,
+      claudeProjectsRoot,
+      now: () => 1_000_000,
+      checkpointId: `ckpt-${process.pid}-${randomUUID()}`,
+    })
+    await dispatchFork({
+      parentLane: 'law-lane',
+      parentWorktreePath: repoDir,
+      arms: 3,
+      forkId: `fork-${process.pid}-${randomUUID()}`,
+      dataRoot,
+      claudeProjectsRoot,
+      exec: realExec,
+      install: false,
+      now: () => 1_000_100,
+    })
+  }
+
+  it('leaves the watched repo\'s working tree byte-for-byte as it found it', async () => {
+    const before = git(['status', '--porcelain'])
+    const listingBefore = treeListing(repoDir).filter((entry) => !entry.startsWith('.git'))
+
+    await forkThreeArms()
+
+    expect(git(['status', '--porcelain'])).toBe(before)
+    expect(treeListing(repoDir).filter((entry) => !entry.startsWith('.git'))).toEqual(listingBefore)
+  })
+
+  it('creates refs ONLY under refs/rhizomorph/ — no branch, no tag, no remote ref', async () => {
+    const branchesBefore = git(['for-each-ref', '--format=%(refname)', 'refs/heads/'])
+
+    await forkThreeArms()
+
+    expect(git(['for-each-ref', '--format=%(refname)', 'refs/heads/'])).toBe(branchesBefore)
+    const all = git(['for-each-ref', '--format=%(refname)'])
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+    const foreign = all.filter((ref) => !ref.startsWith('refs/rhizomorph/') && ref !== 'refs/heads/main')
+    expect(foreign).toEqual([])
+  })
+
+  it('creates worktrees ONLY under the lab data dir', async () => {
+    await forkThreeArms()
+
+    const registered = git(['worktree', 'list', '--porcelain'])
+      .split('\n')
+      .filter((line) => line.startsWith('worktree '))
+      .map((line) => line.slice('worktree '.length).trim())
+
+    const outside = registered.filter(
+      (worktree) => path.resolve(worktree) !== path.resolve(repoDir) && !isInside(labRoot(dataRoot), worktree),
+    )
+    expect(outside).toEqual([])
+  })
+
+  /**
+   * Ruling 1's four namespaces, as path predicates over the whole temp root.
+   *
+   * The third clause is the one that needs saying out loud: a ref under
+   * `refs/rhizomorph/` and a worktree the lab created are BOTH things git
+   * records inside the watched repo's `.git` directory — the ref file itself,
+   * the objects it reaches, and a `worktrees/<id>/` bookkeeping dir. Ruling 1
+   * grants those explicitly ("refs under `refs/rhizomorph/`, git objects those
+   * refs require, worktrees the lab itself creates"), so the law allows the
+   * `.git` administrivia they consist of and NOTHING else in the repo. The
+   * working tree is covered separately, and absolutely, by the test above.
+   */
+  function isAllowedWrite(relative: string): boolean {
+    const parts = relative.split(path.sep)
+    if (parts[0] === 'data' || parts[0] === 'claude-projects') return true
+    if (parts[0] !== 'repo') return false
+    if (parts[1] !== '.git') return false // never the working tree
+
+    const inGit = parts.slice(2).join('/')
+    return (
+      inGit === '' ||
+      inGit === 'refs' ||
+      inGit.startsWith('refs/rhizomorph') ||
+      inGit === 'objects' ||
+      inGit.startsWith('objects/') ||
+      inGit === 'worktrees' ||
+      inGit.startsWith('worktrees/')
+    )
+  }
+
+  it('writes ONLY into ruling 1\'s namespaces — lab data dir, session artifacts, refs/rhizomorph, its own worktrees', async () => {
+    const rootListingBefore = new Set(treeListing(root))
+
+    await forkThreeArms()
+
+    const added = treeListing(root).filter((entry) => !rootListingBefore.has(entry))
+    expect(added.length).toBeGreaterThan(0) // the check below would pass vacuously otherwise
+
+    expect(added.filter((entry) => !isAllowedWrite(entry))).toEqual([])
+  })
+
+  it('that fence bites — a write to any other path in the repo would be caught', () => {
+    expect(isAllowedWrite(path.join('repo', 'notes.md'))).toBe(false)
+    expect(isAllowedWrite(path.join('repo', '.git', 'refs', 'heads', 'sneaky'))).toBe(false)
+    expect(isAllowedWrite(path.join('repo', '.git', 'config'))).toBe(false)
+    expect(isAllowedWrite(path.join('somewhere-else', 'x'))).toBe(false)
+    // …and does not fire on the three the ruling grants.
+    expect(isAllowedWrite(path.join('repo', '.git', 'refs', 'rhizomorph', 'checkpoints', 'c1'))).toBe(true)
+    expect(isAllowedWrite(path.join('repo', '.git', 'worktrees', 'fork-1-arm-1', 'HEAD'))).toBe(true)
+    expect(isAllowedWrite(path.join('data', 'lab', 'worktrees', 'fork-1-arm-1'))).toBe(true)
+  })
+
+  it('writes the synthesized sessions ONLY under the arms\' own project slugs, never the parent\'s', async () => {
+    const parentSlug = worktreePathToProjectSlug(repoDir)
+    const parentDir = path.join(claudeProjectsRoot, parentSlug)
+    const parentBefore = treeListing(parentDir)
+
+    await forkThreeArms()
+
+    expect(treeListing(parentDir)).toEqual(parentBefore)
+    // And three new project dirs appeared, one per arm, all under the lab root.
+    const slugs = readdirSync(claudeProjectsRoot).filter((slug) => slug !== parentSlug)
+    expect(slugs).toHaveLength(3)
+    for (const slug of slugs) {
+      expect(slug.startsWith(worktreePathToProjectSlug(labRoot(dataRoot)))).toBe(true)
+    }
   })
 })

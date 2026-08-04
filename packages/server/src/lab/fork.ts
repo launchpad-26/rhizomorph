@@ -27,8 +27,8 @@ import {
  * launching", and {@link workmuxAddArgv} does exactly that, in the shape
  * `scripts/lane-agent.sh` documents.
  *
- * But `workmux add <handle>` creates a branch under `refs/heads/` and a
- * worktree of workmux's own choosing, and prd12 ruling 1 confines every write
+ * But `workmux add <handle>` creates a branch in the operator's own ref
+ * namespace and a worktree of workmux's choosing, and ruling 1 confines every write
  * the laboratory makes to `refs/rhizomorph/`, worktrees the lab itself
  * creates, and artifacts outside the watched repo. So the lab restores the
  * arm completely — worktree in its own namespace, session synthesized and

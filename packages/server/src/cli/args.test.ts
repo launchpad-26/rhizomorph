@@ -5,12 +5,16 @@ import {
   exportRecordHelpText,
   helpText,
   labCheckpointHelpText,
+  labCompareHelpText,
+  labForkHelpText,
   labHelpText,
   parseArgs,
   parseDoctorArgs,
   parseEnvArgs,
   parseExportRecordArgs,
   parseLabCheckpointArgs,
+  parseLabCompareArgs,
+  parseLabForkArgs,
   parseReplayArgs,
   replayHelpText,
 } from './args.js'
@@ -527,9 +531,146 @@ describe('parseLabCheckpointArgs', () => {
   })
 })
 
+describe('parseLabForkArgs', () => {
+  const forkDefaults = {
+    lane: 'my-lane',
+    at: undefined,
+    model: undefined,
+    promptFile: undefined,
+    arms: 3,
+    path: undefined,
+    launch: false,
+    help: false,
+  }
+
+  it('defaults to three arms — prd12 ruling 4\'s floor — and no launch', () => {
+    expect(parseLabForkArgs(['my-lane'])).toEqual(forkDefaults)
+  })
+
+  it('parses --at, --model, --prompt-file, --arms and --path', () => {
+    expect(
+      parseLabForkArgs([
+        'my-lane', '--at', 'ckpt-1', '--model', 'opus',
+        '--prompt-file', './p.md', '--arms', '5', '--path', '../repo',
+      ]),
+    ).toEqual({
+      ...forkDefaults,
+      at: 'ckpt-1',
+      model: 'opus',
+      promptFile: './p.md',
+      arms: 5,
+      path: '../repo',
+    })
+  })
+
+  it('parses the =value spelling too', () => {
+    expect(parseLabForkArgs(['my-lane', '--arms=2', '--model=sonnet'])).toEqual({
+      ...forkDefaults,
+      arms: 2,
+      model: 'sonnet',
+    })
+  })
+
+  it('parses --launch as a valueless switch that does not swallow the next token', () => {
+    expect(parseLabForkArgs(['--launch', 'my-lane'])).toEqual({ ...forkDefaults, launch: true })
+    expect(() => parseLabForkArgs(['my-lane', '--launch=yes'])).toThrow(/takes no value/)
+  })
+
+  it('throws on a zero, negative or non-integer arm count', () => {
+    expect(() => parseLabForkArgs(['my-lane', '--arms', '0'])).toThrow(/invalid --arms/)
+    expect(() => parseLabForkArgs(['my-lane', '--arms', '-1'])).toThrow(/invalid --arms/)
+    expect(() => parseLabForkArgs(['my-lane', '--arms', '2.5'])).toThrow(/invalid --arms/)
+    expect(() => parseLabForkArgs(['my-lane', '--arms', 'three'])).toThrow(/invalid --arms/)
+  })
+
+  it('throws on empty --at, --model or --prompt-file values', () => {
+    expect(() => parseLabForkArgs(['my-lane', '--at', ''])).toThrow(/invalid --at/)
+    expect(() => parseLabForkArgs(['my-lane', '--model', ''])).toThrow(/invalid --model/)
+    expect(() => parseLabForkArgs(['my-lane', '--prompt-file', ''])).toThrow(/invalid --prompt-file/)
+  })
+
+  it('throws when the lane is missing, and on an unrecognised flag', () => {
+    expect(() => parseLabForkArgs([])).toThrow(/missing required argument.*<lane>/is)
+    expect(() => parseLabForkArgs(['my-lane', '--foo'])).toThrow(/unknown option.*"--foo"/is)
+  })
+
+  it('parses --help without requiring a lane', () => {
+    expect(parseLabForkArgs(['--help']).help).toBe(true)
+    expect(parseLabForkArgs(['-h']).help).toBe(true)
+  })
+})
+
+describe('parseLabCompareArgs', () => {
+  const compareDefaults = {
+    forkId: 'fork-1',
+    verify: 'npm test',
+    skipVerify: false,
+    path: undefined,
+    help: false,
+  }
+
+  it('defaults the gate command to npm test', () => {
+    expect(parseLabCompareArgs(['fork-1'])).toEqual(compareDefaults)
+  })
+
+  it('parses --verify and --path', () => {
+    expect(parseLabCompareArgs(['fork-1', '--verify', 'npm run gate', '--path', '../repo'])).toEqual({
+      ...compareDefaults,
+      verify: 'npm run gate',
+      path: '../repo',
+    })
+  })
+
+  it('parses --no-verify as a valueless switch', () => {
+    expect(parseLabCompareArgs(['fork-1', '--no-verify'])).toEqual({ ...compareDefaults, skipVerify: true })
+  })
+
+  it('refuses --verify and --no-verify together rather than silently preferring one', () => {
+    expect(() => parseLabCompareArgs(['fork-1', '--verify', 'x', '--no-verify'])).toThrow(/contradict/)
+  })
+
+  it('throws on an empty --verify value', () => {
+    expect(() => parseLabCompareArgs(['fork-1', '--verify', ''])).toThrow(/invalid --verify/)
+  })
+
+  it('throws when the fork id is missing, and on an unrecognised flag', () => {
+    expect(() => parseLabCompareArgs([])).toThrow(/missing required argument.*<fork-id>/is)
+    expect(() => parseLabCompareArgs(['fork-1', '--nope'])).toThrow(/unknown option.*"--nope"/is)
+  })
+
+  it('parses --help without requiring a fork id', () => {
+    expect(parseLabCompareArgs(['--help']).help).toBe(true)
+    expect(parseLabCompareArgs(['-h']).help).toBe(true)
+  })
+})
+
 describe('lab help text', () => {
-  it('labHelpText documents the checkpoint subcommand', () => {
-    expect(labHelpText()).toContain('checkpoint <lane>')
+  it('labHelpText documents every subcommand the namespace has', () => {
+    const text = labHelpText()
+    expect(text).toContain('checkpoint <lane>')
+    expect(text).toContain('fork <lane>')
+    expect(text).toContain('compare <fork-id>')
+  })
+
+  it('labForkHelpText documents the treatment flags, the arm default and why --launch is opt-in', () => {
+    const text = labForkHelpText()
+    expect(text).toContain('rhizomorph lab fork <lane>')
+    expect(text).toContain('--at <checkpointId>')
+    expect(text).toContain('--model')
+    expect(text).toContain('--prompt-file')
+    expect(text).toContain('--arms <n>')
+    expect(text).toContain('default: 3')
+    expect(text).toContain('--launch')
+    expect(text).toContain('ruling 1')
+  })
+
+  it('labCompareHelpText says plainly that it will not rank below three arms', () => {
+    const text = labCompareHelpText()
+    expect(text).toContain('rhizomorph lab compare <fork-id>')
+    expect(text).toContain('--verify')
+    expect(text).toContain('--no-verify')
+    expect(text).toContain('never a winner')
+    expect(text).toContain('three')
   })
 
   it('labCheckpointHelpText documents the lane argument, --path, --captured-by and --help', () => {

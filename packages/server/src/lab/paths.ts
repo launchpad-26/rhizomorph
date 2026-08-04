@@ -26,9 +26,17 @@ export function labWorktreesRoot(dataRoot: string): string {
   return path.join(labRoot(dataRoot), 'worktrees')
 }
 
-/** `<dataRoot>/lab/worktrees/<forkId>/arm-<n>` — one arm's restored workspace. */
+/**
+ * `<dataRoot>/lab/worktrees/<forkId>-arm-<n>` — one arm's restored workspace.
+ *
+ * Flat, with the fork id in the leaf, rather than nested `<forkId>/arm-<n>`:
+ * git names each worktree's bookkeeping directory in `.git/worktrees/` after
+ * the leaf basename, so a nested layout would give every fork's first arm the
+ * same `arm-1` id and leave git to disambiguate them. The fork id belongs in
+ * the name that git actually reads.
+ */
 export function armWorktreePath(dataRoot: string, forkId: string, arm: number): string {
-  return path.join(labWorktreesRoot(dataRoot), forkId, `arm-${arm}`)
+  return path.join(labWorktreesRoot(dataRoot), `${forkId}-arm-${arm}`)
 }
 
 /** True when `candidate` is `parent` itself or lies beneath it. Both are resolved first. */
