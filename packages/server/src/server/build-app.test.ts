@@ -53,8 +53,14 @@ describe('buildApp integration', () => {
 
     const sessionsResponse = await app.inject({ method: 'GET', url: '/api/sessions' })
     expect(sessionsResponse.statusCode).toBe(200)
+    // #156: GET /api/sessions now also carries a derived title/label and
+    // lane/landing/spend counts (see packages/server/src/log/listing.ts) —
+    // asserted in full over there; this integration test only needs to know
+    // the wiring reaches this route at all.
     expect(sessionsResponse.json()).toEqual({
-      sessions: [{ id: '1000', fileName: 'session-1000.jsonl', startedAt: 1000, sizeBytes: expect.any(Number) }],
+      sessions: [
+        expect.objectContaining({ id: '1000', fileName: 'session-1000.jsonl', startedAt: 1000, sizeBytes: expect.any(Number) }),
+      ],
     })
 
     const eventsResponse = await app.inject({ method: 'GET', url: '/api/sessions/1000/events' })
