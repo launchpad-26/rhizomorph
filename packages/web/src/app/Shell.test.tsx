@@ -141,7 +141,9 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
     const drawer = screen.getByTestId('lane-drawer')
     expect(drawer.getAttribute('data-lane')).toBe(LANE)
     expect(screen.getByTestId('drawer-vitals')).toBeInTheDocument()
-    expect(screen.getByTestId('drawer-activity')).toBeInTheDocument()
+    // #163: one tab body at a time (CONVERSATION by default) — ACTIVITY is
+    // reachable via its own tab rather than mounted alongside it.
+    expect(screen.getByTestId('drawer-tab-activity')).toBeInTheDocument()
     expect(screen.getByTestId('drawer-attach')).toBeInTheDocument()
   })
 
