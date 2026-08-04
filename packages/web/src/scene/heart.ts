@@ -63,9 +63,10 @@ const RING_POINTS = 72
  * The band is not a free choice inside those bounds: it carries the landing's
  * **work size** (prd6 ruling 1), so a 216K landing leaves a heavier, more
  * irregular ring than a 0K one. That matters more than it looks — the rim used
- * to be where a session's finished work was on display, in the length of each
- * scar's stub, and ruling 2 has just taken those stubs away. The channel is not
- * lost; it moved here, where it is permanent.
+ * to show a session's finished work in the length of each stub it left, and
+ * prd10 ruling 2 took the stubs away. Ruling 13 has since given the whole strand
+ * back, so the channel is now told twice: in the strand's own width at the rim,
+ * and permanently here.
  */
 const RING_AMPLITUDE = { min: 0.02, span: 0.04 } as const
 

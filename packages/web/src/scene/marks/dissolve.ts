@@ -26,7 +26,7 @@ import type { Mark, MarkRole } from './types.js'
  * appearance depend on how many others happened to be composting, which is the
  * sort of coupling that shows up as flicker.
  *
- * A severance's motes are absent from a scar nobody watched leave — a replay, a
+ * A return's motes are absent from a landing nobody watched — a replay, a
  * scrub, a reduced-motion frame — for the same reason the homeward ribbon is:
  * `dissolve` is already 1 on its first frame, and a return nobody saw start is a
  * return that did not happen on this screen. That is also what makes a
@@ -98,7 +98,7 @@ function jobsFor(frame: SceneFrame, thread: ThreadGeometry): Job[] {
   const peak = MOTE_PEAK * emphasisOf(frame.salience, thread.laneId, false)
 
   const cut = thread.retire
-  // A hidden scar composts nothing: the operator asked not to be shown this lane,
+  // A hidden lane composts nothing: the operator asked not to be shown it,
   // and a drift of motes over the lane that is not there would be the loudest
   // thing the toggle failed to hide.
   if (cut !== null && !cut.hidden) {

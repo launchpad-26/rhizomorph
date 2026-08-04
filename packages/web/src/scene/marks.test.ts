@@ -42,7 +42,7 @@ import { ribbonMark } from './marks/index.js'
 import { arrivalSwell } from './marks/root.js'
 import { RIM_VEIL } from './marks/ambient.js'
 import { paint } from './paint.js'
-import { CUT, RetireRegistry, SCAR, SCAR_FLOOR, cutAt, isRetired, type RetireState } from './retire.js'
+import { RETURN, RetireRegistry, PERSIST, PERSIST_FLOOR, returnAt, isRetired, type RetireState } from './retire.js'
 import {
   ALARM_FLOOR,
   CALM_CEILING,
@@ -984,7 +984,7 @@ describe('the root-mass', () => {
 
       it('bulges toward the lane the substance is coming from, and only there', () => {
         const still = reach()
-        const arriving = reach(cutting(cutAt(CUT.tensionMs + CUT.retractMs)))
+        const arriving = reach(cutting(returnAt(RETURN.tensionMs + RETURN.withdrawMs)))
 
         // Both sides grew a little — one lane's work has landed, so the whole mass
         // is thicker (ruling 2). The arriving bearing grew *more*, and that
@@ -995,9 +995,9 @@ describe('the root-mass', () => {
       })
 
       it('settles back as the scar cools, leaving only the thickening behind', () => {
-        const peak = reach(cutting(cutAt(CUT.tensionMs + CUT.retractMs)))
-        const cooling = reach(cutting(cutAt(CUT.tensionMs + CUT.retractMs + 200)))
-        const settled = reach(cutting(cutAt(CUT.totalMs)))
+        const peak = reach(cutting(returnAt(RETURN.tensionMs + RETURN.withdrawMs)))
+        const cooling = reach(cutting(returnAt(RETURN.tensionMs + RETURN.withdrawMs + 200)))
+        const settled = reach(cutting(returnAt(RETURN.totalMs)))
 
         expect(cooling.toward).toBeLessThan(peak.toward)
         expect(settled.toward).toBeLessThan(cooling.toward)
@@ -1014,9 +1014,9 @@ describe('the root-mass', () => {
         expect(arrivalSwell(0, 0)).toBe(0)
         expect(arrivalSwell(1, 1)).toBe(0)
         expect(arrivalSwell(1, 0)).toBe(1)
-        expect(reach(cutting(cutAt(CUT.tensionMs))).toward).toBe(reach().toward)
-        expect(reach(cutting(cutAt(CUT.totalMs, false))).toward).toBe(
-          reach(cutting(cutAt(CUT.totalMs))).toward,
+        expect(reach(cutting(returnAt(RETURN.tensionMs))).toward).toBe(reach().toward)
+        expect(reach(cutting(returnAt(RETURN.totalMs, false))).toward).toBe(
+          reach(cutting(returnAt(RETURN.totalMs))).toward,
         )
       })
     })
@@ -1078,7 +1078,7 @@ describe('the root-mass', () => {
     }
 
     /** The first `count` lanes, landed. */
-    function landed(count: number, state = cutAt(CUT.totalMs)): Map<string, RetireState> {
+    function landed(count: number, state = returnAt(RETURN.totalMs)): Map<string, RetireState> {
       return new Map(fleet.lanes.slice(0, count).map((lane) => [lane.id, state]))
     }
 
@@ -1125,7 +1125,7 @@ describe('the root-mass', () => {
       // mass whether its neighbours have landed nothing or ten million between
       // them — the *other* lanes' work is not in this lane's reading, and a fleet
       // whose whales have not landed cannot inflate the centre.
-      const one = new Map([[(fleet.lanes[0] as { id: string }).id, cutAt(CUT.totalMs)]])
+      const one = new Map([[(fleet.lanes[0] as { id: string }).id, returnAt(RETURN.totalMs)]])
       const alone = { ...fleet, lanes: fleet.lanes.map((lane, i) => (i === 0 ? lane : { ...lane, outputTokens: 0 })) }
       const beside = {
         ...fleet,
@@ -1204,11 +1204,11 @@ describe('the root-mass', () => {
     })
 
     it('takes the work home as each cord parts, not when it is queued', () => {
-      // The mass grows on `homecoming`, which is the retract — so a landing still
+      // The mass grows on `homecoming`, which is the withdraw — so a landing still
       // queued behind the structural cap has not arrived here either, and a wave
       // of them reads as arrivals one at a time rather than as one lurch.
       const queued = girthOf(new Map())
-      const parting = girthOf(landed(6, cutAt(CUT.tensionMs)))
+      const parting = girthOf(landed(6, returnAt(RETURN.tensionMs)))
       const arrived = girthOf(landed(6))
 
       expect(parting).toBe(queued)
@@ -1557,7 +1557,7 @@ describe('the substitution table — meaning as form', () => {
       // …and the tail beside it does the opposite, which is why the two are
       // different marks rather than one drawn twice.
       const laneId = (fleet.lanes[0] as { id: string }).id
-      const cutting = { fleet: allLanded(), retire: new Map([[laneId, cutAt(CUT.totalMs)]]) }
+      const cutting = { fleet: allLanded(), retire: new Map([[laneId, returnAt(RETURN.totalMs)]]) }
       const scar = marksFor(cutting)
       // The *cut* geometry: a retiring lane's node has travelled out to the rim,
       // so the node this is measured against has to be the one it was drawn at.
@@ -1566,7 +1566,7 @@ describe('the substitution table — meaning as form', () => {
         sizeFrac: number
       }
       const body = (5 + 14 * thread.sizeFrac) * 0.46
-      const ends = of(scar, laneId, 'scar-mark')
+      const ends = of(scar, laneId, 'persist-mark')
         .filter((mark) => mark.kind === 'ribbon')
         .map((mark) => {
           const path = mark.kind === 'ribbon' ? mark.path : []
@@ -1900,12 +1900,12 @@ function corpus(): Mark[] {
     // Light in flight, and the count an aggregate carries.
     ...marksFor({ fleet, field: storm }),
     // A cut mid-flight: the scar family and the homeward ribbon.
-    ...marksFor({ fleet, retire: new Map([[LANE.healthy, cutAt(CUT.tensionMs + 120)]]) }),
+    ...marksFor({ fleet, retire: new Map([[LANE.healthy, returnAt(RETURN.tensionMs + 120)]]) }),
     // …and one far enough along that its matter has cooled into the accent (prd10
     // ruling 12): the earliest motes of a cut are still their lane's own green, so a
     // corpus that only ever saw a fresh cut would never contain a tissue-coloured
     // mote at all — and the accent's own law would pass by never being exercised.
-    ...marksFor({ fleet, retire: new Map([[LANE.healthy, cutAt(CUT.tensionMs + 900)]]) }),
+    ...marksFor({ fleet, retire: new Map([[LANE.healthy, returnAt(RETURN.tensionMs + 900)]]) }),
     // The gap voice, which is chrome rather than a lane's.
     ...marksFor({ fleet: fleetFor(pathologySpec(), false) }),
   ]
@@ -2169,7 +2169,7 @@ describe('the display list is data, not objects (prd7 ruling 1)', () => {
 })
 
 /**
- * THE CORD-CUT, on the display list (prd5 ruling 3).
+ * THE CORD-RETURN, on the display list (prd5 ruling 3).
  *
  * The whole reason the cut is worth building is that it answers "is this fleet
  * still working?" *structurally* rather than by shade — so these assertions are
@@ -2181,7 +2181,7 @@ describe('the cord-cut — a finished lane leaves the network', () => {
   const LEAVING = LANE.healthy
 
   function cut(ms: number, options: FrameOptions = {}): Mark[] {
-    return marksFor({ ...options, retire: new Map([[LEAVING, cutAt(ms)]]) })
+    return marksFor({ ...options, retire: new Map([[LEAVING, returnAt(ms)]]) })
   }
 
   /**
@@ -2199,7 +2199,7 @@ describe('the cord-cut — a finished lane leaves the network', () => {
     return marksFor({
       ...options,
       fleet: fleetFor(fleet20Spec()),
-      retire: new Map([[CALM_LANE, cutAt(ms)]]),
+      retire: new Map([[CALM_LANE, returnAt(ms)]]),
     })
   }
 
@@ -2209,22 +2209,22 @@ describe('the cord-cut — a finished lane leaves the network', () => {
     new Set(mine(marks).map((mark) => mark.role))
 
   it('is not part of the living network at any stage of the cut', () => {
-    for (const ms of [0, CUT.tensionMs, CUT.tensionMs + 400, CUT.totalMs]) {
+    for (const ms of [0, RETURN.tensionMs, RETURN.tensionMs + 400, RETURN.totalMs]) {
       const roles = rolesOf(cut(ms))
       // No thread, and no second growth either: a scar is a mark, not a network.
       for (const gone of ['thread', 'thread-bloom', 'thread-flow', 'filament', 'filament-tip']) {
         expect(roles.has(gone as MarkRole), `${gone} survived the cut at ${ms} ms`).toBe(false)
       }
-      expect(roles.has('scar'), `no scar at ${ms} ms`).toBe(true)
+      expect(roles.has('persist'), `no scar at ${ms} ms`).toBe(true)
     }
     // …while the fleet around it is still threaded, obviously.
-    expect(cut(CUT.totalMs).filter((mark) => mark.role === 'thread').length).toBeGreaterThan(0)
+    expect(cut(RETURN.totalMs).filter((mark) => mark.role === 'thread').length).toBeGreaterThan(0)
   })
 
   it('never lights again — no glow, no pulse, no heat', () => {
     // Law 10 says states glow and events travel. A retired lane has no more
     // events and is no longer a state anybody can act on, so it gets neither.
-    const marks = mine(cut(CUT.totalMs))
+    const marks = mine(cut(RETURN.totalMs))
     expect(marks.filter((mark) => mark.kind === 'glow')).toHaveLength(0)
     for (const role of ['heat', 'pulse', 'pulse-wake', 'tick', 'orbit'] as MarkRole[]) {
       expect(marks.some((mark) => mark.role === role), `${role} on a scar`).toBe(false)
@@ -2233,7 +2233,7 @@ describe('the cord-cut — a finished lane leaves the network', () => {
 
   it('drops the faults it was carrying — a scar cannot be summoned for', () => {
     // The looping lane, retired: the knot goes with the thread it was tied into.
-    const marks = marksFor({ retire: new Map([[LANE.looping, cutAt(CUT.totalMs)]]) })
+    const marks = marksFor({ retire: new Map([[LANE.looping, returnAt(RETURN.totalMs)]]) })
     expect(of(marks, LANE.looping, 'looping-mark')).toHaveLength(0)
     expect(of(marks, LANE.looping, 'rank-enclosure')).toHaveLength(0)
     // Not the whole pathology vocabulary, deliberately: a retired looping lane
@@ -2241,24 +2241,24 @@ describe('the cord-cut — a finished lane leaves the network', () => {
     // is lighting has retired. That is a fact about the scene as it stands, and
     // this rename is not allowed to change a pixel of it — recorded here so the
     // next hand sees it rather than discovering it.
-    expect(of(marks, LANE.looping, 'scar').length).toBeGreaterThan(0)
+    expect(of(marks, LANE.looping, 'persist').length).toBeGreaterThan(0)
   })
 
   describe('the three stages, in order', () => {
     it('stage 1 keeps the thread attached and still lit', () => {
-      const roles = rolesOf(cut(CUT.tensionMs * 0.5))
+      const roles = rolesOf(cut(RETURN.tensionMs * 0.5))
       // The bloom is still there — the light has not gone out yet — and there is
       // no freed end to curl, because nothing has parted.
-      expect(roles.has('scar-bloom')).toBe(true)
-      expect(mine(cut(CUT.tensionMs * 0.5)).filter((m) => m.role === 'scar-mark')).toHaveLength(3)
+      expect(roles.has('persist-bloom')).toBe(true)
+      expect(mine(cut(RETURN.tensionMs * 0.5)).filter((m) => m.role === 'persist-mark')).toHaveLength(3)
     })
 
     it('stage 2 puts a curl on the freed end and starts putting the light out', () => {
-      const early = mine(cut(CUT.tensionMs + 40))
-      const late = mine(cut(CUT.tensionMs + CUT.retractMs * 0.9))
+      const early = mine(cut(RETURN.tensionMs + 40))
+      const late = mine(cut(RETURN.tensionMs + RETURN.withdrawMs * 0.9))
 
       const bloom = (marks: readonly Mark[]): number => {
-        const found = marks.find((mark) => mark.role === 'scar-bloom')
+        const found = marks.find((mark) => mark.role === 'persist-bloom')
         return found === undefined ? 0 : brightnessOf(found)
       }
       // Light leaves before colour does, which is the right order: it was the
@@ -2266,24 +2266,24 @@ describe('the cord-cut — a finished lane leaves the network', () => {
       expect(bloom(early)).toBeGreaterThan(bloom(late))
 
       // Four glyph marks now, not three: the released end has curled back.
-      expect(early.filter((mark) => mark.role === 'scar-mark')).toHaveLength(4)
+      expect(early.filter((mark) => mark.role === 'persist-mark')).toHaveLength(4)
     })
 
     it('stage 3 desaturates, and only then', () => {
       const inkOf = (ms: number): number[] => {
-        const scar = mine(cut(ms)).find((mark) => mark.role === 'scar')
+        const scar = mine(cut(ms)).find((mark) => mark.role === 'persist')
         return [...(inksOf(scar as Mark)[0]?.rgb ?? [])]
       }
 
       // Colour is untouched until the settle: stages 1 and 2 move curvature and
       // position, and nothing else.
-      expect(inkOf(0)).toEqual(inkOf(CUT.tensionMs + CUT.retractMs * 0.5))
-      expect(inkOf(CUT.totalMs)).not.toEqual(inkOf(0))
-      expect(inkOf(CUT.totalMs)).toEqual([...SCAR.thread.rgb])
+      expect(inkOf(0)).toEqual(inkOf(RETURN.tensionMs + RETURN.withdrawMs * 0.5))
+      expect(inkOf(RETURN.totalMs)).not.toEqual(inkOf(0))
+      expect(inkOf(RETURN.totalMs)).toEqual([...PERSIST.thread.rgb])
     })
 
     it('has no bloom left once it has settled — a scar is flat', () => {
-      expect(rolesOf(cut(CUT.totalMs)).has('scar-bloom')).toBe(false)
+      expect(rolesOf(cut(RETURN.totalMs)).has('persist-bloom')).toBe(false)
     })
   })
 
@@ -2296,7 +2296,7 @@ describe('the cord-cut — a finished lane leaves the network', () => {
    * and it is one of the two things a cut has that a replay of one does not.
    */
   describe('the way home', () => {
-    const during = mine(cut(CUT.tensionMs + 120))
+    const during = mine(cut(RETURN.tensionMs + 120))
 
     it('flows down the severing thread while the cut runs', () => {
       const flow = during.filter((mark) => mark.role === 'homeward')
@@ -2324,7 +2324,7 @@ describe('the cord-cut — a finished lane leaves the network', () => {
       // Law 2 of the cut, extended: a lane that was already retired when we first
       // saw it is scarred outright and never animates. Sending its substance home
       // again would be re-landing work the log is only telling us about.
-      for (const marks of [mine(cut(CUT.totalMs)), mine(cut(0))]) {
+      for (const marks of [mine(cut(RETURN.totalMs)), mine(cut(0))]) {
         expect(marks.filter((mark) => mark.role === 'homeward')).toHaveLength(0)
       }
       expect(marksFor().filter((mark) => mark.role === 'homeward')).toHaveLength(0)
@@ -2333,14 +2333,14 @@ describe('the cord-cut — a finished lane leaves the network', () => {
     it('has no journey to make under reduced motion', () => {
       const still = marksFor({
         reducedMotion: true,
-        retire: new Map([[LEAVING, cutAt(0, allowance('structural', 'reduced').travel)]]),
+        retire: new Map([[LEAVING, returnAt(0, allowance('structural', 'reduced').travel)]]),
       })
       expect(still.filter((mark) => mark.role === 'homeward')).toHaveLength(0)
     })
   })
 
   describe('the scar that is left', () => {
-    const marks = calmCut(CUT.totalMs)
+    const marks = calmCut(RETURN.totalMs)
     const scarred = (role: MarkRole): Mark => of(marks, CALM_LANE, role)[0] as Mark
     const living = (role: MarkRole): Mark =>
       of(marksFor({ fleet: fleetFor(fleet20Spec()) }), CALM_LANE, role)[0] as Mark
@@ -2366,18 +2366,18 @@ describe('the cord-cut — a finished lane leaves the network', () => {
       expect(brightnessOf(scarred('label'))).toBeGreaterThan(CALM_FLOOR)
     })
 
-    it('never fades to nothing — SCAR_FLOOR, on every mark it draws', () => {
+    it('never fades to nothing — PERSIST_FLOOR, on every mark it draws', () => {
       // The research law: invisible completion is indistinguishable from a render
       // bug, and the operator cannot tell which of the two they are looking at.
       const drawn = marks.filter((mark) => mark.laneId === CALM_LANE)
       expect(drawn.length).toBeGreaterThan(0)
       for (const mark of drawn) {
-        expect(brightnessOf(mark), `${mark.role} faded out`).toBeGreaterThan(SCAR_FLOOR)
+        expect(brightnessOf(mark), `${mark.role} faded out`).toBeGreaterThan(PERSIST_FLOOR)
       }
     })
 
     it('sits under the living fleet without joining it', () => {
-      const remnant = scarred('scar')
+      const remnant = scarred('persist')
       const threads = marks.filter((mark) => mark.role === 'thread')
       expect(threads.length).toBeGreaterThan(0)
       for (const thread of threads) {
@@ -2389,16 +2389,16 @@ describe('the cord-cut — a finished lane leaves the network', () => {
       // Not an exception to the contrast budget. A scar is calm by construction —
       // there is nothing to act on — so when a summons arrives it gets out of the
       // way exactly as every other non-alarm mark does (graft g6).
-      const quiet = brightnessOf(of(cut(CUT.totalMs), LEAVING, 'scar')[0] as Mark)
+      const quiet = brightnessOf(of(cut(RETURN.totalMs), LEAVING, 'persist')[0] as Mark)
       const alone = brightnessOf(
-        of(cut(CUT.totalMs, { selectedId: LEAVING }), LEAVING, 'scar')[0] as Mark,
+        of(cut(RETURN.totalMs, { selectedId: LEAVING }), LEAVING, 'persist')[0] as Mark,
       )
       expect(quiet).toBeLessThan(alone)
       expect(quiet / alone).toBeCloseTo(RECEDE, 6)
     })
 
     it('is still hollow and still sealed — landed, and not a fault', () => {
-      const glyphs = of(marks, CALM_LANE, 'scar-mark')
+      const glyphs = of(marks, CALM_LANE, 'persist-mark')
       const lens = glyphs.find((mark) => mark.kind === 'path' && mark.d.startsWith('M0.04'))
       expect(lens?.kind === 'path' && lens.stroke).toBeDefined()
       // The seal, which is the knot now (prd7 ruling 3) rather than a bar struck
@@ -2413,7 +2413,7 @@ describe('the cord-cut — a finished lane leaves the network', () => {
       // The ambient layer is the scene being alive, and this lane is not. Two
       // frames half a breath apart draw the scar at exactly the same size.
       const at = (now: number): number => {
-        const glyph = of(calmCut(CUT.totalMs, { now }), CALM_LANE, 'scar-mark').find(
+        const glyph = of(calmCut(RETURN.totalMs, { now }), CALM_LANE, 'persist-mark').find(
           (mark) => mark.kind === 'path' && mark.d.startsWith('M0.04'),
         )
         return glyph?.kind === 'path' ? glyph.size : 0
@@ -2426,7 +2426,7 @@ describe('the cord-cut — a finished lane leaves the network', () => {
   describe('the hide-finished toggle', () => {
     it('draws nothing at all for a hidden scar', () => {
       const hidden = marksFor({
-        retire: new Map([[LEAVING, cutAt(CUT.totalMs)]]),
+        retire: new Map([[LEAVING, returnAt(RETURN.totalMs)]]),
         hideFinished: true,
       })
       expect(hidden.filter((mark) => mark.laneId === LEAVING)).toHaveLength(0)
@@ -2436,7 +2436,7 @@ describe('the cord-cut — a finished lane leaves the network', () => {
 
     it('still shows a cut in progress', () => {
       const mid = marksFor({
-        retire: new Map([[LEAVING, cutAt(CUT.tensionMs + 300)]]),
+        retire: new Map([[LEAVING, returnAt(RETURN.tensionMs + 300)]]),
         hideFinished: true,
       })
       expect(mid.filter((mark) => mark.laneId === LEAVING).length).toBeGreaterThan(0)
@@ -2447,7 +2447,7 @@ describe('the cord-cut — a finished lane leaves the network', () => {
     const still = marksFor({
       reducedMotion: true,
       fleet: fleetFor(fleet20Spec()),
-      retire: new Map([[CALM_LANE, cutAt(0, allowance('structural', 'reduced').travel)]]),
+      retire: new Map([[CALM_LANE, returnAt(0, allowance('structural', 'reduced').travel)]]),
     })
 
     it('shows the end state rather than a stage of a journey', () => {
@@ -2459,13 +2459,13 @@ describe('the cord-cut — a finished lane leaves the network', () => {
       const mine = still.filter((mark) => mark.laneId === CALM_LANE)
       const roles = new Set(mine.map((mark) => mark.role))
       expect(roles.has('thread')).toBe(false)
-      expect(roles.has('scar-bloom')).toBe(false)
-      expect(roles.has('scar')).toBe(false)
+      expect(roles.has('persist-bloom')).toBe(false)
+      expect(roles.has('persist')).toBe(false)
       // …and *nothing* of the cord: no ribbon geometry anywhere on the lane, which
       // is the same claim the no-orphan replay law makes at scrub-end.
       expect(mine.filter((mark) => mark.kind === 'ribbon')).toHaveLength(0)
       // Still drawn, and still identifiable — prd5 law 1's own list.
-      expect(roles.has('scar-mark')).toBe(true)
+      expect(roles.has('persist-mark')).toBe(true)
       expect(roles.has('label')).toBe(true)
     })
 
@@ -2474,9 +2474,9 @@ describe('the cord-cut — a finished lane leaves the network', () => {
       // are explicitly out of scope, so they are exactly what survives. Read off the
       // mark that is left rather than off the cord that is not: the desaturation
       // still happened, in place, with no journey.
-      const lens = of(still, CALM_LANE, 'scar-mark')[0] as Mark
-      expect(inksOf(lens)[0]?.rgb).toEqual(SCAR.glyph.rgb)
-      expect(brightnessOf(lens)).toBeGreaterThan(SCAR_FLOOR)
+      const lens = of(still, CALM_LANE, 'persist-mark')[0] as Mark
+      expect(inksOf(lens)[0]?.rgb).toEqual(PERSIST.glyph.rgb)
+      expect(brightnessOf(lens)).toBeGreaterThan(PERSIST_FLOOR)
     })
   })
 
@@ -2486,15 +2486,15 @@ describe('the cord-cut — a finished lane leaves the network', () => {
     // scarred. This is the display-list reading of ruling 4's structural cap.
     const fleet = fleetFor(fleet20Spec())
     const retire = new Map<string, RetireState>(
-      fleet.lanes.map((lane, i) => [lane.id, cutAt(i < 2 ? CUT.tensionMs + 100 : CUT.totalMs)]),
+      fleet.lanes.map((lane, i) => [lane.id, returnAt(i < 2 ? RETURN.tensionMs + 100 : RETURN.totalMs)]),
     )
     const marks = marksFor({ fleet, retire })
 
     const midCut = fleet.lanes.filter(
-      (lane) => of(marks, lane.id, 'scar-bloom').length > 0,
+      (lane) => of(marks, lane.id, 'persist-bloom').length > 0,
     )
     expect(midCut.length).toBeLessThanOrEqual(STRUCTURAL.maxConcurrent)
-    expect(marks.filter((mark) => mark.role === 'scar')).toHaveLength(20)
+    expect(marks.filter((mark) => mark.role === 'persist')).toHaveLength(20)
   })
 })
 
@@ -2514,11 +2514,11 @@ describe('the cord-cut — a finished lane leaves the network', () => {
 describe('the severed cord composts (prd10 ruling 2)', () => {
   const LEAVING = LANE.healthy
   const cut = (ms: number, options: FrameOptions = {}): Mark[] =>
-    marksFor({ ...options, retire: new Map([[LEAVING, cutAt(ms)]]) })
+    marksFor({ ...options, retire: new Map([[LEAVING, returnAt(ms)]]) })
   const mine = (marks: readonly Mark[]): Mark[] => marks.filter((mark) => mark.laneId === LEAVING)
 
   it('emits a drift of motes along its own path while the cord parts', () => {
-    const drift = of(cut(CUT.tensionMs + 300), LEAVING, 'dissolution')
+    const drift = of(cut(RETURN.tensionMs + 300), LEAVING, 'dissolution')
     expect(drift).toHaveLength(1)
     const mark = drift[0] as Mark
     expect(mark.kind).toBe('motes')
@@ -2537,7 +2537,7 @@ describe('the severed cord composts (prd10 ruling 2)', () => {
     // events left, so it gets no `glow` and nothing from the light-in-flight
     // vocabulary. A mote is neither — it is the cord itself, which is why it is a
     // `motes` mark under its own role and its own motion class.
-    const during = mine(cut(CUT.tensionMs + 300))
+    const during = mine(cut(RETURN.tensionMs + 300))
     expect(during.filter((mark) => mark.kind === 'glow')).toHaveLength(0)
     for (const role of ['pulse', 'pulse-wake', 'tick', 'heat'] as MarkRole[]) {
       expect(during.some((mark) => mark.role === role), `${role} on a composting cord`).toBe(false)
@@ -2549,13 +2549,13 @@ describe('the severed cord composts (prd10 ruling 2)', () => {
     // it is coming apart and gone when it has; what stays at the rim is prd5 law
     // 1's own list — the lens, the name and the figure — so a completion is still
     // identifiable rather than merely invisible.
-    const composting = mine(cut(CUT.totalMs))
-    expect(composting.some((mark) => mark.role === 'scar')).toBe(true)
+    const composting = mine(cut(RETURN.totalMs))
+    expect(composting.some((mark) => mark.role === 'persist')).toBe(true)
 
-    const done = mine(cut(CUT.dissolvedMs))
+    const done = mine(cut(RETURN.dissolvedMs))
     expect(done.filter((mark) => mark.kind === 'ribbon'), 'a stub survived').toHaveLength(0)
     expect(done.some((mark) => mark.role === 'dissolution'), 'motes outlived the act').toBe(false)
-    expect(done.some((mark) => mark.role === 'scar-mark'), 'the lane lost its lens').toBe(true)
+    expect(done.some((mark) => mark.role === 'persist-mark'), 'the lane lost its lens').toBe(true)
     expect(done.some((mark) => mark.role === 'label')).toBe(true)
     expect(done.some((mark) => mark.role === 'label-figure')).toBe(true)
   })
@@ -2564,14 +2564,14 @@ describe('the severed cord composts (prd10 ruling 2)', () => {
     // The cord holds its ink while its matter leaves and fades over the last
     // stretch, so the final act is a letting-go rather than a disappearance. The
     // hold is also what keeps every prd5 brightness law reading the ink it always
-    // did at `CUT.totalMs`.
+    // did at `RETURN.totalMs`.
     const inkOf = (ms: number): number => {
-      const scar = mine(cut(ms)).find((mark) => mark.role === 'scar')
+      const scar = mine(cut(ms)).find((mark) => mark.role === 'persist')
       return scar === undefined ? 0 : brightnessOf(scar)
     }
-    expect(inkOf(CUT.totalMs)).toBeCloseTo(inkOf(CUT.tensionMs + CUT.retractMs + CUT.settleMs), 9)
-    expect(inkOf(CUT.dissolvedMs - 200)).toBeLessThan(inkOf(CUT.totalMs))
-    expect(inkOf(CUT.dissolvedMs - 200)).toBeGreaterThan(0)
+    expect(inkOf(RETURN.totalMs)).toBeCloseTo(inkOf(RETURN.tensionMs + RETURN.withdrawMs + RETURN.settleMs), 9)
+    expect(inkOf(RETURN.dissolvedMs - 200)).toBeLessThan(inkOf(RETURN.totalMs))
+    expect(inkOf(RETURN.dissolvedMs - 200)).toBeGreaterThan(0)
   })
 
   it('composts nothing in a replay, and nothing under reduced motion', () => {
@@ -2579,12 +2579,12 @@ describe('the severed cord composts (prd10 ruling 2)', () => {
     // start is a return that did not happen on this screen. History arrives with
     // `dissolve` already at 1, so a scrub past a landing builds the ring and
     // animates nothing.
-    for (const marks of [mine(cut(CUT.dissolvedMs)), mine(cut(0))]) {
+    for (const marks of [mine(cut(RETURN.dissolvedMs)), mine(cut(0))]) {
       expect(marks.filter((mark) => mark.role === 'dissolution')).toHaveLength(0)
     }
     const still = marksFor({
       reducedMotion: true,
-      retire: new Map([[LEAVING, cutAt(0, allowance('structural', 'reduced').travel)]]),
+      retire: new Map([[LEAVING, returnAt(0, allowance('structural', 'reduced').travel)]]),
     })
     expect(still.filter((mark) => mark.role === 'dissolution')).toHaveLength(0)
   })
@@ -2594,8 +2594,8 @@ describe('the severed cord composts (prd10 ruling 2)', () => {
     // news and is always shown. This one is still composting (`dissolve` outlives
     // the cut), so without the check it would drift motes over a lane the operator
     // asked not to see, which would be the loudest thing the toggle failed to hide.
-    const settled = cutAt(CUT.totalMs)
-    expect(settled.stage).toBe('scar')
+    const settled = returnAt(RETURN.totalMs)
+    expect(settled.stage).toBe('persistent')
     expect(settled.dissolve).toBeLessThan(1)
     expect(
       of(marksFor({ retire: new Map([[LEAVING, settled]]) }), LEAVING, 'dissolution'),
@@ -2611,7 +2611,7 @@ describe('the severed cord composts (prd10 ruling 2)', () => {
     // cannot spend two thousand motes.
     const fleet = fleetFor(fleet20Spec())
     const retire = new Map<string, RetireState>(
-      fleet.lanes.map((lane) => [lane.id, cutAt(CUT.tensionMs + 400)]),
+      fleet.lanes.map((lane) => [lane.id, returnAt(RETURN.tensionMs + 400)]),
     )
     const marks = marksFor({ fleet, retire })
     const live = marks
@@ -2652,7 +2652,7 @@ describe('a replay at scrub-end leaves no orphan geometry', () => {
     expect(landed.length).toBeGreaterThan(10)
     expect(retire.size).toBe(landed.length)
     for (const [laneId, state] of retire) {
-      expect(state.stage, `${laneId} was mid-cut in a replay`).toBe('scar')
+      expect(state.stage, `${laneId} was mid-cut in a replay`).toBe('persistent')
       expect(state.dissolve).toBe(1)
       expect(state.elapsedMs, `${laneId} claimed we watched it leave`).toBeNull()
     }
@@ -2666,7 +2666,7 @@ describe('a replay at scrub-end leaves no orphan geometry', () => {
     for (const mark of marks) {
       if (mark.laneId === null || !landed.has(mark.laneId)) continue
       expect(mark.kind, `${mark.laneId} left ${mark.role} ribbon geometry behind`).not.toBe('ribbon')
-      for (const role of ['scar', 'scar-bloom', 'homeward', 'dissolution', 'thread'] as MarkRole[]) {
+      for (const role of ['persist', 'persist-bloom', 'homeward', 'dissolution', 'thread'] as MarkRole[]) {
         expect(mark.role, `${mark.laneId} still carries a ${role}`).not.toBe(role)
       }
     }
@@ -2683,7 +2683,7 @@ describe('a replay at scrub-end leaves no orphan geometry', () => {
       expect(drawn.length, `${lane.id} vanished entirely`).toBeGreaterThan(0)
       expect(drawn.some((mark) => mark.role === 'label')).toBe(true)
       for (const mark of drawn) {
-        expect(brightnessOf(mark), `${mark.role} faded out`).toBeGreaterThan(SCAR_FLOOR)
+        expect(brightnessOf(mark), `${mark.role} faded out`).toBeGreaterThan(PERSIST_FLOOR)
       }
     }
   })
@@ -2803,7 +2803,7 @@ describe('law 9b, amended within reason (prd10 ruling 4)', () => {
       expect(of(marks, laneId, 'tuft'), `${laneId} grew branchlets`).toHaveLength(0)
     }
     // …and a landed lane's tuft goes with its cord.
-    const landed = marksFor({ retire: new Map([[LANE.healthy, cutAt(CUT.dissolvedMs)]]) })
+    const landed = marksFor({ retire: new Map([[LANE.healthy, returnAt(RETURN.dissolvedMs)]]) })
     expect(of(landed, LANE.healthy, 'tuft-glow')).toHaveLength(0)
   })
 
@@ -2878,7 +2878,7 @@ describe('the tissue accent appears only in tissue draws (prd10 ruling 5)', () =
       if (!/tissue/i.test(text)) continue
       const isTheme = path.endsWith(join('theme', 'theme.css'))
       const isScene = path.includes(`${sep}scene${sep}`)
-      // `retire.ts`'s `SCAR_TISSUE` is a different word for a different thing (the
+      // `retire.ts`'s `PERSIST_TISSUE` is a different word for a different thing (the
       // desaturated green a remnant settles into) and predates the accent, so the
       // scan looks for the token family rather than for the word.
       if (isTheme || isScene) continue
@@ -3160,7 +3160,7 @@ describe('subagent buds (prd10 ruling 9)', () => {
     // is composting would be work carrying on inside something that has left.
     const marks = marksFor({
       fleet: withBud(1_000),
-      retire: new Map([[LIVE, cutAt(CUT.tensionMs + 200)]]),
+      retire: new Map([[LIVE, returnAt(RETURN.tensionMs + 200)]]),
     })
     expect(marks.filter((mark) => mark.role === 'bud')).toHaveLength(0)
   })

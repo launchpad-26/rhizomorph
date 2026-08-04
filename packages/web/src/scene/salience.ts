@@ -88,7 +88,7 @@ export const ALARM_FLOOR = 0.84
  *    to {@link RECEDE} and the summons is alone above the band. That is what
  *    makes "an alarm anywhere on screen must still dominate at a glance" true by
  *    arithmetic rather than by taste.
- * 4. **Only a working tip.** Not a waiting one, not a landed one, not a scar —
+ * 4. **Only a working tip.** Not a waiting one, not a landed one, not a finished one —
  *    `marks/node.ts` is the only caller and `marks.test.ts` walks the fixture to
  *    prove no other lane has one.
  *

@@ -149,7 +149,7 @@ export interface LaneVariation {
    * node returns a small set of values, and across a twenty-lane fleet the whole
    * channel took four — 0.35, 0.50, 0.65, 0.81. Everything spent on it therefore
    * came in four flavours, which is a pattern rather than a scatter, and it is
-   * half of why a rim of thirty-seven scars read as one mark repeated. It is a
+   * half of why a rim of thirty-seven finished lanes read as one mark repeated. It is a
    * hash now, so it is flat over 0–1 and two lanes share a habit only by
    * coincidence.
    */

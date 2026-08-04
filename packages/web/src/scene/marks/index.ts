@@ -1,3 +1,4 @@
+import type { ThreadGeometry } from '../geometry.js'
 import { ICE_300, ICE_1000, ink } from '../palette.js'
 import { ambientScreenMarks, ambientWorldMarks } from './ambient.js'
 import { dissolveMarks } from './dissolve.js'
@@ -26,7 +27,8 @@ export * from './types.js'
  *    the fold, *underneath* everything, so a thread passes in front of a spore and
  *    the mass covers the ones behind it. Substrate drawn over the network would be
  *    decoration; substrate the network sits on top of is depth;
- * 1. **threads and second growth** — the substrate everything else sits on;
+ * 1. **threads and second growth** — the substrate everything else sits on,
+ *    **finished lanes first** ({@link byDepth}, prd10 ruling 16);
  * 2. **off-fence reaches, then the boundaries they crossed** — the victim's
  *    marking last, so the reach is visibly *through* it rather than behind it;
  * 3. **the root-mass and its anatomy** — drawn over the threads' inner ends, so
@@ -45,21 +47,48 @@ export * from './types.js'
  */
 export function sceneMarks(frame: SceneFrame): Mark[] {
   const { threads } = frame.geometry
+  const depth = byDepth(threads)
   const marks: Mark[] = []
 
   marks.push(...ambientWorldMarks(frame))
-  for (const thread of threads) marks.push(...threadMarks(frame, thread))
+  for (const thread of depth) marks.push(...threadMarks(frame, thread))
   for (const thread of threads) marks.push(...offFenceMarks(frame, thread))
   marks.push(...rootMarks(frame))
   for (const thread of threads) marks.push(...lightMarks(frame, thread))
   for (const thread of threads) marks.push(...loopingMarks(frame, thread))
   marks.push(...dissolveMarks(frame))
-  for (const thread of threads) marks.push(...nodeMarks(frame, thread))
-  for (const thread of threads) marks.push(...labelMarks(frame, thread))
+  for (const thread of depth) marks.push(...nodeMarks(frame, thread))
+  for (const thread of depth) marks.push(...labelMarks(frame, thread))
   marks.push(...ambientScreenMarks(frame))
   marks.push(...chromeMarks(frame))
 
   return marks
+}
+
+/**
+ * DEPTH LAYERING (prd10 ruling 16) — finished lanes behind living ones.
+ *
+ * The third of the three channels ruling 14's hierarchy is bought in, and the one
+ * that only exists at scale: a thin, dim strand still crosses a bright one
+ * somewhere on a thirty-lane field, and *which of them is in front* is the whole
+ * difference between a network with living work on top of its own history and a
+ * mesh where the two are the same kind of thing. The ruling's own words: density
+ * is managed by thinness, stillness and **depth layering**, never by removal.
+ *
+ * It costs one partition of an array a frame and no marks at all, which is why it
+ * is spent here rather than as a per-mark z-order the painter would have to sort.
+ * Stable within each group, so slot order — graft g7's whole subject — survives:
+ * this re-layers the picture, it never re-spaces the fleet.
+ *
+ * Applied to the nodes and the labels as well as to the strands, and for the same
+ * reason at the same scale: a living lane's name must win an overlap with a
+ * finished one's, because the finished one can wait.
+ */
+export function byDepth(threads: readonly ThreadGeometry[]): ThreadGeometry[] {
+  const finished: ThreadGeometry[] = []
+  const living: ThreadGeometry[] = []
+  for (const thread of threads) (thread.retire === null ? living : finished).push(thread)
+  return finished.length === 0 ? [...threads] : [...finished, ...living]
 }
 
 /** The void the network hangs in — the one mark that is not about a lane. */

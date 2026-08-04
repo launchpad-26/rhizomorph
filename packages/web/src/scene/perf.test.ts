@@ -13,7 +13,7 @@ import { DISSOLUTION } from './motion.js'
 import { paint } from './paint.js'
 import { ICE_050, ink, type Ink } from './palette.js'
 import { PulseField } from './pulses.js'
-import { CUT, cutAt, type RetireState } from './retire.js'
+import { RETURN, returnAt, type RetireState } from './retire.js'
 import { salienceOf } from './salience.js'
 
 /**
@@ -379,13 +379,13 @@ function fleet30(): Fleet {
 }
 
 /**
- * Two cords mid-retract: the structural cap's own concurrency, which is the most
+ * Two cords mid-withdraw: the structural cap's own concurrency, which is the most
  * dissolution the scene can ever be running.
  */
 function midCut(): ReadonlyMap<string, RetireState> {
   return new Map([
-    ['lane-3', cutAt(CUT.tensionMs + 300)],
-    ['lane-11', cutAt(CUT.tensionMs + 520)],
+    ['lane-3', returnAt(RETURN.tensionMs + 300)],
+    ['lane-11', returnAt(RETURN.tensionMs + 520)],
   ])
 }
 

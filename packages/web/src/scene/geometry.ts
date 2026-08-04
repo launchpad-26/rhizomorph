@@ -166,43 +166,51 @@ export function budLife(sinceMs: number): { vitality: number; absorb: number } {
 }
 
 /**
- * THE CUT, as shape (prd5 ruling 3). Null for every lane still in the network.
+ * THE RETURN, as shape (prd10 rulings 13–15). Null for every lane still working.
  *
  * The retirement's *timing* is `retire.ts`'s; this is what those numbers do to
- * the picture, and it is kept beside the living geometry rather than replacing it
- * on purpose. {@link ThreadGeometry.path} stays whole through the whole cut, so
- * the light already in flight along it — a landing packet takes 2.8 s to reach
- * the mass and the cut takes 1.4 — finishes the real journey it was on while the
- * thread behind it lets go. The remnant is what gets *drawn*; the full path is
- * what is still true.
+ * the picture. It used to describe a **remnant** — the stub left after a cord was
+ * severed from the mass, shortening frame by frame until prd10 ruling 2 erased it
+ * altogether. It describes a **strand** now: the same curve the lane always had,
+ * root-mass rim to node, threaded into the mass for the rest of the session.
+ * Nothing here shortens, nothing here can return an empty path, and there is no
+ * severance parameter left to shorten it *from*.
+ *
+ * It is still carried beside the living geometry rather than replacing it, for the
+ * reason it always was: {@link ThreadGeometry.path} is the undeformed spine, which
+ * is what the light already in flight finishes its journey along (a landing packet
+ * takes 2.8 s to reach the mass and the settle takes 1.4) and what the returning
+ * motes ride. This is that spine with the release folded into it — the slack at
+ * the root, the tip's own outward relax — which is what actually gets drawn.
  */
 export interface RetireGeometry extends RetireState {
-  /** What is left of the thread: severed end → node. The mark actually drawn. */
+  /** The whole strand, root-mass rim → node, with the release folded into it. */
   path: Point[]
-  /** Where the severance sits along the parent path. 0 while still attached. */
-  from: number
-  /** The remnant's widths, with the released taper already relaxed into them. */
+  /** The strand's widths, with the released taper already relaxed into them. */
   widthRoot: number
   widthTip: number
   /**
    * THE WAY HOME (prd6 ruling 2). The stretch of the lane's own thread that is
    * currently travelling down it into the root-mass — real mycelium reabsorbs a
    * spent hypha and translocates its substance back through the network, which is
-   * what a merge is. Null whenever nothing is in transit: before the retract
-   * begins, after it has arrived, and for every scar that was never watched
-   * leaving (history, replay, reduced motion) — a journey nobody saw start is a
-   * journey that did not happen on this screen.
+   * what a merge is. Null whenever nothing is in transit: before the withdraw
+   * begins, after it has arrived, and for every landing that was never watched
+   * (history, replay, reduced motion) — a journey nobody saw start is a journey
+   * that did not happen on this screen.
    *
-   * It runs the **full** path rather than the remnant, for the same reason the
-   * light already in flight does: the whole thread is still true while the mark
-   * being drawn is only what is left of it.
+   * It runs the strand's own curve, so the substance is visibly *inside* the
+   * hypha rather than beside it — the honest reading of a translocation.
    */
   homeward: Point[] | null
   /**
    * The operator's hide-finished toggle applies to this lane, so it draws
-   * nothing at all. Only ever true of a *settled* scar — a cut in progress is
-   * news and is always shown, because the one thing worse than a scar you did
-   * not want is a completion you never saw.
+   * nothing at all. Only ever true of a lane that has reached `persistent` — a
+   * return in progress is news and is always shown, because the one thing worse
+   * than a finished lane you did not want to see is a completion you never saw.
+   *
+   * Load-bearing since ruling 16: with the network persisting, this is the *only*
+   * thing that takes a finished lane off the canvas, and the ruling is explicit
+   * that it stays obvious (`SceneView`'s control carries its own count).
    */
   hidden: boolean
 }
@@ -447,7 +455,7 @@ export function rootRadiusFor(resting: number, rx: number, ry: number, fullness:
  *   *now*, which is recency's fact and not a lifecycle fact; a lane can leave
  *   `waiting`, and a term it could leave would not be monotone.
  *
- * The pin reads {@link RetireState.drift} rather than the retract, which is the
+ * The pin reads {@link RetireState.drift} rather than the withdraw, which is the
  * one place the two differ: **drift is zero when the mode forbids travel**. So
  * reduced motion keeps its existing law — the cord is severed in place and nothing
  * crosses the picture — without this file having to know the preference exists.
@@ -509,7 +517,7 @@ export function bundleRadial(rootRadius: number, rx: number, ry: number): number
 }
 
 /**
- * How far through its life a lane is, 0–1. `homecoming` is the retract of its
+ * How far through its life a lane is, 0–1. `homecoming` is the withdraw of its
  * cord-cut — 0 for every lane still in the network.
  */
 export function lifecycleFrac(
@@ -520,7 +528,7 @@ export function lifecycleFrac(
   const worked = clamp01(sizeFrac)
   const aged = clamp01(Math.max(0, sinceFirstSeenMs) / LIFE_SPAN_MS)
   const living = clamp01(WORK_SHARE * worked + (1 - WORK_SHARE) * aged)
-  // The pin closes whatever distance is left, over the cut's own retract, so a
+  // The pin closes whatever distance is left, over the cut's own withdraw, so a
   // landing arrives at the rim instead of teleporting to it.
   return living + (1 - living) * clamp01(homecoming)
 }
@@ -540,69 +548,51 @@ export const SETTLE_MS = 900
 export const LABELS_ALL_MAX = 28
 
 /**
- * How much of its own thread a scar keeps, **in px of arc length**.
+ * THE RELAX REACH — how much of its own strand a finished lane bends outward,
+ * **in px of arc length**.
+ *
+ * This used to be the length of the *remnant* a cut left at the rim, and ruling
+ * 13 has taken the cut away. What the number does now is the half of it that was
+ * always about the picture rather than about the severing: it is the stretch at
+ * the far end that eases outward past the rim as the lane comes to rest
+ * ({@link RETIRE_RELAX_PX} is how far, this is how much of the strand), so thirty
+ * finished lanes end at thirty slightly different radii instead of on one perfect
+ * ellipse.
  *
  * A length rather than a fraction, and that half of #102 stands: the rim is a wide
  * ellipse, so a lane at three o'clock has a thread three times as long as one at
- * noon, and keeping a fixed *fraction* of it made a scar's size a fact about the
- * panel's aspect ratio. Nothing means that.
+ * noon, and a fixed *fraction* of it would make the bend a fact about the panel's
+ * aspect ratio. Nothing means that.
  *
- * What prd6 ruling 1 overrules is the other half — "a scar is a mark, so it is the
- * same size for every lane". The rim is where the session's finished work is on
- * display, and a rim that shows nine identical stubs is a rim that has thrown away
- * the only thing it had to say about them. So the mark is sized by the lane's own
- * work on the same absolute scale everything else is ({@link seedSize}), between a
- * floor that still reads as a tapering ribbon and a ceiling that still reads as a
- * stub rather than as a thread left floating.
- *
- * **The range is 5.5×, and it used to be 2.1×** (#117). 22–46 px was a spread
- * that existed in the arithmetic and not in the picture: with thirty-seven scars
- * around a rim, a fifth of a stub's length is not a difference anybody reads, and
- * the finding was exactly that — "a 216K lane and a 0K lane must be obviously
- * different — they currently are not". They are now, in two channels at once: the
- * big one's mark is five and a half times as long and about four times as thick,
- * because the taper it keeps is its own.
+ * Sized by the lane's own work on the same absolute scale everything else is
+ * ({@link seedSize}), for the reason prd6 ruling 1 gave when this was a mark: a
+ * rim where a 216K lane and an empty one finish identically has thrown away the
+ * only thing it had to say about them.
  */
-export const SCAR_LENGTH_MIN_PX = 16
-export const SCAR_LENGTH_MAX_PX = 88
+export const RELAX_REACH_MIN_PX = 16
+export const RELAX_REACH_MAX_PX = 88
 
-/** The scar length a lane of this work-size keeps, in px of arc. */
-export function scarLengthPx(sizeFrac: number): number {
-  return SCAR_LENGTH_MIN_PX + (SCAR_LENGTH_MAX_PX - SCAR_LENGTH_MIN_PX) * clamp01(sizeFrac)
+/** The relax reach a lane of this work-size takes, in px of arc. */
+export function relaxReachPx(sizeFrac: number): number {
+  return RELAX_REACH_MIN_PX + (RELAX_REACH_MAX_PX - RELAX_REACH_MIN_PX) * clamp01(sizeFrac)
 }
 
 /**
- * How much longer than {@link scarLengthPx} the mark is aimed, so the *drawn*
- * arc lands just over the wanted length rather than just under it.
- *
- * The remnant is re-sampled from the thread at its own resolution, and a chord
- * through a curve is shorter than the curve. Aiming at the exact figure
- * therefore drew a mark a fraction of a per cent *short* of the lane's work,
- * which is the one direction the law does not allow: the rim may round a
- * landing up, never down. A few per cent, and nowhere near the 30% the law
- * allows over.
+ * …but never more than this much of a short strand. On a cramped panel a lane's
+ * whole thread can be shorter than the reach, and a bend that consumed all of it
+ * would have lifted the strand off the mass it is threaded into.
  */
-const SCAR_CHORD_ALLOWANCE = 1.06
+const RELAX_MAX_FRACTION = 0.58
 
 /**
- * …but never more than this much of a short thread. On a cramped panel a lane's
- * whole thread can be shorter than the mark, and a scar that consumed it would
- * have severed nothing.
- *
- * Raised with the ceiling above, and by less than the ceiling was: the point of
- * the cap is that a *gap* survives, and two fifths of a thread left unattached is
- * still unmistakably a thread that was cut.
- */
-const SCAR_MAX_FRACTION = 0.58
-
-/**
- * THE DRIFT BAND (#117) — how far a retiring lane's *freed tip* relaxes outward,
+ * THE DRIFT BAND (#117) — how far a finished lane's *tip* relaxes outward,
  * on top of the journey to the rim the lifecycle pin is already carrying it on.
  *
- * A local bend, not a translation: it is what makes the released end ease out
- * while the severance travels the other way. It was one number, nine pixels for
- * every lane, and that was half of why a rim of scars read as eyelashes on a
- * clock face — thirty-seven marks whose tips all sat on one perfect ellipse.
+ * A local bend, not a translation: it is what keeps the strand on its own line
+ * for most of its length while its far end eases out. It was one number, nine
+ * pixels for every lane, and that was half of why a rim of finished lanes read as
+ * eyelashes on a clock face — thirty-seven ends all sitting on one perfect
+ * ellipse.
  * It is now a **band**: each lane relaxes by its own amount between these two,
  * so the rim is ragged the way a rim of things that finished at different times
  * and at different sizes ought to be.
@@ -759,7 +749,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
   // at still counts: hiding finished lanes is a request about clutter, not a
   // claim that the work was undone.
   //
-  // `clamp01(cut.retract)` rather than `retire.ts`'s `homecoming`, which is the
+  // `clamp01(cut.withdraw)` rather than `retire.ts`'s `homecoming`, which is the
   // same expression under a better name — and the duplication is deliberate.
   // `motion.ts` imports this file and `retire.ts` imports `motion.ts`, so taking
   // one value out of `retire.ts` closes a cycle and leaves `STRUCTURAL`
@@ -770,7 +760,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
   for (const lane of lanes) {
     const cut = options.retire?.get(lane.id)
     if (cut === undefined) continue
-    landedOutputTokens += lane.outputTokens * clamp01(cut.retract)
+    landedOutputTokens += lane.outputTokens * clamp01(cut.withdraw)
   }
   const fullness = rootFullness(landedOutputTokens)
   const rootRadius = rootRadiusFor(resting, rx, ry, fullness)
@@ -805,7 +795,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
 
     // The cut's first two stages are deformations of the thread rather than
     // separate marks: the slack bows the root end out, and the drift carries the
-    // last stretch — the part that becomes the scar — outward. Its retract is also
+    // last stretch — the part that becomes the scar — outward. Its withdraw is also
     // what carries the lane the last of the way to the rim.
     const cut = options.retire?.get(lane.id) ?? null
 
@@ -871,20 +861,22 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
     const grown = growth >= 1 ? full : truncate(full, easeOut(growth))
 
     // The lane's own free phase (`variation.ts`'s `curl`), spent on the two
-    // things about a cut that carry nothing: how far its freed tip relaxes past
-    // the rim, and how deeply the released thread sags. Two lanes that finished
-    // the same work still let go differently, and a rim where they did not is
-    // the rim #117 found.
+    // things about a return that carry nothing: how far its tip relaxes past the
+    // rim, and how deeply the released strand sags. Two lanes that finished the
+    // same work still let go differently, and a rim where they did not is the rim
+    // #117 found — which matters more now than it did, because thirty strands
+    // whose ends all sat on one perfect ellipse would read as the wreath ruling
+    // 13 is trying to stop the field becoming.
     const habit = variation.curl
     const relax = RETIRE_RELAX_PX.min + (RETIRE_RELAX_PX.max - RETIRE_RELAX_PX.min) * habit
     const slack =
       Math.min(SLACK_MAX_PX, Math.max(SLACK_MIN_PX, Math.min(rx, ry) * SLACK_FRACTION)) *
       (SLACK_HABIT.min + (SLACK_HABIT.max - SLACK_HABIT.min) * (1 - habit))
-    // Measured on the thread as it *was*, because this is the number the
-    // deformation itself is computed from — the stretch of thread the drift is
-    // allowed to bend cannot shift under the drift.
-    const mark = scarLengthPx(sizeFrac) * SCAR_CHORD_ALLOWANCE
-    const rest = cut === null ? 1 : scarRest(grown, mark)
+    // How much of the strand the outward relax is allowed to bend, measured in px
+    // of arc off the lane's own work-size. Measured on the thread as it *was*,
+    // because this is the number the deformation is computed from and the stretch
+    // it bends cannot shift under the bending.
+    const rest = cut === null ? 1 : relaxRest(grown, relaxReachPx(sizeFrac))
     const path =
       cut === null
         ? grown
@@ -896,16 +888,12 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
             drift: relax * cut.drift,
             from: rest,
           })
-    // …and measured a second time on the thread as it is **drawn**, which is the
-    // one the law is about: prd6 ruling 1 says the mark left at the rim measures
-    // the lane's work, and the mark is the arc somebody can see. The release
-    // bows that arc — a lane whose freed end relaxed a long way past the rim has
-    // a longer curve to travel over the same span — so measuring only on the
-    // undeformed thread made the drawn mark a few per cent long for a small
-    // relax and a third long for a big one, which is what capped the drift band
-    // before #117 widened it. Two walks over a sampled polyline, for retiring
-    // lanes only.
-    const drawnRest = cut === null ? 1 : scarRest(path, mark)
+    // The second walk over the drawn polyline is **gone** with the remnant that
+    // needed it (ruling 13). It existed because prd6 ruling 1 measured a lane's
+    // work by the arc length of the stub left at the rim, so the drawn arc had to
+    // be re-measured after the release bowed it. There is no stub to measure now —
+    // the work-size channel is the strand's own width, unbroken from the mass to
+    // the node — so a retiring lane costs one polyline walk a frame instead of two.
     const node = path[path.length - 1] as Point
 
     const pathology =
@@ -944,7 +932,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
       retire:
         cut === null
           ? null
-          : severance(cut, path, drawnRest, widthRoot, widthTip, options.hideFinished === true),
+          : persistence(cut, path, widthRoot, widthTip, options.hideFinished === true),
     })
   })
 
@@ -1221,7 +1209,7 @@ function layoutBud(
   }
 }
 
-// ── the cut, as shape ───────────────────────────────────────────────────────
+// ── the return, as shape ────────────────────────────────────────────────────
 
 interface Release {
   /** The thread's own sideways direction — the axis its bow already runs on. */
@@ -1234,7 +1222,7 @@ interface Release {
   outward: Point
   /** How far the node end is carried toward the rim, in px. */
   drift: number
-  /** Where the severance comes to rest — the stretch of thread the drift bends. */
+  /** Where the outward relax begins — the stretch of strand the drift bends. */
   from: number
 }
 
@@ -1248,9 +1236,9 @@ interface Release {
  *   reads as the same thread going loose, where sagging the other way would read
  *   as something pulling on it. The hump peaks about a third of the way out, so
  *   the loosening is unmistakably at the root end: that is where the strain was.
- * - **drift**, along the rim normal, weighted so it is exactly zero at the point
- *   the severance will reach and full at the node. That is what makes the freed
- *   end trace the thread's own path while the node still eases outward — the two
+ * - **drift**, along the rim normal, weighted so it is exactly zero where the
+ *   relax reach begins and full at the node. That is what makes the strand keep
+ *   its own line for most of its length while its far end eases outward — the two
  *   would fight if the drift were rigid.
  */
 function released(path: readonly Point[], release: Release): Point[] {
@@ -1271,7 +1259,7 @@ function slackHump(t: number): number {
   return Math.sin(Math.PI * Math.pow(clamp01(t), 0.6))
 }
 
-/** Zero everywhere but the stretch that becomes the scar, easing in and out. */
+/** Zero everywhere but the stretch the relax reaches, easing in and out. */
 function driftWeight(t: number, from: number): number {
   const span = 1 - from
   if (span <= 0) return clamp01(t) >= 1 ? 1 : 0
@@ -1280,15 +1268,15 @@ function driftWeight(t: number, from: number): number {
 }
 
 /**
- * The path parameter `lengthPx` of arc length back from the node — where the freed
- * end comes to rest.
+ * The path parameter `lengthPx` of arc length back from the node — where the
+ * outward relax begins.
  *
  * Walked from the tip backwards over the sampled polyline, which is exact enough:
  * the thread is 44 samples of a cubic, so a segment is a couple of pixels long and
  * the linear interpolation inside the segment the walk stops in is the same
  * approximation the ribbon is drawn with anyway.
  */
-function scarRest(path: readonly Point[], lengthPx: number): number {
+function relaxRest(path: readonly Point[], lengthPx: number): number {
   const last = path.length - 1
   if (last < 1) return 0
 
@@ -1299,31 +1287,31 @@ function scarRest(path: readonly Point[], lengthPx: number): number {
     const step = Math.hypot(a.x - b.x, a.y - b.y)
     if (total + step >= lengthPx) {
       const within = step === 0 ? 0 : (lengthPx - total) / step
-      return Math.max(1 - SCAR_MAX_FRACTION, (i - within) / last)
+      return Math.max(1 - RELAX_MAX_FRACTION, (i - within) / last)
     }
     total += step
   }
   // The whole thread is shorter than the mark: keep the tail fraction instead.
-  return 1 - SCAR_MAX_FRACTION
+  return 1 - RELAX_MAX_FRACTION
 }
 
 /**
  * THE WAY HOME (prd6 ruling 2) — where the lane's substance has got to.
  *
- * A stretch of the thread's own centreline, leaving the node when the retract
+ * A stretch of the thread's own centreline, leaving the node when the withdraw
  * begins and gone into the mass when it ends. Not a pulse: pulses are light, and
  * light is what a working lane spends. This is the hypha's *matter* being
  * translocated back through the network — the honest reading of a merge, and the
  * reason the mass it arrives at is thicker afterwards (`marks/root.ts`).
  *
- * It travels on the retract's own clock, so nothing new is animated and nothing
+ * It travels on the withdraw's own clock, so nothing new is animated and nothing
  * new is budgeted: the substance comes home over the same 800 ms critically-damped
  * structural stage that the cord is parting over, under the same concurrency cap.
  * Null at both ends of that stage, so it grows out of the node rather than popping
  * into existence and is absorbed by the mass rather than blinking out.
  */
-function homewardFlow(path: readonly Point[], retract: number): Point[] | null {
-  if (retract <= 0 || retract >= 1) return null
+function homewardFlow(path: readonly Point[], withdraw: number): Point[] | null {
+  if (withdraw <= 0 || withdraw >= 1) return null
 
   // Measured in arc length rather than in path parameter: the samples of a cubic
   // are not evenly spaced along it, so a fixed *parameter* span would send three
@@ -1335,7 +1323,7 @@ function homewardFlow(path: readonly Point[], retract: number): Point[] | null {
   const parcel = Math.min(HOMEWARD_LENGTH_PX, total * 0.5)
   // The leading (rootward) edge, from the node at `total` to one parcel-length
   // past the mass — which is where the last of it disappears under the mass.
-  const lead = total - (total + parcel) * retract
+  const lead = total - (total + parcel) * withdraw
   const from = Math.max(0, lead)
   const to = Math.min(total, lead + parcel)
   if (to - from < 0.5) return null
@@ -1344,54 +1332,51 @@ function homewardFlow(path: readonly Point[], retract: number): Point[] | null {
 }
 
 /**
- * What is left of a thread mid-cut: the stretch from the severance to the node,
- * resampled at its own resolution, with the released taper folded into its
- * widths.
+ * THE STRAND A FINISHED LANE KEEPS (prd10 rulings 13–15) — the whole of it.
  *
- * The remnant keeps the **whole thread's** taper, gathered into whatever length is
- * left, rather than being sliced out of it at the severance point. A cord that
- * springs back is gathering up, not evaporating — and sliced widths would have the
- * mark grow thinner and thinner as it retracted, which reads as the thread fading
- * out at exactly the moment the ruling says it must not. It also keeps the whole
- * of `thread width = work size` in the scar: a big lane's mark is a visible wedge
+ * **The slicing is gone, and its removal is the issue.** This function used to
+ * take a severance parameter and return `span(path, from, …)`: the stretch from
+ * the cut to the node, shortening on the withdraw's own spring until prd10
+ * ruling 2's dissolve took even that away. Ruling 13 rescinds both, so what a
+ * finished lane hands the mark builders is the strand it always had — root-mass
+ * rim to node, threaded in at both ends. There is no code path left in this file
+ * that can shorten or empty it.
+ *
+ * The strand keeps the whole thread's taper, so `thread width = work size`
+ * survives the transformation intact: a big lane's strand is a visible wedge
  * where a small lane's is a hairline, the same range the living network is drawn
- * over.
+ * over — thinned, by `retire.ts`'s {@link PERSIST_WIDTH_SCALE}, at the point the
+ * ribbon is actually built (`marks/thread.ts`). The *encoding* lives here and the
+ * *hierarchy* lives there, which is what keeps a retune of one from silently
+ * changing the other.
  *
  * What the release does change is the taper's *steepness*: the root end relaxes
  * {@link TAPER_RELAX} of the way toward the tip's width as the tension goes out
  * of it.
  */
-function severance(
+function persistence(
   cut: RetireState,
   path: readonly Point[],
-  rest: number,
   widthRoot: number,
   widthTip: number,
   hideFinished: boolean,
 ): RetireGeometry {
-  const from = cut.retract * rest
   const relaxed = widthRoot + (widthTip - widthRoot) * TAPER_RELAX * cut.tension
 
   return {
     ...cut,
-    from,
-    // Enough samples that a remnant still reads as a curve at every length it
-    // passes through — the full count while it is still nearly a whole thread,
-    // a floor once it is a stub.
-    path: span(path, from, Math.max(10, Math.ceil(THREAD_SAMPLES * (1 - from)))),
+    // The strand as drawn, at full resolution — the same array the living thread
+    // carries, which is what makes "no geometry is ever deleted" a thing a test
+    // can assert by comparing two paths rather than by counting marks.
+    path: [...path],
     widthRoot: relaxed,
     widthTip,
-    homeward: homewardFlow(path, cut.retract),
-    // Only a *settled* scar is hideable. A cut in progress is news, and the one
-    // thing worse than a scar the operator asked not to see is a completion they
-    // never saw at all.
-    hidden: hideFinished && cut.stage === 'scar',
+    homeward: homewardFlow(path, cut.withdraw),
+    // Only a lane that has reached `persistent` is hideable. A return in progress
+    // is news, and the one thing worse than a finished lane the operator asked not
+    // to see is a completion they never saw at all.
+    hidden: hideFinished && cut.stage === 'persistent',
   }
-}
-
-/** The stretch of a path from `from` to its end, resampled to `steps` segments. */
-function span(path: readonly Point[], from: number, steps: number): Point[] {
-  return between(path, from, 1, steps)
 }
 
 /** The stretch of a path between two parameters, resampled to `steps` segments. */

@@ -52,7 +52,7 @@ import { ribbonMark, type Mark } from './types.js'
  *   left here is what the growth does to the *material*. See {@link depthsFor}.
  * - **it melts where substance is arriving.** Each cord still parting adds a
  *   falloff of its own at that lane's bearing, so the surface swells toward the
- *   lane the work is coming from and settles back as the scar cools. That is what
+ *   lane the work is coming from and settles back as the strand stills. That is what
  *   replaced the expanding arrival ring: an arrival is now something the mass
  *   *does*, not a circle drawn on top of it. See {@link arrivalSwell}.
  * - **it breathes**, ±1.6%, which is the one ambient motion in the instrument —
@@ -407,7 +407,7 @@ function rindIndexOf(depths: readonly Depth[], fullness: number): number {
  * It never appears out of nothing, either, and that also falls out of the
  * geometry rather than needing a rule: below about half swell the falloff is
  * still entirely inside the body and changes the silhouette not at all, so the
- * bulge emerges *from* the surface in the last third of the retract instead of
+ * bulge emerges *from* the surface in the last third of the withdraw instead of
  * popping into existence beside it. At full swell it reaches about 1.16 of the
  * radius on that bearing — unmissable, and still inside the slack the mass's hit
  * target already carries.
@@ -417,27 +417,27 @@ const ARRIVAL = { distance: 0.9, radius: 0.26 } as const
 /**
  * HOW MUCH THIS LANE IS CURRENTLY BULGING THE SURFACE, 0–1.
  *
- * Squared on the retract, so the swell is concentrated at the end of the
+ * Squared on the withdraw, so the swell is concentrated at the end of the
  * journey: the substance is still out on the thread for most of the cut and only
- * arrives here at the finish. Then `1 - scar` melts it away again over the
+ * arrives here at the finish. Then `1 - stilled` melts it away again over the
  * settle, which is what makes it an arrival rather than a permanent lump — the
  * permanent part is the mass's own growth (`geometry.rootRadius`), and it is a
  * different channel on purpose.
  *
  * The three motion regimes fall out of this rather than being special-cased:
  *
- * - **reduced motion** collapses the cut to its endpoint (`cutAt`'s
- *   `SETTLED_IN_PLACE`: retract 1, scar 1), so the product is exactly 0 and no
+ * - **reduced motion** collapses the cut to its endpoint (`returnAt`'s
+ *   `SETTLED_IN_PLACE`: withdraw 1, stilled 1), so the product is exactly 0 and no
  *   swell ever happens — the same reason a reduced-motion frame draws no homeward
  *   ribbon;
  * - **pause** freezes the clock, so the state stops advancing and the swell holds
  *   wherever it was, rather than snapping back to nothing;
- * - **history and replay** arrive already settled, so a scar the scene never
+ * - **history and replay** arrive already settled, so a landing the scene never
  *   watched leave never bulges the mass it did not land in.
  */
-export function arrivalSwell(retract: number, scar: number): number {
-  const arriving = clamp01(retract)
-  return arriving * arriving * (1 - clamp01(scar))
+export function arrivalSwell(withdraw: number, stilled: number): number {
+  const arriving = clamp01(withdraw)
+  return arriving * arriving * (1 - clamp01(stilled))
 }
 
 /**
@@ -466,7 +466,7 @@ export function rootFalloffs(frame: SceneFrame, radius: number): Falloff[] {
     if (cut === null) continue
     // Weighted by the lane's own work: a big merge arrives as a bigger parcel,
     // on the same absolute scale the thread's width is already drawn on.
-    const swell = arrivalSwell(cut.retract, cut.scar) * (0.55 + 0.45 * clamp01(thread.sizeFrac))
+    const swell = arrivalSwell(cut.withdraw, cut.stilled) * (0.55 + 0.45 * clamp01(thread.sizeFrac))
     if (swell <= 0) continue
     falloffs.push({
       id: `arrival:${thread.laneId}`,
@@ -498,7 +498,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
   const marks: Mark[] = []
 
   const surge = clamp01(field.surge())
-  // Not a motion: the size changes only when a cut's retract advances (the
+  // Not a motion: the size changes only when a cut's withdraw advances (the
   // structural class, already capped and queued) or when a new snapshot brings
   // work that has already landed. Nothing here animates on its own clock — the
   // breath is the one thing on this line that does, and it is ±1.6%.
@@ -658,7 +658,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
 
 /**
  * At what point in a lane's dissolve its ring has *arrived* — the instant the
- * retract ends, expressed on the dissolve's own clock.
+ * withdraw ends, expressed on the dissolve's own clock.
  *
  * "Arrival deposits the lane's growth ring", so the ring cannot be there before the
  * matter is: it fades in over what is left of the composting, which is the same
@@ -676,7 +676,7 @@ const RING_ARRIVES = STRUCTURAL.durationMs / DISSOLUTION.spanMs
  * one, because a landing is not a thing that un-happens.
  *
  * Ordered **oldest landing innermost**, which is what makes it a memoir rather than
- * a set of circles: `elapsedMs` is how long ago each cut began, and a scar the scene
+ * a set of circles: `elapsedMs` is how long ago each return began, and a landing the scene
  * never watched leave (history, a replay) has none — so it is older than anything we
  * saw, and sits furthest in. A session's replay therefore grows its rings outward in
  * the order the night actually happened.
@@ -728,10 +728,10 @@ function heartMarks(frame: SceneFrame, radius: number, intensity: number): Mark[
       // **The heart's, not the lane's** — and the choice is load-bearing in three
       // places. A ring deposited by a lane is still the *mass's* anatomy: it must
       // not recede when another lane takes the spotlight (the mass never does), it
-      // must not vanish when the operator hides finished lanes (hiding scars is a
+      // must not vanish when the operator hides finished lanes (hiding them is a
       // request about clutter at the rim, never a claim that the work was undone —
       // the same reading `geometry.ts` takes for the mass's own growth), and it is
-      // not one of the marks prd5's `SCAR_FLOOR` is a floor under, because a scar's
+      // not one of the marks `PERSIST_FLOOR` is a floor under, because a strand's
       // floor is about the mark that identifies a lane and this identifies a
       // *landing*. Which landing is still recorded — the roster is in `bake`, and
       // the ring count is asserted against the fleet's own landings.
@@ -743,7 +743,7 @@ function heartMarks(frame: SceneFrame, radius: number, intensity: number): Mark[
       paths: [ring.ring],
       closed: true,
       // A whisper of the done green over the tissue: the ring is a landing, so the
-      // family that landed is still faintly in it (the same argument `SCAR_TISSUE`
+      // family that landed is still faintly in it (the same argument `PERSIST_TISSUE`
       // makes about a remnant — "finished" and "nothing to say" must not share a
       // colour), and the accent is what it has cooled into.
       ink: budget(frame, null, false, ink(mix(TISSUE_400, ACTIVITY_HUE.done, RING_GREEN), 0.3 * deposit)),
@@ -769,10 +769,10 @@ function landings(frame: SceneFrame): { thread: ThreadGeometry; dissolve: number
   for (const thread of frame.geometry.threads) {
     const cut = thread.retire
     // The matter has to have *arrived*: a cord still retracting has not deposited
-    // anything yet. A hidden scar still counts — hiding finished lanes is a request
+    // anything yet. A hidden lane still counts — hiding finished lanes is a request
     // about clutter at the rim, not a claim that the work was undone, which is the
     // same reading `geometry.ts` takes for the mass's own growth.
-    if (cut === null || cut.retract < 1) continue
+    if (cut === null || cut.withdraw < 1) continue
     out.push({
       thread,
       dissolve: cut.dissolve,

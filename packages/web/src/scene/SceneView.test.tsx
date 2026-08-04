@@ -1041,7 +1041,7 @@ describe('the pause control (WCAG 2.2.2)', () => {
 })
 
 /**
- * THE CORD-CUT, in the mounted scene (prd5 ruling 3).
+ * THE CORD-RETURN, in the mounted scene (prd5 ruling 3).
  *
  * `retire.test.ts` owns the clock and `marks.test.ts` owns the display list; what
  * is left for this file is the two things only a mounted component can answer.

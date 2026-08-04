@@ -12,14 +12,13 @@ import {
   TISSUE_500,
   activityInk,
   clamp01,
-  fade,
   hotter,
   incandescent,
   ink,
   mix,
   type Ink,
 } from '../palette.js'
-import { SCAR, toward } from '../retire.js'
+import { PERSIST, persistWidths, toward } from '../retire.js'
 import type { WidthStop } from '../ribbon.js'
 import { SHIMMER_PERIOD_MS, variationFor, variationSeed } from '../variation.js'
 import { budget, motionMode, type SceneFrame } from './frame.js'
@@ -83,11 +82,11 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const frozen = thread.pathology === 'frozen'
   const resting = threadInk(frame, thread)
 
-  // A retiring lane is not part of the living network, and the display list says
+  // A finished lane is not part of the living network, and the display list says
   // so: no `thread`, no bloom once it has settled, no heat, no standing flow, no
-  // second growth. See `scarMarks`. It also does not shimmer — the iridescence
-  // below is the lane being alive, and this one is not.
-  if (thread.retire !== null) return scarMarks(frame, thread, thread.retire, resting)
+  // second growth. See `persistentMarks`. It also does not shimmer — the
+  // iridescence below is the lane being alive, and this one is not.
+  if (thread.retire !== null) return persistentMarks(frame, thread, thread.retire, resting)
 
   const base = frozen ? resting : shimmered(frame, thread, resting)
 
@@ -268,70 +267,73 @@ function severedStops(): WidthStop[] {
 }
 
 /**
- * THE CORD-CUT, as marks (prd5 ruling 3) — what a lane looks like once it has
- * stopped being part of the network.
+ * THE PERSISTENT STRAND, as marks (prd10 rulings 13–16) — what a lane looks like
+ * once it has finished, which is now *for the rest of the session*.
  *
- * The display list is where the claim is made: a retiring lane has **no**
+ * **What this function no longer does is the point of the issue.** It used to
+ * draw a remnant that shortened on the withdraw's spring, and then — once
+ * `dissolve` reached 1 — to `return []`, deleting the lane's geometry from the
+ * picture entirely. Ruling 13 rescinds both: a rhizomorph is a root-cord network,
+ * and a mycelial network keeps the cords that carried its nutrients. There is no
+ * early return here any more and no branch that can produce an empty list for a
+ * lane the operator has not explicitly hidden.
+ *
+ * The display list is still where the claim is made: a finished lane has **no**
  * `thread` mark, no `heat`, no `thread-flow` and no `filament`. It is not a
- * dimmed thread, it is a different kind of object, and `marks.test.ts` can say so
- * by counting rather than by comparing brightnesses.
+ * dimmed thread — it is a different kind of object — and `marks.test.ts` can say
+ * so by counting rather than by comparing brightnesses.
  *
- * Three marks at most, and each drops out at the stage where it stops being true:
+ * Three marks, and the hierarchy ruling 14 asks for is carried by two of them:
  *
- * - the **bloom** goes out over the retract. Light leaves before colour does —
+ * - the **bloom** goes out over the withdraw. Light leaves before colour does,
  *   which is the right order, because it is the light that was the lane working.
- *   A settled scar has none, and that flatness is half of why it reads as past.
- * - the **remnant** is the thread's own last fifth, tapering as it always did,
- *   desaturating into `SCAR.thread` over the settle.
- * - the **freed end** gathers. A cord that let go springs back and bunches at
- *   the end that was holding, which is the fact — rather than an end that was
- *   chopped. It used to be a stamped thorn curl and is now the remnant's own
- *   substance, swollen where the tension was and needled away up its own thread
- *   (#117): the same reading, in the material, with nothing repeated.
+ *   A settled strand has none: "luminous, without glow" is exactly this — a lit
+ *   line and no halo around it, and that flatness is half of why it reads as past.
+ * - the **strand** is the whole thread, from the mass to the node, thinned by
+ *   {@link persistWidths} and cooled into {@link PERSIST.strand} over the settle.
+ *   Thin, still and lit: no shimmer (the iridescence below is a lane being alive,
+ *   and this one is not), no breath, no animation of any kind — every number it
+ *   draws from is a function of the return's own progress, which stops moving.
+ * - the **homeward flow** (prd6 ruling 2) is the lane's own substance running down
+ *   the strand into the mass. A ribbon at the thread's own colour and a little
+ *   narrower — the matter *inside* the hypha, not a packet of light travelling on
+ *   it — and absent from a landing that was never watched, which is what keeps a
+ *   replay from re-landing work it is only reading about.
  *
- * What it deliberately does not have is a `glow`. A glow is light, and there is
- * no light here any more — no pulse, no heat, never again.
+ * Two marks that used to be here are gone with the act they described: the
+ * **gathered freed end** (there is no freed end — the strand never parts from the
+ * mass) and the cord's fade to nothing at the end of the dissolve. What the motes
+ * carry home is the lane's vitality, not its existence (ruling 15).
  *
- * The fourth mark is the one prd6 ruling 2 added, and it is the reason a cut is no
- * longer a dead end: the **homeward flow**, the lane's own substance running down
- * the severing thread into the mass while the remnant springs the other way. It is
- * a ribbon of the thread, at the thread's own colour and a little narrower — the
- * matter *inside* the hypha, not a packet of light travelling on it — and it is
- * absent from a scar that was never watched leaving, which is what keeps a replay
- * from re-landing work it is only reading about.
+ * What it deliberately still does not have is a `glow`. A glow is light being
+ * spent, and there is none here any more — no pulse, no heat, never again.
  */
-function scarMarks(
+function persistentMarks(
   frame: SceneFrame,
   thread: ThreadGeometry,
   cut: RetireGeometry,
   living: Ink,
 ): Mark[] {
+  // The one door out, and it is the operator's own: ruling 16 makes HIDE FINISHED
+  // load-bearing, because it is the only thing left that takes a finished lane off
+  // the canvas. Nothing else in this function may return an empty list.
   if (cut.hidden) return []
-  // THE CORD IS GONE (prd10 ruling 2): "no stubs persist; the scene may forget the
-  // thread's geometry because the LEDGER remembers the thread". Once the last mote
-  // has landed there is nothing left of this cord to draw, so nothing is drawn —
-  // which is what makes a scrubbed-to-the-end replay a heart full of rings rather
-  // than a wreath of amputated stubs (ruling 1's judgement). What survives at the
-  // rim is prd5 law 1's own list, and only that list: the lane's lens, its name and
-  // its figure, so completion is still never invisible and the operator can still
-  // read *which* lane finished (`scarNodeMarks`).
-  if (cut.dissolve >= 1) return []
 
   const { laneId } = thread
   const marks: Mark[] = []
-  const leaving = composting(cut.dissolve)
-  const cold = fade(toward(living, SCAR.thread, cut.scar), leaving)
+  const cold = toward(living, PERSIST.strand, cut.stilled)
+  const width = persistThinning(cut)
 
-  const lit = 1 - cut.retract
+  const lit = 1 - cut.withdraw
   if (lit > 0.01) {
     marks.push(
       ribbonMark({
-        role: 'scar-bloom',
+        role: 'persist-bloom',
         laneId,
         alarm: false,
         path: cut.path,
-        widthRoot: cut.widthRoot * 3.6,
-        widthTip: cut.widthTip * 3.6,
+        widthRoot: width.root * 3.6,
+        widthTip: width.tip * 3.6,
         paint: budget(frame, laneId, false, { rgb: cold.rgb, alpha: cold.alpha * 0.1 * lit }),
       }),
     )
@@ -339,17 +341,17 @@ function scarMarks(
 
   marks.push(
     ribbonMark({
-      role: 'scar',
+      role: 'persist',
       laneId,
       alarm: false,
       path: cut.path,
-      widthRoot: cut.widthRoot,
-      widthTip: cut.widthTip,
+      widthRoot: width.root,
+      widthTip: width.tip,
       paint: budget(frame, laneId, false, cold),
     }),
   )
 
-  if (cut.homeward !== null && leaving > 0) {
+  if (cut.homeward !== null) {
     marks.push(
       ribbonMark({
         role: 'homeward',
@@ -361,7 +363,7 @@ function scarMarks(
         widthRoot: thread.widthRoot * 0.8,
         widthTip: thread.widthTip * 0.9,
         // …and it bulges where the substance actually is, so what travels down a
-        // cut cord is one parcel rather than a uniform stripe (ruling 3's swell,
+        // strand is one parcel rather than a uniform stripe (ruling 3's swell,
         // spent on the mark that was already the honest reading of a merge).
         stops: [{ at: 0.3, span: 0.45, scale: 1.5 }],
         // The lane's own colour, warmed — it is the work that is moving, and the
@@ -376,73 +378,28 @@ function scarMarks(
     )
   }
 
-  // Nothing has parted yet during the tension release, so there is no freed end
-  // to gather: the thread is still tied into the mass, just slack.
-  if (cut.from > 0 && cut.path.length > 2) {
-    const gathered = Math.min(0.36, GATHER_PX / Math.max(1, arcLengthOf(cut.path)))
-    marks.push(
-      ribbonMark({
-        role: 'scar-mark',
-        laneId,
-        alarm: false,
-        // The first stretch of the remnant, from the freed end inward — so it
-        // lies exactly on the mark it belongs to and cannot drift off it.
-        path: stretch(cut.path, 0, gathered, 8),
-        // Swollen at the end that let go and gone by the far end of itself: the
-        // bunching of a cord that sprang back, which is what actually happens
-        // and what the thorn was standing in for.
-        widthRoot: cut.widthRoot * 1.5,
-        widthTip: 0,
-        taperTip: 0.85,
-        samples: 8,
-        paint: budget(frame, laneId, false, fade(toward(living, SCAR.glyph, cut.scar), leaving)),
-      }),
-    )
-  }
-
   return marks
 }
 
 /**
- * How much of a cord is left to draw, as a multiplier on its ink (prd10 ruling 2).
+ * THE THINNING (prd10 ruling 14) — a returning lane's widths, on the settle's own
+ * clock.
  *
- * 1 for three quarters of the dissolve and then out over the last quarter, and the
- * shape is the point. The cord does not dim while its matter is leaving — the motes
- * *are* the matter leaving, and a cord that faded in step with them would be saying
- * the same thing twice while looking like a rendering artefact. It goes at the end,
- * over about half a second, so that the last thing to happen is the cord letting go
- * of the picture rather than the cord snapping out of it.
- *
- * The quarter matters for one more reason: `CUT.totalMs` lands at dissolve ≈ 0.52,
- * which is inside the flat stretch. Every brightness law prd5 wrote about a settled
- * scar reads exactly the ink it always did.
+ * Interpolated rather than switched, so the strand narrows *into* its resting
+ * gauge over the same 450 ms it cools over: `stilled` is one number and this is
+ * one of the two channels it spends (`retire.ts`'s note on why that is a single
+ * fact rather than two). The endpoints are `retire.ts`'s
+ * {@link persistWidths}, which is also what `marks.test.ts` reads the
+ * living-versus-finished hierarchy off — so the law is asserted against the same
+ * arithmetic the picture is drawn from.
  */
-export function composting(dissolve: number): number {
-  const out = (clamp01(dissolve) - COMPOST_HOLD) / (1 - COMPOST_HOLD)
-  if (out <= 0) return 1
-  const eased = clamp01(out)
-  return 1 - eased * eased * (3 - 2 * eased)
-}
-
-/** How long the cord holds its ink before it lets go. */
-const COMPOST_HOLD = 0.75
-
-/**
- * How much of the remnant the gathered end occupies, in px of arc — a length
- * rather than a fraction, for the same reason the scar itself is measured in px
- * (`geometry.ts`): a lane at three o'clock has a longer thread than one at noon,
- * and how much cord bunched up when it let go is not a fact about the clock.
- */
-const GATHER_PX = 9
-
-function arcLengthOf(path: readonly Point[]): number {
-  let total = 0
-  for (let i = 1; i < path.length; i += 1) {
-    const a = path[i - 1] as Point
-    const b = path[i] as Point
-    total += Math.hypot(b.x - a.x, b.y - a.y)
+function persistThinning(cut: RetireGeometry): { root: number; tip: number } {
+  const thin = persistWidths(cut.widthRoot, cut.widthTip)
+  const t = clamp01(cut.stilled)
+  return {
+    root: cut.widthRoot + (thin.root - cut.widthRoot) * t,
+    tip: cut.widthTip + (thin.tip - cut.widthTip) * t,
   }
-  return total
 }
 
 /**
@@ -657,7 +614,7 @@ function filamentMarks(frame: SceneFrame, thread: ThreadGeometry, base: Ink): Ma
 export function loopingMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const knot = thread.knot
   // A retired lane carries no faults forward. Whatever it was doing when it
-  // stopped, it has stopped — and a knot on a scar would be an accusation about
+  // stopped, it has stopped — and a knot on a finished strand would be an accusation about
   // a lane nobody can act on any more.
   if (knot === null || thread.retire !== null) return []
 
@@ -729,7 +686,7 @@ export function loopingMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] 
  */
 export function offFenceMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const rogue = thread.rogue
-  // Same reason as the knot: a scar reaches for nothing. The fence it crossed
+  // Same reason as the knot: a finished lane reaches for nothing. The fence it crossed
   // while it was alive is the fleet table's and the replay's to remember.
   if (rogue === null || thread.retire !== null) return []
 

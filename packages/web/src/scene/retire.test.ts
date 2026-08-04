@@ -4,11 +4,11 @@ import type { Fleet, Lane } from '../fleet/index.js'
 import { STRUCTURAL } from './motion.js'
 import { luminance } from './palette.js'
 import {
-  CUT,
+  RETURN,
   RetireRegistry,
-  SCAR,
-  SCAR_FLOOR,
-  cutAt,
+  PERSIST,
+  PERSIST_FLOOR,
+  returnAt,
   homecoming,
   isRetired,
   toward,
@@ -73,47 +73,47 @@ function fleetOf(...lanes: Lane[]): Pick<Fleet, 'lanes'> {
 const DONE_FLEET = fleetOf(lane('lane-a'), lane('lane-b'), lane('lane-c'))
 
 describe('the three stages', () => {
-  it('runs tension, then retract, then settle, and stops at a scar', () => {
-    const stageAt = (ms: number): RetireStage => cutAt(ms).stage
+  it('runs tension, then withdraw, then settle, and stops at a scar', () => {
+    const stageAt = (ms: number): RetireStage => returnAt(ms).stage
 
     expect(stageAt(0)).toBe('tension')
-    expect(stageAt(CUT.tensionMs - 1)).toBe('tension')
-    expect(stageAt(CUT.tensionMs)).toBe('retract')
-    expect(stageAt(CUT.tensionMs + CUT.retractMs - 1)).toBe('retract')
-    expect(stageAt(CUT.tensionMs + CUT.retractMs)).toBe('settle')
-    expect(stageAt(CUT.totalMs - 1)).toBe('settle')
+    expect(stageAt(RETURN.tensionMs - 1)).toBe('tension')
+    expect(stageAt(RETURN.tensionMs)).toBe('withdraw')
+    expect(stageAt(RETURN.tensionMs + RETURN.withdrawMs - 1)).toBe('withdraw')
+    expect(stageAt(RETURN.tensionMs + RETURN.withdrawMs)).toBe('settle')
+    expect(stageAt(RETURN.totalMs - 1)).toBe('settle')
     // Past the end it is a scar, and it is a scar for ever.
-    expect(stageAt(CUT.totalMs)).toBe('scar')
-    expect(stageAt(CUT.totalMs * 1_000)).toBe('scar')
+    expect(stageAt(RETURN.totalMs)).toBe('persistent')
+    expect(stageAt(RETURN.totalMs * 1_000)).toBe('persistent')
   })
 
   it('adds up to the ~1.4 s the ruling asked for, on the structural budget', () => {
-    expect(CUT.totalMs).toBe(1_400)
-    // The retract is not a number of its own — it *is* the structural class.
-    expect(CUT.retractMs).toBe(STRUCTURAL.durationMs)
+    expect(RETURN.totalMs).toBe(1_400)
+    // The withdraw is not a number of its own — it *is* the structural class.
+    expect(RETURN.withdrawMs).toBe(STRUCTURAL.durationMs)
   })
 
   it('changes exactly one channel per stage', () => {
     // This is the whole reason the cut is staged rather than one 1.4 s blend:
     // three stages that each move one thing read as a sentence, where one
     // animation moving three things reads as "something happened".
-    const tension = cutAt(CUT.tensionMs * 0.5)
+    const tension = returnAt(RETURN.tensionMs * 0.5)
     expect(tension.tension).toBeGreaterThan(0)
     expect(tension.tension).toBeLessThan(1)
-    expect(tension.retract).toBe(0)
-    expect(tension.scar).toBe(0)
+    expect(tension.withdraw).toBe(0)
+    expect(tension.stilled).toBe(0)
 
-    const retract = cutAt(CUT.tensionMs + CUT.retractMs * 0.5)
-    expect(retract.tension).toBe(1)
-    expect(retract.retract).toBeGreaterThan(0)
-    expect(retract.retract).toBeLessThan(1)
-    expect(retract.scar).toBe(0)
+    const withdraw = returnAt(RETURN.tensionMs + RETURN.withdrawMs * 0.5)
+    expect(withdraw.tension).toBe(1)
+    expect(withdraw.withdraw).toBeGreaterThan(0)
+    expect(withdraw.withdraw).toBeLessThan(1)
+    expect(withdraw.stilled).toBe(0)
 
-    const settle = cutAt(CUT.tensionMs + CUT.retractMs + CUT.settleMs * 0.5)
+    const settle = returnAt(RETURN.tensionMs + RETURN.withdrawMs + RETURN.settleMs * 0.5)
     expect(settle.tension).toBe(1)
-    expect(settle.retract).toBe(1)
-    expect(settle.scar).toBeGreaterThan(0)
-    expect(settle.scar).toBeLessThan(1)
+    expect(settle.withdraw).toBe(1)
+    expect(settle.stilled).toBeGreaterThan(0)
+    expect(settle.stilled).toBeLessThan(1)
   })
 
   it('retracts on a critically damped spring — monotone, and never past its target', () => {
@@ -122,31 +122,31 @@ describe('the three stages', () => {
     // node and came forward again would read as recoil — "it failed" — rather
     // than as "it finished".
     let previous = -1
-    for (let ms = CUT.tensionMs; ms <= CUT.tensionMs + CUT.retractMs; ms += 8) {
-      const { retract } = cutAt(ms)
-      expect(retract).toBeGreaterThanOrEqual(previous)
-      expect(retract).toBeLessThanOrEqual(1)
-      previous = retract
+    for (let ms = RETURN.tensionMs; ms <= RETURN.tensionMs + RETURN.withdrawMs; ms += 8) {
+      const { withdraw } = returnAt(ms)
+      expect(withdraw).toBeGreaterThanOrEqual(previous)
+      expect(withdraw).toBeLessThanOrEqual(1)
+      previous = withdraw
     }
     // …and it arrives exactly, rather than 0.03% short of its own stage boundary.
-    expect(cutAt(CUT.tensionMs + CUT.retractMs).retract).toBe(1)
+    expect(returnAt(RETURN.tensionMs + RETURN.withdrawMs).withdraw).toBe(1)
   })
 
-  it('is over half way back before the retract is half over — decelerating, not linear', () => {
-    const half = cutAt(CUT.tensionMs + CUT.retractMs * 0.5).retract
+  it('is over half way back before the withdraw is half over — decelerating, not linear', () => {
+    const half = returnAt(RETURN.tensionMs + RETURN.withdrawMs * 0.5).withdraw
     expect(half).toBeGreaterThan(0.75)
   })
 
   it('is a pure function of the elapsed time, so a pinned clock is a still image', () => {
-    expect(cutAt(700)).toEqual(cutAt(700))
-    expect(cutAt(-50)).toEqual(cutAt(0))
+    expect(returnAt(700)).toEqual(returnAt(700))
+    expect(returnAt(-50)).toEqual(returnAt(0))
   })
 
-  it('carries the node drift with the retract, so the tip eases out as the cord lets go', () => {
-    expect(cutAt(CUT.tensionMs * 0.5).drift).toBe(0)
-    const mid = cutAt(CUT.tensionMs + CUT.retractMs * 0.4)
-    expect(mid.drift).toBe(mid.retract)
-    expect(cutAt(CUT.totalMs).drift).toBe(1)
+  it('carries the node drift with the withdraw, so the tip eases out as the cord lets go', () => {
+    expect(returnAt(RETURN.tensionMs * 0.5).drift).toBe(0)
+    const mid = returnAt(RETURN.tensionMs + RETURN.withdrawMs * 0.4)
+    expect(mid.drift).toBe(mid.withdraw)
+    expect(returnAt(RETURN.totalMs).drift).toBe(1)
   })
 
   /**
@@ -159,23 +159,23 @@ describe('the three stages', () => {
   describe('homecoming', () => {
     it('arrives exactly as the cord does, and not before', () => {
       // Nothing has parted yet during the tension release.
-      expect(homecoming(cutAt(0))).toBe(0)
-      expect(homecoming(cutAt(CUT.tensionMs * 0.5))).toBe(0)
+      expect(homecoming(returnAt(0))).toBe(0)
+      expect(homecoming(returnAt(RETURN.tensionMs * 0.5))).toBe(0)
 
       let previous = -1
-      for (let ms = CUT.tensionMs; ms <= CUT.totalMs; ms += 8) {
-        const value = homecoming(cutAt(ms))
+      for (let ms = RETURN.tensionMs; ms <= RETURN.totalMs; ms += 8) {
+        const value = homecoming(returnAt(ms))
         expect(value).toBeGreaterThanOrEqual(previous)
         previous = value
       }
-      expect(homecoming(cutAt(CUT.tensionMs + CUT.retractMs))).toBe(1)
-      expect(homecoming(cutAt(CUT.totalMs))).toBe(1)
+      expect(homecoming(returnAt(RETURN.tensionMs + RETURN.withdrawMs))).toBe(1)
+      expect(homecoming(returnAt(RETURN.totalMs))).toBe(1)
     })
 
     it('reads 1 for a scar nobody watched leave — the work did land', () => {
       // History, a replay, and a reduced-motion frame. We were not there for the
       // journey; that is not a reason to pretend the merge did not happen.
-      expect(homecoming(cutAt(0, false))).toBe(1)
+      expect(homecoming(returnAt(0, false))).toBe(1)
 
       const registry = new RetireRegistry()
       const settled = registry.progress(DONE_FLEET, NOW, 'full').get('lane-a')
@@ -188,26 +188,26 @@ describe('reduced motion — the swap in place', () => {
   it('collapses the whole cut to its endpoint, with no travel and no drift', () => {
     // WCAG 2.3.3 excludes colour and opacity from "motion animation", so the
     // degradation keeps the severed, desaturated *result* and drops the journey.
-    const still = cutAt(0, false)
-    expect(still.stage).toBe('scar')
+    const still = returnAt(0, false)
+    expect(still.stage).toBe('persistent')
     expect(still.progress).toBe(1)
-    expect(still.scar).toBe(1)
+    expect(still.stilled).toBe(1)
     // The one number that separates this from a finished cut: the node has not
     // been carried anywhere.
     expect(still.drift).toBe(0)
-    expect(cutAt(CUT.totalMs * 3, false)).toEqual(still)
+    expect(returnAt(RETURN.totalMs * 3, false)).toEqual(still)
   })
 
   it('is read off the motion allowance rather than decided twice', () => {
     const registry = new RetireRegistry()
     registry.note([declared('77-strip', 'done')], INDEX, NOW)
 
-    expect(registry.progress(DONE_FLEET, NOW + 200, 'reduced').get('lane-a')?.stage).toBe('scar')
+    expect(registry.progress(DONE_FLEET, NOW + 200, 'reduced').get('lane-a')?.stage).toBe('persistent')
     // Pause is a stricter preference than reduce for everything else in the
     // scene, and deliberately *not* for this one: the cut is allowed to move
     // under a pause, it is simply held there by the frozen clock the caller
     // passes it. So `paused` still animates when the clock advances.
-    expect(registry.progress(DONE_FLEET, NOW + 200, 'paused').get('lane-a')?.stage).toBe('retract')
+    expect(registry.progress(DONE_FLEET, NOW + 200, 'paused').get('lane-a')?.stage).toBe('withdraw')
   })
 })
 
@@ -241,7 +241,7 @@ describe('what counts as leaving the network', () => {
     const parked = fleetOf(lane('lane-a', { activity: 'working', parked: true }))
 
     const state = registry.progress(parked, NOW, 'full').get('lane-a')
-    expect(state?.stage).toBe('scar')
+    expect(state?.stage).toBe('persistent')
     expect(state?.progress).toBe(1)
 
     const unparked = fleetOf(lane('lane-a', { activity: 'working', parked: false }))
@@ -266,7 +266,7 @@ describe('once per lane, and never on history — law 2', () => {
 
     // Still measured from the first sighting, so nothing re-cuts.
     expect(registry.progress(DONE_FLEET, NOW + 300, 'full').get('lane-a')?.progress).toBeCloseTo(
-      300 / CUT.totalMs,
+      300 / RETURN.totalMs,
       10,
     )
   })
@@ -280,7 +280,7 @@ describe('once per lane, and never on history — law 2', () => {
 
     expect([...states.keys()].sort()).toEqual(['lane-a', 'lane-b', 'lane-c'])
     for (const state of states.values()) {
-      expect(state.stage).toBe('scar')
+      expect(state.stage).toBe('persistent')
       expect(state.progress).toBe(1)
     }
   })
@@ -297,7 +297,7 @@ describe('once per lane, and never on history — law 2', () => {
     // Scrubbed forward again. The instant is remembered, so the cut is long over
     // rather than starting a second time.
     const again = registry.progress(DONE_FLEET, NOW + 20_000, 'full').get('lane-a')
-    expect(again?.stage).toBe('scar')
+    expect(again?.stage).toBe('persistent')
     expect(again?.progress).toBe(1)
   })
 
@@ -318,7 +318,7 @@ describe('once per lane, and never on history — law 2', () => {
     expect([...staggered.keys()].sort()).toEqual(['lane-a', 'lane-b'])
     expect(staggered.has('lane-c')).toBe(false)
 
-    expect(registry.progress(DONE_FLEET, NOW + CUT.totalMs, 'full').has('lane-c')).toBe(true)
+    expect(registry.progress(DONE_FLEET, NOW + RETURN.totalMs, 'full').has('lane-c')).toBe(true)
   })
 })
 
@@ -343,7 +343,7 @@ describe('the structural concurrency cap, as a queue — ruling 4', () => {
     // Read the schedule back off the only surface there is: when each lane first
     // appears in `progress` with a cut that has actually begun.
     return lanes.map((each) => {
-      for (let ms = 0; ms <= count * CUT.totalMs; ms += 1) {
+      for (let ms = 0; ms <= count * RETURN.totalMs; ms += 1) {
         const state = registry.progress(fleetOf(...lanes), NOW + ms, 'full').get(each.id)
         if (state !== undefined && state.progress < 1) return ms
       }
@@ -357,16 +357,16 @@ describe('the structural concurrency cap, as a queue — ruling 4', () => {
     expect(starts[0]).toBe(0)
     expect(starts[1]).toBe(STRUCTURAL.staggerMs)
     // The third waits for the first slot to free rather than joining a crowd.
-    expect(starts[2]).toBe(CUT.totalMs)
-    expect(starts[3]).toBe(CUT.totalMs + STRUCTURAL.staggerMs)
-    expect(starts[4]).toBe(2 * CUT.totalMs)
-    expect(starts[5]).toBe(2 * CUT.totalMs + STRUCTURAL.staggerMs)
+    expect(starts[2]).toBe(RETURN.totalMs)
+    expect(starts[3]).toBe(RETURN.totalMs + STRUCTURAL.staggerMs)
+    expect(starts[4]).toBe(2 * RETURN.totalMs)
+    expect(starts[5]).toBe(2 * RETURN.totalMs + STRUCTURAL.staggerMs)
   })
 
   it('never has more than the cap in flight, whatever the wave size', () => {
     const starts = waveStarts(9)
     for (const at of starts) {
-      const inFlight = starts.filter((start) => at >= start && at < start + CUT.totalMs)
+      const inFlight = starts.filter((start) => at >= start && at < start + RETURN.totalMs)
       expect(inFlight.length).toBeLessThanOrEqual(STRUCTURAL.maxConcurrent)
     }
   })
@@ -387,7 +387,7 @@ describe('the structural concurrency cap, as a queue — ruling 4', () => {
 
     // Long after the first pair has finished: the ledger has been pruned and the
     // third lane cuts immediately, rather than being queued behind history.
-    const late = NOW + 10 * CUT.totalMs
+    const late = NOW + 10 * RETURN.totalMs
     registry.note([declared('79-ledger', 'done')], INDEX, late)
     expect(registry.progress(DONE_FLEET, late, 'full').get('lane-c')?.stage).toBe('tension')
   })
@@ -398,30 +398,30 @@ describe('the scar never fades to nothing', () => {
     // The research law, and the reason it is a law: invisible completion is
     // indistinguishable from a render bug, and the operator cannot tell which of
     // the two they are looking at.
-    for (const [name, value] of Object.entries(SCAR)) {
-      expect(luminance(value), `${name} is invisible`).toBeGreaterThan(SCAR_FLOOR)
+    for (const [name, value] of Object.entries(PERSIST)) {
+      expect(luminance(value), `${name} is invisible`).toBeGreaterThan(PERSIST_FLOOR)
     }
   })
 
   it('keeps the name readable, in ice rather than in scar tissue', () => {
     // A scar exists to be identified. One whose name went the colour of the
     // remnant has deleted the lane while pretending not to.
-    expect(luminance(SCAR.name)).toBeGreaterThan(luminance(SCAR.thread) * 2)
+    expect(luminance(PERSIST.name)).toBeGreaterThan(luminance(PERSIST.thread) * 2)
   })
 
   it('holds the remnant under the living fleet — a retired lane cannot out-read a working one', () => {
-    expect(luminance(SCAR.thread)).toBeLessThan(0.15)
+    expect(luminance(PERSIST.thread)).toBeLessThan(0.15)
   })
 
   it('desaturates monotonically into the scar and stops there', () => {
-    const living = SCAR.name
+    const living = PERSIST.name
     let previous = -1
     for (let t = 0; t <= 1.0001; t += 0.05) {
-      const value = luminance(toward(living, SCAR.thread, t))
+      const value = luminance(toward(living, PERSIST.thread, t))
       expect(value).toBeLessThanOrEqual(previous < 0 ? Infinity : previous + 1e-12)
       previous = value
     }
-    expect(toward(living, SCAR.thread, 1)).toEqual(SCAR.thread)
-    expect(toward(living, SCAR.thread, 0)).toEqual(living)
+    expect(toward(living, PERSIST.thread, 1)).toEqual(PERSIST.thread)
+    expect(toward(living, PERSIST.thread, 0)).toEqual(living)
   })
 })

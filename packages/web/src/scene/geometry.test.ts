@@ -16,8 +16,8 @@ import {
   RADIAL_BORN,
   RECENCY_SPAN_MS,
   ROOT_GROWTH,
-  SCAR_LENGTH_MAX_PX,
-  SCAR_LENGTH_MIN_PX,
+  RELAX_REACH_MAX_PX,
+  RELAX_REACH_MIN_PX,
   SEED_CEILING,
   SEED_FLOOR,
   SEED_FULL_TOKENS,
@@ -29,13 +29,13 @@ import {
   rootRadiusFor,
   rimSpacing,
   ringAngles,
-  scarLengthPx,
+  relaxReachPx,
   seedSize,
   type Point,
   type SceneGeometry,
   type ThreadGeometry,
 } from './geometry.js'
-import { CUT, cutAt, homecoming, type RetireState } from './retire.js'
+import { RETURN, returnAt, homecoming, type RetireState } from './retire.js'
 import { WANDER_MAX_SPACING } from './variation.js'
 
 /**
@@ -358,13 +358,13 @@ describe('the lifecycle journey — prd6 ruling 4', () => {
       }).byLane.get(LANE) as ThreadGeometry
 
     const living = at(null)
-    expect(at(cutAt(CUT.tensionMs)).lifeFrac).toBeCloseTo(living.lifeFrac, 9)
-    expect(at(cutAt(CUT.totalMs)).lifeFrac).toBe(1)
+    expect(at(returnAt(RETURN.tensionMs)).lifeFrac).toBeCloseTo(living.lifeFrac, 9)
+    expect(at(returnAt(RETURN.totalMs)).lifeFrac).toBe(1)
 
-    // …and it travels there, one frame at a time, over the retract.
+    // …and it travels there, one frame at a time, over the withdraw.
     let previous = living.lifeFrac
     for (let t = 0; t <= 1.0001; t += 0.1) {
-      const value = at(cutAt(CUT.tensionMs + CUT.retractMs * t)).lifeFrac
+      const value = at(returnAt(RETURN.tensionMs + RETURN.withdrawMs * t)).lifeFrac
       expect(value).toBeGreaterThanOrEqual(previous - 1e-9)
       previous = value
     }
@@ -376,7 +376,7 @@ describe('the lifecycle journey — prd6 ruling 4', () => {
       layout(withLane(fleet, LANE, { outputTokens: 500_000, firstSeenAt: NOW })),
     )
     const landed = anglesOf(
-      layoutScene(fleet, { ...SIZE, now: NOW, retire: new Map([[LANE, cutAt(CUT.totalMs)]]) }),
+      layoutScene(fleet, { ...SIZE, now: NOW, retire: new Map([[LANE, returnAt(RETURN.totalMs)]]) }),
     )
 
     for (const [laneId, angle] of Object.entries(before)) {
@@ -395,7 +395,7 @@ describe('the lifecycle journey — prd6 ruling 4', () => {
 describe('seeds germinate — prd6 ruling 3', () => {
   const fleet = fleetFor(pathologySpec())
   const RETIRED = '47-format-module'
-  const scar = new Map([[RETIRED, cutAt(CUT.totalMs)]])
+  const scar = new Map([[RETIRED, returnAt(RETURN.totalMs)]])
 
   /** The same fleet, re-dispatched: a brand-new lane wearing the old handle. */
   function redispatched(): Fleet {
@@ -535,7 +535,7 @@ describe('render everything, always — ruling 22', () => {
  */
 describe('the mass grows with the landed work — prd6 ruling 2, #118', () => {
   const fleet = fleetFor(fleet20Spec())
-  const settled = cutAt(CUT.totalMs)
+  const settled = returnAt(RETURN.totalMs)
 
   /** The first `count` lanes, landed. */
   function landed(count: number): Map<string, RetireState> {
@@ -551,13 +551,13 @@ describe('the mass grows with the landed work — prd6 ruling 2, #118', () => {
   }
 
   it('reads landed work exactly as the cord-cut reads it', () => {
-    // `layoutScene` weighs each landing by `clamp01(cut.retract)` rather than by
+    // `layoutScene` weighs each landing by `clamp01(cut.withdraw)` rather than by
     // `retire.ts`'s `homecoming`, because taking that one value would close an
     // import cycle (`motion` → `geometry` → `retire` → `motion`). The copy is
     // deliberate and this is what stops it drifting: same question, same answer,
     // over every stage of a cut.
-    for (const at of [0, CUT.tensionMs, CUT.tensionMs + CUT.retractMs / 2, CUT.totalMs]) {
-      const state = cutAt(at)
+    for (const at of [0, RETURN.tensionMs, RETURN.tensionMs + RETURN.withdrawMs / 2, RETURN.totalMs]) {
+      const state = returnAt(at)
       const only = new Map([[(fleet.lanes[0] as Lane).id, state]])
       const tokens = (fleet.lanes[0] as Lane).outputTokens
       expect(grown(only).rootFullness).toBe(rootFullness(tokens * homecoming(state)))
@@ -687,7 +687,7 @@ describe('the settle, as geometry — graft g3', () => {
 })
 
 /**
- * THE CORD-CUT, as shape (prd5 ruling 3).
+ * THE CORD-RETURN, as shape (prd5 ruling 3).
  *
  * The clock is `retire.test.ts`'s; this is what those numbers do to the picture.
  * The three claims worth pinning are the three the ruling is actually about: the
@@ -709,7 +709,7 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
 
   const whole = layout(fleet).byLane.get(LANE) as ThreadGeometry
   /** What this lane's own work buys it at the rim (prd6 ruling 1). */
-  const MARK_PX = scarLengthPx(whole.sizeFrac)
+  const MARK_PX = relaxReachPx(whole.sizeFrac)
 
   it('leaves every other lane on its own bearing, and only eases it outward', () => {
     // One lane retiring is not a reflow. The ring is subdivided by how many lanes
@@ -728,7 +728,7 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
     const during = layoutScene(fleet, {
       ...SIZE,
       now: NOW,
-      retire: new Map([[LANE, cutAt(CUT.tensionMs + 200)]]),
+      retire: new Map([[LANE, returnAt(RETURN.tensionMs + 200)]]),
     })
     const out = (p: Point): number => Math.hypot(p.x - SIZE.width / 2, p.y - SIZE.height / 2)
     const bearing = (p: Point): number =>
@@ -751,7 +751,7 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
   })
 
   describe('stage 1 — the tension goes out of it', () => {
-    const slack = cutting(cutAt(CUT.tensionMs))
+    const slack = cutting(returnAt(RETURN.tensionMs))
 
     it('loosens the curve at the root end and leaves the node where it was', () => {
       const drift = (at: number): number => {
@@ -789,10 +789,10 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
   describe('stage 2 — it springs back', () => {
     it('carries the freed end along the thread own path', () => {
       for (const t of [0.25, 0.5, 0.75, 1]) {
-        const state = cutAt(CUT.tensionMs + CUT.retractMs * t)
+        const state = returnAt(RETURN.tensionMs + RETURN.withdrawMs * t)
         const cut = cutting(state)
         const freed = (cut.retire?.path as Point[])[0] as Point
-        // Not "near the path" — *on* it, at exactly the parameter the retract
+        // Not "near the path" — *on* it, at exactly the parameter the withdraw
         // says it has reached. The freed end is a point travelling along a curve
         // that already existed, which is what makes it read as the same thread
         // rather than as a new mark flying in.
@@ -803,7 +803,7 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
     it('shortens the remnant monotonically, and never past the scar', () => {
       let previous = Infinity
       for (let t = 0; t <= 1.0001; t += 0.05) {
-        const cut = cutting(cutAt(CUT.tensionMs + CUT.retractMs * t))
+        const cut = cutting(returnAt(RETURN.tensionMs + RETURN.withdrawMs * t))
         const length = arcLength(cut.retire?.path as Point[])
         expect(length).toBeLessThanOrEqual(previous + 1e-9)
         previous = length
@@ -812,13 +812,13 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
       // whatever the thread's own length is. "About" because the node has moved
       // out to the rim by then, which bows the mark a little longer than the
       // straight measure taken before it travelled.
-      const scar = cutting(cutAt(CUT.totalMs))
+      const scar = cutting(returnAt(RETURN.totalMs))
       expect(arcLength(scar.retire?.path as Point[])).toBeGreaterThan(MARK_PX)
       expect(arcLength(scar.retire?.path as Point[])).toBeLessThan(MARK_PX * 1.3)
     })
 
     it('carries the lane the last of the way to the rim — prd6 ruling 4', () => {
-      const settled = cutting(cutAt(CUT.totalMs))
+      const settled = cutting(returnAt(RETURN.totalMs))
       const out = (node: Point): number =>
         Math.hypot(node.x - SIZE.width / 2, node.y - SIZE.height / 2)
 
@@ -829,10 +829,10 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
       expect(settled.angle).toBe(whole.angle)
       expect(settled.lifeFrac).toBe(1)
 
-      // On the retract's own spring, one frame at a time — no jump.
+      // On the withdraw's own spring, one frame at a time — no jump.
       let previous = out(whole.node)
       for (let t = 0; t <= 1.0001; t += 0.05) {
-        const at = cutting(cutAt(CUT.tensionMs + CUT.retractMs * t))
+        const at = cutting(returnAt(RETURN.tensionMs + RETURN.withdrawMs * t))
         const now = out(at.node)
         expect(now).toBeGreaterThanOrEqual(previous - 1e-9)
         previous = now
@@ -845,7 +845,7 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
       // and `bornRadial` has eased the whole living band out by a fraction of a
       // pixel to keep clear of it. Lifecycle unmoved, bearing unmoved, and the
       // displacement well under the pixel that would make it visible.
-      const inPlace = cutting(cutAt(0, false))
+      const inPlace = cutting(returnAt(0, false))
       expect(inPlace.lifeFrac).toBe(whole.lifeFrac)
       expect(out(inPlace.node) - out(whole.node)).toBeLessThan(1)
       expect(out(inPlace.node)).toBeGreaterThanOrEqual(out(whole.node))
@@ -861,14 +861,14 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
    * SEVERED SUBSTANCE RETURNS HOME (prd6 ruling 2).
    *
    * The geometry half: a stretch of the lane's *own* thread, on the way down it
-   * into the mass, over the retract and only over the retract.
+   * into the mass, over the withdraw and only over the withdraw.
    */
   describe('the way home', () => {
-    /** Every frame of the retract that has substance in transit. */
+    /** Every frame of the withdraw that has substance in transit. */
     function inTransit(): { at: number; flow: Point[]; thread: ThreadGeometry }[] {
       const frames: { at: number; flow: Point[]; thread: ThreadGeometry }[] = []
-      for (let ms = 0; ms <= CUT.retractMs; ms += 10) {
-        const thread = cutting(cutAt(CUT.tensionMs + ms))
+      for (let ms = 0; ms <= RETURN.withdrawMs; ms += 10) {
+        const thread = cutting(returnAt(RETURN.tensionMs + ms))
         const flow = thread.retire?.homeward ?? null
         if (flow !== null) frames.push({ at: ms, flow, thread })
       }
@@ -898,14 +898,14 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
       expect(distance(last.flow[0] as Point, pointOn(last.thread, 0))).toBeLessThan(1)
     })
 
-    it('is nowhere to be seen before the retract, or after it', () => {
+    it('is nowhere to be seen before the withdraw, or after it', () => {
       // Nothing has parted during the tension release, so nothing is on its way.
-      expect(cutting(cutAt(CUT.tensionMs * 0.5)).retire?.homeward).toBeNull()
+      expect(cutting(returnAt(RETURN.tensionMs * 0.5)).retire?.homeward).toBeNull()
       // It arrived. A settled scar has sent everything it had.
-      expect(cutting(cutAt(CUT.totalMs)).retire?.homeward).toBeNull()
-      expect(cutting(cutAt(CUT.tensionMs + CUT.retractMs)).retire?.homeward).toBeNull()
+      expect(cutting(returnAt(RETURN.totalMs)).retire?.homeward).toBeNull()
+      expect(cutting(returnAt(RETURN.tensionMs + RETURN.withdrawMs)).retire?.homeward).toBeNull()
       // History, replay and reduced motion: scarred outright, never in transit.
-      expect(cutting(cutAt(0, false)).retire?.homeward).toBeNull()
+      expect(cutting(returnAt(0, false)).retire?.homeward).toBeNull()
     })
 
     it('sends the same amount of substance whatever angle the lane sits at', () => {
@@ -915,8 +915,8 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
       // for all of them; what differs after that is only how much of it the mass
       // has already swallowed.
       const most = new Map<string, number>()
-      for (let ms = 0; ms <= CUT.retractMs; ms += 10) {
-        const state = cutAt(CUT.tensionMs + ms)
+      for (let ms = 0; ms <= RETURN.withdrawMs; ms += 10) {
+        const state = returnAt(RETURN.tensionMs + ms)
         const geometry = layoutScene(fleet, {
           ...SIZE,
           now: NOW,
@@ -936,7 +936,7 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
   })
 
   describe('stage 3 — what is left', () => {
-    const scar = cutting(cutAt(CUT.totalMs))
+    const scar = cutting(returnAt(RETURN.totalMs))
 
     it('keeps a short tapering mark near the rim, not a point', () => {
       // Ruling 22 with the volume down: a scar is still *drawn*, and a mark with
@@ -957,7 +957,7 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
       // Overruled: "the same size for every lane". The rim is where a session's
       // finished work is on display, and nine identical stubs throw away the only
       // thing the rim had to say about them.
-      const settled = cutAt(CUT.totalMs)
+      const settled = returnAt(RETURN.totalMs)
       const geometry = layoutScene(fleet, {
         ...SIZE,
         now: NOW,
@@ -969,7 +969,7 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
       expect(Math.max(...threads) / Math.min(...threads)).toBeGreaterThan(1.5)
 
       for (const thread of geometry.threads) {
-        const wanted = scarLengthPx(thread.sizeFrac)
+        const wanted = relaxReachPx(thread.sizeFrac)
         const length = arcLength(thread.retire?.path as Point[])
         expect(length, `${thread.laneId} scarred off its own work`).toBeGreaterThan(wanted)
         expect(length).toBeLessThan(wanted * 1.3)
@@ -982,13 +982,13 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
         (sorted[sorted.length - 1] as ThreadGeometry).retire?.path as Point[],
       )
       expect(biggest).toBeGreaterThan(smallest * 1.15)
-      expect(SCAR_LENGTH_MIN_PX).toBeLessThan(SCAR_LENGTH_MAX_PX)
+      expect(RELAX_REACH_MIN_PX).toBeLessThan(RELAX_REACH_MAX_PX)
     })
 
     it('scars two equal lanes the same length wherever they sit', () => {
       // The aspect-ratio half of #102, stated on its own: same work, different
       // clock position, same mark.
-      const settled = cutAt(CUT.totalMs)
+      const settled = returnAt(RETURN.totalMs)
       const same = {
         ...fleet,
         lanes: fleet.lanes.map((lane) => ({ ...lane, outputTokens: 20_000 })),
@@ -1006,7 +1006,7 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
     it('still measures the work: a bigger lane scars a wider mark', () => {
       const busiest = [...fleet.lanes].sort((a, b) => b.outputTokens - a.outputTokens)[0]
       const smallest = [...fleet.lanes].sort((a, b) => a.outputTokens - b.outputTokens)[0]
-      const settled = cutAt(CUT.totalMs)
+      const settled = returnAt(RETURN.totalMs)
       const geometry = layoutScene(fleet, {
         ...SIZE,
         now: NOW,
@@ -1032,15 +1032,15 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
 
   describe('the hide-finished toggle', () => {
     it('hides a settled scar and nothing else', () => {
-      expect(cutting(cutAt(CUT.totalMs), true).retire?.hidden).toBe(true)
-      expect(cutting(cutAt(CUT.totalMs), false).retire?.hidden).toBe(false)
+      expect(cutting(returnAt(RETURN.totalMs), true).retire?.hidden).toBe(true)
+      expect(cutting(returnAt(RETURN.totalMs), false).retire?.hidden).toBe(false)
     })
 
     it('never hides a cut in progress — a completion is always announced', () => {
       // The one thing worse than a scar the operator asked not to see is a
       // completion they never saw at all.
-      for (const ms of [0, CUT.tensionMs, CUT.tensionMs + 400, CUT.totalMs - 1]) {
-        expect(cutting(cutAt(ms), true).retire?.hidden, `hidden at ${ms} ms`).toBe(false)
+      for (const ms of [0, RETURN.tensionMs, RETURN.tensionMs + 400, RETURN.totalMs - 1]) {
+        expect(cutting(returnAt(ms), true).retire?.hidden, `hidden at ${ms} ms`).toBe(false)
       }
     })
 
@@ -1057,7 +1057,7 @@ describe('the cut, as geometry — prd5 ruling 3', () => {
 
   /** Every lane in the fleet, settled into a scar. */
   function hidden(of: Fleet): Map<string, RetireState> {
-    return new Map(of.lanes.map((lane) => [lane.id, cutAt(CUT.totalMs)]))
+    return new Map(of.lanes.map((lane) => [lane.id, returnAt(RETURN.totalMs)]))
   }
 })
 

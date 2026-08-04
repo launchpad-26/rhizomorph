@@ -54,7 +54,7 @@ import { ribbonOutline, type RibbonShape } from '../ribbon.js'
  *   which is LOOPING's meaning exactly, not the circle it is drawn on.
  * - **`tick`** — the *event* (a tool call), the same word `PulseKind` uses in
  *   `pulses.ts`. The flick across the thread is only how it is drawn.
- * - **`scar`** and its family — what is left of a lane, told as the thing it is.
+ * - **`persist`** and its family — a lane that has finished, told as the thing it is.
  *
  * Two more are structure rather than silhouette: a **`-tip`** is where a reach
  * ends (the same word `widthTip` uses), and a **`-bloom`** is the light a lit
@@ -88,29 +88,32 @@ export type MarkRole =
   /** Where a filament stops: a reach that ended, rather than one that faded out. */
   | 'filament-tip'
   /**
-   * The cord-cut (prd5 ruling 3). A retiring lane draws **no** `thread` mark —
-   * these are what it draws instead, which is how "it left the living network"
-   * is a query over the display list rather than a matter of brightness. The
-   * bloom is present only while the cut is running: a settled scar has none,
-   * because a bloom is what a lit thread has.
+   * THE PERSISTENT STRAND (prd10 rulings 13–15). A finished lane draws **no**
+   * `thread` mark — these are what it draws instead, which is how "it left the
+   * living network" is a query over the display list rather than a matter of
+   * brightness. And it draws them **for ever**: ruling 13 rescinded the deletion,
+   * so a lane that has landed keeps its strand, thinned and stilled, threaded into
+   * the mass exactly where it was. The bloom is present only while the return is
+   * running: a settled strand has none, because a bloom is what a lit thread has
+   * and "luminous, not alive" is a lit line without a halo.
    */
-  | 'scar'
-  | 'scar-bloom'
-  | 'scar-mark'
+  | 'persist'
+  | 'persist-bloom'
+  | 'persist-mark'
   /**
-   * The severed lane's substance on its way into the root-mass (prd6 ruling 2).
+   * The finished lane's substance on its way into the root-mass (prd6 ruling 2).
    * A ribbon rather than a `pulse`, because it is the thread's own matter being
-   * reabsorbed and not light in flight — and present only while a cut the scene
-   * actually watched is retracting, so a replay never draws one.
+   * reabsorbed and not light in flight — and present only while a return the scene
+   * actually watched is running, so a replay never draws one.
    */
   | 'homeward'
   /**
-   * THE COMPOSTING DECAY (prd10 ruling 2) — the severed cord coming apart into
-   * motes along its own path, every one of them travelling home. It is the same
-   * fact `homeward` carries, told in the channel a *decomposition* is legible in:
-   * `homeward` is the parcel of matter still inside the hypha, this is the hypha
-   * itself becoming matter. Both are present during a cut, and when the last mote
-   * lands the cord's ribbon geometry is gone (ruling 2's "no stubs persist").
+   * THE RETURN'S DRIFT (prd10 rulings 2, 12 and 15) — the lane's matter lifting
+   * off its strand and streaming home along it. It is the same fact `homeward`
+   * carries, told in the channel a *decomposition* is legible in: `homeward` is
+   * the parcel still inside the hypha, this is what has left it. Both are present
+   * during a return, and when the last mote lands the **strand is still there** —
+   * what travelled home was the lane's vitality, not its existence (ruling 15).
    */
   | 'dissolution'
   /** …and ruling 9's miniature of it: a finished subagent's bud, taken back. */

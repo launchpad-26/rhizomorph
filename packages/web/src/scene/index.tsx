@@ -106,7 +106,8 @@ export default function Scene({ now }: SceneProps = {}) {
     // The third thing fed from the news tail, and the reason all three are fed
     // from it rather than from the fleet: a cut is an *animation*, so it may only
     // fire for something that just happened. A replayed session — or a scrub past
-    // a landing — builds every scar and cuts nothing (`retire.ts`, law 2).
+    // a landing — arrives at every persistent strand and animates nothing
+    // (`retire.ts`, law 2).
     retire.note(taken.events, indexRef.current, now)
   }, [state, field, settle, retire])
 

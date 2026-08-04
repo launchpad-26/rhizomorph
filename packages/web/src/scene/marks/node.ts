@@ -15,7 +15,6 @@ import {
   NOTICE,
   TUFT_WASH,
   clamp01,
-  fade,
   hotter,
   incandescent,
   ink,
@@ -23,12 +22,11 @@ import {
   type Ink,
   type Rgb,
 } from '../palette.js'
-import { SCAR, toward } from '../retire.js'
+import { PERSIST, toward } from '../retire.js'
 import { TIP_GLOW_RADIUS, spendTip } from '../salience.js'
 import { blobRing, variationFor, variationSeed } from '../variation.js'
 import { budget, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
 import { NODE_LENS, THORN_OUT } from './glyphs.js'
-import { composting } from './thread.js'
 import { regionMark, ribbonMark, type Mark, type MarkRole } from './types.js'
 
 /**
@@ -106,7 +104,7 @@ const HAND_LIFT = 15
  * produced nothing is a speck and a lane that has produced a day's work is
  * three times it.
  *
- * Shared by the living node and by the scar it becomes, so nothing pops at the
+ * Shared by the living node and by the finished one it becomes, so nothing pops at the
  * tip when a cord parts — the continuity the staged cut depends on is that the
  * marks at the node do not change at the moment the thread does.
  */
@@ -115,7 +113,7 @@ function lensLength(sizeFrac: number): number {
 }
 
 export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
-  if (thread.retire !== null) return scarNodeMarks(frame, thread, thread.retire)
+  if (thread.retire !== null) return persistNodeMarks(frame, thread, thread.retire)
 
   const marks: Mark[] = []
   const { laneId, lane } = thread
@@ -225,22 +223,23 @@ function tuftMarks(
   length: number,
 ): Mark[] {
   const cut = thread.retire
-  // THE LANDING FLARE (ruling 4), and the *whole* of what a retiring lane's apex
-  // does: the branchlets blaze once and go out with the cord.
+  // THE LANDING FLARE (ruling 4), and the *whole* of what a finishing lane's apex
+  // does: the branchlets blaze once and go out as the vitality leaves.
   //
-  // Deliberately not a glow. prd5's cord-cut carries a law — "no glow anywhere on
-  // a retiring lane; matter, not light" — and it survives here unweakened, because
-  // a flare does not need a halo to be a flare: the apex's own substance goes
-  // bright, which is what a growth cone burning out actually looks like. The 9b
-  // amendment's glow is for a **working** tip and nothing else, exactly as the
-  // ruling scopes it, so a landing lane has none.
+  // Deliberately not a glow. The cord-cut carried a law — "no glow anywhere on a
+  // retiring lane; matter, not light" — and it survives ruling 13 unweakened,
+  // because a flare does not need a halo to be a flare: the apex's own substance
+  // goes bright, which is what a growth cone burning out actually looks like. The
+  // 9b amendment's glow is for a **working** tip and nothing else, exactly as the
+  // ruling scopes it, so a finished lane has none — ever, including the whole rest
+  // of the session it now spends on the canvas.
   if (cut !== null) {
-    if (cut.hidden || cut.retract >= 1) return []
+    if (cut.hidden || cut.withdraw >= 1) return []
     return branchlets(frame, thread, hue, angle, length, {
-      // Fast in over the tension, out over the retract — `EVENT`'s own shape, read
-      // off the cut's own stages rather than off a clock of its own.
-      strength: 1 - cut.retract,
-      flare: cut.tension * (1 - cut.retract),
+      // Fast in over the tension, out over the withdraw — `EVENT`'s own shape, read
+      // off the return's own stages rather than off a clock of its own.
+      strength: 1 - cut.withdraw,
+      flare: cut.tension * (1 - cut.withdraw),
       glow: false,
     })
   }
@@ -385,41 +384,48 @@ function lensTint(hue: Rgb, freshness: number): Rgb {
 }
 
 /**
- * THE SCAR'S OWN MARK (prd5 ruling 3) — what is left at the rim.
+ * THE FINISHED LANE'S NODE (prd10 rulings 13–15) — what stands at the far end of
+ * a persistent strand.
  *
  * The *same three marks* a landed lane wears — hollow lens, a tail, and the tie
- * it was finished off with — at the same inks the instant the cut begins, and
- * desaturating into `SCAR.glyph` over the settle. That continuity is the whole
+ * it was finished off with — at the same inks the instant the return begins, and
+ * cooling into `PERSIST.glyph` over the settle. That continuity is the whole
  * point of splitting the stages by channel: the tension release changes the
- * thread's curvature and *nothing else*, so there is no pop at the tip to
+ * strand's curvature and *nothing else*, so there is no pop at the tip to
  * distract from the one thing that is happening.
+ *
+ * **All three now stay.** They used to be gated on `composting(cut.dissolve)` —
+ * the cord's own substance going with the cord when ruling 2 erased it — and
+ * ruling 13 has taken the erasure away, so the tail and the seal are simply part
+ * of the strand's resting anatomy. The node of a finished lane is a node, not a
+ * headstone.
  *
  * **The curl glyph is gone** (#117). The thorn used to be a stamped `THORN_OUT`
  * — the same unit-square path, at the same nine pixels, rotated onto the end of
- * every scar on the rim. At one lane it is a terminal; at thirty-seven it is
- * clip-art, and it was precisely the "shape" prd7 ruling 3 set out to delete,
+ * every finished lane on the rim. At one lane it is a terminal; at thirty-seven it
+ * is clip-art, and it was precisely the "shape" prd7 ruling 3 set out to delete,
  * surviving because nobody had looked at a rim with thirty-seven of them on it.
- * What ends a scar now is the ribbon's own taper: {@link tailMark} carries the
+ * What ends a strand now is the ribbon's own taper: {@link tailMark} carries the
  * thread's substance a little past the node and draws it to nothing, at a length
  * and a lean that come off the lane's free phase, so no two lanes finish alike.
  * The seal ({@link sealMark}) is the same cord folding back into the body — see
  * that function for why it stopped being a knot and how the law it carries got
  * stricter rather than looser in the swap.
  *
- * Two things are taken away, and both are the same statement:
+ * Two things are taken away, and both are the same statement — and both are
+ * ruling 14's hierarchy at the node, matching the thinning the strand takes:
  *
  * - **it does not breathe.** The lens's size loses `frame.breath` entirely. The
  *   ambient layer is the scene being alive, and this lane is not.
- * - **it gets smaller.** A third off, over the settle — "a small desaturated
- *   mark near the rim" — while keeping its work-size in what is left, so a big
- *   landing scars bigger than a small one.
+ * - **it gets smaller.** A third off, over the settle, while keeping its
+ *   work-size in what is left, so a big landing rests bigger than a small one.
  *
- * No cartouche and no state mark: a scar cannot be an alarm, because a lane
- * nobody can act on has nothing to summon anybody for. The spotlight ring stays,
- * because an operator may still click a scar to read it — hidden ≠ gone applies
- * to the *toggle*, and pointing at one has never been hiding it.
+ * No cartouche and no state mark: a finished lane cannot be an alarm, because a
+ * lane nobody can act on has nothing to summon anybody for. The spotlight ring
+ * stays, because an operator may still click one to read it — hidden ≠ gone
+ * applies to the *toggle*, and pointing at one has never been hiding it.
  */
-function scarNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: RetireGeometry): Mark[] {
+function persistNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: RetireGeometry): Mark[] {
   if (cut.hidden) return []
 
   const { laneId } = thread
@@ -427,15 +433,15 @@ function scarNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: RetireGeo
   const angle = Math.atan2(along.y, along.x)
   const hue = hueOf(thread)
   const freshness = 1 - thread.ageFrac
-  const length = lensLength(thread.sizeFrac) * (1 - 0.35 * cut.scar)
+  const length = lensLength(thread.sizeFrac) * (1 - 0.35 * cut.stilled)
 
   const cold = (living: Ink): Ink =>
-    budget(frame, laneId, false, toward(living, SCAR.glyph, cut.scar))
+    budget(frame, laneId, false, toward(living, PERSIST.glyph, cut.stilled))
 
   const marks: Mark[] = [
     {
       kind: 'path',
-      role: 'scar-mark',
+      role: 'persist-mark',
       laneId,
       alarm: false,
       d: NODE_LENS,
@@ -450,28 +456,17 @@ function scarNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: RetireGeo
     },
   ]
 
-  // THE APEX'S LAST ACT (prd10 ruling 4) — the tuft flares once as the cord parts,
-  // and is gone by the time it has sprung back.
+  // THE APEX'S LAST ACT (prd10 ruling 4) — the tuft flares once as the lane
+  // finishes, and is out by the time its vitality is home.
   marks.push(...tuftMarks(frame, thread, hue, angle, length))
 
-  // THE TAIL AND THE SEAL are the cord's own substance, so they go when the cord
-  // does (prd10 ruling 2): once the last mote has landed there is no ribbon
-  // geometry left on this lane anywhere. The lens above stays, and so do the name
-  // and the figure (`labelMarks`) — prd5 law 1's own list, which is what keeps a
-  // completion identifiable rather than merely invisible.
-  const leaving = composting(cut.dissolve)
-  if (leaving > 0) {
-    marks.push(
-      tailMark(
-        'scar-mark',
-        thread,
-        angle,
-        length,
-        fade(cold(ink(lensTint(hue, freshness), 0.75)), leaving),
-      ),
-      sealMark('scar-mark', thread, angle, length, fade(cold(ink(ACTIVITY_HUE.done, 0.9)), leaving)),
-    )
-  }
+  // The tail and the seal, permanently. The lens above, the name and the figure
+  // (`labelMarks`) and these two are what say *which* lane this was — and under
+  // ruling 13 the strand behind them says it too.
+  marks.push(
+    tailMark('persist-mark', thread, angle, length, cold(ink(lensTint(hue, freshness), 0.75))),
+    sealMark('persist-mark', thread, angle, length, cold(ink(ACTIVITY_HUE.done, 0.9))),
+  )
 
   if (frame.salience.spotlightId === laneId || frame.salience.hoverId === laneId) {
     marks.push(...spotlightMarks(thread, hue, length))
@@ -745,7 +740,7 @@ function summonsMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark
  * stamped on the end of it (#117).
  *
  * A short run of the lane's own substance carried past the node and needled to
- * nothing, leaning off the lane's free phase. It replaces the `THORN_OUT` a scar
+ * nothing, leaning off the lane's free phase. It replaces the `THORN_OUT` a finished lane
  * used to end with, and the argument is the one prd7 ruling 3 already made about
  * chevrons and seal bars: a fixed path rotated onto forty marks is a repeated
  * glyph however good the glyph is, and a rim of them reads as clip-art. A taper
@@ -920,7 +915,7 @@ function sealSpine(
   // THE TURN. A little over a half-circle, at a radius near the cord's own
   // width — so the two runs lie against each other and there is no eye left
   // over. This is the whole difference from the knot: a knot's radius was a
-  // size of its own, which is what put a ring at the end of every scar.
+  // size of its own, which is what put a ring at the end of every finished lane.
   const sweep = Math.PI * (1 + SEAL.overturn * phase)
   const arcSteps = 9
   for (let i = 0; i <= arcSteps; i += 1) {
@@ -1073,19 +1068,19 @@ export function labelMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
     size: 10.5,
     weight: flagged ? 700 : 500,
     align,
-    // A scar's name recedes to `SCAR.name` and stops there. It has to stay
-    // readable: the whole reason a retired lane is still drawn is so the operator
-    // can tell *which* lane retired, and a name too dim to read has deleted it
-    // while pretending not to.
+    // A finished lane's name recedes to `PERSIST.name` and stops there. It has to
+    // stay readable: the whole reason a finished lane is still drawn is so the
+    // operator can tell *which* lane finished, and a name too dim to read has
+    // deleted it while pretending not to.
     ink: budget(
       frame,
       laneId,
       thread.alarm,
-      thread.retire === null ? living : toward(living, SCAR.name, thread.retire.scar),
+      thread.retire === null ? living : toward(living, PERSIST.name, thread.retire.stilled),
     ),
   })
 
-  // The figure is **kept**, at full label brightness, scar or not. What a lane
+  // The figure is **kept**, at full label brightness, finished or not. What a lane
   // produced is not diminished by its having finished, and the one number a
   // retired lane is still worth reading is how much work came out of it.
   marks.push({

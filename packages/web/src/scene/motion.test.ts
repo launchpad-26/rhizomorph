@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { RECENCY_SPAN_MS } from './geometry.js'
-import { CUT } from './retire.js'
+import { RETURN } from './retire.js'
 import {
   ALARM,
   AMBIENT,
@@ -200,8 +200,8 @@ describe('the dissolution class — matter returning, and nothing else', () => {
     // …and the cord outlives the cut it came from, which is what makes "the
     // geometry is gone when the dissolve completes" a later instant than "the cut
     // has settled" — every prd5 cord-cut law is written against the earlier one.
-    expect(DISSOLUTION.spanMs).toBeGreaterThan(CUT.totalMs)
-    expect(CUT.dissolvedMs).toBeGreaterThan(CUT.totalMs)
+    expect(DISSOLUTION.spanMs).toBeGreaterThan(RETURN.totalMs)
+    expect(RETURN.dissolvedMs).toBeGreaterThan(RETURN.totalMs)
   })
 
   it('moves none of the three caps that were already law', () => {

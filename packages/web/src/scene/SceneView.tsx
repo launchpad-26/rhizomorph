@@ -629,9 +629,9 @@ export function SceneView({
         onClick={(event) => onSelect(pickAt(event.clientX, event.clientY))}
       />
       <MotionControl paused={paused} onToggle={() => setPaused((held) => !held)} />
-      <ScarControl
+      <FinishedControl
         hidden={hideFinished}
-        scars={fleet.lanes.filter(isRetired).length}
+        finished={fleet.lanes.filter(isRetired).length}
         onToggle={() => setHideFinished((hide) => !hide)}
       />
       <CameraControls
@@ -770,28 +770,33 @@ function MotionControl({ paused, onToggle }: MotionControlProps) {
   )
 }
 
-interface ScarControlProps {
+interface FinishedControlProps {
   hidden: boolean
   /** How many lanes have left the network — what the toggle is a toggle over. */
-  scars: number
+  finished: number
   onToggle: () => void
 }
 
 /**
- * THE HIDE-FINISHED TOGGLE (prd5 ruling 3).
+ * THE HIDE-FINISHED TOGGLE (prd10 ruling 16) — **load-bearing** since the network
+ * started persisting.
  *
- * Scars are visible by default and this button is the only thing that changes
- * that, which is the ordering the ruling asks for: a retired lane leaves a mark
- * because a lane that simply vanished is indistinguishable from a lane the scene
- * failed to draw, and the operator gets to overrule that for their own screen
- * once, persistently (`app/panelPrefs.ts`).
+ * Finished lanes are visible by default and this button is the only thing that
+ * changes that. It always was, but it used to share the work: prd5's cord-cut
+ * shrank a landed lane to a stub and prd10 ruling 2 then erased even that, so the
+ * field emptied itself and the toggle was a convenience. Ruling 13 took both away
+ * and ruling 16 names the consequence in as many words — *"the existing HIDE
+ * FINISHED control becomes load-bearing and must stay obvious"* — because it is
+ * now the only thing standing between a long session and a full canvas. The
+ * hierarchy (thin, still, behind) is what keeps the full canvas readable; this is
+ * what the operator reaches for when they want it empty anyway.
  *
  * Three details it would be easy to get wrong:
  *
  * - **It carries its own count.** "Hidden ≠ gone" is only true if the operator can
- *   still see *that* something is hidden, so the number of scars is on the button
- *   whichever way it is set. A filter that hides its own effect is a filter that
- *   silently makes the picture a lie, which is law 12's whole subject.
+ *   still see *that* something is hidden, so the number of finished lanes is on
+ *   the button whichever way it is set. A filter that hides its own effect is a
+ *   filter that silently makes the picture a lie, which is law 12's whole subject.
  * - **It looks pressed when it is on**, borrowing the pause control's exact
  *   emphasis rather than inventing a second vocabulary for "this control is
  *   currently changing what you see".
@@ -804,8 +809,8 @@ interface ScarControlProps {
  * Top-right: the one corner nothing else claims. Pause owns top-left, the camera
  * owns bottom-right, and the gap voice is painted into the bottom-left gutter.
  */
-function ScarControl({ hidden, scars, onToggle }: ScarControlProps) {
-  const has = scars > 0
+function FinishedControl({ hidden, finished, onToggle }: FinishedControlProps) {
+  const has = finished > 0
 
   return (
     <div className="pointer-events-none absolute right-2 top-2">
@@ -819,7 +824,7 @@ function ScarControl({ hidden, scars, onToggle }: ScarControlProps) {
         title={
           hidden
             ? 'Show the lanes that have finished — they are still in the fleet table either way'
-            : 'Hide the scars finished lanes leave behind'
+            : 'Hide the strands finished lanes leave behind'
         }
         className={`pointer-events-auto rounded border px-2 py-1 text-[10px] uppercase leading-none tracking-wide backdrop-blur-sm transition-[opacity,transform,color,border-color] duration-150 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600 active:scale-[0.97] ${
           has ? 'opacity-100' : 'pointer-events-none opacity-0'
@@ -829,7 +834,7 @@ function ScarControl({ hidden, scars, onToggle }: ScarControlProps) {
             : 'border-ice-850 bg-ice-950/80 text-ice-400 hover:border-ice-600 hover:text-ice-200'
         }`}
       >
-        {`${hidden ? 'Show' : 'Hide'} finished · ${scars}`}
+        {`${hidden ? 'Show' : 'Hide'} finished · ${finished}`}
       </button>
     </div>
   )
@@ -933,16 +938,17 @@ function CameraButton({ onClick, label, hint, children }: CameraButtonProps) {
  */
 function SceneSummary({ fleet }: { fleet: Fleet }) {
   const flagged = fleet.lanes.filter((lane) => lane.pathologies.length > 0)
-  // The cord-cut is a change in the *topology*, so the words have to carry it
-  // too: "threaded" stops being true of a retired lane, and a reader who cannot
-  // see the canvas would otherwise be told a network that no longer exists.
-  const scarred = fleet.lanes.filter(isRetired).length
-  const living = fleet.lanes.length - scarred
+  // The words carry the topology, and under ruling 13 the topology is that every
+  // lane — working or finished — is still threaded to the mass. A reader who
+  // cannot see the canvas used to be told that finished lanes had been "cut
+  // loose"; they have not been, and the summary says what the picture says.
+  const finished = fleet.lanes.filter(isRetired).length
+  const living = fleet.lanes.length - finished
 
   return (
     <p className="sr-only" data-testid="scene-summary">
       {`${living} lanes threaded to ${fleet.root.mainBranch ?? 'main'}. `}
-      {scarred === 0 ? '' : `${scarred} finished and cut loose. `}
+      {finished === 0 ? '' : `${finished} finished, still threaded. `}
       {flagged.length === 0
         ? 'None flagged.'
         : flagged

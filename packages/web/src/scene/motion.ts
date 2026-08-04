@@ -140,7 +140,7 @@ export const DISSOLUTION = {
    * How long a whole cord takes to come apart — the window the birth delays are
    * spread over, plus the last mote's own life.
    *
-   * Longer than the cut itself (`CUT.totalMs`, 1.4 s) on purpose: the cord parts
+   * Longer than the cut itself (`RETURN.totalMs`, 1.4 s) on purpose: the cord parts
    * first and *then* finishes composting, so the two acts read as cause and
    * consequence rather than as one blur. It is also what makes "the severed
    * ribbon geometry is gone when the dissolve completes" a later instant than
@@ -199,7 +199,7 @@ const LUMINANCE_ONLY: MotionAllowance = {
 export function allowance(motionClass: MotionClass, mode: MotionMode): MotionAllowance {
   if (mode === 'full') return motionClass === 'dissolution' ? LUMINANCE_ONLY : FULL
   // Reduced motion drops travel, which for this class is the whole of it: a cut
-  // that never crossed the picture (`cutAt`'s `SETTLED_IN_PLACE`) has no journey
+  // that never crossed the picture (`returnAt`'s `SETTLED_IN_PLACE`) has no journey
   // to compost, exactly as it has no homeward ribbon.
   if (mode === 'reduced') return NO_MOVEMENT
   // Paused. Structural is allowed to finish what it started; nothing else is —

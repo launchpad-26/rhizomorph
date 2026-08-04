@@ -6,7 +6,7 @@ import { layoutScene, type Point } from './geometry.js'
 import { breathOf, motionMode, type SceneFrame } from './marks/index.js'
 import { rootFalloffs } from './marks/root.js'
 import { PulseField } from './pulses.js'
-import { CUT, cutAt, type RetireState } from './retire.js'
+import { RETURN, returnAt, type RetireState } from './retire.js'
 import { salienceOf } from './salience.js'
 
 /**
@@ -131,7 +131,7 @@ describe('the blend is ordered, so the geometry cannot flap', () => {
     // A fixture of three circles could pass this by accident; the field the scene
     // actually builds has six body parts and one falloff per parting cord, whose
     // ids are lane handles and whose order is whatever the layout produced.
-    const frame = frameFor(landed(6, cutAt(CUT.tensionMs + CUT.retractMs - 60)))
+    const frame = frameFor(landed(6, returnAt(RETURN.tensionMs + RETURN.withdrawMs - 60)))
     const radius = frame.geometry.rootRadius
     const falloffs = rootFalloffs(frame, radius)
     expect(falloffs.length).toBeGreaterThan(6)
@@ -348,7 +348,7 @@ describe('scaling the field scales the contour, exactly', () => {
   it('walks the growing root-mass into one closed ring at every size', () => {
     let previous = 0
     for (const count of [0, 1, 6, 20]) {
-      const frame = frameFor(count === 0 ? undefined : landed(count, cutAt(CUT.totalMs)))
+      const frame = frameFor(count === 0 ? undefined : landed(count, returnAt(RETURN.totalMs)))
       const radius = frame.geometry.rootRadius
       const rings = contourRings({
         falloffs: rootFalloffs(frame, radius),
