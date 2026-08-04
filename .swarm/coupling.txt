@@ -1,6 +1,7 @@
 # path  # why it couples — consult while grooming fences
 packages/web/src/App.test.tsx  # mocks EVERY lazy panel; registering a panel forces an edit here
 packages/web/src/app/PanelGrid.tsx  # registers every panel; and PanelGrid.test.tsx preloads them all
+packages/web/src/app/Shell.test.tsx  # mounts the lane drawer and asserts which sections are IN THE DOCUMENT; any drawer structure change lands here (found by #163, whose fence named App.test.tsx instead — App never mounts the drawer)
 packages/server/src/api/index.ts  # registers every route; adding an API surface forces a line here
 packages/server/src/server/collector-loader.ts  # imports every collector statically
 packages/core/src/events/index.ts  # the event union — every new event type touches it
