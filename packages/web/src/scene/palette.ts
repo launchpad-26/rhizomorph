@@ -160,8 +160,25 @@ export const TUFT_WASH = 0.16
  * legibility law (`RIM_VEIL`) therefore comes out **stricter** in replay than live,
  * and `marks.test.ts` asserts it in both modes rather than only the one it was
  * written for.
+ *
+ * **WHY THE NUMBER IS 1.6 AND NOT 1.2**, which is the thing a future hand needs
+ * and cannot see from inside this file. Ruling 16's mode chrome puts
+ * `saturate-75 brightness-90` on `document.body` (`app/ModeContext.tsx`), and a
+ * CSS filter on the body reaches the canvas like anything else — so a replay frame
+ * is already being *shown* 10% darker and 25% less saturated than the pixels this
+ * palette produced. A multiplier picked by reading these numbers alone would have
+ * a quarter of itself eaten before it reached the screen. 1.6 nets out at about
+ * ×1.44 luminance and ×1.20 chroma on the substrate, which is where "a lot more
+ * vibrancy on the replays" actually lands.
+ *
+ * That is a real tension with ruling 16 and it is worth naming rather than
+ * quietly resolving. The ruling cools the whole app so that a replay can never be
+ * mistaken for a live fleet, and nothing here weakens it: the outline, the badge,
+ * the transport and every panel still carry the cooling, and so does every
+ * *status* mark in the scene, because this number cannot reach one. What lifts is
+ * the substrate the fleet hangs in — and a substrate carries no state to mistake.
  */
-export const REPLAY_VIBRANCY = 1.4
+export const REPLAY_VIBRANCY = 1.6
 
 // ── the ice ramp: the calm world ────────────────────────────────────────────
 
