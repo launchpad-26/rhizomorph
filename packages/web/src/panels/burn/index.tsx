@@ -7,6 +7,8 @@ import {
   NO_COST_FEED_LEAD,
   burnRateHoverTitle,
   dollarsHoverTitle,
+  errorCount,
+  errorsHoverTitle,
   formatBurnRate,
   formatDollarsOrGap,
   formatOverheadOrGap,
@@ -17,11 +19,20 @@ import {
 } from './format.js'
 
 /**
- * THE BURN STRIP (ruling 13) — four numbers, docked beside the attention strip:
+ * THE BURN STRIP (ruling 13) — five numbers, docked beside the attention strip:
  * output tokens (the headline, output-led per prd2), dollars (only when the cost
  * feed is authoritative), burn rate (out-tok/min, $/hr once dollars are
- * authoritative), overhead ratio (conductor OUTPUT ÷ worker OUTPUT). The spend
- * ticker panel dissolved into this and the ledger.
+ * authoritative), overhead ratio (conductor OUTPUT ÷ worker OUTPUT), and —
+ * #159, closing the dashboard-IA spike's golden-signal gap — one error count
+ * (lanes blocked, lanes parked, lanes off-fence, summed). The spend ticker
+ * panel dissolved into this and the ledger.
+ *
+ * The errors figure styles from the existing ladder tokens rather than a new
+ * one (law 9a): calm ice at zero, `text-broken` once it isn't, because a
+ * count of live problems is exactly what that hue already means everywhere
+ * else in the instrument. Zero renders as a plain `0` — a calm zero, per
+ * ruling 14's law restated for a number: never omitted, and never dressed up
+ * as reassurance copy.
  *
  * Reads the one derived fleet object's `burn` for everything, including the
  * overhead gate — every number here is already computed once, upstream, so this
@@ -113,6 +124,17 @@ export default function BurnStrip() {
             {formatOverheadOrGap(burn)}
           </Figure>
         )}
+
+        <Rule />
+
+        <Figure
+          testId="burn-errors"
+          unit="err"
+          title={errorsHoverTitle(burn)}
+          alarm={errorCount(burn) > 0}
+        >
+          {errorCount(burn)}
+        </Figure>
       </div>
 
       {dollarsGap || overheadGap ? (
@@ -143,6 +165,13 @@ interface FigureProps {
   unit?: string
   /** The headline. One per strip: the output figure prd2 says leads. */
   lead?: boolean
+  /**
+   * #159 — the errors figure's own ink once its count is non-zero: `text-broken`,
+   * the one ladder hue law 9a permits for "something is dead/erroring", already
+   * used everywhere else in the instrument for exactly this claim. Never set
+   * alongside `lead` — the two headlines don't compete for the same figure.
+   */
+  alarm?: boolean
   children: ReactNode
 }
 
@@ -152,7 +181,8 @@ interface FigureProps {
  * than the figure's own brightness, and outside the test-id, so what a hover
  * reports and what a test reads is the figure.
  */
-function Figure({ testId, title, unit, lead, children }: FigureProps) {
+function Figure({ testId, title, unit, lead, alarm, children }: FigureProps) {
+  const tone = lead === true ? 'text-sm text-ice-050' : alarm === true ? 'text-[13px] text-broken' : 'text-[13px] text-ice-100'
   return (
     <span className="flex shrink-0 items-baseline gap-1">
       {/*
@@ -160,11 +190,7 @@ function Figure({ testId, title, unit, lead, children }: FigureProps) {
         "full precision on hover" is a promise about the number, and a title on
         a wrapper would also fire over the unit label beside it.
       */}
-      <span
-        className={`figures ${lead === true ? 'text-sm text-ice-050' : 'text-[13px] text-ice-100'}`}
-        data-testid={testId}
-        title={title}
-      >
+      <span className={`figures ${tone}`} data-testid={testId} title={title}>
         {children}
       </span>
       {unit === undefined ? null : <Unit>{unit}</Unit>}

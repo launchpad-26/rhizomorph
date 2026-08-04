@@ -108,3 +108,24 @@ export function overheadHoverTitle(
   }
   return `${burn.overheadRatio.toFixed(4)}× exactly — conductor ÷ worker output tokens`
 }
+
+/**
+ * #159 — the burn strip's fifth figure (golden signals, operator ruling:
+ * errors yes, latency no). `Burn`'s four error fields are optional only for a
+ * pre-#159 fixture built outside this change's fence (see the interface's own
+ * note); every real `buildFleet` result carries all four, and `?? 0` here is
+ * what lets an older hand-built fixture still read as a calm zero rather than
+ * throwing on `undefined`.
+ */
+export function errorCount(burn: Pick<Burn, 'errorCount'>): number {
+  return burn.errorCount ?? 0
+}
+
+export function errorsHoverTitle(
+  burn: Pick<Burn, 'errorCount' | 'errorBlockedCount' | 'errorParkedCount' | 'errorOffFenceCount'>,
+): string {
+  return (
+    `${errorCount(burn)} exactly — ${burn.errorBlockedCount ?? 0} blocked, ` +
+    `${burn.errorParkedCount ?? 0} parked, ${burn.errorOffFenceCount ?? 0} off-fence`
+  )
+}

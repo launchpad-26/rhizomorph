@@ -5,6 +5,8 @@ import {
   NO_COST_FEED_GAP,
   burnRateHoverTitle,
   dollarsHoverTitle,
+  errorCount,
+  errorsHoverTitle,
   formatBurnRate,
   formatDollarsOrGap,
   formatOverheadOrGap,
@@ -25,6 +27,10 @@ const BASE_BURN: Burn = {
   overheadRatio: 0.4231,
   conductorInstrumented: true,
   windowMs: 300_000,
+  errorCount: 2,
+  errorBlockedCount: 1,
+  errorParkedCount: 0,
+  errorOffFenceCount: 1,
 }
 
 describe('formatDollarsOrGap / isDollarsGap', () => {
@@ -114,5 +120,23 @@ describe('outputHoverTitle', () => {
     const title = outputHoverTitle(BASE_BURN.tokens)
     expect(title).toContain('1,234,567')
     expect(title).toContain('cache read')
+  })
+})
+
+describe('errorCount / errorsHoverTitle (issue #159)', () => {
+  it('reads the fleet-computed total straight through', () => {
+    expect(errorCount(BASE_BURN)).toBe(2)
+  })
+
+  it('defaults to a calm zero for a fixture built before this field existed', () => {
+    expect(errorCount({ ...BASE_BURN, errorCount: undefined })).toBe(0)
+  })
+
+  it('breaks the total down into blocked/parked/off-fence on hover', () => {
+    const title = errorsHoverTitle(BASE_BURN)
+    expect(title).toContain('2 exactly')
+    expect(title).toContain('1 blocked')
+    expect(title).toContain('0 parked')
+    expect(title).toContain('1 off-fence')
   })
 })

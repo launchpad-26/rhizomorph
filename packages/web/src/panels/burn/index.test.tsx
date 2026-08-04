@@ -44,6 +44,10 @@ const ZERO_BURN: Burn = {
   overheadRatio: null,
   conductorInstrumented: false,
   windowMs: 300_000,
+  errorCount: 0,
+  errorBlockedCount: 0,
+  errorParkedCount: 0,
+  errorOffFenceCount: 0,
 }
 
 function makeFleet(burnOverrides: Partial<Burn> = {}): Fleet {
@@ -153,6 +157,43 @@ describe('BurnStrip', () => {
       costUsdPerHour: 0.0036,
     })
     expect(container.textContent).not.toContain('$0.00')
+  })
+})
+
+describe('BurnStrip — the errors figure (issue #159)', () => {
+  it('renders a calm zero, never reassurance copy, when nothing is wrong', () => {
+    renderWith({ errorCount: 0, errorBlockedCount: 0, errorParkedCount: 0, errorOffFenceCount: 0 })
+
+    const cell = screen.getByTestId('burn-errors')
+    expect(cell.textContent).toBe('0')
+    expect(cell.className).not.toContain('text-broken')
+    expect(cell.title).toContain('0 exactly')
+  })
+
+  it('inks the figure in the alarm hue once the count is non-zero, never a new hue', () => {
+    renderWith({ errorCount: 2, errorBlockedCount: 1, errorParkedCount: 0, errorOffFenceCount: 1 })
+
+    const cell = screen.getByTestId('burn-errors')
+    expect(cell.textContent).toBe('2')
+    expect(cell.className).toContain('text-broken')
+  })
+
+  it('carries the blocked/parked/off-fence breakdown on hover', () => {
+    renderWith({ errorCount: 3, errorBlockedCount: 1, errorParkedCount: 1, errorOffFenceCount: 1 })
+
+    const title = screen.getByTestId('burn-errors').title
+    expect(title).toContain('3 exactly')
+    expect(title).toContain('1 blocked')
+    expect(title).toContain('1 parked')
+    expect(title).toContain('1 off-fence')
+  })
+
+  it('sits in the existing four-number rhythm as the fifth figure, not a sixth panel', () => {
+    renderWith({})
+    // Five figures in one row: output, dollars-or-gap, rate, overhead-or-gap, errors.
+    expect(screen.getByTestId('burn-output-tokens')).toBeInTheDocument()
+    expect(screen.getByTestId('burn-rate')).toBeInTheDocument()
+    expect(screen.getByTestId('burn-errors')).toBeInTheDocument()
   })
 })
 
