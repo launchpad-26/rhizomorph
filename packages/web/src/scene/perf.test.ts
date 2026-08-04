@@ -3,6 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { buildFleet, fixtureHistory, fleet20Spec, manifestFor, type Fleet } from '../fleet/index.js'
 import { layoutScene } from './geometry.js'
 import { breathOf, motionMode, sceneMarks, type SceneFrame } from './marks/index.js'
+import { ambientScreenMarks, ambientWorldMarks } from './marks/ambient.js'
+import { dissolveMarks } from './marks/dissolve.js'
+import { lightMarks } from './marks/light.js'
+import { labelMarks, nodeMarks } from './marks/node.js'
+import { rootMarks } from './marks/root.js'
+import { loopingMarks, offFenceMarks, threadMarks } from './marks/thread.js'
 import { DISSOLUTION } from './motion.js'
 import { paint } from './paint.js'
 import { ICE_050, ink, type Ink } from './palette.js'
@@ -230,8 +236,22 @@ function spriteFrame(
   ctx.globalCompositeOperation = 'source-over'
 }
 
-/** Median rather than mean: one GC pause in sixty frames is not the frame cost. */
-function medianMs(work: () => void, frames: number): number {
+/**
+ * A frame's cost, twice over.
+ *
+ * **Median** is the frame the operator actually watches — one GC pause in sixty
+ * frames is not the frame cost. **Worst** is the one they *feel*: 60 fps is not a
+ * mean, it is a deadline, and a scene whose median is comfortable but whose worst
+ * frame doubles the budget reads as a stutter rather than as a fast picture. #157
+ * opened on a suspected frame-rate cost, so both numbers are reported and both go
+ * in the summary; neither is asserted, for the reason the header gives.
+ */
+interface Cost {
+  medianMs: number
+  worstMs: number
+}
+
+function costOf(work: () => void, frames: number): Cost {
   const samples: number[] = []
   for (let i = 0; i < frames; i += 1) {
     const started = performance.now()
@@ -239,7 +259,15 @@ function medianMs(work: () => void, frames: number): number {
     samples.push(performance.now() - started)
   }
   samples.sort((a, b) => a - b)
-  return samples[Math.floor(samples.length / 2)] as number
+  return {
+    medianMs: samples[Math.floor(samples.length / 2)] as number,
+    worstMs: samples[samples.length - 1] as number,
+  }
+}
+
+/** The median alone, for the two mote paths — they have no stages to break down. */
+function medianMs(work: () => void, frames: number): number {
+  return costOf(work, frames).medianMs
 }
 
 function report(line: string): void {
@@ -303,48 +331,75 @@ describe(`sprite-blit vs per-frame gradient-glow at N=${N}`, () => {
  * `sceneMarks`, `paint` — at thirty lanes with a cord mid-cut, which is the
  * frame a dissolve is drawn in.
  */
-describe('the whole frame, before and after', () => {
-  function fleet30(): Fleet {
-    const state = reduceAll(fixtureHistory(fleet20Spec(), NOW))
-    const base = buildFleet(state, { now: NOW, manifest: manifestFor(fleet20Spec()) })
-    return {
-      ...base,
-      lanes: Array.from({ length: 30 }, (_unused, i) => ({
-        ...(base.lanes[i % base.lanes.length] as (typeof base.lanes)[number]),
-        id: `lane-${i}`,
-        handles: [`lane-${i}`],
-        slot: i,
-      })),
-    }
+function fleet30(): Fleet {
+  const state = reduceAll(fixtureHistory(fleet20Spec(), NOW))
+  const base = buildFleet(state, { now: NOW, manifest: manifestFor(fleet20Spec()) })
+  return {
+    ...base,
+    lanes: Array.from({ length: 30 }, (_unused, i) => ({
+      ...(base.lanes[i % base.lanes.length] as (typeof base.lanes)[number]),
+      id: `lane-${i}`,
+      handles: [`lane-${i}`],
+      slot: i,
+    })),
   }
+}
 
+/**
+ * Two cords mid-retract: the structural cap's own concurrency, which is the most
+ * dissolution the scene can ever be running.
+ */
+function midCut(): ReadonlyMap<string, RetireState> {
+  return new Map([
+    ['lane-3', cutAt(CUT.tensionMs + 300)],
+    ['lane-11', cutAt(CUT.tensionMs + 520)],
+  ])
+}
+
+function frameFor(fleet: Fleet, geometry: ReturnType<typeof layoutScene>, now: number): SceneFrame {
+  return {
+    fleet,
+    geometry,
+    field: new PulseField(),
+    salience: salienceOf({ fleet, hoverId: null, selectedId: null }),
+    now,
+    asOf: now,
+    vibrancy: 1,
+    reducedMotion: false,
+    paused: false,
+    breath: breathOf(now, motionMode({ reducedMotion: false, paused: false })),
+  }
+}
+
+describe('the whole frame, before and after', () => {
   it('draws thirty lanes and a cut inside a 60 fps frame', () => {
     const fleet = fleet30()
-    // Two cords mid-retract: the structural cap's own concurrency, which is the
-    // most dissolution the scene can ever be running.
-    const retire: ReadonlyMap<string, RetireState> = new Map([
-      ['lane-3', cutAt(CUT.tensionMs + 300)],
-      ['lane-11', cutAt(CUT.tensionMs + 520)],
-    ])
+    const retire = midCut()
 
     const draw = stub()
-    const frame = (now: number): number => {
-      const mode = motionMode({ reducedMotion: false, paused: false })
+    /**
+     * One frame, in its three stages. They are timed separately because "the scene
+     * is over budget" is not an actionable sentence: the fix for a slow
+     * `layoutScene` (cache the geometry) and the fix for a slow `paint` (blit a
+     * sprite) are different fixes, and #157's brief is to find *the cheapest
+     * offender first*. The stages are still run back-to-back in one call, so the
+     * sum is the real frame and not three frames measured apart.
+     */
+    const frame = (now: number, into?: Stages): number => {
+      const at = () => performance.now()
+      const t0 = at()
       const geometry = layoutScene(fleet, { ...SIZE, now, retire })
-      const sceneFrame: SceneFrame = {
-        fleet,
-        geometry,
-        field: new PulseField(),
-        salience: salienceOf({ fleet, hoverId: null, selectedId: null }),
-        now,
-        asOf: now,
-        vibrancy: 1,
-        reducedMotion: false,
-        paused: false,
-        breath: breathOf(now, mode),
-      }
-      const marks = sceneMarks(sceneFrame)
+      const t1 = at()
+      const marks = sceneMarks(frameFor(fleet, geometry, now))
+      const t2 = at()
       paint({ ctx: draw.ctx, marks, ...SIZE, dpr: 2 })
+      const t3 = at()
+
+      if (into !== undefined) {
+        into.layout.push(t1 - t0)
+        into.marks.push(t2 - t1)
+        into.paint.push(t3 - t2)
+      }
       return marks.length
     }
 
@@ -352,18 +407,117 @@ describe('the whole frame, before and after', () => {
       let clock = NOW
       for (let i = 0; i < 8; i += 1) frame(clock + i * 16)
       const marks = frame(clock)
-      const whole = medianMs(() => {
+      const stages: Stages = { layout: [], marks: [], paint: [] }
+      const whole = costOf(() => {
         clock += 16
-        frame(clock)
+        frame(clock, stages)
       }, 60)
 
       report(
-        `whole frame at 30 lanes + 2 cuts: ${whole.toFixed(3)} ms/frame median, ` +
-          `${marks} marks (60fps budget ${FRAME_MS.toFixed(2)} ms, ` +
-          `${((whole / FRAME_MS) * 100).toFixed(1)}% of it)`,
+        `whole frame at 30 lanes + 2 cuts: ${whole.medianMs.toFixed(3)} ms median · ` +
+          `${whole.worstMs.toFixed(3)} ms worst, ${marks} marks ` +
+          `(60fps budget ${FRAME_MS.toFixed(2)} ms — ` +
+          `${((whole.medianMs / FRAME_MS) * 100).toFixed(1)}% median, ` +
+          `${((whole.worstMs / FRAME_MS) * 100).toFixed(1)}% worst)`,
       )
-      expect(whole).toBeGreaterThan(0)
+      report(
+        `…by stage (median): layout ${median(stages.layout).toFixed(3)} ms · ` +
+          `marks ${median(stages.marks).toFixed(3)} ms · ` +
+          `paint ${median(stages.paint).toFixed(3)} ms`,
+      )
+
+      expect(whole.medianMs).toBeGreaterThan(0)
+      expect(whole.worstMs).toBeGreaterThanOrEqual(whole.medianMs)
       expect(marks).toBeGreaterThan(0)
     })
+  })
+})
+
+interface Stages {
+  layout: number[]
+  marks: number[]
+  paint: number[]
+}
+
+function median(samples: readonly number[]): number {
+  const sorted = [...samples].sort((a, b) => a - b)
+  return sorted[Math.floor(sorted.length / 2)] ?? 0
+}
+
+/**
+ * …AND WHICH BUILDER IT WENT TO (#157's first task).
+ *
+ * The stage breakdown above says the marks stage is where a 30-lane frame spends
+ * itself. That is still not an actionable sentence — "the display list is slow"
+ * has ten possible fixes — so this walks `sceneMarks`'s own layer order and times
+ * each layer separately, in the same paint order and against the same frame, so
+ * the numbers sum to the stage above rather than describing some other scene.
+ *
+ * It exists because the *next* round should not have to rediscover it. #157
+ * measured, found the frame comfortably inside its budget at thirty lanes, and
+ * therefore deliberately did not spend the round optimising: the brief was
+ * explicit that the perf work is conditional on being over budget, and a refactor
+ * bought against a budget that is not tight is a regression risk taken for
+ * nothing. What it leaves behind is this, and the one line in the summary that
+ * says where the next win is if the budget ever does get tight.
+ */
+describe('the marks stage, by builder', () => {
+  it('reports where a thirty-lane display list is actually built', () => {
+    const fleet = fleet30()
+    const retire = midCut()
+    const samples = new Map<string, number[]>()
+
+    const time = (name: string, work: () => void): void => {
+      const started = performance.now()
+      work()
+      const taken = performance.now() - started
+      const into = samples.get(name)
+      if (into === undefined) samples.set(name, [taken])
+      else into.push(taken)
+    }
+
+    const run = (now: number): void => {
+      const geometry = layoutScene(fleet, { ...SIZE, now, retire })
+      const frame = frameFor(fleet, geometry, now)
+      const { threads } = geometry
+      const perThread = (name: string, of: (t: (typeof threads)[number]) => unknown) =>
+        time(name, () => {
+          for (const thread of threads) of(thread)
+        })
+
+      // `sceneMarks`'s own order (`marks/index.ts`), layer by layer.
+      time('ambient-world', () => void ambientWorldMarks(frame))
+      perThread('thread', (t) => threadMarks(frame, t))
+      perThread('off-fence', (t) => offFenceMarks(frame, t))
+      time('root', () => void rootMarks(frame))
+      perThread('light', (t) => lightMarks(frame, t))
+      perThread('looping', (t) => loopingMarks(frame, t))
+      time('dissolve', () => void dissolveMarks(frame))
+      perThread('node', (t) => nodeMarks(frame, t))
+      perThread('label', (t) => labelMarks(frame, t))
+      time('ambient-screen', () => void ambientScreenMarks(frame))
+    }
+
+    withPath2D(() => {
+      let clock = NOW
+      for (let i = 0; i < 8; i += 1) run(clock + i * 16)
+      samples.clear()
+      for (let i = 0; i < 60; i += 1) run((clock += 16))
+    })
+
+    const ranked = [...samples.entries()]
+      .map(([name, taken]) => [name, median(taken)] as const)
+      .sort((a, b) => b[1] - a[1])
+
+    report(
+      `marks stage by builder (median, 30 lanes + 2 cuts): ` +
+        ranked.map(([name, ms]) => `${name} ${ms.toFixed(3)} ms`).join(' · '),
+    )
+
+    // The law, and it is a shape rather than a clock: every layer `sceneMarks`
+    // draws was reached and timed, so a builder added later cannot quietly stay
+    // out of the profile.
+    expect(ranked).toHaveLength(10)
+    for (const [name, ms] of ranked) expect(ms, `${name} was not measured`).toBeGreaterThanOrEqual(0)
   })
 })
