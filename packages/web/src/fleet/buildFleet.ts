@@ -349,6 +349,18 @@ export interface RootMass {
   conductorOutputTokens: number
   overheadRatio: number | null
   lastCommitTs: number | null
+  /**
+   * #154 — MAIN's own live subagent bud (prd10 ruling 9's conductor half),
+   * mirroring {@link Lane.subagents} exactly: same shape, same
+   * detection-honesty markers, the same {@link selectSubagentActivity} vital
+   * — one object, four surfaces, read here for the fifth. Resolved off every
+   * handle this file already treats as the conductor's own ({@link isRootSpend}),
+   * plus `mainBranch` itself, the same fallback order {@link subagentActivityFor}
+   * uses for a lane. Null whenever no `thread: 'subagent'` reading has reached
+   * the conductor's telemetry inside the window — never a zeroed bud, exactly
+   * `Lane.subagents`' own gap-honesty rule.
+   */
+  subagents: LaneSubagentActivity | null
 }
 
 // ── the ladder, made structurally honest (graft g5) ──────────────────────────
@@ -550,10 +562,17 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
     if (draft.label === draft.id) draft.label = spend.branch ?? spend.lane
   }
 
+  // The conductor's own telemetry handles — collected as they are met so
+  // `subagentActivityFor` can look its bud up the same way a lane's is, off the
+  // exact set of handles this file already resolved to the root rather than a
+  // re-derived guess.
+  const rootHandles = new Set<string>()
+
   let conductorOutputTokens = 0
   for (const spend of Object.values(tokenSpend)) {
     if (isRootSpend(spend)) {
       conductorOutputTokens += spend.tokens.output
+      rootHandles.add(spend.lane)
       continue
     }
     claim(spend)
@@ -566,7 +585,10 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
   // setup) must get a row of their own rather than being visible only in the
   // session total.
   for (const spend of Object.values(costSpend)) {
-    if (isRootSpend(spend)) continue
+    if (isRootSpend(spend)) {
+      rootHandles.add(spend.lane)
+      continue
+    }
     claim(spend)
   }
 
@@ -596,7 +618,11 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
     const fence = manifest === null ? undefined : fenceFor(manifest, draft, handles)
     const activeSeconds = sumActiveSeconds(handles, activeSecondsByLane)
     const waitedOnHuman = waitedOnHumanFor(state, draft.id, draft.branch, handles, spanDecisionByKey)
-    const subagents = subagentActivityFor(subagentActivityByLane, draft.id, draft.branch, handles)
+    const subagents = subagentActivityFor(subagentActivityByLane, [
+      draft.id,
+      ...(draft.branch === null ? [] : [draft.branch]),
+      ...handles,
+    ])
 
     lanes.push({
       id: draft.id,
@@ -690,6 +716,10 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
   const ladder = buildLadder(lanes, collisions, state, now, evidence)
 
   const commitsHome = mainBranch === null ? 0 : (state.branches[mainBranch]?.commits.length ?? 0)
+  const rootSubagents = subagentActivityFor(subagentActivityByLane, [
+    ...(mainBranch === null ? [] : [mainBranch]),
+    ...rootHandles,
+  ])
 
   return {
     now,
@@ -702,6 +732,7 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       conductorOutputTokens,
       overheadRatio: roleSplit.overheadRatio,
       lastCommitTs: mainBranch === null ? null : (commitTsByBranch.get(mainBranch) ?? null),
+      subagents: rootSubagents,
     },
     lanes,
     ladder,
@@ -1280,17 +1311,15 @@ function spanDecisionsByKey(state: SessionState): Map<string, SpanDecision | nul
 }
 
 /**
- * The freshest subagent-activity row across every key a lane could be filed
- * under — same fallback order as {@link waitedOnHumanFor}. Null when none of
+ * The freshest subagent-activity row across every key a lane — or the
+ * root-mass, #154 — could be filed under. Same fallback order
+ * {@link waitedOnHumanFor} reads: id, branch, every handle. Null when none of
  * them has one (law 12's gap-honesty, not a zeroed bud).
  */
 function subagentActivityFor(
   byLane: Readonly<Record<string, LaneSubagentActivity>>,
-  laneId: string,
-  branch: string | null,
-  handles: readonly string[],
+  keys: readonly string[],
 ): LaneSubagentActivity | null {
-  const keys = [laneId, ...(branch === null ? [] : [branch]), ...handles]
   let best: LaneSubagentActivity | null = null
   for (const key of keys) {
     const entry = byLane[key]

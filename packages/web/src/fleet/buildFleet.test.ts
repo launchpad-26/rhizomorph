@@ -855,6 +855,109 @@ describe('Lane.subagents', () => {
   })
 })
 
+// ── #154: MAIN's own subagent vital ─────────────────────────────────────────
+
+describe('RootMass.subagents', () => {
+  function baseLog(now: number) {
+    return [
+      event('session.started', {
+        sessionId: 'main-buds',
+        repoPath: '/repo',
+        repoName: 'rhizomorph',
+        mainBranch: 'main',
+      }, now - 60_000),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, now - 60_000),
+    ]
+  }
+
+  it('is null — never a zeroed bud — when the conductor has no thread-marked telemetry', () => {
+    const fleet = buildFleet(reduceAll(baseLog(NOW)), { now: NOW })
+    expect(fleet.root.subagents).toBeNull()
+  })
+
+  it("reports a live, trace-enriched bud for the conductor's own subagent thread", () => {
+    const log = [
+      ...baseLog(NOW),
+      event(
+        'llm.usage',
+        {
+          lane: 'conductor',
+          role: 'conductor',
+          model: 'claude-opus-5',
+          tokens: { input: 1, output: 2, cacheRead: 0, cacheCreation: 0 },
+          thread: 'subagent',
+        },
+        NOW - 30_000,
+      ),
+      event(
+        'trace.span',
+        {
+          lane: 'conductor',
+          role: 'conductor',
+          traceId: 'trace-conductor',
+          spanId: 'span-conductor-1',
+          parentSpanId: null,
+          name: 'claude_code.tool',
+          kind: 'tool',
+          startTs: NOW - 31_000,
+          endTs: NOW - 30_500,
+          status: 'ok',
+          toolName: 'Task',
+          agentId: 'agent-conductor-1',
+          subagentType: 'Explore',
+        },
+        NOW - 30_000,
+      ),
+    ]
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    expect(fleet.root.subagents).toEqual({
+      lane: 'conductor',
+      lastActivityTs: NOW - 30_000,
+      agentId: 'agent-conductor-1',
+      subagentType: 'Explore',
+    })
+  })
+
+  it('leaves the bud unenriched — never null — when the conductor is live but uninstrumented by traces', () => {
+    const log = [
+      ...baseLog(NOW),
+      event(
+        'tool.activity',
+        { lane: 'conductor', role: 'conductor', tool: 'Read', thread: 'subagent' },
+        NOW - 20_000,
+      ),
+    ]
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    expect(fleet.root.subagents).toEqual({
+      lane: 'conductor',
+      lastActivityTs: NOW - 20_000,
+      agentId: null,
+      subagentType: null,
+    })
+  })
+
+  it("never leaks a worker lane's subagent activity onto the root", () => {
+    const log = [
+      ...baseLog(NOW),
+      event('worktree.discovered', { path: '/repo-wt/s', branch: 's', head: 'sha-s', isMain: false }, NOW - 60_000),
+      event(
+        'llm.usage',
+        {
+          lane: 's',
+          role: 'worker',
+          model: 'claude-opus-5',
+          tokens: { input: 1, output: 2, cacheRead: 0, cacheCreation: 0 },
+          thread: 'subagent',
+        },
+        NOW - 10_000,
+      ),
+    ]
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    expect(fleet.root.subagents).toBeNull()
+    expect(laneIn(fleet, 's').subagents).not.toBeNull()
+  })
+})
+
 // ── pointability (graft g7) ─────────────────────────────────────────────────
 
 describe('lane slots', () => {
