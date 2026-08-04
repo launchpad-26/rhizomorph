@@ -68,16 +68,21 @@ interface WatchedDir {
 }
 
 /**
- * Tails `~/.claude/projects/<slug>/*.jsonl` for every worktree of the watched
- * repo (discovered the same way the git collector does, via
- * `git worktree list --porcelain`) plus any configured extra session dirs.
- * Assistant lines become `llm.usage` (once per `requestId`, since a single
- * reply can span several lines that all repeat the same usage block) and
- * `tool.activity` (one per `tool_use` content block). Missing or
- * undiscoverable session dirs never crash the poll loop — either the whole
- * collector disables itself once (no `~/.claude/projects` at all, or git
- * itself unusable), or a single worktree's project dir is treated as "no
- * session yet" and retried next poll.
+ * Tails `~/.claude/projects/<slug>/*.jsonl` for every worktree the watched
+ * repo has ever had (discovered live the same way the git collector does,
+ * via `git worktree list --porcelain`, **and** remembered past a worktree's
+ * removal — #165) plus any configured extra session dirs. `git worktree
+ * list` only answers "what exists now"; a lane's worktree is gone the moment
+ * it lands and folds, which is exactly when its transcript is most wanted,
+ * so the slug set is the union of what git reports live this poll and every
+ * worktree path this collector has ever seen (`snapshot.knownWorktrees`),
+ * not the live list alone. Assistant lines become `llm.usage` (once per
+ * `requestId`, since a single reply can span several lines that all repeat
+ * the same usage block) and `tool.activity` (one per `tool_use` content
+ * block). Missing or undiscoverable session dirs never crash the poll loop —
+ * either the whole collector disables itself once (no `~/.claude/projects`
+ * at all, or git itself unusable), or a single worktree's project dir is
+ * treated as "no session yet" and retried next poll.
  */
 export function createSessionlogCollector(
   config: SessionlogCollectorConfig = {},
@@ -90,7 +95,7 @@ export function createSessionlogCollector(
     name: COLLECTOR_NAME,
 
     initialSnapshot(): SessionlogSnapshot {
-      return { disabled: false, files: {}, erroredExtraSessionDirs: {} }
+      return { disabled: false, files: {}, erroredExtraSessionDirs: {}, knownWorktrees: {} }
     },
 
     async poll(prevSnapshot, context: CollectorContext): Promise<PollResult<SessionlogSnapshot>> {
@@ -139,20 +144,37 @@ export function createSessionlogCollector(
       // the operator has declared it via `--extra-sessions` (kept exactly as
       // declared, never overridden here), it is `unattributed` — a setup gap
       // to fill in, never silently booked as worker spend (#62).
-      const worktreePaths = parseWorktreePaths(worktreeListResult.stdout)
-      const mainWorktreePath = worktreePaths[0]
+      const liveWorktreePaths = parseWorktreePaths(worktreeListResult.stdout)
+      const mainWorktreePath = liveWorktreePaths[0]
       const declaredWorktreePaths = new Set(extraWatchedDirs.map((dir) => dir.worktreePath))
 
-      const watchedDirs: WatchedDir[] = [
-        ...worktreePaths
-          .filter((worktreePath) => !declaredWorktreePaths.has(worktreePath))
-          .map((worktreePath): WatchedDir =>
-            worktreePath === mainWorktreePath
-              ? { worktreePath, role: 'unattributed', laneOverride: UNATTRIBUTED_LANE }
-              : { worktreePath, role: 'worker' },
-          ),
-        ...extraWatchedDirs,
-      ]
+      const liveDiscoveredDirs: WatchedDir[] = liveWorktreePaths
+        .filter((worktreePath) => !declaredWorktreePaths.has(worktreePath))
+        .map((worktreePath): WatchedDir =>
+          worktreePath === mainWorktreePath
+            ? { worktreePath, role: 'unattributed', laneOverride: UNATTRIBUTED_LANE }
+            : { worktreePath, role: 'worker' },
+        )
+
+      // The fold's own memory of every worktree it has ever discovered live,
+      // updated with this poll's live set before it is used below — so a
+      // worktree seen for the very first time this poll is already part of
+      // its own "known" set, and one that just folded (present in
+      // `prevSnapshot.knownWorktrees` but absent from `liveDiscoveredDirs`
+      // this time) stays in it (#165).
+      const knownWorktrees: Record<string, AgentRole> = { ...prevSnapshot.knownWorktrees }
+      for (const dir of liveDiscoveredDirs) knownWorktrees[dir.worktreePath] = dir.role
+
+      const liveDiscoveredPaths = new Set(liveDiscoveredDirs.map((dir) => dir.worktreePath))
+      const foldedDirs: WatchedDir[] = Object.entries(knownWorktrees)
+        .filter(([worktreePath]) => !liveDiscoveredPaths.has(worktreePath) && !declaredWorktreePaths.has(worktreePath))
+        .map(([worktreePath, role]): WatchedDir =>
+          role === 'unattributed'
+            ? { worktreePath, role, laneOverride: UNATTRIBUTED_LANE }
+            : { worktreePath, role },
+        )
+
+      const watchedDirs: WatchedDir[] = [...liveDiscoveredDirs, ...foldedDirs, ...extraWatchedDirs]
 
       const nextFiles: Record<string, TailedFileState> = { ...prevSnapshot.files }
 
@@ -161,7 +183,12 @@ export function createSessionlogCollector(
       }
 
       return {
-        nextSnapshot: { disabled: false, files: nextFiles, erroredExtraSessionDirs: nextErroredExtraSessionDirs },
+        nextSnapshot: {
+          disabled: false,
+          files: nextFiles,
+          erroredExtraSessionDirs: nextErroredExtraSessionDirs,
+          knownWorktrees,
+        },
         events,
       }
     },
@@ -353,7 +380,7 @@ async function initialOffset(filePath: string, backfill: boolean): Promise<numbe
 
 function disable(context: CollectorContext, reason: string): PollResult<SessionlogSnapshot> {
   return {
-    nextSnapshot: { disabled: true, files: {}, erroredExtraSessionDirs: {} },
+    nextSnapshot: { disabled: true, files: {}, erroredExtraSessionDirs: {}, knownWorktrees: {} },
     events: [context.emit('collector.disabled', { collector: COLLECTOR_NAME, reason })],
   }
 }

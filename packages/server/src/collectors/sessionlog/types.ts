@@ -26,4 +26,18 @@ export interface SessionlogSnapshot {
    * spec resolves again, so recovery doesn't need its own bookkeeping.
    */
   erroredExtraSessionDirs: Record<string, true>
+  /**
+   * Every worktree `git worktree list` has ever named for this repo, keyed by
+   * path, remembered past the worktree's own removal (#165). `git worktree
+   * list` only ever answers "what exists now" — the moment a lane lands and
+   * its worktree is removed, it drops out of that list, and a tail set built
+   * from the list alone would stop attributing (and eventually locating) a
+   * transcript that is still sitting on disk. This is the fold's own memory
+   * of what it has seen, so a folded lane's slug stays in the tail set
+   * forever, not just while `git` still lists it. Cheap to keep: once a
+   * folded worktree's session file has been fully read, tailing it again on a
+   * later poll costs one `stat` and one `readdir`, never an open file handle
+   * (`tailProjectDir` only opens a file when there are unread bytes).
+   */
+  knownWorktrees: Record<string, AgentRole>
 }

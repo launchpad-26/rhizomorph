@@ -651,6 +651,7 @@ describe('createSessionlogCollector', () => {
         [filePath]: { offset: rehydratedOffset, lastUsageRequestId: 'req_011CdXKgL7B2nj6xkUSoy4tk' },
       },
       erroredExtraSessionDirs: {},
+      knownWorktrees: {},
     }
 
     const collector = createSessionlogCollector({ claudeProjectsRoot: root })
@@ -666,5 +667,108 @@ describe('createSessionlogCollector', () => {
     // No gap: lines 2-4's tool_use blocks are all still picked up.
     const tools = result.events.filter((e) => e.type === 'tool.activity')
     expect(tools.map((e) => (e.payload as { tool: string }).tool)).toEqual(['Read', 'Read', 'Bash'])
+  })
+
+  it('keeps tailing a worktree once it folds — drops out of `git worktree list` but its slug stays in the tail set (#165)', async () => {
+    const worktreePath = '/fake/worktrees/163'
+    const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
+    await mkdir(projectDir, { recursive: true })
+    const filePath = path.join(projectDir, '95f42357-058c-4ea2-84d4-de7b1eb58635.jsonl')
+    await writeFile(filePath, await readFixture('worker-2-core.jsonl'), 'utf8')
+
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+
+    // First poll: the worktree is live, git lists it, the lane's own content
+    // is tailed and correctly attributed with its worktreePath/role.
+    const liveExec: Exec = async () => success(worktreeListOutput(['/repo', worktreePath]))
+    const first = await collector.poll(collector.initialSnapshot(), makeContext(liveExec))
+    const firstUsage = first.events.filter((e) => e.type === 'llm.usage')
+    expect(firstUsage).toHaveLength(1)
+    expect(firstUsage[0]?.payload).toMatchObject({ worktreePath, role: 'worker', lane: '2-core' })
+
+    // The lane lands: its worktree is removed, so `git worktree list` no
+    // longer reports it — but the session file is still on disk and gains
+    // trailing content (the fold's own writes finishing up).
+    await writeFile(
+      filePath,
+      `${await readFixture('worker-2-core.jsonl')}${await readFixture('conductor-root.jsonl')}`,
+      'utf8',
+    )
+    const foldedExec: Exec = async () => success(worktreeListOutput(['/repo']))
+    const second = await collector.poll(first.nextSnapshot, makeContext(foldedExec))
+
+    // Before #165, a worktree missing from `git worktree list` was dropped
+    // from the tail set entirely — this content would never be read or
+    // attributed. It still must be, with the worktreePath the collector
+    // remembers rather than one derived from git's now-empty answer.
+    const secondUsage = second.events.filter((e) => e.type === 'llm.usage')
+    expect(secondUsage).toHaveLength(1)
+    expect(secondUsage[0]?.payload).toMatchObject({ worktreePath, role: 'worker' })
+
+    // And the memory survives a third poll — still folded, still known.
+    const third = await collector.poll(second.nextSnapshot, makeContext(foldedExec))
+    expect(third.events).toEqual([])
+    expect((third.nextSnapshot as { knownWorktrees: Record<string, string> }).knownWorktrees).toMatchObject({
+      [worktreePath]: 'worker',
+    })
+  })
+
+  it('remembers a folded main worktree as unattributed, not worker, and keeps its lane override (#165)', async () => {
+    const rootPath = '/repo'
+    const rootProjectDir = path.join(root, worktreePathToProjectSlug(rootPath))
+    await mkdir(rootProjectDir, { recursive: true })
+    const filePath = path.join(rootProjectDir, '95f42357-058c-4ea2-84d4-de7b1eb58635.jsonl')
+    await writeFile(filePath, await readFixture('worker-2-core.jsonl'), 'utf8')
+
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const liveExec: Exec = async () => success(worktreeListOutput([rootPath]))
+    const first = await collector.poll(collector.initialSnapshot(), makeContext(liveExec))
+    expect(first.events.filter((e) => e.type === 'llm.usage')).toHaveLength(1)
+
+    // The root worktree itself "folds" (a pathological case, but the
+    // reconstruction from remembered role must still be honest about it).
+    await writeFile(
+      filePath,
+      `${await readFixture('worker-2-core.jsonl')}${await readFixture('conductor-root.jsonl')}`,
+      'utf8',
+    )
+    const foldedExec: Exec = async () => success(worktreeListOutput([]))
+    const second = await collector.poll(first.nextSnapshot, makeContext(foldedExec))
+
+    const usage = second.events.filter((e) => e.type === 'llm.usage')
+    expect(usage).toHaveLength(1)
+    expect(usage[0]?.payload).toMatchObject({ worktreePath: rootPath, role: 'unattributed', lane: 'unattributed' })
+  })
+
+  it('does not double-tail a worktree that is both remembered-folded and declared via --extra-sessions', async () => {
+    const rootPath = '/repo'
+    const rootProjectDir = path.join(root, worktreePathToProjectSlug(rootPath))
+    await mkdir(rootProjectDir, { recursive: true })
+    await writeFile(
+      path.join(rootProjectDir, '85649f6d-2f7d-43aa-a23e-10c9c1c0d2bc.jsonl'),
+      await readFixture('conductor-root.jsonl'),
+      'utf8',
+    )
+
+    const collector = createSessionlogCollector({
+      claudeProjectsRoot: root,
+      extraSessionDirs: [`${rootPath}:conductor`],
+      backfill: true,
+    })
+    // The worktree starts out remembered as folded-worker from a prior run
+    // (simulated via a hand-built prevSnapshot), then is also declared via
+    // --extra-sessions this run — the declared role/lane must win, once.
+    const prevSnapshot = {
+      disabled: false,
+      files: {},
+      erroredExtraSessionDirs: {},
+      knownWorktrees: { [rootPath]: 'worker' as const },
+    }
+    const gitExec: Exec = async () => success(worktreeListOutput([]))
+    const result = await collector.poll(prevSnapshot, makeContext(gitExec))
+
+    const usage = result.events.filter((e) => e.type === 'llm.usage')
+    expect(usage).toHaveLength(1)
+    expect(usage[0]?.payload).toMatchObject({ role: 'conductor', lane: 'conductor', worktreePath: rootPath })
   })
 })
