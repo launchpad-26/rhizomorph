@@ -1,10 +1,11 @@
-import type { ThreadGeometry } from '../geometry.js'
+import type { BudGeometry, ThreadGeometry } from '../geometry.js'
 import { DISSOLUTION } from '../motion.js'
 import { dissolutionMotes, type Dissolve, type Mote } from '../motes.js'
-import { ACTIVITY_HUE } from '../palette.js'
+import { ACTIVITY_HUE, ICE_400, type Rgb } from '../palette.js'
 import { emphasisOf } from '../salience.js'
 import { variationSeed } from '../variation.js'
 import type { SceneFrame } from './frame.js'
+import { conductorBud } from './root.js'
 import type { Mark, MarkRole } from './types.js'
 
 /**
@@ -31,6 +32,14 @@ import type { Mark, MarkRole } from './types.js'
  * return that did not happen on this screen. That is also what makes a
  * scrubbed-to-the-end replay show a clean rim rather than a wave of composting
  * cords the log is only telling us about.
+ *
+ * **#154 — MAIN's own bud absorbs the same way.** A worker's bud (`thread.bud`)
+ * and the conductor's (`marks/root.ts`'s `conductorBud`) share one job builder,
+ * {@link budAbsorptionJob}: the same spine-reversed-so-home-is-first geometry,
+ * the same `DISSOLUTION` pool, the same event-class spawn with nothing held in
+ * state. The one difference is where the matter goes back to — a lane's own
+ * junction for a worker's bud, the mass's rim for the conductor's — which is
+ * exactly ruling 9's own distinction and nothing this file invents.
  */
 
 /**
@@ -56,6 +65,16 @@ export function dissolveMarks(frame: SceneFrame): Mark[] {
       if (items.length === 0) continue
       budget -= items.length
       marks.push(drift(job.role, thread.laneId, items))
+    }
+  }
+
+  // MAIN's own absorption (#154, ruling 9's conductor half) — walked last, out
+  // of the same pool, so a lane's own return never loses ground to the mass's.
+  if (budget > 0) {
+    const job = conductorAbsorptionJob(frame)
+    if (job !== null) {
+      const items = dissolutionMotes(job.dissolve, budget)
+      if (items.length > 0) marks.push(drift(job.role, null, items))
     }
   }
 
@@ -101,30 +120,64 @@ function jobsFor(frame: SceneFrame, thread: ThreadGeometry): Job[] {
     })
   }
 
-  const bud = thread.bud
-  if (bud !== null && bud.absorb > 0) {
-    jobs.push({
-      role: 'absorption',
-      dissolve: {
-        cause: 'absorption',
-        // Reversed, so home is first here too: a bud's home is the junction on its
-        // parent's thread, and its matter goes back into the lane that spawned it
-        // rather than to the mass. One level deep, and this is where that shows.
-        spine: [...bud.path].reverse(),
-        progress: bud.absorb,
-        // Small: a bud is a branchlet, so what it gives back is a handful of motes
-        // whatever the parent lane has produced.
-        sizeFrac: 0,
-        family,
-        seed: `${seed}/bud`,
-        peak: peak * 0.8,
-      },
-    })
-  }
+  const budJob = budAbsorptionJob(thread.bud, family, seed, peak)
+  if (budJob !== null) jobs.push(budJob)
 
   return jobs
 }
 
-function drift(role: MarkRole, laneId: string, items: readonly Mote[]): Mark {
+/**
+ * A finished bud giving its matter back to its parent — ruling 2's grammar in
+ * miniature, and shared verbatim by a worker's own bud (above) and the
+ * conductor's ({@link conductorAbsorptionJob}): the SAME return grammar, never
+ * a fork of it.
+ */
+function budAbsorptionJob(
+  bud: BudGeometry | null,
+  family: Rgb,
+  seed: string,
+  peak: number,
+): Job | null {
+  if (bud === null || bud.absorb <= 0) return null
+  return {
+    role: 'absorption',
+    dissolve: {
+      cause: 'absorption',
+      // Reversed, so home is first here too: a bud's home is the junction on its
+      // parent's thread (or the mass's own rim, for the conductor's), and its
+      // matter goes back into whatever spawned it. One level deep, and this is
+      // where that shows.
+      spine: [...bud.path].reverse(),
+      progress: bud.absorb,
+      // Small: a bud is a branchlet, so what it gives back is a handful of motes
+      // whatever the parent produced.
+      sizeFrac: 0,
+      family,
+      seed: `${seed}/bud`,
+      peak: peak * 0.8,
+    },
+  }
+}
+
+/**
+ * MAIN's own bud giving its matter back to the mass (#154, prd10 ruling 9's
+ * conductor half) — `budAbsorptionJob` again, on the exact geometry
+ * `marks/root.ts` draws the live branchlet from ({@link conductorBud}), so the
+ * two can never disagree about where the bud is or when it has finished.
+ *
+ * Ice, not a family hue (the conductor is not a lane and has no activity to
+ * wear, `marks/root.ts`'s own reasoning for its bud's ink) — and full emphasis,
+ * `emphasisOf`'s own exemption for `laneId: null`: the mass is never spotlit or
+ * receded the way a lane's marks are.
+ */
+function conductorAbsorptionJob(frame: SceneFrame): Job | null {
+  const radius = frame.geometry.rootRadius * frame.breath
+  const bud = conductorBud(frame, radius)
+  const seed = `conductor/${frame.fleet.root.mainBranch ?? 'main'}`
+  const peak = MOTE_PEAK * emphasisOf(frame.salience, null, false)
+  return budAbsorptionJob(bud, ICE_400, seed, peak)
+}
+
+function drift(role: MarkRole, laneId: string | null, items: readonly Mote[]): Mark {
   return { kind: 'motes', role, laneId, alarm: false, items }
 }

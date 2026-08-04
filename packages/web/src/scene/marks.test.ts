@@ -3163,6 +3163,82 @@ describe('subagent buds (prd10 ruling 9)', () => {
 })
 
 /**
+ * MAIN'S OWN BUD (#154, prd10 ruling 9's conductor half) — "the conductor's
+ * subagents bud from MAIN's own anatomy", closing the gap #144 filed against
+ * itself: `RootMass.subagents` now carries the same vital `Lane.subagents`
+ * does, so the mass grows and absorbs a bud through the exact grammar above
+ * rather than a fork of it. `laneId === null` is what tells a bud on the mass
+ * apart from a bud on a lane's own thread — every root-mass mark carries it.
+ */
+describe("the conductor's own bud (prd10 ruling 9, #154)", () => {
+  function noConductorBud(): Fleet {
+    const fleet = fleetFor(fleet20Spec())
+    return { ...fleet, root: { ...fleet.root, subagents: null } }
+  }
+
+  function withConductorBud(sinceMs: number): Fleet {
+    const fleet = noConductorBud()
+    return {
+      ...fleet,
+      root: {
+        ...fleet.root,
+        subagents: {
+          lane: 'conductor',
+          lastActivityTs: NOW - sinceMs,
+          agentId: 'agent-conductor',
+          subagentType: 'Explore',
+        },
+      },
+    }
+  }
+
+  const budOnMass = (marks: readonly Mark[]): Mark[] =>
+    marks.filter((mark) => mark.laneId === null && mark.role === 'bud')
+  const flareOnMass = (marks: readonly Mark[]): Mark[] =>
+    marks.filter((mark) => mark.laneId === null && mark.role === 'bud-flare')
+  const absorptionOnMass = (marks: readonly Mark[]): Mark[] =>
+    marks.filter((mark) => mark.laneId === null && mark.role === 'absorption')
+
+  it('grows no bud on the mass when the conductor has no subagent vital', () => {
+    const marks = marksFor({ fleet: noConductorBud() })
+    expect(budOnMass(marks)).toHaveLength(0)
+    expect(flareOnMass(marks)).toHaveLength(0)
+  })
+
+  it("buds off the mass's own rim, never a lane's thread", () => {
+    const marks = marksFor({ fleet: withConductorBud(1_000) })
+    expect(budOnMass(marks)).toHaveLength(1)
+  })
+
+  it('flares when the conductor subagent just spoke, and not a minute later', () => {
+    expect(flareOnMass(marksFor({ fleet: withConductorBud(20) }))).toHaveLength(1)
+    expect(flareOnMass(marksFor({ fleet: withConductorBud(60_000) }))).toHaveLength(0)
+  })
+
+  it('is absorbed back into the mass rather than blinking out', () => {
+    const going = marksFor({ fleet: withConductorBud(DEFAULT_SUBAGENT_RECENCY_MS - 900) })
+    const gone = marksFor({ fleet: withConductorBud(DEFAULT_SUBAGENT_RECENCY_MS) })
+
+    expect(absorptionOnMass(going)).toHaveLength(1)
+    // And when the evidence expires, so does the bud — with nothing left over.
+    expect(budOnMass(gone)).toHaveLength(0)
+    expect(absorptionOnMass(gone)).toHaveLength(0)
+  })
+
+  /**
+   * #154's own case, and the exact one #144 filed against itself: a scrub never
+   * replays live news, so a bud fed from `PulseField`'s news tail grows none on
+   * a recorded session. This frame's `PulseField` is fresh and untouched —
+   * nothing was ever `ingest`ed into it — so a bud surviving here can only have
+   * come from the fleet snapshot, exactly what a replay hands the scene.
+   */
+  it('grows the bud from the fleet snapshot alone — a replayed conductor buds with no live news', () => {
+    const marks = marksFor({ fleet: withConductorBud(1_000), field: new PulseField() })
+    expect(budOnMass(marks)).toHaveLength(1)
+  })
+})
+
+/**
  * THE DEPTH MAY NOT EAT THE NAMES (prd10 ruling 6, against prd4's legibility law).
  *
  * The one way ruling 6 could have broken something without any existing test
