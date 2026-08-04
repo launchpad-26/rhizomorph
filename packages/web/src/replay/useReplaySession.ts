@@ -23,9 +23,18 @@ export interface ReplaySession {
   error: string | null
   playback: UsePlaybackResult
   range: TimeRange
-  /** Events at or before the scrub time — the raw shape `StreamContext` serves panels. */
-  eventsAtScrubTime: RhizomorphEvent[]
-  /** The same slice, folded through the core reducer — the replay controls' own summary. */
+  /**
+   * The full sorted event log — stable identity across ticks, changing only
+   * when a new session loads. Consumers that need the scrub prefix slice it
+   * themselves from `scrubEventCount` rather than being handed a fresh array
+   * every tick: a per-tick slice's fresh identity was what made `StreamContext`
+   * refold its whole prefix from scratch on every scrub, twice over (#160,
+   * #162) — the slice itself was never the expensive part.
+   */
+  scrubEvents: readonly RhizomorphEvent[]
+  /** Count of `scrubEvents` at or before the scrub time. */
+  scrubEventCount: number
+  /** State at the scrub time, folded through the core reducer — the replay controls' own summary. */
   state: SessionState
   isReplaying: boolean
 }
@@ -120,13 +129,13 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
   // cache is keyed on `sessionIndex`'s own identity.
   const cursorCacheRef = useRef<{ index: SessionIndex; cursor: FoldCursor } | null>(null)
 
-  const { eventsAtScrubTime, state } = useMemo(() => {
+  const { scrubEventCount, state } = useMemo(() => {
     const cached = cursorCacheRef.current
     const from = cached !== null && cached.index === sessionIndex ? cached.cursor : initialFoldCursor()
     const cursor = foldFrom(sessionIndex, playback.currentTs, from)
     cursorCacheRef.current = { index: sessionIndex, cursor }
     return {
-      eventsAtScrubTime: sessionIndex.events.slice(0, cursor.index),
+      scrubEventCount: cursor.index,
       state: cursor.state,
     }
   }, [sessionIndex, playback.currentTs])
@@ -141,7 +150,8 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
     error,
     playback,
     range,
-    eventsAtScrubTime,
+    scrubEvents: sessionIndex.events,
+    scrubEventCount,
     state,
     isReplaying,
   }
@@ -168,7 +178,8 @@ export function emptyReplaySession(): ReplaySession {
       reset: noop,
     },
     range: { start: 0, end: 0 },
-    eventsAtScrubTime: [],
+    scrubEvents: [],
+    scrubEventCount: 0,
     state: initialSessionState(),
     isReplaying: false,
   }

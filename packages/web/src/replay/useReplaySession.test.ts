@@ -73,12 +73,17 @@ describe('useReplaySession', () => {
     return f.all()
   }
 
+  /** The prefix `scrubEvents.slice(0, scrubEventCount)` describes — what `eventsAtScrubTime` used to hand back directly. */
+  function scrubPrefix(result: { scrubEvents: readonly RhizomorphEvent[]; scrubEventCount: number }) {
+    return result.scrubEvents.slice(0, result.scrubEventCount)
+  }
+
   it('has no session and empty state before anything is selected', () => {
     const fetchImpl = makeFetch('s1', [])
     const { result } = renderHook(() => useReplaySession({ fetchImpl }))
     expect(result.current.selectedId).toBeNull()
     expect(result.current.events).toEqual([])
-    expect(result.current.eventsAtScrubTime).toEqual([])
+    expect(scrubPrefix(result.current)).toEqual([])
     expect(result.current.isReplaying).toBe(false)
   })
 
@@ -91,8 +96,33 @@ describe('useReplaySession', () => {
       result.current.playback.seek(targetTs)
     })
 
-    expect(result.current.eventsAtScrubTime).toEqual(events.filter((e) => e.ts <= targetTs))
+    expect(scrubPrefix(result.current)).toEqual(events.filter((e) => e.ts <= targetTs))
     expect(result.current.state).toEqual(foldUpTo(events, targetTs))
+  })
+
+  /**
+   * #162: `eventsAtScrubTime` used to be a fresh `.slice()` every tick, which
+   * gave `StreamContext`'s memo a new array identity to miss on every scrub —
+   * the whole reason it refolded from scratch. `scrubEvents` must keep the
+   * same reference across ticks so a downstream memo keyed on it actually
+   * memoizes; only `scrubEventCount` (a cheap primitive) should change.
+   */
+  it('keeps scrubEvents at a stable identity across ticks — only scrubEventCount moves', async () => {
+    const events = buildSession(30)
+    const { result } = await renderSelected('s1', events)
+
+    const firstScrubEvents = result.current.scrubEvents
+    await act(async () => {
+      result.current.playback.seek(events[5]!.ts)
+    })
+    const afterFirstSeek = result.current.scrubEvents
+    await act(async () => {
+      result.current.playback.seek(events[20]!.ts)
+    })
+    const afterSecondSeek = result.current.scrubEvents
+
+    expect(afterFirstSeek).toBe(firstScrubEvents)
+    expect(afterSecondSeek).toBe(firstScrubEvents)
   })
 
   /**
@@ -114,7 +144,7 @@ describe('useReplaySession', () => {
         result.current.playback.seek(ts)
       })
       expect(result.current.state).toEqual(foldUpTo(events, ts))
-      expect(result.current.eventsAtScrubTime).toEqual(events.filter((e) => e.ts <= ts))
+      expect(scrubPrefix(result.current)).toEqual(events.filter((e) => e.ts <= ts))
     }
   })
 
@@ -156,7 +186,7 @@ describe('useReplaySession', () => {
     })
 
     expect(result.current.state).toEqual(foldUpTo(events, result.current.playback.currentTs))
-    expect(result.current.eventsAtScrubTime).toEqual(
+    expect(scrubPrefix(result.current)).toEqual(
       events.filter((e) => e.ts <= result.current.playback.currentTs),
     )
 
@@ -178,7 +208,7 @@ describe('useReplaySession', () => {
     })
 
     expect(result.current.state).toEqual(foldUpTo(events, ts))
-    expect(result.current.eventsAtScrubTime).toEqual(events.filter((e) => e.ts <= ts))
+    expect(scrubPrefix(result.current)).toEqual(events.filter((e) => e.ts <= ts))
   })
 
   it('reselecting a different session resets the fold instead of reusing the old cursor', async () => {
