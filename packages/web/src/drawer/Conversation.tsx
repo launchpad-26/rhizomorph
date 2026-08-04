@@ -78,8 +78,15 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
 
   // No top hairline on the section: the vitals above already draw one, and two
   // rules stacked read as a gap where there is none.
+  //
+  // `overflow-hidden` here is load-bearing (#151): this section's `min-h-0`
+  // lets the outer flex column squeeze it down when ACTIVITY/WHY/TRACE below
+  // it are all near their own caps, and without a clip boundary on the
+  // section itself the scrollable body's content painted straight through
+  // whatever siblings came after it in the flow instead of stopping at the
+  // section's own (now-smaller) box.
   return (
-    <section data-testid="drawer-conversation" className="flex min-h-0 flex-1 flex-col">
+    <section data-testid="drawer-conversation" className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="flex items-baseline justify-between px-4 pb-1 pt-2">
         <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-ice-400">
           Conversation
@@ -101,7 +108,7 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
             ref={bodyRef}
             data-testid="conversation-body"
             onScroll={(event) => setFollowing(isAtTail(event.currentTarget))}
-            className="min-h-32 flex-1 overflow-auto bg-ice-1000 px-4 py-2 [scrollbar-gutter:stable]"
+            className="min-h-0 flex-1 overflow-y-auto bg-ice-1000 px-4 py-2 [scrollbar-gutter:stable]"
           >
             {tail.earliestOffset > 0 ? (
               <button

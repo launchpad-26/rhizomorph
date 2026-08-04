@@ -360,6 +360,78 @@ describe('LaneDrawer — the activity view (the default reading)', () => {
   })
 })
 
+/**
+ * #151 REGRESSION COVERAGE — one flow column, structurally.
+ *
+ * jsdom has no layout engine, so none of this can *prove* the sections stop
+ * overprinting one another in a real window; it can only prove the DOM shape
+ * a browser lays out never invites the overlap in the first place — every
+ * section a plain flow sibling, and the one flex-grow section boxed with a
+ * clip boundary rather than left free to bleed. The gate's browser check is
+ * the actual proof.
+ */
+describe('LaneDrawer — one flow column, not overprinted (#151)', () => {
+  it('every top-level section is a plain flow sibling — none pulled out of flow to stack on another', async () => {
+    await renderDrawer({ events: [...laneHistory(), ...fixtureTraceSpans({ lane: LANE, sessionId: 'sess-84' })] })
+
+    const drawer = screen.getByTestId('lane-drawer')
+    const children = [...drawer.children]
+    // header + vitals + conversation + activity + why + trace + attach.
+    expect(children.length).toBeGreaterThanOrEqual(7)
+    for (const child of children) {
+      const el = child as HTMLElement
+      expect(el.className).not.toMatch(/(?:^|\s)(?:absolute|fixed)(?:\s|$)/)
+      expect(el.style.position).not.toBe('absolute')
+      expect(el.style.position).not.toBe('fixed')
+    }
+  })
+
+  it('the conversation section is a clip boundary, not just a shrinkable one — #151 root cause', async () => {
+    await renderDrawer()
+
+    const section = screen.getByTestId('drawer-conversation')
+    expect(section.className).toContain('min-h-0')
+    expect(section.className).toContain('flex-1')
+    expect(section.className).toContain('overflow-hidden')
+  })
+
+  it('the conversation body is the classic bounded-scroll pattern — a min-h-0 flex child with its own overflow-y-auto', async () => {
+    const fetchTranscript: FetchLike = async () => ({
+      ok: true,
+      json: async () => ({
+        available: true,
+        lane: LANE,
+        sessionId: 'sess-84',
+        offset: 0,
+        nextOffset: 40,
+        size: 40,
+        eof: true,
+        restarted: false,
+        entries: [{ role: 'user', blocks: [{ kind: 'text', text: 'hi' }] }],
+      }),
+    })
+    await renderDrawer({ fetchTranscript })
+
+    const body = screen.getByTestId('conversation-body')
+    expect(body.className).toContain('min-h-0')
+    expect(body.className).toContain('flex-1')
+    expect(body.className).toContain('overflow-y-auto')
+    // The old floor (`min-h-32`) is exactly what let this box outgrow a
+    // squeezed section: never reintroduce a positive min-height here.
+    expect(body.className).not.toMatch(/min-h-(?!0\b)\d/)
+  })
+
+  it('ACTIVITY, WHY and TRACE each cap their own height and scroll internally instead of growing unbounded', async () => {
+    await renderDrawer({ events: [...laneHistory(), ...fixtureTraceSpans({ lane: LANE, sessionId: 'sess-84' })] })
+
+    for (const testId of ['drawer-activity', 'why-surface', 'drawer-trace']) {
+      const el = screen.getByTestId(testId)
+      expect(el.className).toMatch(/max-h-\d+/)
+      expect(el.className).toContain('overflow-auto')
+    }
+  })
+})
+
 describe('LaneDrawer — the WHY surface (prd11 ruling 5)', () => {
   /**
    * A tool call and a commit naming the same file, plus a trace span sharing
