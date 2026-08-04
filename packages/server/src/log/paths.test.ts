@@ -1,6 +1,13 @@
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { repoSlug, sessionDirFor, sessionFileName, sessionIdFromFileName, snapshotDirFor } from './paths.js'
+import {
+  repoSlug,
+  sessionDirFor,
+  sessionFileName,
+  sessionIdFromFileName,
+  sessionLabelFileName,
+  snapshotDirFor,
+} from './paths.js'
 
 describe('repoSlug', () => {
   it('combines a sanitized basename with a short hash of the absolute path', () => {
@@ -35,6 +42,13 @@ describe('session filenames', () => {
   it('rejects names that are not session files', () => {
     expect(sessionIdFromFileName('not-a-session.jsonl')).toBeNull()
     expect(sessionIdFromFileName('session-abc.jsonl')).toBeNull()
+  })
+})
+
+describe('sessionLabelFileName', () => {
+  it('names the sidecar beside the session log, never the log itself', () => {
+    expect(sessionLabelFileName('1700000000000')).toBe('session-1700000000000.label.json')
+    expect(sessionLabelFileName('1700000000000')).not.toBe(sessionFileName(1700000000000))
   })
 })
 

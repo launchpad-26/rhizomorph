@@ -32,6 +32,17 @@ export function sessionFileName(ts: number): string {
 }
 
 /**
+ * The operator label sidecar's name for a session — a file next to the log,
+ * never the log itself (the append-only law: `rhizomorph label` writes here,
+ * it never touches `session-<id>.jsonl`). `sessionId` rather than a
+ * timestamp because a resumed session's id can outlive the ts a fresh boot
+ * would mint, and the id is what every other route already keys on.
+ */
+export function sessionLabelFileName(sessionId: string): string {
+  return `session-${sessionId}.label.json`
+}
+
+/**
  * Where a session's collector snapshots live: a directory of its own beside the
  * session logs, keyed by session id. Keyed, not shared, because snapshots are
  * only meaningful *for the session that wrote them* — a resumed session picks up
