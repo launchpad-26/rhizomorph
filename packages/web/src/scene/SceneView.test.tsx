@@ -16,7 +16,7 @@ import {
 } from '../fleet/index.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
 import { SCALE_EXTENT, ZOOM_STEP } from './camera.js'
-import { layoutScene } from './geometry.js'
+import { RECENCY_SPAN_MS, layoutScene } from './geometry.js'
 import { PulseField } from './pulses.js'
 import { laneIndex } from './resolve.js'
 import { RetireRegistry } from './retire.js'
@@ -849,7 +849,13 @@ function stagedFleet() {
  * only way to watch a scene *not* move without racing it.
  */
 function mountMotion(
-  options: { settle?: SettleRegistry; retire?: RetireRegistry; fleet?: Fleet } = {},
+  options: {
+    settle?: SettleRegistry
+    retire?: RetireRegistry
+    fleet?: Fleet
+    /** #157's state clock. Absent is the live case: the same instant as the wall. */
+    asOf?: number
+  } = {},
 ) {
   const frames: FrameRequestCallback[] = []
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
@@ -877,16 +883,22 @@ function mountMotion(
     NOW - 500,
   )
 
-  const utils = render(
+  const settle = options.settle ?? new SettleRegistry()
+  const retire = options.retire ?? new RetireRegistry()
+  const onSelect = vi.fn()
+  const view = (asOf: number | undefined) => (
     <SceneView
       fleet={fleet}
       field={field}
-      settle={options.settle ?? new SettleRegistry()}
-      retire={options.retire ?? new RetireRegistry()}
+      settle={settle}
+      retire={retire}
       selectedId={null}
-      onSelect={vi.fn()}
-    />,
+      onSelect={onSelect}
+      {...(asOf === undefined ? {} : { asOf })}
+    />
   )
+
+  const utils = render(view(options.asOf))
 
   /** One frame, and what it drew. */
   const frame = (): string => {
@@ -896,7 +908,15 @@ function mountMotion(
     return JSON.stringify(journal)
   }
 
-  return { ...utils, fleet, field, frame, at: (ms: number) => vi.setSystemTime(NOW + ms) }
+  return {
+    ...utils,
+    fleet,
+    field,
+    frame,
+    at: (ms: number) => vi.setSystemTime(NOW + ms),
+    /** Move the state clock without moving the wall clock (#157). */
+    asOf: (at: number) => act(() => utils.rerender(view(at))),
+  }
 }
 
 const pause = () => fireEvent.click(screen.getByTestId('scene-motion-pause'))
@@ -1271,3 +1291,73 @@ function fakeContext(calls: string[], transforms: number[][] = [], journal: unkn
     strokeStyle: '',
   }
 }
+
+/**
+ * THE TWO CLOCKS, WIRED (#157's audit).
+ *
+ * `marks.test.ts` owns the laws — which quantities read which clock, and why. What
+ * it cannot see is whether the component actually *hands* the picture two numbers,
+ * because it builds its own frames. This is the seam: one mounted scene, one hand-
+ * driven loop, and the two clocks moved independently of each other.
+ *
+ * The picture is compared as the journal of what the painter was told to draw,
+ * which is the same harness the pause suite uses and for the same reason: "did the
+ * picture change?" is the whole question in both cases.
+ */
+describe("the scene's two clocks, wired (#157)", () => {
+  afterEach(restoreAfterMount)
+
+  it('ages the fleet on the state clock while the wall clock stands still', () => {
+    // Nothing moves the wall: no frame advances, no animation runs. The only thing
+    // that changes is the instant the picture is being judged as of — and the
+    // layout follows it, because every use of it in `layoutScene` is an age.
+    const { frame, asOf } = mountMotion({ asOf: NOW })
+    const young = frame()
+
+    asOf(NOW + RECENCY_SPAN_MS)
+    const old = frame()
+
+    expect(old).not.toBe(young)
+  })
+
+  it('runs the animations on the wall clock while the state clock stands still', () => {
+    // The mirror image: the scrub is pinned, so nothing in the fleet is any older,
+    // and the picture still changes — because the grain, the shimmer and the breath
+    // are durations a person watches rather than facts about the fleet.
+    const { frame, at } = mountMotion({ asOf: NOW })
+    const before = frame()
+
+    at(4_000)
+    const after = frame()
+
+    expect(after).not.toBe(before)
+  })
+
+  it('holds both of them when the operator pauses', () => {
+    // Pause is the one control that stops the picture, and it has to stop all of
+    // it: a frozen scene whose lanes went on drifting outward would be a still
+    // image quietly telling a different story every second.
+    const { frame, at, asOf } = mountMotion({ asOf: NOW })
+    frame()
+    act(() => {
+      pause()
+    })
+    const held = frame()
+
+    at(6_000)
+    asOf(NOW + RECENCY_SPAN_MS)
+    expect(frame()).toBe(held)
+  })
+
+  it('falls back to one clock when nothing supplies a second — which is live', () => {
+    // The property that makes the split safe to land: with no `asOf` prop the
+    // component uses its own real clock for both, so the live scene is byte-for-
+    // byte the scene it was before the split existed.
+    const pinned = mountMotion({ asOf: NOW })
+    const withProp = pinned.frame()
+    restoreAfterMount()
+
+    const live = mountMotion()
+    expect(live.frame()).toBe(withProp)
+  })
+})
