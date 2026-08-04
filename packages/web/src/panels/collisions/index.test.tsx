@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import {
   FIXTURE_REPO_PATH,
   createEventFactory,
@@ -226,5 +226,41 @@ describe('CollisionsPanel', () => {
     const chips = screen.getAllByRole('button')
     expect(chips.length).toBeGreaterThan(0)
     for (const chip of chips) expect(chip.className).toContain('text-needs-you')
+  })
+})
+
+describe('CollisionsPanel — column drill-down (issue #159)', () => {
+  it('links every branch column to its own deep-linkable page', async () => {
+    const { source } = renderPanel()
+    act(() => source()?.open())
+    for (const event of fixtureSession()) act(() => source()?.emit(event))
+
+    await waitFor(() => expect(screen.getByTitle('packages/core/src/index.ts')).toBeInTheDocument())
+
+    const links = screen.getAllByTestId('collisions-open-lane')
+    expect(links.map((link) => link.textContent)).toEqual(['main', '2-core', '3-git', '7-web'])
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      '/lane/main',
+      '/lane/2-core',
+      '/lane/3-git',
+      '/lane/7-web',
+    ])
+  })
+
+  it('navigates the SPA in place on a plain click', async () => {
+    const { source } = renderPanel()
+    act(() => source()?.open())
+    for (const event of fixtureSession()) act(() => source()?.emit(event))
+
+    await waitFor(() => expect(screen.getByTitle('packages/core/src/index.ts')).toBeInTheDocument())
+    window.history.replaceState(null, '', '/')
+
+    const link = screen.getAllByTestId('collisions-open-lane').find((el) => el.textContent === '2-core')!
+    act(() => {
+      fireEvent.click(link, { button: 0 })
+    })
+
+    expect(window.location.pathname).toBe('/lane/2-core')
+    window.history.replaceState(null, '', '/')
   })
 })

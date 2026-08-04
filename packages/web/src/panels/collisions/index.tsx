@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, type MouseEvent } from 'react'
 import { selectCollisionPairs, selectTouchesByBranch, type CollisionPair } from '@rhizomorph/core'
+import { laneUrl, navigate } from '../../app/router.js'
 import { useStream } from '../../app/StreamContext.js'
 import { elidePathMiddle, formatCheckedLine, formatPairEvidence, shortenBranch } from './format.js'
 import { MAX_VISIBLE_ROWS, selectCollisionColumns, selectCollisionRows } from './rows.js'
@@ -21,6 +22,10 @@ import { MAX_VISIBLE_ROWS, selectCollisionColumns, selectCollisionRows } from '.
  * Clicking a pair's evidence entry scrolls the matrix to a row that proves it
  * and marks that row, rather than repainting the whole table — the panel is
  * the evidence a ladder item points at, not a second alarm.
+ *
+ * #159 — every column header is also a row drill-down (Grafana's data-link
+ * pattern): a branch column names one lane, so it is one click from
+ * "which branches collide" to that lane's own `/lane/:handle` page.
  */
 export default function CollisionsPanel() {
   const { state: stream, status } = useStream()
@@ -97,7 +102,7 @@ export default function CollisionsPanel() {
                         title={branch}
                         className="sticky top-0 z-10 min-w-14 truncate bg-ice-950 px-2 py-1.5 text-center font-medium text-ice-400"
                       >
-                        {shortenBranch(branch)}
+                        <OpenBranchLink branch={branch} />
                       </th>
                     ))}
                   </tr>
@@ -152,5 +157,32 @@ export default function CollisionsPanel() {
         </>
       )}
     </section>
+  )
+}
+
+/**
+ * THE COLUMN DRILL-DOWN (issue #159, Grafana's data-link pattern) — a branch
+ * column header is not clickable today, so there is nothing to hijack; this
+ * is the same modifier-aware, real-`<a href>` convention the drawer's own
+ * `OpenPageLink` and the fleet table's `OpenLaneLink` both use, over
+ * `shortenBranch`'s existing display text rather than a second label.
+ */
+function OpenBranchLink({ branch }: { branch: string }) {
+  const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.defaultPrevented || event.button !== 0) return
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    event.preventDefault()
+    navigate(laneUrl(branch))
+  }
+
+  return (
+    <a
+      href={laneUrl(branch)}
+      onClick={onClick}
+      data-testid="collisions-open-lane"
+      className="rounded text-inherit hover:text-ice-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600"
+    >
+      {shortenBranch(branch)}
+    </a>
   )
 }
