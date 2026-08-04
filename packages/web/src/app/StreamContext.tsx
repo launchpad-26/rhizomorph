@@ -23,6 +23,7 @@ import {
   foldStreamEvent,
   foldStreamEvents,
   initialStreamState,
+  replayStreamState,
   type StreamState,
 } from './streamState.js'
 
@@ -113,9 +114,15 @@ export function StreamProvider({ url, children, createSource, now }: StreamProvi
 
   const mode = useMode()
   const replay = useReplay()
+  // #162: this used to be `foldStreamEvents(initial, replay.eventsAtScrubTime)`
+  // — a full refold from scratch every scrub tick, because `eventsAtScrubTime`
+  // was a fresh `.slice()` with a new identity every tick, so this memo never
+  // hit. `replay.state` is already replay's own incrementally-folded session
+  // (#160's `foldFrom`, never redone here), and `replayStreamState` composes
+  // the rest — the events slice and the news/history split — without a fold.
   const replayState = useMemo(
-    () => foldStreamEvents(initialStreamState(REPLAY_CONNECTED_AT), replay.eventsAtScrubTime),
-    [replay.eventsAtScrubTime],
+    () => replayStreamState(replay.scrubEvents, replay.scrubEventCount, replay.state, REPLAY_CONNECTED_AT),
+    [replay.scrubEvents, replay.scrubEventCount, replay.state],
   )
 
   const value = useMemo<StreamContextValue>(() => {
