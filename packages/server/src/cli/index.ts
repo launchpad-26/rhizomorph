@@ -27,6 +27,7 @@ import {
   helpText,
   labCheckpointHelpText,
   labCompareHelpText,
+  labelHelpText,
   labForkHelpText,
   labHelpText,
   parseArgs,
@@ -35,13 +36,18 @@ import {
   parseExportRecordArgs,
   parseLabCheckpointArgs,
   parseLabCompareArgs,
+  parseLabelArgs,
   parseLabForkArgs,
   parseReplayArgs,
+  parseSessionsArgs,
   replayHelpText,
+  sessionsHelpText,
   type CliArgs,
 } from './args.js'
 import { renderDoctorReport, runDoctor } from './doctor.js'
 import { runExportRecord } from './export-record.js'
+import { runLabel } from './label.js'
+import { renderSessionsReport, runSessions } from './sessions.js'
 import { fetchInstanceId, renderTelemetryEnv } from './telemetry-env.js'
 import { readPackageVersion } from './version.js'
 
@@ -104,6 +110,14 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
 
   if (argv[0] === 'replay') {
     return runReplayCommand(argv.slice(1), log, exit, options)
+  }
+
+  if (argv[0] === 'sessions') {
+    return runSessionsCommand(argv.slice(1), log, exit, options)
+  }
+
+  if (argv[0] === 'label') {
+    return runLabelCommand(argv.slice(1), log, exit, options)
   }
 
   if (argv[0] === 'lab') {
@@ -492,6 +506,83 @@ async function runReplayCommand(
   }
 
   return { app, recorder, pollLoop, url, stop }
+}
+
+/**
+ * `rhizomorph sessions [path]` — a standalone, read-only listing, no server
+ * boot: every session recorded for a repo, newest first, titled, timed and
+ * costed. Same clean-usage-error contract as every other subcommand here.
+ */
+async function runSessionsCommand(
+  rest: readonly string[],
+  log: Pick<Console, 'log' | 'warn'>,
+  exit: (code: number) => never,
+  options: RunCliOptions,
+): Promise<never> {
+  let args
+  try {
+    args = parseSessionsArgs(rest)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`${message}\n\n${sessionsHelpText()}`)
+    exit(1)
+  }
+
+  if (args.help) {
+    log.log(sessionsHelpText())
+    exit(0)
+  }
+
+  const repoPath = path.resolve(args.path ?? process.cwd())
+  const listings = await runSessions({ repoPath, dataRoot: options.dataRoot })
+  log.log(renderSessionsReport(listings))
+
+  exit(0)
+}
+
+/**
+ * `rhizomorph label <sessionId> <text>` — a standalone, one-shot subcommand,
+ * no server boot: writes an operator label sidecar for one recorded
+ * session, never touching the session's own append-only log. Same
+ * clean-usage-error contract as every other subcommand here.
+ */
+async function runLabelCommand(
+  rest: readonly string[],
+  log: Pick<Console, 'log' | 'warn'>,
+  exit: (code: number) => never,
+  options: RunCliOptions,
+): Promise<never> {
+  let args
+  try {
+    args = parseLabelArgs(rest)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`${message}\n\n${labelHelpText()}`)
+    exit(1)
+  }
+
+  if (args.help) {
+    log.log(labelHelpText())
+    exit(0)
+  }
+
+  const repoPath = path.resolve(args.path ?? process.cwd())
+
+  try {
+    const result = await runLabel({
+      repoPath,
+      sessionId: args.sessionId,
+      label: args.label,
+      dataRoot: options.dataRoot,
+      now: options.now,
+    })
+    log.log(`labelled session ${result.sessionId}: "${result.label}"`)
+  } catch (err) {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+    exit(1)
+  }
+
+  exit(0)
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   helpText,
   labCheckpointHelpText,
   labCompareHelpText,
+  labelHelpText,
   labForkHelpText,
   labHelpText,
   parseArgs,
@@ -14,9 +15,12 @@ import {
   parseExportRecordArgs,
   parseLabCheckpointArgs,
   parseLabCompareArgs,
+  parseLabelArgs,
   parseLabForkArgs,
   parseReplayArgs,
+  parseSessionsArgs,
   replayHelpText,
+  sessionsHelpText,
 } from './args.js'
 
 const defaults = {
@@ -477,6 +481,81 @@ describe('replayHelpText', () => {
     const text = replayHelpText()
     expect(text).toContain('rhizomorph replay <record-file>')
     expect(text).toContain('--port')
+    expect(text).toContain('--help')
+  })
+})
+
+describe('parseSessionsArgs', () => {
+  it('takes the first positional as the path, defaulting to undefined', () => {
+    expect(parseSessionsArgs([])).toEqual({ path: undefined, help: false })
+    expect(parseSessionsArgs(['../other-repo'])).toEqual({ path: '../other-repo', help: false })
+  })
+
+  it('parses --help without requiring a path', () => {
+    expect(parseSessionsArgs(['--help']).help).toBe(true)
+    expect(parseSessionsArgs(['-h']).help).toBe(true)
+  })
+})
+
+describe('sessionsHelpText', () => {
+  it('documents the path argument and --help', () => {
+    const text = sessionsHelpText()
+    expect(text).toContain('rhizomorph sessions [path]')
+    expect(text).toContain('--help')
+  })
+})
+
+describe('parseLabelArgs', () => {
+  it('takes the first positional as the session id and the rest as the label', () => {
+    expect(parseLabelArgs(['1000', 'a', 'label'])).toEqual({
+      sessionId: '1000',
+      label: 'a label',
+      path: undefined,
+      help: false,
+    })
+  })
+
+  it('accepts a single quoted label argument', () => {
+    expect(parseLabelArgs(['1000', 'the scene lands'])).toEqual({
+      sessionId: '1000',
+      label: 'the scene lands',
+      path: undefined,
+      help: false,
+    })
+  })
+
+  it('parses --path', () => {
+    expect(parseLabelArgs(['1000', 'a label', '--path', '../other-repo'])).toEqual({
+      sessionId: '1000',
+      label: 'a label',
+      path: '../other-repo',
+      help: false,
+    })
+  })
+
+  it('throws when the session id is missing', () => {
+    expect(() => parseLabelArgs([])).toThrow(/missing required argument.*<sessionId>/is)
+  })
+
+  it('throws when the label text is missing', () => {
+    expect(() => parseLabelArgs(['1000'])).toThrow(/missing required argument.*<text>/is)
+  })
+
+  it('throws for a whitespace-only label', () => {
+    expect(() => parseLabelArgs(['1000', '   '])).toThrow(/missing required argument.*<text>/is)
+  })
+
+  it('parses --help without requiring a session id or text', () => {
+    expect(parseLabelArgs(['--help']).help).toBe(true)
+    expect(parseLabelArgs(['-h']).help).toBe(true)
+  })
+})
+
+describe('labelHelpText', () => {
+  it('documents the sessionId/text arguments, --path and --help', () => {
+    const text = labelHelpText()
+    expect(text).toContain('rhizomorph label <sessionId>')
+    expect(text).toContain('--path')
     expect(text).toContain('--help')
   })
 })

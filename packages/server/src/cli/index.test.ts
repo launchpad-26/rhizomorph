@@ -783,6 +783,131 @@ describe('runCli export-record and replay subcommands', () => {
   })
 })
 
+describe('runCli sessions and label subcommands', () => {
+  let dataRoot: string
+  let repoPath: string
+
+  beforeEach(async () => {
+    dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-sessions-cli-test-'))
+    repoPath = path.join(tmpdir(), 'sessions-cli-repo')
+  })
+
+  afterEach(async () => {
+    await rm(dataRoot, { recursive: true, force: true })
+  })
+
+  /** Boots a live session, lets the fake collector emit one tick's worth of events, then shuts down — leaving a real session-*.jsonl on disk. */
+  async function recordASession(): Promise<void> {
+    const server = await runCli([repoPath, '--port', '0'], {
+      dataRoot,
+      collectors: [fakeCollector],
+      log: silentLog,
+    })
+    await server.pollLoop.tick()
+    await server.stop()
+  }
+
+  it('sessions --help prints usage and exits 0', async () => {
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['sessions', '--help'], { log, exit }).catch((err: unknown) => err)
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    expect(log.log).toHaveBeenCalledWith(expect.stringContaining('rhizomorph sessions [path]'))
+  })
+
+  it('label --help prints usage and exits 0', async () => {
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['label', '--help'], { log, exit }).catch((err: unknown) => err)
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    expect(log.log).toHaveBeenCalledWith(expect.stringContaining('rhizomorph label <sessionId>'))
+  })
+
+  it('reports no recorded sessions yet for a repo nothing has recorded to', async () => {
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['sessions', repoPath], { dataRoot, log, exit }).catch((err: unknown) => err)
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    expect(log.log).toHaveBeenCalledWith(expect.stringContaining('no recorded sessions yet'))
+  })
+
+  it('lists a recorded session with its auto-title, newest first', async () => {
+    await recordASession()
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['sessions', repoPath], { dataRoot, log, exit }).catch((err: unknown) => err)
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    const output = log.log.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('ID')
+    expect(output).toContain('TITLE')
+    // The fake collector only emits agent.status, never a worktree — an honest zero-lane title.
+    expect(output).toMatch(/no activity recorded/)
+  })
+
+  it('labels a recorded session, refusing an id nothing recorded', async () => {
+    const badIdLog = { log: vi.fn(), warn: vi.fn() }
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const badThrown = await runCli(['label', 'nonexistent', 'a label'], {
+      dataRoot,
+      log: badIdLog,
+      exit: fakeExit(),
+    }).catch((err: unknown) => err)
+    const badOutput = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+
+    expect(badThrown).toBeInstanceOf(FakeExit)
+    expect((badThrown as FakeExit).code).toBe(1)
+    expect(badOutput).toContain('no session with id "nonexistent"')
+  })
+
+  it('a label overwrites the auto-title in a subsequent sessions listing', async () => {
+    await recordASession()
+    const sessionDir = sessionDirFor(repoPath, dataRoot)
+    const [session] = await listSessions(sessionDir)
+    expect(session).toBeDefined()
+
+    const labelLog = { log: vi.fn(), warn: vi.fn() }
+    const labelThrown = await runCli(
+      ['label', session!.id, 'the', 'scene', 'lands', '--path', repoPath],
+      { dataRoot, log: labelLog, exit: fakeExit() },
+    ).catch((err: unknown) => err)
+    expect(labelThrown).toBeInstanceOf(FakeExit)
+    expect((labelThrown as FakeExit).code).toBe(0)
+    expect(labelLog.log).toHaveBeenCalledWith(expect.stringContaining('the scene lands'))
+
+    const sessionsLog = { log: vi.fn(), warn: vi.fn() }
+    await runCli(['sessions', repoPath], { dataRoot, log: sessionsLog, exit: fakeExit() }).catch(() => {})
+    const output = sessionsLog.log.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('the scene lands')
+  })
+
+  it('label without a text argument is a usage error, not a silent empty label', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+    const thrown = await runCli(['label', 'some-id'], { dataRoot, log: silentLog, exit }).catch(
+      (err: unknown) => err,
+    )
+    const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(1)
+    expect(output).toContain('missing required argument')
+  })
+})
+
 describe('runCli resuming the run', () => {
   /** A fixed boot clock: session ids, event stamps and the resume window all read from it. */
   const BOOT_MS = 1_700_000_000_000

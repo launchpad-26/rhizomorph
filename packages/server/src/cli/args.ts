@@ -277,6 +277,8 @@ rhizomorph doctor [path] [options]   Read-only preflight — say what's missing 
 rhizomorph env <lane> [options]      Print the telemetry env block for a lane
 rhizomorph export-record [path] [options]   Write a portable session record (federation wire format)
 rhizomorph replay <record-file> [options]   Serve a session record read-only, foreign or local
+rhizomorph sessions [path] [options]        List recorded sessions — title, when, duration, lanes, cost, size
+rhizomorph label <sessionId> <text> [options]  Set the operator label an auto-title yields to
 rhizomorph lab checkpoint <lane> [options]  Capture a live workspace + session snapshot (prd12)
 rhizomorph lab fork <lane> [options]        Restore n arms from one of that lane's checkpoints (prd12)
 rhizomorph lab compare <fork-id> [options]  Table one fork's arms — runs, never a winner (prd12)
@@ -307,7 +309,8 @@ Options:
   --help, -h              Show this help and exit
 
 Run 'rhizomorph doctor --help', 'rhizomorph env --help', 'rhizomorph export-record --help',
-'rhizomorph replay --help' or 'rhizomorph lab --help' for a subcommand's own options.
+'rhizomorph replay --help', 'rhizomorph sessions --help', 'rhizomorph label --help' or
+'rhizomorph lab --help' for a subcommand's own options.
 `
 }
 
@@ -465,6 +468,94 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
   }
 
   return { file, port, help: false }
+}
+
+/** Parses `rhizomorph sessions [path] [--help]`. */
+export interface SessionsArgs {
+  path: string | undefined
+  help: boolean
+}
+
+/** `rhizomorph sessions`'s own usage table, distinct from the main command's. */
+export function sessionsHelpText(): string {
+  return `rhizomorph sessions [path] [options]
+
+Lists every session recorded for a repo, newest first: id, title (an
+operator label if one was set with 'rhizomorph label', else an auto-title
+derived from the session's own events — lanes dispatched, how many landed,
+issue numbers), when it started, how long it ran, lanes, landings, output
+tokens, cost (flagged "(est.)" when no authoritative telemetry arrived), and
+the log's file size. This is how a stranger finds "the one where the scene
+landed" without opening any of them.
+
+Arguments:
+  path                    Repo whose recorded sessions to list (default: current directory)
+
+Options:
+  --help, -h              Show this help and exit
+`
+}
+
+export function parseSessionsArgs(argv: readonly string[]): SessionsArgs {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    return { path: undefined, help: true }
+  }
+
+  const positionals = parseFlags(argv, [])
+  return { path: positionals[0], help: false }
+}
+
+/** Parses `rhizomorph label <sessionId> <text> [--path <dir>] [--help]`. */
+export interface LabelArgs {
+  sessionId: string
+  /** The label text — later positionals are joined with a space, so an unquoted multi-word label still works. */
+  label: string
+  path: string | undefined
+  help: boolean
+}
+
+/** `rhizomorph label`'s own usage table, distinct from the main command's. */
+export function labelHelpText(): string {
+  return `rhizomorph label <sessionId> <text> [options]
+
+Sets the operator label for one recorded session — a sidecar file written
+beside its log ('session-<id>.label.json'), never a mutation of the
+append-only log itself. A labelled session shows the label everywhere an
+auto-title would otherwise appear ('rhizomorph sessions', the replay
+picker); running this again for the same session overwrites the previous
+label.
+
+Arguments:
+  sessionId               Session id, as listed by 'rhizomorph sessions'
+  text                     The label (quote it if it has spaces; unquoted
+                          words after sessionId are also joined with spaces)
+
+Options:
+  --path <dir>            Repo whose recorded sessions to label (default: current directory)
+  --help, -h              Show this help and exit
+`
+}
+
+export function parseLabelArgs(argv: readonly string[]): LabelArgs {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    return { sessionId: '', label: '', path: undefined, help: true }
+  }
+
+  let pathArg: string | undefined
+  const specs: FlagSpec[] = [{ flag: '--path', read: (v) => { pathArg = v } }]
+
+  const positionals = parseFlags(argv, specs)
+  const sessionId = positionals[0]
+  if (sessionId === undefined || sessionId.trim().length === 0) {
+    throw new Error('missing required argument: <sessionId>')
+  }
+
+  const label = positionals.slice(1).join(' ').trim()
+  if (label.length === 0) {
+    throw new Error('missing required argument: <text> (the label — quote it if it has spaces)')
+  }
+
+  return { sessionId, label, path: pathArg, help: false }
 }
 
 /**
