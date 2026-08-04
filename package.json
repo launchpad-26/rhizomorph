@@ -13,13 +13,13 @@
   ],
   "license": "MIT",
   "author": "Lachlan Kelliher",
-  "homepage": "https://github.com/KelliherL/worktrees-challenge#readme",
+  "homepage": "https://github.com/KelliherL/rhizomorph#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/KelliherL/worktrees-challenge.git"
+    "url": "git+https://github.com/KelliherL/rhizomorph.git"
   },
   "bugs": {
-    "url": "https://github.com/KelliherL/worktrees-challenge/issues"
+    "url": "https://github.com/KelliherL/rhizomorph/issues"
   },
   "type": "module",
   "engines": {

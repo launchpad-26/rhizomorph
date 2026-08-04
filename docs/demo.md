@@ -15,8 +15,8 @@ tool checking their own work.
 ## Setup
 
 ```sh
-git clone https://github.com/KelliherL/worktrees-challenge
-cd worktrees-challenge
+git clone https://github.com/KelliherL/rhizomorph
+cd rhizomorph
 npm install
 npm run build   # builds packages/web
 npm start       # boots collectors + server on http://127.0.0.1:4321
@@ -41,8 +41,8 @@ at that agent's own terminal, tailing live — and an **ATTACH** button below
 it that copies a tmux/workmux command to your clipboard and never runs it.
 
 If you'd rather run this against a real swarm: point `npm start -- <path>` at
-a repo with worktrees and tmux panes going (see the README's ["worktrees-challenge
-context"](../README.md#the-worktrees-challenge-context) section for
+a repo with worktrees and tmux panes going (see the README's
+["Prerequisites, restated"](../README.md#prerequisites-restated) section for
 `workmux` setup), then use key `1` instead of `2`/`3` throughout. Telemetry
 (the burn strip's dollar figures) needs each lane's env set before `claude`
 launches — see [`docs/telemetry.md`](telemetry.md); without it the checks

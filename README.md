@@ -22,7 +22,7 @@ cohort inherits a clonable repo, so the clone block below *is* the install
 story. Four commands, on a plain terminal, no undocumented steps:
 
 ```sh
-git clone https://github.com/KelliherL/worktrees-challenge rhizomorph
+git clone https://github.com/KelliherL/rhizomorph
 cd rhizomorph
 npm install
 npm run build   # builds the dashboard once; the server serves it statically
@@ -140,7 +140,7 @@ or any outbound socket; there isn't one.
 |---|---|
 | Linux | CI-verified on every push (`.github/workflows/ci.yml`) |
 | WSL | The daily development platform — exercised constantly, just not by CI |
-| macOS | **Unverified.** No platform-specific code exists (paths go through `node:path`, collectors degrade loudly rather than fail silently), but nobody has run it on macOS and confirmed that. Treat it as untested, not as "should work." If you try it, [an issue](https://github.com/KelliherL/worktrees-challenge/issues) saying what happened is genuinely useful. |
+| macOS | **Unverified.** No platform-specific code exists (paths go through `node:path`, collectors degrade loudly rather than fail silently), but nobody has run it on macOS and confirmed that. Treat it as untested, not as "should work." If you try it, [an issue](https://github.com/KelliherL/rhizomorph/issues) saying what happened is genuinely useful. |
 
 **Node >= 22** — enforced via `engines` in `package.json`; older Node warns
 on install and may not run at all.
