@@ -1,10 +1,19 @@
 import type { FastifyInstance } from 'fastify'
+import { listSessionListings } from '../log/listing.js'
 import { listSessions, readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import type { ServerContext } from '../server/context.js'
 
 export function registerSessionsRoutes(app: FastifyInstance, ctx: ServerContext): void {
+  // Full parse per session, not a bounded head/tail sample — see
+  // `listSessionListings`'s own doc comment for why: this fetches once per
+  // replay-picker mount rather than on a poll, and a lane's landing can land
+  // anywhere in a long session's timeline, which a head/tail sample would
+  // silently miss.
   app.get('/api/sessions', async () => {
-    const sessions = await listSessions(ctx.sessionDir)
+    const sessions = await listSessionListings(ctx.sessionDir, {
+      liveSessionId: ctx.recorder.sessionId,
+      liveEvents: ctx.recorder.eventsSoFar(),
+    })
     return { sessions }
   })
 
