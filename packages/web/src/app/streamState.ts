@@ -4,6 +4,7 @@ import {
   type RhizomorphEvent,
   type SessionState,
 } from '@rhizomorph/core'
+import { lowerBoundaryIndex } from '../replay/replayFold.js'
 
 /**
  * The shell's fold. One event log in, one `SessionState` out, through core's
@@ -101,6 +102,42 @@ export function foldStreamEvents(
     session,
     connectedAt: state.connectedAt,
     news: news.slice(-MAX_NEWS),
+    newsCount,
+  }
+}
+
+/**
+ * `StreamState` for a replay prefix, without paying `foldStreamEvents`' full
+ * pass over it every tick (#162, the second re-fold #160 didn't reach —
+ * `StreamContext.tsx` was refolding this prefix from scratch on every scrub
+ * tick because a fresh `.slice()` gave the memo a new array identity to miss
+ * every time).
+ *
+ * `session` is expected already folded by replay's own incremental cursor
+ * (`useReplaySession`'s `foldFrom`, #160) — this function does not re-reduce
+ * a single event, so the two fold engines never duplicate each other's work.
+ * `events` is one slice of the shared, stably-identified sorted log (proven
+ * cheap even at 46k events — the slice was never the cost, see #162's
+ * measurements). `news`/`newsCount` fold to a threshold-crossing on a
+ * `ts`-ascending array, which is a single binary search
+ * ({@link lowerBoundaryIndex}) rather than a scan: every event at or after
+ * that boundary is news, and since the array is globally sorted that boundary
+ * is the same index regardless of how far the prefix reaches, so it never
+ * needs to be recomputed per tick either.
+ */
+export function replayStreamState(
+  sortedEvents: readonly RhizomorphEvent[],
+  prefixLength: number,
+  session: SessionState,
+  connectedAt: number,
+): StreamState {
+  const newsFrom = lowerBoundaryIndex(sortedEvents, connectedAt - NEWS_GRACE_MS)
+  const newsCount = Math.max(0, prefixLength - newsFrom)
+  return {
+    events: sortedEvents.slice(0, prefixLength),
+    session,
+    connectedAt,
+    news: sortedEvents.slice(Math.max(newsFrom, prefixLength - MAX_NEWS), prefixLength),
     newsCount,
   }
 }
