@@ -48,7 +48,6 @@ read as growth and life, and instead it reads as a graveyard.
 - `packages/web/src/app/ModeContext.tsx`
 - `packages/web/src/replay/` (all files)
 - `packages/web/src/panels/ledger/index.tsx`, `index.test.tsx`
-- `packages/web/src/scene/index.tsx`
 
 ## Blocked by
 
