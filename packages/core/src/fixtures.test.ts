@@ -72,6 +72,14 @@ describe('the fixture factory', () => {
     expect(event.payload.snapshotRef).toBe('refs/rhizomorph/checkpoints/checkpoint-fixture-1')
     expect(rhizomorphEventSchema.safeParse(event).success).toBe(true)
   })
+
+  it('builds a judge.finding with source "judge", silent-log severity', () => {
+    const event = createEventFactory().judgeFinding({ lanes: ['2-core', '7-web'] })
+    expect(event.source).toBe('judge')
+    expect(event.payload.lanes).toEqual(['2-core', '7-web'])
+    expect(event.payload.severity).toBe('log')
+    expect(rhizomorphEventSchema.safeParse(event).success).toBe(true)
+  })
 })
 
 describe('fixtureSession', () => {

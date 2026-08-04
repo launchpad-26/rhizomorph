@@ -13,6 +13,7 @@ import type {
   CostPlaceSource,
   CostRecord,
   ErrorRecord,
+  JudgeFindingRecord,
   LaneAttribution,
   PaneState,
   SessionPlace,
@@ -101,6 +102,8 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       return traceSpan(state, event)
     case 'fork.checkpoint':
       return forkCheckpoint(state, event)
+    case 'judge.finding':
+      return judgeFinding(state, event)
     default: {
       // Exhaustive today; an unknown future type must never break a replay.
       const _never: never = event
@@ -897,6 +900,35 @@ function forkCheckpoint(state: SessionState, event: EventOf<'fork.checkpoint'>):
       byLane: { ...checkpoints.byLane, [p.lane]: [...(checkpoints.byLane[p.lane] ?? []), at] },
     },
   }
+}
+
+// --- judge (prd11 ruling 6b) --------------------------------------------------
+
+/**
+ * Appends a finding whole and indexes it under BOTH of its lanes — unlike
+ * every other per-lane record here, a finding is inherently about a pair, so
+ * either lane's page/drawer should be able to find it in its own history.
+ */
+function judgeFinding(state: SessionState, event: EventOf<'judge.finding'>): SessionState {
+  const p = event.payload
+  const record: JudgeFindingRecord = {
+    eventId: event.id,
+    ts: event.ts,
+    kind: p.kind,
+    lanes: p.lanes,
+    evidence: p.evidence,
+    severity: p.severity,
+    detectedAt: p.detectedAt,
+  }
+
+  const judge = state.judge
+  const at = judge.findings.length
+  let byLane = judge.byLane
+  for (const lane of p.lanes) {
+    byLane = { ...byLane, [lane]: [...(byLane[lane] ?? []), at] }
+  }
+
+  return { ...state, judge: { findings: [...judge.findings, record], byLane } }
 }
 
 // --- helpers ----------------------------------------------------------------

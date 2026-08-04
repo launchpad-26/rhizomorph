@@ -4,6 +4,7 @@ import { reduce, reduceAll } from './reduce.js'
 import {
   MAX_ERRORS,
   initialCheckpointState,
+  initialJudgeState,
   initialSessionState,
   initialTelemetryState,
   initialTraceState,
@@ -34,6 +35,7 @@ describe('reduce — envelope bookkeeping', () => {
       telemetry: initialTelemetryState(),
       traces: initialTraceState(),
       checkpoints: initialCheckpointState(),
+      judge: initialJudgeState(),
       eventCount: 0,
       firstEventTs: null,
       lastEventTs: null,
@@ -532,5 +534,46 @@ describe('reduce — fork.checkpoint (prd12)', () => {
     const after = reduce(before, f.forkCheckpoint())
     expect(before).toEqual(snapshot)
     expect(after.checkpoints).not.toBe(before.checkpoints)
+  })
+})
+
+describe('reduce — judge.finding (prd11 ruling 6b)', () => {
+  it('an old log with no judge.finding events folds judge to its initial value — additive, unchanged replay', () => {
+    const state = reduceAll(fixtureSession())
+    expect(state.judge).toEqual(initialJudgeState())
+  })
+
+  it('appends a finding and indexes it under BOTH of its lanes', () => {
+    const state = reduceAll([
+      f.judgeFinding({ lanes: ['2-core', '3-git'] }, { ts: 100 }),
+    ])
+    expect(state.judge.findings).toHaveLength(1)
+    expect(state.judge.findings[0]).toMatchObject({
+      kind: 'symbol-overlap',
+      lanes: ['2-core', '3-git'],
+      severity: 'log',
+      ts: 100,
+    })
+    expect(state.judge.byLane['2-core']).toEqual([0])
+    expect(state.judge.byLane['3-git']).toEqual([0])
+  })
+
+  it('indexes multiple findings for the same lane in observation order', () => {
+    const state = reduceAll([
+      f.judgeFinding({ lanes: ['2-core', '3-git'] }, { ts: 100 }),
+      f.judgeFinding({ lanes: ['3-git', '7-web'] }, { ts: 200 }),
+      f.judgeFinding({ lanes: ['2-core', '7-web'] }, { ts: 300 }),
+    ])
+    expect(state.judge.byLane['2-core']).toEqual([0, 2])
+    expect(state.judge.byLane['3-git']).toEqual([0, 1])
+    expect(state.judge.byLane['7-web']).toEqual([1, 2])
+  })
+
+  it('is pure — folding a finding does not mutate the prior state', () => {
+    const before = initialSessionState()
+    const snapshot = JSON.parse(JSON.stringify(before)) as unknown
+    const after = reduce(before, f.judgeFinding())
+    expect(before).toEqual(snapshot)
+    expect(after.judge).not.toBe(before.judge)
   })
 })

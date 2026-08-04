@@ -87,6 +87,12 @@ export interface EventFactory {
     payload?: Partial<PayloadOf<'fork.checkpoint'>>,
     init?: Init<'fork.checkpoint'>,
   ): EventOf<'fork.checkpoint'>
+
+  /** prd11 ruling 6b, phase 1: the judge organ's own keystone, source `judge`, silent-log only. */
+  judgeFinding(
+    payload?: Partial<PayloadOf<'judge.finding'>>,
+    init?: Init<'judge.finding'>,
+  ): EventOf<'judge.finding'>
 }
 
 const defaults = {
@@ -218,6 +224,16 @@ const defaults = {
     headSha: 'sha-feature-1',
     capturedBy: 'operator',
   },
+  // prd11 ruling 6b, phase 1: a believable structural-organ finding — two
+  // lanes independently adding the same helper, the spike's own headline
+  // example (research §the verdict).
+  'judge.finding': {
+    kind: 'symbol-overlap',
+    lanes: ['2-core', '3-git'],
+    evidence: { symbols: ['formatDuration'] },
+    severity: 'log',
+    detectedAt: FIXTURE_START_TS,
+  },
 } as const satisfies { [T in EventType]: PayloadOf<T> }
 
 export function createEventFactory(options: EventFactoryOptions = {}): EventFactory {
@@ -290,6 +306,7 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
     agentActiveTime: sugar('agent.activeTime'),
     traceSpan: sugar('trace.span'),
     forkCheckpoint: sugar('fork.checkpoint'),
+    judgeFinding: sugar('judge.finding'),
   }
 
   return factory

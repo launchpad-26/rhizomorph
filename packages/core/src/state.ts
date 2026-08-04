@@ -6,6 +6,8 @@ import type {
   DirtyFile,
   FileChange,
   ForkCheckpointCapturedBy,
+  JudgeEvidence,
+  JudgeFindingKind,
   SpanDecision,
   SpanKind,
   SpanStatus,
@@ -394,6 +396,39 @@ export function initialCheckpointState(): CheckpointState {
   return { records: [], byLane: {} }
 }
 
+/**
+ * One `judge.finding` capture, kept whole and in observation order — same
+ * rule as {@link CheckpointRecord}. prd11 ruling 6b, phase 1: the structural
+ * organ's own slice, additive alongside everything else the observer folds.
+ * `severity` is always `'log'` today (the schema itself locks it); the field
+ * is kept rather than assumed so a later phase's fold doesn't need a schema
+ * migration to read it.
+ */
+export interface JudgeFindingRecord {
+  eventId: string
+  ts: number
+  kind: JudgeFindingKind
+  lanes: [string, string]
+  evidence: JudgeEvidence
+  severity: 'log'
+  detectedAt: number
+}
+
+/**
+ * prd11 ruling 6b's judge slice. Mirrors {@link CheckpointState}'s shape,
+ * except a finding is ABOUT a pair, so `byLane` indexes a record under BOTH
+ * of its lanes rather than one.
+ */
+export interface JudgeState {
+  findings: JudgeFindingRecord[]
+  /** lane → positions in `findings`, in observation order. A pair's finding appears under both its lanes. */
+  byLane: Record<string, number[]>
+}
+
+export function initialJudgeState(): JudgeState {
+  return { findings: [], byLane: {} }
+}
+
 export interface SessionState {
   session: SessionInfo | null
   /** Branch everything is measured against; null until we learn it. */
@@ -414,6 +449,8 @@ export interface SessionState {
   traces: TraceState
   /** prd12 ruling 2: the laboratory's checkpoint captures. Additive again. */
   checkpoints: CheckpointState
+  /** prd11 ruling 6b, phase 1: the judge's structural-organ findings. Additive again. */
+  judge: JudgeState
   eventCount: number
   firstEventTs: number | null
   lastEventTs: number | null
@@ -437,6 +474,7 @@ export function initialSessionState(): SessionState {
     telemetry: initialTelemetryState(),
     traces: initialTraceState(),
     checkpoints: initialCheckpointState(),
+    judge: initialJudgeState(),
     eventCount: 0,
     firstEventTs: null,
     lastEventTs: null,
