@@ -75,12 +75,13 @@ invents regressions it then "fixes".
 - `packages/web/src/hooks/useEventStream.ts`, `packages/web/src/hooks/useEventStream.test.ts`
 - `packages/server/src/api/stream.ts`, `packages/server/src/api/stream.test.ts`
 
-Do NOT touch `packages/web/src/drawer/` or `packages/web/src/app/Shell.test.tsx`
-— #164 owns those.
-
 ## Blocked by
 
 Nothing. **Model:** sonnet. **Wave:** the small defects.
+
+Sibling lanes own surfaces you must not enter: #164 owns the drawer and Shell's
+test; #165 owns the sessionlog collector. If your change appears to need either,
+print `BLOCKED: <need>` and stop — the conductor widens fences on the record.
 
 ## Definition of done
 
