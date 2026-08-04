@@ -137,15 +137,17 @@ export const DISSOLUTION = {
    */
   moteLifeMs: 900,
   /**
-   * How long a whole cord takes to come apart — the window the birth delays are
-   * spread over, plus the last mote's own life.
+   * How long a whole return takes — the window the birth delays are spread over,
+   * plus the last mote's own life.
    *
-   * Longer than the cut itself (`RETURN.totalMs`, 1.4 s) on purpose: the cord parts
-   * first and *then* finishes composting, so the two acts read as cause and
-   * consequence rather than as one blur. It is also what makes "the severed
-   * ribbon geometry is gone when the dissolve completes" a later instant than
-   * "the cut has settled", which is the seam every existing cord-cut law is
-   * written against.
+   * Longer than the settle itself (`RETURN.totalMs`, 1.4 s) on purpose: the strand
+   * goes quiet first and its matter *then* finishes arriving, so the two acts read
+   * as cause and consequence rather than as one blur.
+   *
+   * It used to be the clock that ended in an erasure — "the severed ribbon
+   * geometry is gone when the dissolve completes". prd10 ruling 13 rescinded that,
+   * so what ends here is the *traffic* and nothing else: the strand under the
+   * drift is the same strand before and after (`retire.ts`).
    */
   spanMs: 2_400,
 } as const
@@ -198,9 +200,10 @@ const LUMINANCE_ONLY: MotionAllowance = {
 
 export function allowance(motionClass: MotionClass, mode: MotionMode): MotionAllowance {
   if (mode === 'full') return motionClass === 'dissolution' ? LUMINANCE_ONLY : FULL
-  // Reduced motion drops travel, which for this class is the whole of it: a cut
-  // that never crossed the picture (`returnAt`'s `SETTLED_IN_PLACE`) has no journey
-  // to compost, exactly as it has no homeward ribbon.
+  // Reduced motion drops travel, which for this class is the whole of it: a
+  // landing that never crossed the picture (`returnAt`'s `SETTLED_IN_PLACE`) has
+  // no journey to compost, exactly as it has no homeward ribbon. The strand it
+  // would have travelled is drawn either way — a still line is not motion.
   if (mode === 'reduced') return NO_MOVEMENT
   // Paused. Structural is allowed to finish what it started; nothing else is —
   // and a dissolution is *not* structural, so it holds still with the clock. A

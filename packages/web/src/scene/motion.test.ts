@@ -197,9 +197,9 @@ describe('the dissolution class — matter returning, and nothing else', () => {
     // ruling 1 forbids a return to look like); too long and the dissolve sits
     // finished with nothing on screen. One mote's life inside one cord's span.
     expect(DISSOLUTION.moteLifeMs).toBeLessThan(DISSOLUTION.spanMs)
-    // …and the cord outlives the cut it came from, which is what makes "the
-    // geometry is gone when the dissolve completes" a later instant than "the cut
-    // has settled" — every prd5 cord-cut law is written against the earlier one.
+    // …and the drift outlives the settle it came from, which is what makes "the
+    // matter is home" a later instant than "the strand has gone still". Ruling 13
+    // took the erasure off the later instant; the two clocks are unchanged.
     expect(DISSOLUTION.spanMs).toBeGreaterThan(RETURN.totalMs)
     expect(RETURN.dissolvedMs).toBeGreaterThan(RETURN.totalMs)
   })
