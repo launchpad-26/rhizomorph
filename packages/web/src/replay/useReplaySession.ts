@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  initialSessionState,
-  reduceAll,
-  type RhizomorphEvent,
-  type SessionState,
-} from '@rhizomorph/core'
+import { initialSessionState, type RhizomorphEvent, type SessionState } from '@rhizomorph/core'
 import { fetchSessionEvents, fetchSessions, type FetchLike, type SessionSummary } from './api.js'
-import { eventsUpTo, timeRangeOf, type TimeRange } from './replayFold.js'
+import {
+  buildSessionIndex,
+  foldFrom,
+  initialFoldCursor,
+  timeRangeOf,
+  type FoldCursor,
+  type SessionIndex,
+  type TimeRange,
+} from './replayFold.js'
 import { usePlayback, type UsePlaybackResult } from './usePlayback.js'
 
 export interface ReplaySession {
@@ -91,6 +94,10 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
   const range = useMemo(() => timeRangeOf(events) ?? { start: 0, end: 0 }, [events])
   const playback = usePlayback({ start: range.start, end: range.end })
 
+  // Sorted once and keyframed once per session load (#160) — everything a
+  // scrub does afterwards is O(log n) plus the events actually crossed.
+  const sessionIndex = useMemo(() => buildSessionIndex(events), [events])
+
   // Runs after `usePlayback`'s own reset-on-new-range effect (hook call order
   // within this component determines effect order), so this play() wins over
   // that effect's pause-on-load reset instead of racing it.
@@ -105,14 +112,24 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
     }
   }, [events, selectedId, playback])
 
-  const eventsAtScrubTime = useMemo(
-    () => eventsUpTo(events, playback.currentTs),
-    [events, playback.currentTs],
-  )
-  const state = useMemo(
-    () => reduceAll(eventsAtScrubTime, initialSessionState()),
-    [eventsAtScrubTime],
-  )
+  // Caches the last cursor so an ordinary playback tick (time moving forward
+  // by a few ticks' worth of events) folds only the events it crossed rather
+  // than the whole prefix (#160 layer 2). A scrub backward, or a new
+  // `sessionIndex` entirely, falls back to the nearest keyframe inside
+  // `foldFrom` — never a stale cursor from a previous session, since the
+  // cache is keyed on `sessionIndex`'s own identity.
+  const cursorCacheRef = useRef<{ index: SessionIndex; cursor: FoldCursor } | null>(null)
+
+  const { eventsAtScrubTime, state } = useMemo(() => {
+    const cached = cursorCacheRef.current
+    const from = cached !== null && cached.index === sessionIndex ? cached.cursor : initialFoldCursor()
+    const cursor = foldFrom(sessionIndex, playback.currentTs, from)
+    cursorCacheRef.current = { index: sessionIndex, cursor }
+    return {
+      eventsAtScrubTime: sessionIndex.events.slice(0, cursor.index),
+      state: cursor.state,
+    }
+  }, [sessionIndex, playback.currentTs])
   const isReplaying = selectedId !== null && events.length > 0
 
   return {
