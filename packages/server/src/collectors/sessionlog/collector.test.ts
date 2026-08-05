@@ -212,6 +212,15 @@ describe('createSessionlogCollector', () => {
       Date.parse('2026-07-30T00:49:19.739Z'),
       Date.parse('2026-07-30T00:49:22.966Z'),
     ])
+
+    // prd15's capability law: `telemetry`/`activity: provided` need a real
+    // path that emits them — `llm.usage`/`tool.activity` above just proved
+    // it. `attention` stays `partial` (inferred, not declared) since this
+    // poll never emits `agent.status` — see `lane-state.ts`'s BLOCKED note.
+    expect(collector.capabilities?.telemetry).toEqual({ level: 'provided' })
+    expect(collector.capabilities?.activity).toEqual({ level: 'provided' })
+    expect(collector.capabilities?.attention.level).toBe('partial')
+    expect(result.events.some((e) => e.type === 'agent.status')).toBe(false)
   })
 
   it('normalizes filePath to repo-relative when it sits under the lane\'s own worktree (prd11 ruling 2)', async () => {

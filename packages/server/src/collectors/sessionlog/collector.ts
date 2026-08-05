@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import {
   UNATTRIBUTED_LANE,
+  type AdapterCapabilities,
   type AgentRole,
   type AgentThread,
   type Collector,
@@ -23,6 +24,36 @@ import { worktreePathToProjectSlug } from './worktree-slug.js'
 
 const COLLECTOR_NAME = 'sessionlog'
 const JSONL_SUFFIX = '.jsonl'
+
+/**
+ * prd15 ruling 5's L0 ceiling: the transcript organ is the richest
+ * zero-cooperation source there is — structural identity, a live four-state
+ * liveness read (`lane-state.ts`), and a full per-message activity+usage
+ * timeline. Attention is `partial`, not `provided`, on purpose: the organ
+ * *infers* waiting/frozen/gone from turn shape (this is the exact example
+ * the prd15 direction names — "inferred from transcript shape; a hook
+ * beacon would declare it"); `agentStatusEmissionFor` in `lane-state.ts`
+ * documents why it cannot yet *publish* that inference as a declared
+ * `agent.status` either (BLOCKED on a core envelope change outside this
+ * fence). Cost stays `absent` — tokens only, never dollars, until OTLP env
+ * is wired in (L1).
+ */
+export const SESSIONLOG_CAPABILITIES: AdapterCapabilities = {
+  identity: { level: 'provided' },
+  liveness: { level: 'provided' },
+  activity: { level: 'provided' },
+  attention: {
+    level: 'partial',
+    reason: 'inferred from transcript shape via the turn-shape state machine, not declared by the CLI',
+    remedy: 'a hook beacon would declare it (prd15 ruling 2, wave 3)',
+  },
+  telemetry: { level: 'provided' },
+  cost: {
+    level: 'absent',
+    reason: 'the transcript carries tokens, never dollars',
+    remedy: 'env vars at launch (`rhizomorph env <lane>`) bring OTLP dollars for CLIs that report cost',
+  },
+}
 
 export interface SessionlogCollectorConfig {
   /**
@@ -114,6 +145,7 @@ export function createSessionlogCollector(
 
   return {
     name: COLLECTOR_NAME,
+    capabilities: SESSIONLOG_CAPABILITIES,
 
     initialSnapshot(): SessionlogSnapshot {
       return { disabled: false, files: {}, erroredExtraSessionDirs: {}, knownWorktrees: {}, lanes: {} }

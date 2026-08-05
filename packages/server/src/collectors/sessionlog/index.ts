@@ -1,4 +1,4 @@
-export { createSessionlogCollector } from './collector.js'
+export { createSessionlogCollector, SESSIONLOG_CAPABILITIES } from './collector.js'
 export type { SessionlogCollectorConfig } from './collector.js'
 export { parseAssistantLine } from './parse-session-line.js'
 export type { AssistantLineFacts, ToolUseFacts } from './parse-session-line.js'
