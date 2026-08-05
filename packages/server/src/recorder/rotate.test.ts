@@ -1,11 +1,12 @@
-import { mkdtemp, open, readdir, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, open, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createEvent, type RhizomorphEvent } from '@rhizomorph/core'
+import { createEvent, createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { sessionFileName } from '../log/paths.js'
+import { sessionFileName, transcriptCaptureDir, transcriptCaptureFileName } from '../log/paths.js'
 import { decideSessionBoot, readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import { LOCK_STALE_MS, readSessionLock, sessionLockFileName, writeSessionLock } from '../log/session-lock.js'
+import { readTranscriptCaptureManifest } from '../log/transcript-capture.js'
 import { closeCurrentSession, nextSessionStart, openNextSession, rotateSession } from './rotate.js'
 import { SessionRecorder } from './session-recorder.js'
 
@@ -278,5 +279,111 @@ describe('rotateSession', () => {
 
     expect(second.closed.sessionId).toBe('5000')
     expect(second.opened.sessionId).toBe('6000')
+  })
+})
+
+describe('transcript capture on close (prd16 ruling 3)', () => {
+  const LANE = '84-chat-drawer'
+  const WORKTREE = '/tmp/rhizomorph-rotate-fixture/84-chat-drawer'
+  const PROJECT_SLUG = '-tmp-rhizomorph-rotate-fixture-84-chat-drawer'
+  const CLAUDE_SESSION_ID = 'sess-84'
+
+  let dir: string
+  let claudeProjectsRoot: string
+  let recorder: SessionRecorder
+  let clock: number
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-rotate-capture-test-'))
+    claudeProjectsRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-rotate-capture-claude-'))
+    clock = Number(FIRST)
+    recorder = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST))
+    await recorder.record(
+      createEvent(
+        'session.started',
+        { sessionId: FIRST, repoPath: REPO_PATH, repoName: 'watched' },
+        { id: 'evt-000001', ts: clock },
+      ),
+    )
+    const f = createEventFactory()
+    await recorder.record(
+      f.llmUsage(
+        { lane: LANE, branch: LANE, sessionId: CLAUDE_SESSION_ID, worktreePath: WORKTREE },
+        { id: 'evt-000002', ts: clock + 1 },
+      ),
+    )
+    await writeSessionLock(dir, FIRST, process.pid, clock)
+  })
+
+  afterEach(async () => {
+    await Promise.all([rm(dir, { recursive: true, force: true }), rm(claudeProjectsRoot, { recursive: true, force: true })])
+  })
+
+  function options() {
+    return {
+      sessionDir: dir,
+      repoPath: REPO_PATH,
+      repoName: 'watched',
+      recorder,
+      now: () => clock,
+      pid: process.pid,
+      claudeProjectsRoot,
+    }
+  }
+
+  async function writeLiveTranscript(lines: string[]): Promise<void> {
+    const liveDir = path.join(claudeProjectsRoot, PROJECT_SLUG)
+    await mkdir(liveDir, { recursive: true })
+    await writeFile(path.join(liveDir, `${CLAUDE_SESSION_ID}.jsonl`), lines.map((line) => `${line}\n`).join(''))
+  }
+
+  it('captures the lane transcript beside the closed log, and the manifest reports its size', async () => {
+    await writeLiveTranscript([JSON.stringify({ type: 'user', message: { role: 'user', content: 'hello' } })])
+    clock = 5000
+
+    const closed = await closeCurrentSession(options())
+
+    const capturedPath = path.join(transcriptCaptureDir(dir, FIRST), transcriptCaptureFileName(CLAUDE_SESSION_ID))
+    const capturedRaw = await readFile(capturedPath, 'utf8')
+    expect(JSON.parse(capturedRaw.trimEnd())).toMatchObject({ type: 'user' })
+
+    const manifest = await readTranscriptCaptureManifest(dir, FIRST)
+    expect(manifest).not.toBeNull()
+    expect(manifest?.complete).toBe(true)
+    expect(manifest?.totalBytes).toBeGreaterThan(0)
+    expect(manifest?.lanes).toEqual([
+      { lane: LANE, claudeSessionId: CLAUDE_SESSION_ID, captured: true, bytes: manifest?.totalBytes },
+    ])
+
+    // Capture finished before the close event was appended — not after.
+    expect(closed.sessionId).toBe(FIRST)
+  })
+
+  it('voices a precise gap, and marks the manifest incomplete, when a lane\'s transcript is gone — and rotation still proceeds', async () => {
+    // No live transcript ever written for this lane.
+    clock = 5000
+
+    const closed = await closeCurrentSession(options())
+
+    const manifest = await readTranscriptCaptureManifest(dir, FIRST)
+    expect(manifest?.complete).toBe(false)
+    expect(manifest?.lanes[0]).toMatchObject({ lane: LANE, captured: false })
+    expect(manifest?.lanes[0]?.reason).toContain('TRANSCRIPT NOT CAPTURED')
+
+    // The close itself is unaffected: the log still ends in `session.closed`.
+    const events = await readSessionEvents(closed.filePath)
+    expect(events.at(-1)?.type).toBe('session.closed')
+  })
+
+  it('captures before the closing event is appended — the closed log is never marked done while capture is still unaccounted for', async () => {
+    await writeLiveTranscript([JSON.stringify({ type: 'user', message: { role: 'user', content: 'hi' } })])
+    clock = 5000
+
+    await closeCurrentSession(options())
+
+    // The manifest's own `capturedAt` is the close instant, proving it ran as
+    // part of this same close rather than some later, unordered pass.
+    const manifest = await readTranscriptCaptureManifest(dir, FIRST)
+    expect(manifest?.capturedAt).toBe(5000)
   })
 })

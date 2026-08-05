@@ -1,7 +1,8 @@
 import path from 'node:path'
 import { createEvent } from '@rhizomorph/core'
-import { sessionFileName } from '../log/paths.js'
+import { defaultClaudeProjectsRoot, sessionFileName } from '../log/paths.js'
 import { removeSessionLock, writeSessionLock } from '../log/session-lock.js'
+import { captureSessionTranscripts } from '../log/transcript-capture.js'
 import type { SessionRecorder } from './session-recorder.js'
 
 /**
@@ -9,9 +10,11 @@ import type { SessionRecorder } from './session-recorder.js'
  * narrowest. It closes the current session log and opens a fresh one, on an
  * explicit operator command (`rhizomorph rotate`, or the dashboard's "end
  * session · start fresh" button), and it writes ONLY inside this repo's own
- * session directory: the log it closes, the log it opens, and the lock
- * sidecar beside them. Never the watched repo, never a ref, never a worktree,
- * never `~/.claude` — asserted, not promised, by `namespace-law.test.ts`.
+ * session directory: the log it closes, the log it opens, the lock sidecar
+ * beside them, and — since prd16 ruling 3 — each closing lane's transcript,
+ * captured beside the log it closes. It READS from `~/.claude/projects` to
+ * do that capture, but never writes there. Never the watched repo, never a
+ * ref, never a worktree — asserted, not promised, by `namespace-law.test.ts`.
  *
  * **The ordering is the law** (prd17 ruling 3.5): close, THEN open, never
  * both open. The two halves are separate exported functions rather than one
@@ -36,6 +39,14 @@ export interface RotateSessionOptions {
   now?: () => number
   /** Whose lock the new session gets. Defaults to this process. */
   pid?: number
+  /**
+   * Root Claude Code tails project session logs under — where transcript
+   * capture (prd16 ruling 3) reads each lane's LIVE transcript from before
+   * copying it into the data directory. Defaults to `~/.claude/projects`;
+   * tests point it at a fixture dir so a rotation in this suite never reads
+   * (or depends on) the real one.
+   */
+  claudeProjectsRoot?: string
 }
 
 export interface ClosedSession {
@@ -58,11 +69,21 @@ export interface Rotation {
 }
 
 /**
- * THE CLOSE HALF. Appends the final `session.closed`, flushes and fsyncs the
- * log, then releases the session's lock — in that order, so at no instant is
- * there a live lock over a log that has already ended. The recorder is left
- * sealed: nothing more can be appended to the closed file, and anything a
- * collector records meanwhile waits for {@link openNextSession}.
+ * THE CLOSE HALF. Captures every lane's transcript (prd16 ruling 3), THEN
+ * appends the final `session.closed`, flushes and fsyncs the log, then
+ * releases the session's lock — in that order, so at no instant is there a
+ * live lock over a log that has already ended. The recorder is left sealed:
+ * nothing more can be appended to the closed file, and anything a collector
+ * records meanwhile waits for {@link openNextSession}.
+ *
+ * Capture happens BEFORE the closing event, not after: if it throws, or the
+ * process dies partway through, this session is never marked closed at all,
+ * and the next boot resumes it exactly as any other mid-write crash leaves
+ * it (`decideSessionBoot`'s `resumed`/`stale` reasons, never `closed`) —
+ * never a closed log with no honest record of what capture actually got.
+ * `captureSessionTranscripts` itself never throws for an individual lane it
+ * could not find; it records that lane's gap in the manifest and moves on, so
+ * one vanished transcript never blocks the operator's rotation.
  */
 export async function closeCurrentSession(options: RotateSessionOptions): Promise<ClosedSession> {
   const { sessionDir, recorder } = options
@@ -72,6 +93,14 @@ export async function closeCurrentSession(options: RotateSessionOptions): Promis
   const closedAt = now()
   // +1 for the close event itself: the number a reader of the finished file counts.
   const eventCount = recorder.eventsSoFar().length + 1
+
+  await captureSessionTranscripts({
+    events: recorder.eventsSoFar(),
+    sessionDir,
+    sessionId,
+    claudeProjectsRoot: options.claudeProjectsRoot ?? defaultClaudeProjectsRoot(),
+    now: closedAt,
+  })
 
   await recorder.closeWith(
     createEvent(
