@@ -27,7 +27,7 @@ import { TIP_GLOW_RADIUS, spendTip } from '../salience.js'
 import { blobRing, variationFor, variationSeed } from '../variation.js'
 import { budget, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
 import { NODE_LENS, THORN_OUT } from './glyphs.js'
-import { regionMark, ribbonMark, type Mark, type MarkRole } from './types.js'
+import { regionMark, ribbonMark, type Mark, type MarkRole, type RibbonMark } from './types.js'
 
 /**
  * THE NODES — where a lane's thread ends, and where its state is legible.
@@ -425,6 +425,43 @@ function lensTint(hue: Rgb, freshness: number): Rgb {
  * stays, because an operator may still click one to read it — hidden ≠ gone
  * applies to the *toggle*, and pointing at one has never been hiding it.
  */
+/**
+ * THE TAIL AND THE SEAL, CACHED (#178 — the same finding as `marks/thread.ts`'s
+ * `persistRibbon`, at the node instead of the strand). Both are `ribbonMark`s,
+ * so both pay a `ribbonOutline` resample-and-offset every call; once a lane is
+ * settled neither's *geometry* can change (`angle` and `length` below are
+ * functions of `thread.path`, `thread.sizeFrac` and `cut.stilled`, and the last
+ * of those is pinned at 1 for the rest of the session), so both are worth
+ * exactly one build. Keyed on `thread.path`'s identity for the same reason
+ * `persistRibbon` is: `geometry.ts` only hands out a stable `path` reference
+ * once `dissolve >= 1`, so this cache is warm exactly when it is safe to be and
+ * never needs its own copy of that gate.
+ *
+ * The placeholder `PERSIST.glyph` passed to `tailMark`/`sealMark` here is never
+ * read back — the call site overwrites `.paint` on every frame, because
+ * `budget()` is salience-live in exactly the way the outline is not (see
+ * `persistRibbon`'s header for the fuller argument).
+ */
+const PERSIST_NODE_RIBBON_CACHE = new WeakMap<
+  readonly Point[],
+  { tail: RibbonMark; seal: RibbonMark }
+>()
+
+function persistNodeRibbons(
+  thread: ThreadGeometry,
+  angle: number,
+  length: number,
+): { tail: RibbonMark; seal: RibbonMark } {
+  const known = PERSIST_NODE_RIBBON_CACHE.get(thread.path)
+  if (known !== undefined) return known
+  const built = {
+    tail: tailMark('persist-mark', thread, angle, length, PERSIST.glyph),
+    seal: sealMark('persist-mark', thread, angle, length, PERSIST.glyph),
+  }
+  PERSIST_NODE_RIBBON_CACHE.set(thread.path, built)
+  return built
+}
+
 function persistNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: RetireGeometry): Mark[] {
   if (cut.hidden) return []
 
@@ -463,9 +500,10 @@ function persistNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: Retire
   // The tail and the seal, permanently. The lens above, the name and the figure
   // (`labelMarks`) and these two are what say *which* lane this was — and under
   // ruling 13 the strand behind them says it too.
+  const ribbons = persistNodeRibbons(thread, angle, length)
   marks.push(
-    tailMark('persist-mark', thread, angle, length, cold(ink(lensTint(hue, freshness), 0.75))),
-    sealMark('persist-mark', thread, angle, length, cold(ink(ACTIVITY_HUE.done, 0.9))),
+    { ...ribbons.tail, paint: cold(ink(lensTint(hue, freshness), 0.75)) },
+    { ...ribbons.seal, paint: cold(ink(ACTIVITY_HUE.done, 0.9)) },
   )
 
   if (frame.salience.spotlightId === laneId || frame.salience.hoverId === laneId) {
@@ -758,7 +796,7 @@ function tailMark(
   angle: number,
   length: number,
   paint: Ink,
-): Mark {
+): RibbonMark {
   const habit = variationFor(variationSeed(thread.lane)).curl
   const reach = length * (0.55 + 0.85 * habit)
   const lean = (habit - 0.5) * 1.8
@@ -843,7 +881,7 @@ function sealMark(
   angle: number,
   length: number,
   paint: Ink,
-): Mark {
+): RibbonMark {
   const habit = variationFor(variationSeed(thread.lane))
   return ribbonMark({
     role,

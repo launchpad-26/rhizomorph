@@ -23,7 +23,7 @@ import type { WidthStop } from '../ribbon.js'
 import { SHIMMER_PERIOD_MS, variationFor, variationSeed } from '../variation.js'
 import { budget, motionMode, type SceneFrame } from './frame.js'
 import { THORN_OUT } from './glyphs.js'
-import { ribbonMark, type Mark } from './types.js'
+import { ribbonMark, type Mark, type RibbonMark } from './types.js'
 
 /**
  * THE THREADS — a lane as a hypha, root-mass rim to node.
@@ -267,6 +267,50 @@ function severedStops(): WidthStop[] {
 }
 
 /**
+ * THE SETTLED STRAND'S OUTLINE, CACHED (#178 — the audit's P2 finding, measured
+ * by #175 and gated on by `geometry.ts`'s own cache). `ribbonOutline` resamples
+ * the spine and offsets it by a width profile on every call — the marks-stage
+ * cost the audit's numbers pinned as the *larger* half of a retired field's
+ * frame (persistentMarks had no cache at all; layoutScene's was the smaller
+ * half). Once a lane is settled, `geometry.ts` hands every mark builder the
+ * SAME `path` array, frame after frame (`retiredSpineCacheFor`) — so this reuses
+ * that identity as the cache key, rather than restating "is this lane settled?"
+ * as a second gate that could drift out of sync with the first one.
+ *
+ * **What is NOT cached: the paint.** `budget()` reads `frame.salience`, so a
+ * settled lane's own brightness still answers a hover, a selection, or a
+ * summons dimming the calm world around it — freezing that would be a real
+ * lane going dark or bright and never being able to say so again. The mark is
+ * built once and its `paint` overwritten every frame at the call site, the
+ * same split {@link RibbonMark} itself already makes between `outline` (what
+ * is filled) and `paint` (what fills it).
+ */
+const PERSIST_RIBBON_CACHE = new WeakMap<readonly Point[], RibbonMark>()
+
+function persistRibbon(
+  laneId: string,
+  path: readonly Point[],
+  width: { root: number; tip: number },
+): RibbonMark {
+  const known = PERSIST_RIBBON_CACHE.get(path)
+  if (known !== undefined) return known
+  const built = ribbonMark({
+    role: 'persist',
+    laneId,
+    alarm: false,
+    path,
+    widthRoot: width.root,
+    widthTip: width.tip,
+    // Overwritten every frame at the call site — see the header above. This
+    // value is only ever read once, by `ribbonMark` itself, to fill in the
+    // `Paint` field of the object this function then caches by its `outline`.
+    paint: PERSIST.strand,
+  })
+  PERSIST_RIBBON_CACHE.set(path, built)
+  return built
+}
+
+/**
  * THE PERSISTENT STRAND, as marks (prd10 rulings 13–16) — what a lane looks like
  * once it has finished, which is now *for the rest of the session*.
  *
@@ -339,17 +383,10 @@ function persistentMarks(
     )
   }
 
-  marks.push(
-    ribbonMark({
-      role: 'persist',
-      laneId,
-      alarm: false,
-      path: cut.path,
-      widthRoot: width.root,
-      widthTip: width.tip,
-      paint: budget(frame, laneId, false, cold),
-    }),
-  )
+  marks.push({
+    ...persistRibbon(laneId, thread.path, width),
+    paint: budget(frame, laneId, false, cold),
+  })
 
   if (cut.homeward !== null) {
     marks.push(
