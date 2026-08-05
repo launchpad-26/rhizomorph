@@ -47,6 +47,14 @@ describe('parseRoute', () => {
     expect(parseRoute('/lane/a/b')).toEqual({ name: 'balcony' })
     expect(parseRoute('/whatever')).toEqual({ name: 'balcony' })
   })
+
+  it('reads /recordings as the recordings library (prd16 ruling 4)', () => {
+    expect(parseRoute('/recordings')).toEqual({ name: 'recordings' })
+  })
+
+  it('tolerates a trailing slash on /recordings', () => {
+    expect(parseRoute('/recordings/')).toEqual({ name: 'recordings' })
+  })
 })
 
 describe('laneUrl', () => {
@@ -113,5 +121,15 @@ describe('useRoute', () => {
     })
 
     expect(result.current).toEqual({ name: 'lane', handle: '9-lane-page' })
+  })
+
+  it('navigates to the recordings library and back', () => {
+    const { result } = renderHook(() => useRoute())
+
+    act(() => navigate('/recordings'))
+    expect(result.current).toEqual({ name: 'recordings' })
+
+    act(() => navigate('/'))
+    expect(result.current).toEqual({ name: 'balcony' })
   })
 })

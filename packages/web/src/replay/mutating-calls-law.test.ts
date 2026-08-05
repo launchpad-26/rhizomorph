@@ -4,30 +4,49 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /**
- * THE MUTATING-CALLS LAW — prd16 ruling 2's condition on the web half, in the
- * philosophy of `drawer/readonly.test.ts` widened to the whole app.
+ * THE MUTATING-CALLS LAW — prd16 ruling 2's condition on the web half, widened
+ * by ruling 4 in the philosophy of `drawer/readonly.test.ts` applied to the
+ * whole app.
  *
  * The drawer's law says "this directory sends only GETs". That law stays
- * exactly as it was, and stays green. But rotation gave the dashboard its
- * first mutating call ever, and "the drawer is clean" is no longer the same
- * statement as "the app is". So this law enumerates instead of forbidding:
- * across every source file in `packages/web/src`, the mutating calls are
- * EXACTLY one, in exactly one file, to exactly one route, with exactly one
- * verb. A second one added tomorrow — anywhere, in any panel, in a branch
- * nothing renders — fails here and has to say so in a diff a reviewer reads.
+ * exactly as it was, and stays green. Rotation gave the dashboard its first
+ * mutating call ever; the recordings library's rename-in-place gives it its
+ * second. So this law enumerates instead of forbidding: across every source
+ * file in `packages/web/src`, the mutating calls are EXACTLY TWO, each in
+ * exactly one file, each to exactly one route — and every verb either one
+ * names is the same single verb, `POST`. A THIRD one added tomorrow —
+ * anywhere, in any panel, in a branch nothing renders — fails here and has to
+ * say so in a diff a reviewer reads.
+ *
+ * **Why a second mutating call is allowed to exist at all, not just why it is
+ * caught.** Rotation (`replay/rotate.ts`) and the rename (`recordings/label.ts`)
+ * are constitutional for the identical three reasons: each writes only a
+ * SIDECAR or a session boundary inside rhizomorph's OWN DATA DIRECTORY, never
+ * the watched repo and never a ref; each is triggered only by an EXPLICIT
+ * OPERATOR ACT (a button the operator clicked), never a background poll or a
+ * timer; and neither ever mutates the append-only event log itself — rotation
+ * appends a `session.closed`/`session.started` pair the log already permits,
+ * the rename writes `log/label.ts`'s own sidecar file beside it. A third
+ * mutating call would need to clear that same bar, argued in its own diff,
+ * not inherited from these two by default — which is exactly why this law
+ * enumerates by *file* and stays exact rather than "at least one, at most a
+ * few": the one module that may reach each route is also the one module that
+ * documents why it is allowed to.
  *
  * Deliberately crude and deliberately loud, like the law it extends. Test
  * files are excluded (a test is not the app, and this file itself names every
- * verb it forbids), which is also why the enumeration is by *file*: the one
+ * verb it forbids), which is also why the enumeration is by *file*: each
  * allowed call has to stay in the one module that documents why it exists.
  */
 
 const REPLAY_DIR = path.dirname(fileURLToPath(import.meta.url))
 const WEB_SRC = path.resolve(REPLAY_DIR, '..')
 
-/** The single file allowed to mutate, and the single route it may reach. */
-const THE_MUTATING_MODULE = path.join(WEB_SRC, 'replay', 'rotate.ts')
-const THE_MUTATING_ROUTE = '/api/rotate'
+/** The two files allowed to mutate, and the one route each may reach — every verb across both is `POST`. */
+const MUTATING_MODULES: ReadonlyArray<{ file: string; route: string }> = [
+  { file: path.join(WEB_SRC, 'replay', 'rotate.ts'), route: '/api/rotate' },
+  { file: path.join(WEB_SRC, 'recordings', 'label.ts'), route: '/api/label' },
+]
 const THE_ONLY_VERB = 'POST'
 
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx'])
@@ -70,7 +89,7 @@ function mutatingFiles(): string[] {
     .sort()
 }
 
-describe('the web app names exactly one mutating call (prd16 ruling 2)', () => {
+describe('the web app names exactly two mutating calls (prd16 rulings 2 and 4)', () => {
   it('has the whole app to check, not one directory — an empty grep proves nothing', () => {
     const files = sourceFiles()
     expect(files.length).toBeGreaterThan(80)
@@ -79,40 +98,84 @@ describe('the web app names exactly one mutating call (prd16 ruling 2)', () => {
     expect(files.map((file) => file.name)).toContain(path.join('drawer', 'useTranscript.ts'))
   })
 
-  it('is the ONLY file in the app that names a mutating verb or builds a request init', () => {
-    expect(mutatingFiles()).toEqual([path.relative(WEB_SRC, THE_MUTATING_MODULE)])
+  it('are the ONLY two files in the app that name a mutating verb or build a request init', () => {
+    expect(mutatingFiles()).toEqual(
+      MUTATING_MODULES.map((module) => path.relative(WEB_SRC, module.file)).sort(),
+    )
   })
 
-  it('and that file mutates exactly one route, with exactly one verb', () => {
-    const text = readFileSync(THE_MUTATING_MODULE, 'utf8')
+  it('each mutates exactly its own one route, and every verb either names is the one shared verb', () => {
+    const allVerbs: string[] = []
+    for (const { file, route } of MUTATING_MODULES) {
+      const text = readFileSync(file, 'utf8')
 
-    const verbs = [...new Set([...text.matchAll(/\b(POST|PUT|PATCH|DELETE)\b/g)].map((match) => match[1]))]
-    expect(verbs).toEqual([THE_ONLY_VERB])
+      const verbs = [
+        ...new Set(
+          [...text.matchAll(/\b(POST|PUT|PATCH|DELETE)\b/g)]
+            .map((match) => match[1])
+            .filter((verb): verb is string => verb !== undefined),
+        ),
+      ]
+      expect(verbs, `${path.relative(WEB_SRC, file)} names an unexpected verb set`).toEqual([THE_ONLY_VERB])
+      allVerbs.push(...verbs)
 
-    const routes = [...new Set([...text.matchAll(/'(\/api\/[a-z/:${}\-.[\]]+)'/gi)].map((match) => match[1]))]
-    expect(routes).toEqual([THE_MUTATING_ROUTE])
+      const routes = [...new Set([...text.matchAll(/'(\/api\/[a-z/:${}\-.[\]]+)'/gi)].map((match) => match[1]))]
+      expect(routes, `${path.relative(WEB_SRC, file)} names an unexpected route set`).toEqual([route])
 
-    // Every `method:` in the file names POST — the call itself and the narrow
-    // fetch type that will not typecheck against anything else. A `method:`
-    // this doesn't account for means a verb went in some other way.
-    const methods = [...text.matchAll(/\bmethod\s*:\s*'([A-Za-z]+)'/g)].map((match) => match[1])
-    expect(methods.length).toBeGreaterThan(0)
-    expect([...new Set(methods)]).toEqual([THE_ONLY_VERB])
-    expect([...text.matchAll(REQUEST_INIT_GLOBAL_RE)]).toHaveLength(methods.length)
+      // Every `method:` in the file names POST — the call itself and the narrow
+      // fetch type that will not typecheck against anything else. A `method:`
+      // this doesn't account for means a verb went in some other way.
+      const methods = [...text.matchAll(/\bmethod\s*:\s*'([A-Za-z]+)'/g)].map((match) => match[1])
+      expect(methods.length).toBeGreaterThan(0)
+      expect([...new Set(methods)]).toEqual([THE_ONLY_VERB])
+      expect([...text.matchAll(REQUEST_INIT_GLOBAL_RE)]).toHaveLength(methods.length)
+    }
+    // The shared verb really is shared, not each module coincidentally alone.
+    expect([...new Set(allVerbs)]).toEqual([THE_ONLY_VERB])
   })
 
-  it('mutates nothing but the recording: it sends no body, no headers, no credential', () => {
-    const text = readFileSync(THE_MUTATING_MODULE, 'utf8')
+  it('rotate.ts mutates nothing but the recording boundary: no body, no headers, no credential', () => {
+    const text = readFileSync(path.join(WEB_SRC, 'replay', 'rotate.ts'), 'utf8')
     expect(text).not.toMatch(/\b(?:headers|credentials|body)\s*:/)
     expect(text).not.toMatch(/FormData|URLSearchParams|new Request\(/)
     expect(text).not.toMatch(/apiKey|api_key|ANTHROPIC_API_KEY|Authorization|Bearer\s/i)
   })
 
-  it('the button reaches the route only through that module — never its own fetch', () => {
-    const button = readFileSync(path.join(WEB_SRC, 'replay', 'RotateButton.tsx'), 'utf8')
-    expect(button).toContain("from './rotate.js'")
-    expect(button).not.toMatch(/\bfetch\s*\(/)
-    expect(button).not.toContain('/api/')
+  /**
+   * `label.ts` genuinely has something to say (which session, and what to
+   * call it), unlike rotation — so it structurally cannot follow "no body at
+   * all". What it must still never do is smuggle a credential or grow past
+   * the one header a JSON body needs the server's own parser to see it: the
+   * check names exactly the shape allowed rather than merely "some body,
+   * somehow", so a stray header or a widened payload fails here too.
+   */
+  it("label.ts's body carries only sessionId and label, behind the one header JSON requires, no credential", () => {
+    const text = readFileSync(path.join(WEB_SRC, 'recordings', 'label.ts'), 'utf8')
+    expect(text).not.toMatch(/FormData|URLSearchParams|new Request\(/)
+    expect(text).not.toMatch(/apiKey|api_key|ANTHROPIC_API_KEY|Authorization|Bearer\s/i)
+    expect(text).not.toMatch(/credentials\s*:/)
+
+    // Two occurrences are expected — the narrow fetch type's own shape and the
+    // one real call site — and both must name the identical single header.
+    const headerBlocks = [...text.matchAll(/headers\s*:\s*\{([^}]*)\}/g)]
+    expect(headerBlocks.length).toBeGreaterThan(0)
+    for (const block of headerBlocks) {
+      expect(block[1]?.replace(/\s/g, '')).toBe("'Content-Type':'application/json'")
+    }
+
+    expect(text).toMatch(/body\s*:\s*JSON\.stringify\(\{\s*sessionId,\s*label\s*\}\)/)
+  })
+
+  it('the buttons reach their routes only through their own module — never their own fetch', () => {
+    const rotateButton = readFileSync(path.join(WEB_SRC, 'replay', 'RotateButton.tsx'), 'utf8')
+    expect(rotateButton).toContain("from './rotate.js'")
+    expect(rotateButton).not.toMatch(/\bfetch\s*\(/)
+    expect(rotateButton).not.toContain('/api/')
+
+    const renameControl = readFileSync(path.join(WEB_SRC, 'recordings', 'RenameControl.tsx'), 'utf8')
+    expect(renameControl).toContain("from './label.js'")
+    expect(renameControl).not.toMatch(/\bfetch\s*\(/)
+    expect(renameControl).not.toContain('/api/')
   })
 
   it('the detectors bite — a POST added anywhere else would be caught', () => {

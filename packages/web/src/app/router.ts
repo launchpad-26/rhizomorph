@@ -1,12 +1,15 @@
 import { useSyncExternalStore } from 'react'
 
 /**
- * THE ROUTER (prd9 B1b) — a hand-rolled history-API router for exactly two
- * routes: `/` (the balcony, unchanged) and `/lane/:handle` (the deep-linkable
- * lane page). The lean-dependency culture (prd5's implementation-vehicles
- * note) rules out react-router or any routing package for a job this small —
- * two routes, no nesting, no data loading, just "which page" and "keep the
- * URL and the back button honest".
+ * THE ROUTER (prd9 B1b, widened by prd16 ruling 4) — a hand-rolled
+ * history-API router for exactly three routes: `/` (the balcony, unchanged),
+ * `/lane/:handle` (the deep-linkable lane page), and `/recordings` (the
+ * recordings library, #135's pattern reused rather than forked — a second
+ * router is exactly what this issue was told not to build). The
+ * lean-dependency culture (prd5's implementation-vehicles note) rules out
+ * react-router or any routing package for a job this small — three routes,
+ * no nesting, no data loading, just "which page" and "keep the URL and the
+ * back button honest".
  *
  * `pushState` never fires the browser's own `popstate`, so every programmatic
  * navigation (`navigate`) has to raise it itself; the browser raises
@@ -14,12 +17,14 @@ import { useSyncExternalStore } from 'react'
  * listens for — so both paths converge on the same notification.
  */
 
-export type Route = { name: 'balcony' } | { name: 'lane'; handle: string }
+export type Route = { name: 'balcony' } | { name: 'lane'; handle: string } | { name: 'recordings' }
 
 const LANE_PATH = /^\/lane\/([^/]+)\/?$/
+const RECORDINGS_PATH = /^\/recordings\/?$/
 
 /** Parses a `location.pathname` into the one route it names. Unknown shapes fall back to the balcony. */
 export function parseRoute(pathname: string): Route {
+  if (RECORDINGS_PATH.test(pathname)) return { name: 'recordings' }
   const match = LANE_PATH.exec(pathname)
   if (match === null) return { name: 'balcony' }
   return { name: 'lane', handle: decodeURIComponent(match[1] as string) }

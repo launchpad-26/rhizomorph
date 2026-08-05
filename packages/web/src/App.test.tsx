@@ -89,11 +89,12 @@ async function renderApp() {
     import('./panels/feed/index.js'),
     import('./replay/index.js'),
     import('./scene/index.js'),
-    // Real (unmocked) drawer and lane page — `Shell`/`App` mount their own
-    // `Suspense` unconditionally, so both are on the same one-tick clock as
-    // every mocked lazy module above.
+    // Real (unmocked) drawer, lane page and recordings library — `Shell`/`App`
+    // mount their own `Suspense` unconditionally, so all three are on the same
+    // one-tick clock as every mocked lazy module above.
     import('./drawer/index.js'),
     import('./lane-page/index.js'),
+    import('./recordings/index.js'),
   ])
 
   let source: FakeEventSource | undefined
@@ -283,6 +284,50 @@ describe('App', () => {
       const gap = await screen.findByTestId('lane-page-unknown')
       expect(gap.textContent).toContain('never-existed')
       expect(gap.textContent).toContain('this session')
+    })
+  })
+
+  describe('the recordings library (prd16 ruling 4)', () => {
+    afterEach(() => {
+      window.history.replaceState(null, '', '/')
+      vi.unstubAllGlobals()
+    })
+
+    function stubEmptyRecordings() {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ sessions: [] }) })),
+      )
+    }
+
+    it('deep-links cold to /recordings — a route switch, not an overlay', async () => {
+      stubEmptyRecordings()
+      window.history.replaceState(null, '', '/recordings')
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      expect(await screen.findByTestId('recordings-page')).toBeInTheDocument()
+      expect(screen.queryByText('THE OBSERVATORY')).not.toBeInTheDocument()
+    })
+
+    it('the browser back button returns from the recordings library to the balcony', async () => {
+      stubEmptyRecordings()
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      act(() => navigate('/recordings'))
+      expect(await screen.findByTestId('recordings-page')).toBeInTheDocument()
+
+      await act(async () => {
+        const popped = new Promise<void>((resolve) =>
+          window.addEventListener('popstate', () => resolve(), { once: true }),
+        )
+        window.history.back()
+        await popped
+      })
+
+      expect(window.location.pathname).toBe('/')
+      expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
     })
   })
 })
