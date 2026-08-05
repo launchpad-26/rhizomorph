@@ -89,12 +89,13 @@ async function renderApp() {
     import('./panels/feed/index.js'),
     import('./replay/index.js'),
     import('./scene/index.js'),
-    // Real (unmocked) drawer, lane page and recordings library — `Shell`/`App`
-    // mount their own `Suspense` unconditionally, so all three are on the same
-    // one-tick clock as every mocked lazy module above.
+    // Real (unmocked) drawer, lane page, recordings library and lab tab —
+    // `Shell`/`App` mount their own `Suspense` unconditionally, so all four
+    // are on the same one-tick clock as every mocked lazy module above.
     import('./drawer/index.js'),
     import('./lane-page/index.js'),
     import('./recordings/index.js'),
+    import('./lab/index.js'),
   ])
 
   let source: FakeEventSource | undefined
@@ -317,6 +318,55 @@ describe('App', () => {
 
       act(() => navigate('/recordings'))
       expect(await screen.findByTestId('recordings-page')).toBeInTheDocument()
+
+      await act(async () => {
+        const popped = new Promise<void>((resolve) =>
+          window.addEventListener('popstate', () => resolve(), { once: true }),
+        )
+        window.history.back()
+        await popped
+      })
+
+      expect(window.location.pathname).toBe('/')
+      expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
+    })
+  })
+
+  describe('the lab tab (prd14)', () => {
+    afterEach(() => {
+      window.history.replaceState(null, '', '/')
+      vi.unstubAllGlobals()
+    })
+
+    function stubEmptyLab() {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string | URL | Request) => {
+          const href = String(input)
+          if (href === '/api/lab/checkpoints') return { ok: true, status: 200, json: async () => ({ checkpoints: [] }) }
+          if (href === '/api/lab/experiments') return { ok: true, status: 200, json: async () => ({ experiments: [] }) }
+          throw new Error(`unexpected fetch: ${href}`)
+        }),
+      )
+    }
+
+    it('deep-links cold to /lab — a route switch, not an overlay', async () => {
+      stubEmptyLab()
+      window.history.replaceState(null, '', '/lab')
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      expect(await screen.findByTestId('lab-page')).toBeInTheDocument()
+      expect(screen.queryByText('THE OBSERVATORY')).not.toBeInTheDocument()
+    })
+
+    it('the browser back button returns from the lab to the balcony', async () => {
+      stubEmptyLab()
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      act(() => navigate('/lab'))
+      expect(await screen.findByTestId('lab-page')).toBeInTheDocument()
 
       await act(async () => {
         const popped = new Promise<void>((resolve) =>
