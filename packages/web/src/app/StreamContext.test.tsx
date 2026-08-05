@@ -138,9 +138,10 @@ describe('StreamContext driven by mode', () => {
 
     act(() => getSource()?.open())
     act(() => getSource()?.emit(liveWorktreeEvent()))
-    // #183: the live fold is now buffered and flushed on the next animation
-    // frame rather than synchronously inside `emit`, so this has to wait for
-    // that frame instead of reading state back immediately.
+    // #183: a lone arrival folds eagerly (this one does, since nothing else
+    // is in flight), but waiting rather than reading state back immediately
+    // doesn't assume that leading-edge detail — it's still correct if a
+    // second arrival ever lands here and has to wait its own turn.
     await waitFor(() => expect(screen.getByTestId('worktree-paths').textContent).toBe('/repo'))
 
     // Selecting a session chains through two mocked fetches (session list,
@@ -249,8 +250,8 @@ describe('news vs history', () => {
    * arrives out of order and repeats an id (a duplicate SSE delivery, or two
    * collectors racing the same commit). #183 is what actually wires
    * `foldStreamEvents` into the live connection (`StreamContext.tsx`'s
-   * `reduce`, via `useEventStream`'s per-frame buffer) — this law is what made
-   * that safe to do without re-proving it there.
+   * `reduce`, via `useEventStream`'s leading-event-then-buffered-rest fold) —
+   * this law is what made that safe to do without re-proving it there.
    */
   it('batched folding matches per-event folding exactly, including out-of-order arrival and a duplicate id (#166)', () => {
     const burst = [

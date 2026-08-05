@@ -102,16 +102,19 @@ export function StreamProvider({ url, children, createSource, now }: StreamProvi
   const [initialLive] = useState(() => initialStreamState(now ?? Date.now()))
   // #166 proved `foldStreamEvents` (one O(n) batched pass) bit-for-bit
   // identical to folding the same events one at a time through
-  // `foldStreamEvent`, but left it unwired: coalescing a burst needs
-  // `useEventStream` to defer the fold at least one tick past the synchronous
-  // `handleMessage` call, and every existing test suite in this package that
-  // asserted on state synchronously right after `act(() => source.emit(...))`
-  // needed to move to an awaited flush first. #183 does both — the hook now
-  // buffers arriving events and folds once per animation frame
-  // (`useEventStream.ts`), and `reduce` below is `foldStreamEvents`, not
+  // `foldStreamEvent`, but left it unwired: naively coalescing a burst means
+  // deferring every fold at least one tick past the synchronous
+  // `handleMessage` call, which broke every existing test suite in this
+  // package that asserts on state synchronously right after
+  // `act(() => source.emit(...))` with nothing awaited. #183 wires it in a
+  // way that doesn't require that: `useEventStream.ts` folds a lone arrival
+  // eagerly (so a single live tick is still visible the instant its handler
+  // returns, exactly as before) and only buffers anything that lands before
+  // that fold has actually drained — the shape a burst has, not the shape a
+  // live tick has. `reduce` below is `foldStreamEvents`, not
   // `foldStreamEvent`, so a fresh page load's full-session replay (no
   // `Last-Event-ID` yet, #166) and a resumed reconnect's smaller backlog both
-  // fold through the same one-batch-per-frame path instead of one `setState`
+  // fold through the same buffer-then-flush path instead of one `setState`
   // per event.
   const live = useEventStream(url, {
     initialState: initialLive,

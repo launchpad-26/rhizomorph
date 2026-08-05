@@ -140,11 +140,12 @@ describe('replayStreamState', () => {
  * `useEventStream.ts` used to fold every one of those events through its own
  * `setState`, each paying `foldStreamEvent`'s `events: [...state.events,
  * event]` — an O(n) copy per event, O(n²) over the burst. `#183` buffers the
- * burst and folds it once per animation frame through `foldStreamEvents`
- * instead — one O(n) pass. This bench isolates exactly that fold cost (the
- * mechanism `useEventStream.ts`'s hook now exercises for real); it does not
- * drive a browser frame loop, since a synthetic `requestAnimationFrame` stub
- * measures the stub, not the fold.
+ * burst — one eager fold for the first event, one batched
+ * `foldStreamEvents` pass for whatever lands before that fold has actually
+ * drained — instead of one `setState` per event. This bench isolates exactly
+ * the fold cost that batched pass pays (the mechanism
+ * `useEventStream.ts`'s hook now exercises for real); it does not drive a
+ * browser event loop, since a synthetic one measures the stub, not the fold.
  *
  * Same discipline as `panels/ledger/perf.test.ts` (#171, itself restating
  * #157): rounds are **interleaved** (one `before` sample, one `after` sample,

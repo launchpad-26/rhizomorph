@@ -21,11 +21,11 @@ export type EventSourceFactory = (url: string) => EventSourceLike
 export interface UseEventStreamOptions<S> {
   initialState: S
   /**
-   * Batch fold: called once per animation frame with everything the buffer
-   * coalesced since the last one (#183). `StreamContext.tsx` wires this to
-   * `foldStreamEvents`, never `foldStreamEvent` — the per-event fold has no
-   * caller left that can hand it a single-element array and mean it, since a
-   * frame's buffer is 1 event as often as it is thousands.
+   * Batch fold: called with whatever the buffer coalesced since the last
+   * flush — 1 event as often as it is thousands (#183). `StreamContext.tsx`
+   * wires this to `foldStreamEvents`, never `foldStreamEvent` — the per-event
+   * fold has no caller left that can hand it a single-element array and mean
+   * it.
    */
   reduce: (state: S, events: readonly RhizomorphEvent[]) => S
   /** Overridable so tests can feed a mock stream instead of a real SSE connection. */
@@ -44,19 +44,22 @@ const defaultCreateSource: EventSourceFactory = (url) => new EventSource(url)
  * `reduce`. Live and replay share this shape: replay just drives `reduce`
  * from a history slice instead of a socket.
  *
- * Arriving events are buffered and folded once per animation frame rather
- * than once per `setState` (#183). A fresh page load has no `Last-Event-ID`
- * (#166), so `/api/stream` replays the whole session before it live-tails —
- * on a large session that arrives as a synchronous burst of thousands of
- * `message` events in a handful of ticks, and folding each one through a
- * `setState` of its own is what starved the frame loop (62 long tasks,
- * 224,805 ms of blocking, zero rAF frames sampled on a 55k-event session —
- * the 2026-08-05 conductor measurement that opened this issue). Coalescing
- * that burst into one buffer and folding it in a single batched pass — same
- * mechanism whether the burst is a first load or a #166 reconnect resume —
- * turns O(n) `setState` calls, each paying its own O(n) copy inside
- * `foldStreamEvent`, into one `setState` per frame paying one O(n) pass
- * through `foldStreamEvents`.
+ * A lone arriving event is folded the moment it lands — one `setState`, same
+ * as always, so a single live tick still shows up the instant its handler
+ * returns. Any event that lands while that fold is still in flight (nothing
+ * has drained the microtask queue yet to say it's done) joins a buffer
+ * instead of paying for a `setState` of its own, and the whole buffer folds
+ * together in one pass on the next microtask (#183). A fresh page load has no
+ * `Last-Event-ID` (#166), so `/api/stream` replays the whole session before
+ * it live-tails — on a large session that arrives as a burst of thousands of
+ * `message` events faster than a microtask turn can drain, and folding each
+ * one through a `setState` of its own is what starved the frame loop (62 long
+ * tasks, 224,805 ms of blocking, zero rAF frames sampled on a 55k-event
+ * session — the 2026-08-05 conductor measurement that opened this issue).
+ * Coalescing that burst — same mechanism whether it's a first load or a #166
+ * reconnect resume — turns O(n) `setState` calls, each paying its own O(n)
+ * copy inside `foldStreamEvent`, into a small, session-shape-bounded number of
+ * `setState`s paying one O(n) pass through `foldStreamEvents` between them.
  *
  * Measured on the dev box, `foldStreamEvent` (per event) vs `foldStreamEvents`
  * (one batched pass), median of 3 interleaved rounds (`streamState.test.ts`'s
@@ -92,13 +95,13 @@ export function useEventStream<S>(
     const source = createSource(url)
 
     // Buffered here, not in React state: every arriving event only needs to
-    // survive until the next animation frame flushes it, so there is nothing
-    // for a render to read in between.
+    // survive until the next flush, so there is nothing for a render to read
+    // in between.
     let buffer: RhizomorphEvent[] = []
-    let frame: number | null = null
+    let flushScheduled = false
 
     const flush = () => {
-      frame = null
+      flushScheduled = false
       if (buffer.length === 0) return
       const events = buffer
       buffer = []
@@ -113,11 +116,23 @@ export function useEventStream<S>(
       if (payload === undefined) return
       const result = parseEvent(payload)
       if (!result.ok) return
+
+      if (buffer.length === 0 && !flushScheduled) {
+        // Leading edge: nothing already in flight, so this one folds right
+        // now — a lone event's effect is visible the instant its own handler
+        // returns, exactly as folding one at a time always was.
+        setState((prev) => reduce(prev, [result.event]))
+        flushScheduled = true
+        queueMicrotask(flush)
+        return
+      }
+      // A second event landing before that flush has actually run joins the
+      // buffer instead of paying for a `setState` of its own — the
+      // coalescing a burst needs: thousands of messages from a fresh page
+      // load's full-session replay (no Last-Event-ID yet, #166) arrive
+      // faster than a microtask turn can drain, so only the first of them
+      // takes the eager path above.
       buffer.push(result.event)
-      // One frame covers however many events land before it fires, whether
-      // that's a single live tick or the thousands-strong burst a first load
-      // or a #166 resume replays — the same buffer, the same batch path.
-      frame ??= requestAnimationFrame(flush)
     }
 
     // The server sends every event as a named SSE frame (`event: <type>`),
@@ -133,7 +148,10 @@ export function useEventStream<S>(
       for (const type of EVENT_TYPES) {
         source.removeEventListener?.(type, handleMessage)
       }
-      if (frame !== null) cancelAnimationFrame(frame)
+      // A microtask already queued from before unmount still runs, but an
+      // empty buffer makes `flush` a no-op — nothing sets state on a
+      // component that's already gone.
+      buffer = []
       source.close()
       setStatus('closed')
     }
