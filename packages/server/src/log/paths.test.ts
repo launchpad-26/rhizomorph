@@ -7,6 +7,8 @@ import {
   sessionIdFromFileName,
   sessionLabelFileName,
   snapshotDirFor,
+  transcriptCaptureDir,
+  transcriptCaptureFileName,
 } from './paths.js'
 
 describe('repoSlug', () => {
@@ -66,5 +68,28 @@ describe('snapshotDirFor', () => {
   it('never produces a name listSessions would mistake for a session file', () => {
     expect(sessionIdFromFileName(path.basename(snapshotDirFor('/dir', '1700000000000')))).toBeNull()
     expect(sessionIdFromFileName('snapshots')).toBeNull()
+  })
+})
+
+describe('transcriptCaptureDir', () => {
+  it('keys captures by session id, under a transcripts/ level beside the logs', () => {
+    expect(transcriptCaptureDir('/data/root/repo-1234abcd', '1700000000000')).toBe(
+      path.join('/data/root/repo-1234abcd', 'transcripts', '1700000000000'),
+    )
+  })
+
+  it('gives two sessions separate directories', () => {
+    expect(transcriptCaptureDir('/dir', '1')).not.toBe(transcriptCaptureDir('/dir', '2'))
+  })
+
+  it('never produces a name listSessions would mistake for a session file', () => {
+    expect(sessionIdFromFileName(path.basename(transcriptCaptureDir('/dir', '1700000000000')))).toBeNull()
+    expect(sessionIdFromFileName('transcripts')).toBeNull()
+  })
+})
+
+describe('transcriptCaptureFileName', () => {
+  it('names a captured lane by the Claude Code session id it was tailing', () => {
+    expect(transcriptCaptureFileName('sess-84')).toBe('sess-84.jsonl')
   })
 })

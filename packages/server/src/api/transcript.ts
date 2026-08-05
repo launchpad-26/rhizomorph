@@ -1,10 +1,19 @@
 import { open, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import path from 'node:path'
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import type { FastifyInstance } from 'fastify'
-import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
+import { defaultClaudeProjectsRoot } from '../log/paths.js'
+import { readSessionEvents, sessionFilePath } from '../log/session-log.js'
+import {
+  CONDUCTOR_LANE,
+  candidateTranscriptPaths,
+  capturedTranscriptPath,
+  findConductorAttribution,
+  findLaneAttribution,
+  isSafeSessionId,
+} from '../log/transcript-attribution.js'
 import type { ServerContext } from '../server/context.js'
+
+export { CONDUCTOR_LANE, candidateTranscriptPaths, findConductorAttribution, findLaneAttribution }
 
 /**
  * THE TRANSCRIPT TAIL (prd3 ruling 17) — `GET /api/transcript/:lane?offset=N`.
@@ -20,7 +29,8 @@ import type { ServerContext } from '../server/context.js'
  * "which lane is which session log" and wrote the answer onto every telemetry
  * event it emitted (`lane`, `sessionId`, `worktreePath`). This route reads that
  * answer back off the recorded log and maps it to a path with the collector's
- * own {@link worktreePathToProjectSlug}. If the collector could not attribute a
+ * own `worktreePathToProjectSlug` (via `log/transcript-attribution.ts`, shared
+ * with transcript capture on close). If the collector could not attribute a
  * lane, neither can this route — and it says so rather than guessing.
  *
  * **Bounded reads, no watchers.** Each request reads at most
@@ -58,11 +68,6 @@ export const TRANSCRIPT_CHUNK_BYTES = 64 * 1024
  * behind, so the client can show a cut rather than pretend a whole answer.
  */
 export const TOOL_RESULT_MAX_CHARS = 400
-
-const JSONL_SUFFIX = '.jsonl'
-
-/** Telemetry events carry the collector's own lane→session attribution. */
-const ATTRIBUTED_TYPES = new Set(['llm.usage', 'tool.activity', 'llm.cost'])
 
 /**
  * Whose voice a turn is.
@@ -166,94 +171,12 @@ export interface TranscriptOptions {
   chunkBytes?: number
 }
 
-function defaultClaudeProjectsRoot(): string {
-  return path.join(homedir(), '.claude', 'projects')
-}
-
 // ── locating a lane's session log ────────────────────────────────────────────
-
-interface Attribution {
-  sessionId: string
-  worktreePath: string | null
-}
-
-/**
- * The newest attribution the log carries for `lane`, or null when nothing in
- * the session ever named it. Matches on the payload's `lane` *or* its `branch`,
- * because a lane's id in the derived fleet is its branch when one is known —
- * so a drawer opened from the fleet table asks by branch, and the collector may
- * have recorded the handle.
- */
-export function findLaneAttribution(
-  events: readonly RhizomorphEvent[],
-  lane: string,
-): Attribution | null {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i]
-    if (!event || !ATTRIBUTED_TYPES.has(event.type)) continue
-
-    const payload = event.payload as {
-      lane?: unknown
-      branch?: unknown
-      sessionId?: unknown
-      worktreePath?: unknown
-    }
-    if (payload.lane !== lane && payload.branch !== lane) continue
-    if (typeof payload.sessionId !== 'string' || payload.sessionId.length === 0) continue
-
-    return {
-      sessionId: payload.sessionId,
-      worktreePath: typeof payload.worktreePath === 'string' ? payload.worktreePath : null,
-    }
-  }
-  return null
-}
-
-/**
- * The `:lane` the conductor's own session answers to (prd6 ruling 5).
- *
- * `main` rather than a route of its own, and rather than `conductor`: it is the
- * identifier the *scene* already uses for the root-mass, the drawer opens it by
- * clicking that mass, and the read-only constitution is easier to keep true of
- * one route than of two. The collector's own default handle for an
- * `--extra-sessions` dir is `conductor`, but that is a label the operator can
- * override (`<dir>:<lane>`), so it is never what this route matches on — the
- * `role` is.
- */
-export const CONDUCTOR_LANE = 'main'
-
-/**
- * The newest attribution the log carries for the **conductor**, whatever handle
- * the operator gave it.
- *
- * Role, not name. `--extra-sessions <dir>:<lane>` lets the conductor be called
- * anything, and prd2's ruling is that identity is declared at the source — so a
- * lane literally named `conductor` proves nothing and `role: 'conductor'` proves
- * everything. That role rides on `llm.usage` and `llm.cost` (required) and on
- * `tool.activity` (when the collector knows it), which is the same three event
- * types {@link findLaneAttribution} already reads; #88 is what put the
- * conductor's `llm.cost` events in the fold for this to find.
- */
-export function findConductorAttribution(events: readonly RhizomorphEvent[]): Attribution | null {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i]
-    if (!event || !ATTRIBUTED_TYPES.has(event.type)) continue
-
-    const payload = event.payload as {
-      role?: unknown
-      sessionId?: unknown
-      worktreePath?: unknown
-    }
-    if (payload.role !== 'conductor') continue
-    if (typeof payload.sessionId !== 'string' || payload.sessionId.length === 0) continue
-
-    return {
-      sessionId: payload.sessionId,
-      worktreePath: typeof payload.worktreePath === 'string' ? payload.worktreePath : null,
-    }
-  }
-  return null
-}
+//
+// Attribution (who a lane's session belongs to) and the live-path resolution
+// built from it now live in `log/transcript-attribution.ts` — shared with
+// transcript capture on close (prd16 ruling 3), which needs the exact same
+// "which Claude Code session, in which worktree" answer this route does.
 
 /** True when the log carries conductor telemetry at all, session id or not. */
 function conductorIsKnown(events: readonly RhizomorphEvent[]): boolean {
@@ -306,33 +229,6 @@ function missingLaneGap(events: readonly RhizomorphEvent[], lane: string): strin
 }
 
 /**
- * The one shape check standing between a `sessionId` — off the wire, or off a
- * log a less-trusted source could have written; the core schema
- * (`events/telemetry.ts:113`) validates it as `nonEmptyString` only, no
- * format constraint — and a filesystem path built from it. A session id is
- * always a bare filename, never a path: `path.basename` must return exactly
- * what went in, which rejects any `/`, any `..` segment, and any absolute
- * path in one check. A NUL byte is invisible to `path.basename` (it is not a
- * separator), so it is refused explicitly.
- */
-function isSafeSessionId(sessionId: string): boolean {
-  return !sessionId.includes('\0') && path.basename(sessionId) === sessionId
-}
-
-/**
- * The second gate, independent of {@link isSafeSessionId}: a candidate must
- * resolve to somewhere inside the root it was joined onto, not merely have
- * been built from a filename that looked safe. Catches anything the shape
- * check did not anticipate rather than trusting construction alone — the
- * audit's ask was both checks, not either.
- */
-function isPathContained(root: string, candidate: string): boolean {
-  const resolvedRoot = path.resolve(root)
-  const resolvedCandidate = path.resolve(candidate)
-  return resolvedCandidate === resolvedRoot || resolvedCandidate.startsWith(resolvedRoot + path.sep)
-}
-
-/**
  * WHAT (refused, not "missing") → WHY → what to do (law 12), for the one case
  * that is not an honest absence: the log named a session id that is not a
  * bare filename, so no path is ever built from it. Deliberately not routed
@@ -347,39 +243,6 @@ function refusedTranscriptPathGap(conductor: boolean, lane: string, sessionId: s
     'filename, so no path will be built from it — a session id this shape could otherwise escape ' +
     'the directory a transcript is read from — run: `rhizomorph doctor`'
   )
-}
-
-/**
- * Every place a lane's session file could be, in preference order — the same
- * two the collector itself tails: the slug-inferred project dir under
- * `~/.claude/projects`, and (for an `--extra-sessions` dir passed directly) the
- * declared directory itself.
- *
- * Refuses the shape of `attribution.sessionId` (via {@link isSafeSessionId})
- * before any path is built, and re-checks each built path stays under its own
- * root (via {@link isPathContained}) before offering it — the traversal guard
- * lives here, once, rather than in the reader that opens whatever this hands
- * back.
- */
-export function candidateTranscriptPaths(
-  attribution: Attribution,
-  claudeProjectsRoot: string,
-): string[] {
-  if (attribution.worktreePath === null) return []
-  if (!isSafeSessionId(attribution.sessionId)) return []
-
-  const fileName = `${attribution.sessionId}${JSONL_SUFFIX}`
-  const projectPath = path.join(
-    claudeProjectsRoot,
-    worktreePathToProjectSlug(attribution.worktreePath),
-    fileName,
-  )
-  const worktreeSessionPath = path.join(attribution.worktreePath, fileName)
-
-  return [
-    isPathContained(claudeProjectsRoot, projectPath) ? projectPath : null,
-    isPathContained(attribution.worktreePath, worktreeSessionPath) ? worktreeSessionPath : null,
-  ].filter((candidate): candidate is string => candidate !== null)
 }
 
 // ── reading ──────────────────────────────────────────────────────────────────
@@ -647,6 +510,16 @@ export interface ReadTranscriptRequest {
   before?: number
   claudeProjectsRoot: string
   chunkBytes?: number
+  /**
+   * This repo's session directory, and the id of the recording `events` came
+   * from (prd16 ruling 3) — together they say where a captured copy of a
+   * lane's transcript would live, if this session was ever closed. Both
+   * optional: a caller with no recording to consult (most unit tests below,
+   * and any reader of a session too old to have captured anything) simply
+   * gets the live-only resolution this route has always done.
+   */
+  sessionDir?: string
+  recordingSessionId?: string
 }
 
 export async function readTranscript(request: ReadTranscriptRequest): Promise<TranscriptResult> {
@@ -688,7 +561,23 @@ export async function readTranscript(request: ReadTranscriptRequest): Promise<Tr
     }
   }
 
-  const candidates = candidateTranscriptPaths(attribution, claudeProjectsRoot)
+  /**
+   * THE ONE PRECEDENCE RULE (prd16 ruling 3): captured > live > honest gap.
+   * A capture beside this recording's own log — written once, at close, and
+   * never touched again — outranks live resolution, because a rotated-away
+   * session's live transcript may already be gone (the worktree removed, the
+   * directory moved to another machine); the still-open session simply has
+   * no capture yet, so it falls through to the same live candidates this
+   * route has always tried. One ordered list, one loop, below — never two
+   * code paths to keep in sync.
+   */
+  const captured =
+    request.sessionDir !== undefined && request.recordingSessionId !== undefined
+      ? capturedTranscriptPath(request.sessionDir, request.recordingSessionId, attribution)
+      : null
+  const liveCandidates = candidateTranscriptPaths(attribution, claudeProjectsRoot)
+  const candidates = captured !== null ? [captured, ...liveCandidates] : liveCandidates
+
   for (const filePath of candidates) {
     let chunk: RawChunk
     try {
@@ -749,6 +638,28 @@ function parseBefore(raw: string | undefined): number | null | undefined {
 }
 
 /**
+ * Which recording's events this request reads, and its own id (prd16 ruling
+ * 3's "falling back to live resolution only for the still-open session"
+ * needs to know which session that is). `?session=` absent, or naming the
+ * session currently being written, is the live session — read straight from
+ * the recorder's buffer, exactly as this route always has, so a request that
+ * never names a session behaves exactly as before. Naming any other session
+ * reads it back from its own file, the same way `/api/sessions/:id/events`
+ * does — a rotated-away session, still on disk in this same repo's session
+ * directory, is legible through this route too.
+ */
+async function eventsForSession(
+  ctx: ServerContext,
+  requestedSessionId: string | undefined,
+): Promise<{ events: readonly RhizomorphEvent[]; recordingSessionId: string }> {
+  if (requestedSessionId === undefined || requestedSessionId === ctx.recorder.sessionId) {
+    return { events: ctx.recorder.eventsSoFar(), recordingSessionId: ctx.recorder.sessionId }
+  }
+  const events = await readSessionEvents(sessionFilePath(ctx.sessionDir, requestedSessionId))
+  return { events, recordingSessionId: requestedSessionId }
+}
+
+/**
  * GET only, and that is load-bearing rather than incidental: an Rhizomorph
  * that cannot be POSTed to cannot be talked through, which is the read-only
  * constitution stated in routing rather than in a comment. Every other verb on
@@ -761,43 +672,47 @@ export function registerTranscriptRoute(
 ): void {
   const claudeProjectsRoot = options.claudeProjectsRoot ?? defaultClaudeProjectsRoot()
 
-  app.get<{ Params: { lane: string }; Querystring: { offset?: string; tail?: string; before?: string } }>(
-    '/api/transcript/:lane',
-    async (request, reply) => {
-      const tail = request.query.tail === '1'
+  app.get<{
+    Params: { lane: string }
+    Querystring: { offset?: string; tail?: string; before?: string; session?: string }
+  }>('/api/transcript/:lane', async (request, reply) => {
+    const tail = request.query.tail === '1'
 
-      const before = parseBefore(request.query.before)
-      if (before === null) {
-        return reply
-          .code(400)
-          .send({ error: `before must be a non-negative integer, got "${request.query.before}"` })
-      }
+    const before = parseBefore(request.query.before)
+    if (before === null) {
+      return reply
+        .code(400)
+        .send({ error: `before must be a non-negative integer, got "${request.query.before}"` })
+    }
 
-      const offset = parseOffset(request.query.offset)
-      if (offset === null) {
-        return reply
-          .code(400)
-          .send({ error: `offset must be a non-negative integer, got "${request.query.offset}"` })
-      }
+    const offset = parseOffset(request.query.offset)
+    if (offset === null) {
+      return reply
+        .code(400)
+        .send({ error: `offset must be a non-negative integer, got "${request.query.offset}"` })
+    }
 
-      const result = await readTranscript({
-        events: ctx.recorder.eventsSoFar(),
-        lane: request.params.lane,
-        offset,
-        tail,
-        before,
-        claudeProjectsRoot,
-        chunkBytes: options.chunkBytes,
-      })
+    const { events, recordingSessionId } = await eventsForSession(ctx, request.query.session)
 
-      if (!result.available) {
-        // Known-but-empty is an honest 200 (the `/api/lanes` convention in
-        // `lanes.ts`'s `readLanesManifest`) — only a lane the log never named
-        // stays a 404. `unknownLane` never leaves this process.
-        const { available, lane, reason } = result
-        return reply.code(result.unknownLane ? 404 : 200).send({ available, lane, reason })
-      }
-      return result
-    },
-  )
+    const result = await readTranscript({
+      events,
+      lane: request.params.lane,
+      offset,
+      tail,
+      before,
+      claudeProjectsRoot,
+      chunkBytes: options.chunkBytes,
+      sessionDir: ctx.sessionDir,
+      recordingSessionId,
+    })
+
+    if (!result.available) {
+      // Known-but-empty is an honest 200 (the `/api/lanes` convention in
+      // `lanes.ts`'s `readLanesManifest`) — only a lane the log never named
+      // stays a 404. `unknownLane` never leaves this process.
+      const { available, lane, reason } = result
+      return reply.code(result.unknownLane ? 404 : 200).send({ available, lane, reason })
+    }
+    return result
+  })
 }

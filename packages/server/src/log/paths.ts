@@ -54,6 +54,32 @@ export function snapshotDirFor(sessionDir: string, sessionId: string): string {
   return path.join(sessionDir, 'snapshots', sessionId)
 }
 
+/**
+ * Where a session's captured transcripts live (prd16 ruling 3): a directory of
+ * its own beside the session log, keyed by session id — the same `snapshots/`
+ * shape `snapshotDirFor` already uses, and for the same reason: a captured
+ * transcript belongs to the recording that captured it, sits BESIDE the
+ * append-only log rather than inside it, and is never mistaken for a session
+ * file by `listSessions` (which only matches `session-<ts>.jsonl` in the dir
+ * itself).
+ */
+export function transcriptCaptureDir(sessionDir: string, sessionId: string): string {
+  return path.join(sessionDir, 'transcripts', sessionId)
+}
+
+/** One lane's captured copy, named by the Claude Code session id it was tailing. */
+export function transcriptCaptureFileName(claudeSessionId: string): string {
+  return `${claudeSessionId}.jsonl`
+}
+
+/** The manifest sidecar recording what a capture actually got — sizes, gaps, completeness. */
+export const TRANSCRIPT_CAPTURE_MANIFEST_FILE_NAME = 'manifest.json'
+
+/** Root of Claude Code's per-project session logs — where transcripts are resolved live from, and captured from at close. */
+export function defaultClaudeProjectsRoot(): string {
+  return path.join(homedir(), '.claude', 'projects')
+}
+
 const SESSION_FILE_PATTERN = /^session-(\d+)\.jsonl$/
 
 /** A session's id is just its start timestamp — stable, sortable, and the filename round-trips it. */
