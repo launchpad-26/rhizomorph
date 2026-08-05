@@ -1,4 +1,6 @@
 import type { AgentRole } from '@rhizomorph/core'
+import type { LaneState, LaneStateReading } from './lane-state.js'
+import type { TurnShapeState } from './turn-shape.js'
 
 /** Internal snapshot shape for the sessionlog collector — opaque to the poll loop. */
 
@@ -12,6 +14,46 @@ export interface TailedFileState {
    * every real capture keeps those lines contiguous.
    */
   lastUsageRequestId: string | null
+  /**
+   * The transcript organ's fold over this file's lines so far (prd15 ruling 1).
+   * Carried in the snapshot for the same reason `offset` is: the collector
+   * reads only new bytes each poll, so the shape has to survive between them
+   * — and folding the tail incrementally is what makes the derivation
+   * prefix-consistent (`turn-shape.ts`).
+   */
+  turnShape?: TurnShapeState
+  /** The file's mtime at the last poll that read it — the heartbeat witness. */
+  lastWriteTs?: number | null
+  /** Lane this file's transcript belongs to, as last resolved. */
+  lane?: string | null
+  /** Worktree the lane lives in — what the process probe is asked about. */
+  worktreePath?: string | null
+  /** Branch as the transcript itself reported it, when it did. */
+  branch?: string | null
+}
+
+/**
+ * One lane's transcript-derived liveness (prd15 ruling 1) as of the last poll.
+ *
+ * This is the organ's OUTPUT. It is not published as an event yet — see the
+ * BLOCKED note on `agentStatusEmissionFor` in `lane-state.ts` — so the snapshot
+ * is where a lane's derived state is legible today, and what
+ * `tmuxless-boot.test.ts` reads.
+ */
+export interface LaneLiveness extends LaneStateReading {
+  lane: string
+  worktreePath: string | null
+  branch: string | null
+  /** Which transcript spoke for the lane — its freshest one. */
+  sessionFile: string
+  /** Tick clock this reading was derived at, so `quietMs` can be re-checked. */
+  derivedAt: number
+  /**
+   * The state this lane held at the previous poll, or null when first seen.
+   * Kept so publication stays edge-triggered once it is unblocked, and so a
+   * transition is visible to a reader of the snapshot alone.
+   */
+  previousState: LaneState | null
 }
 
 export interface SessionlogSnapshot {
@@ -40,4 +82,17 @@ export interface SessionlogSnapshot {
    * (`tailProjectDir` only opens a file when there are unread bytes).
    */
   knownWorktrees: Record<string, AgentRole>
+  /**
+   * The transcript-tail state machine's reading per lane, keyed by lane
+   * (prd15 ruling 1). Rebuilt every poll from `files`, so it never carries a
+   * fact older than the transcripts it was derived from.
+   *
+   * Optional for the same reason the organ's fields on {@link TailedFileState}
+   * are: snapshots are persisted as JSON between runs
+   * (`server/snapshot-store.ts`), so a snapshot written before this organ
+   * existed rehydrates without them. Every read treats absence as "start
+   * folding now" rather than as a fact, which is the same contract `offset`
+   * has always had.
+   */
+  lanes?: Record<string, LaneLiveness>
 }

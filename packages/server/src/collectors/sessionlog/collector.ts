@@ -10,10 +10,15 @@ import {
   type RhizomorphEvent,
   type PollResult,
 } from '@rhizomorph/core'
+import { deriveLaneState, needsProcessProbe, quietMsOf, type LaneStateReading } from './lane-state.js'
 import { parseAssistantLine } from './parse-session-line.js'
 import { parseWorktreePaths } from './parse-worktree-paths.js'
+import { defaultProcessProbe, type ProcessLiveness, type ProcessProbe } from './process-probe.js'
 import { readNewLines } from './tail.js'
-import type { SessionlogSnapshot, TailedFileState } from './types.js'
+import { CLAUDE_JSONL_GRAMMAR } from './turn-grammar-claude.js'
+import type { TurnGrammar } from './turn-grammar.js'
+import { advanceTurnShape, initialTurnShape, type TurnShapeState } from './turn-shape.js'
+import type { LaneLiveness, SessionlogSnapshot, TailedFileState } from './types.js'
 import { worktreePathToProjectSlug } from './worktree-slug.js'
 
 const COLLECTOR_NAME = 'sessionlog'
@@ -56,6 +61,20 @@ export interface SessionlogCollectorConfig {
    * separate issue.
    */
   backfill?: boolean
+  /**
+   * Process-aliveness probe for the transcript-tail state machine (prd15
+   * ruling 1 input (c)). Defaults to `/proc` on Linux and WSL2 and to an
+   * honest "unknown" everywhere else; tests inject a stub so the tmuxless boot
+   * can be proven without any real process. Consulted only for lanes whose
+   * transcript has already stalled — a healthy fleet costs zero probes.
+   */
+  processProbe?: ProcessProbe
+  /**
+   * Which CLI dialect these transcripts are written in. Claude's JSONL today;
+   * codex and pi are later prd15 waves and land as new {@link TurnGrammar}
+   * implementations, not as changes to the organ.
+   */
+  turnGrammar?: TurnGrammar
 }
 
 interface WatchedDir {
@@ -90,12 +109,14 @@ export function createSessionlogCollector(
   const claudeProjectsRoot = config.claudeProjectsRoot ?? path.join(homedir(), '.claude', 'projects')
   const extraSessionDirs = config.extraSessionDirs ?? []
   const backfill = config.backfill ?? false
+  const processProbe = config.processProbe ?? defaultProcessProbe()
+  const turnGrammar = config.turnGrammar ?? CLAUDE_JSONL_GRAMMAR
 
   return {
     name: COLLECTOR_NAME,
 
     initialSnapshot(): SessionlogSnapshot {
-      return { disabled: false, files: {}, erroredExtraSessionDirs: {}, knownWorktrees: {} }
+      return { disabled: false, files: {}, erroredExtraSessionDirs: {}, knownWorktrees: {}, lanes: {} }
     },
 
     async poll(prevSnapshot, context: CollectorContext): Promise<PollResult<SessionlogSnapshot>> {
@@ -179,8 +200,10 @@ export function createSessionlogCollector(
       const nextFiles: Record<string, TailedFileState> = { ...prevSnapshot.files }
 
       for (const dir of watchedDirs) {
-        await tailProjectDir(claudeProjectsRoot, dir, context, events, nextFiles, backfill)
+        await tailProjectDir(claudeProjectsRoot, dir, context, events, nextFiles, backfill, turnGrammar)
       }
+
+      const lanes = await deriveLanes(nextFiles, prevSnapshot.lanes ?? {}, context.now, processProbe)
 
       return {
         nextSnapshot: {
@@ -188,11 +211,83 @@ export function createSessionlogCollector(
           files: nextFiles,
           erroredExtraSessionDirs: nextErroredExtraSessionDirs,
           knownWorktrees,
+          lanes,
         },
         events,
       }
     },
   }
+}
+
+/**
+ * The transcript-tail state machine, run over everything this poll tailed
+ * (prd15 ruling 1). Pure apart from the one process probe, which is batched
+ * into a single read and skipped entirely when no lane has stalled.
+ *
+ * **A lane's freshest transcript speaks for it.** A project dir accumulates
+ * one `*.jsonl` per session, and a lane that has been resumed several times
+ * has several — all but the newest describing a conversation that ended. The
+ * most recently written file is the only one that can say anything about
+ * *now*; ties break on path so the choice is deterministic under replay.
+ */
+async function deriveLanes(
+  files: Readonly<Record<string, TailedFileState>>,
+  previousLanes: Readonly<Record<string, LaneLiveness>>,
+  now: number,
+  processProbe: ProcessProbe,
+): Promise<Record<string, LaneLiveness>> {
+  const freshestByLane = new Map<string, { filePath: string; file: TailedFileState }>()
+  for (const [filePath, file] of Object.entries(files).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    if (file.lane === null || file.lane === undefined) continue
+    const incumbent = freshestByLane.get(file.lane)
+    if (incumbent === undefined || (file.lastWriteTs ?? 0) > (incumbent.file.lastWriteTs ?? 0)) {
+      freshestByLane.set(file.lane, { filePath, file })
+    }
+  }
+
+  // Only lanes already past their threshold can have their state changed by
+  // the probe, so only those are asked about — the observer touches nothing
+  // outside its own transcripts while the fleet is healthy.
+  const stalledWorktrees: string[] = []
+  for (const { file } of freshestByLane.values()) {
+    const shape = file.turnShape ?? initialTurnShape()
+    const quietMs = quietMsOf(now, shape.lastEntryTs, file.lastWriteTs ?? null)
+    if (file.worktreePath !== null && file.worktreePath !== undefined && needsProcessProbe(shape.shape, quietMs)) {
+      stalledWorktrees.push(file.worktreePath)
+    }
+  }
+  const liveness: Map<string, ProcessLiveness> =
+    stalledWorktrees.length === 0 ? new Map() : await processProbe.probe(stalledWorktrees)
+
+  const lanes: Record<string, LaneLiveness> = {}
+  for (const [lane, { filePath, file }] of freshestByLane) {
+    const shape = file.turnShape ?? initialTurnShape()
+    const reading: LaneStateReading | null = deriveLaneState({
+      now,
+      shape: shape.shape,
+      lastEntryTs: shape.lastEntryTs,
+      lastWriteTs: file.lastWriteTs ?? null,
+      processAlive:
+        file.worktreePath === null || file.worktreePath === undefined
+          ? null
+          : (liveness.get(file.worktreePath) ?? null),
+      lastSidechainTs: shape.lastSidechainTs,
+    })
+    // A transcript with no conversational entry has told us nothing. It gets
+    // no lane reading at all rather than a fabricated one.
+    if (reading === null) continue
+
+    lanes[lane] = {
+      ...reading,
+      lane,
+      worktreePath: file.worktreePath ?? null,
+      branch: file.branch ?? null,
+      sessionFile: filePath,
+      derivedAt: now,
+      previousState: previousLanes[lane]?.state ?? null,
+    }
+  }
+  return lanes
 }
 
 /** A parsed `<path>[:<lane>]` extra-sessions spec, before we know which resolution mode applies. */
@@ -289,6 +384,7 @@ async function tailProjectDir(
   events: RhizomorphEvent[],
   nextFiles: Record<string, TailedFileState>,
   backfill: boolean,
+  turnGrammar: TurnGrammar,
 ): Promise<void> {
   const projectDir = dir.sessionDirOverride ?? path.join(claudeProjectsRoot, worktreePathToProjectSlug(dir.worktreePath))
   const projectInfo = await statOrNull(projectDir)
@@ -305,16 +401,42 @@ async function tailProjectDir(
     // whose offset was rehydrated from a snapshot is already present here
     // (copied in from prevSnapshot.files before this loop runs) and resumes
     // from it rather than re-triggering first-sight behaviour.
-    const prevFile = nextFiles[filePath] ?? { offset: await initialOffset(filePath, backfill), lastUsageRequestId: null }
+    const prevFile: TailedFileState = nextFiles[filePath] ?? {
+      offset: await initialOffset(filePath, backfill),
+      lastUsageRequestId: null,
+      turnShape: initialTurnShape(),
+      lastWriteTs: null,
+      lane: null,
+      worktreePath: dir.worktreePath,
+      branch: null,
+    }
 
-    const { lines, nextOffset } = await readNewLines(filePath, prevFile.offset)
+    const { lines, nextOffset, lastWriteTs } = await readNewLines(filePath, prevFile.offset)
     let lastUsageRequestId = prevFile.lastUsageRequestId
+    // A snapshot persisted before the organ existed has no fold to resume, so
+    // it starts one here. Its shape then only reflects lines appended from now
+    // on, which is the same contract `offset` already gives every other reader
+    // of this file — never a claim about bytes this process never saw.
+    let turnShape: TurnShapeState = prevFile.turnShape ?? initialTurnShape()
+    // Which lane this transcript belongs to, remembered on the file so a poll
+    // that reads no new lines still knows whose liveness it is looking at.
+    let fileLane = prevFile.lane ?? null
+    let fileBranch = prevFile.branch ?? null
 
     for (const rawLine of lines) {
+      // Input (a) of the state machine, folded over the very bytes the
+      // telemetry readers below are already consuming — the organ costs this
+      // collector no extra I/O at all.
+      const entry = turnGrammar.classify(rawLine)
+      if (entry !== null) turnShape = advanceTurnShape(turnShape, entry)
+
       const facts = parseAssistantLine(rawLine)
       if (!facts) continue
 
-      const lane = dir.laneOverride ?? facts.gitBranch ?? basenameOf(facts.cwd ?? dir.worktreePath) ?? UNATTRIBUTED_LANE
+      const lane =
+        dir.laneOverride ?? facts.gitBranch ?? basenameOf(facts.cwd ?? dir.worktreePath) ?? UNATTRIBUTED_LANE
+      fileLane = lane
+      fileBranch = facts.gitBranch
       const sessionId = facts.sessionId ?? fallbackSessionId
       const emitOptions = facts.timestamp === null ? undefined : { ts: facts.timestamp }
       const thread: AgentThread = facts.isSidechain ? 'subagent' : 'main'
@@ -363,7 +485,21 @@ async function tailProjectDir(
       }
     }
 
-    nextFiles[filePath] = { offset: nextOffset, lastUsageRequestId }
+    nextFiles[filePath] = {
+      offset: nextOffset,
+      lastUsageRequestId,
+      turnShape,
+      lastWriteTs,
+      // The organ needs a lane for every transcript it folded, including one
+      // whose lines never reached `parseAssistantLine` (a turn made entirely
+      // of user entries, or an assistant line with no usage block). Falling
+      // back to the watched dir keeps such a transcript's liveness legible
+      // instead of silently unattributed; the *events* above keep their own
+      // stricter, line-derived attribution untouched.
+      lane: fileLane ?? dir.laneOverride ?? basenameOf(dir.worktreePath) ?? UNATTRIBUTED_LANE,
+      worktreePath: dir.worktreePath,
+      branch: fileBranch,
+    }
   }
 }
 
@@ -380,7 +516,7 @@ async function initialOffset(filePath: string, backfill: boolean): Promise<numbe
 
 function disable(context: CollectorContext, reason: string): PollResult<SessionlogSnapshot> {
   return {
-    nextSnapshot: { disabled: true, files: {}, erroredExtraSessionDirs: {}, knownWorktrees: {} },
+    nextSnapshot: { disabled: true, files: {}, erroredExtraSessionDirs: {}, knownWorktrees: {}, lanes: {} },
     events: [context.emit('collector.disabled', { collector: COLLECTOR_NAME, reason })],
   }
 }
