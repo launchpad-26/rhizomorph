@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState, type MouseEvent } from 'react'
-import { reduceAll, selectSpendByBranch } from '@rhizomorph/core'
+import { selectSpendByBranch } from '@rhizomorph/core'
 import { useModeClock } from '../../app/ModeContext.js'
 import { requestPanelFocus } from '../../app/panelPrefs.js'
 import { laneUrl, navigate } from '../../app/router.js'
@@ -40,7 +40,10 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
   const { state, status } = useStream()
   const modeClock = useModeClock()
   const now = nowOverride ?? modeClock
-  const session = useMemo(() => reduceAll(state.events), [state.events])
+  // #171 — `state.session` IS this fold, kept incrementally by the shell
+  // (`streamState.ts`); every other panel reads it directly rather than
+  // re-reducing `state.events` from zero.
+  const session = state.session
   const rows = useMemo(() => selectSpendByBranch(session), [session])
   const threadsByBranch = useMemo(
     () => new Map(rows.map((row) => [row.branch, selectThreadRowsForBranch(session, row)])),
