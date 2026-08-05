@@ -28,7 +28,13 @@ function jsonResponse(body: unknown): Response {
   return { ok: true, status: 200, json: async () => body } as unknown as Response
 }
 
-function makeFetch(): FetchLike {
+/** Entries the way a NEWER instrument would serve them — prd17 ruling 1's own families. */
+const FUTURE_ENTRIES = [
+  { id: 'evt-future-1', ts: 2_000, source: 'system', type: 'summons.raised', payload: { lane: 'a' } },
+  { id: 'evt-future-2', ts: 3_000, source: 'system', type: 'operator.ack', payload: { at: 12 } },
+]
+
+function makeFetch(extra: readonly unknown[] = []): FetchLike {
   return (async (url: string | URL | Request) => {
     const href = String(url)
     if (href === '/api/sessions') {
@@ -37,7 +43,7 @@ function makeFetch(): FetchLike {
       })
     }
     if (href === '/api/sessions/s1/events') {
-      return jsonResponse({ events: sessionEvents() })
+      return jsonResponse({ events: [...sessionEvents(), ...extra] })
     }
     throw new Error(`unexpected fetch: ${href}`)
   }) as unknown as FetchLike
@@ -49,10 +55,10 @@ function ReplayDriver() {
   return <button onClick={() => selectSession(sessions[0]?.id ?? null)}>select session</button>
 }
 
-async function renderBanner() {
+async function renderBanner(extra: readonly unknown[] = []) {
   await act(async () => {
     render(
-      <ModeProvider fetchImpl={makeFetch()}>
+      <ModeProvider fetchImpl={makeFetch(extra)}>
         <ReplayBanner />
         <ReplayDriver />
       </ModeProvider>,
@@ -102,5 +108,47 @@ describe('ReplayBanner', () => {
     for (const ladderHue of ['calm', 'notice', 'needs-you', 'broken']) {
       expect(banner.innerHTML).not.toContain(`-${ladderHue}`)
     }
+  })
+})
+
+/**
+ * prd17 ruling 3, item 1 — the replay banner's share of the voice. A recording
+ * carrying events from an era this bundle was not taught must SAY SO, where
+ * "what am I looking at" is already the question. Never a silently shorter
+ * history.
+ */
+describe('ReplayBanner — the unknown-era voice', () => {
+  it('says nothing about unknowns for a recording entirely from this era', async () => {
+    await renderBanner()
+    expect(screen.queryByTestId('replay-unknown-era')).not.toBeInTheDocument()
+  })
+
+  it('voices the honest gap, counting the events and naming their families', async () => {
+    await renderBanner(FUTURE_ENTRIES)
+    expect(screen.getByTestId('replay-unknown-era')).toHaveTextContent(
+      '2 events from a newer era were preserved but not understood (operator.ack, summons.raised)',
+    )
+  })
+
+  it('still replays everything it does understand — the gap is a caveat, not a refusal', async () => {
+    await renderBanner(FUTURE_ENTRIES)
+    expect(screen.getByTitle('session identity')).toHaveTextContent('rhizomorph')
+    expect(screen.getByText(/viewing a recorded past/i)).toBeInTheDocument()
+  })
+
+  it('voices it in the ice register — a gap in our reading is not a summons off the fleet', async () => {
+    await renderBanner(FUTURE_ENTRIES)
+    const voice = screen.getByTestId('replay-unknown-era')
+    for (const ladderHue of ['calm', 'notice', 'needs-you', 'broken']) {
+      expect(voice.className).not.toContain(`-${ladderHue}`)
+    }
+  })
+
+  it('drops the voice again on exit to live', async () => {
+    await renderBanner(FUTURE_ENTRIES)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Exit to live' }))
+    })
+    expect(screen.queryByTestId('replay-unknown-era')).not.toBeInTheDocument()
   })
 })

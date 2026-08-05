@@ -95,7 +95,7 @@ function jsonResponse(body: unknown): Response {
   return { ok: true, status: 200, json: async () => body } as unknown as Response
 }
 
-function makeFetch(events: ReturnType<typeof fixtureEvents>): FetchLike {
+function makeFetch(events: readonly unknown[]): FetchLike {
   return (async (url: string | URL | Request) => {
     const href = String(url)
     if (href === '/api/sessions') {
@@ -584,5 +584,53 @@ describe('ReplayControls · end session · start fresh', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+})
+
+/**
+ * prd17 ruling 3, item 1 — the session listing's share of the voice. The picker
+ * is where a recording is CHOSEN, so "what is in it" belongs on the row beneath
+ * it and not only in the banner over the panels.
+ */
+describe('ReplayControls — the unknown-era voice in the session listing', () => {
+  /** Entries the way a NEWER instrument would serve them — prd17 ruling 1's own families. */
+  const FUTURE_ENTRIES = [
+    { id: 'evt-future-1', ts: 2_500, source: 'system', type: 'summons.raised', payload: { lane: 'a' } },
+    { id: 'evt-future-2', ts: 2_600, source: 'system', type: 'operator.ack', payload: { at: 12 } },
+  ]
+
+  it('says nothing about unknowns before a session is even selected', async () => {
+    await renderReplay(makeFetch([...fixtureEvents(), ...FUTURE_ENTRIES]))
+    expect(screen.queryByTestId('replay-listing-unknown-era')).not.toBeInTheDocument()
+  })
+
+  it('says nothing about unknowns for a recording entirely from this era', async () => {
+    await renderReplay(makeFetch(fixtureEvents()))
+    const select = screen.getByLabelText('session')
+    await fireAndFlush(() => fireEvent.change(select, { target: { value: 's1' } }))
+    expect(screen.queryByTestId('replay-listing-unknown-era')).not.toBeInTheDocument()
+  })
+
+  it('voices the honest gap beside the picker once the recording is loaded', async () => {
+    await renderReplay(makeFetch([...fixtureEvents(), ...FUTURE_ENTRIES]))
+    const select = screen.getByLabelText('session')
+    await fireAndFlush(() => fireEvent.change(select, { target: { value: 's1' } }))
+
+    expect(screen.getByTestId('replay-listing-unknown-era')).toHaveTextContent(
+      '2 events from a newer era were preserved but not understood (operator.ack, summons.raised)',
+    )
+    // And the rest of the recording still replays — the gap is a caveat, not a refusal.
+    expect(screen.getByText('Replay mode')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText(/worktrees/)).toBeInTheDocument())
+  })
+
+  it('drops the voice again on return to live', async () => {
+    await renderReplay(makeFetch([...fixtureEvents(), ...FUTURE_ENTRIES]))
+    const select = screen.getByLabelText('session')
+    await fireAndFlush(() => fireEvent.change(select, { target: { value: 's1' } }))
+    expect(screen.getByTestId('replay-listing-unknown-era')).toBeInTheDocument()
+
+    await fireAndFlush(() => fireEvent.click(screen.getByRole('button', { name: 'Return to live' })))
+    expect(screen.queryByTestId('replay-listing-unknown-era')).not.toBeInTheDocument()
   })
 })

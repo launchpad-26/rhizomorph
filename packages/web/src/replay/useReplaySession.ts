@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { initialSessionState, type RhizomorphEvent, type SessionState } from '@rhizomorph/core'
+import {
+  initialSessionState,
+  voiceUnknownEvents,
+  type RhizomorphEvent,
+  type SessionState,
+  type UnknownEventLine,
+} from '@rhizomorph/core'
 import { fetchSessionEvents, fetchSessions, type FetchLike, type SessionSummary } from './api.js'
 import {
   buildSessionIndex,
@@ -28,6 +34,22 @@ export interface ReplaySession {
   selectAndPlay(id: string): void
   /** Raw log for the selected session, fetched in full up front. */
   events: RhizomorphEvent[]
+  /**
+   * Events in the selected session that this bundle counted but could not fold
+   * — prd17 ruling 3, item 1. Empty for a recording entirely from this era.
+   *
+   * Carried beside `events` rather than folded into `state`, because there is no
+   * `RhizomorphEvent` to fold: an unknown is a preserved line, and inventing a
+   * state change for it would be the guess the ruling forbids. Every replay
+   * surface that voices the gap reads it from here.
+   */
+  unknown: UnknownEventLine[]
+  /**
+   * The ruling's own sentence over {@link unknown}, or `null` when there is
+   * nothing to say. Computed once here so the banner and the session listing
+   * cannot tell two different stories about one recording.
+   */
+  unknownVoice: string | null
   error: string | null
   playback: UsePlaybackResult
   range: TimeRange
@@ -62,6 +84,7 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [events, setEvents] = useState<RhizomorphEvent[]>([])
+  const [unknown, setUnknown] = useState<UnknownEventLine[]>([])
   const [error, setError] = useState<string | null>(null)
   /** Session id awaiting its events before auto-starting playback (`selectAndPlay`). */
   const autoplaySessionIdRef = useRef<string | null>(null)
@@ -99,12 +122,15 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
   useEffect(() => {
     if (selectedId === null) {
       setEvents([])
+      setUnknown([])
       return
     }
     let cancelled = false
     fetchSessionEvents(selectedId, fetchImpl)
       .then((loaded) => {
-        if (!cancelled) setEvents(loaded)
+        if (cancelled) return
+        setEvents(loaded.events)
+        setUnknown(loaded.unknown)
       })
       .catch(() => {
         if (!cancelled) setError(`could not load session "${selectedId}"`)
@@ -154,6 +180,7 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
     }
   }, [sessionIndex, playback.currentTs])
   const isReplaying = selectedId !== null && events.length > 0
+  const unknownVoice = useMemo(() => voiceUnknownEvents(unknown), [unknown])
 
   return {
     sessions,
@@ -162,6 +189,8 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
     selectSession,
     selectAndPlay,
     events,
+    unknown,
+    unknownVoice,
     error,
     playback,
     range,
@@ -182,6 +211,8 @@ export function emptyReplaySession(): ReplaySession {
     selectSession: noop,
     selectAndPlay: noop,
     events: [],
+    unknown: [],
+    unknownVoice: null,
     error: null,
     playback: {
       currentTs: 0,

@@ -54,6 +54,7 @@ export default function ReplayControls() {
     state,
     events,
     isReplaying,
+    unknownVoice,
   } = useReplay()
 
   /** The whole loaded session's spend — cheap, since `events` is already in memory. */
@@ -201,6 +202,22 @@ export default function ReplayControls() {
         <p className="normal-case tracking-normal text-ice-400">
           {Object.keys(state.worktrees).length} worktrees · {Object.keys(state.commits).length}{' '}
           commits · {formatSpend(scrubSpend)} as of scrub time
+        </p>
+      )}
+
+      {/*
+        THE SESSION LISTING'S OWN VOICE (prd17 ruling 3, item 1) — on the row
+        under the picker, because the picker is where a recording is CHOSEN and
+        "what is in it" belongs beside that choice, not only in the banner over
+        the panels.
+      */}
+      {unknownVoice !== null && (
+        <p
+          data-testid="replay-listing-unknown-era"
+          className="normal-case tracking-normal text-ice-100"
+          title="this recording came from a newer instrument; these events were kept in the log but this build cannot fold them"
+        >
+          {unknownVoice}
         </p>
       )}
 

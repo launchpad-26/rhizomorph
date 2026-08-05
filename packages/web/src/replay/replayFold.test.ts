@@ -1,4 +1,12 @@
-import { createEventFactory, fixtureSession, initialSessionState, reduce, reduceAll } from '@rhizomorph/core'
+import {
+  createEventFactory,
+  fixtureSession,
+  initialSessionState,
+  observeUpcast,
+  reduce,
+  reduceAll,
+  type RhizomorphEvent,
+} from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import {
   boundaryIndex,
@@ -283,5 +291,60 @@ describe('buildSessionIndex / foldFrom', () => {
     const coarse = buildSessionIndex(events, 1000)
     const ts = events[150]!.ts
     expect(foldFrom(coarse, ts, initialFoldCursor()).state).toEqual(foldUpTo(events, ts))
+  })
+})
+
+/**
+ * prd17 ruling 3, item 3 — the chokepoint, pinned on the REAL replay path.
+ *
+ * `reduce.test.ts` already holds a live-shaped fold and a replay-shaped fold to
+ * `upcast`. This is the other half of "both paths": the actual functions the
+ * dashboard calls when a human scrubs — `buildSessionIndex`, `foldUpTo`,
+ * `foldFrom` — proven to route through it too, so the migration seam is reached
+ * by the code that ships and not only by a fold a test wrote to look like it.
+ */
+describe('the replay path routes every event through upcast() (prd17 ruling 3.3)', () => {
+  /** Installs the observer and always disposes it, so a leak can't reach the next test. */
+  function watching(body: () => void): RhizomorphEvent[] {
+    const seen: RhizomorphEvent[] = []
+    const dispose = observeUpcast((event) => seen.push(event))
+    try {
+      body()
+    } finally {
+      dispose()
+    }
+    return seen
+  }
+
+  const log = () => fixtureSession()
+
+  it('buildSessionIndex upcasts every event as it keyframes the session', () => {
+    const events = log()
+    expect(watching(() => buildSessionIndex(events))).toHaveLength(events.length)
+  })
+
+  it('foldUpTo upcasts exactly the prefix it folds', () => {
+    const events = sortEvents(fixtureSession())
+    const ts = events[3]!.ts
+    const expected = eventsUpTo(events, ts).length
+    expect(watching(() => foldUpTo(events, ts))).toHaveLength(expected)
+  })
+
+  it('foldFrom upcasts only the events a scrub actually crosses', () => {
+    const index = buildSessionIndex(fixtureSession())
+    const first = index.events[2]!.ts
+    const second = index.events[5]!.ts
+
+    const toFirst = foldFrom(index, first, initialFoldCursor())
+    const crossed = watching(() => foldFrom(index, second, toFirst))
+    expect(crossed).toHaveLength(boundaryIndex(index.events, second) - toFirst.index)
+    expect(crossed.length).toBeGreaterThan(0)
+  })
+
+  it('a scrub that moves nowhere upcasts nothing — no event was folded', () => {
+    const index = buildSessionIndex(fixtureSession())
+    const ts = index.events[2]!.ts
+    const cursor = foldFrom(index, ts, initialFoldCursor())
+    expect(watching(() => foldFrom(index, ts, cursor))).toEqual([])
   })
 })
