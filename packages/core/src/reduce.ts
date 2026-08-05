@@ -3,6 +3,7 @@ import type {
   RhizomorphEvent,
 } from './events/index.js'
 import { totalTokens } from './events/index.js'
+import { upcast } from './events/upcast.js'
 import type {
   ActiveTimeRecord,
   AgentState,
@@ -31,10 +32,15 @@ import { MAX_ERRORS, basename, initialSessionState, traceStateOf } from './state
  * `reduce(state, event) → state`, pure and immutable.
  *
  * The same function folds the live SSE stream and a replayed history slice —
- * that identity is the whole reason replay is free.
+ * that identity is the whole reason replay is free, and it is also why
+ * {@link upcast} is called *here*: this is the one function both paths bottom
+ * out in, so "every event flows through the migration chokepoint" is true by
+ * construction rather than by every future fold remembering (prd17 ruling 3,
+ * item 3 — see `events/upcast.ts` for what that chokepoint is for).
  */
 export function reduce(state: SessionState, event: RhizomorphEvent): SessionState {
-  return applyEvent(withEnvelope(state, event), event)
+  const current = upcast(event)
+  return applyEvent(withEnvelope(state, current), current)
 }
 
 /** Fold a whole log. Handy for replay slices and for tests. */
@@ -117,7 +123,15 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
     case 'judge.finding':
       return judgeFinding(state, event)
     default: {
-      // Exhaustive today; an unknown future type must never break a replay.
+      // Exhaustive today, and — the systems chair's finding, prd17 ruling 3 —
+      // UNREACHABLE, not merely unexercised: an event only reaches this
+      // function after the union has already accepted it, so a type from a
+      // newer era can never arrive here to be stepped over. That is why the
+      // ruling's forward-compat law lives at the parse boundary and not here:
+      // `parseEventLenient` counts and preserves such a line as an honest
+      // unknown (`UnknownEventLine`), and the surfaces voice it. This arm stays
+      // as the compiler's exhaustiveness proof — the one job it can actually
+      // do — and must never be mistaken for the forward-compat story again.
       const _never: never = event
       void _never
       return state
