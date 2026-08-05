@@ -1,9 +1,11 @@
 import { useMemo } from 'react'
 import { initialSessionState, reduceAll, selectSessionSpend } from '@rhizomorph/core'
-import { useReplay } from '../app/ModeContext.js'
+import { useModeClock, useReplay } from '../app/ModeContext.js'
+import { useStream } from '../app/StreamContext.js'
+import { TideDock } from '../tide/TideDock.js'
 import { pickRichestSession, type SessionSummary } from './api.js'
 import { formatSpend } from './format.js'
-import { Scrubber } from './Scrubber.js'
+import { timeRangeOf } from './replayFold.js'
 import { PLAYBACK_SPEEDS } from './usePlayback.js'
 
 /**
@@ -59,6 +61,25 @@ export default function ReplayControls() {
   )
   const scrubSpend = useMemo(() => selectSessionSpend(state), [state])
 
+  /**
+   * THE TIDE'S FEED (prd13 wave 3, #169) — live and replay read two different
+   * logs, the same way `StreamContext.tsx`'s own `value` does: replay's is the
+   * whole session `useReplay()` already has in memory (the band body is a map
+   * of the whole recording, not just what has scrubbed into view — ruling 2's
+   * "the band *is* the recording's map"); live's is the raw log the *live*
+   * stream source has folded so far, read via `useStream()` exactly the way
+   * every panel already does, never via `StreamContext`'s replay-scoped
+   * branch (that one is a scrub prefix, the wrong shape for a map of the
+   * whole session-to-now).
+   */
+  const stream = useStream()
+  const now = useModeClock()
+  const liveEvents = stream.state.events
+  const liveStart = useMemo(() => timeRangeOf(liveEvents)?.start ?? now, [liveEvents, now])
+  const tideEvents = isReplaying ? events : liveEvents
+  const tideStart = isReplaying ? range.start : liveStart
+  const tideEnd = isReplaying ? range.end : now
+
   function replayBirth() {
     const richest = pickRichestSession(sessions)
     if (!richest) return
@@ -70,7 +91,7 @@ export default function ReplayControls() {
   }
 
   return (
-    <div className="flex flex-col gap-2 border-t border-ice-850 px-4 py-2 text-xs uppercase tracking-wide text-ice-400">
+    <div className="flex flex-col gap-1 border-t border-ice-850 px-4 py-2 text-xs uppercase tracking-wide text-ice-400">
       <div className="flex flex-wrap items-center gap-3">
         <span className="font-semibold tracking-widest text-ice-300">Replay</span>
         <span className="font-semibold text-ice-100">
@@ -141,14 +162,6 @@ export default function ReplayControls() {
           ))}
         </div>
 
-        <Scrubber
-          start={range.start}
-          end={range.end}
-          value={playback.currentTs}
-          onChange={playback.seek}
-          disabled={!isReplaying}
-        />
-
         <button
           type="button"
           onClick={() => selectSession(null)}
@@ -158,6 +171,16 @@ export default function ReplayControls() {
           Return to live
         </button>
       </div>
+
+      <TideDock
+        mode={isReplaying ? 'replay' : 'live'}
+        events={tideEvents}
+        start={tideStart}
+        end={tideEnd}
+        value={playback.currentTs}
+        onSeek={playback.seek}
+        seekEnabled={isReplaying}
+      />
 
       {error !== null && <p className="normal-case tracking-normal text-broken">{error}</p>}
 

@@ -1,11 +1,27 @@
 import { createEvent, createIdFactory, estimateCostUsd } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ModeProvider } from '../app/ModeContext.js'
+import { StreamProvider } from '../app/StreamContext.js'
+import type { EventSourceLike } from '../hooks/useEventStream.js'
 import ReplayControls from './index.js'
 import type { FetchLike } from './api.js'
 
 afterEach(cleanup)
+
+/** Never opens for real — these tests drive replay, not the live SSE connection. */
+class FakeEventSource implements EventSourceLike {
+  onopen: ((event: Event) => void) | null = null
+  onerror: ((event: Event) => void) | null = null
+  onmessage: ((event: MessageEvent<string>) => void) | null = null
+  close() {}
+  emit(data: unknown) {
+    this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent<string>)
+  }
+}
+
+/** Pinned so the live branch's `useModeClock()` reads are deterministic, not `Date.now()`. */
+const STREAM_NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
 
 /**
  * `render` only act-wraps the synchronous commit; the session list arrives
@@ -14,17 +30,36 @@ afterEach(cleanup)
  * `sessions` is deterministically populated instead of racing a `findBy*`'s
  * default 1000ms timeout against scheduler load (the class of bug from #28,
  * now in this file too — see #31).
+ *
+ * Now wrapped in `StreamProvider` too (#169): `ReplayControls` reads
+ * `useStream()` for the TIDE's live-mode log, the same way every panel
+ * already does — outside a provider that throws, same as `useReplay` would
+ * outside `ModeProvider`.
  */
 async function renderReplay(fetchImpl: FetchLike) {
+  let source: FakeEventSource | undefined
   let utils!: ReturnType<typeof render>
   await act(async () => {
     utils = render(
       <ModeProvider fetchImpl={fetchImpl}>
-        <ReplayControls />
+        <StreamProvider
+          url="/api/stream"
+          now={STREAM_NOW}
+          createSource={() => {
+            source = new FakeEventSource()
+            return source
+          }}
+        >
+          <ReplayControls />
+        </StreamProvider>
       </ModeProvider>,
     )
   })
-  return utils
+  return {
+    ...utils,
+    /** Feeds an event through the live SSE source — the TIDE's live-mode log. */
+    emitLive: (event: ReturnType<typeof createEvent>) => act(() => source?.emit(event)),
+  }
 }
 
 /** Selecting a session (or the "birth" button) kicks off its own mocked fetch chain — flush it the same way. */
@@ -353,5 +388,122 @@ describe('ReplayControls — spend', () => {
   it('has no total badge before a session is selected', async () => {
     await renderReplay(makeMoneyFetch())
     expect(screen.queryByText(/^total /)).not.toBeInTheDocument()
+  })
+})
+
+/** `session.started`/`worktree.discovered` name no lane (see `bands.ts`'s `laneOf`) — these do. */
+function laneFixtureEvents() {
+  return [
+    createEvent(
+      'session.started',
+      { sessionId: 'lanes', repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' },
+      { id: nextId(), ts: 1000 },
+    ),
+    createEvent('agent.status', { handle: 'ke5', status: 'working' }, { id: nextId(), ts: 2000 }),
+    createEvent('agent.status', { handle: 'm2', status: 'working' }, { id: nextId(), ts: 3000 }),
+  ]
+}
+
+function makeLaneFetch(): FetchLike {
+  const events = laneFixtureEvents()
+  return (async (url: string | URL | Request) => {
+    const href = String(url)
+    if (href === '/api/sessions') {
+      return jsonResponse({
+        sessions: [{ id: 'lanes', fileName: 'session-1000.jsonl', startedAt: 1000, sizeBytes: 100 }],
+      })
+    }
+    if (href === '/api/sessions/lanes/events') return jsonResponse({ events })
+    throw new Error(`unexpected fetch: ${href}`)
+  }) as unknown as FetchLike
+}
+
+describe('ReplayControls — the TIDE dock (#169)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  /** `TideDock` measures its own track via `getBoundingClientRect` (jsdom has no `ResizeObserver`). */
+  function mockTrackWidth(width: number) {
+    vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width,
+      height: 14,
+      top: 0,
+      left: 0,
+      right: width,
+      bottom: 14,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect)
+  }
+
+  it('docks a TIDE with a row per lane once a session is replayed (ruling 3: expanded by default)', async () => {
+    mockTrackWidth(900)
+    await renderReplay(makeLaneFetch())
+
+    const select = screen.getByLabelText('session')
+    await fireAndFlush(() => fireEvent.change(select, { target: { value: 'lanes' } }))
+
+    expect(screen.getByTestId('tide-dock')).toHaveAttribute('data-mode', 'replay')
+    const rows = screen.getAllByTestId('tide-row')
+    expect(rows.map((r) => r.dataset.lane)).toEqual(['ke5', 'm2'])
+  })
+
+  it('clicking a moment in a band seeks the playhead', async () => {
+    mockTrackWidth(900)
+    await renderReplay(makeLaneFetch())
+
+    const select = screen.getByLabelText('session')
+    await fireAndFlush(() => fireEvent.change(select, { target: { value: 'lanes' } }))
+
+    const scrubber = screen.getByLabelText('Replay scrubber') as HTMLInputElement
+    const before = scrubber.value
+
+    await fireAndFlush(() => fireEvent.click(screen.getByTestId('tide-dock-track'), { clientX: 450 }))
+
+    expect(scrubber.value).not.toBe(before)
+  })
+
+  it('live mode shows a collapsed TIDE by default, fed by the live stream — not the (empty) replay log', async () => {
+    mockTrackWidth(900)
+    const { emitLive } = await renderReplay(makeFetch(fixtureEvents()))
+
+    await emitLive(createEvent('agent.status', { handle: 'ke5', status: 'working' }, { id: nextId(), ts: 2_000 }))
+    await emitLive(createEvent('agent.status', { handle: 'm2', status: 'working' }, { id: nextId(), ts: 3_000 }))
+
+    expect(screen.getByTestId('tide-dock')).toHaveAttribute('data-mode', 'live')
+    const rows = screen.getAllByTestId('tide-row')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.dataset.rowKind).toBe('more')
+  })
+
+  it('the live expand affordance reveals per-lane rows without switching to replay', async () => {
+    mockTrackWidth(900)
+    const { emitLive } = await renderReplay(makeFetch(fixtureEvents()))
+
+    await emitLive(createEvent('agent.status', { handle: 'ke5', status: 'working' }, { id: nextId(), ts: 2_000 }))
+    await emitLive(createEvent('agent.status', { handle: 'm2', status: 'working' }, { id: nextId(), ts: 3_000 }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand lane rows' }))
+
+    expect(screen.getByText('Live mode')).toBeInTheDocument()
+    const rows = screen.getAllByTestId('tide-row')
+    expect(rows.map((r) => r.dataset.lane)).toEqual(['ke5', 'm2'])
+  })
+
+  it('returning to live collapses the dock back down (no per-lane rows survive the mode switch)', async () => {
+    mockTrackWidth(900)
+    await renderReplay(makeLaneFetch())
+
+    const select = screen.getByLabelText('session')
+    await fireAndFlush(() => fireEvent.change(select, { target: { value: 'lanes' } }))
+    expect(screen.getAllByTestId('tide-row').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: /return to live/i }))
+    await waitFor(() => expect(screen.getByText('Live mode')).toBeInTheDocument())
+
+    const rows = screen.queryAllByTestId('tide-row')
+    for (const row of rows) expect(row.dataset.rowKind).not.toBe('lane')
   })
 })
