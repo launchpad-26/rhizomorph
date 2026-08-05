@@ -46,14 +46,17 @@ import {
   parseLabelArgs,
   parseLabForkArgs,
   parseReplayArgs,
+  parseRotateArgs,
   parseSessionsArgs,
   replayHelpText,
+  rotateHelpText,
   sessionsHelpText,
   type CliArgs,
 } from './args.js'
 import { renderDoctorReport, runDoctor } from './doctor.js'
 import { runExportRecord } from './export-record.js'
 import { runLabel } from './label.js'
+import { renderRotation, requestRotation } from './rotate.js'
 import { renderSessionsReport, runSessions } from './sessions.js'
 import { fetchInstanceId, renderTelemetryEnv } from './telemetry-env.js'
 import { readPackageVersion } from './version.js'
@@ -125,6 +128,10 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
 
   if (argv[0] === 'label') {
     return runLabelCommand(argv.slice(1), log, exit, options)
+  }
+
+  if (argv[0] === 'rotate') {
+    return runRotateCommand(argv.slice(1), log, exit)
   }
 
   if (argv[0] === 'lab') {
@@ -199,9 +206,17 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
   // so the next boot's `decideSessionBoot` can tell "still writing" from
   // "crashed" without waiting out `LOCK_STALE_MS` in the common case —
   // `isPidAlive` (`session-lock.ts`) reports a crashed pid gone immediately.
+  //
+  // The heartbeat names `recorder.sessionId`, not the `sessionId` this boot
+  // decided on: since prd16 ruling 2 the operator can rotate mid-run, and the
+  // lock belongs to the session being written *now*. It also skips the sealed
+  // instant of a rotation, when the closed session's lock has just been
+  // released and the new one is not claimed yet — re-creating the old one
+  // there would put a live writer's claim back over a log that has ended.
   await writeSessionLock(sessionDir, sessionId, process.pid, now())
   const lockHeartbeat = setInterval(() => {
-    void writeSessionLock(sessionDir, sessionId, process.pid, now())
+    if (recorder.isSealed) return
+    void writeSessionLock(sessionDir, recorder.sessionId, process.pid, now())
   }, LOCK_HEARTBEAT_INTERVAL_MS)
   lockHeartbeat.unref()
 
@@ -234,7 +249,9 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
 
   const webDistDir = options.webDistDir ?? defaultWebDistDir()
   const flatlineMs = args.flatlineMinutes * 60_000
-  const app = buildApp({ repoPath, repoName, sessionDir, recorder, webDistDir, flatlineMs })
+  // `now` is threaded through for the one route that writes (`POST /api/rotate`),
+  // so a rotation asked of a test's server happens on the test's clock.
+  const app = buildApp({ repoPath, repoName, sessionDir, recorder, webDistDir, flatlineMs, now })
 
   let url: string
   try {
@@ -278,7 +295,11 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
     // pid to die and the next boot's staleness check to notice — the same
     // process may be the very next thing to boot this session (the resume
     // tests do exactly that), and it shouldn't have to wait itself out.
-    await removeSessionLock(sessionDir, sessionId).catch(() => {})
+    // `recorder.sessionId` rather than the boot's, for the same reason the
+    // heartbeat uses it: after a rotation, the lock this process holds is the
+    // new session's, and leaving *that* one behind would make the next boot
+    // refuse to resume a session nobody is writing.
+    await removeSessionLock(sessionDir, recorder.sessionId).catch(() => {})
   }
 
   return { app, recorder, pollLoop, url, stop }
@@ -314,6 +335,15 @@ function renderBootLine(decision: SessionBootDecision, sessionId: string, resume
       `(pid ${decision.liveWriter.pid}) — starting a fresh session ${sessionId} instead; ` +
       `use --fresh to silence, or stop the other instance`
     )
+  }
+  // prd16 ruling 2: the previous session was ENDED, by a human, on purpose.
+  // Say so — a boot that resumed nothing after an operator's rotation must not
+  // read like the resume window quietly lapsed.
+  if (decision.reason === 'closed') {
+    return `starting session ${sessionId} (the previous session was closed by \`rhizomorph rotate\` — a closed log is never resumed)`
+  }
+  if (decision.reason === 'rotated') {
+    return `starting session ${sessionId} (rotated)`
   }
   return `starting session ${sessionId} (no previous session recorded)`
 }
@@ -554,6 +584,9 @@ async function runReplayCommand(
     sessionDir: tempDir,
     recorder,
     webDistDir,
+    // A record is a finished thing: `POST /api/rotate` refuses here (prd11
+    // ruling 4's read-only replay, restated for the recorder's new hand).
+    readOnly: true,
   })
 
   let url: string
@@ -656,6 +689,42 @@ async function runLabelCommand(
       now: options.now,
     })
     log.log(`labelled session ${result.sessionId}: "${result.label}"`)
+  } catch (err) {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+    exit(1)
+  }
+
+  exit(0)
+}
+
+/**
+ * `rhizomorph rotate` — the operator's explicit session boundary (prd16
+ * ruling 2), asked of the running instrument rather than performed on its
+ * files (see `cli/rotate.ts` for why that distinction is the whole design).
+ * Same clean-usage-error contract as every other subcommand here: a bad argv,
+ * or a server that isn't there, prints to stderr and exits 1.
+ */
+async function runRotateCommand(
+  rest: readonly string[],
+  log: Pick<Console, 'log' | 'warn'>,
+  exit: (code: number) => never,
+): Promise<never> {
+  let args
+  try {
+    args = parseRotateArgs(rest)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`${message}\n\n${rotateHelpText()}`)
+    exit(1)
+  }
+
+  if (args.help) {
+    log.log(rotateHelpText())
+    exit(0)
+  }
+
+  try {
+    log.log(renderRotation(await requestRotation(args.port)))
   } catch (err) {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
     exit(1)

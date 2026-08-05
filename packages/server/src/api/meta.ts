@@ -42,6 +42,17 @@ export function recordSessionBootMeta(recorder: SessionRecorder, meta: SessionBo
   bootMetaByRecorder.set(recorder, meta)
 }
 
+/**
+ * The boot facts already recorded for `recorder`, or null. Rotation
+ * (`api/rotate.ts`) reads them back so the facts it *doesn't* change — the
+ * resume window this run measures against — carry across the boundary instead
+ * of silently reverting to the stock default. The recorder object survives a
+ * rotation, which is exactly why this keying still works afterwards.
+ */
+export function sessionBootMetaFor(recorder: SessionRecorder): SessionBootMeta | null {
+  return bootMetaByRecorder.get(recorder) ?? null
+}
+
 const bootMetaByRecorder = new WeakMap<SessionRecorder, SessionBootMeta>()
 
 /**

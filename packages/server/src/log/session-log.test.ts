@@ -4,17 +4,19 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+// The writing half lives behind the recorder seam (prd16 ruling 6); these
+// reader/boundary tests still need a writer to lay down the fixtures they read.
+import { dropTrailingPartialLine, SessionLogWriter } from '../recorder/index.js'
 import {
   decideSessionBoot,
-  dropTrailingPartialLine,
   findResumableSession,
   formatBootDuration,
+  isClosedLog,
   listSessions,
   readResumedCount,
   readSessionEvents,
   recordResume,
   RESUME_WINDOW_MS,
-  SessionLogWriter,
   sessionFilePath,
 } from './session-log.js'
 import { LOCK_STALE_MS, writeSessionLock } from './session-lock.js'
@@ -326,6 +328,78 @@ describe('decideSessionBoot', () => {
     expect(decision.previousAgeMs).toBe(RESUME_WINDOW_MS + 1)
     expect(decision.eventCountAtBoot).toBe(0)
     expect(decision.resumedCount).toBe(0)
+  })
+
+  /**
+   * prd16 ruling 1's order of authority — the operator's explicit act, then the
+   * flags, then the window — and ruling 2's act. A log the operator closed is
+   * finished: no window, no lock and no heuristic may reopen it.
+   */
+  describe('a closed log is never resumed', () => {
+    async function writeClosedSession(sessionId: string, ts: number): Promise<void> {
+      const writer = new SessionLogWriter(sessionFilePath(dir, sessionId))
+      await writer.append(errorEvent('evt-1', ts))
+      await writer.append(
+        createEvent(
+          'session.closed',
+          { sessionId, reason: 'rotated', eventCount: 2 },
+          { id: `session-closed-${sessionId}`, ts },
+        ),
+      )
+    }
+
+    it('states "closed", as data, even for a session seconds old', async () => {
+      await writeClosedSession('1000', 1000)
+
+      const decision = await decideSessionBoot(dir, 1100)
+      expect(decision).toEqual({
+        reason: 'closed',
+        resumed: null,
+        windowMs: RESUME_WINDOW_MS,
+        // The age is still reported: the boundary explains itself, and "100ms
+        // old and closed" is exactly what makes this reason different to stale.
+        previousAgeMs: 100,
+        eventCountAtBoot: 0,
+        resumedCount: 0,
+        liveWriter: null,
+      })
+    })
+
+    it('outranks a live lock — a closed log with a heartbeating writer beside it is still closed', async () => {
+      await writeClosedSession('1000', 1000)
+      await writeSessionLock(dir, '1000', process.pid, 1000)
+
+      const decision = await decideSessionBoot(dir, 1100)
+      expect(decision.reason).toBe('closed')
+      expect(decision.liveWriter).toBeNull()
+    })
+
+    it('yields to --fresh, which asks the same question and is answered first', async () => {
+      await writeClosedSession('1000', 1000)
+
+      const decision = await decideSessionBoot(dir, 1100, { fresh: true })
+      expect(decision.reason).toBe('fresh-flag')
+    })
+
+    it('does not affect an OLDER closed session once a newer open one exists', async () => {
+      await writeClosedSession('1000', 1000)
+      await new SessionLogWriter(sessionFilePath(dir, '2000')).append(errorEvent('evt-9', 2000))
+
+      const decision = await decideSessionBoot(dir, 2100)
+      expect(decision.reason).toBe('resumed')
+      expect(decision.resumed?.sessionId).toBe('2000')
+    })
+
+    it('isClosedLog reads the fact off the events, and says no for an open log', async () => {
+      expect(isClosedLog([errorEvent('evt-1', 1)])).toBe(false)
+      expect(isClosedLog([])).toBe(false)
+      expect(
+        isClosedLog([
+          errorEvent('evt-1', 1),
+          createEvent('session.closed', { sessionId: '1', reason: 'rotated' }, { id: 'c', ts: 2 }),
+        ]),
+      ).toBe(true)
+    })
   })
 
   it('states "stale" with a null age when the newest session file has nothing readable in it', async () => {

@@ -1,71 +1,18 @@
-import { appendFile, mkdir, readdir, readFile, stat, truncate, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import { parseEvent } from '@rhizomorph/core'
 import { sessionFileName, sessionIdFromFileName } from './paths.js'
 import { isLockLive, readSessionLock } from './session-lock.js'
 
-const NEWLINE = 0x0a
-
-export interface SessionLogWriterOptions {
-  /**
-   * True when this writer continues a file an earlier process started — a
-   * resumed run. Before the first append the file's trailing *partial* line is
-   * dropped: that is what a process killed mid-append leaves behind, and
-   * appending after it would glue the new event onto half of the old one,
-   * costing two events instead of one.
-   */
-  resuming?: boolean
-}
-
 /**
- * Appends validated events to one session's JSONL file. One writer per
- * running session; the file is created (with its parent dir) lazily on the
- * first append so an empty session never litters an empty file.
+ * Reading a recording, and deciding which session a boot belongs to. The
+ * *writing* half — `SessionLogWriter`, the recorder, rotation — moved behind
+ * the recorder seam in prd16 wave 1 (ruling 6): see
+ * `packages/server/src/recorder/`. This module never writes a session log; the
+ * two sidecars it does write (the resume counter below, and the lock in
+ * `session-lock.ts`) live beside the log, never inside it.
  */
-export class SessionLogWriter {
-  readonly filePath: string
-  private readonly resuming: boolean
-  private ready: Promise<void> | null = null
-
-  constructor(filePath: string, options: SessionLogWriterOptions = {}) {
-    this.filePath = filePath
-    this.resuming = options.resuming ?? false
-  }
-
-  async append(event: RhizomorphEvent): Promise<void> {
-    if (!this.ready) {
-      this.ready = this.prepare()
-    }
-    await this.ready
-    await appendFile(this.filePath, `${JSON.stringify(event)}\n`, 'utf8')
-  }
-
-  /** Runs once, before the first append, and every append awaits it. */
-  private async prepare(): Promise<void> {
-    await mkdir(path.dirname(this.filePath), { recursive: true })
-    if (this.resuming) await dropTrailingPartialLine(this.filePath)
-  }
-}
-
-/**
- * Truncates `filePath` back to its last newline if it doesn't end in one, and
- * reports whether it dropped anything. A JSONL file with a half-written final
- * line is a process killed mid-append; that line is unreadable either way
- * (`readSessionEvents` skips it), so dropping it loses nothing and keeps the
- * file appendable.
- */
-export async function dropTrailingPartialLine(filePath: string): Promise<boolean> {
-  let content: Buffer
-  try {
-    content = await readFile(filePath)
-  } catch {
-    return false // no file yet — nothing to repair
-  }
-  if (content.length === 0 || content[content.length - 1] === NEWLINE) return false
-  await truncate(filePath, content.lastIndexOf(NEWLINE) + 1)
-  return true
-}
 
 /**
  * Reads back a session's events. Malformed or invalid lines are skipped
@@ -190,8 +137,26 @@ export async function findResumableSession(
  * case) is the boundary's fifth answer: a candidate session was inside the
  * resume window, but another process is still writing it, so this boot
  * starts fresh instead of racing it onto the same file under the same id.
+ *
+ * prd16 ruling 1 puts the operator's explicit act above every clock, and
+ * ruling 2 gives them one — so the boundary gained two more answers:
+ *
+ * - `closed`: the previous session's log ends with a `session.closed`. The
+ *   operator ended it; no window, no lock and no heuristic may reopen it.
+ *   Ranked *above* staleness because it is a decision, not a measurement.
+ * - `rotated`: this session exists because the operator rotated mid-run.
+ *   `decideSessionBoot` never returns it (a boot is not a rotation) — the
+ *   recorder's own hand reports it through `/api/meta` (`api/rotate.ts`), so
+ *   the provenance line can say why the session it names is seconds old.
  */
-export type SessionBootReason = 'fresh-flag' | 'resumed' | 'stale' | 'first-run' | 'writer-alive'
+export type SessionBootReason =
+  | 'fresh-flag'
+  | 'resumed'
+  | 'stale'
+  | 'first-run'
+  | 'writer-alive'
+  | 'closed'
+  | 'rotated'
 
 export interface SessionBootDecision {
   reason: SessionBootReason
@@ -274,6 +239,25 @@ export async function decideSessionBoot(
 
   const newestTs = events.reduce((newest, event) => Math.max(newest, event.ts), 0)
   const previousAgeMs = nowMs - newestTs
+
+  // prd16 ruling 1's order of authority: the operator's explicit act first,
+  // then the flags, then the window. A log the operator closed (ruling 2's
+  // rotation appended a `session.closed`) is finished — resuming it would
+  // append events after its own ending, and would undo the boundary a human
+  // deliberately drew. Checked before staleness so the *reason* names the
+  // decision rather than the measurement that happens to agree with it.
+  if (isClosedLog(events)) {
+    return {
+      reason: 'closed',
+      resumed: null,
+      windowMs,
+      previousAgeMs,
+      eventCountAtBoot: 0,
+      resumedCount: 0,
+      liveWriter: null,
+    }
+  }
+
   if (previousAgeMs > windowMs) {
     return {
       reason: 'stale',
@@ -317,6 +301,18 @@ export async function decideSessionBoot(
     resumedCount,
     liveWriter: null,
   }
+}
+
+/**
+ * Whether a log has been closed (prd16 ruling 2 / prd17 ruling 1). Any
+ * `session.closed` anywhere in the file counts, not just the last line: the
+ * close is appended before anything else can be (`SessionRecorder.closeWith`),
+ * so a `session.closed` with events after it means a file that was reopened by
+ * something that had no business doing so — and "closed" is still the honest
+ * answer for it.
+ */
+export function isClosedLog(events: readonly RhizomorphEvent[]): boolean {
+  return events.some((event) => event.type === 'session.closed')
 }
 
 /**

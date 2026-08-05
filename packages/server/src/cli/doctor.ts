@@ -317,6 +317,16 @@ async function checkSessionBoundary(repoPath: string, dataRoot: string | undefin
     }
   }
 
+  // prd16 ruling 2: an operator's rotation outranks the window, so doctor must
+  // not report a deliberately-closed session as merely stale.
+  if (decision.reason === 'closed') {
+    return {
+      id: 'session-boundary',
+      status: 'ok',
+      message: `the last session for ${repoPath} was closed by \`rhizomorph rotate\` — the next run starts a fresh one (a closed log is never resumed, whatever the ${window} window says)`,
+    }
+  }
+
   if (decision.resumed) {
     const size = await sessionFileSize(decision.resumed.filePath)
     const age = decision.previousAgeMs === null ? 'unknown age' : `${formatBootDuration(decision.previousAgeMs)} old`

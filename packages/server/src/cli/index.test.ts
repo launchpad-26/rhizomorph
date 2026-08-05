@@ -8,7 +8,7 @@ import type { Collector, CollectorContext, Exec, RhizomorphEvent, PollResult } f
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
 import { sessionDirFor } from '../log/paths.js'
-import { listSessions, readSessionEvents, RESUME_WINDOW_MS } from '../log/session-log.js'
+import { listSessions, readSessionEvents, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import type { SessionRecorder } from '../server/recorder.js'
 import { runCli, type CliHandle } from './index.js'
 
@@ -1382,5 +1382,134 @@ describe('runCli lab fork + compare subcommands (prd12 phase 2)', () => {
     const compare = await lab(['lab', 'compare', '--help'])
     expect(compare.code).toBe(0)
     expect(compare.out).toContain('rhizomorph lab compare <fork-id>')
+  })
+})
+
+/**
+ * `rhizomorph rotate` end to end (prd16 ruling 2): a real server, a real
+ * boundary, over HTTP — because that is how the command works. Rotation is
+ * asked of the instrument that owns the log rather than performed on its
+ * files, so this test boots one on an ephemeral port and then runs the verb
+ * against it, exactly as an operator would.
+ */
+describe('runCli rotate subcommand', () => {
+  let dataRoot: string
+  let repoPath: string
+  let server: CliHandle | undefined
+
+  beforeEach(async () => {
+    dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-rotate-cli-test-'))
+    repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-rotate-cli-repo-'))
+  })
+
+  afterEach(async () => {
+    await server?.stop()
+    server = undefined
+    await rm(dataRoot, { recursive: true, force: true })
+    await rm(repoPath, { recursive: true, force: true })
+  })
+
+  async function bootServer(): Promise<{ port: number; sessionId: string }> {
+    server = await runCli([repoPath, '--port', '0'], {
+      dataRoot,
+      collectors: [],
+      log: silentLog,
+    })
+    return { port: Number(new URL(server.url).port), sessionId: server.recorder.sessionId }
+  }
+
+  it('closes the running session and opens a fresh one, and says so', async () => {
+    const { port, sessionId } = await bootServer()
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['rotate', '--port', String(port)], { log, exit }).catch(
+      (err: unknown) => err,
+    )
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    const output = log.log.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain(`closed session ${sessionId}`)
+    expect(output).toContain('opened session')
+
+    // The live recorder moved on, and both logs are on disk — the freshly
+    // closed one findable by the replay picker immediately.
+    const sessionDir = sessionDirFor(repoPath, dataRoot)
+    const recorded = await listSessions(sessionDir)
+    expect(recorded.map((session) => session.id)).toEqual([sessionId, server?.recorder.sessionId])
+    expect(server?.recorder.sessionId).not.toBe(sessionId)
+
+    const closed = await readSessionEvents(sessionFilePath(sessionDir, sessionId))
+    expect(closed.at(-1)).toMatchObject({ type: 'session.closed', payload: { reason: 'rotated' } })
+    const opened = await readSessionEvents(sessionFilePath(sessionDir, server?.recorder.sessionId ?? ''))
+    expect(opened.map((event) => event.type)).toEqual(['session.started'])
+  })
+
+  it("the next boot starts fresh with a voice instead of resuming what the operator closed", async () => {
+    const { port, sessionId } = await bootServer()
+    const exit = fakeExit()
+    await runCli(['rotate', '--port', String(port)], { log: silentLog, exit }).catch(() => {})
+
+    const rotatedTo = server?.recorder.sessionId
+    await server?.stop()
+    server = undefined
+
+    // A restart moments later — well inside the resume window.
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const rebooted = await runCli([repoPath, '--port', '0'], { dataRoot, collectors: [], log })
+    try {
+      // It resumes the session rotation OPENED (that one was never closed)…
+      expect(rebooted.recorder.sessionId).toBe(rotatedTo)
+      const bootLine = log.log.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(bootLine).toContain(`resuming session ${rotatedTo}`)
+      // …and never the one it closed.
+      expect(rebooted.recorder.sessionId).not.toBe(sessionId)
+    } finally {
+      await rebooted.stop()
+    }
+  })
+
+  it('prints a clean message and exits 1 when no Rhizomorph is running — no stack trace', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+
+    // Port 1 needs root to bind, so nothing of ours is ever listening there.
+    const thrown = await runCli(['rotate', '--port', '1'], { exit }).catch((err: unknown) => err)
+
+    const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(1)
+    expect(output).toContain('cannot rotate the session on port 1')
+    expect(output).toContain('npm start -- --port 1')
+    expect(output).not.toMatch(/^\s*at /m)
+  })
+
+  it('prints usage and exits 1 for a stray path argument', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+
+    const thrown = await runCli(['rotate', repoPath], { exit }).catch((err: unknown) => err)
+
+    const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(1)
+    expect(output).toContain('rotate takes no path')
+    expect(output).toContain('rhizomorph rotate [options]')
+  })
+
+  it('prints its own help and exits 0', async () => {
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['rotate', '--help'], { log, exit }).catch((err: unknown) => err)
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    expect(String(log.log.mock.calls[0]?.[0])).toContain('rhizomorph rotate [options]')
   })
 })

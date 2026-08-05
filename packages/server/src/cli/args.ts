@@ -257,6 +257,60 @@ Options:
 `
 }
 
+export interface RotateArgs {
+  /** The running Rhizomorph to ask. Rotation is done BY the instrument that owns the log, never behind its back. */
+  port: number
+  help: boolean
+}
+
+export function rotateHelpText(): string {
+  return `rhizomorph rotate [options]
+
+Ends the running Rhizomorph's current session and starts a fresh one — the
+operator's explicit boundary (prd16 ruling 2). The closed log gets a final
+'session.closed' line and is flushed to disk; the new session gets a new id,
+and appears in 'rhizomorph sessions' and the replay picker immediately. Nothing
+outside this repo's own session directory is touched, and the closed session is
+never resumed by a later boot.
+
+This asks the RUNNING server (the same way 'rhizomorph env' reads the instance
+id): a session is closed by the instrument that owns its log, never by a second
+process reaching into a file another one is writing (#187's lock exists to make
+that impossible). Start the server first, or rotate from the dashboard's
+"end session · start fresh" button.
+
+Options:
+  --port <n>              Rhizomorph server port to target (default: ${DEFAULT_PORT})
+  --help, -h              Show this help and exit
+`
+}
+
+export function parseRotateArgs(argv: readonly string[]): RotateArgs {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    return { port: DEFAULT_PORT, help: true }
+  }
+
+  let portArg: string | undefined
+  const specs: FlagSpec[] = [{ flag: '--port', read: (v) => { portArg = v } }]
+
+  const positionals = parseFlags(argv, specs)
+  const stray = positionals[0]
+  if (stray !== undefined) {
+    // A path would be the natural guess ('rhizomorph rotate .') and it would be
+    // wrong: the port names the instrument, and the instrument knows its repo.
+    throw new Error(
+      `unexpected argument: "${stray}" (rotate takes no path — it asks the server on --port, which already knows which repo it watches)`,
+    )
+  }
+
+  const port = portArg === undefined ? DEFAULT_PORT : Number(portArg)
+  if (!Number.isInteger(port) || port < 0) {
+    throw new Error(`invalid --port value: "${portArg}" (must be a non-negative integer)`)
+  }
+
+  return { port, help: false }
+}
+
 export function parseEnvArgs(argv: readonly string[]): EnvArgs {
   if (argv.includes('--help') || argv.includes('-h')) {
     return { lane: '', role: DEFAULT_ROLE, port: DEFAULT_PORT, shell: DEFAULT_SHELL, help: true }
@@ -305,6 +359,7 @@ rhizomorph export-record [path] [options]   Write a portable session record (fed
 rhizomorph replay <record-file> [options]   Serve a session record read-only, foreign or local
 rhizomorph sessions [path] [options]        List recorded sessions — title, when, duration, lanes, cost, size
 rhizomorph label <sessionId> <text> [options]  Set the operator label an auto-title yields to
+rhizomorph rotate [options]          End the running session and start a fresh one (prd16)
 rhizomorph lab checkpoint <lane> [options]  Capture a live workspace + session snapshot (prd12)
 rhizomorph lab fork <lane> [options]        Restore n arms from one of that lane's checkpoints (prd12)
 rhizomorph lab compare <fork-id> [options]  Table one fork's arms — runs, never a winner (prd12)
@@ -339,8 +394,8 @@ Options:
   --help, -h              Show this help and exit
 
 Run 'rhizomorph doctor --help', 'rhizomorph env --help', 'rhizomorph export-record --help',
-'rhizomorph replay --help', 'rhizomorph sessions --help', 'rhizomorph label --help' or
-'rhizomorph lab --help' for a subcommand's own options.
+'rhizomorph replay --help', 'rhizomorph sessions --help', 'rhizomorph label --help',
+'rhizomorph rotate --help' or 'rhizomorph lab --help' for a subcommand's own options.
 `
 }
 

@@ -19,8 +19,10 @@ import {
   parseLabelArgs,
   parseLabForkArgs,
   parseReplayArgs,
+  parseRotateArgs,
   parseSessionsArgs,
   replayHelpText,
+  rotateHelpText,
   sessionsHelpText,
 } from './args.js'
 
@@ -277,6 +279,11 @@ describe('helpText', () => {
 
   it('mentions the env subcommand', () => {
     expect(helpText()).toContain('rhizomorph env')
+  })
+
+  it('mentions the rotate subcommand — the operator\'s session boundary is discoverable', () => {
+    expect(helpText()).toContain('rhizomorph rotate')
+    expect(helpText()).toContain("'rhizomorph rotate --help'")
   })
 
   it('mentions the doctor subcommand', () => {
@@ -568,6 +575,40 @@ describe('parseLabelArgs', () => {
   it('parses --help without requiring a session id or text', () => {
     expect(parseLabelArgs(['--help']).help).toBe(true)
     expect(parseLabelArgs(['-h']).help).toBe(true)
+  })
+})
+
+describe('parseRotateArgs', () => {
+  it('defaults to the standard port — rotation asks the running instrument', () => {
+    expect(parseRotateArgs([])).toEqual({ port: 4321, help: false })
+  })
+
+  it('parses --port in both forms', () => {
+    expect(parseRotateArgs(['--port', '5000'])).toEqual({ port: 5000, help: false })
+    expect(parseRotateArgs(['--port=5000'])).toEqual({ port: 5000, help: false })
+  })
+
+  it('rejects a non-integer port', () => {
+    expect(() => parseRotateArgs(['--port', 'nope'])).toThrow(/invalid --port value/)
+  })
+
+  it('rejects a path, and says why rotation does not take one', () => {
+    expect(() => parseRotateArgs(['../other-repo'])).toThrow(/unexpected argument.*rotate takes no path/is)
+  })
+
+  it('parses --help', () => {
+    expect(parseRotateArgs(['--help']).help).toBe(true)
+    expect(parseRotateArgs(['-h']).help).toBe(true)
+  })
+})
+
+describe('rotateHelpText', () => {
+  it('says what rotation does, that the server must be running, and names the button', () => {
+    const text = rotateHelpText()
+    expect(text).toContain('rhizomorph rotate')
+    expect(text).toContain('session.closed')
+    expect(text).toContain('--port')
+    expect(text).toContain('end session · start fresh')
   })
 })
 
