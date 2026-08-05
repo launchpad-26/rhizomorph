@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import { parseEvent } from '@rhizomorph/core'
 import { sessionFileName, sessionIdFromFileName } from './paths.js'
+import { isLockLive, readSessionLock } from './session-lock.js'
 
 const NEWLINE = 0x0a
 
@@ -182,8 +183,15 @@ export async function findResumableSession(
   return { sessionId: latest.id, filePath, events }
 }
 
-/** Why a boot did or didn't continue the previous session — operator ruling 2026-08-05: the boundary must be self-explaining, not just a yes/no. */
-export type SessionBootReason = 'fresh-flag' | 'resumed' | 'stale' | 'first-run'
+/**
+ * Why a boot did or didn't continue the previous session — operator ruling
+ * 2026-08-05: the boundary must be self-explaining, not just a yes/no.
+ * `writer-alive` (the agnosticism spike, headline verdict 4 / §3 adjacent
+ * case) is the boundary's fifth answer: a candidate session was inside the
+ * resume window, but another process is still writing it, so this boot
+ * starts fresh instead of racing it onto the same file under the same id.
+ */
+export type SessionBootReason = 'fresh-flag' | 'resumed' | 'stale' | 'first-run' | 'writer-alive'
 
 export interface SessionBootDecision {
   reason: SessionBootReason
@@ -197,6 +205,8 @@ export interface SessionBootDecision {
   eventCountAtBoot: number
   /** How many earlier boots already continued this exact session, before this one. 0 for a brand-new session. */
   resumedCount: number
+  /** Set only when `reason` is `'writer-alive'`: the session a live writer still holds, and its pid — what the boot line and doctor both name. */
+  liveWriter: { sessionId: string; pid: number } | null
 }
 
 /**
@@ -223,30 +233,90 @@ export async function decideSessionBoot(
   const fresh = (options.fresh ?? false) || windowMs <= 0
 
   if (fresh) {
-    return { reason: 'fresh-flag', resumed: null, windowMs, previousAgeMs: null, eventCountAtBoot: 0, resumedCount: 0 }
+    return {
+      reason: 'fresh-flag',
+      resumed: null,
+      windowMs,
+      previousAgeMs: null,
+      eventCountAtBoot: 0,
+      resumedCount: 0,
+      liveWriter: null,
+    }
   }
 
   const sessions = await listSessions(dir)
   const latest = sessions[sessions.length - 1]
   if (!latest) {
-    return { reason: 'first-run', resumed: null, windowMs, previousAgeMs: null, eventCountAtBoot: 0, resumedCount: 0 }
+    return {
+      reason: 'first-run',
+      resumed: null,
+      windowMs,
+      previousAgeMs: null,
+      eventCountAtBoot: 0,
+      resumedCount: 0,
+      liveWriter: null,
+    }
   }
 
   const filePath = path.join(dir, latest.fileName)
   const events = await readSessionEvents(filePath)
   if (events.length === 0) {
-    return { reason: 'stale', resumed: null, windowMs, previousAgeMs: null, eventCountAtBoot: 0, resumedCount: 0 }
+    return {
+      reason: 'stale',
+      resumed: null,
+      windowMs,
+      previousAgeMs: null,
+      eventCountAtBoot: 0,
+      resumedCount: 0,
+      liveWriter: null,
+    }
   }
 
   const newestTs = events.reduce((newest, event) => Math.max(newest, event.ts), 0)
   const previousAgeMs = nowMs - newestTs
   if (previousAgeMs > windowMs) {
-    return { reason: 'stale', resumed: null, windowMs, previousAgeMs, eventCountAtBoot: 0, resumedCount: 0 }
+    return {
+      reason: 'stale',
+      resumed: null,
+      windowMs,
+      previousAgeMs,
+      eventCountAtBoot: 0,
+      resumedCount: 0,
+      liveWriter: null,
+    }
+  }
+
+  // The agnosticism spike's adjacent case: a candidate inside the window is
+  // not automatically ours to continue. A live lock beside it means another
+  // process is already writing it — resuming here would put two writers on
+  // one file under one session id (the exact hazard the OTLP receiver's
+  // foreign-instance refusal cannot see). A stale lock (dead pid, or a
+  // heartbeat old enough that a pid match can't be trusted, `isLockLive`)
+  // is the crash case: it resumes exactly as if there had been no lock at all.
+  const lock = await readSessionLock(dir, latest.id)
+  if (lock && isLockLive(lock, nowMs)) {
+    return {
+      reason: 'writer-alive',
+      resumed: null,
+      windowMs,
+      previousAgeMs,
+      eventCountAtBoot: 0,
+      resumedCount: 0,
+      liveWriter: { sessionId: latest.id, pid: lock.pid },
+    }
   }
 
   const resumed: ResumableSession = { sessionId: latest.id, filePath, events }
   const resumedCount = await readResumedCount(dir, resumed.sessionId)
-  return { reason: 'resumed', resumed, windowMs, previousAgeMs, eventCountAtBoot: events.length, resumedCount }
+  return {
+    reason: 'resumed',
+    resumed,
+    windowMs,
+    previousAgeMs,
+    eventCountAtBoot: events.length,
+    resumedCount,
+    liveWriter: null,
+  }
 }
 
 /**

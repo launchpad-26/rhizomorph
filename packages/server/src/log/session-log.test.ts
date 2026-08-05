@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -16,6 +17,15 @@ import {
   SessionLogWriter,
   sessionFilePath,
 } from './session-log.js'
+import { LOCK_STALE_MS, writeSessionLock } from './session-lock.js'
+
+/** A pid guaranteed dead by the time the assertion runs: a real process, spawned and reaped synchronously. */
+function deadPid(): number {
+  const result = spawnSync(process.execPath, ['-e', ''])
+  const pid = result.pid
+  if (!pid) throw new Error('expected the probe process to have been given a pid')
+  return pid
+}
 
 /** A distinguishable, schema-valid event — `ts` is what the resume window reads. */
 function errorEvent(id: string, ts: number, message = 'boom') {
@@ -290,6 +300,7 @@ describe('decideSessionBoot', () => {
       previousAgeMs: null,
       eventCountAtBoot: 0,
       resumedCount: 0,
+      liveWriter: null,
     })
   })
 
@@ -336,6 +347,7 @@ describe('decideSessionBoot', () => {
       previousAgeMs: null,
       eventCountAtBoot: 0,
       resumedCount: 0,
+      liveWriter: null,
     })
   })
 
@@ -366,6 +378,73 @@ describe('decideSessionBoot', () => {
     const decision = await decideSessionBoot(dir, 6000)
 
     expect(decision.resumedCount).toBe(1)
+  })
+
+  describe('the agnosticism spike\'s liveness guard (headline verdict 4, §3 adjacent case)', () => {
+    it('law: states "writer-alive" instead of resuming a session whose lock names a live pid — two boots never share a session id', async () => {
+      await new SessionLogWriter(sessionFilePath(dir, '1000')).append(errorEvent('evt-1', 1000))
+      await writeSessionLock(dir, '1000', process.pid, 1000)
+
+      const decision = await decideSessionBoot(dir, 6000)
+
+      expect(decision).toEqual({
+        reason: 'writer-alive',
+        resumed: null,
+        windowMs: RESUME_WINDOW_MS,
+        previousAgeMs: 5000,
+        eventCountAtBoot: 0,
+        resumedCount: 0,
+        liveWriter: { sessionId: '1000', pid: process.pid },
+      })
+    })
+
+    it('law: a crash never strands a session — a lock naming a dead pid resumes exactly as if there were no lock', async () => {
+      await new SessionLogWriter(sessionFilePath(dir, '1000')).append(errorEvent('evt-1', 1000))
+      await writeSessionLock(dir, '1000', deadPid(), 1000)
+
+      const decision = await decideSessionBoot(dir, 6000)
+
+      expect(decision.reason).toBe('resumed')
+      expect(decision.resumed?.sessionId).toBe('1000')
+      expect(decision.liveWriter).toBeNull()
+    })
+
+    it('a lock whose heartbeat is older than LOCK_STALE_MS resumes even for a technically-live pid — the pid-reuse backstop', async () => {
+      await new SessionLogWriter(sessionFilePath(dir, '1000')).append(errorEvent('evt-1', 1000))
+      await writeSessionLock(dir, '1000', process.pid, 1000)
+
+      const decision = await decideSessionBoot(dir, 1000 + LOCK_STALE_MS + 1)
+
+      expect(decision.reason).toBe('resumed')
+      expect(decision.liveWriter).toBeNull()
+    })
+
+    it('a session with no lock at all resumes exactly as before this guard existed', async () => {
+      await new SessionLogWriter(sessionFilePath(dir, '1000')).append(errorEvent('evt-1', 1000))
+
+      const decision = await decideSessionBoot(dir, 6000)
+
+      expect(decision.reason).toBe('resumed')
+      expect(decision.liveWriter).toBeNull()
+    })
+
+    it('a corrupt lock file is treated the same as no lock — resumes, never throws', async () => {
+      await new SessionLogWriter(sessionFilePath(dir, '1000')).append(errorEvent('evt-1', 1000))
+      await writeFile(path.join(dir, 'session-1000.lock.json'), 'not json', 'utf8')
+
+      const decision = await decideSessionBoot(dir, 6000)
+
+      expect(decision.reason).toBe('resumed')
+    })
+
+    it('--fresh silences the guard even over a live-locked session — the operator\'s explicit override wins', async () => {
+      await new SessionLogWriter(sessionFilePath(dir, '1000')).append(errorEvent('evt-1', 1000))
+      await writeSessionLock(dir, '1000', process.pid, 1000)
+
+      const decision = await decideSessionBoot(dir, 6000, { fresh: true })
+
+      expect(decision.reason).toBe('fresh-flag')
+    })
   })
 })
 
