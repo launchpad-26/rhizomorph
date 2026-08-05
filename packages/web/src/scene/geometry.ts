@@ -712,6 +712,137 @@ export interface LayoutOptions {
   hideFinished?: boolean
 }
 
+/**
+ * A THREAD'S SPINE, EXACTLY ONCE (#178 — the audit's P2 scene finding, measured
+ * by #175's `perf.test.ts`). The waypoints, the centripetal Catmull-Rom fit, the
+ * release deformation and the filaments grown off it: this is the whole
+ * expensive half of laying out a lane, and for a settled retired one it never
+ * has to run again after the return finishes.
+ *
+ * **The law it leans on** (prd10 ruling 14): "a completed strand stays visible
+ * as a thin, still, luminous filament." Still is load-bearing — nothing here
+ * animates a settled cut — so once `retiredSpineCacheFor`'s caller decides a
+ * lane's return is over, calling this function again can only ever reproduce
+ * the same points it already produced. `heart.ts` is the model for the same
+ * argument at the mass's own scale.
+ */
+interface ThreadSpine {
+  path: Point[]
+  filaments: FilamentGeometry[]
+  bud: BudGeometry | null
+}
+
+function layoutSpine(
+  lane: Lane,
+  outward: Point,
+  root: Point,
+  bundle: Point,
+  rim: Point,
+  rx: number,
+  ry: number,
+  sizeFrac: number,
+  widthTip: number,
+  spacing: number,
+  growth: number,
+  cut: RetireState | null,
+  now: number,
+): ThreadSpine {
+  // A deterministic sideways lean, so no two threads are congruent and the
+  // network looks grown rather than drafted. Keyed on the lane id, so it is
+  // the same wander every frame and every session.
+  //
+  // Every thread gets a *minimum* bow, not just a random one: a lane whose
+  // hash lands near the middle would otherwise run dead straight out of the
+  // mass, and a straight line among curves reads as a beam rather than as a
+  // hypha. The sign is the hash's; only the magnitude is floored.
+  const perp: Point = { x: -outward.y, y: outward.x }
+  const lean = hash(lane.id) - 0.5
+  const wander = Math.sign(lean || 1) * (0.3 + Math.abs(lean) * 1.4) * Math.min(rx, ry) * 0.45
+  const control: Point = {
+    x: bundle.x + (rim.x - bundle.x) * 0.6 + perp.x * wander,
+    y: bundle.y + (rim.y - bundle.y) * 0.6 + perp.y * wander,
+  }
+
+  // THE SPINE (prd7 rulings 3 and 4). Sparse waypoints off the data curve,
+  // nudged sideways by this lane's own noise, then interpolated by centripetal
+  // Catmull-Rom. The nudge is what makes the fleet look grown rather than
+  // drafted, and it is bounded twice over: never more than
+  // `WANDER_MAX_SPACING` of the gap between two lanes, and multiplied by zero
+  // at both ends — so where the thread leaves the mass and where its node came
+  // to rest are bit-identical to what the encoding asked for.
+  const sway = WANDER_MAX_SPACING * spacing
+  const variation = variationFor(variationSeed(lane))
+  const waypoints: Point[] = []
+  for (let i = 0; i <= SPINE_SEGMENTS; i += 1) {
+    const t = i / SPINE_SEGMENTS
+    const on = cubicPoint(root, bundle, control, rim, t)
+    const off = sway * variation.wander(t)
+    waypoints.push({ x: on.x + perp.x * off, y: on.y + perp.y * off })
+  }
+
+  const full = smoothSpine(waypoints, THREAD_SAMPLES)
+  const grown = growth >= 1 ? full : truncate(full, easeOut(growth))
+
+  // The lane's own free phase (`variation.ts`'s `curl`), spent on the two
+  // things about a return that carry nothing: how far its tip relaxes past the
+  // rim, and how deeply the released strand sags. Two lanes that finished the
+  // same work still let go differently, and a rim where they did not is the rim
+  // #117 found — which matters more now than it did, because thirty strands
+  // whose ends all sat on one perfect ellipse would read as the wreath ruling
+  // 13 is trying to stop the field becoming.
+  const habit = variation.curl
+  const relax = RETIRE_RELAX_PX.min + (RETIRE_RELAX_PX.max - RETIRE_RELAX_PX.min) * habit
+  const slack =
+    Math.min(SLACK_MAX_PX, Math.max(SLACK_MIN_PX, Math.min(rx, ry) * SLACK_FRACTION)) *
+    (SLACK_HABIT.min + (SLACK_HABIT.max - SLACK_HABIT.min) * (1 - habit))
+  // How much of the strand the outward relax is allowed to bend, measured in px
+  // of arc off the lane's own work-size. Measured on the thread as it *was*,
+  // because this is the number the deformation is computed from and the stretch
+  // it bends cannot shift under the bending.
+  const rest = cut === null ? 1 : relaxRest(grown, relaxReachPx(sizeFrac))
+  const path =
+    cut === null
+      ? grown
+      : released(grown, {
+          along: perp,
+          side: Math.sign(lean || 1),
+          slack: slack * cut.tension,
+          outward,
+          drift: relax * cut.drift,
+          from: rest,
+        })
+
+  return {
+    path,
+    filaments: layoutFilaments(lane, path, widthTip, perp),
+    // A retiring lane grows no bud: whatever it had handed out, it has finished.
+    bud: cut === null ? layoutBud(lane, path, perp, now, variation.phase) : null,
+  }
+}
+
+/** Every retired lane's spine is `[]`, never built (#178's HIDE FINISHED half). */
+const EMPTY_PATH: readonly Point[] = []
+const EMPTY_FILAMENTS: readonly FilamentGeometry[] = []
+
+/**
+ * ONE GENERATION OF SETTLED SPINES, kept until the world they were built in
+ * moves (#178). `world` is everything outside a single lane that a spine's
+ * points are a function of — see {@link layoutScene}'s own `world` for exactly
+ * what that is and why. A new generation drops the old one whole rather than
+ * pruning it: every entry in it was keyed to a world that no longer exists, so
+ * nothing in it can ever be hit again. `heart.ts`'s cache keeps its bound the
+ * same way, on a different clock (a landing's roster) — this one's clock is the
+ * scene's own world frame.
+ */
+let retiredSpineCache: { world: string; entries: Map<string, ThreadSpine> } | null = null
+
+function retiredSpineCacheFor(world: string): Map<string, ThreadSpine> {
+  if (retiredSpineCache === null || retiredSpineCache.world !== world) {
+    retiredSpineCache = { world, entries: new Map() }
+  }
+  return retiredSpineCache.entries
+}
+
 export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry {
   const { width, height, now } = options
   const centre: Point = { x: width / 2, y: height / 2 }
@@ -770,6 +901,24 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
 
   const sinceSnapshot = Math.max(0, now - fleet.now)
 
+  // ONE WORLD-FRAME SIGNATURE FOR THIS FRAME (#178) — everything outside a
+  // single lane that its cached spine is a function of, so a change to any of
+  // it invalidates every settled lane's cache at once rather than letting one
+  // drift stale. `width`/`height` catch a resize (they set `centre`, `rx`,
+  // `ry`); `rootRadius` catches the mass growing as *other* lanes land (#118 —
+  // a settled lane's `root` point is measured off it, every frame, forever);
+  // `spacing` catches a new dispatch re-spacing the ring (the file's own "one
+  // honest caveat" above) — a lane's own `angle`/`bundleAngle` already move
+  // with it, and both are folded into the per-lane cache key below, but the
+  // sideways wander's amplitude does not touch either, so it needs its own
+  // term. Almost nothing about *this* lane belongs here — see `layoutSpine`'s
+  // header for why its own `cut` need not carry `tension`/`withdraw`/`stilled`
+  // into the per-lane key below; `drift` is the one field of it that does
+  // (reduced motion's `SETTLED_IN_PLACE` reaches `dissolve >= 1` exactly as a
+  // normal return does, but pins `drift` at 0 instead of 1 — the swap-in-place
+  // that keeps a cut's node from travelling at all).
+  const world = `${width}x${height}|${rootRadius.toFixed(3)}|${spacing.toFixed(3)}`
+
   const threads: ThreadGeometry[] = []
   const byLane = new Map<string, ThreadGeometry>()
 
@@ -822,79 +971,95 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
       y: centre.y + rootRadius * 0.94 * Math.sin(exitAngle),
     }
 
-    // A deterministic sideways lean, so no two threads are congruent and the
-    // network looks grown rather than drafted. Keyed on the lane id, so it is
-    // the same wander every frame and every session.
-    //
-    // Every thread gets a *minimum* bow, not just a random one: a lane whose
-    // hash lands near the middle would otherwise run dead straight out of the
-    // mass, and a straight line among curves reads as a beam rather than as a
-    // hypha. The sign is the hash's; only the magnitude is floored.
-    const perp: Point = { x: -outward.y, y: outward.x }
-    const lean = hash(lane.id) - 0.5
-    const wander =
-      Math.sign(lean || 1) * (0.3 + Math.abs(lean) * 1.4) * Math.min(rx, ry) * 0.45
-    const control: Point = {
-      x: bundle.x + (rim.x - bundle.x) * 0.6 + perp.x * wander,
-      y: bundle.y + (rim.y - bundle.y) * 0.6 + perp.y * wander,
-    }
-
-    // THE SPINE (prd7 rulings 3 and 4). Sparse waypoints off the data curve,
-    // nudged sideways by this lane's own noise, then interpolated by centripetal
-    // Catmull-Rom. The nudge is what makes the fleet look grown rather than
-    // drafted, and it is bounded twice over: never more than
-    // `WANDER_MAX_SPACING` of the gap between two lanes, and multiplied by zero
-    // at both ends — so where the thread leaves the mass and where its node came
-    // to rest are bit-identical to what the encoding asked for.
-    const sway = WANDER_MAX_SPACING * spacing
-    const variation = variationFor(variationSeed(lane))
-    const waypoints: Point[] = []
-    for (let i = 0; i <= SPINE_SEGMENTS; i += 1) {
-      const t = i / SPINE_SEGMENTS
-      const on = cubicPoint(root, bundle, control, rim, t)
-      const off = sway * variation.wander(t)
-      waypoints.push({ x: on.x + perp.x * off, y: on.y + perp.y * off })
-    }
-
     const growth = clamp01(options.growth?.get(lane.id) ?? 1)
-    const full = smoothSpine(waypoints, THREAD_SAMPLES)
-    const grown = growth >= 1 ? full : truncate(full, easeOut(growth))
 
-    // The lane's own free phase (`variation.ts`'s `curl`), spent on the two
-    // things about a return that carry nothing: how far its tip relaxes past the
-    // rim, and how deeply the released strand sags. Two lanes that finished the
-    // same work still let go differently, and a rim where they did not is the rim
-    // #117 found — which matters more now than it did, because thirty strands
-    // whose ends all sat on one perfect ellipse would read as the wreath ruling
-    // 13 is trying to stop the field becoming.
-    const habit = variation.curl
-    const relax = RETIRE_RELAX_PX.min + (RETIRE_RELAX_PX.max - RETIRE_RELAX_PX.min) * habit
-    const slack =
-      Math.min(SLACK_MAX_PX, Math.max(SLACK_MIN_PX, Math.min(rx, ry) * SLACK_FRACTION)) *
-      (SLACK_HABIT.min + (SLACK_HABIT.max - SLACK_HABIT.min) * (1 - habit))
-    // How much of the strand the outward relax is allowed to bend, measured in px
-    // of arc off the lane's own work-size. Measured on the thread as it *was*,
-    // because this is the number the deformation is computed from and the stretch
-    // it bends cannot shift under the bending.
-    const rest = cut === null ? 1 : relaxRest(grown, relaxReachPx(sizeFrac))
-    const path =
-      cut === null
-        ? grown
-        : released(grown, {
-            along: perp,
-            side: Math.sign(lean || 1),
-            slack: slack * cut.tension,
-            outward,
-            drift: relax * cut.drift,
-            from: rest,
-          })
+    // HIDE FINISHED SKIPS LAYOUT TOO (#178, prd10 ruling 16). The toggle used to
+    // take a settled lane off the canvas by having `persistentMarks` refuse to
+    // paint it — but `layoutScene` had already built its Catmull-Rom spine,
+    // released it and sampled its filaments before that check ever ran. Once
+    // this lane is hideable, none of that runs at all: `rim` above is the only
+    // position it gets, and nothing downstream reads it, because every mark
+    // builder that touches a retired thread checks `cut.hidden` before it
+    // touches `path` or `node` (`marks/thread.ts`, `marks/node.ts`,
+    // `marks/dissolve.ts`) — an unbuilt spine is exactly as invisible as an
+    // unpainted one.
+    const hideable = cut !== null && cut.stage === 'persistent' && options.hideFinished === true
+
+    // SETTLED, AND CACHEABLE (#178). Gated on `cut.dissolve >= 1` rather than on
+    // `cut.stage === 'persistent'` alone, on the issue's own instruction: dissolve
+    // outlives the settle by design (`retire.ts`), so a lane can be `persistent`
+    // for a second or more while its own motes are still visibly travelling home.
+    // Past `dissolve >= 1` — `returnAt`'s literal terminal state — `tension`,
+    // `withdraw`, `drift` and `stilled` are pinned at 1 for the rest of the
+    // session, which is what makes `layoutSpine`'s output a pure function of the
+    // world frame from here on: a fresh `cut` object arrives every frame (a new
+    // `elapsedMs`, read live by `marks/root.ts`'s ring ordering and never cached
+    // here), but every number it feeds into the spine itself has already
+    // stopped moving.
+    const settled = cut !== null && cut.dissolve >= 1
+
+    let path: readonly Point[]
+    let filaments: readonly FilamentGeometry[]
+    let bud: BudGeometry | null = null
+
+    if (hideable) {
+      path = EMPTY_PATH
+      filaments = EMPTY_FILAMENTS
+    } else if (settled) {
+      const key = `${lane.id}|${angle.toFixed(6)}|${bundleAngle.toFixed(6)}|${cut.drift}`
+      const cache = retiredSpineCacheFor(world)
+      const known = cache.get(key)
+      if (known === undefined) {
+        const built = layoutSpine(
+          lane,
+          outward,
+          root,
+          bundle,
+          rim,
+          rx,
+          ry,
+          sizeFrac,
+          widthTip,
+          spacing,
+          growth,
+          cut,
+          now,
+        )
+        cache.set(key, built)
+        path = built.path
+        filaments = built.filaments
+      } else {
+        path = known.path
+        filaments = known.filaments
+      }
+    } else {
+      const built = layoutSpine(
+        lane,
+        outward,
+        root,
+        bundle,
+        rim,
+        rx,
+        ry,
+        sizeFrac,
+        widthTip,
+        spacing,
+        growth,
+        cut,
+        now,
+      )
+      path = built.path
+      filaments = built.filaments
+      bud = built.bud
+    }
+
     // The second walk over the drawn polyline is **gone** with the remnant that
     // needed it (ruling 13). It existed because prd6 ruling 1 measured a lane's
     // work by the arc length of the stub left at the rim, so the drawn arc had to
     // be re-measured after the release bowed it. There is no stub to measure now —
     // the work-size channel is the strand's own width, unbroken from the mass to
     // the node — so a retiring lane costs one polyline walk a frame instead of two.
-    const node = path[path.length - 1] as Point
+    const node = path.length > 0 ? (path[path.length - 1] as Point) : rim
 
     const pathology =
       PATHOLOGY_PRIORITY.find((kind) => lane.pathologies.some((p) => p.kind === kind)) ?? null
@@ -908,7 +1073,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
       laneId: lane.id,
       lane,
       angle,
-      path,
+      path: path as Point[],
       node,
       outward,
       widthRoot,
@@ -918,9 +1083,8 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
       lifeFrac,
       germinatedFrom: seed ?? null,
       growth,
-      filaments: layoutFilaments(lane, path, widthTip, perp),
-      // A retiring lane grows no bud: whatever it had handed out, it has finished.
-      bud: cut === null ? layoutBud(lane, path, perp, now, variation.phase) : null,
+      filaments: filaments as FilamentGeometry[],
+      bud,
       knot: pathology === 'looping' ? knotAt(path, 0.78, 8 + 5 * sizeFrac) : null,
       rogue: null, // needs every node placed first; filled in below
       label: {
