@@ -34,42 +34,27 @@ import { regionMark, ribbonMark, type Mark, type MarkRole, type RibbonMark } fro
  *
  * A node is a lens, not a bead: pointed at both ends, lying along its own
  * thread, with a thorn curl off the outer tip (ruling 23). Its size is the
- * lane's work, its fill is its freshness, and its *behaviour* is its state —
- * which is the difference between this scene and a chart with coloured dots.
+ * lane's work, its fill is its freshness, and its *behaviour* is its state.
  *
- * The five pathologies are behaviours of the thread and its tip, and each is
- * built so it survives greyscale (law 9a's "colour is never the sole carrier").
+ * The five pathologies are behaviours of the thread and its tip, and each
+ * must survive greyscale (law 9a's "colour is never the sole carrier").
  *
- * This is the one table in the scene where the two vocabularies meet, and the
- * split down the middle is the point (prd7 ruling 2): the **roles** are what the
- * laws in `marks.test.ts` are written in and are not allowed to change when the
- * picture does; the **form** is this file's answer today, and is free to.
+ * The **roles** each pathology emits are what the laws in `marks.test.ts` are
+ * written in and must not change when the picture does; the **form** below
+ * is this file's answer today, and is free to (prd7 ruling 2).
  *
- * | state     | roles it emits            | form, today                    | hue   |
- * | --------- | ------------------------- | ------------------------------ | ----- |
- * | LOOPING   | `looping-mark`, `orbit`   | knot, light going round it     | amber |
- * | FROZEN    | `severed`                 | the ribbon pinched shut, twice | red   |
- * | WAITING   | `summons`, `held`         | raised hand, light stopped     | amber |
- * | EXPENSIVE | `expensive-mark`, `heat`  | needled tip, licks coming off  | cyan  |
- * | OFF-FENCE | `off-fence-*` (four)      | barb, reach, breached arc      | amber |
+ * A lane with none of them takes its **activity's** colour under law 9a
+ * (green while working, dim green once landed, muted amber while stopped,
+ * ice when idle or unread) — never its identity. What separates it from a
+ * summons is the band (law 9b), not the absence of colour.
  *
- * Three of those cells were rewritten by prd7 ruling 3 and the left-hand column
- * did not move an inch, which is the whole return on ruling 2.
+ * FROZEN and WAITING must never be confusable, so they are opposed on three
+ * axes at once: **dark vs light**, **broken vs continuous**, and **severed
+ * vs summoning**. `marks.test.ts` asserts all three, so no future tuning can
+ * quietly collapse one of them.
  *
- * A lane with none of them is no longer hueless. Under prd4's law 9a its node
- * takes its **activity's** colour — green while working, dim green once landed,
- * muted amber while stopped, ice when idle or unread — so the picture answers
- * "what is the fleet doing?" before anyone has learned the alphabet. What
- * separates it from a summons is the band (law 9b), not the absence of colour.
- *
- * FROZEN and WAITING are the pair the prd says must never be confusable, so
- * they are opposed on three axes at once: **dark vs light** (a dead thread and a
- * lit one), **broken vs continuous** (dashed vs whole), and **severed vs
- * summoning** (a line cut through vs a lane asking for a human). The third axis
- * is the one that used to be stated as "cut vs raised", which was the drawing
- * describing itself; the two states have to stay distinguishable however either
- * is drawn. `marks.test.ts` asserts all three, so no future tuning can quietly
- * collapse one of them.
+ * See docs/decisions/node-role-shape-split.md for the full role/form table
+ * and the third axis's naming history.
  */
 
 const PATHOLOGY_HUE: Record<PathologyKind, Rgb> = {
@@ -95,18 +80,13 @@ const HAND_LIFT = 15
 
 /**
  * A LENS'S LENGTH, from the lane's work — the same absolute scale everything
- * else on this lane is drawn on (prd6 ruling 1).
+ * else on this lane is drawn on (prd6 ruling 1). `5 + 14 · size` spends the
+ * whole encoding range on screen; see docs/decisions/node-lens-length-scale.md
+ * for the #117 history of the formula this replaced.
  *
- * `9 + 9 · size` before #117: a 4× range in the encoding compressed into a 2×
- * range on screen, which is a range nobody reads. The review's words were "a
- * 216K lane and a 0K lane must be obviously different", and the node is the
- * mark the eye lands on. `5 + 14 · size` spends the whole span: a lane that has
- * produced nothing is a speck and a lane that has produced a day's work is
- * three times it.
- *
- * Shared by the living node and by the finished one it becomes, so nothing pops at the
- * tip when a cord parts — the continuity the staged cut depends on is that the
- * marks at the node do not change at the moment the thread does.
+ * Shared by the living node and the finished one it becomes, so nothing pops
+ * at the tip when a cord parts — the marks at the node must not change at the
+ * moment the thread does.
  */
 function lensLength(sizeFrac: number): number {
   return 5 + 14 * sizeFrac
@@ -188,32 +168,20 @@ export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
 }
 
 /**
- * APICAL TUFTS (prd10 ruling 4) — a growing tip is a growth cone, not a full stop.
+ * APICAL TUFTS (prd10 ruling 4) — a growing tip is a growth cone, not a full
+ * stop. A **working** lane's tip splits into two or three fine branchlets; a
+ * lane that is not working keeps the thorn alone. Branchlet count, reach and
+ * light each read off a fact the lane already carries rather than a number
+ * invented for the mark — see {@link branchlets}.
  *
- * "Growing thread ends taper into fine 2–3 branchlet growth-cones in vivid family
- * hue." What was at the tip before is a `node-tip` thorn, which says *this reach
- * ended deliberately* — true of every lane, and therefore silent about the one
- * distinction the north star is about: a lane that is still growing versus a lane
- * that has stopped. A hypha's growing end is its apex; it is where the organism is
- * actually happening, and it looks like it.
+ * The glow is the 9b amendment and the only calm mark in the instrument
+ * permitted past `CALM_CEILING`. Its bounds are `salience.ts`'s
+ * (`TIP_CEILING`, `TIP_GLOW_RADIUS`) rather than this file's, and `spendTip`
+ * is the only door: it recedes like every other calm mark, so a summons
+ * anywhere still owns the band.
  *
- * So a **working** lane's tip splits into two or three fine branchlets, and a lane
- * that is not working keeps the thorn alone. Three things ride the tuft, and each
- * one is a fact the lane already carries:
- *
- * - **the branchlet count** is 2 or 3 off the lane's free phase, so no two apices
- *   are congruent (`variation.ts`'s permission table: the count carries nothing);
- * - **the reach** is the lens's own length, so a big lane's apex is bigger — the
- *   work-size channel, unchanged;
- * - **the light** is the lane's own event energy. "Commits pulse through to the
- *   tip": a commit raises `inbound`, which decays over about one agent turn, and
- *   the tuft's glow is that number. A landing (the biggest arrival the fleet makes)
- *   flares it once, over the event class's own envelope — see {@link tipFlare}.
- *
- * The glow is the 9b amendment and the only calm mark in the instrument permitted
- * past `CALM_CEILING`. Its bounds are `salience.ts`'s (`TIP_CEILING`,
- * `TIP_GLOW_RADIUS`) rather than this file's, and `spendTip` is the only door: it
- * recedes like every other calm mark, so a summons anywhere still owns the band.
+ * See docs/decisions/node-apical-tuft-glow.md for why, and for the landing
+ * flare's law.
  */
 function tuftMarks(
   frame: SceneFrame,
@@ -223,16 +191,11 @@ function tuftMarks(
   length: number,
 ): Mark[] {
   const cut = thread.retire
-  // THE LANDING FLARE (ruling 4), and the *whole* of what a finishing lane's apex
-  // does: the branchlets blaze once and go out as the vitality leaves.
-  //
-  // Deliberately not a glow. The cord-cut carried a law — "no glow anywhere on a
-  // retiring lane; matter, not light" — and it survives ruling 13 unweakened,
-  // because a flare does not need a halo to be a flare: the apex's own substance
-  // goes bright, which is what a growth cone burning out actually looks like. The
-  // 9b amendment's glow is for a **working** tip and nothing else, exactly as the
-  // ruling scopes it, so a finished lane has none — ever, including the whole rest
-  // of the session it now spends on the canvas.
+  // THE LANDING FLARE (ruling 4): the *whole* of what a finishing lane's apex
+  // does — the branchlets blaze once and go out as the vitality leaves.
+  // Deliberately not a glow: no glow is ever drawn on a retiring lane ("matter,
+  // not light"), and the 9b amendment's glow stays scoped to a **working** tip
+  // and nothing else. See docs/decisions/node-apical-tuft-glow.md.
   if (cut !== null) {
     if (cut.hidden || cut.withdraw >= 1) return []
     return branchlets(frame, thread, hue, angle, length, {
@@ -284,21 +247,13 @@ function branchlets(
   })
 
   // Vivid: the family hue at its live end rather than the aged tint the lens
-  // wears. The apex is the newest part of the organism, so recency has nothing to
-  // say about it — this is the one mark on a lane whose brightness is *not* its age.
-  //
-  // **This is where a commit is legible**, not in the glow below. The band between
-  // `CALM_CEILING` and `TIP_CEILING` is three hundredths wide by design — it is a
-  // door, not a channel — so a glow living inside it has almost no range to spend.
-  // The branchlets have the whole calm world to move in, so the arrival rides here
-  // and the amendment's glow stays what the ruling calls it: small and *steady*.
-  //
-  // The wash toward white is `TUFT_WASH` (#157), and it is deliberately the
-  // *smallest* of the three terms: every hundredth of it is a hundredth of the
-  // family's chroma sold for luminance the calm ceiling will not let the mark keep
-  // anyway. What it gives up there it takes back in alpha — a fully vivid apex is
-  // drawn at full opacity — so the branchlets are more saturated at about the same
-  // brightness, and `budget()` still holds the pair under `CALM_CEILING`.
+  // wears — the apex is the newest part of the organism, so this is the one
+  // mark on a lane whose brightness is not its age. This is also where a
+  // commit is legible, not in the glow below (the calm-to-tip band is only
+  // three hundredths wide, so the branchlets carry the arrival instead).
+  // `TUFT_WASH` (#157) is deliberately the smallest of the three terms here,
+  // given back in alpha so `budget()` still holds the pair under
+  // `CALM_CEILING`. See docs/decisions/node-apical-tuft-glow.md.
   const arriving = clamp01(frame.field.energyOf(laneId).inbound / 1.4)
   const vivid = ink(
     hotter(hue, TUFT_WASH + 0.35 * arriving + 0.4 * tuft.flare),
@@ -337,14 +292,10 @@ function branchlets(
 
   if (!tuft.glow) return marks
 
-  // THE AMENDMENT. A small steady glow at the apex, above the calm ceiling and
-  // below the alarm floor — the light of a tip that is actually growing.
-  //
-  // "Commits pulse through to the tip": the brightness is the lane's own decaying
-  // inbound energy, which only a real `commit.landed` ever raises (`pulses.ts`), so
-  // a tip that is bright is a tip work has just come out of. Nothing here is on a
-  // clock of its own — the energy decays over about one agent turn and the glow
-  // goes with it.
+  // THE AMENDMENT: a small steady glow at the apex, above the calm ceiling and
+  // below the alarm floor. Brightness is the lane's own decaying `inbound`
+  // energy — only a real `commit.landed` ever raises it (`pulses.ts`) — and it
+  // decays over about one agent turn, on no clock of its own.
   const lit = clamp01(TIP_LIGHT.floor + TIP_LIGHT.commit * arriving)
   marks.push({
     kind: 'glow',
@@ -362,14 +313,11 @@ function branchlets(
 }
 
 /**
- * How bright a working apex sits, and how much of that a commit buys.
- *
- * The floor is what "a small **steady** glow" means, and it is high: a quiet
- * working tip has to clear `CALM_CEILING` on its own, or the amendment would only
- * apply to lanes that happened to have just committed and law 9b would have been
- * amended for nothing. The commit term is small for the same reason the door is —
- * `spendTip` caps the pair at `TIP_CEILING` regardless, and the *visible* response
- * to an arrival is the branchlets above, which have the whole calm world to move in.
+ * How bright a working apex sits, and how much of that a commit buys. The
+ * floor must clear `CALM_CEILING` on its own — a small **steady** glow — and
+ * `spendTip` caps the pair at `TIP_CEILING` regardless, so the commit term
+ * stays small: the visible response to an arrival is the branchlets above.
+ * See docs/decisions/node-apical-tuft-glow.md.
  */
 const TIP_LIGHT = { floor: 0.95, commit: 0.05 } as const
 
@@ -384,46 +332,28 @@ function lensTint(hue: Rgb, freshness: number): Rgb {
 }
 
 /**
- * THE FINISHED LANE'S NODE (prd10 rulings 13–15) — what stands at the far end of
- * a persistent strand.
+ * THE FINISHED LANE'S NODE (prd10 rulings 13–15) — what stands at the far end
+ * of a persistent strand: the same three marks a landed lane wears (hollow
+ * lens, tail, seal) at the same inks the instant the return begins, cooling
+ * into `PERSIST.glyph` over the settle. Only the strand's curvature changes at
+ * the cut, so there is no pop at the tip to distract from what's happening.
  *
- * The *same three marks* a landed lane wears — hollow lens, a tail, and the tie
- * it was finished off with — at the same inks the instant the return begins, and
- * cooling into `PERSIST.glyph` over the settle. That continuity is the whole
- * point of splitting the stages by channel: the tension release changes the
- * strand's curvature and *nothing else*, so there is no pop at the tip to
- * distract from the one thing that is happening.
+ * Ruling 14's hierarchy holds at the node too, matching the thinning the
+ * strand itself takes:
  *
- * **All three now stay.** They used to be gated on `composting(cut.dissolve)` —
- * the cord's own substance going with the cord when ruling 2 erased it — and
- * ruling 13 has taken the erasure away, so the tail and the seal are simply part
- * of the strand's resting anatomy. The node of a finished lane is a node, not a
- * headstone.
- *
- * **The curl glyph is gone** (#117). The thorn used to be a stamped `THORN_OUT`
- * — the same unit-square path, at the same nine pixels, rotated onto the end of
- * every finished lane on the rim. At one lane it is a terminal; at thirty-seven it
- * is clip-art, and it was precisely the "shape" prd7 ruling 3 set out to delete,
- * surviving because nobody had looked at a rim with thirty-seven of them on it.
- * What ends a strand now is the ribbon's own taper: {@link tailMark} carries the
- * thread's substance a little past the node and draws it to nothing, at a length
- * and a lean that come off the lane's free phase, so no two lanes finish alike.
- * The seal ({@link sealMark}) is the same cord folding back into the body — see
- * that function for why it stopped being a knot and how the law it carries got
- * stricter rather than looser in the swap.
- *
- * Two things are taken away, and both are the same statement — and both are
- * ruling 14's hierarchy at the node, matching the thinning the strand takes:
- *
- * - **it does not breathe.** The lens's size loses `frame.breath` entirely. The
- *   ambient layer is the scene being alive, and this lane is not.
+ * - **it does not breathe.** The lens's size loses `frame.breath` entirely —
+ *   the ambient layer is the scene being alive, and this lane is not.
  * - **it gets smaller.** A third off, over the settle, while keeping its
  *   work-size in what is left, so a big landing rests bigger than a small one.
  *
- * No cartouche and no state mark: a finished lane cannot be an alarm, because a
- * lane nobody can act on has nothing to summon anybody for. The spotlight ring
- * stays, because an operator may still click one to read it — hidden ≠ gone
- * applies to the *toggle*, and pointing at one has never been hiding it.
+ * No cartouche and no state mark: a finished lane cannot be an alarm, because
+ * a lane nobody can act on has nothing to summon anybody for. The spotlight
+ * ring stays — hidden ≠ gone applies to the *toggle*, and pointing at one has
+ * never been hiding it.
+ *
+ * See docs/decisions/node-persist-lane.md for why all three marks now stay
+ * permanently rather than being gated on composting, and for the curl glyph's
+ * removal (#117).
  */
 /**
  * THE TAIL AND THE SEAL, CACHED (#178 — the same finding as `marks/thread.ts`'s
@@ -514,25 +444,17 @@ function persistNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: Retire
 }
 
 /**
- * THE ENCLOSURE (prd7 ruling 3) — a lane above calm is bracketed, and a calm one
- * never is.
+ * THE ENCLOSURE (prd7 ruling 3) — a lane above calm is bracketed, and a calm
+ * one never is (graft g1); exempt from every fade (graft g2), which is why a
+ * frozen lane is not the dimmest thing on the page.
  *
- * That statement is unchanged from prd3: it is the same claim the fleet table
- * makes when it brackets an alarmed row (graft g1), and it is exempt from every
- * fade (graft g2), which is the whole reason a frozen lane — the state *defined*
- * by being old — is not the dimmest thing on the page.
+ * A midpoint-displaced blob behind the lane's name (Hobbs' subdivision,
+ * seeded off the lane so no two are the same shape), at low alpha and drawn a
+ * layer under the label (`marks/index.ts` puts nodes before names) so it
+ * grounds the text rather than shouting over it.
  *
- * What changed is that it stopped being a cartouche. Two things were wrong with
- * the ring: it was a struck circle in a picture of grown things, and it sat at
- * the node, where it competed with the state mark it was supposed to frame. It
- * is now a **midpoint-displaced blob behind the lane's name** — Hobbs'
- * subdivision, seeded off the lane so no two enclosures are the same shape — and
- * it does its job better for having moved, because the thing an operator needs
- * bracketed at a glance is *which lane*, and the answer to that is the name.
- *
- * Low alpha and drawn a layer under the label (`marks/index.ts` puts nodes
- * before names), so it grounds the text rather than shouting over it. Enclosure
- * is the signal; nothing about it was ever circular.
+ * See docs/decisions/node-organic-substitutions.md for why it moved off the
+ * node and stopped being a ring.
  */
 function enclosureMark(thread: ThreadGeometry, hue: Rgb): Mark {
   const { anchor, align } = thread.label
@@ -626,24 +548,17 @@ function stateMarks(
 }
 
 /**
- * EXPENSIVE — heat coming off the tip (prd7 ruling 3).
+ * EXPENSIVE — heat coming off the tip (prd7 ruling 3). Three short ribbons,
+ * thick where they part from the tip and needled to nothing, each curling a
+ * little on the lane's own free phase so no two lanes exhale alike.
  *
- * The chevrons are gone. Three arrowheads stacked over a node were the scene at
- * its most drafted: a fixed ladder of identical glyphs, legible only within a
- * few pixels of one point, saying "outward" about a thread whose direction is
- * already the most obvious thing on it. Substituted for **tapers** — the burning
- * thread itself now draws down to a needle over its last fifth (`thread.ts`'s
- * `HEAT_TAPER`), and these three are the licks leaving it: short ribbons, thick
- * where they part from the tip and needled to nothing, each curling a little on
- * the lane's own free phase so no two lanes exhale alike.
+ * The law is not the count: the marking must *rise away* from the node and
+ * *fade as it goes*, or it stops reading as heat leaving. NOTICE, and
+ * therefore non-alarm — it passes through the contrast budget like everything
+ * else calm does, which is how a white-hot thread stays structurally unable
+ * to out-read a summons (g6).
  *
- * The law they answer is unchanged, and it was never the count: the marking
- * *rises away* from the node and *fades as it goes*, which is what makes it read
- * as heat leaving rather than as a fixed ladder of three.
- *
- * NOTICE, and therefore non-alarm: they pass through the contrast budget like
- * everything else calm does, which is how a white-hot thread stays structurally
- * unable to out-read a summons (g6).
+ * See docs/decisions/node-organic-substitutions.md for what this replaced.
  */
 function expensiveMarks(
   frame: SceneFrame,
@@ -774,21 +689,16 @@ function summonsMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark
 }
 
 /**
- * THE TAIL — where the thread stops, told as the thread rather than as a glyph
- * stamped on the end of it (#117).
+ * THE TAIL — where the thread stops, told as the thread rather than as a
+ * glyph stamped on the end of it (#117). A short run of the lane's own
+ * substance carried past the node and needled to nothing, leaning off the
+ * lane's free phase.
  *
- * A short run of the lane's own substance carried past the node and needled to
- * nothing, leaning off the lane's free phase. It replaces the `THORN_OUT` a finished lane
- * used to end with, and the argument is the one prd7 ruling 3 already made about
- * chevrons and seal bars: a fixed path rotated onto forty marks is a repeated
- * glyph however good the glyph is, and a rim of them reads as clip-art. A taper
- * is not a glyph — it is the same ribbon, ending.
+ * Reach, lean and length all vary per lane off the channel that carries
+ * nothing ({@link LaneVariation.curl}) — work stays in the channels that
+ * encode work; the lens it grows out of already carries the lane's size.
  *
- * Three things vary per lane, all of them from the channel that carries nothing
- * ({@link LaneVariation.curl}): how far it reaches, which way it leans, and how
- * hard. The lens it grows out of already carries the lane's size, so the tail
- * takes its length from the lens and its habit from the seed — work stays in the
- * channels that encode work.
+ * See docs/decisions/node-organic-substitutions.md.
  */
 function tailMark(
   role: MarkRole,
@@ -829,51 +739,30 @@ function tailMark(
 }
 
 /**
- * DONE — SEALED, as the cord folding back into itself (prd7 ruling 3, restated
- * by #117).
+ * DONE — SEALED: the cord folding back into itself (prd7 ruling 3, restated
+ * by #117). The lane's own substance carried past the tip, turned back
+ * through more than a half-circle, and laid down into the body it came from,
+ * where its width has already gone to nothing — nothing is added at the tip,
+ * the terminal simply stops reaching and comes home.
  *
- * **The history matters, because this is the third form of one law.** It was a
- * bar struck across the tip: a second vocabulary — flat, geometric, borrowed
- * from wax seals — for a fact about a growing thing. prd7 ruling 3 made it a
- * *knot*, which was the right idea and the wrong amount of it: the law it left
- * behind was "the spine turns through more than a full circle", and a full turn
- * is definitionally a ring with an eye in it. So every landed lane in the fleet
- * wore the same small pretzel, and at thirty-eight of them on one rim that badge
- * became the loudest repeated motif in the picture — the exact failure ruling 3
- * exists to prevent, reintroduced by the shape its own law forced.
+ * `marks.test.ts` asserts four things about the shape, and any future redraw
+ * of this mark must keep all four true:
  *
- * It is now a **fold**: the lane's own substance carried past the tip, turned
- * back through more than a half-circle, and laid down *into the body it came
- * from*, where its width has already gone to nothing. Nothing is added at the
- * tip; the terminal simply stops reaching and comes home. The turn's radius
- * follows the lane's own lens, so the eye of the fold is filled by the cord's
- * own width and there is no ring anywhere in it.
- *
- * **How the law survives at full strength.** The old assertion was one number
- * (`turning > 2π`) and one unasserted sentence in a comment ("it comes back to
- * where it started"). The restatement in `marks.test.ts` asserts four things,
- * and three of them are new:
- *
- * 1. it **turns back on itself** — total turning ≥ π. A bar has none; this is
- *    the surviving half of the old claim, at the amount a fold actually needs.
- * 2. it **returns into the node's own body** — the spine's last point is inside
- *    the lens, while its furthest point is outside it. This is the half the old
- *    test only *said*; it is asserted now, and it is what separates a seal from
- *    the tail beside it, which reaches away and ends outside.
+ * 1. it **turns back on itself** — total turning ≥ π.
+ * 2. it **returns into the node's own body** — the spine's last point is
+ *    inside the lens, while its furthest point is outside it (what separates
+ *    a seal from the tail beside it, which reaches away and ends outside).
  * 3. it is **the cord, not a mark laid on it** — a ribbon, drawn to nothing at
  *    the end, so it closes rather than stopping.
- * 4. **no two lanes wear the same one.** Given a fleet whose lanes have done
- *    *identical work*, every seal must still be a different shape in its own
- *    node's frame. Nothing in the old law prevented thirty-eight identical
- *    stamps; this forbids two.
+ * 4. **no two lanes wear the same one** — given a fleet whose lanes have done
+ *    identical work, every seal must still be a different shape in its own
+ *    node's frame.
  *
- * Only (1) is laxer than what it replaces, and it is laxer on precisely the axis
- * that forced the badge. (2), (3) and (4) are strictly new, and (4) is the one
- * that would have caught this.
+ * It wears the done green rather than a neutral, so "landed" is one reading
+ * of one hue instead of a grey mark a viewer has to be told about.
  *
- * It wears the done green rather than a neutral, so "landed" is one reading of
- * one hue (hollow lens + fold + dim green) instead of a grey mark a viewer has
- * to be told about.
+ * See docs/decisions/node-seal-fold.md for the bar → knot → fold history and
+ * why only clause (1) above is laxer than what it replaced.
  */
 function sealMark(
   role: MarkRole,
