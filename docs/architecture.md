@@ -1312,16 +1312,23 @@ stranger's documentation) together, then **#122** (release engineering).
   unverified and labelled as such.
 
 prd8 ruling 2's install story (`npx rhizomorph <path>`) is itself superseded
-one prd later — see [prd9](#prd9--the-trace-era-in-flight) below and
+one prd later — see [prd9](#prd9--the-trace-era) below and
 [docs/roadmap.md](roadmap.md).
 
-## prd9 — the trace era (in flight)
+## prd9 — the trace era
 
-prd9 (`docs/prd9.md`) is the one-week handover push: a junior-proof front
+prd9 (`docs/prd9.md`) was the one-week handover push: a junior-proof front
 door, and a trace layer built on live captures
 (`research/2026-08-03-trace-era-captures.md`), not documentation — a research
 day probed Claude Code 2.1.220's beta OTLP trace export and Langfuse's
-ingestion of it before any ruling was written.
+ingestion of it before any ruling was written. Landed in full: wave A
+(receiver, selectors, CLI/doctor, #124–#126) and wave B (the drawer's own
+TRACE section, #132; the vendored, SHA-pinned Langfuse pricing table, #129)
+both shipped, and the drawer's TRACE tab described in the README's Dashboard
+section is this prd's waterfall. prd9 ruling 2's clone-first install story
+is itself superseded one prd later by prd15's system-agnosticism direction —
+see [prd15 — the anywhere instrument](#prd15--the-anywhere-instrument-system-agnosticism)
+below and the README's ["When this is published to npm"](../README.md#when-this-is-published-to-npm).
 
 ### The trace keystone (#123, landed)
 
@@ -1374,14 +1381,20 @@ reports how long a lane SAT waiting and what was decided, always after the
 fact; LIVE waiting stays the attention strip's own job, unchanged. No surface
 built on `trace.span` may imply it knows about an open wait.
 
-### What's next
+### What shipped after (both landed)
 
-Day 3 (wave B): the lane-drawer waterfall, pricing vendored from Langfuse's
-MIT `default-model-prices.json` pinned to a commit SHA, and the README's
-clone-first rewrite. Days 4–5: the handover train (email scrub, repo-home
-decision, macOS leg), dogfooding the fleet under its own trace layer, and
-good-first-issues. See [docs/roadmap.md](roadmap.md) for what's scoped in
-this week versus left for the cohort.
+The lane-drawer waterfall (#132, prd9 ruling B1a) reads `traceViews`
+(`packages/web/src/drawer/index.tsx`) into the drawer's own **TRACE** tab —
+one of the four tabs #163/#164 later reorganized the drawer around (see
+[The layman bar (prd4)](#the-layman-bar-prd4) for the tab mechanics and
+[prd16](#prd16--the-session-is-a-thing-you-can-hold) below for why ACTIVITY,
+not TRACE or CONVERSATION, opens by default). Pricing vendored from
+Langfuse's MIT `default-model-prices.json`, pinned to commit SHA `cfac485`
+(#129), backs every `est.`-flagged dollar figure this doc and
+`docs/telemetry.md` describe for a non-OTLP CLI. Everything from this point
+in the doc downstream — recordings, the TIDE, agnosticism, sessions, the
+complete record — landed after prd9 and is documented in the sections that
+follow.
 
 ## Recordings as first-class artefacts (#156)
 
@@ -1463,13 +1476,462 @@ recorder's own in-memory buffer (`ctx.recorder.eventsSoFar()`) instead of
 its file on disk, the same race-avoidance rule `GET /api/sessions/:id/events`
 already followed before this issue.
 
+## prd10 — the gorgeous round: growth, life, flourishing and return
+
+prd10 (`docs/prd10.md`) is a scene-beauty pass on top of prd7's procedural
+form — thread underglow, a tissue-density ramp toward the root-mass, and
+further contour refinement — landed on the operator's brief that "a replay
+should look like a legitimate art piece." It changes rendering detail inside
+`packages/web/src/scene/` without touching any law prd3–prd9 established
+about what a colour, shape, or motion class *means*; nothing here is
+reachable from outside the scene module, so it earns no dedicated ruling
+walkthrough in this doc beyond naming it as the source of the current visual
+finish.
+
+## prd11 — the causal record: provenance and the portable session record
+
+prd11 (`docs/prd11.md`), ruled 2026-08-04 toward "the forest" (a future,
+multiplayer instrument with persistent knowledge of every coworker's
+swarm) — everything in it is built so that goal is a merge later, not a
+rewrite. Two do-now pieces:
+
+- **Provenance at file granularity.** `tool.activity` gained optional
+  `filePath`/`toolUseId` fields (from the sessionlog's own tool_use blocks —
+  Edit/Write/Read carry a path, Bash does not and stays `null`), completing
+  the chain transcript-moment → tool call → file touched →
+  `commit.landed.files` → branch. Hunk-level attribution is named future
+  work rather than faked by proximity — this prd stops at the file.
+- **The portable record — federation-first from its first field.**
+  `packages/core/src/record/` (build, hash, merge, verify, schema) is one
+  file: a manifest (schema version, repo slug, actor identity, time range,
+  event count), the event log's own lines verbatim, and a per-line hash
+  chain closing in the manifest's digest — integrity-checked now,
+  signature-ready (the manifest reserves the field). `rhizomorph
+  export-record` writes it; `rhizomorph replay <record>` serves a foreign
+  record read-only through the existing replay machinery. The wire shape
+  itself is specified in [`docs/record-format.md`](record-format.md); prd16
+  (below) is what makes a recording worth exporting in the first place, and
+  prd17 (below) is what keeps this format honest as new event families
+  arrive.
+
+## prd12 — the laboratory: a second hand, under an amended constitution
+
+prd12 (`docs/prd12.md`) is the constitutional amendment the README's Trust
+section documents in full — see
+[The laboratory](../README.md#the-laboratory--opt-in-explicitly-invoked-and-separate-prd12-ruling-1)
+there for what it reads, what it may write, and the two independent
+enforcement mechanisms (`assertInsideLabWorktrees` at runtime,
+`packages/server/src/lab/namespace-law.test.ts` over the source tree).
+Ruling 1's own framing, worth restating here because prd16 amends it again:
+*"The read-only constitution is AMENDED, not dissolved. Two hands"* — the
+observer, untouched; the laboratory, a second, explicitly-invoked actor
+confined to `refs/rhizomorph/` and artefacts outside the watched repo. prd16
+below adds a third.
+
+## prd13 — the TIDE: the scrubber grows a body, then sheds most of it
+
+The dashboard-IA spike (`docs/research/2026-08-04-dashboard-ia-spike.md`)
+named the weakest control in the app: `Scrubber.tsx` was a bare
+`<input type=range>`, so replay was navigated blind. prd13 (`docs/prd13.md`)
+answers that — but its own history is the clearest live example in this repo
+of prd3 ruling 25's standing protocol, *"every failing mark gets an
+affordance or is CUT"*: a swim-lane density band was built, given three
+rounds of affordances, and still failed with the one person using it, so it
+was cut outright. What survives is smaller than what shipped first, and
+that is the point, not a regression.
+
+### Ruling 1 — the TIDE is the replay bar's body, never a panel
+
+The dock renders inside the same bottom transport bar in both live and
+replay (`packages/web/src/app/ReplayBar.tsx` → `packages/web/src/replay/
+index.tsx`, which mounts `TideDock` — `packages/web/src/tide/TideDock.tsx`),
+never as a row in the curated panel order: zero rows added, the scene's
+hero status (prd4 ruling 2) untouched, no new hue, no new motion class. If a
+future round is ever tempted to promote it to a panel of its own, prd13
+states plainly that this is the moment it starts competing with the scene,
+and the answer is no.
+
+### Ruling 12 (2026-08-05) — chapters over a per-lane band
+
+The first shipped shape (rulings 2–11) was a per-lane density band — state-
+fill strips, one row per lane, coalescing into a `+N` chip under density,
+zoom, a deep-linkable window. The operator caught its failure on the first
+real session: expanded per-lane rows against a 50-lane recording read as
+noise, not navigation. Ruling 12 amended it to a sparse **chapter-mark
+lane** above the band instead — one mark per lane-born/landed/gate-held/
+attention-summons/session-boundary moment, click-to-seek, hover carrying
+who/what/when, coalescing under density by the same law marks everywhere
+else in this app already follow. This is also stated as "one vocabulary with
+prd12": the moments this lane marks are exactly the moments prd12 ruling 2
+names as checkpoint moments (dispatch, gate entry, operator command), so
+when the laboratory lands, forkable marks gain a fork affordance rather than
+the app growing a second timeline vocabulary.
+
+### Ruling 13 (operator amendment, 2026-08-06) — the band is CUT
+
+*"Honestly? Get rid of the working green strips entirely."* — the operator,
+after living with the dock through three rounds of fixes. The density band
+had, by this point, a legible hit target, an honest hatch for gaps, mark
+coalescing, and a real per-lane expansion — every affordance ruling 12 and
+the ones before it could offer — and it still read as noise to the only
+person using it. Per prd3 ruling 25's protocol, it was cut rather than given
+a fourth round.
+
+**Removed entirely, collapsed and expanded, live and replay:** the state-
+fill bands, the per-lane rows, the `+N` coalescing chip, and the row-budget
+machinery that sized them. **What's left:** the chapter-mark lane, a time
+axis, and the transport — nothing else — implemented in
+`packages/web/src/tide/TideDock.tsx` (issue #169, cut to this shape by issue
+#194) and `ChapterMarks.tsx`. Concretely, in the shipped code:
+
+- **One x-axis, one `timeScale` call** backs both the mark row's layout and
+  the transport's own playhead/click-to-seek math — the mark row and the
+  `Scrubber` are two rows of one `grid-template-columns: auto 1fr auto`
+  layout, so the browser's own grid track sizing (not a hand-computed
+  offset) guarantees the shared column stays the same width in both rows.
+- **Portaled hover cards.** `ChapterMarks.tsx` renders `MarkHoverCard` via
+  `createPortal(..., document.body)` — moving the DOM node itself out from
+  under any ancestor's stacking context or `overflow`, so nothing on the
+  page can clip or bury it. A `HOVER_DELAY_MS` (150ms) gates it in, the
+  same "the label appears as you linger" idiom a video scrubber uses.
+- **Zoom is local, visual, and cursor-anchored, never global.** `Shift`+wheel
+  narrows the window the mark lane draws over, anchored on the timestamp
+  under the cursor (`scale.tsOf`) rather than the window's centre — it never
+  restricts what the full-range `Scrubber` can scrub, and never reaches
+  another panel or the URL. A still bracket drawn over the `Scrubber` track
+  (in the *full-range* scale, a deliberately separate `timeScale` call) shows
+  where the zoomed window sits against the whole session, labelled
+  `window N/M · HH:MM–HH:MM`. Depth is capped by the log's own median event
+  spacing (`usefulMaxZoomLevel`), not an arbitrary ceiling.
+- **`[`/`]` step to the neighbouring chapter**, scoped to the dock and
+  guarded against stealing the keys from a text field
+  (`isTypingTarget`) — deliberately not guarded against the native range
+  `<input>`, which owns none of those keys.
+- **One height, not a mode-dependent one.** Replay's per-lane rows used to
+  earn extra vertical room; with them gone, `ChapterMarks` renders at one
+  default height in both live and replay, and the axis appears whenever
+  zoomed, in either mode.
+
+**What the cut does not touch:** hover cards, duration as a first-class
+fact, no per-panel legend, gaps read as absence (now via marks and the axis
+alone rather than a hatch), the deep-linkable window, the transport's
+zoom/shift affordances, and ruling 1's framing — the dock is still the
+replay bar's body, never a panel.
+
+## prd15 — the anywhere instrument: system agnosticism
+
+**BLESSED**, operator, 2026-08-05: *"I am aiming for TRUE, FULL FEATURED
+system agnosticism"* — any OS, any terminal, any agent CLI, any provider,
+eventually from a plain `npm install`. This supersedes the framing where a
+tmuxless boot was a degraded tier: feature parity is the goal, and tmux
+becomes optional enrichment rather than a prerequisite. It is also what
+finally re-opens the door prd9 ruling 2 had closed on publishing — see
+[prd9](#prd9--the-trace-era) above and the README's ["When this is published
+to npm"](../README.md#when-this-is-published-to-npm); publish stays the
+*last* wave of this prd, gated on #177's still-open history-vs-fresh-tree
+decision.
+
+### Ruling 1 — the transcript-tail state machine is the universal organ (#188, landed)
+
+Every observable agent CLI writes a session transcript as it works; this
+ruling turns the shape of that transcript's *tail* into a state machine per
+lane, yielding liveness AND attention with **zero cooperation** from the
+agent stack — no tmux, no hooks, any terminal, any OS.
+`packages/server/src/collectors/sessionlog/turn-shape.ts` folds a transcript
+left-to-right (never seeks backward from EOF — a fold over a prefix must
+equal a fold over the full log truncated there, the same replay law this
+whole app is built on) into one of five shapes (`empty`, `turn-complete`,
+`pending-tool`, `mid-stream`, `awaiting-reply`), and
+`lane-state.ts` derives four lane states from shape + recency + (only at a
+stall) process aliveness (`process-probe.ts`):
+
+| state | meaning | reached when |
+|---|---|---|
+| `working` | in motion | the turn is unfinished and moving, or just ended |
+| `waiting` | **the needs-you signal** | the turn completed and stayed completed |
+| `frozen` | stalled mid-turn, still alive | mid-turn, silent past the stall, process alive-or-unknown |
+| `gone` | stalled, process confirmed absent | silent past the threshold, probe says `false` |
+
+Three laws hold this structurally rather than by threshold: **WAITING
+requires a completed turn** — no path from a mid-turn shape reaches it at
+any silence or duration, which is #133's false-summons law made structural
+(a lane delegating to a subagent has an open `Task` call, so its tail is
+`pending-tool` and it *cannot* summon the operator no matter how long the
+subagent runs); **FROZEN requires a mid-turn shape** — a lane that finished
+its turn has nothing to be frozen in the middle of; and **unknown is never
+death** — only an explicit `processAlive === false` reaches `gone`, and a
+`null` probe (macOS, Windows-native, an unreadable procfs) degrades to the
+weaker `frozen` claim instead.
+
+The per-CLI grammar this reads is itself a **versioned capture, not
+documentation** (dialect-verification discipline) —
+`packages/server/src/collectors/sessionlog/turn-grammar-claude.ts` derives
+Claude Code's own JSONL shape from a real survey of this machine's entire
+Claude Code corpus: **253 transcripts, 64,979 lines, 42,842 conversational
+entries**, across claude-code 2.1.220–2.1.222. The corpus's own headline
+finding is why a naive reader gets this wrong: **the last line of a
+transcript is almost never conversation** — 213 of 253 files end on
+`last-prompt`, 29 on `permission-mode`, 4 on `mode`, and only 4 on an actual
+`assistant`/`user` entry, so a reader that took "the last line" as the turn
+shape would be wrong 98% of the time. `message.stop_reason` is the
+completion discriminator (`tool_use` 26,178 of 26,567 assistant entries,
+split further into PENDING-with-a-tool-call vs. still-being-written-across-
+lines); `isSidechain` is present on 100% of conversational entries in this
+corpus, so the subagent filter is structural. The fixtures beside this file
+(`fixtures/claude-code-2.1.222-*`) are real, mechanically-redacted slices of
+that survey.
+
+### Ruling 5 — the enrichment ladder, named not ranked (#190, landed)
+
+`packages/core/src/collector.ts` names six signals every collector may speak
+to (`identity | liveness | activity | attention | telemetry | cost`), each at
+one of three levels (`provided | partial | absent` — the latter two are
+*compiler-required* to carry a one-line reason, "a reason for anything not
+provided" restated as a type rather than a convention an author could skip).
+Every collector now declares its own `AdapterCapabilities` — `git`, `tmux`,
+`workmux`, `sessionlog`, `otel`, and the judge collector each have their own
+(`packages/server/src/collectors/*/`) — and `mergeCapabilities` folds several
+collectors' views of one lane into the best level any of them reaches per
+signal (a second witness only ever adds confidence, never removes it). A
+lane sits at exactly one rung at a time, pure and total for any signal
+combination:
+
+| rung | label | climbs to next by |
+|---|---|---|
+| **L0** | zero-cooperation (git + transcript organ) | env vars at launch (`rhizomorph env <lane>`) bringing OTLP dollars/traces |
+| **L1** | env/OTLP | a hook beacon declaring attention instead of inferring it |
+| **L2** | beacon (declared attention) | a PTY wrapper (`rhizomorph run`) adding a live output stream |
+| **L3** | PTY wrapper | tmux/workmux adding pane previews and one-keystroke ATTACH |
+| **L4** | tmux/workmux | top rung — nothing further to climb |
+
+L2 and L3 are not reachable by any collector shipped in this repo yet (prd15
+waves 3 and 7 — the beacon collector and the PTY wrapper); `deriveRung`
+still maps every signal combination onto all five rungs so the law "every
+capability combination maps to exactly one rung" holds before those
+collectors exist, not only after. `deriveRung` reads top-down: `attention:
+provided` → L4; `attention: partial` with `telemetry: absent` → L3; `cost`
+anything but `absent` → L1; otherwise the L0 floor. That floor is real
+signal, not silence — bare git alone lands at L0 with every signal but
+identity/liveness absent, while git plus the transcript organ lands at the
+*same rung* with full token telemetry (activity, liveness and tokens all
+`provided`) and only `cost` still `absent` — "L0 is zero-cooperation, not
+zero-signal" is the ladder's own framing for exactly this distinction.
+`rhizomorph doctor` (`packages/server/src/cli/doctor.ts`) and `GET
+/api/meta` (`packages/server/src/api/meta.ts`, carrying `{ capabilities,
+rung }` per lane) both say the rung per lane and name what climbing it
+requires, per ruling 5's own text: *"`doctor` and the provenance strip SAY
+the rung per lane."* See [docs/telemetry.md](telemetry.md#the-enrichment-rung)
+for what this means for "instrumented."
+
+### What's ruled here but not yet reachable by any shipping collector
+
+Ruling 2 (hook beacons upgrading inferred attention to declared), ruling 3
+(provider/model/cost parity for codex/pi adapters, estimated dollars via the
+vendored pricing table), ruling 6 (multi-orchestrator honesty — distinct
+conductor identities rendered as a family rather than silently summed), and
+ruling 7 (a named Windows-native verification pass, captures not
+confidence) are all **ruled, not yet landed** — waves 3–7 of prd15's own
+sequencing. The support matrix in the README moves rows only on evidence per
+ruling 7's own text, and no such evidence exists in this tree yet.
+
+## prd16 — the session is a thing you can hold
+
+**BLESSED**, operator, 2026-08-06, closing #182's reserved ruling: *"there is
+still the question of what defines a session, and what defines what is
+recorded and what is part of a 'session'... the session logs should keep the
+conversation transcripts, trace, etc accessible if it's replayed."* Ruled
+last before the laboratory proper (prd14), because prd12's checkpoints bind
+to session positions and prd14's experiments *are* sessions — session
+identity had to be solid before either.
+
+### Ruling 2 — the observer gains a third hand: rotation (constitutional amendment)
+
+prd12 had amended the read-only constitution to two hands (the observer,
+absolutely read-only; the laboratory, an explicitly-invoked second actor).
+prd16 adds a third, narrower than either — **the recorder** — and frames it
+precisely as *not new authority*: *"the observer has always written its own
+recording; what changes is who decides when a recording ends."* The
+recorder's hand may only close the current session log and open a new one,
+writing solely inside `~/.local/share/rhizomorph/<repo-slug>/` — never the
+watched repo, never a ref, never a worktree, never `~/.claude` — exposed as
+an explicit human invocation only (`rhizomorph rotate`, or the dashboard's
+"end session · start fresh" button), never a background process. See the
+README's [Trust](../README.md#trust) section for the reader-facing version
+of all three hands named side by side; this is where the constitutional
+amendment itself was ruled.
+
+**The prerequisite this ruling depended on: the session lock (#187).**
+`packages/server/src/log/session-lock.ts` claims a pid+heartbeat lock
+(`session-<id>.lock.json`, refreshed every 5s, three missed refreshes'
+tolerance) beside the log at boot, so two instances can no longer race onto
+the same session. `decideSessionBoot`
+(`packages/server/src/log/session-log.ts`) consults it after every other
+boot-reason check: a live lock (heartbeat fresh *and* the pid still alive,
+per `isPidAlive`'s `process.kill(pid, 0)` probe) returns `writer-alive` and
+starts a fresh session rather than splicing into one another process is
+still writing. `--resume-window <ms>` (default 4h; `0` behaves exactly like
+`--fresh`) makes the whole boundary operator-controllable and self-
+explaining, and both the boot line and `rhizomorph doctor` say which way it
+decided and why.
+
+**The amendment ships with its own law tests**, the same discipline prd12's
+namespace test set: the existing readonly greps stay green untouched, and a
+rotation-namespace test asserts every write this hand performs lands under
+the data directory and nowhere else.
+
+### Ruling 3 — a recording is self-contained: transcripts are captured, not resolved
+
+The gap this closes: `trace.span` events replay perfectly because they *are*
+events, while a lane's conversation used to be resolved live from
+`~/.claude/projects` at read time — durable only as long as that external
+directory exists, and simply gone on another machine.
+`packages/server/src/log/transcript-capture.ts` copies each lane's live
+transcript, redacted by the same hygiene discipline the OTel fixtures
+carry, into that session's own artefact directory the moment it closes
+(`packages/server/src/recorder/rotate.ts`'s `closeCurrentSession`, before it
+appends `session.closed`). Replay reads the captured copy first, falling
+back to live resolution only for the still-open session — one code path,
+one precedence rule. Capture is bounded and honest about its own size (one
+busy lane in this project's own build day ran ~9MB of transcript), and a
+session whose transcripts could not be fully captured says so precisely via
+`TranscriptCaptureManifest.complete: false` rather than silently producing a
+conversation-less recording. The append-only law holds throughout: captured
+transcripts live beside the log, never inside it — the same sidecar posture
+labels already use.
+
+### Ruling 4 — recordings get a real surface: `/recordings` (#206, landed)
+
+The replay picker is for *choosing* a session to scrub through; managing
+what was recorded needed its own room.
+`packages/web/src/recordings/RecordingsPage.tsx` lists every recording with
+what `SessionListing` already computes (title, label, lanes, landed,
+duration, tokens, cost, whether cost is authoritative), plus **rename in
+place**, **open in replay**, and **export the portable record** (prd11's
+builder). `POST /api/label` (`packages/server/src/api/label.ts`) is the
+app's *second* mutating route — the first is the laboratory's own CLI
+surface — and writes only the label sidecar, refusing with a named reason
+(`this server is replaying a session record, not watching a directory of
+recordings — there is nowhere durable to save a label here`) when the
+server is itself in replay-only mode. Renaming a session refreshes every
+other picker showing it, including the live dashboard's own session
+picker — a same-HEAD fix (`fix(web): renaming a recording also refreshes
+the balcony's session picker`) closed a gap where the two pickers cached
+independently and one went stale.
+
+This is a **library, not a second overview**: it reuses the existing
+hand-rolled router (`packages/web/src/app/router.ts`'s `{ name:
+'recordings' }` route, mounted in `App.tsx`), adds no row to the curated
+panel order, and its own law test
+(`packages/web/src/recordings/no-live-fleet-law.test.ts`)
+greps its own module tree for `useFleet`/`FleetProvider`/`buildFleet`/panel
+or scene imports/`reduceAll(` and fails the build the day any of them
+appears — a structural guarantee that this surface can answer "what did we
+record" without ever growing into a second answer to "what is happening
+now," which is the scene's job alone.
+
+### Ruling 6 — the recorder seam is framed, not a process split (operator, on the council's advice)
+
+The rotation lane draws a clean module boundary around the recording-writer
+(`packages/server/src/recorder/index.ts`) — its own module, its own
+namespace law — **without** splitting the process. The accepted argument:
+prd16 is the last cheap moment to frame this doorway, since the wall is
+already open; if a future federation or agnosticism round ever wants the
+recorder running separately, the doorway exists and nobody performs
+surgery. No door is installed today — one process, one binary, until a
+future prd rules otherwise.
+
+## prd17 — the complete record: judgements and decisions join the log
+
+**BLESSED**, operator, 2026-08-06, on a council synthesis's unanimous
+finding: *the causal record is missing its two most important actors — the
+instrument's own judgements, and the operator's decisions.* prd1's founding
+insight ("orchestrated setups undercount by omitting the orchestrator")
+recurred one level up — the operator is the only unobserved agent in the
+system.
+
+### Ruling 3 — recordings never rot: the integrity laws (landed)
+
+A verified finding motivated this ruling: the parser used to silently
+**skip** an event type it didn't recognize (the reducer's forward-compat arm
+was unreachable in practice), and live folded events in arrival order while
+replay folded the same events ts-sorted through an order-sensitive
+reducer — two different fold orders for one recording, undocumented. Five
+laws now hold, four of them landed in this tree:
+
+1. **Lenient parse (landed).** An unrecognized event line is counted and
+   voiced, never silently dropped, and preserved byte-for-byte in the log
+   and the record. `packages/core/src/events/index.ts`'s
+   `UnknownEventLine`/`parseEventLenient` is the mechanism; the exact,
+   tested voice (`voiceUnknownEvents()`) is `"N events from a newer era
+   were preserved but not understood (type-a, type-b, …)"` (singular for
+   one event, an overflow `+N more` past four distinct types) — rendered
+   verbatim in the replay banner
+   (`packages/web/src/replay/Banner.tsx`, `data-testid="replay-unknown-era"`)
+   and the session listing (`replay/index.tsx`).
+2. **The golden era corpus (landed).** One real recording per era
+   (`packages/core/src/eras/era-1/`) folds byte-identically in CI against a
+   committed snapshot — plain string equality, deliberately not
+   `toMatchFileSnapshot`, so `vitest -u` cannot silently re-bless a
+   regression. This is the one event-sourcing orthodoxy this repo had
+   skipped until now.
+3. **An identity `upcast()` chokepoint (landed).** `packages/core/src/
+   events/upcast.ts` is, today, the identity function — but it is the one
+   function both the live path and the replay path bottom out in
+   (`packages/core/src/reduce.ts`'s `reduce()`), reserved now so the day a
+   real migration is needed it has a home every event already flows
+   through, rather than a chokepoint retrofitted under time pressure.
+4. **The fold-order law — pinned, NOT resolved. See the open ruling below.**
+5. **Durability (landed).** fsync on session close and rotation; the
+   rotation crash ordering is close-then-open, never both-open, and is
+   itself tested.
+
+### The fold-order divergence — OPEN, tracked on #205
+
+`packages/core/src/reduce.test.ts`'s "the fold-order law" fixture proves,
+rather than assumes, that **live and replay fold the same interleaved
+recording to two different states** on at least three axes: last-write-wins
+fields (`agent.status`), create-vs-delete ordering (`branch.updated` vs.
+`branch.removed`), and first-sighting order (`commitOrder`,
+`firstEventTs`). prd17 ruling 3 item 4 states the law only pins what a
+fixture is owed and requires the divergence itself to be *"ruled and
+documented"* — that ruling has not been made. **Issue #205 is open**: no
+document in this tree, and no code, states or implies a fold-order
+guarantee in either direction, and none should be inferred from anything
+above. Cross-actor ordering for a future multi-instrument "forest" is
+already anchored on the commit DAG (`commit.landed.parents`) rather than
+wall clocks, which sidesteps this question for that specific case without
+resolving it generally.
+
+### Ruling 1 — the new event families (ruled, landing)
+
+Six additive event types are ruled but only one has landed in code so far:
+`session.closed` (landed, prd16's own durability fact — a session's end is
+an event, not an absence). **Ruled, not yet landed:** `summons.raised` /
+`summons.cleared` (the instrument's own attention judgements, becoming
+events — without them, summons precision and time-in-alarm are
+uncomputable, exactly what alarm-management practice audits an alarm system
+on); `gate.verdict` / `dispatch.brief` / `fence.declared` (a fence becomes
+data the moment a lane manifest changes, closing a real gap — today a
+recording contains no fences at all, so a trespass can never be re-derived
+from the record alone); and `operator.ack` / `operator.verdict` /
+`operator.note` (the human's own acts, each stamped with the log offset
+they were decided against). Ruling 2's ingestion mechanism (a beacon
+collector tailing one-line JSON beacons `gate.sh`/`dispatch.sh` write) and
+ruling 4's timeline dividend (gate holds and summonses becoming chapter
+marks in the TIDE) are downstream of these event types existing and are
+therefore also not yet landed.
+
 ## Testing
 
 Mass on core selectors/reducers and collector parsers (fixtures captured
 from real command output). Light render tests on panels. The scene is
 verified by eyes, not units — said honestly. Merge gate: `npm test` +
-`npm run typecheck` green, enforced mechanically by a workmux `pre_merge`
-hook.
+`npm run typecheck` green, enforced mechanically both by a workmux
+`pre_merge` hook and by `scripts/gate.sh` (fence compliance, a clean rebase,
+no NUL bytes, the test/typecheck gate itself, and the actual merge to
+`main`) — `scripts/fence-lint.sh` checks a wave's declared fences before any
+lane is dispatched against them. 3,158 tests across 202 files pass at commit
+`24dcaa5` (`npm test`), alongside a green `npm run typecheck`.
 
 ## Decisions log
 
