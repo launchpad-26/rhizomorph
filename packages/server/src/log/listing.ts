@@ -2,6 +2,7 @@ import type { RhizomorphEvent } from '@rhizomorph/core'
 import { readSessionLabel } from './label.js'
 import { readSessionEvents, sessionFilePath, listSessions, type SessionSummary } from './session-log.js'
 import { autoTitle, computeSessionMeta } from './title.js'
+import { readTranscriptCaptureManifest, type TranscriptCaptureManifest } from './transcript-capture.js'
 
 /** One row for `GET /api/sessions` and `rhizomorph sessions` — everything a human (or the replay picker) needs to find a recording without opening it. */
 export interface SessionListing extends SessionSummary {
@@ -16,6 +17,17 @@ export interface SessionListing extends SessionSummary {
   outputTokens: number
   costUsd: number
   costIsAuthoritative: boolean | null
+  /**
+   * What transcript capture (prd16 ruling 3) got for this session, or `null`
+   * when none ever ran — the still-open live session, or a recording from
+   * before this feature existed. `null` is never rendered as "0 bytes
+   * captured": a reader must be able to tell "nothing to report yet" from
+   * "captured nothing" (see `TranscriptCaptureManifest.complete` for the
+   * latter, lane by honest lane). Optional, not just nullable: a listing
+   * built by an older caller that never heard of capture is still a valid
+   * `SessionListing` without restating this field as `null` everywhere.
+   */
+  transcriptCapture?: TranscriptCaptureManifest | null
 }
 
 /**
@@ -28,6 +40,7 @@ export function buildSessionListing(
   summary: SessionSummary,
   events: readonly RhizomorphEvent[],
   label: string | null,
+  transcriptCapture: TranscriptCaptureManifest | null = null,
 ): SessionListing {
   const meta = computeSessionMeta(events)
   const autoTitleText = autoTitle(summary.startedAt, meta)
@@ -53,6 +66,7 @@ export function buildSessionListing(
     outputTokens: meta.outputTokens,
     costUsd: meta.costUsd,
     costIsAuthoritative: meta.costIsAuthoritative,
+    transcriptCapture,
   }
 }
 
@@ -85,7 +99,8 @@ export async function listSessionListings(
         ? options.liveEvents
         : await readSessionEvents(sessionFilePath(dir, summary.id))
     const label = await readSessionLabel(dir, summary.id)
-    listings.push(buildSessionListing(summary, events, label))
+    const transcriptCapture = await readTranscriptCaptureManifest(dir, summary.id)
+    listings.push(buildSessionListing(summary, events, label, transcriptCapture))
   }
 
   return listings

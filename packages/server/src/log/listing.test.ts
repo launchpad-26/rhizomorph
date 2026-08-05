@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { writeSessionLabel } from './label.js'
 import { buildSessionListing, listSessionListings } from './listing.js'
 import { sessionFileName } from './paths.js'
+import { captureSessionTranscripts } from './transcript-capture.js'
 
 describe('buildSessionListing', () => {
   it('auto-titles a session with no label', () => {
@@ -124,5 +125,37 @@ describe('listSessionListings', () => {
 
   it('returns an empty list for a repo with no recordings yet', async () => {
     expect(await listSessionListings(dir)).toEqual([])
+  })
+
+  it('is null when a session never captured any transcripts — never a bare "0 bytes"', async () => {
+    await mkdir(dir, { recursive: true })
+    const f = createEventFactory({ startTs: 1000 })
+    f.sessionStarted({ sessionId: '1000' })
+    await writeFile(path.join(dir, sessionFileName(1000)), eventsToJsonl(f.all()), 'utf8')
+
+    const [listing] = await listSessionListings(dir)
+    expect(listing?.transcriptCapture).toBeNull()
+  })
+
+  it('surfaces a closed session\'s capture manifest — size and an honest gap voice, not silence', async () => {
+    await mkdir(dir, { recursive: true })
+    const f = createEventFactory({ startTs: 1000 })
+    f.sessionStarted({ sessionId: '1000' })
+    f.llmUsage({ lane: 'a-lane', branch: 'a-lane', sessionId: 'claude-sess', worktreePath: '/wt/a-lane' })
+    const events = f.all()
+    await writeFile(path.join(dir, sessionFileName(1000)), eventsToJsonl(events), 'utf8')
+
+    // No live transcript was ever on disk for this lane by the time it was captured.
+    await captureSessionTranscripts({
+      events,
+      sessionDir: dir,
+      sessionId: '1000',
+      claudeProjectsRoot: await mkdtemp(path.join(tmpdir(), 'rhizomorph-listing-claude-')),
+      now: 5000,
+    })
+
+    const [listing] = await listSessionListings(dir)
+    expect(listing?.transcriptCapture?.complete).toBe(false)
+    expect(listing?.transcriptCapture?.lanes[0]?.reason).toContain('TRANSCRIPT NOT CAPTURED')
   })
 })
