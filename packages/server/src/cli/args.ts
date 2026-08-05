@@ -27,6 +27,11 @@ export interface CliArgs {
    */
   fresh: boolean
   /**
+   * `--resume-window <ms>`'s value, or the `RESUME_WINDOW_MS` default. `0`
+   * behaves exactly like `--fresh` — see `decideSessionBoot`.
+   */
+  resumeWindowMs: number
+  /**
    * True when `--backfill` was passed: the sessionlog collector reads each log
    * from its beginning instead of starting at end-of-file, ingesting history on
    * purpose rather than by accident.
@@ -124,7 +129,7 @@ function isEnvShell(value: string): value is EnvShell {
 /**
  * Parses `rhizomorph [path] [--port <n>] [--flatline-minutes <n>]
  * [--poll-interval <ms>] [--extra-sessions <path>[:<lane>]]... [--fresh]
- * [--backfill] [--version] [--help]`.
+ * [--resume-window <ms>] [--backfill] [--version] [--help]`.
  */
 export function parseArgs(argv: readonly string[]): CliArgs {
   if (argv.includes('--help') || argv.includes('-h')) {
@@ -135,6 +140,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
       extraSessionDirs: [],
       fresh: false,
+      resumeWindowMs: RESUME_WINDOW_MS,
       backfill: false,
       help: true,
       version: false,
@@ -149,6 +155,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
       extraSessionDirs: [],
       fresh: false,
+      resumeWindowMs: RESUME_WINDOW_MS,
       backfill: false,
       help: false,
       version: true,
@@ -158,6 +165,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   let portArg: string | undefined
   let flatlineArg: string | undefined
   let pollIntervalArg: string | undefined
+  let resumeWindowArg: string | undefined
   let fresh = false
   let backfill = false
   const extraSessionRawValues: Array<string | undefined> = []
@@ -168,6 +176,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     { flag: '--poll-interval', read: (v) => { pollIntervalArg = v } },
     { flag: '--extra-sessions', read: (v) => { extraSessionRawValues.push(v) } },
     { flag: '--fresh', boolean: true, read: () => { fresh = true } },
+    { flag: '--resume-window', read: (v) => { resumeWindowArg = v } },
     { flag: '--backfill', boolean: true, read: () => { backfill = true } },
   ]
 
@@ -199,7 +208,24 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     return raw
   })
 
-  return { path, port, flatlineMinutes, pollIntervalMs, extraSessionDirs, fresh, backfill, help: false, version: false }
+  // 0 is a legitimate value (`--resume-window 0` === `--fresh` — decideSessionBoot's own law).
+  const resumeWindowMs = resumeWindowArg === undefined ? RESUME_WINDOW_MS : Number(resumeWindowArg)
+  if (!Number.isFinite(resumeWindowMs) || resumeWindowMs < 0) {
+    throw new Error(`invalid --resume-window value: "${resumeWindowArg}" (must be a non-negative number of ms)`)
+  }
+
+  return {
+    path,
+    port,
+    flatlineMinutes,
+    pollIntervalMs,
+    extraSessionDirs,
+    fresh,
+    resumeWindowMs,
+    backfill,
+    help: false,
+    version: false,
+  }
 }
 
 /** Parses `rhizomorph env <lane> [--role <role>] [--port <n>] [--shell <shell>] [--help]`. */
@@ -302,6 +328,10 @@ Options:
                           continues the most recent session for this repo when its newest
                           event is under ${RESUME_WINDOW_HOURS}h old — same file, same collector offsets,
                           no duplicated history.
+  --resume-window <ms>    Override the resume boundary above (default: ${RESUME_WINDOW_MS}, ${RESUME_WINDOW_HOURS}h).
+                          "--resume-window 0" behaves exactly like --fresh: always start a
+                          new session. The boot line and \`rhizomorph doctor\` both say which
+                          way this decided and why.
   --backfill              Read session logs from the beginning instead of starting at
                           end-of-file: ingest history on purpose. Expect a large
                           first tick and old timestamps.

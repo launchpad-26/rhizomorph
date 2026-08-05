@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { RESUME_WINDOW_MS } from '../log/session-log.js'
 import {
   doctorHelpText,
   envHelpText,
@@ -30,6 +31,7 @@ const defaults = {
   pollIntervalMs: 2000,
   extraSessionDirs: [],
   fresh: false,
+  resumeWindowMs: RESUME_WINDOW_MS,
   backfill: false,
   help: false,
   version: false,
@@ -215,6 +217,24 @@ describe('parseArgs', () => {
 
   it('parses --fresh and --backfill together', () => {
     expect(parseArgs(['--fresh', '--backfill'])).toEqual({ ...defaults, fresh: true, backfill: true })
+  })
+
+  it('defaults --resume-window to RESUME_WINDOW_MS', () => {
+    expect(parseArgs([]).resumeWindowMs).toBe(RESUME_WINDOW_MS)
+  })
+
+  it('parses --resume-window as a ms value', () => {
+    expect(parseArgs(['--resume-window', '1000'])).toEqual({ ...defaults, resumeWindowMs: 1000 })
+    expect(parseArgs(['--resume-window=60000'])).toEqual({ ...defaults, resumeWindowMs: 60000 })
+  })
+
+  it('allows --resume-window 0 — the law that makes it act exactly like --fresh lives in decideSessionBoot', () => {
+    expect(parseArgs(['--resume-window', '0'])).toEqual({ ...defaults, resumeWindowMs: 0 })
+  })
+
+  it('rejects a negative or non-numeric --resume-window', () => {
+    expect(() => parseArgs(['--resume-window', '-1'])).toThrow(/invalid --resume-window/)
+    expect(() => parseArgs(['--resume-window', 'soon'])).toThrow(/invalid --resume-window/)
   })
 
   it('does not swallow the token after a switch, so the path still parses', () => {
