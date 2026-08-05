@@ -1,7 +1,8 @@
 # prd15 — the anywhere instrument: true full-featured system agnosticism
 
-**STATUS: DRAFT — awaiting operator blessing.** Direction ruled by the
-operator 2026-08-05: *"I am aiming for TRUE, FULL FEATURED system
+**STATUS: BLESSED** — operator, 2026-08-05: *"CAN we do it? If we CAN do
+it, then LETS do it"* (condition affirmed by the conductor against the
+spike evidence, same day) and *"I am aiming for TRUE, FULL FEATURED system
 agnosticism"* — any OS, any terminal, any agent CLI, any provider, from an
 eventual `npm install`. This supersedes the framing where tmuxless was a
 degraded tier: **feature parity is the goal; tmux becomes optional
