@@ -391,7 +391,7 @@ describe('ReplayControls — spend', () => {
   })
 })
 
-/** `session.started`/`worktree.discovered` name no lane (see `bands.ts`'s `laneOf`) — these do. */
+/** `session.started`/`worktree.discovered` name no lane (see `laneOf.ts`'s `laneOf`) — these do. */
 function laneFixtureEvents() {
   return [
     createEvent(
@@ -418,7 +418,7 @@ function makeLaneFetch(): FetchLike {
   }) as unknown as FetchLike
 }
 
-describe('ReplayControls — the TIDE dock (#169)', () => {
+describe('ReplayControls — the TIDE dock (#169; the band cut by ruling 13, issue #194)', () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
@@ -438,7 +438,7 @@ describe('ReplayControls — the TIDE dock (#169)', () => {
     } as DOMRect)
   }
 
-  it('docks a TIDE collapsed by default once a session is replayed (prd13 ruling 12)', async () => {
+  it('docks a TIDE with no band, row or chip once a session is replayed (prd13 ruling 13)', async () => {
     mockTrackWidth(900)
     await renderReplay(makeLaneFetch())
 
@@ -446,24 +446,13 @@ describe('ReplayControls — the TIDE dock (#169)', () => {
     await fireAndFlush(() => fireEvent.change(select, { target: { value: 'lanes' } }))
 
     expect(screen.getByTestId('tide-dock')).toHaveAttribute('data-mode', 'replay')
-    const rows = screen.getAllByTestId('tide-row')
-    expect(rows).toHaveLength(1)
-    expect(rows[0]?.dataset.rowKind).toBe('more')
+    expect(screen.queryByTestId('tide')).not.toBeInTheDocument()
+    expect(screen.queryAllByTestId('tide-row')).toHaveLength(0)
+    expect(screen.queryByRole('button', { name: /expand/i })).not.toBeInTheDocument()
+    expect(screen.getAllByTestId('chapter-mark').length).toBeGreaterThan(0)
   })
 
-  it('the explicit expand affordance reveals per-lane rows in replay too (ruling 12: one bit, both modes)', async () => {
-    mockTrackWidth(900)
-    await renderReplay(makeLaneFetch())
-
-    const select = screen.getByLabelText('session')
-    await fireAndFlush(() => fireEvent.change(select, { target: { value: 'lanes' } }))
-    fireEvent.click(screen.getByRole('button', { name: 'Expand lane rows' }))
-
-    const rows = screen.getAllByTestId('tide-row')
-    expect(rows.map((r) => r.dataset.lane)).toEqual(['ke5', 'm2'])
-  })
-
-  it('clicking a moment in a band seeks the playhead', async () => {
+  it('clicking a moment on the mark lane track seeks the playhead', async () => {
     mockTrackWidth(900)
     await renderReplay(makeLaneFetch())
 
@@ -478,7 +467,7 @@ describe('ReplayControls — the TIDE dock (#169)', () => {
     expect(scrubber.value).not.toBe(before)
   })
 
-  it('live mode shows a collapsed TIDE by default, fed by the live stream — not the (empty) replay log', async () => {
+  it('live mode shows a TIDE with no band, row or chip either, fed by the live stream — not the (empty) replay log', async () => {
     mockTrackWidth(900)
     const { emitLive } = await renderReplay(makeFetch(fixtureEvents()))
 
@@ -486,38 +475,8 @@ describe('ReplayControls — the TIDE dock (#169)', () => {
     await emitLive(createEvent('agent.status', { handle: 'm2', status: 'working' }, { id: nextId(), ts: 3_000 }))
 
     expect(screen.getByTestId('tide-dock')).toHaveAttribute('data-mode', 'live')
-    const rows = screen.getAllByTestId('tide-row')
-    expect(rows).toHaveLength(1)
-    expect(rows[0]?.dataset.rowKind).toBe('more')
-  })
-
-  it('the live expand affordance reveals per-lane rows without switching to replay', async () => {
-    mockTrackWidth(900)
-    const { emitLive } = await renderReplay(makeFetch(fixtureEvents()))
-
-    await emitLive(createEvent('agent.status', { handle: 'ke5', status: 'working' }, { id: nextId(), ts: 2_000 }))
-    await emitLive(createEvent('agent.status', { handle: 'm2', status: 'working' }, { id: nextId(), ts: 3_000 }))
-
-    fireEvent.click(screen.getByRole('button', { name: 'Expand lane rows' }))
-
-    expect(screen.getByText('Live mode')).toBeInTheDocument()
-    const rows = screen.getAllByTestId('tide-row')
-    expect(rows.map((r) => r.dataset.lane)).toEqual(['ke5', 'm2'])
-  })
-
-  it('returning to live collapses the dock back down (an expand left on in replay does not survive the mode switch)', async () => {
-    mockTrackWidth(900)
-    await renderReplay(makeLaneFetch())
-
-    const select = screen.getByLabelText('session')
-    await fireAndFlush(() => fireEvent.change(select, { target: { value: 'lanes' } }))
-    fireEvent.click(screen.getByRole('button', { name: 'Expand lane rows' }))
-    expect(screen.getAllByTestId('tide-row').map((r) => r.dataset.lane)).toEqual(['ke5', 'm2'])
-
-    fireEvent.click(screen.getByRole('button', { name: /return to live/i }))
-    await waitFor(() => expect(screen.getByText('Live mode')).toBeInTheDocument())
-
-    const rows = screen.queryAllByTestId('tide-row')
-    for (const row of rows) expect(row.dataset.rowKind).not.toBe('lane')
+    expect(screen.queryByTestId('tide')).not.toBeInTheDocument()
+    expect(screen.queryAllByTestId('tide-row')).toHaveLength(0)
+    expect(screen.getAllByTestId('chapter-mark').length).toBeGreaterThan(0)
   })
 })

@@ -347,22 +347,12 @@ describe('ChapterMarks — no marks, no glyphs', () => {
   })
 })
 
-describe('ChapterMarks — mode-dependent height (issue #186 defect 4)', () => {
-  it('defaults to the original compact row height', () => {
+describe('ChapterMarks — row height (prd13 ruling 13: one height, not mode-dependent)', () => {
+  it('always renders at the compact row height', () => {
     const events = log((fx) => {
       fx.at(100).agentStatus({ handle: 'ke5', status: 'working' })
     })
     render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
     expect(screen.getByTestId('chapter-marks').style.height).toBe('10px')
-  })
-
-  it('honours an explicit taller height (replay breathing room)', () => {
-    const events = log((fx) => {
-      fx.at(100).agentStatus({ handle: 'ke5', status: 'working' })
-    })
-    render(
-      <ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled height={24} />,
-    )
-    expect(screen.getByTestId('chapter-marks').style.height).toBe('24px')
   })
 })

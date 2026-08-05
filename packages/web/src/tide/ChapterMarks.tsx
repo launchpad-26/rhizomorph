@@ -91,8 +91,6 @@ export interface ChapterMarksProps {
   onSeek(ts: number): void
   /** Mirrors the transport's own enable rule, same prop `TideDock` already threads to the track. */
   seekEnabled: boolean
-  /** Mode-dependent room (issue #186 defect 4) — replay breathes, live stays the compact strip it always was. Defaults to the original `MARK_ROW_HEIGHT_PX`. */
-  height?: number
 }
 
 export function ChapterMarks({
@@ -102,7 +100,6 @@ export function ChapterMarks({
   width,
   onSeek,
   seekEnabled,
-  height = MARK_ROW_HEIGHT_PX,
 }: ChapterMarksProps): ReactElement {
   const scale = useMemo(() => timeScale(start, end, width), [start, end, width])
   const minSpanMs = useMemo(() => hoverThresholdMs(scale), [scale])
@@ -117,7 +114,7 @@ export function ChapterMarks({
       role="img"
       aria-label="session chapters"
       className="relative"
-      style={{ height, width: scale.width }}
+      style={{ height: MARK_ROW_HEIGHT_PX, width: scale.width }}
     >
       {groups.map((group, index) => (
         <MarkView

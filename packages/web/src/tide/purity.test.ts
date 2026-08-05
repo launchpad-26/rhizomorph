@@ -29,9 +29,7 @@ describe('the tide module is pure', () => {
   const names = Object.keys(SOURCES).sort()
 
   it('has every source in the directory to check', () => {
-    expect(names).toContain('./bands.ts')
-    expect(names).toContain('./coalesce.ts')
-    expect(names).toContain('./rowPlan.ts')
+    expect(names).toContain('./laneOf.ts')
     expect(names).toContain('./index.ts')
     expect(names).toContain('./chapters.ts')
     expect(names).toContain('./markCoalesce.ts')

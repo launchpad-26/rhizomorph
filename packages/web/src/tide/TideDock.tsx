@@ -15,55 +15,51 @@ import { chapterLabel, chaptersFor } from './chapters.js'
 import { formatClock } from './duration.js'
 import { medianEventSpacingMs } from './eventSpacing.js'
 import { coalesceMarks } from './markCoalesce.js'
-import { Tide, ROW_HEIGHT_PX, type TideMode } from './Tide.js'
 import { hoverThresholdMs, timeScale } from './scale.js'
 import { canShiftWindow, shiftWindow, usefulMaxZoomLevel, windowForLevel, zoomFractionLabel } from './tideWindow.js'
-import { topNForHeight } from './rowPlan.js'
 
 /**
- * THE DOCK (prd13 wave 3, issue #169) — where "the scrubber grew a body"
- * becomes literally true. This file owns none of #167/#168's laws (it
- * imports {@link Tide} and {@link timeScale} unmodified) and none of
- * `Scrubber.tsx`'s native-input law; its only job is the geometry and state
- * that make the two read as one dock (ruling 1):
+ * THE DOCK (prd13 wave 3, issue #169 — cut down to its final shape by ruling
+ * 13, issue #194: "get rid of the working green strips entirely"). What's
+ * left is exactly what ruling 13 names: the chapter-mark lane, the time
+ * axis, and the transport — a line of moments over a scrubber. Nothing else.
  *
- * - **One x-axis.** The mark row, the Tide row and the `Scrubber` row are
- *   three rows of a `grid-template-columns: auto 1fr auto` layout — the
- *   browser's own grid track sizing, not a hand-computed offset, is what
- *   guarantees the shared column is the same width in every row. Exactly one
- *   {@link timeScale} call backs the Tide's own band layout, this file's
- *   playhead line/click-to-seek math, and `ChapterMarks`' own mark layout, at
- *   the default (fully zoomed-out) window every surface shares by default.
- * - **Collapsed vs expanded is `mode` plus one bit of local state — the same
- *   bit in both modes** (prd13 ruling 12, amending #169's ruling 3: an
- *   operator's 50-lane recording made "replay always expanded" noise, not
- *   navigation). Both live and replay default collapsed and share the one
- *   explicit toggle; expansion is user state, never the default — `Tide`'s
- *   own row-count law (`Tide.tsx`'s module note) does the rest.
- * - **The mark lane (ruling 12) is `ChapterMarks`, unmodified.** This file
- *   supplies the same window and width the Tide row renders with and nothing
- *   else — no coalescing threshold, no glyph, no click math lives here.
+ * - **One x-axis.** The mark row and the `Scrubber` row are two rows of a
+ *   `grid-template-columns: auto 1fr auto` layout — the browser's own grid
+ *   track sizing, not a hand-computed offset, is what guarantees the shared
+ *   column is the same width in both rows. Exactly one {@link timeScale}
+ *   call backs this file's own playhead line/click-to-seek math and
+ *   `ChapterMarks`' own mark layout, at the default (fully zoomed-out) window
+ *   every surface shares by default.
+ * - **The mark lane (ruling 12) is `ChapterMarks`, unmodified**, doubling as
+ *   the click-to-seek/pan/zoom detail track (below) since there is no longer
+ *   a separate band row to host those handlers.
  * - **Zoom (ruling 10) is local and visual only.** It narrows which slice of
- *   `[start, end]` the *Tide's bands* are drawn over; it never restricts what
- *   the `Scrubber` can scrub (that stays the full range always, unchanged
- *   from before this wave) and never reaches another panel, the URL, or
- *   #170's "scope to selection" (ruling 5, wave 4). `tideWindow.ts` is the
- *   pure math; this file only wires it to two buttons and a pan.
+ *   `[start, end]` the mark lane is drawn over; it never restricts what the
+ *   `Scrubber` can scrub (that stays the full range always) and never
+ *   reaches another panel, the URL, or #170's "scope to selection".
+ *   `tideWindow.ts` is the pure math; this file only wires it to two buttons
+ *   and a pan.
+ * - **One height, not a mode-dependent one (ruling 13).** #186 defect 4 grew
+ *   a taller mark lane and row height for replay because replay's per-lane
+ *   rows were the dock's primary control and earned the room; with the rows
+ *   gone there is nothing left to earn it for, so `ChapterMarks` renders at
+ *   its one default height in both modes and the axis appears whenever
+ *   zoomed, in either mode — not gated to replay.
  *
- * **Issue #186 (operator review) restates ruling 1 stronger, not weaker: one
- * draggable body, not two.** The `Scrubber` beneath is the *overview* — full
- * range, the only element with a grab affordance, unchanged. The Tide+marks
- * rows above are the *detail* — windowed under zoom, click-to-seek, never
- * drag-grabbable (the playhead stays the same `pointer-events-none` hairline
- * it always was). When zoomed, this file draws the one thing that used to be
- * silent: a still bracket over the `Scrubber` track, in the *full-range*
+ * **One draggable body, not two (issue #186 restating ruling 1).** The
+ * `Scrubber` beneath is the *overview* — full range, the only element with a
+ * grab affordance, unchanged. The mark lane above is the *detail* — windowed
+ * under zoom, click-to-seek, never drag-grabbable (the playhead stays the
+ * same `pointer-events-none` hairline it always was). When zoomed, this file
+ * draws a still bracket over the `Scrubber` track, in the *full-range*
  * `timeScale` (a second `timeScale` call, deliberately — the windowed scale
  * above never touches the overview), plus a `figures`-voice label in the
  * button cluster (`window 1/4 · 14:02–14:31`, research note §4 R1). Dragging
- * on the Tide track now pans the window (click-vs-drag threshold, ~4px) and
+ * on the mark lane pans the window (click-vs-drag threshold, ~4px) and
  * Shift+wheel zooms about the cursor's own timestamp — both read through the
  * exact same windowed `timeScale` click-to-seek already used, so "seek is
- * exact at every zoom level" extends to these two new gestures rather than
+ * exact at every zoom level" extends to these two gestures rather than
  * competing with it. `[` / `]` step to the neighbouring chapter at the dock
  * level, never claiming a key the native range input owns (R3). Zoom depth
  * itself is capped by `usefulMaxZoomLevel` (`tideWindow.ts`) — the log's own
@@ -74,7 +70,7 @@ export type TideDockMode = 'live' | 'replay'
 
 export interface TideDockProps {
   mode: TideDockMode
-  /** The raw log `bandsFor` folds — live's log-so-far, or replay's whole session. */
+  /** The raw log — live's log-so-far, or replay's whole session. */
   events: readonly RhizomorphEvent[]
   /** The full mapped range: session-to-now in live (ruling 2), the whole session in replay. */
   start: number
@@ -88,22 +84,6 @@ export interface TideDockProps {
 
 const BUTTON_CLASS =
   'rounded border border-ice-850 px-1.5 py-0.5 text-[10px] leading-none text-ice-300 hover:border-ice-400 hover:text-ice-050 disabled:opacity-40 disabled:hover:border-ice-850 disabled:hover:text-ice-300'
-
-/** Replay's breathing room (issue #186 defect 4) — live never sees these, it keeps the original `MARK_ROW_HEIGHT_PX`/`ROW_HEIGHT_PX`. */
-const TALL_MARK_ROW_HEIGHT_PX = 18
-const TALL_ROW_HEIGHT_PX = 20
-
-/**
- * THE EXPANDED ROW BUDGET, IN PIXELS (issue #189 defect 2). Live's number
- * reproduces #169's original fixed `topN` of 8 exactly (8 * the compact
- * `ROW_HEIGHT_PX`) — expanding live is unchanged. Replay's is the direction's
- * own "a dozen-ish at 1080p": the dock is the primary control there and earns
- * the room, so it grows to actually hold what `topNForHeight` asks for
- * (ordinary block-flow rows — `Tide.tsx` stacks them, nothing clips them —
- * rather than a fixed small dock the rows would have to squeeze into).
- */
-const LIVE_EXPANDED_HEIGHT_PX = 8 * ROW_HEIGHT_PX
-const REPLAY_EXPANDED_HEIGHT_PX = 12 * TALL_ROW_HEIGHT_PX
 
 function useElementWidth(): [RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement | null>(null)
@@ -124,7 +104,7 @@ function useElementWidth(): [RefObject<HTMLDivElement | null>, number] {
   return [ref, width]
 }
 
-/** The click-vs-drag boundary on the Tide track (research note §4 R4). Below it, a mousedown+mouseup is a seek; at or past it, it is a pan. */
+/** The click-vs-drag boundary on the mark lane track (research note §4 R4). Below it, a mousedown+mouseup is a seek; at or past it, it is a pan. */
 const PAN_THRESHOLD_PX = 4
 
 /** Typing surfaces the dock's `[`/`]` chapter-step keys must not steal from — the native range input owns none of these keys, so it is deliberately not one of them. */
@@ -137,20 +117,6 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled }: TideDockProps): ReactElement {
   const [trackRef, width] = useElementWidth()
-
-  // Ruling 12: collapsed is the default in both modes; expansion is a user
-  // action, never something `mode` decides on its own.
-  const [expanded, setExpanded] = useState(false)
-  const tideMode: TideMode = expanded ? 'expanded' : 'collapsed'
-
-  // Reset on an actual mode switch only — never on `[start, end]`, which in
-  // live ticks on every new event (`end` is "now"). Coupling this reset to
-  // that tick would silently collapse an operator's live "Expand" moments
-  // after they clicked it. "Replay opens collapsed" (ruling 12) applies each
-  // time you arrive at a mode, so returning to live collapses back down too.
-  useEffect(() => {
-    setExpanded(false)
-  }, [mode])
 
   const [zoomLevel, setZoomLevel] = useState(0)
   const [windowCenter, setWindowCenter] = useState(value)
@@ -203,14 +169,15 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
   const canShiftLater = canShiftWindow(window_, start, end, 1)
 
   // Live has no scrub position (the transport is disabled there); "now" —
-  // the band's own right edge — is the one position that carries meaning.
+  // the mapped range's own right edge — is the one position that carries
+  // meaning.
   const playheadTs = mode === 'replay' ? value : end
   const showPlayhead = width > 0 && playheadTs >= window_.start && playheadTs <= window_.end
   const playheadX = showPlayhead ? scale.xOf(playheadTs) : 0
 
   // A drag that crossed the pan threshold suppresses the click-to-seek that
   // would otherwise follow on mouseup — one gesture is either a seek or a
-  // pan, never both (research note §4 R4: "drag-on-Tide pans when zoomed").
+  // pan, never both (research note §4 R4: "drag-on-track pans when zoomed").
   const justPannedRef = useRef(false)
 
   const handleTrackClick = useCallback(
@@ -328,23 +295,9 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
   const chapterMarkers = useMemo(() => chapters.map((chapter) => ({ ts: chapter.ts, label: chapterLabel(chapter) })), [chapters])
 
   const zoomed = zoomLevel > 0
-
-  // Issue #186 defect 4: replay is the primary control and earns room; live
-  // stays the compact strip it has always been (ruling 2's two modes,
-  // finishing the thought — not a new law).
-  const tall = mode === 'replay'
-  const markLaneHeight = tall ? TALL_MARK_ROW_HEIGHT_PX : undefined
-  const rowHeight = tall ? TALL_ROW_HEIGHT_PX : undefined
-  const showAxis = tall && zoomed
-
-  // Issue #189 defect 2: the budget is a fact about the room this mode gives
-  // the dock, not a constant borrowed from #169 regardless of mode — combined
-  // with `rowPlan`'s own lane-count cap, the row count expansion actually
-  // shows is a function of both.
-  const expandedTopN = useMemo(
-    () => topNForHeight(tall ? REPLAY_EXPANDED_HEIGHT_PX : LIVE_EXPANDED_HEIGHT_PX, rowHeight ?? ROW_HEIGHT_PX),
-    [tall, rowHeight],
-  )
+  // Ruling 13: no mode-dependent height left to gate this on — the axis
+  // shows whenever zoomed, in either mode.
+  const showAxis = zoomed
 
   const bracketLeft = zoomed ? fullScale.xOf(window_.start) : 0
   const bracketWidth = zoomed ? Math.max(1, fullScale.xOf(window_.end) - bracketLeft) : 0
@@ -354,24 +307,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
       className="grid grid-cols-[auto_1fr_minmax(0,auto)] items-center gap-x-2 gap-y-px"
       data-testid="tide-dock"
       data-mode={mode}
-      data-tide-mode={tideMode}
     >
-      <div aria-hidden="true" />
-      <div data-testid="chapter-marks-track" className="relative">
-        {width > 0 && (
-          <ChapterMarks
-            events={events}
-            start={window_.start}
-            end={window_.end}
-            width={width}
-            onSeek={onSeek}
-            seekEnabled={seekEnabled}
-            height={markLaneHeight}
-          />
-        )}
-      </div>
-      <div aria-hidden="true" />
-
       <div aria-hidden="true" />
       <div
         ref={trackRef}
@@ -381,14 +317,13 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
         onMouseDown={handleTrackMouseDown}
       >
         {width > 0 && (
-          <Tide
+          <ChapterMarks
             events={events}
             start={window_.start}
             end={window_.end}
             width={width}
-            mode={tideMode}
-            rowHeight={rowHeight}
-            topN={expandedTopN}
+            onSeek={onSeek}
+            seekEnabled={seekEnabled}
           />
         )}
         {showPlayhead && (
@@ -484,16 +419,6 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
           className={BUTTON_CLASS}
         >
           »
-        </button>
-        <button
-          type="button"
-          aria-label={expanded ? 'Collapse lane rows' : 'Expand lane rows'}
-          title={expanded ? 'Collapse lane rows' : 'Expand lane rows'}
-          aria-pressed={expanded}
-          onClick={() => setExpanded((current) => !current)}
-          className={BUTTON_CLASS}
-        >
-          {expanded ? 'Collapse' : 'Expand'}
         </button>
       </div>
     </div>
