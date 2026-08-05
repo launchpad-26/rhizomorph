@@ -41,7 +41,7 @@ describe('buildRecord', () => {
     const events = fixtureSession()
     const record = buildRecord(events, { repoSlug: 'rhizomorph-abc123', actor: ACTOR })
 
-    expect(verifyRecord(record)).toEqual({ ok: true, unknown: [], unknownVoice: null })
+    expect(verifyRecord(record)).toEqual({ ok: true })
 
     const recovered = record.body.map((link) => {
       const parsed = lineToEvent(link.line)
@@ -60,14 +60,14 @@ describe('buildRecord', () => {
     expect(parsed.ok).toBe(true)
     if (!parsed.ok) throw new Error(parsed.error)
     expect(parsed.record).toEqual(record)
-    expect(verifyRecord(parsed.record)).toEqual({ ok: true, unknown: [], unknownVoice: null })
+    expect(verifyRecord(parsed.record)).toEqual({ ok: true })
   })
 
   it('closes an empty log to the genesis digest, not an error', () => {
     const record = buildRecord([], { repoSlug: 'rhizomorph-abc123', actor: ACTOR })
     expect(record.manifest.eventCount).toBe(0)
     expect(record.body).toEqual([])
-    expect(verifyRecord(record)).toEqual({ ok: true, unknown: [], unknownVoice: null })
+    expect(verifyRecord(record)).toEqual({ ok: true })
   })
 
   it('two different actors recording the same events produce different chains', () => {

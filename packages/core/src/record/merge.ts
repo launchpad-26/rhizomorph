@@ -38,6 +38,14 @@ export interface MergedRecord {
    * understand instead of quietly folding a smaller history — which is exactly
    * what a federated merge of a newer actor's record used to do, before it
    * refused the whole record instead.
+   *
+   * Always present, empty when there is nothing to report — unlike
+   * `VerifySuccess`, which keeps these two absent for a record from this era.
+   * The difference is deliberate and is about *what the value is*: a
+   * `SessionRecord` is an artifact already exported and read by tooling outside
+   * this repo, so its verification result may not grow a key for the common
+   * case; a `MergedRecord` is a value this function mints in-process for its own
+   * caller, so the plainer always-there shape wins.
    */
   unknown: MergedUnknownLine[]
   /** {@link voiceUnknownEvents} over `unknown`, or `null` when there is nothing to say. */

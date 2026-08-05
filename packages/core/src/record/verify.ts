@@ -14,11 +14,23 @@ export interface VerifyFailure {
   detail: string
 }
 
+/**
+ * A record that verified. Additive: **a record entirely from this era verifies
+ * to exactly `{ ok: true }`, key for key, as it always did.**
+ *
+ * That is why the two fields below are optional-and-present-only rather than
+ * always-there-and-empty — the same rule, for the same reason, as
+ * `AgentState.synthetic` (prd12 ruling 3): the artifacts this ruling touches
+ * are already exported, committed to wiki pages and read by tooling outside
+ * this repo, so growing the result shape for the *common* case would be a
+ * breaking change dressed as a feature. A reader that never heard of unknowns
+ * keeps working; one that has asks `result.unknown` and gets the honest answer.
+ */
 export interface VerifySuccess {
   ok: true
   /**
    * Lines this era counted but could not fold, byte-for-byte — prd17 ruling 3,
-   * item 1. Empty for a record entirely from this era.
+   * item 1. **Absent** when there were none; never present and empty.
    *
    * A verified record with unknowns is **intact, not suspect**: the chain covers
    * `line` as opaque text, so an event family this reader has never heard of
@@ -27,13 +39,13 @@ export interface VerifySuccess {
    * recording because one line came from a later version of the same
    * instrument, and told the operator nothing about what was lost.
    */
-  unknown: UnknownEventLine[]
+  unknown?: UnknownEventLine[]
   /**
-   * {@link voiceUnknownEvents} over `unknown`, or `null` when there is nothing
-   * to say. Carried on the result rather than left to each caller so the CLI,
-   * the dashboard and a stranger's reader all voice the same sentence.
+   * {@link voiceUnknownEvents} over `unknown` — present exactly when `unknown`
+   * is. Carried on the result rather than left to each caller so the CLI, the
+   * dashboard and a stranger's reader all voice the same sentence.
    */
-  unknownVoice: string | null
+  unknownVoice?: string
 }
 
 export type VerifyResult = VerifySuccess | VerifyFailure
@@ -53,7 +65,8 @@ export type VerifyResult = VerifySuccess | VerifyFailure
  * and the chain answers only the first. What still fails is a line that is not
  * an event at all — no envelope, no usable timestamp (`malformed-line`): the
  * chain vouching for that means the emitter wrote garbage, and dressing it up
- * as "a newer era" would be a lie.
+ * as "a newer era" would be a lie. See {@link VerifySuccess} for why those two
+ * fields are absent rather than empty on a record from this era.
  *
  * The timestamp pass counts unknowns too (see {@link bodyTsRange}), so an
  * honest manifest over a body containing them never reads as tampered.
@@ -127,5 +140,7 @@ export function verifyRecord(record: SessionRecord): VerifyResult {
     }
   }
 
-  return { ok: true, unknown: read.unknown, unknownVoice: voiceUnknownEvents(read.unknown) }
+  const voice = voiceUnknownEvents(read.unknown)
+  if (voice === null) return { ok: true }
+  return { ok: true, unknown: read.unknown, unknownVoice: voice }
 }

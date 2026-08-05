@@ -73,7 +73,7 @@ describe('verifyRecord', () => {
 
   it('accepts an untampered record', () => {
     const record = tamperedRecord()
-    expect(verifyRecord(record)).toEqual({ ok: true, unknown: [], unknownVoice: null })
+    expect(verifyRecord(record)).toEqual({ ok: true })
   })
 })
 
@@ -90,8 +90,8 @@ describe('verifyRecord — a newer era is voiced, not refused', () => {
     const result = verifyRecord(withLinesAt(tamperedRecord(), 2, [FUTURE_LINE]))
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error(result.detail)
-    expect(result.unknown).toHaveLength(1)
-    expect(result.unknown[0]?.line).toBe(FUTURE_LINE)
+    expect(result.unknown ?? []).toHaveLength(1)
+    expect(result.unknown?.[0]?.line).toBe(FUTURE_LINE)
     expect(result.unknownVoice).toBe(
       '1 event from a newer era was preserved but not understood (summons.raised)',
     )
@@ -118,14 +118,18 @@ describe('verifyRecord — a newer era is voiced, not refused', () => {
     const result = verifyRecord(withLinesAt(tamperedRecord(), 0, [early]))
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error(result.detail)
-    expect(result.unknown).toHaveLength(1)
+    expect(result.unknown ?? []).toHaveLength(1)
   })
 
-  it('says nothing about unknowns for a record entirely from this era', () => {
+  it('is ADDITIVE — a record from this era still verifies to exactly `{ ok: true }`, key for key', () => {
+    // The reason the two fields are absent-unless-present rather than empty:
+    // records are already exported and read by tooling outside this repo, so
+    // growing the result shape for the common case would be a breaking change
+    // dressed as a feature. Same rule as `AgentState.synthetic` (prd12 ruling 3).
     const result = verifyRecord(tamperedRecord())
-    expect(result.ok).toBe(true)
-    if (!result.ok) throw new Error(result.detail)
-    expect(result.unknownVoice).toBeNull()
+    expect(result).toEqual({ ok: true })
+    expect(Object.keys(result)).toEqual(['ok'])
+    expect(result.ok && result.unknownVoice).toBeUndefined()
   })
 
   it('still refuses a line that is not an event at all — that is a broken emitter, not a later era', () => {
