@@ -11,3 +11,4 @@ packages/server/src/collectors/otel/parse-metrics.test.ts  # asserts end-to-end 
 packages/core/src/fixtures.ts  # exhaustive defaults map: every new event type forces an entry here
 packages/core/src/reduce.ts  # exhaustive _never switch: every new event type forces a case here
 packages/core/src/events/events.test.ts  # oneOfEach round-trip: every new event type forces a line here
+packages/server/src/server/build-app.test.ts  # asserts the /api/meta response with an EXACT shape; any additive meta field lands here (found by #180)
