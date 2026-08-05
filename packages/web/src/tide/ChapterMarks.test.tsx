@@ -155,6 +155,73 @@ describe('ChapterMarks — the styled hover card replaces the native title (issu
   })
 })
 
+describe('ChapterMarks — the hover card escapes the dock\'s flow (issue #189 defect 1, FATAL)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 12,
+      height: 18,
+      top: 100,
+      left: 200,
+      right: 212,
+      bottom: 118,
+      x: 200,
+      y: 100,
+      toJSON: () => ({}),
+    } as DOMRect)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function renderHoveredCard() {
+    const events = log((fx) => {
+      fx.at(100).agentStatus({ handle: 'ke5', status: 'working' })
+    })
+    const view = render(
+      <div data-testid="clipped-ancestor" style={{ overflow: 'hidden', position: 'static' }}>
+        <ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />
+      </div>,
+    )
+    const wrapper = screen.getByTestId('chapter-mark').parentElement as HTMLElement
+    fireEvent.mouseEnter(wrapper)
+    act(() => vi.advanceTimersByTime(150))
+    return view
+  }
+
+  it('renders the card as a child of document.body, never inside the clipped ancestor', () => {
+    renderHoveredCard()
+    const card = screen.getByTestId('chapter-mark-card')
+    const clipped = screen.getByTestId('clipped-ancestor')
+
+    expect(card.parentElement).toBe(document.body)
+    expect(clipped.contains(card)).toBe(false)
+  })
+
+  it('gives the card its own explicit stacking (position: fixed, never static)', () => {
+    renderHoveredCard()
+    const card = screen.getByTestId('chapter-mark-card')
+    expect(getComputedStyle(card).position).toBe('fixed')
+    expect(getComputedStyle(card).position).not.toBe('static')
+  })
+
+  it('positions the card from the tick\'s own getBoundingClientRect, below it', () => {
+    renderHoveredCard()
+    const card = screen.getByTestId('chapter-mark-card')
+    // The mocked rect: left 200, width 12, bottom 118 -> centre x 206, top 118 + 4px gap.
+    expect(card.style.left).toBe('206px')
+    expect(card.style.top).toBe('122px')
+  })
+
+  // NOTE: the assertion that would have caught the original regression —
+  // `document.elementFromPoint` at the card's centre resolving to the card
+  // itself, never the band or the scrubber underneath it — cannot be stated
+  // here. jsdom has no layout engine, so `elementFromPoint` never hit-tests;
+  // this needs a real-browser check (see the verification notes), the same
+  // "passive-wheel" lesson #186 already restates for this file's own
+  // `wheel` listener one lane earlier.
+})
+
 describe('ChapterMarks — coalescing under density', () => {
   it('renders one glyph per lane when marks sit far apart', () => {
     const events = log((fx) => {

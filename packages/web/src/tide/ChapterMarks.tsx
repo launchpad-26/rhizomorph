@@ -1,10 +1,12 @@
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
 } from 'react'
+import { createPortal } from 'react-dom'
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import { chapterLabel, chaptersFor, type Chapter } from './chapters.js'
 import { labelFits } from './label.js'
@@ -43,12 +45,39 @@ import { hoverThresholdMs, timeScale, type TimeScale } from './scale.js'
  * card is that bridge's declared future home (a code comment below, not an
  * implementation): a future wave adds a `fork ⎇` row per member; it does
  * not replace this card with a second one.
+ *
+ * **The card portals to `document.body` (issue #189 defect 1, FATAL).**
+ * Every ancestor up through the dock is `position: static` / `z-index: auto`
+ * — a card left in that flow paints under whatever the dock draws after it
+ * (the band, the scrubber, the axis), which is exactly the bug the operator
+ * hit: "tooltips pop up BEHIND the scrub bar." `createPortal` moves the DOM
+ * node itself to `document.body`, so no ancestor's stacking context or
+ * `overflow` can clip or bury it; position is computed from the tick's own
+ * `getBoundingClientRect()` rather than CSS flow, since the node is no
+ * longer a flow-child of the tick at all. jsdom cannot hit-test
+ * (`elementFromPoint` always misses), so the law that actually would have
+ * caught this — the card wins the point under its own centre — is a
+ * real-browser check, not a unit test; see the verification notes.
  */
 
 export const MARK_ROW_HEIGHT_PX = 10
 
 /** The YouTube "chapter title appears as you scrub" idiom's dock-chrome sibling — a deliberate delay, not a debounce for performance. */
 const HOVER_DELAY_MS = 150
+
+/** Gap between the tick's own bottom edge and the portaled card (issue #189) — replaces the flow-based `mt-1` now that the card is no longer a flow-child of the tick. */
+const CARD_GAP_PX = 4
+
+/**
+ * A conservative half-width to keep the (centred, `-translate-x-1/2`) card
+ * fully on-screen for a mark near either edge of the viewport — the same
+ * "estimate conservatively" stance `label.ts` takes, since the actual
+ * rendered width isn't known until after paint. The session's earliest marks
+ * sit at the track's own left edge by construction (ruling 2: live and
+ * replay both start the band at the session's first instant), so this is not
+ * a rare corner case — it is where `lane-born` chapters live by default.
+ */
+const CARD_HALF_WIDTH_ESTIMATE_PX = 110
 
 /** Left+right padding a tick's hit target gets beyond its 2px glyph — `label.ts`'s "estimate conservatively" philosophy applied to a target instead of a label. */
 const MARK_HIT_PADDING_PX = 5
@@ -125,6 +154,12 @@ function markShortLabel(group: MarkGroup): string {
   return `${member.lane ?? 'session'} ▸`
 }
 
+/** Where the portaled card lands — the tick's own screen rect, read once at show time and kept live while hovered (issue #189 defect 1). */
+interface CardAnchor {
+  left: number
+  top: number
+}
+
 function MarkView({
   group,
   x,
@@ -138,7 +173,8 @@ function MarkView({
   onSeek: (ts: number) => void
   seekEnabled: boolean
 }): ReactElement {
-  const [showCard, setShowCard] = useState(false)
+  const [anchor, setAnchor] = useState<CardAnchor | null>(null)
+  const wrapperRef = useRef<HTMLDivElement>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const clearTimer = () => {
@@ -148,15 +184,44 @@ function MarkView({
     }
   }
 
+  const measure = (): CardAnchor | null => {
+    const el = wrapperRef.current
+    if (el === null) return null
+    const rect = el.getBoundingClientRect()
+    const centre = rect.left + rect.width / 2
+    const viewportWidth = window.innerWidth
+    const left = Math.min(
+      Math.max(centre, CARD_HALF_WIDTH_ESTIMATE_PX),
+      Math.max(CARD_HALF_WIDTH_ESTIMATE_PX, viewportWidth - CARD_HALF_WIDTH_ESTIMATE_PX),
+    )
+    return { left, top: rect.bottom + CARD_GAP_PX }
+  }
+
   const scheduleShow = () => {
     clearTimer()
-    timerRef.current = setTimeout(() => setShowCard(true), HOVER_DELAY_MS)
+    timerRef.current = setTimeout(() => setAnchor(measure()), HOVER_DELAY_MS)
   }
 
   const hide = () => {
     clearTimer()
-    setShowCard(false)
+    setAnchor(null)
   }
+
+  // The tick doesn't move once mounted, but the viewport it's measured
+  // against can — a resize or a scroll of an ancestor while the card is open
+  // must not leave it pointing at empty space (issue #189: the card is no
+  // longer a flow-child, so CSS can no longer keep it glued to the tick).
+  useEffect(() => {
+    if (anchor === null) return
+    const reposition = () => setAnchor((current) => (current === null ? current : measure()))
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+    return () => {
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchor !== null])
 
   const label = markShortLabel(group)
   const showLabel = labelFits(availableWidthPx, label)
@@ -169,6 +234,7 @@ function MarkView({
 
   return (
     <div
+      ref={wrapperRef}
       className="absolute inset-y-0 -translate-x-1/2"
       style={{ left: x }}
       onMouseEnter={scheduleShow}
@@ -196,7 +262,11 @@ function MarkView({
           </span>
         )}
       </button>
-      {showCard && <MarkHoverCard group={group} onSeek={onSeek} seekEnabled={seekEnabled} />}
+      {anchor !== null &&
+        createPortal(
+          <MarkHoverCard group={group} onSeek={onSeek} seekEnabled={seekEnabled} anchor={anchor} />,
+          document.body,
+        )}
     </div>
   )
 }
@@ -205,16 +275,19 @@ function MarkHoverCard({
   group,
   onSeek,
   seekEnabled,
+  anchor,
 }: {
   group: MarkGroup
   onSeek: (ts: number) => void
   seekEnabled: boolean
+  anchor: CardAnchor
 }): ReactElement {
   return (
     <div
       role="dialog"
       data-testid="chapter-mark-card"
-      className="absolute left-1/2 top-full z-10 mt-1 -translate-x-1/2 whitespace-nowrap rounded border border-ice-700 bg-ice-950 p-1"
+      className="z-[9999] -translate-x-1/2 whitespace-nowrap rounded border border-ice-700 bg-ice-950 p-1"
+      style={{ position: 'fixed', left: anchor.left, top: anchor.top }}
     >
       {group.members.map((member, index) => (
         <button
