@@ -3,7 +3,10 @@ import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Exec, ExecResult } from '@rhizomorph/core'
+import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { sessionDirFor } from '../log/paths.js'
+import { readResumedCount, recordResume, RESUME_WINDOW_MS, SessionLogWriter, sessionFilePath } from '../log/session-log.js'
 import { renderDoctorReport, runDoctor, type DoctorCheck } from './doctor.js'
 
 function okResult(stdout = ''): ExecResult {
@@ -55,11 +58,14 @@ describe('runDoctor', () => {
   let repoPath: string
   let webDistDir: string
   let claudeProjectsRoot: string
+  /** Keeps the new session-boundary check off the real `~/.local/share/rhizomorph` — hermetic under concurrency. */
+  let dataRoot: string
 
   beforeEach(async () => {
     repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-repo-'))
     webDistDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-web-'))
     claudeProjectsRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-claude-'))
+    dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-data-'))
     await writeFile(path.join(webDistDir, 'index.html'), '<html></html>')
   })
 
@@ -68,6 +74,7 @@ describe('runDoctor', () => {
       rm(repoPath, { recursive: true, force: true }),
       rm(webDistDir, { recursive: true, force: true }),
       rm(claudeProjectsRoot, { recursive: true, force: true }),
+      rm(dataRoot, { recursive: true, force: true }),
     ])
   })
 
@@ -81,6 +88,7 @@ describe('runDoctor', () => {
       exec: healthyExec,
       webDistDir,
       claudeProjectsRoot,
+      dataRoot,
       nodeVersion: 'v22.5.0',
       rootPackageJsonPath: path.join(repoPath, 'does-not-exist.json'),
       env: { CLAUDE_CODE_ENABLE_TELEMETRY: '1' },
@@ -94,6 +102,7 @@ describe('runDoctor', () => {
       'web-build',
       'port',
       'session-logs',
+      'session-boundary',
       'tmux',
       'workmux',
       'telemetry',
@@ -109,6 +118,7 @@ describe('runDoctor', () => {
       exec: healthyExec,
       webDistDir,
       claudeProjectsRoot,
+      dataRoot,
       nodeVersion: 'v18.19.0',
       rootPackageJsonPath: path.join(repoPath, 'does-not-exist.json'),
     })
@@ -130,6 +140,7 @@ describe('runDoctor', () => {
       exec: healthyExec,
       webDistDir,
       claudeProjectsRoot,
+      dataRoot,
       nodeVersion: 'v22.5.0',
       rootPackageJsonPath: pkgPath,
     })
@@ -147,6 +158,7 @@ describe('runDoctor', () => {
       exec: healthyExec,
       webDistDir,
       claudeProjectsRoot,
+    dataRoot,
     })
 
     const targetPath = checkFor(report.checks, 'target-path')
@@ -168,6 +180,7 @@ describe('runDoctor', () => {
       exec: notGitExec,
       webDistDir,
       claudeProjectsRoot,
+    dataRoot,
     })
 
     const targetPath = checkFor(report.checks, 'target-path')
@@ -185,6 +198,7 @@ describe('runDoctor', () => {
         exec: healthyExec,
         webDistDir: emptyDistDir,
         claudeProjectsRoot,
+      dataRoot,
       })
 
       const webBuild = checkFor(report.checks, 'web-build')
@@ -221,6 +235,7 @@ describe('runDoctor', () => {
         exec: healthyExec,
         webDistDir,
         claudeProjectsRoot,
+        dataRoot,
         fetch: unreachableFetch,
       })
 
@@ -238,6 +253,7 @@ describe('runDoctor', () => {
         exec: healthyExec,
         webDistDir,
         claudeProjectsRoot,
+        dataRoot,
         fetch: metaFetch({ hello: 'world' }),
       })
 
@@ -254,6 +270,7 @@ describe('runDoctor', () => {
         exec: healthyExec,
         webDistDir,
         claudeProjectsRoot,
+        dataRoot,
         fetch: metaFetch({
           repoPath,
           repoName: 'my-repo',
@@ -276,6 +293,7 @@ describe('runDoctor', () => {
         exec: healthyExec,
         webDistDir,
         claudeProjectsRoot,
+        dataRoot,
         fetch: metaFetch({
           repoPath: '/somewhere/else',
           repoName: 'other-repo',
@@ -298,6 +316,7 @@ describe('runDoctor', () => {
         exec: healthyExec,
         webDistDir,
         claudeProjectsRoot,
+        dataRoot,
         fetch: unreachableFetch,
       })
 
@@ -312,6 +331,7 @@ describe('runDoctor', () => {
       exec: healthyExec,
       webDistDir,
       claudeProjectsRoot: path.join(claudeProjectsRoot, 'does-not-exist'),
+      dataRoot,
     })
 
     const sessionLogs = checkFor(report.checks, 'session-logs')
@@ -332,6 +352,7 @@ describe('runDoctor', () => {
       exec: noTmuxExec,
       webDistDir,
       claudeProjectsRoot,
+    dataRoot,
     })
 
     const tmux = checkFor(report.checks, 'tmux')
@@ -352,6 +373,7 @@ describe('runDoctor', () => {
       exec: noWorkmuxExec,
       webDistDir,
       claudeProjectsRoot,
+    dataRoot,
     })
 
     const workmux = checkFor(report.checks, 'workmux')
@@ -373,6 +395,7 @@ describe('runDoctor', () => {
       exec: brokenTmuxExec,
       webDistDir,
       claudeProjectsRoot,
+    dataRoot,
     })
 
     const tmux = checkFor(report.checks, 'tmux')
@@ -395,6 +418,7 @@ describe('runDoctor', () => {
       exec: brokenWorkmuxExec,
       webDistDir,
       claudeProjectsRoot,
+    dataRoot,
     })
 
     const workmux = checkFor(report.checks, 'workmux')
@@ -410,6 +434,7 @@ describe('runDoctor', () => {
       exec: healthyExec,
       webDistDir,
       claudeProjectsRoot,
+      dataRoot,
       env: {},
       platform: 'linux',
     })
@@ -433,6 +458,7 @@ describe('runDoctor', () => {
       exec: healthyExec,
       webDistDir,
       claudeProjectsRoot,
+      dataRoot,
       env: {},
       platform: 'win32',
     })
@@ -456,6 +482,7 @@ describe('runDoctor', () => {
       exec: healthyExec,
       webDistDir,
       claudeProjectsRoot,
+      dataRoot,
       env: {},
     })
 
@@ -466,7 +493,7 @@ describe('runDoctor', () => {
 
   describe('cli version drift check', () => {
     it('reports ok when the installed claude matches the pinned trace fixture version', async () => {
-      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot })
+      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot, dataRoot })
 
       const drift = checkFor(report.checks, 'cli-version-drift')
       expect(drift.status).toBe('ok')
@@ -480,7 +507,7 @@ describe('runDoctor', () => {
         return healthyExec(command, args)
       }
 
-      const report = await runDoctor({ path: repoPath, port: 0, exec: driftedExec, webDistDir, claudeProjectsRoot })
+      const report = await runDoctor({ path: repoPath, port: 0, exec: driftedExec, webDistDir, claudeProjectsRoot, dataRoot })
 
       const drift = checkFor(report.checks, 'cli-version-drift')
       expect(drift.status).toBe('warn')
@@ -496,7 +523,7 @@ describe('runDoctor', () => {
         return healthyExec(command, args)
       }
 
-      const report = await runDoctor({ path: repoPath, port: 0, exec: noClaudeExec, webDistDir, claudeProjectsRoot })
+      const report = await runDoctor({ path: repoPath, port: 0, exec: noClaudeExec, webDistDir, claudeProjectsRoot, dataRoot })
 
       const drift = checkFor(report.checks, 'cli-version-drift')
       expect(drift.status).toBe('warn')
@@ -510,7 +537,7 @@ describe('runDoctor', () => {
         return healthyExec(command, args)
       }
 
-      const report = await runDoctor({ path: repoPath, port: 0, exec: unparseableExec, webDistDir, claudeProjectsRoot })
+      const report = await runDoctor({ path: repoPath, port: 0, exec: unparseableExec, webDistDir, claudeProjectsRoot, dataRoot })
 
       const drift = checkFor(report.checks, 'cli-version-drift')
       expect(drift.status).toBe('warn')
@@ -521,7 +548,7 @@ describe('runDoctor', () => {
 
   describe('lane manifest check', () => {
     it('warns with a one-line fix when .swarm/lanes.json is absent, and does not fail the exit code', async () => {
-      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot })
+      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot, dataRoot })
 
       const laneManifest = checkFor(report.checks, 'lane-manifest')
       expect(laneManifest.status).toBe('warn')
@@ -540,7 +567,7 @@ describe('runDoctor', () => {
         }),
       )
 
-      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot })
+      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot, dataRoot })
 
       const laneManifest = checkFor(report.checks, 'lane-manifest')
       expect(laneManifest.status).toBe('ok')
@@ -566,7 +593,7 @@ describe('runDoctor', () => {
         }),
       )
 
-      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot })
+      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot, dataRoot })
 
       const laneManifest = checkFor(report.checks, 'lane-manifest')
       expect(laneManifest.status).toBe('ok')
@@ -578,13 +605,87 @@ describe('runDoctor', () => {
       await mkdir(path.join(repoPath, '.swarm'), { recursive: true })
       await writeFile(path.join(repoPath, '.swarm', 'lanes.json'), '{ not valid json')
 
-      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot })
+      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot, dataRoot })
 
       const laneManifest = checkFor(report.checks, 'lane-manifest')
       expect(laneManifest.status).toBe('warn')
       expect(laneManifest.message).toContain('is broken')
       expect(laneManifest.message).toContain('not valid JSON')
       expect(report.exitCode).toBe(0)
+    })
+  })
+
+  describe('session boundary check', () => {
+    it('reports first-run when no session has ever been recorded for this repo', async () => {
+      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot, dataRoot })
+
+      const boundary = checkFor(report.checks, 'session-boundary')
+      expect(boundary.status).toBe('ok')
+      expect(boundary.message).toContain('no rhizomorph session recorded yet')
+    })
+
+    it('names the session that would resume, its age, the window, resumedCount and event count', async () => {
+      const sessionDir = sessionDirFor(repoPath, dataRoot)
+      const filePath = sessionFilePath(sessionDir, '1000')
+      await new SessionLogWriter(filePath).append(
+        createEvent('session.started', { sessionId: '1000', repoPath, repoName: 'repo' }, { id: 'evt-1', ts: 1000 }),
+      )
+      await recordResume(sessionDir, '1000')
+      await recordResume(sessionDir, '1000')
+
+      const report = await runDoctor({
+        path: repoPath,
+        port: 0,
+        exec: healthyExec,
+        webDistDir,
+        claudeProjectsRoot,
+        dataRoot,
+        now: () => 1000 + 5000,
+      })
+
+      const boundary = checkFor(report.checks, 'session-boundary')
+      expect(boundary.status).toBe('ok')
+      expect(boundary.message).toContain('session 1000 would resume')
+      expect(boundary.message).toContain('resumed 2 times')
+      expect(boundary.message).toContain('1 events')
+      expect(boundary.message).toContain('--fresh')
+      expect(boundary.message).toContain('--resume-window 0')
+    })
+
+    it('names a stale previous session and that the next run starts fresh', async () => {
+      const sessionDir = sessionDirFor(repoPath, dataRoot)
+      const filePath = sessionFilePath(sessionDir, '1000')
+      await new SessionLogWriter(filePath).append(
+        createEvent('session.started', { sessionId: '1000', repoPath, repoName: 'repo' }, { id: 'evt-1', ts: 1000 }),
+      )
+
+      const report = await runDoctor({
+        path: repoPath,
+        port: 0,
+        exec: healthyExec,
+        webDistDir,
+        claudeProjectsRoot,
+        dataRoot,
+        now: () => 1000 + RESUME_WINDOW_MS + 1,
+      })
+
+      const boundary = checkFor(report.checks, 'session-boundary')
+      expect(boundary.status).toBe('ok')
+      expect(boundary.message).toContain('stale')
+      expect(boundary.message).toContain('starts a fresh one')
+    })
+
+    it('never writes anything: a doctor run is not itself a boot', async () => {
+      const sessionDir = sessionDirFor(repoPath, dataRoot)
+      const filePath = sessionFilePath(sessionDir, '1000')
+      await new SessionLogWriter(filePath).append(
+        createEvent('session.started', { sessionId: '1000', repoPath, repoName: 'repo' }, { id: 'evt-1', ts: 1000 }),
+      )
+
+      await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot, dataRoot, now: () => 2000 })
+      await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot, dataRoot, now: () => 3000 })
+
+      expect(await readResumedCount(sessionDir, '1000')).toBe(0)
     })
   })
 })

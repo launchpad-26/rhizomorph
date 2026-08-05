@@ -1,11 +1,13 @@
 import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Exec, ExecResult } from '@rhizomorph/core'
 import { lanesManifestPath, readLanesManifest } from '../api/lanes.js'
+import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
+import { decideSessionBoot, formatBootDuration } from '../log/session-log.js'
 import { exec as realExec } from '../server/exec.js'
 
 /**
@@ -38,6 +40,10 @@ export interface DoctorOptions {
   webDistDir?: string
   /** Overrides `~/.claude/projects`; tests point this at a fixture dir. */
   claudeProjectsRoot?: string
+  /** Overrides `~/.local/share/rhizomorph` — tests point this at a temp dir. */
+  dataRoot?: string
+  /** Injectable clock for the session-boundary check, so its age figures are deterministic in tests. */
+  now?: () => number
   /** Overrides `process.version`, e.g. `"v18.2.0"` — tests inject this so the check is deterministic. */
   nodeVersion?: string
   /** Overrides the root `package.json` path this reads `engines.node` from. */
@@ -66,6 +72,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
     checkWebBuild(options.webDistDir ?? defaultWebDistDir()),
     await checkPort(options.port, repoPath, fetchImpl),
     checkClaudeProjects(options.claudeProjectsRoot),
+    await checkSessionBoundary(repoPath, options.dataRoot, options.now ?? Date.now),
     await checkOptionalTool('tmux', 'tmux', ['-V'], exec),
     await checkOptionalTool('workmux', 'workmux', ['status'], exec),
     checkTelemetryEnv(options.env ?? process.env, options.platform ?? process.platform),
@@ -260,6 +267,69 @@ function checkClaudeProjects(claudeProjectsRoot?: string): DoctorCheck {
     status: 'warn',
     message: `no Claude Code session logs at ${dir} — per-agent history stays empty until \`claude\` has run at least once here (or point elsewhere with --extra-sessions)`,
   }
+}
+
+/**
+ * The session-boundary line #126's honesty style demands: which session the
+ * *next* plain `rhizomorph` boot would pick, why, and the exact flag to
+ * override it — read-only, same as every other check here, via
+ * `decideSessionBoot` (never `recordResume`, which would count as a boot).
+ * Never fails: the boundary is a default to know about, not a precondition
+ * to run.
+ */
+async function checkSessionBoundary(repoPath: string, dataRoot: string | undefined, now: () => number): Promise<DoctorCheck> {
+  const sessionDir = sessionDirFor(repoPath, dataRoot ?? defaultDataRoot())
+  const decision = await decideSessionBoot(sessionDir, now())
+  const window = formatBootDuration(decision.windowMs)
+  const forceFlag = 'force a new one with --fresh (or --resume-window 0)'
+
+  if (decision.reason === 'first-run') {
+    return {
+      id: 'session-boundary',
+      status: 'ok',
+      message: `no rhizomorph session recorded yet for ${repoPath} — the next run starts a fresh one (resume window ${window})`,
+    }
+  }
+
+  if (decision.resumed) {
+    const size = await sessionFileSize(decision.resumed.filePath)
+    const age = decision.previousAgeMs === null ? 'unknown age' : `${formatBootDuration(decision.previousAgeMs)} old`
+    return {
+      id: 'session-boundary',
+      status: 'ok',
+      message:
+        `session ${decision.resumed.sessionId} would resume — newest event ${age} < ${window} window, ` +
+        `${decision.eventCountAtBoot.toLocaleString()} events (${size}), resumed ${decision.resumedCount} ` +
+        `time${decision.resumedCount === 1 ? '' : 's'} so far — ${forceFlag}`,
+    }
+  }
+
+  const age = decision.previousAgeMs === null ? 'unreadable' : `${formatBootDuration(decision.previousAgeMs)} stale`
+  return {
+    id: 'session-boundary',
+    status: 'ok',
+    message: `previous session ${age} > ${window} window — the next run starts a fresh one`,
+  }
+}
+
+async function sessionFileSize(filePath: string): Promise<string> {
+  try {
+    const info = await stat(filePath)
+    return formatBytes(info.size)
+  } catch {
+    return 'size unknown'
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`
+  const kb = bytes / 1024
+  if (kb < 1024) return `${trimTrailingZero(kb.toFixed(1))}KB`
+  return `${trimTrailingZero((kb / 1024).toFixed(1))}MB`
+}
+
+function trimTrailingZero(value: string): string {
+  return value.endsWith('.0') ? value.slice(0, -2) : value
 }
 
 /** True only when the binary itself could not be run — not for a non-zero exit with real output (same test used by the workmux collector). */
