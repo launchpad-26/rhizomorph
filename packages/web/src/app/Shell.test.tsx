@@ -198,17 +198,29 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
    * collapsed until asked for". prd4 ruling 4 retired that fold; #164 (ACTIVITY
    * now the default tab) means CONVERSATION goes back to not reading on open
    * either, but for a different reason — it simply is not the tab that
-   * mounted. Either way, *nothing* is requested while no lane is selected,
-   * because then no drawer is mounted at all — that is the half of the claim
-   * that matters, since it is what keeps a fleet-only page silent.
+   * mounted. Either way, *nothing transcript-shaped* is requested while no
+   * lane is selected, because then no drawer is mounted at all — that is the
+   * half of the claim that matters, since it is what keeps a fleet-only page
+   * silent on the drawer's own concern.
+   *
+   * #181 fallout: `StatusBar` (mounted here regardless of selection) now
+   * fetches `/api/meta` once for its session voice — a real, independent
+   * fetch this suite's blanket "nothing was requested" proxy predates.
+   * `fetchSpy` needs a resolving default so that fetch doesn't crash the
+   * effect, and the assertions below narrow to transcript calls specifically
+   * — the thing this describe block is actually about.
    */
+  function transcriptCalls(fetchSpy: ReturnType<typeof vi.fn>): unknown[][] {
+    return fetchSpy.mock.calls.filter(([url]) => String(url).startsWith('/api/transcript'))
+  }
+
   it('issues no transcript request while nothing is selected', async () => {
-    const fetchSpy = vi.fn()
+    const fetchSpy = vi.fn(async (input: string) => ({ ok: false, url: input, json: async () => null }))
     const original = globalThis.fetch
     globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch
     try {
       await renderShell(null)
-      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(transcriptCalls(fetchSpy)).toHaveLength(0)
     } finally {
       globalThis.fetch = original
     }
@@ -220,7 +232,7 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
     globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch
     try {
       await renderShell(LANE)
-      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(transcriptCalls(fetchSpy)).toHaveLength(0)
     } finally {
       globalThis.fetch = original
     }
@@ -238,11 +250,11 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
       })
 
       // #134: the conversation opens at the tail, not offset zero.
-      expect(fetchSpy.mock.calls.map((call) => call[0])).toEqual([
+      expect(transcriptCalls(fetchSpy).map((call) => call[0])).toEqual([
         `/api/transcript/${LANE}?tail=1`,
       ])
       // One argument: a URL. No init object means no verb but GET.
-      expect(fetchSpy.mock.calls[0]).toHaveLength(1)
+      expect(transcriptCalls(fetchSpy)[0]).toHaveLength(1)
     } finally {
       globalThis.fetch = original
     }
