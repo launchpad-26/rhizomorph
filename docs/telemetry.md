@@ -177,6 +177,44 @@ all (`research/2026-07-30-telemetry-capture-routes.md` §S2). So a directory
 full of token counts is not proof the conductor's dollars were ever measured,
 and the spend panel's dollar headline says so.
 
+## The enrichment rung
+
+Before this doc gets into dollars specifically, it's worth being precise
+about what "instrumented" means at all — prd15's transcript organ (see
+[`docs/architecture.md`](architecture.md#prd15--the-anywhere-instrument-system-agnosticism))
+changed the honest floor.
+
+Every collector declares which of six signals it can actually speak to —
+`identity | liveness | activity | attention | telemetry | cost`
+(`packages/core/src/collector.ts`) — each at `provided`, `partial`, or
+`absent` (the latter two carry a one-line reason by construction, never a
+silent gap). `mergeCapabilities` folds every collector watching a lane into
+the best level any of them reaches per signal, and `deriveRung` maps the
+result onto exactly one rung:
+
+| rung | what it takes | what it gets you |
+|---|---|---|
+| **L0** | nothing — git plus the agent's own transcript, zero cooperation | full liveness + attention (waiting/working/frozen/gone) + token telemetry, **no dollars** |
+| **L1** | this doc's env block, at launch | authoritative dollars (OTLP) or estimated ones (the vendored pricing table) |
+| **L2** | a hook beacon (not shipped in this repo yet) | attention *declared* by the CLI's own hooks instead of inferred from transcript shape |
+| **L3** | a PTY wrapper, `rhizomorph run` (not shipped yet) | a live output stream |
+| **L4** | tmux/workmux | pane previews, one-keystroke ATTACH |
+
+**The load-bearing distinction: L0 is "zero-cooperation," not "zero-
+signal."** Bare git alone sits at L0 with almost every signal absent. But
+git *plus* the transcript-tail state machine (prd15 ruling 1 — every
+agent CLI's session transcript, folded as a state machine per lane, no
+tmux/hooks/terminal/OS requirement) also sits at L0, and it already has
+full liveness, activity, and **token** telemetry `provided` — the one thing
+still `absent` at L0 is `cost`, dollars specifically. So a lane can read
+tokens honestly with no setup at all; what the rest of this document is
+for is the one thing the transcript alone cannot give you: authoritative or
+estimated *dollars*, which is what climbing from L0 to L1 buys.
+`rhizomorph doctor` and `GET /api/meta` both say the rung a lane is
+actually sitting at and what climbing it requires, so "is this lane
+instrumented" always has a precise, checkable answer rather than a yes/no
+guess.
+
 ## What is a token (not a unit)
 
 **Operator ruling, 2026-07:** a "token" is not one unit. `TokenTotals`
