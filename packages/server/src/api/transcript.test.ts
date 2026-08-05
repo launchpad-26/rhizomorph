@@ -176,6 +176,36 @@ describe('candidateTranscriptPaths', () => {
   it('offers nothing when no worktree path was recorded', () => {
     expect(candidateTranscriptPaths({ sessionId: SESSION_ID, worktreePath: null }, '/root')).toEqual([])
   })
+
+  it('resolves a legitimate UUID session id exactly like any other bare filename', () => {
+    const uuid = '550e8400-e29b-41d4-a716-446655440000'
+
+    expect(candidateTranscriptPaths({ sessionId: uuid, worktreePath: WORKTREE }, '/root/projects')).toEqual([
+      path.join('/root/projects', PROJECT_SLUG, `${uuid}.jsonl`),
+      path.join(WORKTREE, `${uuid}.jsonl`),
+    ])
+  })
+
+  it('refuses a session id built to escape claudeProjectsRoot with a relative traversal', () => {
+    expect(
+      candidateTranscriptPaths(
+        { sessionId: '../../../../etc/passwd', worktreePath: WORKTREE },
+        '/root/projects',
+      ),
+    ).toEqual([])
+  })
+
+  it('refuses a session id that is itself an absolute path', () => {
+    expect(
+      candidateTranscriptPaths({ sessionId: '/etc/passwd', worktreePath: WORKTREE }, '/root/projects'),
+    ).toEqual([])
+  })
+
+  it('refuses a session id carrying an embedded NUL byte', () => {
+    expect(
+      candidateTranscriptPaths({ sessionId: 'sess-84\0.evil', worktreePath: WORKTREE }, '/root/projects'),
+    ).toEqual([])
+  })
 })
 
 describe('parseTranscriptEntry — role mapping', () => {
@@ -693,6 +723,99 @@ describe('readTranscript', () => {
     // missing, which is never "unknown identifier".
     expect(result.unknownLane).toBe(false)
   })
+
+  describe('a session id shaped like a traversal attempt (audit #173)', () => {
+    it('refuses loudly rather than opening whatever the id points at', async () => {
+      const f = createEventFactory()
+      const events = [
+        f.llmUsage({
+          lane: LANE,
+          branch: LANE,
+          sessionId: '../../../../etc/passwd',
+          worktreePath: WORKTREE,
+        }),
+      ]
+
+      const result = await readTranscript({
+        events,
+        lane: LANE,
+        offset: 0,
+        claudeProjectsRoot: projectsRoot,
+      })
+
+      expect(result.available).toBe(false)
+      if (result.available) return
+      expect(result.reason).toContain('TRANSCRIPT PATH REFUSED')
+      expect(result.reason).toContain(LANE)
+      // A resolved, attributed lane whose path was refused — never a 404.
+      expect(result.unknownLane).toBe(false)
+    })
+
+    it('refuses the conductor\'s own session the same way, naming the conductor not a lane', async () => {
+      const f = createEventFactory()
+      const events = [
+        f.llmUsage({
+          lane: 'orchestrator',
+          role: 'conductor',
+          sessionId: '/etc/passwd',
+          worktreePath: CONDUCTOR_DIR,
+        }),
+      ]
+
+      const result = await readTranscript({
+        events,
+        lane: CONDUCTOR_LANE,
+        offset: 0,
+        claudeProjectsRoot: projectsRoot,
+      })
+
+      expect(result.available).toBe(false)
+      if (result.available) return
+      expect(result.reason).toContain('TRANSCRIPT PATH REFUSED')
+      expect(result.reason).toContain('the conductor')
+      expect(result.unknownLane).toBe(false)
+    })
+
+    it('refuses a session id with an embedded NUL byte the same way', async () => {
+      const f = createEventFactory()
+      const events = [
+        f.llmUsage({ lane: LANE, branch: LANE, sessionId: 'sess-84\0.evil', worktreePath: WORKTREE }),
+      ]
+
+      const result = await readTranscript({
+        events,
+        lane: LANE,
+        offset: 0,
+        claudeProjectsRoot: projectsRoot,
+      })
+
+      expect(result.available).toBe(false)
+      if (result.available) return
+      expect(result.reason).toContain('TRANSCRIPT PATH REFUSED')
+    })
+
+    it('still resolves a legitimate UUID-shaped session id normally', async () => {
+      const uuid = '550e8400-e29b-41d4-a716-446655440000'
+      const dir = path.join(projectsRoot, PROJECT_SLUG)
+      await mkdir(dir, { recursive: true })
+      await writeFile(path.join(dir, `${uuid}.jsonl`), `${assistantLine('hi')}\n`)
+
+      const f = createEventFactory()
+      const events = [f.llmUsage({ lane: LANE, branch: LANE, sessionId: uuid, worktreePath: WORKTREE })]
+
+      const result = await readTranscript({
+        events,
+        lane: LANE,
+        offset: 0,
+        claudeProjectsRoot: projectsRoot,
+      })
+
+      expect(result.available).toBe(true)
+      if (!result.available) return
+      expect(result.sessionId).toBe(uuid)
+      expect(result.entries).toEqual([{ role: 'assistant', blocks: [{ kind: 'text', text: 'hi' }] }])
+    })
+  })
 })
 
 describe('readTranscript — tail-first open and backward paging (#134)', () => {
@@ -972,6 +1095,28 @@ describe('GET /api/transcript/:lane', () => {
       expect(response.statusCode).toBe(200)
       expect(response.json()).toMatchObject({ available: false, lane: LANE })
       expect(response.json().reason).toContain('NO SESSION LOG')
+    },
+  )
+
+  it(
+    '200s with the "transcript path refused" voice for a lane whose logged session id is a ' +
+      'traversal attempt — never silence, and never the file it points at',
+    async () => {
+      const f = createEventFactory()
+      const app = await makeApp([
+        f.llmUsage({
+          lane: LANE,
+          branch: LANE,
+          sessionId: '../../../../etc/passwd',
+          worktreePath: WORKTREE,
+        }),
+      ])
+
+      const response = await app.inject({ method: 'GET', url: `/api/transcript/${LANE}` })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toMatchObject({ available: false, lane: LANE })
+      expect(response.json().reason).toContain('TRANSCRIPT PATH REFUSED')
     },
   )
 

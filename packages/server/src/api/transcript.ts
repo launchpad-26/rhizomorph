@@ -306,21 +306,80 @@ function missingLaneGap(events: readonly RhizomorphEvent[], lane: string): strin
 }
 
 /**
+ * The one shape check standing between a `sessionId` — off the wire, or off a
+ * log a less-trusted source could have written; the core schema
+ * (`events/telemetry.ts:113`) validates it as `nonEmptyString` only, no
+ * format constraint — and a filesystem path built from it. A session id is
+ * always a bare filename, never a path: `path.basename` must return exactly
+ * what went in, which rejects any `/`, any `..` segment, and any absolute
+ * path in one check. A NUL byte is invisible to `path.basename` (it is not a
+ * separator), so it is refused explicitly.
+ */
+function isSafeSessionId(sessionId: string): boolean {
+  return !sessionId.includes('\0') && path.basename(sessionId) === sessionId
+}
+
+/**
+ * The second gate, independent of {@link isSafeSessionId}: a candidate must
+ * resolve to somewhere inside the root it was joined onto, not merely have
+ * been built from a filename that looked safe. Catches anything the shape
+ * check did not anticipate rather than trusting construction alone — the
+ * audit's ask was both checks, not either.
+ */
+function isPathContained(root: string, candidate: string): boolean {
+  const resolvedRoot = path.resolve(root)
+  const resolvedCandidate = path.resolve(candidate)
+  return resolvedCandidate === resolvedRoot || resolvedCandidate.startsWith(resolvedRoot + path.sep)
+}
+
+/**
+ * WHAT (refused, not "missing") → WHY → what to do (law 12), for the one case
+ * that is not an honest absence: the log named a session id that is not a
+ * bare filename, so no path is ever built from it. Deliberately not routed
+ * through {@link missingLaneGap}/{@link conductorGap} — "no session log"
+ * would send an operator looking for a file that may well exist somewhere,
+ * just not down the path a hostile-shaped id was trying to point at.
+ */
+function refusedTranscriptPathGap(conductor: boolean, lane: string, sessionId: string): string {
+  const whose = conductor ? 'the conductor' : `"${lane}"`
+  return (
+    `TRANSCRIPT PATH REFUSED for ${whose} — session id ${JSON.stringify(sessionId)} is not a bare ` +
+    'filename, so no path will be built from it — a session id this shape could otherwise escape ' +
+    'the directory a transcript is read from — run: `rhizomorph doctor`'
+  )
+}
+
+/**
  * Every place a lane's session file could be, in preference order — the same
  * two the collector itself tails: the slug-inferred project dir under
  * `~/.claude/projects`, and (for an `--extra-sessions` dir passed directly) the
  * declared directory itself.
+ *
+ * Refuses the shape of `attribution.sessionId` (via {@link isSafeSessionId})
+ * before any path is built, and re-checks each built path stays under its own
+ * root (via {@link isPathContained}) before offering it — the traversal guard
+ * lives here, once, rather than in the reader that opens whatever this hands
+ * back.
  */
 export function candidateTranscriptPaths(
   attribution: Attribution,
   claudeProjectsRoot: string,
 ): string[] {
-  const fileName = `${attribution.sessionId}${JSONL_SUFFIX}`
   if (attribution.worktreePath === null) return []
+  if (!isSafeSessionId(attribution.sessionId)) return []
+
+  const fileName = `${attribution.sessionId}${JSONL_SUFFIX}`
+  const projectPath = path.join(
+    claudeProjectsRoot,
+    worktreePathToProjectSlug(attribution.worktreePath),
+    fileName,
+  )
+  const worktreeSessionPath = path.join(attribution.worktreePath, fileName)
+
   return [
-    path.join(claudeProjectsRoot, worktreePathToProjectSlug(attribution.worktreePath), fileName),
-    path.join(attribution.worktreePath, fileName),
-  ]
+    isPathContained(claudeProjectsRoot, projectPath) ? projectPath : null,
+    isPathContained(attribution.worktreePath, worktreeSessionPath) ? worktreeSessionPath : null,
+  ].filter((candidate): candidate is string => candidate !== null)
 }
 
 // ── reading ──────────────────────────────────────────────────────────────────
@@ -617,6 +676,15 @@ export async function readTranscript(request: ReadTranscriptRequest): Promise<Tr
       lane,
       reason: conductor ? conductorGap(events) : missingLaneGap(events, lane),
       unknownLane,
+    }
+  }
+
+  if (!isSafeSessionId(attribution.sessionId)) {
+    return {
+      available: false,
+      lane,
+      reason: refusedTranscriptPathGap(conductor, lane, attribution.sessionId),
+      unknownLane: false,
     }
   }
 
