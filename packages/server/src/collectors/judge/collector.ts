@@ -1,4 +1,11 @@
-import type { Collector, CollectorContext, PollResult, RhizomorphEvent } from '@rhizomorph/core'
+import type {
+  AdapterCapabilities,
+  CapabilityDetail,
+  Collector,
+  CollectorContext,
+  PollResult,
+  RhizomorphEvent,
+} from '@rhizomorph/core'
 import { discoverLanes } from '../../judge/lanes.js'
 import { speculativeMergeTree } from '../../judge/mergetree.js'
 import { extractLaneSymbols, intersectSymbols } from '../../judge/symbols.js'
@@ -13,6 +20,31 @@ import { extractLaneSymbols, intersectSymbols } from '../../judge/symbols.js'
  */
 
 const COLLECTOR_NAME = 'judge'
+
+function notALaneSignal(signal: string): CapabilityDetail {
+  return {
+    level: 'absent',
+    reason: `the judge organ corroborates lanes against each other structurally; it emits no per-lane ${signal}`,
+  }
+}
+
+/**
+ * prd15's six lane signals are all `absent` here on purpose — the judge organ
+ * is not an adapter for any one lane at all (it diffs *pairs* of lanes for
+ * symbol overlap and speculative conflicts). Declaring this honestly, rather
+ * than omitting `capabilities` and taking the flattering silent default,
+ * keeps it out of every lane's rung math without a special case at the call
+ * site: `mergeCapabilities` never lets an all-`absent` contributor pull a
+ * signal another collector actually provides.
+ */
+export const JUDGE_CAPABILITIES: AdapterCapabilities = {
+  identity: notALaneSignal('identity'),
+  liveness: notALaneSignal('liveness'),
+  activity: notALaneSignal('activity'),
+  attention: notALaneSignal('attention'),
+  telemetry: notALaneSignal('telemetry'),
+  cost: notALaneSignal('cost'),
+}
 
 /** Default cadence: every 60s, not every poll tick — a LOW-cost organ stays low-cost. Flag-adjustable via `createJudgeCollector`'s options; wired from an env var in `collector-loader.ts`. */
 export const DEFAULT_JUDGE_CADENCE_MS = 60_000
@@ -52,6 +84,7 @@ export function createJudgeCollector(options: JudgeCollectorOptions = {}): Colle
 
   return {
     name: COLLECTOR_NAME,
+    capabilities: JUDGE_CAPABILITIES,
 
     initialSnapshot(): JudgeSnapshot {
       return { disabled: false, lastRunAt: null, reported: {}, laneSymbols: {} }

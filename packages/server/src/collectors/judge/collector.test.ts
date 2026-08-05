@@ -1,7 +1,7 @@
-import { createEvent, createIdFactory, createStubExec } from '@rhizomorph/core'
+import { createEvent, createIdFactory, createStubExec, SIGNALS } from '@rhizomorph/core'
 import type { CollectorContext, Exec, StubExec, StubExecRoute } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
-import { createJudgeCollector } from './collector.js'
+import { createJudgeCollector, JUDGE_CAPABILITIES } from './collector.js'
 
 /**
  * Driven purely through a scripted {@link Exec} — no real git process ever
@@ -374,5 +374,15 @@ describe('judge collector — head-movement gate (2026-08-05 adversarial audit #
       ]),
     )
     expect(mergeTreePairs).toHaveLength(2) // lane-b/lane-c pair untouched — neither of its heads moved
+  })
+})
+
+describe('judge collector — capabilities', () => {
+  it('honestly declares every prd15 lane signal absent — the judge organ corroborates lanes, it does not adapt one', () => {
+    const collector = createJudgeCollector()
+    expect(collector.capabilities).toBe(JUDGE_CAPABILITIES)
+    for (const signal of SIGNALS) {
+      expect(JUDGE_CAPABILITIES[signal].level).toBe('absent')
+    }
   })
 })
