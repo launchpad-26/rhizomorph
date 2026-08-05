@@ -23,7 +23,7 @@
   },
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.22.2"
   },
   "bin": {
     "rhizomorph": "packages/server/bin/rhizomorph.mjs"
