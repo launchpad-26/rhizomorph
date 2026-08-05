@@ -10,6 +10,7 @@ import {
 } from 'react'
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import { Scrubber } from '../replay/Scrubber.js'
+import { ChapterMarks } from './ChapterMarks.js'
 import { Tide, type TideMode } from './Tide.js'
 import { timeScale } from './scale.js'
 import { MAX_ZOOM_LEVEL, canShiftWindow, shiftWindow, windowForLevel } from './tideWindow.js'
@@ -21,17 +22,22 @@ import { MAX_ZOOM_LEVEL, canShiftWindow, shiftWindow, windowForLevel } from './t
  * `Scrubber.tsx`'s native-input law; its only job is the geometry and state
  * that make the two read as one dock (ruling 1):
  *
- * - **One x-axis.** The Tide row and the `Scrubber` row are the two rows of a
- *   `grid-template-columns: auto 1fr auto` layout — the browser's own grid
- *   track sizing, not a hand-computed offset, is what guarantees the shared
- *   column is the same width in both rows. Exactly one {@link timeScale}
- *   call backs both the Tide's own band layout and this file's playhead
- *   line/click-to-seek math, at the default (fully zoomed-out) window that
- *   both surfaces share by default.
- * - **Collapsed vs expanded is `mode` plus one bit of local state.** Live
- *   defaults collapsed with an explicit toggle (ruling 2); replay is always
- *   expanded (ruling 3) and has no toggle — `Tide`'s own row-count law
- *   (`Tide.tsx`'s module note) does the rest.
+ * - **One x-axis.** The mark row, the Tide row and the `Scrubber` row are
+ *   three rows of a `grid-template-columns: auto 1fr auto` layout — the
+ *   browser's own grid track sizing, not a hand-computed offset, is what
+ *   guarantees the shared column is the same width in every row. Exactly one
+ *   {@link timeScale} call backs the Tide's own band layout, this file's
+ *   playhead line/click-to-seek math, and `ChapterMarks`' own mark layout, at
+ *   the default (fully zoomed-out) window every surface shares by default.
+ * - **Collapsed vs expanded is `mode` plus one bit of local state — the same
+ *   bit in both modes** (prd13 ruling 12, amending #169's ruling 3: an
+ *   operator's 50-lane recording made "replay always expanded" noise, not
+ *   navigation). Both live and replay default collapsed and share the one
+ *   explicit toggle; expansion is user state, never the default — `Tide`'s
+ *   own row-count law (`Tide.tsx`'s module note) does the rest.
+ * - **The mark lane (ruling 12) is `ChapterMarks`, unmodified.** This file
+ *   supplies the same window and width the Tide row renders with and nothing
+ *   else — no coalescing threshold, no glyph, no click math lives here.
  * - **Zoom (ruling 10) is local and visual only.** It narrows which slice of
  *   `[start, end]` the *Tide's bands* are drawn over; it never restricts what
  *   the `Scrubber` can scrub (that stays the full range always, unchanged
@@ -81,8 +87,19 @@ function useElementWidth(): [RefObject<HTMLDivElement | null>, number] {
 export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled }: TideDockProps): ReactElement {
   const [trackRef, width] = useElementWidth()
 
-  const [liveExpanded, setLiveExpanded] = useState(false)
-  const tideMode: TideMode = mode === 'replay' || liveExpanded ? 'expanded' : 'collapsed'
+  // Ruling 12: collapsed is the default in both modes; expansion is a user
+  // action, never something `mode` decides on its own.
+  const [expanded, setExpanded] = useState(false)
+  const tideMode: TideMode = expanded ? 'expanded' : 'collapsed'
+
+  // Reset on an actual mode switch only — never on `[start, end]`, which in
+  // live ticks on every new event (`end` is "now"). Coupling this reset to
+  // that tick would silently collapse an operator's live "Expand" moments
+  // after they clicked it. "Replay opens collapsed" (ruling 12) applies each
+  // time you arrive at a mode, so returning to live collapses back down too.
+  useEffect(() => {
+    setExpanded(false)
+  }, [mode])
 
   const [zoomLevel, setZoomLevel] = useState(0)
   const [windowCenter, setWindowCenter] = useState(value)
@@ -143,6 +160,21 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
       data-mode={mode}
       data-tide-mode={tideMode}
     >
+      <div aria-hidden="true" />
+      <div data-testid="chapter-marks-track" className="relative">
+        {width > 0 && (
+          <ChapterMarks
+            events={events}
+            start={window_.start}
+            end={window_.end}
+            width={width}
+            onSeek={onSeek}
+            seekEnabled={seekEnabled}
+          />
+        )}
+      </div>
+      <div aria-hidden="true" />
+
       <div aria-hidden="true" />
       <div
         ref={trackRef}
@@ -206,18 +238,16 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
         >
           »
         </button>
-        {mode === 'live' && (
-          <button
-            type="button"
-            aria-label={liveExpanded ? 'Collapse lane rows' : 'Expand lane rows'}
-            title={liveExpanded ? 'Collapse lane rows' : 'Expand lane rows'}
-            aria-pressed={liveExpanded}
-            onClick={() => setLiveExpanded((expanded) => !expanded)}
-            className={BUTTON_CLASS}
-          >
-            {liveExpanded ? 'Collapse' : 'Expand'}
-          </button>
-        )}
+        <button
+          type="button"
+          aria-label={expanded ? 'Collapse lane rows' : 'Expand lane rows'}
+          title={expanded ? 'Collapse lane rows' : 'Expand lane rows'}
+          aria-pressed={expanded}
+          onClick={() => setExpanded((current) => !current)}
+          className={BUTTON_CLASS}
+        >
+          {expanded ? 'Collapse' : 'Expand'}
+        </button>
       </div>
     </div>
   )

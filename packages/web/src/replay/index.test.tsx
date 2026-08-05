@@ -438,7 +438,7 @@ describe('ReplayControls — the TIDE dock (#169)', () => {
     } as DOMRect)
   }
 
-  it('docks a TIDE with a row per lane once a session is replayed (ruling 3: expanded by default)', async () => {
+  it('docks a TIDE collapsed by default once a session is replayed (prd13 ruling 12)', async () => {
     mockTrackWidth(900)
     await renderReplay(makeLaneFetch())
 
@@ -446,6 +446,19 @@ describe('ReplayControls — the TIDE dock (#169)', () => {
     await fireAndFlush(() => fireEvent.change(select, { target: { value: 'lanes' } }))
 
     expect(screen.getByTestId('tide-dock')).toHaveAttribute('data-mode', 'replay')
+    const rows = screen.getAllByTestId('tide-row')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.dataset.rowKind).toBe('more')
+  })
+
+  it('the explicit expand affordance reveals per-lane rows in replay too (ruling 12: one bit, both modes)', async () => {
+    mockTrackWidth(900)
+    await renderReplay(makeLaneFetch())
+
+    const select = screen.getByLabelText('session')
+    await fireAndFlush(() => fireEvent.change(select, { target: { value: 'lanes' } }))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand lane rows' }))
+
     const rows = screen.getAllByTestId('tide-row')
     expect(rows.map((r) => r.dataset.lane)).toEqual(['ke5', 'm2'])
   })
@@ -492,13 +505,14 @@ describe('ReplayControls — the TIDE dock (#169)', () => {
     expect(rows.map((r) => r.dataset.lane)).toEqual(['ke5', 'm2'])
   })
 
-  it('returning to live collapses the dock back down (no per-lane rows survive the mode switch)', async () => {
+  it('returning to live collapses the dock back down (an expand left on in replay does not survive the mode switch)', async () => {
     mockTrackWidth(900)
     await renderReplay(makeLaneFetch())
 
     const select = screen.getByLabelText('session')
     await fireAndFlush(() => fireEvent.change(select, { target: { value: 'lanes' } }))
-    expect(screen.getAllByTestId('tide-row').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand lane rows' }))
+    expect(screen.getAllByTestId('tide-row').map((r) => r.dataset.lane)).toEqual(['ke5', 'm2'])
 
     fireEvent.click(screen.getByRole('button', { name: /return to live/i }))
     await waitFor(() => expect(screen.getByText('Live mode')).toBeInTheDocument())

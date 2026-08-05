@@ -41,7 +41,7 @@ function threeLaneEvents(): RhizomorphEvent[] {
   })
 }
 
-describe('TideDock — live never renders per-lane rows without the explicit expand (ruling 2)', () => {
+describe('TideDock — neither mode renders per-lane rows without the explicit expand (prd13 ruling 12)', () => {
   it('defaults collapsed in live mode: one merged row for three lanes', () => {
     render(
       <TideDock mode="live" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled={false} />,
@@ -51,9 +51,28 @@ describe('TideDock — live never renders per-lane rows without the explicit exp
     expect(rows[0]?.dataset.rowKind).toBe('more')
   })
 
+  it('defaults collapsed in replay too — the operator amendment this ruling exists for', () => {
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled />,
+    )
+    const rows = screen.getAllByTestId('tide-row')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.dataset.rowKind).toBe('more')
+  })
+
   it('the explicit expand affordance switches live to per-lane rows', () => {
     render(
       <TideDock mode="live" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled={false} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Expand lane rows' }))
+
+    const rows = screen.getAllByTestId('tide-row')
+    expect(rows.map((r) => r.dataset.lane)).toEqual(['ke5', 'm2', 'q9'])
+  })
+
+  it('the same expand affordance switches replay to per-lane rows — one bit, both modes', () => {
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'Expand lane rows' }))
 
@@ -72,23 +91,6 @@ describe('TideDock — live never renders per-lane rows without the explicit exp
     const rows = screen.getAllByTestId('tide-row')
     expect(rows).toHaveLength(1)
     expect(rows[0]?.dataset.rowKind).toBe('more')
-  })
-})
-
-describe('TideDock — replay is expanded by default (ruling 3), no toggle', () => {
-  it('shows every lane its own row without any click', () => {
-    render(
-      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled />,
-    )
-    const rows = screen.getAllByTestId('tide-row')
-    expect(rows.map((r) => r.dataset.lane)).toEqual(['ke5', 'm2', 'q9'])
-  })
-
-  it('has no expand/collapse control — replay never needs it', () => {
-    render(
-      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled />,
-    )
-    expect(screen.queryByRole('button', { name: /expand|collapse/i })).not.toBeInTheDocument()
   })
 })
 
@@ -178,5 +180,24 @@ describe('TideDock — zoom-out and window-shift affordances (ruling 10)', () =>
 
     expect(input.min).toBe('0')
     expect(input.max).toBe('10000')
+  })
+})
+
+describe('TideDock — the mark lane renders above the band (prd13 ruling 12)', () => {
+  it('renders a chapter mark for each lane, in the same track width the Tide row uses', () => {
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled />,
+    )
+    expect(screen.getAllByTestId('chapter-mark')).toHaveLength(3)
+  })
+
+  it('clicking a mark seeks to its exact ts, not the click position on the track', () => {
+    const onSeek = vi.fn()
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={onSeek} seekEnabled />,
+    )
+
+    fireEvent.click(screen.getAllByTestId('chapter-mark')[0] as HTMLElement)
+    expect(onSeek).toHaveBeenCalledWith(100)
   })
 })
