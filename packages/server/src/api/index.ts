@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import type { ServerContext } from '../server/context.js'
+import { registerLabelRoute } from './label.js'
 import { registerLanesRoute } from './lanes.js'
 import { registerMetaRoute } from './meta.js'
 import { registerOtelRoutes } from './otel.js'
@@ -15,7 +16,8 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   registerOtelRoutes(app, ctx)
   registerLanesRoute(app, ctx)
   registerTranscriptRoute(app, ctx)
-  // The one mutating route (prd16 ruling 2) — see `rotate.ts` for why it is
-  // allowed to exist and what still may not.
+  // The app's two mutating routes (prd16 rulings 2 and 4) — see `rotate.ts`
+  // and `label.ts` for why each is allowed to exist and what still may not.
   registerRotateRoute(app, ctx)
+  registerLabelRoute(app, ctx)
 }
