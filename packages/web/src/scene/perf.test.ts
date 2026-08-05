@@ -385,18 +385,22 @@ describe(`sprite-blit vs per-frame gradient-glow at N=${N}`, () => {
  * `sceneMarks`, `paint` — at thirty lanes with a cord mid-cut, which is the
  * frame a dissolve is drawn in.
  */
-function fleet30(): Fleet {
+function fleetSized(total: number): Fleet {
   const state = reduceAll(fixtureHistory(fleet20Spec(), NOW))
   const base = buildFleet(state, { now: NOW, manifest: manifestFor(fleet20Spec()) })
   return {
     ...base,
-    lanes: Array.from({ length: 30 }, (_unused, i) => ({
+    lanes: Array.from({ length: total }, (_unused, i) => ({
       ...(base.lanes[i % base.lanes.length] as (typeof base.lanes)[number]),
       id: `lane-${i}`,
       handles: [`lane-${i}`],
       slot: i,
     })),
   }
+}
+
+function fleet30(): Fleet {
+  return fleetSized(30)
 }
 
 /**
@@ -741,5 +745,223 @@ describe('the marks stage, by builder', () => {
     // out of the profile.
     expect(ranked).toHaveLength(10)
     for (const [name, ms] of ranked) expect(ms, `${name} was not measured`).toBeGreaterThanOrEqual(0)
+  }, BENCH_TIMEOUT_MS)
+})
+
+/**
+ * A LONG-LIVED FIELD OF RETIRED STRANDS (#175, the 2026-08-05 adversarial audit).
+ *
+ * The audit's own reading of prd10 rulings 13–16: since #161 a finished lane's
+ * strand is never removed (`byDepth`, `marks/index.ts:54`), and every thread —
+ * finished included — gets a full `ThreadGeometry` from `layoutScene` every
+ * frame (`geometry.ts:773`). The `mostlyFinished` suite above already measured
+ * 24-of-30 finished; the field it left unmeasured is the one a multi-day
+ * session actually accumulates — thirty *working* lanes standing in front of a
+ * hundred or two hundred lanes that landed hours or days ago and are never
+ * coming back. This suite is that field, at the sizes the audit named.
+ *
+ * **This lane MEASURES. It does not build the cache** the audit's finding
+ * points at (`heart.ts`'s memo is the model for it) — that is a separate
+ * groomed lane, gated on what this file reports.
+ *
+ * Same interleaved discipline as every suite above and for the same reason
+ * (#157): `living30` (the ceiling — thirty lanes, all working, nothing
+ * retired), `persistent100`/`persistent200` (thirty working standing in front
+ * of a hundred/two hundred retired) and `hidden100`/`hidden200` (the same
+ * fields with HIDE FINISHED on) are drawn one frame each per round, so a
+ * sibling worktree's test run inflates all five equally rather than forging a
+ * comparison between them.
+ *
+ * **THE HIDE FINISHED QUESTION (prd10 ruling 16), answered by construction
+ * first.** `layoutScene` computes a retired lane's full spine — the Catmull-Rom
+ * fit, the release deformation, the homeward-flow resample — and only *after*
+ * that full build calls `persistence()` (`geometry.ts:1357`), which copies the
+ * finished path (`path: [...path]`) and sets one boolean:
+ * `hidden: hideFinished && cut.stage === 'persistent'`. The toggle is consumed
+ * downstream — `persistentMarks` (`marks/thread.ts:320`) and the node/label
+ * builders check `cut.hidden` and return `[]` before building any mark — but
+ * nothing before that point reads it. So the geometry a hidden lane gets is
+ * *identical* to the geometry the same lane gets when shown; the assertion
+ * below proves it by comparing the two paths directly rather than by a timing
+ * that could be circumstantial. **HIDE FINISHED skips paint only. The
+ * `layoutScene` build and cost is paid whether or not the operator can see the
+ * result.**
+ *
+ * **What it measured, on the dev box** — median of three consecutive
+ * interleaved runs (the suite alone, filtered by name, so the numbers below
+ * are not also carrying 144 sibling test files the way a whole-file run does):
+ *
+ * | frame                                     | median   | worst    | marks | layout / marks / paint  | budget |
+ * | ------------------------------------------ | -------- | -------- | ----- | ------------------------ | ------ |
+ * | living30 — the ceiling (paired w/ 100)     |  8.02 ms | 15.55 ms |  331  | 0.68 / 6.78 / 0.59 ms    | 48.1%  |
+ * | persistent100 — 30 living + 100 retired    | 22.10 ms | 51.21 ms |  831  | 3.87 / 16.71 / 1.53 ms   | 132.6% |
+ * | hidden100 — same, HIDE FINISHED on         | 12.61 ms | 24.97 ms |  431  | 3.03 / 7.84 / 1.07 ms    | 75.6%  |
+ * | living30 — the ceiling (paired w/ 200)     |  6.73 ms |  9.04 ms |  331  | 0.35 / 5.87 / 0.50 ms    | 40.4%  |
+ * | persistent200 — 30 living + 200 retired    | 28.37 ms | 60.54 ms | 1331  | 4.28 / 19.89 / 2.93 ms   | 170.2% |
+ * | hidden200 — same, HIDE FINISHED on         | 13.43 ms | 16.02 ms |  531  | 4.05 / 7.28 / 1.70 ms    | 80.6%  |
+ *
+ * (Three runs agreed on both ordering and rough magnitude — see the suite's
+ * own `report()` lines for the other two. The box this ran on measures busier
+ * than the 6.4 ms the file's earlier headers record for the same 30-living-lane
+ * frame taken on a quieter day; per #157's own lesson, read the *ratios* as the
+ * portable signal and the absolutes as this box on this day.)
+ *
+ * **STOP — the budget is threatened, and not only at 200.** A hundred retired
+ * lanes standing behind thirty living ones already costs 2.6–2.8× the
+ * living-only frame and clears the 16.67 ms budget on its own (132.6% of it,
+ * median); two hundred is 4.2–4.7× and 170.2%. `layoutScene`'s per-lane spine
+ * build is the growing half of that (0.68→3.87→4.28 ms as the retired count
+ * goes 0→100→200 — roughly linear in total lane count, as the audit's [Read]
+ * claim said), and the marks stage the other (6.78→16.71→19.89 ms), because
+ * `persistentMarks` still allocates a ribbon per finished lane every frame.
+ * **HIDE FINISHED helps but does not close the gap**: it removes the marks
+ * stage's growth (431/531 marks vs. 831/1331) but not the layout stage's,
+ * because — the paragraph above, now with numbers — the geometry is built
+ * before the toggle is ever read. Even hidden, a 200-retired field still
+ * spends 80.6% of the frame budget on thirty *working* lanes' worth of visual
+ * result. This is exactly the audit's P2 finding, confirmed rather than
+ * merely read: the fix is a per-strand geometry cache (a finished strand's
+ * shape never changes once retired), the pattern `heart.ts` already models,
+ * and it is out of this lane's fence — a separate groomed lane, now backed by
+ * a measured rather than hypothesised case for doing it.
+ */
+describe('a long field of retired strands (#175, prd10 rulings 13-16)', () => {
+  /** Every lane at index ≥ `livingCount` is settled past the last mote. */
+  function retiredBeyond(fleet: Fleet, livingCount: number): ReadonlyMap<string, RetireState> {
+    const settled = returnAt(RETURN.dissolvedMs)
+    return new Map(fleet.lanes.slice(livingCount).map((lane) => [lane.id, settled]))
+  }
+
+  const LIVING_COUNT = 30
+  /** Fewer than the 60-round suites above: each round now draws up to five
+   * frames of a 230-lane field rather than one of a 30-lane one, and the
+   * interleave's whole point survives on far fewer samples than a single-frame
+   * suite needs — the comparison is between columns of the same round, not
+   * within one column across many. */
+  const ROUNDS = 30
+
+  function measureField(retiredCount: number): void {
+    const fleet = fleetSized(LIVING_COUNT + retiredCount)
+    const livingFleet = fleetSized(LIVING_COUNT)
+    const retire = retiredBeyond(fleet, LIVING_COUNT)
+    const draw = stub()
+
+    const frame = (
+      now: number,
+      of: Fleet,
+      cuts: ReadonlyMap<string, RetireState> | undefined,
+      hideFinished: boolean,
+      into?: Stages,
+    ): number => {
+      const at = () => performance.now()
+      const t0 = at()
+      const geometry = layoutScene(of, { ...SIZE, now, retire: cuts, hideFinished })
+      const t1 = at()
+      const marks = sceneMarks(frameFor(of, geometry, now))
+      const t2 = at()
+      paint({ ctx: draw.ctx, marks, ...SIZE, dpr: 2 })
+      const t3 = at()
+      if (into !== undefined) {
+        into.layout.push(t1 - t0)
+        into.marks.push(t2 - t1)
+        into.paint.push(t3 - t2)
+      }
+      return marks.length
+    }
+
+    const living = (now: number, into?: Stages) => frame(now, livingFleet, undefined, false, into)
+    const persistent = (now: number, into?: Stages) => frame(now, fleet, retire, false, into)
+    const hidden = (now: number, into?: Stages) => frame(now, fleet, retire, true, into)
+    const variants = [
+      ['living30', living],
+      [`persistent${retiredCount}`, persistent],
+      [`hidden${retiredCount}`, hidden],
+    ] as const
+
+    let clock = NOW
+    withPath2D(() => {
+      // Warm the JIT on all three, so the first measured round is steady state.
+      for (let i = 0; i < 8; i += 1) {
+        clock = NOW + i * 16
+        for (const [, work] of variants) work(clock)
+      }
+
+      const stagesOf = (): Stages => ({ layout: [], marks: [], paint: [] })
+      const stages: Record<string, Stages> = {}
+      const samples: Record<string, number[]> = {}
+      for (const [name] of variants) {
+        stages[name] = stagesOf()
+        samples[name] = []
+      }
+
+      // INTERLEAVED: one frame of each variant per round (#157) — the only
+      // comparison that survives a loaded box, since all three see the same
+      // instant rather than being timed minutes apart.
+      for (let i = 0; i < ROUNDS; i += 1) {
+        clock += 16
+        for (const [name, work] of variants) {
+          const started = performance.now()
+          work(clock, stages[name])
+          samples[name]?.push(performance.now() - started)
+        }
+      }
+
+      const worst = (of: readonly number[]): number => Math.max(...of)
+      const counts: Record<string, number> = {}
+      for (const [name, work] of variants) counts[name] = work(clock)
+
+      for (const [name] of variants) {
+        const sample = samples[name] as number[]
+        const stage = stages[name] as Stages
+        report(
+          `retired-field ${name}: ${median(sample).toFixed(3)} ms median · ` +
+            `${worst(sample).toFixed(3)} ms worst · ${counts[name]} marks · ` +
+            `layout ${median(stage.layout).toFixed(3)} / marks ${median(stage.marks).toFixed(3)} / ` +
+            `paint ${median(stage.paint).toFixed(3)} ms ` +
+            `(60fps budget ${FRAME_MS.toFixed(2)} ms — ` +
+            `${((median(sample) / FRAME_MS) * 100).toFixed(1)}% median, ` +
+            `${((worst(sample) / FRAME_MS) * 100).toFixed(1)}% worst)`,
+        )
+      }
+
+      // THE LAW, and it is a count. HIDE FINISHED really does take the retired
+      // field off the canvas (ruling 16), whatever the field's size.
+      expect(counts[`hidden${retiredCount}`] as number).toBeLessThan(
+        counts[`persistent${retiredCount}`] as number,
+      )
+
+      // Every retired lane still draws its strand when it is not hidden, and
+      // none when it is — the count moves because a strand is cheap, never
+      // because a lane went missing.
+      const shownGeometry = layoutScene(fleet, { ...SIZE, now: clock, retire, hideFinished: false })
+      const shownMarks = sceneMarks(frameFor(fleet, shownGeometry, clock))
+      const shownStrands = shownMarks.filter((mark) => mark.role === 'persist')
+      expect(shownStrands).toHaveLength(retiredCount)
+
+      const hiddenGeometry = layoutScene(fleet, { ...SIZE, now: clock, retire, hideFinished: true })
+      const hiddenMarks = sceneMarks(frameFor(fleet, hiddenGeometry, clock))
+      expect(hiddenMarks.filter((mark) => mark.role === 'persist')).toHaveLength(0)
+
+      // THE HIDE FINISHED QUESTION, pinned as a count rather than argued from
+      // the code alone: `layoutScene` builds the identical strand whether or
+      // not it will ever be shown. Same lane, same retire map, only the toggle
+      // differs — if the geometry differed this would fail.
+      expect(hiddenGeometry.threads).toHaveLength(shownGeometry.threads.length)
+      const probeId = fleet.lanes[LIVING_COUNT]?.id as string
+      const shownThread = shownGeometry.threads.find((t) => t.laneId === probeId)
+      const hiddenThread = hiddenGeometry.threads.find((t) => t.laneId === probeId)
+      expect(hiddenThread?.path).toEqual(shownThread?.path)
+      expect(hiddenThread?.filaments).toEqual(shownThread?.filaments)
+      expect(shownThread?.retire?.hidden).toBe(false)
+      expect(hiddenThread?.retire?.hidden).toBe(true)
+    })
+  }
+
+  it('reports 30 living + 100 retired against the living ceiling', () => {
+    measureField(100)
+  }, BENCH_TIMEOUT_MS)
+
+  it('reports 30 living + 200 retired against the living ceiling', () => {
+    measureField(200)
   }, BENCH_TIMEOUT_MS)
 })
