@@ -174,6 +174,97 @@ describe('useTranscript — opening at the tail (#134)', () => {
   })
 })
 
+describe('useTranscript — per-lane cache, switching back never blanks (#191)', () => {
+  it('shows a previously-read lane\'s own entries instantly on switching back, and resumes forward instead of re-opening the tail', async () => {
+    const fetchImpl = scriptedFetch([
+      chunk([said('user', 'lane a turn 1')], 10), // lane-a tail-open
+      chunk([said('user', 'lane b turn 1')], 10), // lane-b tail-open
+      chunk([said('user', 'lane a turn 2')], 20, { offset: 10 }), // lane-a resumed forward
+    ])
+
+    const { result, rerender } = renderHook(
+      ({ lane }: { lane: string }) => useTranscript(lane, { fetchImpl, pollMs: 0 }),
+      { initialProps: { lane: 'lane-a' } },
+    )
+    await act(async () => {})
+    expect(result.current.entries).toHaveLength(1)
+    expect(textOf(result.current.entries[0])).toBe('lane a turn 1')
+
+    act(() => rerender({ lane: 'lane-b' }))
+    await act(async () => {})
+    expect(textOf(result.current.entries[0])).toBe('lane b turn 1')
+
+    // Switching back to lane-a: its own entry is on screen the instant this
+    // commits — no empty or loading frame — read BEFORE the resumed fetch
+    // below is even awaited.
+    act(() => rerender({ lane: 'lane-a' }))
+    expect(result.current.entries).toHaveLength(1)
+    expect(textOf(result.current.entries[0])).toBe('lane a turn 1')
+    expect(result.current.status).toBe('ready')
+
+    await act(async () => {})
+
+    // Resumed from the cached offset (10), not re-opened at the tail — the
+    // tail would have re-fetched the same page and doubled it.
+    expect(fetchImpl.urls).toEqual([
+      transcriptTailUrl('lane-a'),
+      transcriptTailUrl('lane-b'),
+      transcriptUrl('lane-a', 10),
+    ])
+    expect(result.current.entries).toHaveLength(2)
+    expect(textOf(result.current.entries[1])).toBe('lane a turn 2')
+  })
+
+  it('never shows the outgoing lane\'s entries once a genuinely new lane is selected', async () => {
+    const fetchImpl = scriptedFetch([
+      chunk([said('user', 'lane a turn 1')], 10),
+      chunk([said('user', 'lane b turn 1')], 10),
+    ])
+
+    const { result, rerender } = renderHook(
+      ({ lane }: { lane: string }) => useTranscript(lane, { fetchImpl, pollMs: 0 }),
+      { initialProps: { lane: 'lane-a' } },
+    )
+    await act(async () => {})
+
+    act(() => rerender({ lane: 'lane-b' }))
+    // A lane never seen before shows loading/empty, never lane-a's turn.
+    expect(result.current.entries).toHaveLength(0)
+    expect(result.current.status).toBe('loading')
+
+    await act(async () => {})
+    expect(result.current.entries).toHaveLength(1)
+    expect(textOf(result.current.entries[0])).toBe('lane b turn 1')
+  })
+
+  it('clearing to no lane, then reselecting the same one, still recovers from cache rather than refetching from empty', async () => {
+    const fetchImpl = scriptedFetch([
+      chunk([said('user', 'lane a turn 1')], 10),
+      chunk([said('user', 'lane a turn 2')], 20, { offset: 10 }),
+    ])
+
+    const { result, rerender } = renderHook(
+      ({ lane }: { lane: string | null }) => useTranscript(lane, { fetchImpl, pollMs: 0 }),
+      { initialProps: { lane: 'lane-a' as string | null } },
+    )
+    await act(async () => {})
+    expect(result.current.entries).toHaveLength(1)
+
+    // A parent that briefly loses the lane (this hook's own #191 worry) and
+    // then resolves back to the same one — never a re-fetch from byte zero.
+    act(() => rerender({ lane: null }))
+    expect(result.current.entries).toHaveLength(0)
+
+    act(() => rerender({ lane: 'lane-a' }))
+    expect(result.current.entries).toHaveLength(1)
+    expect(textOf(result.current.entries[0])).toBe('lane a turn 1')
+
+    await act(async () => {})
+    expect(fetchImpl.urls).toEqual([transcriptTailUrl('lane-a'), transcriptUrl('lane-a', 10)])
+    expect(result.current.entries).toHaveLength(2)
+  })
+})
+
 describe('useTranscript — eager catch-up burst, never one page per tick (#134)', () => {
   it('a single refresh() awaits every page the server says is left, in one call', async () => {
     const fetchImpl = scriptedFetch([

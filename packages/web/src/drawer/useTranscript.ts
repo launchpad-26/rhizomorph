@@ -274,11 +274,22 @@ export function useTranscript(lane: string | null, options: UseTranscriptOptions
   const stateRef = useRef<TranscriptState>(IDLE_TRANSCRIPT)
   const liveRef = useRef(true)
 
-  useEffect(() => {
-    const next = lane === null ? IDLE_TRANSCRIPT : { ...IDLE_TRANSCRIPT, status: 'loading' as const }
+  /**
+   * Last-good state per lane, scoped to THIS hook instance (#191) — never a
+   * module-level cache, which would leak one drawer's session into the next
+   * one it opens and one test's fetch into another's. A lane this instance
+   * has already read shows its own held page instantly on switching back to
+   * it rather than the empty/loading frame a lane it has never seen gets, and
+   * switching AWAY never shows through the outgoing lane's entries either,
+   * because every read and write below is keyed by lane.
+   */
+  const laneCacheRef = useRef<Map<string, TranscriptState>>(new Map())
+
+  const commit = useCallback((forLane: string | null, next: TranscriptState) => {
     stateRef.current = next
+    if (forLane !== null) laneCacheRef.current.set(forLane, next)
     setState(next)
-  }, [lane])
+  }, [])
 
   const fetchJson = useCallback(
     async (url: string): Promise<unknown> => {
@@ -292,36 +303,44 @@ export function useTranscript(lane: string | null, options: UseTranscriptOptions
     [fetchImpl],
   )
 
-  const fail = useCallback((error: unknown) => {
-    if (!liveRef.current) return
-    const next: TranscriptState = {
-      ...stateRef.current,
-      status: 'error',
-      reason: `TRANSCRIPT UNREACHABLE — ${error instanceof Error ? error.message : String(error)} — is the Rhizomorph server still running?`,
-    }
-    stateRef.current = next
-    setState(next)
-  }, [])
+  const fail = useCallback(
+    (forLane: string | null, error: unknown) => {
+      if (!liveRef.current) return
+      const next: TranscriptState = {
+        ...stateRef.current,
+        status: 'error',
+        reason: `TRANSCRIPT UNREACHABLE — ${error instanceof Error ? error.message : String(error)} — is the Rhizomorph server still running?`,
+      }
+      commit(forLane, next)
+    },
+    [commit],
+  )
 
-  // The initial open, and every lane change: land on the newest page in one
-  // round trip rather than chasing `nextOffset` up from byte zero (#134).
+  // The initial open, and every never-before-seen lane: land on the newest
+  // page in one round trip rather than chasing `nextOffset` up from byte zero
+  // (#134). A lane already in this instance's own cache resumes through
+  // `refresh` instead (below) — this always replaces onto whatever `stateRef`
+  // held, so calling it against a cached, already-`ready` state would fold
+  // the newest page on top of itself and double it.
   const open = useCallback(async () => {
     if (lane === null) return
     try {
       const body = await fetchJson(transcriptTailUrl(lane))
       if (!liveRef.current) return
       const next = foldChunk(stateRef.current, body)
-      stateRef.current = next
-      setState(next)
+      commit(lane, next)
     } catch (error) {
-      fail(error)
+      fail(lane, error)
     }
-  }, [lane, fetchJson, fail])
+  }, [lane, fetchJson, fail, commit])
 
   // Forward follow, eager rather than one-page-per-tick (#134): as long as the
   // server says there is more beyond the page just read, this asks again in
   // the same call instead of waiting for the next poll — a bounded, awaited
-  // burst, never a multi-tick lag behind a bursty writer.
+  // burst, never a multi-tick lag behind a bursty writer. Also how a
+  // re-selected, cached lane resumes (#191): forward from its own held
+  // `offset`, never re-opening the tail, which would fold the newest page
+  // onto what is already shown and double it.
   const refresh = useCallback(async () => {
     if (lane === null) return
     for (let page = 0; page < MAX_CATCHUP_PAGES; page += 1) {
@@ -329,33 +348,30 @@ export function useTranscript(lane: string | null, options: UseTranscriptOptions
       try {
         body = await fetchJson(transcriptUrl(lane, stateRef.current.offset))
       } catch (error) {
-        fail(error)
+        fail(lane, error)
         return
       }
       if (!liveRef.current) return
       const next = foldChunk(stateRef.current, body)
-      stateRef.current = next
-      setState(next)
+      commit(lane, next)
       if (next.eof) return
     }
-  }, [lane, fetchJson, fail])
+  }, [lane, fetchJson, fail, commit])
 
   // "Load earlier": the one page immediately before what is already loaded.
   const loadEarlier = useCallback(async () => {
     if (lane === null || stateRef.current.earliestOffset <= 0) return
     const loading = { ...stateRef.current, loadingEarlier: true }
-    stateRef.current = loading
-    setState(loading)
+    commit(lane, loading)
     try {
       const body = await fetchJson(transcriptBeforeUrl(lane, loading.earliestOffset))
       if (!liveRef.current) return
       const next = foldEarlierChunk(stateRef.current, body)
-      stateRef.current = next
-      setState(next)
+      commit(lane, next)
     } catch (error) {
-      fail(error)
+      fail(lane, error)
     }
-  }, [lane, fetchJson, fail])
+  }, [lane, fetchJson, fail, commit])
 
   useEffect(() => {
     liveRef.current = true
@@ -364,13 +380,25 @@ export function useTranscript(lane: string | null, options: UseTranscriptOptions
     }
   }, [])
 
+  // Lands on a lane, and keeps following it. `null` clears the visible state
+  // (no drawer, nothing to show) without touching that lane's own cache entry
+  // — so if `lane` resolves back to the same value on a later render (a
+  // parent re-fold that briefly lost it, #191's own worry), the branch below
+  // finds it again rather than refetching from empty. `cached` is read before
+  // `commit` runs, since `commit` is what writes this same lane's entry —
+  // reading it after would always see what was just written.
   useEffect(() => {
-    if (lane === null) return
-    void open()
+    if (lane === null) {
+      commit(null, IDLE_TRANSCRIPT)
+      return
+    }
+    const cached = laneCacheRef.current.get(lane)
+    commit(lane, cached ?? { ...IDLE_TRANSCRIPT, status: 'loading' as const })
+    void (cached === undefined ? open() : refresh())
     if (pollMs <= 0) return
     const timer = setInterval(() => void refresh(), pollMs)
     return () => clearInterval(timer)
-  }, [lane, pollMs, open, refresh])
+  }, [lane, pollMs, open, refresh, commit])
 
   return { ...state, refresh, loadEarlier }
 }
