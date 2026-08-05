@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import type { ServerContext } from '../server/context.js'
 import { registerLabelRoute } from './label.js'
+import { registerLabRoutes } from './lab.js'
 import { registerLanesRoute } from './lanes.js'
 import { registerMetaRoute } from './meta.js'
 import { registerOtelRoutes } from './otel.js'
@@ -20,4 +21,8 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   // and `label.ts` for why each is allowed to exist and what still may not.
   registerRotateRoute(app, ctx)
   registerLabelRoute(app, ctx)
+  // Read-only routes over the laboratory's checkpoint/experiment slice
+  // (prd14 wave 1) — see `lab.ts`'s own doc for why this never imports
+  // `server/src/lab/` directly.
+  registerLabRoutes(app, ctx)
 }
