@@ -88,6 +88,28 @@ the scene — the answer is no.
     no", recorded in `packages/web/src/panels/burn/format.ts`). The spike's
     first open question is closed.
 
+## Ruling 12 — chapters over tide (operator amendment, 2026-08-05)
+
+Ruling 4's replay default was wrong at scale, and the operator caught it on
+the first real session: expanded per-lane rows against a 50-lane recording
+are noise, not navigation. Amended:
+
+- **Replay defaults to the collapsed density band, same as live.** Per-lane
+  rows are opt-in via the expand affordance in both modes.
+- **The bar's glance layer is a sparse CHAPTER-MARK lane** above the band:
+  lane born, lane landed, gate held, attention-summons onset, session
+  boundary. Each mark is click-to-seek; hover carries the who/what/when in
+  the ruling-6 voice; marks coalesce with a count under density — the
+  existing coalescing law, applied to marks.
+- **One vocabulary with prd12.** These are exactly the moments prd12 ruling 2
+  names as checkpoint moments (dispatch, gate entry, operator command). When
+  the laboratory lands, forkable marks gain the fork affordance — chapters
+  today, fork origins tomorrow, no second timeline vocabulary. The bridge is
+  stated here and built in prd14.
+- Marks derive from the event log through a pure selector beside `bandsFor`
+  (same laws: single pass, deterministic, prefix-consistent). No new hue, no
+  new motion class; a mark is still, like everything else on the transport.
+
 ## Sequencing
 
 The TIDE is worth roughly what the spike's cheap wins were worth *combined*,
