@@ -12,6 +12,33 @@ export const sessionStartedPayloadSchema = z.object({
 })
 export type SessionStartedPayload = z.infer<typeof sessionStartedPayloadSchema>
 
+/**
+ * Why a session log ended. prd16 ruling 2 gives the recorder exactly one way
+ * to end one — the operator's explicit rotation — so that is the only member
+ * today; prd17 ruling 1 may widen this enum additively (a widened enum still
+ * parses every log written before it).
+ */
+export const SESSION_CLOSE_REASONS = ['rotated'] as const
+export type SessionCloseReason = (typeof SESSION_CLOSE_REASONS)[number]
+
+/**
+ * prd17 ruling 1: "a session's end is an event, not an absence". The last line
+ * of a closed log, appended before the file is fsynced and the recorder moves
+ * on — so a reader can tell a session the operator ended from one whose writer
+ * was killed mid-run (which leaves no such line), without consulting anything
+ * beside the log.
+ *
+ * `sessionId` is the closed session's own id, not the one that follows it: this
+ * event belongs to the log it terminates.
+ */
+export const sessionClosedPayloadSchema = z.object({
+  sessionId: nonEmptyString,
+  reason: z.enum(SESSION_CLOSE_REASONS),
+  /** How many events the closed log holds, counting this one. Optional so a third-party emitter that doesn't count can still close a session honestly. */
+  eventCount: z.number().int().positive().optional(),
+})
+export type SessionClosedPayload = z.infer<typeof sessionClosedPayloadSchema>
+
 export const collectorErrorPayloadSchema = z.object({
   collector: nonEmptyString,
   message: z.string(),
@@ -63,6 +90,11 @@ export const sessionStartedEventSchema = envelope(
   'session.started',
   sessionStartedPayloadSchema,
 )
+export const sessionClosedEventSchema = envelope(
+  'system',
+  'session.closed',
+  sessionClosedPayloadSchema,
+)
 export const collectorErrorEventSchema = envelope(
   'system',
   'collector.error',
@@ -86,6 +118,7 @@ export const collectorRecoveredEventSchema = envelope(
 
 export const systemEventSchemas = [
   sessionStartedEventSchema,
+  sessionClosedEventSchema,
   collectorErrorEventSchema,
   collectorDisabledEventSchema,
   collectorDegradedEventSchema,

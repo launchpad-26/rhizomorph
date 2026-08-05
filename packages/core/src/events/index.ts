@@ -62,6 +62,9 @@ export const EVENT_SOURCE_BY_TYPE = {
   'pane.activity': 'tmux',
   'agent.status': 'workmux',
   'session.started': 'system',
+  // prd16 ruling 2 / prd17 ruling 1: the recorder's own hand closing a log.
+  // `system`, like the start it terminates — no collector ever emits it.
+  'session.closed': 'system',
   'collector.error': 'system',
   'collector.disabled': 'system',
   'collector.degraded': 'system',

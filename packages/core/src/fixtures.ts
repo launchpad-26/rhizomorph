@@ -48,6 +48,8 @@ export interface EventFactory {
   make<T extends EventType>(type: T, payload: PayloadOf<T>, init?: Init<T>): EventOf<T>
 
   sessionStarted(payload?: Partial<PayloadOf<'session.started'>>, init?: Init<'session.started'>): EventOf<'session.started'>
+  /** prd16 ruling 2 / prd17 ruling 1: the last line of a rotated-away log. */
+  sessionClosed(payload?: Partial<PayloadOf<'session.closed'>>, init?: Init<'session.closed'>): EventOf<'session.closed'>
   collectorError(payload?: Partial<PayloadOf<'collector.error'>>, init?: Init<'collector.error'>): EventOf<'collector.error'>
   collectorDisabled(payload?: Partial<PayloadOf<'collector.disabled'>>, init?: Init<'collector.disabled'>): EventOf<'collector.disabled'>
   collectorDegraded(payload?: Partial<PayloadOf<'collector.degraded'>>, init?: Init<'collector.degraded'>): EventOf<'collector.degraded'>
@@ -108,6 +110,7 @@ const defaults = {
     repoName: 'rhizomorph',
     mainBranch: 'main',
   },
+  'session.closed': { sessionId: 'session-fixture', reason: 'rotated', eventCount: 12 },
   'collector.error': { collector: 'git', message: 'git worktree list exited 128' },
   'collector.disabled': { collector: 'workmux', reason: 'workmux not found on PATH' },
   'collector.degraded': {
@@ -301,6 +304,7 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
     all: () => [...produced],
     make,
     sessionStarted: sugar('session.started'),
+    sessionClosed: sugar('session.closed'),
     collectorError: sugar('collector.error'),
     collectorDisabled: sugar('collector.disabled'),
     collectorDegraded: sugar('collector.degraded'),

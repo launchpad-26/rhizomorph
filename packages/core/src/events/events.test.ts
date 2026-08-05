@@ -139,6 +139,65 @@ describe('event envelope', () => {
   })
 })
 
+/**
+ * prd16 ruling 2 adds the recorder's third hand; prd17 ruling 1 names the
+ * event it appends. The union-level facts that hand depends on, stated here
+ * rather than in the server package that emits it: the close is a `system`
+ * event about the log it terminates, and `reason` is closed — a reason nothing
+ * can produce never enters a recording in the first place.
+ */
+describe('session.closed', () => {
+  it('is a system event carrying the CLOSED session, its reason and its size', () => {
+    const closed = createEvent(
+      'session.closed',
+      { sessionId: '1000', reason: 'rotated', eventCount: 42 },
+      { id: 'session-closed-1000', ts: 2000 },
+    )
+    expect(closed).toEqual({
+      id: 'session-closed-1000',
+      ts: 2000,
+      source: 'system',
+      type: 'session.closed',
+      payload: { sessionId: '1000', reason: 'rotated', eventCount: 42 },
+    })
+    expect(sourceOf('session.closed')).toBe('system')
+  })
+
+  it('refuses a reason the recorder cannot produce, and an event count of zero', () => {
+    expect(
+      parseEvent({
+        id: 'e',
+        ts: 1,
+        source: 'system',
+        type: 'session.closed',
+        payload: { sessionId: '1000', reason: 'crashed' },
+      }).ok,
+    ).toBe(false)
+    // A closed log holds at least the close event itself.
+    expect(
+      parseEvent({
+        id: 'e',
+        ts: 1,
+        source: 'system',
+        type: 'session.closed',
+        payload: { sessionId: '1000', reason: 'rotated', eventCount: 0 },
+      }).ok,
+    ).toBe(false)
+  })
+
+  it('parses without an event count — an emitter that does not count still closes honestly', () => {
+    expect(
+      parseEvent({
+        id: 'e',
+        ts: 1,
+        source: 'system',
+        type: 'session.closed',
+        payload: { sessionId: '1000', reason: 'rotated' },
+      }).ok,
+    ).toBe(true)
+  })
+})
+
 describe('createIdFactory', () => {
   it('produces padded, ordered, unique ids', () => {
     const next = createIdFactory()
@@ -160,6 +219,11 @@ function oneOfEach() {
       repoName: 'repo',
       mainBranch: 'main',
     }, { id: id(), ts: 1 }),
+    // prd16 ruling 2 / prd17 ruling 1: the rotated-away log's final line.
+    createEvent('session.closed', { sessionId: 's1', reason: 'rotated', eventCount: 7 }, {
+      id: id(),
+      ts: 2,
+    }),
     createEvent('collector.error', { collector: 'git', message: 'boom' }, { id: id(), ts: 2 }),
     createEvent('collector.disabled', { collector: 'workmux', reason: 'not installed' }, {
       id: id(),

@@ -58,6 +58,15 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
   switch (event.type) {
     case 'session.started':
       return sessionStarted(state, event)
+    case 'session.closed':
+      // A boundary, not a fact about the swarm: nothing folded from this log
+      // changes because the operator ended it (prd16 ruling 2). What enforces
+      // the close is the log and the lock, not the fold — the next boot reads
+      // this line and refuses to resume (`decideSessionBoot`), and the same
+      // fold of the same events answers the same way before and after. prd17
+      // ruling 1 may give the close a home in state; until something needs to
+      // read it, inventing one would be a field with no reader.
+      return state
     case 'collector.error':
       return collectorError(state, event)
     case 'collector.disabled':
