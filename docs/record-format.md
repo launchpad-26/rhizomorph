@@ -126,18 +126,47 @@ A reader should:
    fails is where the chain broke — name it (1-based line number) in any
    error surfaced to a human, rather than a generic "invalid record."
 3. Confirm the final computed hash equals `manifest.chainDigest`.
-4. Only once the chain is intact: parse every `line` back into an event and
-   confirm `manifest.eventCount === body.length` and
-   `manifest.startTs`/`endTs` match the minimum/maximum parsed timestamps.
-   These three fields aren't covered by the hash chain itself (the chain's
-   genesis only binds `schemaVersion`/`repoSlug`/`actor.instance`), so this
-   second pass is what catches a manifest edited to lie about them without
-   touching a single body line.
+4. Only once the chain is intact: parse every `line` **leniently**, not
+   strictly. A line matching a known event type and shape folds into a real
+   event. A line whose envelope (`id`/`ts`/`source`/`type`) parses but whose
+   `type` this era has never heard of, or whose payload shape a later era
+   widened, is **counted and preserved verbatim, not folded** — this is an
+   *unknown*, not a failure: the chain already proved that byte-for-byte
+   text is untouched, and refusing the whole record over one line from a
+   newer era would throw away everything else it carries. Only a line with
+   no usable envelope at all — not JSON, or missing a `ts` — is a hard
+   failure: the chain vouching for that means the emitter wrote garbage, not
+   a later era.
+
+   Then confirm `manifest.eventCount === body.length` and
+   `manifest.startTs`/`endTs` match the minimum/maximum timestamp across
+   *both* folded events and preserved unknowns — an unknown's `ts` still
+   counts toward the range, since leaving it out would make an honest
+   manifest look tampered with. These three fields aren't covered by the
+   hash chain itself (the chain's genesis only binds
+   `schemaVersion`/`repoSlug`/`actor.instance`), so this second pass is what
+   catches a manifest edited to lie about them without touching a single
+   body line.
+
+**What a successful verify promises, and what it doesn't.** `{ ok: true }`
+means the chain is intact and every line in `body` is at least a
+recognizable event envelope — it does **not** mean every line was
+understood. A record can verify successfully and still carry lines from an
+era this reader has never seen: integrity and comprehension are different
+questions, and this format's chain answers only the first. A verifying
+reader should surface that gap rather than stay silent about it — the count
+of unknown lines and the distinct `type` values seen is enough for a human
+to know a newer instrument wrote lines this reader can't fold. What still
+fails outright: a broken hash chain, a line with no usable event envelope at
+all, or a manifest whose `eventCount`/`startTs`/`endTs` don't match the
+body.
 
 This repo's implementation (`packages/core/src/record/verify.ts`) returns
-`{ ok: true }` or a discriminated failure naming which of the two passes
-broke and where; a from-scratch reader only needs to reproduce the two
-passes above, not that exact return shape.
+`{ ok: true }` — with optional `unknown`/`unknownVoice` fields present only
+when the body held lines it could not fold, absent when there were none —
+or one of three discriminated failures (`chain-broken`, `malformed-line`,
+`manifest-mismatch`) naming where it broke; a from-scratch reader only
+needs to reproduce the passes above, not that exact return shape.
 
 ## Worked example
 
