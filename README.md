@@ -1,25 +1,29 @@
 # The Rhizomorph
 
-A read-only instrument you point at a repo full of git worktrees: it shows
-what a swarm of coding agents is doing, live, and can replay the session
-afterward.
+An instrument you point at a repo full of git worktrees: it shows what a
+swarm of coding agents is doing, live, and can replay the session
+afterward. Watching is read-only, absolutely; there is a separate, opt-in
+second hand for running experiments — see [Trust](#trust) below for exactly
+what each does and how that's enforced.
 
 ![The scene as the centerpiece — a busy 20-lane fleet, every thread live green but visibly different widths for visibly different output, ALL CLEAR above it](docs/screenshots/fixture-20-lane.png)
 
 It discovers worktrees and branches (git), agent panes (tmux), and
 [workmux](https://github.com/raine/workmux) state if present — each source
 optional, each degrading gracefully — and reflects reality within a couple
-of seconds via polling. It never sends a keystroke, launches an agent, or
-merges anything. If you're deciding whether to run this on the machine
+of seconds via polling. This watching hand — collectors, receiver, server,
+UI — never sends a keystroke, launches an agent, or merges anything; only
+the separate, explicitly-invoked laboratory can do any of that, and only on
+your own command. If you're deciding whether to run this on the machine
 where your agents work, the next two sections are the ones that matter;
 everything past them is depth for once you've decided.
 
 ## Install and run
 
 There's no published package (see
-[When this is published to npm](#when-this-is-published-to-npm) below) — the
-cohort inherits a clonable repo, so the clone block below *is* the install
-story. Four commands, on a plain terminal, no undocumented steps:
+[When this is published to npm](#when-this-is-published-to-npm) below) —
+cloning the repo is the install story. Four commands, on a plain terminal,
+no undocumented steps:
 
 ```sh
 git clone https://github.com/KelliherL/rhizomorph
@@ -62,9 +66,9 @@ degrades gracefully rather than a reason to stop.
 ### When this is published to npm
 
 Not yet true — flagged here so it reads as a stated future, not a command
-you can run. The operator's ruling for this handover is no npm publish: the
-cohort inherits this clonable repo instead, and the release machinery stays
-dormant, not deleted. Right now, `npx rhizomorph <path-to-repo>` 404s
+you can run. There is no npm publish yet: the repo stays clonable instead,
+and the release machinery stays dormant, not deleted. Right now, `npx
+rhizomorph <path-to-repo>` 404s
 (`npm error 404 'rhizomorph@*' is not in this registry`) — there is no
 package to fetch. Once one is published, that single command will fetch and
 run it with nothing installed permanently, no clone required — the same
@@ -74,7 +78,26 @@ code the clone path above runs today, just fewer steps to get there.
 
 This is a tool that reads your machine's own record of what your coding
 agents have been doing, so here is plainly what it does and doesn't do —
-not a footnote, the second thing in this file.
+not a footnote, the second thing in this file. There are three hands here,
+not one, each with its own reach and its own enforcing test — a single
+blanket "read-only, never" claim would be weaker than this, not stronger,
+because it would erase the one hand that's allowed to write anything and
+leave the other two looking like they need no fence at all.
+
+### The observer — everything below, absolutely read-only
+
+Collectors, receiver, server and UI. This hand never writes to the repo
+you're watching, never sends a keystroke to an agent, never starts or stops
+one, and never merges or otherwise acts on what it shows you — enforced by
+this repo's own readonly law tests, not just stated: the lane drawer's
+[`packages/web/src/drawer/readonly.test.ts`](packages/web/src/drawer/readonly.test.ts)
+greps its own source for any HTTP verb but GET, any way to build a request
+body, any execution channel, any credential; the judge's
+[`packages/server/src/judge/mergetree.test.ts`](packages/server/src/judge/mergetree.test.ts)
+proves a speculative merge check leaves HEAD, every ref, and the working
+tree byte-for-byte unchanged. Every other collector reads the same three
+read-only sources (git, tmux/workmux, your own session logs) and writes
+nothing back to any of them.
 
 **What it reads:** the git state of the repo you point it at (worktrees,
 branches, commits — read-only, no writes); tmux panes and
@@ -82,11 +105,20 @@ branches, commits — read-only, no writes); tmux panes and
 (neither is required); and, to show an agent's actual conversation in the
 lane drawer, your own Claude Code session logs under `~/.claude/projects`.
 
-**When it records:** always, from the moment the server starts — there is
-no opt-in flag and no way to run it without recording. Every run either
-starts a fresh session or resumes the most recent one for this repo (see
-`--fresh` above); either way, everything the collectors see from boot
-onward lands in the log.
+**When it records — the recorder's own hand (prd16 ruling 2):** always,
+from the moment the server starts — there is no opt-in flag and no way to
+run it without recording. What decides *when one recording ends and the
+next begins* is your own explicit act at boot, never a collector, a lane,
+or a clock: `--fresh` forces a new session, `--resume-window` sets how long
+a gap may be before the previous one counts as over, and the default
+resumes whatever session is still inside that window (see `--fresh` above).
+Every path this hand can write to is built from one function,
+[`defaultDataRoot()`](packages/server/src/log/paths.ts) — there's no second
+constructor for a session, label, or snapshot path to have drifted from it
+— and `decideSessionBoot`'s tests in
+[`packages/server/src/log/session-log.test.ts`](packages/server/src/log/session-log.test.ts)
+are what pin the boundary: only the flags above decide the cut, nothing
+that runs later.
 
 **What it writes:** its own recording of what it saw — a plain JSON-lines
 session log under `~/.local/share/rhizomorph/<repo-slug>/`, one file per
@@ -126,12 +158,56 @@ no analytics call, no update check, no phone-home of any kind anywhere in
 this codebase. Everything it shows is read from local files and local
 processes and rendered in your own browser.
 
+### The laboratory — opt-in, explicitly-invoked, and separate (prd12 ruling 1)
+
+Everything above runs the moment you start the server. The laboratory does
+not: it's a second actor, reachable only from your own command line —
+`rhizomorph lab checkpoint <lane>`, `rhizomorph lab fork <lane>
+[--at <checkpoint>] [--launch]`, `rhizomorph lab compare <forkId>` — never
+from a server route, a background poll, or a UI button. `checkpoint`
+snapshots a lane's live workspace and session position; `fork` restores as
+many arms of one checkpoint as you ask for, each into its own worktree, and
+runs `npm install` in each one; `compare` reports what happened across
+them.
+
+What it's allowed to write, exactly: refs under `refs/rhizomorph/`, the git
+objects those refs require, worktrees it creates itself under
+`~/.local/share/rhizomorph/lab/worktrees/` (a sibling of the recording
+directory above, never inside the repo you're watching), and the
+checkpoint/synthesized-session artifacts that live beside it. It never
+pushes, never merges, and never checks out or rewrites a branch that
+already exists. The one write that lands outside those namespaces is never
+silent or automatic: pass `lab fork --launch` and it hands the dispatch off
+to `workmux add`, the same command that starts every other worker lane in a
+workmux-driven fleet — that call is what creates an actual branch and tmux
+pane, and it only runs because you typed the flag. Without `--launch`,
+`fork` says so plainly: *"No tmux window was opened and no branch was
+created... Pass --launch to authorise that yourself."*
+
+Enforced twice over. At runtime,
+[`assertInsideLabWorktrees`](packages/server/src/lab/paths.ts) refuses —
+unconditionally, not just in a test — any worktree path the lab tries to
+create outside its own directory. And
+[`packages/server/src/lab/namespace-law.test.ts`](packages/server/src/lab/namespace-law.test.ts)
+is the test that watches everything else: no source file outside
+`server/src/lab/` may even import it, except the one declared CLI wiring
+point; no ref literal in its source names anything but `refs/rhizomorph/`;
+no lab file shells out to `push`, `merge`, `checkout`, `branch`, `reset`,
+`rebase`, or any other verb that rewrites something that already exists;
+nothing under `lab/` sets a timer of its own, so "never runs without your
+command" holds structurally, not just by convention; and a live run of
+`lab fork` against a real fixture repo proves the whole write surface by
+walking the filesystem and the ref namespace before and after, rather than
+trusting the source to say so.
+
 If you'd rather verify that yourself than take it on faith — the right
 instinct for exactly this kind of tool — the source is right here: the
 collectors that read git/tmux/workmux live under
 `packages/server/src/collectors/`, the one that tails your session logs is
-`packages/server/src/collectors/sessionlog/`, and the server that binds the
-port is `packages/server/src/index.ts`. Grep for `fetch(`, `http.request`,
+`packages/server/src/collectors/sessionlog/`, the server that binds the
+port is `packages/server/src/index.ts`, and the laboratory's entire write
+surface is `packages/server/src/lab/`, reachable only from the CLI wiring
+in `packages/server/src/cli/index.ts`. Grep for `fetch(`, `http.request`,
 or any outbound socket; there isn't one.
 
 ## Support matrix
@@ -145,9 +221,11 @@ or any outbound socket; there isn't one.
 **Node >= 22** — enforced via `engines` in `package.json`; older Node warns
 on install and may not run at all.
 
-## What it does not do
+## What the observer does not do
 
-Read-only is the whole point, not a caveat:
+Read-only is the whole point for this hand, not a caveat — see
+["The laboratory"](#trust) above for the one deliberately different hand,
+what it's allowed to write instead, and how that's fenced:
 
 - It never writes to the repo it's watching — no commits, no branches, no
   file changes.
@@ -590,9 +668,7 @@ across git worktrees at once — the Rhizomorph is the app that day built,
 and its first real subject was its own construction. `docs/` has the full
 decision record: [`docs/vision.md`](docs/vision.md) for the pitch,
 [`docs/architecture.md`](docs/architecture.md) for how it's built and why,
-and `docs/prd0.md` through `docs/prd8.md` for the rulings behind each stage.
-If you want to run the same multi-agent workflow yourself, see
-[CONTRIBUTING.md](CONTRIBUTING.md).
+and the numbered `docs/prd*.md` files for the rulings behind each stage.
 
 ## License
 
