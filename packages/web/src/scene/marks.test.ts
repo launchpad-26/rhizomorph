@@ -65,6 +65,13 @@ import { BROKEN, NEEDS_YOU, NOTICE, REPLAY_VIBRANCY, TISSUE_400, type Ink } from
 import { PulseField } from './pulses.js'
 import type { LaneIndex } from './resolve.js'
 
+// @gate-timing — carries a wall-clock frame/measurement suite ("the frame
+// budget at thirty lanes", below) (#209). scripts/gate.sh greps for this
+// exact marker to route the whole file into its serial, alone timing pass
+// instead of the 4x load batches — the file is the unit gate.sh excludes at,
+// same as before this issue. Carry this comment with the file if you rename
+// or move it; a file without it is invisible to that pass.
+
 /**
  * WHAT THE PICTURE CONTAINS.
  *

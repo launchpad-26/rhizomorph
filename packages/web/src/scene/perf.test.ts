@@ -16,6 +16,12 @@ import { PulseField } from './pulses.js'
 import { RETURN, returnAt, type RetireState } from './retire.js'
 import { salienceOf } from './salience.js'
 
+// @gate-timing — wall-clock frame/measurement suite (#209). scripts/gate.sh
+// greps for this exact marker to route the file into its serial, alone
+// timing pass instead of the 4x load batches: these numbers only mean
+// anything under that condition. Carry this comment with the file if you
+// rename or move it; a file without it is invisible to that pass.
+
 /**
  * THE SPIKE'S HANDOFF, MEASURED (prd10 ruling 7, and #144's first task).
  *

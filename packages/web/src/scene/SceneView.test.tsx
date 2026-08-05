@@ -23,6 +23,13 @@ import { RetireRegistry } from './retire.js'
 import { SettleRegistry } from './settle.js'
 import Scene, { SceneView } from './index.js'
 
+// @gate-timing — load-sensitive under `--maxWorkers` (#124, #130, #144,
+// #151, #157, #172, #189) (#209). scripts/gate.sh greps for this exact
+// marker to route the whole file into its serial, alone timing pass instead
+// of the 4x load batches — the file is the unit gate.sh excludes at, same as
+// before this issue. Carry this comment with the file if you rename or move
+// it; a file without it is invisible to that pass.
+
 /**
  * THE SCENE, MOUNTED — the wiring, end to end.
  *

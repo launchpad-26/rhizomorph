@@ -80,13 +80,42 @@ echo "  quiet gate GREEN: $(grep -aoE 'Tests.*passed' /tmp/gate-$H.log | tail -1
 # find RACES, and a race in those files would still surface in the serial
 # pass. The serial pass is also the only condition under which a timing
 # assertion means anything at all.
-# reduce.bench.test.ts added 2026-08-05: #174 proved empirically that its
-# multi-second blocking reduceAll calls at N=30k/55k flake UNRELATED tests
-# (SceneView camera-clamp, variation drift) on their 5s defaults in parallel
-# runs. It reports timings, so the serial pass is also its honest condition.
-TIMING_GLOBS=('**/scene/perf.test.ts' '**/scene/SceneView.test.tsx' '**/scene/marks.test.ts' '**/reduce.bench.test.ts')
+# TIMING SET, DERIVED (#209) — not a hand-maintained literal list. A file
+# opts in by a `// @gate-timing` marker comment (grepped, wherever it lives)
+# or by a `*.bench.test.ts` filename (reduce.bench.test.ts's own convention,
+# #174) — so a moved or renamed timing file carries its membership with it
+# instead of falling out of a literal path silently. This replaces the
+# literal list #157/#193 built and #209 caught going stale: split or rename
+# one of these files and the OLD mechanism would drop it from this pass with
+# nothing going red — it would just run under load, the exact condition the
+# serial pass exists to avoid. So absence is now checked below and fails loud.
 if [ "$LOAD" != "0" ]; then
-  EXCL=(); for g in "${TIMING_GLOBS[@]}"; do EXCL+=(--exclude "$g"); done
+  TIMING_FILES=()
+  while IFS= read -r f; do
+    [ -n "$f" ] && TIMING_FILES+=("$f")
+  done < <(cd "$W" && { grep -rlF '// @gate-timing' --include='*.test.ts' --include='*.test.tsx' packages 2>/dev/null
+                        find packages -name '*.bench.test.ts' 2>/dev/null; } | sort -u)
+
+  TCOUNT=${#TIMING_FILES[@]}
+  [ "$TCOUNT" = "0" ] && fail "timing pass matches ZERO files — a renamed/moved timing test fell out of the gate (the #209 trap: it would still run, silently, under 4x load); restore its '// @gate-timing' marker or '.bench.test.ts' name"
+
+  COUNT_FILE="$root/.swarm/timing-count"
+  if [ -f "$COUNT_FILE" ]; then
+    PREV=$(cat "$COUNT_FILE" 2>/dev/null)
+    case "$PREV" in ('' | *[!0-9]*) PREV=0 ;; esac
+    [ "$TCOUNT" -lt "$PREV" ] && fail "timing pass matches $TCOUNT file(s), fewer than the $PREV last recorded — a timing test silently fell out (if this is deliberate, a human clears $COUNT_FILE)"
+  fi
+  echo "  timing set (${TCOUNT}): ${TIMING_FILES[*]}"
+
+  # vitest resolves --exclude globs and positional filters against each
+  # project's OWN root (e.g. packages/web), not the monorepo root — a bare
+  # "packages/web/src/scene/perf.test.ts" pattern matches nothing, silently.
+  # Stripping down to what follows .../src/ (verified against the running
+  # suite below) is what the literal list this replaces already relied on.
+  TIMING_SHORT=()
+  for f in "${TIMING_FILES[@]}"; do TIMING_SHORT+=("${f#*/src/}"); done
+
+  EXCL=(); for f in "${TIMING_SHORT[@]}"; do EXCL+=(--exclude "**/$f"); done
   lf=0
   for b in $(seq 1 "$LOAD"); do
     for c in 1 2 3 4; do ( cd "$W" && npm test -- --maxWorkers=5 "${EXCL[@]}" >/tmp/g-$H-$b-$c.log 2>&1; echo $? >/tmp/g-$H-$b-$c.rc ) & done
@@ -100,8 +129,9 @@ if [ "$LOAD" != "0" ]; then
   # Positional args are FILTERS (substring match), not globs — verified
   # 2026-08-04: exclusion run 2047 tests + serial pass 47 = 2094 = the whole
   # suite, so the split is exact and nothing goes unmeasured.
-  if ( cd "$W" && npx vitest run --maxWorkers=1 scene/perf.test.ts scene/SceneView.test.tsx scene/marks.test.ts reduce.bench.test.ts >/tmp/g-$H-timing.log 2>&1 ); then
+  if ( cd "$W" && npx vitest run --maxWorkers=1 "${TIMING_SHORT[@]}" >/tmp/g-$H-timing.log 2>&1 ); then
     echo "  timing tests (serial, alone): green"
+    mkdir -p "$root/.swarm" && printf '%s\n' "$TCOUNT" >"$COUNT_FILE"
   else
     grep -aE '×' /tmp/g-$H-timing.log | head -3 | sed 's/^/    /'
     fail "timing tests red when run ALONE — this one is real (budget regression, not contention)"
