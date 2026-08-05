@@ -89,6 +89,10 @@ export interface TideDockProps {
 const BUTTON_CLASS =
   'rounded border border-ice-850 px-1.5 py-0.5 text-[10px] leading-none text-ice-300 hover:border-ice-400 hover:text-ice-050 disabled:opacity-40 disabled:hover:border-ice-850 disabled:hover:text-ice-300'
 
+/** Replay's breathing room (issue #186 defect 4) — live never sees these, it keeps the original `MARK_ROW_HEIGHT_PX`/`ROW_HEIGHT_PX`. */
+const TALL_MARK_ROW_HEIGHT_PX = 18
+const TALL_ROW_HEIGHT_PX = 20
+
 function useElementWidth(): [RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement | null>(null)
   const [width, setWidth] = useState(0)
@@ -295,6 +299,15 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
   const chapterMarkers = useMemo(() => chapters.map((chapter) => ({ ts: chapter.ts, label: chapterLabel(chapter) })), [chapters])
 
   const zoomed = zoomLevel > 0
+
+  // Issue #186 defect 4: replay is the primary control and earns room; live
+  // stays the compact strip it has always been (ruling 2's two modes,
+  // finishing the thought — not a new law).
+  const tall = mode === 'replay'
+  const markLaneHeight = tall ? TALL_MARK_ROW_HEIGHT_PX : undefined
+  const rowHeight = tall ? TALL_ROW_HEIGHT_PX : undefined
+  const showAxis = tall && zoomed
+
   const bracketLeft = zoomed ? fullScale.xOf(window_.start) : 0
   const bracketWidth = zoomed ? Math.max(1, fullScale.xOf(window_.end) - bracketLeft) : 0
 
@@ -315,6 +328,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
             width={width}
             onSeek={onSeek}
             seekEnabled={seekEnabled}
+            height={markLaneHeight}
           />
         )}
       </div>
@@ -329,7 +343,16 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
         onMouseDown={handleTrackMouseDown}
         onWheel={handleWheel}
       >
-        {width > 0 && <Tide events={events} start={window_.start} end={window_.end} width={width} mode={tideMode} />}
+        {width > 0 && (
+          <Tide
+            events={events}
+            start={window_.start}
+            end={window_.end}
+            width={width}
+            mode={tideMode}
+            rowHeight={rowHeight}
+          />
+        )}
         {showPlayhead && (
           <div
             aria-hidden="true"
@@ -340,6 +363,20 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
         )}
       </div>
       <div aria-hidden="true" />
+
+      {showAxis && (
+        <>
+          <div aria-hidden="true" />
+          <div
+            data-testid="tide-axis"
+            className="figures flex items-center justify-between text-[8px] leading-none text-ice-400"
+          >
+            <span>{formatClock(window_.start)}</span>
+            <span>{formatClock(window_.end)}</span>
+          </div>
+          <div aria-hidden="true" />
+        </>
+      )}
 
       <button
         type="button"

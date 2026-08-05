@@ -156,3 +156,28 @@ describe('Tide — no legend, ever (ruling 7)', () => {
     expect(screen.queryByText(/legend/i)).toBeNull()
   })
 })
+
+describe('Tide — mode-dependent row height (issue #186 defect 4)', () => {
+  it('defaults to the original ROW_HEIGHT_PX when no rowHeight is given', () => {
+    const events = log((fx) => {
+      fx.at(T0).agentStatus({ handle: 'ke5', status: 'working' })
+    })
+    render(<Tide events={events} start={T0} end={T0 + MINUTE} width={900} mode="collapsed" />)
+    const row = screen.getByTestId('tide-row')
+    expect(row.style.height).toBe('14px')
+  })
+
+  it('honours an explicit taller rowHeight, on both a lane row and a "+N" row', () => {
+    const events = log((fx) => {
+      fx.at(T0).agentStatus({ handle: 'a', status: 'working' })
+      fx.at(T0).agentStatus({ handle: 'b', status: 'working' })
+    })
+    render(<Tide events={events} start={T0} end={T0 + MINUTE} width={900} mode="collapsed" rowHeight={20} />)
+    const row = screen.getByTestId('tide-row')
+    expect(row.dataset.rowKind).toBe('more')
+    expect(row.style.height).toBe('20px')
+
+    const bands = screen.getAllByTestId('tide-band')
+    for (const band of bands) expect(band.style.height).toBe('20px')
+  })
+})

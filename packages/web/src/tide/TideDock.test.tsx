@@ -410,3 +410,40 @@ describe('TideDock — [ and ] step between chapters at the dock level (issue #1
     expect(onSeek).toHaveBeenCalledWith(200)
   })
 })
+
+describe('TideDock — mode-dependent height, replay breathes, live stays compact (issue #186 defect 4)', () => {
+  it('live keeps the original, compact mark-lane and row heights', () => {
+    render(
+      <TideDock mode="live" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled={false} />,
+    )
+    expect(screen.getByTestId('chapter-marks').style.height).toBe('10px')
+    expect(screen.getByTestId('tide-row').style.height).toBe('14px')
+  })
+
+  it('replay gets taller mark-lane and row heights', () => {
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled />,
+    )
+    expect(screen.getByTestId('chapter-marks').style.height).not.toBe('10px')
+    expect(screen.getByTestId('tide-row').style.height).not.toBe('14px')
+  })
+
+  it('the axis only appears in replay, and only once zoomed', () => {
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
+    )
+    expect(screen.queryByTestId('tide-axis')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    const window_ = windowForLevel(1, 9_000, T0, T_END)
+    const axis = screen.getByTestId('tide-axis')
+    expect(axis.textContent).toBe(`${formatClock(window_.start)}${formatClock(window_.end)}`)
+  })
+
+  it('live never shows the axis, even if zoom were somehow engaged', () => {
+    render(
+      <TideDock mode="live" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled={false} />,
+    )
+    expect(screen.queryByTestId('tide-axis')).not.toBeInTheDocument()
+  })
+})

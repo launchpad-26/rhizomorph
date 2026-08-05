@@ -35,6 +35,13 @@ import { formatDuration, formatRange } from './duration.js'
  * `rowPlan` already handed back) and says only what is true: this many lanes,
  * over this span, in less room than they need.
  *
+ * **Row height is mode-dependent, not a new law (issue #186 defect 4)** —
+ * ruling 2's "two modes" finishing the thought: `TideDock` passes a taller
+ * `rowHeight` in replay (the dock is the primary control there, so it earns
+ * more room) and leaves it at the original {@link ROW_HEIGHT_PX} in live
+ * (the compact strip it has always been). This file has no opinion about
+ * *which* height is "tall" — it only ever draws whatever height it is given.
+ *
  * **Why there is no `parked` fill yet**, despite the direction naming it:
  * `bands.ts` is explicit that parked is "an operator declaration … read from
  * the manifest and never from the log … No event attests it, so no band
@@ -62,9 +69,19 @@ export interface TideProps {
   mode: TideMode
   /** Lane rows before the remainder folds (ignored — forced to 0 — in collapsed mode). */
   topN?: number
+  /** Mode-dependent room (issue #186 defect 4) — replay breathes, live stays the compact strip it always was. Defaults to the original `ROW_HEIGHT_PX`. */
+  rowHeight?: number
 }
 
-export function Tide({ events, start, end, width, mode, topN = DEFAULT_TOP_N }: TideProps): ReactElement {
+export function Tide({
+  events,
+  start,
+  end,
+  width,
+  mode,
+  topN = DEFAULT_TOP_N,
+  rowHeight = ROW_HEIGHT_PX,
+}: TideProps): ReactElement {
   const scale = useMemo(() => timeScale(start, end, width), [start, end, width])
   const laneBands = useMemo(() => bandsFor(events), [events])
   const minSpanMs = useMemo(() => hoverThresholdMs(scale), [scale])
@@ -87,7 +104,7 @@ export function Tide({ events, start, end, width, mode, topN = DEFAULT_TOP_N }: 
   return (
     <div data-testid="tide" data-mode={mode} role="img" aria-label="lane activity timeline" style={{ width }}>
       {rows.map((row) => (
-        <RowView key={rowKey(row)} row={row} byLane={byLane} scale={scale} minSpanMs={minSpanMs} />
+        <RowView key={rowKey(row)} row={row} byLane={byLane} scale={scale} minSpanMs={minSpanMs} rowHeight={rowHeight} />
       ))}
     </div>
   )
@@ -102,13 +119,15 @@ function RowView({
   byLane,
   scale,
   minSpanMs,
+  rowHeight,
 }: {
   row: RowDescriptor
   byLane: ReadonlyMap<string, LaneBands>
   scale: TimeScale
   minSpanMs: number
+  rowHeight: number
 }): ReactElement {
-  if (row.kind === 'more') return <MoreRowView row={row} byLane={byLane} scale={scale} />
+  if (row.kind === 'more') return <MoreRowView row={row} byLane={byLane} scale={scale} rowHeight={rowHeight} />
 
   const lane = byLane.get(row.lane)
   const bands = lane === undefined ? [] : coalesce(lane.bands, minSpanMs)
@@ -120,10 +139,10 @@ function RowView({
       data-lane={row.lane}
       aria-label={`${row.lane} activity`}
       className="relative"
-      style={{ height: ROW_HEIGHT_PX, width: scale.width }}
+      style={{ height: rowHeight, width: scale.width }}
     >
       {layoutBands(bands, scale).map((entry, index) => (
-        <BandView key={index} entry={entry} lane={row.lane} scale={scale} />
+        <BandView key={index} entry={entry} lane={row.lane} scale={scale} rowHeight={rowHeight} />
       ))}
     </div>
   )
@@ -153,7 +172,17 @@ const LABEL_HALO_STYLE: CSSProperties = {
   textShadow: '0 0 3px var(--color-ice-1000), 0 1px 2px var(--color-ice-1000)',
 }
 
-function BandView({ entry, lane, scale }: { entry: LaidBand; lane: string; scale: TimeScale }): ReactElement {
+function BandView({
+  entry,
+  lane,
+  scale,
+  rowHeight,
+}: {
+  entry: LaidBand
+  lane: string
+  scale: TimeScale
+  rowHeight: number
+}): ReactElement {
   const { band, x, width } = entry
   const title = bandTitle(band, lane)
 
@@ -163,7 +192,7 @@ function BandView({ entry, lane, scale }: { entry: LaidBand; lane: string; scale
         data-testid="tide-band"
         data-band-kind="gap"
         className="tide-band-gap absolute top-0"
-        style={{ left: x, width, height: ROW_HEIGHT_PX, ...GAP_HATCH_STYLE }}
+        style={{ left: x, width, height: rowHeight, ...GAP_HATCH_STYLE }}
         title={title}
       />
     )
@@ -178,7 +207,7 @@ function BandView({ entry, lane, scale }: { entry: LaidBand; lane: string; scale
       data-band-kind="state"
       data-state={band.state}
       className={`absolute top-0 flex items-center overflow-hidden ${STATE_FILL_CLASS[band.state]}`}
-      style={{ left: x, width, height: ROW_HEIGHT_PX }}
+      style={{ left: x, width, height: rowHeight }}
       title={title}
     >
       {showLabel ? (
@@ -212,10 +241,12 @@ function MoreRowView({
   row,
   byLane,
   scale,
+  rowHeight,
 }: {
   row: MoreRow
   byLane: ReadonlyMap<string, LaneBands>
   scale: TimeScale
+  rowHeight: number
 }): ReactElement {
   const bounds = moreRowBounds(row, byLane, scale)
   const x = scale.xOf(bounds.firstSeenTs)
@@ -230,13 +261,13 @@ function MoreRowView({
       data-row-kind="more"
       aria-label={`${row.count} more lanes`}
       className="relative"
-      style={{ height: ROW_HEIGHT_PX, width: scale.width }}
+      style={{ height: rowHeight, width: scale.width }}
     >
       <div
         data-testid="tide-band"
         data-band-kind="more"
         className="tide-band-more absolute top-0 flex items-center overflow-hidden bg-ice-600"
-        style={{ left: x, width, height: ROW_HEIGHT_PX }}
+        style={{ left: x, width, height: rowHeight }}
         title={title}
       >
         {showLabel ? (
