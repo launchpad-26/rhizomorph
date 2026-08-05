@@ -1,6 +1,9 @@
+import { useEffect, useMemo, useState } from 'react'
 import type { CollectorState } from '@rhizomorph/core'
 import { useFleet } from '../fleet/index.js'
+import { formatTokens } from '../lib/format.js'
 import { CONNECTION_DOT_CLASS, CONNECTION_LABEL } from './ConnectionBadge.js'
+import { useMode, useReplay } from './ModeContext.js'
 import { useStream } from './StreamContext.js'
 
 /**
@@ -15,6 +18,198 @@ import { useStream } from './StreamContext.js'
  * to the shell's `ConnectionBadge` next to the wordmark; the connection dot
  * this bar already had stays here, since nothing asked it to move.
  */
+
+/**
+ * THE SESSION VOICE (#181) — this same line also names the session driving
+ * the fleet, so a multi-day 55k-event run reads as one instead of looking
+ * indistinguishable from a session that just started.
+ *
+ * Identity, age and the live event count already flow through the event fold
+ * every panel reads (`SessionInfo`/`Fleet.eventCount`) — no fetch needed for
+ * those, and they stay accurate for a long-running session instead of aging
+ * out of a boot-time snapshot. The one thing nothing else carries is *how
+ * this boot decided to continue that session*: `resumedCount`,
+ * `resumeWindowMs`, `lastBootReason` — #180's additive `/api/meta` fields,
+ * fetched once here.
+ */
+
+type MetaFetchLike = (input: string) => Promise<{ ok: boolean; json: () => Promise<unknown> }>
+
+const SESSION_META_URL = '/api/meta'
+
+const KNOWN_BOOT_REASONS = ['fresh-flag', 'resumed', 'stale', 'first-run'] as const
+type SessionBootReason = (typeof KNOWN_BOOT_REASONS)[number]
+
+interface SessionBootFacts {
+  resumedCount: number
+  resumeWindowMs: number
+  lastBootReason: SessionBootReason
+}
+
+type BootFactsState =
+  | { status: 'loading' | 'absent' }
+  | { status: 'ready'; facts: SessionBootFacts }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+/**
+ * `#180`'s additive shape, or `null` for anything else — a server that
+ * predates it (missing fields entirely) and a malformed body both read the
+ * same way to this bar: the boot facts are unavailable, never half-trusted.
+ */
+function parseBootFacts(body: unknown): SessionBootFacts | null {
+  if (!isRecord(body)) return null
+  const { resumedCount, resumeWindowMs, lastBootReason } = body
+  if (
+    typeof resumedCount === 'number' &&
+    typeof resumeWindowMs === 'number' &&
+    typeof lastBootReason === 'string' &&
+    (KNOWN_BOOT_REASONS as readonly string[]).includes(lastBootReason)
+  ) {
+    return { resumedCount, resumeWindowMs, lastBootReason: lastBootReason as SessionBootReason }
+  }
+  return null
+}
+
+function defaultMetaFetch(): MetaFetchLike | null {
+  return typeof globalThis.fetch === 'function'
+    ? ((input: string) => globalThis.fetch(input)) as MetaFetchLike
+    : null
+}
+
+/**
+ * Fetched once per mount, only while live — replaying reads a *different*
+ * session's identity (point 3 below), so asking `/api/meta` (which only ever
+ * describes the live recorder) while replaying would be a wasted request
+ * whose answer must be discarded anyway.
+ */
+function useSessionBootFacts(enabled: boolean, fetchImpl?: MetaFetchLike): BootFactsState {
+  const [state, setState] = useState<BootFactsState>({ status: 'loading' })
+
+  useEffect(() => {
+    if (!enabled) {
+      setState({ status: 'loading' })
+      return
+    }
+
+    const impl = fetchImpl ?? defaultMetaFetch()
+    if (impl === null) {
+      setState({ status: 'absent' })
+      return
+    }
+
+    let live = true
+    setState({ status: 'loading' })
+    impl(SESSION_META_URL)
+      .then(async (response) => (response.ok ? parseBootFacts(await response.json()) : null))
+      .catch(() => null)
+      .then((facts) => {
+        if (!live) return
+        setState(facts === null ? { status: 'absent' } : { status: 'ready', facts })
+      })
+
+    return () => {
+      live = false
+    }
+  }, [enabled, fetchImpl])
+
+  return state
+}
+
+const MINUTE_MS = 60_000
+const MINUTES_PER_HOUR = 60
+const MINUTES_PER_DAY = 24 * MINUTES_PER_HOUR
+
+/** `"3d4h"`, `"2h04m"`, `"12m"` — the session line's own compact span text. */
+function formatSessionSpan(ms: number): string {
+  const totalMinutes = Math.max(0, Math.floor(ms / MINUTE_MS))
+  const days = Math.floor(totalMinutes / MINUTES_PER_DAY)
+  const hours = Math.floor((totalMinutes % MINUTES_PER_DAY) / MINUTES_PER_HOUR)
+  const minutes = totalMinutes % MINUTES_PER_HOUR
+  if (days > 0) return `${days}d${hours}h`
+  if (hours > 0) return minutes === 0 ? `${hours}h` : `${hours}h${String(minutes).padStart(2, '0')}m`
+  return `${minutes}m`
+}
+
+/**
+ * The hover explanation (point 2): the reason and the window, in the boot
+ * line's own voice. It does not restate the CLI boot line's precise "newest
+ * event 2h04m old" figure — `previousAgeMs` is `decideSessionBoot`'s own
+ * internal fact (`session-log.ts`), never added to `/api/meta`'s contract,
+ * so reproducing it here would mean guessing rather than reading it.
+ */
+function bootExplanation(facts: SessionBootFacts): string {
+  const window = formatSessionSpan(facts.resumeWindowMs)
+  switch (facts.lastBootReason) {
+    case 'resumed':
+      return `resumed: this boot continued the session — its last activity was inside the ${window} window — --fresh or --resume-window forces a boundary`
+    case 'stale':
+      return `starting: the previous session's activity was outside the ${window} window — --resume-window widens it`
+    case 'fresh-flag':
+      return `starting: --fresh forced a new session regardless of the ${window} window`
+    case 'first-run':
+      return `starting: no earlier session was found for this repo`
+  }
+}
+
+interface SessionVoice {
+  text: string
+  title: string
+}
+
+/**
+ * Live: identity/age/count from the event fold (`fleet.now` — #155's mode
+ * clock — minus `session.startedAt`), the resume clause from the boot facts
+ * once they arrive. Before they arrive, or on a server that predates them,
+ * point 4's honest gap: the session id alone with an em dash, never a
+ * fabricated age or count.
+ *
+ * Replay: point 3 — the REPLAYED session's own identity (id, span, event
+ * count), read from `useReplay()`, never the live facts above. There is no
+ * boot-facts concept for an arbitrary recorded session (`/api/meta` only
+ * ever describes the live recorder), so the resumed clause never appears
+ * here.
+ */
+function useSessionVoice(bootFacts: BootFactsState): SessionVoice | null {
+  const mode = useMode()
+  const replay = useReplay()
+  const { state } = useStream()
+  const fleet = useFleet()
+  // `state.session` is the whole folded `SessionState` (collectors,
+  // worktrees, …); the session's own identity is nested one level deeper —
+  // the `session.started` event's payload, or null before it has arrived.
+  const info = state.session.session
+
+  return useMemo<SessionVoice | null>(() => {
+    if (mode === 'replay') {
+      const spanMs = replay.range.end - replay.range.start
+      const count = formatTokens(replay.events.length)
+      return {
+        text: `session ${replay.selectedId ?? '—'} · ${formatSessionSpan(spanMs)} · ${count} events`,
+        title: `replayed session — ${replay.events.length} events across ${formatSessionSpan(spanMs)}`,
+      }
+    }
+
+    if (info === null) return null
+
+    if (bootFacts.status !== 'ready') {
+      return {
+        text: `session ${info.sessionId} —`,
+        title: 'boot facts unavailable — the server may predate resume-window support, or has not answered yet',
+      }
+    }
+
+    const ageMs = fleet.now - info.startedAt
+    const resumedClause =
+      bootFacts.facts.resumedCount > 0 ? ` · resumed x${bootFacts.facts.resumedCount}` : ''
+    return {
+      text: `session ${formatSessionSpan(ageMs)} · ${formatTokens(fleet.eventCount)} events${resumedClause}`,
+      title: bootExplanation(bootFacts.facts),
+    }
+  }, [mode, replay.selectedId, replay.range, replay.events.length, info, bootFacts, fleet.now, fleet.eventCount])
+}
 
 /** The five optional sources prd0/prd2 promise degrade gracefully. */
 type SourceKey = 'git' | 'tmux' | 'workmux' | 'sessionlog' | 'otel'
@@ -57,11 +252,20 @@ function sourceStatus(collector: CollectorState | undefined): SourceStatus {
   return { health: 'errored', message: collector.lastErrorMessage }
 }
 
-/** One quiet line: per-source collector health, the gap voice, and the SSE state. */
-export function StatusBar() {
+export interface StatusBarProps {
+  /** Test-only escape hatch for injecting a mock `/api/meta` fetch (#181). */
+  fetchMeta?: MetaFetchLike
+}
+
+/** One quiet line: per-source collector health, the gap voice, the session voice, and the SSE state. */
+export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
   const { state, status } = useStream()
   const fleet = useFleet()
+  const mode = useMode()
   const session = state.session
+
+  const bootFacts = useSessionBootFacts(mode === 'live', fetchMeta)
+  const sessionVoice = useSessionVoice(bootFacts)
 
   // Law 12: WHAT is missing → WHY it matters → THE command. Only the dead
   // (disabled) collectors speak here; a merely errored one already reads
@@ -96,6 +300,18 @@ export function StatusBar() {
             </span>
           )
         })}
+        {sessionVoice !== null && (
+          <span
+            data-testid="session-voice"
+            role="status"
+            tabIndex={0}
+            title={sessionVoice.title}
+            aria-label={sessionVoice.title}
+            className="figures text-ice-400 outline-none focus-visible:ring-1 focus-visible:ring-notice"
+          >
+            {sessionVoice.text}
+          </span>
+        )}
         <span
           className="ml-auto inline-flex items-center gap-1.5"
           title={CONNECTION_LABEL[status]}
