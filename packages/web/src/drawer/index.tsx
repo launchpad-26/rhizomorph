@@ -13,7 +13,7 @@ import { Conversation } from './Conversation.js'
 import { TabBar, tabPanelId, type DrawerTab, type TabId } from './Tabs.js'
 import { TraceSection } from './Trace.js'
 import { MainVitals, Vitals } from './Vitals.js'
-import { foldActivity } from './activity.js'
+import { foldActivity } from './foldActivity.js'
 import { attachPlan, conductorAttachPlan } from './attach.js'
 
 /**
@@ -327,8 +327,8 @@ function DrawerFrame({ selectedId, label, title, onClose, children }: DrawerFram
 }
 
 export { LaneDrawer }
-export { foldActivity, activityCounts } from './activity.js'
-export type { ActivityEntry, ActivityKind } from './activity.js'
+export { foldActivity, activityCounts } from './foldActivity.js'
+export type { ActivityEntry, ActivityKind } from './foldActivity.js'
 export { attachPlan, conductorAttachPlan, findTmuxIdentity, workmuxHandle } from './attach.js'
 export type { AttachPlan, AttachRoot, TmuxIdentity } from './attach.js'
 export { MainVitals, Vitals } from './Vitals.js'

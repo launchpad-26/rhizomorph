@@ -1,6 +1,6 @@
 import { createEventFactory } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
-import { activityCounts, foldActivity, type ActivityLane } from './activity.js'
+import { activityCounts, foldActivity, type ActivityLane } from './foldActivity.js'
 
 const WORKTREE = '/repo-wt/84-chat-drawer'
 const BRANCH = '84-chat-drawer'

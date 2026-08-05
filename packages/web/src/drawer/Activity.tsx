@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { formatSpan } from '../fleet/index.js'
-import { activityCounts, type ActivityEntry } from './activity.js'
+import { activityCounts, type ActivityEntry } from './foldActivity.js'
 
 /**
  * THE ACTIVITY VIEW — the lane's audit trail (ruling 17).
