@@ -7,7 +7,6 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type RefObject,
-  type WheelEvent as ReactWheelEvent,
 } from 'react'
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import { Scrubber } from '../replay/Scrubber.js'
@@ -244,18 +243,35 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
   // Shift+wheel zooms about the cursor's own timestamp (Audacity's
   // pointer-anchored law), modifier-gated so an un-shifted wheel keeps
   // scrolling the page (DevTools' two-mode lesson) — research note §4 R4.
+  //
+  // Wired as a *native* listener rather than React's `onWheel` prop: React
+  // registers `wheel`/`touchstart`/`touchmove` passively at the root for
+  // scroll-perf reasons, and a passive listener's `preventDefault()` is a
+  // silent no-op in a real browser (confirmed via the actual "Unable to
+  // preventDefault inside passive event listener invocation" console error —
+  // jsdom does not enforce this, so the unit tests alone never caught it).
+  // `{ passive: false }` here is what makes the modifier gate actually gate.
   const handleWheel = useCallback(
-    (event: ReactWheelEvent<HTMLDivElement>) => {
+    (event: WheelEvent) => {
       if (!event.shiftKey || width <= 0) return
+      const el = trackRef.current
+      if (el === null) return
       event.preventDefault()
-      const rect = event.currentTarget.getBoundingClientRect()
+      const rect = el.getBoundingClientRect()
       const cursorTs = scale.tsOf(event.clientX - rect.left)
       const direction = event.deltaY < 0 ? 1 : -1
       setWindowCenter(cursorTs)
       setZoomLevel((level) => Math.min(maxZoomLevel, Math.max(0, level + direction)))
     },
-    [width, scale, maxZoomLevel],
+    [width, scale, maxZoomLevel, trackRef],
   )
+
+  useEffect(() => {
+    const el = trackRef.current
+    if (el === null) return
+    el.addEventListener('wheel', handleWheel, { passive: false })
+    return () => el.removeEventListener('wheel', handleWheel)
+  }, [handleWheel, trackRef])
 
   // The same chapter groups `ChapterMarks` renders for this window — built
   // here too (rather than read back from the child) so `[`/`]` steps to
@@ -313,7 +329,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
 
   return (
     <div
-      className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-px"
+      className="grid grid-cols-[auto_1fr_minmax(0,auto)] items-center gap-x-2 gap-y-px"
       data-testid="tide-dock"
       data-mode={mode}
       data-tide-mode={tideMode}
@@ -341,7 +357,6 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
         className={`relative ${seekEnabled ? 'cursor-pointer' : ''}`}
         onClick={handleTrackClick}
         onMouseDown={handleTrackMouseDown}
-        onWheel={handleWheel}
       >
         {width > 0 && (
           <Tide
@@ -408,9 +423,12 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
         )}
       </div>
 
-      <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center justify-end gap-1">
         {zoomed && (
-          <span className="figures mr-1 text-[10px] leading-none text-ice-400" data-testid="window-indicator">
+          <span
+            className="figures min-w-0 max-w-[180px] overflow-hidden text-ellipsis whitespace-nowrap text-[10px] leading-none text-ice-400"
+            data-testid="window-indicator"
+          >
             window {zoomFractionLabel(zoomLevel)} · {formatClock(window_.start)}–{formatClock(window_.end)}
           </span>
         )}
