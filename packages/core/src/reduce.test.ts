@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { RhizomorphEvent } from './events/index.js'
+import type { EventOf, RhizomorphEvent } from './events/index.js'
 import { createEventFactory, fixtureSession } from './fixtures.js'
 import { reduce, reduceAll } from './reduce.js'
-import type { SessionState } from './state.js'
+import type { SessionState, SpanRecord } from './state.js'
 import {
   MAX_ERRORS,
   initialCheckpointState,
@@ -11,6 +11,7 @@ import {
   initialSessionState,
   initialTelemetryState,
   initialTraceState,
+  traceStateOf,
 } from './state.js'
 
 const REPO = '/repo/rhizomorph'
@@ -908,5 +909,196 @@ describe('reduce — the place join runs when there is something to join (#179)'
     ])
     expect(state.telemetry.lanes['bare']).toMatchObject({ worktreePath: null, branch: null })
     expect(state.telemetry.costs[0]).toMatchObject({ worktreePath: null, branch: null, placeSource: null })
+  })
+})
+
+/**
+ * #184 gave the trace fold the same treatment #179 gave the usage fold, one
+ * lane further on. The line it removed —
+ * `{ ...traces.byTrace, [traceId]: [...] }` — copied every key of a Record
+ * that gains one per trace, once per span event; standalone it cost 8,866 ms
+ * at a 55k-event fold, ~90% of what #179 left behind.
+ *
+ * Two things replaced it, and the laws below are one per thing:
+ *
+ * - `byTrace`/`bySession` became a **projection of `spans`**, materialised on
+ *   demand ({@link traceStateOf}). So the first law is that the projection is
+ *   *exactly* the accumulation it replaced — same keys, same order, same
+ *   bytes — checked against the removed line itself, run as a reference
+ *   implementation, at every prefix of a log.
+ * - The fold's own question ("has this trace already delivered this span id?")
+ *   moved to a table carried forward beside the reducer (`TraceIndex` in
+ *   `reduce.ts`), derived and identity-keyed. So the rest are #179's laws in
+ *   prd9's slice: the fold's output cannot tell whether that table was
+ *   inherited or rebuilt, and a table is handed to one future only.
+ */
+describe('reduce — the trace index is an accelerator, never an input (#184)', () => {
+  /**
+   * A log that walks every branch of the trace fold several times: many spans
+   * in one trace, many traces in one session, a session that owns spans in
+   * traces it does not lead, spans with no session at all (indexed by trace
+   * and by nothing else), the same span id reused under another trace, and
+   * re-deliveries — the branch that takes the table and gives it back without
+   * appending — landing both mid-log and last.
+   */
+  function spanStress(): RhizomorphEvent[] {
+    const events: RhizomorphEvent[] = []
+    const span = (
+      traceId: string,
+      spanId: string,
+      sessionId: string | null,
+      lane = '2-core',
+    ): EventOf<'trace.span'> =>
+      f.traceSpan({ traceId, spanId, parentSpanId: null, sessionId, lane, worktreePath: WT, branch: 'feature' })
+
+    // One long trace, one session.
+    for (let i = 0; i < 6; i += 1) events.push(span('trace-long', `span-long-${i}`, 'sess-a'))
+    // The same session spread across traces of its own — the background
+    // requests the capture found landing outside the interaction's trace.
+    for (let i = 0; i < 4; i += 1) events.push(span(`trace-bg-${i}`, `span-bg-${i}`, 'sess-a'))
+    // A second session interleaved into a trace the first one leads.
+    events.push(span('trace-long', 'span-shared-b', 'sess-b'))
+    // Spans with no session: indexed by trace, absent from `bySession`.
+    events.push(span('trace-long', 'span-anon-1', null))
+    events.push(span('trace-anon', 'span-anon-2', null, '3-git'))
+    // The same span id under another trace is another span (the pair is the
+    // identity), and a re-delivery of one that already landed is not.
+    events.push(span('trace-other', 'span-long-0', 'sess-b', '3-git'))
+    events.push(span('trace-long', 'span-long-0', 'sess-a'))
+    // More traffic after the no-op, so a table mishandled there is visible.
+    for (let i = 0; i < 3; i += 1) events.push(span('trace-tail', `span-tail-${i}`, 'sess-c'))
+    events.push(span('trace-tail', 'span-tail-0', 'sess-c'))
+    return events
+  }
+
+  /**
+   * The line #184 removed, kept here as the oracle it now has to match:
+   * `byTrace`/`bySession` accumulated one immutable Record insert at a time,
+   * exactly as the fold used to. Nothing here reads the projection.
+   */
+  function accumulatedTraceIndexes(spans: readonly SpanRecord[]): {
+    byTrace: Record<string, number[]>
+    bySession: Record<string, number[]>
+  } {
+    let byTrace: Record<string, number[]> = {}
+    let bySession: Record<string, number[]> = {}
+    spans.forEach((span, at) => {
+      byTrace = { ...byTrace, [span.traceId]: [...(byTrace[span.traceId] ?? []), at] }
+      if (span.sessionId !== null) {
+        bySession = { ...bySession, [span.sessionId]: [...(bySession[span.sessionId] ?? []), at] }
+      }
+    })
+    return { byTrace, bySession }
+  }
+
+  it('projects exactly what the removed accumulation accumulated, at every prefix', () => {
+    const events = spanStress()
+    for (let cut = 0; cut <= events.length; cut += 1) {
+      const traces = reduceAll(events.slice(0, cut)).traces
+      const { byTrace, bySession } = accumulatedTraceIndexes(traces.spans)
+      // Bytes, not `toEqual`: key order is part of the answer, and it is the
+      // half a `Map`-backed rewrite would be most likely to get wrong.
+      expect(JSON.stringify(traces.byTrace), `byTrace at ${cut}`).toBe(JSON.stringify(byTrace))
+      expect(JSON.stringify(traces.bySession), `bySession at ${cut}`).toBe(JSON.stringify(bySession))
+    }
+  })
+
+  it('serialises the whole slice to the bytes the accumulating fold wrote', () => {
+    const traces = reduceAll(spanStress()).traces
+    expect(JSON.stringify(traces)).toBe(
+      JSON.stringify({ spans: traces.spans, ...accumulatedTraceIndexes(traces.spans) }),
+    )
+  })
+
+  /**
+   * The same fold with the table defeated: handing `reduce` a *copy* of the
+   * spans array every event means the array it is keyed by is one nothing has
+   * ever indexed, so every event rebuilds from scratch. If a carried-forward
+   * table ever disagreed with a rebuilt one, this is where it would show.
+   */
+  function foldWithColdIndex(events: readonly RhizomorphEvent[]): SessionState {
+    let state = initialSessionState()
+    for (const event of events) {
+      state = reduce({ ...state, traces: traceStateOf([...state.traces.spans]) }, event)
+    }
+    return state
+  }
+
+  it('folds to the same bytes whether its table is carried forward or rebuilt every event', () => {
+    const events = spanStress()
+    expect(JSON.stringify(foldWithColdIndex(events))).toBe(JSON.stringify(reduceAll(events)))
+  })
+
+  it('hands its table to one future only — two folds off one state stay independent', () => {
+    const events = spanStress()
+    const base = reduceAll(events)
+
+    // Two futures of one past, and they collide on purpose: `left` is a span
+    // the base already holds (a re-delivery, which folds to nothing) and
+    // `right` is a new span in the same trace. Neither may see the other's
+    // table, and taking one future must not spend the past's.
+    const left = f.traceSpan({ traceId: 'trace-long', spanId: 'span-long-0', parentSpanId: null, sessionId: 'sess-a' })
+    const right = f.traceSpan({ traceId: 'trace-long', spanId: 'span-fork', parentSpanId: null, sessionId: 'sess-a' })
+
+    const viaLeft = reduce(base, left)
+    const viaRight = reduce(base, right)
+    const rightAgain = reduce(base, right)
+
+    expect(JSON.stringify(viaLeft)).toBe(JSON.stringify(reduceAll([...events, left])))
+    expect(JSON.stringify(viaRight)).toBe(JSON.stringify(reduceAll([...events, right])))
+    expect(JSON.stringify(rightAgain)).toBe(JSON.stringify(viaRight))
+
+    // Said as facts too: the re-delivery appended nothing and kept the very
+    // same array, the new span appended exactly one.
+    expect(viaLeft.traces.spans).toBe(base.traces.spans)
+    expect(viaRight.traces.spans).toHaveLength(base.traces.spans.length + 1)
+    expect(viaRight.traces.byTrace['trace-long']?.length).toBe(
+      (base.traces.byTrace['trace-long'] as number[]).length + 1,
+    )
+  })
+
+  /**
+   * The staleness law, and the reason the projection is computed from `spans`
+   * rather than from the fold's own table: that table is mutable and moves on
+   * with the fold, so a slice reading it would answer for a future its spans
+   * never saw. An index carried as a live, shared object fails the same way,
+   * which is what the second half is for — a past whose indexes nobody had
+   * asked for until *after* the future's had been read is where a shared one
+   * shows, and reading the past first would hide it behind its own memo.
+   */
+  it('answers for the spans it holds, never for the spans a later fold added', () => {
+    const events = spanStress()
+    const later = f.traceSpan({
+      traceId: 'trace-later',
+      spanId: 'span-later',
+      parentSpanId: null,
+      sessionId: 'sess-a',
+    })
+
+    const past = reduceAll(events)
+    const expected = JSON.stringify(past.traces)
+    const future = reduce(past, later)
+    expect(JSON.stringify(future.traces)).not.toBe(expected)
+    expect(JSON.stringify(past.traces)).toBe(expected)
+
+    // The same two states, read in the order that hides nothing: the future
+    // first, the past never until now.
+    const unread = reduceAll(events)
+    const grown = reduce(unread, later)
+    expect(JSON.stringify(grown.traces)).toBe(JSON.stringify(future.traces))
+    expect(JSON.stringify(unread.traces)).toBe(expected)
+  })
+
+  it('keeps re-delivery keyed on the pair, and keyed on it after the reshape', () => {
+    const state = reduceAll([
+      f.traceSpan({ traceId: 'trace-a', spanId: 'span-1', parentSpanId: null, sessionId: 'sess-a' }),
+      f.traceSpan({ traceId: 'trace-b', spanId: 'span-1', parentSpanId: null, sessionId: 'sess-a' }),
+      f.traceSpan({ traceId: 'trace-a', spanId: 'span-1', parentSpanId: null, sessionId: 'sess-a' }),
+    ])
+    expect(state.traces.spans).toHaveLength(2)
+    expect(state.traces.byTrace).toEqual({ 'trace-a': [0], 'trace-b': [1] })
+    expect(state.traces.bySession).toEqual({ 'sess-a': [0, 1] })
+    // The event still happened; it is the span that is not duplicated.
+    expect(state.eventCount).toBe(3)
   })
 })

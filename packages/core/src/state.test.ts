@@ -5,6 +5,8 @@ import {
   basename,
   initialSessionState,
   initialTelemetryState,
+  initialTraceState,
+  traceStateOf,
   type SessionState,
 } from './state.js'
 
@@ -57,6 +59,72 @@ describe('TelemetryState — the slice holds recorded fact, and nothing else', (
   })
 })
 
+/**
+ * prd9's slice, under the same contract and by #184 the same discipline. The
+ * fold stopped *accumulating* `byTrace`/`bySession` — an immutable Record
+ * insert per span event, which copies every key the session has — and now
+ * hands out the spans array with the two indexes derived from it on demand.
+ *
+ * That is a change of arithmetic, not of contract, and these laws are what
+ * says so: the slice is the same three keys, holding the same values, writing
+ * the same bytes. The key set is pinned here *and* by the additivity oracle in
+ * `reduce.telemetry.test.ts`; this is the end where the argument is written
+ * down.
+ */
+describe('TraceState — the slice is its spans, and two projections of them', () => {
+  const spanned = (): SessionState =>
+    reduceAll([
+      fx.traceSpan({ traceId: 'trace-a', spanId: 'span-1', parentSpanId: null, sessionId: 'sess-a' }),
+      fx.traceSpan({ traceId: 'trace-a', spanId: 'span-2', parentSpanId: null, sessionId: 'sess-a' }),
+      fx.traceSpan({ traceId: 'trace-b', spanId: 'span-3', parentSpanId: null, sessionId: null }),
+    ])
+
+  it('is exactly three keys, empty and folded alike', () => {
+    const keys = ['spans', 'byTrace', 'bySession']
+    expect(Object.keys(initialTraceState()).sort()).toEqual([...keys].sort())
+    expect(Object.keys(spanned().traces).sort()).toEqual([...keys].sort())
+  })
+
+  /**
+   * The same proof `TelemetryState` gets, and #184 needs it more: a derived
+   * index is exactly the kind of thing that wants to be a `Map`, and a `Map`
+   * in the slice would serialise to `{}` while every `toEqual` in the suite
+   * went on passing. `SessionState` still crosses no wire and no disk — the
+   * recorder persists *events* — so this is not compatibility, it is the
+   * cheapest available proof that the slice is still plain recorded shape.
+   */
+  it('round-trips through JSON unchanged — no Map, no Set, no instance', () => {
+    const traces = spanned().traces
+    expect(JSON.parse(JSON.stringify(traces))).toEqual(traces)
+    expect(JSON.parse(JSON.stringify(traces)).byTrace).toEqual({ 'trace-a': [0, 1], 'trace-b': [2] })
+    expect(JSON.parse(JSON.stringify(traces)).bySession).toEqual({ 'sess-a': [0, 1] })
+  })
+
+  /**
+   * The mechanism, stated so a future reader cannot mistake the indexes for
+   * stored fields and go back to copying them: they are accessors, computed
+   * the first time somebody asks and then remembered against the array they
+   * describe — which is why two slices over one spans array hand back the very
+   * same projection, and why the fold can build a slice without touching one.
+   */
+  it('materialises each index on demand, once per spans array', () => {
+    const traces = spanned().traces
+    expect(Object.getOwnPropertyDescriptor(traces, 'byTrace')?.get).toBeTypeOf('function')
+    expect(Object.getOwnPropertyDescriptor(traces, 'bySession')?.get).toBeTypeOf('function')
+    expect(traces.byTrace).toBe(traces.byTrace)
+
+    const again = traceStateOf(traces.spans)
+    expect(again).not.toBe(traces)
+    expect(again.byTrace).toBe(traces.byTrace)
+    expect(again.bySession).toBe(traces.bySession)
+
+    // A different array is a different projection, however alike it looks.
+    const copied = traceStateOf([...traces.spans])
+    expect(copied.byTrace).not.toBe(traces.byTrace)
+    expect(copied.byTrace).toEqual(traces.byTrace)
+  })
+})
+
 describe('initialSessionState — fresh containers, never shared ones', () => {
   /**
    * The reason this matters is not tidiness. The telemetry fold's lookup tables
@@ -64,6 +132,11 @@ describe('initialSessionState — fresh containers, never shared ones', () => {
    * `initialTelemetryState` that handed every caller one shared `[]` would hand
    * every independent fold the same key — one session's table answering another
    * session's questions. Freshness is what makes identity-keying sound.
+   *
+   * #184 put the trace slice under the same rule, twice over: its spans array
+   * keys both the fold's own table and the projection memo behind
+   * `byTrace`/`bySession`, so a shared `[]` would leak an index *and* an
+   * answer.
    */
   it('hands out a new object graph on every call', () => {
     const a = initialSessionState()
@@ -78,7 +151,10 @@ describe('initialSessionState — fresh containers, never shared ones', () => {
     expect(a.telemetry.activeTime).not.toBe(b.telemetry.activeTime)
     expect(a.telemetry.lanes).not.toBe(b.telemetry.lanes)
     expect(a.telemetry.sessions).not.toBe(b.telemetry.sessions)
+    expect(a.traces).not.toBe(b.traces)
     expect(a.traces.spans).not.toBe(b.traces.spans)
+    expect(a.traces.byTrace).not.toBe(b.traces.byTrace)
+    expect(a.traces.bySession).not.toBe(b.traces.bySession)
     expect(a.commitOrder).not.toBe(b.commitOrder)
     expect(a.errors).not.toBe(b.errors)
   })

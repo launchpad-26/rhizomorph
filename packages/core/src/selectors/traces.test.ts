@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { FIXTURE_START_TS, createEventFactory, fixtureTraceSpans } from '../fixtures.js'
 import type { EventOf, PayloadOf } from '../events/index.js'
 import { reduceAll } from '../reduce.js'
-import { initialSessionState } from '../state.js'
+import { initialSessionState, type SessionState, type SpanRecord } from '../state.js'
 import { selectLaneInteractions, selectTraceTree, selectWaitingOnHuman } from './traces.js'
 
 /**
@@ -429,5 +429,94 @@ describe('selectWaitingOnHuman', () => {
       decisions: { accept: 0, reject: 0, unknown: 0 },
       longestWait: null,
     })
+  })
+})
+
+/**
+ * #184 — selector compatibility, proven rather than asserted.
+ *
+ * The trace fold stopped accumulating `byTrace`/`bySession` a Record copy at a
+ * time and now derives them from `spans` on demand (`traceStateOf` in
+ * `state.ts`). Every selector in this file reads one or both, so "no selector
+ * moves" is a claim that has to be *shown*, on a state big enough to have an
+ * opinion: many traces, many lanes, several sessions, spans with no session at
+ * all, a re-delivery, and the nested subagent shape.
+ *
+ * The reference is the removed line itself. `accumulatedTraces` folds the same
+ * spans into a plain, eagerly-built slice exactly as the fold used to, and
+ * every selector answers both states. The comparison is `JSON.stringify`, not
+ * `toEqual`: order inside a waterfall's children, inside a summary list and
+ * inside a `toolCallCounts` Record is part of the answer, and bytes are the
+ * only comparison that reads all of it.
+ */
+describe('law — the trace selectors cannot tell how the indexes were built (#184)', () => {
+  /** The pre-#184 slice: `byTrace`/`bySession` accumulated, then held. */
+  function accumulatedTraces(spans: readonly SpanRecord[]): SessionState['traces'] {
+    let byTrace: Record<string, number[]> = {}
+    let bySession: Record<string, number[]> = {}
+    spans.forEach((span, at) => {
+      byTrace = { ...byTrace, [span.traceId]: [...(byTrace[span.traceId] ?? []), at] }
+      if (span.sessionId !== null) {
+        bySession = { ...bySession, [span.sessionId]: [...(bySession[span.sessionId] ?? []), at] }
+      }
+    })
+    return { spans: [...spans], byTrace, bySession }
+  }
+
+  /** Two lanes' capture-shaped traces, a subagent tree, and the awkward edges. */
+  function realMix(): EventOf<'trace.span'>[] {
+    const f = createEventFactory({ idPrefix: 'mix' })
+    const anon = f.traceSpan({
+      traceId: 'trace-2-core-1',
+      spanId: 'orphan-no-session',
+      parentSpanId: 'never-arrives',
+      sessionId: null,
+      lane: '2-core',
+      kind: 'llm_request',
+      name: 'claude_code.llm_request',
+      tokens: { input: 7, output: 70, cacheRead: 700, cacheCreation: 7 },
+      ttftMs: 90,
+    })
+    const spans = [
+      ...fixtureTraceSpans({ lane: '2-core' }),
+      ...fixtureTraceSpans({ lane: '3-git' }),
+      ...subagentTraceSpans('2-core'),
+      anon,
+      // A second interaction on a lane that already has one, so the newest-first
+      // ordering has something to order.
+      ...fixtureTraceSpans({ lane: '2-core', traceId: 'trace-2-core-2', idPrefix: 'second' }),
+    ]
+    // A re-delivery: folds to nothing, and must leave every answer alone.
+    return [...spans, spans[0] as EventOf<'trace.span'>]
+  }
+
+  it('answers byte-identically against an eagerly accumulated slice', () => {
+    const derived = reduceAll(realMix())
+    const eager: SessionState = { ...derived, traces: accumulatedTraces(derived.traces.spans) }
+
+    // The state the selectors read really is the awkward one it claims to be.
+    expect(derived.traces.spans.length).toBeGreaterThan(15)
+    expect(Object.keys(derived.traces.byTrace).length).toBeGreaterThan(3)
+    expect(JSON.stringify(eager.traces)).toBe(JSON.stringify(derived.traces))
+
+    const lanes = ['2-core', '3-git', 'lane-that-never-existed']
+    const answers = (state: SessionState): string =>
+      JSON.stringify({
+        // The waterfall tree, per trace — including one the log never saw.
+        trees: [...Object.keys(state.traces.byTrace), 'trace-nobody-sent'].map((traceId) =>
+          selectTraceTree(state, traceId),
+        ),
+        // The span sums and exemplar picks: llm counts, tool tallies, the
+        // first-ttft pick and the four token tiers, per lane.
+        interactions: lanes.map((lane) => selectLaneInteractions(state, lane)),
+        // The retrospective wait totals, unfiltered and per lane — its
+        // `longestWait` is the other exemplar pick in this file.
+        waiting: [selectWaitingOnHuman(state), ...lanes.map((lane) => selectWaitingOnHuman(state, { lane }))],
+      })
+
+    expect(answers(eager)).toBe(answers(derived))
+    // Not vacuous: the selectors actually found the mix.
+    expect(answers(derived)).toContain('llmRequestCount')
+    expect(answers(derived)).toContain('longestWait')
   })
 })
