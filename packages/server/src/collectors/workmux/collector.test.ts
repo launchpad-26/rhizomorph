@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createEvent, createIdFactory, type CollectorContext, type Exec, type ExecResult, type EventType, type PayloadOf } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
-import { createWorkmuxCollector } from './collector.js'
+import { createWorkmuxCollector, WORKMUX_CAPABILITIES } from './collector.js'
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 
@@ -78,6 +78,12 @@ describe('createWorkmuxCollector', () => {
       (event) => event.type === 'agent.status' && event.payload.handle === '5-workmux-collector',
     )
     expect(workmuxSelf?.payload).toMatchObject({ worktreePath: '(here)' })
+
+    // prd15's capability law: a collector claiming a signal `provided` must
+    // have a path that actually emits it — this poll just proved `agent.status`
+    // is exactly that path for `attention`.
+    expect(WORKMUX_CAPABILITIES.attention).toEqual({ level: 'provided' })
+    expect(result.events.every((event) => event.type === 'agent.status')).toBe(true)
   })
 
   it('does not re-emit when nothing changed, but does on a real status change', async () => {

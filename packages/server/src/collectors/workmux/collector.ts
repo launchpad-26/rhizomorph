@@ -1,5 +1,6 @@
 import {
   agentStatusSchema,
+  type AdapterCapabilities,
   type AgentStatus,
   type Collector,
   type CollectorContext,
@@ -8,6 +9,29 @@ import {
   type PollResult,
 } from '@rhizomorph/core'
 import { parseElapsed, parseListTable, parseStatusTable } from './parse.js'
+
+/**
+ * prd15 ruling 5's L4 rung: the full rig. `agent.status` is the ladder's
+ * *only* non-heuristic live attention signal today (ruling 4's adapter
+ * matrix) — everything else on this ladder infers; workmux declares. No
+ * telemetry of its own (that's L1's OTLP env, or the sessionlog organ).
+ */
+export const WORKMUX_CAPABILITIES: AdapterCapabilities = {
+  identity: { level: 'provided' },
+  liveness: { level: 'provided' },
+  activity: { level: 'provided' },
+  attention: { level: 'provided' },
+  telemetry: {
+    level: 'absent',
+    reason: 'workmux status carries no token data',
+    remedy: 'the sessionlog transcript organ reads tokens from the CLI transcript',
+  },
+  cost: {
+    level: 'absent',
+    reason: 'workmux status carries no cost data',
+    remedy: 'env vars at launch (`rhizomorph env <lane>`) bring OTLP dollars',
+  },
+}
 
 interface WorkmuxAgentSnapshot {
   status: AgentStatus
@@ -35,6 +59,7 @@ function isMissingBinary(result: ExecResult): boolean {
 export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
   return {
     name: 'workmux',
+    capabilities: WORKMUX_CAPABILITIES,
 
     initialSnapshot(): WorkmuxSnapshot {
       return { disabled: false, agents: {} }
