@@ -75,7 +75,16 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
     body.scrollTop = body.scrollHeight
   }, [tail.entries, following])
 
-  const unreadable = tail.status === 'absent' || tail.status === 'error'
+  // A transient `absent`/`error` poll over entries already loaded is staleness,
+  // not absence (the operator's 2026-08-05 report: "flips back to not
+  // displaying as it updates"). `foldChunk`/`fail` both keep `entries` on these
+  // statuses on purpose — only a status with nothing behind it is unreadable;
+  // the gap voice is reserved for that, and held entries keep rendering with a
+  // quiet staleness note instead (the honesty law still applies to the note).
+  const gap = tail.status === 'absent' || tail.status === 'error'
+  const hasEntries = tail.entries.length > 0
+  const unreadable = gap && !hasEntries
+  const stale = gap && hasEntries
 
   // No top hairline on the section: the vitals above already draw one, and two
   // rules stacked read as a gap where there is none.
@@ -94,7 +103,7 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
         </h3>
         {unreadable ? null : (
           <span data-testid="conversation-tail-state" className="figures text-[10px] text-ice-400">
-            {following ? 'tailing ▾' : 'paused ▴'}
+            {stale ? 'stale ▪' : following ? 'tailing ▾' : 'paused ▴'}
           </span>
         )}
       </header>
@@ -111,6 +120,15 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
             onScroll={(event) => setFollowing(isAtTail(event.currentTarget))}
             className="min-h-0 flex-1 overflow-y-auto bg-ice-1000 px-4 py-2 [scrollbar-gutter:stable]"
           >
+            {stale ? (
+              <p
+                data-testid="conversation-stale-reason"
+                role="status"
+                className="mb-2 border-b border-ice-850 pb-1.5 text-[10px] leading-snug text-ice-400"
+              >
+                {tail.reason}
+              </p>
+            ) : null}
             {tail.earliestOffset > 0 ? (
               <button
                 type="button"

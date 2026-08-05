@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FetchLike } from '../fleet/manifest.js'
 import { Conversation, TAIL_SLACK_PX, isAtTail } from './Conversation.js'
 import {
@@ -402,6 +402,70 @@ describe('Conversation — the CLI-style session (prd4 ruling 4)', () => {
     expect(screen.getByTestId('conversation-body').textContent).toContain('lane b')
     expect(screen.getByTestId('conversation-body').textContent).not.toContain('lane a')
     expect(screen.getByTestId('conversation-tail-state').textContent).toContain('tailing')
+  })
+
+  /**
+   * The operator's 2026-08-05 report: "whenever there is an update it flips
+   * back to not displaying as it updates". A poll landing `available: false`
+   * over entries already read is staleness, not absence — `foldChunk` already
+   * keeps `entries` on that fold; this is the renderer holding up its end.
+   */
+  it('keeps showing held entries through a transient "absent" poll, with a quiet reason instead of the gap voice (#191)', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchImpl = scriptedFetch([
+        chunk([said('assistant', 'steady turn')], 40),
+        { available: false, lane: '84-chat-drawer', reason: 'RE-RESOLVING — try again shortly' },
+      ])
+
+      await act(async () => {
+        render(<Conversation lane="84-chat-drawer" fetchImpl={fetchImpl} pollMs={5} />)
+      })
+
+      expect(screen.getByTestId('conversation-body').textContent).toContain('steady turn')
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5)
+      })
+
+      // Still the same turn on screen — never the gap line in its place.
+      expect(screen.getByTestId('conversation-body').textContent).toContain('steady turn')
+      expect(screen.getByTestId('conversation-stale-reason').textContent).toContain('RE-RESOLVING')
+      expect(screen.getByTestId('conversation-tail-state').textContent).toContain('stale')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps showing held entries through a poll that fails outright, same as a transient "absent"', async () => {
+    vi.useFakeTimers()
+    try {
+      const failingFetch: FetchLike & { calls: number } = Object.assign(
+        async (input: string) => {
+          failingFetch.calls += 1
+          if (failingFetch.calls === 1) {
+            return { ok: true, json: async () => chunk([said('user', 'one turn on record')], 10) }
+          }
+          throw new Error('network dropped')
+        },
+        { calls: 0 },
+      )
+
+      await act(async () => {
+        render(<Conversation lane="84-chat-drawer" fetchImpl={failingFetch} pollMs={5} />)
+      })
+
+      expect(screen.getByTestId('conversation-body').textContent).toContain('one turn on record')
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5)
+      })
+
+      expect(screen.getByTestId('conversation-body').textContent).toContain('one turn on record')
+      expect(screen.getByTestId('conversation-stale-reason').textContent).toContain('TRANSCRIPT UNREACHABLE')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('shows a "load earlier" affordance when the loaded window does not start at byte zero, and pages backward on click', async () => {
