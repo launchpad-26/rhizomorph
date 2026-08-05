@@ -88,6 +88,39 @@ the scene — the answer is no.
     no", recorded in `packages/web/src/panels/burn/format.ts`). The spike's
     first open question is closed.
 
+## Ruling 13 — the band is CUT (operator amendment, 2026-08-06)
+
+*"Honestly? Get rid of the working green strips entirely."* — the operator,
+after living with the dock through three rounds of fixes.
+
+This is prd3 ruling 25's own protocol firing, and the operator's standing
+rule that **every failing mark gets an affordance or is CUT**. The density
+band got its affordances — a legible hit target, an honest hatch, coalescing,
+a real per-lane expansion — and it still read as noise to the only person
+using it. So it goes, and ruling 12 reaches its conclusion: if the marks are
+the glance layer, the band was the thing competing with the scene all along.
+
+**Removed entirely, collapsed and expanded, live and replay:** the state-fill
+bands, the per-lane rows, the `+N` coalescing chip, and the row-budget
+machinery that sized them.
+
+**What the dock is now:** the chapter-mark lane, a time axis, and the
+transport — a line of moments over a scrubber. Nothing else.
+
+The rulings the cut does NOT touch: marks and their hover cards (ruling 12),
+duration as a first-class fact (6), no legend (7), gaps as absence — now
+expressed by marks and axis alone rather than a hatch (8), the deep-linkable
+window (9), the transport's affordances (10), zoom (#189/#186's substrate),
+and ruling 1's framing — the dock is still the replay bar's body, never a
+panel. Rulings 2–4's band mechanics are **superseded**: session-to-now
+compression survives as the axis's mapping; stable ordering and coalescing
+become mark-only concerns.
+
+**What is deliberately given up, named so nobody re-adds it by accident:**
+the at-a-glance busy/quiet texture, and per-lane duration history in the
+bar. Both were the band's job. A lane's history now lives where it belongs —
+`/lane/:handle` and the drawer — and "what happened when" lives in the marks.
+
 ## Ruling 12 — chapters over tide (operator amendment, 2026-08-05)
 
 Ruling 4's replay default was wrong at scale, and the operator caught it on
