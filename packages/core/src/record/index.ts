@@ -11,5 +11,6 @@
 export * from './schema.js'
 export * from './hash.js'
 export * from './build.js'
+export * from './read.js'
 export * from './verify.js'
 export * from './merge.js'
