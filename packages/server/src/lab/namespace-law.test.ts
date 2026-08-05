@@ -103,6 +103,34 @@ function findLabImports(source: string): string[] {
   return importSpecifiers(source).filter(targetsLab)
 }
 
+/**
+ * A stricter cousin of {@link targetsLab}, for the web-side check only:
+ * rather than a path-text guess, this resolves a specifier against the file
+ * that wrote it and asks whether the result actually lands inside the
+ * SERVER's laboratory module (`LAB_DIR`). prd14 gave web its own, unrelated
+ * directory of the same name (`packages/web/src/lab/`, the experiment
+ * console) — `targetsLab`'s text-only heuristic cannot tell that apart from
+ * the server's engine, and a check that can't tell them apart would forbid
+ * the very console prd14 blesses. Resolving the path is strictly MORE
+ * rigorous than the text guess it replaces here, not less: it still catches
+ * every real reach into `LAB_DIR` (a long relative escape out of `web/`, for
+ * instance), and it stops flagging a same-named sibling that was never the
+ * server's engine to begin with. Bare/package specifiers never resolve this
+ * way and are treated as a miss — the lab module publishes no package name
+ * for web to import in the first place, so the only real way in is a
+ * relative path, which this still catches in full.
+ */
+function resolvesIntoServerLab(specifier: string, fromFile: string): boolean {
+  if (!specifier.startsWith('.')) return false
+  const resolved = path.resolve(path.dirname(fromFile), specifier)
+  return resolved === LAB_DIR || resolved.startsWith(LAB_DIR + path.sep)
+}
+
+/** The specifiers in one file's text that actually resolve into the SERVER's lab module — see {@link resolvesIntoServerLab}. */
+function findServerLabImports(source: string, fromFile: string): string[] {
+  return importSpecifiers(source).filter((specifier) => resolvesIntoServerLab(specifier, fromFile))
+}
+
 describe('the lab namespace law (prd12 ruling 1)', () => {
   describe('no observer import reaches the lab', () => {
     it('the detector fires on a deliberately-violating fixture — proving it bites', () => {
@@ -134,13 +162,29 @@ describe('the lab namespace law (prd12 ruling 1)', () => {
       expect(hits.length).toBeGreaterThan(0)
     })
 
-    it('no web source file imports from the lab module', () => {
+    it('no web source file imports from the SERVER\'s lab module', () => {
       const files = walkSourceFiles(WEB_SRC)
       const violations = files
-        .map((file) => ({ file: path.relative(REPO_ROOT, file), specifiers: findLabImports(readFileSync(file, 'utf8')) }))
+        .map((file) => ({
+          file: path.relative(REPO_ROOT, file),
+          specifiers: findServerLabImports(readFileSync(file, 'utf8'), file),
+        }))
         .filter((entry) => entry.specifiers.length > 0)
 
       expect(violations).toEqual([])
+    })
+
+    it('the resolved detector bites on a real cross-package reach, and does not confuse web\'s own lab/ console for the server\'s engine', () => {
+      const fakeWebFile = path.join(WEB_SRC, 'App.tsx')
+
+      // A real violation: escaping out of `web/src` into the server's engine.
+      expect(
+        findServerLabImports(`import { compareFork } from '../../server/src/lab/compare.js'\n`, fakeWebFile),
+      ).toEqual(['../../server/src/lab/compare.js'])
+
+      // Not a violation: prd14's own web console, a same-named sibling directory
+      // that has nothing to do with `packages/server/src/lab/`.
+      expect(findServerLabImports(`import { LabPage } from './lab/index.js'\n`, fakeWebFile)).toEqual([])
     })
   })
 
