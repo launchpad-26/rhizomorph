@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { eraCorpusEntry } from './eras/corpus.js'
+import { canonicalStateJson, foldEraRecording } from './eras/fold.js'
 import type { EventOf, RhizomorphEvent } from './events/index.js'
+import { observeUpcast, upcast } from './events/upcast.js'
 import { createEventFactory, fixtureSession } from './fixtures.js'
 import { reduce, reduceAll } from './reduce.js'
 import type { SessionState, SpanRecord } from './state.js'
@@ -1100,5 +1103,254 @@ describe('reduce — the trace index is an accelerator, never an input (#184)', 
     expect(state.traces.bySession).toEqual({ 'sess-a': [0, 1] })
     // The event still happened; it is the span that is not duplicated.
     expect(state.eventCount).toBe(3)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// prd17 ruling 3, item 3 — the upcast chokepoint
+// ---------------------------------------------------------------------------
+
+/**
+ * The LIVE path's fold, spelled exactly as the live stream spells it: one
+ * `reduce(state, event)` per arrival, in arrival order, no sorting
+ * (`packages/web/src/app/streamState.ts`, and the server recorder's own fold).
+ */
+function foldLive(events: readonly RhizomorphEvent[]): SessionState {
+  let state = initialSessionState()
+  for (const event of events) state = reduce(state, event)
+  return state
+}
+
+/**
+ * The REPLAY path's fold, spelled exactly as replay spells it: `ts`-ascending
+ * first, then folded (`packages/web/src/replay/replayFold.ts`'s `sortEvents`
+ * feeding `buildSessionIndex`/`foldFrom`).
+ */
+function foldReplay(events: readonly RhizomorphEvent[]): SessionState {
+  return reduceAll([...events].sort((a, b) => a.ts - b.ts))
+}
+
+describe('reduce — every event flows through upcast(), in both paths (prd17 ruling 3.3)', () => {
+  /** Installs the observer and always disposes it, so a leak can't reach the next test. */
+  function watching<T>(body: (seen: RhizomorphEvent[]) => T): { seen: RhizomorphEvent[]; result: T } {
+    const seen: RhizomorphEvent[] = []
+    const dispose = observeUpcast((event) => seen.push(event))
+    try {
+      return { seen, result: body(seen) }
+    } finally {
+      dispose()
+    }
+  }
+
+  const log = (): RhizomorphEvent[] => [
+    f.sessionStarted({}, { ts: 3_000 }),
+    f.paneActivity({ paneId: '%1', contentHash: 'h1' }, { ts: 1_000 }),
+    f.agentStatus({ handle: 'a', status: 'working' }, { ts: 2_000 }),
+  ]
+
+  it('is an identity function — it returns the very event it was handed', () => {
+    const event = f.sessionStarted()
+    expect(upcast(event)).toBe(event)
+  })
+
+  it('the LIVE fold puts every event through it, in arrival order', () => {
+    const events = log()
+    const { seen } = watching(() => foldLive(events))
+    expect(seen).toEqual(events)
+    expect(seen.map((event) => event.id)).toEqual(events.map((event) => event.id))
+  })
+
+  it('the REPLAY fold puts every event through it, in ts order', () => {
+    const events = log()
+    const sorted = [...events].sort((a, b) => a.ts - b.ts)
+    const { seen } = watching(() => foldReplay(events))
+    expect(seen).toEqual(sorted)
+  })
+
+  it('reduceAll routes through it too — no fold shape bypasses the chokepoint', () => {
+    const events = log()
+    const { seen } = watching(() => reduceAll(events))
+    expect(seen).toHaveLength(events.length)
+  })
+
+  it('is reached once per event, not once per fold — a 40-event log upcasts 40 times', () => {
+    const events = Array.from({ length: 40 }, (_, at) =>
+      f.paneActivity({ paneId: `%${at}`, contentHash: `h${at}` }),
+    )
+    const { seen } = watching(() => foldLive(events))
+    expect(seen).toHaveLength(40)
+  })
+
+  it('refuses a second observer rather than shadowing the first', () => {
+    const dispose = observeUpcast(() => {})
+    try {
+      expect(() => observeUpcast(() => {})).toThrow(/already has an observer/)
+    } finally {
+      dispose()
+    }
+  })
+
+  it('leaves the fold untouched — observing it cannot change what it folds', () => {
+    const events = log()
+    const watched = watching(() => foldLive(events)).result
+    expect(JSON.stringify(foldLive(events))).toBe(JSON.stringify(watched))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// prd17 ruling 3, item 4 — the fold-order law
+// ---------------------------------------------------------------------------
+
+/**
+ * THE FOLD-ORDER LAW, and the divergence it found.
+ *
+ * The systems chair's verified finding: **live folds arrival order while replay
+ * folds `ts`-sorted, through an order-sensitive reducer.** This block is the
+ * fixture that pins what each path does today. It does not change either one.
+ *
+ * The reducer is order-sensitive in three distinct ways, each exercised below:
+ * last-write-wins on a keyed record (`agent.status`), create-vs-delete on a key
+ * (`branch.updated` / `branch.removed`), and first-sighting sequence
+ * (`commitOrder`, `firstEventTs`). For a log whose own append order disagrees
+ * with its timestamps — which real logs do, see `foldOrderEvidence` below —
+ * the two paths therefore fold the SAME log to DIFFERENT state.
+ *
+ * **What order is the reducer owed?** The repo has already written this down
+ * once, for the merge: `docs/record-format.md` says "order per-actor
+ * append-only … never reorder two events that came from the *same* actor
+ * relative to each other — even if that actor's own timestamps aren't perfectly
+ * monotonic (collectors can report a source's own clock, and a tail line can
+ * occasionally be older than the line above it)". By that law the log's own
+ * append order is the truth and replay's `ts`-sort violates it.
+ *
+ * That is a ruling to make, not a change to smuggle in here: `sortEvents` also
+ * feeds the scrubber's binary search (`boundaryIndex`), which *requires* a
+ * `ts`-ascending array, so honouring append order in replay is a change to how
+ * scrubbing addresses time, not a one-line swap. This lane therefore documents
+ * and pins the divergence and prints `BLOCKED` for the conductor, per the
+ * issue's own instruction.
+ */
+describe('reduce — the fold-order law: what order is the reducer owed? (prd17 ruling 3.4)', () => {
+  /**
+   * One log whose ARRIVAL order deliberately disagrees with its TIMESTAMP order
+   * — the shape `packages/server/src/log/session-log.ts` warns about, where a
+   * tailed line can be older than the line above it.
+   */
+  function interleaved(): RhizomorphEvent[] {
+    return [
+      f.sessionStarted({}, { ts: 2_000 }),
+      // Last-write-wins on one key, the two writes out of order.
+      f.agentStatus({ handle: 'a', status: 'working' }, { ts: 5_000 }),
+      f.agentStatus({ handle: 'a', status: 'done' }, { ts: 3_000 }),
+      // Create-then-delete vs delete-then-create on one key.
+      f.branchUpdated({ branch: 'lane-a', head: 'sha-a' }, { ts: 6_000 }),
+      f.branchRemoved({ branch: 'lane-a' }, { ts: 4_000 }),
+      // First-sighting sequence.
+      f.commitLanded({ sha: 'sha-2', branch: 'main' }, { ts: 8_000 }),
+      f.commitLanded({ sha: 'sha-1', branch: 'main' }, { ts: 7_000 }),
+      // Order-independent arithmetic, for the invariants below.
+      f.llmUsage({ lane: 'a', requestId: 'req-1' }, { ts: 9_000 }),
+      f.llmUsage({ lane: 'a', requestId: 'req-2' }, { ts: 1_000 }),
+    ]
+  }
+
+  it('the fixture really is interleaved — this whole block is vacuous otherwise', () => {
+    const events = interleaved()
+    const arrival = events.map((event) => event.ts)
+    const sorted = [...arrival].sort((a, b) => a - b)
+    expect(arrival).not.toEqual(sorted)
+  })
+
+  describe('what BOTH paths owe — no ordering may change these', () => {
+    it('counts every event exactly once', () => {
+      const events = interleaved()
+      expect(foldLive(events).eventCount).toBe(events.length)
+      expect(foldReplay(events).eventCount).toBe(events.length)
+    })
+
+    it('reports the same last-seen timestamp — a max, not a sequence', () => {
+      const events = interleaved()
+      expect(foldLive(events).lastEventTs).toBe(9_000)
+      expect(foldReplay(events).lastEventTs).toBe(9_000)
+    })
+
+    it('holds the same set of commits, whatever order they were sighted in', () => {
+      const events = interleaved()
+      expect(Object.keys(foldLive(events).commits).sort()).toEqual(['sha-1', 'sha-2'])
+      expect(Object.keys(foldReplay(events).commits).sort()).toEqual(['sha-1', 'sha-2'])
+    })
+
+    it('counts the same tokens — spend is a sum, and a sum has no order', () => {
+      const events = interleaved()
+      const tokensOf = (state: SessionState) =>
+        state.telemetry.usage.reduce((sum, record) => sum + record.totalTokens, 0)
+      expect(tokensOf(foldLive(events))).toBe(tokensOf(foldReplay(events)))
+      expect(tokensOf(foldLive(events))).toBeGreaterThan(0)
+    })
+  })
+
+  describe('where the two paths DIVERGE today — pinned, not fixed (see BLOCKED)', () => {
+    it('disagrees about a keyed record\'s latest value: live takes the last ARRIVAL, replay the latest TIMESTAMP', () => {
+      const events = interleaved()
+      // Live: `working` then `done` arrived, so `done` is the last write.
+      expect(foldLive(events).agents.a?.status).toBe('done')
+      expect(foldLive(events).agents.a?.previousStatus).toBe('working')
+      // Replay: sorted, `done` (ts 3000) precedes `working` (ts 5000).
+      expect(foldReplay(events).agents.a?.status).toBe('working')
+      expect(foldReplay(events).agents.a?.previousStatus).toBe('done')
+    })
+
+    it('disagrees about whether a branch still EXISTS — the sharpest form of the divergence', () => {
+      const events = interleaved()
+      // Live: created, then removed. Gone.
+      expect(foldLive(events).branches['lane-a']).toBeUndefined()
+      // Replay: the removal sorts FIRST and no-ops on a branch that isn't there
+      // yet; the update then creates it. Present, with a head.
+      expect(foldReplay(events).branches['lane-a']?.head).toBe('sha-a')
+    })
+
+    it('disagrees about the commit ticker\'s order', () => {
+      const events = interleaved()
+      expect(foldLive(events).commitOrder).toEqual(['sha-2', 'sha-1'])
+      expect(foldReplay(events).commitOrder).toEqual(['sha-1', 'sha-2'])
+    })
+
+    it('disagrees about when the session began: live takes the first ARRIVAL, replay the earliest TIMESTAMP', () => {
+      const events = interleaved()
+      expect(foldLive(events).firstEventTs).toBe(2_000)
+      expect(foldReplay(events).firstEventTs).toBe(1_000)
+    })
+
+    it('so the two paths fold one log to two different states — stated once, plainly', () => {
+      const events = interleaved()
+      expect(JSON.stringify(foldLive(events))).not.toBe(JSON.stringify(foldReplay(events)))
+    })
+  })
+
+  describe('this is not a synthetic worry — a REAL recording diverges too', () => {
+    /**
+     * The era-1 corpus recording (`eras/era-1/recording.jsonl`) is a contiguous
+     * slice of a log this instrument actually wrote, and it is not monotonic in
+     * `ts`: a `sessionlog` tail line lands beside a `tmux` poll seconds older.
+     * So the divergence above is what the live dashboard and a replay of the
+     * same recording ALREADY disagree about, today, on real data.
+     */
+    const recording = eraCorpusEntry('era-1').recordingText
+
+    it('era-1 is genuinely out of order in its own log', () => {
+      const { events } = foldEraRecording(recording)
+      const arrival = events.map((event) => event.ts)
+      expect(arrival).not.toEqual([...arrival].sort((a, b) => a - b))
+    })
+
+    it('and the two paths fold it to two different states', () => {
+      const { events } = foldEraRecording(recording)
+      expect(canonicalStateJson(foldLive(events))).not.toBe(canonicalStateJson(foldReplay(events)))
+    })
+
+    it('the committed era snapshot is the LOG ORDER fold — the corpus takes no side the ruling has not taken', () => {
+      const { events, state } = foldEraRecording(recording)
+      expect(canonicalStateJson(state)).toBe(canonicalStateJson(foldLive(events)))
+    })
   })
 })
