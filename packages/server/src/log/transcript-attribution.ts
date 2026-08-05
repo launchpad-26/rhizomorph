@@ -27,6 +27,64 @@ export interface Attribution {
  */
 export const CONDUCTOR_LANE = 'main'
 
+interface AttributedPayload {
+  lane?: unknown
+  branch?: unknown
+  role?: unknown
+  sessionId?: unknown
+  worktreePath?: unknown
+}
+
+/**
+ * The newest attribution the log carries for whatever `matches` picks out —
+ * a lane's `lane`/`branch`, or the conductor's `role` — resolved in two
+ * separate passes rather than one, because the two facts do not age the same
+ * way. **Session id**: the newest match, full stop — a lane that resumes
+ * under a fresh Claude Code process legitimately changes it. **Worktree
+ * path**: the newest match *for that same session id* that actually named
+ * one, never merely the newest match overall.
+ *
+ * The split exists because `llm.cost` is one of {@link ATTRIBUTED_TYPES} and
+ * OTel is the only source that emits it — and OTel never learns a worktree
+ * (`collectors/otel/parse-metrics.ts`'s `buildCostEvent` sets
+ * `worktreePath: null` unconditionally, having no filesystem knowledge to set
+ * it from). Cost telemetry for a lane keeps arriving after the lane lands —
+ * a `workmux merge` prunes the worktree, not the cost API's polling loop — so
+ * a single newest-wins scan would let that later, worktree-blind row blank
+ * out a worktree this log already resolved while the lane was live. The one
+ * fact worth keeping once known is never un-known by a witness that was
+ * never in a position to know it in the first place.
+ */
+function findAttribution(
+  events: readonly RhizomorphEvent[],
+  matches: (payload: AttributedPayload) => boolean,
+): Attribution | null {
+  let sessionId: string | null = null
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]
+    if (!event || !ATTRIBUTED_TYPES.has(event.type)) continue
+    const payload = event.payload as AttributedPayload
+    if (!matches(payload)) continue
+    if (typeof payload.sessionId !== 'string' || payload.sessionId.length === 0) continue
+    sessionId = payload.sessionId
+    break
+  }
+  if (sessionId === null) return null
+
+  let worktreePath: string | null = null
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]
+    if (!event || !ATTRIBUTED_TYPES.has(event.type)) continue
+    const payload = event.payload as AttributedPayload
+    if (!matches(payload) || payload.sessionId !== sessionId) continue
+    if (typeof payload.worktreePath === 'string') {
+      worktreePath = payload.worktreePath
+      break
+    }
+  }
+  return { sessionId, worktreePath }
+}
+
 /**
  * The newest attribution the log carries for `lane`, or null when nothing in
  * the session ever named it. Matches on the payload's `lane` *or* its `branch`,
@@ -38,25 +96,7 @@ export function findLaneAttribution(
   events: readonly RhizomorphEvent[],
   lane: string,
 ): Attribution | null {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i]
-    if (!event || !ATTRIBUTED_TYPES.has(event.type)) continue
-
-    const payload = event.payload as {
-      lane?: unknown
-      branch?: unknown
-      sessionId?: unknown
-      worktreePath?: unknown
-    }
-    if (payload.lane !== lane && payload.branch !== lane) continue
-    if (typeof payload.sessionId !== 'string' || payload.sessionId.length === 0) continue
-
-    return {
-      sessionId: payload.sessionId,
-      worktreePath: typeof payload.worktreePath === 'string' ? payload.worktreePath : null,
-    }
-  }
-  return null
+  return findAttribution(events, (payload) => payload.lane === lane || payload.branch === lane)
 }
 
 /**
@@ -65,24 +105,7 @@ export function findLaneAttribution(
  * doc for the full rationale (role, not name).
  */
 export function findConductorAttribution(events: readonly RhizomorphEvent[]): Attribution | null {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i]
-    if (!event || !ATTRIBUTED_TYPES.has(event.type)) continue
-
-    const payload = event.payload as {
-      role?: unknown
-      sessionId?: unknown
-      worktreePath?: unknown
-    }
-    if (payload.role !== 'conductor') continue
-    if (typeof payload.sessionId !== 'string' || payload.sessionId.length === 0) continue
-
-    return {
-      sessionId: payload.sessionId,
-      worktreePath: typeof payload.worktreePath === 'string' ? payload.worktreePath : null,
-    }
-  }
-  return null
+  return findAttribution(events, (payload) => payload.role === 'conductor')
 }
 
 /**

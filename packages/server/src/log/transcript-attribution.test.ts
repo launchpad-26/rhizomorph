@@ -56,6 +56,37 @@ describe('findLaneAttribution', () => {
   it('is null for a lane nothing ever named', () => {
     expect(findLaneAttribution(laneEvents(), 'no-such-lane')).toBeNull()
   })
+
+  it('#208: keeps the worktree path already resolved when a later, same-session cost row carries none', () => {
+    // Sessionlog attributes the lane while it is live. Then the lane lands —
+    // `workmux merge` prunes the worktree — and OTel cost telemetry for the
+    // same Claude Code session keeps arriving anyway, worktree-blind by
+    // construction (`collectors/otel/parse-metrics.ts`).
+    const f = createEventFactory()
+    const events = [
+      f.toolActivity({ lane: LANE, branch: LANE, sessionId: SESSION_ID, worktreePath: WORKTREE }),
+      f.llmCost({ lane: LANE, branch: LANE, sessionId: SESSION_ID, worktreePath: null }, { source: 'otel' }),
+    ]
+
+    expect(findLaneAttribution(events, LANE)).toEqual({ sessionId: SESSION_ID, worktreePath: WORKTREE })
+  })
+
+  it('#208: never invents a worktree path — stays null when nothing under this session ever named one', () => {
+    const f = createEventFactory()
+    const events = [f.llmCost({ lane: LANE, branch: LANE, sessionId: SESSION_ID, worktreePath: null }, { source: 'otel' })]
+
+    expect(findLaneAttribution(events, LANE)).toEqual({ sessionId: SESSION_ID, worktreePath: null })
+  })
+
+  it('#208: a resumed session (new session id) gets its own worktree path, not the old session\'s', () => {
+    const f = createEventFactory()
+    const events = [
+      f.llmUsage({ lane: LANE, branch: LANE, sessionId: 'sess-old', worktreePath: WORKTREE }),
+      f.llmUsage({ lane: LANE, branch: LANE, sessionId: 'sess-new', worktreePath: '/tmp/other-wt' }),
+    ]
+
+    expect(findLaneAttribution(events, LANE)).toEqual({ sessionId: 'sess-new', worktreePath: '/tmp/other-wt' })
+  })
 })
 
 describe('findConductorAttribution (prd6 ruling 5)', () => {
@@ -105,6 +136,19 @@ describe('findConductorAttribution (prd6 ruling 5)', () => {
     ]
 
     expect(findConductorAttribution(events)).toBeNull()
+  })
+
+  it('#208: keeps the conductor\'s resolved worktree path when a later cost row for the same session carries none', () => {
+    const f = createEventFactory()
+    const events = [
+      f.llmUsage({ lane: 'conductor', role: 'conductor', sessionId: 'sess-conductor', worktreePath: CONDUCTOR_DIR }),
+      f.llmCost(
+        { lane: 'conductor', role: 'conductor', sessionId: 'sess-conductor', worktreePath: null },
+        { source: 'otel' },
+      ),
+    ]
+
+    expect(findConductorAttribution(events)).toEqual({ sessionId: 'sess-conductor', worktreePath: CONDUCTOR_DIR })
   })
 })
 

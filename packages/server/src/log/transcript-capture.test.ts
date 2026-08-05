@@ -143,6 +143,35 @@ describe('captureSessionTranscripts', () => {
     expect(manifest.lanes[0]?.reason).toContain('TRANSCRIPT NOT CAPTURED')
   })
 
+  it('#208: captures a lane that landed mid-session even though a later cost row for the same session carries no worktree path', async () => {
+    await writeLiveTranscript([JSON.stringify({ type: 'user', message: { role: 'user', content: 'hi' } })])
+
+    const f = createEventFactory()
+    const events = [
+      ...laneEvents(),
+      // The lane lands mid-session; its worktree is pruned. OTel cost
+      // telemetry for the same Claude Code session keeps arriving anyway,
+      // worktree-blind by construction — this must not turn a landed lane's
+      // capture into a false gap (#208).
+      f.llmCost({ lane: LANE, branch: LANE, sessionId: SESSION_ID, worktreePath: null }, { source: 'otel' }),
+    ]
+
+    const manifest = await captureSessionTranscripts({
+      events,
+      sessionDir,
+      sessionId: RECORDING_SESSION_ID,
+      claudeProjectsRoot,
+      now: 5000,
+    })
+
+    expect(manifest).not.toBeNull()
+    if (manifest === null) return
+    expect(manifest.complete).toBe(true)
+    expect(manifest.lanes).toEqual([
+      { lane: LANE, claudeSessionId: SESSION_ID, captured: true, bytes: manifest.totalBytes },
+    ])
+  })
+
   it('is a mix, honestly, when one lane captures and another cannot', async () => {
     await writeLiveTranscript([JSON.stringify({ type: 'user', message: { role: 'user', content: 'hi' } })])
 
