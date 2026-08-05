@@ -1,12 +1,19 @@
 /**
- * THE TIDE (prd13) — the scrubber's body, computed.
+ * THE TIDE (prd13) — the scrubber's body.
  *
- * Three pure functions and the shapes between them: {@link bandsFor} turns an
- * event log into per-lane state bands, {@link coalesce} folds slivers the
- * caller's resolution cannot render, {@link rowPlan} decides which lane gets
- * which row. Waves 2–4 draw from exactly this and add nothing to it.
+ * #167's three pure functions and the shapes between them: {@link bandsFor}
+ * turns an event log into per-lane state bands, {@link coalesce} folds
+ * slivers the caller's resolution cannot render, {@link rowPlan} decides
+ * which lane gets which row. `bands.ts`/`coalesce.ts`/`rowPlan.ts` import no
+ * React, read no DOM, take no clock — `purity.test.ts` holds every `.ts` file
+ * in this directory to that, so a computation that needs a view has left the
+ * lane by construction.
  *
- * Nothing here imports React, reads the DOM, or takes a clock.
+ * #168 (wave 2) adds the one thing none of the three above does — a
+ * timestamp → pixel mapping ({@link timeScale}, `scale.ts`) — and the `Tide`
+ * component that draws with it. `Tide` computes nothing the three functions
+ * above do not already hand it; see `Tide.tsx`'s own module note for what
+ * that rules in and out.
  */
 export {
   BAND_STATES,
@@ -29,3 +36,8 @@ export {
   type RowCandidate,
   type RowDescriptor,
 } from './rowPlan.js'
+export { formatDuration, formatClock, formatRange } from './duration.js'
+export { estimateLabelWidthPx, labelFits } from './label.js'
+export { layoutBands, type LaidBand } from './layout.js'
+export { HOVER_PX, hoverThresholdMs, timeScale, type TimeScale } from './scale.js'
+export { ROW_HEIGHT_PX, DEFAULT_TOP_N, Tide, type TideMode, type TideProps } from './Tide.js'
