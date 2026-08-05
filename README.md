@@ -45,6 +45,7 @@ flags, forward them the same way: `npm start -- <path-to-repo> --port 5000`.
 | `--poll-interval <ms>` | `2000`, minimum `250` | Collector poll cadence in ms |
 | `--extra-sessions <path>[:<lane>]` | — | Foreign Claude session-log dir to tail as a conductor (repeatable). `<path>` is the dir of `*.jsonl` itself; `<lane>` defaults to `conductor`, `conductor-2`, … |
 | `--fresh` | — | Start a new session instead of resuming the most recent one for this repo (default: resume if its newest event is under 4h old) |
+| `--resume-window <ms>` | 4h | Override the resume boundary above. `--resume-window 0` behaves exactly like `--fresh`. The boot line and `rhizomorph doctor` both say which way this decided and why |
 | `--backfill` | — | Read session logs from the beginning instead of end-of-file — ingest history on purpose; expect a large first tick |
 | `--help`, `-h` | — | Show usage and exit |
 
@@ -57,7 +58,9 @@ npm start -- doctor <path-to-repo>
 
 It checks the Node version, that the target path exists and is a git repo,
 that the web build is present, that the port is free, Claude Code session
-logs, tmux/workmux on `PATH`, the telemetry env, and the lane manifest — one
+logs, tmux/workmux on `PATH`, the telemetry env, the lane manifest, whether
+this boot found a live writer already holding the session (the pid+heartbeat
+lock, see [Trust](#trust) below), and each lane's own enrichment rung — one
 `ok`/`warn`/`FAIL` line per check, each with its exact remedy. It exits
 non-zero only when the app genuinely cannot run at all (bad path, not a git
 repo, no web build, port already taken); everything else is a `warn` that
@@ -73,6 +76,19 @@ rhizomorph <path-to-repo>` 404s
 package to fetch. Once one is published, that single command will fetch and
 run it with nothing installed permanently, no clone required — the same
 code the clone path above runs today, just fewer steps to get there.
+
+The plan, not a date: prd15's "true, full-featured system agnosticism" round
+(any OS, any terminal, any agent CLI) supersedes the earlier clone-first
+ruling and puts publishing back on the map — but deliberately as its **last**
+wave, never its first, so agnosticism lands and gets exercised before a
+stranger's `npm install` is the front door. prd8's packaging machinery
+(tarball-proven `files` allowlist, tag-gated release workflow, no secrets)
+already exists and stays dormant until that wave. The one remaining
+prerequisite is an operator decision, not a build task: whether going public
+means rewriting this repo's history or cutting a fresh tree, a choice #177
+named and left open rather than resolved — the audit that raised it found
+unscrubbed identifiers in captured OTel fixtures, and a scrub commit fixes
+the tree, not the history it's layered on. No wave here promises a date.
 
 ## Trust
 
@@ -105,48 +121,6 @@ branches, commits — read-only, no writes); tmux panes and
 (neither is required); and, to show an agent's actual conversation in the
 lane drawer, your own Claude Code session logs under `~/.claude/projects`.
 
-**When it records — the recorder's own hand (prd16 ruling 2):** always,
-from the moment the server starts — there is no opt-in flag and no way to
-run it without recording. What decides *when one recording ends and the
-next begins* is your own explicit act at boot, never a collector, a lane,
-or a clock: `--fresh` forces a new session, `--resume-window` sets how long
-a gap may be before the previous one counts as over, and the default
-resumes whatever session is still inside that window (see `--fresh` above).
-Every path this hand can write to is built from one function,
-[`defaultDataRoot()`](packages/server/src/log/paths.ts) — there's no second
-constructor for a session, label, or snapshot path to have drifted from it
-— and `decideSessionBoot`'s tests in
-[`packages/server/src/log/session-log.test.ts`](packages/server/src/log/session-log.test.ts)
-are what pin the boundary: only the flags above decide the cut, nothing
-that runs later.
-
-**What it writes:** its own recording of what it saw — a plain JSON-lines
-session log under `~/.local/share/rhizomorph/<repo-slug>/`, one file per
-session, never anything inside the repo you're watching. The log is
-*exactly* the event stream every panel already reads: whatever privacy
-allowlisting a collector applies happens before an event is even built, so
-the log was never a second copy with more in it, and it never gains fields
-after the fact. That's what makes Replay possible; delete the directory
-and the next boot starts a fresh recording with nothing lost from the repo
-itself.
-
-**Where it writes it:** the exact path is printed at boot —
-`watching <repo> — N worktrees, M branches · recording to <path>` — so you
-never have to go looking for it.
-
-**Finding, labelling and replaying a recording:** `rhizomorph sessions
-[path]` lists every session recorded for a repo — newest first, each with a
-title *derived from its own events* (`2026-08-04 · 6 lanes · 5 landed ·
-#144 #148 #152`, or `2026-08-04 · no activity recorded` for an empty one),
-when it ran, how long, lanes, landings, tokens, cost and file size. The same
-titles show up in the replay picker in the dashboard itself. If an
-auto-title isn't the name you'd give it, `rhizomorph label <sessionId>
-"<text>"` sets one that wins — written to a sidecar file next to the log
-(`session-<id>.label.json`), never a mutation of the log itself. Once
-you've found the one you want, either replay it from the dashboard's own
-picker, or hand the file to someone else first with `rhizomorph
-export-record` (see [the record format](docs/record-format.md)).
-
 **Where it listens:** `127.0.0.1` only, on the port you choose (default
 `4321`). It does not bind a public interface. If you also point a live
 `claude` process at its telemetry receiver (see [Telemetry](#telemetry-the-money-layer)
@@ -157,6 +131,81 @@ port, for the same reason.
 no analytics call, no update check, no phone-home of any kind anywhere in
 this codebase. Everything it shows is read from local files and local
 processes and rendered in your own browser.
+
+### The recorder — the observer's own second hand, narrower than either (prd16 ruling 2)
+
+Not a new authority: the observer has always written its own recording of
+what it saw; what prd16 makes operable is *who decides when a recording
+ends*. This hand may only ever close the current session log and open a
+new one, writing solely inside the Rhizomorph's own data directory
+(`~/.local/share/rhizomorph/<repo-slug>/`) — never the watched repo, never
+a git ref, never a worktree, never `~/.claude`.
+
+**When it records:** always, from the moment the server starts — there is
+no opt-in flag and no way to run it without recording. What decides *when
+one recording ends and the next begins* is your own explicit act, never a
+collector, a lane, or a clock: `--fresh` forces a new session,
+`--resume-window` sets how long a gap may be before the previous one counts
+as over (default 4h; `--resume-window 0` behaves exactly like `--fresh`),
+and the default resumes whatever session is still inside that window. Two
+instances can no longer race onto the same log either: each boot claims a
+pid+heartbeat lock beside the session (`session-<id>.lock.json`, refreshed
+every 5s); a second instance finding a live lock starts its own fresh
+session instead of splicing into a session another process is still
+writing — [`packages/server/src/log/session-lock.ts`](packages/server/src/log/session-lock.ts),
+proven in [`packages/server/src/log/session-log.test.ts`](packages/server/src/log/session-log.test.ts).
+Every path this hand can write to is built from one function,
+[`defaultDataRoot()`](packages/server/src/log/paths.ts) — there's no second
+constructor for a session, label, snapshot or lock path to have drifted
+from it.
+
+**Ending a session on purpose:** `rhizomorph rotate`, or the dashboard's own
+"end session · start fresh" button, asks the *running* instrument to close
+its current log and open the next one — an explicit human invocation, never
+something a background process performs on its own. On close, each lane's
+live transcript is copied — redacted by the same hygiene discipline the
+telemetry fixtures use — into that session's own artefact directory, so a
+recording replayed in a year, on any machine, still shows its
+conversations; replay reads the captured copy first and falls back to live
+resolution only for the still-open session. A session whose transcripts
+couldn't be fully captured says so precisely (`manifest.complete: false`)
+rather than silently producing a conversation-less recording.
+
+**What it writes:** its own recording of what it saw — a plain JSON-lines
+session log under `~/.local/share/rhizomorph/<repo-slug>/`, one file per
+session, never anything inside the repo you're watching. The log is
+*exactly* the event stream every panel already reads: whatever privacy
+allowlisting a collector applies happens before an event is even built, so
+the log was never a second copy with more in it, and it never gains fields
+after the fact. That's what makes Replay possible; delete the directory
+and the next boot starts a fresh recording with nothing lost from the repo
+itself. An event line from a future era this build doesn't recognize is
+never silently dropped either — it's counted and preserved byte-for-byte,
+and replay says so in words (`"N events from a newer era were preserved but
+not understood (...)"`) rather than pretending nothing happened.
+
+**Where it writes it:** the exact path is printed at boot —
+`watching <repo> — N worktrees, M branches · recording to <path>` — so you
+never have to go looking for it.
+
+**Finding, labelling, managing and replaying a recording:** `rhizomorph
+sessions [path]` lists every session recorded for a repo — newest first,
+each with a title *derived from its own events* (`2026-08-04 · 6 lanes · 5
+landed · #144 #148 #152`, or `2026-08-04 · no activity recorded` for an
+empty one), when it ran, how long, lanes, landings, tokens, cost and file
+size. The same rows, plus rename-in-place and export, live in the
+dashboard's own **`/recordings`** library — a management surface, deliberately
+never a second live overview: it renders only what was recorded, never the
+live fleet, a law its own source-grep test
+([`packages/web/src/recordings/no-live-fleet-law.test.ts`](packages/web/src/recordings/no-live-fleet-law.test.ts))
+holds it to. If an auto-title isn't the name you'd give it, rename it there
+or run `rhizomorph label <sessionId> "<text>"` — either way it's written to
+a sidecar file next to the log (`session-<id>.label.json`), never a
+mutation of the log itself, and a rename refreshes every picker showing
+that session, including the live dashboard's own. Once you've found the one
+you want, either replay it from the dashboard's own picker, or hand the
+file to someone else first with `rhizomorph export-record` (see [the record
+format](docs/record-format.md)).
 
 ### The laboratory — opt-in, explicitly-invoked, and separate (prd12 ruling 1)
 
@@ -246,6 +295,15 @@ life, not a supported product with an SLA. If something's broken, file an
 issue with what you ran and what happened; if you'd like to fix it
 yourself, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+3,158 tests across 202 files (`npm test`), plus `npm run typecheck`, gate
+every change — [Ran] as of commit `24dcaa5`. Two scripts encode the landing
+discipline that keeps that green: `scripts/fence-lint.sh` checks a wave's
+declared issue fences *before* dispatch (vague fences, overlapping claims,
+gaps against a known coupling point); `scripts/gate.sh` is what a lane runs
+to land — fence compliance, a clean rebase, no NUL bytes, `npm test` +
+`npm run typecheck` green (optionally repeated under concurrent load to
+catch race-condition flakiness), then the actual merge to `main`.
+
 ---
 
 Everything below this line is depth for once you've decided to run it:
@@ -330,13 +388,40 @@ Full walkthrough — the cross-machine note, the subscription-dollars honesty
 note, live proof of the `OTEL_RESOURCE_ATTRIBUTES` lane tag — lives in
 [`docs/telemetry.md`](docs/telemetry.md).
 
+## Performance
+
+Two numbers a stranger loading a real recording would otherwise hit blind,
+both measured on this project's own build-day sessions and fixed rather than
+merely noticed:
+
+- **Loading a long replay: ~20.9s of blocked main thread → ~25ms.** A 55,000-
+  event session used to fold onto the page as 55,000 synchronous `setState`
+  calls before the tab became interactive — 62 long tasks, over 224 seconds
+  of blocking, one single task past 31 seconds, zero animation frames
+  sampled while it ran. `useEventStream` now buffers incoming events and
+  folds once per animation frame instead
+  ([`packages/web/src/hooks/useEventStream.ts`](packages/web/src/hooks/useEventStream.ts),
+  issue #183) — the same 55k-row session now costs ~25ms of main-thread work.
+- **A 30-lane fleet with 200 retired scars, inside the 60fps frame budget.**
+  Before caching, building that scene's display list cost 28.37ms/frame —
+  170.2% of the 16.7ms a 60fps frame allows, well over budget. After caching
+  the parts of a scar that don't change frame to frame, the same scene costs
+  11.95ms — 71.7% of budget, comfortably inside it
+  ([`packages/web/src/scene/perf.test.ts`](packages/web/src/scene/perf.test.ts),
+  issues #175/#178) — a real, currently-running assertion, not a one-time
+  measurement quoted from memory.
+
 ## Architecture
 
 Event-sourced core (`packages/core`), collectors + Fastify API + CLI
-(`packages/server`), and a React + Tailwind + react-three-fiber dashboard
-(`packages/web`) sharing one set of selectors between the live view and
-replay, plus one derived **fleet object** — the attention strip, fleet table,
-burn strip and scene are four views of it and of nothing else. Full write-up
+(`packages/server`), and a React + Tailwind dashboard (`packages/web`)
+sharing one set of selectors between the live view and replay, plus one
+derived **fleet object** — the attention strip, fleet table, burn strip and
+scene are four views of it and of nothing else. The scene itself is a
+hand-rolled canvas 2D painter, not a 3D library — prd7 measured the running
+scene already locked to 60fps with zero `shadowBlur` calls, found "janky"
+was the form language rather than the renderer, and removed the
+react-three-fiber dependency it was originally scaffolded on. Full write-up
 in [`docs/architecture.md`](docs/architecture.md); the product brief is in
 [`docs/prd0.md`](docs/prd0.md), the visualization design rulings in
 [`docs/prd3.md`](docs/prd3.md) and [`docs/prd4.md`](docs/prd4.md). See
@@ -410,19 +495,31 @@ instruments beneath it.
 - **Provenance bar** (docked bottom) — one dot per collector (Git, Tmux,
   Workmux, Sessionlog, OTel) plus the SSE connection dot; a dead collector
   escalates to the strip too, and speaks the same gap voice here.
-- **Lane drawer** — click any fleet row to open it. The main, largest section
-  is the **conversation**: the same thing you'd see sitting at that agent's
-  own terminal — user turns marked with a `›` prompt, assistant prose in the
-  page's own type, tool calls as quiet one-line bullets between them
-  (`● Read — path/to/file`, `⎿ result, …+2K more` when a result was cut). It
-  tails the session log live and follows the bottom until you scroll up, at
-  which point it pauses and says so. Above it: vitals (state, output, cost,
-  age, fence, worktree). Below it, an **ATTACH** button that copies the
-  exact `tmux`/`workmux` command for that lane to your clipboard — it never
-  runs anything; interaction happens in your own terminal. Closing it
-  (**Esc**, or the drawer's own close) always takes precedence over exiting
-  panel focus. **Click the root-mass and the same drawer opens on the
-  conductor** — the same frame, the same conversation view, the same
+- **Lane drawer** — click any fleet row to open it. Vitals (state, output,
+  cost, age, fence, worktree) sit fixed above one tabbed body that gets the
+  drawer's full height rather than four independently-scrolling boxes —
+  **ACTIVITY, CONVERSATION, WHY, TRACE**, in that order, opening on ACTIVITY
+  by default (an operator ruling: the activity ledger tells you whether the
+  conversation is worth reading before you commit to it). **CONVERSATION**
+  is the same thing you'd see sitting at that agent's own terminal — user
+  turns marked with a `›` prompt, assistant prose in the page's own type,
+  tool calls as quiet one-line bullets between them (`● Read — path/to/file`,
+  `⎿ result, …+2K more` when a result was cut) — tailing the session log live
+  and pausing (and saying so) once you scroll up. It caches the last-good
+  page it read per lane, so switching back to one you've already opened
+  resumes instantly instead of re-showing a loading frame, and a transient
+  gap from the server (an absent/error tick) never blanks a conversation
+  that's already on screen — it holds what it has and marks it `stale ▪`
+  rather than erasing it. **WHY** names every file this lane has touched
+  against its declared fence, a click-through back into ACTIVITY's own
+  reading of the trespass. **TRACE** is the beta waterfall (see
+  [`docs/telemetry.md`](docs/telemetry.md#enabling-beta-traces)) when spans
+  are wired in, an honest gap otherwise. Below all of it, an **ATTACH**
+  button that copies the exact `tmux`/`workmux` command for that lane to
+  your clipboard — it never runs anything; interaction happens in your own
+  terminal. Closing it (**Esc**, or the drawer's own close) always takes
+  precedence over exiting panel focus. **Click the root-mass and the same
+  drawer opens on the conductor** — the same frame, the same tabs, the same
   copies-never-executes ATTACH, just with main's own vitals up top (branch,
   worktrees landed, commits observed on it) instead of a lane's. An
   un-instrumented conductor says so in the gap voice rather than showing an
@@ -435,13 +532,29 @@ instruments beneath it.
   recording can never be mistaken for a live summons. The replay bar has a
   one-click **"Replay this session's birth"** button — it picks the recorded
   session with the most history and jumps straight into playback — plus a
-  session dropdown, speed control (1x/4x/16x), and a scrubber; live and
-  replay share one reducer, so every panel above freezes to the scrubbed
-  instant exactly as it would live. The dropdown names each session by its
-  title — an operator label if one was set (`rhizomorph label`), else the
-  auto-title `rhizomorph sessions` also shows — never a bare timestamp you'd
-  have to decode. See [`docs/demo.md`](docs/demo.md) for the full replay
-  check.
+  session dropdown and speed control (1x/4x/16x); live and replay share one
+  reducer, so every panel above freezes to the scrubbed instant exactly as it
+  would live. The dropdown names each session by its title — an operator
+  label if one was set (`rhizomorph label`), else the auto-title
+  `rhizomorph sessions` also shows — never a bare timestamp you'd have to
+  decode.
+
+  Underneath the transport sits **the dock** (prd13, cut to its final shape
+  by ruling 13): a sparse **chapter-mark lane** above the scrubber, one mark
+  per lane-born/landed/gate-held/summons/session-boundary moment, coalescing
+  into a `×N` count under density the same way everything else in this app
+  coalesces rather than invents. Hover a mark (or a cluster) for a portaled
+  card — mounted straight to `document.body` rather than nested in place,
+  so no ancestor's clipping or stacking context can bury or cut it off —
+  naming who/what/when for every member. `Shift`+wheel zooms the mark lane about the *cursor's own
+  timestamp*, never the whole scrubbable range (that stays full-width
+  always); `[`/`]` step to the neighbouring chapter. What prd13 shipped and
+  then walked back: a per-lane density band (state-fill strips, a row per
+  lane) was cut outright on 2026-08-06 — *"get rid of the working green
+  strips entirely"* — because it still read as noise to the one person using
+  it after three rounds of fixes. What's left is exactly the marks, the axis,
+  and the transport; nothing else. See [`docs/demo.md`](docs/demo.md) for the
+  full replay check.
 
 ### The palette — the fleet table teaches it, the scene speaks it
 
