@@ -1,4 +1,17 @@
 import type { FastifyInstance } from 'fastify'
+import {
+  deriveRung,
+  honestCapabilities,
+  mergeCapabilities,
+  reduceAll,
+  type AdapterCapabilities,
+  type Rung,
+} from '@rhizomorph/core'
+import { GIT_CAPABILITIES } from '../collectors/git/index.js'
+import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
+import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
+import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
+import { JUDGE_CAPABILITIES } from '../collectors/judge/index.js'
 import { RESUME_WINDOW_MS, type SessionBootReason } from '../log/session-log.js'
 import type { SessionRecorder } from '../server/recorder.js'
 import type { ServerContext } from '../server/context.js'
@@ -47,15 +60,67 @@ function fallbackBootMeta(recorder: SessionRecorder): SessionBootMeta {
   }
 }
 
+/**
+ * prd15 ruling 5's honesty layer, server side. Every collector this fence
+ * owns, keyed by its own registered name — `judge` is included for
+ * completeness ("every collector declares") but never moves the rung: it is
+ * all-`absent` by design (a structural corroborator across lanes, not an
+ * adapter for one), and `mergeCapabilities` never lets an absent contributor
+ * pull a signal another collector already provides.
+ */
+const LADDER_COLLECTOR_NAMES = ['git', 'sessionlog', 'tmux', 'workmux', 'judge'] as const
+
+const DECLARED_CAPABILITIES: Record<(typeof LADDER_COLLECTOR_NAMES)[number], AdapterCapabilities> = {
+  git: GIT_CAPABILITIES,
+  sessionlog: SESSIONLOG_CAPABILITIES,
+  tmux: TMUX_CAPABILITIES,
+  workmux: WORKMUX_CAPABILITIES,
+  judge: JUDGE_CAPABILITIES,
+}
+
+export interface LadderManifest {
+  capabilities: Record<string, AdapterCapabilities>
+  rung: Rung
+}
+
+/**
+ * The honest, *live* picture behind the static declarations above: each
+ * collector's capabilities, unless this session's own fold says it is
+ * currently disabled — then an absent-with-reason override instead (the
+ * law: "a disabled collector's signals read `absent` with a reason, never
+ * silently `provided`"). `ctx.recorder` is already threaded through
+ * `ServerContext` for the boot-facts fallback above, so reading its events
+ * back here needs no new wiring outside this fence, exactly like that trick.
+ */
+export function buildLadderManifest(recorder: SessionRecorder): LadderManifest {
+  const folded = reduceAll(recorder.eventsSoFar())
+
+  const capabilities: Record<string, AdapterCapabilities> = {}
+  for (const name of LADDER_COLLECTOR_NAMES) {
+    const collectorState = folded.collectors[name]
+    capabilities[name] = honestCapabilities({
+      capabilities: DECLARED_CAPABILITIES[name],
+      active: collectorState?.status !== 'disabled',
+      inactiveReason: collectorState?.disabledReason ?? undefined,
+    })
+  }
+
+  const rung = deriveRung(mergeCapabilities(Object.values(capabilities)))
+  return { capabilities, rung }
+}
+
 export function registerMetaRoute(app: FastifyInstance, ctx: ServerContext): void {
   app.get('/api/meta', async () => {
     const bootMeta = bootMetaByRecorder.get(ctx.recorder) ?? fallbackBootMeta(ctx.recorder)
+    const ladder = buildLadderManifest(ctx.recorder)
     return {
       repoPath: ctx.repoPath,
       repoName: ctx.repoName,
       sessionId: ctx.recorder.sessionId,
       startedAt: Number(ctx.recorder.sessionId),
       ...bootMeta,
+      capabilities: ladder.capabilities,
+      rung: ladder.rung,
     }
   })
 }

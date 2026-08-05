@@ -3,6 +3,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { GIT_CAPABILITIES } from '../collectors/git/index.js'
+import { JUDGE_CAPABILITIES } from '../collectors/judge/index.js'
+import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
+import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
+import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
 import { readSessionEvents, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import { buildApp } from './build-app.js'
 import { SessionRecorder } from './recorder.js'
@@ -44,6 +49,19 @@ describe('buildApp integration', () => {
       eventCount: 0,
       resumeWindowMs: RESUME_WINDOW_MS,
       lastBootReason: 'first-run',
+      // Additive prd15 ladder facts (wave 2a) — no `collector.disabled` has
+      // ever been folded for this bare recorder, so every collector reads as
+      // its own declared capabilities (never having polled is not the same
+      // as being disabled); workmux's declared `attention: provided` is what
+      // puts a from-scratch boot at L4 until a real poll says otherwise.
+      capabilities: {
+        git: GIT_CAPABILITIES,
+        sessionlog: SESSIONLOG_CAPABILITIES,
+        tmux: TMUX_CAPABILITIES,
+        workmux: WORKMUX_CAPABILITIES,
+        judge: JUDGE_CAPABILITIES,
+      },
+      rung: 'L4',
     })
   })
 
