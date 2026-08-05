@@ -35,10 +35,13 @@ keyboard shortcuts — no swarm, no telemetry, no setup beyond this:
 checks below: **Esc** — closes the lane drawer if one is open, otherwise
 exits panel focus if a panel is focused, otherwise does nothing (shell-level
 precedence: drawer first, then focus) — and clicking a fleet-table row, which
-opens that lane's drawer: vitals on top, then the **conversation** as the
-main, default-open view ([prd4 ruling 4](prd4.md)) — the same thing you'd see
-at that agent's own terminal, tailing live — and an **ATTACH** button below
-it that copies a tmux/workmux command to your clipboard and never runs it.
+opens that lane's drawer: vitals on top, then one tabbed body beneath it —
+**ACTIVITY, CONVERSATION, WHY, TRACE** — opening on **ACTIVITY** by default
+(an operator ruling, #164: the activity ledger tells you whether the
+conversation is worth reading before you commit to it). **CONVERSATION** is
+a click away, and is the same thing you'd see at that agent's own terminal,
+tailing live. An **ATTACH** button below the tabs copies a tmux/workmux
+command to your clipboard and never runs it.
 
 If you'd rather run this against a real swarm: point `npm start -- <path>` at
 a repo with worktrees and tmux panes going (see the README's
@@ -215,6 +218,60 @@ picture rather than the point under your cursor; Recenter never appears no
 matter how far you pan away, or appears when the network is already in
 view.
 
+### Drive the TIDE dock
+
+The bottom transport bar (present in both live and replay) carries a sparse
+**chapter-mark lane** above the scrubber — one mark per lane-born, landed,
+gate-held, or attention-summons moment, plus session boundaries. This is
+what's left of prd13's dock after the operator cut its per-lane density
+band outright (*"get rid of the working green strips entirely"*, 2026-08-06)
+— marks, an axis, and the transport, nothing else.
+
+1. Hover a mark, or a coalesced cluster (drawn as `×N` under density). A
+   card appears after a short pause (the "the label appears as you linger"
+   idiom), naming who/what/when for every member — it's portaled straight
+   to the page body, so it can't be clipped or buried by anything else on
+   screen.
+2. Click a mark to seek straight to that moment.
+3. With the dock focused, hold **Shift** and scroll to zoom the mark lane
+   in — the timestamp under your cursor stays under it, exactly like the
+   scene's own Ctrl/Cmd+scroll zoom. A still bracket appears on the
+   scrubber below, showing where your zoomed window sits against the whole
+   session. This never restricts what the scrubber itself can reach — it
+   stays full-range, always.
+4. Press **`[`** / **`]`** to step to the neighbouring chapter without
+   touching the mouse.
+
+**What you should see:** a hover card appears within a beat of pausing over
+a mark, legible and never clipped by anything else on the page; zooming
+keeps the point under your cursor fixed; the scrubber underneath is
+unaffected by how zoomed the mark lane is.
+
+**What failure looks like:** a hover card clipped or invisible; zoom moving
+the wrong point under the cursor; the scrubber's own reachable range
+shrinking because the mark lane zoomed.
+
+### Browse the recordings library
+
+Every server run auto-records from the moment it starts (see
+[Trust](../README.md#the-recorder--the-observers-own-second-hand-narrower-than-either-prd16-ruling-2)
+in the README) — `/recordings` is where you manage what's piled up.
+
+1. Open `/recordings` in the browser (or navigate there from the app).
+2. Confirm it's a plain, honest table: title (a label if you set one, else
+   an auto-title derived from that session's own events), lanes, landed,
+   duration, tokens, cost. It never shows live fleet state — this is a
+   library, not a second dashboard.
+3. Rename a recording in place. Confirm the balcony's own session picker
+   (the replay dropdown) reflects the new name without a reload.
+4. Open one in replay, or export it (`rhizomorph export-record`'s own
+   output) to hand to someone else.
+
+**What failure looks like:** the page shows anything that looks like a live
+lane's current state rather than a recorded fact; a rename doesn't show up
+elsewhere in the app; export produces nothing or something unreadable by
+`docs/record-format.md`'s own verifier.
+
 ### Watch a lane cut loose, and come home
 
 The two fixtures (`2`/`3`) don't include a finished lane of their own —
@@ -288,9 +345,9 @@ to read.
    the scene — the same click a lane's node takes.
 2. Confirm the same drawer opens, on **`Main — the conductor`**: vitals
    (branch, landings, commits home, output, `$`, overhead) instead of a
-   lane's, then the same conversation view tailing the conductor's own
-   session, then the same copies-never-executes ATTACH ([prd6
-   ruling 5](prd6.md)).
+   lane's, then the same tabbed body (opening on ACTIVITY, CONVERSATION a
+   click away, tailing the conductor's own session), then the same
+   copies-never-executes ATTACH ([prd6 ruling 5](prd6.md)).
 
 **What you should see:** a hovered root-mass shows a pointer cursor, same
 as a lane node; the drawer that opens is visually identical in frame and
