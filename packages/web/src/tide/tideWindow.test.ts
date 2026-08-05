@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_ZOOM_LEVEL, canShiftWindow, shiftWindow, windowForLevel } from './tideWindow.js'
+import {
+  MAX_ZOOM_LEVEL,
+  canShiftWindow,
+  shiftWindow,
+  usefulMaxZoomLevel,
+  windowForLevel,
+  zoomFractionLabel,
+} from './tideWindow.js'
 
 const FULL_START = 0
 const FULL_END = 100_000
@@ -96,5 +103,49 @@ describe('canShiftWindow — the law shiftWindow no-ops obey', () => {
     const win = { start: FULL_START, end: 50_000 }
     expect(canShiftWindow(win, FULL_START, FULL_END, -1)).toBe(false)
     expect(shiftWindow(win, FULL_START, FULL_END, -1)).toEqual(win)
+  })
+})
+
+describe('usefulMaxZoomLevel — depth capped by the log\'s own grain (issue #186 defect 3)', () => {
+  it('falls back to MAX_ZOOM_LEVEL when the spacing fact is unusable', () => {
+    expect(usefulMaxZoomLevel(100_000, 900, Infinity)).toBe(MAX_ZOOM_LEVEL)
+    expect(usefulMaxZoomLevel(100_000, 900, 0)).toBe(MAX_ZOOM_LEVEL)
+    expect(usefulMaxZoomLevel(100_000, 0, 50)).toBe(MAX_ZOOM_LEVEL)
+  })
+
+  it('never retracts below the #169 floor (level 3, ⅛) — a sparse session never disables zoom', () => {
+    // width=900, HOVER_PX=6 -> thresholdMs = (6/900) * windowSpan = windowSpan/150.
+    // full span 150_000 -> level 3 threshold ~= 125ms, comfortably below a
+    // huge median spacing: the log is sparse and no deeper zoom is useful,
+    // but the answer is still the pre-existing floor, never less.
+    expect(usefulMaxZoomLevel(150_000, 900, 1_000_000)).toBe(3)
+  })
+
+  it('extends past the floor for a denser median spacing', () => {
+    // full span 150_000, width 900: level thresholds are ...125 (lvl3), 62.5 (lvl4)...
+    // A median spacing of 100ms first drops the threshold at or below it at level 4.
+    expect(usefulMaxZoomLevel(150_000, 900, 100)).toBe(4)
+  })
+
+  it('never exceeds MAX_ZOOM_LEVEL even for a vanishingly small median spacing', () => {
+    expect(usefulMaxZoomLevel(150_000, 900, 0.0001)).toBe(MAX_ZOOM_LEVEL)
+  })
+})
+
+describe('zoomFractionLabel — the window indicator\'s figures-voice fraction', () => {
+  it('is "1" at level 0 (no bracket is drawn, but the label stays well-defined)', () => {
+    expect(zoomFractionLabel(0)).toBe('1')
+  })
+
+  it('is "1/N" at deeper levels, matching the geometric fraction exactly', () => {
+    expect(zoomFractionLabel(1)).toBe('1/2')
+    expect(zoomFractionLabel(2)).toBe('1/4')
+    expect(zoomFractionLabel(3)).toBe('1/8')
+    expect(zoomFractionLabel(MAX_ZOOM_LEVEL)).toBe('1/64')
+  })
+
+  it('clamps out-of-range levels the same way windowForLevel does', () => {
+    expect(zoomFractionLabel(-5)).toBe('1')
+    expect(zoomFractionLabel(MAX_ZOOM_LEVEL + 10)).toBe('1/64')
   })
 })
