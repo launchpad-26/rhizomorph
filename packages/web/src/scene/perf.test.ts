@@ -749,20 +749,42 @@ describe('the marks stage, by builder', () => {
 })
 
 /**
- * A LONG-LIVED FIELD OF RETIRED STRANDS (#175, the 2026-08-05 adversarial audit).
+ * A LONG-LIVED FIELD OF RETIRED STRANDS (#175 measured it, #178 fixed it —
+ * the 2026-08-05 adversarial audit's P2 scene finding).
  *
  * The audit's own reading of prd10 rulings 13–16: since #161 a finished lane's
  * strand is never removed (`byDepth`, `marks/index.ts:54`), and every thread —
- * finished included — gets a full `ThreadGeometry` from `layoutScene` every
- * frame (`geometry.ts:773`). The `mostlyFinished` suite above already measured
+ * finished included — got a full `ThreadGeometry` from `layoutScene` every
+ * frame, and a full ribbon rebuild from `persistentMarks`/`persistNodeMarks`
+ * every frame after that. The `mostlyFinished` suite above already measured
  * 24-of-30 finished; the field it left unmeasured is the one a multi-day
  * session actually accumulates — thirty *working* lanes standing in front of a
  * hundred or two hundred lanes that landed hours or days ago and are never
  * coming back. This suite is that field, at the sizes the audit named.
  *
- * **This lane MEASURES. It does not build the cache** the audit's finding
- * points at (`heart.ts`'s memo is the model for it) — that is a separate
- * groomed lane, gated on what this file reports.
+ * **#175 measured; #178 built the cache.** Three caches, all keyed on the same
+ * fact — a settled strand is provably `unmoving` (prd10 ruling 14) — and all
+ * gated the same way, on `layoutScene`'s own `dissolve >= 1` (`geometry.ts`'s
+ * `retiredSpineCacheFor`):
+ *
+ * 1. `geometry.ts` caches a settled lane's spine itself — the waypoints, the
+ *    Catmull-Rom fit, the release deformation, the filaments — keyed on the
+ *    world frame (a resize, or the mass growing as *other* lanes land, #118)
+ *    plus this lane's own angle and drift. Once cached, `layoutScene` hands
+ *    every mark builder the SAME `path` array, frame after frame.
+ * 2. `marks/thread.ts`'s `persistRibbon` and `marks/node.ts`'s
+ *    `persistNodeRibbons` cache the `ribbonOutline` polygons built from that
+ *    path (the strand itself, its tail, its seal) — the marks-stage cost the
+ *    audit's own numbers below show was the *larger* half. Both are keyed on
+ *    `thread.path`'s own identity, so they warm exactly when (1) does and need
+ *    no gate of their own to stay in sync with it.
+ *
+ * **What is never cached: the paint.** `budget()` reads `frame.salience`, so a
+ * settled lane's brightness still answers a hover, a selection, or a summons
+ * dimming the calm world around it — every cached mark's `.paint` is
+ * overwritten fresh every frame at its call site, which is the same split a
+ * `RibbonMark` already makes between `outline` (what is filled, cached) and
+ * `paint` (what fills it, live).
  *
  * Same interleaved discipline as every suite above and for the same reason
  * (#157): `living30` (the ceiling — thirty lanes, all working, nothing
@@ -772,58 +794,53 @@ describe('the marks stage, by builder', () => {
  * sibling worktree's test run inflates all five equally rather than forging a
  * comparison between them.
  *
- * **THE HIDE FINISHED QUESTION (prd10 ruling 16), answered by construction
- * first.** `layoutScene` computes a retired lane's full spine — the Catmull-Rom
- * fit, the release deformation, the homeward-flow resample — and only *after*
- * that full build calls `persistence()` (`geometry.ts:1357`), which copies the
- * finished path (`path: [...path]`) and sets one boolean:
- * `hidden: hideFinished && cut.stage === 'persistent'`. The toggle is consumed
- * downstream — `persistentMarks` (`marks/thread.ts:320`) and the node/label
- * builders check `cut.hidden` and return `[]` before building any mark — but
- * nothing before that point reads it. So the geometry a hidden lane gets is
- * *identical* to the geometry the same lane gets when shown; the assertion
- * below proves it by comparing the two paths directly rather than by a timing
- * that could be circumstantial. **HIDE FINISHED skips paint only. The
- * `layoutScene` build and cost is paid whether or not the operator can see the
- * result.**
+ * **THE HIDE FINISHED QUESTION (prd10 ruling 16), answered by construction —
+ * and the answer has inverted.** `layoutScene` used to compute a retired
+ * lane's full spine and only *after* that full build read the hide-finished
+ * toggle, so a hidden lane's geometry was identical to a shown one's and the
+ * toggle skipped paint only. It now reads the toggle first: once a lane is
+ * `hideable` (`cut.stage === 'persistent' && hideFinished`), no waypoints, no
+ * Catmull-Rom fit, no release, no filaments are built for it at all — the
+ * assertions below now prove the STRONGER law, that a hidden lane's geometry
+ * is *empty* rather than merely unpainted.
  *
- * **What it measured, on the dev box** — median of three consecutive
- * interleaved runs (the suite alone, filtered by name, so the numbers below
- * are not also carrying 144 sibling test files the way a whole-file run does):
+ * **What it measured, on the dev box, before and after** — one representative
+ * interleaved run each (the suite alone, filtered by name, so the numbers
+ * below are not also carrying 144 sibling test files the way a whole-file run
+ * does; every run agreed on ordering, and the after numbers move around with
+ * the box's own load exactly as the before ones did — see #157's own lesson
+ * about reading ratios, not absolutes, on a shared machine):
  *
- * | frame                                     | median   | worst    | marks | layout / marks / paint  | budget |
- * | ------------------------------------------ | -------- | -------- | ----- | ------------------------ | ------ |
- * | living30 — the ceiling (paired w/ 100)     |  8.02 ms | 15.55 ms |  331  | 0.68 / 6.78 / 0.59 ms    | 48.1%  |
- * | persistent100 — 30 living + 100 retired    | 22.10 ms | 51.21 ms |  831  | 3.87 / 16.71 / 1.53 ms   | 132.6% |
- * | hidden100 — same, HIDE FINISHED on         | 12.61 ms | 24.97 ms |  431  | 3.03 / 7.84 / 1.07 ms    | 75.6%  |
- * | living30 — the ceiling (paired w/ 200)     |  6.73 ms |  9.04 ms |  331  | 0.35 / 5.87 / 0.50 ms    | 40.4%  |
- * | persistent200 — 30 living + 200 retired    | 28.37 ms | 60.54 ms | 1331  | 4.28 / 19.89 / 2.93 ms   | 170.2% |
- * | hidden200 — same, HIDE FINISHED on         | 13.43 ms | 16.02 ms |  531  | 4.05 / 7.28 / 1.70 ms    | 80.6%  |
+ * | frame                                       | before   | after    | Δ     | marks (aft.) | budget (aft.) |
+ * | -------------------------------------------- | -------- | -------- | ----- | ------------- | -------------- |
+ * | living30 — ceiling (paired w/ 100)          |  8.02 ms |  6.56 ms | 0.82× |      331      |     39.4%      |
+ * | persistent100 — 30 living + 100 retired     | 22.10 ms |  9.17 ms | 0.42× |      831      |     55.0%      |
+ * | hidden100 — same, HIDE FINISHED on          | 12.61 ms |  8.35 ms | 0.66× |      431      |     50.1%      |
+ * | living30 — ceiling (paired w/ 200)          |  6.73 ms |  7.71 ms | 1.15× |      331      |     46.3%      |
+ * | persistent200 — 30 living + 200 retired     | 28.37 ms | 11.95 ms | 0.42× |     1331      |     71.7%      |
+ * | hidden200 — same, HIDE FINISHED on          | 13.43 ms |  9.06 ms | 0.67× |      531      |     54.4%      |
  *
- * (Three runs agreed on both ordering and rough magnitude — see the suite's
- * own `report()` lines for the other two. The box this ran on measures busier
- * than the 6.4 ms the file's earlier headers record for the same 30-living-lane
- * frame taken on a quieter day; per #157's own lesson, read the *ratios* as the
- * portable signal and the absolutes as this box on this day.)
+ * …by stage, after (median, ms) — layout / marks / paint:
  *
- * **STOP — the budget is threatened, and not only at 200.** A hundred retired
- * lanes standing behind thirty living ones already costs 2.6–2.8× the
- * living-only frame and clears the 16.67 ms budget on its own (132.6% of it,
- * median); two hundred is 4.2–4.7× and 170.2%. `layoutScene`'s per-lane spine
- * build is the growing half of that (0.68→3.87→4.28 ms as the retired count
- * goes 0→100→200 — roughly linear in total lane count, as the audit's [Read]
- * claim said), and the marks stage the other (6.78→16.71→19.89 ms), because
- * `persistentMarks` still allocates a ribbon per finished lane every frame.
- * **HIDE FINISHED helps but does not close the gap**: it removes the marks
- * stage's growth (431/531 marks vs. 831/1331) but not the layout stage's,
- * because — the paragraph above, now with numbers — the geometry is built
- * before the toggle is ever read. Even hidden, a 200-retired field still
- * spends 80.6% of the frame budget on thirty *working* lanes' worth of visual
- * result. This is exactly the audit's P2 finding, confirmed rather than
- * merely read: the fix is a per-strand geometry cache (a finished strand's
- * shape never changes once retired), the pattern `heart.ts` already models,
- * and it is out of this lane's fence — a separate groomed lane, now backed by
- * a measured rather than hypothesised case for doing it.
+ * | frame          | before (l/m/p)         | after (l/m/p)        |
+ * | -------------- | ----------------------- | --------------------- |
+ * | persistent100  | 3.87 / 16.71 / 1.53     | 0.90 / 6.57 / 1.36    |
+ * | hidden100      | 3.03 / 7.84 / 1.07      | 0.84 / 6.71 / 0.91    |
+ * | persistent200  | 4.28 / 19.89 / 2.93     | 1.21 / 7.77 / 2.58    |
+ * | hidden200      | 4.05 / 7.28 / 1.70      | 0.96 / 6.38 / 1.52    |
+ *
+ * **Both conditions the issue set are met.** 200-retired, shown, is now 71.7%
+ * of a 60 fps frame's budget — comfortably inside it, where it was 170.2%
+ * (4.2–4.7× the living-only ceiling) before. Hidden is now within a run's own
+ * noise of living-only (200 retired hidden: 1.17× `living30`, against 2.0×
+ * before) rather than still spending 80.6% of the budget on thirty working
+ * lanes' worth of visual result. `layoutScene`'s own stage collapses to
+ * roughly `living30`'s cost regardless of retired count (0.90–1.21 ms against
+ * a 4.28 ms high before); the marks stage — the larger half, and the one this
+ * lane's own fence had to reach past `geometry.ts` for — drops from
+ * 16.71–19.89 ms to 6.57–7.77 ms, because a settled lane's three ribbons
+ * (strand, tail, seal) are now built once and reused rather than rebuilt every
+ * frame at every one of the sizes the audit named.
  */
 describe('a long field of retired strands (#175, prd10 rulings 13-16)', () => {
   /** Every lane at index ≥ `livingCount` is settled past the last mote. */
@@ -943,15 +960,30 @@ describe('a long field of retired strands (#175, prd10 rulings 13-16)', () => {
       expect(hiddenMarks.filter((mark) => mark.role === 'persist')).toHaveLength(0)
 
       // THE HIDE FINISHED QUESTION, pinned as a count rather than argued from
-      // the code alone: `layoutScene` builds the identical strand whether or
-      // not it will ever be shown. Same lane, same retire map, only the toggle
-      // differs — if the geometry differed this would fail.
+      // the code alone — and the law is now the STRONGER one (#178). It used to
+      // be that `layoutScene` built the identical strand whether or not it would
+      // ever be shown, and this assertion pinned that as the honest reading of
+      // "hidden ≠ gone": the geometry existed, only the paint was skipped. That
+      // was the audit's own finding against it — a hidden field still paid the
+      // Catmull-Rom fit, the release deformation and the filament sampling for
+      // every lane in it, 80.6% of a frame's budget at 200 retired for thirty
+      // living lanes' worth of visible result. Hidden now means skipped, all the
+      // way up: a lane past the hide-finished gate gets no spine built for it at
+      // all, so its geometry is empty rather than merely unpainted. The thread
+      // still exists — the lane is never removed from the ring (graft g7) — but
+      // it carries no path and no filaments to build them from.
       expect(hiddenGeometry.threads).toHaveLength(shownGeometry.threads.length)
       const probeId = fleet.lanes[LIVING_COUNT]?.id as string
       const shownThread = shownGeometry.threads.find((t) => t.laneId === probeId)
       const hiddenThread = hiddenGeometry.threads.find((t) => t.laneId === probeId)
-      expect(hiddenThread?.path).toEqual(shownThread?.path)
-      expect(hiddenThread?.filaments).toEqual(shownThread?.filaments)
+      expect(shownThread?.path.length).toBeGreaterThan(2)
+      expect(hiddenThread?.path).toHaveLength(0)
+      expect(hiddenThread?.filaments).toHaveLength(0)
+      // …and the strand it would have drawn is gone from the retire wrapper too
+      // (`persistence()` copies whatever path it is handed), not just from the
+      // top-level thread — the same "no code path can shorten or empty it" law
+      // `retire.ts` states for a SHOWN strand, read the other way for a hidden one.
+      expect(hiddenThread?.retire?.path).toHaveLength(0)
       expect(shownThread?.retire?.hidden).toBe(false)
       expect(hiddenThread?.retire?.hidden).toBe(true)
     })
