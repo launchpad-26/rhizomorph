@@ -5,6 +5,13 @@ export interface TailResult {
   lines: string[]
   /** Byte offset to pass in next time — always the start of the first incomplete line. */
   nextOffset: number
+  /**
+   * The file's last-write time (epoch ms), from the `stat` this read already
+   * had to make — the transcript organ's heartbeat witness (prd15 ruling 1
+   * input (b)), at no extra I/O. Reported even when nothing new was read,
+   * because "the file moved but no whole line landed" is itself a heartbeat.
+   */
+  lastWriteTs: number
 }
 
 /**
@@ -15,7 +22,8 @@ export interface TailResult {
  */
 export async function readNewLines(filePath: string, offset: number): Promise<TailResult> {
   const info = await stat(filePath)
-  if (info.size <= offset) return { lines: [], nextOffset: offset }
+  const lastWriteTs = Math.floor(info.mtimeMs)
+  if (info.size <= offset) return { lines: [], nextOffset: offset, lastWriteTs }
 
   const length = info.size - offset
   const buffer = Buffer.alloc(length)
@@ -28,12 +36,12 @@ export async function readNewLines(filePath: string, offset: number): Promise<Ta
 
   const text = buffer.toString('utf8')
   const lastNewline = text.lastIndexOf('\n')
-  if (lastNewline === -1) return { lines: [], nextOffset: offset }
+  if (lastNewline === -1) return { lines: [], nextOffset: offset, lastWriteTs }
 
   const lines = text
     .slice(0, lastNewline)
     .split('\n')
     .filter((line) => line.length > 0)
 
-  return { lines, nextOffset: offset + lastNewline + 1 }
+  return { lines, nextOffset: offset + lastNewline + 1, lastWriteTs }
 }
