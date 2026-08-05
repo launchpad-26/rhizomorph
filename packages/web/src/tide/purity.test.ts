@@ -33,6 +33,8 @@ describe('the tide module is pure', () => {
     expect(names).toContain('./coalesce.ts')
     expect(names).toContain('./rowPlan.ts')
     expect(names).toContain('./index.ts')
+    expect(names).toContain('./chapters.ts')
+    expect(names).toContain('./markCoalesce.ts')
   })
 
   for (const name of names) {

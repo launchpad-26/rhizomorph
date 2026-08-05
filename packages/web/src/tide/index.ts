@@ -36,8 +36,17 @@ export {
   type RowCandidate,
   type RowDescriptor,
 } from './rowPlan.js'
-export { formatDuration, formatClock, formatRange } from './duration.js'
+export { formatDuration, formatClock, formatClockSeconds, formatRange } from './duration.js'
 export { estimateLabelWidthPx, labelFits } from './label.js'
 export { layoutBands, type LaidBand } from './layout.js'
 export { HOVER_PX, hoverThresholdMs, timeScale, type TimeScale } from './scale.js'
 export { ROW_HEIGHT_PX, DEFAULT_TOP_N, Tide, type TideMode, type TideProps } from './Tide.js'
+export {
+  CHAPTER_KINDS,
+  chapterLabel,
+  chaptersFor,
+  type Chapter,
+  type ChapterKind,
+} from './chapters.js'
+export { coalesceMarks, type MarkGroup } from './markCoalesce.js'
+export { ChapterMarks, MARK_ROW_HEIGHT_PX, type ChapterMarksProps } from './ChapterMarks.js'

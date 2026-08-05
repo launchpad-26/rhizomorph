@@ -34,6 +34,20 @@ export function formatClock(ts: number): string {
 }
 
 /**
+ * `HH:MM:SS` — the same arithmetic as {@link formatClock}, one tier finer.
+ * A chapter mark is an instant rather than a band, so its hover (prd13 ruling
+ * 12: `163 landed · 14:32:07`) needs the second `bandTitle`'s minute
+ * resolution would round away.
+ */
+export function formatClockSeconds(ts: number): string {
+  const totalSeconds = Math.floor(ts / SECOND_MS)
+  const hours = Math.floor(totalSeconds / 3600) % 24
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = ((totalSeconds % 60) + 60) % 60
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+/**
  * `"14:00 – 14:38"`, or `"14:38 – now"` for a band still open at the log's
  * edge (`endTs: null` — `bands.ts`'s own open-band convention). Never
  * `formatClock(null)`: the open case is named in words rather than coerced
