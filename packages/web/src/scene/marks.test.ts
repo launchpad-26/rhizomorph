@@ -109,6 +109,23 @@ const PATHOLOGY_ROLES = [
 const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
 const SIZE = { width: 900, height: 260 }
 
+/**
+ * How long the few genuinely heavy cases below may take, wall-clock.
+ *
+ * Every one of them is deterministic — this file carries no wall-clock
+ * *assertion* anywhere, and never widening a timeout is a law about those, not
+ * about this. What is true instead is that a handful of cases sample the
+ * display list a couple of dozen times over (a fleet, a layout and a full mark
+ * pass per sample), and vitest's 5 s default is a load-bearing assumption these
+ * cases can break purely from contention: the same case measured 693 ms on a
+ * quiet box and 5517–7242 ms while three sibling lanes' gates ran alongside it
+ * (#172, #189) — a gate HELD each time, on a diff that never touched this file.
+ * 20 s is comfortably past the worst of those, on the same "generous enough
+ * that only a genuine hang trips it" standard #161 set for `perf.test.ts`'s
+ * `BENCH_TIMEOUT_MS`.
+ */
+const HEAVY_CASE_TIMEOUT_MS = 20_000
+
 const LANE = {
   looping: '41-retry-parser',
   frozen: '42-otel-receiver',
@@ -1834,7 +1851,7 @@ describe('the frame budget at thirty lanes', () => {
     // The only claim made about the timing: it produced a number. Everything
     // this test is really for lives in the sibling below.
     expect(whole).toBeGreaterThan(0)
-  })
+  }, HEAVY_CASE_TIMEOUT_MS)
 
   it('caps the geometry it hands the painter, whatever the clock says', () => {
     // The non-flaky half, and the one that would actually catch the regression
@@ -2193,8 +2210,19 @@ describe('the display list is data, not objects (prd7 ruling 1)', () => {
 describe('the return — a finished lane leaves the living network and keeps its strand', () => {
   const LEAVING = LANE.healthy
 
+  /**
+   * Built once for the whole describe rather than per cut: only `retire` varies
+   * across the calls below, and `fleetFor` (`reduceAll` + `buildFleet`) is the
+   * expensive half of `marksFor` — measured at ~22ms a call against ~7ms for
+   * `layoutScene` + `sceneMarks`, the part that actually depends on `ms`. The
+   * stage-3 monotonic law samples the settle at two dozen points, so rebuilding
+   * an identical fleet at every one of them was three-quarters of its cost for
+   * zero difference in the fleet it built (prd3 r34).
+   */
+  const FLEET = fleetFor(pathologySpec())
+
   function cut(ms: number, options: FrameOptions = {}): Mark[] {
-    return marksFor({ ...options, retire: new Map([[LEAVING, returnAt(ms)]]) })
+    return marksFor({ fleet: FLEET, ...options, retire: new Map([[LEAVING, returnAt(ms)]]) })
   }
 
   /**
@@ -2208,10 +2236,12 @@ describe('the return — a finished lane leaves the living network and keeps its
    * floor is a claim about the *quiet* reading, and the recession is its own test.
    */
   const CALM_LANE = '101-thread-rollup'
+  /** Same rebuild-per-call cost as {@link FLEET} above, and the same fix. */
+  const CALM_FLEET = fleetFor(fleet20Spec())
   function calmCut(ms: number, options: FrameOptions = {}): Mark[] {
     return marksFor({
       ...options,
-      fleet: fleetFor(fleet20Spec()),
+      fleet: CALM_FLEET,
       retire: new Map([[CALM_LANE, returnAt(ms)]]),
     })
   }
@@ -2334,7 +2364,7 @@ describe('the return — a finished lane leaves the living network and keeps its
       // …and it stops there rather than thinning away for ever.
       expect(widthOf(RETURN.dissolvedMs + 60_000)).toBeCloseTo(widthOf(RETURN.totalMs), 9)
       expect(widthOf(RETURN.totalMs)).toBeGreaterThan(0)
-    })
+    }, HEAVY_CASE_TIMEOUT_MS)
 
     it('has no bloom left once it has settled — luminous, without glow', () => {
       expect(rolesOf(cut(RETURN.totalMs)).has('persist-bloom')).toBe(false)
@@ -2399,7 +2429,7 @@ describe('the return — a finished lane leaves the living network and keeps its
     const marks = calmCut(RETURN.totalMs)
     const finished = (role: MarkRole): Mark => of(marks, CALM_LANE, role)[0] as Mark
     const living = (role: MarkRole): Mark =>
-      of(marksFor({ fleet: fleetFor(fleet20Spec()) }), CALM_LANE, role)[0] as Mark
+      of(marksFor({ fleet: CALM_FLEET }), CALM_LANE, role)[0] as Mark
 
     it('keeps the name and the figure', () => {
       const name = finished('label')
@@ -2481,7 +2511,7 @@ describe('the return — a finished lane leaves the living network and keeps its
           const found = of(calmCut(RETURN.totalMs, { now }), target, role)[0]
           return found === undefined ? 0 : brightnessOf(found)
         }
-        const other = (fleetFor(fleet20Spec()).lanes.find((lane) => lane.id !== CALM_LANE) as {
+        const other = (CALM_FLEET.lanes.find((lane) => lane.id !== CALM_LANE) as {
           id: string
         }).id
 
