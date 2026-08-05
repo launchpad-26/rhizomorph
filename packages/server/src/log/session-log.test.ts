@@ -4,10 +4,14 @@ import path from 'node:path'
 import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  decideSessionBoot,
   dropTrailingPartialLine,
   findResumableSession,
+  formatBootDuration,
   listSessions,
+  readResumedCount,
   readSessionEvents,
+  recordResume,
   RESUME_WINDOW_MS,
   SessionLogWriter,
   sessionFilePath,
@@ -263,5 +267,172 @@ describe('listSessions', () => {
     const sessions = await listSessions(dir)
     expect(sessions.map((s) => s.id)).toEqual(['100', '200'])
     expect(sessions[0]?.fileName).toBe('session-100.jsonl')
+  })
+})
+
+describe('decideSessionBoot', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-log-test-'))
+  })
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('states "first-run", as data, when nothing has ever been recorded', async () => {
+    const decision = await decideSessionBoot(dir, 1000)
+    expect(decision).toEqual({
+      reason: 'first-run',
+      resumed: null,
+      windowMs: RESUME_WINDOW_MS,
+      previousAgeMs: null,
+      eventCountAtBoot: 0,
+      resumedCount: 0,
+    })
+  })
+
+  it('states "resumed", as data, with the resumed session, its age, event count and resumedCount so far', async () => {
+    await new SessionLogWriter(sessionFilePath(dir, '1000')).append(errorEvent('evt-1', 1000))
+    await recordResume(dir, '1000')
+
+    const decision = await decideSessionBoot(dir, 6000)
+    expect(decision.reason).toBe('resumed')
+    expect(decision.resumed?.sessionId).toBe('1000')
+    expect(decision.previousAgeMs).toBe(5000)
+    expect(decision.eventCountAtBoot).toBe(1)
+    expect(decision.resumedCount).toBe(1)
+    expect(decision.windowMs).toBe(RESUME_WINDOW_MS)
+  })
+
+  it('states "stale", as data, with the previous session\'s age when it is outside the window', async () => {
+    await new SessionLogWriter(sessionFilePath(dir, '1000')).append(errorEvent('evt-1', 1000))
+
+    const decision = await decideSessionBoot(dir, 1000 + RESUME_WINDOW_MS + 1)
+    expect(decision.reason).toBe('stale')
+    expect(decision.resumed).toBeNull()
+    expect(decision.previousAgeMs).toBe(RESUME_WINDOW_MS + 1)
+    expect(decision.eventCountAtBoot).toBe(0)
+    expect(decision.resumedCount).toBe(0)
+  })
+
+  it('states "stale" with a null age when the newest session file has nothing readable in it', async () => {
+    await writeFile(sessionFilePath(dir, '1000'), '', 'utf8')
+
+    const decision = await decideSessionBoot(dir, 1000)
+    expect(decision.reason).toBe('stale')
+    expect(decision.previousAgeMs).toBeNull()
+  })
+
+  it('states "fresh-flag" when fresh is requested, even over a session well inside the window', async () => {
+    await new SessionLogWriter(sessionFilePath(dir, '1000')).append(errorEvent('evt-1', 1000))
+
+    const decision = await decideSessionBoot(dir, 1100, { fresh: true })
+    expect(decision).toEqual({
+      reason: 'fresh-flag',
+      resumed: null,
+      windowMs: RESUME_WINDOW_MS,
+      previousAgeMs: null,
+      eventCountAtBoot: 0,
+      resumedCount: 0,
+    })
+  })
+
+  it('honours an explicit windowMs, the same boundary findResumableSession already respects', async () => {
+    await new SessionLogWriter(sessionFilePath(dir, '1000')).append(errorEvent('evt-1', 1000))
+
+    expect((await decideSessionBoot(dir, 3000, { windowMs: 1000 })).reason).toBe('stale')
+    expect((await decideSessionBoot(dir, 3000, { windowMs: 5000 })).reason).toBe('resumed')
+  })
+
+  it('law: --resume-window 0 behaves exactly like --fresh, even for a session whose newest event lands on nowMs', async () => {
+    await new SessionLogWriter(sessionFilePath(dir, '1000')).append(errorEvent('evt-1', 5000))
+
+    const zeroWindow = await decideSessionBoot(dir, 5000, { windowMs: 0 })
+    const explicitFresh = await decideSessionBoot(dir, 5000, { fresh: true })
+    expect(zeroWindow.reason).toBe(explicitFresh.reason)
+    expect(zeroWindow.resumed).toBe(explicitFresh.resumed)
+    expect(zeroWindow.reason).toBe('fresh-flag')
+    expect(zeroWindow.resumed).toBeNull()
+  })
+
+  it('never writes: repeated calls read the same state back without incrementing resumedCount', async () => {
+    await new SessionLogWriter(sessionFilePath(dir, '1000')).append(errorEvent('evt-1', 1000))
+    await recordResume(dir, '1000')
+
+    await decideSessionBoot(dir, 6000)
+    await decideSessionBoot(dir, 6000)
+    const decision = await decideSessionBoot(dir, 6000)
+
+    expect(decision.resumedCount).toBe(1)
+  })
+})
+
+describe('readResumedCount + recordResume', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-log-test-'))
+  })
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('reads 0 for a session that has never been resumed', async () => {
+    expect(await readResumedCount(dir, '1000')).toBe(0)
+  })
+
+  it('increments across separate calls the way separate boots would make them', async () => {
+    expect(await recordResume(dir, '1000')).toBe(1)
+    expect(await recordResume(dir, '1000')).toBe(2)
+    expect(await recordResume(dir, '1000')).toBe(3)
+    expect(await readResumedCount(dir, '1000')).toBe(3)
+  })
+
+  it('keys the counter by session id — a different session starts at 0', async () => {
+    await recordResume(dir, '1000')
+    await recordResume(dir, '1000')
+
+    expect(await readResumedCount(dir, '2000')).toBe(0)
+  })
+
+  it('falls back to 0 for a corrupt counter file instead of throwing', async () => {
+    await writeFile(path.join(dir, 'session-1000.resumes.json'), 'not json', 'utf8')
+
+    expect(await readResumedCount(dir, '1000')).toBe(0)
+  })
+
+  it('does not create the session-*.jsonl file, or corrupt listSessions', async () => {
+    await new SessionLogWriter(sessionFilePath(dir, '1000')).append(errorEvent('evt-1', 1000))
+    await recordResume(dir, '1000')
+
+    const sessions = await listSessions(dir)
+    expect(sessions.map((s) => s.id)).toEqual(['1000'])
+  })
+})
+
+describe('formatBootDuration', () => {
+  it('renders hours and minutes together, padded to two digits', () => {
+    expect(formatBootDuration(2 * 3_600_000 + 4 * 60_000)).toBe('2h04m')
+    expect(formatBootDuration(9 * 3_600_000 + 13 * 60_000)).toBe('9h13m')
+  })
+
+  it('drops a zeroed minutes component off a round number of hours', () => {
+    expect(formatBootDuration(RESUME_WINDOW_MS)).toBe('4h')
+  })
+
+  it('renders minutes and seconds together, padded to two digits', () => {
+    expect(formatBootDuration(45 * 60_000 + 30_000)).toBe('45m30s')
+  })
+
+  it('drops a zeroed seconds component off a round number of minutes', () => {
+    expect(formatBootDuration(45 * 60_000)).toBe('45m')
+  })
+
+  it('renders sub-minute durations as seconds', () => {
+    expect(formatBootDuration(12_000)).toBe('12s')
+    expect(formatBootDuration(0)).toBe('0s')
   })
 })

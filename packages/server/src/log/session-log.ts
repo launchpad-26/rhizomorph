@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readdir, readFile, stat, truncate } from 'node:fs/promises'
+import { appendFile, mkdir, readdir, readFile, stat, truncate, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import { parseEvent } from '@rhizomorph/core'
@@ -133,7 +133,12 @@ export function sessionFilePath(dir: string, sessionId: string): string {
  * but two boots a day apart are two runs: merging them would replay this
  * morning's spend into tonight's dashboard. Four hours keeps a working session
  * with a lunch break in it one run. It is a conductor default, not a law — this
- * one constant is the whole boundary.
+ * constant is only the *default* boundary now: `--resume-window <ms>`
+ * overrides it per boot (`cli/args.ts`), `decideSessionBoot` below states
+ * *why* a boundary was crossed as data instead of a bare yes/no, and the
+ * boot line, `/api/meta` and `rhizomorph doctor` all render that same
+ * decision so the heuristic is never silent about what it did (operator
+ * ruling 2026-08-05).
  */
 export const RESUME_WINDOW_MS = 4 * 60 * 60 * 1000
 
@@ -175,4 +180,131 @@ export async function findResumableSession(
   if (nowMs - newestTs > windowMs) return null
 
   return { sessionId: latest.id, filePath, events }
+}
+
+/** Why a boot did or didn't continue the previous session — operator ruling 2026-08-05: the boundary must be self-explaining, not just a yes/no. */
+export type SessionBootReason = 'fresh-flag' | 'resumed' | 'stale' | 'first-run'
+
+export interface SessionBootDecision {
+  reason: SessionBootReason
+  /** The session this boot continues, or null when it starts a new one. */
+  resumed: ResumableSession | null
+  /** The window this decision was measured against. */
+  windowMs: number
+  /** ms between `nowMs` and the previous session's newest recorded event — null when there was no previous session, or its newest file had nothing readable in it. */
+  previousAgeMs: number | null
+  /** Events already in the session file the moment this boot decided — 0 unless resuming. */
+  eventCountAtBoot: number
+  /** How many earlier boots already continued this exact session, before this one. 0 for a brand-new session. */
+  resumedCount: number
+}
+
+/**
+ * `findResumableSession` collapses "should this boot continue the previous
+ * session" to a boolean (non-null/null); this wraps it with the *reason*, as
+ * data, so a caller (the boot line, `/api/meta`, `doctor`) can state why
+ * without re-deriving it or falling back to parsing a log string. Read-only —
+ * it never writes, so `doctor` can call it to preview a boundary it will
+ * never itself cross. `findResumableSession` stays untouched, so
+ * `lab/checkpoint.ts` and `lab/fork.ts`, which only need the resumable
+ * session and not the reason, keep working unchanged.
+ *
+ * `windowMs <= 0` folds into the same path as `fresh: true` — the boundary's
+ * own law is "`--resume-window 0` behaves exactly like `--fresh`", not merely
+ * "usually agrees with it" for the edge case of a session whose newest event
+ * lands on `nowMs` exactly.
+ */
+export async function decideSessionBoot(
+  dir: string,
+  nowMs: number,
+  options: { fresh?: boolean; windowMs?: number } = {},
+): Promise<SessionBootDecision> {
+  const windowMs = options.windowMs ?? RESUME_WINDOW_MS
+  const fresh = (options.fresh ?? false) || windowMs <= 0
+
+  if (fresh) {
+    return { reason: 'fresh-flag', resumed: null, windowMs, previousAgeMs: null, eventCountAtBoot: 0, resumedCount: 0 }
+  }
+
+  const sessions = await listSessions(dir)
+  const latest = sessions[sessions.length - 1]
+  if (!latest) {
+    return { reason: 'first-run', resumed: null, windowMs, previousAgeMs: null, eventCountAtBoot: 0, resumedCount: 0 }
+  }
+
+  const filePath = path.join(dir, latest.fileName)
+  const events = await readSessionEvents(filePath)
+  if (events.length === 0) {
+    return { reason: 'stale', resumed: null, windowMs, previousAgeMs: null, eventCountAtBoot: 0, resumedCount: 0 }
+  }
+
+  const newestTs = events.reduce((newest, event) => Math.max(newest, event.ts), 0)
+  const previousAgeMs = nowMs - newestTs
+  if (previousAgeMs > windowMs) {
+    return { reason: 'stale', resumed: null, windowMs, previousAgeMs, eventCountAtBoot: 0, resumedCount: 0 }
+  }
+
+  const resumed: ResumableSession = { sessionId: latest.id, filePath, events }
+  const resumedCount = await readResumedCount(dir, resumed.sessionId)
+  return { reason: 'resumed', resumed, windowMs, previousAgeMs, eventCountAtBoot: events.length, resumedCount }
+}
+
+/**
+ * Sidecar next to the session log recording how many boots have continued
+ * it — small and cheap because there is exactly one fact to track. Not
+ * derivable from the log itself: exactly one `session.started` is ever
+ * recorded per session (the "no duplicate start" law `cli/index.test.ts`
+ * pins — a resumed boot must never re-record it), so a second in-file
+ * marker isn't available without weakening that law. Same naming convention
+ * as `sessionLabelFileName` (`log/paths.ts`): a sidecar beside the log,
+ * never a mutation of the append-only log itself.
+ */
+function resumeCounterFileName(sessionId: string): string {
+  return `session-${sessionId}.resumes.json`
+}
+
+/**
+ * How many times `sessionId`'s session has been resumed so far. Never
+ * throws: a missing or corrupt counter just means "never recorded", the
+ * same convention every reader in this module already follows.
+ */
+export async function readResumedCount(dir: string, sessionId: string): Promise<number> {
+  try {
+    const raw = await readFile(path.join(dir, resumeCounterFileName(sessionId)), 'utf8')
+    const parsed = JSON.parse(raw) as { resumedCount?: unknown }
+    const count = parsed.resumedCount
+    return typeof count === 'number' && Number.isInteger(count) && count >= 0 ? count : 0
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * Records one more boot resuming `sessionId` and returns the new total.
+ * Called exactly once per boot that resumes — never by a read-only caller
+ * like `doctor` (see its own module doc: "never changes anything").
+ */
+export async function recordResume(dir: string, sessionId: string): Promise<number> {
+  const next = (await readResumedCount(dir, sessionId)) + 1
+  await mkdir(dir, { recursive: true })
+  await writeFile(path.join(dir, resumeCounterFileName(sessionId)), JSON.stringify({ resumedCount: next }), 'utf8')
+  return next
+}
+
+/**
+ * Renders a duration the way the boot line and `doctor` state one: "2h04m",
+ * "45m30s", "12s", but a round number of hours or minutes drops its zeroed
+ * trailing unit ("4h", not "4h00m") — the boundary's own default window
+ * reads as "4h", not a suspiciously precise "4h00m". Shared here rather than
+ * duplicated per caller because both `cli/index.ts` and `doctor.ts` need the
+ * exact same rendering for the exact same figures.
+ */
+export function formatBootDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  if (hours > 0) return minutes > 0 ? `${hours}h${String(minutes).padStart(2, '0')}m` : `${hours}h`
+  if (minutes > 0) return seconds > 0 ? `${minutes}m${String(seconds).padStart(2, '0')}s` : `${minutes}m`
+  return `${seconds}s`
 }
