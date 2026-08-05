@@ -64,7 +64,7 @@ export const ERAS: readonly EraRecording[] = [
     recordingFile: 'era-1/recording.jsonl',
     snapshotFile: 'era-1/session-state.snapshot.json',
     provenance:
-      'a 100-line contiguous slice of a real 2026-08-06 session log, mid-flight across four lanes: 15 of this era\'s 16 event families, timestamps that are not monotonic, a worktree and a branch disappearing, eight commits landing on one poll.',
+      "a 100-line contiguous slice of a real 2026-08-06 session log, mid-flight across four lanes: 15 event families (of the 16 that log ever emitted, and of the 25 this era declares), timestamps that are not monotonic in the log's own order, a worktree and a branch disappearing together, eight commits landing on one git poll.",
   },
 ]
 
