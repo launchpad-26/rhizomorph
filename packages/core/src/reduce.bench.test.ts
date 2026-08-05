@@ -130,7 +130,52 @@ declare const process: { stdout: { write(chunk: string): void } }
  * oracle this lane may not touch, so moving that index out of recorded state
  * is prd9's own state-contract argument to have, with its own oracle in front
  * of it. **It is now measured rather than suspected, which is the honest
- * hand-off.**
+ * hand-off.** (#184 took the hand-off and flattened this lane without needing
+ * the argument — the section below.)
+ *
+ * ---
+ *
+ * ## #184 — THE OTHER ELEVEN SECONDS, RE-MEASURED ON THIS INSTRUMENT
+ *
+ * The hand-off was taken. `byTrace`/`bySession` stopped being accumulated a
+ * Record copy at a time and became a projection of `spans`, materialised on
+ * demand (`traceStateOf` in `state.ts`); the one question the fold asks per
+ * span moved to a carried-forward table (`TraceIndex` in `reduce.ts`). Same
+ * corpus, same prefixes, same three-run median, and the same discipline: the
+ * box was under real load for most of these (`load average` 11–40, sibling
+ * worktrees' suites), so the **ratios** are the claim, and the least-contended
+ * pass of each configuration is quoted with the spread given below it.
+ *
+ * **The full-mix lane — what #184 owns:**
+ *
+ * | N      | before        | after      | before µs/ev | after µs/ev | faster |
+ * | ------ | ------------- | ---------- | ------------ | ----------- | ------ |
+ * | 5,000  |     61.95 ms  |  18.03 ms  |     12.39    |     3.61    |  3.4×  |
+ * | 15,000 |    597.93 ms  |  59.61 ms  |     39.86    |     3.97    | 10.0×  |
+ * | 30,000 |  2,813.80 ms  | 172.59 ms  |     93.79    |     5.75    | 16.3×  |
+ * | 55,000 | 10,268.97 ms  | 665.87 ms  |    186.71    |    12.11    | 15.4×  |
+ *
+ * µs/event growth across an 11× growth in N: **15.1× → 3.4×** (three passes
+ * read 15.1× / 15.7× / 15.7× before, and 3.4× / 2.8× / 3.3× after). **The
+ * curve flattened**: what was a near-perfect quadratic signature — the per-event
+ * cost doubling with every doubling of N — now rises 3.4× across an 11× growth
+ * in N, and every one of that rise's remaining terms is the immutable append
+ * #179 named and the purity laws forbid making faster.
+ *
+ * **And it flattened onto the spanless lane's curve**, which is the shape of
+ * the claim rather than its size. Per event at 55k, full-mix cost 24.2× the
+ * spanless lane before (186.71 vs 7.99 µs/event in the same pass) and costs
+ * 1.5× it after (12.11 vs 7.99). The two lanes now differ by roughly what
+ * their event mixes differ by, not by a mechanism. The spanless lane itself is
+ * untouched by #184 and moved only with the box's load — which is exactly what
+ * makes it usable as this lane's control.
+ *
+ * **Boot recovery, end to end.** The number the operator actually waits on: a
+ * 55k-event session file read off disk, parsed line by line, folded, and the
+ * two selectors `cli/index.ts`'s boot line prints. Median of three, same box,
+ * back to back — **11,481 ms → 1,081 ms**, of which the fold is 11,178 → 742
+ * ms (15.1×). What is left of the wait is reading and parsing 55k JSONL lines
+ * (~340 ms), which no fold change can touch.
  */
 
 const BENCH_TIMEOUT_MS = 120_000
@@ -238,9 +283,12 @@ function emit(f: EventFactory, type: EventType, lane: string, i: number): void {
       })
       return
     case 'trace.span':
-      // Its own trace every call, so the reducer's own small per-trace dedup
-      // (`traces.byTrace[traceId].some(...)`) never has anything to scan —
-      // that check is not the audit's finding, only `usage`/`costs` are.
+      // Its own trace every call. That was chosen so the reducer's per-trace
+      // re-delivery check never had anything to scan — not the audit's
+      // finding, only `usage`/`costs` were — and it is also, as #179 found
+      // out, the worst case for the `byTrace` Record this mix grows a key in
+      // per span. #184 kept the corpus and removed the growth; the check is a
+      // `Set` lookup now, and would be flat here either way.
       f.traceSpan({
         lane,
         role: 'worker',
@@ -373,23 +421,24 @@ const CORPUS = buildCorpus(70_000)
  * The same stream with prd9's `trace.span` withheld — the telemetry fold on its
  * own (#179).
  *
- * The full-mix lane above measures a sum, and after #179 that sum is dominated
- * by a mechanism #179 does not own: `traceSpan`'s `{ ...traces.byTrace,
+ * The full-mix lane above measures a sum, and after #179 that sum was dominated
+ * by a mechanism #179 did not own: `traceSpan`'s `{ ...traces.byTrace,
  * [traceId]: [...] }`, an immutable insert into a Record that gains a key per
  * span, because this corpus deliberately gives every span its own `traceId`
- * (see `emit`). Standalone, that pattern alone costs 50 / 518 / 2367 / 8866 ms
- * at these four N — which is ~90% of the post-fix full-mix fold, and was ~70%
- * of the fold #174 measured. It cannot be fixed here: `TraceState`'s key set is
- * pinned by the additivity oracle in `reduce.telemetry.test.ts` (`traces` must
- * equal exactly `{spans, byTrace, bySession}`), so the index cannot move out of
- * the recorded state, and an immutable Record insert is O(keys) by
- * construction. That is a state-contract change for prd9's slice, with its own
- * oracle to argue in front of — a separate lane, now measured rather than
- * suspected.
+ * (see `emit`). Standalone, that pattern alone cost 50 / 518 / 2367 / 8866 ms
+ * at these four N — ~90% of the post-#179 full-mix fold, and ~70% of the fold
+ * #174 measured. #179 read that as a state-contract change for prd9's slice,
+ * with its own oracle to argue in front of, and stopped. **#184 took it, and
+ * did not need the argument**: the two indexes are a projection of `spans`, so
+ * deriving them on demand left `TraceState`'s key set, its bytes and its
+ * oracle exactly where they were. The before/after is in this file's header.
  *
- * Filtering *raises* telemetry density (30.0% → 34.6% of events are
- * usage/cost/tool/activeTime), so this is a harder workload per event for the
- * mechanisms #179 fixes, not a softer one.
+ * The lane keeps earning its place afterwards. It is the control for the one
+ * above — code #184 never touched, folded on the same instrument in the same
+ * pass, which is how a full-mix number can be read as the work changing rather
+ * than the box's load changing. And filtering *raises* telemetry density (30.0%
+ * → 34.6% of events are usage/cost/tool/activeTime), so it stays the harder
+ * workload per event for the mechanisms #179 fixed, not a softer one.
  */
 const SPANLESS_CORPUS = CORPUS.filter((event) => event.type !== 'trace.span')
 
