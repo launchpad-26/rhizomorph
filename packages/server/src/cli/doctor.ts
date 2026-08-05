@@ -4,8 +4,21 @@ import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Exec, ExecResult } from '@rhizomorph/core'
+import {
+  absentCapabilities,
+  deriveRung,
+  mergeCapabilities,
+  rungInfo,
+  type AdapterCapabilities,
+  type Exec,
+  type ExecResult,
+} from '@rhizomorph/core'
 import { lanesManifestPath, readLanesManifest } from '../api/lanes.js'
+import { GIT_CAPABILITIES } from '../collectors/git/index.js'
+import { OTEL_CAPABILITIES } from '../collectors/otel/index.js'
+import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
+import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
+import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
 import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
 import { decideSessionBoot, formatBootDuration } from '../log/session-log.js'
 import { exec as realExec } from '../server/exec.js'
@@ -66,7 +79,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
   const fetchImpl = options.fetch ?? globalThis.fetch
   const repoPath = path.resolve(options.path ?? process.cwd())
 
-  const checks: DoctorCheck[] = [
+  const baseChecks: DoctorCheck[] = [
     await checkNodeVersion(options),
     await checkTargetPath(repoPath, exec),
     checkWebBuild(options.webDistDir ?? defaultWebDistDir()),
@@ -79,6 +92,8 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
     await checkLaneManifest(repoPath),
     await checkCliVersionDrift(exec),
   ]
+
+  const checks: DoctorCheck[] = [...baseChecks, ...(await checkEnrichmentLadder(baseChecks, repoPath))]
 
   const exitCode = checks.some((check) => FAILING_CHECK_IDS.has(check.id) && check.status === 'fail') ? 1 : 0
   return { checks, exitCode }
@@ -492,4 +507,71 @@ async function checkLaneManifest(repoPath: string): Promise<DoctorCheck> {
     status: 'warn',
     message: `lane manifest at ${manifestPath} is broken: ${result.reason}`,
   }
+}
+
+/** `true` when the named check in an already-computed report is `ok`. */
+function checkOk(checks: readonly DoctorCheck[], id: string): boolean {
+  return checks.find((check) => check.id === id)?.status === 'ok'
+}
+
+/**
+ * prd15 ruling 5 — "`doctor` and the provenance strip SAY the rung per lane."
+ * Reuses the tool/env checks already computed above rather than re-deriving
+ * the same live facts a second time: session-logs/tmux/workmux/telemetry
+ * already answered "is this mechanism actually here right now" — this just
+ * asks what that buys, honestly, per prd15's ladder.
+ *
+ * Every lane in `.swarm/lanes.json` gets its own line (dispatch's lane
+ * manifest, already read by `checkLaneManifest`); with no manifest (or an
+ * empty one — no wave dispatched yet), one line speaks for the repo as a
+ * whole instead of naming a lane that doesn't exist yet. Collector-loader's
+ * mechanisms here are process-wide, not per-lane, so every named lane shares
+ * the same rung today — the loop that builds `lines` below is what makes
+ * per-lane divergence free the moment a collector gains that granularity.
+ */
+async function checkEnrichmentLadder(checks: readonly DoctorCheck[], repoPath: string): Promise<DoctorCheck[]> {
+  const contributors: AdapterCapabilities[] = [
+    checkOk(checks, 'target-path') ? GIT_CAPABILITIES : absentCapabilities('target path is not a usable git repository'),
+    checkOk(checks, 'session-logs')
+      ? SESSIONLOG_CAPABILITIES
+      : absentCapabilities(
+          'no Claude Code session logs found for this repo yet',
+          'run `claude` at least once here, or point --extra-sessions elsewhere',
+        ),
+    checkOk(checks, 'tmux')
+      ? TMUX_CAPABILITIES
+      : absentCapabilities('tmux not found on PATH', 'install tmux for pane previews'),
+    checkOk(checks, 'workmux')
+      ? WORKMUX_CAPABILITIES
+      : absentCapabilities('workmux not found on PATH', 'install workmux for declared attention and one-keystroke ATTACH'),
+    checkOk(checks, 'telemetry')
+      ? OTEL_CAPABILITIES
+      : absentCapabilities(
+          'telemetry env is not set in this shell',
+          'run `rhizomorph env <lane>` (see docs/telemetry.md)',
+        ),
+  ]
+
+  const rung = deriveRung(mergeCapabilities(contributors))
+  const info = rungInfo(rung)
+  const climbLine = info.climb === 'top rung — nothing further to climb' ? info.climb : `next: ${info.climb}`
+
+  const lanesResult = await readLanesManifest(repoPath)
+  const handles = lanesResult.available ? lanesResult.lanes.map((lane) => lane.handle) : []
+
+  if (handles.length === 0) {
+    return [
+      {
+        id: 'ladder',
+        status: 'ok',
+        message: `this repo sits at ${info.label} — ${climbLine}`,
+      },
+    ]
+  }
+
+  return handles.map((handle) => ({
+    id: `ladder:${handle}`,
+    status: 'ok',
+    message: `lane ${handle} sits at ${info.label} — ${climbLine}`,
+  }))
 }

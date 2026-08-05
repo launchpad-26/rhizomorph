@@ -109,6 +109,7 @@ describe('runDoctor', () => {
       'telemetry',
       'lane-manifest',
       'cli-version-drift',
+      'ladder',
     ])
   })
 
@@ -740,6 +741,99 @@ describe('runDoctor', () => {
       await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot, dataRoot, now: () => 3000 })
 
       expect(await readResumedCount(sessionDir, '1000')).toBe(0)
+    })
+  })
+
+  describe('the enrichment ladder (prd15 ruling 5)', () => {
+    it('names L4 and says there is nothing further to climb on a fully healthy machine', async () => {
+      const report = await runDoctor({
+        path: repoPath,
+        port: 0,
+        exec: healthyExec,
+        webDistDir,
+        claudeProjectsRoot,
+        dataRoot,
+        env: { CLAUDE_CODE_ENABLE_TELEMETRY: '1' },
+      })
+
+      const ladder = checkFor(report.checks, 'ladder')
+      expect(ladder.status).toBe('ok')
+      expect(ladder.message).toContain('L4')
+      expect(ladder.message).toContain('nothing further to climb')
+    })
+
+    it('drops a rung — the direction\'s own example — when workmux is missing, and names the remedy for the next one', async () => {
+      const noWorkmuxExec: Exec = async (command, args) => {
+        if (command === 'workmux') return missingBinary('workmux')
+        return healthyExec(command, args)
+      }
+
+      const report = await runDoctor({
+        path: repoPath,
+        port: 0,
+        exec: noWorkmuxExec,
+        webDistDir,
+        claudeProjectsRoot,
+        dataRoot,
+        env: {}, // telemetry unset too — nothing left to hold cost above absent
+      })
+
+      const ladder = checkFor(report.checks, 'ladder')
+      expect(ladder.message).toContain('L0')
+      expect(ladder.message).toContain('next:')
+      expect(ladder.status).toBe('ok') // degrading a rung is honest, not a failure
+    })
+
+    it('climbs to L1 once telemetry env is set, even with no tmux/workmux at all', async () => {
+      const noPaneToolsExec: Exec = async (command, args) => {
+        if (command === 'tmux' || command === 'workmux') return missingBinary(command)
+        return healthyExec(command, args)
+      }
+
+      const report = await runDoctor({
+        path: repoPath,
+        port: 0,
+        exec: noPaneToolsExec,
+        webDistDir,
+        claudeProjectsRoot,
+        dataRoot,
+        env: { CLAUDE_CODE_ENABLE_TELEMETRY: '1' },
+      })
+
+      expect(checkFor(report.checks, 'ladder').message).toContain('L1')
+    })
+
+    it('names one line per lane from the dispatch manifest, all at the same live rung', async () => {
+      await mkdir(path.join(repoPath, '.swarm'), { recursive: true })
+      await writeFile(
+        path.join(repoPath, '.swarm', 'lanes.json'),
+        JSON.stringify({
+          version: 1,
+          lanes: [
+            { handle: '188-sessionlog', branch: '188-sessionlog', fence: [] },
+            { handle: '190-honesty', branch: '190-honesty', fence: [] },
+          ],
+        }),
+      )
+
+      const report = await runDoctor({
+        path: repoPath,
+        port: 0,
+        exec: healthyExec,
+        webDistDir,
+        claudeProjectsRoot,
+        dataRoot,
+        env: { CLAUDE_CODE_ENABLE_TELEMETRY: '1' },
+      })
+
+      const laneChecks = report.checks.filter((check) => check.id.startsWith('ladder:'))
+      expect(laneChecks.map((check) => check.id)).toEqual(['ladder:188-sessionlog', 'ladder:190-honesty'])
+      for (const check of laneChecks) {
+        expect(check.message).toContain('L4')
+        expect(check.status).toBe('ok')
+      }
+      // The whole-repo fallback line only fires with no lanes at all.
+      expect(report.checks.some((check) => check.id === 'ladder')).toBe(false)
     })
   })
 })
