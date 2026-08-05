@@ -1,9 +1,37 @@
-import type { Collector, CollectorContext, RhizomorphEvent, PollResult } from '@rhizomorph/core'
+import type { AdapterCapabilities, Collector, CollectorContext, RhizomorphEvent, PollResult } from '@rhizomorph/core'
 import { countLines, hashPaneContent, lastNonEmptyLine } from './capture.js'
 import { LIST_PANES_FORMAT, parseListPanes } from './list-panes.js'
 import { resolveWorktreePath } from './worktree.js'
 
 const COLLECTOR_NAME = 'tmux'
+
+/**
+ * prd15 ruling 5's L4 ingredient (paired with workmux): pane content is a
+ * real byte-stream witness for identity/liveness/activity, and its footer
+ * heuristics are the tmux-era attention read — still an inference, never a
+ * declared status (that's workmux's `agent.status`). No telemetry at all:
+ * `capture-pane` sees rendered text, not tokens.
+ */
+export const TMUX_CAPABILITIES: AdapterCapabilities = {
+  identity: { level: 'provided' },
+  liveness: { level: 'provided' },
+  activity: { level: 'provided' },
+  attention: {
+    level: 'partial',
+    reason: 'footer/prompt heuristics over captured pane text, not a declared status',
+    remedy: 'pair with the workmux collector for declared `agent.status`',
+  },
+  telemetry: {
+    level: 'absent',
+    reason: 'pane capture carries no token data',
+    remedy: 'the sessionlog transcript organ reads tokens from the CLI transcript',
+  },
+  cost: {
+    level: 'absent',
+    reason: 'pane capture carries no cost data',
+    remedy: 'env vars at launch (`rhizomorph env <lane>`) bring OTLP dollars',
+  },
+}
 
 export interface TmuxPaneSnapshot {
   paneId: string
@@ -34,6 +62,7 @@ export interface TmuxSnapshot {
  */
 export const tmuxCollector: Collector<TmuxSnapshot> = {
   name: COLLECTOR_NAME,
+  capabilities: TMUX_CAPABILITIES,
 
   initialSnapshot(): TmuxSnapshot {
     return { disabled: false, panes: {}, worktreeByPath: {} }

@@ -170,6 +170,14 @@ describe('tmuxCollector', () => {
       contentHash: hashPaneContent('hello'),
       previousHash: null,
     })
+
+    // prd15's capability law: `activity: provided` needs a real path that
+    // emits it — this poll's `pane.activity` events just proved it. tmux
+    // never emits `agent.status`, so `attention` stays `partial` (a footer
+    // heuristic), never `provided`.
+    expect(tmuxCollector.capabilities?.activity).toEqual({ level: 'provided' })
+    expect(tmuxCollector.capabilities?.attention.level).toBe('partial')
+    expect(result.events.some((e) => e.type === 'agent.status')).toBe(false)
   })
 
   it('emits pane.activity only for panes whose content hash changed', async () => {
