@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import type { RhizomorphEvent } from './events/index.js'
 import { createEventFactory, fixtureSession } from './fixtures.js'
 import { reduce, reduceAll } from './reduce.js'
+import type { SessionState } from './state.js'
 import {
   MAX_ERRORS,
   initialCheckpointState,
@@ -661,5 +663,250 @@ describe('reduce — judge.finding (prd11 ruling 6b)', () => {
     const after = reduce(before, f.judgeFinding())
     expect(before).toEqual(snapshot)
     expect(after.judge).not.toBe(before.judge)
+  })
+})
+
+/**
+ * #179 gave the usage fold a lookup table so it stops re-scanning a growing
+ * array once per telemetry event. The table is derived, not recorded — it is
+ * keyed by the identity of the array it describes and lives beside the reducer,
+ * not in `SessionState` (the argument is on `UsageIndex` in `reduce.ts`).
+ *
+ * Which makes these the laws that matter: not "the table has the right
+ * contents" — no surface can see it — but **the fold cannot tell the table is
+ * there**. Every test below folds one log two ways and demands the same bytes.
+ */
+describe('reduce — the usage index is an accelerator, never an input (#179)', () => {
+  /**
+   * A log that walks every branch of the usage fold, several times each: the
+   * cross-collector dedup (both arrival orders), the request-less OTel
+   * retirement that shifts every position in the array, an OTel-only session
+   * that must keep counting in full, and dollars that land both before and
+   * after the usage that says where their session ran.
+   */
+  function indexStress(): RhizomorphEvent[] {
+    const events: RhizomorphEvent[] = []
+    const push = (event: RhizomorphEvent): number => events.push(event)
+
+    // Session A — sessionlog leads, OTel repeats the same ids afterwards.
+    for (let i = 0; i < 8; i += 1) {
+      push(f.llmUsage(
+        { lane: 'a', requestId: `req-a-${i}`, sessionId: 'sess-a', worktreePath: `${REPO}-wt/a`, branch: 'a' },
+        { source: 'sessionlog' },
+      ))
+    }
+    for (let i = 0; i < 8; i += 1) {
+      push(f.llmUsage(
+        { lane: 'a-otel', requestId: `req-a-${i}`, sessionId: 'sess-a', worktreePath: null, branch: null },
+        { source: 'otel' },
+      ))
+    }
+
+    // Session B — dollars first, then request-less OTel usage, then the
+    // sessionlog record that retires it and places everything retroactively.
+    push(f.llmCost({ lane: 'b-otel', sessionId: 'sess-b', worktreePath: null, branch: null }, { source: 'otel' }))
+    for (let i = 0; i < 5; i += 1) {
+      push(f.llmUsage(
+        { lane: 'b-otel', requestId: null, sessionId: 'sess-b', worktreePath: null, branch: null },
+        { source: 'otel' },
+      ))
+    }
+    push(f.llmUsage(
+      { lane: 'b', requestId: 'req-b-0', sessionId: 'sess-b', worktreePath: `${REPO}-wt/b`, branch: 'b' },
+      { source: 'sessionlog' },
+    ))
+    // Covered now: these fold away instead of appending.
+    for (let i = 0; i < 3; i += 1) {
+      push(f.llmUsage(
+        { lane: 'b-otel', requestId: null, sessionId: 'sess-b', worktreePath: null, branch: null },
+        { source: 'otel' },
+      ))
+    }
+
+    // Session C — OTel alone, forever. Nothing here may ever be folded away.
+    for (let i = 0; i < 4; i += 1) {
+      push(f.llmUsage(
+        { lane: 'c-otel', requestId: null, sessionId: 'sess-c', worktreePath: null, branch: null },
+        { source: 'otel' },
+      ))
+    }
+
+    // OTel leading a dedup pair, the other arrival order, plus the quiet
+    // telemetry that makes `withTelemetry` run without teaching it anything.
+    push(f.llmUsage({ lane: 'd-otel', requestId: 'req-d-0', sessionId: 'sess-d', worktreePath: null, branch: null }, { source: 'otel' }))
+    push(f.toolActivity({ lane: 'd', tool: 'Bash', sessionId: 'sess-d', worktreePath: `${REPO}-wt/d`, branch: 'd' }))
+    push(f.llmUsage({ lane: 'd', requestId: 'req-d-0', sessionId: 'sess-d', worktreePath: `${REPO}-wt/d`, branch: 'd' }, { source: 'sessionlog' }))
+    push(f.agentActiveTime({ lane: 'd', sessionId: 'sess-d', worktreePath: `${REPO}-wt/d`, branch: 'd' }, { source: 'otel' }))
+    push(f.llmCost({ lane: 'd', sessionId: 'sess-d', worktreePath: null, branch: null }, { source: 'otel' }))
+    // A record with no session at all — the branch that skips the join whole.
+    push(f.llmUsage({ lane: 'e', requestId: null, sessionId: null, worktreePath: null, branch: null }, { source: 'otel' }))
+
+    return events
+  }
+
+  /**
+   * The same fold with the table defeated: handing `reduce` a *copy* of the
+   * usage array every event means the array it is keyed by is one nothing has
+   * ever indexed, so every event rebuilds from scratch. If a carried-forward
+   * table ever disagreed with a rebuilt one, this is where it would show.
+   */
+  function foldWithColdIndex(events: readonly RhizomorphEvent[]): SessionState {
+    let state = initialSessionState()
+    for (const event of events) {
+      const cold: SessionState = {
+        ...state,
+        telemetry: { ...state.telemetry, usage: [...state.telemetry.usage] },
+      }
+      state = reduce(cold, event)
+    }
+    return state
+  }
+
+  it('folds to the same bytes whether its table is carried forward or rebuilt every event', () => {
+    const events = indexStress()
+    expect(JSON.stringify(foldWithColdIndex(events))).toBe(JSON.stringify(reduceAll(events)))
+  })
+
+  it('hands its table to one future only — two folds off one state stay independent', () => {
+    const events = indexStress()
+    const base = reduceAll(events)
+
+    // Both of these fold off `base`, and they are a *dedup pair*: whichever
+    // goes first records an id the other would match on. Neither may see the
+    // other's record — they are two futures of one past, not a sequence — so
+    // each must append, and each must equal its own from-scratch fold.
+    const left = f.llmUsage(
+      { lane: 'a', requestId: 'req-fork', sessionId: 'sess-a', worktreePath: `${REPO}-wt/a`, branch: 'a' },
+      { source: 'sessionlog' },
+    )
+    const right = f.llmUsage(
+      { lane: 'a-otel', requestId: 'req-fork', sessionId: 'sess-a', worktreePath: null, branch: null },
+      { source: 'otel' },
+    )
+
+    const viaLeft = reduce(base, left)
+    const viaRight = reduce(base, right)
+    const leftAgain = reduce(base, left)
+
+    expect(JSON.stringify(viaLeft)).toBe(JSON.stringify(reduceAll([...events, left])))
+    expect(JSON.stringify(viaRight)).toBe(JSON.stringify(reduceAll([...events, right])))
+    expect(JSON.stringify(leftAgain)).toBe(JSON.stringify(viaLeft))
+
+    // Said as facts too, so a future reader can see what the bytes assert:
+    // each branch appended its own record, neither folded into the other's.
+    const grew = base.telemetry.usage.length + 1
+    expect(viaLeft.telemetry.usage).toHaveLength(grew)
+    expect(viaRight.telemetry.usage).toHaveLength(grew)
+    expect(viaLeft.telemetry.usage[grew - 1]).toMatchObject({ requestId: 'req-fork', origin: 'sessionlog' })
+    expect(viaRight.telemetry.usage[grew - 1]).toMatchObject({ requestId: 'req-fork', origin: 'otel' })
+  })
+
+  it('folds into the FIRST record carrying the id from the other collector, as the scan did', () => {
+    // One collector re-emitting its own id is not deduped (that law is in
+    // `reduce.telemetry.test.ts`), so this leaves two same-id OTel records for
+    // the sessionlog copy to choose between. It must take the earlier one.
+    const state = reduceAll([
+      f.llmUsage(
+        { lane: 'x', requestId: 'req_x', sessionId: null, worktreePath: null, branch: null, durationMs: 111 },
+        { source: 'otel', ts: 1_000 },
+      ),
+      f.llmUsage(
+        { lane: 'x', requestId: 'req_x', sessionId: null, worktreePath: null, branch: null, durationMs: 222 },
+        { source: 'otel', ts: 1_100 },
+      ),
+      f.llmUsage(
+        { lane: 'x', requestId: 'req_x', sessionId: null, worktreePath: null, branch: null, durationMs: 333 },
+        { source: 'sessionlog', ts: 1_200 },
+      ),
+    ])
+    expect(state.telemetry.usage).toHaveLength(2)
+    expect(state.telemetry.usage[0]).toMatchObject({ origin: 'sessionlog', durationMs: 333 })
+    expect(state.telemetry.usage[1]).toMatchObject({ origin: 'otel', durationMs: 222 })
+  })
+
+  it('still finds a duplicate whose position a retirement has shifted', () => {
+    const state = reduceAll([
+      f.llmUsage({ lane: 'y-otel', requestId: 'req_keep', sessionId: 'sess-y', worktreePath: null, branch: null }, { source: 'otel' }),
+      // Retired by the sessionlog record below — every position after it moves.
+      f.llmUsage({ lane: 'y-otel', requestId: null, sessionId: 'sess-y', worktreePath: null, branch: null }, { source: 'otel' }),
+      f.llmUsage({ lane: 'y', requestId: 'req_other', sessionId: 'sess-y', worktreePath: `${WT}`, branch: 'feature' }, { source: 'sessionlog' }),
+      // The dedup that has to land on `req_keep` at its new position, not its old one.
+      f.llmUsage({ lane: 'y', requestId: 'req_keep', sessionId: 'sess-y', worktreePath: `${WT}`, branch: 'feature' }, { source: 'sessionlog' }),
+    ])
+    expect(state.telemetry.usage.map((record) => record.requestId)).toEqual(['req_keep', 'req_other'])
+    expect(state.telemetry.usage[0]?.origin).toBe('sessionlog')
+  })
+})
+
+/**
+ * The other half of #179: the cost/lane join used to re-map every cost and
+ * walk every lane on every telemetry event, to fill in nothing. It now runs
+ * when the session's place actually moves — so these are the laws that the
+ * catching-up still catches up.
+ */
+describe('reduce — the place join runs when there is something to join (#179)', () => {
+  it('places a lane that first appears long after its session was placed', () => {
+    const state = reduceAll([
+      f.llmUsage({ lane: 'sl', sessionId: 'sess-p', worktreePath: WT, branch: 'feature' }, { source: 'sessionlog' }),
+      ...Array.from({ length: 12 }, () =>
+        f.llmUsage({ lane: 'sl', sessionId: 'sess-p', worktreePath: WT, branch: 'feature' }, { source: 'sessionlog' }),
+      ),
+      // The OTel side of the same session, under its own handle and with no
+      // place of its own: the join is all it will ever have.
+      f.toolActivity({ lane: 'otel-late', tool: 'Bash', sessionId: 'sess-p', worktreePath: null, branch: null }, { source: 'otel' }),
+    ])
+    expect(state.telemetry.lanes['otel-late']).toMatchObject({ worktreePath: WT, branch: 'feature' })
+  })
+
+  it('catches up dollars when their place is learned long after they landed', () => {
+    const state = reduceAll([
+      f.llmCost({ lane: 'q-otel', sessionId: 'sess-q', worktreePath: null, branch: null }, { source: 'otel' }),
+      ...Array.from({ length: 12 }, () =>
+        f.toolActivity({ lane: 'q-otel', tool: 'Bash', sessionId: 'sess-q', worktreePath: null, branch: null }, { source: 'otel' }),
+      ),
+      f.llmUsage({ lane: 'q', sessionId: 'sess-q', worktreePath: WT, branch: 'feature' }, { source: 'sessionlog' }),
+    ])
+    expect(state.telemetry.costs[0]).toMatchObject({
+      worktreePath: WT,
+      branch: 'feature',
+      placeSource: 'session-join',
+    })
+  })
+
+  it('completes a half-known place learned one half at a time, with traffic in between', () => {
+    const state = reduceAll([
+      f.llmCost({ lane: 'r-otel', sessionId: 'sess-r', worktreePath: null, branch: null }, { source: 'otel' }),
+      f.llmUsage({ lane: 'r', sessionId: 'sess-r', worktreePath: null, branch: 'feature' }, { source: 'sessionlog' }),
+      ...Array.from({ length: 8 }, () =>
+        f.llmUsage({ lane: 'r', sessionId: 'sess-r', worktreePath: null, branch: 'feature' }, { source: 'sessionlog' }),
+      ),
+      f.llmUsage({ lane: 'r', sessionId: 'sess-r', worktreePath: WT, branch: 'feature' }, { source: 'sessionlog' }),
+    ])
+    expect(state.telemetry.costs[0]).toMatchObject({ worktreePath: WT, branch: 'feature' })
+  })
+
+  it('folds to the same facts whichever order the place and the dollars arrive in', () => {
+    const usage = f.llmUsage({ lane: 'z', sessionId: 'sess-z', worktreePath: WT, branch: 'feature' }, { source: 'sessionlog', ts: 1_000 })
+    const cost = f.llmCost({ lane: 'z-otel', sessionId: 'sess-z', worktreePath: null, branch: null }, { source: 'otel', ts: 2_000 })
+    const usageFirst = reduceAll([usage, cost])
+    const costFirst = reduceAll([cost, usage])
+    // Compared as facts, not as bytes: records and map keys keep *observation*
+    // order, so two arrival orders write the same two lanes in two different
+    // orders. Byte-equality is the law for one log folded twice (above); this
+    // is the law for one log's two arrival orders, and it is the same law
+    // `reduce.telemetry.test.ts` states for the pair.
+    expect(costFirst.telemetry.costs).toEqual(usageFirst.telemetry.costs)
+    expect(costFirst.telemetry.lanes).toEqual(usageFirst.telemetry.lanes)
+    expect(costFirst.telemetry.sessions).toEqual(usageFirst.telemetry.sessions)
+  })
+
+  it('leaves a lane sharing no placed session exactly as bare as it was', () => {
+    const state = reduceAll([
+      f.llmUsage({ lane: 'placed', sessionId: 'sess-here', worktreePath: WT, branch: 'feature' }, { source: 'sessionlog' }),
+      f.llmCost({ lane: 'bare', sessionId: 'sess-elsewhere', worktreePath: null, branch: null }, { source: 'otel' }),
+      f.llmUsage({ lane: 'placed', sessionId: 'sess-here', worktreePath: WT, branch: 'feature' }, { source: 'sessionlog' }),
+    ])
+    expect(state.telemetry.lanes['bare']).toMatchObject({ worktreePath: null, branch: null })
+    expect(state.telemetry.costs[0]).toMatchObject({ worktreePath: null, branch: null, placeSource: null })
   })
 })

@@ -292,6 +292,24 @@ export interface ActiveTimeRecord {
   thread: AgentThread | null
 }
 
+/**
+ * The money layer's records and the two indexes the *fold* keeps in step —
+ * `lanes` and `sessions` are recorded fact (who spent, and where they ran),
+ * learned from events and readable by any surface.
+ *
+ * **These six keys are the whole slice, and that is a law** (#179). The fold's
+ * own lookup tables — "which record holds this `requestId`", "has this session
+ * any sessionlog usage" — are *not* here and must not move here. They are
+ * derived: recomputable from `usage` alone, invisible to every selector, and
+ * carried beside the reducer instead (`UsageIndex` in `reduce.ts`, where the
+ * argument is written out in full). Two reasons in one sentence: an index
+ * carried as immutable state costs a copy of every key on every event, which
+ * is the quadratic #174 measured wearing a different hat; and a slice whose
+ * header promises recorded fact should not start holding an accelerator that
+ * no event ever recorded. `state.test.ts` pins the key set, `reduce.test.ts`
+ * pins the property that makes the split safe — the fold's output cannot tell
+ * whether a table was inherited or rebuilt from scratch.
+ */
 export interface TelemetryState {
   usage: UsageRecord[]
   costs: CostRecord[]
@@ -303,6 +321,13 @@ export interface TelemetryState {
   sessions: Record<string, SessionPlace>
 }
 
+/**
+ * A fresh slice, with fresh containers, on every call — never a shared empty
+ * singleton. Two folds started independently must not begin life holding the
+ * same array: the fold's lookup tables are keyed by the identity of the array
+ * they describe (#179), so a shared `[]` would hand one fold's table to
+ * another. `state.test.ts` holds this to it.
+ */
 export function initialTelemetryState(): TelemetryState {
   return { usage: [], costs: [], tools: [], activeTime: [], lanes: {}, sessions: {} }
 }
