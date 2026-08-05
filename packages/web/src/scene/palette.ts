@@ -40,50 +40,23 @@ export interface Ink {
 // ── THE VIBRANCY DIALS (#157) — and the ceiling every one of them respects ───
 
 /**
- * WHERE THE CALM WORLD'S HEADROOM WENT, in four numbers rather than in a sweep.
+ * The band between `CALM_CEILING` (0.78) and `ALARM_FLOOR` (0.84) is the whole
+ * of the salience mechanism (law 9b) — never raise `CALM_CEILING` to buy
+ * vibrancy. The dials below raise only chroma ({@link ACTIVITY_TINT},
+ * {@link TUFT_WASH}) and the floor ({@link CALM_BODY_FLOOR}), which the band
+ * does not own. `palette.test.ts` sweeps every activity/freshness/heat through
+ * `spend` and holds the pair to `CALM_CEILING`.
  *
- * The operator's review of the gorgeous round asked for "a LITTLE more vibrancy"
- * live, and the temptation is to take it from the one place it is cheapest: raise
- * `CALM_CEILING` and let the fleet climb. That would be the wrong trade and it is
- * worth saying why, because a future hand will be tempted the same way.
- *
- * Since prd4 dropped hue exclusivity, **the band between `CALM_CEILING` (0.78) and
- * `ALARM_FLOOR` (0.84) IS the salience mechanism** — it is the entire difference
- * between a green fleet and an amber summons. Six hundredths of luminance is all
- * an alarm has. Spending any of it on ambient prettiness would buy vibrancy with
- * the one property the instrument cannot lose, and law 9b would be *weakened*
- * rather than restated.
- *
- * So none of the numbers below moves a ceiling. Every one of them raises what the
- * calm world reaches **under** a ceiling that has not moved, in the two channels
- * the band does not own:
- *
- * - **chroma** ({@link ACTIVITY_TINT}, {@link TUFT_WASH}) — how much of its family
- *   a mark actually wears. `luminance()` is a weighted mean of the channels, so
- *   swinging a colour away from grey at constant mean costs the budget *nothing*
- *   and is the single largest visible gain available. A working thread now reads
- *   green rather than blue-grey-with-a-green-idea.
- * - **the floor** ({@link CALM_BODY_FLOOR}) — a quiet fleet is drawn from the
- *   bottom of the ramp, and the bottom is where "murky" lives. The ceiling binds
- *   for one lane in twenty; the floor binds for the other nineteen.
- *
- * `palette.test.ts` sweeps every activity at every freshness and heat through
- * `spend` and holds the pair to `CALM_CEILING`, so these dials cannot be turned
- * far enough to break the band even by accident.
+ * See docs/decisions/palette-vibrancy-dials.md for why and by how much.
  */
 
 /**
- * How much of its family's hue a resting mark takes — the chroma dial.
- *
- * Raised across the board from prd4's values (working 0.45, waiting 0.50, done
- * 0.35). Still well below 1 for all of them, and that bound is the *original*
- * reason for the number rather than a leftover: a thread is a lit line with a
- * temperature, not a swatch, and twenty saturated cords would read as a bag of
- * colours instead of one picture. What moved is where inside that bound the calm
- * world sits — closer to its families, at the same luminance.
- *
- * `waiting` stays the highest of the three: benign amber is the state most easily
- * confused with a green at a glance, and hue is the channel that separates them.
+ * How much of its family's hue a resting mark takes — the chroma dial. Must
+ * stay well below 1 for all three: a thread is a lit line with a temperature,
+ * not a swatch, and twenty saturated cords would read as a bag of colours
+ * instead of one picture. `waiting` stays the highest: benign amber is the
+ * state most easily confused with a green at a glance, and hue is the channel
+ * that separates them. See docs/decisions/palette-vibrancy-dials.md.
  */
 const ACTIVITY_TINT: Record<LaneActivity, number> = {
   working: 0.56,
@@ -97,86 +70,41 @@ const ACTIVITY_TINT: Record<LaneActivity, number> = {
 /**
  * The alpha a living thread is drawn at with nothing going on at all — the floor
  * of {@link activityInk}'s ramp, and the number a *calm* fleet is actually made of.
- *
- * prd4 opened on "too dark and pale to read" and pinned the fix at 0.5 (up from a
- * regressed 0.22); `CALM_FLOOR` in `salience.ts` is what stops it drifting back
- * down. This raises it again, by the amount the ceiling leaves free: a maximally
- * fresh, maximally hot thread still lands over `CALM_CEILING` and is still held
- * there by `spend`, so the top of the band has not moved a hair — what has changed
- * is that the *bottom* of it is no longer nearly half transparent.
+ * `CALM_FLOOR` in `salience.ts` is the hard lower bound this must stay above.
+ * Raising this dial never moves the ceiling: a maximally fresh, maximally hot
+ * thread still lands over `CALM_CEILING` and is still held there by `spend`.
+ * See docs/decisions/palette-vibrancy-dials.md.
  */
 export const CALM_BODY_FLOOR = 0.58
 
 /**
  * How far an apical tuft is washed toward the ice ramp's white before its own
- * energy is added (prd10 ruling 4's "vivid family hue").
- *
- * Lowered from 0.25, and lowering it is what *raises* the vividness: `hotter()`
- * mixes toward {@link ICE_050}, so every hundredth of it is a hundredth of the
- * family's chroma traded for white. The apex is the one mark on a lane whose
- * brightness is not its age — it should look like the newest part of the organism,
- * which means more of the lane's colour and not more of the ramp's.
- *
- * The luminance it gives up doing so is given back in alpha (`marks/node.ts`), and
- * the pair still passes through `budget()` → `CALM_CEILING` like every other calm
- * mark. The amendment's own bounds (`TIP_CEILING`, `TIP_GLOW_RADIUS`, working tips
- * only, no fade exemption) are untouched: this dial cannot reach them, because it
- * is on the branchlets and the branchlets are not the glow.
+ * energy is added (prd10 ruling 4's "vivid family hue"). `hotter()` mixes
+ * toward {@link ICE_050}, so every hundredth of this is a hundredth of the
+ * family's chroma traded for white — the apex should look like the newest
+ * part of the organism, which means more of the lane's colour, not the ramp's.
+ * This dial is on the branchlets and must never reach the glow amendment's own
+ * bounds (`TIP_CEILING`, `TIP_GLOW_RADIUS`, working tips only, no fade
+ * exemption in `marks/node.ts`) — the branchlets are not the glow.
+ * See docs/decisions/palette-vibrancy-dials.md.
  */
 export const TUFT_WASH = 0.16
 
 /**
- * THE ONE MODE MULTIPLIER (#157) — **live is a working instrument, replay is a
- * retrospective.**
+ * The one substrate-vibrancy multiplier for replay mode, applied in exactly one
+ * place (`marks/ambient.ts`). It must never reach: a status hue's meaning (law
+ * 9a, `ACTIVITY_HUE`), the alarm grammar (`CALM_CEILING`, `ALARM_FLOOR`,
+ * `TIP_CEILING`, spotlight, fade exemption, cartouche), the ladder, or the motion
+ * budget (`motion.test.ts` owns every number there — replay is brighter, not
+ * busier). It reaches only the substrate: it lights the spores and rim flora,
+ * and *relaxes* the fog/vignette via `ambientVeil` (they are dimming, so the
+ * same number divides them rather than multiplying) — which means the rim
+ * legibility law (`RIM_VEIL`) comes out stricter in replay than live, and
+ * `marks.test.ts` asserts it in both modes.
  *
- * The scene is dimmed on purpose. Ambient depth, a fog at the rim, a vignette in
- * the corners and a substrate kept faint are all there for one reason: a live
- * instrument has to be *glanceable*, and a glanceable display spends nothing on
- * the periphery that the operator would have to consciously suppress. That
- * argument is about **live**. Nobody glances at a replay — they sit down and watch
- * it, deliberately, knowing it already happened. A performance of history has no
- * summons in it that anyone can answer, so the calm budget it is paying for buys
- * nothing, and the ambient dimming can relax.
- *
- * Hence one number, applied in exactly one place — `marks/ambient.ts` — and it is
- * worth being explicit about what it is **not** allowed to reach, because a mode
- * that could touch any of these would be a second vocabulary for facts the
- * instrument already has one for:
- *
- * - **never a status hue's meaning.** Green still means productive at whatever
- *   vibrancy. Law 9a is a property of `ACTIVITY_HUE`, and nothing here goes near it.
- * - **never the alarm grammar.** `CALM_CEILING`, `ALARM_FLOOR`, `TIP_CEILING`, the
- *   spotlight, the fade exemption, the cartouche: all untouched, in both modes.
- *   A replayed summons is exactly as far above its fleet as the live one was.
- * - **never the ladder.** Which lane is worst is the fleet's fact, not the
- *   transport's.
- * - **never the motion budget.** Not one period, amplitude or cap moves. A replay
- *   is *brighter*, not busier — `motion.test.ts` still owns every number that says
- *   how much the scene may move.
- *
- * What it does reach is the substrate: the spores and the rim flora are lit by it,
- * and the fog and the vignette are *relaxed* by it (`ambientVeil` — they are the
- * dimming, so the same number has to divide them rather than multiply). The rim
- * legibility law (`RIM_VEIL`) therefore comes out **stricter** in replay than live,
- * and `marks.test.ts` asserts it in both modes rather than only the one it was
- * written for.
- *
- * **WHY THE NUMBER IS 1.6 AND NOT 1.2**, which is the thing a future hand needs
- * and cannot see from inside this file. Ruling 16's mode chrome puts
- * `saturate-75 brightness-90` on `document.body` (`app/ModeContext.tsx`), and a
- * CSS filter on the body reaches the canvas like anything else — so a replay frame
- * is already being *shown* 10% darker and 25% less saturated than the pixels this
- * palette produced. A multiplier picked by reading these numbers alone would have
- * a quarter of itself eaten before it reached the screen. 1.6 nets out at about
- * ×1.44 luminance and ×1.20 chroma on the substrate, which is where "a lot more
- * vibrancy on the replays" actually lands.
- *
- * That is a real tension with ruling 16 and it is worth naming rather than
- * quietly resolving. The ruling cools the whole app so that a replay can never be
- * mistaken for a live fleet, and nothing here weakens it: the outline, the badge,
- * the transport and every panel still carry the cooling, and so does every
- * *status* mark in the scene, because this number cannot reach one. What lifts is
- * the substrate the fleet hangs in — and a substrate carries no state to mistake.
+ * See docs/decisions/palette-vibrancy-dials.md for why 1.6 and not a more
+ * obvious 1.2, and for the tension with ruling 16 this number deliberately
+ * doesn't resolve.
  */
 export const REPLAY_VIBRANCY = 1.6
 
@@ -228,22 +156,13 @@ export const NECROTIC: Rgb = [74, 82, 102]
 
 /**
  * THE TISSUE RAMP — the only hue in the instrument that is not a status and not
- * ice, and the only one whose permission is written as a *place* rather than as
- * a meaning.
- *
- * Ruling 29 bought salience by forbidding the calm world colour; prd4 replaced
- * that with the brightness band, and prd10 ruling 5 opens the one remaining door
- * a hair: a cold bioluminal violet, for **organic tissue only**. The heart's
- * depths, the thread's underglow, spore motes, and the gradient a severed lane's
- * matter cools through on its way home (ruling 12). Never a status, never data
- * ink, never chrome.
- *
- * Why it is safe, in numbers rather than in assurances (ruling 11): H 295.5 in
- * OKLCH, at low chroma — 41° clear of the ice ramp, 87° from notice-cyan, 78°
- * from broken-red. `palette.test.ts` measures all three, so the accent cannot
- * drift toward a hue that already means something. And the whole ramp sits below
- * the text-contrast floor by design: tissue is not ink, so prd4's legibility law
- * is untouched rather than traded against.
+ * ice, and the only one whose permission is written as a *place* rather than a
+ * meaning: organic tissue only (heart depths, thread underglow, spore motes, the
+ * cooling gradient in {@link returningInk}). Never a status, never data ink,
+ * never chrome. Its OKLCH hue (295.5, low chroma) must stay 41° clear of the ice
+ * ramp, 87° from notice-cyan and 78° from broken-red — `palette.test.ts` measures
+ * all three — and the whole ramp must stay below the text-contrast floor, since
+ * tissue is never ink. See docs/decisions/palette-tissue-accent.md.
  */
 export const TISSUE_900: Rgb = [30, 24, 51]
 export const TISSUE_700: Rgb = [50, 39, 82]
@@ -275,17 +194,12 @@ export function tissueAt(t: number): Rgb {
 }
 
 /**
- * RULING 12, AS ONE FUNCTION — a returning mote's colour at `t` of its journey.
- *
- * Born in the lane's own dim done-family colour (it *is* the lane's substance,
- * so status meaning is preserved at the cut) and cooling through the tissue ramp
- * as it drifts home (tissue meaning at the heart). The composting story told in
- * colour, and the only place in the instrument where a status hue and the accent
- * are allowed to touch: along this gradient and nowhere else.
- *
- * The ramp is entered from its light end and travelled downward, because that is
- * what "cooling" means — a mote arrives at the heart as one of its own dark
- * depths rather than as a bright violet dot laid on top of them.
+ * A returning mote's colour at `t` of its journey home (ruling 12): born in the
+ * lane's own done-family colour, cooling through the tissue ramp as it travels.
+ * The only place a status hue and the accent are allowed to touch. Entered from
+ * the ramp's light end and travelled downward — a mote must arrive at the heart
+ * as one of the ramp's own dark depths, not a bright violet dot laid on top of
+ * them. See docs/decisions/palette-tissue-accent.md.
  */
 export function returningInk(family: Rgb, journey: number, luminance: number): Ink {
   const t = clamp01(journey)
@@ -296,22 +210,15 @@ export function returningInk(family: Rgb, journey: number, luminance: number): I
 }
 
 /**
- * THE CHOKEPOINT — the one place a lane's activity becomes a colour.
- *
- * `marks/` never names a hue for a state; it asks here. That is what makes
- * "green means productive" a property of the instrument rather than a habit of
- * whoever wrote the last mark, and it is why re-aiming the whole scene at a new
- * semantic map is an edit to this record and not a sweep through five files.
- *
- * Idle and unknown are ice on purpose: nothing-to-say is structure, and a lane
- * the log has never mentioned must not be able to borrow the confidence a hue
- * would lend it (law 12's gap honesty, kept on brightness alone).
+ * The one place a lane's activity becomes a colour — `marks/` must never name a
+ * hue for a state itself, only ask here, or "green means productive" stops being
+ * a property of the instrument. Idle and unknown stay ice on purpose: a lane the
+ * log has never mentioned must not be able to borrow the confidence a hue would
+ * lend it (law 12's gap honesty, kept on brightness alone).
  */
 export const ACTIVITY_HUE: Record<LaneActivity, Rgb> = {
   working: WORKING,
-  // The benign end of the amber family. The *pathology* called `waiting` — a
-  // lane stopped long enough to need somebody — is NEEDS_YOU, its incandescent
-  // end; the two are one scale read at two brightnesses (law 9a).
+  // The benign end of the amber family (law 9a) — NEEDS_YOU is its incandescent end.
   waiting: WAITING_BENIGN,
   done: DONE,
   idle: ICE_400,
@@ -320,28 +227,20 @@ export const ACTIVITY_HUE: Record<LaneActivity, Rgb> = {
 
 /**
  * A living lane's resting ink: its family's hue, at its own freshness and heat.
- *
- * Freshness — the same fact the node's distance from the mass carries — is read
- * a second time as lightness, because two channels saying the same thing is what
- * makes recency legible without a legend. The alpha floor is deliberately high
- * ({@link CALM_BODY_FLOOR} with nothing going on at all): the "too dark and pale
- * to read" complaint prd4 opens with was an alpha floor of 0.22, and `CALM_FLOOR`
- * in `salience.ts` pins the fix so it cannot be tuned back out.
- *
- * `done` is the one state scaled down rather than up. It is the same green as
- * `working` and must stay legible, but a finished lane that shouted as loudly as
- * a running one would make a landed fleet look like a busy one.
- *
- * The floor is this function's promise; the ceiling is not. A maximally fresh,
- * maximally hot green does reach past `CALM_CEILING` here — `salience.spend` is
- * what holds it down, and holding it down is the mechanism rather than a leak.
+ * Freshness is read a second time as lightness (the node's distance from the
+ * mass carries the same fact), so recency reads without a legend. The alpha
+ * floor must never drop below `CALM_FLOOR` (`salience.ts`). `done` is scaled
+ * down rather than up — it must stay legible as the same green as `working`,
+ * but shouting as loud as a running lane would make a landed fleet look busy.
+ * The floor is this function's promise; the ceiling is not — a maximally
+ * fresh, maximally hot green does reach past `CALM_CEILING` here, and
+ * `salience.spend` holding it down is the mechanism, not a leak.
  */
 export function activityInk(activity: LaneActivity, freshness: number, heat: number): Ink {
   const fresh = clamp01(freshness)
   const warm = clamp01(heat)
   const resting = mix(ICE_500, ICE_100, fresh)
-  // The three terms still sum to over 1 at the top of the ramp, which is what
-  // makes the ceiling the *budget's* job rather than this function's — see below.
+  // Sums to over 1 at the top of the ramp on purpose — the ceiling is the budget's job.
   const alpha = CALM_BODY_FLOOR + 0.3 * fresh + 0.2 * warm
 
   return ink(
@@ -379,19 +278,14 @@ export function hotter(rgb: Rgb, amount: number): Rgb {
 }
 
 /**
- * AWAY FROM ITS OWN GREY — the chroma channel, on its own.
- *
- * The exact complement of {@link hotter}, and the reason both exist: `hotter`
- * spends **luminance**, which is the channel the alarm band is denominated in and
- * therefore the expensive one. This spends **chroma**, which the band does not
- * measure at all — the pivot is the colour's own {@link luminance} weighting, so
- * the weighted mean is preserved exactly and `spend`'s cap sees the same number
- * before and after. That is what makes it the right dial for "more vibrancy
- * without touching the ceiling".
- *
- * `amount` is a gain, not a mix: 1 is unchanged, above 1 saturates, below 1 walks
- * toward grey. Hue survives (all three channels move on the same ray) and the
- * bytes are clamped, so a colour already at the edge of the gamut simply stops.
+ * The chroma channel, on its own — the exact complement of {@link hotter}.
+ * `hotter` spends luminance, which the alarm band is denominated in and is
+ * therefore expensive; this spends chroma, which the band does not measure at
+ * all, because the pivot is the colour's own {@link luminance} weighting — the
+ * weighted mean is preserved exactly, so `spend`'s cap sees the same number
+ * before and after. `amount` is a gain, not a mix: 1 is unchanged, above 1
+ * saturates, below 1 walks toward grey; hue survives because all three
+ * channels move on the same ray.
  */
 export function saturate(rgb: Rgb, amount: number): Rgb {
   const grey = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
@@ -399,14 +293,12 @@ export function saturate(rgb: Rgb, amount: number): Rgb {
 }
 
 /**
- * AMBIENT LIGHT, AT THIS FRAME'S VIBRANCY (#157) — one of the two doors
- * {@link REPLAY_VIBRANCY} has, and the whole of what it does to a lit mark.
- *
- * Both channels the multiplier is permitted, and neither of the ones it is not:
- * luminance through alpha, chroma through {@link saturate}, and the hue itself
- * untouched. Only `marks/ambient.ts` calls this — a substrate mark carries no
- * fact by construction (its count is fixed and its positions are seeded), which
- * is exactly why it is the layer a mode is allowed to brighten.
+ * Ambient light at this frame's vibrancy — the whole of what
+ * {@link REPLAY_VIBRANCY} may do to a lit mark: luminance through alpha,
+ * chroma through {@link saturate}, hue always untouched. Only
+ * `marks/ambient.ts` may call this — a substrate mark carries no fact by
+ * construction (fixed count, seeded positions), which is why it's the one
+ * layer a mode is allowed to brighten.
  */
 export function ambientLift(source: Ink, vibrancy: number): Ink {
   if (vibrancy === 1) return source
@@ -414,19 +306,13 @@ export function ambientLift(source: Ink, vibrancy: number): Ink {
 }
 
 /**
- * AMBIENT DIMMING, RELAXED (#157) — the other door, and the reason the same
- * number has to divide here rather than multiply.
- *
- * The fog and the vignette are *negative* light: they are laid over the picture in
- * the void's own colours to push the rim away and keep the live scene calm. So
- * "the ambient dimming can relax" means less of them, and a multiplier applied
- * naively would have made a replay murkier while calling itself vibrancy. Colour
- * is untouched — a veil that saturated would be tinting the picture rather than
- * getting out of its way.
- *
- * Because it only ever *reduces* a veil, `RIM_VEIL` (the legibility bound on how
- * much of the rim the two washes may cover) comes out stricter in replay than in
- * live, never laxer.
+ * Ambient dimming, relaxed — must divide here rather than multiply. The fog
+ * and vignette are negative light laid over the picture to keep the live
+ * scene calm, so relaxing them means *less* of them; a naive multiply would
+ * make a replay murkier while calling itself vibrancy. Colour stays untouched
+ * — a veil that saturated would be tinting the picture, not getting out of
+ * its way. Because this only ever reduces a veil, `RIM_VEIL` comes out
+ * stricter in replay than live, never laxer.
  */
 export function ambientVeil(source: Ink, vibrancy: number): Ink {
   if (vibrancy === 1) return source
@@ -439,27 +325,17 @@ function byte(value: number): number {
 }
 
 /**
- * The incandescent end of a family — how a summons reaches the band above the
- * calm ceiling (law 9b). {@link NEEDS_YOU} at full alpha is only ~0.80 bright,
- * which is not enough daylight over a green fleet at 0.78, so the marks that
- * *are* the summons (a knot's ring, a raised hand's palm, a held pulse, the
- * orbiting light, an off-fence barb) are run this far toward the ramp's white.
- *
- * Deliberately one number rather than a per-mark tuning: `ALARM_FLOOR` is a law,
- * and a law with five dials is a suggestion. {@link BROKEN} is exempt — see the
- * note on `ALARM_FLOOR` in `salience.ts` for why red buys its supremacy a
- * different way.
+ * The incandescent end of a family — how a summons clears `ALARM_FLOOR` above
+ * the calm ceiling (law 9b): {@link NEEDS_YOU} at full alpha is only ~0.80
+ * bright, not enough daylight over a green fleet at 0.78. Deliberately one
+ * number rather than a per-mark tuning, since a law with five dials is a
+ * suggestion. {@link BROKEN} is exempt — see `ALARM_FLOOR` in `salience.ts`.
  */
 export function incandescent(rgb: Rgb): Rgb {
   return hotter(rgb, 0.45)
 }
 
-/**
- * Perceived brightness, 0–1, alpha included. This is the number the contrast
- * budget is spent in (`salience.ts`) and the number graft g6's test compares, so
- * "the white-hot lane must not outshine the summons" is one arithmetic
- * assertion rather than a judgement about two screenshots.
- */
+/** Perceived brightness, 0–1, alpha included — the number the contrast budget in `salience.ts` is spent in. */
 export function luminance(value: Ink): number {
   const [r, g, b] = value.rgb
   return ((0.2126 * r + 0.7152 * g + 0.0722 * b) / 255) * value.alpha
