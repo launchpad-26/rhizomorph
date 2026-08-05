@@ -411,6 +411,109 @@ describe('TideDock — [ and ] step between chapters at the dock level (issue #1
   })
 })
 
+describe('TideDock — expansion shows a real per-lane stack (issue #189 defect 2)', () => {
+  function manyLaneEvents(count: number): RhizomorphEvent[] {
+    return log((fx) => {
+      for (let i = 0; i < count; i += 1) fx.at(i).agentStatus({ handle: `lane${i}`, status: 'working' })
+    })
+  }
+
+  it('a 48-lane recording, expanded in replay, shows more than one lane row and a coalesced remainder — not one row swallowing everything', () => {
+    render(
+      <TideDock
+        mode="replay"
+        events={manyLaneEvents(48)}
+        start={T0}
+        end={T_END}
+        value={0}
+        onSeek={() => {}}
+        seekEnabled
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Expand lane rows' }))
+
+    const rows = screen.getAllByTestId('tide-row')
+    const laneRows = rows.filter((r) => r.dataset.rowKind === 'lane')
+    const moreRows = rows.filter((r) => r.dataset.rowKind === 'more')
+
+    // A dozen-ish real rows (issue #189: "a dozen-ish at 1080p"), never the
+    // single row + `+51` chip the operator saw.
+    expect(laneRows.length).toBeGreaterThan(1)
+    expect(laneRows.length).toBe(12)
+    expect(moreRows).toHaveLength(1)
+    expect(Number(moreRows[0]?.getAttribute('aria-label')?.match(/^(\d+)/)?.[1])).toBe(48 - 12)
+  })
+
+  it('expanded row count is a function of available height AND lane count — replay gets more rows than live at the same lane count', () => {
+    const events = manyLaneEvents(48)
+
+    const { unmount } = render(
+      <TideDock mode="live" events={events} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled={false} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Expand lane rows' }))
+    const liveLaneRows = screen.getAllByTestId('tide-row').filter((r) => r.dataset.rowKind === 'lane').length
+    unmount()
+
+    render(<TideDock mode="replay" events={events} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand lane rows' }))
+    const replayLaneRows = screen.getAllByTestId('tide-row').filter((r) => r.dataset.rowKind === 'lane').length
+
+    expect(replayLaneRows).toBeGreaterThan(liveLaneRows)
+  })
+
+  it('at a lane count under either budget, both modes show every lane and no `+N` row — the budget never invents a remainder', () => {
+    const events = threeLaneEvents()
+
+    render(<TideDock mode="replay" events={events} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand lane rows' }))
+    const rows = screen.getAllByTestId('tide-row')
+    expect(rows.every((r) => r.dataset.rowKind === 'lane')).toBe(true)
+    expect(rows).toHaveLength(3)
+  })
+
+  it('the `+N` chip sits in its own gutter at the row\'s leading edge, never nested inside the coloured band it would overprint', () => {
+    render(
+      <TideDock
+        mode="replay"
+        events={manyLaneEvents(48)}
+        start={T0}
+        end={T_END}
+        value={0}
+        onSeek={() => {}}
+        seekEnabled
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Expand lane rows' }))
+
+    const moreRow = screen.getAllByTestId('tide-row').find((r) => r.dataset.rowKind === 'more') as HTMLElement
+    const chip = screen.getByTestId('tide-more-chip')
+    const band = moreRow.querySelector('[data-testid="tide-band"]') as HTMLElement
+
+    // The chip is a sibling of the band, not a descendant it could be clipped
+    // or painted over by — and it is pinned to the row's own left edge
+    // regardless of where the coalesced band's fill happens to start.
+    expect(band.contains(chip)).toBe(false)
+    expect(chip.className).toContain('left-0')
+  })
+
+  it('collapsed live is unchanged by any of this: still one merged row, unaffected by the expanded-height budgets', () => {
+    render(
+      <TideDock
+        mode="live"
+        events={manyLaneEvents(48)}
+        start={T0}
+        end={T_END}
+        value={0}
+        onSeek={() => {}}
+        seekEnabled={false}
+      />,
+    )
+    const rows = screen.getAllByTestId('tide-row')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.dataset.rowKind).toBe('more')
+  })
+})
+
 describe('TideDock — mode-dependent height, replay breathes, live stays compact (issue #186 defect 4)', () => {
   it('live keeps the original, compact mark-lane and row heights', () => {
     render(

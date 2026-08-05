@@ -15,9 +15,10 @@ import { chapterLabel, chaptersFor } from './chapters.js'
 import { formatClock } from './duration.js'
 import { medianEventSpacingMs } from './eventSpacing.js'
 import { coalesceMarks } from './markCoalesce.js'
-import { Tide, type TideMode } from './Tide.js'
+import { Tide, ROW_HEIGHT_PX, type TideMode } from './Tide.js'
 import { hoverThresholdMs, timeScale } from './scale.js'
 import { canShiftWindow, shiftWindow, usefulMaxZoomLevel, windowForLevel, zoomFractionLabel } from './tideWindow.js'
+import { topNForHeight } from './rowPlan.js'
 
 /**
  * THE DOCK (prd13 wave 3, issue #169) — where "the scrubber grew a body"
@@ -91,6 +92,18 @@ const BUTTON_CLASS =
 /** Replay's breathing room (issue #186 defect 4) — live never sees these, it keeps the original `MARK_ROW_HEIGHT_PX`/`ROW_HEIGHT_PX`. */
 const TALL_MARK_ROW_HEIGHT_PX = 18
 const TALL_ROW_HEIGHT_PX = 20
+
+/**
+ * THE EXPANDED ROW BUDGET, IN PIXELS (issue #189 defect 2). Live's number
+ * reproduces #169's original fixed `topN` of 8 exactly (8 * the compact
+ * `ROW_HEIGHT_PX`) — expanding live is unchanged. Replay's is the direction's
+ * own "a dozen-ish at 1080p": the dock is the primary control there and earns
+ * the room, so it grows to actually hold what `topNForHeight` asks for
+ * (ordinary block-flow rows — `Tide.tsx` stacks them, nothing clips them —
+ * rather than a fixed small dock the rows would have to squeeze into).
+ */
+const LIVE_EXPANDED_HEIGHT_PX = 8 * ROW_HEIGHT_PX
+const REPLAY_EXPANDED_HEIGHT_PX = 12 * TALL_ROW_HEIGHT_PX
 
 function useElementWidth(): [RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement | null>(null)
@@ -324,6 +337,15 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
   const rowHeight = tall ? TALL_ROW_HEIGHT_PX : undefined
   const showAxis = tall && zoomed
 
+  // Issue #189 defect 2: the budget is a fact about the room this mode gives
+  // the dock, not a constant borrowed from #169 regardless of mode — combined
+  // with `rowPlan`'s own lane-count cap, the row count expansion actually
+  // shows is a function of both.
+  const expandedTopN = useMemo(
+    () => topNForHeight(tall ? REPLAY_EXPANDED_HEIGHT_PX : LIVE_EXPANDED_HEIGHT_PX, rowHeight ?? ROW_HEIGHT_PX),
+    [tall, rowHeight],
+  )
+
   const bracketLeft = zoomed ? fullScale.xOf(window_.start) : 0
   const bracketWidth = zoomed ? Math.max(1, fullScale.xOf(window_.end) - bracketLeft) : 0
 
@@ -366,6 +388,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
             width={width}
             mode={tideMode}
             rowHeight={rowHeight}
+            topN={expandedTopN}
           />
         )}
         {showPlayhead && (
