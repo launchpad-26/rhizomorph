@@ -411,6 +411,15 @@ export interface SpanRecord {
  * identity of the array it describes — `TraceIndex` in `reduce.ts`, where the
  * argument is written out in full, and where every other derived table lives
  * by the same rule (#179's `UsageIndex`).
+ *
+ * **The trade, named.** A cost the fold used to pay per event now falls on the
+ * first read per spans array: building the projection for a 7,260-span session
+ * measures ~3.6 ms, against ~11 ms for `selectLaneInteractions` on the same
+ * state, and every read after it is a memo hit. The one shape that would not
+ * win is a surface reading `byTrace` after *every* span event — it would pay
+ * per event again, ~1.5× what the accumulation cost. No surface does: the web
+ * reads through `selectors/traces.ts` per render, and those selectors are
+ * already a pass over the spans they summarise.
  */
 export interface TraceState {
   spans: SpanRecord[]
