@@ -12,8 +12,14 @@ import { createSessionlogCollector } from '../collectors/sessionlog/index.js'
 import { captureCheckpoint } from '../lab/checkpoint.js'
 import { compareFork, renderComparison } from '../lab/compare.js'
 import { dispatchFork } from '../lab/fork.js'
+import { recordSessionBootMeta } from '../api/meta.js'
 import { defaultDataRoot, sessionDirFor, sessionFileName, snapshotDirFor } from '../log/paths.js'
-import { findResumableSession, RESUME_WINDOW_MS } from '../log/session-log.js'
+import {
+  decideSessionBoot,
+  formatBootDuration,
+  recordResume,
+  type SessionBootDecision,
+} from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { loadCollectors } from '../server/collector-loader.js'
 import { exec as realExec } from '../server/exec.js'
@@ -82,9 +88,9 @@ export interface CliHandle {
 
 /**
  * Boots collectors + server for one repo and returns a handle to it. A boot
- * *resumes* the recent session by default (see `findResumableSession`;
- * `--fresh` opts out), so a restart continues one run rather than recording a
- * second copy of it. Pure bootstrap otherwise: no signal handlers — that belongs to whichever entrypoint
+ * *resumes* the recent session by default (see `decideSessionBoot`; `--fresh`
+ * or `--resume-window 0` opts out), so a restart continues one run rather
+ * than recording a second copy of it. Pure bootstrap otherwise: no signal handlers — that belongs to whichever entrypoint
  * actually owns the process (see `src/index.ts`), so this stays callable
  * from tests. The exceptions are `--help` and `--version`, which print to
  * stdout and exit 0, and a bad argv (unknown flag or invalid value), which
@@ -148,27 +154,40 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
   const sessionDir = sessionDirFor(repoPath, options.dataRoot ?? defaultDataRoot())
   const ts = now()
 
-  // Resume the run (prd2's ruling): unless --fresh, continue the most recent
-  // session for this repo when it is younger than RESUME_WINDOW_MS. Same session
+  // Resume the run (prd2's ruling): unless --fresh (or an explicit
+  // --resume-window that says the same thing), continue the most recent
+  // session for this repo when it is younger than the window. Same session
   // id, same file, same collector snapshots — so a restart appends where the
-  // last process stopped instead of minting a new session file holding another
-  // copy of history.
-  const resumed = args.fresh ? null : await findResumableSession(sessionDir, ts, RESUME_WINDOW_MS)
+  // last process stopped instead of minting a new session file holding
+  // another copy of history. `decideSessionBoot` states *why*, as data, so
+  // the boot line below can be honest about the boundary instead of a bare
+  // "resuming session X" (operator ruling 2026-08-05).
+  const decision = await decideSessionBoot(sessionDir, ts, { fresh: args.fresh, windowMs: args.resumeWindowMs })
+  const resumed = decision.resumed
   const sessionId = resumed?.sessionId ?? String(ts)
   const filePath = resumed?.filePath ?? path.join(sessionDir, sessionFileName(ts))
 
   const recorder = new SessionRecorder(sessionId, filePath, resumed ? { resumeFrom: resumed.events } : {})
   const nextId = createIdFactory('evt')
 
+  let resumedCount = decision.resumedCount
   if (resumed) {
     // No second `session.started`: one session, one start, however many
-    // processes served it.
-    log.log(`resuming session ${sessionId} (${resumed.events.length} events recorded)`)
+    // processes served it. `resumedCount` is the one fact that can't be read
+    // back off the log for that same reason — see `recordResume`'s doc.
+    resumedCount = await recordResume(sessionDir, sessionId)
   } else {
     await recorder.record(
       createEvent('session.started', { sessionId, repoPath, repoName }, { id: nextId(), ts: now() }),
     )
   }
+  log.log(renderBootLine(decision, sessionId, resumedCount))
+  recordSessionBootMeta(recorder, {
+    resumedCount,
+    eventCount: decision.eventCountAtBoot,
+    resumeWindowMs: decision.windowMs,
+    lastBootReason: decision.reason,
+  })
 
   const collectors =
     options.collectors ??
@@ -241,6 +260,33 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
   return { app, recorder, pollLoop, url, stop }
 }
 
+/**
+ * The boot line states the resume heuristic's decision *and* the reason, at
+ * the moment it acts (operator ruling 2026-08-05) — a rendering of
+ * `decideSessionBoot`'s reason-as-data, never a re-derivation of it. Two
+ * shapes: continuing a session names the exact numbers that let it continue;
+ * starting one names why it didn't.
+ */
+function renderBootLine(decision: SessionBootDecision, sessionId: string, resumedCount: number): string {
+  const window = formatBootDuration(decision.windowMs)
+
+  if (decision.reason === 'resumed') {
+    const age = decision.previousAgeMs === null ? 'unknown age' : `${formatBootDuration(decision.previousAgeMs)} old`
+    return (
+      `resuming session ${sessionId} (newest event ${age} < ${window} window; ` +
+      `resumed ${resumedCount} time${resumedCount === 1 ? '' : 's'}; ${decision.eventCountAtBoot.toLocaleString()} events)`
+    )
+  }
+  if (decision.reason === 'stale') {
+    const age = decision.previousAgeMs === null ? 'unreadable' : `${formatBootDuration(decision.previousAgeMs)} stale`
+    return `starting session ${sessionId} (previous session ${age} > ${window} window)`
+  }
+  if (decision.reason === 'fresh-flag') {
+    return `starting session ${sessionId} (--fresh, or --resume-window 0, forced a new session)`
+  }
+  return `starting session ${sessionId} (no previous session recorded)`
+}
+
 function defaultWebDistDir(): string {
   const here = path.dirname(fileURLToPath(import.meta.url))
   return path.resolve(here, '..', '..', '..', 'web', 'dist')
@@ -279,6 +325,8 @@ async function runDoctorCommand(
     exec: options.exec,
     webDistDir: options.webDistDir,
     claudeProjectsRoot: options.claudeProjectsRoot,
+    dataRoot: options.dataRoot,
+    now: options.now,
   })
 
   log.log(renderDoctorReport(report))
