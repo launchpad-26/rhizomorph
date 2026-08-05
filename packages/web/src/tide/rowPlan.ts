@@ -62,6 +62,23 @@ export type RowDescriptor = LaneRow | MoreRow
  *   naming it and says strictly less, so the last lane keeps its name. The
  *   plan is therefore never longer than `topN + 1` descriptors.
  */
+/**
+ * HOW MANY LANE ROWS THE EXPANDED HEIGHT ACTUALLY BUYS (issue #189 defect 2).
+ * `rowPlan`'s own `topN` was, until now, always the same fixed constant
+ * regardless of the room `TideDock` gave it — on a 48-lane recording that
+ * produced one lane row and a `+51` chip, "coalescing everything and
+ * revealing nothing" (the operator's own words). The budget this returns is
+ * a fact about pixels, not about how many lanes exist — `rowPlan` still owns
+ * the lane-count cap (a budget of 12 against 3 lanes still yields 3 rows,
+ * never 12 padded rows), so "expanded row count is a function of available
+ * height and lane count" falls out of composing the two rather than a new
+ * law here.
+ */
+export function topNForHeight(availableHeightPx: number, rowHeightPx: number): number {
+  if (rowHeightPx <= 0 || availableHeightPx <= 0) return 0
+  return Math.max(0, Math.floor(availableHeightPx / rowHeightPx))
+}
+
 export function rowPlan(lanes: readonly RowCandidate[], topN: number): readonly RowDescriptor[] {
   const earliest = new Map<string, number>()
   for (const candidate of lanes) {

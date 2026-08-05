@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { bandsFor } from './bands.js'
 import { TIDE_START_TS, generateEventLog } from './fixtures.js'
-import { rowPlan, type RowCandidate, type RowDescriptor } from './rowPlan.js'
+import { rowPlan, topNForHeight, type RowCandidate, type RowDescriptor } from './rowPlan.js'
 
 const T0 = TIDE_START_TS
 const MINUTE = 60_000
@@ -106,6 +106,39 @@ describe('rowPlan — the remainder coalesces (ruling 4)', () => {
       expect(rows).toEqual(canonical.slice(0, rows.length))
       expect(laneNames(plan)).toEqual(canonical)
     }
+  })
+})
+
+describe('topNForHeight — the expanded budget is a fact about pixels (issue #189 defect 2)', () => {
+  it('floors the available height by the row height', () => {
+    expect(topNForHeight(240, 20)).toBe(12)
+    expect(topNForHeight(112, 14)).toBe(8)
+  })
+
+  it('never returns a negative budget for a taller row than the space given', () => {
+    expect(topNForHeight(10, 20)).toBe(0)
+    expect(topNForHeight(0, 20)).toBe(0)
+  })
+
+  it('degrades to zero rather than dividing by a non-positive row height', () => {
+    expect(topNForHeight(240, 0)).toBe(0)
+    expect(topNForHeight(240, -5)).toBe(0)
+  })
+
+  it('composes with rowPlan\'s own lane-count cap: the visible row count is a function of BOTH the height budget and how many lanes actually exist', () => {
+    const fewLanes = FLEET.slice(0, 2) // 2 lanes
+    const manyLanes = [...FLEET, ...FLEET.map((row, i) => ({ lane: `extra${i}`, firstSeenTs: row.firstSeenTs }))] // 12 lanes
+
+    // Small height, few lanes: the budget never pads rows that don't exist.
+    expect(rowPlan(fewLanes, topNForHeight(112, 14))).toHaveLength(2)
+    // Small height, many lanes: capped by the budget, remainder coalesces.
+    expect(rowPlan(manyLanes, topNForHeight(112, 14)).length).toBeLessThanOrEqual(9)
+    // Tall height, many lanes: a bigger budget surfaces more real rows.
+    const tallBudget = topNForHeight(240, 20)
+    const tallPlan = rowPlan(manyLanes, tallBudget)
+    expect(tallPlan.filter((row) => row.kind === 'lane').length).toBeGreaterThan(
+      rowPlan(manyLanes, topNForHeight(112, 14)).filter((row) => row.kind === 'lane').length,
+    )
   })
 })
 
