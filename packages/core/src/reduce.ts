@@ -449,6 +449,108 @@ function llmUsage(state: SessionState, event: EventOf<'llm.usage'>): SessionStat
   }))
 }
 
+// --- the usage index (#179) -------------------------------------------------
+
+/**
+ * The fold's lookup tables over `telemetry.usage`.
+ *
+ * #174's bench confirmed the audit's P2 finding by measurement: the three
+ * questions the usage fold asks were each answered by re-scanning the whole
+ * usage array, once per `llm.usage` event (~10.4k/day), so a 55k-event boot
+ * recovery cost eleven seconds and the cost per event grew with the session
+ * instead of staying flat. The questions are:
+ *
+ * - {@link dedupedUsage}: is there a record with this `requestId` from the
+ *   *other* collector? (`findIndex` over everything)
+ * - {@link foldSessionCoverage}: has this session any `sessionlog` usage at
+ *   all? (`some` over everything)
+ * - {@link foldSessionCoverage}: has this session any request-less OTel usage
+ *   to retire? (`filter` over everything, on every sessionlog record)
+ *
+ * All three are O(1) here, and the answers are identical to the scans' —
+ * `byRequest` holds positions in ascending order, so the first cross-origin
+ * hit in it is the same record `findIndex` returned.
+ *
+ * **Why this is derived rather than a field on `TelemetryState`.** Three
+ * reasons, in the order they bind:
+ *
+ * 1. *The identity law.* A state's index must be exactly the index of that
+ *    state's own records — live and replay fold through this function, so any
+ *    divergence is a wrong ledger. Carried as a field, the table would have to
+ *    be updated immutably, and an immutable update of a `requestId`-keyed map
+ *    copies every key on every event: the same quadratic in a different
+ *    costume. Mutating a field in place instead would make `reduce` impure and
+ *    break the "the input state is untouched" law directly.
+ * 2. *`TelemetryState`'s shape is itself a law.* Its additivity oracle
+ *    (`reduce.telemetry.test.ts`) asserts the slice equals exactly its six
+ *    recorded-fact keys, and `state.ts`'s own header says everything there is
+ *    recorded fact. A lookup table recomputable from `usage` is not a fact the
+ *    log recorded; it is an accelerator, and it says so by living here.
+ * 3. *Derivation is checkable.* {@link buildUsageIndex} is a pure function of
+ *    the array, and the fold's output is byte-identical whether a table is
+ *    inherited or rebuilt from scratch — the law `reduce.test.ts` pins under
+ *    "the index is an accelerator, never an input".
+ *
+ * **Ownership.** Keyed by the usage array's own identity, so a table can never
+ * be read against an array it does not describe. {@link takeUsageIndex}
+ * *detaches* the table before the fold mutates it into the successor array's
+ * table: a second fold branching off the same state finds nothing attached and
+ * rebuilds its own, rather than reading one that has moved on. That is what
+ * makes this safe under the branching folds replay does — and the WeakMap
+ * keying means a table dies with the array it indexes.
+ */
+interface UsageIndex {
+  /** `requestId` → positions in `usage` holding it, in ascending order. */
+  byRequest: Map<string, number[]>
+  /** Session ids with at least one `sessionlog` usage record. */
+  sessionlogSessions: Set<string>
+  /** Session id → how many request-less OTel records it currently holds. */
+  requestlessOtelBySession: Map<string, number>
+}
+
+const usageIndexes = new WeakMap<readonly UsageRecord[], UsageIndex>()
+
+/** The table `usage` would have if nothing had ever been carried forward. */
+function buildUsageIndex(usage: readonly UsageRecord[]): UsageIndex {
+  const index: UsageIndex = {
+    byRequest: new Map(),
+    sessionlogSessions: new Set(),
+    requestlessOtelBySession: new Map(),
+  }
+  for (let at = 0; at < usage.length; at += 1) indexUsageRecord(index, usage[at]!, at)
+  return index
+}
+
+/** Folds one record's positions into `index`. The only writer of new entries. */
+function indexUsageRecord(index: UsageIndex, record: UsageRecord, at: number): void {
+  if (record.requestId !== null) {
+    const positions = index.byRequest.get(record.requestId)
+    if (positions === undefined) index.byRequest.set(record.requestId, [at])
+    else positions.push(at)
+  }
+  if (record.sessionId === null) return
+  if (record.origin === 'sessionlog') {
+    index.sessionlogSessions.add(record.sessionId)
+  } else if (record.origin === 'otel' && record.requestId === null) {
+    const held = index.requestlessOtelBySession.get(record.sessionId) ?? 0
+    index.requestlessOtelBySession.set(record.sessionId, held + 1)
+  }
+}
+
+/** Detaches `usage`'s table for the caller to carry forward, or builds one. */
+function takeUsageIndex(usage: readonly UsageRecord[]): UsageIndex {
+  const held = usageIndexes.get(usage)
+  if (held === undefined) return buildUsageIndex(usage)
+  usageIndexes.delete(usage)
+  return held
+}
+
+/** Attaches `index` to the array it now describes, and returns that array. */
+function indexed(usage: readonly UsageRecord[], index: UsageIndex): UsageRecord[] {
+  usageIndexes.set(usage, index)
+  return usage as UsageRecord[]
+}
+
 /**
  * Cross-collector dedup by `requestId`: sessionlog and OTel can both emit
  * `llm.usage` for the same physical model request, and appending both would
@@ -467,19 +569,47 @@ function llmUsage(state: SessionState, event: EventOf<'llm.usage'>): SessionStat
  * on `parse-metrics.ts`'s `buildUsageEvent`), so it never matches here and
  * falls through to {@link foldSessionCoverage} — the residual gap #59 left
  * open, closed below.
+ *
+ * The scan this used to be is now a lookup in {@link UsageIndex}; the rule it
+ * implements is unchanged, down to which of several same-id records wins.
  */
 function dedupedUsage(usage: readonly UsageRecord[], incoming: UsageRecord): UsageRecord[] {
-  if (incoming.requestId !== null) {
-    const index = usage.findIndex(
-      (existing) => existing.requestId === incoming.requestId && existing.origin !== incoming.origin,
-    )
-    if (index !== -1) {
-      const next = usage.slice()
-      next[index] = foldUsage(usage[index]!, incoming)
-      return next
+  const index = takeUsageIndex(usage)
+  const at = incoming.requestId === null ? -1 : crossOriginMatch(usage, index, incoming.requestId, incoming.origin)
+  if (at !== -1) {
+    const next = usage.slice()
+    const folded = foldUsage(usage[at]!, incoming)
+    next[at] = folded
+    // A fold keeps the record's position and its `requestId` (both sides
+    // matched on it), so `byRequest` still holds. What it can change is which
+    // collector the record now counts as: sessionlog wins, so a session can
+    // gain sessionlog coverage here but never lose it — and neither side of a
+    // `requestId` match was ever request-less, so the OTel tally is untouched.
+    if (folded.origin === 'sessionlog' && folded.sessionId !== null) {
+      index.sessionlogSessions.add(folded.sessionId)
     }
+    return indexed(next, index)
   }
-  return foldSessionCoverage(usage, incoming)
+  return foldSessionCoverage(usage, incoming, index)
+}
+
+/**
+ * The position of the first record carrying `requestId` from a *different*
+ * collector than `origin`, or -1 — exactly what the `findIndex` this replaced
+ * returned, because positions are recorded in the order they were appended.
+ */
+function crossOriginMatch(
+  usage: readonly UsageRecord[],
+  index: UsageIndex,
+  requestId: string,
+  origin: UsageRecord['origin'],
+): number {
+  const positions = index.byRequest.get(requestId)
+  if (positions === undefined) return -1
+  for (const at of positions) {
+    if (usage[at]!.origin !== origin) return at
+  }
+  return -1
 }
 
 /**
@@ -503,29 +633,53 @@ function dedupedUsage(usage: readonly UsageRecord[], incoming: UsageRecord): Usa
  * rule only ever removes a record once the same session's tokens are also
  * available from sessionlog, never the only telemetry a session has.
  */
-function foldSessionCoverage(usage: readonly UsageRecord[], incoming: UsageRecord): UsageRecord[] {
-  if (incoming.sessionId === null) return [...usage, incoming]
+function foldSessionCoverage(
+  usage: readonly UsageRecord[],
+  incoming: UsageRecord,
+  index: UsageIndex,
+): UsageRecord[] {
+  if (incoming.sessionId === null) return appendUsage(usage, incoming, index)
 
   if (incoming.requestId === null && incoming.origin === 'otel') {
-    const coveredBySessionlog = usage.some(
-      (existing) => existing.sessionId === incoming.sessionId && existing.origin === 'sessionlog',
-    )
-    if (coveredBySessionlog) return usage as UsageRecord[]
+    // Was `usage.some(...)`; the set holds exactly the sessions that `some`
+    // would have found a sessionlog record for.
+    if (index.sessionlogSessions.has(incoming.sessionId)) return indexed(usage, index)
   }
 
   if (incoming.origin === 'sessionlog') {
-    const withoutStaleOtel = usage.filter(
-      (existing) =>
-        !(
-          existing.origin === 'otel' &&
-          existing.requestId === null &&
-          existing.sessionId === incoming.sessionId
-        ),
-    )
-    if (withoutStaleOtel.length !== usage.length) return [...withoutStaleOtel, incoming]
+    // Was an unconditional `usage.filter(...)` whose result was thrown away
+    // whenever it removed nothing — which is every event but the first one
+    // per session. The tally says whether there is anything to remove before
+    // a single record is touched.
+    if ((index.requestlessOtelBySession.get(incoming.sessionId) ?? 0) > 0) {
+      const withoutStaleOtel = usage.filter(
+        (existing) =>
+          !(
+            existing.origin === 'otel' &&
+            existing.requestId === null &&
+            existing.sessionId === incoming.sessionId
+          ),
+      )
+      const next = [...withoutStaleOtel, incoming]
+      // Removal is the one move that shifts positions, so the successor gets a
+      // table built from itself rather than a patched one. It happens at most
+      // once per session — the retirement that made it necessary is also what
+      // makes the session covered from here on.
+      return indexed(next, buildUsageIndex(next))
+    }
   }
 
-  return [...usage, incoming]
+  return appendUsage(usage, incoming, index)
+}
+
+/** Appends one record and carries `index` forward to the new array. */
+function appendUsage(
+  usage: readonly UsageRecord[],
+  incoming: UsageRecord,
+  index: UsageIndex,
+): UsageRecord[] {
+  indexUsageRecord(index, incoming, usage.length)
+  return indexed([...usage, incoming], index)
 }
 
 /**
@@ -685,6 +839,17 @@ interface TelemetryAttribution {
  * reconciled against what we now know. That is what makes the join
  * order-independent: the dollars land on the same branch whether the cost
  * arrived before or after the usage that placed its session.
+ *
+ * **The catch-up runs only when there is something to catch up with (#179).**
+ * It used to re-map every cost and walk every lane on *every* telemetry event
+ * — 55k times over a day's session, to fill in nothing. Reconciliation is a
+ * fixpoint: once it has run for a session's place, running it again with the
+ * same place cannot move a record, because the only two things that could have
+ * changed since are (a) a new cost for that session, which
+ * {@link resolvePlace} already placed from the same session index at arrival,
+ * and (b) the lane this event just touched. So the full sweep is gated on the
+ * place actually moving, and the quiet case reconsiders that one lane and
+ * nothing else. Same result, no scan.
  */
 function withTelemetry(
   state: SessionState,
@@ -693,8 +858,10 @@ function withTelemetry(
   append: (telemetry: TelemetryState) => TelemetryState,
 ): SessionState {
   const appended = append(state.telemetry)
+  const sessionId = attribution.sessionId ?? null
+  const before = sessionId === null ? undefined : appended.sessions[sessionId]
   const sessions = upsertSessionPlace(appended.sessions, attribution, event.ts)
-  const place = attribution.sessionId == null ? undefined : sessions[attribution.sessionId]
+  const place = sessionId === null ? undefined : sessions[sessionId]
   const lanes = {
     ...appended.lanes,
     [attribution.lane]: upsertLane(
@@ -704,15 +871,34 @@ function withTelemetry(
       isSyntheticLane(state, attribution.lane),
     ),
   }
+  const moved = placeMoved(before, place)
   return {
     ...state,
     telemetry: {
       ...appended,
-      costs: placeCosts(appended.costs, place),
-      lanes: placeLanes(lanes, place),
+      costs: moved ? placeCosts(appended.costs, place) : appended.costs,
+      lanes: placeLanes(lanes, place, moved ? null : attribution.lane),
       sessions,
     },
   }
+}
+
+/**
+ * Whether this event taught the session a place it did not already have.
+ * First sighting counts as a move; a place that repeats what we knew does not,
+ * and the timestamps a repeat does update place nothing.
+ *
+ * The first-sighting branch is deliberately belt-and-braces: at a session's
+ * first sighting there is nothing recorded under it yet, so the sweep it lets
+ * through is empty and no test can tell it from `false`. It stays because this
+ * predicate should say what "moved" means, not what happens to be reachable
+ * today — the day something can be booked against a session before its first
+ * telemetry event, this is already right.
+ */
+function placeMoved(before: SessionPlace | undefined, place: SessionPlace | undefined): boolean {
+  if (place === undefined) return false
+  if (before === undefined) return true
+  return before.worktreePath !== place.worktreePath || before.branch !== place.branch
 }
 
 /** Learns where a session runs, from whichever event happened to know. */
@@ -769,25 +955,33 @@ function placeCosts(
  * been seen under — two lane handles sharing a `sessionId` are two collectors'
  * names for one agent session, so they ran in one worktree. Only nulls are
  * filled; nothing already known is overwritten.
+ *
+ * `only` narrows the sweep to a single handle: when the session's place did not
+ * move, that lane is the only one whose own record changed this event, so it is
+ * the only one that can have a null this place would fill (#179). Passing
+ * `null` sweeps every lane, which is what a place that just moved requires.
+ * Allocates a copy only if something actually moves.
  */
 function placeLanes(
   lanes: Readonly<Record<string, LaneAttribution>>,
   place: SessionPlace | undefined,
+  only: string | null,
 ): Record<string, LaneAttribution> {
   if (place === undefined) return lanes
   if (place.worktreePath === null && place.branch === null) return lanes
-  let changed = false
-  const next: Record<string, LaneAttribution> = { ...lanes }
-  for (const [name, lane] of Object.entries(lanes)) {
+  let next: Record<string, LaneAttribution> | null = null
+  for (const name of only === null ? Object.keys(lanes) : [only]) {
+    const lane = lanes[name]
+    if (lane === undefined) continue
     if (lane.worktreePath !== null && lane.branch !== null) continue
     if (!lane.sessionIds.includes(place.sessionId)) continue
     const worktreePath = lane.worktreePath ?? place.worktreePath
     const branch = lane.branch ?? place.branch
     if (worktreePath === lane.worktreePath && branch === lane.branch) continue
+    next ??= { ...lanes }
     next[name] = { ...lane, worktreePath, branch }
-    changed = true
   }
-  return changed ? next : lanes
+  return next ?? lanes
 }
 
 function upsertLane(
