@@ -1,7 +1,9 @@
 import { createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { formatClock } from './duration.js'
 import { timeScale } from './scale.js'
+import { windowForLevel } from './tideWindow.js'
 import { TideDock } from './TideDock.js'
 
 afterEach(cleanup)
@@ -199,5 +201,212 @@ describe('TideDock — the mark lane renders above the band (prd13 ruling 12)', 
 
     fireEvent.click(screen.getAllByTestId('chapter-mark')[0] as HTMLElement)
     expect(onSeek).toHaveBeenCalledWith(100)
+  })
+})
+
+describe('TideDock — the window bracket and indicator (issue #186 defect 1, research note §4 R1)', () => {
+  it('draws no bracket and no indicator at the default, fully-zoomed-out window', () => {
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
+    )
+    expect(screen.queryByTestId('tide-window-bracket')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('window-indicator')).not.toBeInTheDocument()
+  })
+
+  it('draws the bracket over the Scrubber in full-range coordinates, and the fraction label, once zoomed', () => {
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+
+    const window_ = windowForLevel(1, 9_000, T0, T_END)
+    const fullScale = timeScale(T0, T_END, TRACK_WIDTH)
+    const expectedLeft = fullScale.xOf(window_.start)
+    const expectedWidth = fullScale.xOf(window_.end) - expectedLeft
+
+    const bracket = screen.getByTestId('tide-window-bracket')
+    expect(bracket.style.left).toBe(`${expectedLeft}px`)
+    expect(bracket.style.width).toBe(`${expectedWidth}px`)
+
+    expect(screen.getByTestId('window-indicator').textContent).toBe(
+      `window 1/2 · ${formatClock(window_.start)}–${formatClock(window_.end)}`,
+    )
+  })
+
+  it('the bracket sits inside the Scrubber\'s own cell, never blocking pointer events on it', () => {
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    const bracket = screen.getByTestId('tide-window-bracket')
+    expect(bracket.className).toContain('pointer-events-none')
+  })
+})
+
+describe('TideDock — Shift+wheel zooms about the cursor\'s own timestamp (issue #186 defect 3, research note §4 R4)', () => {
+  it('zooms in, centred on the pointer\'s timestamp, only when Shift is held', () => {
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled />,
+    )
+    const track = screen.getByTestId('tide-dock-track')
+
+    fireEvent.wheel(track, { shiftKey: true, deltaY: -100, clientX: 90 })
+
+    // cursorTs = timeScale(0, 10_000, 900).tsOf(90) = 1_000
+    const expectedWindow = windowForLevel(1, 1_000, T0, T_END)
+    const fullScale = timeScale(T0, T_END, TRACK_WIDTH)
+    const bracket = screen.getByTestId('tide-window-bracket')
+    expect(bracket.style.left).toBe(`${fullScale.xOf(expectedWindow.start)}px`)
+    expect(bracket.style.width).toBe(`${fullScale.xOf(expectedWindow.end) - fullScale.xOf(expectedWindow.start)}px`)
+  })
+
+  it('an un-shifted wheel never zooms — page scroll is never hijacked', () => {
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled />,
+    )
+    const track = screen.getByTestId('tide-dock-track')
+    fireEvent.wheel(track, { shiftKey: false, deltaY: -100, clientX: 90 })
+    expect(screen.queryByTestId('tide-window-bracket')).not.toBeInTheDocument()
+  })
+
+  it('Shift+wheel the other direction zooms back out', () => {
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled />,
+    )
+    const track = screen.getByTestId('tide-dock-track')
+    fireEvent.wheel(track, { shiftKey: true, deltaY: -100, clientX: 90 })
+    expect(screen.getByTestId('tide-window-bracket')).toBeInTheDocument()
+
+    fireEvent.wheel(track, { shiftKey: true, deltaY: 100, clientX: 90 })
+    expect(screen.queryByTestId('tide-window-bracket')).not.toBeInTheDocument()
+  })
+})
+
+describe('TideDock — drag-vs-click on the Tide track (issue #186 defect 1/3, ~4px threshold)', () => {
+  it('a plain click still seeks exactly, unaffected by the drag machinery', () => {
+    const onSeek = vi.fn()
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={onSeek} seekEnabled />,
+    )
+    fireEvent.click(screen.getByTestId('tide-dock-track'), { clientX: 450 })
+    expect(onSeek).toHaveBeenCalledWith(5_000)
+  })
+
+  it('a drag past the threshold pans the window and suppresses the trailing click-seek', () => {
+    const onSeek = vi.fn()
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={5_000} onSeek={onSeek} seekEnabled />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    const track = screen.getByTestId('tide-dock-track')
+
+    const before = windowForLevel(1, 5_000, T0, T_END)
+    const pxPerMs = TRACK_WIDTH / (before.end - before.start)
+    const dx = -50
+
+    fireEvent.mouseDown(track, { clientX: 450 })
+    fireEvent.mouseMove(document, { clientX: 450 + dx })
+    fireEvent.mouseUp(document)
+
+    const expectedCenter = 5_000 - dx / pxPerMs
+    const expectedWindow = windowForLevel(1, expectedCenter, T0, T_END)
+    const fullScale = timeScale(T0, T_END, TRACK_WIDTH)
+    const bracket = screen.getByTestId('tide-window-bracket')
+    expect(bracket.style.left).toBe(`${fullScale.xOf(expectedWindow.start)}px`)
+
+    // The click that follows a real pointer drag in a browser must not also seek.
+    fireEvent.click(track, { clientX: 450 + dx })
+    expect(onSeek).not.toHaveBeenCalled()
+  })
+
+  it('a sub-threshold jitter is still treated as a click, not a pan', () => {
+    const onSeek = vi.fn()
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={onSeek} seekEnabled />,
+    )
+    const track = screen.getByTestId('tide-dock-track')
+
+    fireEvent.mouseDown(track, { clientX: 450 })
+    fireEvent.mouseMove(document, { clientX: 452 }) // 2px, under the 4px threshold
+    fireEvent.mouseUp(document)
+    fireEvent.click(track, { clientX: 450 })
+
+    expect(onSeek).toHaveBeenCalledWith(5_000)
+  })
+})
+
+describe('TideDock — zoom depth capped by the log\'s own grain (issue #186 defect 3)', () => {
+  function denseEvents(): RhizomorphEvent[] {
+    return log((fx) => {
+      for (let i = 0; i < 10; i += 1) fx.at(i).agentStatus({ handle: `lane${i}`, status: 'working' })
+    })
+  }
+
+  it('extends zoom past the #169 floor (level 3) for a log dense enough to warrant it', () => {
+    render(
+      <TideDock mode="replay" events={denseEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled />,
+    )
+    const zoomIn = screen.getByRole('button', { name: 'Zoom in' })
+    for (let i = 0; i < 3; i += 1) fireEvent.click(zoomIn)
+    expect(zoomIn).toBeEnabled()
+  })
+
+  it('never disables zoom entirely for a sparse log — the floor stays reachable', () => {
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled />,
+    )
+    const zoomIn = screen.getByRole('button', { name: 'Zoom in' })
+    fireEvent.click(zoomIn)
+    fireEvent.click(zoomIn)
+    fireEvent.click(zoomIn)
+    expect(screen.getByRole('button', { name: 'Zoom out' })).toBeEnabled()
+  })
+})
+
+describe('TideDock — [ and ] step between chapters at the dock level (issue #186 defect 2, research note §4 R3)', () => {
+  it(']  seeks to the next chapter after the playhead, exactly', () => {
+    const onSeek = vi.fn()
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={150} onSeek={onSeek} seekEnabled />,
+    )
+    fireEvent.keyDown(document, { key: ']' })
+    expect(onSeek).toHaveBeenCalledWith(200)
+  })
+
+  it('[ seeks to the previous chapter before the playhead, exactly', () => {
+    const onSeek = vi.fn()
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={150} onSeek={onSeek} seekEnabled />,
+    )
+    fireEvent.keyDown(document, { key: '[' })
+    expect(onSeek).toHaveBeenCalledWith(100)
+  })
+
+  it('does nothing past the last/first chapter', () => {
+    const onSeek = vi.fn()
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={300} onSeek={onSeek} seekEnabled />,
+    )
+    fireEvent.keyDown(document, { key: ']' })
+    expect(onSeek).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when seeking is disabled (live)', () => {
+    const onSeek = vi.fn()
+    render(
+      <TideDock mode="live" events={threeLaneEvents()} start={T0} end={T_END} value={150} onSeek={onSeek} seekEnabled={false} />,
+    )
+    fireEvent.keyDown(document, { key: ']' })
+    expect(onSeek).not.toHaveBeenCalled()
+  })
+
+  it('still steps even while the native scrubber has focus — it owns no meaning for these keys', () => {
+    const onSeek = vi.fn()
+    render(
+      <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={150} onSeek={onSeek} seekEnabled />,
+    )
+    const input = screen.getByLabelText('Replay scrubber')
+    fireEvent.keyDown(input, { key: ']' })
+    expect(onSeek).toHaveBeenCalledWith(200)
   })
 })
