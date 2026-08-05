@@ -5,6 +5,7 @@ import { useStream } from '../app/StreamContext.js'
 import { TideDock } from '../tide/TideDock.js'
 import { pickRichestSession, type SessionSummary } from './api.js'
 import { formatSpend } from './format.js'
+import { RotateButton } from './RotateButton.js'
 import { timeRangeOf } from './replayFold.js'
 import { PLAYBACK_SPEEDS } from './usePlayback.js'
 
@@ -43,6 +44,7 @@ function sessionDisplayName(session: SessionListing): string {
 export default function ReplayControls() {
   const {
     sessions,
+    refreshSessions,
     selectedId,
     selectSession,
     selectAndPlay,
@@ -170,6 +172,17 @@ export default function ReplayControls() {
         >
           Return to live
         </button>
+      </div>
+
+      {/*
+        THE OPERATOR'S SESSION BOUNDARY (prd16 ruling 2) — on its own row
+        beside the picker, because that is where "which recording am I looking
+        at" is already the question. Refreshing the listing on success is what
+        puts the session it just closed in the picker above, immediately.
+      */}
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="font-semibold tracking-widest text-ice-300">Session</span>
+        <RotateButton onRotated={refreshSessions} />
       </div>
 
       <TideDock

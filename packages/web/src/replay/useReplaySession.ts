@@ -14,6 +14,14 @@ import { usePlayback, type UsePlaybackResult } from './usePlayback.js'
 
 export interface ReplaySession {
   sessions: SessionSummary[]
+  /**
+   * Re-reads `GET /api/sessions`. The listing is otherwise fetched once per
+   * mount, which was true enough while recordings only ever appeared between
+   * page loads — prd16 ruling 2 changed that: rotating closes a session *now*,
+   * and the operator must find it in the picker immediately, not after a
+   * reload. Called by the rotate button and nothing else.
+   */
+  refreshSessions(): void
   selectedId: string | null
   selectSession(id: string | null): void
   /** Selects a session and starts playback as soon as its events finish loading. */
@@ -68,6 +76,12 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
     setSelectedId(id)
   }, [])
 
+  /** Bumped to re-run the listing fetch below — see `refreshSessions`. */
+  const [listingGeneration, setListingGeneration] = useState(0)
+  const refreshSessions = useCallback(() => {
+    setListingGeneration((generation) => generation + 1)
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     fetchSessions(fetchImpl)
@@ -80,7 +94,7 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
     return () => {
       cancelled = true
     }
-  }, [fetchImpl])
+  }, [fetchImpl, listingGeneration])
 
   useEffect(() => {
     if (selectedId === null) {
@@ -143,6 +157,7 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
 
   return {
     sessions,
+    refreshSessions,
     selectedId,
     selectSession,
     selectAndPlay,
@@ -162,6 +177,7 @@ export function emptyReplaySession(): ReplaySession {
   const noop = () => {}
   return {
     sessions: [],
+    refreshSessions: noop,
     selectedId: null,
     selectSession: noop,
     selectAndPlay: noop,

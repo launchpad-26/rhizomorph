@@ -480,3 +480,109 @@ describe('ReplayControls — the TIDE dock (#169; the band cut by ruling 13, iss
     expect(screen.getAllByTestId('chapter-mark').length).toBeGreaterThan(0)
   })
 })
+
+/**
+ * THE OPERATOR'S SESSION BOUNDARY, in the surface it lives in (prd16 ruling
+ * 2). The rotation itself is tested in `RotateButton.test.tsx` and, for real,
+ * in the server package; what this asserts is the promise the picker makes:
+ * the session you just closed is choosable *immediately*, without a reload.
+ */
+describe('ReplayControls · end session · start fresh', () => {
+  /** A listing that grows when the rotation happens, the way the real one does. */
+  function makeRotatingFetch(): { fetchImpl: FetchLike; rotate: () => void; listingFetches: () => number } {
+    let rotated = false
+    let listingFetches = 0
+    const liveEvents = fixtureEvents()
+
+    const fetchImpl = (async (url: string | URL | Request) => {
+      const href = String(url)
+      if (href === '/api/sessions') {
+        listingFetches += 1
+        const sessions = [{ id: 'before', fileName: 'session-1000.jsonl', startedAt: 1000, sizeBytes: 400 }]
+        if (rotated) {
+          sessions.push({ id: 'after', fileName: 'session-5000.jsonl', startedAt: 5000, sizeBytes: 20 })
+        }
+        return jsonResponse({ sessions })
+      }
+      if (href === '/api/sessions/before/events') return jsonResponse({ events: liveEvents })
+      if (href === '/api/sessions/after/events') return jsonResponse({ events: [] })
+      throw new Error(`unexpected fetch: ${href}`)
+    }) as unknown as FetchLike
+
+    return { fetchImpl, rotate: () => (rotated = true), listingFetches: () => listingFetches }
+  }
+
+  it('needs a confirm, then lists the freshly-closed session in the picker without a reload', async () => {
+    const { fetchImpl, rotate, listingFetches } = makeRotatingFetch()
+    // The button's own call is the app's one mutating request; nothing else in
+    // this render touches the global fetch.
+    const rotateFetch = vi.fn(async () => {
+      rotate()
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          closed: { sessionId: 'before', filePath: '/data/session-1000.jsonl', eventCount: 3 },
+          opened: { sessionId: 'after', filePath: '/data/session-5000.jsonl', startedAt: 5000 },
+        }),
+      }
+    })
+    vi.stubGlobal('fetch', rotateFetch)
+
+    try {
+      await renderReplay(fetchImpl)
+      expect(listingFetches()).toBe(1)
+      expect(screen.queryByRole('option', { name: /^1970-01-01T00:00:05/ })).toBeNull()
+
+      const button = screen.getByTestId('rotate-button')
+      await fireAndFlush(() => fireEvent.click(button))
+      expect(rotateFetch).not.toHaveBeenCalled()
+
+      await fireAndFlush(() => fireEvent.click(button))
+      expect(rotateFetch).toHaveBeenCalledWith('/api/rotate', { method: 'POST' })
+
+      // The listing was re-read, and the closed session is now choosable.
+      await waitFor(() => expect(listingFetches()).toBe(2))
+      await waitFor(() =>
+        expect(screen.getByRole('option', { name: /^1970-01-01T00:00:05/ })).toBeInTheDocument(),
+      )
+      expect(screen.getByRole('option', { name: /^1970-01-01T00:00:01/ })).toBeInTheDocument()
+      expect(screen.getByTestId('rotate-result')).toHaveTextContent('closed session before')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('replays the session it just closed — the recording outlives the boundary', async () => {
+    const { fetchImpl, rotate } = makeRotatingFetch()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        rotate()
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            closed: { sessionId: 'before', filePath: '/data/session-1000.jsonl', eventCount: 3 },
+            opened: { sessionId: 'after', filePath: '/data/session-5000.jsonl', startedAt: 5000 },
+          }),
+        }
+      }),
+    )
+
+    try {
+      await renderReplay(fetchImpl)
+      const button = screen.getByTestId('rotate-button')
+      await fireAndFlush(() => fireEvent.click(button))
+      await fireAndFlush(() => fireEvent.click(button))
+
+      const select = screen.getByLabelText('session')
+      await fireAndFlush(() => fireEvent.change(select, { target: { value: 'before' } }))
+
+      expect(screen.getByText('Replay mode')).toBeInTheDocument()
+      await waitFor(() => expect(screen.getByText(/worktrees/)).toBeInTheDocument())
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})

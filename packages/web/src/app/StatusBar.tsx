@@ -37,7 +37,14 @@ type MetaFetchLike = (input: string) => Promise<{ ok: boolean; json: () => Promi
 
 const SESSION_META_URL = '/api/meta'
 
-const KNOWN_BOOT_REASONS = ['fresh-flag', 'resumed', 'stale', 'first-run'] as const
+/**
+ * prd16 ruling 2 added two: `rotated` (this session exists because the
+ * operator ended the last one, here or from `rhizomorph rotate`) and `closed`
+ * (a boot that found a closed log and started fresh rather than resuming it).
+ * A reason this list doesn't know still reads as "unavailable" rather than
+ * being half-trusted — see {@link parseBootFacts}.
+ */
+const KNOWN_BOOT_REASONS = ['fresh-flag', 'resumed', 'stale', 'first-run', 'rotated', 'closed'] as const
 type SessionBootReason = (typeof KNOWN_BOOT_REASONS)[number]
 
 interface SessionBootFacts {
@@ -80,12 +87,24 @@ function defaultMetaFetch(): MetaFetchLike | null {
 }
 
 /**
- * Fetched once per mount, only while live — replaying reads a *different*
- * session's identity (point 3 below), so asking `/api/meta` (which only ever
- * describes the live recorder) while replaying would be a wasted request
- * whose answer must be discarded anyway.
+ * Fetched while live, and re-read whenever the live session's IDENTITY
+ * changes. Replaying reads a *different* session's identity (point 3 below),
+ * so asking `/api/meta` (which only ever describes the live recorder) while
+ * replaying would be a wasted request whose answer must be discarded anyway.
+ *
+ * The re-read exists because of prd16 ruling 2: the operator can now end a
+ * session and start another without restarting the instrument, and the boot
+ * facts — `lastBootReason`, `resumedCount` — belong to the session being
+ * recorded, not to the process. A session id that changed under a live stream
+ * IS that boundary (the only other time it changes is the first
+ * `session.started` arriving, one extra localhost GET of a small object,
+ * which is a fair price for a provenance line that cannot go stale).
  */
-function useSessionBootFacts(enabled: boolean, fetchImpl?: MetaFetchLike): BootFactsState {
+function useSessionBootFacts(
+  enabled: boolean,
+  liveSessionId: string | null,
+  fetchImpl?: MetaFetchLike,
+): BootFactsState {
   const [state, setState] = useState<BootFactsState>({ status: 'loading' })
 
   useEffect(() => {
@@ -113,7 +132,7 @@ function useSessionBootFacts(enabled: boolean, fetchImpl?: MetaFetchLike): BootF
     return () => {
       live = false
     }
-  }, [enabled, fetchImpl])
+  }, [enabled, fetchImpl, liveSessionId])
 
   return state
 }
@@ -151,6 +170,10 @@ function bootExplanation(facts: SessionBootFacts): string {
       return `starting: --fresh forced a new session regardless of the ${window} window`
     case 'first-run':
       return `starting: no earlier session was found for this repo`
+    case 'rotated':
+      return `rotated: you ended the previous session here — this one began the moment you did, and the closed recording is in the replay picker`
+    case 'closed':
+      return `starting: the previous session was ended explicitly (\`rhizomorph rotate\`) — a closed recording is never resumed, whatever the ${window} window says`
   }
 }
 
@@ -264,7 +287,12 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
   const mode = useMode()
   const session = state.session
 
-  const bootFacts = useSessionBootFacts(mode === 'live', fetchMeta)
+  const bootFacts = useSessionBootFacts(
+    mode === 'live',
+    // The folded live identity — a rotation replaces it mid-stream.
+    session.session?.sessionId ?? null,
+    fetchMeta,
+  )
   const sessionVoice = useSessionVoice(bootFacts)
 
   // Law 12: WHAT is missing → WHY it matters → THE command. Only the dead
