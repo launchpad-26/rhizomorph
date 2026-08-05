@@ -107,10 +107,21 @@ a named session, so a fork's record is a bounded episode rather than a slice of
 a mega-log. prd14 may add meaning on top (arms, comparison, checkpoints) but
 must not invent a second session concept. #182 is hereby closed by this prd.
 
+## Ruling 6 — the recorder seam is framed now (operator, 2026-08-06, on the council's advice)
+
+The rotation lane draws a clean module boundary around the recording-writer —
+its own module, its own namespace law — WITHOUT splitting the process. The
+systems chair's argument, accepted: prd16 is the last cheap moment (the wall
+is already open); if the forest or the agnosticism future ever wants the
+recorder running separately, the doorway exists and nobody performs surgery.
+No door is installed: one process, one binary, today and until a prd rules
+otherwise.
+
 ## Sequencing
 
-1. **Rotation** (ruling 2): the recorder's hand, its namespace law, the CLI
-   verb, and the UI button. Smallest constitutional footprint first.
+1. **Rotation** (ruling 2): the recorder's hand behind the ruling-6 seam, its
+   namespace law, the CLI verb, and the UI button. Smallest constitutional
+   footprint first.
 2. **Capture** (ruling 3): transcript capture on close, replay precedence,
    redaction law, size reporting.
 3. **`/recordings`** (ruling 4): the library, rename, export.
