@@ -323,7 +323,7 @@ async function checkSessionBoundary(repoPath: string, dataRoot: string | undefin
     return {
       id: 'session-boundary',
       status: 'ok',
-      message: `the last session for ${repoPath} was closed by \`rhizomorph rotate\` — the next run starts a fresh one (a closed log is never resumed, whatever the ${window} window says)`,
+      message: `the last session for ${repoPath} was closed on purpose (\`rhizomorph rotate\`, or the dashboard's button) — the next run starts a fresh one (a closed log is never resumed, whatever the ${window} window says)`,
     }
   }
 

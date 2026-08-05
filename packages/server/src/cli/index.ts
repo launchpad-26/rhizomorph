@@ -340,7 +340,7 @@ function renderBootLine(decision: SessionBootDecision, sessionId: string, resume
   // Say so — a boot that resumed nothing after an operator's rotation must not
   // read like the resume window quietly lapsed.
   if (decision.reason === 'closed') {
-    return `starting session ${sessionId} (the previous session was closed by \`rhizomorph rotate\` — a closed log is never resumed)`
+    return `starting session ${sessionId} (the previous session was closed on purpose — \`rhizomorph rotate\`, or the dashboard's button — and a closed log is never resumed)`
   }
   if (decision.reason === 'rotated') {
     return `starting session ${sessionId} (rotated)`
