@@ -388,17 +388,109 @@ export interface SpanRecord {
  * The indexes hold POSITIONS in {@link spans}, not copies: spans are only ever
  * appended, so a position is stable for the life of the fold, and there is
  * exactly one copy of each record to reason about.
+ *
+ * **The three keys are the slice, and that is a law** — `state.test.ts` pins
+ * the key set, `reduce.telemetry.test.ts`'s additivity oracle pins it again
+ * from the far end, and #184 did not move it. What #184 changed is *when* the
+ * two indexes are built. They are a **projection of `spans`** — one position
+ * per span, in span order, computable from `spans` and nothing else — so the
+ * fold no longer keeps them by copying a Record per event. It hands out the
+ * spans array and lets {@link traceStateOf} materialise a projection the first
+ * time somebody asks for one. Every reader sees the same keys, the same
+ * values, the same `JSON.stringify` bytes; only the arithmetic moved.
+ *
+ * **Why that mattered enough to change.** `{ ...byTrace, [traceId]: [...] }`
+ * copies every key of a Record that gains one per trace, on every span event.
+ * At the audit's own session mix that one line stood at 50 / 518 / 2,367 /
+ * 8,866 ms for a 5k / 15k / 30k / 55k-event fold (#179's bench, three passes
+ * each) — ~90% of what was left of the fold after #179, and eleven seconds of
+ * a day-long session's boot recovery. Rebuilding a projection costs one pass
+ * over `spans` *when read*, which no live surface does per event, and the fold
+ * itself never reads it: it carries the one lookup it actually needs (has this
+ * trace already delivered this span id?) beside the reducer, keyed by the
+ * identity of the array it describes — `TraceIndex` in `reduce.ts`, where the
+ * argument is written out in full, and where every other derived table lives
+ * by the same rule (#179's `UsageIndex`).
  */
 export interface TraceState {
   spans: SpanRecord[]
-  /** traceId → positions in `spans`, in observation order. */
-  byTrace: Record<string, number[]>
-  /** sessionId → positions in `spans`. Spans with no session id are not indexed here. */
-  bySession: Record<string, number[]>
+  /**
+   * traceId → positions in `spans`, in observation order. Materialised on
+   * demand from `spans` (see above); `readonly` because it is derived — the
+   * only way to change it is to fold another span.
+   */
+  readonly byTrace: Record<string, number[]>
+  /**
+   * sessionId → positions in `spans`. Spans with no session id are not indexed
+   * here. Materialised on demand, same as {@link byTrace}.
+   */
+  readonly bySession: Record<string, number[]>
 }
 
+/**
+ * The slice for a given spans array: the array itself, plus its two
+ * projections, computed the first time each is read and then remembered
+ * against the array they describe.
+ *
+ * The memo is keyed by the array's identity and lives in a `WeakMap`, so it
+ * dies with the array and can never be read against a different one. Nothing
+ * about it is observable: a projection is a pure function of `spans`, so a
+ * remembered one and a freshly built one are the same value — which is what
+ * lets the fold hand back a slice in constant time without any surface being
+ * able to tell (`state.test.ts`, `reduce.test.ts`).
+ */
+export function traceStateOf(spans: SpanRecord[]): TraceState {
+  return {
+    spans,
+    get byTrace() {
+      return projection(byTraceProjections, spans, traceKeyOf)
+    },
+    get bySession() {
+      return projection(bySessionProjections, spans, sessionKeyOf)
+    },
+  }
+}
+
+const byTraceProjections = new WeakMap<readonly SpanRecord[], Record<string, number[]>>()
+const bySessionProjections = new WeakMap<readonly SpanRecord[], Record<string, number[]>>()
+
+const traceKeyOf = (span: SpanRecord): string | null => span.traceId
+const sessionKeyOf = (span: SpanRecord): string | null => span.sessionId
+
+/**
+ * One position per span, appended under its key in span order — exactly what
+ * an append-per-event fold would have accumulated, including the order the
+ * keys were first seen in, which is what makes the two spellings serialise to
+ * the same bytes. A span whose key is `null` is not indexed at all.
+ */
+function projection(
+  memo: WeakMap<readonly SpanRecord[], Record<string, number[]>>,
+  spans: readonly SpanRecord[],
+  keyOf: (span: SpanRecord) => string | null,
+): Record<string, number[]> {
+  const held = memo.get(spans)
+  if (held !== undefined) return held
+  const built: Record<string, number[]> = {}
+  for (let at = 0; at < spans.length; at += 1) {
+    const key = keyOf(spans[at] as SpanRecord)
+    if (key === null) continue
+    const positions = built[key]
+    if (positions === undefined) built[key] = [at]
+    else positions.push(at)
+  }
+  memo.set(spans, built)
+  return built
+}
+
+/**
+ * A fresh slice, with a fresh spans array, on every call — the same rule
+ * {@link initialTelemetryState} follows and for the same reason: both the
+ * fold's lookup table and the projection memo above are keyed by the identity
+ * of the array they describe, so a shared `[]` would hand one fold's answers
+ * to another. `state.test.ts` holds this to it.
+ */
 export function initialTraceState(): TraceState {
-  return { spans: [], byTrace: {}, bySession: {} }
+  return traceStateOf([])
 }
 
 /**

@@ -25,7 +25,7 @@ import type {
   UsageRecord,
   WorktreeState,
 } from './state.js'
-import { MAX_ERRORS, basename, initialSessionState } from './state.js'
+import { MAX_ERRORS, basename, initialSessionState, traceStateOf } from './state.js'
 
 /**
  * `reduce(state, event) → state`, pure and immutable.
@@ -1010,6 +1010,78 @@ function upsertLane(
 // --- traces (prd9) ----------------------------------------------------------
 
 /**
+ * The fold's lookup table over `traces.spans` (#184), and the sequel to
+ * {@link UsageIndex} across prd9's slice.
+ *
+ * #179's re-measurement found that after its own fix landed, ~90% of what was
+ * left of the full-mix fold was one line of {@link traceSpan}:
+ * `{ ...traces.byTrace, [traceId]: [...] }` — an immutable insert into a
+ * Record that gains a key per trace, so every span event copied every key the
+ * session had accumulated. Standalone that line cost 50 / 518 / 2,367 / 8,866
+ * ms at N = 5k / 15k / 30k / 55k: eleven seconds of a day-long session's boot
+ * recovery, and the dominant term in the replay index build.
+ *
+ * The fix is the same shape as #179's, in two halves:
+ *
+ * 1. `byTrace`/`bySession` stopped being *accumulated* and became what they
+ *    always were mathematically — a projection of `spans`, materialised on
+ *    demand by {@link traceStateOf}. `TraceState` keeps all three keys, the
+ *    same values and the same bytes; nothing was moved out of recorded state,
+ *    so prd9's contract, its additivity oracle and every trace selector stand
+ *    untouched. That is deliberate: the key set is pinned by an oracle this
+ *    lane may only strengthen, and it turned out not to need loosening.
+ * 2. What the fold *asks* per event — "has this trace already delivered this
+ *    span id?" — is answered here instead, in O(1), by a table that is carried
+ *    forward rather than copied.
+ *
+ * **Ownership**, exactly as {@link UsageIndex} states it: keyed by the
+ * identity of the spans array it describes, so it can never be read against
+ * an array it does not match; and {@link takeTraceIndex} *detaches* it, so a
+ * second fold branching off the same state finds nothing attached and rebuilds
+ * its own rather than reading one that has moved on. An index attached to an
+ * array always describes exactly that array — that invariant is the whole
+ * safety argument, and `reduce.test.ts` holds the fold to it by folding one
+ * log both ways and demanding the same bytes.
+ *
+ * **Why a `Set` per trace rather than one set of joined keys.** A `traceId`
+ * and a `spanId` are opaque strings from another process's exporter; joining
+ * them with a separator invents a collision that the pair itself does not
+ * have. The nesting is the same identity {@link traceSpan} has always keyed
+ * on, spelled without a separator to get wrong.
+ */
+type TraceIndex = Map<string, Set<string>>
+
+const traceIndexes = new WeakMap<readonly SpanRecord[], TraceIndex>()
+
+/** The table `spans` would have if nothing had ever been carried forward. */
+function buildTraceIndex(spans: readonly SpanRecord[]): TraceIndex {
+  const index: TraceIndex = new Map()
+  for (const span of spans) indexSpanRecord(index, span)
+  return index
+}
+
+/** Folds one span's identity into `index`. The only writer of new entries. */
+function indexSpanRecord(index: TraceIndex, span: SpanRecord): void {
+  const held = index.get(span.traceId)
+  if (held === undefined) index.set(span.traceId, new Set([span.spanId]))
+  else held.add(span.spanId)
+}
+
+/** Detaches `spans`' table for the caller to carry forward, or builds one. */
+function takeTraceIndex(spans: readonly SpanRecord[]): TraceIndex {
+  const held = traceIndexes.get(spans)
+  if (held === undefined) return buildTraceIndex(spans)
+  traceIndexes.delete(spans)
+  return held
+}
+
+/** Attaches `index` to the array it now describes, and returns that array. */
+function indexedSpans(spans: SpanRecord[], index: TraceIndex): SpanRecord[] {
+  traceIndexes.set(spans, index)
+  return spans
+}
+
+/**
  * One span, appended whole, with the two lookups kept in step.
  *
  * **Idempotent on `(traceId, spanId)`.** Whether the CLI's exporter retries a
@@ -1025,12 +1097,21 @@ function upsertLane(
  * than by every future selector remembering to exclude them. It also means the
  * lane and session indexes stay the money layer's own record of who was
  * spending, unpolluted by annotation.
+ *
+ * The idempotence check reads {@link TraceIndex} rather than `byTrace`, and
+ * that is not an optimisation detail: reading `byTrace` here would materialise
+ * the whole projection once per event, which is the copy-per-event this issue
+ * removed, wearing a different hat. The fold writes the spans array; the
+ * projection is for whoever reads the slice.
  */
 function traceSpan(state: SessionState, event: EventOf<'trace.span'>): SessionState {
   const p = event.payload
   const traces = state.traces
-  const seen = traces.byTrace[p.traceId]
-  if (seen !== undefined && seen.some((at) => traces.spans[at]?.spanId === p.spanId)) {
+  const index = takeTraceIndex(traces.spans)
+  if (index.get(p.traceId)?.has(p.spanId) === true) {
+    // Nothing to fold, but the table was taken — give it back to the array it
+    // still describes, so the next span does not pay to rebuild it.
+    indexedSpans(traces.spans, index)
     return state
   }
 
@@ -1063,20 +1144,10 @@ function traceSpan(state: SessionState, event: EventOf<'trace.span'>): SessionSt
     decision: p.decision ?? null,
   }
 
-  const at = traces.spans.length
+  indexSpanRecord(index, record)
   return {
     ...state,
-    traces: {
-      spans: [...traces.spans, record],
-      byTrace: { ...traces.byTrace, [p.traceId]: [...(seen ?? []), at] },
-      bySession:
-        record.sessionId === null
-          ? traces.bySession
-          : {
-              ...traces.bySession,
-              [record.sessionId]: [...(traces.bySession[record.sessionId] ?? []), at],
-            },
-    },
+    traces: traceStateOf(indexedSpans([...traces.spans, record], index)),
   }
 }
 
