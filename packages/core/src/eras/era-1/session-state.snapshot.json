@@ -1,0 +1,1189 @@
+{
+  "agents": {
+    "190": {
+      "branch": "190",
+      "detail": "<agent detail elided>",
+      "elapsedSeconds": 3660,
+      "firstSeenAt": 1785933399716,
+      "handle": "190",
+      "previousStatus": null,
+      "status": "done",
+      "updatedAt": 1785933399716,
+      "worktreePath": "../rhizomorph__worktrees/190"
+    },
+    "191": {
+      "branch": "191",
+      "detail": "<agent detail elided>",
+      "elapsedSeconds": 3000,
+      "firstSeenAt": 1785933399716,
+      "handle": "191",
+      "previousStatus": null,
+      "status": "done",
+      "updatedAt": 1785933399716,
+      "worktreePath": "../rhizomorph__worktrees/191"
+    },
+    "194": {
+      "branch": "194",
+      "detail": "<agent detail elided>",
+      "elapsedSeconds": 1,
+      "firstSeenAt": 1785933924461,
+      "handle": "194",
+      "previousStatus": null,
+      "status": "working",
+      "updatedAt": 1785933924461,
+      "worktreePath": "../rhizomorph__worktrees/194"
+    }
+  },
+  "branches": {
+    "190": {
+      "aheadOfMain": 9,
+      "behindMain": 7,
+      "commits": [],
+      "firstSeenAt": 1785933399595,
+      "head": "f051b1762c00a5b4e6028e6b21f1f02876fcc5cc",
+      "name": "190",
+      "previousHead": "f051b1762c00a5b4e6028e6b21f1f02876fcc5cc",
+      "updatedAt": 1785933908814,
+      "worktreePath": "/repo/rhizomorph__worktrees/190"
+    },
+    "191": {
+      "aheadOfMain": 2,
+      "behindMain": 6,
+      "commits": [
+        "b98b20ca7f105901663ffaa1e370235322ac2a31",
+        "29c146d4c740704a803dacf666fd03adc2fa7b6b"
+      ],
+      "firstSeenAt": 1785933399595,
+      "head": "29c146d4c740704a803dacf666fd03adc2fa7b6b",
+      "name": "191",
+      "previousHead": "29c146d4c740704a803dacf666fd03adc2fa7b6b",
+      "updatedAt": 1785933908814,
+      "worktreePath": "/repo/rhizomorph__worktrees/191"
+    },
+    "194": {
+      "aheadOfMain": 0,
+      "behindMain": 0,
+      "commits": [],
+      "firstSeenAt": 1785933912818,
+      "head": "abe0c2d8535b2bd63f1a9fee0768c20498cb89be",
+      "name": "194",
+      "previousHead": "abe0c2d8535b2bd63f1a9fee0768c20498cb89be",
+      "updatedAt": 1785933912818,
+      "worktreePath": "/repo/rhizomorph__worktrees/194"
+    },
+    "main": {
+      "aheadOfMain": 0,
+      "behindMain": 0,
+      "commits": [
+        "03a40ad7a420ef8b80b1a340acc9552acc8dcc41",
+        "e6d617b01c39a66ddde259f1548a08c175abf881",
+        "9ed4f1d2fa040a0963c00e87fa762c1a5380baaa",
+        "3fdd9536244eae3fddb8c7f5c8c762e32227e9ac",
+        "9a7153838e5b49d024a5daaf93ac3e327e146747",
+        "abe0c2d8535b2bd63f1a9fee0768c20498cb89be"
+      ],
+      "firstSeenAt": 1785933399595,
+      "head": "abe0c2d8535b2bd63f1a9fee0768c20498cb89be",
+      "name": "main",
+      "previousHead": "9a7153838e5b49d024a5daaf93ac3e327e146747",
+      "updatedAt": 1785933908814,
+      "worktreePath": "/repo/rhizomorph"
+    }
+  },
+  "checkpoints": {
+    "byLane": {},
+    "records": []
+  },
+  "collectors": {},
+  "commitOrder": [
+    "b98b20ca7f105901663ffaa1e370235322ac2a31",
+    "29c146d4c740704a803dacf666fd03adc2fa7b6b",
+    "03a40ad7a420ef8b80b1a340acc9552acc8dcc41",
+    "e6d617b01c39a66ddde259f1548a08c175abf881",
+    "9ed4f1d2fa040a0963c00e87fa762c1a5380baaa",
+    "3fdd9536244eae3fddb8c7f5c8c762e32227e9ac",
+    "9a7153838e5b49d024a5daaf93ac3e327e146747",
+    "abe0c2d8535b2bd63f1a9fee0768c20498cb89be"
+  ],
+  "commits": {
+    "03a40ad7a420ef8b80b1a340acc9552acc8dcc41": {
+      "author": {
+        "email": "author@example.com",
+        "name": "Era Author"
+      },
+      "authoredAt": 1785928639000,
+      "branches": [
+        "main"
+      ],
+      "deletions": 5,
+      "files": [
+        {
+          "deletions": 0,
+          "insertions": 67,
+          "path": "packages/web/src/tide/ChapterMarks.test.tsx",
+          "status": "modified"
+        },
+        {
+          "deletions": 5,
+          "insertions": 78,
+          "path": "packages/web/src/tide/ChapterMarks.tsx",
+          "status": "modified"
+        }
+      ],
+      "insertions": 145,
+      "landedAt": 1785933399595,
+      "message": "fix(tide): portal chapter-mark hover cards to document.body (#189 defect 1)",
+      "parents": [
+        "4fc6a5ac227be0c439181b63d1b16b79eeec5187"
+      ],
+      "sha": "03a40ad7a420ef8b80b1a340acc9552acc8dcc41",
+      "worktreePath": "/repo/rhizomorph"
+    },
+    "29c146d4c740704a803dacf666fd03adc2fa7b6b": {
+      "author": {
+        "email": "author@example.com",
+        "name": "Era Author"
+      },
+      "authoredAt": 1785930322000,
+      "branches": [
+        "191"
+      ],
+      "deletions": 33,
+      "files": [
+        {
+          "deletions": 0,
+          "insertions": 91,
+          "path": "packages/web/src/drawer/useTranscript.test.ts",
+          "status": "modified"
+        },
+        {
+          "deletions": 33,
+          "insertions": 61,
+          "path": "packages/web/src/drawer/useTranscript.ts",
+          "status": "modified"
+        }
+      ],
+      "insertions": 152,
+      "landedAt": 1785933399595,
+      "message": "fix(drawer): cache a lane's last-good transcript per hook instance",
+      "parents": [
+        "b98b20ca7f105901663ffaa1e370235322ac2a31"
+      ],
+      "sha": "29c146d4c740704a803dacf666fd03adc2fa7b6b",
+      "worktreePath": "/repo/rhizomorph__worktrees/191"
+    },
+    "3fdd9536244eae3fddb8c7f5c8c762e32227e9ac": {
+      "author": {
+        "email": "author@example.com",
+        "name": "Era Author"
+      },
+      "authoredAt": 1785928662000,
+      "branches": [
+        "main"
+      ],
+      "deletions": 1,
+      "files": [
+        {
+          "deletions": 0,
+          "insertions": 103,
+          "path": "packages/web/src/tide/TideDock.test.tsx",
+          "status": "modified"
+        },
+        {
+          "deletions": 1,
+          "insertions": 24,
+          "path": "packages/web/src/tide/TideDock.tsx",
+          "status": "modified"
+        }
+      ],
+      "insertions": 127,
+      "landedAt": 1785933399595,
+      "message": "feat(tide): wire the mode-dependent expanded budget into TideDock (#189 defect 2)",
+      "parents": [
+        "9ed4f1d2fa040a0963c00e87fa762c1a5380baaa"
+      ],
+      "sha": "3fdd9536244eae3fddb8c7f5c8c762e32227e9ac",
+      "worktreePath": "/repo/rhizomorph"
+    },
+    "9a7153838e5b49d024a5daaf93ac3e327e146747": {
+      "author": {
+        "email": "author@example.com",
+        "name": "Era Author"
+      },
+      "authoredAt": 1785933901000,
+      "branches": [
+        "main"
+      ],
+      "deletions": 0,
+      "files": [
+        {
+          "deletions": 0,
+          "insertions": 33,
+          "path": "docs/prd13.md",
+          "status": "modified"
+        }
+      ],
+      "insertions": 33,
+      "landedAt": 1785933902813,
+      "message": "docs(prd13): ruling 13 — the band is CUT",
+      "parents": [
+        "3fdd9536244eae3fddb8c7f5c8c762e32227e9ac"
+      ],
+      "sha": "9a7153838e5b49d024a5daaf93ac3e327e146747",
+      "worktreePath": "/repo/rhizomorph"
+    },
+    "9ed4f1d2fa040a0963c00e87fa762c1a5380baaa": {
+      "author": {
+        "email": "author@example.com",
+        "name": "Era Author"
+      },
+      "authoredAt": 1785928654000,
+      "branches": [
+        "main"
+      ],
+      "deletions": 13,
+      "files": [
+        {
+          "deletions": 13,
+          "insertions": 21,
+          "path": "packages/web/src/tide/Tide.tsx",
+          "status": "modified"
+        }
+      ],
+      "insertions": 21,
+      "landedAt": 1785933399595,
+      "message": "fix(tide): the +N chip gets its own gutter, never the band's fill (#189 defect 2)",
+      "parents": [
+        "e6d617b01c39a66ddde259f1548a08c175abf881"
+      ],
+      "sha": "9ed4f1d2fa040a0963c00e87fa762c1a5380baaa",
+      "worktreePath": "/repo/rhizomorph"
+    },
+    "abe0c2d8535b2bd63f1a9fee0768c20498cb89be": {
+      "author": {
+        "email": "author@example.com",
+        "name": "Era Author"
+      },
+      "authoredAt": 1785933907000,
+      "branches": [
+        "main"
+      ],
+      "deletions": 0,
+      "files": [
+        {
+          "deletions": 0,
+          "insertions": 98,
+          "path": "prompts/194-band-cut.md",
+          "status": "added"
+        }
+      ],
+      "insertions": 98,
+      "landedAt": 1785933908814,
+      "message": "chore(prompts): brief for #194, the band cut",
+      "parents": [
+        "9a7153838e5b49d024a5daaf93ac3e327e146747"
+      ],
+      "sha": "abe0c2d8535b2bd63f1a9fee0768c20498cb89be",
+      "worktreePath": "/repo/rhizomorph"
+    },
+    "b98b20ca7f105901663ffaa1e370235322ac2a31": {
+      "author": {
+        "email": "author@example.com",
+        "name": "Era Author"
+      },
+      "authoredAt": 1785930310000,
+      "branches": [
+        "191"
+      ],
+      "deletions": 3,
+      "files": [
+        {
+          "deletions": 1,
+          "insertions": 65,
+          "path": "packages/web/src/drawer/Conversation.test.tsx",
+          "status": "modified"
+        },
+        {
+          "deletions": 2,
+          "insertions": 20,
+          "path": "packages/web/src/drawer/Conversation.tsx",
+          "status": "modified"
+        }
+      ],
+      "insertions": 85,
+      "landedAt": 1785933399595,
+      "message": "fix(drawer): never blank the conversation on a transient absent/error",
+      "parents": [
+        "4fc6a5ac227be0c439181b63d1b16b79eeec5187"
+      ],
+      "sha": "b98b20ca7f105901663ffaa1e370235322ac2a31",
+      "worktreePath": "/repo/rhizomorph__worktrees/191"
+    },
+    "e6d617b01c39a66ddde259f1548a08c175abf881": {
+      "author": {
+        "email": "author@example.com",
+        "name": "Era Author"
+      },
+      "authoredAt": 1785928646000,
+      "branches": [
+        "main"
+      ],
+      "deletions": 1,
+      "files": [
+        {
+          "deletions": 1,
+          "insertions": 34,
+          "path": "packages/web/src/tide/rowPlan.test.ts",
+          "status": "modified"
+        },
+        {
+          "deletions": 0,
+          "insertions": 17,
+          "path": "packages/web/src/tide/rowPlan.ts",
+          "status": "modified"
+        }
+      ],
+      "insertions": 51,
+      "landedAt": 1785933399595,
+      "message": "feat(tide): the expanded row budget is a function of height, not a constant (#189 defect 2)",
+      "parents": [
+        "03a40ad7a420ef8b80b1a340acc9552acc8dcc41"
+      ],
+      "sha": "e6d617b01c39a66ddde259f1548a08c175abf881",
+      "worktreePath": "/repo/rhizomorph"
+    }
+  },
+  "errors": [],
+  "eventCount": 100,
+  "firstEventTs": 1785930240039,
+  "forks": {
+    "byFork": {},
+    "byLane": {},
+    "dispatches": []
+  },
+  "judge": {
+    "byLane": {},
+    "findings": []
+  },
+  "lastEventTs": 1785933927501,
+  "mainBranch": null,
+  "panes": {
+    "%0": {
+      "activityCount": 2,
+      "closedAt": null,
+      "contentHash": "63330994cdd27a9014102a311232f1132ad0b89b694cdd877a257fa3b0b97955",
+      "currentCommand": null,
+      "currentPath": null,
+      "discoveredAt": 1785933399669,
+      "lastActivityTs": 1785933401633,
+      "lastContentChangeTs": 1785933401633,
+      "paneId": "%0",
+      "present": true,
+      "preview": "<pane content elided>",
+      "sessionName": null,
+      "windowIndex": null,
+      "windowName": "",
+      "worktreePath": null
+    },
+    "%11": {
+      "activityCount": 25,
+      "closedAt": null,
+      "contentHash": "191c75dd9f6398b31f6c9349760532d83dbbfc09329079918137030de44c99c6",
+      "currentCommand": null,
+      "currentPath": null,
+      "discoveredAt": 1785933399669,
+      "lastActivityTs": 1785933908877,
+      "lastContentChangeTs": 1785933908877,
+      "paneId": "%11",
+      "present": true,
+      "preview": "<pane content elided>",
+      "sessionName": null,
+      "windowIndex": null,
+      "windowName": "",
+      "worktreePath": null
+    },
+    "%38": {
+      "activityCount": 1,
+      "closedAt": null,
+      "contentHash": "63b61fe3316348f137c944df9844e1ba73f53313396f39b19aca3c4edfa6f5fb",
+      "currentCommand": null,
+      "currentPath": null,
+      "discoveredAt": 1785933399669,
+      "lastActivityTs": 1785933399669,
+      "lastContentChangeTs": 1785933399669,
+      "paneId": "%38",
+      "present": true,
+      "preview": "<pane content elided>",
+      "sessionName": null,
+      "windowIndex": null,
+      "windowName": "",
+      "worktreePath": null
+    },
+    "%55": {
+      "activityCount": 4,
+      "closedAt": null,
+      "contentHash": "1dd25826726a9a47b1284866dd1123a3c85389980e00c31a8164ec04ae5a7572",
+      "currentCommand": null,
+      "currentPath": null,
+      "discoveredAt": 1785930240039,
+      "lastActivityTs": 1785933399669,
+      "lastContentChangeTs": 1785933399669,
+      "paneId": "%55",
+      "present": true,
+      "preview": "<pane content elided>",
+      "sessionName": null,
+      "windowIndex": null,
+      "windowName": "",
+      "worktreePath": null
+    },
+    "%57": {
+      "activityCount": 3,
+      "closedAt": null,
+      "contentHash": "ebb4b30de6a408599f39ab0b341108d9594fb7d9b98e9f5074bc2fbbae3503b3",
+      "currentCommand": "claude",
+      "currentPath": "/repo/rhizomorph__worktrees/194",
+      "discoveredAt": 1785933920415,
+      "lastActivityTs": 1785933926408,
+      "lastContentChangeTs": 1785933926408,
+      "paneId": "%57",
+      "present": true,
+      "preview": "<pane content elided>",
+      "sessionName": "obs",
+      "windowIndex": 2,
+      "windowName": "wm-194",
+      "worktreePath": "/repo/rhizomorph__worktrees/194"
+    },
+    "%58": {
+      "activityCount": 1,
+      "closedAt": null,
+      "contentHash": "76f590282781ad1164f25faf998400851bf8e01ae36338de708d12b838fca07d",
+      "currentCommand": "bash",
+      "currentPath": "/repo/rhizomorph__worktrees/194",
+      "discoveredAt": 1785933920415,
+      "lastActivityTs": 1785933920415,
+      "lastContentChangeTs": 1785933920415,
+      "paneId": "%58",
+      "present": true,
+      "preview": "<pane content elided>",
+      "sessionName": "obs",
+      "windowIndex": 2,
+      "windowName": "wm-194",
+      "worktreePath": "/repo/rhizomorph__worktrees/194"
+    }
+  },
+  "session": null,
+  "telemetry": {
+    "activeTime": [
+      {
+        "activeSeconds": 0.039,
+        "branch": null,
+        "eventId": "otel-000007",
+        "lane": "194",
+        "origin": "otel",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": null,
+        "ts": 1785933927501,
+        "worktreePath": null
+      },
+      {
+        "activeSeconds": 3.1609999999999996,
+        "branch": null,
+        "eventId": "otel-000008",
+        "lane": "194",
+        "origin": "otel",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": null,
+        "ts": 1785933927501,
+        "worktreePath": null
+      }
+    ],
+    "costs": [
+      {
+        "authoritative": true,
+        "branch": null,
+        "costUsd": 0.001857,
+        "estimateSource": null,
+        "eventId": "otel-000002",
+        "lane": "194",
+        "model": "claude-haiku-4-5-20251001",
+        "origin": "otel",
+        "placeSource": null,
+        "requestId": null,
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "auxiliary",
+        "ts": 1785933927499,
+        "worktreePath": null
+      }
+    ],
+    "lanes": {
+      "191": {
+        "branch": "191",
+        "firstSeenAt": 1785930239054,
+        "lane": "191",
+        "lastSeenAt": 1785930340779,
+        "sessionIds": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      "194": {
+        "branch": null,
+        "firstSeenAt": 1785933927499,
+        "lane": "194",
+        "lastSeenAt": 1785933927501,
+        "sessionIds": [
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "worktreePath": null
+      }
+    },
+    "sessions": {
+      "00000000-0000-4000-8000-000000000001": {
+        "branch": "191",
+        "firstSeenAt": 1785930239054,
+        "lastSeenAt": 1785930340779,
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      "00000000-0000-4000-8000-000000000002": {
+        "branch": null,
+        "firstSeenAt": 1785933927499,
+        "lastSeenAt": 1785933927501,
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "worktreePath": null
+      }
+    },
+    "tools": [
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000491",
+        "filePath": null,
+        "lane": "191",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000001",
+        "ts": 1785930239931,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000022",
+        "filePath": null,
+        "lane": "191",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000002",
+        "ts": 1785930246834,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000024",
+        "filePath": null,
+        "lane": "191",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000003",
+        "ts": 1785930262511,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000026",
+        "filePath": null,
+        "lane": "191",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000004",
+        "ts": 1785930268607,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000028",
+        "filePath": null,
+        "lane": "191",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000005",
+        "ts": 1785930274348,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000030",
+        "filePath": null,
+        "lane": "191",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000006",
+        "ts": 1785930282240,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000032",
+        "filePath": null,
+        "lane": "191",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000007",
+        "ts": 1785930290621,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000034",
+        "filePath": null,
+        "lane": "191",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000008",
+        "ts": 1785930298161,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000036",
+        "filePath": null,
+        "lane": "191",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000009",
+        "ts": 1785930302984,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000038",
+        "filePath": null,
+        "lane": "191",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000010",
+        "ts": 1785930309819,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000040",
+        "filePath": null,
+        "lane": "191",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000011",
+        "ts": 1785930322379,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000042",
+        "filePath": null,
+        "lane": "191",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000012",
+        "ts": 1785930327191,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      }
+    ],
+    "usage": [
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000490",
+        "lane": "191",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000001",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 438,
+          "cacheRead": 238715,
+          "input": 2,
+          "output": 544
+        },
+        "totalTokens": 239699,
+        "ts": 1785930239054,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000021",
+        "lane": "191",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000002",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1340,
+          "cacheRead": 239153,
+          "input": 2,
+          "output": 94
+        },
+        "totalTokens": 240589,
+        "ts": 1785930246834,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000023",
+        "lane": "191",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000003",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 320,
+          "cacheRead": 240493,
+          "input": 2,
+          "output": 390
+        },
+        "totalTokens": 241205,
+        "ts": 1785930262263,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000025",
+        "lane": "191",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000004",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 403,
+          "cacheRead": 240813,
+          "input": 2,
+          "output": 222
+        },
+        "totalTokens": 241440,
+        "ts": 1785930268280,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000027",
+        "lane": "191",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000005",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 257,
+          "cacheRead": 241216,
+          "input": 2,
+          "output": 227
+        },
+        "totalTokens": 241702,
+        "ts": 1785930273935,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000029",
+        "lane": "191",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000006",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 238,
+          "cacheRead": 241473,
+          "input": 2,
+          "output": 296
+        },
+        "totalTokens": 242009,
+        "ts": 1785930281688,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000031",
+        "lane": "191",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000007",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 5797,
+          "cacheRead": 241711,
+          "input": 2,
+          "output": 397
+        },
+        "totalTokens": 247907,
+        "ts": 1785930290322,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000033",
+        "lane": "191",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000008",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 412,
+          "cacheRead": 247508,
+          "input": 2,
+          "output": 148
+        },
+        "totalTokens": 248070,
+        "ts": 1785930297748,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000035",
+        "lane": "191",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000009",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 392,
+          "cacheRead": 247920,
+          "input": 2,
+          "output": 90
+        },
+        "totalTokens": 248404,
+        "ts": 1785930302910,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000037",
+        "lane": "191",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000010",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 404,
+          "cacheRead": 248312,
+          "input": 2,
+          "output": 318
+        },
+        "totalTokens": 249036,
+        "ts": 1785930309819,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000039",
+        "lane": "191",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000011",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 353,
+          "cacheRead": 248716,
+          "input": 2,
+          "output": 315
+        },
+        "totalTokens": 249386,
+        "ts": 1785930322379,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000041",
+        "lane": "191",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000012",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 378,
+          "cacheRead": 249069,
+          "input": 2,
+          "output": 166
+        },
+        "totalTokens": 249615,
+        "ts": 1785930327172,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": "191",
+        "durationMs": null,
+        "eventId": "evt-000043",
+        "lane": "191",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000013",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 293,
+          "cacheRead": 249447,
+          "input": 2,
+          "output": 779
+        },
+        "totalTokens": 250521,
+        "ts": 1785930340779,
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "branch": null,
+        "durationMs": null,
+        "eventId": "otel-000003",
+        "lane": "194",
+        "model": "claude-haiku-4-5-20251001",
+        "origin": "otel",
+        "requestId": null,
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "auxiliary",
+        "tokens": {
+          "cacheCreation": 0,
+          "cacheRead": 0,
+          "input": 1772,
+          "output": 0
+        },
+        "totalTokens": 1772,
+        "ts": 1785933927500,
+        "worktreePath": null
+      },
+      {
+        "branch": null,
+        "durationMs": null,
+        "eventId": "otel-000004",
+        "lane": "194",
+        "model": "claude-haiku-4-5-20251001",
+        "origin": "otel",
+        "requestId": null,
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "auxiliary",
+        "tokens": {
+          "cacheCreation": 0,
+          "cacheRead": 0,
+          "input": 0,
+          "output": 17
+        },
+        "totalTokens": 17,
+        "ts": 1785933927500,
+        "worktreePath": null
+      },
+      {
+        "branch": null,
+        "durationMs": null,
+        "eventId": "otel-000005",
+        "lane": "194",
+        "model": "claude-haiku-4-5-20251001",
+        "origin": "otel",
+        "requestId": null,
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "auxiliary",
+        "tokens": {
+          "cacheCreation": 0,
+          "cacheRead": 0,
+          "input": 0,
+          "output": 0
+        },
+        "totalTokens": 0,
+        "ts": 1785933927500,
+        "worktreePath": null
+      },
+      {
+        "branch": null,
+        "durationMs": null,
+        "eventId": "otel-000006",
+        "lane": "194",
+        "model": "claude-haiku-4-5-20251001",
+        "origin": "otel",
+        "requestId": null,
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "auxiliary",
+        "tokens": {
+          "cacheCreation": 0,
+          "cacheRead": 0,
+          "input": 0,
+          "output": 0
+        },
+        "totalTokens": 0,
+        "ts": 1785933927500,
+        "worktreePath": null
+      }
+    ]
+  },
+  "traces": {
+    "bySession": {
+      "00000000-0000-4000-8000-000000000002": [
+        0
+      ]
+    },
+    "byTrace": {
+      "436580eac45805971b6cf0fb9b9e3850": [
+        0
+      ]
+    },
+    "spans": [
+      {
+        "agentId": null,
+        "branch": null,
+        "decision": null,
+        "endTs": 1785933925737,
+        "eventId": "otel-000001",
+        "kind": "llm_request",
+        "lane": "194",
+        "model": "claude-haiku-4-5-20251001",
+        "name": "claude_code.llm_request",
+        "parentAgentId": null,
+        "parentSpanId": "60903e34c234887a",
+        "requestId": "req_TEST000000000000000014",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "spanId": "d275843908f8bb67",
+        "startTs": 1785933923385,
+        "status": "unset",
+        "subagentType": null,
+        "thread": null,
+        "tokens": {
+          "cacheCreation": 0,
+          "cacheRead": 0,
+          "input": 1772,
+          "output": 17
+        },
+        "toolName": null,
+        "toolUseId": null,
+        "traceId": "436580eac45805971b6cf0fb9b9e3850",
+        "ts": 1785933926744,
+        "ttftMs": 1903,
+        "worktreePath": null
+      }
+    ]
+  },
+  "worktrees": {
+    "/repo/rhizomorph": {
+      "branch": "main",
+      "detached": false,
+      "dirtyFiles": [],
+      "dirtyUpdatedAt": 1785933902813,
+      "discoveredAt": 1785933821724,
+      "head": "abe0c2d8535b2bd63f1a9fee0768c20498cb89be",
+      "isMain": false,
+      "name": "rhizomorph",
+      "path": "/repo/rhizomorph",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/191": {
+      "branch": "191",
+      "detached": false,
+      "dirtyFiles": [],
+      "dirtyUpdatedAt": 1785933399595,
+      "discoveredAt": 1785933399595,
+      "head": "29c146d4c740704a803dacf666fd03adc2fa7b6b",
+      "isMain": false,
+      "name": "191",
+      "path": "/repo/rhizomorph__worktrees/191",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/194": {
+      "branch": "194",
+      "detached": false,
+      "dirtyFiles": [],
+      "dirtyUpdatedAt": null,
+      "discoveredAt": 1785933912818,
+      "head": "abe0c2d8535b2bd63f1a9fee0768c20498cb89be",
+      "isMain": false,
+      "name": "194",
+      "path": "/repo/rhizomorph__worktrees/194",
+      "present": true,
+      "removedAt": null
+    }
+  }
+}
