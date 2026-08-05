@@ -20,6 +20,7 @@ import {
   recordResume,
   type SessionBootDecision,
 } from '../log/session-log.js'
+import { LOCK_HEARTBEAT_INTERVAL_MS, removeSessionLock, writeSessionLock } from '../log/session-lock.js'
 import { buildApp } from '../server/build-app.js'
 import { loadCollectors } from '../server/collector-loader.js'
 import { exec as realExec } from '../server/exec.js'
@@ -189,6 +190,21 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
     lastBootReason: decision.reason,
   })
 
+  // Claim the session's lock as this process — beside the log, in this
+  // repo's own session dir, never anywhere else (the constitution's
+  // observer-owns-its-data-dir law intact). A boot that resumed just proved
+  // the previous lock (if any) was stale, so overwriting it with our own pid
+  // is exactly the handoff; a fresh boot claims a lock that never existed.
+  // The heartbeat keeps it fresh for as long as this process actually runs,
+  // so the next boot's `decideSessionBoot` can tell "still writing" from
+  // "crashed" without waiting out `LOCK_STALE_MS` in the common case —
+  // `isPidAlive` (`session-lock.ts`) reports a crashed pid gone immediately.
+  await writeSessionLock(sessionDir, sessionId, process.pid, now())
+  const lockHeartbeat = setInterval(() => {
+    void writeSessionLock(sessionDir, sessionId, process.pid, now())
+  }, LOCK_HEARTBEAT_INTERVAL_MS)
+  lockHeartbeat.unref()
+
   const collectors =
     options.collectors ??
     [
@@ -227,6 +243,8 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
     // pollLoop was never started: a listen failure means no in-flight tick can
     // leak past this catch and race a caller's cleanup (e.g. a test's rm of
     // its temp dataRoot) with an unawaited snapshot write.
+    clearInterval(lockHeartbeat)
+    await removeSessionLock(sessionDir, sessionId).catch(() => {})
     await app.close().catch(() => {})
     const code = err instanceof Error ? (err as NodeJS.ErrnoException).code : undefined
     const message =
@@ -253,8 +271,14 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
   )
 
   const stop = async () => {
+    clearInterval(lockHeartbeat)
     await pollLoop.stop()
     await app.close()
+    // A clean stop releases the lock immediately rather than waiting for the
+    // pid to die and the next boot's staleness check to notice — the same
+    // process may be the very next thing to boot this session (the resume
+    // tests do exactly that), and it shouldn't have to wait itself out.
+    await removeSessionLock(sessionDir, sessionId).catch(() => {})
   }
 
   return { app, recorder, pollLoop, url, stop }
@@ -283,6 +307,13 @@ function renderBootLine(decision: SessionBootDecision, sessionId: string, resume
   }
   if (decision.reason === 'fresh-flag') {
     return `starting session ${sessionId} (--fresh, or --resume-window 0, forced a new session)`
+  }
+  if (decision.reason === 'writer-alive' && decision.liveWriter) {
+    return (
+      `session ${decision.liveWriter.sessionId} is being written by a live instance ` +
+      `(pid ${decision.liveWriter.pid}) — starting a fresh session ${sessionId} instead; ` +
+      `use --fresh to silence, or stop the other instance`
+    )
   }
   return `starting session ${sessionId} (no previous session recorded)`
 }
