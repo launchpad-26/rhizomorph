@@ -53,7 +53,7 @@ function SelectionProbe() {
   return <div data-testid="selection-probe">{selectedId ?? ''}</div>
 }
 
-function renderPanel(events: readonly unknown[] = [], open = true) {
+async function renderPanel(events: readonly unknown[] = [], open = true) {
   let source: FakeEventSource | undefined
   const utils = render(
     <StreamProvider
@@ -71,7 +71,7 @@ function renderPanel(events: readonly unknown[] = [], open = true) {
     </StreamProvider>,
   )
   if (open) act(() => source?.open())
-  act(() => {
+  await act(async () => {
     for (const event of events) source?.emit(event)
   })
   return utils
@@ -92,20 +92,20 @@ describe('LedgerPanel', () => {
     expect(screen.getByText('Waiting for the stream…')).toBeInTheDocument()
   })
 
-  it('shows a calm empty state once connected with events but no branch telemetry', () => {
+  it('shows a calm empty state once connected with events but no branch telemetry', async () => {
     const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'empty' })
     f.sessionStarted()
-    renderPanel(f.all())
+    await renderPanel(f.all())
 
     expect(screen.getByText('No branch spend recorded yet this session.')).toBeInTheDocument()
     expect(screen.queryByText('Waiting for the stream…')).not.toBeInTheDocument()
   })
 
-  it('renders one row per branch the swarm fixture saw, dearest first, all live', () => {
+  it('renders one row per branch the swarm fixture saw, dearest first, all live', async () => {
     const session = reduceAll(fixtureTelemetrySession())
     const rows = selectSpendByBranch(session)
 
-    renderPanel(fixtureTelemetrySession())
+    await renderPanel(fixtureTelemetrySession())
 
     const rendered = screen.getAllByTestId('ledger-row')
     expect(rendered).toHaveLength(rows.length)
@@ -120,7 +120,7 @@ describe('LedgerPanel', () => {
     expect(screen.getByTestId('ledger-honesty')).toHaveTextContent('Dollars are notional')
   })
 
-  it('flags a branch Landed once its worktree has been removed, and keeps its cost', () => {
+  it('flags a branch Landed once its worktree has been removed, and keeps its cost', async () => {
     const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'land' })
     const branch = '48-branch-ledger'
     const path = '/repo/rhizomorph-wt/48-branch-ledger'
@@ -135,7 +135,7 @@ describe('LedgerPanel', () => {
     f.llmCost({ lane: branch, branch, worktreePath: path, costUsd: 0.75, authoritative: true })
     f.worktreeRemoved({ path })
 
-    renderPanel(f.all())
+    await renderPanel(f.all())
 
     const session = reduceAll(f.all())
     const row = selectSpendByBranch(session).find((entry) => entry.branch === branch)
@@ -148,7 +148,7 @@ describe('LedgerPanel', () => {
     expect(landedRow).toHaveTextContent(formatUsd(0.75))
   })
 
-  it('keeps a still-live branch Live, distinct from a landed one', () => {
+  it('keeps a still-live branch Live, distinct from a landed one', async () => {
     const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'live' })
     const branch = '9-still-going'
     const path = '/repo/rhizomorph-wt/9-still-going'
@@ -156,7 +156,7 @@ describe('LedgerPanel', () => {
     f.worktreeDiscovered({ path, branch, head: 'sha-0', isMain: false })
     f.llmUsage({ lane: branch, branch, worktreePath: path, tokens: { input: 1, output: 1, cacheRead: 0, cacheCreation: 0 } })
 
-    renderPanel(f.all())
+    await renderPanel(f.all())
 
     const rendered = screen.getAllByTestId('ledger-row')
     const liveRow = rendered.find((el) => el.textContent?.includes(branch))
@@ -164,7 +164,7 @@ describe('LedgerPanel', () => {
     expect(liveRow).not.toHaveTextContent('Landed')
   })
 
-  it('flags an estimated cost with "est." and shows tokens only when no cost telemetry exists', () => {
+  it('flags an estimated cost with "est." and shows tokens only when no cost telemetry exists', async () => {
     const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'mix' })
     f.sessionStarted()
     f.llmUsage({
@@ -187,7 +187,7 @@ describe('LedgerPanel', () => {
       tokens: { input: 1, output: 2_000, cacheRead: 50_000, cacheCreation: 0 },
     })
 
-    renderPanel(f.all())
+    await renderPanel(f.all())
 
     const rendered = screen.getAllByTestId('ledger-row')
     const estimatedRow = rendered.find((el) => el.textContent?.includes('estimated-branch'))
@@ -201,7 +201,7 @@ describe('LedgerPanel', () => {
     expect(tokensOnlyRow).not.toHaveTextContent('est.')
   })
 
-  it('shows the TOKENS column as an output-led figure with the four-tier breakdown in its title', () => {
+  it('shows the TOKENS column as an output-led figure with the four-tier breakdown in its title', async () => {
     const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'tokcol' })
     f.sessionStarted()
     f.llmUsage({
@@ -211,7 +211,7 @@ describe('LedgerPanel', () => {
     })
     f.llmCost({ lane: 'tokcol-branch', branch: 'tokcol-branch', costUsd: 0.42, authoritative: true })
 
-    renderPanel(f.all())
+    await renderPanel(f.all())
 
     const row = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes('tokcol-branch'))!
     const tokensCell = within(row).getByTestId('ledger-tokens')
@@ -223,7 +223,7 @@ describe('LedgerPanel', () => {
     )
   })
 
-  it('renders collapsed thread sub-rows for a mixed-thread lane that sum to its parent', () => {
+  it('renders collapsed thread sub-rows for a mixed-thread lane that sum to its parent', async () => {
     const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'threads' })
     f.sessionStarted()
     f.llmUsage({
@@ -253,7 +253,7 @@ describe('LedgerPanel', () => {
       authoritative: true,
     })
 
-    renderPanel(f.all())
+    await renderPanel(f.all())
 
     const threadedRow = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes('threaded'))!
     expect(threadedRow).toHaveTextContent(formatUsd(0.15))
@@ -287,7 +287,7 @@ describe('LedgerPanel', () => {
     expect(screen.queryAllByTestId('ledger-subrow')).toHaveLength(0)
   })
 
-  it('renders no sub-rows and no toggle for a lane with no thread data', () => {
+  it('renders no sub-rows and no toggle for a lane with no thread data', async () => {
     const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'nothread' })
     f.sessionStarted()
     f.llmUsage({
@@ -296,14 +296,14 @@ describe('LedgerPanel', () => {
       tokens: { input: 1, output: 10, cacheRead: 0, cacheCreation: 0 },
     })
 
-    renderPanel(f.all())
+    await renderPanel(f.all())
 
     const plainRow = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes('plain'))!
     expect(within(plainRow).queryByTestId('ledger-thread-toggle')).not.toBeInTheDocument()
     expect(screen.queryAllByTestId('ledger-subrow')).toHaveLength(0)
   })
 
-  it('does not leak expand/collapse state between lanes', () => {
+  it('does not leak expand/collapse state between lanes', async () => {
     const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'leak' })
     f.sessionStarted()
     f.llmUsage({
@@ -331,7 +331,7 @@ describe('LedgerPanel', () => {
       tokens: { input: 1, output: 40, cacheRead: 0, cacheCreation: 0 },
     })
 
-    renderPanel(f.all())
+    await renderPanel(f.all())
 
     const rows = () => screen.getAllByTestId('ledger-row')
     const alphaToggle = within(rows().find((el) => el.textContent?.includes('alpha'))!).getByTestId(
@@ -364,13 +364,13 @@ describe('LedgerPanel', () => {
 // ── connective tissue (#159) ────────────────────────────────────────────────
 
 describe('LedgerPanel — row drill-down (issue #159)', () => {
-  it('links a branch row to its own deep-linkable page', () => {
+  it('links a branch row to its own deep-linkable page', async () => {
     const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'drilldown' })
     const branch = '77-drilldown'
     f.sessionStarted()
     f.llmUsage({ lane: branch, branch, tokens: { input: 1, output: 10, cacheRead: 0, cacheCreation: 0 } })
 
-    renderPanel(f.all())
+    await renderPanel(f.all())
 
     const row = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes(branch))!
     const link = within(row).getByTestId('ledger-row-open')
@@ -378,13 +378,13 @@ describe('LedgerPanel — row drill-down (issue #159)', () => {
     expect(link.getAttribute('href')).toBe(`/lane/${branch}`)
   })
 
-  it('navigates the SPA in place on a plain click', () => {
+  it('navigates the SPA in place on a plain click', async () => {
     const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'drilldownclick' })
     const branch = '78-drilldown-click'
     f.sessionStarted()
     f.llmUsage({ lane: branch, branch, tokens: { input: 1, output: 10, cacheRead: 0, cacheCreation: 0 } })
 
-    renderPanel(f.all())
+    await renderPanel(f.all())
     window.history.replaceState(null, '', '/')
 
     const row = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes(branch))!
@@ -400,7 +400,7 @@ describe('LedgerPanel — row drill-down (issue #159)', () => {
 })
 
 describe('LedgerPanel — TOKENS sparkline (issue #159)', () => {
-  it('draws a spark once the branch has at least three honest buckets of history', () => {
+  it('draws a spark once the branch has at least three honest buckets of history', async () => {
     const branch = '79-sparkline'
     const f = createEventFactory({ startTs: NOW - 30 * 60_000, idPrefix: 'sparkline' })
     f.sessionStarted()
@@ -418,7 +418,7 @@ describe('LedgerPanel — TOKENS sparkline (issue #159)', () => {
       { ts: NOW - 1_000 },
     )
 
-    renderPanel(f.all())
+    await renderPanel(f.all())
 
     const row = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes(branch))!
     const tokensCell = within(row).getByTestId('ledger-tokens')
@@ -429,13 +429,13 @@ describe('LedgerPanel — TOKENS sparkline (issue #159)', () => {
     expect(tokensCell.textContent).toContain(formatTokens(600))
   })
 
-  it('draws nothing for a branch too young to have three honest buckets', () => {
+  it('draws nothing for a branch too young to have three honest buckets', async () => {
     const branch = '80-too-young'
     const f = createEventFactory({ startTs: NOW - 60_000, idPrefix: 'tooyoung' })
     f.sessionStarted()
     f.llmUsage({ lane: branch, branch, tokens: { input: 1, output: 50, cacheRead: 0, cacheCreation: 0 } })
 
-    renderPanel(f.all())
+    await renderPanel(f.all())
 
     const row = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes(branch))!
     const tokensCell = within(row).getByTestId('ledger-tokens')
@@ -446,19 +446,19 @@ describe('LedgerPanel — TOKENS sparkline (issue #159)', () => {
 })
 
 describe('LedgerPanel — the exemplar jump (issue #159)', () => {
-  it('offers no jump for a branch with no trace spans behind it', () => {
+  it('offers no jump for a branch with no trace spans behind it', async () => {
     const branch = '81-no-trace'
     const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'notrace' })
     f.sessionStarted()
     f.llmUsage({ lane: branch, branch, tokens: { input: 1, output: 10, cacheRead: 0, cacheCreation: 0 } })
 
-    renderPanel(f.all())
+    await renderPanel(f.all())
 
     const row = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes(branch))!
     expect(within(row).queryByTestId('ledger-exemplar-jump')).toBeNull()
   })
 
-  it('selects the lane and opens the trace focus request for a branch with spans behind it', () => {
+  it('selects the lane and opens the trace focus request for a branch with spans behind it', async () => {
     const branch = '82-exemplar'
     const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'exemplar' })
     f.sessionStarted()
@@ -487,8 +487,8 @@ describe('LedgerPanel — the exemplar jump (issue #159)', () => {
         </FleetProvider>
       </StreamProvider>,
     )
-    act(() => {
-      source?.open()
+    act(() => source?.open())
+    await act(async () => {
       for (const event of f.all()) source?.emit(event)
     })
 

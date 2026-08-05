@@ -53,7 +53,7 @@ function renderFeed(initialSelectedId: string | null = null) {
   )
   return {
     ...utils,
-    emit: (event: RhizomorphEvent) => act(() => source?.emit(event)),
+    emit: (event: RhizomorphEvent) => act(async () => source?.emit(event)),
     open: () => act(() => source?.open()),
   }
 }
@@ -85,18 +85,18 @@ describe('ActivityFeed', () => {
     expect(screen.getByText('Waiting for the stream…')).toBeInTheDocument()
   })
 
-  it('shows a calm empty state once connected with events but no activity', () => {
+  it('shows a calm empty state once connected with events but no activity', async () => {
     const { emit, open } = renderFeed()
     open()
-    emit(createEventFactory({ startTs: NOW }).sessionStarted())
+    await emit(createEventFactory({ startTs: NOW }).sessionStarted())
 
     expect(screen.getByText('No activity yet this session.')).toBeInTheDocument()
     expect(screen.queryByText('Waiting for the stream…')).not.toBeInTheDocument()
   })
 
-  it('folds commits, landings, lane starts/stops and collector events into one feed, newest first', () => {
+  it('folds commits, landings, lane starts/stops and collector events into one feed, newest first', async () => {
     const { emit } = renderFeed()
-    for (const event of scenarioEvents()) emit(event)
+    for (const event of scenarioEvents()) await emit(event)
 
     const rows = screen.getAllByTestId('feed-entry')
     const kinds = rows.map((row) => row.dataset.kind)
@@ -107,9 +107,9 @@ describe('ActivityFeed', () => {
     expect(rows[0]).toHaveTextContent('tmux')
   })
 
-  it('filters by kind when a kind tag is toggled off', () => {
+  it('filters by kind when a kind tag is toggled off', async () => {
     const { emit } = renderFeed()
-    for (const event of scenarioEvents()) emit(event)
+    for (const event of scenarioEvents()) await emit(event)
 
     expect(screen.getAllByTestId('feed-entry').some((row) => row.dataset.kind === 'collector')).toBe(
       true,
@@ -123,9 +123,9 @@ describe('ActivityFeed', () => {
     expect(screen.getByTestId('feed-kind-collector')).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('filters to the selected lane, using the fleet-resolved lane id', () => {
+  it('filters to the selected lane, using the fleet-resolved lane id', async () => {
     const { emit } = renderFeed('42-lane')
-    for (const event of scenarioEvents()) emit(event)
+    for (const event of scenarioEvents()) await emit(event)
 
     const rows = screen.getAllByTestId('feed-entry')
     expect(rows.length).toBeGreaterThan(0)
