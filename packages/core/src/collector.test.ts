@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import {
+  absentCapabilities,
+  capabilitiesOf,
+  deriveRung,
+  honestCapabilities,
+  mergeCapabilities,
+  nextRung,
+  rungInfo,
+  RUNGS,
+  SIGNALS,
+  UNKNOWN_CAPABILITIES,
+  type AdapterCapabilities,
   type AnyCollector,
+  type CapabilityLevel,
   type Collector,
   type CollectorContext,
+  type Rung,
   createCollectorContext,
 } from './collector.js'
 import { createIdFactory } from './events/index.js'
@@ -193,5 +206,176 @@ describe('createStubExec', () => {
       code: 0,
       failed: false,
     })
+  })
+})
+
+// ── prd15 ruling 4/5 — AdapterCapabilities and the enrichment rung ──────────
+
+function provided(): AdapterCapabilities {
+  const detail = { level: 'provided' as const }
+  return { identity: detail, liveness: detail, activity: detail, attention: detail, telemetry: detail, cost: detail }
+}
+
+function allAt(level: CapabilityLevel): AdapterCapabilities {
+  const detail =
+    level === 'provided' ? { level } : { level, reason: `stub ${level} signal for a test` }
+  return { identity: detail, liveness: detail, activity: detail, attention: detail, telemetry: detail, cost: detail }
+}
+
+describe('capabilitiesOf', () => {
+  it('returns a collector\'s own declaration when it has one', () => {
+    const withCaps: Pick<Collector, 'capabilities'> = { capabilities: provided() }
+    expect(capabilitiesOf(withCaps)).toBe(withCaps.capabilities)
+  })
+
+  it('gives the honest all-absent default to a collector that declares nothing — never a flattering guess', () => {
+    const bare: Pick<Collector, 'capabilities'> = {}
+    const result = capabilitiesOf(bare)
+    expect(result).toBe(UNKNOWN_CAPABILITIES)
+    for (const signal of SIGNALS) {
+      expect(result[signal].level).toBe('absent')
+      expect((result[signal] as { reason: string }).reason).toBeTruthy()
+    }
+  })
+})
+
+describe('absentCapabilities', () => {
+  it('turns every signal absent with the same reason and remedy — the disabled-collector override', () => {
+    const result = absentCapabilities('tmux binary not found', 'install tmux')
+    for (const signal of SIGNALS) {
+      expect(result[signal]).toEqual({ level: 'absent', reason: 'tmux binary not found', remedy: 'install tmux' })
+    }
+  })
+
+  it('never claims provided for a disabled collector, whatever its normal capabilities said', () => {
+    const disabled = absentCapabilities('workmux binary not found')
+    for (const signal of SIGNALS) {
+      expect(disabled[signal].level).not.toBe('provided')
+    }
+  })
+})
+
+describe('honestCapabilities', () => {
+  it('passes the declared capabilities through unchanged when active', () => {
+    const declared = provided()
+    expect(honestCapabilities({ capabilities: declared, active: true })).toBe(declared)
+  })
+
+  it('overrides to all-absent-with-reason when inactive, never the declared shape', () => {
+    const declared = provided()
+    const result = honestCapabilities({ capabilities: declared, active: false, inactiveReason: 'tmux not found on PATH' })
+    for (const signal of SIGNALS) {
+      expect(result[signal]).toEqual({ level: 'absent', reason: 'tmux not found on PATH' })
+    }
+  })
+
+  it('falls back to a generic reason when inactive with none given', () => {
+    const result = honestCapabilities({ capabilities: provided(), active: false })
+    expect(result.identity).toMatchObject({ level: 'absent' })
+    expect((result.identity as { reason: string }).reason).toBeTruthy()
+  })
+})
+
+describe('mergeCapabilities', () => {
+  it('is the honest default when nothing is merged', () => {
+    expect(mergeCapabilities([])).toBe(UNKNOWN_CAPABILITIES)
+  })
+
+  it('takes the best level per signal — a second witness only ever adds confidence', () => {
+    const weak = allAt('absent')
+    const strong: AdapterCapabilities = { ...allAt('absent'), attention: { level: 'provided' } }
+    const merged = mergeCapabilities([weak, strong])
+    expect(merged.attention.level).toBe('provided')
+    expect(merged.identity.level).toBe('absent')
+  })
+
+  it('never lets a disabled collector\'s absence pull a signal another collector still provides', () => {
+    const healthy = provided()
+    const disabled = absentCapabilities('binary missing')
+    const merged = mergeCapabilities([healthy, disabled])
+    for (const signal of SIGNALS) expect(merged[signal].level).toBe('provided')
+  })
+})
+
+describe('deriveRung — pure and total', () => {
+  it('every one of the 3^6 signal-level combinations maps to exactly one rung, no throw', () => {
+    const levels: CapabilityLevel[] = ['absent', 'partial', 'provided']
+    let count = 0
+    // Exhaustive over the whole space: 6 signals × 3 levels = 729 combinations.
+    for (let code = 0; code < 3 ** SIGNALS.length; code += 1) {
+      let remainder = code
+      const capabilities = {} as AdapterCapabilities
+      for (const signal of SIGNALS) {
+        const level = levels[remainder % 3]!
+        remainder = Math.floor(remainder / 3)
+        capabilities[signal] = level === 'provided' ? { level } : { level, reason: 'exhaustive test fixture' }
+      }
+      const rung = deriveRung(capabilities)
+      expect(RUNGS).toContain(rung)
+      count += 1
+    }
+    expect(count).toBe(729)
+  })
+
+  it('bare git alone (no signal above absent) sits at L0', () => {
+    expect(deriveRung(allAt('absent'))).toBe('L0')
+  })
+
+  it('the sessionlog shape (structural identity/liveness/activity/telemetry, inferred attention, no dollars) sits at L0', () => {
+    const capabilities: AdapterCapabilities = {
+      identity: { level: 'provided' },
+      liveness: { level: 'provided' },
+      activity: { level: 'provided' },
+      attention: { level: 'partial', reason: 'inferred from transcript shape' },
+      telemetry: { level: 'provided' },
+      cost: { level: 'absent', reason: 'no dollars without OTLP' },
+    }
+    expect(deriveRung(capabilities)).toBe('L0')
+  })
+
+  it('cost becoming anything but absent (env/OTLP) climbs to L1', () => {
+    const capabilities: AdapterCapabilities = {
+      ...allAt('absent'),
+      telemetry: { level: 'provided' },
+      cost: { level: 'partial', reason: 'estimated, not authoritative' },
+    }
+    expect(deriveRung(capabilities)).toBe('L1')
+  })
+
+  it('a heuristic-attention, telemetry-free shape (the PTY-wrapper signature) sits at L3', () => {
+    const capabilities: AdapterCapabilities = {
+      ...allAt('absent'),
+      activity: { level: 'provided' },
+      attention: { level: 'partial', reason: 'prompt-pattern heuristic, live' },
+    }
+    expect(deriveRung(capabilities)).toBe('L3')
+  })
+
+  it('declared attention (tmux/workmux) climbs to L4 regardless of the other five signals', () => {
+    const capabilities: AdapterCapabilities = { ...allAt('absent'), attention: { level: 'provided' } }
+    expect(deriveRung(capabilities)).toBe('L4')
+  })
+})
+
+describe('nextRung and rungInfo — the `_never`-exhaustive ladder order', () => {
+  it('climbs L0 through L4 and stops at the top', () => {
+    expect(nextRung('L0')).toBe('L1')
+    expect(nextRung('L1')).toBe('L2')
+    expect(nextRung('L2')).toBe('L3')
+    expect(nextRung('L3')).toBe('L4')
+    expect(nextRung('L4')).toBeNull()
+  })
+
+  it('names and gives a climb line for every rung, with no gaps', () => {
+    for (const rung of RUNGS) {
+      const info = rungInfo(rung)
+      expect(info.label).toContain(rung)
+      expect(info.climb.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('rejects an unknown rung at the `_never` guard rather than returning something made up', () => {
+    expect(() => nextRung('L5' as Rung)).toThrow()
+    expect(() => rungInfo('L5' as Rung)).toThrow()
   })
 })
