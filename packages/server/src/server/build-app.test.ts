@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { readSessionEvents, sessionFilePath } from '../log/session-log.js'
+import { readSessionEvents, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import { buildApp } from './build-app.js'
 import { SessionRecorder } from './recorder.js'
 
@@ -38,6 +38,12 @@ describe('buildApp integration', () => {
       repoName: 'repo',
       sessionId: '1000',
       startedAt: 1000,
+      // Additive boot facts (#180) — no boot recorded meta for this bare recorder, so this is
+      // the honest fallback: never resumed, nothing recorded, the stock window.
+      resumedCount: 0,
+      eventCount: 0,
+      resumeWindowMs: RESUME_WINDOW_MS,
+      lastBootReason: 'first-run',
     })
   })
 
