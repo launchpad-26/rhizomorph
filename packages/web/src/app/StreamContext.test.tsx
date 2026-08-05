@@ -138,7 +138,10 @@ describe('StreamContext driven by mode', () => {
 
     act(() => getSource()?.open())
     act(() => getSource()?.emit(liveWorktreeEvent()))
-    expect(screen.getByTestId('worktree-paths').textContent).toBe('/repo')
+    // #183: the live fold is now buffered and flushed on the next animation
+    // frame rather than synchronously inside `emit`, so this has to wait for
+    // that frame instead of reading state back immediately.
+    await waitFor(() => expect(screen.getByTestId('worktree-paths').textContent).toBe('/repo'))
 
     // Selecting a session chains through two mocked fetches (session list,
     // then that session's events) plus the scrubber's reset-to-start effect
@@ -244,10 +247,10 @@ describe('news vs history', () => {
    * not change the result by one field from folding it through the per-event
    * `foldStreamEvent` one at a time — proven bit-for-bit, over a burst that
    * arrives out of order and repeats an id (a duplicate SSE delivery, or two
-   * collectors racing the same commit). This holds regardless of which
-   * function `StreamProvider` actually wires the live connection to (see its
-   * own `#166` comment for why that's still `foldStreamEvent`): it is what
-   * makes `foldStreamEvents` safe to wire in later, without re-proving it.
+   * collectors racing the same commit). #183 is what actually wires
+   * `foldStreamEvents` into the live connection (`StreamContext.tsx`'s
+   * `reduce`, via `useEventStream`'s per-frame buffer) — this law is what made
+   * that safe to do without re-proving it there.
    */
   it('batched folding matches per-event folding exactly, including out-of-order arrival and a duplicate id (#166)', () => {
     const burst = [
@@ -272,11 +275,13 @@ describe('news vs history', () => {
 /**
  * #166's OWN BEFORE/AFTER: `foldStreamEvent` does `events: [...state.events,
  * event]`, an O(n) copy per event — O(n²) over a burst, which is exactly the
- * shape a reconnect replay has (`/api/stream` replays the whole session
- * before it live-tails). `foldStreamEvents` folds the same burst in one O(n)
- * pass. Sized for CI (moderate N, generous timeout) rather than the live
- * session's real ~46k events — see `useEventStream.ts`'s docstring for the
- * one-off measurement at that scale, which this is the repeatable proof of.
+ * shape a *fresh* page load has (`/api/stream` replays the whole session
+ * before it live-tails when there's no `Last-Event-ID` yet to resume from).
+ * `foldStreamEvents` folds the same burst in one O(n) pass. Sized for CI
+ * (moderate N, generous timeout) rather than the live session's real ~46k-55k
+ * events — `streamState.test.ts`'s `#183` bench reports the size-scaled
+ * before/after (5k/15k/55k) this issue's DoD asks for, and
+ * `useEventStream.ts`'s own docstring carries that table.
  *
  * Reported, not asserted (`scene/perf.test.ts`'s own discipline, restated
  * here): a wall clock under concurrent workers measures the machine, not the
