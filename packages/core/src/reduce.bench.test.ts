@@ -76,6 +76,61 @@ declare const process: { stdout: { write(chunk: string): void } }
  * lane stops here, per the brief — the index fix (usage by `requestId`,
  * costs/lanes by `sessionId`) is a separate, groomed lane now that the curve
  * has confirmed it is worth opening.
+ *
+ * ---
+ *
+ * ## #179 — THE FIX, RE-MEASURED ON THIS INSTRUMENT
+ *
+ * The index landed (`UsageIndex` in `reduce.ts`, plus the place join's
+ * change-guard). Same corpus, same prefixes, same three-run median. The box
+ * was under real load while these ran (`load average: 13`, sibling worktrees'
+ * suites), so per the discipline above the **ratios** are the claim and the
+ * absolute ms are not; every configuration was measured three times and the
+ * least-contended pass is quoted, with all three ratios given so the spread is
+ * visible.
+ *
+ * **The telemetry fold — what #179 owns** (the `spanless` lane below):
+ *
+ * | N      | before        | after      | before µs/ev | after µs/ev | faster |
+ * | ------ | ------------- | ---------- | ------------ | ----------- | ------ |
+ * | 5,000  |    19.12 ms   |   6.52 ms  |     3.82     |    1.30     |  2.9×  |
+ * | 15,000 |   139.31 ms   |  36.74 ms  |     9.29     |    2.45     |  3.8×  |
+ * | 30,000 |   584.76 ms   | 124.92 ms  |    19.49     |    4.16     |  4.7×  |
+ * | 55,000 | 2,740.03 ms   | 491.12 ms  |    49.82     |    8.93     |  5.6×  |
+ *
+ * µs/event growth across an 11× growth in N: **13.0× → 6.9×** (the three
+ * passes read 14.7× / 12.7× / 13.0× before, and 6.9× / 5.9× / 4.5× after).
+ * The per-event cost at the real session's own size fell 5.6×, and what
+ * remained of the rise more than halved. Each of the three scans the audit
+ * named is now a lookup that does not grow: `byRequest` for the dedup,
+ * `sessionlogSessions` for the coverage rule, `requestlessOtelBySession` for
+ * the retirement, and the cost/lane join gated on the place actually moving.
+ *
+ * **The residual, named rather than left as "noise".** The remaining rise is
+ * not a scan: it is the immutable append itself. `[...telemetry.usage, record]`
+ * copies an array that grows with the session, and `{ ...state.commits, [sha]:
+ * commit }` copies a Record that does too. Measured standalone at this
+ * corpus's record counts, that is ~210 ms of the 491 ms at N=55k, and there is
+ * no cheaper legal spelling — `[...a, x]` beat both `a.concat(x)` (1.8×
+ * slower) and `slice()`+`push` on this runtime. Removing it means mutating the
+ * arrays a previous frame still holds, which the purity laws in
+ * `reduce.telemetry.test.ts` and `state.test.ts` forbid outright. It is the
+ * state contract's own cost, and it is now the whole of the telemetry fold's
+ * curve.
+ *
+ * **The full-mix lane did not flatten, and here is why** (13.62 → 9.82 µs/ev
+ * at 5k, 229.20 → 186.35 at 55k; ratio 16.8× → 19.0×, which is *worse* on
+ * paper). After #179 that lane is ~90% one line of `traceSpan`: `{
+ * ...traces.byTrace, [traceId]: [...] }`, an immutable insert into a Record
+ * that gains a key per span, because this corpus deliberately gives every span
+ * its own `traceId`. Standalone, that pattern alone costs 50 / 518 / 2,367 /
+ * 8,866 ms at these four N — it was ~70% of the fold #174 measured, and taking
+ * the telemetry cost out only raised its share. See {@link SPANLESS_CORPUS}
+ * for why it cannot be fixed from here: `TraceState`'s key set is pinned by an
+ * oracle this lane may not touch, so moving that index out of recorded state
+ * is prd9's own state-contract argument to have, with its own oracle in front
+ * of it. **It is now measured rather than suspected, which is the honest
+ * hand-off.**
  */
 
 const BENCH_TIMEOUT_MS = 120_000
@@ -305,8 +360,38 @@ function buildCorpus(size: number): readonly RhizomorphEvent[] {
 
 const N_VALUES = [5_000, 15_000, 30_000, 55_000] as const
 
-/** Built once, at the largest N; every smaller N reads a prefix of it. */
-const CORPUS = buildCorpus(N_VALUES[N_VALUES.length - 1]!)
+/**
+ * Built once, with headroom; every N reads a prefix of it. The prelude and the
+ * per-index emission below depend on `i`, never on `size`, so a prefix of this
+ * corpus is byte-for-byte the corpus #174 measured at that N — the before/after
+ * comparison is against the same events, not merely the same recipe. The
+ * headroom exists so {@link SPANLESS_CORPUS} still reaches 55k after filtering.
+ */
+const CORPUS = buildCorpus(70_000)
+
+/**
+ * The same stream with prd9's `trace.span` withheld — the telemetry fold on its
+ * own (#179).
+ *
+ * The full-mix lane above measures a sum, and after #179 that sum is dominated
+ * by a mechanism #179 does not own: `traceSpan`'s `{ ...traces.byTrace,
+ * [traceId]: [...] }`, an immutable insert into a Record that gains a key per
+ * span, because this corpus deliberately gives every span its own `traceId`
+ * (see `emit`). Standalone, that pattern alone costs 50 / 518 / 2367 / 8866 ms
+ * at these four N — which is ~90% of the post-fix full-mix fold, and was ~70%
+ * of the fold #174 measured. It cannot be fixed here: `TraceState`'s key set is
+ * pinned by the additivity oracle in `reduce.telemetry.test.ts` (`traces` must
+ * equal exactly `{spans, byTrace, bySession}`), so the index cannot move out of
+ * the recorded state, and an immutable Record insert is O(keys) by
+ * construction. That is a state-contract change for prd9's slice, with its own
+ * oracle to argue in front of — a separate lane, now measured rather than
+ * suspected.
+ *
+ * Filtering *raises* telemetry density (30.0% → 34.6% of events are
+ * usage/cost/tool/activeTime), so this is a harder workload per event for the
+ * mechanisms #179 fixes, not a softer one.
+ */
+const SPANLESS_CORPUS = CORPUS.filter((event) => event.type !== 'trace.span')
 
 function report(line: string): void {
   process.stdout.write(`${line}\n`)
@@ -339,66 +424,98 @@ interface Result {
   msPerEvent: number
 }
 
-const results: Result[] = []
+/**
+ * One measured lane. Both lanes below run *this* code, so the two curves are
+ * the same instrument pointed at two corpora — a difference between them is a
+ * difference in the work, never in how the work was timed.
+ */
+function curveLane(title: string, corpus: readonly RhizomorphEvent[], prefix: string): void {
+  const results: Result[] = []
 
-describe('reduceAll at N = 5k / 15k / 30k / 55k, a realistic telemetry mix', () => {
-  // One small warmup fold before any measured size, so the first measured N
-  // is not also paying for JIT warmup — the reducer's hot functions
-  // (`dedupedUsage`, `placeCosts`, `withTelemetry`) get exercised once here.
-  it('warms up', () => {
-    reduceAll(CORPUS.slice(0, 1_000))
-    expect(true).toBe(true)
-  }, BENCH_TIMEOUT_MS)
+  describe(title, () => {
+    // One small warmup fold before any measured size, so the first measured N
+    // is not also paying for JIT warmup — the reducer's hot functions
+    // (`dedupedUsage`, `placeCosts`, `withTelemetry`) get exercised once here.
+    it('warms up', () => {
+      reduceAll(corpus.slice(0, 1_000))
+      expect(true).toBe(true)
+    }, BENCH_TIMEOUT_MS)
 
-  for (const n of N_VALUES) {
-    it(`folds ${n} events`, () => {
-      const events = CORPUS.slice(0, n)
-      expect(events).toHaveLength(n)
+    for (const n of N_VALUES) {
+      it(`folds ${n} events`, () => {
+        const events = corpus.slice(0, n)
+        expect(events).toHaveLength(n)
 
-      const { medianMs: ms, state: folded } = measureFold(events, 3)
-      const msPerEvent = ms / n
-      results.push({ n, ms, msPerEvent })
+        const { medianMs: ms, state: folded } = measureFold(events, 3)
+        const msPerEvent = ms / n
+        results.push({ n, ms, msPerEvent })
 
+        report(
+          `${prefix}reduceAll(${n} events): ${ms.toFixed(2)} ms · ${(msPerEvent * 1000).toFixed(3)} µs/event`,
+        )
+
+        // THE LAW, and it is shape rather than a clock (see the header): the
+        // fold actually ran over every event, and produced telemetry records
+        // rather than silently dropping them.
+        expect(folded.eventCount).toBe(n)
+        expect(folded.telemetry.usage.length).toBeGreaterThan(0)
+        expect(folded.telemetry.usage.length).toBeLessThanOrEqual(n)
+        expect(folded.telemetry.costs.length).toBeGreaterThan(0)
+        expect(folded.telemetry.costs.length).toBeLessThanOrEqual(n)
+        expect(ms).toBeGreaterThan(0)
+      }, BENCH_TIMEOUT_MS)
+    }
+
+    /**
+     * THE OTHER LAW, and the one #179 exists under: an index is an
+     * accelerator, so the fold's *output* must not be able to tell it is
+     * there. Two folds of one corpus, compared as the serialised bytes rather
+     * than by `toEqual`, at a size where every mechanism the reshape touched
+     * (dedup, session coverage, the cost/lane join) has run thousands of
+     * times. The deep laws — an index rebuilt from scratch mid-fold, two folds
+     * branching off one state — are pinned in `reduce.test.ts`; this is the
+     * bench's own corner of them, at bench scale.
+     */
+    it('folds the same events to byte-identical state, twice', () => {
+      const events = corpus.slice(0, 5_000)
+      const once = JSON.stringify(reduceAll(events))
+      const twice = JSON.stringify(reduceAll(events))
+      expect(twice).toBe(once)
+      expect(once.length).toBeGreaterThan(0)
+    }, BENCH_TIMEOUT_MS)
+
+    it('reports the curve — confirmed or killed, said plainly', () => {
+      expect(results).toHaveLength(N_VALUES.length)
+
+      const table = results
+        .map((r) => `N=${r.n}: ${r.ms.toFixed(2)} ms, ${(r.msPerEvent * 1000).toFixed(3)} µs/event`)
+        .join(' · ')
+      report(`${prefix}curve: ${table}`)
+
+      const first = results[0] as Result
+      const last = results[results.length - 1] as Result
+      const nRatio = last.n / first.n
+      const perEventRatio = last.msPerEvent / first.msPerEvent
+
+      // Reported, not asserted (see the header): whether this ratio reads as a
+      // line or a curve is exactly the honest human judgment call the issue
+      // asks for, not a threshold this suite should bake in and silently rot.
       report(
-        `reduceAll(${n} events): ${ms.toFixed(2)} ms · ${(msPerEvent * 1000).toFixed(3)} µs/event`,
+        `${prefix}N grew ${nRatio.toFixed(1)}× (${first.n} → ${last.n}); ms/event grew ` +
+          `${perEventRatio.toFixed(2)}× (${(first.msPerEvent * 1000).toFixed(3)} → ` +
+          `${(last.msPerEvent * 1000).toFixed(3)} µs/event). A flat ms/event across ` +
+          `that N growth is a straight line — kills the O(n²) claim. A ms/event ` +
+          `that grows with N is a curve — confirms it.`,
       )
 
-      // THE LAW, and it is shape rather than a clock (see the header): the
-      // fold actually ran over every event, and produced telemetry records
-      // rather than silently dropping them.
-      expect(folded.eventCount).toBe(n)
-      expect(folded.telemetry.usage.length).toBeGreaterThan(0)
-      expect(folded.telemetry.usage.length).toBeLessThanOrEqual(n)
-      expect(folded.telemetry.costs.length).toBeGreaterThan(0)
-      expect(folded.telemetry.costs.length).toBeLessThanOrEqual(n)
-      expect(ms).toBeGreaterThan(0)
+      expect(nRatio).toBeGreaterThan(1)
     }, BENCH_TIMEOUT_MS)
-  }
+  })
+}
 
-  it('reports the curve — confirmed or killed, said plainly', () => {
-    expect(results).toHaveLength(N_VALUES.length)
-
-    const table = results
-      .map((r) => `N=${r.n}: ${r.ms.toFixed(2)} ms, ${(r.msPerEvent * 1000).toFixed(3)} µs/event`)
-      .join(' · ')
-    report(`curve: ${table}`)
-
-    const first = results[0] as Result
-    const last = results[results.length - 1] as Result
-    const nRatio = last.n / first.n
-    const perEventRatio = last.msPerEvent / first.msPerEvent
-
-    // Reported, not asserted (see the header): whether this ratio reads as a
-    // line or a curve is exactly the honest human judgment call the issue
-    // asks for, not a threshold this suite should bake in and silently rot.
-    report(
-      `N grew ${nRatio.toFixed(1)}× (${first.n} → ${last.n}); ms/event grew ` +
-        `${perEventRatio.toFixed(2)}× (${(first.msPerEvent * 1000).toFixed(3)} → ` +
-        `${(last.msPerEvent * 1000).toFixed(3)} µs/event). A flat ms/event across ` +
-        `that N growth is a straight line — kills the O(n²) claim. A ms/event ` +
-        `that grows with N is a curve — confirms it.`,
-    )
-
-    expect(nRatio).toBeGreaterThan(1)
-  }, BENCH_TIMEOUT_MS)
-})
+curveLane('reduceAll at N = 5k / 15k / 30k / 55k, a realistic telemetry mix', CORPUS, '')
+curveLane(
+  'reduceAll at N = 5k / 15k / 30k / 55k, the same mix without prd9 spans',
+  SPANLESS_CORPUS,
+  'spanless · ',
+)
