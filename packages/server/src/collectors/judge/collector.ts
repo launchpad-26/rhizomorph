@@ -33,6 +33,18 @@ export interface JudgeSnapshot {
    * needs an explicit eviction policy.
    */
   reported: Record<string, true>
+  /**
+   * branch → symbols extracted the last time this lane was actually swept
+   * (`extractLaneSymbols`), plus the head that extraction was against. A lane
+   * whose current head still matches the cached head is unchanged since the
+   * last run, so the sweep reuses these symbols instead of re-spawning `git
+   * diff` — and a pair where NEITHER lane's head moved skips its
+   * `merge-tree` too, since a re-check against unchanged git state can only
+   * repeat the answer it already gave. Rebuilt fresh from only the lanes
+   * `discoverLanes` still reports, so a lane that vanishes falls away on its
+   * own, same discipline as `reported`.
+   */
+  laneSymbols: Record<string, { head: string; symbols: string[] }>
 }
 
 export function createJudgeCollector(options: JudgeCollectorOptions = {}): Collector<JudgeSnapshot> {
@@ -42,7 +54,7 @@ export function createJudgeCollector(options: JudgeCollectorOptions = {}): Colle
     name: COLLECTOR_NAME,
 
     initialSnapshot(): JudgeSnapshot {
-      return { disabled: false, lastRunAt: null, reported: {} }
+      return { disabled: false, lastRunAt: null, reported: {}, laneSymbols: {} }
     },
 
     async poll(prevSnapshot, context: CollectorContext): Promise<PollResult<JudgeSnapshot>> {
@@ -74,13 +86,35 @@ export function createJudgeCollector(options: JudgeCollectorOptions = {}): Colle
         // Nothing to corroborate yet — graceful no-op, same as workmux's
         // "binary missing" latch but without disabling: this is a normal,
         // expected shape of a session that hasn't forked into lanes yet.
-        return { nextSnapshot: { disabled: false, lastRunAt: context.now, reported: {} }, events: [] }
+        return {
+          nextSnapshot: { disabled: false, lastRunAt: context.now, reported: {}, laneSymbols: {} },
+          events: [],
+        }
       }
 
       const events: RhizomorphEvent[] = []
       const symbolsByBranch = new Map<string, string[]>()
+      const nextLaneSymbols: Record<string, { head: string; symbols: string[] }> = {}
+
+      // A lane whose head still matches its cached head hasn't changed since
+      // the last sweep — re-diffing it can only repeat the answer already on
+      // file. Cache-miss (never swept, or a boot-time first run) counts as
+      // moved, so a fresh lane always gets its first real sweep.
+      const moved = new Set<string>()
+      for (const lane of lanes) {
+        const cached = prevSnapshot.laneSymbols[lane.branch]
+        if (cached === undefined || cached.head !== lane.head) {
+          moved.add(lane.branch)
+        }
+      }
 
       for (const lane of lanes) {
+        const cached = prevSnapshot.laneSymbols[lane.branch]
+        if (!moved.has(lane.branch) && cached !== undefined) {
+          symbolsByBranch.set(lane.branch, cached.symbols)
+          nextLaneSymbols[lane.branch] = cached
+          continue
+        }
         try {
           const extracted = await extractLaneSymbols({
             exec: context.exec,
@@ -89,6 +123,7 @@ export function createJudgeCollector(options: JudgeCollectorOptions = {}): Colle
             branch: lane.branch,
           })
           symbolsByBranch.set(lane.branch, extracted.symbols)
+          nextLaneSymbols[lane.branch] = { head: lane.head, symbols: extracted.symbols }
         } catch (error) {
           events.push(
             context.emit('collector.error', {
@@ -108,6 +143,13 @@ export function createJudgeCollector(options: JudgeCollectorOptions = {}): Colle
           const right = lanes[j]
           if (!left || !right || left.branch === right.branch) continue
           const [first, second] = left.branch < right.branch ? [left, right] : [right, left]
+
+          // Neither side of this pair moved since the last time it was
+          // actually checked — the git state it would be checked against is
+          // identical, so a re-check can only reproduce the same finding (or
+          // absence of one) already settled last run. Skip both the
+          // symbol-overlap compare and the merge-tree spawn for it.
+          if (!moved.has(first.branch) && !moved.has(second.branch)) continue
 
           const symbolsA = symbolsByBranch.get(first.branch)
           const symbolsB = symbolsByBranch.get(second.branch)
@@ -165,7 +207,7 @@ export function createJudgeCollector(options: JudgeCollectorOptions = {}): Colle
       }
 
       return {
-        nextSnapshot: { disabled: false, lastRunAt: context.now, reported: nextReported },
+        nextSnapshot: { disabled: false, lastRunAt: context.now, reported: nextReported, laneSymbols: nextLaneSymbols },
         events,
       }
     },
