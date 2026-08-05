@@ -237,6 +237,14 @@ function bandTitle(band: Band, lane: string): string {
   return `${range} · ${lane} · ${state} · Duration ${formatDuration(band.durationMs)}`
 }
 
+/**
+ * The chip's own gutter width (issue #189 defect 2: "must not overprint the
+ * band's fills"). Pinned to the row's leading edge regardless of where the
+ * coalesced band itself lands, so the count is never the text an operator
+ * has to go find sitting inside — and never on top of — a colour fill.
+ */
+const MORE_CHIP_WIDTH_PX = 28
+
 function MoreRowView({
   row,
   byLane,
@@ -252,7 +260,7 @@ function MoreRowView({
   const x = scale.xOf(bounds.firstSeenTs)
   const width = Math.max(0, scale.xOf(bounds.lastSeenTs) - x)
   const label = `+${row.count}`
-  const showLabel = labelFits(width, label)
+  const showLabel = labelFits(scale.width, label)
   const title = `${formatRange(bounds.firstSeenTs, bounds.lastSeenTs)} · ${row.count} lanes · Duration ${formatDuration(bounds.lastSeenTs - bounds.firstSeenTs)}`
 
   return (
@@ -262,23 +270,23 @@ function MoreRowView({
       aria-label={`${row.count} more lanes`}
       className="relative"
       style={{ height: rowHeight, width: scale.width }}
+      title={title}
     >
       <div
         data-testid="tide-band"
         data-band-kind="more"
-        className="tide-band-more absolute top-0 flex items-center overflow-hidden bg-ice-600"
+        className="tide-band-more absolute top-0 overflow-hidden bg-ice-600"
         style={{ left: x, width, height: rowHeight }}
-        title={title}
-      >
-        {showLabel ? (
-          <span
-            className="figures px-1 text-[9px] font-medium tracking-wide text-ice-050"
-            style={LABEL_HALO_STYLE}
-          >
-            {label}
-          </span>
-        ) : null}
-      </div>
+      />
+      {showLabel ? (
+        <span
+          data-testid="tide-more-chip"
+          className="figures pointer-events-none absolute left-0 top-0 flex items-center bg-ice-950 px-1 text-[9px] font-medium tracking-wide text-ice-050"
+          style={{ height: rowHeight, minWidth: MORE_CHIP_WIDTH_PX }}
+        >
+          {label}
+        </span>
+      ) : null}
     </div>
   )
 }
