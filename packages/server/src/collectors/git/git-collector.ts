@@ -1,4 +1,5 @@
 import type {
+  AdapterCapabilities,
   Collector,
   CollectorContext,
   DirtyFile,
@@ -14,12 +15,48 @@ import type { GitBranchState, GitSnapshot, GitWorktreeState } from './types.js'
 
 const COLLECTOR_NAME = 'git'
 
+/**
+ * prd15 ruling 5's L0 floor: git alone is fully CLI-agnostic and structural
+ * for identity, but everything else is a lagging inference over commits and
+ * dirty-file deltas, with no attention or telemetry signal at all — the
+ * adapters spike's own §3a scoring (`docs/research/2026-08-05-agnostic-adapters-spike.md`).
+ */
+export const GIT_CAPABILITIES: AdapterCapabilities = {
+  identity: { level: 'provided' },
+  liveness: {
+    level: 'partial',
+    reason: 'commit and dirty-file cadence only — minutes-scale, no live read',
+    remedy: 'the sessionlog transcript organ gives a live liveness read from the same worktree',
+  },
+  activity: {
+    level: 'partial',
+    reason: 'diffstat and dirty-file deltas only — lagging, no in-flight view',
+    remedy: 'the sessionlog transcript organ streams per-message activity',
+  },
+  attention: {
+    level: 'absent',
+    reason: 'git carries no signal for whether a lane is blocked on a human',
+    remedy: 'the sessionlog transcript organ infers it from turn shape; a hook beacon would declare it',
+  },
+  telemetry: {
+    level: 'absent',
+    reason: 'git carries no token or usage data',
+    remedy: 'the sessionlog transcript organ reads tokens from the CLI transcript',
+  },
+  cost: {
+    level: 'absent',
+    reason: 'git carries no cost data',
+    remedy: 'env vars at launch (`rhizomorph env <lane>`) bring OTLP dollars where the CLI reports them',
+  },
+}
+
 function runGit(context: CollectorContext, args: readonly string[], cwd: string): Promise<ExecResult> {
   return context.exec('git', args, { cwd })
 }
 
 export const gitCollector: Collector<GitSnapshot> = {
   name: COLLECTOR_NAME,
+  capabilities: GIT_CAPABILITIES,
 
   initialSnapshot(): GitSnapshot {
     return { disabled: false, mainBranch: null, worktrees: {}, branches: {}, dirty: {} }

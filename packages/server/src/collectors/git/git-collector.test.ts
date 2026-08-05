@@ -276,4 +276,31 @@ branch refs/heads/main
     expect(poll2.events).toEqual([])
     expect(poll2.nextSnapshot).toBe(nextSnapshot)
   })
+
+  it('capabilities: declares identity provided (worktree.discovered names path+branch) and never claims a signal it has no event to back', async () => {
+    expect(gitCollector.capabilities?.identity).toEqual({ level: 'provided' })
+
+    const exec: Exec = async (command, args) => {
+      if (command === 'git' && args[0] === 'worktree' && args[1] === 'list') {
+        return { stdout: 'worktree /repo\nHEAD abc123\nbranch refs/heads/main\n', stderr: '', code: 0, failed: false }
+      }
+      if (command === 'git' && args[0] === 'for-each-ref') {
+        return { stdout: 'main abc123\n', stderr: '', code: 0, failed: false }
+      }
+      return { stdout: '', stderr: '', code: 0, failed: false }
+    }
+    const context = makeContext(exec, 1000)
+    const { events } = await gitCollector.poll(gitCollector.initialSnapshot(), context)
+
+    const discovered = events.find((event) => event.type === 'worktree.discovered')
+    expect(discovered?.payload).toMatchObject({ path: '/repo', branch: 'main' })
+
+    // git never emits llm.usage, tool.activity or agent.status — its own
+    // capabilities honestly declare exactly that.
+    expect(events.some((event) => event.type === 'llm.usage')).toBe(false)
+    expect(events.some((event) => event.type === 'agent.status')).toBe(false)
+    expect(gitCollector.capabilities?.attention.level).toBe('absent')
+    expect(gitCollector.capabilities?.telemetry.level).toBe('absent')
+    expect(gitCollector.capabilities?.cost.level).toBe('absent')
+  })
 })
