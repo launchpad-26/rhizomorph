@@ -70,12 +70,14 @@ function fetchImplFor(recordings: unknown[]): FetchLike {
 function renderPage(options: {
   recordings?: unknown[]
   fetchImpl?: FetchLike
+  /** The balcony's own separate session-list fetch (`ModeContext`) — defaults to the same fixture as `fetchImpl`, distinct only where a test needs to tell the two caches apart. */
+  modeFetchImpl?: FetchLike
   labelFetchImpl?: LabelFetchLike
   downloadEnv?: DownloadEnv
 } = {}) {
   const fetchImpl = options.fetchImpl ?? fetchImplFor(options.recordings ?? [AUTHORITATIVE, ESTIMATED, NO_COST_FEED])
   return render(
-    <ModeProvider fetchImpl={fetchImpl}>
+    <ModeProvider fetchImpl={options.modeFetchImpl ?? fetchImpl}>
       <RecordingsPage fetchImpl={fetchImpl} labelFetchImpl={options.labelFetchImpl} downloadEnv={options.downloadEnv} />
     </ModeProvider>,
   )
@@ -140,17 +142,19 @@ describe('RecordingsPage', () => {
     await waitFor(() => expect(screen.getByTestId('recordings-error')).toBeInTheDocument())
   })
 
-  it('renaming a row updates its title in place, without a full reload of the listing', async () => {
+  it('renaming a row updates its title in place, without a full reload of the page\'s own listing', async () => {
     const labelFetchImpl: LabelFetchLike = vi.fn(async () => ({
       ok: true,
       status: 200,
       json: async () => ({ sessionId: '2000', label: 'renamed run' }),
     }))
     const fetchImpl = vi.fn(fetchImplFor([AUTHORITATIVE, ESTIMATED, NO_COST_FEED]))
-    renderPage({ fetchImpl, labelFetchImpl })
+    const modeFetchImpl = vi.fn(fetchImplFor([AUTHORITATIVE, ESTIMATED, NO_COST_FEED]))
+    renderPage({ fetchImpl, modeFetchImpl, labelFetchImpl })
     await waitFor(() => expect(screen.getByTestId('recordings-table')).toBeInTheDocument())
 
     const initialCalls = fetchImpl.mock.calls.length
+    const initialModeCalls = modeFetchImpl.mock.calls.length
     await click(screen.getByTestId('rename-start-2000'))
     await act(async () => {
       fireEvent.change(screen.getByTestId('rename-input-2000'), { target: { value: 'renamed run' } })
@@ -159,8 +163,11 @@ describe('RecordingsPage', () => {
 
     expect(labelFetchImpl).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId('rename-start-2000')).toHaveTextContent('renamed run')
-    // No re-fetch of the whole listing — the row updated from the save's own answer.
+    // No re-fetch of the page's own listing — the row updated from the save's own answer.
     expect(fetchImpl.mock.calls.length).toBe(initialCalls)
+    // The balcony's separate session picker DOES get told to refresh, so it
+    // does not keep showing the stale auto-title after this rename.
+    await waitFor(() => expect(modeFetchImpl.mock.calls.length).toBeGreaterThan(initialModeCalls))
   })
 
   it('opening a row selects it in the existing replay session and returns to the balcony', async () => {

@@ -49,7 +49,7 @@ function goBalcony(): void {
 }
 
 export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: RecordingsPageProps = {}) {
-  const { selectAndPlay } = useReplay()
+  const { selectAndPlay, refreshSessions } = useReplay()
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [exportingId, setExportingId] = useState<string | null>(null)
   const [exportError, setExportError] = useState<{ id: string; message: string } | null>(null)
@@ -76,6 +76,10 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
         ? prev
         : { status: 'ready', recordings: prev.recordings.map((r) => (r.id === id ? { ...r, title: label, label } : r)) },
     )
+    // The balcony's own session picker (`replay/index.tsx`) fetched the listing
+    // separately and caches it — without this it would keep showing the old
+    // auto-title after a rename until something else happened to refetch it.
+    refreshSessions()
   }
 
   async function doExport(id: string): Promise<void> {
