@@ -291,6 +291,17 @@ async function checkSessionBoundary(repoPath: string, dataRoot: string | undefin
     }
   }
 
+  if (decision.reason === 'writer-alive' && decision.liveWriter) {
+    return {
+      id: 'session-boundary',
+      status: 'warn',
+      message:
+        `session ${decision.liveWriter.sessionId} is being written by a live instance ` +
+        `(pid ${decision.liveWriter.pid}) — the next run will start a fresh session instead of resuming it, ` +
+        `${forceFlag} to silence this, or stop the other instance`,
+    }
+  }
+
   if (decision.resumed) {
     const size = await sessionFileSize(decision.resumed.filePath)
     const age = decision.previousAgeMs === null ? 'unknown age' : `${formatBootDuration(decision.previousAgeMs)} old`

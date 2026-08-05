@@ -7,6 +7,7 @@ import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { sessionDirFor } from '../log/paths.js'
 import { readResumedCount, recordResume, RESUME_WINDOW_MS, SessionLogWriter, sessionFilePath } from '../log/session-log.js'
+import { writeSessionLock } from '../log/session-lock.js'
 import { renderDoctorReport, runDoctor, type DoctorCheck } from './doctor.js'
 
 function okResult(stdout = ''): ExecResult {
@@ -673,6 +674,59 @@ describe('runDoctor', () => {
       expect(boundary.status).toBe('ok')
       expect(boundary.message).toContain('stale')
       expect(boundary.message).toContain('starts a fresh one')
+    })
+
+    it('names a live writer instead of the resumable session it is blocking, with its pid and the remedy', async () => {
+      const sessionDir = sessionDirFor(repoPath, dataRoot)
+      const filePath = sessionFilePath(sessionDir, '1000')
+      await new SessionLogWriter(filePath).append(
+        createEvent('session.started', { sessionId: '1000', repoPath, repoName: 'repo' }, { id: 'evt-1', ts: 1000 }),
+      )
+      await writeSessionLock(sessionDir, '1000', process.pid, 1000)
+
+      const report = await runDoctor({
+        path: repoPath,
+        port: 0,
+        exec: healthyExec,
+        webDistDir,
+        claudeProjectsRoot,
+        dataRoot,
+        now: () => 1000 + 5000,
+      })
+
+      const boundary = checkFor(report.checks, 'session-boundary')
+      expect(boundary.status).toBe('warn')
+      expect(boundary.message).toContain('session 1000 is being written by a live instance')
+      expect(boundary.message).toContain(`pid ${process.pid}`)
+      expect(boundary.message).toContain('--fresh')
+      expect(boundary.message).toContain('stop the other instance')
+    })
+
+    it('names the session as resumable once its lock names a dead pid — a crash never strands it', async () => {
+      const { spawnSync } = await import('node:child_process')
+      const dead = spawnSync(process.execPath, ['-e', '']).pid
+      if (!dead) throw new Error('expected the probe process to have been given a pid')
+
+      const sessionDir = sessionDirFor(repoPath, dataRoot)
+      const filePath = sessionFilePath(sessionDir, '1000')
+      await new SessionLogWriter(filePath).append(
+        createEvent('session.started', { sessionId: '1000', repoPath, repoName: 'repo' }, { id: 'evt-1', ts: 1000 }),
+      )
+      await writeSessionLock(sessionDir, '1000', dead, 1000)
+
+      const report = await runDoctor({
+        path: repoPath,
+        port: 0,
+        exec: healthyExec,
+        webDistDir,
+        claudeProjectsRoot,
+        dataRoot,
+        now: () => 1000 + 5000,
+      })
+
+      const boundary = checkFor(report.checks, 'session-boundary')
+      expect(boundary.status).toBe('ok')
+      expect(boundary.message).toContain('session 1000 would resume')
     })
 
     it('never writes anything: a doctor run is not itself a boot', async () => {
