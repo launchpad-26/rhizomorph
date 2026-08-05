@@ -54,6 +54,26 @@ describe('GET /api/meta', () => {
     }
   })
 
+  it('carries "writer-alive" — the agnosticism spike\'s liveness-guard reason — the same as any other lastBootReason', async () => {
+    await setup()
+    try {
+      const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+      recordSessionBootMeta(recorder, {
+        resumedCount: 0,
+        eventCount: 0,
+        resumeWindowMs: RESUME_WINDOW_MS,
+        lastBootReason: 'writer-alive',
+      })
+
+      const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+      const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as Record<string, unknown>
+
+      expect(body).toMatchObject({ lastBootReason: 'writer-alive' })
+    } finally {
+      await teardown()
+    }
+  })
+
   it("law: meta's boot fields agree with the exact recorder instance's recorded state, not a global default", async () => {
     await setup()
     try {
