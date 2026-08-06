@@ -47,7 +47,7 @@ export interface Ink {
  * does not own. `palette.test.ts` sweeps every activity/freshness/heat through
  * `spend` and holds the pair to `CALM_CEILING`.
  *
- * See docs/decisions/palette-vibrancy-dials.md for why and by how much.
+ * See docs/design-notes/palette-vibrancy-dials.md for why and by how much.
  */
 
 /**
@@ -56,7 +56,7 @@ export interface Ink {
  * not a swatch, and twenty saturated cords would read as a bag of colours
  * instead of one picture. `waiting` stays the highest: benign amber is the
  * state most easily confused with a green at a glance, and hue is the channel
- * that separates them. See docs/decisions/palette-vibrancy-dials.md.
+ * that separates them. See docs/design-notes/palette-vibrancy-dials.md.
  */
 const ACTIVITY_TINT: Record<LaneActivity, number> = {
   working: 0.56,
@@ -73,7 +73,7 @@ const ACTIVITY_TINT: Record<LaneActivity, number> = {
  * `CALM_FLOOR` in `salience.ts` is the hard lower bound this must stay above.
  * Raising this dial never moves the ceiling: a maximally fresh, maximally hot
  * thread still lands over `CALM_CEILING` and is still held there by `spend`.
- * See docs/decisions/palette-vibrancy-dials.md.
+ * See docs/design-notes/palette-vibrancy-dials.md.
  */
 export const CALM_BODY_FLOOR = 0.58
 
@@ -86,7 +86,7 @@ export const CALM_BODY_FLOOR = 0.58
  * This dial is on the branchlets and must never reach the glow amendment's own
  * bounds (`TIP_CEILING`, `TIP_GLOW_RADIUS`, working tips only, no fade
  * exemption in `marks/node.ts`) — the branchlets are not the glow.
- * See docs/decisions/palette-vibrancy-dials.md.
+ * See docs/design-notes/palette-vibrancy-dials.md.
  */
 export const TUFT_WASH = 0.16
 
@@ -102,7 +102,7 @@ export const TUFT_WASH = 0.16
  * legibility law (`RIM_VEIL`) comes out stricter in replay than live, and
  * `marks.test.ts` asserts it in both modes.
  *
- * See docs/decisions/palette-vibrancy-dials.md for why 1.6 and not a more
+ * See docs/design-notes/palette-vibrancy-dials.md for why 1.6 and not a more
  * obvious 1.2, and for the tension with ruling 16 this number deliberately
  * doesn't resolve.
  */
@@ -162,7 +162,7 @@ export const NECROTIC: Rgb = [74, 82, 102]
  * never chrome. Its OKLCH hue (295.5, low chroma) must stay 41° clear of the ice
  * ramp, 87° from notice-cyan and 78° from broken-red — `palette.test.ts` measures
  * all three — and the whole ramp must stay below the text-contrast floor, since
- * tissue is never ink. See docs/decisions/palette-tissue-accent.md.
+ * tissue is never ink. See docs/design-notes/palette-tissue-accent.md.
  */
 export const TISSUE_900: Rgb = [30, 24, 51]
 export const TISSUE_700: Rgb = [50, 39, 82]
@@ -199,7 +199,7 @@ export function tissueAt(t: number): Rgb {
  * The only place a status hue and the accent are allowed to touch. Entered from
  * the ramp's light end and travelled downward — a mote must arrive at the heart
  * as one of the ramp's own dark depths, not a bright violet dot laid on top of
- * them. See docs/decisions/palette-tissue-accent.md.
+ * them. See docs/design-notes/palette-tissue-accent.md.
  */
 export function returningInk(family: Rgb, journey: number, luminance: number): Ink {
   const t = clamp01(journey)

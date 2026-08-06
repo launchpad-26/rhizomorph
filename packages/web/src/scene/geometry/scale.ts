@@ -33,7 +33,7 @@ export const RECENCY_SPAN_MS = 10 * 60_000
  * ABSOLUTE SEED SIZE (prd6 ruling 1) — how much output reads as a full-grown
  * seed. The scale is **fixed**: nothing in {@link seedSize} looks at another
  * lane, so a lane's size is a fact about that lane, not the fleet's busiest
- * one. See docs/decisions/geometry-absolute-scale.md for why it takes two
+ * one. See docs/design-notes/geometry-absolute-scale.md for why it takes two
  * reference points rather than one.
  */
 export const SEED_TOKENS = 1_000
@@ -62,7 +62,7 @@ export function seedSize(outputTokens: number): number {
 /**
  * THE MASS GROWS WITH THE WORK (prd6 ruling 2) — a *geometry* fact, on the
  * same absolute-scale discipline as {@link seedSize}. See
- * docs/decisions/geometry-absolute-scale.md for #118's wreath finding and why
+ * docs/design-notes/geometry-absolute-scale.md for #118's wreath finding and why
  * both constraints below matter.
  *
  * 1. The ceiling is {@link ROOT_GROWTH.maxReach} of `min(rx, ry)` — a fraction
@@ -82,7 +82,7 @@ export const ROOT_GROWTH = {
    * THE CAP, as a fraction of the distance from the centre to the nearest point
    * of the retirement band. Half — found empirically, not reasoned; the failure
    * modes either side of 0.5 are documented in
-   * docs/decisions/geometry-absolute-scale.md. Keep it clear of both: too low
+   * docs/design-notes/geometry-absolute-scale.md. Keep it clear of both: too low
    * and the mass never escapes the newborn nodes' clearance, too high and the
    * lifecycle band (born to rim) gets squeezed into unreadability.
    */
@@ -114,7 +114,7 @@ export function rootRadiusFor(resting: number, rx: number, ry: number, fullness:
 
 /**
  * THE LIFECYCLE JOURNEY (prd6 ruling 4) — what distance from the mass means.
- * See docs/decisions/geometry-layout-encoding.md for why this replaced
+ * See docs/design-notes/geometry-layout-encoding.md for why this replaced
  * distance-as-recency.
  *
  * Every term in the blend must stay **monotone** — a radius that could go
@@ -220,7 +220,7 @@ export const LABELS_ALL_MAX = 28
 
 /**
  * THE RELAX REACH, **in px of arc length, not a fraction of it** (the rim is
- * a wide ellipse — see docs/decisions/geometry-relax-reach.md, #102): how much
+ * a wide ellipse — see docs/design-notes/geometry-relax-reach.md, #102): how much
  * of a finished strand ({@link RETIRE_RELAX_PX} is how far it bends,
  * this is how much of it) eases outward past the rim, sized by the lane's own
  * work ({@link seedSize}) so thirty finished lanes end at thirty different radii.

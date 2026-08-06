@@ -134,7 +134,7 @@ function homewardFlow(path: readonly Point[], withdraw: number): Point[] | null 
 /**
  * THE STRAND A FINISHED LANE KEEPS (prd10 rulings 13–15) — the whole of it,
  * root-mass rim to node, threaded in at both ends; no code path here can
- * shorten or empty it. See docs/decisions/geometry-return-as-shape.md.
+ * shorten or empty it. See docs/design-notes/geometry-return-as-shape.md.
  *
  * Keeps the whole thread's taper, so `thread width = work size` survives
  * intact: the *encoding* lives here, the *hierarchy* (how much thinner,

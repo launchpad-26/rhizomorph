@@ -56,7 +56,7 @@ const PATHOLOGY_PRIORITY: readonly PathologyKind[] = [
  * THE DRIFT BAND (#117) — how far a finished lane's *tip* relaxes outward, on
  * top of the lifecycle pin's own journey to the rim: a local bend, each lane
  * by its own amount between `min` and `max`. See
- * docs/decisions/geometry-relax-reach.md for why a band and why seeded from
+ * docs/design-notes/geometry-relax-reach.md for why a band and why seeded from
  * the lane's identity rather than from when it retired.
  *
  * Outward only, so a retired lane stays at the rim or past it and a living
@@ -85,7 +85,7 @@ const SLACK_HABIT = { min: 0.7, max: 1.5 } as const
  * A THREAD'S SPINE, EXACTLY ONCE for a settled retired lane (#178). Still is
  * load-bearing (prd10 ruling 14) — nothing here may animate a settled cut, so
  * once the caller decides a lane's return is over, calling this again can
- * only reproduce the same points. See docs/decisions/geometry-cache-audit-178.md.
+ * only reproduce the same points. See docs/design-notes/geometry-cache-audit-178.md.
  */
 interface ThreadSpine {
   path: Point[]
@@ -138,7 +138,7 @@ function layoutSpine(
   // The lane's own free phase (`variation.ts`'s `curl`), spent on the two
   // things about a return that carry nothing: how far its tip relaxes past the
   // rim, and how deeply the released strand sags. Two lanes that finished the
-  // same work still let go differently — see docs/decisions/geometry-relax-reach.md
+  // same work still let go differently — see docs/design-notes/geometry-relax-reach.md
   // (#117) for why a rim where they did not is a problem.
   const habit = variation.curl
   const relax = RETIRE_RELAX_PX.min + (RETIRE_RELAX_PX.max - RETIRE_RELAX_PX.min) * habit
@@ -170,7 +170,7 @@ function layoutSpine(
   }
 }
 
-/** A hideable lane's spine is `[]`, never built. See docs/decisions/geometry-cache-audit-178.md. */
+/** A hideable lane's spine is `[]`, never built. See docs/design-notes/geometry-cache-audit-178.md. */
 const EMPTY_PATH: readonly Point[] = []
 const EMPTY_FILAMENTS: readonly FilamentGeometry[] = []
 
@@ -178,7 +178,7 @@ const EMPTY_FILAMENTS: readonly FilamentGeometry[] = []
  * One generation of settled spines, dropped whole (not pruned) whenever the
  * `world` they were built in moves — every entry was keyed to a world that no
  * longer exists. See {@link layoutScene}'s own `world` and
- * docs/decisions/geometry-cache-audit-178.md.
+ * docs/design-notes/geometry-cache-audit-178.md.
  */
 let retiredSpineCache: { world: string; entries: Map<string, ThreadSpine> } | null = null
 
@@ -245,7 +245,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
 
   // ONE WORLD-FRAME SIGNATURE FOR THIS FRAME — everything outside a single
   // lane that its cached spine is a function of. See
-  // docs/decisions/geometry-cache-audit-178.md for why each term is here and
+  // docs/design-notes/geometry-cache-audit-178.md for why each term is here and
   // what a lane's own per-lane cache key (below) carries instead.
   const world = `${width}x${height}|${rootRadius.toFixed(3)}|${spacing.toFixed(3)}`
 
@@ -306,7 +306,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
     // HIDE FINISHED SKIPS LAYOUT TOO (prd10 ruling 16) — every mark builder
     // that touches a retired thread must check `cut.hidden` before touching
     // `path`/`node` (`marks/thread.ts`, `marks/node.ts`, `marks/dissolve.ts`).
-    // See docs/decisions/geometry-cache-audit-178.md.
+    // See docs/design-notes/geometry-cache-audit-178.md.
     const hideable = cut !== null && cut.stage === 'persistent' && options.hideFinished === true
 
     // SETTLED, AND CACHEABLE: gated on `cut.dissolve >= 1`, not
@@ -370,7 +370,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
 
     // No re-measurement of the drawn arc after release: work-size is the
     // strand's own width, unbroken from mass to node, not the arc length of a
-    // stub (ruling 13). See docs/decisions/geometry-return-as-shape.md.
+    // stub (ruling 13). See docs/design-notes/geometry-return-as-shape.md.
     const node = path.length > 0 ? (path[path.length - 1] as Point) : rim
 
     const pathology =

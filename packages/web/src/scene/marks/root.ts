@@ -31,7 +31,7 @@ import { ribbonMark, type Mark } from './types.js'
  * field of smooth falloffs sampled and walked into a closed ring by
  * `contour.ts`, whose silhouette is a consequence of what is currently in
  * the mass rather than an arrangement of marks around it. See
- * docs/decisions/root-organic-contour-not-sticker.md for what this replaced
+ * docs/design-notes/root-organic-contour-not-sticker.md for what this replaced
  * and the #117 finding that reshaped it.
  *
  * Five facts are drawn into it and nothing else is:
@@ -49,13 +49,13 @@ import { ribbonMark, type Mark } from './types.js'
  *   (newborn nodes, the bundle trunk, the threads' exit from the surface)
  *   is laid out before this file runs, so growth is a geometry fact this
  *   builder only reads. See {@link depthsFor} for what the growth does to
- *   the *material*, and docs/decisions/root-growth-is-geometry-not-render.md
+ *   the *material*, and docs/design-notes/root-growth-is-geometry-not-render.md
  *   for why the number isn't here.
  * - **it melts where substance is arriving.** Each cord still parting adds
  *   a falloff of its own at that lane's bearing, so the surface swells
  *   toward the lane the work is coming from and settles back as the strand
  *   stills. See {@link arrivalSwell} and
- *   docs/decisions/root-arrival-swell-not-ring.md.
+ *   docs/design-notes/root-arrival-swell-not-ring.md.
  * - **it breathes**, ±1.6%, the one ambient motion in the instrument — the
  *   contour breathes because there is nothing else left to.
  */
@@ -77,7 +77,7 @@ const RESTING_FLOOR = 0.35
  * The mass's growth-with-landed-work multiplier used to live here
  * (`ROOT_GROWTH.maxGirth`); it now lives in `geometry.ts`'s
  * {@link rootRadiusFor}. See
- * docs/decisions/root-growth-is-geometry-not-render.md.
+ * docs/design-notes/root-growth-is-geometry-not-render.md.
  */
 
 /**
@@ -90,7 +90,7 @@ const RESTING_FLOOR = 0.35
  * Three octaves — a trunk of four large falloffs, five shoulders at half
  * their size further out, and eight grains at a fifth of it near the skin —
  * so the silhouette has features at three scales rather than one. See
- * docs/decisions/root-organic-contour-not-sticker.md for the #117 finding
+ * docs/design-notes/root-organic-contour-not-sticker.md for the #117 finding
  * that put the octaves there.
  *
  * Two constraints held the tuning down, and both are pinned elsewhere:
@@ -136,7 +136,7 @@ const BODY: readonly { id: string; angle: number; distance: number; radius: numb
  * circles. At 0.13, the trunk and shoulders still fuse into one continuous
  * surface (they overlap by much more than the fillet) while the grain
  * octave survives as texture on the skin. See
- * docs/decisions/root-organic-contour-not-sticker.md for why it had to come
+ * docs/design-notes/root-organic-contour-not-sticker.md for why it had to come
  * down from the single-octave body's 0.24.
  */
 const MELT = 0.13
@@ -150,7 +150,7 @@ const MELT = 0.13
  * lets prd6 ruling 2's growth cap be an exact law about the picture rather
  * than one that holds give-or-take half a cell, and it is why the
  * silhouette is the same likeness at every scene size instead of gaining
- * detail on a big panel. See docs/decisions/root-organic-contour-not-sticker.md
+ * detail on a big panel. See docs/design-notes/root-organic-contour-not-sticker.md
  * for why 4 px (not the single-octave body's 6 px).
  */
 const CELL = 0.078
@@ -176,7 +176,7 @@ const SMOOTHING = 2
  * where all eighteen are. Every edge in the stack is the field's own (not a
  * gradient sprite), so the depth breathes, thickens and takes arrivals along
  * with the silhouette, with nothing to keep in step by hand. See
- * docs/decisions/root-organic-contour-not-sticker.md for why this replaced a
+ * docs/design-notes/root-organic-contour-not-sticker.md for why this replaced a
  * flat fill plus an outline.
  *
  * Three properties, tuned by eye and each worth keeping as written:
@@ -211,7 +211,7 @@ const DEPTH = {
    * the growth: the field bottoms out around 0.58 of the radius (where the
    * trunk's own falloffs run out of depth), and 0.62 puts the last level
    * just past that, at any size. See
-   * docs/decisions/root-growth-is-geometry-not-render.md for the #118
+   * docs/design-notes/root-growth-is-geometry-not-render.md for the #118
    * attempt that reached further and why it didn't work.
    */
   reach: 0.62,
@@ -233,14 +233,14 @@ const DEPTH = {
    * one shell with a hole in it (the painter fills a shell's rings even-odd,
    * so two nested rings in one entry *are* the band between them). It
    * thickens and thins with the mass because it is measured in the field.
-   * See docs/decisions/root-organic-contour-not-sticker.md for why this is
+   * See docs/design-notes/root-organic-contour-not-sticker.md for why this is
    * the mass's material rather than an outline.
    *
    * **It does not scale with the growth.** A skin is a material fact — how
    * far light travels through the edge of this stuff — so a mass that has
    * doubled has the same skin, not one twice as thick. See
    * {@link DEPTH.rindFull} (this in units of a full mass's radius) and
-   * docs/decisions/root-growth-is-geometry-not-render.md.
+   * docs/design-notes/root-growth-is-geometry-not-render.md.
    */
   rind: 0.06,
   /** The same three or four pixels, in units of a *full* mass's radius. */
@@ -257,7 +257,7 @@ const DEPTH = {
  * luminance, so the mass gains an undertone without costing a hundredth
  * against `CALM_CEILING`. The rind stays untouched, so the picture's edge
  * never picks up a hue to explain. See
- * docs/decisions/root-depth-tissue-vibrancy.md.
+ * docs/design-notes/root-depth-tissue-vibrancy.md.
  */
 const DEPTH_TISSUE = 0.44
 
@@ -277,7 +277,7 @@ interface Depth {
  * the **count**, from {@link DEPTH.count} at rest to
  * {@link DEPTH.countFull} at a full centre, each level thinner in
  * proportion so the accumulation through the middle stays where it was
- * tuned. See docs/decisions/root-growth-is-geometry-not-render.md for why
+ * tuned. See docs/design-notes/root-growth-is-geometry-not-render.md for why
  * growth lands here as resolution rather than as size, and for
  * {@link DEPTH.reach}, which deliberately does not move with it.
  *
@@ -295,7 +295,7 @@ function depthsFor(fullness: number): readonly Depth[] {
       // the core, exponent 1.35 — the most lift the ramp gives before a
       // step becomes an edge. Washed toward the tissue ramp only on the
       // deep half and squared in `t`, so the skin stays untouched — see
-      // {@link DEPTH_TISSUE} and docs/decisions/root-organic-contour-not-sticker.md.
+      // {@link DEPTH_TISSUE} and docs/design-notes/root-organic-contour-not-sticker.md.
       rgb: mix(mix(ICE_500, ICE_100, Math.pow(t, 1.35)), TISSUE_700, DEPTH_TISSUE * t * t),
       // Thinner per level as the stack deepens, so a fuller mass gains
       // *structure*, not opacity: the accumulation through the middle stays
@@ -324,7 +324,7 @@ function rindIndexOf(depths: readonly Depth[], fullness: number): number {
  * barely bulges the silhouette at this scale, and reads as a facet rather
  * than a swell. At full swell it reaches ~1.16 of the radius on that
  * bearing — inside the slack the mass's hit target already carries. See
- * docs/decisions/root-arrival-swell-not-ring.md.
+ * docs/design-notes/root-arrival-swell-not-ring.md.
  */
 const ARRIVAL = { distance: 0.9, radius: 0.26 } as const
 
@@ -433,7 +433,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
     at: centre,
     // A fixed multiple of the mass — no extra fullness term needed, since
     // `radius` already carries the growth. See
-    // docs/decisions/root-growth-is-geometry-not-render.md for the doubled-up
+    // docs/design-notes/root-growth-is-geometry-not-render.md for the doubled-up
     // term this replaced.
     radius: radius * 4.2,
     // …and it is the same light spread over the wider footprint, not more of
@@ -485,10 +485,10 @@ export function rootMarks(frame: SceneFrame): Mark[] {
     // Thin at the skin: the same translucent ice-toned material the threads
     // are, so a thread's last inch shows through its edge. This alone is
     // not the body — the body is this plus the shells below. See
-    // docs/decisions/root-organic-contour-not-sticker.md.
+    // docs/design-notes/root-organic-contour-not-sticker.md.
     fill: budget(frame, null, false, depthInk(depths[0] as Depth, surge, intensity)),
     // No edge — an outline states a boundary; a surface with depth behind
-    // it already has one. See docs/decisions/root-organic-contour-not-sticker.md.
+    // it already has one. See docs/design-notes/root-organic-contour-not-sticker.md.
     shells: [
       // The rind first: surface ring and the one just inside it, in a single
       // entry, so the painter's even-odd fill lands on the band between them.
@@ -525,7 +525,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
   //
   // Small, on purpose: the depth is the shells' job now, so this is only
   // the light at the bottom of them. See
-  // docs/decisions/root-organic-contour-not-sticker.md for what it used to
+  // docs/design-notes/root-organic-contour-not-sticker.md for what it used to
   // be.
   marks.push({
     kind: 'glow',
@@ -539,7 +539,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
 
   // `root-arrival` (an expanding ring) used to be drawn here; it's gone,
   // deliberately not replaced. See
-  // docs/decisions/root-arrival-swell-not-ring.md.
+  // docs/design-notes/root-arrival-swell-not-ring.md.
 
   marks.push({
     kind: 'text',
@@ -700,7 +700,7 @@ function landings(frame: SceneFrame): { thread: ThreadGeometry; dissolve: number
  * `lane.subagents` comes from — so a worker's bud and the conductor's can
  * never disagree about when a subagent has finished, and a replayed
  * conductor session grows its bud exactly where a live one would. See
- * docs/decisions/root-conductor-bud-liveness.md for what this replaced.
+ * docs/design-notes/root-conductor-bud-liveness.md for what this replaced.
  */
 export function conductorBudMarks(frame: SceneFrame, radius: number): Mark[] {
   const bud = conductorBud(frame, radius)

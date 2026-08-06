@@ -14,7 +14,7 @@ import { springStep } from './spring.js'
  * (`marks/root.ts`) — and at the end the strand REMAINS, thinned and stilled,
  * threaded into the mass exactly where it always was. What the motes carry
  * home is the lane's vitality, not its existence.
- * See docs/decisions/retire-transformation-not-deletion.md for the history.
+ * See docs/design-notes/retire-transformation-not-deletion.md for the history.
  *
  * Four stages, ~1.4 s to the first three, one channel each:
  *
@@ -81,7 +81,7 @@ import { springStep } from './spring.js'
  * 1.2–6.2 px, `geometry.ts`) can draw fatter than a living small lane's,
  * making "thicker" a statement about work size rather than liveness. Below
  * ~0.3, the small end drops under a device pixel at 1× and stops reading at
- * all. See docs/decisions/retire-transformation-not-deletion.md.
+ * all. See docs/design-notes/retire-transformation-not-deletion.md.
  */
 export const PERSIST_WIDTH_SCALE = 0.42
 
@@ -173,7 +173,7 @@ export interface RetireState {
 /**
  * Tension release — the shortest span that still reads as a change rather
  * than a jump, since this stage is the intake of breath before the return,
- * not the return. See docs/decisions/retire-transformation-not-deletion.md.
+ * not the return. See docs/design-notes/retire-transformation-not-deletion.md.
  */
 const TENSION_MS = 150
 /**

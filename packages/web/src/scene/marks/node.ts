@@ -53,7 +53,7 @@ import { regionMark, ribbonMark, type Mark, type MarkRole, type RibbonMark } fro
  * vs summoning**. `marks.test.ts` asserts all three, so no future tuning can
  * quietly collapse one of them.
  *
- * See docs/decisions/node-role-shape-split.md for the full role/form table
+ * See docs/design-notes/node-role-shape-split.md for the full role/form table
  * and the third axis's naming history.
  */
 
@@ -81,7 +81,7 @@ const HAND_LIFT = 15
 /**
  * A LENS'S LENGTH, from the lane's work — the same absolute scale everything
  * else on this lane is drawn on (prd6 ruling 1). `5 + 14 · size` spends the
- * whole encoding range on screen; see docs/decisions/node-lens-length-scale.md
+ * whole encoding range on screen; see docs/design-notes/node-lens-length-scale.md
  * for the #117 history of the formula this replaced.
  *
  * Shared by the living node and the finished one it becomes, so nothing pops
@@ -180,7 +180,7 @@ export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
  * is the only door: it recedes like every other calm mark, so a summons
  * anywhere still owns the band.
  *
- * See docs/decisions/node-apical-tuft-glow.md for why, and for the landing
+ * See docs/design-notes/node-apical-tuft-glow.md for why, and for the landing
  * flare's law.
  */
 function tuftMarks(
@@ -195,7 +195,7 @@ function tuftMarks(
   // does — the branchlets blaze once and go out as the vitality leaves.
   // Deliberately not a glow: no glow is ever drawn on a retiring lane ("matter,
   // not light"), and the 9b amendment's glow stays scoped to a **working** tip
-  // and nothing else. See docs/decisions/node-apical-tuft-glow.md.
+  // and nothing else. See docs/design-notes/node-apical-tuft-glow.md.
   if (cut !== null) {
     if (cut.hidden || cut.withdraw >= 1) return []
     return branchlets(frame, thread, hue, angle, length, {
@@ -253,7 +253,7 @@ function branchlets(
   // three hundredths wide, so the branchlets carry the arrival instead).
   // `TUFT_WASH` (#157) is deliberately the smallest of the three terms here,
   // given back in alpha so `budget()` still holds the pair under
-  // `CALM_CEILING`. See docs/decisions/node-apical-tuft-glow.md.
+  // `CALM_CEILING`. See docs/design-notes/node-apical-tuft-glow.md.
   const arriving = clamp01(frame.field.energyOf(laneId).inbound / 1.4)
   const vivid = ink(
     hotter(hue, TUFT_WASH + 0.35 * arriving + 0.4 * tuft.flare),
@@ -317,7 +317,7 @@ function branchlets(
  * floor must clear `CALM_CEILING` on its own — a small **steady** glow — and
  * `spendTip` caps the pair at `TIP_CEILING` regardless, so the commit term
  * stays small: the visible response to an arrival is the branchlets above.
- * See docs/decisions/node-apical-tuft-glow.md.
+ * See docs/design-notes/node-apical-tuft-glow.md.
  */
 const TIP_LIGHT = { floor: 0.95, commit: 0.05 } as const
 
@@ -351,7 +351,7 @@ function lensTint(hue: Rgb, freshness: number): Rgb {
  * ring stays — hidden ≠ gone applies to the *toggle*, and pointing at one has
  * never been hiding it.
  *
- * See docs/decisions/node-persist-lane.md for why all three marks now stay
+ * See docs/design-notes/node-persist-lane.md for why all three marks now stay
  * permanently rather than being gated on composting, and for the curl glyph's
  * removal (#117).
  */
@@ -453,7 +453,7 @@ function persistNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: Retire
  * layer under the label (`marks/index.ts` puts nodes before names) so it
  * grounds the text rather than shouting over it.
  *
- * See docs/decisions/node-organic-substitutions.md for why it moved off the
+ * See docs/design-notes/node-organic-substitutions.md for why it moved off the
  * node and stopped being a ring.
  */
 function enclosureMark(thread: ThreadGeometry, hue: Rgb): Mark {
@@ -558,7 +558,7 @@ function stateMarks(
  * else calm does, which is how a white-hot thread stays structurally unable
  * to out-read a summons (g6).
  *
- * See docs/decisions/node-organic-substitutions.md for what this replaced.
+ * See docs/design-notes/node-organic-substitutions.md for what this replaced.
  */
 function expensiveMarks(
   frame: SceneFrame,
@@ -698,7 +698,7 @@ function summonsMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark
  * nothing ({@link LaneVariation.curl}) — work stays in the channels that
  * encode work; the lens it grows out of already carries the lane's size.
  *
- * See docs/decisions/node-organic-substitutions.md.
+ * See docs/design-notes/node-organic-substitutions.md.
  */
 function tailMark(
   role: MarkRole,
@@ -761,7 +761,7 @@ function tailMark(
  * It wears the done green rather than a neutral, so "landed" is one reading
  * of one hue instead of a grey mark a viewer has to be told about.
  *
- * See docs/decisions/node-seal-fold.md for the bar → knot → fold history and
+ * See docs/design-notes/node-seal-fold.md for the bar → knot → fold history and
  * why only clause (1) above is laxer than what it replaced.
  */
 function sealMark(

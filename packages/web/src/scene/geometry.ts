@@ -1,6 +1,6 @@
 /**
  * WHERE THE MYCELIUM GROWS. Four facts carry meaning in the layout — see
- * docs/decisions/geometry-layout-encoding.md for the full rationale and what
+ * docs/design-notes/geometry-layout-encoding.md for the full rationale and what
  * each one replaced:
  *
  * - **distance from the root-mass = how far through its life the lane is**

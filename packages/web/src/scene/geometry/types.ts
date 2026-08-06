@@ -78,7 +78,7 @@ export interface BudGeometry {
  * working. The retirement's *timing* is `retire.ts`'s; this is what those
  * numbers do to the picture — a **strand**, not a remnant. Nothing here
  * shortens it or returns an empty path. See
- * docs/decisions/geometry-return-as-shape.md.
+ * docs/design-notes/geometry-return-as-shape.md.
  *
  * Carried beside the living geometry rather than replacing it:
  * {@link ThreadGeometry.path} is the undeformed spine that light already in
