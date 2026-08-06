@@ -22,22 +22,15 @@ import { exec as realExec } from '../server/exec.js'
 import { createPollLoop, type PollLoop } from '../server/poll-loop.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { createFileSnapshotStore } from '../server/snapshot-store.js'
-import {
-  helpText,
-  labCheckpointHelpText,
-  labCompareHelpText,
-  labForkHelpText,
-  labHelpText,
-  parseArgs,
-  parseLabCheckpointArgs,
-  parseLabCompareArgs,
-  parseLabForkArgs,
-  type CliArgs,
-} from './args.js'
+import { helpText, parseArgs, type CliArgs } from './args.js'
 import { runDoctorCommand } from './doctor.js'
 import { runEnvCommand } from './env.js'
 import { runExportRecordCommand } from './export-record.js'
 import { runLabelCommand } from './label.js'
+import { labCompareHelpText, parseLabCompareArgs } from './lab-compare.js'
+import { labCheckpointHelpText, parseLabCheckpointArgs } from './lab-checkpoint.js'
+import { labForkHelpText, parseLabForkArgs } from './lab-fork.js'
+import { labHelpText } from './lab.js'
 import { runReplayCommand } from './replay.js'
 import { runRotateCommand } from './rotate.js'
 import { runSessionsCommand } from './sessions.js'
