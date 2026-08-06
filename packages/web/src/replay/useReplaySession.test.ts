@@ -197,7 +197,15 @@ describe('useReplaySession', () => {
     expect(result.current.state).toEqual(foldUpTo(events, result.current.playback.currentTs))
   })
 
-  it('folds a genuinely unsorted event log correctly (defensive sort on load)', async () => {
+  /**
+   * prd17 ruling 3.4 (#205): the fold never re-sorts. A genuinely unsorted
+   * (here, fully reversed) append order folds exactly as loaded — the oracle
+   * for `state` is `foldUpTo` over that SAME shuffled order, not the
+   * properly-ordered `events` the shuffle was built from. `scrubEvents`
+   * (the navigation view) is still `ts`-ascending regardless of load order,
+   * so its prefix matches the properly-ordered filter either way.
+   */
+  it('folds a genuinely unsorted event log in its own append order, without silently re-sorting it', async () => {
     const events = buildSession(30)
     const shuffled = [...events].reverse()
     const { result } = await renderSelected('s1', shuffled)
@@ -207,7 +215,7 @@ describe('useReplaySession', () => {
       result.current.playback.seek(ts)
     })
 
-    expect(result.current.state).toEqual(foldUpTo(events, ts))
+    expect(result.current.state).toEqual(foldUpTo(shuffled, ts))
     expect(scrubPrefix(result.current)).toEqual(events.filter((e) => e.ts <= ts))
   })
 
