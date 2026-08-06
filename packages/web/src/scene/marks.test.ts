@@ -61,7 +61,7 @@ import {
   TIP_GLOW_RADIUS,
   salienceOf,
 } from './salience.js'
-import { BROKEN, NEEDS_YOU, NOTICE, REPLAY_VIBRANCY, TISSUE_400, type Ink } from './palette.js'
+import { BROKEN, NEEDS_YOU, NOTICE, REPLAY_VIBRANCY, type Ink } from './palette.js'
 import { PulseField } from './pulses.js'
 import type { LaneIndex } from './resolve.js'
 

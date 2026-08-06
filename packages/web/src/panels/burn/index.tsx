@@ -2,7 +2,6 @@ import type { ReactNode } from 'react'
 import { useFleet } from '../../fleet/index.js'
 import { formatTokens } from '../../lib/format.js'
 import {
-  CONDUCTOR_NOT_INSTRUMENTED_GAP,
   COST_FEED_COMMAND,
   NO_COST_FEED_LEAD,
   burnRateHoverTitle,

@@ -33,7 +33,7 @@ function fakeDownloadEnv() {
 
 describe('exportRecording', () => {
   it('builds the portable record from the session\'s own events, reading nothing but GETs', async () => {
-    const { env, anchor } = fakeDownloadEnv()
+    const { env } = fakeDownloadEnv()
     const fetchImpl = vi.fn(fetchImplFor('demo'))
 
     const outcome = await exportRecording('1000', fetchImpl, env)

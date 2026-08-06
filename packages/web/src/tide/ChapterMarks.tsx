@@ -11,7 +11,7 @@ import type { RhizomorphEvent } from '@rhizomorph/core'
 import { chapterLabel, chaptersFor, type Chapter } from './chapters.js'
 import { labelFits } from './label.js'
 import { coalesceMarks, type MarkGroup } from './markCoalesce.js'
-import { hoverThresholdMs, timeScale, type TimeScale } from './scale.js'
+import { hoverThresholdMs, timeScale } from './scale.js'
 
 /**
  * THE MARK LANE (prd13 ruling 12, issue #185; rebuilt as the primary

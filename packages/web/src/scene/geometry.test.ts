@@ -29,7 +29,6 @@ import {
   rootRadiusFor,
   rimSpacing,
   ringAngles,
-  relaxReachPx,
   seedSize,
   type Point,
   type SceneGeometry,
