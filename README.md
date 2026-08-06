@@ -18,6 +18,8 @@ your own command. If you're deciding whether to run this on the machine
 where your agents work, the next two sections are the ones that matter;
 everything past them is depth for once you've decided.
 
+New here? [`docs/user-guide/getting-started.md`](docs/user-guide/getting-started.md) walks clone → first dashboard in five minutes; the rest of `docs/user-guide/` covers watching, replay, sessions, the lab, and troubleshooting.
+
 ## Install and run
 
 There's no published package (see
