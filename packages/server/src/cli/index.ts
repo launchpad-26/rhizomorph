@@ -28,7 +28,6 @@ import { SessionRecorder } from '../server/recorder.js'
 import { createFileSnapshotStore } from '../server/snapshot-store.js'
 import {
   envHelpText,
-  exportRecordHelpText,
   helpText,
   labCheckpointHelpText,
   labCompareHelpText,
@@ -37,7 +36,6 @@ import {
   labHelpText,
   parseArgs,
   parseEnvArgs,
-  parseExportRecordArgs,
   parseLabCheckpointArgs,
   parseLabCompareArgs,
   parseLabelArgs,
@@ -51,7 +49,7 @@ import {
   type CliArgs,
 } from './args.js'
 import { runDoctorCommand } from './doctor.js'
-import { runExportRecord } from './export-record.js'
+import { runExportRecordCommand } from './export-record.js'
 import { runLabel } from './label.js'
 import { renderRotation, requestRotation } from './rotate.js'
 import { renderSessionsReport, runSessions } from './sessions.js'
@@ -363,55 +361,6 @@ async function runEnvCommand(
   }
 
   log.log(renderTelemetryEnv({ ...envArgs, instance }))
-  exit(0)
-}
-
-/**
- * `rhizomorph export-record [path]` — a standalone, one-shot subcommand, no
- * server boot: reads a recorded session off disk and writes it out as a
- * portable session record (prd11 ruling 3). Same clean-usage-error contract
- * as every other subcommand here.
- */
-async function runExportRecordCommand(
-  rest: readonly string[],
-  log: Pick<Console, 'log' | 'warn'>,
-  exit: (code: number) => never,
-  options: RunCliOptions,
-): Promise<never> {
-  let args
-  try {
-    args = parseExportRecordArgs(rest)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    process.stderr.write(`${message}\n\n${exportRecordHelpText()}`)
-    exit(1)
-  }
-
-  if (args.help) {
-    log.log(exportRecordHelpText())
-    exit(0)
-  }
-
-  const repoPath = path.resolve(args.path ?? process.cwd())
-
-  try {
-    const { outPath, record } = await runExportRecord({
-      repoPath,
-      dataRoot: options.dataRoot,
-      sessionId: args.sessionId,
-      out: args.out,
-      handle: args.handle,
-    })
-    const declared = record.manifest.actor.declared ? '' : ' (undeclared)'
-    log.log(
-      `wrote ${outPath} — ${record.manifest.eventCount} events, ` +
-        `actor ${record.manifest.actor.handle}${declared}@${record.manifest.actor.instance}`,
-    )
-  } catch (err) {
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
-    exit(1)
-  }
-
   exit(0)
 }
 

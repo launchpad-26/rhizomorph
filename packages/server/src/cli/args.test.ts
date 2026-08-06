@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { RESUME_WINDOW_MS } from '../log/session-log.js'
 import {
   envHelpText,
-  exportRecordHelpText,
   helpText,
   labCheckpointHelpText,
   labCompareHelpText,
@@ -11,7 +10,6 @@ import {
   labHelpText,
   parseArgs,
   parseEnvArgs,
-  parseExportRecordArgs,
   parseLabCheckpointArgs,
   parseLabCompareArgs,
   parseLabelArgs,
@@ -363,57 +361,6 @@ describe('envHelpText', () => {
     expect(text).toContain('--shell')
     expect(text).toContain('powershell')
     expect(text).toContain('cmd')
-    expect(text).toContain('--help')
-  })
-})
-
-describe('parseExportRecordArgs', () => {
-  const exportDefaults = { path: undefined, sessionId: undefined, out: undefined, handle: undefined, help: false }
-
-  it('defaults everything to undefined', () => {
-    expect(parseExportRecordArgs([])).toEqual(exportDefaults)
-  })
-
-  it('takes the first non-flag token as the path', () => {
-    expect(parseExportRecordArgs(['../some-repo'])).toEqual({ ...exportDefaults, path: '../some-repo' })
-  })
-
-  it('parses --session', () => {
-    expect(parseExportRecordArgs(['--session', '123'])).toEqual({ ...exportDefaults, sessionId: '123' })
-  })
-
-  it('parses --out=<file>', () => {
-    expect(parseExportRecordArgs(['--out=/tmp/x.rhizorecord.json'])).toEqual({
-      ...exportDefaults,
-      out: '/tmp/x.rhizorecord.json',
-    })
-  })
-
-  it('parses --handle', () => {
-    expect(parseExportRecordArgs(['--handle', 'alice'])).toEqual({ ...exportDefaults, handle: 'alice' })
-  })
-
-  it('throws on an empty --session value', () => {
-    expect(() => parseExportRecordArgs(['--session', ''])).toThrow(/invalid --session/)
-  })
-
-  it('throws on an unknown flag, naming it', () => {
-    expect(() => parseExportRecordArgs(['--foo'])).toThrow(/unknown option.*"--foo"/is)
-  })
-
-  it('parses --help without requiring anything else', () => {
-    expect(parseExportRecordArgs(['--help']).help).toBe(true)
-    expect(parseExportRecordArgs(['-h']).help).toBe(true)
-  })
-})
-
-describe('exportRecordHelpText', () => {
-  it('documents path, --session, --out, --handle and --help', () => {
-    const text = exportRecordHelpText()
-    expect(text).toContain('rhizomorph export-record')
-    expect(text).toContain('--session')
-    expect(text).toContain('--out')
-    expect(text).toContain('--handle')
     expect(text).toContain('--help')
   })
 })
