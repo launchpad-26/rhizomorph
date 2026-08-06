@@ -1,8 +1,10 @@
-import { createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
+import { createEventFactory, reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { boundaryIndex, eventsUpTo, foldUpTo, sortEvents } from '../replay/replayFold.js'
 import {
+  MAX_EVENTS,
   NEWS_GRACE_MS,
+  eventsWindowLabel,
   foldStreamEvent,
   foldStreamEvents,
   initialStreamState,
@@ -178,7 +180,15 @@ describe('replayStreamState', () => {
 describe('the live fold cost, before vs after (#183)', () => {
   const SIZES = [5_000, 15_000, 55_000]
   const ROUNDS = 3
-  const BENCH_TIMEOUT_MS = 300_000
+  // Generous on purpose: this bench's own O(n²) `before` path genuinely
+  // burns real CPU (not a sleep), and under sibling worktrees' own
+  // concurrent `npm test` runs sharing the same machine, a single 55k-event
+  // call has been observed north of 49s — several such calls happen here
+  // (warm-up, the identity check, and `ROUNDS` timed rounds, per size).
+  // 300_000ms was enough in isolation and timed out under that contention;
+  // this headroom is a hermetic-under-concurrency fix, not a weaker law —
+  // every assertion below is unchanged.
+  const BENCH_TIMEOUT_MS = 1_200_000
   const connectedAt = Date.UTC(2026, 6, 31, 12, 0, 0)
   const paths = ['/repo/wt-a', '/repo/wt-b', '/repo/wt-c']
 
@@ -275,4 +285,166 @@ describe('the live fold cost, before vs after (#183)', () => {
     const afterGrowth = rows[2]!.afterMs / Math.max(rows[0]!.afterMs, 0.001)
     expect(afterGrowth).toBeLessThan(beforeGrowth)
   }, BENCH_TIMEOUT_MS)
+})
+
+/**
+ * #221: the live fold used to append `events: [...]` with no ceiling at all
+ * (#176's original finding, confirmed twice) — an 8-hour session grew the raw
+ * buffer without limit. `MAX_EVENTS` bounds it; everything below proves the
+ * bound holds, that it holds without moving the fold `session` produces by
+ * one bit, and that a reader can tell when it's looking at a trimmed window.
+ *
+ * `dirtyCorpus` mirrors the `#166`/`#183` benches above: `worktree.dirty`
+ * only, cycling three paths, so `@rhizomorph/core`'s own state stays O(1) per
+ * event and a 100k+-event corpus is cheap to build and fold — what these
+ * tests exercise is `streamState.ts`'s own eviction, not core's bookkeeping.
+ */
+describe('MAX_EVENTS — the live buffer\'s retention ceiling (#221)', () => {
+  const connectedAt = Date.UTC(2026, 6, 31, 12, 0, 0)
+
+  function dirtyCorpus(n: number, startTs: number, idPrefix = 'corpus-221'): RhizomorphEvent[] {
+    const f = createEventFactory({ idPrefix, stepMs: 1000 })
+    const paths = ['/repo/wt-a', '/repo/wt-b', '/repo/wt-c']
+    return Array.from({ length: n }, (_unused, i) => {
+      const path = paths[i % paths.length]!
+      return f.worktreeDirty(
+        { path, branch: path.split('/').pop()!, files: [{ path: `file-${i}.ts`, status: 'modified' }] },
+        { ts: startTs + i * 1000 },
+      )
+    })
+  }
+
+  it('retains every event while under the ceiling', () => {
+    const events = dirtyCorpus(MAX_EVENTS - 1, connectedAt - (MAX_EVENTS - 1) * 1000)
+    const state = foldStreamEvents(initialStreamState(connectedAt), events)
+    expect(state.events).toEqual(events)
+    expect(state.session.eventCount).toBe(events.length)
+  })
+
+  it('caps the retained window at exactly MAX_EVENTS once a batch crosses it, oldest evicted first', () => {
+    const overflow = 5_000
+    const total = MAX_EVENTS + overflow
+    const events = dirtyCorpus(total, connectedAt - total * 1000)
+
+    const state = foldStreamEvents(initialStreamState(connectedAt), events)
+
+    expect(state.events).toHaveLength(MAX_EVENTS)
+    // The retained window is exactly the tail — the oldest `overflow` events
+    // are gone, and nothing in the middle was dropped instead.
+    expect(state.events).toEqual(events.slice(-MAX_EVENTS))
+    expect(state.events[0]!.id).toBe(events[overflow]!.id)
+    // The fold itself never lost a single event.
+    expect(state.session.eventCount).toBe(total)
+  })
+
+  /**
+   * `foldStreamEvent`'s own eviction, exercised at the ceiling without paying
+   * to get there one real fold at a time — that cost (genuinely O(n²)) is
+   * what the `#183` bench above measures on purpose; this test only needs a
+   * state that is already sitting at the ceiling, which the O(n) batched path
+   * builds cheaply and correctly (proven by the test above).
+   */
+  it('foldStreamEvent evicts the single oldest event once already at the ceiling', () => {
+    const events = dirtyCorpus(MAX_EVENTS, connectedAt - MAX_EVENTS * 1000)
+    const atCeiling = foldStreamEvents(initialStreamState(connectedAt), events)
+    expect(atCeiling.events).toHaveLength(MAX_EVENTS)
+
+    const nextEvent = dirtyCorpus(1, connectedAt + 1_000, 'corpus-221-next')[0]!
+    const after = foldStreamEvent(atCeiling, nextEvent)
+
+    expect(after.events).toHaveLength(MAX_EVENTS)
+    expect(after.events[0]!.id).toBe(events[1]!.id)
+    expect(after.events[after.events.length - 1]).toEqual(nextEvent)
+    expect(after.session.eventCount).toBe(events.length + 1)
+  })
+
+  /**
+   * The law the whole issue turns on, stated as a test: eviction trims the
+   * raw window and never the fold. `reduceAll` (core's own, with no notion of
+   * a retained window at all) is the oracle "without eviction" reading;
+   * `foldStreamEvents` is "with eviction" once the corpus crosses the
+   * ceiling. The two must produce the identical projection regardless.
+   */
+  it('the folded projection is byte-identical with and without eviction, against an oracle reduceAll', () => {
+    const belowCeiling = dirtyCorpus(1_000, connectedAt - 1_000 * 1000)
+    const aboveCeiling = dirtyCorpus(MAX_EVENTS + 20_000, connectedAt - (MAX_EVENTS + 20_000) * 1000)
+
+    for (const events of [belowCeiling, aboveCeiling]) {
+      const folded = foldStreamEvents(initialStreamState(connectedAt), events)
+      const oracle = reduceAll(events)
+      expect(folded.session).toEqual(oracle)
+    }
+
+    // Sanity on the fixture itself: the second corpus actually exercises
+    // eviction, or the "with eviction" half of the law above proves nothing.
+    expect(aboveCeiling.length).toBeGreaterThan(MAX_EVENTS)
+  })
+
+  /**
+   * The soak: 100k+ events, folded across many batches the way a real
+   * connection would deliver them (`useEventStream`'s buffer-then-flush,
+   * `#183`), asserting the retained window never so much as brushes past the
+   * ceiling at any point along the way — not just at the end. Deterministic:
+   * fixed timestamps throughout, no wall clock, no randomness.
+   */
+  it('soaks 120k events across many batches; the retained window never exceeds the ceiling', () => {
+    const total = 120_000
+    const batchSize = 4_000
+    const events = dirtyCorpus(total, connectedAt - total * 1000)
+
+    let state = initialStreamState(connectedAt)
+    for (let offset = 0; offset < events.length; offset += batchSize) {
+      state = foldStreamEvents(state, events.slice(offset, offset + batchSize))
+      expect(state.events.length).toBeLessThanOrEqual(MAX_EVENTS)
+    }
+
+    expect(state.events).toHaveLength(MAX_EVENTS)
+    expect(state.events).toEqual(events.slice(-MAX_EVENTS))
+    expect(state.session.eventCount).toBe(total)
+  }, 60_000)
+})
+
+/**
+ * #221's honesty-at-the-boundary law: a surface reading `events` directly
+ * must say so once the ceiling has actually trimmed something, and must
+ * never say so before that — a bounded window is not the same claim as "the
+ * session had exactly this many events."
+ */
+describe('eventsWindowLabel — the boundary voice (#221)', () => {
+  it('is null for a fresh state and for any state under the ceiling', () => {
+    expect(eventsWindowLabel(initialStreamState(0))).toBeNull()
+    const events = sortEvents(buildSession(200))
+    const state = foldStreamEvents(initialStreamState(events[events.length - 1]!.ts), events)
+    expect(eventsWindowLabel(state)).toBeNull()
+  })
+
+  it('is still null exactly at the ceiling — the boundary voice only speaks once something is actually missing', () => {
+    const f = createEventFactory({ idPrefix: 'boundary-221', stepMs: 1000 })
+    const events = Array.from({ length: MAX_EVENTS }, (_unused, i) =>
+      f.worktreeDirty(
+        { path: '/repo/wt-a', branch: 'wt-a', files: [{ path: `file-${i}.ts`, status: 'modified' }] },
+        { ts: i * 1000 },
+      ),
+    )
+    const state = foldStreamEvents(initialStreamState(0), events)
+    expect(state.events).toHaveLength(MAX_EVENTS)
+    expect(state.session.eventCount).toBe(MAX_EVENTS)
+    expect(eventsWindowLabel(state)).toBeNull()
+  })
+
+  it('names exactly how many events are shown once eviction has trimmed the window', () => {
+    const f = createEventFactory({ idPrefix: 'boundary-221b', stepMs: 1000 })
+    const total = MAX_EVENTS + 1_234
+    const events = Array.from({ length: total }, (_unused, i) =>
+      f.worktreeDirty(
+        { path: '/repo/wt-a', branch: 'wt-a', files: [{ path: `file-${i}.ts`, status: 'modified' }] },
+        { ts: i * 1000 },
+      ),
+    )
+    const state = foldStreamEvents(initialStreamState(0), events)
+
+    expect(state.session.eventCount).toBe(total)
+    expect(state.events).toHaveLength(MAX_EVENTS)
+    expect(eventsWindowLabel(state)).toBe(`showing the last ${MAX_EVENTS} events`)
+  })
 })
