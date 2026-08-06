@@ -651,8 +651,16 @@ describe('the lab namespace law, live, with the lab data dir behind a symlink (m
     // git at the OTHER spelling from what `dataRoot` names — otherwise this
     // test would pass vacuously on any machine where `git worktree add`
     // happens not to canonicalize.
+    //
+    // #232: only the EXPECTED side is canonicalized. `realDataRoot` is built from
+    // `tmpdir()`, which on macOS is the raw `/var/...` spelling, while git's
+    // `worktree list` output is already `/private/var/...`. Resolving git's side too
+    // would defeat the point of this assertion: a git that stopped canonicalizing
+    // would register the arm under `data-link/...`, and `realpathSync` would follow
+    // that link back to `real-data` and pass anyway. Left raw, that case fails loudly.
+    const canonicalDataRoot = realpathSync.native(realDataRoot)
     expect(
-      registered.some((worktree) => worktree.startsWith(realDataRoot)),
+      registered.some((worktree) => worktree.startsWith(canonicalDataRoot)),
       roundTripFailureEvidence(registered, realDataRoot),
     ).toBe(true)
 
