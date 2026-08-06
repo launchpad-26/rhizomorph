@@ -20,6 +20,7 @@ import { useEventStream } from '../hooks/useEventStream.js'
 import { useMode, useReplay } from './ModeContext.js'
 import {
   NEWS_GRACE_MS,
+  eventsWindowLabel,
   foldStreamEvents,
   initialStreamState,
   replayStreamState,
@@ -63,6 +64,14 @@ export interface StreamContextValue {
   fixtureManifest: LaneManifest | null
   /** Shown in the provenance bar — a fixture must never pass as live data. */
   provenance: string
+  /**
+   * Non-null only once the live event buffer's retention ceiling
+   * (`streamState.ts`'s `MAX_EVENTS`) has actually evicted something —
+   * `"showing the last N events"`. A surface reading `state.events` directly
+   * (never `state.session`, which absorbed every event regardless) must say
+   * this rather than let a bounded window pass as the whole session.
+   */
+  eventsWindowLabel: string | null
 }
 
 const StreamContext = createContext<StreamContextValue | null>(null)
@@ -149,6 +158,7 @@ export function StreamProvider({ url, children, createSource, now }: StreamProvi
         setSource,
         fixtureManifest: null,
         provenance: 'replay · recorded session',
+        eventsWindowLabel: eventsWindowLabel(replayState),
       }
     }
     if (source !== 'live' && fixture !== null) {
@@ -159,6 +169,7 @@ export function StreamProvider({ url, children, createSource, now }: StreamProvi
         setSource,
         fixtureManifest: fixture.manifest,
         provenance: fixture.provenance,
+        eventsWindowLabel: eventsWindowLabel(fixture.state),
       }
     }
     return {
@@ -168,6 +179,7 @@ export function StreamProvider({ url, children, createSource, now }: StreamProvi
       setSource,
       fixtureManifest: null,
       provenance: `live · ${url}`,
+      eventsWindowLabel: eventsWindowLabel(live.state),
     }
   }, [mode, replayState, source, fixture, live.state, live.status, url])
 
