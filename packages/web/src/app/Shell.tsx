@@ -1,8 +1,9 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, type MouseEvent } from 'react'
 import { ConnectionBadge } from './ConnectionBadge.js'
 import { useIdleWorkerJump } from './keyboard.js'
 import { useMode } from './ModeContext.js'
 import { PanelGrid } from './PanelGrid.js'
+import { navigate } from './router.js'
 import { ReplayBar } from './ReplayBar.js'
 import { StatusBar } from './StatusBar.js'
 import { useStream } from './StreamContext.js'
@@ -72,6 +73,7 @@ function TopDock() {
 
   return (
     <header className="border-b border-ice-850 bg-ice-950">
+      <NavStrip />
       <div className="flex items-stretch gap-4 border-b border-ice-850">
         <div className="flex shrink-0 items-center gap-3 px-4">
           <h1 className="font-display text-sm font-semibold tracking-[0.25em] text-ice-100 text-glow-calm">
@@ -93,6 +95,59 @@ function TopDock() {
         <BurnStrip />
       </Suspense>
     </header>
+  )
+}
+
+/**
+ * THE PRIMARY NAV (#229) — one link per constitutional hand (observer /
+ * recorder / laboratory, prd12+prd16 ruling 2+prd14), so the trust model is
+ * visible rather than a documentation claim. `/lab` and `/recordings` were
+ * routable but had no anchor anywhere in the UI — a stranger could not find
+ * them without being told the URL. This is that anchor: real `<a href>`s,
+ * modifier-aware like the drawer's own open-page link (`drawer/index.tsx`'s
+ * `OpenPageLink`), routed through the hand-rolled router's `pushState` on a
+ * plain click rather than a full reload.
+ *
+ * The balcony only ever mounts for the `balcony` route (see `App.tsx`'s route
+ * switch), so within `Shell` "Observatory" is always the active link — no
+ * `useRoute()` needed here to know that.
+ */
+const HANDS: ReadonlyArray<{ href: string; label: string }> = [
+  { href: '/', label: 'Observatory' },
+  { href: '/recordings', label: 'Recordings' },
+  { href: '/lab', label: 'Lab' },
+]
+
+function NavStrip() {
+  return (
+    <nav aria-label="Primary" className="flex shrink-0 gap-1 border-b border-ice-850 px-4">
+      {HANDS.map((hand) => (
+        <NavLink key={hand.href} href={hand.href} label={hand.label} active={hand.href === '/'} />
+      ))}
+    </nav>
+  )
+}
+
+function NavLink({ href, label, active }: { href: string; label: string; active: boolean }) {
+  const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.defaultPrevented || event.button !== 0) return
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    event.preventDefault()
+    navigate(href)
+  }
+
+  return (
+    <a
+      href={href}
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      data-testid={`nav-${label.toLowerCase()}`}
+      className={`border-b-2 px-2.5 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] transition-colors duration-150 ease-out ${
+        active ? 'border-ice-200 text-ice-100' : 'border-transparent text-ice-400 hover:text-ice-200'
+      }`}
+    >
+      {label}
+    </a>
   )
 }
 

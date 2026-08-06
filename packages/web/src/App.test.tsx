@@ -380,4 +380,80 @@ describe('App', () => {
       expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
     })
   })
+
+  /**
+   * THE DoD OF #229 — findability, not routability. `/lab` and `/recordings`
+   * already rendered and deep-linked cold (the describe blocks above); what
+   * they lacked was a way to *arrive* there from the balcony by clicking
+   * something on screen instead of being told the URL. These prove that path
+   * exists for both of the other two hands, using the balcony's own nav —
+   * the same one an operator would actually click.
+   */
+  describe('the primary nav (#229) — all three hands reachable by click from the balcony', () => {
+    afterEach(() => {
+      window.history.replaceState(null, '', '/')
+      vi.unstubAllGlobals()
+    })
+
+    function stubEmptyRecordings() {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ sessions: [] }) })),
+      )
+    }
+
+    function stubEmptyLab() {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string | URL | Request) => {
+          const href = String(input)
+          if (href === '/api/lab/checkpoints') return { ok: true, status: 200, json: async () => ({ checkpoints: [] }) }
+          if (href === '/api/lab/experiments') return { ok: true, status: 200, json: async () => ({ experiments: [] }) }
+          throw new Error(`unexpected fetch: ${href}`)
+        }),
+      )
+    }
+
+    it('reaches Recordings from the balcony by clicking the nav, then returns the same way the drawer link does — via the browser back button', async () => {
+      stubEmptyRecordings()
+      const { source } = await renderApp()
+      act(() => source()?.open())
+      expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByTestId('nav-recordings'))
+      expect(await screen.findByTestId('recordings-page')).toBeInTheDocument()
+      expect(screen.queryByText('THE OBSERVATORY')).not.toBeInTheDocument()
+
+      await act(async () => {
+        const popped = new Promise<void>((resolve) =>
+          window.addEventListener('popstate', () => resolve(), { once: true }),
+        )
+        window.history.back()
+        await popped
+      })
+
+      expect(window.location.pathname).toBe('/')
+      expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
+    })
+
+    it('reaches Lab from the balcony by clicking the nav', async () => {
+      stubEmptyLab()
+      const { source } = await renderApp()
+      act(() => source()?.open())
+      expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByTestId('nav-lab'))
+      expect(await screen.findByTestId('lab-page')).toBeInTheDocument()
+      expect(screen.queryByText('THE OBSERVATORY')).not.toBeInTheDocument()
+    })
+
+    it('the nav itself is visible on the balcony without any selection or scroll', async () => {
+      await renderApp()
+
+      expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+      expect(screen.getByTestId('nav-observatory')).toBeVisible()
+      expect(screen.getByTestId('nav-recordings')).toBeVisible()
+      expect(screen.getByTestId('nav-lab')).toBeVisible()
+    })
+  })
 })

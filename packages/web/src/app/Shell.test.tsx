@@ -127,6 +127,62 @@ describe('Shell — the idle-worker jump (prd5 ruling 1+6)', () => {
   })
 })
 
+/**
+ * THE PRIMARY NAV (#229) — before this, `/lab` and `/recordings` rendered
+ * complete surfaces with no anchor anywhere in the UI; a stranger could only
+ * reach them by being told the URL. This proves the balcony now carries a
+ * real, clickable way to each of the three hands, and that the active one
+ * reads as active.
+ */
+describe('Shell — the primary nav (#229)', () => {
+  it('links to all three hands with real anchors, SPA-routed rather than a full reload', async () => {
+    await renderShell(null)
+
+    const observatory = screen.getByTestId('nav-observatory')
+    const recordings = screen.getByTestId('nav-recordings')
+    const lab = screen.getByTestId('nav-lab')
+
+    for (const link of [observatory, recordings, lab]) {
+      expect(link.tagName).toBe('A')
+    }
+    expect(observatory.getAttribute('href')).toBe('/')
+    expect(recordings.getAttribute('href')).toBe('/recordings')
+    expect(lab.getAttribute('href')).toBe('/lab')
+  })
+
+  it('marks Observatory as the active link — the balcony only ever mounts on that route', async () => {
+    await renderShell(null)
+
+    expect(screen.getByTestId('nav-observatory').getAttribute('aria-current')).toBe('page')
+    expect(screen.getByTestId('nav-recordings').getAttribute('aria-current')).toBeNull()
+    expect(screen.getByTestId('nav-lab').getAttribute('aria-current')).toBeNull()
+  })
+
+  it('navigates via pushState on a plain click, not a full reload', async () => {
+    await renderShell(null)
+    window.history.replaceState(null, '', '/')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('nav-lab'), { button: 0 })
+    })
+
+    expect(window.location.pathname).toBe('/lab')
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('leaves a modifier-clicked link to the browser default (new tab), same convention as the drawer', async () => {
+    await renderShell(null)
+    window.history.replaceState(null, '', '/')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('nav-recordings'), { button: 0, metaKey: true })
+    })
+
+    // preventDefault was skipped, so the SPA router never ran.
+    expect(window.location.pathname).toBe('/')
+  })
+})
+
 describe('Shell — the lane drawer mount (ruling 17)', () => {
   it('mounts no drawer while nothing is selected', async () => {
     await renderShell(null)
