@@ -24,4 +24,12 @@ export interface ServerContext {
    * can rotate a recording someone else made.
    */
   readOnly?: boolean
+  /**
+   * The per-process capability token (2026-08-06 audit; `api/security.ts`)
+   * every mutating route requires. Optional here because `buildApp` mints
+   * one at boot when a caller doesn't supply one — a test that needs a
+   * specific value (or none at all, to assert the default-generated path)
+   * is the only reason to set this directly.
+   */
+  capabilityToken?: string
 }

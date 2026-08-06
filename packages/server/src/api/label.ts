@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { writeSessionLabel } from '../log/label.js'
 import { listSessions } from '../log/session-log.js'
 import type { ServerContext } from '../server/context.js'
+import { requireCapabilityToken } from './security.js'
 
 interface LabelRequestBody {
   sessionId?: unknown
@@ -21,35 +22,48 @@ interface LabelRequestBody {
  * directory holding one reconstructed session, not the repo's real recording
  * directory, so a label written there would look saved and vanish with the
  * process — an honest refusal beats a silent no-op.
+ *
+ * The first route to adopt the 2026-08-06 audit's two controls (`/api/rotate`
+ * and the laboratory's own mutating routes follow in their own lanes): the
+ * app-wide Origin/Host/Content-Type guard already covers this route for free
+ * (`server/mutation-guard.ts`, registered once in `build-app.ts`), and this
+ * route additionally requires the per-process capability token
+ * (`api/security.ts`) — checked before this handler ever runs, via
+ * `preHandler`, so an unauthorized caller never reaches `ctx.readOnly` or
+ * anything else below.
  */
 export function registerLabelRoute(app: FastifyInstance, ctx: ServerContext): void {
-  app.post<{ Body: LabelRequestBody }>('/api/label', async (request, reply) => {
-    if (ctx.readOnly === true) {
-      return reply.code(409).send({
-        error:
-          'this server is replaying a session record, not watching a directory of recordings — there is nowhere durable to save a label here',
-      })
-    }
+  app.post<{ Body: LabelRequestBody }>(
+    '/api/label',
+    { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') },
+    async (request, reply) => {
+      if (ctx.readOnly === true) {
+        return reply.code(409).send({
+          error:
+            'this server is replaying a session record, not watching a directory of recordings — there is nowhere durable to save a label here',
+        })
+      }
 
-    const body = request.body ?? {}
-    const { sessionId, label } = body
+      const body = request.body ?? {}
+      const { sessionId, label } = body
 
-    if (typeof sessionId !== 'string' || sessionId.length === 0) {
-      return reply.code(400).send({ error: 'sessionId must be a non-empty string' })
-    }
-    if (typeof label !== 'string' || label.trim().length === 0) {
-      return reply.code(400).send({ error: 'label must be a non-empty string' })
-    }
+      if (typeof sessionId !== 'string' || sessionId.length === 0) {
+        return reply.code(400).send({ error: 'sessionId must be a non-empty string' })
+      }
+      if (typeof label !== 'string' || label.trim().length === 0) {
+        return reply.code(400).send({ error: 'label must be a non-empty string' })
+      }
 
-    const sessions = await listSessions(ctx.sessionDir)
-    if (!sessions.some((session) => session.id === sessionId)) {
-      return reply.code(404).send({ error: `no session with id "${sessionId}"` })
-    }
+      const sessions = await listSessions(ctx.sessionDir)
+      if (!sessions.some((session) => session.id === sessionId)) {
+        return reply.code(404).send({ error: `no session with id "${sessionId}"` })
+      }
 
-    const now = ctx.now ?? Date.now
-    const trimmed = label.trim()
-    await writeSessionLabel(ctx.sessionDir, sessionId, trimmed, now())
+      const now = ctx.now ?? Date.now
+      const trimmed = label.trim()
+      await writeSessionLabel(ctx.sessionDir, sessionId, trimmed, now())
 
-    return { sessionId, label: trimmed }
-  })
+      return { sessionId, label: trimmed }
+    },
+  )
 }
