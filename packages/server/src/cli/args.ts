@@ -266,53 +266,6 @@ Run 'rhizomorph doctor --help', 'rhizomorph env --help', 'rhizomorph export-reco
 `
 }
 
-/** Parses `rhizomorph replay <record-file> [--port <n>] [--help]`. */
-export interface ReplayArgs {
-  file: string
-  port: number
-  help: boolean
-}
-
-/** `rhizomorph replay`'s own usage table, distinct from the main command's. */
-export function replayHelpText(): string {
-  return `rhizomorph replay <record-file> [options]
-
-Verifies a portable session record's hash chain — refusing a tampered file
-loudly — then serves it read-only through the same dashboard the live
-command uses: a foreign actor's record renders exactly as a local recording
-does. Nothing is executed and nothing is written back into the record.
-
-Arguments:
-  record-file             Path to a '.rhizorecord.json' file written by 'rhizomorph export-record'
-
-Options:
-  --port <n>              Port to listen on (default: ${DEFAULT_PORT})
-  --help, -h              Show this help and exit
-`
-}
-
-export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
-  if (argv.includes('--help') || argv.includes('-h')) {
-    return { file: '', port: DEFAULT_PORT, help: true }
-  }
-
-  let portArg: string | undefined
-  const specs: FlagSpec[] = [{ flag: '--port', read: (v) => { portArg = v } }]
-
-  const positionals = parseFlags(argv, specs)
-  const file = positionals[0]
-  if (file === undefined || file.trim().length === 0) {
-    throw new Error('missing required argument: <record-file>')
-  }
-
-  const port = portArg === undefined ? DEFAULT_PORT : Number(portArg)
-  if (!Number.isInteger(port) || port < 0) {
-    throw new Error(`invalid --port value: "${portArg}" (must be a non-negative integer)`)
-  }
-
-  return { file, port, help: false }
-}
-
 /**
  * `rhizomorph lab checkpoint <lane> [--path <dir>] [--captured-by <who>]
  * [--help]`. The `lab` namespace is prd12 ruling 1's second hand — kept out

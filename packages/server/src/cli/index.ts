@@ -1,10 +1,6 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { RhizomorphEvent } from '@rhizomorph/core'
-import { createEvent, createIdFactory, eventsToJsonl, lineToEvent, reduceAll, selectBranches, selectWorktreeViews } from '@rhizomorph/core'
-import { parseRecord, verifyRecord } from '@rhizomorph/core/src/record/index.js'
+import { createEvent, createIdFactory, reduceAll, selectBranches, selectWorktreeViews } from '@rhizomorph/core'
 import { createSessionlogCollector } from '../collectors/sessionlog/index.js'
 // The one importer the lab namespace law (prd12 ruling 1) allows: this is
 // the explicit CLI wiring point, never a collector or background loop.
@@ -36,14 +32,13 @@ import {
   parseLabCheckpointArgs,
   parseLabCompareArgs,
   parseLabForkArgs,
-  parseReplayArgs,
-  replayHelpText,
   type CliArgs,
 } from './args.js'
 import { runDoctorCommand } from './doctor.js'
 import { runEnvCommand } from './env.js'
 import { runExportRecordCommand } from './export-record.js'
 import { runLabelCommand } from './label.js'
+import { runReplayCommand } from './replay.js'
 import { runRotateCommand } from './rotate.js'
 import { runSessionsCommand } from './sessions.js'
 import type { CliHandle, RunCliOptions } from './types.js'
@@ -313,142 +308,6 @@ function defaultWebDistDir(): string {
   const here = path.dirname(fileURLToPath(import.meta.url))
   return path.resolve(here, '..', '..', '..', 'web', 'dist')
 }
-
-/**
- * `rhizomorph replay <record-file>` — verifies a portable session record's
- * hash chain (refusing a tampered file loudly, prd11 ruling 4) and then boots
- * the same server the live command does, pointed at a reconstructed copy of
- * the record's own event log instead of a watched repo. No collectors run and
- * nothing is written back into the record itself: the temp directory holding
- * the reconstructed session file exists only so the existing `/api/sessions`
- * machinery (which lists a directory of `session-*.jsonl` files) can find and
- * serve it exactly like a local recording.
- */
-async function runReplayCommand(
-  rest: readonly string[],
-  log: Pick<Console, 'log' | 'warn'>,
-  exit: (code: number) => never,
-  options: RunCliOptions,
-): Promise<CliHandle> {
-  let args
-  try {
-    args = parseReplayArgs(rest)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    process.stderr.write(`${message}\n\n${replayHelpText()}`)
-    exit(1)
-  }
-
-  if (args.help) {
-    log.log(replayHelpText())
-    exit(0)
-  }
-
-  const filePath = path.resolve(args.file)
-
-  let raw: string
-  try {
-    raw = await readFile(filePath, 'utf8')
-  } catch (err) {
-    process.stderr.write(`could not read ${filePath}: ${err instanceof Error ? err.message : String(err)}\n`)
-    exit(1)
-  }
-
-  let json: unknown
-  try {
-    json = JSON.parse(raw)
-  } catch (err) {
-    process.stderr.write(`${filePath} is not valid JSON: ${err instanceof Error ? err.message : String(err)}\n`)
-    exit(1)
-  }
-
-  const parsed = parseRecord(json)
-  if (!parsed.ok) {
-    process.stderr.write(`${filePath} is not a valid session record: ${parsed.error}\n`)
-    exit(1)
-  }
-
-  const verification = verifyRecord(parsed.record)
-  if (!verification.ok) {
-    process.stderr.write(
-      `refusing to replay ${filePath}: verification failed (${verification.reason})\n` +
-        `${verification.detail}\n`,
-    )
-    exit(1)
-  }
-
-  const { manifest, body } = parsed.record
-  const events: RhizomorphEvent[] = []
-  for (const link of body) {
-    const lineParsed = lineToEvent(link.line)
-    // Already-verified: every line parsed clean when `verifyRecord` walked it above.
-    if (lineParsed.ok) events.push(lineParsed.event)
-  }
-
-  const now = options.now ?? Date.now
-  const tempDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-replay-'))
-  // A fresh synthetic id for this read-only serving process — distinct from
-  // `manifest.actor.instance` (a foreign record's own identity, printed
-  // below), which need not even be numeric for a record from a compatible
-  // third-party emitter.
-  const replaySessionTs = now()
-  const sessionId = String(replaySessionTs)
-  const replaySessionFilePath = path.join(tempDir, sessionFileName(replaySessionTs))
-  await writeFile(replaySessionFilePath, eventsToJsonl(events), 'utf8')
-
-  const recorder = new SessionRecorder(sessionId, replaySessionFilePath, { resumeFrom: events })
-  const repoPath = `record:${manifest.repoSlug}`
-  const pollLoop = createPollLoop({
-    repoPath,
-    collectors: [],
-    recorder,
-    exec: options.exec ?? realExec,
-    now,
-  })
-
-  const webDistDir = options.webDistDir ?? defaultWebDistDir()
-  const app = buildApp({
-    repoPath,
-    repoName: manifest.repoSlug,
-    sessionDir: tempDir,
-    recorder,
-    webDistDir,
-    // A record is a finished thing: `POST /api/rotate` refuses here (prd11
-    // ruling 4's read-only replay, restated for the recorder's new hand).
-    readOnly: true,
-  })
-
-  let url: string
-  try {
-    url = await app.listen({ port: args.port, host: '127.0.0.1' })
-  } catch (err) {
-    await app.close().catch(() => {})
-    await rm(tempDir, { recursive: true, force: true }).catch(() => {})
-    const code = err instanceof Error ? (err as NodeJS.ErrnoException).code : undefined
-    const message =
-      code === 'EADDRINUSE'
-        ? `port ${args.port} is already in use — pass a different one with --port <n>`
-        : `failed to start server: ${err instanceof Error ? err.message : String(err)}`
-    process.stderr.write(`${message}\n`)
-    exit(1)
-  }
-
-  const declared = manifest.actor.declared ? '' : ' (undeclared)'
-  log.log(`rhizomorph replaying ${filePath} at ${url}`)
-  log.log(
-    `read-only session record — ${manifest.eventCount} events, ` +
-      `actor ${manifest.actor.handle}${declared}@${manifest.actor.instance}, repo ${manifest.repoSlug}`,
-  )
-
-  const stop = async () => {
-    await pollLoop.stop()
-    await app.close()
-    await rm(tempDir, { recursive: true, force: true }).catch(() => {})
-  }
-
-  return { app, recorder, pollLoop, url, stop }
-}
-
 
 /**
  * `rhizomorph lab <subcommand>` — the laboratory's namespace (prd12 ruling
