@@ -165,9 +165,9 @@ form](#prd7--procedural-form) below.
 
 ## The instrument (prd3)
 
-prd3 (`docs/prd3.md`) is the "beautiful instrument" design pass, rebuilt in
+prd3 (`docs/prds/prd3.md`) is the "beautiful instrument" design pass, rebuilt in
 fenced waves (issues #75–#86) after a same-day spike round chose **Direction
-C — Mycelium Pulse-Network** ([ruling 28](prd3.md)) over the two other spike
+C — Mycelium Pulse-Network** ([ruling 28](prds/prd3.md)) over the two other spike
 builds. What follows is the shape it took in code; ruling numbers are cited
 so the wording here can be checked against the rulings that required it.
 
@@ -188,7 +188,7 @@ Every field is built from core selectors that already exist
 `selectWorktreeViews`, `selectTouchesByBranch`, `selectCollisions`, …) — the
 fleet object composes and diagnoses, it does not re-sum.
 
-**The ladder floor is structural, not remembered ([graft g5](prd3.md)).** The
+**The ladder floor is structural, not remembered ([graft g5](prds/prd3.md)).** The
 `Ladder` type is a discriminated union: the calm branch's evidence type pins
 `collisions` to the literal `0`, so "ALL CLEAR beside a nonzero collision
 count" has no value that type-checks — `buildFleet.test.ts` asserts this with
@@ -216,23 +216,23 @@ heartbeat (its content-hash repaint) kept a WAITING inference permanently
 ### The glyph alphabet — two scales, one alphabet
 
 `packages/web/src/fleet/sigils.tsx` is "the glyph alphabet" ([ruling
-23](prd3.md)'s cyber-sigilist register): every pathology/state mark is
+23](prds/prd3.md)'s cyber-sigilist register): every pathology/state mark is
 authored once, in a unit square, as `Path2D` code, then drawn at two named
 scales — `SIGIL_ROW_SIZE = 15` (the fleet table's row) and `SIGIL_SCENE_SIZE
 = 64` (the scene's node). Same code, same silhouette, just more room for the
 curl at the larger size. Because the fleet table draws the identical glyph the
-scene does, [graft g1](prd3.md) falls out for free: **the table is the
+scene does, [graft g1](prds/prd3.md) falls out for free: **the table is the
 scene's legend** — a reader who has learned to name a pathology in the table
 already knows what it looks like in the scene, with no separate key to teach.
 Two laws are encoded alongside the marks themselves: hue is severity, form is
-kind ([graft g4](prd3.md)), and color is never the sole carrier of a state
-([law 9](prd3.md)) — FROZEN and WAITING, for instance, are built to differ on
+kind ([graft g4](prds/prd3.md)), and color is never the sole carrier of a state
+([law 9](prds/prd3.md)) — FROZEN and WAITING, for instance, are built to differ on
 shape and fill as well as hue.
 
 ### The pulse-as-event laws
 
 `packages/web/src/scene/pulses.ts` (`PulseField`) is where the scene's motion
-lives, and it is built directly against [ruling 32](prd3.md)'s three adopted
+lives, and it is built directly against [ruling 32](prds/prd3.md)'s three adopted
 rules, each with its own enforcing test:
 
 1. **History never pulses.** The field only ever ingests through
@@ -342,7 +342,7 @@ list the sections above assume:
   focus hook are two independent listeners ordered by that one predicate,
   proven by `panelPrefs.test.ts`'s "escapeShouldExitFocus (ruling 6 — Esc
   precedence)" cases.
-- **Replay's mode shift (#83)** — per [ruling 16](prd3.md), replay is a full
+- **Replay's mode shift (#83)** — per [ruling 16](prds/prd3.md), replay is a full
   frame change, not a tinted live view: `Shell.tsx`'s top dock renders either
   the attention strip or a `ReplayBanner` (`packages/web/src/replay/Banner.tsx`),
   never both, so a live summons can never be read off a recording. The banner
@@ -352,7 +352,7 @@ list the sections above assume:
 
 ## The layman bar (prd4)
 
-prd4 (`docs/prd4.md`) is the operator-review pass that followed prd3: the
+prd4 (`docs/prds/prd4.md`) is the operator-review pass that followed prd3: the
 instrument worked but read as built for the person who already knew what
 every mark meant, and ruling 1 (a standing ruling) re-aims every surface at a
 first-time viewer instead. Issues #92–#96 landed it in fenced waves — #92
@@ -493,7 +493,7 @@ docs-only fence.
 
 ## prd5 — the finished application
 
-prd5 (`docs/prd5.md`) is the "sleek, well formed, beautiful application"
+prd5 (`docs/prds/prd5.md`) is the "sleek, well formed, beautiful application"
 pass that followed prd4, set by the operator's close-out on issue #99:
 "drag around the scene, completed paths should not still be connected, a
 little more animation … not just a tool … production ready." Four issues
@@ -775,7 +775,7 @@ ruling and said so in their own commit messages.
 
 ## prd6 — the living cycle
 
-prd6 (`docs/prd6.md`) followed the operator's close-out review of prd5: the
+prd6 (`docs/prds/prd6.md`) followed the operator's close-out review of prd5: the
 scene's *end state* read as lifeless (a scar was a dead end) and two of its
 channels didn't read as intuitively as the others ("as output grows the
 seeds should grow too"; "the distance from the node should mean something
@@ -941,7 +941,7 @@ command that puts a pane on record instead of a button that would act.
 
 ## prd7 — procedural form
 
-prd7 (`docs/prd7.md`) followed the operator's close-out review of prd6: "the
+prd7 (`docs/prds/prd7.md`) followed the operator's close-out review of prd6: "the
 function should remain the same, that's locked in, but now that we've got the
 shape of it sorted, we can make it more procedurally generated, smooth,
 unique, less janky, less shapes." Research ran before any code
@@ -1277,7 +1277,7 @@ proportion of how big the stuff is.
 
 ## prd8 — from private project to published software
 
-prd8 (`docs/prd8.md`) is the publishing round: turning a private,
+prd8 (`docs/prds/prd8.md`) is the publishing round: turning a private,
 `private: true` scaffold into something a stranger can find, trust, install
 and run. Four issues landed it in fenced waves — **#119** (the rename,
 mechanical and everywhere, landed alone since every other wave depends on the
@@ -1317,7 +1317,7 @@ one prd later — see [prd9](#prd9--the-trace-era) below and
 
 ## prd9 — the trace era
 
-prd9 (`docs/prd9.md`) was the one-week handover push: a junior-proof front
+prd9 (`docs/prds/prd9.md`) was the one-week handover push: a junior-proof front
 door, and a trace layer built on live captures
 (`research/2026-08-03-trace-era-captures.md`), not documentation — a research
 day probed Claude Code 2.1.220's beta OTLP trace export and Langfuse's
@@ -1478,7 +1478,7 @@ already followed before this issue.
 
 ## prd10 — the gorgeous round: growth, life, flourishing and return
 
-prd10 (`docs/prd10.md`) is a scene-beauty pass on top of prd7's procedural
+prd10 (`docs/prds/prd10.md`) is a scene-beauty pass on top of prd7's procedural
 form — thread underglow, a tissue-density ramp toward the root-mass, and
 further contour refinement — landed on the operator's brief that "a replay
 should look like a legitimate art piece." It changes rendering detail inside
@@ -1490,7 +1490,7 @@ finish.
 
 ## prd11 — the causal record: provenance and the portable session record
 
-prd11 (`docs/prd11.md`), ruled 2026-08-04 toward "the forest" (a future,
+prd11 (`docs/prds/prd11.md`), ruled 2026-08-04 toward "the forest" (a future,
 multiplayer instrument with persistent knowledge of every coworker's
 swarm) — everything in it is built so that goal is a merge later, not a
 rewrite. Two do-now pieces:
@@ -1516,7 +1516,7 @@ rewrite. Two do-now pieces:
 
 ## prd12 — the laboratory: a second hand, under an amended constitution
 
-prd12 (`docs/prd12.md`) is the constitutional amendment the README's Trust
+prd12 (`docs/prds/prd12.md`) is the constitutional amendment the README's Trust
 section documents in full — see
 [The laboratory](../README.md#the-laboratory--opt-in-explicitly-invoked-and-separate-prd12-ruling-1)
 there for what it reads, what it may write, and the two independent
@@ -1532,7 +1532,7 @@ below adds a third.
 
 The dashboard-IA spike (`docs/research/2026-08-04-dashboard-ia-spike.md`)
 named the weakest control in the app: `Scrubber.tsx` was a bare
-`<input type=range>`, so replay was navigated blind. prd13 (`docs/prd13.md`)
+`<input type=range>`, so replay was navigated blind. prd13 (`docs/prds/prd13.md`)
 answers that — but its own history is the clearest live example in this repo
 of prd3 ruling 25's standing protocol, *"every failing mark gets an
 affordance or is CUT"*: a swim-lane density band was built, given three
@@ -2102,7 +2102,7 @@ lane is dispatched against them. 3,158 tests across 202 files pass at commit
   where this lives in code.
 - 2026-07-31 — prd3 (issue #75): **the ladder floor (ALL CLEAR structurally
   incapable of coexisting with a nonzero collision count) lives in
-  `buildFleet`, not the view** ([graft g5](prd3.md)). The calm branch of the
+  `buildFleet`, not the view** ([graft g5](prds/prd3.md)). The calm branch of the
   `Ladder` union types its evidence's `collisions` field as the literal `0`,
   so the disallowed state has no representable value rather than being a
   convention a view author has to remember to check.

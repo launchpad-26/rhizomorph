@@ -59,7 +59,7 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   `[`/`]` chapter stepping. (An earlier, richer per-lane density-band
   version was built, given three rounds of affordances, and cut outright
   by the operator once it still read as noise in practice — see
-  `docs/prd13.md` ruling 13.)
+  `docs/prds/prd13.md` ruling 13.)
 - **The drawer, tabbed (#163/#164).** ACTIVITY, CONVERSATION, WHY and TRACE
   each get the drawer's full height instead of four independently-capped
   boxes, opening on ACTIVITY by default. The conversation view now caches

@@ -2,7 +2,7 @@
 
 > How to point a real `claude` process at this Rhizomorph's OTLP receiver so
 > its spend shows up live. Background and payload shapes:
-> `docs/prd1.md`, `research/2026-07-30-telemetry-capture-routes.md`.
+> `docs/prds/prd1.md`, `research/2026-07-30-telemetry-capture-routes.md`.
 
 ## The short version
 
@@ -384,7 +384,7 @@ lane's own total.
 
 ## Enabling beta traces
 
-prd9 (`docs/prd9.md`) adds a trace layer on top of the money layer above.
+prd9 (`docs/prds/prd9.md`) adds a trace layer on top of the money layer above.
 Claude Code 2.1.220 — the version already installed, no CLI upgrade needed —
 exports OTLP traces behind a beta gate
 (`research/2026-08-03-trace-era-captures.md` §1). On top of the metrics/logs
@@ -421,7 +421,7 @@ renames a span is a fixture update, not a schema migration.
 The Rhizomorph is a pure sink for the OTLP stream it receives at
 `/v1/traces` (and `/v1/metrics`, `/v1/logs`) — it only ever reads. Nothing it
 does sends that stream, or anything derived from it, anywhere else; the
-Trust section's promise (`docs/prd8.md` ruling 6 — "nothing is ever sent
+Trust section's promise (`docs/prds/prd8.md` ruling 6 — "nothing is ever sent
 anywhere") holds for traces exactly as it does for the money layer.
 
 An organization already running Langfuse does not have to choose between the

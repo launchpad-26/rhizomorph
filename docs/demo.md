@@ -1,11 +1,11 @@
 # Demo script — the ruling-25 checks
 
-prd3 [ruling 25](prd3.md) defines the demo as four falsifiable checks, not a
+prd3 [ruling 25](prds/prd3.md) defines the demo as four falsifiable checks, not a
 narrated tour: GLANCE, PATHOLOGY, SCENE, MODE. Each one has a pass condition
 and a failure condition below — run them in order, on the fixtures built for
 exactly this purpose, and you need no live swarm to do it.
 
-Every check below is now run against [prd4 ruling 1](prd4.md), the **layman
+Every check below is now run against [prd4 ruling 1](prds/prd4.md), the **layman
 bar** (a standing ruling): a first-time viewer — layman, even though the
 product targets developers — should understand what is going on, what things
 mean, and what to do next. GLANCE and SCENE in particular ask for a
@@ -28,7 +28,7 @@ keyboard shortcuts — no swarm, no telemetry, no setup beyond this:
 | Key | Source | What it loads |
 |---|---|---|
 | `1` | `live` | The real collectors, watching whatever repo you pointed `rhizomorph` at |
-| `2` | `fleet20` | A synthetic 20-lane fleet, every lane healthy — [ruling 22](prd3.md)'s scale test |
+| `2` | `fleet20` | A synthetic 20-lane fleet, every lane healthy — [ruling 22](prds/prd3.md)'s scale test |
 | `3` | `pathology` | A synthetic fleet with exactly one lane per pathology, calm neighbours around them |
 
 (Keys are ignored while typing in a form field.) Two more keys matter for the
@@ -57,7 +57,7 @@ honest-empty-state design, not a failure.
 
 > "From a 3-second look at a busy fleet, answer: anything need me? how many
 > lanes working? rough cost?" — passed by Lachlan **and**, per [prd4 ruling
-> 1](prd4.md)'s layman bar, a non-Lachlan, first-time viewer explicitly
+> 1](prds/prd4.md)'s layman bar, a non-Lachlan, first-time viewer explicitly
 > invited to try it too, not merely a nice-to-have.
 
 1. Press **`2`** to load the 20-lane fixture.
@@ -81,7 +81,7 @@ needing to hover, scroll, or open anything.
 **What failure looks like:** hesitating past the glance, misreading `ALL
 CLEAR` as an alarm state (or vice versa), or needing to read individual fleet
 rows to get a lane count. `ALL CLEAR` next to a nonzero collision count would
-also be a failure — but per [ruling 22/g5](prd3.md), the ladder floor makes
+also be a failure — but per [ruling 22/g5](prds/prd3.md), the ladder floor makes
 that combination structurally unrepresentable in the data the strip reads, so
 it should never be reachable from a real bug in this area.
 
@@ -105,47 +105,47 @@ it should never be reachable from a real bug in this area.
 
 3. Confirm the fleet table's STATE column alone is enough to name each one —
    it draws the scene's own glyph, in the scene's own hue, at row scale
-   ([graft g1](prd3.md); hue since [prd4 ruling 3](prd4.md)), so the table
+   ([graft g1](prds/prd3.md); hue since [prd4 ruling 3](prds/prd4.md)), so the table
    doubles as the legend for shape *and* color; you shouldn't need to open a
    drawer to tell WAITING (amber, a raised hand) from FROZEN (red, a severed
    bar) — color and silhouette agree, on purpose.
 
 **What you should see:** all five named without hunting, each backed by an
-evidence string, not a bare label ([graft g4](prd3.md)).
+evidence string, not a bare label ([graft g4](prds/prd3.md)).
 
 **What failure looks like:** needing the drawer (or a hover tooltip) to
 distinguish two pathologies that should already read apart at a glance; the
 EXPENSIVE lane's white-hot thread outshining a needs-you/broken sigil
 elsewhere in the scene (a regression in the [EXPENSIVE-recede scar,
-graft g6](prd3.md)); or the fixture showing a count other than five.
+graft g6](prds/prd3.md)); or the fixture showing a count other than five.
 
 ## Check 3 — SCENE
 
 > "A first-time viewer explains the encoding within 30 seconds, no legend." —
-> [prd4 ruling 1](prd4.md) requires this viewer be a genuine layman, not
+> [prd4 ruling 1](prds/prd4.md) requires this viewer be a genuine layman, not
 > someone already fluent in the rest of the dashboard.
 
 1. With any fixture loaded (`2` or `3` both work — `3` gives more to look at),
    hand the screen to someone who hasn't seen the Rhizomorph before. Show
    them the SCENE panel only — it's the first thing under the top dock now
-   ([prd4 ruling 2](prd4.md)), so this is naturally what they see first
+   ([prd4 ruling 2](prds/prd4.md)), so this is naturally what they see first
    anyway; collapse or ignore the rest of the page regardless.
 2. Give them 30 seconds of silent looking, then ask what they're looking at.
 
 **What you should see:** an explanation that covers, unprompted: threads
 reaching out from a central mass are lanes/agents; a thicker thread has
 produced more, and a thin one hasn't produced much yet ([prd6
-ruling 1](prd6.md) — thread width is absolute, so a thick thread stays thick
+ruling 1](prds/prd6.md) — thread width is absolute, so a thick thread stays thick
 even next to a whale); a thread's distance from the mass is how far along
 it is — close in is newer, out at the rim means it's finishing or already
-done ([prd6 ruling 4](prd6.md)); brightness and traveling pulses are
+done ([prd6 ruling 4](prds/prd6.md)); brightness and traveling pulses are
 activity (commits, tokens); green threads are getting on with it, amber
 ones are stopped and waiting on a person, a hollow red mark is dead ([prd4
-ruling 3](prd4.md)'s law 9a — hue is meaning, and each hue means one
+ruling 3](prds/prd4.md)'s law 9a — hue is meaning, and each hue means one
 thing); a stuck or orbiting pulse, a dark thread, or a white-hot thread each
 mean something is off; a lane's position doesn't drift once you've noticed it
-(a lane keeps its angular slot for the session — [graft g7](prd3.md)); and,
-since [prd7](prd7.md) redrew every thread as a filled ribbon rather than a
+(a lane keeps its angular slot for the session — [graft g7](prds/prd3.md)); and,
+since [prd7](prds/prd7.md) redrew every thread as a filled ribbon rather than a
 stroked line, a thread that visibly narrows to nothing partway along itself
 reads as *cut* (FROZEN) and one that draws down to a sharp needle near its
 tip reads as *burning hot* (EXPENSIVE) — both without any icon glued onto
@@ -161,7 +161,7 @@ more" — both swap a lifecycle/output fact for an activity one); needing the
 mycelium metaphor explained before it clicks; needing the color explained as
 anything other than what it visibly is (green = good, amber = needs a
 person, red = dead); or the centre reading as a faceted, geometric shape
-rather than an organic one (a regression — [prd7 ruling 5](prd7.md) requires
+rather than an organic one (a regression — [prd7 ruling 5](prds/prd7.md) requires
 one smooth contour, not a crystal).
 
 ## Check 4 — MODE
@@ -175,7 +175,7 @@ one smooth contour, not a crystal).
 
 **What you should see:** they say "this is the past" (or an equivalent)
 without being asked whether it's live — driven by the REPLAY banner that
-has structurally replaced the attention strip ([ruling 16](prd3.md): replay
+has structurally replaced the attention strip ([ruling 16](prds/prd3.md): replay
 is a full mode shift, not a tinted live view — the two are mutually
 exclusive in the shell, never stacked), its ice-register frame/tint rather
 than a ladder hue, the visible timestamp and session identity, and the
@@ -190,8 +190,8 @@ failure ruling 16 exists to prevent).
 ## The camera, the cord-cut, and pause — what you can *do*
 
 The four checks above establish that the scene reads correctly at a
-glance. prd5 (`docs/prd5.md`) added things to actually *do* with it, once
-you're looking, and prd6 (`docs/prd6.md`) added two more — the root-mass
+glance. prd5 (`docs/prds/prd5.md`) added things to actually *do* with it, once
+you're looking, and prd6 (`docs/prds/prd6.md`) added two more — the root-mass
 now visibly grows, and the root-mass itself is something you can click — a
 first-time reader should come away knowing all of it exists, not just what
 the picture means.
@@ -283,13 +283,13 @@ stage-by-stage description backed by `retire.test.ts`. What you're looking
 for: the thread goes slack, one last swell of the ribbon's own width runs
 back down it into the root-mass — the lane's substance going home, told as
 matter moving through the hypha rather than a light travelling on top of it
-(since [prd7 ruling 3](prd7.md) — [prd6 ruling 2](prd6.md) is the fact,
+(since [prd7 ruling 3](prds/prd7.md) — [prd6 ruling 2](prds/prd6.md) is the fact,
 unchanged) — the mass bulges gently where it arrives and settles back
-([prd7 ruling 5](prd7.md)), the freed end springs back to its own node with
+([prd7 ruling 5](prds/prd7.md)), the freed end springs back to its own node with
 no bounce, and what's left settles into a small, permanently dimmed mark
 near the rim — never gone, never re-lit, and **sized to that lane's own
 output**
-([prd6 ruling 1](prd6.md): a lane that did more work leaves a visibly
+([prd6 ruling 1](prds/prd6.md): a lane that did more work leaves a visibly
 bigger scar, which overrules prd5's "a scar is a mark, so it's the same
 size for every lane"). The **hide finished** button (top-right of the
 scene, appears once at least one lane has finished) toggles those marks
@@ -300,7 +300,7 @@ scars.
 
 Over a longer session, compare the root-mass at the start and the end:
 it's visibly thicker once a few lanes have landed, because every one of
-them sent its work home into it ([prd6 ruling 2](prd6.md)) — you notice
+them sent its work home into it ([prd6 ruling 2](prds/prd6.md)) — you notice
 it's bigger, you never catch it growing.
 
 **What failure looks like:** a finished lane's thread stays attached to
@@ -313,7 +313,7 @@ doesn't match the fleet table's finished-lane total.
 If the same handle is dispatched again after landing, its new thread
 **germinates from the seed it left behind** — same angle, same seat,
 already as big as what it grew from — rather than sprouting somewhere new
-and re-spacing the whole ring ([prd6 ruling 3](prd6.md)). There's no key to
+and re-spacing the whole ring ([prd6 ruling 3](prds/prd6.md)). There's no key to
 force this on the shipped fixtures; it's mentioned here so you know what
 you're looking at if you see it on a real swarm.
 
@@ -322,7 +322,7 @@ you're looking at if you see it on a real swarm.
 Look closely at either fixture (`2` is the easier read — twenty healthy
 lanes side by side) and no two threads bend the same way, even though
 several are close in output and lifecycle. That is deliberate
-([prd7 ruling 4](prd7.md)): each thread's gentle wander is seeded from a
+([prd7 ruling 4](prds/prd7.md)): each thread's gentle wander is seeded from a
 hash of **that lane's own name**, never from the clock, so it is bounded —
 it can nudge a thread sideways a little and make its width wobble a few
 percent, and it can never move where a thread sits on its lifecycle, what
@@ -347,7 +347,7 @@ to read.
    (branch, landings, commits home, output, `$`, overhead) instead of a
    lane's, then the same tabbed body (opening on ACTIVITY, CONVERSATION a
    click away, tailing the conductor's own session), then the same
-   copies-never-executes ATTACH ([prd6 ruling 5](prd6.md)).
+   copies-never-executes ATTACH ([prd6 ruling 5](prds/prd6.md)).
 
 **What you should see:** a hovered root-mass shows a pointer cursor, same
 as a lane node; the drawer that opens is visually identical in frame and
@@ -418,12 +418,12 @@ only how insistently the same rung reads.
   only, with `NO COST FEED (OTel) — dollars unavailable — run: eval
   "$(rhizomorph env <lane>)"` in place of a dollar figure — say so out loud,
   same empty-state discipline as every other gap.
-- **A lane is parked:** ([prd4 ruling 5](prd4.md)) it shows a dimmed `PARKED`
+- **A lane is parked:** ([prd4 ruling 5](prds/prd4.md)) it shows a dimmed `PARKED`
   in the STATE column instead of a pathology, stays off the attention ladder
   entirely, and is exempt from FROZEN/WAITING even at any age — this is a
   declaration an operator made in `.swarm/lanes.json` (`"parked": true`),
   never something the read-only Rhizomorph decided on its own.
-- **The conductor isn't instrumented:** ([prd6 ruling 5](prd6.md)) clicking
+- **The conductor isn't instrumented:** ([prd6 ruling 5](prds/prd6.md)) clicking
   MAIN still opens the drawer — it says `conductor not instrumented — its
   burn is unknown, not zero` in the vitals and conversation, rather than a
   blank pane or a `$0.00` that would disagree with the burn strip.

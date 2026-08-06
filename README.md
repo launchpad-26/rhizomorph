@@ -425,14 +425,14 @@ scene already locked to 60fps with zero `shadowBlur` calls, found "janky"
 was the form language rather than the renderer, and removed the
 react-three-fiber dependency it was originally scaffolded on. Full write-up
 in [`docs/architecture.md`](docs/architecture.md); the product brief is in
-[`docs/prd0.md`](docs/prd0.md), the visualization design rulings in
-[`docs/prd3.md`](docs/prd3.md) and [`docs/prd4.md`](docs/prd4.md). See
+[`docs/prds/prd0.md`](docs/prds/prd0.md), the visualization design rulings in
+[`docs/prds/prd3.md`](docs/prds/prd3.md) and [`docs/prds/prd4.md`](docs/prds/prd4.md). See
 [`docs/demo.md`](docs/demo.md) for the falsifiable demo script.
 
 ## Dashboard
 
-The curated, top-to-bottom hierarchy ([ruling 6](docs/prd3.md), reordered by
-[prd4 ruling 2](docs/prd4.md)) answers, in order: *does anything need me* →
+The curated, top-to-bottom hierarchy ([ruling 6](docs/prds/prd3.md), reordered by
+[prd4 ruling 2](docs/prds/prd4.md)) answers, in order: *does anything need me* →
 *what is it costing* → *what is the fleet doing* → *who is doing what* →
 *what happened* → *where did this come from*. The scene moved up to third
 place, directly under the two docked strips: it's big, bright and
@@ -450,17 +450,17 @@ instruments beneath it.
   burn rate, and the conductor/worker overhead ratio. Any missing piece
   speaks the gap voice instead of guessing (`NO COST FEED (OTel) — …`,
   `CONDUCTOR NOT INSTRUMENTED — …`).
-- **Scene** (the centerpiece, [prd4 ruling 2](docs/prd4.md)) — the mycelium
-  pulse-network ([ruling 28](docs/prd3.md)): root-mass at the center, one
+- **Scene** (the centerpiece, [prd4 ruling 2](docs/prds/prd4.md)) — the mycelium
+  pulse-network ([ruling 28](docs/prds/prd3.md)): root-mass at the center, one
   tendril per lane, pulses of light traveling along them for real events
   (commits, token bursts) — never invented, never on history. Four channels,
   each a different fact, none of them a decoration:
   - **Thread width — how much a lane has produced**, on an absolute scale
-    ([prd6 ruling 1](docs/prd6.md)): a 20K-token lane draws the same width
+    ([prd6 ruling 1](docs/prds/prd6.md)): a 20K-token lane draws the same width
     whether it's alone or next to a 500K-token whale. Nothing balloons — the
     scale is capped.
   - **Distance from the mass — how far through its life a lane is**
-    ([prd6 ruling 4](docs/prd6.md)): born close in, growing outward as it
+    ([prd6 ruling 4](docs/prds/prd6.md)): born close in, growing outward as it
     works, coming to rest at the rim when it retires. No legend needed —
     "closer to the middle" reads as "newer" on its own.
   - **Angle — identity**, stable for the whole session (a lane keeps its
