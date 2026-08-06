@@ -288,6 +288,14 @@ describe('the camera', () => {
   const HOST = { width: 900, height: 500 }
 
   /**
+   * Generous enough that only a genuine hang trips it (#193's lesson): a
+   * single wheel-clamp test body fires 120 events, and under `--maxWorkers`
+   * that ran alongside 144 other files at 5,535ms against the 5s default —
+   * a docs lane held falsely by this test rather than by anything it found.
+   */
+  const CLAMP_TIMEOUT_MS = 120_000
+
+  /**
    * A turn of the event loop.
    *
    * d3 suppresses the click at the end of a drag by installing a capture-phase
@@ -462,7 +470,7 @@ describe('the camera', () => {
 
     for (let i = 0; i < 80; i += 1) pinch(canvas, { x: 450, y: 250 }, 100)
     expect(cameraOf(transforms).k).toBeCloseTo(SCALE_EXTENT[0], 6)
-  })
+  }, CLAMP_TIMEOUT_MS)
 
   it('pans on drag', () => {
     const { canvas, transforms } = mountCamera()
