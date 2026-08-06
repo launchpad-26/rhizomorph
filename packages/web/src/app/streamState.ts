@@ -36,8 +36,35 @@ export const NEWS_GRACE_MS = 4_000
 /** How many news events to keep for the scene's arrival flares. */
 const MAX_NEWS = 256
 
+/**
+ * How many raw events the live buffer retains, oldest evicted first (#176's
+ * original finding, confirmed twice: this fold used to append `events: [...]`
+ * with no ceiling at all, so an 8-hour session grew it without limit).
+ *
+ * Chosen well above what a real live session actually runs: #166/#183's own
+ * benchmarks measured real sessions at ~46k-55k events, so a ceiling has to
+ * clear that with headroom or it would start evicting mid-session for a
+ * perfectly ordinary run. 75,000 does — and is still a real ceiling, so a
+ * session that runs long enough, or busy enough, still bounds the raw window
+ * instead of growing it forever.
+ *
+ * Eviction only ever trims this raw window, never the fold: `session` is the
+ * running projection and every event it ever saw stays folded into it
+ * (`core`'s `reduce`, `eventCount` included) whether or not that event is
+ * still sitting in `events`. Nothing that reads only `session` — which is
+ * every selector in `@rhizomorph/core` — can tell eviction happened at all.
+ * {@link eventsWindowLabel} is the honest word for the surfaces that read
+ * `events` directly and therefore can.
+ */
+export const MAX_EVENTS = 75_000
+
 export interface StreamState {
-  /** The raw log in arrival order — what replay and the older panels read. */
+  /**
+   * The raw log in arrival order — what replay and the older panels read.
+   * Capped at {@link MAX_EVENTS}, oldest evicted first; `session.eventCount`
+   * (never capped) is the true total, so `events.length < session.eventCount`
+   * is exactly how a reader detects eviction ({@link eventsWindowLabel}).
+   */
   events: RhizomorphEvent[]
   /** The fold, kept incrementally so nothing re-reduces the log per render. */
   session: SessionState
@@ -47,6 +74,24 @@ export interface StreamState {
   news: RhizomorphEvent[]
   /** How many news events have arrived in total. Cheap change detection. */
   newsCount: number
+}
+
+/**
+ * Honesty at the boundary: once eviction has trimmed `events` below the
+ * session's true total, any surface reading raw events directly must say so
+ * rather than let a bounded window pass as the whole session. `null` while
+ * every event the session has ever seen is still sitting in `events` — the
+ * common case for any session under {@link MAX_EVENTS} events.
+ *
+ * `session.eventCount` is the ground truth (`core`'s `reduce` increments it
+ * on every event, uncapped) and `events.length` never exceeds it, so the two
+ * disagreeing is exactly what eviction looks like from the outside.
+ */
+export function eventsWindowLabel(state: Pick<StreamState, 'events' | 'session'>): string | null {
+  const shown = state.events.length
+  const total = state.session.eventCount
+  if (shown >= total) return null
+  return `showing the last ${shown} events`
 }
 
 /**
@@ -64,7 +109,7 @@ export function initialStreamState(connectedAt: number): StreamState {
 export function foldStreamEvent(state: StreamState, event: RhizomorphEvent): StreamState {
   const news = isNews(state, event)
   return {
-    events: [...state.events, event],
+    events: [...state.events, event].slice(-MAX_EVENTS),
     session: reduce(state.session, event),
     connectedAt: state.connectedAt,
     news: news ? [...state.news, event].slice(-MAX_NEWS) : state.news,
@@ -76,6 +121,12 @@ export function foldStreamEvent(state: StreamState, event: RhizomorphEvent): Str
  * Fold a whole batch in one pass. A replay burst is thousands of events, and
  * folding them one state object at a time is quadratic in the event array
  * alone — which is exactly the shape such a burst has.
+ *
+ * `all` is capped to {@link MAX_EVENTS} once, after the loop, not per event:
+ * slicing every iteration would reintroduce the same O(n²) shape this
+ * function exists to avoid. `session` folds every event in the batch
+ * regardless — the cap never reaches the reducer, only the raw window kept
+ * beside it.
  */
 export function foldStreamEvents(
   state: StreamState,
@@ -98,7 +149,7 @@ export function foldStreamEvents(
   }
 
   return {
-    events: all,
+    events: all.slice(-MAX_EVENTS),
     session,
     connectedAt: state.connectedAt,
     news: news.slice(-MAX_NEWS),
