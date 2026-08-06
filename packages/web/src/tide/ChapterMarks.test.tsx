@@ -222,6 +222,80 @@ describe('ChapterMarks — the hover card escapes the dock\'s flow (issue #189 d
   // `wheel` listener one lane earlier.
 })
 
+describe("ChapterMarks — the card can't steal the hover it depends on (issue #232, #189's defect class)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('gives the card container pointer-events: none — it cannot become the hit-test target that unhovers the mark', () => {
+    const events = log((fx) => {
+      fx.at(100).agentStatus({ handle: 'ke5', status: 'working' })
+    })
+    render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
+
+    const wrapper = screen.getByTestId('chapter-mark').parentElement as HTMLElement
+    fireEvent.mouseEnter(wrapper)
+    act(() => vi.advanceTimersByTime(150))
+
+    const card = screen.getByTestId('chapter-mark-card')
+    expect(card.className).toContain('pointer-events-none')
+  })
+
+  it('still lets a card row take a real click — pointer-events: none on the shell does not disable its own rows', () => {
+    const onSeek = vi.fn()
+    const events = log((fx) => {
+      fx.at(100).agentStatus({ handle: 'ke5', status: 'working' })
+    })
+    render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={onSeek} seekEnabled />)
+
+    const wrapper = screen.getByTestId('chapter-mark').parentElement as HTMLElement
+    fireEvent.mouseEnter(wrapper)
+    act(() => vi.advanceTimersByTime(150))
+
+    const row = screen.getByTestId('chapter-mark-card-row')
+    expect(row.className).toContain('pointer-events-auto')
+    fireEvent.click(row)
+    expect(onSeek).toHaveBeenCalledWith(100)
+  })
+
+  it("the mark's own bounding rect is unchanged by the card mounting — 0×0 displacement", () => {
+    const events = log((fx) => {
+      fx.at(100).agentStatus({ handle: 'ke5', status: 'working' })
+    })
+    render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
+
+    const mark = screen.getByTestId('chapter-mark')
+    const before = mark.getBoundingClientRect()
+
+    const wrapper = mark.parentElement as HTMLElement
+    fireEvent.mouseEnter(wrapper)
+    act(() => vi.advanceTimersByTime(150))
+    expect(screen.getByTestId('chapter-mark-card')).toBeInTheDocument()
+
+    const after = mark.getBoundingClientRect()
+    expect(after.left - before.left).toBe(0)
+    expect(after.top - before.top).toBe(0)
+  })
+
+  it('hover state is driven only by the mark — the card never carries its own enter/leave handlers to derive it from', () => {
+    const events = log((fx) => {
+      fx.at(100).agentStatus({ handle: 'ke5', status: 'working' })
+    })
+    render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
+
+    const wrapper = screen.getByTestId('chapter-mark').parentElement as HTMLElement
+    fireEvent.mouseEnter(wrapper)
+    act(() => vi.advanceTimersByTime(150))
+
+    const card = screen.getByTestId('chapter-mark-card')
+    expect(card.onmouseenter).toBeNull()
+    expect(card.onmouseleave).toBeNull()
+  })
+})
+
 describe('ChapterMarks — coalescing under density', () => {
   it('renders one glyph per lane when marks sit far apart', () => {
     const events = log((fx) => {

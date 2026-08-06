@@ -58,6 +58,19 @@ import { hoverThresholdMs, timeScale } from './scale.js'
  * (`elementFromPoint` always misses), so the law that actually would have
  * caught this — the card wins the point under its own centre — is a
  * real-browser check, not a unit test; see the verification notes.
+ *
+ * **The card shell is `pointer-events: none` (issue #232, the same defect
+ * class one lane later).** Portaling fixed *where* the card paints, but not
+ * that it still sat in the hit-test tree: a mark's hoverable strip is only
+ * `MARK_ROW_HEIGHT_PX` tall, and a cursor resting near its lower edge could
+ * land the card underneath it once mounted, so the browser's own
+ * hit-test — not this file's state — flipped the mark's hover on/off at
+ * frame rate (hover → mount → the card wins the point → mouseout → unmount
+ * → mouseover → hover, repeat). `pointer-events: none` on the card removes
+ * it from hit-testing entirely, so it can never become the element a
+ * mouseover/mouseout resolves to; each row un-sets that back to `auto` so
+ * the cluster's own click-to-seek keeps working, since only the mark's own
+ * enter/leave ever drives `anchor` (never the card's).
  */
 
 export const MARK_ROW_HEIGHT_PX = 10
@@ -283,7 +296,7 @@ function MarkHoverCard({
     <div
       role="dialog"
       data-testid="chapter-mark-card"
-      className="z-[9999] -translate-x-1/2 whitespace-nowrap rounded border border-ice-700 bg-ice-950 p-1"
+      className="pointer-events-none z-[9999] -translate-x-1/2 whitespace-nowrap rounded border border-ice-700 bg-ice-950 p-1"
       style={{ position: 'fixed', left: anchor.left, top: anchor.top }}
     >
       {group.members.map((member, index) => (
@@ -296,7 +309,7 @@ function MarkHoverCard({
             event.stopPropagation()
             if (seekEnabled) onSeek(member.ts)
           }}
-          className="figures block w-full rounded px-1 py-0.5 text-left text-[10px] leading-tight text-ice-100 enabled:cursor-pointer enabled:hover:bg-ice-900 enabled:hover:text-ice-050 disabled:cursor-default"
+          className="figures pointer-events-auto block w-full rounded px-1 py-0.5 text-left text-[10px] leading-tight text-ice-100 enabled:cursor-pointer enabled:hover:bg-ice-900 enabled:hover:text-ice-050 disabled:cursor-default"
         >
           {chapterLabel(member)}
         </button>
