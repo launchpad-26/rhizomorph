@@ -27,14 +27,12 @@ import { createPollLoop, type PollLoop } from '../server/poll-loop.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { createFileSnapshotStore } from '../server/snapshot-store.js'
 import {
-  envHelpText,
   helpText,
   labCheckpointHelpText,
   labCompareHelpText,
   labForkHelpText,
   labHelpText,
   parseArgs,
-  parseEnvArgs,
   parseLabCheckpointArgs,
   parseLabCompareArgs,
   parseLabForkArgs,
@@ -43,11 +41,11 @@ import {
   type CliArgs,
 } from './args.js'
 import { runDoctorCommand } from './doctor.js'
+import { runEnvCommand } from './env.js'
 import { runExportRecordCommand } from './export-record.js'
 import { runLabelCommand } from './label.js'
 import { runRotateCommand } from './rotate.js'
 import { runSessionsCommand } from './sessions.js'
-import { fetchInstanceId, renderTelemetryEnv } from './telemetry-env.js'
 import type { CliHandle, RunCliOptions } from './types.js'
 import { readPackageVersion } from './version.js'
 
@@ -314,48 +312,6 @@ function renderBootLine(decision: SessionBootDecision, sessionId: string, resume
 function defaultWebDistDir(): string {
   const here = path.dirname(fileURLToPath(import.meta.url))
   return path.resolve(here, '..', '..', '..', 'web', 'dist')
-}
-
-/**
- * `rhizomorph env <lane>` — a standalone subcommand, no server boot of its
- * own, but it does read the instance id off the server on `--port` (#60: the
- * block must declare which run this telemetry belongs to, and only the running
- * Rhizomorph knows). Same clean-usage-error contract as the main command: a
- * bad argv — or an unreachable server — prints to stderr and exits 1, `--help`
- * prints to stdout and exits 0, no stack trace either way (#30/#32
- * conventions). `exit` always terminates in real usage; the `Promise<never>`
- * return type is honest about that and lets this slot into `runCli`'s
- * `Promise<CliHandle>` return without a dummy value.
- */
-async function runEnvCommand(
-  rest: readonly string[],
-  log: Pick<Console, 'log' | 'warn'>,
-  exit: (code: number) => never,
-): Promise<never> {
-  let envArgs
-  try {
-    envArgs = parseEnvArgs(rest)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    process.stderr.write(`${message}\n\n${envHelpText()}`)
-    exit(1)
-  }
-
-  if (envArgs.help) {
-    log.log(envHelpText())
-    exit(0)
-  }
-
-  let instance: string
-  try {
-    instance = await fetchInstanceId(envArgs.port)
-  } catch (err) {
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
-    exit(1)
-  }
-
-  log.log(renderTelemetryEnv({ ...envArgs, instance }))
-  exit(0)
 }
 
 /**
