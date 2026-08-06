@@ -1,8 +1,43 @@
-import { appendFile, mkdir, open, readFile, truncate } from 'node:fs/promises'
+import { appendFile, chmod, lstat, mkdir, open, readFile, truncate } from 'node:fs/promises'
 import path from 'node:path'
 import type { RhizomorphEvent } from '@rhizomorph/core'
 
 const NEWLINE = 0x0a
+
+/**
+ * Permissions for a recording (2026-08-06 audit, "secure file permissions
+ * for recordings"): owner read/write/execute on the session directory,
+ * owner read/write on the log file itself — nobody else on the machine gets
+ * a bit. A session log is the fullest record this instrument keeps of what
+ * an operator's agents did; group- or world-readable would hand that to
+ * every other local account for free.
+ */
+const SECURE_DIR_MODE = 0o700
+const SECURE_FILE_MODE = 0o600
+
+/**
+ * Refuses to proceed if `target` already exists as a SYMLINK — the
+ * `isSafeSessionId`/`isPathContained` pattern `log/transcript-attribution.ts`
+ * applies to path *strings*, extended here to the filesystem entry itself.
+ * `mkdir`'s own `{ recursive: true }` and a plain `appendFile` both happily
+ * follow a symlink that is already sitting at the path they were asked to
+ * write to; on a shared machine, another local account planting one there
+ * ahead of us is exactly the "another local process" half of the audit's
+ * threat model, and neither call would otherwise notice. A missing path is
+ * not a symlink — that is the common case, checked first, and never an
+ * error.
+ */
+async function assertNotSymlink(target: string): Promise<void> {
+  let stats
+  try {
+    stats = await lstat(target)
+  } catch {
+    return
+  }
+  if (stats.isSymbolicLink()) {
+    throw new Error(`refusing to write through a symlink at ${target}`)
+  }
+}
 
 export interface SessionLogWriterOptions {
   /**
@@ -62,6 +97,7 @@ export class SessionLogWriter {
    */
   async sync(): Promise<void> {
     await this.tail
+    await assertNotSymlink(this.filePath)
     let handle
     try {
       handle = await open(this.filePath, 'r+')
@@ -76,10 +112,30 @@ export class SessionLogWriter {
     }
   }
 
-  /** Runs once, before the first append, and every append awaits it. */
+  /**
+   * Runs once, before the first append, and every append awaits it.
+   * Symlink guards (see {@link assertNotSymlink}) run BEFORE the `mkdir`/
+   * `open` that would otherwise follow one, and secure permissions
+   * (`SECURE_DIR_MODE`/`SECURE_FILE_MODE`) are (re-)asserted every time
+   * rather than only at creation — a resumed writer's directory or file may
+   * already exist from an earlier, less careful version of this code, and
+   * the law is restated stronger, never left to whatever mode a past run
+   * happened to leave behind.
+   */
   private async prepare(): Promise<void> {
-    await mkdir(path.dirname(this.filePath), { recursive: true })
+    await assertNotSymlink(path.dirname(this.filePath))
+    await mkdir(path.dirname(this.filePath), { recursive: true, mode: SECURE_DIR_MODE })
+    await chmod(path.dirname(this.filePath), SECURE_DIR_MODE)
+
+    await assertNotSymlink(this.filePath)
     if (this.resuming) await dropTrailingPartialLine(this.filePath)
+
+    // `'a'` creates the file if it's missing (at `SECURE_FILE_MODE`,
+    // never-followed by the `appendFile` calls this unblocks) and otherwise
+    // just opens it — no truncation, no data touched either way.
+    const handle = await open(this.filePath, 'a', SECURE_FILE_MODE)
+    await handle.close()
+    await chmod(this.filePath, SECURE_FILE_MODE)
   }
 }
 
