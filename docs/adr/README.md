@@ -35,9 +35,15 @@ decisions survived in the code; the rejected options went with the files, and
 nine PRDs were left citing notes that no longer existed. Every ADR here was
 reconstructed from git history because of it.
 
-The notes were restored in `d1b7562`, which is the cheaper lesson: **the evidence
-behind a decision is not a process artifact.** Keep the spike, or write the ADR
-before you delete it.
+The cited notes were restored in `d1b7562`, and the rest re-pruned in `ddf2693`.
+That settled a rule worth keeping:
+
+> **Keep a research note if a surviving document cites it. Git holds the rest.**
+
+The original prune deleted by *category* — "process artifacts" — which is why it
+took cited and uncited alike and left nine PRDs asserting things on evidence
+nobody could reach. Deleting by *reachability* cannot do that. Either keep the
+spike, or write the ADR before you delete it.
 
 ## What is, and isn't, an ADR
 
