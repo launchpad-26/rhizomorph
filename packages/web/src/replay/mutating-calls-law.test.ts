@@ -10,28 +10,36 @@ import { describe, expect, it } from 'vitest'
  *
  * The drawer's law says "this directory sends only GETs". That law stays
  * exactly as it was, and stays green. Rotation gave the dashboard its first
- * mutating call ever; the recordings library's rename-in-place gives it its
- * second. So this law enumerates instead of forbidding: across every source
- * file in `packages/web/src`, the mutating calls are EXACTLY TWO, each in
- * exactly one file, each to exactly one route — and every verb either one
- * names is the same single verb, `POST`. A THIRD one added tomorrow —
- * anywhere, in any panel, in a branch nothing renders — fails here and has to
- * say so in a diff a reviewer reads.
+ * mutating call ever; the recordings library's rename-in-place gave it its
+ * second; the lab's launch gives it its third. So this law enumerates
+ * instead of forbidding: across every source file in `packages/web/src`, the
+ * mutating calls are EXACTLY THREE, each in exactly one file, each to
+ * exactly one route — and every verb any one names is the same single verb,
+ * `POST`. A FOURTH one added tomorrow — anywhere, in any panel, in a branch
+ * nothing renders — fails here and has to say so in a diff a reviewer reads.
  *
- * **Why a second mutating call is allowed to exist at all, not just why it is
- * caught.** Rotation (`replay/rotate.ts`) and the rename (`recordings/label.ts`)
- * are constitutional for the identical three reasons: each writes only a
- * SIDECAR or a session boundary inside rhizomorph's OWN DATA DIRECTORY, never
- * the watched repo and never a ref; each is triggered only by an EXPLICIT
- * OPERATOR ACT (a button the operator clicked), never a background poll or a
- * timer; and neither ever mutates the append-only event log itself — rotation
- * appends a `session.closed`/`session.started` pair the log already permits,
- * the rename writes `log/label.ts`'s own sidecar file beside it. A third
- * mutating call would need to clear that same bar, argued in its own diff,
- * not inherited from these two by default — which is exactly why this law
- * enumerates by *file* and stays exact rather than "at least one, at most a
- * few": the one module that may reach each route is also the one module that
- * documents why it is allowed to.
+ * **Why a third mutating call is allowed to exist at all, not just why it is
+ * caught.** Rotation (`replay/rotate.ts`), the rename (`recordings/label.ts`)
+ * and the launch (`lab/launch/launch.ts`) are constitutional for the
+ * identical three reasons the first two already were: each writes only a
+ * SIDECAR, a session boundary, or — for the launch — refs and worktrees
+ * confined to the laboratory's own amended namespace (prd12 ruling 1), never
+ * an operator branch and never the watched repo's working tree; each is
+ * triggered only by an EXPLICIT OPERATOR ACT (a button the operator clicked,
+ * behind exactly one confirmation for the launch — prd14 ruling 4), never a
+ * background poll or a timer (`lab/launch/explicit-invocation-law.test.ts`
+ * proves that structurally); and none of the three ever mutates the
+ * append-only event log's PAST — rotation appends a
+ * `session.closed`/`session.started` pair the log already permits, the
+ * rename writes `log/label.ts`'s own sidecar file beside it, and the launch's
+ * `fork.dispatched` events are exactly what `server/src/lab/fork.ts` already
+ * appends for an operator-run `rhizomorph lab fork`, spend and all, never
+ * hidden as "just an experiment" (prd12 ruling 3). A fourth mutating call
+ * would need to clear that same bar, argued in its own diff, not inherited
+ * from these three by default — which is exactly why this law enumerates by
+ * *file* and stays exact rather than "at least one, at most a few": the one
+ * module that may reach each route is also the one module that documents why
+ * it is allowed to.
  *
  * Deliberately crude and deliberately loud, like the law it extends. Test
  * files are excluded (a test is not the app, and this file itself names every
@@ -42,10 +50,11 @@ import { describe, expect, it } from 'vitest'
 const REPLAY_DIR = path.dirname(fileURLToPath(import.meta.url))
 const WEB_SRC = path.resolve(REPLAY_DIR, '..')
 
-/** The two files allowed to mutate, and the one route each may reach — every verb across both is `POST`. */
+/** The three files allowed to mutate, and the one route each may reach — every verb across all three is `POST`. */
 const MUTATING_MODULES: ReadonlyArray<{ file: string; route: string }> = [
   { file: path.join(WEB_SRC, 'replay', 'rotate.ts'), route: '/api/rotate' },
   { file: path.join(WEB_SRC, 'recordings', 'label.ts'), route: '/api/label' },
+  { file: path.join(WEB_SRC, 'lab', 'launch', 'launch.ts'), route: '/api/lab/launch' },
 ]
 const THE_ONLY_VERB = 'POST'
 
