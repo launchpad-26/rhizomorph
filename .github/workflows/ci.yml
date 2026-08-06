@@ -7,15 +7,40 @@ on:
 
 jobs:
   build-test-boot:
-    runs-on: ubuntu-latest
+    # macos-latest bills 10x ubuntu-latest, so it runs the suite once (at
+    # current node) rather than doubling with the min-node leg too — the
+    # min-node floor still gets checked, on the cheaper runner. The
+    # macOS leg exists because a case-only filename collision (#201's class)
+    # is invisible on Linux's case-sensitive filesystem and silent on
+    # checkout on macOS's default case-insensitive one — this is the leg
+    # that would have caught it before a user did.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [current, min]
+        exclude:
+          - os: macos-latest
+            node: min
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node (from engines)
+      - name: Setup Node (current, from engines)
+        if: matrix.node == 'current'
         uses: actions/setup-node@v4
         with:
           node-version-file: package.json
+
+      - name: Setup Node (declared minimum, pinned exactly)
+        if: matrix.node == 'min'
+        uses: actions/setup-node@v4
+        with:
+          # The floor package.json's engines.node declares — pinned exactly,
+          # not resolved by setup-node's usual range matching, so a bump to
+          # the declared minimum is verified rather than assumed.
+          node-version: '22.22.2'
 
       - name: Install (clean, lockfile-honest)
         run: npm ci
@@ -116,3 +141,41 @@ jobs:
           wait "$SERVER_PID" 2>/dev/null || true
           trap - EXIT
           echo "server shut down cleanly"
+
+  # Delivery maturity, tested rather than assumed (2026-08-06 external
+  # audit): packs the repo the way a release would, installs the tarball
+  # into a project that has never heard of this checkout, and runs the CLI
+  # from those installed files. The full os x node grid, because that is
+  # exactly the claim this job exists to back: Linux and macOS, the
+  # declared minimum node and the current one.
+  pack-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [current, min]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node (current, from engines)
+        if: matrix.node == 'current'
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+
+      - name: Setup Node (declared minimum, pinned exactly)
+        if: matrix.node == 'min'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.2'
+
+      - name: Install (clean, lockfile-honest)
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Pack, install into a clean project, run the installed CLI
+        run: bash scripts/pack-smoke.sh
