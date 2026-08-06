@@ -217,29 +217,41 @@ function blend(ctx: CanvasRenderingContext2D, mark: Mark): void {
 function draw(ctx: CanvasRenderingContext2D, mark: Mark): void {
   switch (mark.kind) {
     case 'ribbon':
-      return ribbon(ctx, mark)
+      ribbon(ctx, mark)
+      return
     case 'contour':
-      return contour(ctx, mark)
+      contour(ctx, mark)
+      return
     case 'glow':
-      return glow(ctx, mark)
+      glow(ctx, mark)
+      return
     case 'motes':
-      return motes(ctx, mark)
+      motes(ctx, mark)
+      return
     case 'baked':
-      return baked(ctx, mark)
+      baked(ctx, mark)
+      return
     case 'wash':
-      return wash(ctx, mark)
+      wash(ctx, mark)
+      return
     case 'grain':
-      return grain(ctx, mark)
+      grain(ctx, mark)
+      return
     case 'stroke':
-      return stroke(ctx, mark)
+      stroke(ctx, mark)
+      return
     case 'arc':
-      return arc(ctx, mark)
+      arc(ctx, mark)
+      return
     case 'path':
-      return glyph(ctx, mark)
+      glyph(ctx, mark)
+      return
     case 'text':
-      return text(ctx, mark)
+      text(ctx, mark)
+      return
     case 'chip':
-      return chip(ctx, mark)
+      chip(ctx, mark)
+      return
   }
 }
 
