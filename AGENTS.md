@@ -6,17 +6,18 @@ Use `scripts/dev/issues.sh` rather than raw `gh` calls — the board carries two
 fields that are easy to get wrong by hand.
 
 ```
-scripts/dev/issues.sh list                    # open issues: WHEN / TYPE / STATUS
-scripts/dev/issues.sh when   <n> now|soon|later
-scripts/dev/issues.sh type   <n> bug|feature|task
-scripts/dev/issues.sh status <n> backlog|ready|in-progress|in-review|done
-scripts/dev/issues.sh show   <n>
-scripts/dev/issues.sh close  <n> "reason"     # a reason is required
+scripts/dev/issues.sh list                    # open issues: WHEN / PRIO / TYPE / STATUS
+scripts/dev/issues.sh when     <n> now|soon|later
+scripts/dev/issues.sh priority <n> urgent|high|medium|low
+scripts/dev/issues.sh type     <n> bug|feature|task
+scripts/dev/issues.sh status   <n> backlog|ready|in-progress|in-review|done
+scripts/dev/issues.sh show     <n>
+scripts/dev/issues.sh close    <n> "reason"   # a reason is required
 scripts/dev/issues.sh orphans                 # open issues missing from the board
 scripts/dev/issues.sh ids                     # field/option ids, for debugging
 ```
 
-Three things the script exists to hide, each of which cost a wrong guess once:
+Four things the script exists to hide, each of which cost a wrong guess once:
 
 - **Timeline is a multi-select**, so its value goes through
   `multiSelectOptionIds` (a list). Sending the single-select shape fails with
@@ -25,6 +26,14 @@ Three things the script exists to hide, each of which cost a wrong guess once:
   only `status`. Reading Timeline requires GraphQL.
 - **Issue type (Bug/Feature/Task) is an org-level type, not a label.** It is set
   through the `updateIssue` mutation; `gh issue edit` will not do it.
+- **Priority is an org-level *issue field*, not a project field and not a
+  label.** The board's `Priority` column is derived from it and is read-only
+  through the project API — writing there fails with "Only custom fields can be
+  updated". It goes through `setIssueFieldValue`.
+
+There are no `bug` / `enhancement` labels on issues that have a type — the type
+carries it. Labels are for cross-cutting concerns the type cannot express:
+`security`, `lab`, `documentation`, `tidy up`, `good first issue`.
 
 ### What the fields mean
 
@@ -35,8 +44,13 @@ Done). `Timeline` is when it should **happen**:
 - **Soon** — real, evidenced pain that is not bleeding today.
 - **Later** — correctly parked: gated on a ruling, large, or needs a human act.
 
-Both are needed. Status alone collapses "do this next" and "correctly parked"
-into one Backlog column; Timeline alone says nothing about what is in flight.
+`Priority` (Urgent / High / Medium / Low) is severity *within* a timeline — the
+vocabulary is defined at org level and shared across every repo in the org, so
+don't invent a parallel P0/P1/P2 scheme beside it.
+
+All three are needed. Status alone collapses "do this next" and "correctly
+parked" into one Backlog column; Timeline alone says nothing about what is in
+flight; Priority alone says nothing about when.
 
 ### Closing an issue
 

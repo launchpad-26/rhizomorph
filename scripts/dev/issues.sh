@@ -14,6 +14,7 @@
 #   scripts/dev/issues.sh list                    # open issues with Status + Timeline
 #   scripts/dev/issues.sh when <n> <now|soon|later>
 #   scripts/dev/issues.sh type <n> <bug|feature|task>
+#   scripts/dev/issues.sh priority <n> <urgent|high|medium|low>
 #   scripts/dev/issues.sh status <n> <backlog|ready|in-progress|in-review|done>
 #   scripts/dev/issues.sh show <n>                # issue body + board fields
 #   scripts/dev/issues.sh close <n> "reason"      # close WITH a comment, never silently
@@ -103,7 +104,8 @@ set_select() { # set_select <issue> <Field> <Option>
 # GraphQL. Issue type comes from the same query rather than a second round trip.
 cmd_list() {
   gh api graphql -f query="{node(id:\"$PROJECT_ID\"){... on ProjectV2{items(first:100){nodes{
-      content{... on Issue{number title state issueType{name}}}
+      content{... on Issue{number title state issueType{name}
+        issueFieldValues(first:10){nodes{... on IssueFieldSingleSelectValue{name field{... on IssueFieldSingleSelect{name}}}}}}}
       fieldValues(first:20){nodes{
         __typename
         ... on ProjectV2ItemFieldSingleSelectValue{name field{... on ProjectV2FieldCommon{name}}}
@@ -132,14 +134,19 @@ for n in nodes:
     if not c.get("number") or c.get("state") != "OPEN":
         continue
     fv = field_values(n)
+    prio = ""
+    for v in (c.get("issueFieldValues") or {}).get("nodes", []):
+        if (v.get("field") or {}).get("name") == "Priority":
+            prio = v.get("name") or ""
     rows.append((fv.get("Timeline", ""), fv.get("Status", ""),
-                 (c.get("issueType") or {}).get("name", ""), c["number"], c["title"]))
+                 (c.get("issueType") or {}).get("name", ""), prio, c["number"], c["title"]))
 
-order = {"Now": 0, "Soon": 1, "Later": 2}
-rows.sort(key=lambda r: (order.get(r[0], 3), -r[3]))
-print("%-6s %-8s %-12s %-6s %s" % ("WHEN", "TYPE", "STATUS", "ISSUE", "TITLE"))
-for when, status, typ, num, title in rows:
-    print("%-6s %-8s %-12s %-6s %s" % (when or "-", typ or "-", status or "-", "#%d" % num, title[:56]))
+when_order = {"Now": 0, "Soon": 1, "Later": 2}
+prio_order = {"Urgent": 0, "High": 1, "Medium": 2, "Low": 3}
+rows.sort(key=lambda r: (when_order.get(r[0], 4), prio_order.get(r[3], 4), -r[4]))
+print("%-6s %-7s %-8s %-12s %-6s %s" % ("WHEN", "PRIO", "TYPE", "STATUS", "ISSUE", "TITLE"))
+for when, status, typ, prio, num, title in rows:
+    print("%-6s %-7s %-8s %-12s %-6s %s" % (when or "-", prio or "-", typ or "-", status or "-", "#%d" % num, title[:48]))
 '
 }
 
@@ -160,6 +167,29 @@ for t in json.load(sys.stdin)["data"]["organization"]["issueTypes"]["nodes"]:
   [ -n "$tid" ] || die "no issue type named '$want' (have: Bug, Feature, Task)"
   gh api graphql -f query="mutation{updateIssue(input:{id:\"$iid\",issueTypeId:\"$tid\"}){issue{number issueType{name}}}}" >/dev/null
   echo "#$n  type -> $want"
+}
+
+# Priority is a native ORG-level issue field (Urgent/High/Medium/Low), not a
+# project field and not a label. The project board column named "Priority" is
+# derived from it and is read-only via the project API — writing it there fails
+# with "Only custom fields can be updated". It goes through setIssueFieldValue.
+cmd_priority() { # cmd_priority <issue> <urgent|high|medium|low>
+  local n="$1" want="$2" iid pf po
+  iid="$(gh api graphql -f query="{repository(owner:\"$OWNER\",name:\"rhizomorph\"){issue(number:$n){id}}}" --jq .data.repository.issue.id)"
+  [ -n "$iid" ] || die "#$n not found"
+  read -r pf po <<<"$(gh api graphql -f query="{organization(login:\"$OWNER\"){issueFields(first:20){nodes{... on IssueFieldSingleSelect{id name options{id name}}}}}}" \
+    | python3 -c '
+import sys, json
+want = sys.argv[1].lower()
+for f in json.load(sys.stdin)["data"]["organization"]["issueFields"]["nodes"]:
+    if f.get("name") == "Priority":
+        for o in f["options"]:
+            if o["name"].lower() == want:
+                print(f["id"], o["id"])
+' "$want")"
+  [ -n "${po:-}" ] || die "no priority named '$want' (have: Urgent, High, Medium, Low)"
+  gh api graphql -f query="mutation{setIssueFieldValue(input:{issueId:\"$iid\",issueFields:[{fieldId:\"$pf\",singleSelectOptionId:\"$po\"}]}){clientMutationId}}" >/dev/null
+  echo "#$n  priority -> $want"
 }
 
 cmd_orphans() {
@@ -196,6 +226,7 @@ case "${1:-}" in
   list)    cmd_list ;;
   when)    [ $# -eq 3 ] || die "usage: $0 when <issue> <now|soon|later>"; set_select "$2" Timeline "$3" ;;
   type)    [ $# -eq 3 ] || die "usage: $0 type <issue> <bug|feature|task>"; cmd_type "$2" "$3" ;;
+  priority) [ $# -eq 3 ] || die "usage: $0 priority <issue> <urgent|high|medium|low>"; cmd_priority "$2" "$3" ;;
   status)  [ $# -eq 3 ] || die "usage: $0 status <issue> <backlog|ready|in-progress|in-review|done>"
            set_select "$2" Status "$(echo "$3" | tr '-' ' ')" ;;
   show)    [ $# -eq 2 ] || die "usage: $0 show <issue>"; cmd_show "$2" ;;
