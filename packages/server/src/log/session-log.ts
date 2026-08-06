@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { RhizomorphEvent } from '@rhizomorph/core'
-import { parseEvent } from '@rhizomorph/core'
+import { parseJsonl } from '@rhizomorph/core'
 import { sessionFileName, sessionIdFromFileName } from './paths.js'
 import { isLockLive, readSessionLock } from './session-lock.js'
 
@@ -14,31 +14,48 @@ import { isLockLive, readSessionLock } from './session-lock.js'
  * `session-lock.ts`) live beside the log, never inside it.
  */
 
+export interface SessionLogRead {
+  events: RhizomorphEvent[]
+  /** Non-blank lines in the file. */
+  lineCount: number
+  /**
+   * Lines `parseJsonl` (the record layer's own honest reader, prd17 ruling 3
+   * item 1) could not fold into an event — a half-written last line (process
+   * killed mid-append) counts the same as a genuinely corrupt or
+   * newer-than-this-era one: both are lines this read could not use, and
+   * neither is dropped from the count the way it used to be.
+   */
+  unreadableLineCount: number
+}
+
 /**
- * Reads back a session's events. Malformed or invalid lines are skipped
- * rather than failing the whole read — a half-written last line (process
- * killed mid-append) shouldn't take the rest of the session with it.
+ * Reads back a session's events, and how much of the file that took. Malformed
+ * or unrecognized lines are never dropped silently — they're excluded from
+ * `events` (a half-written last line, or an event this build doesn't
+ * understand, shouldn't take the rest of the session with it) but counted in
+ * `unreadableLineCount` so a caller (the listing) can say so rather than
+ * acting as though the file were shorter than it is.
  */
-export async function readSessionEvents(filePath: string): Promise<RhizomorphEvent[]> {
+export async function readSessionLog(filePath: string): Promise<SessionLogRead> {
   let raw: string
   try {
     raw = await readFile(filePath, 'utf8')
   } catch {
-    return []
+    return { events: [], lineCount: 0, unreadableLineCount: 0 }
   }
 
-  const events: RhizomorphEvent[] = []
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    try {
-      const parsed = parseEvent(JSON.parse(trimmed))
-      if (parsed.ok) events.push(parsed.event)
-    } catch {
-      // skip malformed line
-    }
-  }
-  return events
+  const { events, errors } = parseJsonl(raw)
+  const lineCount = raw.split('\n').filter((line) => line.trim().length > 0).length
+  return { events, lineCount, unreadableLineCount: errors.length }
+}
+
+/**
+ * Reads back a session's events alone. Every caller here — boot resumption,
+ * the raw events route — only ever needed the fold; see {@link readSessionLog}
+ * for the listing's fuller need (how much of the file it took).
+ */
+export async function readSessionEvents(filePath: string): Promise<RhizomorphEvent[]> {
+  return (await readSessionLog(filePath)).events
 }
 
 export interface SessionSummary {
@@ -73,6 +90,40 @@ export async function listSessions(dir: string): Promise<SessionSummary[]> {
 
 export function sessionFilePath(dir: string, sessionId: string): string {
   return path.join(dir, sessionFileName(Number(sessionId)))
+}
+
+/**
+ * Bytes above which a recording is voiced as large enough that replay may
+ * take a moment. Not a cap: prd16 ruling 1 keeps a session's boundary
+ * entirely the operator's, so the log only ever grows until they end it —
+ * this constant informs the listing honestly about a cost that already
+ * exists, never triggers rotation itself.
+ */
+export const LARGE_SESSION_BYTES = 5 * 1024 * 1024
+
+function formatMb(bytes: number): string {
+  const value = (bytes / (1024 * 1024)).toFixed(1)
+  return value.endsWith('.0') ? value.slice(0, -2) : value
+}
+
+/**
+ * "this recording is large (N MB); replay may take a moment", or `null` under
+ * {@link LARGE_SESSION_BYTES} — the log stating its own size honestly instead
+ * of a silent cap enforcing it.
+ */
+export function voiceLargeSession(sizeBytes: number): string | null {
+  if (sizeBytes < LARGE_SESSION_BYTES) return null
+  return `this recording is large (${formatMb(sizeBytes)} MB); replay may take a moment`
+}
+
+/**
+ * "could not read N lines", or `null` when every line folded — the listing's
+ * own honest voice over {@link SessionLogRead.unreadableLineCount} (prd17
+ * ruling 3 item 1's law, previously the one place still silent about it).
+ */
+export function voiceUnreadableLines(count: number): string | null {
+  if (count === 0) return null
+  return count === 1 ? 'could not read 1 line' : `could not read ${count} lines`
 }
 
 /**

@@ -1,12 +1,18 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createEventFactory, eventsToJsonl } from '@rhizomorph/core'
+import { createEventFactory, eventsToJsonl, type RhizomorphEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { writeSessionLabel } from './label.js'
-import { buildSessionListing, listSessionListings } from './listing.js'
+import { buildSessionListing, listSessionListings, type SessionListingLog } from './listing.js'
 import { sessionFileName } from './paths.js'
+import { LARGE_SESSION_BYTES } from './session-log.js'
 import { captureSessionTranscripts } from './transcript-capture.js'
+
+/** A log with every line clean — no unreadable lines, one line per event. */
+function cleanLog(events: readonly RhizomorphEvent[]): SessionListingLog {
+  return { events, lineCount: events.length, unreadableLineCount: 0 }
+}
 
 describe('buildSessionListing', () => {
   it('auto-titles a session with no label', () => {
@@ -16,7 +22,7 @@ describe('buildSessionListing', () => {
 
     const listing = buildSessionListing(
       { id: '1000', fileName: 'session-1000.jsonl', startedAt: Date.parse('2026-08-04T10:00:00Z'), sizeBytes: 10 },
-      f.all(),
+      cleanLog(f.all()),
       null,
     )
 
@@ -30,7 +36,7 @@ describe('buildSessionListing', () => {
 
     const listing = buildSessionListing(
       { id: '1000', fileName: 'session-1000.jsonl', startedAt: Date.parse('2026-08-04T10:00:00Z'), sizeBytes: 10 },
-      f.all(),
+      cleanLog(f.all()),
       'the scene lands',
     )
 
@@ -46,7 +52,7 @@ describe('buildSessionListing', () => {
 
     const listing = buildSessionListing(
       { id: '1000', fileName: 'session-1000.jsonl', startedAt: 1000, sizeBytes: 10 },
-      f.all(),
+      cleanLog(f.all()),
       null,
     )
     expect(listing.durationMs).toBe(1000)
@@ -55,10 +61,62 @@ describe('buildSessionListing', () => {
   it('reports zero duration for a session with no events', () => {
     const listing = buildSessionListing(
       { id: '1000', fileName: 'session-1000.jsonl', startedAt: 1000, sizeBytes: 0 },
-      [],
+      cleanLog([]),
       null,
     )
     expect(listing.durationMs).toBe(0)
+  })
+
+  it('reports the log its own size: lines and bytes, never a silent drop of what it counted', () => {
+    const f = createEventFactory({ startTs: 1000 })
+    f.sessionStarted()
+    f.worktreeDiscovered({ path: '/repo', branch: 'main', isMain: true })
+
+    const listing = buildSessionListing(
+      { id: '1000', fileName: 'session-1000.jsonl', startedAt: 1000, sizeBytes: 10 },
+      { events: f.all(), lineCount: 2, unreadableLineCount: 0 },
+      null,
+    )
+    expect(listing.lineCount).toBe(2)
+    expect(listing.unreadableLineCount).toBe(0)
+    expect(listing.unreadableLinesVoice).toBeNull()
+  })
+
+  it('voices unreadable lines instead of dropping them silently', () => {
+    const listing = buildSessionListing(
+      { id: '1000', fileName: 'session-1000.jsonl', startedAt: 1000, sizeBytes: 10 },
+      { events: [], lineCount: 3, unreadableLineCount: 3 },
+      null,
+    )
+    expect(listing.unreadableLineCount).toBe(3)
+    expect(listing.unreadableLinesVoice).toBe('could not read 3 lines')
+  })
+
+  it('voices a single unreadable line in the singular', () => {
+    const listing = buildSessionListing(
+      { id: '1000', fileName: 'session-1000.jsonl', startedAt: 1000, sizeBytes: 10 },
+      { events: [], lineCount: 1, unreadableLineCount: 1 },
+      null,
+    )
+    expect(listing.unreadableLinesVoice).toBe('could not read 1 line')
+  })
+
+  it('says nothing about size under the large-session threshold', () => {
+    const listing = buildSessionListing(
+      { id: '1000', fileName: 'session-1000.jsonl', startedAt: 1000, sizeBytes: LARGE_SESSION_BYTES - 1 },
+      cleanLog([]),
+      null,
+    )
+    expect(listing.largeSessionNotice).toBeNull()
+  })
+
+  it('voices a large recording by its size in MB, never a hard cap or auto-rotation', () => {
+    const listing = buildSessionListing(
+      { id: '1000', fileName: 'session-1000.jsonl', startedAt: 1000, sizeBytes: 8 * 1024 * 1024 },
+      cleanLog([]),
+      null,
+    )
+    expect(listing.largeSessionNotice).toBe('this recording is large (8 MB); replay may take a moment')
   })
 })
 
@@ -104,6 +162,22 @@ describe('listSessionListings', () => {
     expect(listing?.title).toBe('operator label')
   })
 
+  it('counts lines and voices unreadable ones instead of silently shrinking the session', async () => {
+    await mkdir(dir, { recursive: true })
+    const f = createEventFactory({ startTs: 1000 })
+    f.sessionStarted({ sessionId: '1000' })
+    f.worktreeDiscovered({ path: '/repo', branch: 'main', isMain: true })
+    const goodLines = eventsToJsonl(f.all()).trimEnd()
+    // A line from an era this build has never heard of — intact envelope, unknown type.
+    const unknownLine = JSON.stringify({ id: 'evt-future', ts: 1500, source: 'future', type: 'future.event', payload: {} })
+    await writeFile(path.join(dir, sessionFileName(1000)), `${goodLines}\n${unknownLine}\n`, 'utf8')
+
+    const [listing] = await listSessionListings(dir)
+    expect(listing?.lineCount).toBe(3)
+    expect(listing?.unreadableLineCount).toBe(1)
+    expect(listing?.unreadableLinesVoice).toBe('could not read 1 line')
+  })
+
   it('reads the live session from the supplied events instead of disk', async () => {
     await mkdir(dir, { recursive: true })
     // Deliberately write nothing (or something stale) to disk for the live session —
@@ -121,6 +195,9 @@ describe('listSessionListings', () => {
     })
     expect(listing?.lanes).toBe(1)
     expect(listing?.title).toContain('#9')
+    // The live buffer only ever holds events that already passed validation — nothing to count as unreadable.
+    expect(listing?.lineCount).toBe(liveEvents.all().length)
+    expect(listing?.unreadableLineCount).toBe(0)
   })
 
   it('returns an empty list for a repo with no recordings yet', async () => {

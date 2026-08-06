@@ -12,12 +12,16 @@ import {
   findResumableSession,
   formatBootDuration,
   isClosedLog,
+  LARGE_SESSION_BYTES,
   listSessions,
   readResumedCount,
   readSessionEvents,
+  readSessionLog,
   recordResume,
   RESUME_WINDOW_MS,
   sessionFilePath,
+  voiceLargeSession,
+  voiceUnreadableLines,
 } from './session-log.js'
 import { LOCK_STALE_MS, writeSessionLock } from './session-lock.js'
 
@@ -94,6 +98,83 @@ describe('SessionLogWriter + readSessionEvents', () => {
     await appendFile(filePath, `${JSON.stringify({ id: 'x', ts: 1 })}\n`, 'utf8')
 
     expect(await readSessionEvents(filePath)).toEqual([good])
+  })
+})
+
+describe('readSessionLog', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-log-detail-test-'))
+  })
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('counts every non-blank line, on top of the events it folds', async () => {
+    const filePath = path.join(dir, 'session-1.jsonl')
+    const writer = new SessionLogWriter(filePath)
+    await writer.append(errorEvent('evt-1', 1))
+    await writer.append(errorEvent('evt-2', 2))
+
+    const log = await readSessionLog(filePath)
+    expect(log.events).toEqual([errorEvent('evt-1', 1), errorEvent('evt-2', 2)])
+    expect(log.lineCount).toBe(2)
+    expect(log.unreadableLineCount).toBe(0)
+  })
+
+  it('counts a line it could not fold, rather than dropping it off the total silently', async () => {
+    const filePath = path.join(dir, 'session-2.jsonl')
+    const writer = new SessionLogWriter(filePath)
+    await writer.append(errorEvent('evt-1', 1))
+    await appendFile(filePath, 'not json at all\n', 'utf8')
+    await appendFile(filePath, `${JSON.stringify({ id: 'x', ts: 1 })}\n`, 'utf8')
+
+    const log = await readSessionLog(filePath)
+    expect(log.events).toEqual([errorEvent('evt-1', 1)])
+    expect(log.lineCount).toBe(3)
+    expect(log.unreadableLineCount).toBe(2)
+  })
+
+  it('is all zero for a session file that does not exist', async () => {
+    expect(await readSessionLog(path.join(dir, 'missing.jsonl'))).toEqual({
+      events: [],
+      lineCount: 0,
+      unreadableLineCount: 0,
+    })
+  })
+})
+
+describe('voiceLargeSession', () => {
+  it('says nothing under the threshold', () => {
+    expect(voiceLargeSession(LARGE_SESSION_BYTES - 1)).toBeNull()
+  })
+
+  it('voices a recording at or above the threshold, in MB', () => {
+    expect(voiceLargeSession(LARGE_SESSION_BYTES)).toBe('this recording is large (5 MB); replay may take a moment')
+  })
+
+  it('trims a trailing .0 the way the rest of the repo formats a round figure', () => {
+    expect(voiceLargeSession(10 * 1024 * 1024)).toBe('this recording is large (10 MB); replay may take a moment')
+  })
+
+  it('keeps one decimal for a non-round size', () => {
+    expect(voiceLargeSession(6.25 * 1024 * 1024)).toBe('this recording is large (6.3 MB); replay may take a moment')
+  })
+})
+
+describe('voiceUnreadableLines', () => {
+  it('says nothing when every line folded', () => {
+    expect(voiceUnreadableLines(0)).toBeNull()
+  })
+
+  it('is singular for exactly one line', () => {
+    expect(voiceUnreadableLines(1)).toBe('could not read 1 line')
+  })
+
+  it('is plural for more than one', () => {
+    expect(voiceUnreadableLines(4)).toBe('could not read 4 lines')
   })
 })
 
