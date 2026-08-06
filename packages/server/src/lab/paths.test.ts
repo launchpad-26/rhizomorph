@@ -110,3 +110,80 @@ describe('lab path containment (prd12 ruling 1, #227)', () => {
     expect(isInside(labWorktreesRoot(dataRoot), path.join(outsideTree, 'fork-1-arm-1'))).toBe(false)
   })
 })
+
+/**
+ * #228: #227 canonicalized both sides of the containment check, but with
+ * `fs.realpathSync` — Node's pure-JS reimplementation of `realpath(3)`, which
+ * CI showed disagreeing with ITSELF across Node versions on the very same
+ * macOS host: `/private` got attached to a resolved `/var/folders/…` path
+ * under Node 22.22.2 (min) and not under the version CI runs as "current".
+ * Same OS, same code, different Node, different answer — the live symlink
+ * reproduction above (and the namespace-law end-to-end twin) failed on
+ * macOS-current only, right after #227 landed.
+ *
+ * There is no macOS runner here, so these tests don't reproduce the Node-JS
+ * bug directly — they simulate its OUTPUT by injecting a fake `realpath`
+ * into `isInside`/`assertInsideLabWorktrees` (both accept one, defaulting to
+ * `fs.realpathSync.native` in production) and proving two things a Linux run
+ * can prove on its own:
+ *
+ *   1. A canonicalizer that agrees with itself — whether it happens to
+ *      always attach `/private` (the macOS shape) or never does (the Linux
+ *      shape) — always resolves containment correctly, regardless of which
+ *      shape it is.
+ *   2. A canonicalizer that DISAGREES with itself between the two sides of
+ *      one comparison — /private-prefixed on one side, plain on the other,
+ *      the exact shape CI's evidence describes — reports a false escape for
+ *      a worktree that is genuinely contained. That failure mode is real and
+ *      mechanical, not hypothetical: it is what `fs.realpathSync` (JS) did.
+ *
+ * Together they justify routing production through `realpathSync.native`
+ * rather than trying to patch the comparison itself: no comparison can
+ * reconcile two DIFFERENT canonical spellings of the same real path: the fix
+ * has to be a canonicalizer that cannot produce two spellings for one path in
+ * the first place, which is exactly the guarantee a single native OS call
+ * (over a JS reimplementation with its own version history) provides.
+ */
+describe('the macOS Node-version canonicalizer disagreement, simulated on Linux (#228)', () => {
+  const dataRoot = '/simulated/data-link' // never touches the real filesystem — realpath is fully faked below
+  const worktreesRoot = labWorktreesRoot(dataRoot) // '/simulated/data-link/lab/worktrees'
+  const candidate = path.join(worktreesRoot, 'fork-1-arm-1')
+
+  function withPrivatePrefix(p: string): string {
+    return p.startsWith('/private') ? p : `/private${p}`
+  }
+
+  it('both sides /private-prefixed (macOS shape) — a self-consistent canonicalizer still recognizes containment', () => {
+    const macLikeRealpath = withPrivatePrefix
+    expect(isInside(worktreesRoot, candidate, macLikeRealpath)).toBe(true)
+    expect(() => assertInsideLabWorktrees(dataRoot, candidate, macLikeRealpath)).not.toThrow()
+  })
+
+  it('both sides plain, no /private (Linux shape) — a self-consistent canonicalizer still recognizes containment', () => {
+    const linuxLikeRealpath = (p: string) => p
+    expect(isInside(worktreesRoot, candidate, linuxLikeRealpath)).toBe(true)
+    expect(() => assertInsideLabWorktrees(dataRoot, candidate, linuxLikeRealpath)).not.toThrow()
+  })
+
+  it('mixed: candidate arrives /private-prefixed (as if already resolved by git) but this canonicalizer leaves the parent plain — the exact macOS-current disagreement reads a contained worktree as an escape', () => {
+    // Stands in for the CI shape: the worktree path git reports has already
+    // been through git's OWN (consistent) resolution and carries /private;
+    // this fake canonicalizer, standing in for the buggy `fs.realpathSync`,
+    // fails to add that same prefix when asked to resolve the parent — an
+    // identity function is the simplest thing that reproduces the mismatch,
+    // since it reconciles neither spelling to the other.
+    const inconsistentRealpath = (p: string) => p
+    const candidateAlreadyResolved = withPrivatePrefix(candidate)
+
+    // This is the false escape #228's CI evidence describes: same real
+    // directory, wrongly reported as outside.
+    expect(isInside(worktreesRoot, candidateAlreadyResolved, inconsistentRealpath)).toBe(false)
+
+    // A canonicalizer that agrees with itself — the fix's actual guarantee,
+    // simulated here rather than swapped in via the untestable native OS
+    // call — resolves the very same inputs correctly.
+    const consistentRealpath = withPrivatePrefix
+    expect(isInside(worktreesRoot, candidateAlreadyResolved, consistentRealpath)).toBe(true)
+    expect(() => assertInsideLabWorktrees(dataRoot, candidateAlreadyResolved, consistentRealpath)).not.toThrow()
+  })
+})

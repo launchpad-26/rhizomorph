@@ -40,6 +40,24 @@ export function armWorktreePath(dataRoot: string, forkId: string, arm: number): 
   return path.join(labWorktreesRoot(dataRoot), `${forkId}-arm-${arm}`)
 }
 
+/** A `realpath`-shaped function: resolves an existing path to its canonical form. */
+export type Realpath = (existingPath: string) => string
+
+/**
+ * `fs.realpathSync.native` — the OS's own `realpath(3)`, called directly
+ * rather than through Node's pure-JS reimplementation (#228). CI showed the
+ * two disagreeing with each other: the same macOS host, the same code, the
+ * only variable being the Node version, produced a different verdict —
+ * `/private` got attached to a resolved `/var/folders/…` path under one Node
+ * and not the other. `realpathSync` (no suffix) is a JS walk of the path that
+ * has been re-implemented across Node releases; `.native` is a thin wrapper
+ * over the C library call, so for a given OS it can only ever answer one way.
+ * Falls back to the JS implementation only if `.native` is somehow absent —
+ * it has shipped since Node 9, so this is a defensive default, not a path
+ * expected to run.
+ */
+const defaultRealpath: Realpath = realpathSync.native ?? realpathSync
+
 /**
  * `path.resolve`, but symlink-free: walks up to the nearest ancestor that
  * exists, `realpath`s THAT (so a symlinked ancestor resolves to where it
@@ -55,15 +73,18 @@ export function armWorktreePath(dataRoot: string, forkId: string, arm: number): 
  * INSIDE the permitted directory whose target lies outside it would pass a
  * prefix check on its own un-followed spelling while every byte written
  * through it lands wherever the link points. Canonicalizing both sides
- * closes both.
+ * closes both — PROVIDED the canonicalizer agrees with itself, which is
+ * exactly what #228 found `realpathSync` (JS) does not always do; see
+ * `defaultRealpath` above and `paths.test.ts`'s simulated-shape tests for the
+ * failure this would otherwise reintroduce.
  */
-function canonicalize(candidate: string): string {
+function canonicalize(candidate: string, realpath: Realpath): string {
   const resolved = path.resolve(candidate)
   let current = resolved
   const pendingTail: string[] = []
   while (true) {
     try {
-      const real = realpathSync(current)
+      const real = realpath(current)
       return pendingTail.length === 0 ? real : path.join(real, ...pendingTail.reverse())
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
@@ -75,10 +96,21 @@ function canonicalize(candidate: string): string {
   }
 }
 
-/** True when `candidate` is `parent` itself or lies beneath it. Both are canonicalized first. */
-export function isInside(parent: string, candidate: string): boolean {
-  const from = canonicalize(parent)
-  const to = canonicalize(candidate)
+/**
+ * True when `candidate` is `parent` itself or lies beneath it. Both are
+ * canonicalized first, through the SAME `realpath`, so the comparison can
+ * only fail to reconcile a symlinked ancestor if that function disagrees with
+ * itself across the two calls — which `defaultRealpath` is chosen precisely
+ * to rule out (#228).
+ *
+ * `realpath` is overridable so `paths.test.ts` can simulate a canonicalizer
+ * that DOES disagree with itself (the exact macOS-current shape) without
+ * needing a macOS host to reproduce it; production code always takes the
+ * default.
+ */
+export function isInside(parent: string, candidate: string, realpath: Realpath = defaultRealpath): boolean {
+  const from = canonicalize(parent, realpath)
+  const to = canonicalize(candidate, realpath)
   if (to === from) return true
   return to.startsWith(from.endsWith(path.sep) ? from : from + path.sep)
 }
@@ -90,9 +122,13 @@ export function isInside(parent: string, candidate: string): boolean {
  * mistake — physically cannot point the lab's `git worktree add` at the
  * operator's tree.
  */
-export function assertInsideLabWorktrees(dataRoot: string, candidate: string): void {
+export function assertInsideLabWorktrees(
+  dataRoot: string,
+  candidate: string,
+  realpath: Realpath = defaultRealpath,
+): void {
   const root = labWorktreesRoot(dataRoot)
-  if (!isInside(root, candidate)) {
+  if (!isInside(root, candidate, realpath)) {
     throw new Error(
       `refusing to write outside the lab's namespace: ${path.resolve(candidate)} is not under ${root} ` +
         '(prd12 ruling 1 — the laboratory may only create worktrees it owns)',
