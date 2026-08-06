@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -489,5 +489,108 @@ describe('the lab namespace law, live (prd12 ruling 1, #153)', () => {
     for (const slug of slugs) {
       expect(slug.startsWith(worktreePathToProjectSlug(labRoot(dataRoot)))).toBe(true)
     }
+  })
+})
+
+/**
+ * #217/#227: the macOS CI leg failed the "creates worktrees ONLY under the
+ * lab data dir" test above on its first `main` run, macOS only. macOS's
+ * `TMPDIR` lives under `/var/folders/…`, itself a symlink to
+ * `/private/var/folders/…`; `git worktree add` canonicalizes the path it is
+ * given and reports the REAL spelling back on `git worktree list`
+ * (confirmed on Linux — no macOS needed — by pointing `git worktree add` at
+ * a path through a symlinked directory and reading `git worktree list
+ * --porcelain` back). A containment check comparing raw path prefixes sees
+ * the worktree at one spelling and the lab root at the other and reports an
+ * escape that never happened.
+ *
+ * This block is that exact reproduction, wired through the real `dataRoot`
+ * every fork dispatch is given — not a unit test of `isInside` in isolation
+ * (that lives in `paths.test.ts`), but the same live end-to-end path the CI
+ * failure actually exercised, with `dataRoot` now reached through a symlink.
+ * It must pass with `paths.ts`'s `canonicalize` fix and would fail without
+ * it — see `paths.test.ts` for the direct proof of that on `isInside` alone.
+ */
+describe('the lab namespace law, live, with the lab data dir behind a symlink (macOS shape, #217/#227)', () => {
+  let root: string
+  let repoDir: string
+  let realDataRoot: string
+  let dataRoot: string
+  let claudeProjectsRoot: string
+
+  function git(args: string[], cwd = repoDir): string {
+    return execFileSync('git', args, { cwd, encoding: 'utf8' })
+  }
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'rhizomorph-lab-law-symlink-test-'))
+    repoDir = path.join(root, 'repo')
+    realDataRoot = path.join(root, 'real-data')
+    dataRoot = path.join(root, 'data-link') // the spelling the lab is handed — TMPDIR's role on macOS
+    claudeProjectsRoot = path.join(root, 'claude-projects')
+
+    await mkdir(repoDir, { recursive: true })
+    git(['init', '-b', 'main'])
+    git(['config', 'user.email', 'test@example.com'])
+    git(['config', 'user.name', 'Test'])
+    await writeFile(path.join(repoDir, 'tracked.txt'), 'v1\n')
+    git(['add', '.'])
+    git(['commit', '-m', 'initial commit'])
+    await writeFile(path.join(repoDir, 'tracked.txt'), 'v2 dirty\n')
+
+    await mkdir(realDataRoot, { recursive: true })
+    await symlink(realDataRoot, dataRoot)
+
+    const projectDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(repoDir))
+    await mkdir(projectDir, { recursive: true })
+    const sessionId = randomUUID()
+    await writeFile(
+      path.join(projectDir, `${sessionId}.jsonl`),
+      `${JSON.stringify({ type: 'user', sessionId, cwd: repoDir })}\n`,
+    )
+  })
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('creates worktrees ONLY under the lab data dir, even though dataRoot is reached through a symlink', async () => {
+    await captureCheckpoint({
+      lane: 'symlink-lane',
+      worktreePath: repoDir,
+      capturedBy: 'operator',
+      exec: realExec,
+      dataRoot,
+      claudeProjectsRoot,
+      now: () => 1_000_000,
+      checkpointId: `ckpt-${process.pid}-${randomUUID()}`,
+    })
+    await dispatchFork({
+      parentLane: 'symlink-lane',
+      parentWorktreePath: repoDir,
+      arms: 3,
+      forkId: `fork-${process.pid}-${randomUUID()}`,
+      dataRoot,
+      claudeProjectsRoot,
+      exec: realExec,
+      install: false,
+      now: () => 1_000_100,
+    })
+
+    const registered = git(['worktree', 'list', '--porcelain'])
+      .split('\n')
+      .filter((line) => line.startsWith('worktree '))
+      .map((line) => line.slice('worktree '.length).trim())
+
+    // At least one arm's worktree must actually have round-tripped through
+    // git at the OTHER spelling from what `dataRoot` names — otherwise this
+    // test would pass vacuously on any machine where `git worktree add`
+    // happens not to canonicalize.
+    expect(registered.some((worktree) => worktree.startsWith(realDataRoot))).toBe(true)
+
+    const outside = registered.filter(
+      (worktree) => path.resolve(worktree) !== path.resolve(repoDir) && !isInside(labRoot(dataRoot), worktree),
+    )
+    expect(outside).toEqual([])
   })
 })

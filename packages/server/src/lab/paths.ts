@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs'
 import path from 'node:path'
 
 /**
@@ -39,10 +40,45 @@ export function armWorktreePath(dataRoot: string, forkId: string, arm: number): 
   return path.join(labWorktreesRoot(dataRoot), `${forkId}-arm-${arm}`)
 }
 
-/** True when `candidate` is `parent` itself or lies beneath it. Both are resolved first. */
+/**
+ * `path.resolve`, but symlink-free: walks up to the nearest ancestor that
+ * exists, `realpath`s THAT (so a symlinked ancestor resolves to where it
+ * actually points), then re-appends whatever tail doesn't exist yet
+ * unresolved — a path that hasn't been created cannot itself be a symlink.
+ *
+ * Every containment check below needs this on both sides, for two symmetric
+ * reasons (#217): macOS's `/var/folders/…` is a symlink to
+ * `/private/var/folders/…`, so a raw-prefix comparison between the lab's
+ * (unresolved) data root and a worktree path git reports (canonicalized —
+ * confirmed on Linux, symlink and all, in `paths.test.ts`) sees an escape
+ * where there is none. The other direction is the real vulnerability: a symlink placed
+ * INSIDE the permitted directory whose target lies outside it would pass a
+ * prefix check on its own un-followed spelling while every byte written
+ * through it lands wherever the link points. Canonicalizing both sides
+ * closes both.
+ */
+function canonicalize(candidate: string): string {
+  const resolved = path.resolve(candidate)
+  let current = resolved
+  const pendingTail: string[] = []
+  while (true) {
+    try {
+      const real = realpathSync(current)
+      return pendingTail.length === 0 ? real : path.join(real, ...pendingTail.reverse())
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+      const parent = path.dirname(current)
+      if (parent === current) return resolved // hit the filesystem root without finding anything real
+      pendingTail.push(path.basename(current))
+      current = parent
+    }
+  }
+}
+
+/** True when `candidate` is `parent` itself or lies beneath it. Both are canonicalized first. */
 export function isInside(parent: string, candidate: string): boolean {
-  const from = path.resolve(parent)
-  const to = path.resolve(candidate)
+  const from = canonicalize(parent)
+  const to = canonicalize(candidate)
   if (to === from) return true
   return to.startsWith(from.endsWith(path.sep) ? from : from + path.sep)
 }
