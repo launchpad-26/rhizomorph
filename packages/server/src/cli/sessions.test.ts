@@ -4,7 +4,7 @@ import path from 'node:path'
 import { createEventFactory, eventsToJsonl } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { sessionDirFor, sessionFileName } from '../log/paths.js'
-import { renderSessionsReport, runSessions } from './sessions.js'
+import { parseSessionsArgs, renderSessionsReport, runSessions, sessionsHelpText } from './sessions.js'
 
 describe('runSessions', () => {
   let dataRoot: string
@@ -111,5 +111,25 @@ describe('renderSessionsReport', () => {
     const report = renderSessionsReport([estimated, noCost])
     expect(report).toContain('(est.)')
     expect(report).not.toContain('$0.00')
+  })
+})
+
+describe('parseSessionsArgs', () => {
+  it('takes the first positional as the path, defaulting to undefined', () => {
+    expect(parseSessionsArgs([])).toEqual({ path: undefined, help: false })
+    expect(parseSessionsArgs(['../other-repo'])).toEqual({ path: '../other-repo', help: false })
+  })
+
+  it('parses --help without requiring a path', () => {
+    expect(parseSessionsArgs(['--help']).help).toBe(true)
+    expect(parseSessionsArgs(['-h']).help).toBe(true)
+  })
+})
+
+describe('sessionsHelpText', () => {
+  it('documents the path argument and --help', () => {
+    const text = sessionsHelpText()
+    expect(text).toContain('rhizomorph sessions [path]')
+    expect(text).toContain('--help')
   })
 })

@@ -5,7 +5,7 @@ import { createEventFactory, eventsToJsonl } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { readSessionLabel } from '../log/label.js'
 import { sessionDirFor, sessionFileName } from '../log/paths.js'
-import { runLabel } from './label.js'
+import { labelHelpText, parseLabelArgs, runLabel } from './label.js'
 
 describe('runLabel', () => {
   let dataRoot: string
@@ -64,5 +64,60 @@ describe('runLabel', () => {
     await runLabel({ repoPath, sessionId: '1000', label: 'a label', dataRoot })
 
     expect(await readFile(logPath, 'utf8')).toBe(before)
+  })
+})
+
+describe('parseLabelArgs', () => {
+  it('takes the first positional as the session id and the rest as the label', () => {
+    expect(parseLabelArgs(['1000', 'a', 'label'])).toEqual({
+      sessionId: '1000',
+      label: 'a label',
+      path: undefined,
+      help: false,
+    })
+  })
+
+  it('accepts a single quoted label argument', () => {
+    expect(parseLabelArgs(['1000', 'the scene lands'])).toEqual({
+      sessionId: '1000',
+      label: 'the scene lands',
+      path: undefined,
+      help: false,
+    })
+  })
+
+  it('parses --path', () => {
+    expect(parseLabelArgs(['1000', 'a label', '--path', '../other-repo'])).toEqual({
+      sessionId: '1000',
+      label: 'a label',
+      path: '../other-repo',
+      help: false,
+    })
+  })
+
+  it('throws when the session id is missing', () => {
+    expect(() => parseLabelArgs([])).toThrow(/missing required argument.*<sessionId>/is)
+  })
+
+  it('throws when the label text is missing', () => {
+    expect(() => parseLabelArgs(['1000'])).toThrow(/missing required argument.*<text>/is)
+  })
+
+  it('throws for a whitespace-only label', () => {
+    expect(() => parseLabelArgs(['1000', '   '])).toThrow(/missing required argument.*<text>/is)
+  })
+
+  it('parses --help without requiring a session id or text', () => {
+    expect(parseLabelArgs(['--help']).help).toBe(true)
+    expect(parseLabelArgs(['-h']).help).toBe(true)
+  })
+})
+
+describe('labelHelpText', () => {
+  it('documents the sessionId/text arguments, --path and --help', () => {
+    const text = labelHelpText()
+    expect(text).toContain('rhizomorph label <sessionId>')
+    expect(text).toContain('--path')
+    expect(text).toContain('--help')
   })
 })

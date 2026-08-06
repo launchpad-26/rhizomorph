@@ -31,28 +31,22 @@ import {
   helpText,
   labCheckpointHelpText,
   labCompareHelpText,
-  labelHelpText,
   labForkHelpText,
   labHelpText,
   parseArgs,
   parseEnvArgs,
   parseLabCheckpointArgs,
   parseLabCompareArgs,
-  parseLabelArgs,
   parseLabForkArgs,
   parseReplayArgs,
-  parseRotateArgs,
-  parseSessionsArgs,
   replayHelpText,
-  rotateHelpText,
-  sessionsHelpText,
   type CliArgs,
 } from './args.js'
 import { runDoctorCommand } from './doctor.js'
 import { runExportRecordCommand } from './export-record.js'
-import { runLabel } from './label.js'
-import { renderRotation, requestRotation } from './rotate.js'
-import { renderSessionsReport, runSessions } from './sessions.js'
+import { runLabelCommand } from './label.js'
+import { runRotateCommand } from './rotate.js'
+import { runSessionsCommand } from './sessions.js'
 import { fetchInstanceId, renderTelemetryEnv } from './telemetry-env.js'
 import type { CliHandle, RunCliOptions } from './types.js'
 import { readPackageVersion } from './version.js'
@@ -499,118 +493,6 @@ async function runReplayCommand(
   return { app, recorder, pollLoop, url, stop }
 }
 
-/**
- * `rhizomorph sessions [path]` — a standalone, read-only listing, no server
- * boot: every session recorded for a repo, newest first, titled, timed and
- * costed. Same clean-usage-error contract as every other subcommand here.
- */
-async function runSessionsCommand(
-  rest: readonly string[],
-  log: Pick<Console, 'log' | 'warn'>,
-  exit: (code: number) => never,
-  options: RunCliOptions,
-): Promise<never> {
-  let args
-  try {
-    args = parseSessionsArgs(rest)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    process.stderr.write(`${message}\n\n${sessionsHelpText()}`)
-    exit(1)
-  }
-
-  if (args.help) {
-    log.log(sessionsHelpText())
-    exit(0)
-  }
-
-  const repoPath = path.resolve(args.path ?? process.cwd())
-  const listings = await runSessions({ repoPath, dataRoot: options.dataRoot })
-  log.log(renderSessionsReport(listings))
-
-  exit(0)
-}
-
-/**
- * `rhizomorph label <sessionId> <text>` — a standalone, one-shot subcommand,
- * no server boot: writes an operator label sidecar for one recorded
- * session, never touching the session's own append-only log. Same
- * clean-usage-error contract as every other subcommand here.
- */
-async function runLabelCommand(
-  rest: readonly string[],
-  log: Pick<Console, 'log' | 'warn'>,
-  exit: (code: number) => never,
-  options: RunCliOptions,
-): Promise<never> {
-  let args
-  try {
-    args = parseLabelArgs(rest)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    process.stderr.write(`${message}\n\n${labelHelpText()}`)
-    exit(1)
-  }
-
-  if (args.help) {
-    log.log(labelHelpText())
-    exit(0)
-  }
-
-  const repoPath = path.resolve(args.path ?? process.cwd())
-
-  try {
-    const result = await runLabel({
-      repoPath,
-      sessionId: args.sessionId,
-      label: args.label,
-      dataRoot: options.dataRoot,
-      now: options.now,
-    })
-    log.log(`labelled session ${result.sessionId}: "${result.label}"`)
-  } catch (err) {
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
-    exit(1)
-  }
-
-  exit(0)
-}
-
-/**
- * `rhizomorph rotate` — the operator's explicit session boundary (prd16
- * ruling 2), asked of the running instrument rather than performed on its
- * files (see `cli/rotate.ts` for why that distinction is the whole design).
- * Same clean-usage-error contract as every other subcommand here: a bad argv,
- * or a server that isn't there, prints to stderr and exits 1.
- */
-async function runRotateCommand(
-  rest: readonly string[],
-  log: Pick<Console, 'log' | 'warn'>,
-  exit: (code: number) => never,
-): Promise<never> {
-  let args
-  try {
-    args = parseRotateArgs(rest)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    process.stderr.write(`${message}\n\n${rotateHelpText()}`)
-    exit(1)
-  }
-
-  if (args.help) {
-    log.log(rotateHelpText())
-    exit(0)
-  }
-
-  try {
-    log.log(renderRotation(await requestRotation(args.port)))
-  } catch (err) {
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
-    exit(1)
-  }
-
-  exit(0)
-}
 
 /**
  * `rhizomorph lab <subcommand>` — the laboratory's namespace (prd12 ruling

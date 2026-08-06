@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { renderRotation, requestRotation, rotateUrl, type RotationSummary } from './rotate.js'
+import {
+  parseRotateArgs,
+  renderRotation,
+  requestRotation,
+  rotateHelpText,
+  rotateUrl,
+  type RotationSummary,
+} from './rotate.js'
 
 /**
  * `rhizomorph rotate`'s client half. The rotation itself is the server's
@@ -80,5 +87,39 @@ describe('renderRotation', () => {
     expect(output).toContain('closed session 1000 — 1,234 events')
     expect(output).toContain('/data/repo-abc/session-1000.jsonl')
     expect(output).toContain('opened session 5000 — recording to /data/repo-abc/session-5000.jsonl')
+  })
+})
+
+describe('parseRotateArgs', () => {
+  it('defaults to the standard port — rotation asks the running instrument', () => {
+    expect(parseRotateArgs([])).toEqual({ port: 4321, help: false })
+  })
+
+  it('parses --port in both forms', () => {
+    expect(parseRotateArgs(['--port', '5000'])).toEqual({ port: 5000, help: false })
+    expect(parseRotateArgs(['--port=5000'])).toEqual({ port: 5000, help: false })
+  })
+
+  it('rejects a non-integer port', () => {
+    expect(() => parseRotateArgs(['--port', 'nope'])).toThrow(/invalid --port value/)
+  })
+
+  it('rejects a path, and says why rotation does not take one', () => {
+    expect(() => parseRotateArgs(['../other-repo'])).toThrow(/unexpected argument.*rotate takes no path/is)
+  })
+
+  it('parses --help', () => {
+    expect(parseRotateArgs(['--help']).help).toBe(true)
+    expect(parseRotateArgs(['-h']).help).toBe(true)
+  })
+})
+
+describe('rotateHelpText', () => {
+  it('says what rotation does, that the server must be running, and names the button', () => {
+    const text = rotateHelpText()
+    expect(text).toContain('rhizomorph rotate')
+    expect(text).toContain('session.closed')
+    expect(text).toContain('--port')
+    expect(text).toContain('end session · start fresh')
   })
 })

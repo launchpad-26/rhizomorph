@@ -1,5 +1,8 @@
+import path from 'node:path'
 import { listSessionListings, type SessionListing } from '../log/listing.js'
 import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
+import { parseFlags } from './args.js'
+import type { RunCliOptions } from './types.js'
 
 export interface SessionsOptions {
   repoPath: string
@@ -11,6 +14,73 @@ export interface SessionsOptions {
 export async function runSessions(options: SessionsOptions): Promise<SessionListing[]> {
   const sessionDir = sessionDirFor(options.repoPath, options.dataRoot ?? defaultDataRoot())
   return listSessionListings(sessionDir)
+}
+
+/** Parses `rhizomorph sessions [path] [--help]`. */
+export interface SessionsArgs {
+  path: string | undefined
+  help: boolean
+}
+
+/** `rhizomorph sessions`'s own usage table, distinct from the main command's. */
+export function sessionsHelpText(): string {
+  return `rhizomorph sessions [path] [options]
+
+Lists every session recorded for a repo, newest first: id, title (an
+operator label if one was set with 'rhizomorph label', else an auto-title
+derived from the session's own events — lanes dispatched, how many landed,
+issue numbers), when it started, how long it ran, lanes, landings, output
+tokens, cost (flagged "(est.)" when no authoritative telemetry arrived), and
+the log's file size. This is how a stranger finds "the one where the scene
+landed" without opening any of them.
+
+Arguments:
+  path                    Repo whose recorded sessions to list (default: current directory)
+
+Options:
+  --help, -h              Show this help and exit
+`
+}
+
+export function parseSessionsArgs(argv: readonly string[]): SessionsArgs {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    return { path: undefined, help: true }
+  }
+
+  const positionals = parseFlags(argv, [])
+  return { path: positionals[0], help: false }
+}
+
+/**
+ * `rhizomorph sessions [path]` — a standalone, read-only listing, no server
+ * boot: every session recorded for a repo, newest first, titled, timed and
+ * costed. Same clean-usage-error contract as every other subcommand here.
+ */
+export async function runSessionsCommand(
+  rest: readonly string[],
+  log: Pick<Console, 'log' | 'warn'>,
+  exit: (code: number) => never,
+  options: RunCliOptions,
+): Promise<never> {
+  let args
+  try {
+    args = parseSessionsArgs(rest)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`${message}\n\n${sessionsHelpText()}`)
+    exit(1)
+  }
+
+  if (args.help) {
+    log.log(sessionsHelpText())
+    exit(0)
+  }
+
+  const repoPath = path.resolve(args.path ?? process.cwd())
+  const listings = await runSessions({ repoPath, dataRoot: options.dataRoot })
+  log.log(renderSessionsReport(listings))
+
+  exit(0)
 }
 
 const COLUMNS = ['ID', 'TITLE', 'WHEN', 'DURATION', 'LANES', 'LANDED', 'OUTPUT', 'COST', 'SIZE'] as const
