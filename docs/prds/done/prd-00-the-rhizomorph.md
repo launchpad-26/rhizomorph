@@ -1,6 +1,7 @@
 # PRD 0 — The Rhizomorph
 
 > **Status:** blessed by Lachlan, 2026-07-30, before any code.
+> **Outcome:** shipped — the v0 scope landed and the instrument watched its own build.
 
 ## One-liner
 

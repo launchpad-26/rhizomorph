@@ -1,5 +1,7 @@
 # prd8 — rhizomorph: from private project to published software
 
+> **Outcome:** shipped. Publishing itself was later removed from scope by prd9 and reopened by prd15, still gated on #177.
+
 The instrument is finished and the board is empty. This prd makes it
 something a stranger can find, trust, install and run. Decisions from the
 publishing interview, operator, 2026-08-02/03:

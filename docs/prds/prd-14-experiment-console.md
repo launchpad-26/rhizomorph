@@ -1,5 +1,7 @@
 # prd14 — the experiment console
 
+> **Outcome:** blessed 2026-08-06, partially landed — the console ships; the remaining waves do not. See `docs/roadmap.md`.
+
 **Status:** BLESSED 2026-08-06 (four rulings below).
 **Predecessor:** prd12 (the laboratory — engine, constitution, checkpoints).
 
@@ -30,6 +32,18 @@ tab re-rendering live fleet state. It must show forked realities and nothing
 else, and that is a law below.
 
 ---
+
+## Success
+
+> *Proposed 2026-08-06 as part of adopting the PRD standard; **not** blessed with
+> the four rulings below, which were ruled 2026-08-06 on their own terms.*
+
+The operator can, from the browser and without touching the CLI, take a running
+lane, restore it to a checkpoint twenty minutes old, dispatch three arms from
+that point, and read back a comparison that reports **spread across runs, never a
+single point** — with the estimate shown and confirmed before any money is spent.
+
+Not met while the engine is reachable only from `rhizomorph lab`.
 
 ## Ruling 1 — the branching picture: new layout, shared primitives
 

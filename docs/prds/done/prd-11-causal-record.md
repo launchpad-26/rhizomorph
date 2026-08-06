@@ -1,4 +1,6 @@
 # prd11 — the causal record: provenance, the portable session record, and
+> **Outcome:** shipped.
+
 # the road to the forest
 
 The product direction, ruled by the operator 2026-08-04: rhizomorph's

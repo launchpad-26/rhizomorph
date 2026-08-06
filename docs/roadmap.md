@@ -61,7 +61,7 @@
 
 - **prd9 — the trace era** (`docs/prds/done/prd-09-trace-era.md`, shipped): the one-week handover
   push — a junior-proof front door, then a trace layer ripped-with-evidence
-  from OpenTelemetry and Langfuse (`research/2026-08-03-trace-era-captures.md`).
+  from OpenTelemetry and Langfuse (`research/2026-08-03-trace-era-captures.md` [never committed]).
   Landed in full: the `trace.span` keystone (#123), wave A's receiver,
   selectors and CLI/doctor lines (#124–#126), and wave B's lane-drawer TRACE
   waterfall (#132) plus the vendored, SHA-pinned Langfuse pricing table

@@ -2,7 +2,7 @@
 
 > How to point a real `claude` process at this Rhizomorph's OTLP receiver so
 > its spend shows up live. Background and payload shapes:
-> `docs/prds/done/prd-01-money-layer.md`, `research/2026-07-30-telemetry-capture-routes.md`.
+> `docs/prds/done/prd-01-money-layer.md`, `research/2026-07-30-telemetry-capture-routes.md` [never committed].
 
 ## The short version
 
@@ -173,7 +173,7 @@ sharing one flag. **This is history and replay, not the cost metric.**
 Tailing those logs yields tokens, tool-call counts and a timeline for a
 conductor session that already happened — genuinely useful for "what did the
 conductor actually do" — but session-log lines carry no `cost_usd` field at
-all (`research/2026-07-30-telemetry-capture-routes.md` §S2). So a directory
+all (`research/2026-07-30-telemetry-capture-routes.md` [never committed] §S2). So a directory
 full of token counts is not proof the conductor's dollars were ever measured,
 and the spend panel's dollar headline says so.
 
@@ -387,7 +387,7 @@ lane's own total.
 prd9 (`docs/prds/done/prd-09-trace-era.md`) adds a trace layer on top of the money layer above.
 Claude Code 2.1.220 — the version already installed, no CLI upgrade needed —
 exports OTLP traces behind a beta gate
-(`research/2026-08-03-trace-era-captures.md` §1). On top of the metrics/logs
+(`research/2026-08-03-trace-era-captures.md` [never committed] §1). On top of the metrics/logs
 block earlier in this doc, three more lines turn it on:
 
 ```sh
@@ -429,7 +429,7 @@ two. The fan-out happens on the **emitting** side, not the Rhizomorph's: an
 OTel Collector, or the agent CLI's own exporter config, can point at more
 than one OTLP endpoint at once, so the same span stream reaches an org's
 Langfuse instance and a developer's local Rhizomorph simultaneously, with
-neither aware of the other. `research/2026-08-03-trace-era-captures.md` §3
+neither aware of the other. `research/2026-08-03-trace-era-captures.md` [never committed] §3
 confirms Langfuse (v4.1.0, MIT core) already auto-classifies Claude Code's
 beta spans (`llm_request` → `GENERATION`, `tool.execution` → `TOOL`) — the
 same span vocabulary this parser reads.

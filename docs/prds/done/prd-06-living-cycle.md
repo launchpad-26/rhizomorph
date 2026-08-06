@@ -1,5 +1,7 @@
 # prd6 — the living cycle
 
+> **Outcome:** shipped. The dispatch-policy question it raised was never claimed, and stands as open research.
+
 prd5 made the instrument an application. Reviewing it, the operator found
 the scene's *end state* lifeless and two of its channels unintuitive:
 "as output grows the seeds should grow too (within reason, no need to

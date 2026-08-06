@@ -1,5 +1,7 @@
 # prd15 — the anywhere instrument: true full-featured system agnosticism
 
+> **Outcome:** blessed 2026-08-05, partially landed — rulings 1 and 5 landed; waves 3-7 have not. See `docs/roadmap.md`.
+
 **STATUS: BLESSED** — operator, 2026-08-05: *"CAN we do it? If we CAN do
 it, then LETS do it"* (condition affirmed by the conductor against the
 spike evidence, same day) and *"I am aiming for TRUE, FULL FEATURED system
@@ -18,6 +20,18 @@ be an npm install"). prd8's packaging work (tarball-proven allowlist,
 tag-only release workflow, no secrets) is the machinery; the go-public
 prerequisites remain #177's history decision and the stranger-run. Publish
 is the LAST wave of this prd, never the first.
+
+## Success
+
+> *Proposed 2026-08-06 as part of adopting the PRD standard; **not** blessed with
+> the seven rulings below, which were ruled 2026-08-05 on their own terms.*
+
+On a machine with **no tmux**, running a non-Claude agent CLI, the instrument
+starts, watches a repo, and reports every one of the six lane signals — each one
+either provided, or naming the reason it is absent. No signal is silently
+guessed, and nothing in the UI describes that machine as degraded.
+
+Not met while any signal depends on tmux being present to have a value at all.
 
 ## Ruling 1 — the transcript-tail state machine is the universal organ
 

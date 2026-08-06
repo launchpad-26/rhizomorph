@@ -1,5 +1,7 @@
 # prd12 — the laboratory: forked realities, under an amended constitution
 
+> **Outcome:** shipped. The amendment it introduced is recorded as ADR-0001; its fence is incomplete — see #234, #245.
+
 The fork spike (`docs/research/2026-08-04-fork-checkpoint-spike.md`) proved
 the moonshot's risky parts live: conversation state forks cleanly
 (truncated session + `--resume --fork-session`, codeword-verified), a dirty

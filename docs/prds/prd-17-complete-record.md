@@ -1,5 +1,7 @@
 # prd17 — the complete record: the instrument's judgements and the operator's decisions join the log
 
+> **Outcome:** blessed 2026-08-06, partially landed — ruling 3 landed (four of five laws); rulings 1, 2 and 4 have not. Ruling 3's fold-order law is UNRULED, tracked on #205.
+
 **STATUS: BLESSED** — operator, 2026-08-06, on the council's unanimous master
 finding (`docs/research/2026-08-06-council/synthesis.md`): *the causal record
 is missing its two most important actors — the instrument's own judgements,
@@ -8,6 +10,20 @@ undercount by omitting the orchestrator") recursed one level up: the operator
 is the only unobserved agent in the system. Sequenced after prd16's waves
 (they share the recorder seam, prd16 ruling 6); the UI dividend (digest,
 inspectable landings, pins, calibration display, jump box, drill) is prd18.
+
+## Success
+
+> *Proposed 2026-08-06 as part of adopting the PRD standard; **not** blessed with
+> the four rulings below, which were ruled 2026-08-06 on their own terms.*
+
+Replaying a finished session shows the instrument's own judgements and the
+operator's decisions as first-class events on the timeline — not inferred from
+side effects. An unrecognised event line from a newer emitter is **counted and
+voiced**, never dropped, and a recording folded today matches its committed
+snapshot byte for byte.
+
+Partially met: the integrity laws landed; the event families and the timeline
+dividend have not. The fold-order law remains UNRULED (#205).
 
 ## Ruling 1 — the new event families, all additive
 

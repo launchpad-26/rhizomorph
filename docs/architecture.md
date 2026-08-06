@@ -1319,7 +1319,7 @@ one prd later — see [prd9](#prd9--the-trace-era) below and
 
 prd9 (`docs/prds/done/prd-09-trace-era.md`) was the one-week handover push: a junior-proof front
 door, and a trace layer built on live captures
-(`research/2026-08-03-trace-era-captures.md`), not documentation — a research
+(`research/2026-08-03-trace-era-captures.md` [never committed]), not documentation — a research
 day probed Claude Code 2.1.220's beta OTLP trace export and Langfuse's
 ingestion of it before any ruling was written. Landed in full: wave A
 (receiver, selectors, CLI/doctor, #124–#126) and wave B (the drawer's own
@@ -1983,7 +1983,7 @@ lane is dispatched against them. 3,158 tests across 202 files pass at commit
 - 2026-07-30 — prd1: two telemetry collectors by design, not redundancy.
   `otel` (`packages/server/src/collectors/otel`) is the sole source of
   authoritative `cost_usd` — real dollars, no pricing table; the one unrun
-  claim from `research/2026-07-30-telemetry-capture-routes.md`
+  claim from `research/2026-07-30-telemetry-capture-routes.md` [never committed]
   (`OTEL_RESOURCE_ATTRIBUTES` lane tagging) was proven live in issue #36.
   `sessionlog` tails `~/.claude/projects/*/*.jsonl` for free structural
   attribution and per-message cache-tier token depth OTel's own metrics never

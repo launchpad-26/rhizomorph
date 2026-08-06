@@ -1,5 +1,7 @@
 # prd4 — the instrument turns human-facing
 
+> **Outcome:** superseded by what actually shipped — see `docs/roadmap.md`.
+
 prd3 delivered the instrument; the operator's review (2026-08-01) found it
 fails the **layman bar**. This prd re-aims the surface at humans. Rulings
 from the design interview, operator, 2026-08-01:
