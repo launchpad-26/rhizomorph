@@ -7,7 +7,7 @@ six-week open-source project, and there is one week to make it something a
 stranger inherits rather than something an author explains. Two thrusts, in
 kill-order: a junior-proof front door, and a trace layer ripped-with-evidence
 from OpenTelemetry and Langfuse. Decisions from the research-day gate,
-operator, 2026-08-03. Evidence: `research/2026-08-03-trace-era-captures.md`
+operator, 2026-08-03. Evidence: `research/2026-08-03-trace-era-captures.md` [never committed]
 (all load-bearing claims [Ran], fixtures pinned to claude 2.1.220 /
 codex-cli 0.145.0).
 

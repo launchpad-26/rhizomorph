@@ -1,7 +1,7 @@
 # PRD 1 — The Money Layer
 
 > **Status:** blessed by Lachlan, 2026-07-30. Capture routes decided by live
-> evidence: `research/2026-07-30-telemetry-capture-routes.md`.
+> evidence: `research/2026-07-30-telemetry-capture-routes.md` [never committed].
 > **Outcome:** shipped.
 
 ## One-liner
