@@ -9,7 +9,7 @@ import { sessionDirFor } from '../log/paths.js'
 import { SessionLogWriter } from '../recorder/index.js'
 import { readResumedCount, recordResume, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import { writeSessionLock } from '../log/session-lock.js'
-import { renderDoctorReport, runDoctor, type DoctorCheck } from './doctor.js'
+import { doctorHelpText, parseDoctorArgs, renderDoctorReport, runDoctor, type DoctorCheck } from './doctor.js'
 
 function okResult(stdout = ''): ExecResult {
   return { stdout, stderr: '', code: 0, failed: false }
@@ -863,5 +863,57 @@ describe('renderDoctorReport', () => {
     })
 
     expect(text).toContain('All required checks passed.')
+  })
+})
+
+describe('parseDoctorArgs', () => {
+  const doctorDefaults = { path: undefined, port: 4321, help: false }
+
+  it('defaults to no path and port 4321', () => {
+    expect(parseDoctorArgs([])).toEqual(doctorDefaults)
+  })
+
+  it('takes the first non-flag token as the path', () => {
+    expect(parseDoctorArgs(['../some-repo'])).toEqual({ ...doctorDefaults, path: '../some-repo' })
+  })
+
+  it('parses --port as a separate token', () => {
+    expect(parseDoctorArgs(['../repo', '--port', '5000'])).toEqual({
+      ...doctorDefaults,
+      path: '../repo',
+      port: 5000,
+    })
+  })
+
+  it('parses --port=n', () => {
+    expect(parseDoctorArgs(['--port=5000'])).toEqual({ ...doctorDefaults, port: 5000 })
+  })
+
+  it('throws on a non-numeric port', () => {
+    expect(() => parseDoctorArgs(['--port', 'nope'])).toThrow(/invalid --port/)
+  })
+
+  it('parses --help', () => {
+    expect(parseDoctorArgs(['--help'])).toEqual({ ...doctorDefaults, help: true })
+  })
+
+  it('parses -h', () => {
+    expect(parseDoctorArgs(['-h'])).toEqual({ ...doctorDefaults, help: true })
+  })
+
+  it('throws on an unrecognised flag, naming it', () => {
+    expect(() => parseDoctorArgs(['--flatline-minutes', '3'])).toThrow(
+      /unknown option.*"--flatline-minutes"/is,
+    )
+  })
+})
+
+describe('doctorHelpText', () => {
+  it('documents the path argument, --port and --help', () => {
+    const text = doctorHelpText()
+    expect(text).toContain('rhizomorph doctor [path]')
+    expect(text).toContain('--port')
+    expect(text).toContain('4321')
+    expect(text).toContain('--help')
   })
 })

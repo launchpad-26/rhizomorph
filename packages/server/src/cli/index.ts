@@ -27,7 +27,6 @@ import { createPollLoop, type PollLoop } from '../server/poll-loop.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { createFileSnapshotStore } from '../server/snapshot-store.js'
 import {
-  doctorHelpText,
   envHelpText,
   exportRecordHelpText,
   helpText,
@@ -37,7 +36,6 @@ import {
   labForkHelpText,
   labHelpText,
   parseArgs,
-  parseDoctorArgs,
   parseEnvArgs,
   parseExportRecordArgs,
   parseLabCheckpointArgs,
@@ -52,7 +50,7 @@ import {
   sessionsHelpText,
   type CliArgs,
 } from './args.js'
-import { renderDoctorReport, runDoctor } from './doctor.js'
+import { runDoctorCommand } from './doctor.js'
 import { runExportRecord } from './export-record.js'
 import { runLabel } from './label.js'
 import { renderRotation, requestRotation } from './rotate.js'
@@ -324,47 +322,6 @@ function renderBootLine(decision: SessionBootDecision, sessionId: string, resume
 function defaultWebDistDir(): string {
   const here = path.dirname(fileURLToPath(import.meta.url))
   return path.resolve(here, '..', '..', '..', 'web', 'dist')
-}
-
-/**
- * `rhizomorph doctor [path]` — a standalone, read-only subcommand, no
- * server boot. Same clean-usage-error contract as the main command: a bad
- * argv prints to stderr and exits 1, `--help` prints to stdout and exits 0.
- * The report's own exit code (0 or 1) is what actually terminates the
- * process — it reflects whether the app can run, not an argv parse failure.
- */
-async function runDoctorCommand(
-  rest: readonly string[],
-  log: Pick<Console, 'log' | 'warn'>,
-  exit: (code: number) => never,
-  options: RunCliOptions,
-): Promise<never> {
-  let doctorArgs
-  try {
-    doctorArgs = parseDoctorArgs(rest)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    process.stderr.write(`${message}\n\n${doctorHelpText()}`)
-    exit(1)
-  }
-
-  if (doctorArgs.help) {
-    log.log(doctorHelpText())
-    exit(0)
-  }
-
-  const report = await runDoctor({
-    path: doctorArgs.path,
-    port: doctorArgs.port,
-    exec: options.exec,
-    webDistDir: options.webDistDir,
-    claudeProjectsRoot: options.claudeProjectsRoot,
-    dataRoot: options.dataRoot,
-    now: options.now,
-  })
-
-  log.log(renderDoctorReport(report))
-  exit(report.exitCode)
 }
 
 /**

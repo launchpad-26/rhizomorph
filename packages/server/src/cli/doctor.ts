@@ -22,6 +22,8 @@ import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
 import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
 import { decideSessionBoot, formatBootDuration } from '../log/session-log.js'
 import { exec as realExec } from '../server/exec.js'
+import { DEFAULT_PORT, parseFlags, type FlagSpec } from './args.js'
+import type { RunCliOptions } from './types.js'
 
 /**
  * Read-only preflight for a stranger's first run: every check here only
@@ -74,6 +76,51 @@ const DEFAULT_NODE_ENGINE_RANGE = '>=22'
 
 const FAILING_CHECK_IDS: ReadonlySet<string> = new Set(['target-path', 'web-build', 'port'])
 
+/** Parses `rhizomorph doctor [path] [--port <n>] [--help]`. */
+export interface DoctorArgs {
+  path: string | undefined
+  port: number
+  help: boolean
+}
+
+/** `rhizomorph doctor`'s own usage table, distinct from the main command's. */
+export function doctorHelpText(): string {
+  return `rhizomorph doctor [path] [options]
+
+Read-only preflight: checks the Node version, the target path (exists and is
+a git repo), the web build, whether the port is free, Claude Code session
+logs, tmux/workmux presence, and telemetry env — one ok/warn/FAIL line per
+check, each with its remedy. Exits non-zero only when the app genuinely
+cannot run (bad path, not a repo, no web build, port taken).
+
+Arguments:
+  path                    Repo to check (default: current directory)
+
+Options:
+  --port <n>              Port to check for availability (default: ${DEFAULT_PORT})
+  --help, -h              Show this help and exit
+`
+}
+
+export function parseDoctorArgs(argv: readonly string[]): DoctorArgs {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    return { path: undefined, port: DEFAULT_PORT, help: true }
+  }
+
+  let portArg: string | undefined
+  const specs: FlagSpec[] = [{ flag: '--port', read: (v) => { portArg = v } }]
+
+  const positionals = parseFlags(argv, specs)
+  const path = positionals[0]
+
+  const port = portArg === undefined ? DEFAULT_PORT : Number(portArg)
+  if (!Number.isInteger(port) || port < 0) {
+    throw new Error(`invalid --port value: "${portArg}" (must be a non-negative integer)`)
+  }
+
+  return { path, port, help: false }
+}
+
 export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
   const exec = options.exec ?? realExec
   const fetchImpl = options.fetch ?? globalThis.fetch
@@ -110,6 +157,47 @@ export function renderDoctorReport(report: DoctorReport): string {
       ? `${failing} check${failing === 1 ? '' : 's'} failed — fix these before rhizomorph can run.`
       : 'All required checks passed.'
   return [...lines, '', summary].join('\n')
+}
+
+/**
+ * `rhizomorph doctor [path]` — a standalone, read-only subcommand, no
+ * server boot. Same clean-usage-error contract as the main command: a bad
+ * argv prints to stderr and exits 1, `--help` prints to stdout and exits 0.
+ * The report's own exit code (0 or 1) is what actually terminates the
+ * process — it reflects whether the app can run, not an argv parse failure.
+ */
+export async function runDoctorCommand(
+  rest: readonly string[],
+  log: Pick<Console, 'log' | 'warn'>,
+  exit: (code: number) => never,
+  options: RunCliOptions,
+): Promise<never> {
+  let doctorArgs
+  try {
+    doctorArgs = parseDoctorArgs(rest)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`${message}\n\n${doctorHelpText()}`)
+    exit(1)
+  }
+
+  if (doctorArgs.help) {
+    log.log(doctorHelpText())
+    exit(0)
+  }
+
+  const report = await runDoctor({
+    path: doctorArgs.path,
+    port: doctorArgs.port,
+    exec: options.exec,
+    webDistDir: options.webDistDir,
+    claudeProjectsRoot: options.claudeProjectsRoot,
+    dataRoot: options.dataRoot,
+    now: options.now,
+  })
+
+  log.log(renderDoctorReport(report))
+  exit(report.exitCode)
 }
 
 async function checkNodeVersion(options: DoctorOptions): Promise<DoctorCheck> {

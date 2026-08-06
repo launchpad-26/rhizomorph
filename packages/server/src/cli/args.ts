@@ -52,7 +52,7 @@ const DEFAULT_SHELL: EnvShell = 'sh'
 /** Only for the help text — the boundary itself lives in one place, `RESUME_WINDOW_MS`. */
 const RESUME_WINDOW_HOURS = RESUME_WINDOW_MS / 3_600_000
 
-interface FlagSpec {
+export interface FlagSpec {
   flag: string
   read: (value: string | undefined) => void
   /**
@@ -71,7 +71,7 @@ interface FlagSpec {
  * flag, so a typo fails loudly instead of booting with a silently-ignored
  * default.
  */
-function parseFlags(argv: readonly string[], specs: readonly FlagSpec[]): string[] {
+export function parseFlags(argv: readonly string[], specs: readonly FlagSpec[]): string[] {
   const positionals: string[] = []
   let sawDoubleDash = false
 
@@ -397,51 +397,6 @@ Run 'rhizomorph doctor --help', 'rhizomorph env --help', 'rhizomorph export-reco
 'rhizomorph replay --help', 'rhizomorph sessions --help', 'rhizomorph label --help',
 'rhizomorph rotate --help' or 'rhizomorph lab --help' for a subcommand's own options.
 `
-}
-
-/** Parses `rhizomorph doctor [path] [--port <n>] [--help]`. */
-export interface DoctorArgs {
-  path: string | undefined
-  port: number
-  help: boolean
-}
-
-/** `rhizomorph doctor`'s own usage table, distinct from the main command's. */
-export function doctorHelpText(): string {
-  return `rhizomorph doctor [path] [options]
-
-Read-only preflight: checks the Node version, the target path (exists and is
-a git repo), the web build, whether the port is free, Claude Code session
-logs, tmux/workmux presence, and telemetry env — one ok/warn/FAIL line per
-check, each with its remedy. Exits non-zero only when the app genuinely
-cannot run (bad path, not a repo, no web build, port taken).
-
-Arguments:
-  path                    Repo to check (default: current directory)
-
-Options:
-  --port <n>              Port to check for availability (default: ${DEFAULT_PORT})
-  --help, -h              Show this help and exit
-`
-}
-
-export function parseDoctorArgs(argv: readonly string[]): DoctorArgs {
-  if (argv.includes('--help') || argv.includes('-h')) {
-    return { path: undefined, port: DEFAULT_PORT, help: true }
-  }
-
-  let portArg: string | undefined
-  const specs: FlagSpec[] = [{ flag: '--port', read: (v) => { portArg = v } }]
-
-  const positionals = parseFlags(argv, specs)
-  const path = positionals[0]
-
-  const port = portArg === undefined ? DEFAULT_PORT : Number(portArg)
-  if (!Number.isInteger(port) || port < 0) {
-    throw new Error(`invalid --port value: "${portArg}" (must be a non-negative integer)`)
-  }
-
-  return { path, port, help: false }
 }
 
 /** Parses `rhizomorph export-record [path] [--session <id>] [--out <file>] [--handle <name>] [--help]`. */
