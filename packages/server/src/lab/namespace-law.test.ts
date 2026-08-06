@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -296,6 +296,67 @@ describe('the lab namespace law (prd12 ruling 1)', () => {
 })
 
 /**
+ * `fs.realpathSync.native` form of `candidate` — evidence only, never fed
+ * back into an assertion. `isInside` (paths.ts) already does its own
+ * `.native` resolution to decide pass/fail; this is a second, independent
+ * call solely so a failure message can show what that resolution produced
+ * (#228 — CI showed the JS `realpathSync` disagreeing with itself across
+ * Node versions, so a raw path alone doesn't say why a comparison failed).
+ */
+function nativeForm(candidate: string): string {
+  try {
+    return realpathSync.native(candidate)
+  } catch (err) {
+    return `<unresolvable: ${(err as Error).message}>`
+  }
+}
+
+/** A path's raw and native spellings side by side, for failure evidence. */
+function pathEvidence(candidate: string): string {
+  return `raw=${candidate} native=${nativeForm(candidate)}`
+}
+
+/** `process.version` + `os.tmpdir()` — the macOS/Node-version discriminator #228 turned on; every evidence block below proves which runtime produced it. */
+function runtimeEvidence(): string {
+  return `process.version=${process.version} os.tmpdir()=${tmpdir()}`
+}
+
+/**
+ * Evidence for a live containment-check failure: for every worktree the
+ * `isInside(labRoot(dataRoot), worktree)` check judged as escaping, its raw
+ * path and native form, set against the data root's own raw and native
+ * forms, plus the runtime that produced the judgment. Attached as `expect`'s
+ * message argument — it changes nothing about what is asserted, only what a
+ * failure says (`expected [ Array(1) ] to deeply equal []` names nothing).
+ */
+function containmentFailureEvidence(escapees: string[], dataRoot: string): string {
+  const root = labRoot(dataRoot)
+  return [
+    `dataRoot: ${pathEvidence(dataRoot)}`,
+    `labRoot(dataRoot): ${pathEvidence(root)}`,
+    ...escapees.map(
+      (worktree) => `escaping worktree (isInside(labRoot(dataRoot), worktree) === false): ${pathEvidence(worktree)}`,
+    ),
+    runtimeEvidence(),
+  ].join('\n')
+}
+
+/**
+ * Evidence for the symlinked-dataRoot test's round-trip vacuousness guard: a
+ * bare `expected false to be true` says nothing about which spelling git
+ * actually reported. This lists every registered worktree's raw and native
+ * forms against `realDataRoot`'s own two spellings, so a failure names what
+ * `worktree.startsWith(realDataRoot)` actually compared.
+ */
+function roundTripFailureEvidence(registered: string[], realDataRoot: string): string {
+  return [
+    `realDataRoot: ${pathEvidence(realDataRoot)}`,
+    ...registered.map((worktree) => `registered worktree: ${pathEvidence(worktree)}`),
+    runtimeEvidence(),
+  ].join('\n')
+}
+
+/**
  * The live half. Everything above reads source text; this runs `lab fork`
  * against a real fixture repo and asserts, by walking the filesystem and the
  * ref namespace before and after, that ruling 1's fence held.
@@ -420,7 +481,7 @@ describe('the lab namespace law, live (prd12 ruling 1, #153)', () => {
     const outside = registered.filter(
       (worktree) => path.resolve(worktree) !== path.resolve(repoDir) && !isInside(labRoot(dataRoot), worktree),
     )
-    expect(outside).toEqual([])
+    expect(outside, containmentFailureEvidence(outside, dataRoot)).toEqual([])
   })
 
   /**
@@ -586,11 +647,14 @@ describe('the lab namespace law, live, with the lab data dir behind a symlink (m
     // git at the OTHER spelling from what `dataRoot` names — otherwise this
     // test would pass vacuously on any machine where `git worktree add`
     // happens not to canonicalize.
-    expect(registered.some((worktree) => worktree.startsWith(realDataRoot))).toBe(true)
+    expect(
+      registered.some((worktree) => worktree.startsWith(realDataRoot)),
+      roundTripFailureEvidence(registered, realDataRoot),
+    ).toBe(true)
 
     const outside = registered.filter(
       (worktree) => path.resolve(worktree) !== path.resolve(repoDir) && !isInside(labRoot(dataRoot), worktree),
     )
-    expect(outside).toEqual([])
+    expect(outside, containmentFailureEvidence(outside, dataRoot)).toEqual([])
   })
 })
