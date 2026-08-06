@@ -266,5 +266,3 @@ describe('helpText', () => {
     expect(helpText()).toContain('rhizomorph doctor')
   })
 })
-
-

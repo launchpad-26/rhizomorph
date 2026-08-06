@@ -265,4 +265,3 @@ Run 'rhizomorph doctor --help', 'rhizomorph env --help', 'rhizomorph export-reco
 'rhizomorph rotate --help' or 'rhizomorph lab --help' for a subcommand's own options.
 `
 }
-
