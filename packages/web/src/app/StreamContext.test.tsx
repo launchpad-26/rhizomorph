@@ -361,13 +361,14 @@ describe('#166: batching cost, per-event vs batched', () => {
 
 /** Exposes which log is driving and how much of it folded. */
 function SourceProbe() {
-  const { source, state, provenance } = useStream()
+  const { source, state, provenance, eventsWindowLabel } = useStream()
   return (
     <div>
       <span data-testid="source">{source}</span>
       <span data-testid="worktrees">{Object.keys(state.session.worktrees).length}</span>
       <span data-testid="news">{state.newsCount}</span>
       <span data-testid="provenance">{provenance}</span>
+      <span data-testid="events-window-label">{eventsWindowLabel ?? ''}</span>
     </div>
   )
 }
@@ -458,5 +459,29 @@ describe('fixture switching', () => {
     expect(screen.getByTestId('source').textContent).toBe('live')
 
     input.remove()
+  })
+
+  /**
+   * #221's boundary voice, wired through the context: every source
+   * (`eventsWindowLabel(replayState|fixture.state|live.state)`,
+   * `StreamContext.tsx`) reads null here because none of these ordinary,
+   * small event logs ever approach `streamState.ts`'s `MAX_EVENTS` ceiling —
+   * `streamState.test.ts` proves the label's actual wording once eviction
+   * does happen, at the scale that requires; this only proves the context
+   * doesn't invent a truncation warning where none exists.
+   */
+  it('reports no truncation for any of the three ordinary-sized sources', async () => {
+    await renderSources()
+    expect(screen.getByTestId('events-window-label').textContent).toBe('')
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: '2' })
+    })
+    expect(screen.getByTestId('events-window-label').textContent).toBe('')
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: '3' })
+    })
+    expect(screen.getByTestId('events-window-label').textContent).toBe('')
   })
 })
