@@ -31,8 +31,13 @@ why — and that's the part you need when someone proposes changing it.
 
 This repo learned that the hard way. A dozen research spikes were written while
 decisions were being made, then deleted as "process artifacts" in `676faad`. The
-decisions survived in the code; the rejected options went with the files. Several
-of the ADRs here were reconstructed from git history because of it.
+decisions survived in the code; the rejected options went with the files, and
+nine PRDs were left citing notes that no longer existed. Every ADR here was
+reconstructed from git history because of it.
+
+The notes were restored in `d1b7562`, which is the cheaper lesson: **the evidence
+behind a decision is not a process artifact.** Keep the spike, or write the ADR
+before you delete it.
 
 ## What is, and isn't, an ADR
 

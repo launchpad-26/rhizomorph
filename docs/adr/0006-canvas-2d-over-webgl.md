@@ -8,9 +8,9 @@
 > **Reconstructed.** Written 2026-08-06. The decision was ruled 2026-07-31
 > (`d1222dd`, prd3 ruling 28) and re-confirmed by measurement 2026-08-02
 > (`4323685`). Every claim below is cited. The supporting research note
-> `docs/research/2026-08-02-obs-prd7-renderer.md` was deleted from the tree in
-> `676faad` and is readable only via
-> `git show 4323685:docs/research/2026-08-02-obs-prd7-renderer.md`.
+> `docs/research/2026-08-02-obs-prd7-renderer.md` had been deleted in `676faad`
+> and was recovered from history in `d1b7562`; this ADR was reconstructed from
+> the git copy before that restore.
 
 The scene is the product's centrepiece — a living mycelial network standing in
 for a fleet of agents. The web package was scaffolded with `three`,
