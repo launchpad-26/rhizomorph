@@ -478,8 +478,12 @@ describe('the lab namespace law, live (prd12 ruling 1, #153)', () => {
       .filter((line) => line.startsWith('worktree '))
       .map((line) => line.slice('worktree '.length).trim())
 
+    // #231: git reports `worktree` already canonicalized (`.native`-resolved);
+    // `repoDir` must be canonicalized the same way before comparing, or a
+    // macOS TMPDIR symlink layer makes the watched repo look like an escapee.
     const outside = registered.filter(
-      (worktree) => path.resolve(worktree) !== path.resolve(repoDir) && !isInside(labRoot(dataRoot), worktree),
+      (worktree) =>
+        realpathSync.native(worktree) !== realpathSync.native(repoDir) && !isInside(labRoot(dataRoot), worktree),
     )
     expect(outside, containmentFailureEvidence(outside, dataRoot)).toEqual([])
   })
@@ -652,8 +656,11 @@ describe('the lab namespace law, live, with the lab data dir behind a symlink (m
       roundTripFailureEvidence(registered, realDataRoot),
     ).toBe(true)
 
+    // #231: same canonicalization as above — `repoDir` must be resolved through
+    // `realpathSync.native` before comparing against git's already-canonical output.
     const outside = registered.filter(
-      (worktree) => path.resolve(worktree) !== path.resolve(repoDir) && !isInside(labRoot(dataRoot), worktree),
+      (worktree) =>
+        realpathSync.native(worktree) !== realpathSync.native(repoDir) && !isInside(labRoot(dataRoot), worktree),
     )
     expect(outside, containmentFailureEvidence(outside, dataRoot)).toEqual([])
   })
