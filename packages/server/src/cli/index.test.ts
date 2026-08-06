@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Collector, CollectorContext, Exec, RhizomorphEvent, PollResult } from '@rhizomorph/core'
+import { sha256Hex } from '@rhizomorph/core/src/record/index.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
 import { sessionDirFor } from '../log/paths.js'
@@ -656,6 +657,47 @@ describe('runCli doctor subcommand', () => {
   })
 })
 
+/** A line the way a NEWER era's instrument would write it — prd17 ruling 1's own families, same fixture core's own record tests use. */
+const FUTURE_LINE =
+  '{"id":"evt-future-1","ts":1785930000000,"source":"system","type":"summons.raised","payload":{"lane":"a"}}'
+
+/**
+ * Splices `lines` into a raw exported record's `body` at position `at`,
+ * recomputing the hash chain and the manifest's `eventCount`/`chainDigest`/
+ * `startTs`/`endTs` so the result still verifies — the same recipe
+ * `@rhizomorph/core`'s own record tests use (`record/read.test.ts`'s
+ * `withLinesAt`), reimplemented here rather than imported across a package
+ * boundary's test file.
+ */
+function withLinesAt(
+  raw: { manifest: Record<string, unknown>; body: Array<{ line: string; prevHash: string; hash: string }> },
+  at: number,
+  lines: readonly string[],
+): typeof raw {
+  const texts = raw.body.map((link) => link.line)
+  texts.splice(at, 0, ...lines)
+
+  let prevHash = raw.body[0]?.prevHash ?? (raw.manifest.chainDigest as string)
+  const body: Array<{ line: string; prevHash: string; hash: string }> = []
+  for (const line of texts) {
+    const hash = sha256Hex(prevHash + line)
+    body.push({ line, prevHash, hash })
+    prevHash = hash
+  }
+
+  const stamps = texts.map((line) => (JSON.parse(line) as { ts: number }).ts)
+  return {
+    manifest: {
+      ...raw.manifest,
+      eventCount: body.length,
+      chainDigest: prevHash,
+      startTs: Math.min(...stamps),
+      endTs: Math.max(...stamps),
+    },
+    body,
+  }
+}
+
 describe('runCli export-record and replay subcommands', () => {
   let dataRoot: string
   let repoPath: string
@@ -780,6 +822,50 @@ describe('runCli export-record and replay subcommands', () => {
     expect((thrown as FakeExit).code).toBe(1)
     expect(output).toContain('verification failed')
     expect(output).toContain('chain-broken')
+  })
+
+  /**
+   * #205 / prd17 ruling 3, item 1: the CLI replay reader used to walk a
+   * record's body with a strict `lineToEvent` and silently step over any line
+   * that didn't parse — including a line from a newer era, which verifies
+   * (the chain covers it as opaque text) but doesn't fold. Replay must voice
+   * that gap, in the exact sentence the record verifier and the web's replay
+   * banner already use (`voiceUnknownEvents`), never stay silent about it.
+   */
+  it('replays a record carrying a newer era\'s line, voicing it rather than silently dropping it', async () => {
+    await recordASession()
+    const outFile = path.join(dataRoot, 'out.rhizorecord.json')
+    await runCli(['export-record', repoPath, '--out', outFile], {
+      dataRoot,
+      log: silentLog,
+      exit: fakeExit(),
+    }).catch(() => {})
+
+    const raw = JSON.parse(await readFile(outFile, 'utf8')) as {
+      manifest: Record<string, unknown>
+      body: Array<{ line: string; prevHash: string; hash: string }>
+    }
+    const withFuture = withLinesAt(raw, 1, [FUTURE_LINE])
+    await writeFile(outFile, JSON.stringify(withFuture), 'utf8')
+
+    const log = { log: vi.fn(), warn: vi.fn() }
+    replayServer = await runCli(['replay', outFile, '--port', '0'], { log, exit: fakeExit() })
+
+    const output = log.log.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain(
+      '1 event from a newer era was preserved but not understood (summons.raised)',
+    )
+
+    // The rest of the record still replays: the newer-era line is counted and
+    // voiced, not refused, and every line this era DOES understand still folds.
+    const sessionsResponse = await fetch(`${replayServer.url}/api/sessions`)
+    const { sessions } = (await sessionsResponse.json()) as { sessions: Array<{ id: string }> }
+    expect(sessions).toHaveLength(1)
+    const eventsResponse = await fetch(`${replayServer.url}/api/sessions/${sessions[0]!.id}/events`)
+    const { events } = (await eventsResponse.json()) as { events: Array<{ type: string }> }
+    expect(events.some((e) => e.type === 'session.started')).toBe(true)
+    expect(events.some((e) => e.type === 'agent.status')).toBe(true)
+    expect(events.some((e) => (e.type as string) === 'summons.raised')).toBe(false)
   })
 })
 

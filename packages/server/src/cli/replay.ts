@@ -2,8 +2,8 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { eventsToJsonl, lineToEvent, type RhizomorphEvent } from '@rhizomorph/core'
-import { parseRecord, verifyRecord } from '@rhizomorph/core/src/record/index.js'
+import { eventsToJsonl } from '@rhizomorph/core'
+import { parseRecord, readRecord, verifyRecord } from '@rhizomorph/core/src/record/index.js'
 import { sessionFileName } from '../log/paths.js'
 import { buildApp } from '../server/build-app.js'
 import { exec as realExec } from '../server/exec.js'
@@ -132,13 +132,15 @@ export async function runReplayCommand(
     exit(1)
   }
 
-  const { manifest, body } = parsed.record
-  const events: RhizomorphEvent[] = []
-  for (const link of body) {
-    const lineParsed = lineToEvent(link.line)
-    // Already-verified: every line parsed clean when `verifyRecord` walked it above.
-    if (lineParsed.ok) events.push(lineParsed.event)
-  }
+  const { manifest } = parsed.record
+  // `readRecord` is the lenient reader every consumer of a record's body goes
+  // through (prd17 ruling 3, item 1): a line from an era this build has never
+  // heard of is counted and preserved, never silently stepped over the way a
+  // strict `lineToEvent` walk would. `verification.unknownVoice` is the exact
+  // sentence `voiceUnknownEvents` already computed while verifying above —
+  // the same one the record verifier and the web's replay banner say, so a
+  // stranger's record voices identically wherever it's read.
+  const { events } = readRecord(parsed.record)
 
   const now = options.now ?? Date.now
   const tempDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-replay-'))
@@ -194,6 +196,11 @@ export async function runReplayCommand(
     `read-only session record — ${manifest.eventCount} events, ` +
       `actor ${manifest.actor.handle}${declared}@${manifest.actor.instance}, repo ${manifest.repoSlug}`,
   )
+  // Never silence: a record from a newer instrument still replays, but this
+  // build must say plainly that some of it went unfolded (prd17 ruling 3).
+  if (verification.unknownVoice !== undefined) {
+    log.log(verification.unknownVoice)
+  }
 
   const stop = async () => {
     await pollLoop.stop()
