@@ -1,5 +1,7 @@
 # prd13 — the TIDE: the scrubber grows a body
 
+> **Outcome:** shipped, cut down from its first shape — ruling 13 cut the density band entirely.
+
 The dashboard-IA spike (`docs/research/2026-08-04-dashboard-ia-spike.md`) found
 that our weakest control is the one that navigates time: `Scrubber.tsx` is a
 bare `<input type=range>`, so **you scrub blind**. Its verdict was that a

@@ -1,5 +1,7 @@
 # prd10 — the gorgeous round: growth, life, flourishing and return
 
+> **Outcome:** shipped.
+
 The instrument is correct; now it earns its keep as an object of beauty.
 The operator's brief, verbatim north star: **"A replay should look like a
 legitimate art piece, of growth, life, flourishing and return."** Decisions

@@ -1,5 +1,7 @@
 # prd16 — the session is a thing you can hold: rotation, capture, and a library
 
+> **Outcome:** shipped.
+
 **STATUS: BLESSED** — operator, 2026-08-06: *"there is still the question of
 what defines a session, and what defines what is recorded and what is part of a
 'session'. There should be some kind of control for this… of note, the session

@@ -4,6 +4,7 @@
 > rulings, Lachlan); this document records them as the operating plan.
 > Spikes fire next session. prd2 sealed the numbers; prd3 makes them
 > glanceable and beautiful.
+> **Outcome:** superseded by what actually shipped — see `docs/roadmap.md`.
 
 ## One-liner
 

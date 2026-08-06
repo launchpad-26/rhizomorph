@@ -1,5 +1,7 @@
 # prd5 — a sleek, well formed, beautiful application
 
+> **Outcome:** superseded by what actually shipped — see `docs/roadmap.md`.
+
 prd4 made the instrument human-facing; prd5 makes it feel like a finished
 product. Direction set at the prd4 close (issue #99, operator verbatim):
 "drag around the scene, completed paths should not still be connected, a

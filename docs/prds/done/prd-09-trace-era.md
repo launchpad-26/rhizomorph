@@ -1,5 +1,7 @@
 # prd9 — the trace era: one week to handover
 
+> **Outcome:** shipped.
+
 The audience changed. The cohort will likely adopt rhizomorph for their
 six-week open-source project, and there is one week to make it something a
 stranger inherits rather than something an author explains. Two thrusts, in

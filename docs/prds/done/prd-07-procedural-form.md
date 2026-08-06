@@ -1,5 +1,7 @@
 # prd7 — procedural form
 
+> **Outcome:** shipped.
+
 prd6 finished the instrument's behaviour. The operator's note: "the
 function should remain the same, that's locked in, but now that we've got
 the shape of it sorted, we can make it more procedurally generated,

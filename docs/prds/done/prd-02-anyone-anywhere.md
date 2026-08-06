@@ -2,6 +2,7 @@
 
 > **Status:** blessed by Lachlan, 2026-07-31. Scope set by three code audits
 > answering his four questions and one acceptance test.
+> **Outcome:** shipped.
 
 ## One-liner
 
