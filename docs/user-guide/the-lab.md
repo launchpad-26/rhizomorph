@@ -59,7 +59,7 @@ one experiment.
 the design for each arm carrying its *own independent* model and brief
 inside one experiment — `arm A opus / brief X`, `arm B sonnet / brief Y`,
 etc. That's explicitly listed as an open, deferred item in
-[`docs/prds/prd14.md`](../prds/prd14.md) ("Open, not ruled: Free-form per-arm
+[`docs/prds/prd-14-experiment-console.md`](../prds/prd-14-experiment-console.md) ("Open, not ruled: Free-form per-arm
 variation"), not something the CLI or the web console does yet.
 
 Without `--launch`, nothing runs — the exact message:
@@ -128,7 +128,7 @@ dialog — prd14 ruling 4, since forking `n` arms multiplies real spend by
 roughly `n`); the branching layout (a trunk-to-arms picture, prd14 ruling 1);
 and the comparison surface itself (prd14 ruling 4's table/distribution view,
 reusing prd16's recording machinery). All checkpoint/fork/compare *actions*
-are CLI-only today. See [`docs/prds/prd14.md`](../prds/prd14.md)'s wave plan for the
+are CLI-only today. See [`docs/prds/prd-14-experiment-console.md`](../prds/prd-14-experiment-console.md)'s wave plan for the
 order these are ruled to land in, and note its own open item: **#205 (the
 fold-order divergence) remains explicitly unruled** — the lab must not be
 read as having assumed a resolution to it.

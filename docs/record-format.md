@@ -3,7 +3,7 @@
 > prd11 Keystone B (rulings 3–4). This document is the spec: everything a
 > stranger needs to write an independent, compatible emitter or reader,
 > without reading this repo's source. Background and motivation:
-> `docs/prds/prd11.md`.
+> `docs/prds/done/prd-11-causal-record.md`.
 
 ## What this is
 
