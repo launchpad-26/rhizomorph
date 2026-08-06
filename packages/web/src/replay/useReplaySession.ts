@@ -54,12 +54,16 @@ export interface ReplaySession {
   playback: UsePlaybackResult
   range: TimeRange
   /**
-   * The full sorted event log — stable identity across ticks, changing only
-   * when a new session loads. Consumers that need the scrub prefix slice it
-   * themselves from `scrubEventCount` rather than being handed a fresh array
-   * every tick: a per-tick slice's fresh identity was what made `StreamContext`
-   * refold its whole prefix from scratch on every scrub, twice over (#160,
-   * #162) — the slice itself was never the expensive part.
+   * The full `ts`-sorted event log — a navigation view (#205), stable
+   * identity across ticks, changing only when a new session loads.
+   * Consumers that need the scrub prefix slice it themselves from
+   * `scrubEventCount` rather than being handed a fresh array every tick: a
+   * per-tick slice's fresh identity was what made `StreamContext` refold its
+   * whole prefix from scratch on every scrub, twice over (#160, #162) — the
+   * slice itself was never the expensive part. `state` below is folded
+   * separately, in the session's own append order — this array exists so a
+   * `ts`-ascending binary search (`StreamContext`'s news/history boundary)
+   * has something to search, never to decide fold order.
    */
   scrubEvents: readonly RhizomorphEvent[]
   /** Count of `scrubEvents` at or before the scrub time. */
@@ -143,8 +147,10 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
   const range = useMemo(() => timeRangeOf(events) ?? { start: 0, end: 0 }, [events])
   const playback = usePlayback({ start: range.start, end: range.end })
 
-  // Sorted once and keyframed once per session load (#160) — everything a
-  // scrub does afterwards is O(log n) plus the events actually crossed.
+  // Navigation index built and keyframed once per session load (#160) —
+  // everything a scrub does afterwards is O(log n) plus the events actually
+  // crossed, and every one of those is folded in the record's own append
+  // order, never a ts-sorted one (#205).
   const sessionIndex = useMemo(() => buildSessionIndex(events), [events])
 
   // Runs after `usePlayback`'s own reset-on-new-range effect (hook call order
@@ -194,7 +200,7 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
     error,
     playback,
     range,
-    scrubEvents: sessionIndex.events,
+    scrubEvents: sessionIndex.sortedEvents,
     scrubEventCount,
     state,
     isReplaying,
