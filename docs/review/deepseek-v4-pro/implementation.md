@@ -1,0 +1,23 @@
+# Implementation review
+
+- **Verdict:** Core collectors are well-structured with careful parsing but several real failure modes exist; the biggest danger is silent corruption from unhandled subprocess edge cases rather than logic flaws.
+- **Verdict:** The record/replay round-trip is sound — schema-versioned, hash-chained, lenient on unknowns — but the executor conflates timeouts with missing binaries, disabling collectors spuriously.
+- **Verdict:** The poll loop, resilience wrappers, SSE backpressure, and snapshot persistence are professionally implemented; the remaining gaps are at the boundaries (procfs assumptions, workmux output width changes, per-pane tmux capture bomb).
+
+---
+
+**packages/server/src/server/exec.ts:17–20 — `execFile` timeouts misread as "binary missing"** — When a git or tmux subprocess hits `timeoutMs`, Node's `execFile` error carries `.code` as the string `'ETIMEDOUT'`, not a number. `typeof err.code === 'number'` is false, so `exitCode` stays null and `errorMessage` is set to the error message. The workmux collector's `isMissingBinary()` (collector.ts:43) and the tmux collector's disable path both interpret `errorMessage !== undefined` as "binary not installed," permanently disabling the collector after one slow command.
+
+**packages/server/src/collectors/tmux/collector.ts:78 — per-pane `capture-pane` spawns N subprocesses every 2s** — For each pane returned by `list-panes`, a separate `context.exec('tmux', ['capture-pane', '-p', '-t', id])` is launched. On a busy tmux server with 40 panes, that's 40 subprocess spawns × 30 times/minute = 1,200 subprocesses/minute. No concurrent batching (`-t` only accepts single pane IDs). A slow capture on any one pane delays the entire poll.
+
+**packages/server/src/collectors/judge/lanes.ts:33 — `parseLanes` splits on `\n\n` (no `\r`) unlike `parse-worktrees.ts:26** — `parseWorktreeList` uses `/\r?\n\r?\n/`; `parseLanes` uses `'\n\n'`. On a repo cloned with CRLF line endings or a Windows/WSL boundary, the judge's lane discovery fails to split blocks, returns zero lanes, and the judge silently idles thinking there's "nothing to corroborate yet."
+
+**packages/server/src/collectors/sessionlog/collector.ts:191–209 — `deriveLanes` sorts by string comparison of file paths, which is locale-sensitive** — `.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))` uses lexicographic comparison based on code unit values. In a locale where sorting behavior differs (e.g., `'en'` vs `'de'`), the "newest file" tiebreak is non-deterministic. Two session files with identical `lastWriteTs` could flip the lane's freshest transcript across polls, causing lane state to oscillate between two different transcript tails.
+
+**packages/server/src/collectors/workmux/parse.ts:79 — `parseListTable` branch extraction assumes 2+ spaces between columns** — `line.slice(branchAt, pathAt).split(/\s{2,}/)[0]?.trim()` extracts the branch name by taking everything up to the PATH column, then splitting on 2+ spaces and taking the first token. If `workmux list` ever changes column widths such that BRANCH and AGE columns run together with single spaces, the branch name is silently empty and the entire row is skipped (`branch === ''` check), dropping the agent from the snapshot without an error or event.
+
+**packages/server/src/recorder/session-log-writer.ts:56–58 — failed `prepare()` poisons all future appends** — If `prepare()` (directory creation, symlink check, file open) fails once, `this.ready` is set to a rejected promise. Every subsequent `append` awaits that same rejected promise via `this.tail`, which catches its own errors but has no path to retry `prepare()`. The recorder silently stops writing events for the rest of the process lifetime.
+
+**packages/server/src/recorder/session-log-writer.ts:34–43 — TOCTOU symlink race between `sync()` and next `append`** — `assertNotSymlink` is called in `prepare()` (once) and `sync()` (periodically), but `append` calls `appendFile(filePath, ...)` which opens the path fresh — and follows symlinks. If a symlink is planted after `sync()` and before the next `append`, `appendFile` cheerfully writes into the target. The audit's threat model (another local account) is explicitly in scope here.
+
+**packages/server/src/collectors/git/parse-log.ts:17 — commit subject containing `\x01` (RECORD_SEPARATOR) splits one commit into two** — The pretty-format places `%s` (subject) as the last field, and `\x01` delimits commits. A subject containing that byte (deliberately crafted or via copy-paste from binary) produces an orphaned "chunk" starting mid-subject, which throws `unparseable git raw diff line` and silently discards both the split commit and all its file changes.

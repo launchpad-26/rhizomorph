@@ -1,0 +1,26 @@
+# Code quality review
+
+**Verdict**
+- The codebase is genuinely well-engineered and disciplined: strict mode + `noUncheckedIndexedAccess` on, Biome clean (547 files, 0 errors), tsc clean, only 2 `: any` in non-test code, all `@ts-expect-error` are intentional negative tests. Type rigor is not the problem.
+- The 112k lines did **not** go to business logic. ~54% is tests, and the largest single concentration is a bespoke 2D-canvas visualization language (`scene/`, ~12k lines incl. tests) for what is a read-only localhost worktree dashboard. That is where the bloat lives.
+- Naming ("rhizomorph", "era", "judge", "lab", "mark", "arm", "ribbon", "tide", "balcony") is poetic but actively hostile to a new reader; the comment style ("prd15 ruling 4/5") compounds it by forcing archaeology through 911 cross-references.
+
+## Real results (not dismissed)
+- `npm run lint`: **pass** — `Checked 547 files in 121ms. No fixes applied.` Biome 2.5.7, zero diagnostics.
+- `npm run typecheck`: **pass** — all three workspaces (core/server/web) `tsc --noEmit` clean.
+- `npm test`: **1 real failure** in `packages/server/src/lab/namespace-law.test.ts:657`. The test asserts at least one registered worktree path starts with `realDataRoot` (the `/var/...` spelling from `os.tmpdir()`), but git reports `/private/var/...`, so no path matches. This is a genuine environment-canonicalization bug, not flaky noise — the test's own evidence harness (`roundTripFailureEvidence`) was built to catch exactly this and the assertion needs to normalize both sides through `realpathSync.native` (as the adjacent `#231` comment already does for `repoDir`). 3411/3412 tests pass; 226/227 files pass. (Aside: 47 `HTMLCanvasElement.getContext()` "Not implemented" warnings from happy-dom — install `canvas` in devDeps or stub it, they drown the runner.)
+
+## Top findings — `path:line — issue — action (est. lines saved)`
+
+1. **`packages/web/src/scene/**` (~12k incl. tests, ~8.5k source) — bespoke canvas DSL for a read-only dashboard.** `marks/{node,thread,root,light,ambient,dissolve,frame}.ts` (4.4k), `geometry` (1.5k), `paint/contour/retire/pulses/camera/variation/motion/palette/ribbon` (3.4k), plus 3.8k test. A localhost fleet viewer could use a charting/DOM-tree lib. Biggest single cut in the repo. (~5–7k)
+2. **9 `format.ts` files across web panels (`panels/{ledger,burn,collisions,feed,fleet,trace,recordings,replay}/format.ts`, 671 lines)** — overlapping duration/token/path formatting, most re-importing `lib/format.ts`. Consolidate into `lib/format.ts`. (~300–400)
+3. **417 interfaces vs 9 classes (non-test).** Extreme interface-first; e.g. `Collector<T>` in `core/src/collector.ts:95` is justified (6 adapters), but most panels define per-component prop interfaces that are single-use. Audit for one-implementation interfaces and inline as types. (~400–800, low-risk; clears mental load)
+4. **`packages/core/src/reduce.ts` (1362 lines) — single god-reducer.** ~25 record kinds folded into one file with `prd1/prd9/prd12/prd11` section banners. Split by domain (telemetry/traces/lab/judge) as the comments already imply the seams. (0 saved, but readability)
+5. **911 `prdN ruling M` references across 206 non-test files** (`reduce.ts:449,1033,1177,1270`; `collector.ts:105`; `lab.ts:172,225`; `palette.ts:155`; `marks/root.ts:562`). A maintainer must keep two PRD docs in their head to read a section header. Replace with a one-line *what* and link the ruling in a CHANGELOG footnote. (~200 comment lines, +hours of onboarding)
+6. **`packages/server/src/lab/namespace-law.test.ts` (667 lines) — one filesystem-symlink-canonicalization test.** This is the file whose failure you saw; it's a 667-line integration test spawning real git worktrees for a path-normalization invariant. Extract the invariant into a ~80-line unit test on the canonicalization helper and keep a thin smoke test. (~400)
+7. **Domain vocabulary is whimsy costing an hour.** `tide` (15 refs), `balcony` (16), `era` (88), `mycorrhizal anatomy` (`marks/root.ts:562`) add zero domain signal over `phase`, `rail`, `period`, `root-marks`. `lane` (2221), `mark` (371), `arm` (327) are entrenched — keep those, rename the rest. (0 saved; new-reader ROI huge)
+8. **485 `as` casts in non-test web**, 164 server, 96 core. Mostly canvas geometry / event narrowing. Spot-checks show they're disciplined (not `as any`), but the volume signals the scene layer is fighting the type system — another argument for finding #1. (n/a)
+9. **`packages/web/src/scene/marks/node.ts:1` (1050 lines) & `thread.ts:1` (822)** — single-file mark renderers. Even if the canvas layer stays, these are past the readability cliff; split by mark kind. (0 saved)
+10. **Test/non-test ratio is ~1.16–1.44x per package** (web 1.04x, server 1.44x). Tests are good, but `marks.test.ts` (3772), `cli/index.test.ts` (1601), `SceneView.test.tsx` (1379) test rendering/CLI plumbing at near-1:1 with source. Re-bench the value of snapshot-style canvas tests vs. the maintenance cost; the canvas suite is also why CI needs `canvas` installed (see warnings). (~1–2k if trimmed)
+
+**Net:** ~6–10k lines removable (5–9%) with no feature loss, dominated by the canvas DSL and format duplication; the bigger win is readability — kill the PRD-ruling comment archaeology and the unused whimsy vocabulary.
