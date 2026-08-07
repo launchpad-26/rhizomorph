@@ -1,7 +1,16 @@
 import type { AgentRole, AgentThread, TelemetryOrigin, TokenUsagePayload } from '../events/index.js'
-import { AGENT_ROLES, AGENT_THREADS, ZERO_TOKENS, addTokens, totalTokens } from '../events/index.js'
-import { estimateCostUsd } from '../pricing/index.js'
+import { AGENT_ROLES, ZERO_TOKENS, addTokens, totalTokens } from '../events/index.js'
 import type { CostRecord, SessionState, ToolActivityRecord, UsageRecord } from '../state.js'
+import {
+  type SpendCursor,
+  type SpendGroupResult,
+  type SpendGrouping,
+  emptySpendTotals,
+  fromOrigin,
+  groupSpendBy,
+  inWindow,
+  spendCursor,
+} from './spend-cursor.js'
 import { compareStrings } from './touches.js'
 
 /**
@@ -29,6 +38,16 @@ import { compareStrings } from './touches.js'
  *    inside an otherwise-priced lane. The moment a lane reports even one real
  *    cost event, this file leaves it alone entirely — see
  *    {@link SpendTotals.estimateSources}.
+ *
+ * **Where the loops went (#267).** Six rollups here used to hand-roll the same
+ * create-acc / loop-usage-costs-tools / finalise shape, and each call rescanned
+ * the whole telemetry history — 214 ms of one 25,000-event `buildFleet`'s
+ * 226 ms. They are now thin wrappers over one grouping, `groupSpendBy`, in
+ * `./spend-cursor.js`, which also carries the incremental twin every selector
+ * below has: `xSpendCursor(filter)` plus `spendFrom(cursor, state)` answers the
+ * same question about a longer prefix for the cost of the records appended
+ * since, instead of the whole history. The public selectors keep their exact
+ * signatures and their exact cost; the cursor is additive, and a caller opts in.
  */
 
 /**
@@ -157,18 +176,126 @@ export interface LaneRoleSpend extends SpendTotals {
   role: AgentRole
 }
 
+// --- the six groupings ------------------------------------------------------
+
+/**
+ * Every rollup below is one of these plus a `present` function. The three
+ * telemetry record kinds share `lane`, `branch`, `model` and `thread`, so one
+ * key function usually serves all three — which is the whole reason six
+ * hand-rolled loops could collapse into six declarations.
+ */
+const laneOf = (record: { lane: string }): string => record.lane
+const branchOf = (record: { branch: string | null }): string | null => record.branch
+const modelOf = (record: { model: string }): string => record.model
+const roleOf = (record: { role: AgentRole | null }): AgentRole | null => record.role
+
+/** The whole session in one group. Seeded so an empty log still reports zeroes. */
+const BY_SESSION: SpendGrouping = {
+  keys: { usage: () => '', cost: () => '', tool: () => '' },
+  seed: () => [''],
+}
+
+/**
+ * One group per lane, seeded from every lane the log has ever mentioned: a cost
+ * column that hides an idle lane is indistinguishable from one whose telemetry
+ * never arrived.
+ */
+const BY_LANE: SpendGrouping = {
+  keys: { usage: laneOf, cost: laneOf, tool: laneOf },
+  seed: (state) => Object.keys(state.telemetry.lanes),
+  toolCounts: true,
+  threads: true,
+}
+
+/**
+ * One group per branch. `presence` is the rule that makes a branch row exist
+ * because git or telemetry ever mentioned the branch, while the filter still
+ * decides which of its spend counts — evaluated on every record the pass walks,
+ * before the window applies.
+ */
+const BY_BRANCH: SpendGrouping = {
+  keys: { usage: branchOf, cost: branchOf, tool: branchOf },
+  presence: { usage: branchOf, cost: branchOf, tool: branchOf },
+  seed: (state) => Object.keys(state.branches),
+  lanes: true,
+}
+
+/** One group per model. Tool calls carry no model, so they are skipped. */
+const BY_MODEL: SpendGrouping = {
+  keys: { usage: modelOf, cost: modelOf },
+  lanes: true,
+}
+
+/**
+ * One group per role, all four always present. A tool call whose collector
+ * named no role returns `null` here and is skipped: it is counted in the
+ * session totals but never attributed to a role it did not claim.
+ */
+const BY_ROLE: SpendGrouping = {
+  keys: { usage: roleOf, cost: roleOf, tool: roleOf },
+  seed: () => AGENT_ROLES,
+  lanes: true,
+}
+
+/**
+ * `role`, then the lane — a composite key split back apart in
+ * {@link presentLaneRoleSpend}. `AgentRole` is a closed vocabulary with no
+ * separator in it, so the role is always the part before the first separator
+ * however exotic a lane handle gets.
+ */
+const LANE_ROLE_SEPARATOR = '\u0000'
+const laneRoleKey = (role: AgentRole, lane: string): string =>
+  `${role}${LANE_ROLE_SEPARATOR}${lane}`
+const BY_LANE_ROLE: SpendGrouping = {
+  keys: {
+    usage: (record: UsageRecord) => laneRoleKey(record.role, record.lane),
+    cost: (record: CostRecord) => laneRoleKey(record.role, record.lane),
+    // Same rule as BY_ROLE: an unattributed-role tool call is a session fact,
+    // not a (lane, role) fact.
+    tool: (record: ToolActivityRecord) =>
+      record.role === null ? null : laneRoleKey(record.role, record.lane),
+  },
+}
+
 // --- session totals ---------------------------------------------------------
 
+function presentSessionSpend(
+  _state: SessionState,
+  groups: readonly SpendGroupResult[],
+): SpendTotals {
+  return groups[0]?.totals ?? emptySpendTotals()
+}
+
 export function selectSessionSpend(state: SessionState, filter: SpendFilter = {}): SpendTotals {
-  const acc = createAcc()
-  const coverage = costCoverage(state, filter)
-  for (const record of usageIn(state, filter)) addUsage(acc, record, coverage)
-  for (const record of costsIn(state, filter)) addCost(acc, record)
-  for (const record of toolsIn(state, filter)) addTool(acc, record)
-  return finalise(acc)
+  return presentSessionSpend(state, groupSpendBy(state, filter, BY_SESSION))
+}
+
+/** The session totals, incrementally — see {@link laneSpendCursor} for the seam. */
+export function sessionSpendCursor(filter: SpendFilter = {}): SpendCursor<SpendTotals> {
+  return spendCursor({ grouping: BY_SESSION, filter, present: presentSessionSpend })
 }
 
 // --- per lane ---------------------------------------------------------------
+
+function presentLaneSpend(
+  state: SessionState,
+  groups: readonly SpendGroupResult[],
+): LaneSpend[] {
+  return groups
+    .map((group) => {
+      const attribution = state.telemetry.lanes[group.key]
+      return {
+        ...group.totals,
+        lane: group.key,
+        worktreePath: attribution?.worktreePath ?? null,
+        branch: attribution?.branch ?? null,
+        sessionIds: attribution?.sessionIds ?? [],
+        toolCounts: group.toolCounts,
+        threads: group.threads,
+      }
+    })
+    .sort(bySpend((entry) => entry.lane))
+}
 
 /**
  * One row per lane the log has ever mentioned, dearest first. Lanes with no
@@ -176,83 +303,28 @@ export function selectSessionSpend(state: SessionState, filter: SpendFilter = {}
  * idle lane is indistinguishable from one whose telemetry never arrived.
  */
 export function selectLaneSpend(state: SessionState, filter: SpendFilter = {}): LaneSpend[] {
-  const accs = new Map<string, Acc>()
-  const tools = new Map<string, Record<string, number>>()
-  const threads = new Map<string, Map<AgentThread | null, Acc>>()
-
-  const laneAcc = (lane: string): Acc => {
-    const existing = accs.get(lane)
-    if (existing !== undefined) return existing
-    const fresh = createAcc()
-    accs.set(lane, fresh)
-    return fresh
-  }
-
-  const threadAcc = (lane: string, thread: AgentThread | null): Acc => {
-    const byThread = threads.get(lane) ?? new Map<AgentThread | null, Acc>()
-    threads.set(lane, byThread)
-    const existing = byThread.get(thread)
-    if (existing !== undefined) return existing
-    const fresh = createAcc()
-    byThread.set(thread, fresh)
-    return fresh
-  }
-
-  const coverage = costCoverage(state, filter)
-  for (const lane of Object.keys(state.telemetry.lanes)) laneAcc(lane)
-  for (const record of usageIn(state, filter)) {
-    addUsage(laneAcc(record.lane), record, coverage)
-    addUsage(threadAcc(record.lane, record.thread), record, coverage)
-  }
-  for (const record of costsIn(state, filter)) {
-    addCost(laneAcc(record.lane), record)
-    addCost(threadAcc(record.lane, record.thread), record)
-  }
-  for (const record of toolsIn(state, filter)) {
-    addTool(laneAcc(record.lane), record)
-    addTool(threadAcc(record.lane, record.thread), record)
-    const counts = tools.get(record.lane) ?? {}
-    counts[record.tool] = (counts[record.tool] ?? 0) + 1
-    tools.set(record.lane, counts)
-  }
-
-  return [...accs.entries()]
-    .map(([lane, acc]) => {
-      const attribution = state.telemetry.lanes[lane]
-      return {
-        ...finalise(acc),
-        lane,
-        worktreePath: attribution?.worktreePath ?? null,
-        branch: attribution?.branch ?? null,
-        sessionIds: attribution?.sessionIds ?? [],
-        toolCounts: tools.get(lane) ?? {},
-        threads: threadRows(threads.get(lane)),
-      }
-    })
-    .sort(bySpend((entry) => entry.lane))
+  return presentLaneSpend(state, groupSpendBy(state, filter, BY_LANE))
 }
 
 /**
- * A lane's thread sub-rows, or none at all when nothing in the lane named a
- * thread. See {@link LaneSpend.threads} for why the all-unknown case is empty
- * rather than a single null row.
+ * **The cursor seam (#267).** `selectLaneSpend`'s answer, incrementally:
+ *
+ * ```ts
+ * const cursor = useRef(laneSpendCursor({ origins: TOKEN_ORIGINS }))
+ * cursor.current = spendFrom(cursor.current, state)   // O(records appended)
+ * const lanes = cursor.current.value                  // LaneSpend[], as before
+ * ```
+ *
+ * The cursor is a value, not a cache: hold it in a ref, hand it the next
+ * state — including the *fresh* state object every seek folds, which is why a
+ * state-keyed memo cannot work here (prd21 ruling 1) — and read `.value`. It
+ * tracks position in the telemetry slices' own append order (#205), checks the
+ * record identities at that position rather than trusting them, and falls back
+ * to a keyframe when a scrub goes backward. One cursor per (question, filter);
+ * `buildFleet`'s two-pass token/cost split therefore wants two.
  */
-function threadRows(byThread: Map<AgentThread | null, Acc> | undefined): ThreadSpend[] {
-  if (byThread === undefined) return []
-  if (![...byThread.keys()].some((thread) => thread !== null)) return []
-  return [...byThread.entries()]
-    .map(([thread, acc]) => ({ ...finalise(acc), thread }))
-    .sort(
-      (a, b) =>
-        b.costUsd - a.costUsd ||
-        b.tokens.output - a.tokens.output ||
-        threadOrder(a.thread) - threadOrder(b.thread),
-    )
-}
-
-/** Declared thread order, with the unknown bucket last. */
-function threadOrder(thread: AgentThread | null): number {
-  return thread === null ? AGENT_THREADS.length : AGENT_THREADS.indexOf(thread)
+export function laneSpendCursor(filter: SpendFilter = {}): SpendCursor<LaneSpend[]> {
+  return spendCursor({ grouping: BY_LANE, filter, present: presentLaneSpend })
 }
 
 export function selectLaneSpendIndex(
@@ -273,6 +345,27 @@ export function selectSpendForLane(
   return selectLaneSpendIndex(state, filter)[lane] ?? null
 }
 
+function presentLaneRoleSpend(
+  _state: SessionState,
+  groups: readonly SpendGroupResult[],
+): LaneRoleSpend[] {
+  const rows: LaneRoleSpend[] = []
+  for (const group of groups) {
+    const cut = group.key.indexOf(LANE_ROLE_SEPARATOR)
+    const role = AGENT_ROLES.find((candidate) => candidate === group.key.slice(0, cut))
+    // Unreachable: every key here was built from AGENT_ROLES by `laneRoleKey`.
+    if (role === undefined) continue
+    rows.push({ ...group.totals, lane: group.key.slice(cut + 1), role })
+  }
+  return rows.sort(
+    (a, b) =>
+      b.costUsd - a.costUsd ||
+      b.tokens.output - a.tokens.output ||
+      compareStrings(a.lane, b.lane) ||
+      compareStrings(a.role, b.role),
+  )
+}
+
 /**
  * One row per (lane, role) pair the filtered window actually saw — "conductor
  * spend within lane X" as a direct lookup instead of an unaskable question
@@ -287,57 +380,20 @@ export function selectSpendByLaneRole(
   state: SessionState,
   filter: SpendFilter = {},
 ): LaneRoleSpend[] {
-  const keyOf = (lane: string, role: AgentRole): string => `${lane}::${role}`
-  const accs = new Map<string, Acc>()
-  const keys = new Map<string, { lane: string; role: AgentRole }>()
-
-  const laneRoleAcc = (lane: string, role: AgentRole): Acc => {
-    const key = keyOf(lane, role)
-    const existing = accs.get(key)
-    if (existing !== undefined) return existing
-    const fresh = createAcc()
-    accs.set(key, fresh)
-    keys.set(key, { lane, role })
-    return fresh
-  }
-
-  const coverage = costCoverage(state, filter)
-  for (const record of usageIn(state, filter)) {
-    addUsage(laneRoleAcc(record.lane, record.role), record, coverage)
-  }
-  for (const record of costsIn(state, filter)) {
-    addCost(laneRoleAcc(record.lane, record.role), record)
-  }
-  for (const record of toolsIn(state, filter)) {
-    // Same rule as selectRoleSpend: an unattributed-role tool call is a
-    // session fact, not a (lane, role) fact.
-    if (record.role === null) continue
-    addTool(laneRoleAcc(record.lane, record.role), record)
-  }
-
-  return [...accs.entries()]
-    .map(([key, acc]) => ({ ...finalise(acc), ...keys.get(key)! }))
-    .sort(
-      (a, b) =>
-        b.costUsd - a.costUsd ||
-        b.tokens.output - a.tokens.output ||
-        compareStrings(a.lane, b.lane) ||
-        compareStrings(a.role, b.role),
-    )
+  return presentLaneRoleSpend(state, groupSpendBy(state, filter, BY_LANE_ROLE))
 }
 
-/**
- * Lane spend rolled up by worktree — the worktree table's cost column. Lanes we
- * could not attribute to a path (OTel with no `lane=` resource attribute, and
- * the conductor, which lives outside every worktree) are absent by construction;
- * `selectLaneSpend` is where their dollars stay visible.
- */
-export function selectSpendByWorktree(
+/** {@link selectSpendByLaneRole}'s answer, incrementally — see {@link laneSpendCursor}. */
+export function laneRoleSpendCursor(filter: SpendFilter = {}): SpendCursor<LaneRoleSpend[]> {
+  return spendCursor({ grouping: BY_LANE_ROLE, filter, present: presentLaneRoleSpend })
+}
+
+function presentWorktreeSpend(
   state: SessionState,
-  filter: SpendFilter = {},
+  groups: readonly SpendGroupResult[],
 ): Record<string, WorktreeSpend> {
   const grouped = new Map<string, LaneSpend[]>()
-  for (const lane of selectLaneSpend(state, filter)) {
+  for (const lane of presentLaneSpend(state, groups)) {
     if (lane.worktreePath === null) continue
     grouped.set(lane.worktreePath, [...(grouped.get(lane.worktreePath) ?? []), lane])
   }
@@ -353,7 +409,53 @@ export function selectSpendByWorktree(
   return result
 }
 
+/**
+ * Lane spend rolled up by worktree — the worktree table's cost column. Lanes we
+ * could not attribute to a path (OTel with no `lane=` resource attribute, and
+ * the conductor, which lives outside every worktree) are absent by construction;
+ * `selectLaneSpend` is where their dollars stay visible.
+ *
+ * A rollup of {@link selectLaneSpend}'s rows rather than its own grouping, and
+ * deliberately so: the worktree a lane belongs to is read from
+ * `state.telemetry.lanes`, not off the records, so grouping by it per record
+ * would bind a cursor to one snapshot of that attribution.
+ */
+export function selectSpendByWorktree(
+  state: SessionState,
+  filter: SpendFilter = {},
+): Record<string, WorktreeSpend> {
+  return presentWorktreeSpend(state, groupSpendBy(state, filter, BY_LANE))
+}
+
+/** {@link selectSpendByWorktree}'s answer, incrementally — see {@link laneSpendCursor}. */
+export function worktreeSpendCursor(
+  filter: SpendFilter = {},
+): SpendCursor<Record<string, WorktreeSpend>> {
+  return spendCursor({ grouping: BY_LANE, filter, present: presentWorktreeSpend })
+}
+
 // --- per branch --------------------------------------------------------------
+
+function presentBranchSpend(
+  state: SessionState,
+  groups: readonly SpendGroupResult[],
+): BranchSpend[] {
+  return groups
+    .map((group) => {
+      const totals = group.totals
+      return {
+        ...totals,
+        branch: group.key,
+        issue: issueOf(group.key),
+        lanes: group.lanes,
+        worktreePath: state.branches[group.key]?.worktreePath ?? null,
+        landed: isBranchLanded(state, group.key),
+        elapsedMs:
+          totals.firstTs === null || totals.lastTs === null ? null : totals.lastTs - totals.firstTs,
+      }
+    })
+    .sort(bySpend((entry) => entry.branch))
+}
 
 /**
  * One row per branch this session has ever seen spend against, dearest first.
@@ -366,62 +468,12 @@ export function selectSpendByWorktree(
  * exposes the fenced-issue number when the branch name carries one.
  */
 export function selectSpendByBranch(state: SessionState, filter: SpendFilter = {}): BranchSpend[] {
-  const accs = new Map<string, Acc>()
-  const lanes = new Map<string, Set<string>>()
+  return presentBranchSpend(state, groupSpendBy(state, filter, BY_BRANCH))
+}
 
-  const branchAcc = (branch: string): Acc => {
-    const existing = accs.get(branch)
-    if (existing !== undefined) return existing
-    const fresh = createAcc()
-    accs.set(branch, fresh)
-    return fresh
-  }
-
-  const track = (branch: string, lane: string): void => {
-    lanes.set(branch, (lanes.get(branch) ?? new Set()).add(lane))
-  }
-
-  // A branch's identity outlives any window filter: git ever having mentioned
-  // it, or telemetry ever having mentioned it — the window below only decides
-  // which of its spend counts, not whether the row exists at all. Same rule
-  // `selectLaneSpend` applies via `state.telemetry.lanes`.
-  for (const branch of Object.keys(state.branches)) branchAcc(branch)
-  for (const record of state.telemetry.usage) if (record.branch !== null) branchAcc(record.branch)
-  for (const record of state.telemetry.costs) if (record.branch !== null) branchAcc(record.branch)
-  for (const record of state.telemetry.tools) if (record.branch !== null) branchAcc(record.branch)
-
-  const coverage = costCoverage(state, filter)
-  for (const record of usageIn(state, filter)) {
-    if (record.branch === null) continue
-    addUsage(branchAcc(record.branch), record, coverage)
-    track(record.branch, record.lane)
-  }
-  for (const record of costsIn(state, filter)) {
-    if (record.branch === null) continue
-    addCost(branchAcc(record.branch), record)
-    track(record.branch, record.lane)
-  }
-  for (const record of toolsIn(state, filter)) {
-    if (record.branch === null) continue
-    addTool(branchAcc(record.branch), record)
-    track(record.branch, record.lane)
-  }
-
-  return [...accs.entries()]
-    .map(([branch, acc]) => {
-      const totals = finalise(acc)
-      return {
-        ...totals,
-        branch,
-        issue: issueOf(branch),
-        lanes: [...(lanes.get(branch) ?? [])].sort(compareStrings),
-        worktreePath: state.branches[branch]?.worktreePath ?? null,
-        landed: isBranchLanded(state, branch),
-        elapsedMs:
-          totals.firstTs === null || totals.lastTs === null ? null : totals.lastTs - totals.firstTs,
-      }
-    })
-    .sort(bySpend((entry) => entry.branch))
+/** {@link selectSpendByBranch}'s answer, incrementally — see {@link laneSpendCursor}. */
+export function branchSpendCursor(filter: SpendFilter = {}): SpendCursor<BranchSpend[]> {
+  return spendCursor({ grouping: BY_BRANCH, filter, present: presentBranchSpend })
 }
 
 export function selectSpendByBranchIndex(
@@ -465,33 +517,23 @@ function issueOf(branch: string): string | null {
 
 // --- per model --------------------------------------------------------------
 
+function presentModelSpend(
+  _state: SessionState,
+  groups: readonly SpendGroupResult[],
+): ModelSpend[] {
+  return groups
+    .map((group) => ({ ...group.totals, model: group.key, lanes: group.lanes }))
+    .sort(bySpend((entry) => entry.model))
+}
+
 /** Dearest model first. Model badges and the per-model bars read this. */
 export function selectModelSpend(state: SessionState, filter: SpendFilter = {}): ModelSpend[] {
-  const accs = new Map<string, Acc>()
-  const lanes = new Map<string, Set<string>>()
+  return presentModelSpend(state, groupSpendBy(state, filter, BY_MODEL))
+}
 
-  const modelAcc = (model: string, lane: string): Acc => {
-    lanes.set(model, (lanes.get(model) ?? new Set()).add(lane))
-    const existing = accs.get(model)
-    if (existing !== undefined) return existing
-    const fresh = createAcc()
-    accs.set(model, fresh)
-    return fresh
-  }
-
-  const coverage = costCoverage(state, filter)
-  for (const record of usageIn(state, filter)) {
-    addUsage(modelAcc(record.model, record.lane), record, coverage)
-  }
-  for (const record of costsIn(state, filter)) addCost(modelAcc(record.model, record.lane), record)
-
-  return [...accs.entries()]
-    .map(([model, acc]) => ({
-      ...finalise(acc),
-      model,
-      lanes: [...(lanes.get(model) ?? [])].sort(compareStrings),
-    }))
-    .sort(bySpend((entry) => entry.model))
+/** {@link selectModelSpend}'s answer, incrementally — see {@link laneSpendCursor}. */
+export function modelSpendCursor(filter: SpendFilter = {}): SpendCursor<ModelSpend[]> {
+  return spendCursor({ grouping: BY_MODEL, filter, present: presentModelSpend })
 }
 
 // --- the role split, and the headline ratio ---------------------------------
@@ -534,38 +576,14 @@ export interface RoleSpendSplit {
   overheadRatio: number | null
 }
 
-export function selectRoleSpend(state: SessionState, filter: SpendFilter = {}): RoleSpendSplit {
-  const accs = new Map<AgentRole, Acc>(AGENT_ROLES.map((role) => [role, createAcc()]))
-  const lanes = new Map<AgentRole, Set<string>>(AGENT_ROLES.map((role) => [role, new Set()]))
-
-  const track = (role: AgentRole, lane: string): Acc => {
-    const seen = lanes.get(role) ?? new Set<string>()
-    seen.add(lane)
-    lanes.set(role, seen)
-    const existing = accs.get(role)
-    if (existing !== undefined) return existing
-    const fresh = createAcc()
-    accs.set(role, fresh)
-    return fresh
+function presentRoleSpend(
+  _state: SessionState,
+  groups: readonly SpendGroupResult[],
+): RoleSpendSplit {
+  const roleSpend = (role: AgentRole): RoleSpend => {
+    const group = groups.find((entry) => entry.key === role)
+    return { ...(group?.totals ?? emptySpendTotals()), role, lanes: group?.lanes ?? [] }
   }
-
-  const coverage = costCoverage(state, filter)
-  for (const record of usageIn(state, filter)) {
-    addUsage(track(record.role, record.lane), record, coverage)
-  }
-  for (const record of costsIn(state, filter)) addCost(track(record.role, record.lane), record)
-  for (const record of toolsIn(state, filter)) {
-    // A tool call with no reported role is counted in the session totals but
-    // never attributed to a role it did not claim.
-    if (record.role === null) continue
-    addTool(track(record.role, record.lane), record)
-  }
-
-  const roleSpend = (role: AgentRole): RoleSpend => ({
-    ...finalise(accs.get(role) ?? createAcc()),
-    role,
-    lanes: [...(lanes.get(role) ?? [])].sort(compareStrings),
-  })
 
   const worker = roleSpend('worker')
   const conductor = roleSpend('conductor')
@@ -577,6 +595,15 @@ export function selectRoleSpend(state: SessionState, filter: SpendFilter = {}): 
     unattributed: roleSpend('unattributed'),
     overheadRatio: overhead(conductor.tokens.output, worker.tokens.output),
   }
+}
+
+export function selectRoleSpend(state: SessionState, filter: SpendFilter = {}): RoleSpendSplit {
+  return presentRoleSpend(state, groupSpendBy(state, filter, BY_ROLE))
+}
+
+/** {@link selectRoleSpend}'s answer, incrementally — see {@link laneSpendCursor}. */
+export function roleSpendCursor(filter: SpendFilter = {}): SpendCursor<RoleSpendSplit> {
+  return spendCursor({ grouping: BY_ROLE, filter, present: presentRoleSpend })
 }
 
 /** prd1's headline number on its own, for a ticker that wants nothing else. */
@@ -624,6 +651,15 @@ export interface SpendRate {
  * Burn rate over the trailing window. Records newer than `now` are excluded, so
  * a replay scrubbed to the middle of a session sees the rate that moment had —
  * never one borrowed from its future.
+ *
+ * **No cursor twin, and the reason is structural.** A cursor answers one fixed
+ * filter; a rolling window's `since` moves on every call, so records leave the
+ * window as well as enter it, and un-accumulating a record is not the same
+ * problem as accumulating one (a `Set` of models cannot be subtracted, nor can
+ * a `firstTs` minimum). Measured, this path is also not where the cost is:
+ * both rate calls together were 7.1 ms of a 25,000-event `buildFleet`'s 226 ms,
+ * because the window predicate rejects nearly every record before any
+ * accumulation happens. See `spend-cursor.bench.test.ts`.
  */
 export function selectSpendRate(state: SessionState, options: SpendRateOptions): SpendRate {
   const windowMs = Math.max(0, options.windowMs ?? DEFAULT_SPEND_WINDOW_MS)
@@ -735,214 +771,70 @@ export function selectTelemetryOrigins(state: SessionState): TelemetryOrigin[] {
 
 // --- accumulation -----------------------------------------------------------
 
-interface Acc {
-  tokens: TokenUsagePayload
-  authoritativeCostUsd: number
-  estimatedCostUsd: number
-  requestCount: number
-  costEventCount: number
-  estimatedCostEventCount: number
-  estimateSources: Set<string>
-  toolCallCount: number
-  models: Set<string>
-  roles: Set<AgentRole>
-  origins: Set<TelemetryOrigin>
-  firstTs: number | null
-  lastTs: number | null
-}
-
-function createAcc(): Acc {
-  return {
-    tokens: ZERO_TOKENS,
-    authoritativeCostUsd: 0,
-    estimatedCostUsd: 0,
-    requestCount: 0,
-    costEventCount: 0,
-    estimatedCostEventCount: 0,
-    estimateSources: new Set(),
-    toolCallCount: 0,
-    models: new Set(),
-    roles: new Set(),
-    origins: new Set(),
-    firstTs: null,
-    lastTs: null,
-  }
-}
-
-function touch(acc: Acc, ts: number, origin: TelemetryOrigin): void {
-  acc.origins.add(origin)
-  acc.firstTs = acc.firstTs === null ? ts : Math.min(acc.firstTs, ts)
-  acc.lastTs = acc.lastTs === null ? ts : Math.max(acc.lastTs, ts)
-}
-
 /**
- * Every lane, and every session id, that has reported at least one real
- * `llm.cost` event within the current filter window — see
- * {@link costCoverage}. Computed once per selector call, independent of
- * whichever dimension (lane, model, role, branch…) this particular `acc`
- * represents, so a usage record's estimate-or-not fact is the same no matter
- * which selector groups it. That is what keeps `selectModelSpend`'s totals
- * reconciling with `selectLaneSpend`'s: pricing a per-model bucket by its OWN
- * cost-event count would double-decide the same tokens two different ways
- * depending on the grouping.
- *
- * `sessions` exists because dollars and tokens for one real session can land
- * under two different lane handles — OTel's cost event carries no cwd, so
- * it is attributed under whatever `lane=` resource attribute it had (or
- * none), while sessionlog's usage carries the real worktree lane. That is
- * the exact join `selectSpendForBranch` already relies on (see "cost that
- * reaches the rollups", prd2 wave C); a usage record already priced via that
- * join must not gain a second, selector-derived estimate under its own lane.
+ * Adds already-finalised totals — used to roll lanes up into a worktree. Plain
+ * arithmetic over the public shape rather than a second trip through the
+ * accumulator: these dollars have already had prd9 ruling 7's coverage rule
+ * applied to them, and applying it twice is how a rollup would double-decide
+ * the same tokens.
  */
-interface CostCoverage {
-  lanes: ReadonlySet<string>
-  sessions: ReadonlySet<string>
-}
-
-/**
- * A lane or session already in `coverage` is left untouched here — prd9
- * ruling 7's "a lane with real llm.cost is unchanged". Anything else gets
- * priced per record, per its own model, from the vendored table; a model the
- * table's patterns miss stays an honest gap (no estimate for that record),
- * even while other records in the same lane succeed.
- */
-function addUsage(acc: Acc, record: UsageRecord, coverage: CostCoverage): void {
-  acc.tokens = addTokens(acc.tokens, record.tokens)
-  acc.requestCount += 1
-  acc.models.add(record.model)
-  acc.roles.add(record.role)
-  touch(acc, record.ts, record.origin)
-
-  const covered =
-    coverage.lanes.has(record.lane) ||
-    (record.sessionId !== null && coverage.sessions.has(record.sessionId))
-  if (!covered) {
-    const estimate = estimateCostUsd(record.model, record.tokens)
-    if (estimate !== null) {
-      acc.estimatedCostUsd += estimate.costUsd
-      acc.estimatedCostEventCount += 1
-      acc.costEventCount += 1
-      acc.estimateSources.add(estimate.source)
-    }
-  }
-}
-
-function addCost(acc: Acc, record: CostRecord): void {
-  if (record.authoritative) {
-    acc.authoritativeCostUsd += record.costUsd
-  } else {
-    acc.estimatedCostUsd += record.costUsd
-    acc.estimatedCostEventCount += 1
-  }
-  acc.costEventCount += 1
-  acc.models.add(record.model)
-  acc.roles.add(record.role)
-  touch(acc, record.ts, record.origin)
-}
-
-function addTool(acc: Acc, record: ToolActivityRecord): void {
-  acc.toolCallCount += 1
-  if (record.role !== null) acc.roles.add(record.role)
-  touch(acc, record.ts, record.origin)
-}
-
-function finalise(acc: Acc): SpendTotals {
-  const costUsd = acc.authoritativeCostUsd + acc.estimatedCostUsd
-  return {
-    tokens: { ...acc.tokens, total: totalTokens(acc.tokens) },
-    costUsd,
-    authoritativeCostUsd: acc.authoritativeCostUsd,
-    estimatedCostUsd: acc.estimatedCostUsd,
-    // No cost events at all is "unknown", not "authoritatively free".
-    costIsAuthoritative: acc.costEventCount === 0 ? null : acc.estimatedCostEventCount === 0,
-    requestCount: acc.requestCount,
-    costEventCount: acc.costEventCount,
-    estimatedCostEventCount: acc.estimatedCostEventCount,
-    estimateSources: [...acc.estimateSources].sort(compareStrings),
-    toolCallCount: acc.toolCallCount,
-    models: [...acc.models].sort(compareStrings),
-    roles: AGENT_ROLES.filter((role) => acc.roles.has(role)),
-    origins: [...acc.origins].sort(compareStrings),
-    firstTs: acc.firstTs,
-    lastTs: acc.lastTs,
-  }
-}
-
-/** Adds already-finalised totals — used to roll lanes up into a worktree. */
 function mergeTotals(entries: readonly SpendTotals[]): SpendTotals {
-  const acc = createAcc()
+  let tokens: TokenUsagePayload = ZERO_TOKENS
+  let authoritativeCostUsd = 0
+  let estimatedCostUsd = 0
+  let requestCount = 0
+  let costEventCount = 0
+  let estimatedCostEventCount = 0
+  let toolCallCount = 0
+  let firstTs: number | null = null
+  let lastTs: number | null = null
+  const estimateSources = new Set<string>()
+  const models = new Set<string>()
+  const roles = new Set<AgentRole>()
+  const origins = new Set<TelemetryOrigin>()
+
   for (const entry of entries) {
-    acc.tokens = addTokens(acc.tokens, entry.tokens)
-    acc.authoritativeCostUsd += entry.authoritativeCostUsd
-    acc.estimatedCostUsd += entry.estimatedCostUsd
-    acc.requestCount += entry.requestCount
-    acc.costEventCount += entry.costEventCount
-    acc.estimatedCostEventCount += entry.estimatedCostEventCount
-    for (const source of entry.estimateSources ?? []) acc.estimateSources.add(source)
-    acc.toolCallCount += entry.toolCallCount
-    for (const model of entry.models) acc.models.add(model)
-    for (const role of entry.roles) acc.roles.add(role)
-    for (const origin of entry.origins) acc.origins.add(origin)
-    if (entry.firstTs !== null) acc.firstTs = acc.firstTs === null ? entry.firstTs : Math.min(acc.firstTs, entry.firstTs)
-    if (entry.lastTs !== null) acc.lastTs = acc.lastTs === null ? entry.lastTs : Math.max(acc.lastTs, entry.lastTs)
+    tokens = addTokens(tokens, entry.tokens)
+    authoritativeCostUsd += entry.authoritativeCostUsd
+    estimatedCostUsd += entry.estimatedCostUsd
+    requestCount += entry.requestCount
+    costEventCount += entry.costEventCount
+    estimatedCostEventCount += entry.estimatedCostEventCount
+    toolCallCount += entry.toolCallCount
+    for (const source of entry.estimateSources ?? []) estimateSources.add(source)
+    for (const model of entry.models) models.add(model)
+    for (const role of entry.roles) roles.add(role)
+    for (const origin of entry.origins) origins.add(origin)
+    if (entry.firstTs !== null) firstTs = firstTs === null ? entry.firstTs : Math.min(firstTs, entry.firstTs)
+    if (entry.lastTs !== null) lastTs = lastTs === null ? entry.lastTs : Math.max(lastTs, entry.lastTs)
   }
-  return finalise(acc)
+
+  return {
+    tokens: { ...tokens, total: totalTokens(tokens) },
+    costUsd: authoritativeCostUsd + estimatedCostUsd,
+    authoritativeCostUsd,
+    estimatedCostUsd,
+    // No cost events at all is "unknown", not "authoritatively free".
+    costIsAuthoritative: costEventCount === 0 ? null : estimatedCostEventCount === 0,
+    requestCount,
+    costEventCount,
+    estimatedCostEventCount,
+    estimateSources: [...estimateSources].sort(compareStrings),
+    toolCallCount,
+    models: [...models].sort(compareStrings),
+    roles: AGENT_ROLES.filter((role) => roles.has(role)),
+    origins: [...origins].sort(compareStrings),
+    firstTs,
+    lastTs,
+  }
 }
 
 // --- filtering --------------------------------------------------------------
-
-function inWindow(ts: number, filter: SpendFilter): boolean {
-  if (filter.since !== undefined && ts < filter.since) return false
-  if (filter.until !== undefined && ts > filter.until) return false
-  return true
-}
-
-function fromOrigin(origin: TelemetryOrigin, filter: SpendFilter): boolean {
-  return filter.origins === undefined || filter.origins.includes(origin)
-}
-
-function usageIn(state: SessionState, filter: SpendFilter): UsageRecord[] {
-  return state.telemetry.usage.filter(
-    (record) => inWindow(record.ts, filter) && fromOrigin(record.origin, filter),
-  )
-}
-
-function costsIn(state: SessionState, filter: SpendFilter): CostRecord[] {
-  const authority = filter.costs ?? 'all'
-  return state.telemetry.costs.filter(
-    (record) =>
-      inWindow(record.ts, filter) &&
-      fromOrigin(record.origin, filter) &&
-      (authority === 'all' ||
-        (authority === 'authoritative' ? record.authoritative : !record.authoritative)),
-  )
-}
 
 function toolsIn(state: SessionState, filter: SpendFilter): ToolActivityRecord[] {
   return state.telemetry.tools.filter(
     (record) => inWindow(record.ts, filter) && fromOrigin(record.origin, filter),
   )
-}
-
-/**
- * Every lane and session id with at least one real `llm.cost` event inside
- * the same window and origin filter as everything else — but never narrowed
- * by `filter.costs`. That option asks "which dollars should I *render*"
- * (authoritative-only, estimated-only); it is not a claim that the other
- * kind stopped existing, so a `{ costs: 'estimated' }` read must not treat an
- * authoritative-only lane as uncovered and pile a second, selector-derived
- * estimate on top of it. See {@link CostCoverage} for why sessions ride
- * alongside lanes here.
- */
-function costCoverage(state: SessionState, filter: SpendFilter): CostCoverage {
-  const lanes = new Set<string>()
-  const sessions = new Set<string>()
-  for (const record of state.telemetry.costs) {
-    if (!inWindow(record.ts, filter) || !fromOrigin(record.origin, filter)) continue
-    lanes.add(record.lane)
-    if (record.sessionId !== null) sessions.add(record.sessionId)
-  }
-  return { lanes, sessions }
 }
 
 /**
@@ -954,3 +846,22 @@ function bySpend<T extends SpendTotals>(name: (entry: T) => string) {
   return (a: T, b: T): number =>
     b.costUsd - a.costUsd || b.tokens.output - a.tokens.output || compareStrings(name(a), name(b))
 }
+
+// --- the incremental path ---------------------------------------------------
+
+/**
+ * The cursor API, re-exported here so `./index.js` (which #251 owns) needs no
+ * change and every consumer keeps importing spend from one place.
+ * {@link laneSpendCursor} documents the seam.
+ */
+export {
+  DEFAULT_SPEND_KEYFRAME_INTERVAL,
+  spendFrom,
+  type SpendCursor,
+  type SpendCursorSpec,
+  type SpendGroupKeys,
+  type SpendGroupResult,
+  type SpendGrouping,
+  type SpendMarks,
+  type SpendPosition,
+} from './spend-cursor.js'
