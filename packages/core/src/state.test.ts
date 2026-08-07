@@ -2,11 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { reduce, reduceAll } from './reduce.js'
 import { fx } from './fixtures.js'
 import {
+  MAX_REFUSALS,
   basename,
+  initialRefusalState,
   initialSessionState,
   initialTelemetryState,
   initialTraceState,
+  refusalIndexOf,
   traceStateOf,
+  type RefusalRecord,
   type SessionState,
 } from './state.js'
 
@@ -125,6 +129,98 @@ describe('TraceState — the slice is its spans, and two projections of them', (
   })
 })
 
+/**
+ * prd19 ruling 2's slice, under the same contract as the two above: recorded
+ * fact, arranged for lookup, and nothing else. Where the telemetry slice's law
+ * is "six keys and no accelerator", this slice's is "two keys, and one of them
+ * is positions" — the shape prd12's `CheckpointState` set and this mirrors.
+ *
+ * The fold's own half of it (what a `telemetry.refused` becomes, and that
+ * `TelemetryState` does not move when one folds) is in `reduce.test.ts` and
+ * `reduce.telemetry.test.ts`. This is the end where the shape is written down.
+ */
+describe('RefusalState — records whole, plus positions into them', () => {
+  const refused = (instance: string | null, count = 1) =>
+    fx.make('telemetry.refused', { instance, expectedInstance: 'ours', count })
+
+  it('is exactly two keys, empty and folded alike', () => {
+    const keys = ['records', 'byInstance']
+    expect(Object.keys(initialRefusalState()).sort()).toEqual([...keys].sort())
+
+    const folded = reduceAll([refused('theirs'), refused(null), refused('theirs', 4)])
+    expect(Object.keys(folded.refusals).sort()).toEqual([...keys].sort())
+  })
+
+  /**
+   * The same proof the other two slices get, and for the same reason: a
+   * positions index is exactly the kind of thing that wants to be a `Map`, and
+   * a `Map` here would serialise to `{}` while every `toEqual` in the suite
+   * went on passing.
+   */
+  it('round-trips through JSON unchanged — no Map, no Set, no instance', () => {
+    const refusals = reduceAll([refused('theirs'), refused('other')]).refusals
+    expect(JSON.parse(JSON.stringify(refusals))).toEqual(refusals)
+    expect(JSON.parse(JSON.stringify(refusals)).byInstance).toEqual({ theirs: [0], other: [1] })
+  })
+
+  /**
+   * `byInstance` is accumulated by the fold one position at a time and derived
+   * from scratch by {@link refusalIndexOf} — the retention seam's rebuild path
+   * (see `MAX_REFUSALS`). The two spellings must not be able to drift: this is
+   * what says the accumulated index is exactly the index of its own records.
+   */
+  it('accumulates the index the derivation would have built, key order and all', () => {
+    const refusals = reduceAll([
+      refused('theirs'),
+      refused(null),
+      refused('other'),
+      refused('theirs', 3),
+    ]).refusals
+
+    expect(refusals.byInstance).toEqual(refusalIndexOf(refusals.records))
+    expect(JSON.stringify(refusals.byInstance)).toBe(JSON.stringify(refusalIndexOf(refusals.records)))
+    expect(refusals.byInstance).toEqual({ theirs: [0, 3], other: [2] })
+  })
+
+  /**
+   * An export that declared no instance at all is the commonest
+   * misconfiguration there is, and it is kept WHOLE — only unindexed, because
+   * no sentinel key can be proved distinct from a real instance id. A reader
+   * finds it by asking the record, which is the point of keeping records whole.
+   */
+  it('keeps a refusal that declared no instance, and gives it no key of its own', () => {
+    const refusals = reduceAll([refused(null), refused(null, 7)]).refusals
+    expect(refusals.records.map((record) => [record.instance, record.count])).toEqual([
+      [null, 1],
+      [null, 7],
+    ])
+    expect(refusals.byInstance).toEqual({})
+  })
+
+  it('builds nothing from no records, and skips the unindexable ones', () => {
+    expect(refusalIndexOf([])).toEqual({})
+    const records: RefusalRecord[] = [
+      { eventId: 'a', ts: 1, instance: null, expectedInstance: 'ours', count: 1 },
+      { eventId: 'b', ts: 2, instance: 'theirs', expectedInstance: 'ours', count: 1 },
+    ]
+    expect(refusalIndexOf(records)).toEqual({ theirs: [1] })
+  })
+
+  /**
+   * THE RETENTION SEAM, stated so it cannot be changed by accident. prd-19
+   * leaves a cap for this slice an open question, so `null` — every refusal,
+   * forever — is the recorded decision *not* to decide, and a future number
+   * here has to come with the index rebuild the fold already asks for and with
+   * a change to this line saying why.
+   */
+  it('names its retention seam rather than deciding it: unbounded, on purpose', () => {
+    expect(MAX_REFUSALS).toBeNull()
+    const many = reduceAll(Array.from({ length: 250 }, () => refused('theirs')))
+    expect(many.refusals.records).toHaveLength(250)
+    expect(many.refusals.byInstance.theirs).toHaveLength(250)
+  })
+})
+
 describe('initialSessionState — fresh containers, never shared ones', () => {
   /**
    * The reason this matters is not tidiness. The telemetry fold's lookup tables
@@ -155,6 +251,9 @@ describe('initialSessionState — fresh containers, never shared ones', () => {
     expect(a.traces.spans).not.toBe(b.traces.spans)
     expect(a.traces.byTrace).not.toBe(b.traces.byTrace)
     expect(a.traces.bySession).not.toBe(b.traces.bySession)
+    expect(a.refusals).not.toBe(b.refusals)
+    expect(a.refusals.records).not.toBe(b.refusals.records)
+    expect(a.refusals.byInstance).not.toBe(b.refusals.byInstance)
     expect(a.commitOrder).not.toBe(b.commitOrder)
     expect(a.errors).not.toBe(b.errors)
   })

@@ -608,6 +608,122 @@ export function initialJudgeState(): JudgeState {
   return { findings: [], byLane: {} }
 }
 
+/**
+ * One `telemetry.refused` — a telemetry export our own OTLP receiver turned
+ * away because it did not carry this instance's id. Kept whole and in arrival
+ * order, same rule as every other record here; the payload's three fields are
+ * mirrored one for one (`events/telemetry.ts`) and nothing is added to them.
+ *
+ * **A refusal is a setup fact, not spend, and that is the whole reason it lives
+ * here rather than on {@link TelemetryState}** (prd19 ruling 2). The refused
+ * post contributed no tokens, no dollars and no tool call — by construction,
+ * since the receiver records nothing until identity checks out — so a seventh
+ * key on the money layer's slice would be a key holding something the money
+ * layer must never count. Its six-key shape is a pinned law (#179), and this
+ * fold leaves it byte-identical: `reduce.telemetry.test.ts` states that as a
+ * law rather than trusting the reading.
+ */
+export interface RefusalRecord {
+  eventId: string
+  ts: number
+  /**
+   * The instance id the export declared, or `null` when it declared none — the
+   * "none" case a reader renders as such rather than as an empty string.
+   */
+  instance: string | null
+  /** Our instance id: what the export should have carried. */
+  expectedInstance: string
+  /**
+   * Refusals from this offender since the last one recorded, this one
+   * included. Always ≥ 1; > 1 means the receiver's throttle swallowed the rest,
+   * so this is the one number that says how loud a standing fault is.
+   */
+  count: number
+}
+
+/**
+ * prd19 ruling 2's slice. Mirrors {@link CheckpointState}'s shape exactly:
+ * records in arrival order, plus one index holding POSITIONS into `records`,
+ * never copies — so there is exactly one copy of each record to reason about,
+ * and a position is stable for the life of the fold.
+ *
+ * **Why a stored index here, when #184 made prd9's two into on-demand
+ * projections.** What #184 was buying was the removal of a Record copy *per
+ * event*, on an event family that arrives thousands of times an hour. A refusal
+ * is throttled at the receiver to at most one per offender per minute
+ * (`events/telemetry.ts`), with the swallowed ones carried as
+ * {@link RefusalRecord.count} — so this index is copied once per offender-minute
+ * of a standing misconfiguration, and the arithmetic #184 fought is not the
+ * arithmetic this slice does. The plain field is the simpler shape, and prd12's
+ * lab slice is its precedent.
+ */
+export interface RefusalState {
+  records: RefusalRecord[]
+  /**
+   * instance → positions in `records`, in arrival order.
+   *
+   * **A refusal that declared no instance at all is not indexed here** — the
+   * same rule {@link TraceState.bySession} states for a span with no session
+   * id, and for the same reason {@link TraceIndex} in `reduce.ts` refuses to
+   * join a trace id to a span id with a separator: no sentinel key can be
+   * proved distinct from a real instance id, and inventing one invents a
+   * collision the data does not have. Nothing is lost by it — `records` holds
+   * every refusal whole, and "declared none" is the one offender class a reader
+   * finds by asking `record.instance === null` rather than by key.
+   */
+  byInstance: Record<string, number[]>
+}
+
+/**
+ * How many refusals to keep. `null` means every one, forever — which is what
+ * this slice does today.
+ *
+ * **The decision is deliberately not made here; the PLACE it will be made is.**
+ * prd-19 names a retention cap for this slice as an open question, so a number
+ * picked now would be a magic one. {@link MAX_ERRORS} above is the precedent
+ * for the shape a cap takes — `slice(-N)` at the fold — and it is also the
+ * warning, because `errors` is a plain list while this slice carries an index
+ * of POSITIONS: dropping a record off the front shifts every position after it.
+ * So whoever sets this constant does not also have to remember the rebuild —
+ * the fold already asks for one whenever a cap actually drops something
+ * ({@link refusalIndexOf}, read by `telemetryRefused` in `reduce.ts`).
+ *
+ * What makes unbounded defensible meanwhile: the receiver throttles a refusal
+ * to at most one per offender per minute, so this slice grows with wall-clock
+ * minutes of a standing fault, not with the export volume of a misconfigured
+ * fleet — which is precisely the flood `MAX_ERRORS` exists to cap.
+ */
+export const MAX_REFUSALS: number | null = null
+
+export function initialRefusalState(): RefusalState {
+  return { records: [], byInstance: {} }
+}
+
+/**
+ * The index `records` is owed, built from scratch — one position per record,
+ * appended under its instance in arrival order, skipping the records that
+ * declared no instance. Exactly what the fold's append-per-event path
+ * accumulates, including the order the keys were first seen in, which is what
+ * makes the two spellings serialise to the same bytes.
+ *
+ * Two callers, and both matter: the fold rebuilds against it on the one move
+ * that shifts positions (a retention cap dropping the oldest records — see
+ * {@link MAX_REFUSALS}), and `state.test.ts` checks the incremental path
+ * against it, which is what stops the accumulated index and the derived one
+ * from drifting apart unnoticed.
+ */
+export function refusalIndexOf(records: readonly RefusalRecord[]): Record<string, number[]> {
+  const byInstance: Record<string, number[]> = {}
+  for (let at = 0; at < records.length; at += 1) {
+    const instance = (records[at] as RefusalRecord).instance
+    if (instance === null) continue
+    const positions = byInstance[instance]
+    if (positions === undefined) byInstance[instance] = [at]
+    else positions.push(at)
+  }
+  return byInstance
+}
+
 export interface SessionState {
   session: SessionInfo | null
   /** Branch everything is measured against; null until we learn it. */
@@ -632,6 +748,12 @@ export interface SessionState {
   forks: ForkState
   /** prd11 ruling 6b, phase 1: the judge's structural-organ findings. Additive again. */
   judge: JudgeState
+  /**
+   * prd19 ruling 2: the exports this Rhizomorph refused. Additive again — and
+   * additive *here* rather than as a seventh key on {@link TelemetryState},
+   * whose six-key shape is a pinned law. See {@link RefusalState}.
+   */
+  refusals: RefusalState
   eventCount: number
   firstEventTs: number | null
   lastEventTs: number | null
@@ -657,6 +779,7 @@ export function initialSessionState(): SessionState {
     checkpoints: initialCheckpointState(),
     forks: initialForkState(),
     judge: initialJudgeState(),
+    refusals: initialRefusalState(),
     eventCount: 0,
     firstEventTs: null,
     lastEventTs: null,

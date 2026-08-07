@@ -18,6 +18,8 @@ import type {
   JudgeFindingRecord,
   LaneAttribution,
   PaneState,
+  RefusalRecord,
+  RefusalState,
   SessionPlace,
   SessionState,
   SpanRecord,
@@ -26,7 +28,14 @@ import type {
   UsageRecord,
   WorktreeState,
 } from './state.js'
-import { MAX_ERRORS, basename, initialSessionState, traceStateOf } from './state.js'
+import {
+  MAX_ERRORS,
+  MAX_REFUSALS,
+  basename,
+  initialSessionState,
+  refusalIndexOf,
+  traceStateOf,
+} from './state.js'
 
 /**
  * `reduce(state, event) → state`, pure and immutable.
@@ -110,10 +119,7 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
     case 'agent.activeTime':
       return agentActiveTime(state, event)
     case 'telemetry.refused':
-      // A refusal is a setup gap, not spend: it stays in the log (and on the
-      // stream) for the UI to surface, and contributes nothing to any total.
-      // #62 gives it a home in state.
-      return state
+      return telemetryRefused(state, event)
     case 'trace.span':
       return traceSpan(state, event)
     case 'fork.checkpoint':
@@ -1028,6 +1034,77 @@ function upsertLane(
     // Present only when true, never removed — see AgentState.synthetic.
     ...(prev?.synthetic === true || synthetic ? { synthetic: true as const } : {}),
   }
+}
+
+// --- refusals (prd19) -------------------------------------------------------
+
+/**
+ * One refused export, folded whole (prd19 ruling 2 — the home the #62 TODO
+ * promised and the no-op arm this replaces never gave it).
+ *
+ * **Deliberately does not touch `state.telemetry`.** Not one field of it: not
+ * the six record arrays, not the lane index, not the session index. A refused
+ * post is the receiver saying "nothing here is mine" — it contributed no
+ * tokens, no dollars, no tool call and no place, and its payload names neither
+ * a lane nor a session to teach anything with. Routing it through
+ * {@link withTelemetry} would invent a lane the ledger then reports zero
+ * dollars for, which is the same mistake prd9 ruling 4 keeps spans out of the
+ * money layer to avoid. So "folding a refusal leaves every `TelemetryState`
+ * array and total byte-identical" is true here by construction rather than by
+ * every future reader remembering, and `reduce.telemetry.test.ts` states it as
+ * a law from the far end.
+ *
+ * The envelope bookkeeping above still counts the event, because the event
+ * really did arrive: what was refused is the *export*, not the log line.
+ *
+ * Refusals are never deduped. Two posts from the same offender are two standing
+ * facts about a fault that is still happening, and the receiver's own
+ * once-per-offender-per-minute throttle is the only thinning applied — merging
+ * them here would hide exactly the "it is STILL misconfigured" signal the
+ * connect surface reads (prd19 ruling 3).
+ */
+function telemetryRefused(state: SessionState, event: EventOf<'telemetry.refused'>): SessionState {
+  const p = event.payload
+  const record: RefusalRecord = {
+    eventId: event.id,
+    ts: event.ts,
+    instance: p.instance,
+    expectedInstance: p.expectedInstance,
+    count: p.count,
+  }
+
+  const refusals = state.refusals
+  const at = refusals.records.length
+  const appended = [...refusals.records, record]
+  // The retention seam (`MAX_REFUSALS`), unbounded today and named rather than
+  // decided — prd-19 leaves the cap open. Dropping the oldest records is the
+  // one move that shifts positions, so the successor gets an index built from
+  // what survived rather than a patched one; the quiet case appends a position
+  // under this refusal's own instance and copies nothing else.
+  const kept = MAX_REFUSALS === null ? appended : appended.slice(-MAX_REFUSALS)
+  const next: RefusalState = {
+    records: kept,
+    byInstance:
+      kept.length === appended.length
+        ? indexRefusalUnder(refusals.byInstance, record.instance, at)
+        : refusalIndexOf(kept),
+  }
+
+  return { ...state, refusals: next }
+}
+
+/**
+ * Appends one position under `instance`, or hands the index straight back when
+ * the export declared no instance at all — see {@link RefusalState.byInstance}
+ * for why "declared none" gets no key of its own rather than a sentinel one.
+ */
+function indexRefusalUnder(
+  byInstance: Readonly<Record<string, number[]>>,
+  instance: string | null,
+  at: number,
+): Record<string, number[]> {
+  if (instance === null) return byInstance
+  return { ...byInstance, [instance]: [...(byInstance[instance] ?? []), at] }
 }
 
 // --- traces (prd9) ----------------------------------------------------------
