@@ -30,10 +30,9 @@ import type {
 } from './state.js'
 import {
   MAX_ERRORS,
-  MAX_REFUSALS,
   basename,
   initialSessionState,
-  refusalIndexOf,
+  refusalStateWith,
   traceStateOf,
 } from './state.js'
 
@@ -1073,38 +1072,19 @@ function telemetryRefused(state: SessionState, event: EventOf<'telemetry.refused
     count: p.count,
   }
 
-  const refusals = state.refusals
-  const at = refusals.records.length
-  const appended = [...refusals.records, record]
-  // The retention seam (`MAX_REFUSALS`), unbounded today and named rather than
-  // decided — prd-19 leaves the cap open. Dropping the oldest records is the
-  // one move that shifts positions, so the successor gets an index built from
-  // what survived rather than a patched one; the quiet case appends a position
-  // under this refusal's own instance and copies nothing else.
-  const kept = MAX_REFUSALS === null ? appended : appended.slice(-MAX_REFUSALS)
-  const next: RefusalState = {
-    records: kept,
-    byInstance:
-      kept.length === appended.length
-        ? indexRefusalUnder(refusals.byInstance, record.instance, at)
-        : refusalIndexOf(kept),
-  }
-
+  // The append, the positions index and the retention seam are the slice's own
+  // arithmetic, and live beside the shape they maintain (`refusalStateWith` in
+  // `state.ts`): the cap defaults to `MAX_REFUSALS`, so the shipped fold is
+  // unbounded, and its drop branch stays reachable by a test rather than dead
+  // behind a `null`.
+  //
+  // `instance` is a string ANOTHER process chose and our receiver refused, so
+  // `'__proto__'` and every other `Object.prototype` member reaches the index.
+  // That is handled there — and handled rather than filtered, because a hostile
+  // instance id is exactly the offender a connect surface most needs named, so
+  // it is recorded and indexed like any other.
+  const next: RefusalState = refusalStateWith(state.refusals, record)
   return { ...state, refusals: next }
-}
-
-/**
- * Appends one position under `instance`, or hands the index straight back when
- * the export declared no instance at all — see {@link RefusalState.byInstance}
- * for why "declared none" gets no key of its own rather than a sentinel one.
- */
-function indexRefusalUnder(
-  byInstance: Readonly<Record<string, number[]>>,
-  instance: string | null,
-  at: number,
-): Record<string, number[]> {
-  if (instance === null) return byInstance
-  return { ...byInstance, [instance]: [...(byInstance[instance] ?? []), at] }
 }
 
 // --- traces (prd9) ----------------------------------------------------------

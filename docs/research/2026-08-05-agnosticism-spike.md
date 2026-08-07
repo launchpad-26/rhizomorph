@@ -330,9 +330,10 @@ otel: `collectors/otel/fixture-hygiene-law.test.ts`).
    command warns when the receiver has already seen that lane string under a
    different sessionId this session, or conductor lanes are auto-suffixed the
    way `--extra-sessions` already does. Evidence: §3 trap.
-9. **`telemetry.refused` gets its home in state + a gap voice** (the fold
-   drops it today, `reduce.ts:97` — the "#62" home never landed). A refused
-   exporter is a second-orchestrator/second-instrument tell and currently
+9. **`telemetry.refused` gets its home in state + a gap voice** (the state half
+   landed in #251 — prd19 ruling 2's `state.refusals`; at the time of this note
+   the fold dropped it at `reduce.ts:97` and the gap voice is still open). A
+   refused exporter is a second-orchestrator/second-instrument tell and still
    invisible in the UI. Evidence: §3 detection point 4.
 10. **Before any multi-instance story: a boot-time liveness guard on session
     resume.** Two instances on one repo currently share one session file and

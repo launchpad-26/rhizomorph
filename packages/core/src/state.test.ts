@@ -9,6 +9,7 @@ import {
   initialTelemetryState,
   initialTraceState,
   refusalIndexOf,
+  refusalStateWith,
   traceStateOf,
   type RefusalRecord,
   type SessionState,
@@ -139,6 +140,15 @@ describe('TraceState — the slice is its spans, and two projections of them', (
  * `TelemetryState` does not move when one folds) is in `reduce.test.ts` and
  * `reduce.telemetry.test.ts`. This is the end where the shape is written down.
  */
+/** One record built by hand, for the paths that take a record rather than an event. */
+const plainRefusal = (instance: string | null): RefusalRecord => ({
+  eventId: 'evt-0',
+  ts: 1_000,
+  instance,
+  expectedInstance: 'ours',
+  count: 1,
+})
+
 describe('RefusalState — records whole, plus positions into them', () => {
   const refused = (instance: string | null, count = 1) =>
     fx.make('telemetry.refused', { instance, expectedInstance: 'ours', count })
@@ -210,14 +220,152 @@ describe('RefusalState — records whole, plus positions into them', () => {
    * THE RETENTION SEAM, stated so it cannot be changed by accident. prd-19
    * leaves a cap for this slice an open question, so `null` — every refusal,
    * forever — is the recorded decision *not* to decide, and a future number
-   * here has to come with the index rebuild the fold already asks for and with
-   * a change to this line saying why.
+   * here has to come with a change to this line saying why.
    */
   it('names its retention seam rather than deciding it: unbounded, on purpose', () => {
     expect(MAX_REFUSALS).toBeNull()
     const many = reduceAll(Array.from({ length: 250 }, () => refused('theirs')))
     expect(many.refusals.records).toHaveLength(250)
     expect(many.refusals.byInstance.theirs).toHaveLength(250)
+  })
+
+  /**
+   * The seam's DROP branch, driven at its own scale. While `MAX_REFUSALS` is
+   * `null` this branch is unreachable through `reduce`, so a test claiming the
+   * rebuild was "pinned" would be overclaiming — which is why the cap is a
+   * parameter on {@link refusalStateWith}: the branch can be run without anybody
+   * deciding the number.
+   *
+   * What it has to get right is what `slice(-N)` on a positions-indexed slice
+   * gets wrong for free: every surviving position RENUMBERS, and an instance
+   * whose every sighting fell off the front must lose its key altogether rather
+   * than keep a stale position into a record that is gone.
+   */
+  it('drops the oldest records and rebuilds the index when a cap is driven through the seam', () => {
+    const record = (instance: string | null, at: number): RefusalRecord => ({
+      eventId: `evt-${at}`,
+      ts: 1_000 * (at + 1),
+      instance,
+      expectedInstance: 'ours',
+      count: 1,
+    })
+
+    let slice = initialRefusalState()
+    // `b` is seen once, early — the offender that must disappear entirely.
+    for (const [at, instance] of ['a', 'b', 'a', null, 'a'].entries()) {
+      slice = refusalStateWith(slice, record(instance, at), 3)
+    }
+
+    expect(slice.records.map((held) => held.eventId)).toEqual(['evt-2', 'evt-3', 'evt-4'])
+    expect(slice.byInstance).toEqual({ a: [0, 2] })
+    expect(Object.hasOwn(slice.byInstance, 'b')).toBe(false)
+    // The rebuild IS the derivation, not an approximation of it.
+    expect(slice.byInstance).toEqual(refusalIndexOf(slice.records))
+    expect(JSON.stringify(slice.byInstance)).toBe(JSON.stringify(refusalIndexOf(slice.records)))
+  })
+
+  it('keeps nothing under a cap of zero — `slice(-0)` would have kept everything', () => {
+    expect(refusalStateWith(initialRefusalState(), plainRefusal('theirs'), 0)).toEqual({
+      records: [],
+      byInstance: {},
+    })
+  })
+
+  it('folds unbounded by default, so the shipped reducer is exactly MAX_REFUSALS', () => {
+    expect(refusalStateWith(initialRefusalState(), plainRefusal('theirs'))).toEqual(
+      refusalStateWith(initialRefusalState(), plainRefusal('theirs'), MAX_REFUSALS),
+    )
+  })
+})
+
+/**
+ * THE HOSTILE-INSTANCE LAW (PR #283's review, confirmed blocking).
+ *
+ * `instance` is the one string in this slice that no part of this repo chose: it
+ * arrives in an OTLP export from another process, and our receiver records it in
+ * a `telemetry.refused` precisely BECAUSE it was foreign (`api/otel.ts`). So
+ * `'__proto__'`, `'constructor'`, `'hasOwnProperty'` and every other
+ * `Object.prototype` member reaches the positions index as a key.
+ *
+ * The bug this pins was not theoretical. `[...(byInstance[instance] ?? []), at]`
+ * reads an INHERITED value for those keys, so `??` never fires and the spread of
+ * a non-iterable throws — `TypeError` for all four, in the incremental path and
+ * the rebuild alike. And because the refusal stays in the recording, the crash
+ * is permanent: every replay of that log would die in the same place forever.
+ *
+ * What these tests demand is not merely "no throw" — it is that a hostile id is
+ * treated as an ORDINARY offender, because naming who is mis-exporting is
+ * exactly what prd-19 is for. It gets a key, its positions accumulate, the
+ * prototype is untouched, and the money layer still does not move.
+ */
+describe('RefusalState — an attacker-chosen instance id is an ordinary key', () => {
+  const HOSTILE = ['__proto__', 'constructor', 'hasOwnProperty', 'toString'] as const
+
+  const hostile = (instance: string, count = 1) =>
+    fx.make('telemetry.refused', { instance, expectedInstance: 'ours', count })
+
+  for (const instance of HOSTILE) {
+    it(`folds a refusal declaring '${instance}' without throwing, and indexes it`, () => {
+      const state = reduceAll([hostile(instance), hostile('ordinary'), hostile(instance, 6)])
+
+      expect(state.refusals.records.map((record) => record.instance)).toEqual([
+        instance,
+        'ordinary',
+        instance,
+      ])
+      // An OWN key — not a mutated prototype, and not a swallowed record.
+      expect(Object.hasOwn(state.refusals.byInstance, instance)).toBe(true)
+      expect(state.refusals.byInstance[instance]).toEqual([0, 2])
+      expect(state.refusals.byInstance.ordinary).toEqual([1])
+      expect(Object.getPrototypeOf(state.refusals.byInstance)).toBe(Object.prototype)
+      expect(Object.keys(state.refusals.byInstance).sort()).toEqual([instance, 'ordinary'].sort())
+    })
+
+    it(`derives the same index for '${instance}' as the fold accumulated`, () => {
+      const records = reduceAll([hostile(instance), hostile(instance, 2)]).refusals.records
+      const derived = refusalIndexOf(records)
+      expect(Object.hasOwn(derived, instance)).toBe(true)
+      expect(derived[instance]).toEqual([0, 1])
+      expect(Object.getPrototypeOf(derived)).toBe(Object.prototype)
+      expect(JSON.parse(JSON.stringify(derived))).toEqual({ [instance]: [0, 1] })
+    })
+  }
+
+  it('survives every hostile id in one fold, alongside an ordinary one', () => {
+    const state = reduceAll([...HOSTILE.map((instance) => hostile(instance)), hostile('ordinary')])
+    expect(state.refusals.records).toHaveLength(HOSTILE.length + 1)
+    expect(Object.keys(state.refusals.byInstance).sort()).toEqual([...HOSTILE, 'ordinary'].sort())
+    expect(state.refusals.byInstance).toEqual(refusalIndexOf(state.refusals.records))
+    expect(Object.getPrototypeOf(state.refusals.byInstance)).toBe(Object.prototype)
+    expect(JSON.parse(JSON.stringify(state.refusals)).records).toHaveLength(HOSTILE.length + 1)
+  })
+
+  /**
+   * The money layer's law, restated for the hostile case specifically: the
+   * six-key slice is byte-identical whether the refusal that folded was benign
+   * or an attempt at the fold's own machinery.
+   */
+  it('leaves TelemetryState byte-identical for a hostile refusal, same as any other', () => {
+    const empty = JSON.stringify(initialSessionState().telemetry)
+    for (const instance of HOSTILE) {
+      expect(JSON.stringify(reduceAll([hostile(instance), hostile(instance, 3)]).telemetry), instance)
+        .toBe(empty)
+    }
+  })
+
+  it('drops a hostile key cleanly when a cap retires its every position', () => {
+    let slice = initialRefusalState()
+    for (const [at, instance] of ['__proto__', 'ordinary', 'ordinary'].entries()) {
+      slice = refusalStateWith(
+        slice,
+        { ...plainRefusal(instance), eventId: `evt-${at}`, ts: 1_000 * (at + 1) },
+        2,
+      )
+    }
+    expect(slice.records.map((held) => held.eventId)).toEqual(['evt-1', 'evt-2'])
+    expect(Object.hasOwn(slice.byInstance, '__proto__')).toBe(false)
+    expect(slice.byInstance).toEqual({ ordinary: [0, 1] })
+    expect(Object.getPrototypeOf(slice.byInstance)).toBe(Object.prototype)
   })
 })
 

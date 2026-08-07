@@ -685,8 +685,9 @@ export interface RefusalState {
  * warning, because `errors` is a plain list while this slice carries an index
  * of POSITIONS: dropping a record off the front shifts every position after it.
  * So whoever sets this constant does not also have to remember the rebuild —
- * the fold already asks for one whenever a cap actually drops something
- * ({@link refusalIndexOf}, read by `telemetryRefused` in `reduce.ts`).
+ * {@link refusalStateWith} already asks for one whenever a cap actually drops
+ * something, and that branch is exercised by a test driving a small cap through
+ * its parameter rather than left dead behind this `null`.
  *
  * What makes unbounded defensible meanwhile: the receiver throttles a refusal
  * to at most one per offender per minute, so this slice grows with wall-clock
@@ -702,26 +703,104 @@ export function initialRefusalState(): RefusalState {
 /**
  * The index `records` is owed, built from scratch — one position per record,
  * appended under its instance in arrival order, skipping the records that
- * declared no instance. Exactly what the fold's append-per-event path
- * accumulates, including the order the keys were first seen in, which is what
- * makes the two spellings serialise to the same bytes.
+ * declared no instance. Exactly what {@link refusalStateWith}'s
+ * append-per-event path accumulates, including the order the keys were first
+ * seen in, which is what makes the two spellings serialise to the same bytes.
  *
  * Two callers, and both matter: the fold rebuilds against it on the one move
  * that shifts positions (a retention cap dropping the oldest records — see
  * {@link MAX_REFUSALS}), and `state.test.ts` checks the incremental path
  * against it, which is what stops the accumulated index and the derived one
  * from drifting apart unnoticed.
+ *
+ * **`instance` IS ATTACKER-CHOSEN, and this function is written for that.** It
+ * is a string some other process put in an OTLP export that our receiver then
+ * refused (`api/otel.ts`), so `'__proto__'`, `'constructor'` and
+ * `'hasOwnProperty'` all reach here. A `Map` accumulates rather than a plain
+ * object for two reasons that are the same reason: `byInstance['__proto__'] =
+ * [at]` is a *Set*, which invokes `Object.prototype`'s `__proto__` setter and
+ * reassigns this object's prototype instead of creating a key; and
+ * `byInstance[instance]` on the read side returns an INHERITED value rather
+ * than `undefined`, so an `undefined` check never fires. A `Map` has neither
+ * problem, because it has no inherited keys at all. `Object.fromEntries` then
+ * DEFINES each property rather than setting it — the same semantics the
+ * computed-key spread in {@link refusalStateWith} already has — and `Map`
+ * preserves insertion order, so the keys, the values and the bytes are exactly
+ * what the plain-object spelling produced for every safe instance string, while
+ * a hostile one lands as an ordinary own key instead of throwing.
  */
 export function refusalIndexOf(records: readonly RefusalRecord[]): Record<string, number[]> {
-  const byInstance: Record<string, number[]> = {}
+  const positions = new Map<string, number[]>()
   for (let at = 0; at < records.length; at += 1) {
     const instance = (records[at] as RefusalRecord).instance
     if (instance === null) continue
-    const positions = byInstance[instance]
-    if (positions === undefined) byInstance[instance] = [at]
-    else positions.push(at)
+    const held = positions.get(instance)
+    if (held === undefined) positions.set(instance, [at])
+    else held.push(at)
   }
-  return byInstance
+  return Object.fromEntries(positions)
+}
+
+/**
+ * The slice with one refusal folded in: appended whole, its position indexed,
+ * and the retention seam applied. `reduce.ts`'s `telemetryRefused` builds the
+ * record; this is the slice's own arithmetic, beside the shape it maintains.
+ *
+ * **Why the cap is a parameter.** It defaults to {@link MAX_REFUSALS}, so the
+ * shipped fold is exactly "unbounded, on purpose" and nothing about prd-19's
+ * open question has been pre-empted. But a seam whose drop branch cannot be
+ * reached is a seam nobody has ever run: with the constant at `null` the
+ * rebuild below is dead code, and "pinned by a test" would be an overclaim.
+ * Taking the cap as an argument makes the branch exercisable at its own scale
+ * (`state.test.ts` drives a cap of three over five refusals) without deciding
+ * the number for anybody.
+ *
+ * Dropping the oldest records is the one move that shifts positions, so the
+ * successor gets an index built from what survived ({@link refusalIndexOf})
+ * rather than a patched one. The quiet case appends a position under this
+ * refusal's own instance and copies nothing else. A cap of zero keeps nothing,
+ * spelled out because `slice(-0)` is `slice(0)` — which would silently keep
+ * every record instead.
+ */
+export function refusalStateWith(
+  refusals: RefusalState,
+  record: RefusalRecord,
+  cap: number | null = MAX_REFUSALS,
+): RefusalState {
+  const at = refusals.records.length
+  const appended = [...refusals.records, record]
+  const kept = cap === null ? appended : cap <= 0 ? [] : appended.slice(-cap)
+  return {
+    records: kept,
+    byInstance:
+      kept.length === appended.length
+        ? indexRefusalUnder(refusals.byInstance, record.instance, at)
+        : refusalIndexOf(kept),
+  }
+}
+
+/**
+ * Appends one position under `instance`, or hands the index straight back when
+ * the export declared no instance at all — see {@link RefusalState.byInstance}
+ * for why "declared none" gets no key of its own rather than a sentinel one.
+ *
+ * `Object.hasOwn`, never `?? []`. `instance` is attacker-chosen (see
+ * {@link refusalIndexOf}), and `byInstance['__proto__']` returns
+ * `Object.prototype` — an inherited value, so `??` never fires and spreading a
+ * non-iterable throws. One hostile export would crash the fold, and because the
+ * refusal stays in the recording, every replay of that log would crash in the
+ * same place forever. The write side needs no such care: a COMPUTED key in an
+ * object literal defines a property rather than setting one, so `__proto__`
+ * lands as an ordinary own key.
+ */
+function indexRefusalUnder(
+  byInstance: Readonly<Record<string, number[]>>,
+  instance: string | null,
+  at: number,
+): Record<string, number[]> {
+  if (instance === null) return byInstance
+  const held = Object.hasOwn(byInstance, instance) ? (byInstance[instance] ?? []) : []
+  return { ...byInstance, [instance]: [...held, at] }
 }
 
 export interface SessionState {

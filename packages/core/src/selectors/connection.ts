@@ -19,7 +19,7 @@ import { compareStrings } from './touches.js'
  * also what makes live view, replay and fixtures agree by construction — one
  * function over one fold, so there is no second answer to keep in step.
  *
- * The one honest limit, stated up front because a reader will otherwise assume
+ * The first honest limit, stated up front because a reader will otherwise assume
  * otherwise: **{@link SourceFlow.count} counts folded RECORDS, not events.**
  * The fold keeps records; it keeps no per-source event tally, and inventing one
  * would mean recording a fact no event carries — the thing the ruling forbids.
@@ -29,6 +29,39 @@ import { compareStrings } from './touches.js'
  * duplicate request into the record it duplicates. All three make count ≤
  * events, and none of them makes count wrong about the question actually being
  * asked, which is whether anything arrived and when.
+ *
+ * ---
+ *
+ * **THE SECOND LIMIT, AND IT IS A REAL TENSION INSIDE RULING 2, NOT A DETAIL:
+ * git, tmux and workmux flow facts describe CURRENT ENTITY STATE, so they can
+ * REGRESS. The telemetry-backed sources cannot.**
+ *
+ * The three machine collectors have no record of their own — their flow is read
+ * off `worktrees`, `branches`, `commits`, `panes` and `agents`, which are
+ * entity maps the fold keeps *up to date* rather than append-only ledgers. Most
+ * of those keep a departed entity with a flag (`worktree.removed` sets
+ * `present: false` and `removedAt`; `pane.closed` sets `closedAt`), so they do
+ * not regress. **One does not:** `branch.removed` DELETES the record outright
+ * (`reduce.ts`, and deliberately — the ghost fix, so a dead branch stops
+ * colliding with live ones). When that was a source's only evidence, git flips
+ * from VERIFIED back to `null`/zero, and the removal's own timestamp is lost
+ * with the record, so it cannot even stand as the last thing git proved. A
+ * connect page can therefore watch a green row go grey while the log it was
+ * derived from only ever grew.
+ *
+ * `sessionlog` and `otel` are structurally incapable of this: their flow comes
+ * from `telemetry.*` and `traces.spans`, which are append-only records with no
+ * removal event in the union at all. Which is exactly why this is a tension in
+ * the ruling rather than a bug here — "derived, never recorded" is sound over
+ * append-only records and lossy over entity maps, and prd-19 ruling 2 applies
+ * one sentence to both. **The ruling is the leads' to make, not this selector's.**
+ * The candidates, named so nobody has to re-derive them: record a removal
+ * timestamp so a departed branch leaves a mark; or make flow monotonic by
+ * remembering a high-water mark somewhere; or accept regression and let the UI
+ * voice it. All three change either state or a PRD, so none is done here.
+ * `connection.test.ts` PINS the current behaviour by name — "pins, not
+ * endorses" — so whichever way it is ruled, the baseline it changed from is
+ * written down.
  */
 
 /**
@@ -85,6 +118,15 @@ export interface SourceFlow {
  * of "the" conductor: {@link roles} is what lets ruling 3's first-class BROKEN
  * state name a conductor as a conductor, and a worker lane in the same
  * condition is the same broken link with a different label.
+ *
+ * **This cannot distinguish "never instrumented" from "instrumented, awaiting
+ * its first batched export".** Both look identical in the fold, because both
+ * are the absence of a record. Ruling 3 names transcript-without-otel as
+ * first-class BROKEN, so the derivation stands as it is — but a consumer
+ * rendering it should weigh the time elapsed since {@link firstEventTs} before
+ * calling it broken, since an OTel exporter's first batch can lag the transcript
+ * by an export interval. The threshold is the UI's call, not this selector's
+ * (#258).
  */
 export interface UninstrumentedSession {
   sessionId: string

@@ -131,6 +131,89 @@ describe('selectConnection — the five sources', () => {
   })
 })
 
+/**
+ * PINS, DOES NOT ENDORSE — the tension PR #283's review named inside prd-19
+ * ruling 2, recorded so that whichever way the leads rule it, the baseline it
+ * changed from is written down.
+ *
+ * "Derived, never recorded" is sound over append-only records and lossy over
+ * entity maps, and ruling 2 applies one sentence to both. `branch.removed`
+ * DELETES its record — the ghost fix, deliberately — so a git flow read off
+ * `branches` can go backwards, VERIFIED to nothing, while the log it was derived
+ * from only ever grew. The telemetry-backed sources structurally cannot: the
+ * union contains no removal event for a `telemetry.*` record or a span.
+ *
+ * None of these tests says the behaviour is right. They say what it IS. The
+ * candidates for changing it — record a removal timestamp · make flow monotonic ·
+ * accept regression and let the UI voice it — all move state or a PRD, so none
+ * is taken here. See this file's implementation header.
+ */
+describe('selectConnection — flow derived from entity state can regress (prd-19 open tension)', () => {
+  it('pins, not endorses: a branch.removed takes git flow back to nothing, and loses its own timestamp', () => {
+    const born = [f.branchUpdated({ branch: 'gone', head: 'sha-1' }, { ts: 1_000 })]
+    expect(selectConnection(reduceAll(born)).git).toEqual({
+      source: 'git',
+      firstEventTs: 1_000,
+      lastEventTs: 1_000,
+      count: 1,
+    })
+
+    const after = reduceAll([...born, f.branchRemoved({ branch: 'gone' }, { ts: 2_000 })])
+    // The log grew, and the envelope knows it grew. Git's flow says nothing ever
+    // arrived — and 2_000 is recorded nowhere, so it cannot even stand as the
+    // last thing git proved.
+    expect(after.eventCount).toBe(2)
+    expect(after.firstEventTs).toBe(1_000)
+    expect(after.lastEventTs).toBe(2_000)
+    expect(selectConnection(after).git).toEqual({
+      source: 'git',
+      firstEventTs: null,
+      lastEventTs: null,
+      count: 0,
+    })
+  })
+
+  it('pins, not endorses: the removals that KEEP their record do not regress', () => {
+    // `worktree.removed` and `pane.closed` flag rather than delete, so their
+    // evidence survives — which is why `branch.removed` is the single arm that
+    // can walk a row back, not a general property of the machine collectors.
+    const log = [
+      f.worktreeDiscovered({ path: '/repo/wt/a', branch: 'a', head: 'sha-1' }, { ts: 1_000 }),
+      f.paneDiscovered({ paneId: '%1', windowName: 'a', currentPath: '/repo/wt/a' }, { ts: 2_000 }),
+    ]
+    const gone = selectConnection(
+      reduceAll([
+        ...log,
+        f.worktreeRemoved({ path: '/repo/wt/a' }, { ts: 3_000 }),
+        f.paneClosed({ paneId: '%1' }, { ts: 4_000 }),
+      ]),
+    )
+    expect(gone.git).toMatchObject({ firstEventTs: 1_000, lastEventTs: 3_000 })
+    expect(gone.tmux).toMatchObject({ firstEventTs: 2_000, lastEventTs: 4_000 })
+    expect(gone.git.count).toBeGreaterThan(0)
+  })
+
+  it('the telemetry-backed sources cannot regress — their records are append-only', () => {
+    const flowed = [
+      f.llmUsage({ lane: 'a', requestId: 'req_1', sessionId: 'sess-a' }, { ts: 1_000 }),
+      f.llmCost({ lane: 'a', sessionId: 'sess-a' }, { ts: 2_000 }),
+      f.branchUpdated({ branch: 'gone', head: 'sha-1' }, { ts: 3_000 }),
+    ]
+    const before = selectConnection(reduceAll(flowed))
+    // Fold every removal the union has: git moves, the two telemetry lanes do not.
+    const after = selectConnection(
+      reduceAll([
+        ...flowed,
+        f.branchRemoved({ branch: 'gone' }, { ts: 4_000 }),
+        f.worktreeRemoved({ path: '/repo/wt/a' }, { ts: 5_000 }),
+      ]),
+    )
+    expect(after.sessionlog).toEqual(before.sessionlog)
+    expect(after.otel).toEqual(before.otel)
+    expect(after.git).not.toEqual(before.git)
+  })
+})
+
 describe('selectConnection — otel.firstEventTs, the issue\'s stated law', () => {
   /**
    * THE LAW, first clause: it is the timestamp of the first otel-origin folded
