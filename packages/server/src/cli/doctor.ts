@@ -200,7 +200,7 @@ export async function runDoctorCommand(
   exit(report.exitCode)
 }
 
-async function checkNodeVersion(options: DoctorOptions): Promise<DoctorCheck> {
+export async function checkNodeVersion(options: Pick<DoctorOptions, 'nodeVersion' | 'rootPackageJsonPath'>): Promise<DoctorCheck> {
   const nodeVersion = options.nodeVersion ?? process.version
   const range = await resolveRequiredNodeRange(options.rootPackageJsonPath ?? defaultRootPackageJsonPath())
   const major = Number(nodeVersion.replace(/^v/, '').split('.')[0])
@@ -360,7 +360,7 @@ function isPortFree(port: number): Promise<boolean> {
   })
 }
 
-function checkClaudeProjects(claudeProjectsRoot?: string): DoctorCheck {
+export function checkClaudeProjects(claudeProjectsRoot?: string): DoctorCheck {
   const dir = claudeProjectsRoot ?? path.join(homedir(), '.claude', 'projects')
   if (existsSync(dir)) {
     return { id: 'session-logs', status: 'ok', message: `Claude Code session logs found at ${dir}` }
@@ -380,7 +380,7 @@ function checkClaudeProjects(claudeProjectsRoot?: string): DoctorCheck {
  * Never fails: the boundary is a default to know about, not a precondition
  * to run.
  */
-async function checkSessionBoundary(repoPath: string, dataRoot: string | undefined, now: () => number): Promise<DoctorCheck> {
+export async function checkSessionBoundary(repoPath: string, dataRoot: string | undefined, now: () => number): Promise<DoctorCheck> {
   const sessionDir = sessionDirFor(repoPath, dataRoot ?? defaultDataRoot())
   const decision = await decideSessionBoot(sessionDir, now())
   const window = formatBootDuration(decision.windowMs)
@@ -411,7 +411,7 @@ async function checkSessionBoundary(repoPath: string, dataRoot: string | undefin
     return {
       id: 'session-boundary',
       status: 'ok',
-      message: `the last session for ${repoPath} was closed on purpose (\`rhizomorph rotate\`, or the dashboard's button) — the next run starts a fresh one (a closed log is never resumed, whatever the ${window} window says)`,
+      message: `the last session for ${repoPath} was closed on purpose (\`npm exec rhizomorph -- rotate\`, or the dashboard's button) — the next run starts a fresh one (a closed log is never resumed, whatever the ${window} window says)`,
     }
   }
 
@@ -461,7 +461,7 @@ function isMissingBinary(result: { failed: boolean; errorMessage?: string }): bo
   return result.failed && result.errorMessage !== undefined
 }
 
-async function checkOptionalTool(id: string, command: string, args: string[], exec: Exec): Promise<DoctorCheck> {
+export async function checkOptionalTool(id: string, command: string, args: string[], exec: Exec): Promise<DoctorCheck> {
   const result = await exec(command, args)
   if (isMissingBinary(result)) {
     return {
@@ -487,16 +487,41 @@ function describeToolError(result: ExecResult): string {
   return `exited with code ${result.code}`
 }
 
+/** Which process's env `checkTelemetryEnv` actually inspected — see its own doc. */
+export type DoctorShellContext = 'agent' | 'server'
+
 /**
  * Names the wiring command in the reader's own shell (#140): a Windows
  * conductor's doctor run has no `eval`, so telling it to run one is a remedy
  * that cannot work. `win32` gets the PowerShell pipe form; every other
  * platform (the vast majority — WSL, Linux, macOS) keeps the `eval` form
  * unchanged.
+ *
+ * `shellContext` names which process's env this actually read. `'agent'`
+ * (the CLI's default) is honest as-is: `rhizomorph doctor` runs IN the
+ * agent's own shell, so `process.env` there is the env that matters.
+ * `GET /api/doctor` (prd-19 ruling 5) passes `'server'` instead: the route
+ * only ever sees the running server's own shell, never the agent process
+ * it's meant to verify, so an `ok` here would otherwise read as proof of
+ * something this check cannot actually see — the message says so rather
+ * than implying otherwise.
  */
-function checkTelemetryEnv(env: NodeJS.ProcessEnv, platform: string): DoctorCheck {
+export function checkTelemetryEnv(
+  env: NodeJS.ProcessEnv,
+  platform: string,
+  shellContext: DoctorShellContext = 'agent',
+): DoctorCheck {
+  const shellNote =
+    shellContext === 'server'
+      ? " (server shell, not agent shell — the env that matters belongs to the agent's own process, which this route cannot see)"
+      : ''
+
   if (env.CLAUDE_CODE_ENABLE_TELEMETRY === '1') {
-    return { id: 'telemetry', status: 'ok', message: 'CLAUDE_CODE_ENABLE_TELEMETRY=1 is set in this shell' }
+    return {
+      id: 'telemetry',
+      status: 'ok',
+      message: `CLAUDE_CODE_ENABLE_TELEMETRY=1 is set in this shell${shellNote}`,
+    }
   }
 
   // A clone user has no `rhizomorph` binary on PATH (audit stumble, prd9 ruling 8) — name the
@@ -509,7 +534,7 @@ function checkTelemetryEnv(env: NodeJS.ProcessEnv, platform: string): DoctorChec
   return {
     id: 'telemetry',
     status: 'warn',
-    message: `telemetry env is not set in this shell — spend stays at zero until you ${remedy} (see docs/telemetry.md)`,
+    message: `telemetry env is not set in this shell${shellNote} — spend stays at zero until you ${remedy} (see docs/telemetry.md)`,
   }
 }
 
@@ -526,7 +551,7 @@ function checkTelemetryEnv(env: NodeJS.ProcessEnv, platform: string): DoctorChec
  */
 const TRACE_FIXTURE_CLI_VERSION = '2.1.220'
 
-async function checkCliVersionDrift(exec: Exec): Promise<DoctorCheck> {
+export async function checkCliVersionDrift(exec: Exec): Promise<DoctorCheck> {
   const result = await exec('claude', ['--version'])
 
   if (isMissingBinary(result)) {
@@ -579,7 +604,7 @@ function parseClaudeVersion(stdout: string): string | null {
  * optional capability, not something the app needs to run), distinguished only by
  * message — "no lane manifest" vs "is broken: <detail>".
  */
-async function checkLaneManifest(repoPath: string): Promise<DoctorCheck> {
+export async function checkLaneManifest(repoPath: string): Promise<DoctorCheck> {
   const manifestPath = lanesManifestPath(repoPath)
   const result = await readLanesManifest(repoPath)
 
@@ -626,8 +651,16 @@ function checkOk(checks: readonly DoctorCheck[], id: string): boolean {
  * mechanisms here are process-wide, not per-lane, so every named lane shares
  * the same rung today — the loop that builds `lines` below is what makes
  * per-lane divergence free the moment a collector gains that granularity.
+ *
+ * Reads the `target-path` check's `ok`-ness out of `checks` the same way
+ * every other contributor here does — `GET /api/doctor` (which never runs
+ * `target-path` at all, prd-19 ruling 5) supplies a synthetic `ok` entry for
+ * it instead of skipping the contributor: the server is, by construction,
+ * already running against a valid git repository, so the fact `target-path`
+ * would have reported is already known true, just not from a check the route
+ * needs to expose.
  */
-async function checkEnrichmentLadder(checks: readonly DoctorCheck[], repoPath: string): Promise<DoctorCheck[]> {
+export async function checkEnrichmentLadder(checks: readonly DoctorCheck[], repoPath: string): Promise<DoctorCheck[]> {
   const contributors: AdapterCapabilities[] = [
     checkOk(checks, 'target-path') ? GIT_CAPABILITIES : absentCapabilities('target path is not a usable git repository'),
     checkOk(checks, 'session-logs')
@@ -646,7 +679,7 @@ async function checkEnrichmentLadder(checks: readonly DoctorCheck[], repoPath: s
       ? OTEL_CAPABILITIES
       : absentCapabilities(
           'telemetry env is not set in this shell',
-          'run `rhizomorph env <lane>` (see docs/telemetry.md)',
+          'run `npm exec rhizomorph -- env <lane>` (see docs/telemetry.md)',
         ),
   ]
 

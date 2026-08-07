@@ -9,7 +9,14 @@ import { sessionDirFor } from '../log/paths.js'
 import { SessionLogWriter } from '../recorder/index.js'
 import { readResumedCount, recordResume, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import { writeSessionLock } from '../log/session-lock.js'
-import { doctorHelpText, parseDoctorArgs, renderDoctorReport, runDoctor, type DoctorCheck } from './doctor.js'
+import {
+  checkTelemetryEnv,
+  doctorHelpText,
+  parseDoctorArgs,
+  renderDoctorReport,
+  runDoctor,
+  type DoctorCheck,
+} from './doctor.js'
 
 function okResult(stdout = ''): ExecResult {
   return { stdout, stderr: '', code: 0, failed: false }
@@ -494,6 +501,33 @@ describe('runDoctor', () => {
     expect(telemetry.message).toContain(process.platform === 'win32' ? '--shell powershell' : 'eval')
   })
 
+  describe("checkTelemetryEnv's shellContext (prd-19 ruling 5)", () => {
+    it("defaults to 'agent' and carries no server-shell caveat — unchanged from before GET /api/doctor existed", () => {
+      const ok = checkTelemetryEnv({ CLAUDE_CODE_ENABLE_TELEMETRY: '1' }, 'linux')
+      expect(ok.message).toBe('CLAUDE_CODE_ENABLE_TELEMETRY=1 is set in this shell')
+
+      const warn = checkTelemetryEnv({}, 'linux')
+      expect(warn.message).not.toContain('server shell')
+      expect(warn.message).not.toContain('agent shell')
+    })
+
+    it("passing 'server' marks an ok reading as server shell, not agent shell, since this route cannot see the agent's env", () => {
+      const ok = checkTelemetryEnv({ CLAUDE_CODE_ENABLE_TELEMETRY: '1' }, 'linux', 'server')
+      expect(ok.status).toBe('ok')
+      expect(ok.message).toContain('CLAUDE_CODE_ENABLE_TELEMETRY=1 is set in this shell')
+      expect(ok.message).toContain('server shell, not agent shell')
+      expect(ok.message).toContain("the agent's own process")
+    })
+
+    it("passing 'server' marks a warn reading the same way, on top of the usual remedy", () => {
+      const warn = checkTelemetryEnv({}, 'linux', 'server')
+      expect(warn.status).toBe('warn')
+      expect(warn.message).toContain('server shell, not agent shell')
+      expect(warn.message).toContain('eval')
+      expect(warn.message).toContain('docs/telemetry.md')
+    })
+  })
+
   describe('cli version drift check', () => {
     it('reports ok when the installed claude matches the pinned trace fixture version', async () => {
       const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot, dataRoot })
@@ -729,6 +763,26 @@ describe('runDoctor', () => {
       const boundary = checkFor(report.checks, 'session-boundary')
       expect(boundary.status).toBe('ok')
       expect(boundary.message).toContain('session 1000 would resume')
+    })
+
+    it('names the closed-session remedy in clone-safe syntax, not a bare `rhizomorph rotate` a clone user cannot run (#276 context)', async () => {
+      const sessionDir = sessionDirFor(repoPath, dataRoot)
+      const filePath = sessionFilePath(sessionDir, '1000')
+      const writer = new SessionLogWriter(filePath)
+      await writer.append(
+        createEvent('session.started', { sessionId: '1000', repoPath, repoName: 'repo' }, { id: 'evt-1', ts: 1000 }),
+      )
+      await writer.append(
+        createEvent('session.closed', { sessionId: '1000', reason: 'rotated', eventCount: 1 }, { id: 'evt-2', ts: 2000 }),
+      )
+
+      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot, dataRoot })
+
+      const boundary = checkFor(report.checks, 'session-boundary')
+      expect(boundary.status).toBe('ok')
+      expect(boundary.message).toContain('closed on purpose')
+      expect(boundary.message).toContain('npm exec rhizomorph -- rotate')
+      expect(boundary.message).not.toContain('`rhizomorph rotate`')
     })
 
     it('never writes anything: a doctor run is not itself a boot', async () => {
