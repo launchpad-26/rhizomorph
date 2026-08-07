@@ -71,6 +71,19 @@ lint, packaging and boot smoke silently do not run. A red leg is therefore worth
 more than one failing test; check `gh run list --branch main` before assuming a
 gate has been enforcing anything.
 
+## Where a decision goes
+
+- **`docs/adr/`** — architecture decision records. Structure, contracts, formats,
+  where authority lives. The test: if you can't name a rejected alternative and
+  say why, it isn't an ADR. Read `docs/adr/README.md` before writing one; the log
+  is append-only, so a changed mind gets a new record that supersedes the old.
+- **`docs/design-notes/`** — rationale for a value, formula, or visual form. Why
+  `TUFT_WASH` is 0.16, not which path the architecture took. Cited directly from
+  code comments.
+- **`docs/prds/`** — product scope and behaviour. A PRD *ruling* dies with its
+  PRD; an ADR outlives it. When a ruling is architectural, link to the ADR rather
+  than restating it.
+
 ## Reviews
 
 `docs/review/` holds multi-strategy code reviews with a consolidated work list in
