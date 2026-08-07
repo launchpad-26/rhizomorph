@@ -1,6 +1,7 @@
 import type { ConnectionStatus } from '../hooks/useEventStream.js'
 import { useMode, useReplay } from './ModeContext.js'
 import { formatElapsed } from '../replay/format.js'
+import { useStream } from './StreamContext.js'
 
 /** Exported so other frame chrome (StatusBar) can render the same states consistently. */
 export const CONNECTION_LABEL: Record<ConnectionStatus, string> = {
@@ -20,8 +21,11 @@ export const CONNECTION_DOT_CLASS: Record<ConnectionStatus, string> = {
 /**
  * The header badge next to the app title: it must never let a screenshot of
  * the top of the page read as "live" while the app is folding a recorded
- * session. Reads mode from `ModeContext` (the one source of truth shared with
- * the replay bar) rather than inferring it from stream state.
+ * session — or a fixture (prd-19 ruling 6: "a fixture must never pass as
+ * live data"). Reads mode from `ModeContext` (the one source of truth shared
+ * with the replay bar) rather than inferring it from stream state, and reads
+ * `source`/`provenance` from `StreamContext` for the fixture case — keys
+ * 1/2/3 flip `source` away from `'live'` without ever touching `mode`.
  *
  * The replay indicator itself stays in the ice register, never a ladder hue
  * (law 9) — a mode is not a status, so it must not borrow the vocabulary the
@@ -31,6 +35,7 @@ export const CONNECTION_DOT_CLASS: Record<ConnectionStatus, string> = {
 export function ConnectionBadge({ status }: { status: ConnectionStatus }) {
   const mode = useMode()
   const { playback, range } = useReplay()
+  const { source, provenance } = useStream()
 
   if (mode === 'replay') {
     const elapsed = formatElapsed(playback.currentTs - range.start)
@@ -53,10 +58,15 @@ export function ConnectionBadge({ status }: { status: ConnectionStatus }) {
     )
   }
 
+  // Ruling 6: the driving log's own provenance stands in for the connection
+  // label the instant it is not `live` — a fixture fleet (keys 1/2/3) must
+  // never read as the real thing, whatever the SSE status underneath it is.
+  const label = source === 'live' ? CONNECTION_LABEL[status] : provenance
+
   return (
     <span className="inline-flex items-center gap-2 text-xs uppercase tracking-wide text-ice-400">
       <span className={`h-2 w-2 rounded-full ${CONNECTION_DOT_CLASS[status]}`} aria-hidden="true" />
-      {CONNECTION_LABEL[status]}
+      {label}
     </span>
   )
 }
