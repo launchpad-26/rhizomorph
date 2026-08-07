@@ -97,7 +97,16 @@ function hostnameFromOrigin(origin: string): string | null {
   }
 }
 
-function isLoopbackHost(host: string | undefined): boolean {
+/**
+ * Exported for `api/doctor.ts` (prd-19 ruling 5, adversarial review item 1):
+ * `GET /api/doctor` is a recon-grade disclosure (repo/home paths, versions,
+ * tool presence, session facts) that would otherwise sit behind #235's known
+ * gap — every `GET` is exempt from this module's own Host/Origin guard until
+ * that issue widens `MUTATING_METHODS`. Rather than wait, that one route
+ * opts itself into this exact predicate as a `preHandler`. This pre-answers
+ * #235 for this route only; the global GET exemption stays #235's own work.
+ */
+export function isLoopbackHost(host: string | undefined): boolean {
   if (host === undefined) return false
   return LOOPBACK_HOSTNAMES.has(hostnameFromHostHeader(host).toLowerCase())
 }

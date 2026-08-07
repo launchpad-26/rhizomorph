@@ -176,6 +176,10 @@ describe('runDoctor', () => {
     expect(targetPath.message).toContain(missingPath)
     expect(targetPath.message).toContain('does not exist')
     expect(report.exitCode).toBe(1)
+    // #276 clone-safe syntax (adversarial review item 7): a clone user has no
+    // `rhizomorph` binary on PATH, so the remedy must not tell them to run a bare one.
+    expect(targetPath.message).toContain('npm exec rhizomorph -- doctor')
+    expect(targetPath.message).not.toMatch(/[`"]rhizomorph /)
   })
 
   it('fails when the target path exists but is not a git repository', async () => {
@@ -502,29 +506,42 @@ describe('runDoctor', () => {
   })
 
   describe("checkTelemetryEnv's shellContext (prd-19 ruling 5)", () => {
-    it("defaults to 'agent' and carries no server-shell caveat — unchanged from before GET /api/doctor existed", () => {
+    it("defaults to 'agent' and behaves byte-identically to before GET /api/doctor existed", () => {
       const ok = checkTelemetryEnv({ CLAUDE_CODE_ENABLE_TELEMETRY: '1' }, 'linux')
+      expect(ok.status).toBe('ok')
       expect(ok.message).toBe('CLAUDE_CODE_ENABLE_TELEMETRY=1 is set in this shell')
+      expect(ok.message).not.toContain('server shell')
 
       const warn = checkTelemetryEnv({}, 'linux')
+      expect(warn.status).toBe('warn')
       expect(warn.message).not.toContain('server shell')
       expect(warn.message).not.toContain('agent shell')
     })
 
-    it("passing 'server' marks an ok reading as server shell, not agent shell, since this route cannot see the agent's env", () => {
-      const ok = checkTelemetryEnv({ CLAUDE_CODE_ENABLE_TELEMETRY: '1' }, 'linux', 'server')
-      expect(ok.status).toBe('ok')
-      expect(ok.message).toContain('CLAUDE_CODE_ENABLE_TELEMETRY=1 is set in this shell')
-      expect(ok.message).toContain('server shell, not agent shell')
-      expect(ok.message).toContain("the agent's own process")
-    })
+    it(
+      "passing 'server' NEVER reports ok, even when this process's own env has the var set — an ok here " +
+        'would contradict the very message saying this route cannot see the env that matters (adversarial review item 4)',
+      () => {
+        const withVarSet = checkTelemetryEnv({ CLAUDE_CODE_ENABLE_TELEMETRY: '1' }, 'linux', 'server')
+        expect(withVarSet.status).toBe('warn')
+        expect(withVarSet.id).toBe('telemetry')
+        expect(withVarSet.message).toContain('is set')
+        expect(withVarSet.message).toContain('server shell, not agent shell')
+        expect(withVarSet.message).toContain("agent's own process")
+        expect(withVarSet.message).toContain('cannot see')
 
-    it("passing 'server' marks a warn reading the same way, on top of the usual remedy", () => {
-      const warn = checkTelemetryEnv({}, 'linux', 'server')
-      expect(warn.status).toBe('warn')
-      expect(warn.message).toContain('server shell, not agent shell')
-      expect(warn.message).toContain('eval')
-      expect(warn.message).toContain('docs/telemetry.md')
+        const withVarUnset = checkTelemetryEnv({}, 'linux', 'server')
+        expect(withVarUnset.status).toBe('warn')
+        expect(withVarUnset.message).toContain('is not set')
+        expect(withVarUnset.message).toContain('server shell, not agent shell')
+      },
+    )
+
+    it("'server' context is deaf to platform — no eval/PowerShell remedy voice, since it never reaches the CLI's own remedy branch", () => {
+      const check = checkTelemetryEnv({}, 'win32', 'server')
+      expect(check.status).toBe('warn')
+      expect(check.message).not.toContain('--shell powershell')
+      expect(check.message).not.toContain('eval')
     })
   })
 
@@ -815,6 +832,11 @@ describe('runDoctor', () => {
       expect(ladder.status).toBe('ok')
       expect(ladder.message).toContain('L4')
       expect(ladder.message).toContain('nothing further to climb')
+      // The CLI's own `target-path` is always a real, measured `checkTargetPath`
+      // run — never the route's synthetic entry — so nothing here is `assumed`
+      // (adversarial review item 3; `assumed` only ever appears from the route).
+      expect(ladder.assumed).toBeUndefined()
+      expect(ladder.message).not.toContain('assumed')
     })
 
     it('drops a rung — the direction\'s own example — when workmux is missing, and names the remedy for the next one', async () => {
