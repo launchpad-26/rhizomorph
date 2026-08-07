@@ -143,6 +143,23 @@
   marks for gate holds, summonses, and operator verdicts) — the richer UI
   built on top of all of it is a separate prd (prd18), not yet a doc in this
   tree.
+- **prd19 — the connection** (`docs/prds/prd-19-the-connection.md`, proposed):
+  the instrument proves its own wiring. Connection facts become state
+  (`telemetry.refused` finally folds — the #62 TODO — and first-flow facts are
+  selector-derived), a permanent `/connect` handshake page renders every link
+  VERIFIED/BROKEN/UNPROVEN with the exact fixing command, silence never reads
+  as live, and doctor's checks become a read-only HTTP route. Evidence: a
+  project lead ran the instrument with an uninstrumented conductor and nothing
+  said so. Read-only throughout; numbered 19 because prd18 stays reserved for
+  prd17's richer-UI thread, which blessed citations already name.
+- **prd20 — the concierge** (`docs/prds/prd-20-the-concierge.md`, proposed,
+  gated on #234): the one-stop front door. A fourth hand — token-gated,
+  explicitly invoked, ADR-recorded — that launches or relaunches an
+  instrumented conductor (continuity via `claude --continue`; attachment to a
+  running process is physically impossible and never claimed), clones by URL
+  with the machine's own credentials, discovers local repos, and retargets the
+  watched repo in place. Harness picker built for N with claude first-class;
+  adapter contract stays prd15 ruling 3's.
 
 ## Unclaimed candidates (cohort-facing)
 
