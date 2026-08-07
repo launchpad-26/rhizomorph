@@ -1,5 +1,6 @@
 import {
   evidenceLine,
+  isTerminalDone,
   rankIndex,
   type Fleet,
   type Filament,
@@ -53,11 +54,23 @@ export function parkedTitle(): string {
   return 'parked — declared in .swarm/lanes.json; alarm inferences suppressed, other evidence unaffected'
 }
 
+/**
+ * TERMINAL-DONE's own title (issue #226) — distinct from a lane that declared
+ * `done` or whose worktree was removed: this one is inferred from git
+ * geography (clean, ahead of main, silent past FROZEN's own threshold) after
+ * a pane died mid-run. Read where DONE would otherwise be a bare, unexplained
+ * word — the whole point is telling the operator *which* kind of finish this
+ * was.
+ */
+export function terminalDoneTitle(): string {
+  return 'finished — worktree is clean and ahead of main, but nothing ever declared done: the pane likely died right after its last commit landed'
+}
+
 /** The STATE cell's title: the detector's own evidence, never a bare label (graft g4). */
 export function stateTitle(lane: Lane): string {
   if (lane.parked) return parkedTitle()
   const worst = worstPathology(lane)
-  if (worst === null) return ACTIVITY_TITLE[lane.activity]
+  if (worst === null) return isTerminalDone(lane) ? terminalDoneTitle() : ACTIVITY_TITLE[lane.activity]
   const extra = lane.pathologies.length - 1
   const line = evidenceLine(worst)
   return extra === 0 ? line : `${line} · +${extra} more: ${lane.pathologies.map(evidenceLine).join(' · ')}`

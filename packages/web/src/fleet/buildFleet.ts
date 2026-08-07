@@ -23,7 +23,7 @@ import {
   SPARK_WINDOW_MS,
   TOKEN_ORIGINS,
 } from './constants.js'
-import { diagnose } from './diagnose.js'
+import { diagnose, isTerminalDone } from './diagnose.js'
 import { findTrespasses } from './fences.js'
 import { buildGaps } from './gaps.js'
 import { buildLadder, calmEvidenceOf, errorCountsOf } from './ladder.js'
@@ -100,7 +100,7 @@ export {
   type Fleet,
   type BuildFleetOptions,
 } from './types.js'
-export { findCycle } from './diagnose.js'
+export { findCycle, isTerminalDone } from './diagnose.js'
 export { formatSpan } from './plumbing.js'
 
 /**
@@ -352,7 +352,13 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
 
   for (const lane of lanes) {
     const draft = drafts.get(lane.id) as Draft
-    const touched = lane.branch === null ? [] : (touches[lane.branch] ?? []).map((t) => t.path)
+    // Committed touches only (issue #226) — matching `scripts/gate.sh`'s own
+    // `git diff main...HEAD`, the committed diff against merge-base. A file a
+    // lane only ever dirtied (package-lock.json, churned by every `npm
+    // install`, chief among them) is invisible to the gate and must be
+    // invisible here too, or the glass accuses a lane of a breach the gate
+    // never would.
+    const touched = lane.branch === null ? [] : (touches[lane.branch] ?? []).filter((t) => t.committed).map((t) => t.path)
     const fenceHandle = manifest === null ? null : fenceHandleFor(manifest, lane)
 
     lane.trespasses =
@@ -370,6 +376,10 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
     })
     lane.rank = lane.pathologies.reduce<LadderRank>((worst, p) => worseRank(worst, p.rank), 'calm')
     lane.activity = activityOf(lane)
+    // A lane FROZEN exempted as terminal-done (issue #226) reads DONE, not
+    // IDLE — `activityOf` has no way to see that exemption on its own, so it
+    // is applied here, off the same fact `detectFrozen` already read.
+    if (lane.activity !== 'done' && isTerminalDone(lane)) lane.activity = 'done'
   }
 
   lanes.sort(byAttentionThenSize)

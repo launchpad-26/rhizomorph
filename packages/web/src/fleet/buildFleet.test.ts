@@ -18,6 +18,7 @@ import {
   fixtureHistory,
   fleet20Spec,
   manifestFor,
+  offFenceHonestySpec,
   pathologySpec,
   type FixtureSpec,
 } from './fixtures.js'
@@ -116,9 +117,11 @@ describe('the staged-pathology fixture', () => {
     expect(evidenceFor(fleet, '44-scene-pulses', 'expensive')).toMatch(
       /^\d+ out-tok\/min, \d+\.\d× fleet median$/,
     )
-    // `touching <lane> — N files`: the trespass names its victim, not just itself.
+    // The path itself is named, not just a count and a victim (issue #226) —
+    // "touching 46-spend-selectors — 1 file" tells the operator nothing they
+    // can act on; the exact file does.
     expect(evidenceFor(fleet, '45-ledger-subrows', 'off-fence')).toBe(
-      'touching 46-spend-selectors — 1 file',
+      'outside fence — packages/core/src/selectors/spend-subrows.ts → 46-spend-selectors',
     )
   })
 
@@ -156,6 +159,39 @@ describe('the staged-pathology fixture', () => {
       const subagent = lane.filaments.find((filament) => filament.thread === 'subagent')
       expect(subagent?.outputTokens).toBeGreaterThan(0)
     }
+  })
+})
+
+/**
+ * Issue #226 — kept out of the staged-pathology fixture above on purpose:
+ * this package's `StreamContext`, `FleetContext`, scene, geometry and marks
+ * tests all pin that fixture's exact lane count, so growing it to cover these
+ * two regressions would make every one of those a casualty of a fix that has
+ * nothing to do with them.
+ */
+describe('off-fence honesty (issue #226)', () => {
+  const fleet = fleetFor(offFenceHonestySpec())
+
+  // Defect 1 — the false-positive that made OFF-FENCE fire on every lane,
+  // always: npm rewrites package-lock.json in every worktree on install. It
+  // is never committed, so `scripts/gate.sh`'s own check (the committed diff
+  // against merge-base) never sees it — the glass must not see it either.
+  it('exempts uncommitted lockfile churn from off-fence — the gate only sees the committed diff', () => {
+    const lane = laneIn(fleet, '60-lockfile-churn')
+    expect(lane.trespasses).toEqual([])
+    expect(kindsFor(fleet, '60-lockfile-churn')).not.toContain('off-fence')
+  })
+
+  // Defect 3 — the known workmux worker-death shape: a pane dies right after
+  // its lane commits everything, so the worktree is clean and ahead of main
+  // but nothing ever declared `done`. FROZEN would otherwise call this dead
+  // air; the git geography it left behind says it finished.
+  it('reads a dead pane that committed clean work as done, not frozen', () => {
+    const lane = laneIn(fleet, '61-pane-died-clean')
+    expect(lane.dirtyCount).toBe(0)
+    expect(lane.aheadOfMain).toBeGreaterThan(0)
+    expect(kindsFor(fleet, '61-pane-died-clean')).not.toContain('frozen')
+    expect(lane.activity).toBe('done')
   })
 })
 

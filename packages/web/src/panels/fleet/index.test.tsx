@@ -9,9 +9,11 @@ import {
   fixtureHistory,
   fleet20Spec,
   manifestFor,
+  offFenceHonestySpec,
   pathologySpec,
   specFor,
   SyntheticFleet,
+  type FixtureSpec,
 } from '../../fleet/index.js'
 import type { FetchLike } from '../../fleet/manifest.js'
 import { SelectionProvider } from '../../fleet/selection.js'
@@ -75,6 +77,40 @@ async function renderFixture(key: '2' | '3') {
   })
   await act(async () => {
     fireEvent.keyDown(window, { key })
+  })
+}
+
+/**
+ * Mounts a fixture spec that is not wired into the app's own '2'/'3' fixture
+ * switcher (issue #226's `offFenceHonestySpec`, kept out of `pathologySpec` so
+ * it does not disturb every other test that pins that fixture's lane count) —
+ * the same event-through-a-fake-source path `renderDrillDownScenario` below
+ * uses, generalised to any spec's own synthetic history and manifest.
+ */
+async function renderSyntheticFleet(spec: FixtureSpec) {
+  const events = new SyntheticFleet(spec).history(NOW)
+  let source: FakeEventSource | undefined
+  await act(async () => {
+    render(
+      <StreamProvider
+        url="/api/stream"
+        now={NOW}
+        createSource={() => {
+          source = new FakeEventSource()
+          return source
+        }}
+      >
+        <FleetProvider now={NOW} fetchLanes={async () => ({ ok: true, json: async () => manifestFor(spec) })}>
+          <SelectionProvider>
+            <FleetTable />
+          </SelectionProvider>
+        </FleetProvider>
+      </StreamProvider>,
+    )
+  })
+  await act(async () => {
+    source?.open()
+    for (const event of events) source?.emit(event)
   })
 }
 
@@ -188,6 +224,39 @@ describe('FleetTable — the staged-pathology fixture', () => {
     const expensiveRow = rows().find((r) => r.getAttribute('data-lane') === '44-scene-pulses') as HTMLElement
     const expensiveState = expensiveRow.querySelectorAll('td')[1] as HTMLElement
     expect(expensiveState.getAttribute('title')).toMatch(/out-tok\/min.*fleet median/)
+  })
+
+  // Issue #226, defect 2 (voice): OFF-FENCE named no file, so the operator
+  // could not tell a real breach from noise on sight. The STATE hover must
+  // name the exact path, not just a count of trespasses.
+  it('names the trespassed path on the OFF-FENCE hover, not merely a count', async () => {
+    await renderFixture('3')
+
+    const row = rows().find((r) => r.getAttribute('data-lane') === '45-ledger-subrows') as HTMLElement
+    const stateCell = row.querySelectorAll('td')[1] as HTMLElement
+    expect(stateCell.getAttribute('title')).toContain('packages/core/src/selectors/spend-subrows.ts')
+  })
+
+  // Issue #226, defect 1 (signal): a lane whose only trespass is uncommitted
+  // lockfile churn must read calm — no OFF-FENCE word, no glyph for it.
+  it('shows no OFF-FENCE for a lane whose only trespass is uncommitted lockfile churn', async () => {
+    await renderSyntheticFleet(offFenceHonestySpec())
+
+    const row = rows().find((r) => r.getAttribute('data-lane') === '60-lockfile-churn') as HTMLElement
+    expect(row.textContent).not.toContain('OFF-FENCE')
+  })
+
+  // Issue #226, defect 3: a dead pane whose lane committed everything and left
+  // a clean worktree must read DONE, and the hover must say which kind of
+  // finish this was rather than a bare, unexplained word.
+  it('reads a dead pane that committed clean work as DONE, and says which kind of finish it was', async () => {
+    await renderSyntheticFleet(offFenceHonestySpec())
+
+    const row = rows().find((r) => r.getAttribute('data-lane') === '61-pane-died-clean') as HTMLElement
+    expect(row.textContent).not.toContain('FROZEN')
+    expect(row.textContent).toContain('done')
+    const stateCell = row.querySelectorAll('td')[1] as HTMLElement
+    expect(stateCell.getAttribute('title')).toMatch(/pane likely died/)
   })
 })
 
