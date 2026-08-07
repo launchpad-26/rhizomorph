@@ -17,10 +17,11 @@ import { registerStaticRoute } from './static.js'
  */
 describe('registerStaticRoute — the SPA fallback', () => {
   let dir: string
+  const TEST_TOKEN = 'test-capability-token-0123456789abcdef'
 
   beforeEach(async () => {
     dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-static-test-'))
-    await writeFile(path.join(dir, 'index.html'), '<!doctype html><title>rhizomorph</title>')
+    await writeFile(path.join(dir, 'index.html'), '<!doctype html><head><title>rhizomorph</title></head>')
     await mkdir(path.join(dir, 'assets'), { recursive: true })
     await writeFile(path.join(dir, 'assets', 'app.js'), 'console.log("app")')
   })
@@ -31,7 +32,7 @@ describe('registerStaticRoute — the SPA fallback', () => {
 
   function makeApp() {
     const app = Fastify()
-    registerStaticRoute(app, dir)
+    registerStaticRoute(app, dir, TEST_TOKEN)
     return app
   }
 
@@ -69,6 +70,28 @@ describe('registerStaticRoute — the SPA fallback', () => {
     expect(response.body).toContain('rhizomorph')
   })
 
+  it('stamps the capability token into index.html at the root — issue #249, the only channel that delivers it', async () => {
+    const app = makeApp()
+    const response = await app.inject({ method: 'GET', url: '/' })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain(`<meta name="rhizomorph-capability" content="${TEST_TOKEN}">`)
+  })
+
+  it('stamps the capability token into the SPA-fallback index.html too, not only the literal root', async () => {
+    const app = makeApp()
+    const response = await app.inject({ method: 'GET', url: '/lane/42-otel-receiver' })
+
+    expect(response.body).toContain(`<meta name="rhizomorph-capability" content="${TEST_TOKEN}">`)
+  })
+
+  it('never stamps a token into a non-HTML asset', async () => {
+    const app = makeApp()
+    const response = await app.inject({ method: 'GET', url: '/assets/app.js' })
+
+    expect(response.body).not.toContain('rhizomorph-capability')
+  })
+
   it('never reads outside the dist root, however the wildcard tail is spelled', async () => {
     const app = makeApp()
     const response = await app.inject({ method: 'GET', url: '/../../etc/passwd' })
@@ -92,7 +115,7 @@ describe('buildApp — the SPA fallback never shadows a real route', () => {
 
     const distDir = path.join(dir, 'dist')
     await mkdir(distDir, { recursive: true })
-    await writeFile(path.join(distDir, 'index.html'), '<!doctype html><title>rhizomorph shell</title>')
+    await writeFile(path.join(distDir, 'index.html'), '<!doctype html><head><title>rhizomorph shell</title></head>')
   })
 
   afterEach(async () => {
@@ -130,6 +153,14 @@ describe('buildApp — the SPA fallback never shadows a real route', () => {
     // receiver that answered — a route that fell through to the HTML shell
     // would report 200 with `content-type: text/html`, which this is not.
     expect(response.headers['content-type']).not.toContain('text/html')
+  })
+
+  it('a real boot delivers the capability token it minted, embedded in the shell it serves — issue #249', async () => {
+    const app = makeApp()
+    const response = await app.inject({ method: 'GET', url: '/' })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain(`<meta name="rhizomorph-capability" content="${app.capabilityToken}">`)
   })
 
   it('GET /lane/<handle> gets the app shell, cold, with no session events at all', async () => {

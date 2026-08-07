@@ -72,7 +72,7 @@ export function buildApp(ctx: ServerContext): FastifyInstance {
   registerApiRoutes(app, resolvedCtx)
 
   if (ctx.webDistDir && existsSync(ctx.webDistDir)) {
-    registerStaticRoute(app, ctx.webDistDir)
+    registerStaticRoute(app, ctx.webDistDir, capabilityToken)
   } else {
     console.warn(
       `[rhizomorph] web build not found${ctx.webDistDir ? ` at ${ctx.webDistDir}` : ''} — run \`${BUILD_COMMAND}\` to build the dashboard.`,

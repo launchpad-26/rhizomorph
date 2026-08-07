@@ -25,11 +25,20 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
  * **Never logged.** Nothing in this module calls `console.*`, nothing
  * writes it to a file, and nothing echoes it back in a response or an error
  * message — a token an attacker could read off a log line is not a secret.
- * A caller learns it exactly once, out of band, the same way today's `POST
- * /api/rotate` is only ever reachable from a human who already trusts the
- * process they're talking to; this module does not open a new channel for
- * handing it out, and closing that gap (so the dashboard itself can send it)
- * is the explicit follow-up named above.
+ *
+ * **Delivered in-band, in the page itself (#249).** The gap this module
+ * used to name here — the dashboard had no channel to learn the token at
+ * all, so `POST /api/label` 401ed on every boot — is closed: `server/
+ * static.ts` stamps the token into `index.html`'s `<head>` at serve time,
+ * and `packages/web/src/recordings/capability.ts` reads it back from there.
+ * That is a different exposure than a log line, and the record says so
+ * rather than overclaiming: anything that can read the DOM of the
+ * dashboard's own tab, or make its own loopback `GET /`, gets the token —
+ * this closes the "no browser at all" half of the threat model (another
+ * local process with no access to the page or the browser), not the half
+ * where an attacker already has some access to either.
+ * `docs/adr/0012-in-band-capability-token-delivery.md` has the full
+ * decision, the rejected alternative, and that consequence in detail.
  */
 
 /**

@@ -177,8 +177,9 @@ have carried no information.
 | [0009](0009-portable-hash-chained-record.md) | A session is one portable, hash-chained file — and there is no protocol | 2026-08-04 | accepted |
 | [0010](0010-adapter-capabilities-named-not-ranked.md) | Every collector declares what it cannot do; the ladder is named, not ranked | 2026-08-05 | accepted |
 | [0011](0011-recordings-never-rot.md) | Recordings never rot: lenient parse, reserved `upcast()`, golden era corpus | 2026-08-06 | accepted |
+| [0012](0012-in-band-capability-token-delivery.md) | Deliver the capability token in-band, via a `<meta>` tag in `index.html` | 2026-08-08 | accepted |
 
-Every record above was reconstructed on 2026-08-06 and says so in its Context.
+Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the
 decision itself is inferred from construction, while every rejected alternative
 is cited from code comments. **ADR-0008** deliberately excludes the SSE-vs-
