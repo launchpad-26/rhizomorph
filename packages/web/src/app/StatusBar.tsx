@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { CollectorState } from '@rhizomorph/core'
+import { selectConnection, type CollectorState, type SourceFlow } from '@rhizomorph/core'
 import { useFleet } from '../fleet/index.js'
 import { formatTokens } from '../lib/format.js'
 import { CONNECTION_DOT_CLASS, CONNECTION_LABEL } from './ConnectionBadge.js'
@@ -247,16 +247,18 @@ const SOURCE_LABEL: Record<SourceKey, string> = {
   otel: 'OTel',
 }
 
-type SourceHealth = 'live' | 'disabled' | 'errored'
+type SourceHealth = 'live' | 'waiting' | 'disabled' | 'errored'
 
 /**
  * Law 9: only `errored` is a real ladder rung here (`buildFleet` climbs an
  * errored collector to NOTICE), so only it may wear a ladder hue. `live` is
- * the calm, neutral ice register; `disabled` is the same muted mark the ice
- * ramp reserves for "absent" — an expected degrade, not an alarm.
+ * the calm, neutral ice register; `waiting` and `disabled` share the same
+ * muted mark the ice ramp reserves for "absent" — an unproven source is an
+ * expected degrade, same as a deliberately-off one, never an alarm.
  */
 const HEALTH_DOT_CLASS: Record<SourceHealth, string> = {
   live: 'bg-calm glow-calm',
+  waiting: 'bg-ice-700',
   disabled: 'bg-ice-700',
   errored: 'bg-notice glow-notice',
 }
@@ -266,9 +268,33 @@ interface SourceStatus {
   message: string | null
 }
 
-/** No `collector.*` event seen for a source yet — that silence *is* "live". */
-function sourceStatus(collector: CollectorState | undefined): SourceStatus {
-  if (collector === undefined) return { health: 'live', message: null }
+/**
+ * prd19 ruling 4 — SILENCE IS NEVER LIVE. The rule this replaces, kept here
+ * verbatim for the record because it is the exact lie ruling 4 exists to
+ * kill: "No `collector.*` event seen for a source yet — that silence *is*
+ * 'live'." A never-connected OTel receiver wore the same calm dot as a
+ * healthy one, and a stranger who started the server had no way to learn
+ * that nothing had ever arrived.
+ *
+ * `live` now requires PROOF: a folded record `selectConnection` (#251) can
+ * point at, over the same folded state every other panel reads. No collector
+ * record *and* no flow renders `waiting` ("no data yet") — a muted dot, the
+ * same visual weight `disabled` already wears, because a source that has
+ * proved nothing yet is an expected degrade, never an alarm. This is honest
+ * rather than alarmist on purpose: an OTel exporter's first batch can lag the
+ * transcript by an export interval, so "waiting" is the correct reading for
+ * a source that is merely quiet, not necessarily broken (#258 owns whether a
+ * consumer should weigh elapsed time before calling it anything stronger).
+ *
+ * A collector record is still the stronger fact and wins outright, exactly as
+ * before this ruling — this only changes what "no record at all" defaults to.
+ */
+function sourceStatus(collector: CollectorState | undefined, flow: SourceFlow): SourceStatus {
+  if (collector === undefined) {
+    return flow.firstEventTs === null
+      ? { health: 'waiting', message: 'no data yet' }
+      : { health: 'live', message: null }
+  }
   if (collector.status === 'disabled') {
     return { health: 'disabled', message: collector.disabledReason }
   }
@@ -295,6 +321,11 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
   )
   const sessionVoice = useSessionVoice(bootFacts)
 
+  // prd19 ruling 4's proof: one pass over the same fold every other panel
+  // reads, so live view, replay and fixtures cannot disagree about which
+  // sources have proved flow.
+  const connection = useMemo(() => selectConnection(session), [session])
+
   // Law 12: WHAT is missing → WHY it matters → THE command. Only the dead
   // (disabled) collectors speak here; a merely errored one already reads
   // `errored` in the pill above and has escalated to the strip separately.
@@ -305,7 +336,7 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
       <div className="flex h-6 items-center gap-4">
         <span className="text-[10px] uppercase tracking-widest text-ice-400">Sources</span>
         {SOURCES.map((source) => {
-          const { health, message } = sourceStatus(session.collectors[source])
+          const { health, message } = sourceStatus(session.collectors[source], connection[source])
           const label = SOURCE_LABEL[source]
           const description =
             message === null ? `${label}: ${health}` : `${label}: ${health} — ${message}`
