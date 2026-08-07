@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir, userInfo } from 'node:os'
 import path from 'node:path'
 import { createEventFactory, eventsToJsonl, type RhizomorphEvent } from '@rhizomorph/core'
@@ -105,10 +105,44 @@ describe('runExportRecord', () => {
       /refusing to write.*inside the watched repo/is,
     )
   })
+
+  it('refuses to overwrite an existing --out file, naming --force', async () => {
+    const sessionDir = sessionDirFor(repoPath, dataRoot)
+    await writeSessionFile(sessionDir, 1000, sessionEvents(1000, '1000'))
+    const customOut = path.join(dataRoot, 'custom', 'my-record.json')
+    await mkdir(path.dirname(customOut), { recursive: true })
+    await writeFile(customOut, 'pre-existing', 'utf8')
+
+    await expect(runExportRecord({ repoPath, dataRoot, out: customOut })).rejects.toThrow(
+      /refusing to overwrite.*--force/is,
+    )
+    expect(await readFile(customOut, 'utf8')).toBe('pre-existing')
+  })
+
+  it('--force overwrites an existing --out file', async () => {
+    const sessionDir = sessionDirFor(repoPath, dataRoot)
+    await writeSessionFile(sessionDir, 1000, sessionEvents(1000, '1000'))
+    const customOut = path.join(dataRoot, 'custom', 'my-record.json')
+    await mkdir(path.dirname(customOut), { recursive: true })
+    await writeFile(customOut, 'pre-existing', 'utf8')
+
+    const { outPath, record } = await runExportRecord({ repoPath, dataRoot, out: customOut, force: true })
+
+    expect(outPath).toBe(customOut)
+    expect(verifyRecord(record)).toEqual({ ok: true })
+    expect(await readFile(customOut, 'utf8')).not.toBe('pre-existing')
+  })
 })
 
 describe('parseExportRecordArgs', () => {
-  const exportDefaults = { path: undefined, sessionId: undefined, out: undefined, handle: undefined, help: false }
+  const exportDefaults = {
+    path: undefined,
+    sessionId: undefined,
+    out: undefined,
+    handle: undefined,
+    force: false,
+    help: false,
+  }
 
   it('defaults everything to undefined', () => {
     expect(parseExportRecordArgs([])).toEqual(exportDefaults)
@@ -133,6 +167,10 @@ describe('parseExportRecordArgs', () => {
     expect(parseExportRecordArgs(['--handle', 'alice'])).toEqual({ ...exportDefaults, handle: 'alice' })
   })
 
+  it('parses --force', () => {
+    expect(parseExportRecordArgs(['--force'])).toEqual({ ...exportDefaults, force: true })
+  })
+
   it('throws on an empty --session value', () => {
     expect(() => parseExportRecordArgs(['--session', ''])).toThrow(/invalid --session/)
   })
@@ -148,12 +186,13 @@ describe('parseExportRecordArgs', () => {
 })
 
 describe('exportRecordHelpText', () => {
-  it('documents path, --session, --out, --handle and --help', () => {
+  it('documents path, --session, --out, --handle, --force and --help', () => {
     const text = exportRecordHelpText()
     expect(text).toContain('rhizomorph export-record')
     expect(text).toContain('--session')
     expect(text).toContain('--out')
     expect(text).toContain('--handle')
+    expect(text).toContain('--force')
     expect(text).toContain('--help')
   })
 })

@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, stat, writeFile } from 'node:fs/promises'
 import { userInfo } from 'node:os'
 import path from 'node:path'
 import { buildRecord, type Actor, type SessionRecord } from '@rhizomorph/core/src/record/index.js'
@@ -17,6 +17,8 @@ export interface ExportRecordOptions {
   out?: string
   /** Human-declared actor name; defaults to the OS username, marked `declared: false`. */
   handle?: string
+  /** Overwrite `outPath` if it already exists; default is to refuse. */
+  force?: boolean
 }
 
 export interface ExportRecordResult {
@@ -33,6 +35,8 @@ export interface ExportRecordArgs {
   out: string | undefined
   /** Human-declared actor name; defaults to the OS username, marked `declared: false`. */
   handle: string | undefined
+  /** Overwrite an existing `--out` file instead of refusing. */
+  force: boolean
   help: boolean
 }
 
@@ -53,23 +57,26 @@ Options:
   --session <id>          Session id to export (default: the most recently recorded session)
   --out <file>            Output file path (default: alongside the session logs)
   --handle <name>         Human-declared actor name (default: the OS username, marked undeclared)
+  --force                 Overwrite --out if it already exists (default: refuse)
   --help, -h              Show this help and exit
 `
 }
 
 export function parseExportRecordArgs(argv: readonly string[]): ExportRecordArgs {
   if (argv.includes('--help') || argv.includes('-h')) {
-    return { path: undefined, sessionId: undefined, out: undefined, handle: undefined, help: true }
+    return { path: undefined, sessionId: undefined, out: undefined, handle: undefined, force: false, help: true }
   }
 
   let sessionArg: string | undefined
   let outArg: string | undefined
   let handleArg: string | undefined
+  let force = false
 
   const specs: FlagSpec[] = [
     { flag: '--session', read: (v) => { sessionArg = v } },
     { flag: '--out', read: (v) => { outArg = v } },
     { flag: '--handle', read: (v) => { handleArg = v } },
+    { flag: '--force', boolean: true, read: () => { force = true } },
   ]
 
   const positionals = parseFlags(argv, specs)
@@ -85,7 +92,7 @@ export function parseExportRecordArgs(argv: readonly string[]): ExportRecordArgs
     throw new Error('invalid --handle value: (must be a non-empty name)')
   }
 
-  return { path, sessionId: sessionArg, out: outArg, handle: handleArg, help: false }
+  return { path, sessionId: sessionArg, out: outArg, handle: handleArg, force, help: false }
 }
 
 /** `os.userInfo()` can throw when the process has no passwd entry (some minimal containers) — an honest fallback, not a crash. */
@@ -109,7 +116,10 @@ function resolveActor(handle: string | undefined): Actor {
  * logs themselves already keep. `sessionId` defaults to the most recently
  * recorded session for this repo; `--out` may point anywhere except inside
  * `repoPath`, which would break the "export never touches the watched repo"
- * law, so that case is refused rather than silently allowed.
+ * law, so that case is refused rather than silently allowed. Separately, an
+ * existing file at `outPath` is refused unless `force` is set — this is a
+ * one-shot, non-interactive command, so refuse-by-default stands in for a
+ * confirmation prompt rather than silently overwriting.
  */
 export async function runExportRecord(options: ExportRecordOptions): Promise<ExportRecordResult> {
   const dataRoot = options.dataRoot ?? defaultDataRoot()
@@ -147,6 +157,13 @@ export async function runExportRecord(options: ExportRecordOptions): Promise<Exp
     throw new Error(
       `refusing to write the record inside the watched repo (${outPath}) — pass --out with a path outside ${repoPathResolved}`,
     )
+  }
+
+  if (options.force !== true) {
+    const exists = await stat(outPath).then(() => true, () => false)
+    if (exists) {
+      throw new Error(`refusing to overwrite existing file (${outPath}) — pass --force to overwrite`)
+    }
   }
 
   await mkdir(path.dirname(outPath), { recursive: true })
@@ -190,6 +207,7 @@ export async function runExportRecordCommand(
       sessionId: args.sessionId,
       out: args.out,
       handle: args.handle,
+      force: args.force,
     })
     const declared = record.manifest.actor.declared ? '' : ' (undeclared)'
     log.log(
