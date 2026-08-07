@@ -167,8 +167,8 @@ describe('the staged-pathology fixture', () => {
  * Issue #226 — kept out of the staged-pathology fixture above on purpose:
  * this package's `StreamContext`, `FleetContext`, scene, geometry and marks
  * tests all pin that fixture's exact lane count, so growing it to cover these
- * two regressions would make every one of those a casualty of a fix that has
- * nothing to do with them.
+ * three regressions would make every one of those a casualty of a fix that
+ * has nothing to do with them.
  */
 describe('off-fence honesty (issue #226)', () => {
   const fleet = fleetFor(offFenceHonestySpec())
@@ -206,8 +206,18 @@ describe('off-fence honesty (issue #226)', () => {
     expect(kindsFor(fleet, '62-pane-died-offence')).toEqual(['off-fence'])
     expect(isTerminalDone(lane)).toBe(true)
     expect(evidenceFor(fleet, '62-pane-died-offence', 'off-fence')).toContain(
-      'packages/web/src/panels/attention/lockfile-churn.ts',
+      'packages/web/src/panels/attention/churn-neighbour.ts',
     )
+  })
+
+  // A second verify pass caught this fixture staging a needs-you collision
+  // of its own: 62's trespass originally landed on 60's own committed file,
+  // so both lanes touched the same path and `selectCollisions` (correctly)
+  // flagged it — pollution unrelated to #226. The trespass now sits on a
+  // neighbour inside 60's fence instead (60 never touches it), which is all
+  // a named victim requires; this pins it against regressing silently.
+  it('stages no collisions of its own — only #226 facts, nothing incidental', () => {
+    expect(fleet.collisions).toEqual([])
   })
 })
 

@@ -247,9 +247,12 @@ describe('FleetTable — the staged-pathology fixture', () => {
   })
 
   // Issue #226, defect 3: a dead pane whose lane committed everything and left
-  // a clean worktree must read DONE, and the hover must say which kind of
-  // finish this was rather than a bare, unexplained word.
-  it('reads a dead pane that committed clean work as DONE, and says which kind of finish it was', async () => {
+  // a clean worktree must read done, and the hover must say which kind of
+  // finish this was rather than a bare, unexplained word. No pathology here,
+  // so the finish is said once — by the sigil word alone — and the separate
+  // terminal-done MARK (reserved for a lane that also carries an alarm; see
+  // the combined test below) must not double it up.
+  it('reads a dead pane that committed clean work as done, and says which kind of finish it was', async () => {
     await renderSyntheticFleet(offFenceHonestySpec())
 
     const row = rows().find((r) => r.getAttribute('data-lane') === '61-pane-died-clean') as HTMLElement
@@ -257,30 +260,38 @@ describe('FleetTable — the staged-pathology fixture', () => {
     expect(row.textContent).toContain('done')
     const stateCell = row.querySelectorAll('td')[1] as HTMLElement
     expect(stateCell.getAttribute('title')).toMatch(/pane likely died/)
+    // Not load-bearing without this: `showsTerminalDoneMark`'s own
+    // `worstPathology(lane) !== null` guard is what keeps a plain terminal-done
+    // lane (no alarm at all) from rendering the mark a second time.
+    expect(stateCell.querySelector('[data-testid="terminal-done-mark"]')).toBeNull()
   })
 
   // The gap verify caught: a lane can carry a live pathology AND be
   // terminal-done at once. The alarm sigil must not be swallowed by the
   // finish (still reads OFF-FENCE), and the finish must not be swallowed by
-  // the alarm (a DONE mark and the hover both still say the pane is gone,
+  // the alarm (the done mark and the hover both still say the pane is gone,
   // beside the trespassed path).
-  it('shows OFF-FENCE and a DONE mark together for a lane that is both, and names both facts on hover', async () => {
+  it('shows OFF-FENCE and a done mark together for a lane that is both, and names both facts on hover', async () => {
     await renderSyntheticFleet(offFenceHonestySpec())
 
     const row = rows().find((r) => r.getAttribute('data-lane') === '62-pane-died-offence') as HTMLElement
     const stateCell = row.querySelectorAll('td')[1] as HTMLElement
 
-    // The sigil word is still the alarm, never quietly replaced by DONE.
+    // The sigil word is still the alarm, never quietly replaced by done.
     const svg = stateCell.querySelector('svg[data-sigil]')
     expect(svg?.getAttribute('data-sigil')).toBe('off-fence')
     expect(stateCell.textContent).toContain('OFF-FENCE')
 
-    // The finish still gets said, as its own mark beside the alarm word.
-    expect(stateCell.textContent).toContain('DONE')
+    // The finish still gets said, as its own mark beside the alarm word —
+    // asserted by testid, not by text, since the mark's own text ("done") is
+    // otherwise indistinguishable from a plain DONE sigil word.
+    const mark = stateCell.querySelector('[data-testid="terminal-done-mark"]')
+    expect(mark).not.toBeNull()
+    expect(mark?.textContent).toBe('done')
 
     // And the hover carries both facts — the trespassed path and the finish.
     const title = stateCell.getAttribute('title') ?? ''
-    expect(title).toContain('packages/web/src/panels/attention/lockfile-churn.ts')
+    expect(title).toContain('packages/web/src/panels/attention/churn-neighbour.ts')
     expect(title).toMatch(/pane likely died/)
   })
 })

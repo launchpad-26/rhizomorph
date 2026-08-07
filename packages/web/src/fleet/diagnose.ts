@@ -136,6 +136,15 @@ export function isTerminalDone(lane: Lane): boolean {
   return lane.dirtyCount === 0 && lane.aheadOfMain > 0
 }
 
+// A WAITING lane can also read terminal-done (a pane dying right at a
+// confirmation prompt, clean and ahead of main, is the same shape). The
+// voice in `panels/fleet` already composes it the same way it composes with
+// OFF-FENCE — `stateTitle` appends `terminalDoneTitle()` regardless of which
+// pathology is worst — so nothing here special-cases it; left unaddressed
+// only in the sense that no fixture yet exercises that specific pair, and no
+// ruling has said whether WAITING should behave any differently once a human
+// answer can no longer possibly land.
+
 /**
  * WAITING — stopped with its hand up. **Certain** when workmux declared it;
  * otherwise inferred from a quiet lane whose pane is still moving, and marked

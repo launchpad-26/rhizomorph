@@ -277,14 +277,14 @@ export function pathologySpec(): FixtureSpec {
 // ── fixture 4: off-fence honesty regressions (issue #226) ──────────────────
 
 /**
- * Two lanes, kept out of {@link pathologySpec} on purpose: that fixture's lane
- * count is pinned by tests all over this package (`StreamContext`,
+ * Three lanes, kept out of {@link pathologySpec} on purpose: that fixture's
+ * lane count is pinned by tests all over this package (`StreamContext`,
  * `FleetContext`, the scene, its geometry, its marks), so growing it here
  * would make every one of those a casualty of a change that has nothing to do
  * with them. This fixture is `pathologySpec`'s own shape — one lane per fact
- * being pinned, healthy neighbours are unnecessary because neither fact here
- * is EXPENSIVE's relative kind — reserved for the false readings issue #226
- * reported.
+ * being pinned, healthy neighbours are unnecessary because none of these
+ * facts is EXPENSIVE's relative kind — reserved for the false readings issue
+ * #226 reported.
  */
 let offFenceHonestySingleton: FixtureSpec | null = null
 
@@ -320,8 +320,12 @@ export function offFenceHonestySpec(): FixtureSpec {
         weight: 1,
         touches: [
           'packages/server/src/cli/offence/pane-died-offence.ts',
-          // 60's own fence claims this path — a named victim, not a bare count.
-          'packages/web/src/panels/attention/lockfile-churn.ts',
+          // 60's FENCE claims this path (it sits under its area), which is
+          // all a named victim needs — same pattern as 45 trespassing
+          // spend-subrows.ts while 46's own file is spend-selectors.ts. It
+          // must NOT be a file 60 itself touches, or the fixture stages a
+          // collision that has nothing to do with #226 (verify's finding).
+          'packages/web/src/panels/attention/churn-neighbour.ts',
         ],
       }),
     ],

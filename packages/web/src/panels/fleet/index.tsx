@@ -31,6 +31,7 @@ import {
   showsTerminalDoneMark,
   stateSigilKind,
   stateTitle,
+  terminalDoneTitle,
   threadShort,
   threadsCellTitle,
 } from './format.js'
@@ -263,11 +264,14 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
           <span className="figures ml-1 text-[10px] text-ice-400">+{lane.pathologies.length - 1}</span>
         ) : null}
         {showsTerminalDoneMark(lane) ? (
-          <span
-            className="ml-1 text-[10px] text-done"
-            title="worktree clean and ahead of main — the pane likely died right after its last commit landed"
-          >
-            DONE
+          // Lowercase, matching SIGIL_WORD's own register (pathologies shout,
+          // calm/finished states don't) — a finish must not read as loud as
+          // the alarm sitting right beside it. `data-testid` because its own
+          // text ("done") is otherwise indistinguishable from the sigil
+          // word's — the mark only appears beside an alarm; a plain DONE
+          // lane already says so via the sigil word alone.
+          <span className="ml-1 text-[10px] text-done" title={terminalDoneTitle()} data-testid="terminal-done-mark">
+            done
           </span>
         ) : null}
       </td>
