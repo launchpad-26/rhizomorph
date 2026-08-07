@@ -1,9 +1,18 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { CAPABILITY_META_NAME } from './capability.js'
 import { RenameControl } from './RenameControl.js'
 import type { LabelFetchLike } from './label.js'
 
 afterEach(cleanup)
+
+/** Stands in for what `server/static.ts` stamps into `index.html` on a real boot (#249). */
+beforeAll(() => {
+  const meta = document.createElement('meta')
+  meta.setAttribute('name', CAPABILITY_META_NAME)
+  meta.setAttribute('content', 'test-capability-token')
+  document.head.appendChild(meta)
+})
 
 function answering(payload: unknown, status = 200): LabelFetchLike {
   return async () => ({ ok: status >= 200 && status < 300, status, json: async () => payload })

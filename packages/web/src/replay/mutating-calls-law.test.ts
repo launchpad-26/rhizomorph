@@ -154,23 +154,44 @@ describe('the web app names exactly two mutating calls (prd16 rulings 2 and 4)',
    * `label.ts` genuinely has something to say (which session, and what to
    * call it), unlike rotation — so it structurally cannot follow "no body at
    * all". What it must still never do is smuggle a credential or grow past
-   * the one header a JSON body needs the server's own parser to see it: the
-   * check names exactly the shape allowed rather than merely "some body,
-   * somehow", so a stray header or a widened payload fails here too.
+   * the two headers this call needs: the JSON body's own `Content-Type`,
+   * and — since #249 delivered a channel for it — the per-process capability
+   * token the server requires. AMENDED for #249: this pinned exactly one
+   * header until the token had nowhere to travel; the fence for that change
+   * (`docs/adr/`) is that this amendment lands in its own reviewable commit,
+   * never folded silently into the feature that needed it. The check still
+   * names exactly the shape allowed rather than merely "some body, somehow",
+   * so a stray header or a widened payload fails here too.
    */
-  it("label.ts's body carries only sessionId and label, behind the one header JSON requires, no credential", () => {
+  it("label.ts's body carries only sessionId and label, behind exactly the two headers the mutating call needs, no credential", () => {
     const text = readFileSync(path.join(WEB_SRC, 'recordings', 'label.ts'), 'utf8')
     expect(text).not.toMatch(/FormData|URLSearchParams|new Request\(/)
     expect(text).not.toMatch(/apiKey|api_key|ANTHROPIC_API_KEY|Authorization|Bearer\s/i)
     expect(text).not.toMatch(/credentials\s*:/)
 
     // Two occurrences are expected — the narrow fetch type's own shape and the
-    // one real call site — and both must name the identical single header.
+    // one real call site — and each must name exactly this fixed header set,
+    // nothing more and nothing less (a stray third header, or dropping back
+    // to one, fails here).
+    const ALLOWED_HEADER_NAMES = ['Content-Type', 'x-rhizomorph-capability']
     const headerBlocks = [...text.matchAll(/headers\s*:\s*\{([^}]*)\}/g)]
     expect(headerBlocks.length).toBeGreaterThan(0)
+
+    const namesSeen = new Set<string>()
     for (const block of headerBlocks) {
-      expect(block[1]?.replace(/\s/g, '')).toBe("'Content-Type':'application/json'")
+      const names = [...(block[1] ?? '').matchAll(/'([^']+)'\s*:/g)].map((match) => match[1])
+      expect(names.length).toBeGreaterThan(0)
+      for (const name of names) {
+        expect(ALLOWED_HEADER_NAMES, `${name} is not one of the two headers this call is allowed to send`).toContain(
+          name,
+        )
+        if (name !== undefined) namesSeen.add(name)
+      }
     }
+    // Both allowed headers actually appear somewhere — a block missing the
+    // capability header entirely (the pre-#249 shape) fails this, not just a
+    // block naming an extra one.
+    expect([...namesSeen].sort()).toEqual([...ALLOWED_HEADER_NAMES].sort())
 
     expect(text).toMatch(/body\s*:\s*JSON\.stringify\(\{\s*sessionId,\s*label\s*\}\)/)
   })

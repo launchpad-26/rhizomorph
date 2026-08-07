@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { CAPABILITY_META_NAME } from './capability.js'
 import { LABEL_URL, requestLabel, type LabelFetchLike } from './label.js'
 
 /**
@@ -8,19 +9,29 @@ import { LABEL_URL, requestLabel, type LabelFetchLike } from './label.js'
  * the old title.
  */
 
+const TEST_TOKEN = 'test-capability-token'
+
+/** Stands in for what `server/static.ts` stamps into `index.html` on a real boot (#249). */
+beforeAll(() => {
+  const meta = document.createElement('meta')
+  meta.setAttribute('name', CAPABILITY_META_NAME)
+  meta.setAttribute('content', TEST_TOKEN)
+  document.head.appendChild(meta)
+})
+
 function answering(payload: unknown, status = 200): LabelFetchLike {
   return async () => ({ ok: status >= 200 && status < 300, status, json: async () => payload })
 }
 
 describe('requestLabel', () => {
-  it('asks the one route, with the one verb, a JSON body naming sessionId and label', async () => {
+  it('asks the one route, with the one verb, a JSON body naming sessionId and label, and the capability header', async () => {
     const fetchImpl = vi.fn(answering({ sessionId: '1000', label: 'the morning run' }))
 
     const outcome = await requestLabel('1000', 'the morning run', fetchImpl)
 
     expect(fetchImpl).toHaveBeenCalledWith(LABEL_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-rhizomorph-capability': TEST_TOKEN },
       body: JSON.stringify({ sessionId: '1000', label: 'the morning run' }),
     })
     expect(outcome).toEqual({ sessionId: '1000', label: 'the morning run' })
@@ -51,6 +62,20 @@ describe('requestLabel', () => {
       await expect(requestLabel('1000', 'x', answering(payload))).rejects.toThrow(
         'the instrument answered something other than a saved label',
       )
+    }
+  })
+
+  it('refuses to save without ever calling fetch, when the page has no capability token (#249)', async () => {
+    const meta = document.querySelector(`meta[name="${CAPABILITY_META_NAME}"]`)
+    meta?.remove()
+    try {
+      const fetchImpl = vi.fn(answering({ sessionId: '1000', label: 'x' }))
+      await expect(requestLabel('1000', 'x', fetchImpl)).rejects.toThrow(
+        'no capability token found on this page — cannot save the label',
+      )
+      expect(fetchImpl).not.toHaveBeenCalled()
+    } finally {
+      if (meta) document.head.appendChild(meta)
     }
   })
 })

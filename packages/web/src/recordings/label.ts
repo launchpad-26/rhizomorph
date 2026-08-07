@@ -17,6 +17,8 @@
  * all" rule for a call that structurally cannot follow it.
  */
 
+import { CAPABILITY_TOKEN_HEADER, readCapabilityToken } from './capability.js'
+
 export const LABEL_URL = '/api/label'
 
 export interface LabelOutcome {
@@ -26,14 +28,20 @@ export interface LabelOutcome {
 
 /**
  * The narrowest shape this module needs of `fetch`: one url, one init naming
- * the verb, the one header the JSON body requires, and the body itself.
- * Deliberately not `typeof fetch` — a test injecting this cannot accidentally
- * be handed a way to smuggle credentials, because the type has nowhere to
- * put them.
+ * the verb, the two headers a mutating call needs — the JSON body's own
+ * `Content-Type`, and (since #249) the per-process capability token the
+ * server requires and now actually delivers (`recordings/capability.ts`) —
+ * and the body itself. Deliberately not `typeof fetch` — a test injecting
+ * this cannot accidentally be handed a way to smuggle a credential, because
+ * the type has nowhere to put one beyond these two named headers.
  */
 export type LabelFetchLike = (
   input: string,
-  init: { method: 'POST'; headers: { 'Content-Type': 'application/json' }; body: string },
+  init: {
+    method: 'POST'
+    headers: { 'Content-Type': 'application/json'; 'x-rhizomorph-capability': string }
+    body: string
+  },
 ) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -74,11 +82,16 @@ export async function requestLabel(
   const impl = fetchImpl ?? (globalThis.fetch as unknown as LabelFetchLike | undefined)
   if (impl === undefined) throw new Error('this browser has no fetch — cannot save the label from here')
 
+  const capabilityToken = readCapabilityToken()
+  if (capabilityToken === null) {
+    throw new Error('no capability token found on this page — cannot save the label')
+  }
+
   let response: Awaited<ReturnType<LabelFetchLike>>
   try {
     response = await impl(LABEL_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', [CAPABILITY_TOKEN_HEADER]: capabilityToken },
       body: JSON.stringify({ sessionId, label }),
     })
   } catch (err) {
