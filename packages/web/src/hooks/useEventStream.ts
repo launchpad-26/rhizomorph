@@ -157,7 +157,6 @@ export function useEventStream<S>(
     }
     // Re-subscribing on every `reduce`/`createSource` identity change would
     // reopen the connection for no reason; only a new URL should do that.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url])
 
   return { state, status }
