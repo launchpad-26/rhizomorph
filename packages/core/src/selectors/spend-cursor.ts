@@ -512,20 +512,47 @@ function applySeeds(target: SpendAccumulation, state: SessionState, grouping: Sp
 }
 
 /**
- * The next position to stop at when catching up a long way: `interval` records
- * further on, spread across the three slices in proportion to what each still
- * owes, so the stop is a position a later backward scrub can actually start
- * from (all three slices moved). `target` itself once the rest fits in one
- * chunk.
+ * The next position to stop at when catching up a long way: **exactly**
+ * `interval` records further on, spread across the three slices in proportion to
+ * what each still owes, so the stop is a position a later backward scrub can
+ * actually start from (all three slices moved). `target` itself once the rest
+ * fits in one chunk.
+ *
+ * The allocation is floors plus a largest-remainder pass rather than three
+ * independent `Math.ceil`s. Three ceilings each round up by almost a whole
+ * record, so the naive spelling could step 502 records at a time and quietly
+ * falsify the "at most `interval`" bound this file documents. This lands on
+ * `interval` on the nose, which is what makes that bound a fact rather than an
+ * approximation — `spend-cursor.test.ts` asserts the stride.
  */
 function chunkEnd(from: SpendPosition, target: SpendPosition, interval: number): SpendPosition {
-  const remaining = totalRecords(target) - totalRecords(from)
+  const owed = [target.usage - from.usage, target.costs - from.costs, target.tools - from.tools]
+  const remaining = owed[0]! + owed[1]! + owed[2]!
   if (remaining <= interval) return target
-  const share = interval / remaining
+
+  const take = owed.map((slice) => Math.floor((slice * interval) / remaining))
+  let allocated = take[0]! + take[1]! + take[2]!
+  // Hand the rounding remainder out a record at a time, to whichever slice is
+  // furthest behind its share. Always terminates having allocated exactly
+  // `interval`, since `remaining > interval` means some slice still owes one.
+  while (allocated < interval) {
+    let best = 0
+    let bestShortfall = -1
+    for (let slice = 0; slice < 3; slice += 1) {
+      const shortfall = owed[slice]! - take[slice]!
+      if (shortfall > bestShortfall) {
+        bestShortfall = shortfall
+        best = slice
+      }
+    }
+    take[best] = take[best]! + 1
+    allocated += 1
+  }
+
   return {
-    usage: from.usage + Math.ceil((target.usage - from.usage) * share),
-    costs: from.costs + Math.ceil((target.costs - from.costs) * share),
-    tools: from.tools + Math.ceil((target.tools - from.tools) * share),
+    usage: from.usage + take[0]!,
+    costs: from.costs + take[1]!,
+    tools: from.tools + take[2]!,
   }
 }
 
@@ -637,17 +664,15 @@ export function groupSpendBy(
 
 /**
  * What a position is checked against before it is continued from: the identity
- * of the last record consumed from each slice (`eventId`, which every record
- * carries and no two events share), plus a fingerprint of the session place
- * table.
+ * of the last record consumed from each slice (`eventId`), a fingerprint of the
+ * session place table, and which recording the whole thing is a position into.
  *
  * The marks are what makes a position safe to trust across the fresh state
  * objects a seek folds: the cursor does not assume the state it is handed
- * continues the one it last read, it *checks* that the record still sitting at
- * its position is the record it consumed. A mismatch (a shorter prefix from a
- * backward scrub, or another session entirely) falls back to a keyframe or to
- * zero rather than reporting a total built from records that are no longer
- * there.
+ * continues the one it last read, it *checks* it. A mismatch (a shorter prefix
+ * from a backward scrub, a rewritten record, another recording entirely) falls
+ * back to a keyframe or to zero rather than reporting a total built from records
+ * that are no longer there.
  *
  * **`places` exists because the fold does not only append.** When a session
  * finally learns where it was running, `reduce.ts`'s `placeCosts` (`:957`) goes
@@ -656,11 +681,20 @@ export function groupSpendBy(
  * `llm.cost` carries no cwd. Those are records a cursor may already have
  * counted under a different branch, and neither the array length nor the
  * `eventId` at the position changes when it happens. So the marks carry the
- * place table's own content, and any change to it sends the cursor back to a
- * keyframe. It is `sessionId -> (worktreePath, branch)` and nothing else:
+ * place table's own content, and any change to it sends the cursor back. It is
+ * `sessionId -> (worktreePath, branch)` and nothing else:
  * `SessionPlace.lastSeenAt` moves on every telemetry event and would make this
  * fingerprint change constantly, while the place itself only ever fills in
  * nulls (`placeMoved`, `reduce.ts:909`) — a handful of times per session.
+ *
+ * **`recording` exists because record ids are not globally unique.**
+ * `createIdFactory` (`events/index.ts:373`) documents its own guarantee: ids are
+ * "unique within a session, which is all the log needs". Two recordings of the
+ * same repo therefore both carry `evt-000001` at position 0, with the same
+ * lanes, request ids, places and timestamps if they were produced the same way —
+ * and replay's session picker exists to switch between exactly those. Without
+ * this field a cursor handed the second recording finds every other mark intact,
+ * continues, and reports the *first* recording's dollars.
  */
 export interface SpendMarks {
   usage: string | null
@@ -668,6 +702,8 @@ export interface SpendMarks {
   tools: string | null
   /** `sessionId|worktreePath|branch` per session, sorted. See above. */
   places: string
+  /** The recording's own identity — `session.started`'s facts. See above. */
+  recording: string
 }
 
 function markOf(records: readonly { eventId: string }[], position: number): string | null {
@@ -687,28 +723,69 @@ function placesOf(state: SessionState): string {
   return parts.sort(compareStrings).join('\n')
 }
 
-function marksOf(state: SessionState, position: SpendPosition): SpendMarks {
+/**
+ * Which recording this state is a fold of — `session.started`'s own facts, which
+ * is the only recording-scoped identity the state carries. `O(1)`.
+ *
+ * A log with no `session.started` line has no identity to read, and two such
+ * logs are genuinely indistinguishable here; `firstEventTs` rides along so that
+ * two of them still differ whenever their first event does. That is a real
+ * residual, and it is the same one the record format has: nothing in a
+ * `session.started`-less log says which recording it is.
+ */
+function recordingOf(state: SessionState): string {
+  const session = state.session
+  if (session === null) return `-|${state.firstEventTs ?? ''}`
+  return `${session.sessionId}|${session.repoPath}|${session.startedAt}|${state.firstEventTs ?? ''}`
+}
+
+/**
+ * The two whole-state fingerprints, read once per advance rather than once per
+ * keyframe. Both are `O(1)` or `O(sessions)`; neither grows with the telemetry
+ * history, and neither reads a telemetry record.
+ */
+interface StateIdentity {
+  places: string
+  recording: string
+}
+
+function identityOf(state: SessionState): StateIdentity {
+  return { places: placesOf(state), recording: recordingOf(state) }
+}
+
+function marksOf(state: SessionState, position: SpendPosition, identity: StateIdentity): SpendMarks {
   return {
     usage: markOf(state.telemetry.usage, position.usage),
     costs: markOf(state.telemetry.costs, position.costs),
     tools: markOf(state.telemetry.tools, position.tools),
-    places: placesOf(state),
+    places: identity.places,
+    recording: identity.recording,
   }
 }
 
-function marksMatch(state: SessionState, position: SpendPosition, marks: SpendMarks): boolean {
+/**
+ * Whether `position` is still a position into `state`. Takes the state's
+ * identity already computed, so a caller checking several candidates pays for
+ * the fingerprints once: this is three record reads and four string compares,
+ * `O(1)`, whatever the history's length.
+ */
+function marksMatch(
+  state: SessionState,
+  position: SpendPosition,
+  marks: SpendMarks,
+  identity: StateIdentity,
+): boolean {
   // Nothing consumed is nothing to invalidate: a cursor at the origin continues
-  // into any state at all, and its empty {@link SpendMarks.places} is not a
-  // claim about that state.
+  // into any state at all, and its empty marks are not a claim about that state.
   if (totalRecords(position) === 0) return true
+  if (identity.recording !== marks.recording || identity.places !== marks.places) return false
   const { usage, costs, tools } = state.telemetry
   if (position.usage > usage.length || position.costs > costs.length || position.tools > tools.length)
     return false
   return (
     markOf(usage, position.usage) === marks.usage &&
     markOf(costs, position.costs) === marks.costs &&
-    markOf(tools, position.tools) === marks.tools &&
-    placesOf(state) === marks.places
+    markOf(tools, position.tools) === marks.tools
   )
 }
 
@@ -758,13 +835,28 @@ export interface SpendCursor<T> {
   /** The answer at {@link position} — `selectX`'s own return shape. */
   readonly value: T
   /**
-   * Records this advance walked. **The complexity law's oracle:** advancing to
-   * a longer prefix reads this many records, and a rescan would read
-   * {@link SpendPosition}'s whole total instead. Counted in the pass itself,
-   * never derived from the positions.
+   * Telemetry records this advance accumulated. **The complexity law's oracle:**
+   * advancing to a longer prefix reads this many records, and a rescan would
+   * read {@link SpendPosition}'s whole total instead. Counted inside the pass,
+   * once per record examined, never derived from the positions.
+   *
+   * **What it does not count, stated exactly.** An advance also does a fixed
+   * amount of work that is not a record walk, and none of it grows with the
+   * history: one place-table fingerprint (`O(sessions)`, and the session count
+   * stays flat while records grow — prd21's own amplification held it constant
+   * from 466 events to 25,000), one recording fingerprint (`O(1)`), one binary
+   * search over the retained keyframes (`O(log k)`), at most two mark checks of
+   * three record reads each (`O(1)`), one `O(groups)` copy of the accumulator
+   * and one `O(groups)` finalise. So an advance is `O(records appended) +
+   * O(groups) + O(sessions) + O(log k)`, and this field is the first term — the
+   * only one that would otherwise grow with the session.
    */
   readonly visited: number
-  /** Every record this cursor's lineage has walked, rewinds included. */
+  /**
+   * Every record this cursor's lineage has accumulated, rewinds included — a
+   * running total that only ever goes up, so re-reading records after a backward
+   * scrub is counted rather than forgiven.
+   */
   readonly visitedTotal: number
   /** True when this advance could not continue and re-accumulated from a keyframe or from zero. */
   readonly rewound: boolean
@@ -776,6 +868,7 @@ export interface SpendCursor<T> {
 
 /** A cursor before any record — `selectX` of an empty session. */
 export function spendCursor<T>(spec: SpendCursorSpec<T>): SpendCursor<T> {
+  assertKeyframeInterval(spec.keyframeInterval)
   return {
     position: ORIGIN,
     value: spec.present(initialSessionState(), []),
@@ -783,9 +876,28 @@ export function spendCursor<T>(spec: SpendCursorSpec<T>): SpendCursor<T> {
     visitedTotal: 0,
     rewound: false,
     spec,
-    marks: { usage: null, costs: null, tools: null, places: '' },
+    marks: { usage: null, costs: null, tools: null, places: '', recording: '' },
     accumulation: emptyAccumulation(),
     keyframes: [],
+  }
+}
+
+/**
+ * Refused at construction rather than discovered at the first advance. An
+ * interval below one allocates a zero-record chunk, so the catch-up loop can
+ * never reach its target and hangs; `NaN` poisons the position arithmetic into
+ * never matching. Both are caller mistakes with no sensible reading, and a
+ * cursor is cheap to build and long-lived, so this is the honest place to say so.
+ * `Infinity` is deliberately legal — it means "never keyframe", which is what the
+ * live path wants.
+ */
+function assertKeyframeInterval(interval: number | undefined): void {
+  if (interval === undefined) return
+  if (interval === Number.POSITIVE_INFINITY) return
+  if (!Number.isInteger(interval) || interval < 1) {
+    throw new RangeError(
+      `spendCursor: keyframeInterval must be a positive integer or Infinity, got ${interval}`,
+    )
   }
 }
 
@@ -803,31 +915,53 @@ export function spendCursor<T>(spec: SpendCursorSpec<T>): SpendCursor<T> {
  */
 export function spendFrom<T>(cursor: SpendCursor<T>, state: SessionState): SpendCursor<T> {
   const target = positionOf(state)
-  const keyframes = cursor.keyframes.filter((frame) => marksMatch(state, frame.position, frame.marks))
-  const continuable = atOrBefore(cursor.position, target) && marksMatch(state, cursor.position, cursor.marks)
+  const identity = identityOf(state)
+  const interval = cursor.spec.keyframeInterval ?? DEFAULT_SPEND_KEYFRAME_INTERVAL
 
-  let start: SpendKeyframe | null = continuable
+  // The two whole-state fingerprints are read once, here, and every candidate
+  // below is then an O(1) check. Both of them are properties of the state rather
+  // than of a position, so when either has changed the whole retained lineage is
+  // stale together — a rewritten cost record or a different recording invalidates
+  // every keyframe at once, and there is nothing to search.
+  const lineage =
+    identity.recording === cursor.marks.recording && identity.places === cursor.marks.places
+      ? cursor.keyframes
+      : []
+
+  const continuable = atOrBefore(cursor.position, target) && marksMatch(state, cursor.position, cursor.marks, identity)
+  // `lineage` is sorted ascending by position (see how `kept` is assembled
+  // below), so the newest keyframe at or before the target is a binary search
+  // rather than a scan of every snapshot the cursor has ever taken.
+  const candidate = continuable ? null : newestAtOrBefore(lineage, target)
+  const start: SpendKeyframe | null = continuable
     ? {
         position: cursor.position,
         marks: cursor.marks,
         accumulation: cursor.accumulation,
         visitedTotal: cursor.visitedTotal,
       }
-    : null
-  for (const frame of keyframes) {
-    if (!atOrBefore(frame.position, target)) continue
-    if (start === null || totalRecords(frame.position) > totalRecords(start.position)) start = frame
-  }
+    : candidate !== null && marksMatch(state, candidate.position, candidate.marks, identity)
+      ? candidate
+      : null
 
   const from = start ?? {
     position: ORIGIN,
-    marks: { usage: null, costs: null, tools: null, places: '' },
+    marks: { usage: null, costs: null, tools: null, places: '', recording: '' },
     accumulation: emptyAccumulation(),
     visitedTotal: cursor.visitedTotal,
   }
 
-  const interval = cursor.spec.keyframeInterval ?? DEFAULT_SPEND_KEYFRAME_INTERVAL
-  const kept = [...keyframes]
+  // Keyframes are kept in position order: everything at or before where we start
+  // (the search above guarantees nothing in the lineage sits between `from` and
+  // `target`), then the boundaries this catch-up lays down, then anything the
+  // lineage held beyond the target — still valid for a later forward jump.
+  const behind: SpendKeyframe[] = []
+  const ahead: SpendKeyframe[] = []
+  for (const frame of lineage) {
+    if (totalRecords(frame.position) <= totalRecords(from.position)) behind.push(frame)
+    else if (!atOrBefore(frame.position, target)) ahead.push(frame)
+  }
+  const laid: SpendKeyframe[] = []
 
   // Catch up in `interval`-sized chunks, leaving a keyframe at each boundary —
   // the same thing `buildSessionIndex` does while folding a session for the
@@ -844,30 +978,62 @@ export function spendFrom<T>(cursor: SpendCursor<T>, state: SessionState): Spend
     position = next
     if (samePosition(position, target)) break
     // The keyframe keeps this accumulation; the walk continues on a copy.
-    kept.push({
+    laid.push({
       position,
-      marks: marksOf(state, position),
+      marks: marksOf(state, position, identity),
       accumulation,
-      visitedTotal: from.visitedTotal + visited,
+      visitedTotal: cursor.visitedTotal + visited,
     })
     accumulation = copyGroups(accumulation)
   }
 
-  const marks = marksOf(state, target)
-  const newest = kept.reduce<number>((best, frame) => Math.max(best, totalRecords(frame.position)), 0)
+  const marks = marksOf(state, target, identity)
+  const newest = Math.max(
+    ...[0, ...behind.map((frame) => totalRecords(frame.position)), ...laid.map((frame) => totalRecords(frame.position))],
+  )
   if (totalRecords(target) - newest >= interval) {
-    kept.push({ position: target, marks, accumulation, visitedTotal: from.visitedTotal + visited })
+    laid.push({ position: target, marks, accumulation, visitedTotal: cursor.visitedTotal + visited })
   }
 
   return {
     position: target,
     value: cursor.spec.present(state, finaliseGroups(accumulation)),
     visited,
-    visitedTotal: from.visitedTotal + visited,
+    // The lineage's own running total, which is what its doc promises: a rewind
+    // adds the records it re-read rather than resuming the keyframe's history.
+    visitedTotal: cursor.visitedTotal + visited,
     rewound: !continuable,
     spec: cursor.spec,
     marks,
     accumulation,
-    keyframes: kept,
+    keyframes: [...behind, ...laid, ...ahead],
   }
+}
+
+/**
+ * The newest keyframe whose position is at or before `target`, or null — binary
+ * search over a position-ordered list, `O(log k)`. The same shape
+ * `replayFold.ts`'s `nearestKeyframeAtOrBefore` has, on a triple rather than a
+ * single index: the ordering is by total records consumed, and `atOrBefore`
+ * still has to hold on all three slices for the frame to be usable.
+ */
+function newestAtOrBefore(
+  keyframes: readonly SpendKeyframe[],
+  target: SpendPosition,
+): SpendKeyframe | null {
+  let low = 0
+  let high = keyframes.length - 1
+  let best: SpendKeyframe | null = null
+  const ceiling = totalRecords(target)
+  while (low <= high) {
+    const mid = (low + high) >>> 1
+    const frame = keyframes[mid] as SpendKeyframe
+    if (totalRecords(frame.position) <= ceiling) {
+      if (atOrBefore(frame.position, target)) best = frame
+      low = mid + 1
+    } else {
+      high = mid - 1
+    }
+  }
+  return best
 }

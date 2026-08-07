@@ -751,27 +751,109 @@ describe('LAW 2 — complexity: an advance visits only what was appended', () =>
     })
 
     /**
-     * THE NAMED RESIDUAL RISK. `dedupedUsage` (`reduce.ts:599`) folds a
-     * cross-collector duplicate into the record already sitting at that
-     * position: no record is appended, no array length changes, and in the case
-     * below not even the `eventId` at that position changes. There is no O(1)
-     * signal in `SessionState` that it happened, so a cursor asked about the
-     * later state reports the earlier answer.
+     * A cross-collector dedup, built so that it genuinely rewrites a *value*.
      *
-     * It is left as a stated precondition rather than papered over: a fresh
-     * cursor and every selector are correct (asserted below), so nothing in the
-     * tree is wrong today — the cursor is additive and unwired. A consumer that
-     * runs both collectors at once must either rebuild its cursor when a dedup
-     * is possible or wait for the fold to expose a rewrite counter, which is a
-     * `TelemetryState` change and a different fence. The audit's own sweep of
-     * 197 real session logs found zero cross-collector duplicates, which is why
-     * this is a named risk and not a blocker.
+     * `foldUsage` (`reduce.ts:715`) picks the sessionlog side as the winner and
+     * takes its tokens whole, so the arrival order decides whether anything
+     * changes at all: sessionlog-then-OTel folds the loser into a record that
+     * already holds every field, and the totals do not move. **OTel first** is
+     * the ordering that bites — the sessionlog record replaces the OTel one, and
+     * 999 output tokens become 100.
+     *
+     * A trailing record with its own `requestId` sits after the rewritten slot
+     * on purpose. Without it the rewrite lands on the last consumed position and
+     * the endpoint mark catches it (asserted below, so the guard's real reach is
+     * on the record too); with it the endpoint mark is untouched and the cursor
+     * has nothing to notice.
+     */
+    function dedupEvents(): RhizomorphEvent[] {
+      const f = createEventFactory({ stepMs: 1_000, idPrefix: 'dedup' })
+      f.sessionStarted({ sessionId: 'dd', repoPath: '/r', repoName: 'r', mainBranch: 'main' })
+      const usage = (source: 'otel' | 'sessionlog', output: number, requestId: string) =>
+        f.llmUsage(
+          {
+            lane: 'a',
+            role: 'worker',
+            model: 'claude-opus-5',
+            tokens: { input: 1, output, cacheRead: 0, cacheCreation: 0 },
+            requestId,
+            sessionId: 'sess-a',
+            worktreePath: '/wt/a',
+            branch: 'a',
+          },
+          { source },
+        )
+      usage('otel', 999, 'req-shared') // slot 0 — the one that gets rewritten
+      usage('sessionlog', 7, 'req-other') // slot 1 — stable, and the endpoint mark
+      usage('sessionlog', 100, 'req-shared') // folds into slot 0, appends nothing
+      return f.all()
+    }
+
+    it('the dedup this test relies on really does rewrite a value', () => {
+      const events = dedupEvents()
+      const before = reduceAll(events.slice(0, events.length - 1))
+      const after = reduceAll(events)
+
+      expect(before.telemetry.usage).toHaveLength(2)
+      expect(after.telemetry.usage).toHaveLength(2) // nothing appended
+      expect(before.telemetry.usage[0]?.tokens.output).toBe(999)
+      expect(after.telemetry.usage[0]?.tokens.output).toBe(100) // rewritten in place
+      // The endpoint the cursor marks did not move, which is why it cannot see it.
+      expect(after.telemetry.usage[1]?.eventId).toBe(before.telemetry.usage[1]?.eventId)
+      // And the money genuinely differs: 999 + 7 against 100 + 7.
+      expect(selectSessionSpend(before).tokens.output).toBe(1_006)
+      expect(selectSessionSpend(after).tokens.output).toBe(107)
+    })
+
+    /**
+     * THE NAMED RESIDUAL RISK, with the ordering above that makes it real.
+     * `dedupedUsage` (`reduce.ts:599`) folds a cross-collector duplicate into the
+     * record already sitting at that position: no record is appended, no array
+     * length changes, and when the rewritten slot is not the last one consumed,
+     * no mark the cursor holds changes either. `SessionState` carries no O(1)
+     * signal that it happened — `eventCount` moves for every event including the
+     * ones that touch no telemetry at all, so it cannot separate a dedup from a
+     * `pane.activity`, and anything that would separate them costs a walk of the
+     * history, which is the cost this cursor exists to avoid.
+     *
+     * It is a stated precondition rather than something papered over: a fresh
+     * cursor and every selector are correct (asserted), so nothing in the tree is
+     * wrong today — the cursor is additive and unwired. A consumer running both
+     * collectors at once must rebuild its cursor when a dedup is possible, or
+     * wait for the fold to expose a rewrite counter, which is a `TelemetryState`
+     * change and a different fence. The 2026-08-05 audit's sweep of 197 real
+     * session logs found zero cross-collector duplicate `requestId`s, which is
+     * why this is a named risk and not a blocker.
      *
      * **If you make this sound, this test should fail. Delete it then.**
      */
-    it('a cross-collector dedup is NOT seen — the stated precondition', () => {
-      const f = createEventFactory({ stepMs: 1_000, idPrefix: 'dedup' })
-      f.sessionStarted({ sessionId: 'dd', repoPath: '/r', repoName: 'r', mainBranch: 'main' })
+    it('a cross-collector dedup is NOT seen when it lands behind the mark — the stated precondition', () => {
+      const events = dedupEvents()
+      const before = reduceAll(events.slice(0, events.length - 1))
+      const after = reduceAll(events)
+
+      // Every selector, and any fresh cursor, is correct about both states.
+      expect(comparable(selectSessionSpend(after))).toEqual(comparable(reference(after).session))
+      expect(comparable(spendFrom(sessionSpendCursor(), after).value)).toEqual(
+        comparable(reference(after).session),
+      )
+
+      // A cursor carried across the rewrite is not: it reports the state it last
+      // actually read, and this is the exact size of the error.
+      const carried = spendFrom(spendFrom(sessionSpendCursor(), before), after)
+      expect(carried.visited).toBe(0)
+      expect(carried.value.tokens.output).toBe(1_006)
+      expect(reference(after).session.tokens.output).toBe(107)
+      expect(comparable(carried.value)).toEqual(comparable(reference(before).session))
+    })
+
+    it('...but IS seen when it lands on the mark, which is the guard working', () => {
+      // Drop the trailing record, so the rewritten slot is the last one the
+      // cursor consumed. `foldUsage` keeps the winner's `eventId`, and here the
+      // winner is the incoming sessionlog record — so the mark moves and the
+      // cursor rebuilds.
+      const f = createEventFactory({ stepMs: 1_000, idPrefix: 'dedup2' })
+      f.sessionStarted({ sessionId: 'dd2', repoPath: '/r', repoName: 'r', mainBranch: 'main' })
       const usage = (source: 'otel' | 'sessionlog', output: number) =>
         f.llmUsage(
           {
@@ -786,27 +868,17 @@ describe('LAW 2 — complexity: an advance visits only what was appended', () =>
           },
           { source },
         )
-      usage('sessionlog', 100)
       usage('otel', 999)
+      usage('sessionlog', 100)
       const events = f.all()
+      const before = reduceAll(events.slice(0, events.length - 1))
+      const after = reduceAll(events)
+      expect(after.telemetry.usage[0]?.eventId).not.toBe(before.telemetry.usage[0]?.eventId)
 
-      const one = reduceAll(events.slice(0, events.length - 1))
-      const both = reduceAll(events)
-      // The dedup fired: one record still, its tokens rewritten in place.
-      expect(one.telemetry.usage).toHaveLength(1)
-      expect(both.telemetry.usage).toHaveLength(1)
-
-      // Every selector, and any fresh cursor, is correct about both states.
-      expect(comparable(selectSessionSpend(both))).toEqual(comparable(reference(both).session))
-      expect(comparable(spendFrom(sessionSpendCursor(), both).value)).toEqual(
-        comparable(reference(both).session),
-      )
-
-      // A cursor carried across the rewrite is not, and reports the state it
-      // last actually read.
-      const carried = spendFrom(spendFrom(sessionSpendCursor(), one), both)
-      expect(carried.visited).toBe(0)
-      expect(comparable(carried.value)).toEqual(comparable(reference(one).session))
+      const carried = spendFrom(spendFrom(sessionSpendCursor(), before), after)
+      expect(carried.rewound).toBe(true)
+      expect(comparable(carried.value)).toEqual(comparable(reference(after).session))
+      expect(carried.value.tokens.output).toBe(100)
     })
   })
 
@@ -816,6 +888,107 @@ describe('LAW 2 — complexity: an advance visits only what was appended', () =>
     expect(stranger.rewound).toBe(true)
     expect(comparable(stranger.value)).toEqual(comparable(reference(swarm).session))
     expect(stranger.visited).toBe(recordCount(swarm))
+  })
+
+  /**
+   * The replay session picker switches between recordings of the same repo, and
+   * `createIdFactory` (`events/index.ts:373`) says what it guarantees: ids are
+   * "unique within a session, which is all the log needs". Two recordings
+   * therefore carry the same `evt-000001` at the same position, so a mark built
+   * only from record ids and the place table cannot tell them apart.
+   */
+  describe('two recordings whose event ids collide', () => {
+    /** Same shape, same ids, same places, same timestamps — different dollars. */
+    function twinRecording(sessionId: string, output: number, count = 3): RhizomorphEvent[] {
+      const f = createEventFactory() // default prefix: ids are `evt-00000N` in both
+      f.sessionStarted({ sessionId, repoPath: '/repo/r', repoName: 'r', mainBranch: 'main' })
+      for (let i = 0; i < count; i += 1) {
+        f.llmUsage({
+          lane: 'a',
+          role: 'worker',
+          model: 'claude-opus-5',
+          tokens: { input: 1, output, cacheRead: 0, cacheCreation: 0 },
+          requestId: `req-${i}`,
+          sessionId: 'sess-a',
+          worktreePath: '/wt/a',
+          branch: 'a',
+        })
+      }
+      return f.all()
+    }
+
+    const first = reduceAll(twinRecording('recording-one', 10))
+    const second = reduceAll(twinRecording('recording-two', 5_000))
+
+    it('really do collide on every mark the records themselves carry', () => {
+      expect(first.telemetry.usage.map((record) => record.eventId)).toEqual(
+        second.telemetry.usage.map((record) => record.eventId),
+      )
+      expect(recordCount(first)).toBe(recordCount(second))
+      expect(first.session?.sessionId).not.toBe(second.session?.sessionId)
+      // ...and they disagree about the money, which is the whole point.
+      expect(selectSessionSpend(first).tokens.output).not.toBe(
+        selectSessionSpend(second).tokens.output,
+      )
+    })
+
+    it('switching between them rebuilds — a cursor never answers for the wrong recording', () => {
+      const cursor = spendFrom(sessionSpendCursor(), first)
+      const switched = spendFrom(cursor, second)
+      expect(switched.rewound).toBe(true)
+      expect(switched.visited).toBe(recordCount(second))
+      expect(comparable(switched.value)).toEqual(comparable(reference(second).session))
+      // And back again.
+      const returned = spendFrom(switched, first)
+      expect(comparable(returned.value)).toEqual(comparable(reference(first).session))
+    })
+
+    it('keyframes from one recording are never used by another', () => {
+      const a = reduceAll(twinRecording('long-one', 10, 700))
+      const b = reduceAll(twinRecording('long-two', 999, 700))
+      const walked = spendFrom(sessionSpendCursor(), a)
+      expect(walked.keyframes.length).toBeGreaterThan(0)
+      expect(comparable(spendFrom(walked, b).value)).toEqual(comparable(reference(b).session))
+    })
+  })
+
+  it('carries visitedTotal across a rewind — it is the lineage total, not the keyframe\'s', () => {
+    let forward = laneSpendCursor()
+    for (const state of seeks([200, 400, 600, 800, 1_000, AMPLIFIED_EVENTS.length])) {
+      forward = spendFrom(forward, state)
+    }
+    const back = reduceAll(AMPLIFIED_EVENTS.slice(0, Math.floor(AMPLIFIED_EVENTS.length * 0.6)))
+    const scrubbed = spendFrom(forward, back)
+    expect(scrubbed.rewound).toBe(true)
+    // The rewind resumed from a keyframe, so it is genuinely the keyframe's own
+    // historical total that the naive spelling would have reported.
+    expect(scrubbed.visited).toBeLessThan(recordCount(back))
+    expect(scrubbed.visitedTotal).toBe(forward.visitedTotal + scrubbed.visited)
+    expect(scrubbed.visitedTotal).toBeGreaterThan(forward.visitedTotal)
+  })
+
+  it('spaces keyframes by the interval and never further', () => {
+    // One bulk advance, which is where the chunking lays them down.
+    const bulk = spendFrom(laneSpendCursor(), amplified)
+    const totals = bulk.keyframes.map(
+      (frame) => frame.position.usage + frame.position.costs + frame.position.tools,
+    )
+    expect(totals.length).toBeGreaterThan(1)
+    let previous = 0
+    for (const total of totals) {
+      expect(total - previous).toBeLessThanOrEqual(DEFAULT_SPEND_KEYFRAME_INTERVAL)
+      previous = total
+    }
+    // Sorted, so the newest-at-or-before search can binary-search them.
+    expect([...totals].sort((a, b) => a - b)).toEqual(totals)
+  })
+
+  it('refuses a keyframe interval that cannot make progress', () => {
+    for (const bad of [0, -1, 1.5, Number.NaN]) {
+      expect(() => sessionSpendCursor({}, bad), `interval ${bad}`).toThrow(/keyframeInterval/)
+    }
+    expect(() => sessionSpendCursor({}, 1)).not.toThrow()
+    expect(() => sessionSpendCursor({}, Number.POSITIVE_INFINITY)).not.toThrow()
   })
 })
 

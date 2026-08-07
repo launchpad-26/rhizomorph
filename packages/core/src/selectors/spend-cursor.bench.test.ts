@@ -29,9 +29,13 @@ declare const process: { stdout: { write(chunk: string): void } }
  * measures the box, not the code — and it measured exactly that while this file
  * was written: the dev box sat at 100% CPU with eight sibling `node` processes,
  * and the same configuration read 340 ms in one pass and 1,110 ms in another.
- * So every `expect` below is a shape or an **operation count**, the numbers
- * below are prose read by a human, and the CI oracle for this work is the
- * visit-count law in `spend-cursor.test.ts`, not anything here.
+ * So **no assertion in this file reads a clock.** All four `expect`s per size are
+ * counts or identities — the drag's record-visit total against the records
+ * appended, that total against what rescanning would have cost, the primed
+ * cursor's position against the prefix it consumed, and one cursor answer
+ * against the selector it replaces. Every duration is printed and asserted
+ * nowhere, so a loaded box cannot fail this file; the CI oracle for the work is
+ * the visit-count law in `spend-cursor.test.ts`.
  *
  * **The corpus.** Built to reproduce prd21's own measured record census rather
  * than a guessed one: at 466 events this yields 167 usage / 194 tool records
@@ -491,18 +495,19 @@ describe('the spend path per rebuild: rescan vs cursor, at 466 / 5k / 25k events
             `\n  RECORD VISITS over the drag     : ${dragVisits} vs ${6 * seekStates.length * records} rescanning (${Math.round((6 * seekStates.length * records) / Math.max(1, dragVisits))}x fewer)`,
         )
 
-        // THE LAWS, and they are counts rather than clocks (see the header).
+        // THE LAWS, and every one of them is a count or an identity — nothing
+        // below reads the clock, so no measurement in this file can fail a gate
+        // (the durations above are printed for a human and asserted nowhere).
         // The drag visited each appended record once per cursor and nothing
         // else; a rescan would have visited every record on every seek.
         expect(dragVisits).toBe(6 * (records - recordCount(head)))
         expect(dragVisits).toBeLessThan(6 * seekStates.length * records)
         // And the cursors still agree with the selectors they replace.
         const last = seekStates[seekStates.length - 1] as SessionState
-        expect(primed.laneCosts.position.usage).toBeGreaterThan(0)
+        expect(primed.laneCosts.position.usage).toBe(head.telemetry.usage.length)
         expect(spendFrom(primed.sessionCosts, last).value.requestCount).toBe(
           selectSessionSpend(last).requestCount,
         )
-        expect(rescanPerSeek).toBeGreaterThan(0)
       },
       BENCH_TIMEOUT_MS,
     )
