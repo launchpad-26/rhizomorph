@@ -179,7 +179,7 @@ interface Acc {
   /**
    * Lane, then session id (`''` for a record that named none) — nested rather
    * than keyed on a composite string because this is looked up once per usage
-   * record on the hottest path in the file, and building a `lane session`
+   * record on the hottest path in the file, and building a a composite lane-and-session
    * key there allocates a string per record for nothing.
    */
   deferred: Map<string, Map<string, OwnerEstimate>>
@@ -636,24 +636,55 @@ export function groupSpendBy(
 // --- the cursor -------------------------------------------------------------
 
 /**
- * The identity of the last record consumed from each slice — `eventId`, which
- * every record carries and no two events share.
+ * What a position is checked against before it is continued from: the identity
+ * of the last record consumed from each slice (`eventId`, which every record
+ * carries and no two events share), plus a fingerprint of the session place
+ * table.
  *
- * This is what makes a position safe to trust across the fresh state objects a
- * seek folds: the cursor does not assume the state it is handed continues the
- * one it last read, it *checks* that the record still sitting at its position
- * is the record it consumed. A mismatch (a shorter prefix from a backward
- * scrub, or another session entirely) falls back to a keyframe or to zero
- * rather than reporting a total built from records that are no longer there.
+ * The marks are what makes a position safe to trust across the fresh state
+ * objects a seek folds: the cursor does not assume the state it is handed
+ * continues the one it last read, it *checks* that the record still sitting at
+ * its position is the record it consumed. A mismatch (a shorter prefix from a
+ * backward scrub, or another session entirely) falls back to a keyframe or to
+ * zero rather than reporting a total built from records that are no longer
+ * there.
+ *
+ * **`places` exists because the fold does not only append.** When a session
+ * finally learns where it was running, `reduce.ts`'s `placeCosts` (`:957`) goes
+ * back and rewrites the `worktreePath`/`branch` of *already appended* cost
+ * records for that session — the documented OTel path, since an OTel
+ * `llm.cost` carries no cwd. Those are records a cursor may already have
+ * counted under a different branch, and neither the array length nor the
+ * `eventId` at the position changes when it happens. So the marks carry the
+ * place table's own content, and any change to it sends the cursor back to a
+ * keyframe. It is `sessionId -> (worktreePath, branch)` and nothing else:
+ * `SessionPlace.lastSeenAt` moves on every telemetry event and would make this
+ * fingerprint change constantly, while the place itself only ever fills in
+ * nulls (`placeMoved`, `reduce.ts:909`) — a handful of times per session.
  */
 export interface SpendMarks {
   usage: string | null
   costs: string | null
   tools: string | null
+  /** `sessionId|worktreePath|branch` per session, sorted. See above. */
+  places: string
 }
 
 function markOf(records: readonly { eventId: string }[], position: number): string | null {
   return position === 0 ? null : (records[position - 1]?.eventId ?? null)
+}
+
+/**
+ * The place table's content, order-independent so that a state folded from
+ * scratch fingerprints the same as one folded incrementally. `O(sessions)`, a
+ * dimension that stays flat while telemetry records grow.
+ */
+function placesOf(state: SessionState): string {
+  const parts: string[] = []
+  for (const place of Object.values(state.telemetry.sessions)) {
+    parts.push(`${place.sessionId}|${place.worktreePath ?? ''}|${place.branch ?? ''}`)
+  }
+  return parts.sort(compareStrings).join('\n')
 }
 
 function marksOf(state: SessionState, position: SpendPosition): SpendMarks {
@@ -661,17 +692,23 @@ function marksOf(state: SessionState, position: SpendPosition): SpendMarks {
     usage: markOf(state.telemetry.usage, position.usage),
     costs: markOf(state.telemetry.costs, position.costs),
     tools: markOf(state.telemetry.tools, position.tools),
+    places: placesOf(state),
   }
 }
 
 function marksMatch(state: SessionState, position: SpendPosition, marks: SpendMarks): boolean {
+  // Nothing consumed is nothing to invalidate: a cursor at the origin continues
+  // into any state at all, and its empty {@link SpendMarks.places} is not a
+  // claim about that state.
+  if (totalRecords(position) === 0) return true
   const { usage, costs, tools } = state.telemetry
   if (position.usage > usage.length || position.costs > costs.length || position.tools > tools.length)
     return false
   return (
     markOf(usage, position.usage) === marks.usage &&
     markOf(costs, position.costs) === marks.costs &&
-    markOf(tools, position.tools) === marks.tools
+    markOf(tools, position.tools) === marks.tools &&
+    placesOf(state) === marks.places
   )
 }
 
@@ -697,6 +734,15 @@ export interface SpendCursorSpec<T> {
   filter: SpendFilter
   /** Turns finalised groups into the selector's own row shape. */
   present: (state: SessionState, groups: readonly SpendGroupResult[]) => T
+  /**
+   * Records between keyframes; {@link DEFAULT_SPEND_KEYFRAME_INTERVAL} when
+   * absent. Keyframes only ever pay for themselves on a *backward* move, so a
+   * consumer that never makes one — the live path, where the log only grows —
+   * can pass `Number.POSITIVE_INFINITY` and keep none: the catch-up stops
+   * chunking and no snapshot is retained. A long-lived cursor otherwise holds
+   * one `O(groups)` snapshot per interval, which is a few hundred small maps
+   * across a 100,000-record session.
+   */
   keyframeInterval?: number
 }
 
@@ -737,7 +783,7 @@ export function spendCursor<T>(spec: SpendCursorSpec<T>): SpendCursor<T> {
     visitedTotal: 0,
     rewound: false,
     spec,
-    marks: { usage: null, costs: null, tools: null },
+    marks: { usage: null, costs: null, tools: null, places: '' },
     accumulation: emptyAccumulation(),
     keyframes: [],
   }
@@ -775,7 +821,7 @@ export function spendFrom<T>(cursor: SpendCursor<T>, state: SessionState): Spend
 
   const from = start ?? {
     position: ORIGIN,
-    marks: { usage: null, costs: null, tools: null },
+    marks: { usage: null, costs: null, tools: null, places: '' },
     accumulation: emptyAccumulation(),
     visitedTotal: cursor.visitedTotal,
   }

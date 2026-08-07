@@ -133,9 +133,13 @@ declare const process: { stdout: { write(chunk: string): void } }
  *
  * | N | rescan / rebuild | cursor / seek | faster | record visits over the drag |
  * |---|---|---|---|---|
- * | 466 | 6.73 ms | 0.146 ms | 46x | 240 vs 104,340 |
- * | 5,000 | 56.65 ms | 0.141 ms | 403x | 2,490 vs 12,399,000 |
- * | 25,000 | 591.94 ms | 0.092 ms | 6,457x | 12,450 vs 310,995,000 |
+ * | 466 | 4.32 ms | 0.111 ms | 39x | 240 vs 104,340 |
+ * | 5,000 | 52.89 ms | 0.121 ms | 439x | 2,490 vs 12,399,000 |
+ * | 25,000 | 234.07 ms | 0.400 ms | 585x | 12,450 vs 310,995,000 |
+ *
+ * Across five sessions of that same measurement the ratio column read
+ * 26-46x / 187-439x / 585-6,457x. The visit column read the same three pairs
+ * every time.
  *
  * **The visit counts are the only load-immune column, and they are the claim.**
  * They are identical on any box, they are asserted below

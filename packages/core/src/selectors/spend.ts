@@ -271,8 +271,11 @@ export function selectSessionSpend(state: SessionState, filter: SpendFilter = {}
 }
 
 /** The session totals, incrementally — see {@link laneSpendCursor} for the seam. */
-export function sessionSpendCursor(filter: SpendFilter = {}): SpendCursor<SpendTotals> {
-  return spendCursor({ grouping: BY_SESSION, filter, present: presentSessionSpend })
+export function sessionSpendCursor(
+  filter: SpendFilter = {},
+  keyframeInterval?: number,
+): SpendCursor<SpendTotals> {
+  return spendCursor({ grouping: BY_SESSION, filter, present: presentSessionSpend, keyframeInterval })
 }
 
 // --- per lane ---------------------------------------------------------------
@@ -323,8 +326,11 @@ export function selectLaneSpend(state: SessionState, filter: SpendFilter = {}): 
  * to a keyframe when a scrub goes backward. One cursor per (question, filter);
  * `buildFleet`'s two-pass token/cost split therefore wants two.
  */
-export function laneSpendCursor(filter: SpendFilter = {}): SpendCursor<LaneSpend[]> {
-  return spendCursor({ grouping: BY_LANE, filter, present: presentLaneSpend })
+export function laneSpendCursor(
+  filter: SpendFilter = {},
+  keyframeInterval?: number,
+): SpendCursor<LaneSpend[]> {
+  return spendCursor({ grouping: BY_LANE, filter, present: presentLaneSpend, keyframeInterval })
 }
 
 export function selectLaneSpendIndex(
@@ -384,8 +390,11 @@ export function selectSpendByLaneRole(
 }
 
 /** {@link selectSpendByLaneRole}'s answer, incrementally — see {@link laneSpendCursor}. */
-export function laneRoleSpendCursor(filter: SpendFilter = {}): SpendCursor<LaneRoleSpend[]> {
-  return spendCursor({ grouping: BY_LANE_ROLE, filter, present: presentLaneRoleSpend })
+export function laneRoleSpendCursor(
+  filter: SpendFilter = {},
+  keyframeInterval?: number,
+): SpendCursor<LaneRoleSpend[]> {
+  return spendCursor({ grouping: BY_LANE_ROLE, filter, present: presentLaneRoleSpend, keyframeInterval })
 }
 
 function presentWorktreeSpend(
@@ -430,8 +439,9 @@ export function selectSpendByWorktree(
 /** {@link selectSpendByWorktree}'s answer, incrementally — see {@link laneSpendCursor}. */
 export function worktreeSpendCursor(
   filter: SpendFilter = {},
+  keyframeInterval?: number,
 ): SpendCursor<Record<string, WorktreeSpend>> {
-  return spendCursor({ grouping: BY_LANE, filter, present: presentWorktreeSpend })
+  return spendCursor({ grouping: BY_LANE, filter, present: presentWorktreeSpend, keyframeInterval })
 }
 
 // --- per branch --------------------------------------------------------------
@@ -472,8 +482,11 @@ export function selectSpendByBranch(state: SessionState, filter: SpendFilter = {
 }
 
 /** {@link selectSpendByBranch}'s answer, incrementally — see {@link laneSpendCursor}. */
-export function branchSpendCursor(filter: SpendFilter = {}): SpendCursor<BranchSpend[]> {
-  return spendCursor({ grouping: BY_BRANCH, filter, present: presentBranchSpend })
+export function branchSpendCursor(
+  filter: SpendFilter = {},
+  keyframeInterval?: number,
+): SpendCursor<BranchSpend[]> {
+  return spendCursor({ grouping: BY_BRANCH, filter, present: presentBranchSpend, keyframeInterval })
 }
 
 export function selectSpendByBranchIndex(
@@ -532,8 +545,11 @@ export function selectModelSpend(state: SessionState, filter: SpendFilter = {}):
 }
 
 /** {@link selectModelSpend}'s answer, incrementally — see {@link laneSpendCursor}. */
-export function modelSpendCursor(filter: SpendFilter = {}): SpendCursor<ModelSpend[]> {
-  return spendCursor({ grouping: BY_MODEL, filter, present: presentModelSpend })
+export function modelSpendCursor(
+  filter: SpendFilter = {},
+  keyframeInterval?: number,
+): SpendCursor<ModelSpend[]> {
+  return spendCursor({ grouping: BY_MODEL, filter, present: presentModelSpend, keyframeInterval })
 }
 
 // --- the role split, and the headline ratio ---------------------------------
@@ -602,8 +618,11 @@ export function selectRoleSpend(state: SessionState, filter: SpendFilter = {}): 
 }
 
 /** {@link selectRoleSpend}'s answer, incrementally — see {@link laneSpendCursor}. */
-export function roleSpendCursor(filter: SpendFilter = {}): SpendCursor<RoleSpendSplit> {
-  return spendCursor({ grouping: BY_ROLE, filter, present: presentRoleSpend })
+export function roleSpendCursor(
+  filter: SpendFilter = {},
+  keyframeInterval?: number,
+): SpendCursor<RoleSpendSplit> {
+  return spendCursor({ grouping: BY_ROLE, filter, present: presentRoleSpend, keyframeInterval })
 }
 
 /** prd1's headline number on its own, for a ticker that wants nothing else. */

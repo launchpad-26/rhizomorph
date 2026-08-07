@@ -575,6 +575,19 @@ describe('LAW 1 — identity: the collapsed selectors and the cursor are the nai
     expect(walked.value).toEqual(spendFrom(laneSpendCursor(), amplified).value)
   })
 
+  it('a consumer that never scrubs backward can keep no keyframes at all', () => {
+    // The live path: the log only grows, so a snapshot is memory spent on a
+    // move that never comes. An infinite interval buys the incrementality
+    // without the snapshots.
+    let cursor = sessionSpendCursor({}, Number.POSITIVE_INFINITY)
+    for (const state of [1_000, 2_000, AMPLIFIED_EVENTS.length].map((n) => reduceAll(AMPLIFIED_EVENTS.slice(0, n)))) {
+      cursor = spendFrom(cursor, state)
+      expect(cursor.keyframes).toHaveLength(0)
+      expect(cursor.rewound).toBe(false)
+    }
+    expect(comparable(cursor.value)).toEqual(comparable(reference(amplified).session))
+  })
+
   it('reading the same state twice changes nothing', () => {
     const once = spendFrom(sessionSpendCursor(), amplified)
     const twice = spendFrom(once, amplified)
@@ -672,6 +685,129 @@ describe('LAW 2 — complexity: an advance visits only what was appended', () =>
     const scrubbed = spendFrom(bulk, back)
     expect(comparable(scrubbed.value)).toEqual(comparable(reference(back).lanes))
     expect(scrubbed.visited).toBeLessThan(recordCount(back))
+  })
+
+  /**
+   * The fold does not only append, and a cursor that assumed it did would be
+   * quietly wrong about dollars. Both cases live here.
+   */
+  describe('when the fold rewrites a record the cursor already counted', () => {
+    /**
+     * The documented OTel shape: `llm.cost` carries the session and the money
+     * and nothing about where the agent was working, so `reduce.ts`'s
+     * `placeCosts` goes back and fills in `branch`/`worktreePath` on records
+     * already appended, once the usage side says where that session lives.
+     */
+    function placeJoinEvents(): RhizomorphEvent[] {
+      const f = createEventFactory({ stepMs: 1_000, idPrefix: 'join' })
+      f.sessionStarted({ sessionId: 'join', repoPath: '/r', repoName: 'r', mainBranch: 'main' })
+      f.llmCost(
+        {
+          lane: 'otel-side',
+          role: 'worker',
+          model: 'claude-opus-5',
+          costUsd: 2,
+          authoritative: true,
+          sessionId: 'sess-x',
+          worktreePath: null,
+          branch: null,
+        },
+        { source: 'otel' },
+      )
+      // This is the line that teaches the session its place, and so rewrites
+      // the cost record above.
+      f.llmUsage({
+        lane: 'sessionlog-side',
+        role: 'worker',
+        model: 'claude-opus-5',
+        tokens: { input: 1, output: 10, cacheRead: 0, cacheCreation: 0 },
+        requestId: 'req-join',
+        sessionId: 'sess-x',
+        worktreePath: '/wt/a',
+        branch: 'a',
+      })
+      return f.all()
+    }
+
+    it('a place join is seen: the cursor rebuilds and the dollars land on the branch', () => {
+      const events = placeJoinEvents()
+      const unplaced = reduceAll(events.slice(0, events.length - 1))
+      const placed = reduceAll(events)
+
+      // The rewrite really happened: same record, same position, new branch.
+      expect(unplaced.telemetry.costs[0]?.branch).toBeNull()
+      expect(placed.telemetry.costs[0]?.branch).toBe('a')
+      expect(placed.telemetry.costs[0]?.eventId).toBe(unplaced.telemetry.costs[0]?.eventId)
+      expect(placed.telemetry.costs).toHaveLength(1)
+
+      const first = spendFrom(branchSpendCursor(), unplaced)
+      expect(first.value.find((row) => row.branch === 'a')).toBeUndefined()
+
+      const second = spendFrom(first, placed)
+      // Not continued — the place table changed, so the cursor went back.
+      expect(second.rewound).toBe(true)
+      expect(comparable(second.value)).toEqual(comparable(reference(placed).branches))
+      expect(second.value.find((row) => row.branch === 'a')?.costUsd).toBe(2)
+    })
+
+    /**
+     * THE NAMED RESIDUAL RISK. `dedupedUsage` (`reduce.ts:599`) folds a
+     * cross-collector duplicate into the record already sitting at that
+     * position: no record is appended, no array length changes, and in the case
+     * below not even the `eventId` at that position changes. There is no O(1)
+     * signal in `SessionState` that it happened, so a cursor asked about the
+     * later state reports the earlier answer.
+     *
+     * It is left as a stated precondition rather than papered over: a fresh
+     * cursor and every selector are correct (asserted below), so nothing in the
+     * tree is wrong today — the cursor is additive and unwired. A consumer that
+     * runs both collectors at once must either rebuild its cursor when a dedup
+     * is possible or wait for the fold to expose a rewrite counter, which is a
+     * `TelemetryState` change and a different fence. The audit's own sweep of
+     * 197 real session logs found zero cross-collector duplicates, which is why
+     * this is a named risk and not a blocker.
+     *
+     * **If you make this sound, this test should fail. Delete it then.**
+     */
+    it('a cross-collector dedup is NOT seen — the stated precondition', () => {
+      const f = createEventFactory({ stepMs: 1_000, idPrefix: 'dedup' })
+      f.sessionStarted({ sessionId: 'dd', repoPath: '/r', repoName: 'r', mainBranch: 'main' })
+      const usage = (source: 'otel' | 'sessionlog', output: number) =>
+        f.llmUsage(
+          {
+            lane: 'a',
+            role: 'worker',
+            model: 'claude-opus-5',
+            tokens: { input: 1, output, cacheRead: 0, cacheCreation: 0 },
+            requestId: 'req-shared',
+            sessionId: 'sess-a',
+            worktreePath: '/wt/a',
+            branch: 'a',
+          },
+          { source },
+        )
+      usage('sessionlog', 100)
+      usage('otel', 999)
+      const events = f.all()
+
+      const one = reduceAll(events.slice(0, events.length - 1))
+      const both = reduceAll(events)
+      // The dedup fired: one record still, its tokens rewritten in place.
+      expect(one.telemetry.usage).toHaveLength(1)
+      expect(both.telemetry.usage).toHaveLength(1)
+
+      // Every selector, and any fresh cursor, is correct about both states.
+      expect(comparable(selectSessionSpend(both))).toEqual(comparable(reference(both).session))
+      expect(comparable(spendFrom(sessionSpendCursor(), both).value)).toEqual(
+        comparable(reference(both).session),
+      )
+
+      // A cursor carried across the rewrite is not, and reports the state it
+      // last actually read.
+      const carried = spendFrom(spendFrom(sessionSpendCursor(), one), both)
+      expect(carried.visited).toBe(0)
+      expect(comparable(carried.value)).toEqual(comparable(reference(one).session))
+    })
   })
 
   it('a state from another session is rebuilt, never continued', () => {
