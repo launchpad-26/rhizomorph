@@ -63,6 +63,14 @@ describe('parseRoute', () => {
   it('tolerates a trailing slash on /lab', () => {
     expect(parseRoute('/lab/')).toEqual({ name: 'lab' })
   })
+
+  it('reads /connect as the connection surface (prd19 ruling 1, #252)', () => {
+    expect(parseRoute('/connect')).toEqual({ name: 'connect' })
+  })
+
+  it('tolerates a trailing slash on /connect', () => {
+    expect(parseRoute('/connect/')).toEqual({ name: 'connect' })
+  })
 })
 
 describe('laneUrl', () => {
@@ -146,6 +154,16 @@ describe('useRoute', () => {
 
     act(() => navigate('/lab'))
     expect(result.current).toEqual({ name: 'lab' })
+
+    act(() => navigate('/'))
+    expect(result.current).toEqual({ name: 'balcony' })
+  })
+
+  it('navigates to connect and back (prd19 ruling 1, #252)', () => {
+    const { result } = renderHook(() => useRoute())
+
+    act(() => navigate('/connect'))
+    expect(result.current).toEqual({ name: 'connect' })
 
     act(() => navigate('/'))
     expect(result.current).toEqual({ name: 'balcony' })

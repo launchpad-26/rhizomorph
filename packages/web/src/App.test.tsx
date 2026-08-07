@@ -89,13 +89,15 @@ async function renderApp() {
     import('./panels/feed/index.js'),
     import('./replay/index.js'),
     import('./scene/index.js'),
-    // Real (unmocked) drawer, lane page, recordings library and lab tab —
-    // `Shell`/`App` mount their own `Suspense` unconditionally, so all four
-    // are on the same one-tick clock as every mocked lazy module above.
+    // Real (unmocked) drawer, lane page, recordings library, lab tab and
+    // connect placeholder — `Shell`/`App` mount their own `Suspense`
+    // unconditionally, so all five are on the same one-tick clock as every
+    // mocked lazy module above.
     import('./drawer/index.js'),
     import('./lane-page/index.js'),
     import('./recordings/index.js'),
     import('./lab/index.js'),
+    import('./connect/index.js'),
   ])
 
   let source: FakeEventSource | undefined
@@ -381,15 +383,50 @@ describe('App', () => {
     })
   })
 
+  describe('the connect placeholder (prd19 ruling 1, #252)', () => {
+    afterEach(() => {
+      window.history.replaceState(null, '', '/')
+    })
+
+    it('deep-links cold to /connect — a route switch, not an overlay', async () => {
+      window.history.replaceState(null, '', '/connect')
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      expect(await screen.findByTestId('connect-page')).toBeInTheDocument()
+      expect(screen.getByText('connect — the handshake checklist lands in wave 3')).toBeInTheDocument()
+      expect(screen.queryByText('THE OBSERVATORY')).not.toBeInTheDocument()
+    })
+
+    it('the browser back button returns from connect to the balcony', async () => {
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      act(() => navigate('/connect'))
+      expect(await screen.findByTestId('connect-page')).toBeInTheDocument()
+
+      await act(async () => {
+        const popped = new Promise<void>((resolve) =>
+          window.addEventListener('popstate', () => resolve(), { once: true }),
+        )
+        window.history.back()
+        await popped
+      })
+
+      expect(window.location.pathname).toBe('/')
+      expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
+    })
+  })
+
   /**
-   * THE DoD OF #229 — findability, not routability. `/lab` and `/recordings`
-   * already rendered and deep-linked cold (the describe blocks above); what
-   * they lacked was a way to *arrive* there from the balcony by clicking
-   * something on screen instead of being told the URL. These prove that path
-   * exists for both of the other two hands, using the balcony's own nav —
-   * the same one an operator would actually click.
+   * THE DoD OF #229 (widened by #252) — findability, not routability. `/lab`,
+   * `/recordings` and `/connect` all render and deep-link cold (the describe
+   * blocks above); what they lacked was a way to *arrive* there from the
+   * balcony by clicking something on screen instead of being told the URL.
+   * These prove that path exists for every hand, using the balcony's own
+   * nav — the same one an operator would actually click.
    */
-  describe('the primary nav (#229) — all three hands reachable by click from the balcony', () => {
+  describe('the primary nav (#229, #252) — all four hands reachable by click from the balcony', () => {
     afterEach(() => {
       window.history.replaceState(null, '', '/')
       vi.unstubAllGlobals()
@@ -447,6 +484,16 @@ describe('App', () => {
       expect(screen.queryByText('THE OBSERVATORY')).not.toBeInTheDocument()
     })
 
+    it('reaches Connect from the balcony by clicking the nav (#252)', async () => {
+      const { source } = await renderApp()
+      act(() => source()?.open())
+      expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByTestId('nav-connect'))
+      expect(await screen.findByTestId('connect-page')).toBeInTheDocument()
+      expect(screen.queryByText('THE OBSERVATORY')).not.toBeInTheDocument()
+    })
+
     it('the nav itself is visible on the balcony without any selection or scroll', async () => {
       await renderApp()
 
@@ -454,6 +501,7 @@ describe('App', () => {
       expect(screen.getByTestId('nav-observatory')).toBeVisible()
       expect(screen.getByTestId('nav-recordings')).toBeVisible()
       expect(screen.getByTestId('nav-lab')).toBeVisible()
+      expect(screen.getByTestId('nav-connect')).toBeVisible()
     })
   })
 })

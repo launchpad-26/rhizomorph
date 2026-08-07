@@ -3,7 +3,7 @@ import { ConnectionBadge } from './ConnectionBadge.js'
 import { useIdleWorkerJump } from './keyboard.js'
 import { useMode } from './ModeContext.js'
 import { PanelGrid } from './PanelGrid.js'
-import { navigate } from './router.js'
+import { navigate, useRoute, type Route } from './router.js'
 import { ReplayBar } from './ReplayBar.js'
 import { StatusBar } from './StatusBar.js'
 import { useStream } from './StreamContext.js'
@@ -99,30 +99,56 @@ function TopDock() {
 }
 
 /**
- * THE PRIMARY NAV (#229) — one link per constitutional hand (observer /
- * recorder / laboratory, prd12+prd16 ruling 2+prd14), so the trust model is
- * visible rather than a documentation claim. `/lab` and `/recordings` were
+ * THE PRIMARY NAV (#229, fourth hand added by #252/prd19 ruling 1) — one
+ * link per constitutional hand (observer / recorder / laboratory / connect,
+ * prd12+prd16 ruling 2+prd14+prd19), so the trust model is visible rather
+ * than a documentation claim. `/lab`, `/recordings` and now `/connect` were
  * routable but had no anchor anywhere in the UI — a stranger could not find
  * them without being told the URL. This is that anchor: real `<a href>`s,
  * modifier-aware like the drawer's own open-page link (`drawer/index.tsx`'s
  * `OpenPageLink`), routed through the hand-rolled router's `pushState` on a
  * plain click rather than a full reload.
  *
- * The balcony only ever mounts for the `balcony` route (see `App.tsx`'s route
- * switch), so within `Shell` "Observatory" is always the active link — no
- * `useRoute()` needed here to know that.
+ * `active` used to be hardcoded to `hand.href === '/'` on the reasoning that
+ * the balcony only ever mounts for the `balcony` route (see `App.tsx`'s
+ * route switch), so "Observatory" was always the one true active link here.
+ * That reasoning breaks the moment the mapping is asked about any other
+ * route by name rather than by "is this rendering right now" — evaluated
+ * against `/recordings` or `/lab`, the hardcoded boolean answers "Observatory"
+ * for both, which is wrong for both and correct for neither. `useRoute()`
+ * derives the active hand from the actual parsed route instead, so the
+ * mapping is honest for all five routes even though only the balcony one
+ * renders this nav today.
  */
 const HANDS: ReadonlyArray<{ href: string; label: string }> = [
   { href: '/', label: 'Observatory' },
   { href: '/recordings', label: 'Recordings' },
   { href: '/lab', label: 'Lab' },
+  { href: '/connect', label: 'Connect' },
 ]
 
+/** The one nav hand's href the current route names — `lane` has no hand of its own, so it defaults to the balcony's. */
+function activeHref(route: Route): string {
+  switch (route.name) {
+    case 'recordings':
+      return '/recordings'
+    case 'lab':
+      return '/lab'
+    case 'connect':
+      return '/connect'
+    default:
+      return '/'
+  }
+}
+
 function NavStrip() {
+  const route = useRoute()
+  const current = activeHref(route)
+
   return (
     <nav aria-label="Primary" className="flex shrink-0 gap-1 border-b border-ice-850 px-4">
       {HANDS.map((hand) => (
-        <NavLink key={hand.href} href={hand.href} label={hand.label} active={hand.href === '/'} />
+        <NavLink key={hand.href} href={hand.href} label={hand.label} active={hand.href === current} />
       ))}
     </nav>
   )
