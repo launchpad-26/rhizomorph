@@ -29,8 +29,16 @@ export const CONNECTION_DOT_CLASS: Record<ConnectionStatus, string> = {
  *
  * The replay indicator itself stays in the ice register, never a ladder hue
  * (law 9) — a mode is not a status, so it must not borrow the vocabulary the
- * alarm ladder owns exclusively. The connection dot beside it keeps the
- * ladder mapping: SSE health is a real status, replay or not.
+ * alarm ladder owns exclusively. In replay, the small sse dot keeps the
+ * ladder mapping: there the `status` prop is the live hook's own reading.
+ *
+ * Outside replay the dot follows the same source split as the label: while a
+ * fixture drives, `StreamContext`'s fixture branch FABRICATES `status: 'open'`
+ * (StreamContext.tsx — it never consults the real SSE), so the ladder hue
+ * would be a costume, not a reading. A fixture's dot therefore joins the ice
+ * register, like replay's mode dot — a synthetic source has no connection
+ * health to report. (PR #282 review finding; the earlier claim here that the
+ * dot's status stays "real" under fixtures was wrong.)
  */
 export function ConnectionBadge({ status }: { status: ConnectionStatus }) {
   const mode = useMode()
@@ -62,10 +70,13 @@ export function ConnectionBadge({ status }: { status: ConnectionStatus }) {
   // label the instant it is not `live` — a fixture fleet (keys 1/2/3) must
   // never read as the real thing, whatever the SSE status underneath it is.
   const label = source === 'live' ? CONNECTION_LABEL[status] : provenance
+  // ...and the dot goes with it: the fixture branch fabricates `status`, so
+  // only a live source may wear a ladder hue (see the header comment).
+  const dotClass = source === 'live' ? CONNECTION_DOT_CLASS[status] : 'bg-ice-100 glow-calm'
 
   return (
     <span className="inline-flex items-center gap-2 text-xs uppercase tracking-wide text-ice-400">
-      <span className={`h-2 w-2 rounded-full ${CONNECTION_DOT_CLASS[status]}`} aria-hidden="true" />
+      <span className={`h-2 w-2 rounded-full ${dotClass}`} aria-hidden="true" />
       {label}
     </span>
   )
