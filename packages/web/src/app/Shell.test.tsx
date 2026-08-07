@@ -167,11 +167,30 @@ describe('Shell — the primary nav (#229, #252)', () => {
     window.history.replaceState(null, '', '/connect')
     await renderShell(null)
 
-    // Exactly one hand active, and it is the one the route actually names —
-    // the bug this fixes: the old hardcoded check would answer "Observatory"
-    // here too, wrong for every non-balcony route.
+    // Exactly one hand active, and it is the one the route actually names.
+    // Honesty note (PR #285 review): in production the nav renders only on
+    // the balcony — App's route switch mounts pages, not Shell, everywhere
+    // else — so the old hardcoded check produced no *observable* bug. This
+    // pins the abstraction's law for any tree that does mount the nav
+    // off-balcony (#258's design question).
     expect(screen.getByTestId('nav-connect').getAttribute('aria-current')).toBe('page')
     expect(screen.getByTestId('nav-observatory').getAttribute('aria-current')).toBeNull()
+    expect(screen.getByTestId('nav-recordings').getAttribute('aria-current')).toBeNull()
+    expect(screen.getByTestId('nav-lab').getAttribute('aria-current')).toBeNull()
+
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('pins the deliberate fallback: a route with no matching hand activates Observatory', async () => {
+    // activeHref's default arm maps every unhandled Route member (today:
+    // lane) to '/'. A future route added without a case lands here too —
+    // this makes the silent mapping a stated fact rather than an accident
+    // (PR #285 review, seat B finding 2).
+    window.history.replaceState(null, '', '/lane/some-handle')
+    await renderShell(null)
+
+    expect(screen.getByTestId('nav-observatory').getAttribute('aria-current')).toBe('page')
+    expect(screen.getByTestId('nav-connect').getAttribute('aria-current')).toBeNull()
     expect(screen.getByTestId('nav-recordings').getAttribute('aria-current')).toBeNull()
     expect(screen.getByTestId('nav-lab').getAttribute('aria-current')).toBeNull()
 
