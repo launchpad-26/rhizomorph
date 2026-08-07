@@ -258,6 +258,31 @@ describe('FleetTable — the staged-pathology fixture', () => {
     const stateCell = row.querySelectorAll('td')[1] as HTMLElement
     expect(stateCell.getAttribute('title')).toMatch(/pane likely died/)
   })
+
+  // The gap verify caught: a lane can carry a live pathology AND be
+  // terminal-done at once. The alarm sigil must not be swallowed by the
+  // finish (still reads OFF-FENCE), and the finish must not be swallowed by
+  // the alarm (a DONE mark and the hover both still say the pane is gone,
+  // beside the trespassed path).
+  it('shows OFF-FENCE and a DONE mark together for a lane that is both, and names both facts on hover', async () => {
+    await renderSyntheticFleet(offFenceHonestySpec())
+
+    const row = rows().find((r) => r.getAttribute('data-lane') === '62-pane-died-offence') as HTMLElement
+    const stateCell = row.querySelectorAll('td')[1] as HTMLElement
+
+    // The sigil word is still the alarm, never quietly replaced by DONE.
+    const svg = stateCell.querySelector('svg[data-sigil]')
+    expect(svg?.getAttribute('data-sigil')).toBe('off-fence')
+    expect(stateCell.textContent).toContain('OFF-FENCE')
+
+    // The finish still gets said, as its own mark beside the alarm word.
+    expect(stateCell.textContent).toContain('DONE')
+
+    // And the hover carries both facts — the trespassed path and the finish.
+    const title = stateCell.getAttribute('title') ?? ''
+    expect(title).toContain('packages/web/src/panels/attention/lockfile-churn.ts')
+    expect(title).toMatch(/pane likely died/)
+  })
 })
 
 describe('FleetTable — selection wiring', () => {

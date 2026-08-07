@@ -283,8 +283,8 @@ export function pathologySpec(): FixtureSpec {
  * would make every one of those a casualty of a change that has nothing to do
  * with them. This fixture is `pathologySpec`'s own shape — one lane per fact
  * being pinned, healthy neighbours are unnecessary because neither fact here
- * is EXPENSIVE's relative kind — reserved for the two false readings issue
- * #226 reported.
+ * is EXPENSIVE's relative kind — reserved for the false readings issue #226
+ * reported.
  */
 let offFenceHonestySingleton: FixtureSpec | null = null
 
@@ -309,6 +309,20 @@ export function offFenceHonestySpec(): FixtureSpec {
       // flatline.
       pathologyLane('61-pane-died-clean', 'terminal-done', 'packages/server/src/cli/lanes', {
         weight: 1,
+      }),
+      // The combination the first pass missed: a lane can be BOTH mid-alarm
+      // and terminal-done at once — its pane died clean-and-ahead right after
+      // the very commit that trespassed 60's fence landed. The alarm sigil
+      // must not be swallowed by the finish (`stateSigilKind` stays on
+      // OFF-FENCE), and the finish must not be swallowed by the alarm (the
+      // STATE title and a small DONE mark must still say the pane is gone).
+      pathologyLane('62-pane-died-offence', 'terminal-done', 'packages/server/src/cli/offence', {
+        weight: 1,
+        touches: [
+          'packages/server/src/cli/offence/pane-died-offence.ts',
+          // 60's own fence claims this path — a named victim, not a bare count.
+          'packages/web/src/panels/attention/lockfile-churn.ts',
+        ],
       }),
     ],
   })

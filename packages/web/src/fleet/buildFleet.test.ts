@@ -5,6 +5,7 @@ import {
   evidenceLine,
   findCycle,
   INFERRED_MARK,
+  isTerminalDone,
   PATHOLOGY_KINDS,
   type AttentionItem,
   type Fleet,
@@ -192,6 +193,21 @@ describe('off-fence honesty (issue #226)', () => {
     expect(lane.aheadOfMain).toBeGreaterThan(0)
     expect(kindsFor(fleet, '61-pane-died-clean')).not.toContain('frozen')
     expect(lane.activity).toBe('done')
+  })
+
+  // The gap verify caught in the first pass: a lane can carry a live
+  // pathology AND be terminal-done at once — its pane died clean-and-ahead
+  // right after the very commit that trespassed a fence landed. The MODEL
+  // must keep both facts true together; neither surface (sigil, title, mark)
+  // can be honest if `isTerminalDone` goes false just because a pathology is
+  // also present, or if the pathology's own evidence goes missing.
+  it('keeps a live pathology and terminal-done true at once — neither fact swallows the other', () => {
+    const lane = laneIn(fleet, '62-pane-died-offence')
+    expect(kindsFor(fleet, '62-pane-died-offence')).toEqual(['off-fence'])
+    expect(isTerminalDone(lane)).toBe(true)
+    expect(evidenceFor(fleet, '62-pane-died-offence', 'off-fence')).toContain(
+      'packages/web/src/panels/attention/lockfile-churn.ts',
+    )
   })
 })
 

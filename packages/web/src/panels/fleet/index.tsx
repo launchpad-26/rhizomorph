@@ -28,6 +28,7 @@ import {
   outputCellText,
   outputCellTitle,
   PARKED_TEXT_CLASS,
+  showsTerminalDoneMark,
   stateSigilKind,
   stateTitle,
   threadShort,
@@ -260,6 +261,14 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
         ) : null}
         {!lane.parked && lane.pathologies.length > 1 ? (
           <span className="figures ml-1 text-[10px] text-ice-400">+{lane.pathologies.length - 1}</span>
+        ) : null}
+        {showsTerminalDoneMark(lane) ? (
+          <span
+            className="ml-1 text-[10px] text-done"
+            title="worktree clean and ahead of main — the pane likely died right after its last commit landed"
+          >
+            DONE
+          </span>
         ) : null}
       </td>
       <td className="figures py-1.5 pr-2 text-right text-ice-200" title={outputCellTitle(lane)}>

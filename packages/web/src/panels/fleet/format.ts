@@ -73,7 +73,27 @@ export function stateTitle(lane: Lane): string {
   if (worst === null) return isTerminalDone(lane) ? terminalDoneTitle() : ACTIVITY_TITLE[lane.activity]
   const extra = lane.pathologies.length - 1
   const line = evidenceLine(worst)
-  return extra === 0 ? line : `${line} · +${extra} more: ${lane.pathologies.map(evidenceLine).join(' · ')}`
+  const body = extra === 0 ? line : `${line} · +${extra} more: ${lane.pathologies.map(evidenceLine).join(' · ')}`
+  // A lane can carry a live pathology AND be terminal-done at once (issue
+  // #226): a pane can die clean-and-ahead right after landing the very commit
+  // that trespassed a fence. The alarm stays the loudest word (`stateSigilKind`
+  // never yields to DONE while a pathology stands — law 9b), but the title
+  // must still say the pane is gone, or the operator reads a live OFF-FENCE
+  // lane as one still being worked when nothing is behind the wheel any more.
+  return isTerminalDone(lane) ? `${body} · ${terminalDoneTitle()}` : body
+}
+
+/**
+ * The STATE cell's DONE suffix mark (issue #226) — sits beside the existing
+ * `~` (inferred) and `+N` (more faults) marks for the same reason `stateTitle`
+ * above appends its clause: a lane can be mid-alarm (OFF-FENCE, say) and
+ * terminal-done at the same time, and the sigil must keep showing the alarm
+ * (`stateSigilKind` is untouched by this — the pathology always wins). This
+ * mark is how the finish still gets said instead of silently vanishing behind
+ * the louder word.
+ */
+export function showsTerminalDoneMark(lane: Lane): boolean {
+  return !lane.parked && worstPathology(lane) !== null && isTerminalDone(lane)
 }
 
 export function outputCellTitle(lane: Lane): string {
