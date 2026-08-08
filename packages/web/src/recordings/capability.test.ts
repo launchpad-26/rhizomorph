@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { CAPABILITY_META_NAME, readCapabilityToken } from './capability.js'
+import { CAPABILITY_META_NAME, CAPABILITY_TOKEN_HEADER, readCapabilityToken } from './capability.js'
 
 /**
  * The one place the browser reads the token `server/static.ts` stamps into
@@ -7,6 +7,25 @@ import { CAPABILITY_META_NAME, readCapabilityToken } from './capability.js'
  * read — so `label.test.ts` covers what happens once a token is or isn't
  * found.
  */
+describe('the two constants duplicated across the browser-safe boundary', () => {
+  /**
+   * `CAPABILITY_META_NAME` here and `static.ts`'s own copy, and
+   * `CAPABILITY_TOKEN_HEADER` here and `api/security.ts`'s own copy, are
+   * genuinely two separate constants — there is no shared package to import
+   * a single one from (docs/adr/0012's Consequences names this cost
+   * explicitly). Editing one side alone would otherwise fail silently: every
+   * test in this file still passes, `readCapabilityToken()` just returns
+   * null on every real boot, and #249 is back. Pinning both literal strings
+   * here — and their mirror in `api/security.test.ts` /
+   * `server/static.test.ts` — turns that silent drift into a failing test on
+   * whichever side changed.
+   */
+  it('pins the exact literal strings the server side must independently match', () => {
+    expect(CAPABILITY_META_NAME).toBe('rhizomorph-capability')
+    expect(CAPABILITY_TOKEN_HEADER).toBe('x-rhizomorph-capability')
+  })
+})
+
 describe('readCapabilityToken', () => {
   afterEach(() => {
     for (const meta of document.querySelectorAll(`meta[name="${CAPABILITY_META_NAME}"]`)) {

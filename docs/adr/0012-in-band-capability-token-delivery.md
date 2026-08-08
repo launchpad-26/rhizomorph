@@ -94,3 +94,18 @@ of growing its own.
 - **Neutral.** The token is now visible in "view source" on the dashboard's
   own tab — no different in kind from every other asset the server already
   serves, unauthenticated, to anything that can reach loopback.
+- **Bad — the meta-tag name and the header name are each duplicated across
+  the browser/server boundary, with no shared package to hold one copy.**
+  `server/static.ts` has its own `CAPABILITY_META_NAME`; `api/security.ts`
+  has its own `CAPABILITY_TOKEN_HEADER`; `packages/web/src/recordings/
+  capability.ts` duplicates both, because `web` stays browser-safe (no
+  `node:*`) and `server` is not, so neither side can import the other's
+  constant. Editing one side's copy alone is a silent failure mode: every
+  test in the file that changed still passes, and only a real boot shows the
+  break (`readCapabilityToken()` returns null, every rename throws, #249 is
+  back). Mitigated, not eliminated, by literal-pinning each copy's exact
+  string in its own test (`capability.test.ts`, `security.test.ts`) so a
+  one-sided edit fails a test on whichever side changed, rather than
+  drifting silently — a mitigation, not a shared source of truth. The
+  proposed `packages/contract/` workspace (deferred to its own lane) would
+  remove this duplication outright.

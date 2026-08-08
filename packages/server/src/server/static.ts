@@ -28,17 +28,45 @@ const MIME_TYPES: Record<string, string> = {
 const CAPABILITY_META_NAME = 'rhizomorph-capability'
 
 /**
+ * Every token this process mints is 64 hex characters
+ * (`generateCapabilityToken`, `api/security.ts`) — which is what lets
+ * {@link injectCapabilityMeta} interpolate it into an HTML attribute with no
+ * escaping. That premise is enforced here, not merely assumed: a
+ * caller-supplied `ServerContext.capabilityToken` (tests only, in
+ * production this is always `generateCapabilityToken()`'s own output) that
+ * doesn't hold to this exact shape is refused before it ever reaches the
+ * template string, so nothing containing a quote, an `onload=`, or a `$&`
+ * replacement-pattern character can reach `String.prototype.replace`.
+ */
+const CAPABILITY_TOKEN_SHAPE = /^[0-9a-f]{64}$/
+
+/**
  * Stamps the per-process capability token into `index.html`'s `<head>` so
  * the browser has a value to send back on `POST /api/label` — the one
  * channel that ever hands it out (see the ADR above for why in-band, and
- * what that costs). Every token this process mints is 64 hex characters
- * (`generateCapabilityToken`, `api/security.ts`), so no HTML-attribute
- * escaping is needed here; a caller-supplied `ServerContext.capabilityToken`
- * (tests only) is expected to hold to the same shape.
+ * what that costs).
  */
 function injectCapabilityMeta(html: string, capabilityToken: string): string {
+  if (!CAPABILITY_TOKEN_SHAPE.test(capabilityToken)) {
+    throw new Error(
+      `capability token is not the expected 64-hex-character shape — refusing to interpolate it into HTML unescaped`,
+    )
+  }
   const tag = `<meta name="${CAPABILITY_META_NAME}" content="${capabilityToken}">`
-  return html.includes('</head>') ? html.replace('</head>', `  ${tag}\n  </head>`) : `${tag}\n${html}`
+  if (html.includes('</head>')) {
+    return html.replace('</head>', `  ${tag}\n  </head>`)
+  }
+  // No closing `</head>` — insert right after the opening tag instead of
+  // prepending, which would land the tag before `<!doctype html>` itself
+  // and drop the page into quirks mode. A shell with no `<head>` at all has
+  // nowhere honest to put the token; refuse rather than silently prepending
+  // to a body that starts with the doctype.
+  const headOpen = /<head[^>]*>/.exec(html)
+  if (headOpen) {
+    const insertAt = headOpen.index + headOpen[0].length
+    return `${html.slice(0, insertAt)}\n  ${tag}${html.slice(insertAt)}`
+  }
+  throw new Error('index.html has no <head> element — nowhere to stamp the capability token')
 }
 
 /**
@@ -71,6 +99,10 @@ export function registerStaticRoute(app: FastifyInstance, distDir: string, capab
 
     reply.header('Content-Type', MIME_TYPES[path.extname(filePath)] ?? 'application/octet-stream')
 
+    // Every `.html` file gets the token, not only `index.html` — there is no
+    // `public/` directory today, so `index.html` is the only `.html` file
+    // dist ever contains, but the check is by extension rather than by name
+    // so a second static HTML page wouldn't silently miss the token later.
     if (path.extname(filePath) === '.html') {
       const html = readFileSync(filePath, 'utf8')
       return reply.send(injectCapabilityMeta(html, capabilityToken))

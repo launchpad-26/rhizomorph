@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'
 
 /**
  * THE MUTATING-CALLS LAW — prd16 ruling 2's condition on the web half, widened
@@ -98,6 +99,38 @@ function mutatingFiles(): string[] {
     .sort()
 }
 
+/**
+ * A header key inside an inline object literal — a single- or double-quoted
+ * literal name, OR a computed `[identifier]` key. `label.ts`'s real call
+ * site spells its capability header as `[CAPABILITY_TOKEN_HEADER]:`, which a
+ * quote-only pattern cannot see at all: it would read that block as naming
+ * just `Content-Type`, silently accept a computed credential under any other
+ * name, and still compile (a computed key doesn't trigger TS's excess-
+ * property check). Every group is optional per alternative; callers read
+ * whichever of groups 1–3 is defined.
+ */
+const HEADER_KEY_RE = /(?:'([^']+)'|"([^"]+)"|\[([A-Za-z_$][\w$]*)\])\s*:/g
+
+/**
+ * `headers:` followed by anything other than an inline object literal — a
+ * bare variable reference (`headers: h`) hides its contents from
+ * {@link HEADER_KEY_RE} entirely, so the law must refuse that shape outright
+ * rather than silently reading zero headers as "nothing to complain about".
+ */
+const HEADERS_NOT_INLINE_RE = /headers\s*:\s*(?!\{)\S/
+
+/** Every name imported from `'./capability.js'` in `text` — the one source a computed capability-header key is ever trusted to come from. */
+function importedFromCapabilityModule(text: string): Set<string> {
+  const names = new Set<string>()
+  for (const match of text.matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\/capability\.js'/g)) {
+    for (const part of match[1]?.split(',') ?? []) {
+      const name = part.trim().split(/\s+as\s+/)[0]?.trim()
+      if (name) names.add(name)
+    }
+  }
+  return names
+}
+
 describe('the web app names exactly two mutating calls (prd16 rulings 2 and 4)', () => {
   it('has the whole app to check, not one directory — an empty grep proves nothing', () => {
     const files = sourceFiles()
@@ -156,36 +189,69 @@ describe('the web app names exactly two mutating calls (prd16 rulings 2 and 4)',
    * all". What it must still never do is smuggle a credential or grow past
    * the two headers this call needs: the JSON body's own `Content-Type`,
    * and — since #249 delivered a channel for it — the per-process capability
-   * token the server requires. AMENDED for #249: this pinned exactly one
-   * header until the token had nowhere to travel; the fence for that change
-   * (`docs/adr/`) is that this amendment lands in its own reviewable commit,
-   * never folded silently into the feature that needed it. The check still
-   * names exactly the shape allowed rather than merely "some body, somehow",
-   * so a stray header or a widened payload fails here too.
+   * token the server requires.
+   *
+   * AMENDED for #249, alongside `label.ts`'s own widening, in the same
+   * commit (`e9d506f`) — not a separate one, and this comment says so rather
+   * than claiming otherwise: a law that requires both headers to be present
+   * cannot go green before `label.ts` actually emits the second one, so the
+   * two could not land as two independently-green commits. The commit
+   * message names the amendment loudly instead.
+   *
+   * The check still names exactly the shape allowed rather than merely
+   * "some body, somehow", so a stray header or a widened payload fails here
+   * too — and, since the real call site spells its capability header as a
+   * computed `[CAPABILITY_TOKEN_HEADER]` key rather than a string literal,
+   * this resolves that computed key back to its one trusted import instead
+   * of trusting any bracketed identifier by name, and refuses a `headers:`
+   * value that isn't an inline object literal in the first place (either
+   * escape would hide a smuggled header from every check below).
    */
   it("label.ts's body carries only sessionId and label, behind exactly the two headers the mutating call needs, no credential", () => {
     const text = readFileSync(path.join(WEB_SRC, 'recordings', 'label.ts'), 'utf8')
     expect(text).not.toMatch(/FormData|URLSearchParams|new Request\(/)
     expect(text).not.toMatch(/apiKey|api_key|ANTHROPIC_API_KEY|Authorization|Bearer\s/i)
     expect(text).not.toMatch(/credentials\s*:/)
+    expect(text, 'headers must stay an inline object literal, never a variable reference').not.toMatch(
+      HEADERS_NOT_INLINE_RE,
+    )
 
     // Two occurrences are expected — the narrow fetch type's own shape and the
     // one real call site — and each must name exactly this fixed header set,
     // nothing more and nothing less (a stray third header, or dropping back
     // to one, fails here).
-    const ALLOWED_HEADER_NAMES = ['Content-Type', 'x-rhizomorph-capability']
+    const ALLOWED_HEADER_NAMES = ['Content-Type', CAPABILITY_TOKEN_HEADER]
+    const importedFromCapability = importedFromCapabilityModule(text)
     const headerBlocks = [...text.matchAll(/headers\s*:\s*\{([^}]*)\}/g)]
     expect(headerBlocks.length).toBeGreaterThan(0)
 
     const namesSeen = new Set<string>()
     for (const block of headerBlocks) {
-      const names = [...(block[1] ?? '').matchAll(/'([^']+)'\s*:/g)].map((match) => match[1])
-      expect(names.length).toBeGreaterThan(0)
-      for (const name of names) {
-        expect(ALLOWED_HEADER_NAMES, `${name} is not one of the two headers this call is allowed to send`).toContain(
-          name,
+      const matches = [...(block[1] ?? '').matchAll(HEADER_KEY_RE)]
+      expect(matches.length).toBeGreaterThan(0)
+      for (const match of matches) {
+        const literalName = match[1] ?? match[2]
+        const computedIdentifier = match[3]
+        if (literalName !== undefined) {
+          expect(
+            ALLOWED_HEADER_NAMES,
+            `${literalName} is not one of the two headers this call is allowed to send`,
+          ).toContain(literalName)
+          namesSeen.add(literalName)
+          continue
+        }
+        // A computed key is only trusted when it names the one constant
+        // this call is allowed to send, imported from its one legitimate
+        // source — a same-named identifier shadowed locally, or imported
+        // from anywhere else, still fails.
+        expect(computedIdentifier, 'a computed header key must name CAPABILITY_TOKEN_HEADER, nothing else').toBe(
+          'CAPABILITY_TOKEN_HEADER',
         )
-        if (name !== undefined) namesSeen.add(name)
+        expect(
+          importedFromCapability.has('CAPABILITY_TOKEN_HEADER'),
+          'CAPABILITY_TOKEN_HEADER must be imported from ./capability.js, the one trusted source',
+        ).toBe(true)
+        namesSeen.add(CAPABILITY_TOKEN_HEADER)
       }
     }
     // Both allowed headers actually appear somewhere — a block missing the
@@ -194,6 +260,35 @@ describe('the web app names exactly two mutating calls (prd16 rulings 2 and 4)',
     expect([...namesSeen].sort()).toEqual([...ALLOWED_HEADER_NAMES].sort())
 
     expect(text).toMatch(/body\s*:\s*JSON\.stringify\(\{\s*sessionId,\s*label\s*\}\)/)
+  })
+
+  it('the header checks themselves catch what they claim to — a computed credential under a different name, a shadowed import, and headers hidden in a variable', () => {
+    // A computed key naming anything other than CAPABILITY_TOKEN_HEADER is
+    // visible to the pattern (so the law can inspect and reject it) — the
+    // pattern's job is to surface the identifier, not silently miss it.
+    const smuggled = [
+      ..."{ 'Content-Type': 'application/json', [AUTH_HEADER]: token }".matchAll(HEADER_KEY_RE),
+    ].map((match) => match[3])
+    expect(smuggled).toContain('AUTH_HEADER')
+    expect(smuggled).not.toContain('CAPABILITY_TOKEN_HEADER')
+
+    // A same-named identifier imported from anywhere other than
+    // `./capability.js` does not satisfy the trusted-import check.
+    expect(
+      importedFromCapabilityModule("import { CAPABILITY_TOKEN_HEADER } from './somewhere-else.js'").has(
+        'CAPABILITY_TOKEN_HEADER',
+      ),
+    ).toBe(false)
+    expect(
+      importedFromCapabilityModule("import { CAPABILITY_TOKEN_HEADER } from './capability.js'").has(
+        'CAPABILITY_TOKEN_HEADER',
+      ),
+    ).toBe(true)
+
+    // `headers:` assigned from a bare variable hides its contents from
+    // HEADER_KEY_RE entirely — the law must refuse that shape outright.
+    expect(HEADERS_NOT_INLINE_RE.test('headers: h,')).toBe(true)
+    expect(HEADERS_NOT_INLINE_RE.test("headers: { 'Content-Type': 'application/json' }")).toBe(false)
   })
 
   it('the buttons reach their routes only through their own module — never their own fetch', () => {
