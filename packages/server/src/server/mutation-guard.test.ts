@@ -16,6 +16,8 @@ function makeApp(): FastifyInstance {
   registerMutationGuard(app)
   app.post('/mutate', async (request) => ({ ok: true, body: request.body ?? null }))
   app.get('/read', async () => ({ ok: true }))
+  app.get('/api/transcript/:lane', async () => ({ ok: true }))
+  app.get('/api/stream', async () => ({ ok: true }))
   return app
 }
 
@@ -174,14 +176,63 @@ describe('registerMutationGuard', () => {
     })
   })
 
-  describe('read-only routes are exempt', () => {
-    it('a cross-origin GET is never touched by this guard', async () => {
+  describe('read-only routes: Origin and Content-Type are exempt, Host is not', () => {
+    it('a cross-origin GET with a loopback Host still passes — Origin/Content-Type never apply to reads', async () => {
       const app = makeApp()
       const response = await app.inject({
         method: 'GET',
         url: '/read',
-        headers: { origin: 'https://evil.example', host: 'attacker-controlled.example' },
+        headers: { origin: 'https://evil.example', host: '127.0.0.1:4317' },
       })
+      expect(response.statusCode).toBe(200)
+    })
+
+    it('rejects a GET whose Host is not loopback — the DNS-rebinding case: a rebound page reading /api/transcript/:lane', async () => {
+      // This is the defect #235 fixes: a page from `evil.example` that gets
+      // rebound to 127.0.0.1 sends no `Origin` at all for this request (the
+      // browser treats it as same-origin), so only `Host` can catch it.
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/transcript/lane-1',
+        headers: { host: 'evil.example' },
+      })
+      expect(response.statusCode).toBe(400)
+    })
+
+    it('accepts a GET with a loopback Host for /api/transcript/:lane', async () => {
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/transcript/lane-1',
+        headers: { host: '127.0.0.1:4317' },
+      })
+      expect(response.statusCode).toBe(200)
+    })
+
+    it('rejects a GET whose Host is not loopback — the /api/stream SSE shape', async () => {
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/stream',
+        headers: { host: 'evil.example' },
+      })
+      expect(response.statusCode).toBe(400)
+    })
+
+    it('accepts a GET with a loopback Host for /api/stream', async () => {
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/stream',
+        headers: { host: 'localhost:4317' },
+      })
+      expect(response.statusCode).toBe(200)
+    })
+
+    it('accepts a GET with no Host header override — fastify app.inject defaults to a loopback Host', async () => {
+      const app = makeApp()
+      const response = await app.inject({ method: 'GET', url: '/read' })
       expect(response.statusCode).toBe(200)
     })
   })
