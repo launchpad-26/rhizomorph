@@ -45,6 +45,17 @@ describe('runExportRecord', () => {
     expect(verifyRecord(record)).toEqual({ ok: true })
   })
 
+  it('refreshes the default (no --out) path on a second, flagless export of the same session', async () => {
+    const sessionDir = sessionDirFor(repoPath, dataRoot)
+    await writeSessionFile(sessionDir, 1000, sessionEvents(1000, '1000'))
+
+    const first = await runExportRecord({ repoPath, dataRoot })
+    const second = await runExportRecord({ repoPath, dataRoot })
+
+    expect(second.outPath).toBe(first.outPath)
+    expect(verifyRecord(second.record)).toEqual({ ok: true })
+  })
+
   it('honors --session to pick a specific recorded session', async () => {
     const sessionDir = sessionDirFor(repoPath, dataRoot)
     await writeSessionFile(sessionDir, 1000, sessionEvents(1000, '1000'))

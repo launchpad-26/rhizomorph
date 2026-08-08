@@ -1,4 +1,4 @@
-import { mkdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { userInfo } from 'node:os'
 import path from 'node:path'
 import { buildRecord, type Actor, type SessionRecord } from '@rhizomorph/core/src/record/index.js'
@@ -117,9 +117,13 @@ function resolveActor(handle: string | undefined): Actor {
  * recorded session for this repo; `--out` may point anywhere except inside
  * `repoPath`, which would break the "export never touches the watched repo"
  * law, so that case is refused rather than silently allowed. Separately, an
- * existing file at `outPath` is refused unless `force` is set — this is a
- * one-shot, non-interactive command, so refuse-by-default stands in for a
- * confirmation prompt rather than silently overwriting.
+ * *explicit* `--out` that already exists is refused unless `force` is set —
+ * this is a one-shot, non-interactive command, so refuse-by-default stands in
+ * for a confirmation prompt rather than silently overwriting a file the
+ * caller named. The guard does not apply to the default path (derived from
+ * repo slug + session id, inside rhizomorph's own data dir): that artefact is
+ * regenerable and re-running export-record without `--out` is meant to
+ * refresh it, not fail on the second run.
  */
 export async function runExportRecord(options: ExportRecordOptions): Promise<ExportRecordResult> {
   const dataRoot = options.dataRoot ?? defaultDataRoot()
@@ -159,15 +163,23 @@ export async function runExportRecord(options: ExportRecordOptions): Promise<Exp
     )
   }
 
-  if (options.force !== true) {
-    const exists = await stat(outPath).then(() => true, () => false)
-    if (exists) {
+  await mkdir(path.dirname(outPath), { recursive: true })
+
+  // `wx` refuses (EEXIST) instead of truncating, closing the stat-then-write
+  // TOCTOU window and also refusing through a dangling symlink — only when
+  // the caller named the path explicitly; the default path always refreshes.
+  const refuseExisting = options.out !== undefined && options.force !== true
+  try {
+    await writeFile(outPath, `${JSON.stringify(record, null, 2)}\n`, {
+      encoding: 'utf8',
+      flag: refuseExisting ? 'wx' : 'w',
+    })
+  } catch (err) {
+    if (refuseExisting && err instanceof Error && (err as NodeJS.ErrnoException).code === 'EEXIST') {
       throw new Error(`refusing to overwrite existing file (${outPath}) — pass --force to overwrite`)
     }
+    throw err
   }
-
-  await mkdir(path.dirname(outPath), { recursive: true })
-  await writeFile(outPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
 
   return { outPath, record }
 }
