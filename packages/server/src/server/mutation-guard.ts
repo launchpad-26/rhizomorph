@@ -36,10 +36,11 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
  *
  * `Origin` stays scoped to mutating methods below: a genuinely cross-origin
  * `fetch`/`XHR` DOES carry an `Origin` header, so it adds CSRF coverage on
- * top of `Host` for state-changing requests — but a same-origin *rebound*
- * `GET` carries no `Origin` at all (browsers only attach it to requests they
- * consider cross-origin), which is exactly why `Host`, not `Origin`, is the
- * check that has to run for every method.
+ * top of `Host` for state-changing requests — but the rebinding attack this
+ * file is defending against produces a *same-origin* `GET`, and a
+ * same-origin `GET` carries no `Origin` header at all, so `Origin` could
+ * never have caught it regardless of method. `Host` is what has to run for
+ * every method instead.
  *
  * Three checks, all before body parsing (`onRequest`, the earliest hook
  * Fastify offers), so a request this suspect never gets its body read at
