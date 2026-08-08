@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -32,11 +32,23 @@ import { describe, expect, it } from 'vitest'
  * walking all of that here would mean re-deriving a second, parallel
  * read-only law over most of `packages/web/src`. `CONSUMED` names those
  * dependencies instead of walking them, and the test below asserts every
- * relative import `index.tsx` makes that leaves `drawer/` resolves into
- * either `DRAWER_SURFACES` or `CONSUMED` — nothing escapes ungoverned AND
- * unnamed. An import into a third place fails loudly, with the import path
- * and both lists spelled out, rather than silently passing because nobody
- * walks there.
+ * relative import `index.tsx` *itself* makes that leaves `drawer/` resolves
+ * into either `DRAWER_SURFACES` or `CONSUMED` — for `index.tsx`, nothing
+ * escapes ungoverned AND unnamed. That guarantee is scoped to `index.tsx`
+ * on purpose, not the whole directory: `Activity.tsx`, `Vitals.tsx` and
+ * others each carry their own leaving imports (`panels/burn/format`,
+ * `panels/fleet/format`, `lib/format`, `trace/TraceTree`, …) that neither
+ * this test nor `CONSUMED` accounts for — walking those too is exactly the
+ * larger closure the audit traced and rejected, restated per-file instead
+ * of once. An import into a third place from `index.tsx` fails loudly, with
+ * the import path and both lists spelled out, rather than silently passing
+ * because nobody walks there; those other files' mutating calls, if any,
+ * are still someone else's job to catch, and they are: `replay/mutating-
+ * calls-law.test.ts`'s own recursive walk (`visit()`) already enumerates
+ * every mutating call across the whole of `packages/web/src`, `fleet/` and
+ * `panels/` included, so a POST reached through a CONSUMED dependency (or
+ * one of those other files' own imports) would surface there even though
+ * this file never walks that far.
  */
 
 const DRAWER_DIR = path.dirname(fileURLToPath(import.meta.url))
@@ -61,19 +73,65 @@ const CONSUMED: readonly string[] = [
   'trace/model',
 ]
 
+/**
+ * Recursive walk (the `visit()` shape `replay/mutating-calls-law.test.ts`
+ * uses, and `lab/no-live-fleet-law.test.ts` reuses) — a flat `readdirSync`
+ * would silently drop a nested `drawer/net/post.ts` or `why/details/X.tsx`
+ * from every check below, extension filter and all, with no signal and the
+ * floor still passing. Both governed directories are flat today, but the
+ * walk no longer depends on staying that way.
+ */
 function sourceFilesIn(dir: string): { name: string; text: string }[] {
-  return readdirSync(dir)
-    .filter((name) => /\.(ts|tsx)$/.test(name))
-    .filter((name) => !name.endsWith('.test.ts') && !name.endsWith('.test.tsx'))
-    .map((name) => ({
-      name: path.join(path.relative(WEB_SRC, dir), name),
-      text: readFileSync(path.join(dir, name), 'utf8'),
-    }))
+  const out: { name: string; text: string }[] = []
+  const visit = (current: string) => {
+    for (const entry of readdirSync(current)) {
+      if (entry === 'node_modules' || entry === 'dist') continue
+      const full = path.join(current, entry)
+      if (statSync(full).isDirectory()) {
+        visit(full)
+        continue
+      }
+      if (!/\.(ts|tsx)$/.test(entry)) continue
+      if (/\.test\.tsx?$/.test(entry)) continue
+      out.push({ name: path.relative(WEB_SRC, full), text: readFileSync(full, 'utf8') })
+    }
+  }
+  visit(dir)
+  return out
 }
 
 function sourceFiles(): { name: string; text: string }[] {
   const dirs = [DRAWER_DIR, ...DRAWER_SURFACES.map((surface) => path.join(WEB_SRC, surface))]
   return dirs.flatMap(sourceFilesIn)
+}
+
+/**
+ * Resolves `importPath` (as written in `index.tsx`, e.g. `'../why/index.js'`)
+ * against `packages/web/src`, the same coordinate space `DRAWER_SURFACES`
+ * and `CONSUMED` are written in — real path resolution, not a string strip,
+ * so `../../fleet/manifest.js` and `../fleet/manifest.js` normalise to the
+ * same `fleet/manifest` regardless of how many `../` hops `index.tsx` used.
+ */
+function resolveSpecifier(importPath: string): string {
+  const absolute = path.resolve(DRAWER_DIR, importPath)
+  const relative = path.relative(WEB_SRC, absolute).replace(/\.(ts|tsx|js|jsx)$/, '')
+  return relative.split(path.sep).join('/')
+}
+
+/**
+ * Whether `importPath` resolves into a declared surface or a declared
+ * consumed dependency. A directory match requires the full next path
+ * segment, not merely a shared prefix — `resolved === base` (the surface's
+ * own entry point) or `resolved.startsWith(base + '/')` (something inside
+ * it) — so a sibling like `why-not/x` or `whynot/x` can never pass as `why/`.
+ */
+function governs(importPath: string): boolean {
+  const resolved = resolveSpecifier(importPath)
+  const inSurface = DRAWER_SURFACES.some((surface) => {
+    const base = surface.replace(/\/$/, '')
+    return resolved === base || resolved.startsWith(`${base}/`)
+  })
+  return inSurface || CONSUMED.includes(resolved)
 }
 
 describe('the drawer sends only GETs', () => {
@@ -152,14 +210,8 @@ describe('the drawer sends only GETs', () => {
     expect(leavingImports.length).toBeGreaterThan(0) // the check below would pass vacuously on an empty sweep
 
     for (const importPath of leavingImports) {
-      // '../why/index.js' → 'why/index'; '../fleet/manifest.js' → 'fleet/manifest' —
-      // strip the leading '../' hops and the extension so the import compares
-      // cleanly against both lists regardless of how deep index.tsx sits.
-      const resolved = importPath.replace(/^(\.\.\/)+/, '').replace(/\.(ts|tsx|js|jsx)$/, '')
-      const inSurface = DRAWER_SURFACES.some((surface) => resolved.startsWith(surface.replace(/\/$/, '')))
-      const inConsumed = CONSUMED.includes(resolved)
       expect(
-        inSurface || inConsumed,
+        governs(importPath),
         `index.tsx imports '${importPath}', which leaves drawer/ into neither a DRAWER_SURFACES entry ` +
           `(${DRAWER_SURFACES.join(', ')}) nor the CONSUMED allowlist (${CONSUMED.join(', ')}) — this import is ` +
           `ungoverned by the read-only law; add its target to DRAWER_SURFACES if the drawer should walk it too, ` +
@@ -169,9 +221,17 @@ describe('the drawer sends only GETs', () => {
   })
 
   it('the resolver bites — an import into a third, undeclared place would be caught', () => {
-    const resolved = 'launch/launch'
-    const inSurface = DRAWER_SURFACES.some((surface) => resolved.startsWith(surface.replace(/\/$/, '')))
-    const inConsumed = CONSUMED.includes(resolved)
-    expect(inSurface || inConsumed).toBe(false)
+    // Exercises the real `governs()` — not a hand-built resolved string —
+    // so weakening the resolver itself would show up here too.
+    expect(governs('../launch/launch.js')).toBe(false)
+  })
+
+  it("the resolver does not accept a similarly-prefixed sibling as the WHY surface", () => {
+    // 'why-not/' and 'whynot/' both share the string prefix 'why' with the
+    // declared surface 'why/' — a startsWith on the bare prefix would wrongly
+    // accept either. governs() requires the full next path segment instead.
+    expect(governs('../why-not/thing.js')).toBe(false)
+    expect(governs('../whynot/thing.js')).toBe(false)
+    expect(governs('../why/index.js')).toBe(true)
   })
 })

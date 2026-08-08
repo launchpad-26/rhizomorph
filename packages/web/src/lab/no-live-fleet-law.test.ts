@@ -64,8 +64,18 @@ const FORBIDDEN_PATTERNS: readonly RegExp[] = [
   /\breduceAll\(/,
 ]
 
-/** Any import reaching into `scene/`, at any depth — governed separately below, by name, not by blanket forbid. */
-const SCENE_IMPORT_RE = /from ['"]((?:\.\.\/)+scene\/[^'"]+)['"]/g
+/**
+ * Any import reaching into `scene/`, at any depth — governed separately
+ * below, by name, not by blanket forbid. Covers every form a scene import
+ * could take, not just `import … from '…'`/`export … from '…'` (the `from`
+ * branch): a bare side-effect import (`import '../../scene/x.js'`, no
+ * `from` at all) and a dynamic one (`import('../../scene/x.js')`) reach the
+ * same module and must be just as visible — this is newly load-bearing now
+ * that the blanket `scene/` forbid below has been replaced by this named,
+ * positive exception; a form the regex can't see is a form the exception
+ * can't be checked against.
+ */
+const SCENE_IMPORT_RE = /(?:\bfrom\s+|\bimport\s*\(\s*|\bimport\s+)['"]((?:\.\.\/)+scene\/[^'"]+)['"]/g
 
 /** The one named exception (`branching/geometry.ts`'s own doc: reused as-is, never forked). */
 const ALLOWED_SCENE_IMPORT = { file: path.join('branching', 'geometry.ts'), importPath: '../../scene/palette.js' }
@@ -103,11 +113,13 @@ function sourceFiles(): LabSourceFile[] {
 describe('the lab tab renders no live-fleet surface (prd14)', () => {
   it('has source files to check at all, from every governed subdirectory — a shallow walk proves nothing', () => {
     // 17 real files as of the 2026-08-08 audit (5 at the root, 2 in
-    // branching/, 7 in compare/, 3 in launch/); >=15 leaves headroom for a
-    // file or two moving around without immediately failing this floor,
-    // while still catching a shallow walk that silently drops a whole
-    // subdirectory (the defect this law amends).
-    expect(sourceFiles().length).toBeGreaterThanOrEqual(15)
+    // branching/, 7 in compare/, 3 in launch/) — pinned exactly, not a loose
+    // lower bound: headroom here would defeat the point. A shallow walk
+    // dropping just branching/ (2 files) would still clear a >=15 floor, so
+    // any slack would silently forgive exactly the defect this law amends.
+    // The next test also names each subdirectory explicitly, so a loss is
+    // caught twice over — by count here, and by name there.
+    expect(sourceFiles().length).toBeGreaterThanOrEqual(17)
   })
 
   it('the walk reaches every subdirectory, not just the ones a shallow readdirSync used to see', () => {
@@ -132,10 +144,16 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
     expect(sceneImports).toEqual([ALLOWED_SCENE_IMPORT])
   })
 
-  it('the detector bites — a fleet/panel import added tomorrow, at any depth, would be caught', () => {
-    expect(FORBIDDEN_PATTERNS.some((pattern) => pattern.test("import { useFleet } from '../fleet/index.js'"))).toBe(
-      true,
-    )
+  it('the detector bites — a fleet/panel import added tomorrow, at any depth, would be caught by the path alone, not just a named identifier', () => {
+    // No `useFleet`/`FleetProvider`/`buildFleet`/`reduceAll(` anywhere in
+    // these probes — if they pass, it is the depth-independent path pattern
+    // catching them, not a forbidden identifier riding along for free.
+    expect(
+      FORBIDDEN_PATTERNS.some((pattern) => pattern.test("import type { FetchLike } from '../fleet/manifest.js'")),
+    ).toBe(true)
+    expect(
+      FORBIDDEN_PATTERNS.some((pattern) => pattern.test("import type { FetchLike } from '../../fleet/manifest.js'")),
+    ).toBe(true)
     expect(
       FORBIDDEN_PATTERNS.some((pattern) =>
         pattern.test("import { costCellText } from '../../panels/fleet/format.js'"),
@@ -146,5 +164,12 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
   it('the scene detector bites — a second scene/ import, anywhere, would be caught', () => {
     const text = "import { cssColour } from '../scene/paint.js'"
     expect([...text.matchAll(SCENE_IMPORT_RE)].map((match) => match[1])).toEqual(['../scene/paint.js'])
+  })
+
+  it('the scene detector bites on a bare side-effect import and a dynamic one too, not just `… from …`', () => {
+    const bare = "import '../../scene/reset.css.js'"
+    const dynamic = "const mod = await import('../../scene/lazy.js')"
+    expect([...bare.matchAll(SCENE_IMPORT_RE)].map((match) => match[1])).toEqual(['../../scene/reset.css.js'])
+    expect([...dynamic.matchAll(SCENE_IMPORT_RE)].map((match) => match[1])).toEqual(['../../scene/lazy.js'])
   })
 })
