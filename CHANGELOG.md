@@ -85,6 +85,25 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   under its own write-scope namespace law, entirely separate from the
   read-only observer.
 
+### Security
+
+- **The loopback `Host` check now runs for every request, not just
+  mutations (#235).** A DNS-rebound page could previously read
+  `/api/transcript/:lane` and the `/api/stream` SSE, because every GET
+  returned early past the guard. Deliberately disclosed blast radius: a
+  request whose `Host` spells anything outside `127.0.0.1` / `localhost` /
+  `::1` / `[::1]` (each with an optional `:port`) is now refused with a 400
+  on **every** route, where reads used to pass. Concretely that now refuses
+  `curl http://0.0.0.0:PORT/...` (dialling `0.0.0.0` reaches a
+  `127.0.0.1`-bound socket as a Linux/macOS convenience), Host-less HTTP/1.0
+  requests, and the trailing-dot `localhost.`. Address the instrument as
+  `127.0.0.1` or `localhost` instead — see
+  [troubleshooting](docs/user-guide/troubleshooting.md#refused-host--is-not-loopback).
+  `0.0.0.0` was considered for the accepted set and rejected: it is the
+  unspecified address, not a loopback name, and the dial-through is not
+  portable (the rationale lives on `LOOPBACK_HOSTNAMES` in
+  `packages/server/src/server/mutation-guard.ts`).
+
 ### Changed
 
 - **Measured performance fixes.** A 55,000-event replay's main-thread load
