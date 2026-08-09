@@ -4,6 +4,11 @@ import path from 'node:path'
 import { createEventFactory, eventsToJsonl } from '@rhizomorph/core'
 import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+// Deliberate, test-only cross-package edge: the seam this file exists to
+// prove is web↔server, so the server's REAL modules come in by path — a
+// package export would be a contract of its own, and `packages/contract/`
+// is a deferred lane. The law's sweep excludes test files; no non-test file
+// under packages/web/src may import server source.
 import { readSessionLabel } from '../../../server/src/log/label.js'
 import { sessionFileName } from '../../../server/src/log/paths.js'
 import { buildApp } from '../../../server/src/server/build-app.js'
@@ -81,15 +86,23 @@ describe('the rename seam: served page → real client → real gate (#249)', ()
     app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder, now: () => 9999, webDistDir: distDir })
 
     // The page the operator's browser would be looking at: what GET / really
-    // served on this boot, loaded wholesale — not a hand-made meta tag.
+    // served on this boot, loaded wholesale — not a hand-made meta tag. The
+    // stamp must actually be there before any test leans on tampering with
+    // it or removing it — without this line, a server that stopped stamping
+    // would fail the end-to-end test but leave the two refusal tests passing
+    // vacuously on the client's own missing-token throw.
     const served = await app.inject({ method: 'GET', url: '/' })
     expect(served.statusCode).toBe(200)
+    expect(served.body, 'the served page must carry the stamped token before these tests mean anything').toContain(
+      `meta name="${CAPABILITY_META_NAME}"`,
+    )
     document.open()
     document.write(served.body)
     document.close()
   })
 
   afterEach(async () => {
+    await app.close()
     await Promise.all([
       rm(repoPath, { recursive: true, force: true }),
       rm(sessionDir, { recursive: true, force: true }),
@@ -114,7 +127,12 @@ describe('the rename seam: served page → real client → real gate (#249)', ()
     // exercises the gate's comparison, not the stamp's shape check.
     document.querySelector(`meta[name="${CAPABILITY_META_NAME}"]`)?.setAttribute('content', '0'.repeat(64))
 
-    await expect(requestLabel('1000', 'renamed', transportOnly(app))).rejects.toThrow(/capability token/)
+    // The server's phrase, not the client's — /capability token/ alone would
+    // also match the client's own "no capability token found" refusal, and
+    // this test's whole claim is that the SERVER's sentence crossed back.
+    await expect(requestLabel('1000', 'renamed', transportOnly(app))).rejects.toThrow(
+      /missing or invalid x-rhizomorph-capability/,
+    )
     expect(await readSessionLabel(sessionDir, '1000')).toBeNull()
   })
 

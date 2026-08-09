@@ -52,7 +52,11 @@ process at the HTTP layer is `Origin`/`Host` — the mutation guard
 (`server/mutation-guard.ts`). A token-issuing endpoint could carry no gate
 stronger than that same guard, so it puts the token behind exactly the
 boundary the page embedding it sits behind — identical guard, one extra
-round trip, a loading state, and no marginal isolation. To be plain about
+round trip, a loading state, and no marginal isolation. (A token read would
+itself be a `GET`, so whatever gates `GET /` gates it identically; were it
+instead spelled as a mutating `POST`, the difference would last only until
+#235 moves the Host check — and would never distinguish the local process
+ADR-0008 names as the real attacker, which sets `Host` freely.) To be plain about
 today's enforcement rather than flattering it: as of this record the guard
 exits early for every non-mutating method (`mutation-guard.ts`), so `GET /`
 is not Host-gated at all — #235 (PR #303) moves the Host check ahead of that

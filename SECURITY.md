@@ -24,6 +24,12 @@ See the [Trust section](README.md#trust) for the full account, and
 `packages/server/src/lab/namespace-law.test.ts` for the test that enforces
 it.
 
+If you find a code path that breaks either of those hands' fences — the
+observer writing to the watched repo, the laboratory writing outside its
+own namespace, anything listening on a non-loopback address, or anything
+transmitting data off the machine — that's exactly the kind of thing this
+file is for.
+
 ## Mutating routes and the capability token
 
 The dashboard itself can mutate exactly three things, each behind a button
@@ -40,18 +46,12 @@ minted fresh each boot, held in memory, and delivered in-band — stamped
 into `index.html`'s `<head>` as a `<meta>` tag at serve time, where the
 dashboard's own JS reads it back
 (`docs/adr/0012-in-band-capability-token-delivery.md`; the other two routes
-adopt the same mechanism under #234). Stated plainly, what that buys and
+will adopt the same mechanism under #234). Stated plainly, what that buys and
 what it doesn't: a caller with no access to the served page — no browser,
 no ability to issue a loopback `GET /` — cannot rename anything; a local
 process that *can* fetch the page gets the token exactly as the browser
 does. A value handed to a page over unauthenticated loopback HTTP cannot
 be hidden from something that can already reach that page.
-
-If you find a code path that breaks either of those hands' fences — the
-observer writing to the watched repo, the laboratory writing outside its
-own namespace, anything listening on a non-loopback address, or anything
-transmitting data off the machine — that's exactly the kind of thing this
-file is for.
 
 ## Reporting a vulnerability
 
