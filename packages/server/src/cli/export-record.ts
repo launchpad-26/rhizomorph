@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, stat, writeFile } from 'node:fs/promises'
 import { userInfo } from 'node:os'
 import path from 'node:path'
 import { buildRecord, type Actor, type SessionRecord } from '@rhizomorph/core/src/record/index.js'
@@ -175,7 +175,16 @@ export async function runExportRecord(options: ExportRecordOptions): Promise<Exp
       flag: refuseExisting ? 'wx' : 'w',
     })
   } catch (err) {
-    if (refuseExisting && err instanceof Error && (err as NodeJS.ErrnoException).code === 'EEXIST') {
+    const code = err instanceof Error ? (err as NodeJS.ErrnoException).code : undefined
+    // A directory at outPath surfaces as EEXIST under 'wx' and EISDIR under
+    // 'w' — either way --force cannot help, so don't advise it.
+    if (code === 'EEXIST' || code === 'EISDIR') {
+      const existing = await stat(outPath).catch(() => undefined)
+      if (existing?.isDirectory()) {
+        throw new Error(`--out names an existing directory (${outPath}) — pass a file path instead`)
+      }
+    }
+    if (refuseExisting && code === 'EEXIST') {
       throw new Error(`refusing to overwrite existing file (${outPath}) — pass --force to overwrite`)
     }
     throw err

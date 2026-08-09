@@ -141,6 +141,20 @@ describe('runExportRecord', () => {
     expect(await readFile(customOut, 'utf8')).toBe('pre-existing')
   })
 
+  it('names the directory case instead of advising a --force that cannot help', async () => {
+    const sessionDir = sessionDirFor(repoPath, dataRoot)
+    await writeSessionFile(sessionDir, 1000, sessionEvents(1000, '1000'))
+    const dirOut = path.join(dataRoot, 'custom')
+    await mkdir(dirOut, { recursive: true })
+
+    await expect(runExportRecord({ repoPath, dataRoot, out: dirOut })).rejects.toThrow(
+      /names an existing directory.*pass a file path/is,
+    )
+    await expect(runExportRecord({ repoPath, dataRoot, out: dirOut, force: true })).rejects.toThrow(
+      /names an existing directory.*pass a file path/is,
+    )
+  })
+
   it('--force overwrites an existing --out file', async () => {
     const sessionDir = sessionDirFor(repoPath, dataRoot)
     await writeSessionFile(sessionDir, 1000, sessionEvents(1000, '1000'))
