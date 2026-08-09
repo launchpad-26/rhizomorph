@@ -4,3 +4,10 @@ coverage/
 scratchpad/
 .swarm/lanes.json
 .swarm/
+
+# Per-contributor agent instructions. These describe how one person's tooling
+# should behave in this repo, not how the repo works — nothing in the tree
+# cites either file. Keeping them untracked lets each contributor carry their
+# own without a diff every time someone's differs.
+AGENTS.md
+CLAUDE.md
