@@ -18,6 +18,8 @@ import type {
   JudgeFindingRecord,
   LaneAttribution,
   PaneState,
+  RefusalRecord,
+  RefusalState,
   SessionPlace,
   SessionState,
   SpanRecord,
@@ -26,7 +28,13 @@ import type {
   UsageRecord,
   WorktreeState,
 } from './state.js'
-import { MAX_ERRORS, basename, initialSessionState, traceStateOf } from './state.js'
+import {
+  MAX_ERRORS,
+  basename,
+  initialSessionState,
+  refusalStateWith,
+  traceStateOf,
+} from './state.js'
 
 /**
  * `reduce(state, event) → state`, pure and immutable.
@@ -110,10 +118,7 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
     case 'agent.activeTime':
       return agentActiveTime(state, event)
     case 'telemetry.refused':
-      // A refusal is a setup gap, not spend: it stays in the log (and on the
-      // stream) for the UI to surface, and contributes nothing to any total.
-      // #62 gives it a home in state.
-      return state
+      return telemetryRefused(state, event)
     case 'trace.span':
       return traceSpan(state, event)
     case 'fork.checkpoint':
@@ -1028,6 +1033,58 @@ function upsertLane(
     // Present only when true, never removed — see AgentState.synthetic.
     ...(prev?.synthetic === true || synthetic ? { synthetic: true as const } : {}),
   }
+}
+
+// --- refusals (prd19) -------------------------------------------------------
+
+/**
+ * One refused export, folded whole (prd19 ruling 2 — the home the #62 TODO
+ * promised and the no-op arm this replaces never gave it).
+ *
+ * **Deliberately does not touch `state.telemetry`.** Not one field of it: not
+ * the six record arrays, not the lane index, not the session index. A refused
+ * post is the receiver saying "nothing here is mine" — it contributed no
+ * tokens, no dollars, no tool call and no place, and its payload names neither
+ * a lane nor a session to teach anything with. Routing it through
+ * {@link withTelemetry} would invent a lane the ledger then reports zero
+ * dollars for, which is the same mistake prd9 ruling 4 keeps spans out of the
+ * money layer to avoid. So "folding a refusal leaves every `TelemetryState`
+ * array and total byte-identical" is true here by construction rather than by
+ * every future reader remembering, and `reduce.telemetry.test.ts` states it as
+ * a law from the far end.
+ *
+ * The envelope bookkeeping above still counts the event, because the event
+ * really did arrive: what was refused is the *export*, not the log line.
+ *
+ * Refusals are never deduped. Two posts from the same offender are two standing
+ * facts about a fault that is still happening, and the receiver's own
+ * once-per-offender-per-minute throttle is the only thinning applied — merging
+ * them here would hide exactly the "it is STILL misconfigured" signal the
+ * connect surface reads (prd19 ruling 3).
+ */
+function telemetryRefused(state: SessionState, event: EventOf<'telemetry.refused'>): SessionState {
+  const p = event.payload
+  const record: RefusalRecord = {
+    eventId: event.id,
+    ts: event.ts,
+    instance: p.instance,
+    expectedInstance: p.expectedInstance,
+    count: p.count,
+  }
+
+  // The append, the positions index and the retention seam are the slice's own
+  // arithmetic, and live beside the shape they maintain (`refusalStateWith` in
+  // `state.ts`): the cap defaults to `MAX_REFUSALS`, so the shipped fold is
+  // unbounded, and its drop branch stays reachable by a test rather than dead
+  // behind a `null`.
+  //
+  // `instance` is a string ANOTHER process chose and our receiver refused, so
+  // `'__proto__'` and every other `Object.prototype` member reaches the index.
+  // That is handled there — and handled rather than filtered, because a hostile
+  // instance id is exactly the offender a connect surface most needs named, so
+  // it is recorded and indexed like any other.
+  const next: RefusalState = refusalStateWith(state.refusals, record)
+  return { ...state, refusals: next }
 }
 
 // --- traces (prd9) ----------------------------------------------------------

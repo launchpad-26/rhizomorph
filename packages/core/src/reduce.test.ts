@@ -11,9 +11,11 @@ import {
   initialCheckpointState,
   initialForkState,
   initialJudgeState,
+  initialRefusalState,
   initialSessionState,
   initialTelemetryState,
   initialTraceState,
+  refusalIndexOf,
   traceStateOf,
 } from './state.js'
 
@@ -44,6 +46,7 @@ describe('reduce — envelope bookkeeping', () => {
       checkpoints: initialCheckpointState(),
       forks: initialForkState(),
       judge: initialJudgeState(),
+      refusals: initialRefusalState(),
       eventCount: 0,
       firstEventTs: null,
       lastEventTs: null,
@@ -667,6 +670,120 @@ describe('reduce — judge.finding (prd11 ruling 6b)', () => {
     const after = reduce(before, f.judgeFinding())
     expect(before).toEqual(snapshot)
     expect(after.judge).not.toBe(before.judge)
+  })
+})
+
+/**
+ * prd19 ruling 2 — the fold the #62 TODO promised. `telemetry.refused` used to
+ * hit a `return state` arm carrying a comment that a home was coming; this is
+ * the home. The refusal's *other* half — that folding one leaves
+ * `TelemetryState` byte-identical — is a law about the money layer's shape and
+ * is stated in `reduce.telemetry.test.ts`'s additivity oracle, beside the
+ * six-key law it protects.
+ */
+describe('reduce — telemetry.refused (prd19 ruling 2)', () => {
+  const refused = (
+    instance: string | null,
+    count: number,
+    ts: number,
+  ): EventOf<'telemetry.refused'> =>
+    f.make('telemetry.refused', { instance, expectedInstance: 'ours', count }, { ts })
+
+  it('an old log with no telemetry.refused events folds refusals to its initial value — additive, unchanged replay', () => {
+    expect(reduceAll(fixtureSession()).refusals).toEqual(initialRefusalState())
+  })
+
+  it('records the refusal whole, exactly as the receiver reported it', () => {
+    const state = reduceAll([refused('other-rhizomorph', 4, 5_000)])
+    expect(state.refusals.records).toHaveLength(1)
+    expect(state.refusals.records[0]).toEqual({
+      eventId: 'evt-000001',
+      ts: 5_000,
+      instance: 'other-rhizomorph',
+      expectedInstance: 'ours',
+      count: 4,
+    })
+    expect(state.refusals.byInstance).toEqual({ 'other-rhizomorph': [0] })
+  })
+
+  it('keeps arrival order and indexes each offender\'s positions in it', () => {
+    const state = reduceAll([
+      refused('theirs', 1, 100),
+      refused(null, 1, 200),
+      refused('other', 1, 300),
+      refused('theirs', 9, 400),
+    ])
+    expect(state.refusals.records.map((record) => record.ts)).toEqual([100, 200, 300, 400])
+    expect(state.refusals.byInstance).toEqual({ theirs: [0, 3], other: [2] })
+  })
+
+  it('keeps observation order even when timestamps arrive out of order — same rule as every other record', () => {
+    const state = reduceAll([refused('theirs', 1, 9_000), refused('theirs', 1, 3_000)])
+    expect(state.refusals.records.map((record) => record.ts)).toEqual([9_000, 3_000])
+    expect(state.refusals.byInstance).toEqual({ theirs: [0, 1] })
+  })
+
+  /**
+   * Two posts from the same offender are two facts about a fault that is STILL
+   * happening — the one signal a connect surface reads to say "the fix has not
+   * taken yet". The receiver's own once-per-offender-per-minute throttle is the
+   * only thinning applied; merging here would hide exactly that.
+   */
+  it('never dedups a repeat offender — a standing fault is a standing fact', () => {
+    const state = reduceAll([
+      refused('theirs', 1, 100),
+      refused('theirs', 12, 60_100),
+      refused('theirs', 11, 120_100),
+    ])
+    expect(state.refusals.records.map((record) => record.count)).toEqual([1, 12, 11])
+  })
+
+  it('counts the event in the envelope bookkeeping — the export was refused, the log line still arrived', () => {
+    const state = reduceAll([refused('theirs', 1, 100), refused('theirs', 1, 200)])
+    expect(state.eventCount).toBe(2)
+    expect(state.firstEventTs).toBe(100)
+    expect(state.lastEventTs).toBe(200)
+  })
+
+  it('teaches no lane and no session — a refused post is nobody we saw spending', () => {
+    const state = reduceAll([refused('theirs', 1, 100)])
+    expect(state.telemetry.lanes).toEqual({})
+    expect(state.telemetry.sessions).toEqual({})
+    expect(state.agents).toEqual({})
+  })
+
+  it('is pure — folding a refusal does not mutate the prior state', () => {
+    const before = reduceAll([refused('theirs', 1, 100)])
+    const snapshot = JSON.parse(JSON.stringify(before)) as unknown
+    const after = reduce(before, refused('theirs', 2, 200))
+    expect(JSON.parse(JSON.stringify(before))).toEqual(snapshot)
+    expect(after.refusals).not.toBe(before.refusals)
+    expect(after.refusals.records).not.toBe(before.refusals.records)
+  })
+
+  /**
+   * The accumulated index against the derived one — the same law #179 and #184
+   * state for their tables, pointed at this slice: the index is exactly the
+   * index of its own records, so the retention seam's rebuild path
+   * (`refusalIndexOf`, which a cap would use) can never disagree with the
+   * append-per-event path, and a replay resumed mid-log folds the same bytes as
+   * one pass over the whole thing.
+   */
+  it('folds an index indistinguishable from the one derived from its records', () => {
+    const events = [
+      refused('theirs', 1, 100),
+      refused(null, 3, 200),
+      refused('other', 1, 300),
+      refused('theirs', 2, 400),
+      refused(null, 1, 500),
+    ]
+    const whole = reduceAll(events)
+    // The replay split: the same log folded as two slices, which is what a boot
+    // recovery followed by a live stream actually does.
+    const resumed = reduceAll(events.slice(2), reduceAll(events.slice(0, 2)))
+
+    expect(JSON.stringify(resumed.refusals)).toBe(JSON.stringify(whole.refusals))
+    expect(whole.refusals.byInstance).toEqual(refusalIndexOf(whole.refusals.records))
   })
 })
 

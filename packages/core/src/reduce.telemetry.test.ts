@@ -740,6 +740,115 @@ describe('reduce — additivity', () => {
     })
   })
 
+  it('leaves refusals empty for a log that has none', () => {
+    expect(reduceAll(fixtureTelemetrySession()).refusals).toEqual({ records: [], byInstance: {} })
+  })
+
+  /**
+   * THE prd19 RULING 2 LAW, and the reason this issue did not touch
+   * `TelemetryState` at all.
+   *
+   * A refusal is the receiver saying "nothing in this post is mine". Nothing was
+   * recorded until identity checked out, so the refused export contributed no
+   * tokens, no dollars, no tool call, no active-time reading, and no place —
+   * which is exactly why it got its own additive top-level slice rather than a
+   * seventh key here. The six-key shape is a pinned law (#179, and the oracle
+   * above), and this states the other half of it: the fold of a refusal cannot
+   * move the money layer BY ONE BYTE.
+   *
+   * Byte equality rather than `toEqual` on purpose. `toEqual` would pass on a
+   * slice that had gained a key holding `undefined`, or lost the insertion order
+   * of the lane index — both of which are changes to what the money layer says,
+   * and both of which a refusal must be incapable of causing.
+   */
+  it('folding a refusal appends exactly one record and leaves every TelemetryState array and total byte-identical', () => {
+    const money = fixtureTelemetrySession()
+    const before = reduceAll(money)
+    const after = reduceAll([
+      ...money,
+      f.make('telemetry.refused', { instance: null, expectedInstance: 'ours', count: 3 }, { ts: 9_999 }),
+    ])
+
+    // Exactly one record, and it is the refusal.
+    expect(before.refusals.records).toHaveLength(0)
+    expect(after.refusals.records).toHaveLength(1)
+    expect(after.refusals.records[0]).toMatchObject({
+      ts: 9_999,
+      instance: null,
+      expectedInstance: 'ours',
+      count: 3,
+    })
+
+    // The slice is still its six keys, and still the same bytes.
+    expect(Object.keys(after.telemetry).sort()).toEqual(
+      ['usage', 'costs', 'tools', 'activeTime', 'lanes', 'sessions'].sort(),
+    )
+    expect(JSON.stringify(after.telemetry)).toBe(JSON.stringify(before.telemetry))
+
+    // Spelled out per array and per total, so a failure names what moved.
+    for (const key of ['usage', 'costs', 'tools', 'activeTime'] as const) {
+      expect(after.telemetry[key], key).toEqual(before.telemetry[key])
+    }
+    expect(after.telemetry.lanes).toEqual(before.telemetry.lanes)
+    expect(after.telemetry.sessions).toEqual(before.telemetry.sessions)
+    expect(after.telemetry.usage.reduce((sum, r) => sum + r.totalTokens, 0))
+      .toBe(before.telemetry.usage.reduce((sum, r) => sum + r.totalTokens, 0))
+    expect(after.telemetry.costs.reduce((sum, r) => sum + r.costUsd, 0))
+      .toBe(before.telemetry.costs.reduce((sum, r) => sum + r.costUsd, 0))
+    expect(after.telemetry.activeTime.reduce((sum, r) => sum + r.activeSeconds, 0))
+      .toBe(before.telemetry.activeTime.reduce((sum, r) => sum + r.activeSeconds, 0))
+
+    // And the traces slice, the other thing a telemetry-shaped event could
+    // plausibly have been folded into.
+    expect(after.traces.spans).toEqual(before.traces.spans)
+  })
+
+  /**
+   * The same law from the empty end: a log that is nothing BUT refusals folds a
+   * money layer indistinguishable from one that never saw an event at all.
+   */
+  it('a refusal-only log spends nothing — the six-key slice is its initial value', () => {
+    const state = reduceAll([
+      f.make('telemetry.refused', { instance: 'theirs', expectedInstance: 'ours', count: 1 }, { ts: 1 }),
+      f.make('telemetry.refused', { instance: 'theirs', expectedInstance: 'ours', count: 8 }, { ts: 60_001 }),
+    ])
+    expect(state.telemetry).toEqual({
+      usage: [],
+      costs: [],
+      tools: [],
+      activeTime: [],
+      lanes: {},
+      sessions: {},
+    })
+    expect(state.refusals.records).toHaveLength(2)
+  })
+
+  /**
+   * The oracle at its widest: a refusal moves `refusals` and the envelope
+   * bookkeeping, and NOTHING else in `SessionState`. Stated over every key so a
+   * future arm that quietly reaches into `agents` or `collectors` — a tempting
+   * place to put "this lane is misconfigured" — fails here.
+   */
+  it('a refusal touches only the refusals slice and the envelope bookkeeping', () => {
+    const before = reduceAll(fixtureTelemetrySession())
+    const after = reduce(
+      before,
+      f.make('telemetry.refused', { instance: 'theirs', expectedInstance: 'ours', count: 1 }, { ts: 9_999 }),
+    )
+
+    const untouched = Object.keys(before).filter(
+      (key) => !['refusals', 'eventCount', 'firstEventTs', 'lastEventTs'].includes(key),
+    )
+    expect(untouched.length).toBeGreaterThan(0)
+    for (const key of untouched) {
+      const slice = key as keyof typeof before
+      expect(after[slice], key).toBe(before[slice])
+    }
+
+    expect(after.eventCount).toBe(before.eventCount + 1)
+    expect(after.refusals.records).toHaveLength(1)
+  })
+
   /**
    * prd9's spans are annotation, not spend (ruling 4), so they stay out of the
    * money layer's records AND out of its lane and session indexes — a span must
