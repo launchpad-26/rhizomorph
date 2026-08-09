@@ -836,6 +836,21 @@ describe('runCli export-record and replay subcommands', () => {
     expect((forced as FakeExit).code).toBe(0)
   })
 
+  it('voices --force without --out as a no-op instead of silently accepting it', async () => {
+    await recordASession()
+    const log = { log: vi.fn(), warn: vi.fn() }
+
+    const thrown = await runCli(['export-record', repoPath, '--force'], {
+      dataRoot,
+      log,
+      exit: fakeExit(),
+    }).catch((err: unknown) => err)
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('--force has no effect without --out'))
+  })
+
   it('refuses to replay a tampered record, loudly, instead of serving it', async () => {
     await recordASession()
     const outFile = path.join(dataRoot, 'out.rhizorecord.json')

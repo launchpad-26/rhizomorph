@@ -221,6 +221,13 @@ export async function runExportRecordCommand(
 
   const repoPath = path.resolve(args.path ?? process.cwd())
 
+  // Not an error — the export still does what was asked — but the flag buys
+  // nothing here (the default path always refreshes), and a silent no-op
+  // teaches callers the wrong contract.
+  if (args.force && args.out === undefined) {
+    log.warn('--force has no effect without --out — the default record path is always refreshed')
+  }
+
   try {
     const { outPath, record } = await runExportRecord({
       repoPath,
