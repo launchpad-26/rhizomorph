@@ -231,7 +231,204 @@ describe('GET /api/meta', () => {
       }
     })
   })
+
+  describe('prd19 ruling 2 — connection facts (additive)', () => {
+    it('law: every pre-existing meta field is byte-identical to before — `connection` is the only new key', async () => {
+      await setup()
+      try {
+        const recorder = new SessionRecorder('8000', sessionFilePath(sessionDir, '8000'))
+        recordSessionBootMeta(recorder, {
+          resumedCount: 0,
+          eventCount: 0,
+          resumeWindowMs: RESUME_WINDOW_MS,
+          lastBootReason: 'first-run',
+        })
+        const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as Record<
+          string,
+          unknown
+        >
+
+        expect(Object.keys(body).sort()).toEqual(
+          [
+            'repoPath',
+            'repoName',
+            'sessionId',
+            'startedAt',
+            'resumedCount',
+            'eventCount',
+            'resumeWindowMs',
+            'lastBootReason',
+            'capabilities',
+            'rung',
+            'connection',
+          ].sort(),
+        )
+        expect(body).toMatchObject({
+          repoPath,
+          repoName: 'repo',
+          sessionId: '8000',
+          startedAt: 8000,
+          resumedCount: 0,
+          eventCount: 0,
+          resumeWindowMs: RESUME_WINDOW_MS,
+          lastBootReason: 'first-run',
+        })
+      } finally {
+        await teardown()
+      }
+    })
+
+    it('a session with no events at all reads every connection source honestly empty, never a fabricated flow', async () => {
+      await setup()
+      try {
+        const recorder = new SessionRecorder('9000', sessionFilePath(sessionDir, '9000'))
+        const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+          connection: {
+            git: SourceFlowForTest
+            tmux: SourceFlowForTest
+            workmux: SourceFlowForTest
+            sessionlog: SourceFlowForTest
+            otel: SourceFlowForTest
+            uninstrumentedSessions: unknown[]
+            refusals: { count: number; instance: string | null; expectedInstance: string | null }
+          }
+        }
+
+        for (const source of ['git', 'tmux', 'workmux', 'sessionlog', 'otel'] as const) {
+          expect(body.connection[source]).toEqual({ source, firstEventTs: null, lastEventTs: null, count: 0 })
+        }
+        expect(body.connection.uninstrumentedSessions).toEqual([])
+        expect(body.connection.refusals).toEqual({ count: 0, instance: null, expectedInstance: null })
+      } finally {
+        await teardown()
+      }
+    })
+
+    it("reflects the recorder's own folded events — the same fold the ladder already ran, never a second one", async () => {
+      await setup()
+      try {
+        const recorder = new SessionRecorder('10000', sessionFilePath(sessionDir, '10000'))
+        await recorder.record(
+          createEvent(
+            'worktree.discovered',
+            { path: repoPath, branch: 'main', head: 'sha-1', isMain: true },
+            { id: 'evt-1', ts: 10_000 },
+          ),
+        )
+        const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+          connection: { git: SourceFlowForTest }
+        }
+
+        // One `worktree.discovered` record folds into two git-attributed
+        // records here — the worktree itself, and the branch it names
+        // (`reduce.ts`'s `worktreeDiscovered` upserts `state.branches` too) —
+        // exactly what `selectConnection`'s own header states git's mapping to
+        // be ("worktrees, branches, commits"). Both carry this event's one
+        // timestamp, so the window is a point and the count is 2, not 1.
+        expect(body.connection.git).toEqual({ source: 'git', firstEventTs: 10_000, lastEventTs: 10_000, count: 2 })
+      } finally {
+        await teardown()
+      }
+    })
+
+    it('law: a recorder whose log holds a telemetry.refused serves connection.refusals.expectedInstance', async () => {
+      await setup()
+      try {
+        const recorder = new SessionRecorder('11000', sessionFilePath(sessionDir, '11000'))
+        await recorder.record(
+          createEvent(
+            'telemetry.refused',
+            { instance: 'their-rhizomorph', expectedInstance: 'our-instance-id', count: 3 },
+            { id: 'evt-1', ts: 11_000 },
+          ),
+        )
+        const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+          connection: { refusals: { count: number; instance: string | null; expectedInstance: string | null } }
+        }
+
+        expect(body.connection.refusals).toEqual({
+          count: 1,
+          instance: 'their-rhizomorph',
+          expectedInstance: 'our-instance-id',
+        })
+      } finally {
+        await teardown()
+      }
+    })
+
+    it('never counts a refused export as otel flow — telemetry turned away never arrived (selectConnection’s own law, restated here)', async () => {
+      await setup()
+      try {
+        const recorder = new SessionRecorder('12000', sessionFilePath(sessionDir, '12000'))
+        await recorder.record(
+          createEvent(
+            'telemetry.refused',
+            { instance: null, expectedInstance: 'our-instance-id', count: 1 },
+            { id: 'evt-1', ts: 12_000 },
+          ),
+        )
+        const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+          connection: { otel: SourceFlowForTest }
+        }
+
+        expect(body.connection.otel).toEqual({ source: 'otel', firstEventTs: null, lastEventTs: null, count: 0 })
+      } finally {
+        await teardown()
+      }
+    })
+
+    it('the refusals summary reports the most recently arrived record, not the earliest and not the loudest count', async () => {
+      await setup()
+      try {
+        const recorder = new SessionRecorder('13000', sessionFilePath(sessionDir, '13000'))
+        await recorder.record(
+          createEvent(
+            'telemetry.refused',
+            { instance: 'first-offender', expectedInstance: 'our-instance-id', count: 9 },
+            { id: 'evt-1', ts: 13_000 },
+          ),
+        )
+        await recorder.record(
+          createEvent(
+            'telemetry.refused',
+            { instance: 'second-offender', expectedInstance: 'our-instance-id', count: 1 },
+            { id: 'evt-2', ts: 14_000 },
+          ),
+        )
+        const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+          connection: { refusals: { count: number; instance: string | null; expectedInstance: string | null } }
+        }
+
+        expect(body.connection.refusals).toEqual({
+          count: 2,
+          instance: 'second-offender',
+          expectedInstance: 'our-instance-id',
+        })
+      } finally {
+        await teardown()
+      }
+    })
+  })
 })
+
+interface SourceFlowForTest {
+  source: string
+  firstEventTs: number | null
+  lastEventTs: number | null
+  count: number
+}
 
 interface AdapterCapabilitiesForTest {
   identity: { level: string; reason?: string }

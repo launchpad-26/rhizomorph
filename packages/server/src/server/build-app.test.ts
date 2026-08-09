@@ -62,6 +62,20 @@ describe('buildApp integration', () => {
         judge: JUDGE_CAPABILITIES,
       },
       rung: 'L4',
+      // Additive connection facts (prd19 wave 2, #255) — a bare recorder has
+      // folded nothing, so every source reads no-flow (nulls and a zero, never
+      // a stand-in for "fine") and there is no refusal to summarise. Kept
+      // exhaustive on purpose: this assertion is what catches an additive
+      // /api/meta field that forgot to tell anyone.
+      connection: {
+        git: { source: 'git', firstEventTs: null, lastEventTs: null, count: 0 },
+        tmux: { source: 'tmux', firstEventTs: null, lastEventTs: null, count: 0 },
+        workmux: { source: 'workmux', firstEventTs: null, lastEventTs: null, count: 0 },
+        sessionlog: { source: 'sessionlog', firstEventTs: null, lastEventTs: null, count: 0 },
+        otel: { source: 'otel', firstEventTs: null, lastEventTs: null, count: 0 },
+        uninstrumentedSessions: [],
+        refusals: { count: 0, instance: null, expectedInstance: null },
+      },
     })
   })
 

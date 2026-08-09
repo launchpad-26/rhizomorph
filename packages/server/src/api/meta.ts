@@ -4,8 +4,12 @@ import {
   honestCapabilities,
   mergeCapabilities,
   reduceAll,
+  selectConnection,
   type AdapterCapabilities,
+  type Connection,
+  type RefusalState,
   type Rung,
+  type SessionState,
 } from '@rhizomorph/core'
 import { GIT_CAPABILITIES } from '../collectors/git/index.js'
 import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
@@ -78,6 +82,13 @@ function fallbackBootMeta(recorder: SessionRecorder): SessionBootMeta {
  * all-`absent` by design (a structural corroborator across lanes, not an
  * adapter for one), and `mergeCapabilities` never lets an absent contributor
  * pull a signal another collector already provides.
+ *
+ * **Named, not fixed here — prd-19's open question.** This ladder has no
+ * `otel` entry, so `rung` below never reflects it, while the CLI's own
+ * `doctor` command's ladder does — two different answers to "what rung am I
+ * at" that this fence does not reconcile. `connection.otel` (below) is the
+ * honest, otel-aware flow fact in the meantime; whoever rules the asymmetry
+ * owns both files in one fence.
  */
 const LADDER_COLLECTOR_NAMES = ['git', 'sessionlog', 'tmux', 'workmux', 'judge'] as const
 
@@ -92,6 +103,14 @@ const DECLARED_CAPABILITIES: Record<(typeof LADDER_COLLECTOR_NAMES)[number], Ada
 export interface LadderManifest {
   capabilities: Record<string, AdapterCapabilities>
   rung: Rung
+  /**
+   * The fold this manifest was built from. Exposed so `/api/meta`'s
+   * connection facts (prd-19 ruling 2, below) can reuse it instead of folding
+   * the recorder's log a second time — one fold per request, so live view,
+   * this ladder and the connection facts can never disagree with each other
+   * about the same request.
+   */
+  folded: SessionState
 }
 
 /**
@@ -117,7 +136,69 @@ export function buildLadderManifest(recorder: SessionRecorder): LadderManifest {
   }
 
   const rung = deriveRung(mergeCapabilities(Object.values(capabilities)))
-  return { capabilities, rung }
+  return { capabilities, rung, folded }
+}
+
+/**
+ * The refusals slice's shape for a connect surface: how many standing
+ * `telemetry.refused` facts this log holds, and the most recent one's
+ * identity — the two facts ruling 3's folded-refusal BROKEN state renders
+ * (a reason and the wrong-instance remedy from the payload itself). `null`
+ * on both identity fields is the honest "nothing yet" reading (ruling 4's
+ * law, applied to this slice) for a log with no refusal at all — never a
+ * stand-in for "fine".
+ */
+export interface RefusalsSummary {
+  /** `state.refusals.records.length` — how many refusal facts this log holds. */
+  count: number
+  /** The most recent refusal's declared instance, or `null` when none has arrived. */
+  instance: string | null
+  /**
+   * The most recent refusal's `expectedInstance` — our own instance id, the
+   * fact ruling 3's wrong-instance remedy is built from — or `null` when none
+   * has arrived. A recorder whose log holds a `telemetry.refused` always
+   * serves this non-null.
+   */
+  expectedInstance: string | null
+}
+
+/**
+ * `records` is kept in arrival order (`state.ts`, `refusalStateWith`), never
+ * re-sorted by timestamp, so "most recent" here means the last one this
+ * recorder's log folded — the same reading `RefusalRecord.count` already
+ * gives for "is the fault still standing".
+ */
+function summarizeRefusals(refusals: RefusalState): RefusalsSummary {
+  const latest = refusals.records[refusals.records.length - 1]
+  return {
+    count: refusals.records.length,
+    instance: latest?.instance ?? null,
+    expectedInstance: latest?.expectedInstance ?? null,
+  }
+}
+
+/**
+ * prd-19 ruling 2's connect-surface data, additive on `/api/meta`:
+ * `selectConnection` over the same fold `buildLadderManifest` already ran
+ * (reused via {@link LadderManifest.folded}, never re-folded), plus the
+ * refusals summary above.
+ *
+ * Two things `selectConnection`'s own header already rules on, restated here
+ * only as a pointer so this endpoint does not relitigate them: (1) the
+ * git/tmux/workmux flow facts below are read off lossy entity state and CAN
+ * regress (a `branch.removed` erases git's) — that tension is prd-19's open
+ * leads' ruling, not a compensation this endpoint invents, so the facts are
+ * served exactly as the selector gives them; (2) `uninstrumentedSessions`
+ * cannot distinguish "never instrumented" from "instrumented, awaiting its
+ * first batched export" — served as-is, the elapsed-time judgment is the
+ * UI's call (#258).
+ */
+export interface MetaConnection extends Connection {
+  refusals: RefusalsSummary
+}
+
+function buildConnection(folded: SessionState): MetaConnection {
+  return { ...selectConnection(folded), refusals: summarizeRefusals(folded.refusals) }
 }
 
 export function registerMetaRoute(app: FastifyInstance, ctx: ServerContext): void {
@@ -132,6 +213,7 @@ export function registerMetaRoute(app: FastifyInstance, ctx: ServerContext): voi
       ...bootMeta,
       capabilities: ladder.capabilities,
       rung: ladder.rung,
+      connection: buildConnection(ladder.folded),
     }
   })
 }
