@@ -11,10 +11,12 @@
  * background poll.
  *
  * Unlike rotation, a rename genuinely has something to say: which session,
- * and what to call it. So this call carries a body (and the one header a
- * JSON body needs the server to parse it) — the law's per-file checks account
- * for that difference explicitly rather than reusing rotate's "no body at
- * all" rule for a call that structurally cannot follow it.
+ * and what to call it. So this call carries a body, and exactly two named
+ * header fields — the `Content-Type` a JSON body needs the server to parse
+ * it, and (since #249 delivered a channel for it) the per-process capability
+ * token the server requires (`./capability.ts`). The law's per-file checks
+ * account for that difference explicitly rather than reusing rotate's "no
+ * body at all" rule for a call that structurally cannot follow it.
  */
 
 import { CAPABILITY_TOKEN_HEADER, readCapabilityToken } from './capability.js'
