@@ -1272,6 +1272,18 @@ describe('the package barrel', () => {
       'selectRecentToolActivity',
       'selectTelemetryOrigins',
       'DEFAULT_SPEND_WINDOW_MS',
+      // the incremental twins (#267). They reach the barrel through `spend.ts`
+      // itself, so `selectors/index.ts` and `index.ts` needed no change — the
+      // export discipline #267 was fenced under.
+      'spendFrom',
+      'sessionSpendCursor',
+      'laneSpendCursor',
+      'worktreeSpendCursor',
+      'branchSpendCursor',
+      'modelSpendCursor',
+      'roleSpendCursor',
+      'laneRoleSpendCursor',
+      'DEFAULT_SPEND_KEYFRAME_INTERVAL',
       // pricing (prd9 ruling 7)
       'estimateCostUsd',
       'PRICE_SOURCE_NAME',
