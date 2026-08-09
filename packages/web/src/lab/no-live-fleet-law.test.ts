@@ -87,6 +87,18 @@ function forbiddenImportsIn(text: string): string[] {
 }
 
 /**
+ * Specifiers no prefix check can vouch for: `${…}` anywhere in a dynamic
+ * import's template means the path is computed at runtime —
+ * `` import(`${base}/fleet/manifest.js`) `` starts with no `../` and
+ * matches no forbidden prefix, yet reaches wherever `base` points (c77c2ee
+ * verify pass). The law below forbids the form outright rather than
+ * pretending a prefix check saw it.
+ */
+function computedImportsIn(text: string): string[] {
+  return extractImportSpecifiers(text).filter((specifier) => specifier.includes('${'))
+}
+
+/**
  * Any import reaching into `scene/`, at any depth — governed separately
  * below, by name, not by blanket forbid. Built on the same shared
  * extraction, so every form a scene import could take is visible: static
@@ -173,24 +185,49 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
     expect(sceneImports).toEqual([ALLOWED_SCENE_IMPORT])
   })
 
+  it('no computed import specifier anywhere in lab/ — an interpolation ahead of the path would defeat every prefix check in this law', () => {
+    for (const file of sourceFiles()) {
+      expect(
+        computedImportsIn(file.text),
+        `${file.name} builds a computed import specifier — no prefix check in this law can vouch for where it lands; name the target statically, or amend this law with a ruling`,
+      ).toEqual([])
+    }
+  })
+
   it('the detector bites — a fleet/panel import added tomorrow, at any depth and in any form, would be caught by the path alone, not just a named identifier', () => {
     // No `useFleet`/`FleetProvider`/`buildFleet`/`reduceAll(` anywhere in
     // these probes — if they pass, it is the depth-independent specifier
     // check catching them, not a forbidden identifier riding along for
-    // free. The last three carry no `from` clause at all: bare, dynamic and
-    // template-literal forms, the ones a from-only pattern could not see
-    // (PR #301 review).
-    const probes = [
-      "import type { FetchLike } from '../fleet/manifest.js'",
-      "import type { FetchLike } from '../../fleet/manifest.js'",
-      "import { costCellText } from '../../panels/fleet/format.js'",
-      "import '../../fleet/manifest.js'",
-      "const manifest = await import('../../fleet/manifest.js')",
-      'const manifest = await import(`../../panels/fleet/format.js`)',
+    // free. Rows 4-6 carry no `from` clause at all (bare, dynamic and
+    // template-literal forms, the ones a from-only pattern could not see —
+    // PR #301 review); the rest are the legal spellings the c77c2ee verify
+    // pass found still blind: no separator, comment trivia, double quotes.
+    // Expected arrays are pinned exactly — `.not.toEqual([])` would let a
+    // truncated-but-matching extraction pass.
+    const probes: ReadonlyArray<[string, string[]]> = [
+      ["import type { FetchLike } from '../fleet/manifest.js'", ['../fleet/manifest.js']],
+      ["import type { FetchLike } from '../../fleet/manifest.js'", ['../../fleet/manifest.js']],
+      ["import { costCellText } from '../../panels/fleet/format.js'", ['../../panels/fleet/format.js']],
+      ["import '../../fleet/manifest.js'", ['../../fleet/manifest.js']],
+      ["const manifest = await import('../../fleet/manifest.js')", ['../../fleet/manifest.js']],
+      ['const manifest = await import(`../../panels/fleet/format.js`)', ['../../panels/fleet/format.js']],
+      ["import'../../fleet/manifest.js'", ['../../fleet/manifest.js']],
+      ["import /* preload */ '../../fleet/manifest.js'", ['../../fleet/manifest.js']],
+      ["const manifest = await import(/* @vite-ignore */ '../../fleet/manifest.js')", ['../../fleet/manifest.js']],
+      ['import "../../fleet/manifest.js"', ['../../fleet/manifest.js']],
+      ['const manifest = await import("../../fleet/manifest.js")', ['../../fleet/manifest.js']],
     ]
-    for (const probe of probes) {
-      expect(forbiddenImportsIn(probe), probe).not.toEqual([])
+    for (const [probe, expected] of probes) {
+      expect(forbiddenImportsIn(probe), probe).toEqual(expected)
     }
+  })
+
+  it('the computed detector bites — an interpolation ahead of the policed segment cannot hide behind the prefix checks', () => {
+    // The first line is the escape itself: no forbidden prefix matches, so
+    // without the computed law this import would sail through green.
+    expect(forbiddenImportsIn('await import(`${base}/fleet/manifest.js`)')).toEqual([])
+    expect(computedImportsIn('await import(`${base}/fleet/manifest.js`)')).toEqual(['${base}/fleet/manifest.js'])
+    expect(computedImportsIn('await import(`../../${dir}/manifest.js`)')).toEqual(['../../${dir}/manifest.js'])
   })
 
   it('the scene detector bites — a second scene/ import, anywhere, would be caught', () => {

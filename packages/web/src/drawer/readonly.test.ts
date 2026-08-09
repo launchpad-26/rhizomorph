@@ -142,12 +142,19 @@ function governs(importPath: string): boolean {
  * `import('../launch/launch.js')` (quoted or template-literal) reach the
  * module just the same, and were exactly the forms a from-only sweep let
  * escape while `governs()` would have rejected them. A bare `./…` import
- * stays inside drawer/ and is already covered by the walk above; a computed
- * template specifier that still starts with `../` is swept raw, `${…}` and
- * all, and fails `governs()` loudly rather than passing unseen.
+ * stays inside drawer/ and is already covered by the walk above.
+ *
+ * A computed template specifier is swept raw, `${…}` and all, WHEREVER the
+ * interpolation sits — `` import(`${base}/launch/x.js`) `` starts with no
+ * `../` yet reaches wherever `base` points, so a bare `../` filter would
+ * drop it before `governs()` ever saw it (c77c2ee verify pass). Any
+ * specifier containing `${` is therefore treated as leaving, and fails
+ * `governs()` loudly rather than passing unseen.
  */
 function leavingImportsIn(text: string): string[] {
-  return extractImportSpecifiers(text).filter((specifier) => specifier.startsWith('../'))
+  return extractImportSpecifiers(text).filter(
+    (specifier) => specifier.startsWith('../') || specifier.includes('${'),
+  )
 }
 
 describe('the drawer sends only GETs', () => {
@@ -242,16 +249,32 @@ describe('the drawer sends only GETs', () => {
 
   it('the sweep bites — a leaving import with no `from` clause at all is still swept, in every form', () => {
     // Exercises the real sweep (`leavingImportsIn`, extraction included) —
-    // these are exactly the forms the from-only regex missed (PR #301
-    // review), each reaching the module `governs()` above proves ungoverned.
+    // the first three are the forms the from-only regex missed (PR #301
+    // review); the rest are the legal spellings its verify pass found the
+    // first widening still blind to: no separator at all, comment trivia
+    // between keyword and specifier, and double-quoted specifiers. Each
+    // reaches the module `governs()` above proves ungoverned.
     const forms = [
       "import '../launch/launch.js'",
       "await import('../launch/launch.js')",
       'await import(`../launch/launch.js`)',
+      "import'../launch/launch.js'",
+      "import /* preload */ '../launch/launch.js'",
+      "await import(/* @vite-ignore */ '../launch/launch.js')",
+      'import "../launch/launch.js"',
+      'await import("../launch/launch.js")',
     ]
     for (const form of forms) {
       expect(leavingImportsIn(form), form).toEqual(['../launch/launch.js'])
     }
+  })
+
+  it('the sweep bites on a computed specifier — an interpolation ahead of the path cannot hide the import', () => {
+    // `${base}/launch/launch.js` starts with no `../`, so a bare leaving
+    // filter dropped it before governs() ever ran (c77c2ee verify pass) —
+    // any `${` specifier is swept instead, and lands here as ungoverned.
+    expect(leavingImportsIn('await import(`${base}/launch/launch.js`)')).toEqual(['${base}/launch/launch.js'])
+    expect(governs('${base}/launch/launch.js')).toBe(false)
   })
 
   it('the sweep does not over-reach — an inside-drawer/ import is not treated as leaving', () => {
