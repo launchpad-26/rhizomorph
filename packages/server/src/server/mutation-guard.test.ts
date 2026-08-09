@@ -149,6 +149,30 @@ describe('registerMutationGuard', () => {
       expect(response.statusCode).toBe(400)
     })
 
+    it('rejects an unbracketed Host whose port is not numeric — `localhost:evil` is malformed on this branch too', async () => {
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/read',
+        headers: { host: 'localhost:evil' },
+      })
+      expect(response.statusCode).toBe(400)
+    })
+
+    it('rejects the trailing-dot FQDN `localhost.` — the disclosed blast radius, pinned', async () => {
+      // The third disclosed refusal — a Host-less HTTP/1.0 request — cannot
+      // be pinned here: light-my-request substitutes its default Host when
+      // given an empty one and throws on undefined. That case is verified by
+      // a raw-socket run against a live boot (see PR #303's verify pass).
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/read',
+        headers: { host: 'localhost.' },
+      })
+      expect(response.statusCode).toBe(400)
+    })
+
     it('rejects Host 0.0.0.0 — deliberately outside the accepted spellings (see LOOPBACK_HOSTNAMES doc)', async () => {
       // Pins the disclosure: `curl http://0.0.0.0:PORT` reads worked before
       // #235 and now 400 — a decision, not an accident.

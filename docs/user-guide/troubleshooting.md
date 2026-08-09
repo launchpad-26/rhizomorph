@@ -82,7 +82,9 @@ logs live outside the worktrees this repo's collector already discovers.
 ```
 
 Every request — reads included — must carry a `Host` header spelling one of
-`127.0.0.1`, `localhost`, `::1`, or `[::1]` (a `:port` after it is fine).
+`127.0.0.1`, `localhost`, `::1`, or `[::1]` (a numeric `:port` is fine after
+`127.0.0.1`, `localhost`, or `[::1]`; bare `::1` takes no port — bracket it
+to add one).
 This is the DNS-rebinding guard: `Host` is set by the browser from the
 page's own address, so a malicious page can't forge it, and checking it on
 every method is what keeps a rebound page from reading transcripts or the
@@ -92,11 +94,12 @@ Ways to hit it with entirely legitimate local traffic, and the remedy for
 each — which is always *address the instrument as `127.0.0.1` or
 `localhost`*:
 
-- **`curl http://0.0.0.0:4321/...`** — dialling `0.0.0.0` does reach the
-  `127.0.0.1`-bound server on Linux/macOS, and reads served this way used to
-  work. `0.0.0.0` is the unspecified address, not a loopback name, and the
+- **`http://0.0.0.0:4321/` — the web UI itself as well as `curl`** —
+  dialling `0.0.0.0` does reach the `127.0.0.1`-bound server on Linux/macOS,
+  and both the dashboard and API reads served this way used to work.
+  `0.0.0.0` is the unspecified address, not a loopback name, and the
   dial-through doesn't work on Windows, so it is refused rather than
-  endorsed. Use `http://127.0.0.1:4321/...`.
+  endorsed. Use `http://127.0.0.1:4321/`.
 - **A Host-less HTTP/1.0 request** (hand-rolled scripts, very old clients) —
   HTTP/1.0 doesn't require a `Host` header, but this guard does. Send one:
   `printf 'GET /api/meta HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n' | nc 127.0.0.1 4321`.

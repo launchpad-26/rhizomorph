@@ -160,6 +160,9 @@ describe('buildApp integration', () => {
     const stream = await app.inject({ method: 'GET', url: '/api/stream', headers: { host: 'evil.example' } })
     expect(stream.statusCode).toBe(400)
 
+    const transcript = await app.inject({ method: 'GET', url: '/api/transcript/lane-1', headers: { host: 'evil.example' } })
+    expect(transcript.statusCode).toBe(400)
+
     await app.close()
   })
 

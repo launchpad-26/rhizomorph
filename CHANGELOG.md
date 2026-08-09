@@ -92,7 +92,8 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   `/api/transcript/:lane` and the `/api/stream` SSE, because every GET
   returned early past the guard. Deliberately disclosed blast radius: a
   request whose `Host` spells anything outside `127.0.0.1` / `localhost` /
-  `::1` / `[::1]` (each with an optional `:port`) is now refused with a 400
+  `::1` / `[::1]` (a numeric `:port` is fine after all but bare `::1`, which
+  takes none — bracket it to add one) is now refused with a 400
   on **every** route, where reads used to pass. Concretely that now refuses
   `curl http://0.0.0.0:PORT/...` (dialling `0.0.0.0` reaches a
   `127.0.0.1`-bound socket as a Linux/macOS convenience), Host-less HTTP/1.0
