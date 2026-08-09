@@ -219,14 +219,17 @@ describe('the web app names exactly two mutating calls (prd16 rulings 2 and 4)',
     // Two occurrences are expected — the narrow fetch type's own shape and the
     // one real call site — and each must name exactly this fixed header set,
     // nothing more and nothing less (a stray third header, or dropping back
-    // to one, fails here).
+    // to one, fails here). PER BLOCK, deliberately: an aggregate union across
+    // blocks would stay green when the type declares both headers but the
+    // call site sends only Content-Type — which is the pre-#249 defect this
+    // law exists to catch, hiding behind its own declaration.
     const ALLOWED_HEADER_NAMES = ['Content-Type', CAPABILITY_TOKEN_HEADER]
     const importedFromCapability = importedFromCapabilityModule(text)
     const headerBlocks = [...text.matchAll(/headers\s*:\s*\{([^}]*)\}/g)]
     expect(headerBlocks.length).toBeGreaterThan(0)
 
-    const namesSeen = new Set<string>()
     for (const block of headerBlocks) {
+      const namesSeen = new Set<string>()
       const matches = [...(block[1] ?? '').matchAll(HEADER_KEY_RE)]
       expect(matches.length).toBeGreaterThan(0)
       for (const match of matches) {
@@ -253,11 +256,13 @@ describe('the web app names exactly two mutating calls (prd16 rulings 2 and 4)',
         ).toBe(true)
         namesSeen.add(CAPABILITY_TOKEN_HEADER)
       }
+      // Exactly the two allowed headers, in THIS block — not merely "no
+      // extras here" with "both present" left to a union across blocks.
+      expect(
+        [...namesSeen].sort(),
+        'every headers: block must name exactly the two allowed headers — no more, no fewer',
+      ).toEqual([...ALLOWED_HEADER_NAMES].sort())
     }
-    // Both allowed headers actually appear somewhere — a block missing the
-    // capability header entirely (the pre-#249 shape) fails this, not just a
-    // block naming an extra one.
-    expect([...namesSeen].sort()).toEqual([...ALLOWED_HEADER_NAMES].sort())
 
     expect(text).toMatch(/body\s*:\s*JSON\.stringify\(\{\s*sessionId,\s*label\s*\}\)/)
   })
@@ -289,6 +294,33 @@ describe('the web app names exactly two mutating calls (prd16 rulings 2 and 4)',
     // HEADER_KEY_RE entirely — the law must refuse that shape outright.
     expect(HEADERS_NOT_INLINE_RE.test('headers: h,')).toBe(true)
     expect(HEADERS_NOT_INLINE_RE.test("headers: { 'Content-Type': 'application/json' }")).toBe(false)
+  })
+
+  it('the per-block exactness catches the pre-#249 drop-back — a union across blocks would not', () => {
+    // The defect that shipped #249, reconstructed: the narrow fetch type
+    // declares both headers, the real call site sends only Content-Type.
+    // A union of names across all blocks equals the allowed set exactly —
+    // so an aggregate "both present somewhere" check stays green on the
+    // very shape this law exists to catch. Only comparing each block's own
+    // set against the allowed set goes red. This pins the law's mechanism
+    // to per-block, so a refactor back to the aggregate fails here.
+    const preFixShape = [
+      "headers: { 'Content-Type': 'application/json'; 'x-rhizomorph-capability': string }",
+      "headers: { 'Content-Type': 'application/json' },",
+    ].join('\n')
+    const perBlock = [...preFixShape.matchAll(/headers\s*:\s*\{([^}]*)\}/g)].map(
+      (block) =>
+        new Set(
+          [...(block[1] ?? '').matchAll(HEADER_KEY_RE)]
+            .map((match) => match[1] ?? match[2] ?? match[3])
+            .filter((name): name is string => name !== undefined),
+        ),
+    )
+    expect(perBlock).toHaveLength(2)
+
+    const union = [...new Set(perBlock.flatMap((names) => [...names]))].sort()
+    expect(union).toEqual(['Content-Type', CAPABILITY_TOKEN_HEADER].sort())
+    expect(perBlock.some((names) => !names.has(CAPABILITY_TOKEN_HEADER))).toBe(true)
   })
 
   it('the buttons reach their routes only through their own module — never their own fetch', () => {
