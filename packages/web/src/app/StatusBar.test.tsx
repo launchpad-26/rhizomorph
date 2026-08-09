@@ -67,11 +67,11 @@ function pill(container: HTMLElement, key: 'git' | 'tmux' | 'workmux' | 'session
 }
 
 describe('StatusBar', () => {
-  it('shows every source as live before any collector event arrives', () => {
+  it('shows every source as waiting before any collector event or folded record arrives (prd19 ruling 4)', () => {
     const { container } = renderBar()
 
     for (const key of ['git', 'tmux', 'workmux', 'sessionlog', 'otel'] as const) {
-      expect(pill(container, key).dataset.health).toBe('live')
+      expect(pill(container, key).dataset.health).toBe('waiting')
     }
   })
 
@@ -88,11 +88,12 @@ describe('StatusBar', () => {
     expect(workmux.title).toBe('workmux not found on PATH')
     expect(workmux.getAttribute('aria-label')).toContain('workmux not found on PATH')
 
-    // Untouched sources stay live.
-    expect(pill(container, 'git').dataset.health).toBe('live')
-    expect(pill(container, 'tmux').dataset.health).toBe('live')
-    expect(pill(container, 'sessionlog').dataset.health).toBe('live')
-    expect(pill(container, 'otel').dataset.health).toBe('live')
+    // Untouched sources have proved no flow either, so ruling 4 reads them
+    // waiting — never the removed "live by default".
+    expect(pill(container, 'git').dataset.health).toBe('waiting')
+    expect(pill(container, 'tmux').dataset.health).toBe('waiting')
+    expect(pill(container, 'sessionlog').dataset.health).toBe('waiting')
+    expect(pill(container, 'otel').dataset.health).toBe('waiting')
   })
 
   it('surfaces a disabled sessionlog collector — the most likely stranger failure — with its reason', () => {
@@ -163,6 +164,113 @@ describe('StatusBar', () => {
 
     const sse = container.querySelector('[aria-label^="Stream:"]') as HTMLElement | null
     expect(sse?.title).toBe('live')
+  })
+})
+
+/**
+ * PRD19 RULING 4 — SILENCE IS NEVER LIVE. The rule this replaces:
+ * `sourceStatus(undefined)` used to return `'live'`, so a source that never
+ * produced a single event wore the same calm dot as a healthy one — the
+ * PRD's own worst-case example is a never-connected OTel receiver. `live` now
+ * requires proof of flow (#251's `selectConnection`, over the same folded
+ * state); absent that, a source with no collector record reads `waiting`
+ * ("no data yet") — a muted dot, not an alarm.
+ *
+ * The two laws the issue states verbatim, for OTel specifically, plus the
+ * fix's general shape (it is `selectConnection` over all five sources, not an
+ * OTel-only branch) and the one honest wrinkle #251's own review flagged: the
+ * three machine collectors' flow can regress, because it is read off entity
+ * state rather than an append-only ledger.
+ */
+describe('StatusBar — source health is proof-of-flow (prd19 ruling 4)', () => {
+  it('LAW 1: a fresh state with zero otel-origin events renders `data-health="waiting"` for OTel, never `live`', () => {
+    const { container } = renderBar()
+    expect(pill(container, 'otel').dataset.health).toBe('waiting')
+  })
+
+  it('LAW 2: one folded otel-origin event flips OTel to `live`, with no collector event required', () => {
+    const { container, source } = renderBar()
+    const f = createEventFactory()
+
+    // `llm.cost`'s primary collector is `otel` (events/index.ts), so this
+    // folds as otel flow with no `collector.*` event anywhere in the log —
+    // exactly the proof ruling 4 asks for, and nothing else.
+    act(() => {
+      source()?.emit(f.llmCost())
+    })
+
+    const otel = pill(container, 'otel')
+    expect(otel.dataset.health).toBe('live')
+    // A proven source carries no message — `live` is silent, same as before
+    // this ruling touched anything. (No `title` attribute rendered at all;
+    // the DOM reflects that as `''`, never `null`.)
+    expect(otel.title).toBe('')
+  })
+
+  it('the fix is general, not an OTel-only branch: a folded git record flips git to `live` too', () => {
+    const { container, source } = renderBar()
+    const f = createEventFactory()
+
+    act(() => {
+      source()?.emit(f.worktreeDiscovered())
+    })
+
+    expect(pill(container, 'git').dataset.health).toBe('live')
+  })
+
+  it('a disabled collector still wins outright over proven flow — disabled/errored behavior is untouched', async () => {
+    const { container, source } = renderBar()
+    const f = createEventFactory()
+
+    // Proof of flow first, awaited on its own so the second emit below does
+    // not land in useEventStream's coalescing buffer behind it (#183) —
+    // exactly the two-step pattern the session-voice describe block already
+    // uses for a sequence of emits.
+    await act(async () => {
+      source()?.emit(f.llmCost())
+    })
+    await act(async () => {
+      // …then the collector is explicitly turned off. The stronger fact wins,
+      // exactly as it did before this ruling touched the `undefined` default.
+      source()?.emit(f.collectorDisabled({ collector: 'otel', reason: 'OTLP receiver disabled by flag' }))
+    })
+
+    const otel = pill(container, 'otel')
+    expect(otel.dataset.health).toBe('disabled')
+    expect(otel.title).toBe('OTLP receiver disabled by flag')
+  })
+
+  /**
+   * PINS, DOES NOT ENDORSE — the same tension `connection.test.ts` pins at
+   * the selector level (packages/core/src/selectors/connection.ts's header,
+   * "THE SECOND LIMIT"): git/tmux/workmux flow is read off entity state the
+   * fold keeps *current*, not an append-only ledger, and `branch.removed`
+   * DELETES its record outright (the ghost fix). When that was a source's
+   * only evidence, the provenance bar's git dot can walk itself back from
+   * `live` to `waiting` while the log it was derived from only ever grew.
+   * That is prd-19 ruling 2's open tension, unruled — the candidates are
+   * named in the selector's own header, and none of them is taken here. This
+   * test states what the bar DOES, not that it is right.
+   */
+  it('pins, not endorses: a branch.removed can walk a proven git dot back to `waiting`', async () => {
+    const { container, source } = renderBar()
+    const f = createEventFactory()
+
+    // Each emit awaited on its own — the second must not land in
+    // useEventStream's coalescing buffer behind the first's still-pending
+    // microtask flush (#183), or it would never fold before this test reads it.
+    await act(async () => {
+      source()?.emit(f.branchUpdated({ branch: 'gone', head: 'sha-1' }))
+    })
+    expect(pill(container, 'git').dataset.health).toBe('live')
+
+    await act(async () => {
+      source()?.emit(f.branchRemoved({ branch: 'gone' }))
+    })
+    // The branch record is gone, and it was git's only evidence — the dot
+    // regresses to the honest-but-surprising "no data yet", never `errored`
+    // or a fabricated "still live".
+    expect(pill(container, 'git').dataset.health).toBe('waiting')
   })
 })
 
