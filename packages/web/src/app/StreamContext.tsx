@@ -178,7 +178,11 @@ export function StreamProvider({ url, children, createSource, now }: StreamProvi
       source,
       setSource,
       fixtureManifest: null,
-      provenance: `live · ${url}`,
+      // This branch also carries the one render between a fixture keypress and
+      // its effect populating `fixture` — provenance must come from the spec,
+      // not the live template, or that frame pairs source='fleet20' with a
+      // string that begins "live" (prd-19 ruling 6, found by PR #282's review).
+      provenance: source === 'live' ? `live · ${url}` : specFor(source).provenance,
       eventsWindowLabel: eventsWindowLabel(live.state),
     }
   }, [mode, replayState, source, fixture, live.state, live.status, url])
