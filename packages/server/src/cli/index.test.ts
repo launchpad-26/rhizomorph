@@ -795,6 +795,47 @@ describe('runCli export-record and replay subcommands', () => {
     expect(events.some((e) => e.type === 'agent.status')).toBe(true)
   })
 
+  /**
+   * #298 asked for the CLI path under test, and runExportRecord's own tests
+   * can't see the parsed-flag → behaviour seam: they pass `force` directly.
+   * This is the test that fails if `force: args.force` is dropped from the
+   * runExportRecordCommand handoff — the flag would still parse, but
+   * `rhizomorph export-record … --force` would hit the refusal anyway.
+   */
+  it('a second export to the same --out refuses without --force and succeeds with it', async () => {
+    await recordASession()
+    const outFile = path.join(dataRoot, 'out.rhizorecord.json')
+    await runCli(['export-record', repoPath, '--out', outFile], {
+      dataRoot,
+      log: silentLog,
+      exit: fakeExit(),
+    }).catch(() => {})
+    const firstWrite = await readFile(outFile, 'utf8')
+
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const refused = await runCli(['export-record', repoPath, '--out', outFile], {
+      dataRoot,
+      log: silentLog,
+      exit: fakeExit(),
+    }).catch((err: unknown) => err)
+    const refusedOutput = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+
+    expect(refused).toBeInstanceOf(FakeExit)
+    expect((refused as FakeExit).code).toBe(1)
+    expect(refusedOutput).toContain('--force')
+    expect(await readFile(outFile, 'utf8')).toBe(firstWrite)
+
+    const forced = await runCli(['export-record', repoPath, '--out', outFile, '--force'], {
+      dataRoot,
+      log: silentLog,
+      exit: fakeExit(),
+    }).catch((err: unknown) => err)
+
+    expect(forced).toBeInstanceOf(FakeExit)
+    expect((forced as FakeExit).code).toBe(0)
+  })
+
   it('refuses to replay a tampered record, loudly, instead of serving it', async () => {
     await recordASession()
     const outFile = path.join(dataRoot, 'out.rhizorecord.json')
