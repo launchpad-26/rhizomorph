@@ -259,8 +259,10 @@ rhizomorph replay <record-file> [--port <n>]
 `export-record` writes the artifact **outside** the watched repo — by
 default alongside that repo's own session logs, named
 `<repo-slug>-<session-id>.rhizorecord.json`. An explicit `--out` that
-already exists is refused unless `--force` is passed; the flagless default
-path is regenerable and always refreshes. `replay` verifies the chain
+already exists is refused unless `--force` is passed (a directory there is
+refused outright — `--force` cannot help); the flagless default path is
+regenerable and always refreshes, so `--force` without `--out` only earns a
+warning. `replay` verifies the chain
 first and refuses loudly (exit code 1, no server started) if it's broken,
 then boots the same dashboard the live command uses, pointed at the record's
 own events instead of a watched repo — a foreign actor's record renders its

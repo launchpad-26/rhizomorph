@@ -120,7 +120,8 @@ function resolveActor(handle: string | undefined): Actor {
  * *explicit* `--out` that already exists is refused unless `force` is set —
  * this is a one-shot, non-interactive command, so refuse-by-default stands in
  * for a confirmation prompt rather than silently overwriting a file the
- * caller named. The guard does not apply to the default path (derived from
+ * caller named. A directory at the out path is refused regardless of `force`,
+ * since overwriting it is never what was meant. The guard does not apply to the default path (derived from
  * repo slug + session id, inside rhizomorph's own data dir): that artefact is
  * regenerable and re-running export-record without `--out` is meant to
  * refresh it, not fail on the second run.
@@ -181,7 +182,11 @@ export async function runExportRecord(options: ExportRecordOptions): Promise<Exp
     if (code === 'EEXIST' || code === 'EISDIR') {
       const existing = await stat(outPath).catch(() => undefined)
       if (existing?.isDirectory()) {
-        throw new Error(`--out names an existing directory (${outPath}) — pass a file path instead`)
+        throw new Error(
+          options.out !== undefined
+            ? `--out names an existing directory (${outPath}) — pass a file path instead`
+            : `the default record path is an existing directory (${outPath}) — remove it, or pass --out with a file path`,
+        )
       }
     }
     if (refuseExisting && code === 'EEXIST') {

@@ -805,11 +805,13 @@ describe('runCli export-record and replay subcommands', () => {
   it('a second export to the same --out refuses without --force and succeeds with it', async () => {
     await recordASession()
     const outFile = path.join(dataRoot, 'out.rhizorecord.json')
-    await runCli(['export-record', repoPath, '--out', outFile], {
+    const first = await runCli(['export-record', repoPath, '--out', outFile], {
       dataRoot,
       log: silentLog,
       exit: fakeExit(),
-    }).catch(() => {})
+    }).catch((err: unknown) => err)
+    expect(first).toBeInstanceOf(FakeExit)
+    expect((first as FakeExit).code).toBe(0)
     const firstWrite = await readFile(outFile, 'utf8')
 
     const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
@@ -823,9 +825,13 @@ describe('runCli export-record and replay subcommands', () => {
 
     expect(refused).toBeInstanceOf(FakeExit)
     expect((refused as FakeExit).code).toBe(1)
-    expect(refusedOutput).toContain('--force')
+    expect(refusedOutput).toContain('refusing to overwrite existing file')
     expect(await readFile(outFile, 'utf8')).toBe(firstWrite)
 
+    // A sentinel, not a byte-compare against firstWrite: re-exporting the
+    // same session is byte-identical, so only planted content can prove the
+    // forced run actually wrote.
+    await writeFile(outFile, 'stale-sentinel', 'utf8')
     const forced = await runCli(['export-record', repoPath, '--out', outFile, '--force'], {
       dataRoot,
       log: silentLog,
@@ -834,6 +840,7 @@ describe('runCli export-record and replay subcommands', () => {
 
     expect(forced).toBeInstanceOf(FakeExit)
     expect((forced as FakeExit).code).toBe(0)
+    expect(await readFile(outFile, 'utf8')).toBe(firstWrite)
   })
 
   it('voices --force without --out as a no-op instead of silently accepting it', async () => {

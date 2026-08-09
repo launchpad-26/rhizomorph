@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir, userInfo } from 'node:os'
 import path from 'node:path'
 import { createEventFactory, eventsToJsonl, type RhizomorphEvent } from '@rhizomorph/core'
@@ -152,6 +152,17 @@ describe('runExportRecord', () => {
     )
     await expect(runExportRecord({ repoPath, dataRoot, out: dirOut, force: true })).rejects.toThrow(
       /names an existing directory.*pass a file path/is,
+    )
+    expect((await stat(dirOut)).isDirectory()).toBe(true)
+  })
+
+  it('names the default record path when a directory squats on it, instead of blaming --out', async () => {
+    const sessionDir = sessionDirFor(repoPath, dataRoot)
+    await writeSessionFile(sessionDir, 1000, sessionEvents(1000, '1000'))
+    await mkdir(path.join(sessionDir, `${repoSlug(repoPath)}-1000.rhizorecord.json`), { recursive: true })
+
+    await expect(runExportRecord({ repoPath, dataRoot })).rejects.toThrow(
+      /default record path is an existing directory/,
     )
   })
 

@@ -120,4 +120,5 @@ live fleet — a law its own source-grep test holds it to.
   CLI: `rhizomorph export-record [--session <id>] [--out <path>] [--force]`
   — see [`docs/record-format.md`](../record-format.md) for the file format,
   and note it refuses to write inside the watched repo, and refuses to
-  overwrite an existing `--out` file unless `--force` is passed.
+  overwrite an existing `--out` file unless `--force` is passed (`--force`
+  without `--out` just warns — the default path always refreshes).
