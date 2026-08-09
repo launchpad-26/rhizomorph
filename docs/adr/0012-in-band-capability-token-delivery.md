@@ -49,10 +49,16 @@ gives for free.
 **C doesn't add an isolation boundary beyond what already exists.** The only
 signal that distinguishes a legitimate browser tab from an attacking local
 process at the HTTP layer is `Origin`/`Host` — the mutation guard
-(`server/mutation-guard.ts`). Gating a token-issuing endpoint behind that same
-guard is equivalent in every way that matters to gating the page itself
-behind it, which is already how `GET /` works. C adds a network round trip
-and a loading state for no marginal security.
+(`server/mutation-guard.ts`). A token-issuing endpoint could carry no gate
+stronger than that same guard, so it puts the token behind exactly the
+boundary the page embedding it sits behind — identical guard, one extra
+round trip, a loading state, and no marginal isolation. To be plain about
+today's enforcement rather than flattering it: as of this record the guard
+exits early for every non-mutating method (`mutation-guard.ts`), so `GET /`
+is not Host-gated at all — #235 (PR #303) moves the Host check ahead of that
+early return. That change narrows *who* can issue the loopback `GET` and
+favours neither B nor C: under either option, and either guard, the token
+goes to whatever that `GET` reaches.
 
 So **B**: `server/static.ts` reads `index.html` at serve time and stamps
 `<meta name="rhizomorph-capability" content="...">` into its `<head>` before
