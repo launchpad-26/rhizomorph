@@ -11,3 +11,11 @@ scratchpad/
 # own without a diff every time someone's differs.
 AGENTS.md
 CLAUDE.md
+
+# Agent CLI working state. Both of these run inside this repo — codex under
+# `codex exec -C`, claude in the worktrees the fleet creates — and each drops
+# a local directory of settings and session state that is nobody else's
+# business. Ignored here rather than in a personal global excludes file, so a
+# contributor who has not set one up does not find them in `git status`.
+.claude/
+.codex/
