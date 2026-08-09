@@ -10,59 +10,79 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
  * '127.0.0.1' })`) keeps the socket off the network, but any process on the
  * machine — including a browser tab that navigated to an ordinary internet
  * page — can still open a TCP connection to it. A page's own JavaScript
- * cannot read this server's *responses* across origins (the same-origin
- * policy still applies), but it can *send* a same-method, same-shape POST
- * blind, and a DNS-rebinding attacker can make a hostname it controls
- * resolve to `127.0.0.1` after the page has already loaded, so "the request
- * came from a page the browser thinks is same-origin with something" is not
- * a safe assumption either.
+ * cannot read this server's *responses* across origins for a genuinely
+ * cross-origin call (the same-origin policy still applies), but DNS
+ * rebinding defeats that entirely: an attacker makes a hostname it controls
+ * (`evil.example`) resolve to `127.0.0.1` only *after* the page has already
+ * loaded, so a `fetch()`/`EventSource` the page then opens against its own
+ * hostname is, from the browser's point of view, a same-origin call — same-
+ * origin policy never engages, and the page reads the full response. That is
+ * exactly as true of a `GET` (`/api/stream`'s SSE, `/api/transcript/:lane`)
+ * as it is of a mutating `POST`: "a cross-origin GET can't read the
+ * response, CORS blocks it" — this file's own former reasoning for exempting
+ * reads — is false in precisely the rebinding case it needs to defend
+ * against, because rebinding is what makes the request look same-origin,
+ * not cross-origin.
  *
- * `Origin`/`Host` close exactly that gap, because both are set by the
- * BROWSER from the page's own address, never by the page's script — a page
- * served from `https://evil.example` cannot make either header say
- * `127.0.0.1`, no matter what DNS answers for `evil.example` later. This is
- * therefore checked for every mutating request, applied once, here, at app
- * assembly, so every mutating route gets it for free rather than each
- * route's author needing to remember to add it — including `/api/rotate`
- * and the laboratory's routes, neither of which this issue's fence lets this
- * lane edit directly.
+ * `Host` closes that gap because it is set by the BROWSER from the page's
+ * own address, never by the page's script — a page served from
+ * `https://evil.example` cannot make it say `127.0.0.1`, no matter what DNS
+ * answers for `evil.example` later. `Host` is therefore checked for every
+ * request this server receives, read or write, applied once, here, at app
+ * assembly, so every route — present and future — gets it for free rather
+ * than each route's author needing to remember to add it, including
+ * `/api/rotate` and the laboratory's routes, neither of which this issue's
+ * fence lets this lane edit directly.
  *
- * **Read-only routes are deliberately exempt.** A `GET` cannot be this
- * attack's payload — nothing it does is undone by rejecting it, and the
- * observer's own promise (`SECURITY.md`) is that nothing it reads ever
- * leaves the machine, so a cross-origin `GET` reading local state back into
- * a page that already has the response would need a same-origin response
- * read, which the browser's own CORS enforcement already blocks (this
- * server sends no `Access-Control-Allow-Origin`). If this server ever binds
- * beyond loopback — a repo shared over a LAN, say — that assumption stops
- * holding and read routes need this same law; the fence below is written to
- * make that widening a one-line change (`MUTATING_METHODS` growing to
- * include `GET`), not a rewrite.
+ * `Origin` stays scoped to mutating methods below: a genuinely cross-origin
+ * `fetch`/`XHR` DOES carry an `Origin` header, so it adds CSRF coverage on
+ * top of `Host` for state-changing requests — but the rebinding attack this
+ * file is defending against produces a *same-origin* `GET`, and a
+ * same-origin `GET` carries no `Origin` header at all, so `Origin` could
+ * never have caught it regardless of method. `Host` is what has to run for
+ * every method instead.
  *
  * Three checks, all before body parsing (`onRequest`, the earliest hook
  * Fastify offers), so a request this suspect never gets its body read at
  * all:
  *
- * 1. **`Host` is loopback.** Defeats DNS rebinding: the browser's `Host`
- *    header always reflects the URL's declared hostname, never the address
- *    it actually resolved to, so a rebound `evil.example` request still says
- *    `Host: evil.example` even once that name resolves to `127.0.0.1`.
- * 2. **`Origin`, if present, is loopback.** Defeats a cross-origin
- *    CSRF-style POST from any other page. Absent entirely (true of every
- *    non-browser client — `rhizomorph rotate`'s own request today never
- *    sends one) is allowed through this check; {@link CAPABILITY_TOKEN_HEADER}
- *    in `api/security.ts` is the control that closes THAT gap.
- * 3. **`Content-Type` is `application/json`, whenever a body is present.**
- *    Ingestion enforcement (the audit's third ask) — a request smuggling a
- *    body as `text/plain` or `multipart/form-data` to dodge the JSON body
- *    parser's own strictness is refused outright rather than silently
- *    accepted as an unparsed string.
+ * 1. **`Host` is loopback — every method, including `GET`.** Defeats DNS
+ *    rebinding: the browser's `Host` header always reflects the URL's
+ *    declared hostname, never the address it actually resolved to, so a
+ *    rebound `evil.example` request still says `Host: evil.example` even
+ *    once that name resolves to `127.0.0.1`.
+ * 2. **`Origin`, if present, is loopback — mutating methods only.** Defeats
+ *    a cross-origin CSRF-style POST from any other page. Absent entirely
+ *    (true of every non-browser client — `rhizomorph rotate`'s own request
+ *    today never sends one) is allowed through this check; {@link
+ *    CAPABILITY_TOKEN_HEADER} in `api/security.ts` is the control that
+ *    closes THAT gap.
+ * 3. **`Content-Type` is `application/json`, whenever a body is present —
+ *    mutating methods only.** Ingestion enforcement (the audit's third ask)
+ *    — a request smuggling a body as `text/plain` or `multipart/form-data`
+ *    to dodge the JSON body parser's own strictness is refused outright
+ *    rather than silently accepted as an unparsed string.
  */
 
+/**
+ * The spellings this instrument accepts as its own address. Deliberately NOT
+ * here: `0.0.0.0` — dialling it does reach a `127.0.0.1`-bound socket, so
+ * `curl http://0.0.0.0:PORT` worked for reads before #235 — but it is the
+ * unspecified address (RFC 1122 §3.2.1.3 forbids it as a destination), the
+ * dial-through is an OS convenience Linux/macOS grant and Windows refuses,
+ * and current major browsers block or are removing `0.0.0.0` as a reachable
+ * address. So the guard refuses it loudly (the 400 points at
+ * `127.0.0.1`/`localhost`) rather than endorsing a non-portable spelling no
+ * doc advertises. Same posture for the trailing-dot
+ * `localhost.` and for a Host-less HTTP/1.0 request — see the CHANGELOG's
+ * #235 entry and `docs/user-guide/troubleshooting.md` for the operator-facing
+ * story.
+ */
 const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
 
 /**
- * Methods this guard applies to. Every route this issue is scoped to
+ * Methods the `Origin` and `Content-Type` checks apply to — `Host` above
+ * runs for every method regardless. Every route this issue is scoped to
  * (`/api/label` today; `/api/rotate` and the laboratory's routes in their
  * own follow-ups) is a `POST`; `PUT`/`PATCH`/`DELETE` are included so a
  * future mutating route never has to remember to ask for this separately.
@@ -75,16 +95,25 @@ const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
  * bracket-stripped for a bracketed IPv6 literal (`[::1]:4317` -> `::1`), and
  * returned whole for a bare (unbracketed, portless) IPv6 literal, which the
  * `Host` header grammar never combines with a port.
+ *
+ * A malformed value — a port that isn't digits, on either branch, like
+ * `[::1]evil.example` or `localhost:evil` — is returned whole rather than
+ * stripped, so it can never spell a loopback name: discarding the trailing
+ * text of `[::1]evil.example` would read that header as `::1` and fail open.
  */
 function hostnameFromHostHeader(host: string): string {
   const trimmed = host.trim()
   if (trimmed.startsWith('[')) {
     const closingBracket = trimmed.indexOf(']')
-    return closingBracket === -1 ? trimmed : trimmed.slice(1, closingBracket)
+    if (closingBracket === -1) return trimmed
+    const afterBracket = trimmed.slice(closingBracket + 1)
+    if (!/^(:\d*)?$/.test(afterBracket)) return trimmed
+    return trimmed.slice(1, closingBracket)
   }
   const colonCount = trimmed.split(':').length - 1
   if (colonCount !== 1) return trimmed // 0 colons: bare name; >1: a bracket-less IPv6 literal
   const lastColon = trimmed.lastIndexOf(':')
+  if (!/^\d*$/.test(trimmed.slice(lastColon + 1))) return trimmed
   return trimmed.slice(0, lastColon)
 }
 
@@ -142,12 +171,12 @@ async function refuse(reply: FastifyReply, code: number, error: string): Promise
  */
 export function registerMutationGuard(app: FastifyInstance): void {
   app.addHook('onRequest', async (request, reply) => {
-    if (!MUTATING_METHODS.has(request.method)) return
-
     const host = request.headers.host
     if (!isLoopbackHost(host)) {
-      return refuse(reply, 400, `refused: Host "${host ?? ''}" is not loopback — this instrument only accepts mutating requests addressed to 127.0.0.1/localhost`)
+      return refuse(reply, 400, `refused: Host "${host ?? ''}" is not loopback — this instrument only accepts requests addressed to 127.0.0.1/localhost`)
     }
+
+    if (!MUTATING_METHODS.has(request.method)) return
 
     const origin = request.headers.origin
     if (typeof origin === 'string' && origin.length > 0 && !isLoopbackOrigin(origin)) {

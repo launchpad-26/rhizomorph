@@ -75,6 +75,40 @@ CONDUCTOR NOT INSTRUMENTED — overhead ratio unknowable
 `rhizomorph --extra-sessions <dir>:conductor` if your conductor's session
 logs live outside the worktrees this repo's collector already discovers.
 
+## Refused: Host "…" is not loopback
+
+```
+{"error":"refused: Host \"0.0.0.0:4321\" is not loopback — this instrument only accepts requests addressed to 127.0.0.1/localhost"}
+```
+
+Every request — reads included — must carry a `Host` header spelling one of
+`127.0.0.1`, `localhost`, `::1`, or `[::1]` (a numeric `:port` is fine after
+`127.0.0.1`, `localhost`, or `[::1]`; bare `::1` takes no port — bracket it
+to add one).
+This is the DNS-rebinding guard: `Host` is set by the browser from the
+page's own address, so a malicious page can't forge it, and checking it on
+every method is what keeps a rebound page from reading transcripts or the
+event stream.
+
+Ways to hit it with entirely legitimate local traffic, and the remedy for
+each — which is always *address the instrument as `127.0.0.1` or
+`localhost`*:
+
+- **`http://0.0.0.0:4321/` — the web UI itself as well as `curl`** —
+  dialling `0.0.0.0` does reach the `127.0.0.1`-bound server on Linux/macOS,
+  and both the dashboard and API reads served this way used to work.
+  `0.0.0.0` is the unspecified address, not a loopback name, and the
+  dial-through doesn't work on Windows, so it is refused rather than
+  endorsed. Use `http://127.0.0.1:4321/`.
+- **A Host-less HTTP/1.0 request** (hand-rolled scripts, very old clients) —
+  HTTP/1.0 doesn't require a `Host` header, but this guard does. Send one:
+  `printf 'GET /api/meta HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n' | nc 127.0.0.1 4321`.
+- **A trailing-dot FQDN, `localhost.`** — refused for the same reason;
+  drop the dot.
+
+If you're seeing this on traffic you *didn't* send, that's the guard doing
+its job.
+
 ## Stale session lock
 
 Each running instance holds a pid+heartbeat lock beside its session log,

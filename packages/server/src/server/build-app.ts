@@ -53,13 +53,11 @@ ${where}
  *
  * Also where the 2026-08-06 audit's app-wide controls land (see
  * `mutation-guard.ts` and `api/security.ts` for the full rationale of each):
- * the Origin/Host/Content-Type guard over every mutating request, an
- * explicit request-size ceiling, and the per-process capability token every
- * mutating route may require. None of this touches the read-only routes
- * `registerApiRoutes` wires up below — `mutation-guard.ts`'s own doc has the
- * full case for why staying open on loopback is the deliberate, documented
- * choice for a `GET`, and what would have to change (this file, one `Set`)
- * if this server ever bound beyond loopback.
+ * the loopback `Host` check over every request — the read-only routes
+ * `registerApiRoutes` wires up below included, since #235 closed the
+ * DNS-rebinding read hole — the Origin and Content-Type checks over every
+ * mutating request, an explicit request-size ceiling, and the per-process
+ * capability token every mutating route may require.
  */
 export function buildApp(ctx: ServerContext): FastifyInstance {
   const app = Fastify({ bodyLimit: BODY_LIMIT_BYTES })

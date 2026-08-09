@@ -16,6 +16,8 @@ function makeApp(): FastifyInstance {
   registerMutationGuard(app)
   app.post('/mutate', async (request) => ({ ok: true, body: request.body ?? null }))
   app.get('/read', async () => ({ ok: true }))
+  app.get('/api/transcript/:lane', async () => ({ ok: true }))
+  app.get('/api/stream', async () => ({ ok: true }))
   return app
 }
 
@@ -122,6 +124,66 @@ describe('registerMutationGuard', () => {
       })
       expect(response.statusCode).toBe(200)
     })
+
+    it('rejects a malformed bracketed Host with trailing text after the bracket — fails closed, not open', async () => {
+      // `[::1]evil.example` is not a Host any browser can emit (a malformed
+      // IPv6 authority is refused at URL parse time), but a hand-rolled
+      // client can — and a parser that discards everything after `]` would
+      // read it as `::1` and wave it through.
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/read',
+        headers: { host: '[::1]evil.example' },
+      })
+      expect(response.statusCode).toBe(400)
+    })
+
+    it('rejects a bracketed Host whose port is not numeric — `[::1]:evil` is malformed, not loopback', async () => {
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/read',
+        headers: { host: '[::1]:evil' },
+      })
+      expect(response.statusCode).toBe(400)
+    })
+
+    it('rejects an unbracketed Host whose port is not numeric — `localhost:evil` is malformed on this branch too', async () => {
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/read',
+        headers: { host: 'localhost:evil' },
+      })
+      expect(response.statusCode).toBe(400)
+    })
+
+    it('rejects the trailing-dot FQDN `localhost.` — the disclosed blast radius, pinned', async () => {
+      // The third disclosed refusal — a Host-less HTTP/1.0 request — cannot
+      // be pinned here: light-my-request substitutes its default Host when
+      // given an empty one and throws on undefined. That case is verified by
+      // a raw-socket run against a live boot (see PR #303's verify pass).
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/read',
+        headers: { host: 'localhost.' },
+      })
+      expect(response.statusCode).toBe(400)
+    })
+
+    it('rejects Host 0.0.0.0 — deliberately outside the accepted spellings (see LOOPBACK_HOSTNAMES doc)', async () => {
+      // Pins the disclosure: `curl http://0.0.0.0:PORT` reads worked before
+      // #235 and now 400 — a decision, not an accident.
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/read',
+        headers: { host: '0.0.0.0:4317' },
+      })
+      expect(response.statusCode).toBe(400)
+    })
   })
 
   describe('Content-Type', () => {
@@ -174,14 +236,74 @@ describe('registerMutationGuard', () => {
     })
   })
 
-  describe('read-only routes are exempt', () => {
-    it('a cross-origin GET is never touched by this guard', async () => {
+  describe('read-only routes: Origin and Content-Type are exempt, Host is not', () => {
+    it('a cross-origin GET with a loopback Host still passes — Origin never applies to reads', async () => {
       const app = makeApp()
       const response = await app.inject({
         method: 'GET',
         url: '/read',
-        headers: { origin: 'https://evil.example', host: 'attacker-controlled.example' },
+        headers: { origin: 'https://evil.example', host: '127.0.0.1:4317' },
       })
+      expect(response.statusCode).toBe(200)
+    })
+
+    it('a GET declaring a non-JSON body still passes — Content-Type never applies to reads either', async () => {
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/read',
+        headers: { 'content-type': 'text/plain', host: '127.0.0.1:4317' },
+        payload: 'not json at all',
+      })
+      expect(response.statusCode).toBe(200)
+    })
+
+    it('rejects a GET whose Host is not loopback — the DNS-rebinding case: a rebound page reading /api/transcript/:lane', async () => {
+      // This is the defect #235 fixes: a page from `evil.example` that gets
+      // rebound to 127.0.0.1 sends no `Origin` at all for this request (the
+      // browser treats it as same-origin), so only `Host` can catch it.
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/transcript/lane-1',
+        headers: { host: 'evil.example' },
+      })
+      expect(response.statusCode).toBe(400)
+    })
+
+    it('accepts a GET with a loopback Host for /api/transcript/:lane', async () => {
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/transcript/lane-1',
+        headers: { host: '127.0.0.1:4317' },
+      })
+      expect(response.statusCode).toBe(200)
+    })
+
+    it('rejects a GET whose Host is not loopback — the /api/stream SSE shape', async () => {
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/stream',
+        headers: { host: 'evil.example' },
+      })
+      expect(response.statusCode).toBe(400)
+    })
+
+    it('accepts a GET with a loopback Host for /api/stream', async () => {
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/stream',
+        headers: { host: 'localhost:4317' },
+      })
+      expect(response.statusCode).toBe(200)
+    })
+
+    it('accepts a GET with no Host header override — fastify app.inject defaults to a loopback Host', async () => {
+      const app = makeApp()
+      const response = await app.inject({ method: 'GET', url: '/read' })
       expect(response.statusCode).toBe(200)
     })
   })

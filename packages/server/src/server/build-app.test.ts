@@ -165,6 +165,21 @@ describe('buildApp integration', () => {
     await app.close()
   })
 
+  it('refuses a rebound Host on the real routes — the guard suite proves the hook law, this proves buildApp wires it (#235)', async () => {
+    const app = makeApp()
+
+    const meta = await app.inject({ method: 'GET', url: '/api/meta', headers: { host: 'evil.example' } })
+    expect(meta.statusCode).toBe(400)
+
+    const stream = await app.inject({ method: 'GET', url: '/api/stream', headers: { host: 'evil.example' } })
+    expect(stream.statusCode).toBe(400)
+
+    const transcript = await app.inject({ method: 'GET', url: '/api/transcript/lane-1', headers: { host: 'evil.example' } })
+    expect(transcript.statusCode).toBe(400)
+
+    await app.close()
+  })
+
   it('warns loudly and serves a placeholder HTML page instead of a bare 404 when no web build is configured', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
