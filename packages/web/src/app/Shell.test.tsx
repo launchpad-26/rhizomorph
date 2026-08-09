@@ -128,34 +128,73 @@ describe('Shell — the idle-worker jump (prd5 ruling 1+6)', () => {
 })
 
 /**
- * THE PRIMARY NAV (#229) — before this, `/lab` and `/recordings` rendered
- * complete surfaces with no anchor anywhere in the UI; a stranger could only
- * reach them by being told the URL. This proves the balcony now carries a
- * real, clickable way to each of the three hands, and that the active one
- * reads as active.
+ * THE PRIMARY NAV (#229, fourth hand added by #252/prd19 ruling 1) — before
+ * #229, `/lab` and `/recordings` rendered complete surfaces with no anchor
+ * anywhere in the UI; a stranger could only reach them by being told the
+ * URL. This proves the balcony now carries a real, clickable way to each of
+ * the four hands, and that exactly the one matching the current route reads
+ * as active — never hardcoded to Observatory (the law #252 states: "exactly
+ * one nav hand carries aria-current="page" on every route").
  */
-describe('Shell — the primary nav (#229)', () => {
-  it('links to all three hands with real anchors, SPA-routed rather than a full reload', async () => {
+describe('Shell — the primary nav (#229, #252)', () => {
+  it('links to all four hands with real anchors, SPA-routed rather than a full reload', async () => {
     await renderShell(null)
 
     const observatory = screen.getByTestId('nav-observatory')
     const recordings = screen.getByTestId('nav-recordings')
     const lab = screen.getByTestId('nav-lab')
+    const connect = screen.getByTestId('nav-connect')
 
-    for (const link of [observatory, recordings, lab]) {
+    for (const link of [observatory, recordings, lab, connect]) {
       expect(link.tagName).toBe('A')
     }
     expect(observatory.getAttribute('href')).toBe('/')
     expect(recordings.getAttribute('href')).toBe('/recordings')
     expect(lab.getAttribute('href')).toBe('/lab')
+    expect(connect.getAttribute('href')).toBe('/connect')
   })
 
-  it('marks Observatory as the active link — the balcony only ever mounts on that route', async () => {
+  it('marks Observatory as the active link on the balcony route', async () => {
     await renderShell(null)
 
     expect(screen.getByTestId('nav-observatory').getAttribute('aria-current')).toBe('page')
     expect(screen.getByTestId('nav-recordings').getAttribute('aria-current')).toBeNull()
     expect(screen.getByTestId('nav-lab').getAttribute('aria-current')).toBeNull()
+    expect(screen.getByTestId('nav-connect').getAttribute('aria-current')).toBeNull()
+  })
+
+  it('derives the active hand from the actual route rather than hardcoding Observatory (#252)', async () => {
+    window.history.replaceState(null, '', '/connect')
+    await renderShell(null)
+
+    // Exactly one hand active, and it is the one the route actually names.
+    // Honesty note (PR #285 review): in production the nav renders only on
+    // the balcony — App's route switch mounts pages, not Shell, everywhere
+    // else — so the old hardcoded check produced no *observable* bug. This
+    // pins the abstraction's law for any tree that does mount the nav
+    // off-balcony (#258's design question).
+    expect(screen.getByTestId('nav-connect').getAttribute('aria-current')).toBe('page')
+    expect(screen.getByTestId('nav-observatory').getAttribute('aria-current')).toBeNull()
+    expect(screen.getByTestId('nav-recordings').getAttribute('aria-current')).toBeNull()
+    expect(screen.getByTestId('nav-lab').getAttribute('aria-current')).toBeNull()
+
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('pins the deliberate fallback: a route with no matching hand activates Observatory', async () => {
+    // activeHref's default arm maps every unhandled Route member (today:
+    // lane) to '/'. A future route added without a case lands here too —
+    // this makes the silent mapping a stated fact rather than an accident
+    // (PR #285 review, seat B finding 2).
+    window.history.replaceState(null, '', '/lane/some-handle')
+    await renderShell(null)
+
+    expect(screen.getByTestId('nav-observatory').getAttribute('aria-current')).toBe('page')
+    expect(screen.getByTestId('nav-connect').getAttribute('aria-current')).toBeNull()
+    expect(screen.getByTestId('nav-recordings').getAttribute('aria-current')).toBeNull()
+    expect(screen.getByTestId('nav-lab').getAttribute('aria-current')).toBeNull()
+
+    window.history.replaceState(null, '', '/')
   })
 
   it('navigates via pushState on a plain click, not a full reload', async () => {
@@ -163,10 +202,10 @@ describe('Shell — the primary nav (#229)', () => {
     window.history.replaceState(null, '', '/')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('nav-lab'), { button: 0 })
+      fireEvent.click(screen.getByTestId('nav-connect'), { button: 0 })
     })
 
-    expect(window.location.pathname).toBe('/lab')
+    expect(window.location.pathname).toBe('/connect')
     window.history.replaceState(null, '', '/')
   })
 

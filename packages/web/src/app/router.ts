@@ -1,16 +1,18 @@
 import { useSyncExternalStore } from 'react'
 
 /**
- * THE ROUTER (prd9 B1b, widened by prd16 ruling 4 and prd14) — a hand-rolled
- * history-API router for exactly four routes: `/` (the balcony, unchanged),
- * `/lane/:handle` (the deep-linkable lane page), `/recordings` (the
- * recordings library, #135's pattern reused rather than forked), and `/lab`
- * (the experiment console, prd14 — the same reuse-not-fork precedent: a
- * second router is exactly what that direction forbids). The
- * lean-dependency culture (prd5's implementation-vehicles note) rules out
- * react-router or any routing package for a job this small — four routes,
- * no nesting, no data loading, just "which page" and "keep the URL and the
- * back button honest".
+ * THE ROUTER (prd9 B1b, widened by prd16 ruling 4, prd14 and prd19 ruling 1)
+ * — a hand-rolled history-API router for exactly five routes: `/` (the
+ * balcony, unchanged), `/lane/:handle` (the deep-linkable lane page),
+ * `/recordings` (the recordings library, #135's pattern reused rather than
+ * forked), `/lab` (the experiment console, prd14 — the same reuse-not-fork
+ * precedent), and `/connect` (the connection surface, prd19 ruling 1 — "a
+ * fifth route and a fourth nav hand", landing here as a fenced placeholder
+ * ahead of the handshake checklist itself, wave 3). The lean-dependency
+ * culture (prd5's implementation-vehicles note) rules out react-router or
+ * any routing package for a job this small — five routes, no nesting, no
+ * data loading, just "which page" and "keep the URL and the back button
+ * honest".
  *
  * `pushState` never fires the browser's own `popstate`, so every programmatic
  * navigation (`navigate`) has to raise it itself; the browser raises
@@ -23,15 +25,18 @@ export type Route =
   | { name: 'lane'; handle: string }
   | { name: 'recordings' }
   | { name: 'lab' }
+  | { name: 'connect' }
 
 const LANE_PATH = /^\/lane\/([^/]+)\/?$/
 const RECORDINGS_PATH = /^\/recordings\/?$/
 const LAB_PATH = /^\/lab\/?$/
+const CONNECT_PATH = /^\/connect\/?$/
 
 /** Parses a `location.pathname` into the one route it names. Unknown shapes fall back to the balcony. */
 export function parseRoute(pathname: string): Route {
   if (RECORDINGS_PATH.test(pathname)) return { name: 'recordings' }
   if (LAB_PATH.test(pathname)) return { name: 'lab' }
+  if (CONNECT_PATH.test(pathname)) return { name: 'connect' }
   const match = LANE_PATH.exec(pathname)
   if (match === null) return { name: 'balcony' }
   return { name: 'lane', handle: decodeURIComponent(match[1] as string) }
