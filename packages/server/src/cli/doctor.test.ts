@@ -9,7 +9,14 @@ import { sessionDirFor } from '../log/paths.js'
 import { SessionLogWriter } from '../recorder/index.js'
 import { readResumedCount, recordResume, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import { writeSessionLock } from '../log/session-lock.js'
-import { doctorHelpText, parseDoctorArgs, renderDoctorReport, runDoctor, type DoctorCheck } from './doctor.js'
+import {
+  checkTelemetryEnv,
+  doctorHelpText,
+  parseDoctorArgs,
+  renderDoctorReport,
+  runDoctor,
+  type DoctorCheck,
+} from './doctor.js'
 
 function okResult(stdout = ''): ExecResult {
   return { stdout, stderr: '', code: 0, failed: false }
@@ -169,6 +176,10 @@ describe('runDoctor', () => {
     expect(targetPath.message).toContain(missingPath)
     expect(targetPath.message).toContain('does not exist')
     expect(report.exitCode).toBe(1)
+    // #276 clone-safe syntax (adversarial review item 7): a clone user has no
+    // `rhizomorph` binary on PATH, so the remedy must not tell them to run a bare one.
+    expect(targetPath.message).toContain('npm exec rhizomorph -- doctor')
+    expect(targetPath.message).not.toMatch(/[`"]rhizomorph /)
   })
 
   it('fails when the target path exists but is not a git repository', async () => {
@@ -494,6 +505,46 @@ describe('runDoctor', () => {
     expect(telemetry.message).toContain(process.platform === 'win32' ? '--shell powershell' : 'eval')
   })
 
+  describe("checkTelemetryEnv's shellContext (prd-19 ruling 5)", () => {
+    it("defaults to 'agent' and behaves byte-identically to before GET /api/doctor existed", () => {
+      const ok = checkTelemetryEnv({ CLAUDE_CODE_ENABLE_TELEMETRY: '1' }, 'linux')
+      expect(ok.status).toBe('ok')
+      expect(ok.message).toBe('CLAUDE_CODE_ENABLE_TELEMETRY=1 is set in this shell')
+      expect(ok.message).not.toContain('server shell')
+
+      const warn = checkTelemetryEnv({}, 'linux')
+      expect(warn.status).toBe('warn')
+      expect(warn.message).not.toContain('server shell')
+      expect(warn.message).not.toContain('agent shell')
+    })
+
+    it(
+      "passing 'server' NEVER reports ok, even when this process's own env has the var set — an ok here " +
+        'would contradict the very message saying this route cannot see the env that matters (adversarial review item 4)',
+      () => {
+        const withVarSet = checkTelemetryEnv({ CLAUDE_CODE_ENABLE_TELEMETRY: '1' }, 'linux', 'server')
+        expect(withVarSet.status).toBe('warn')
+        expect(withVarSet.id).toBe('telemetry')
+        expect(withVarSet.message).toContain('is set')
+        expect(withVarSet.message).toContain('server shell, not agent shell')
+        expect(withVarSet.message).toContain("agent's own process")
+        expect(withVarSet.message).toContain('cannot see')
+
+        const withVarUnset = checkTelemetryEnv({}, 'linux', 'server')
+        expect(withVarUnset.status).toBe('warn')
+        expect(withVarUnset.message).toContain('is not set')
+        expect(withVarUnset.message).toContain('server shell, not agent shell')
+      },
+    )
+
+    it("'server' context is deaf to platform — no eval/PowerShell remedy voice, since it never reaches the CLI's own remedy branch", () => {
+      const check = checkTelemetryEnv({}, 'win32', 'server')
+      expect(check.status).toBe('warn')
+      expect(check.message).not.toContain('--shell powershell')
+      expect(check.message).not.toContain('eval')
+    })
+  })
+
   describe('cli version drift check', () => {
     it('reports ok when the installed claude matches the pinned trace fixture version', async () => {
       const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot, dataRoot })
@@ -731,6 +782,26 @@ describe('runDoctor', () => {
       expect(boundary.message).toContain('session 1000 would resume')
     })
 
+    it('names the closed-session remedy in clone-safe syntax, not a bare `rhizomorph rotate` a clone user cannot run (#276 context)', async () => {
+      const sessionDir = sessionDirFor(repoPath, dataRoot)
+      const filePath = sessionFilePath(sessionDir, '1000')
+      const writer = new SessionLogWriter(filePath)
+      await writer.append(
+        createEvent('session.started', { sessionId: '1000', repoPath, repoName: 'repo' }, { id: 'evt-1', ts: 1000 }),
+      )
+      await writer.append(
+        createEvent('session.closed', { sessionId: '1000', reason: 'rotated', eventCount: 1 }, { id: 'evt-2', ts: 2000 }),
+      )
+
+      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot, dataRoot })
+
+      const boundary = checkFor(report.checks, 'session-boundary')
+      expect(boundary.status).toBe('ok')
+      expect(boundary.message).toContain('closed on purpose')
+      expect(boundary.message).toContain('npm exec rhizomorph -- rotate')
+      expect(boundary.message).not.toContain('`rhizomorph rotate`')
+    })
+
     it('never writes anything: a doctor run is not itself a boot', async () => {
       const sessionDir = sessionDirFor(repoPath, dataRoot)
       const filePath = sessionFilePath(sessionDir, '1000')
@@ -761,6 +832,11 @@ describe('runDoctor', () => {
       expect(ladder.status).toBe('ok')
       expect(ladder.message).toContain('L4')
       expect(ladder.message).toContain('nothing further to climb')
+      // The CLI's own `target-path` is always a real, measured `checkTargetPath`
+      // run — never the route's synthetic entry — so nothing here is `assumed`
+      // (adversarial review item 3; `assumed` only ever appears from the route).
+      expect(ladder.assumed).toBeUndefined()
+      expect(ladder.message).not.toContain('assumed')
     })
 
     it('drops a rung — the direction\'s own example — when workmux is missing, and names the remedy for the next one', async () => {

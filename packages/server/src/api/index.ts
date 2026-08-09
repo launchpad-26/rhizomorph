@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import type { ServerContext } from '../server/context.js'
+import { registerDoctorRoute } from './doctor.js'
 import { registerLabelRoute } from './label.js'
 import { registerLabRoutes } from './lab.js'
 import { registerLanesRoute } from './lanes.js'
@@ -25,4 +26,8 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   // (prd14 wave 1) — see `lab.ts`'s own doc for why this never imports
   // `server/src/lab/` directly.
   registerLabRoutes(app, ctx)
+  // Read-only preflight reusing the CLI doctor's own check functions
+  // (prd-19 ruling 5) — see `doctor.ts`'s own doc for which checks it drops
+  // and why.
+  registerDoctorRoute(app, ctx)
 }

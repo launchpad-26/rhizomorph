@@ -39,6 +39,18 @@ export interface DoctorCheck {
   status: CheckStatus
   /** One line: the finding, and — for warn/fail — the exact remedy. */
   message: string
+  /**
+   * True when this finding rests on an assumed fact rather than one this
+   * call actually measured — never set by the CLI, which measures
+   * everything it reports. `GET /api/doctor` sets it on `ladder`/`ladder:*`
+   * when the `target-path` input that fed the ladder's git contributor was
+   * a synthetic `ok` rather than a real `checkTargetPath` run (adversarial
+   * review item 3): a stranger reading the JSON must be able to tell
+   * measured from assumed without reading this file's source. Absent, not
+   * `false`, when nothing was assumed — the common case stays as compact as
+   * before.
+   */
+  assumed?: boolean
 }
 
 export interface DoctorReport {
@@ -200,7 +212,7 @@ export async function runDoctorCommand(
   exit(report.exitCode)
 }
 
-async function checkNodeVersion(options: DoctorOptions): Promise<DoctorCheck> {
+export async function checkNodeVersion(options: Pick<DoctorOptions, 'nodeVersion' | 'rootPackageJsonPath'>): Promise<DoctorCheck> {
   const nodeVersion = options.nodeVersion ?? process.version
   const range = await resolveRequiredNodeRange(options.rootPackageJsonPath ?? defaultRootPackageJsonPath())
   const major = Number(nodeVersion.replace(/^v/, '').split('.')[0])
@@ -251,7 +263,7 @@ async function checkTargetPath(repoPath: string, exec: Exec): Promise<DoctorChec
     return {
       id: 'target-path',
       status: 'fail',
-      message: `target path ${repoPath} does not exist — pass an existing repo, e.g. \`rhizomorph doctor ~/code/my-repo\``,
+      message: `target path ${repoPath} does not exist — pass an existing repo, e.g. \`npm exec rhizomorph -- doctor ~/code/my-repo\``,
     }
   }
 
@@ -360,7 +372,7 @@ function isPortFree(port: number): Promise<boolean> {
   })
 }
 
-function checkClaudeProjects(claudeProjectsRoot?: string): DoctorCheck {
+export function checkClaudeProjects(claudeProjectsRoot?: string): DoctorCheck {
   const dir = claudeProjectsRoot ?? path.join(homedir(), '.claude', 'projects')
   if (existsSync(dir)) {
     return { id: 'session-logs', status: 'ok', message: `Claude Code session logs found at ${dir}` }
@@ -380,7 +392,7 @@ function checkClaudeProjects(claudeProjectsRoot?: string): DoctorCheck {
  * Never fails: the boundary is a default to know about, not a precondition
  * to run.
  */
-async function checkSessionBoundary(repoPath: string, dataRoot: string | undefined, now: () => number): Promise<DoctorCheck> {
+export async function checkSessionBoundary(repoPath: string, dataRoot: string | undefined, now: () => number): Promise<DoctorCheck> {
   const sessionDir = sessionDirFor(repoPath, dataRoot ?? defaultDataRoot())
   const decision = await decideSessionBoot(sessionDir, now())
   const window = formatBootDuration(decision.windowMs)
@@ -411,7 +423,7 @@ async function checkSessionBoundary(repoPath: string, dataRoot: string | undefin
     return {
       id: 'session-boundary',
       status: 'ok',
-      message: `the last session for ${repoPath} was closed on purpose (\`rhizomorph rotate\`, or the dashboard's button) — the next run starts a fresh one (a closed log is never resumed, whatever the ${window} window says)`,
+      message: `the last session for ${repoPath} was closed on purpose (\`npm exec rhizomorph -- rotate\`, or the dashboard's button) — the next run starts a fresh one (a closed log is never resumed, whatever the ${window} window says)`,
     }
   }
 
@@ -461,7 +473,7 @@ function isMissingBinary(result: { failed: boolean; errorMessage?: string }): bo
   return result.failed && result.errorMessage !== undefined
 }
 
-async function checkOptionalTool(id: string, command: string, args: string[], exec: Exec): Promise<DoctorCheck> {
+export async function checkOptionalTool(id: string, command: string, args: string[], exec: Exec): Promise<DoctorCheck> {
   const result = await exec(command, args)
   if (isMissingBinary(result)) {
     return {
@@ -487,14 +499,34 @@ function describeToolError(result: ExecResult): string {
   return `exited with code ${result.code}`
 }
 
+/** Which process's env `checkTelemetryEnv` actually inspected — see its own doc. */
+export type DoctorShellContext = 'agent' | 'server'
+
 /**
  * Names the wiring command in the reader's own shell (#140): a Windows
  * conductor's doctor run has no `eval`, so telling it to run one is a remedy
  * that cannot work. `win32` gets the PowerShell pipe form; every other
  * platform (the vast majority — WSL, Linux, macOS) keeps the `eval` form
  * unchanged.
+ *
+ * `shellContext` names which process's env this actually read. `'agent'`
+ * (the CLI's default) is honest as-is, byte-identical to before `'server'`
+ * existed: `rhizomorph doctor` runs IN the agent's own shell, so
+ * `process.env` there is the env that matters, and either an `ok` or a
+ * `warn` is a real finding. `GET /api/doctor` (prd-19 ruling 5) passes
+ * `'server'` instead and is delegated to {@link checkTelemetryEnvFromServerShell}
+ * — see its own doc for why that arm can never report `ok` (adversarial
+ * review item 4).
  */
-function checkTelemetryEnv(env: NodeJS.ProcessEnv, platform: string): DoctorCheck {
+export function checkTelemetryEnv(
+  env: NodeJS.ProcessEnv,
+  platform: string,
+  shellContext: DoctorShellContext = 'agent',
+): DoctorCheck {
+  if (shellContext === 'server') {
+    return checkTelemetryEnvFromServerShell(env)
+  }
+
   if (env.CLAUDE_CODE_ENABLE_TELEMETRY === '1') {
     return { id: 'telemetry', status: 'ok', message: 'CLAUDE_CODE_ENABLE_TELEMETRY=1 is set in this shell' }
   }
@@ -514,6 +546,29 @@ function checkTelemetryEnv(env: NodeJS.ProcessEnv, platform: string): DoctorChec
 }
 
 /**
+ * The route's own arm (adversarial review item 4): reports `warn`
+ * unconditionally, whatever `CLAUDE_CODE_ENABLE_TELEMETRY` reads as in THIS
+ * server process's own env. An `ok` here would say "telemetry is flowing" —
+ * a claim this check cannot make, since the env that actually decides that
+ * belongs to the agent process this route is meant to verify, which it
+ * cannot see. Status now agrees with the words instead of contradicting
+ * them, and — just as importantly — `checkEnrichmentLadder`'s
+ * `checkOk(checks, 'telemetry')` reads `false` here unconditionally, so the
+ * ladder never counts this as proven OTel capability from the route either.
+ */
+function checkTelemetryEnvFromServerShell(env: NodeJS.ProcessEnv): DoctorCheck {
+  const serverProcessHasIt = env.CLAUDE_CODE_ENABLE_TELEMETRY === '1'
+  return {
+    id: 'telemetry',
+    status: 'warn',
+    message:
+      `CLAUDE_CODE_ENABLE_TELEMETRY ${serverProcessHasIt ? 'is' : 'is not'} set in this server's own shell — ` +
+      "server shell, not agent shell: the env that decides whether telemetry actually flows belongs to the " +
+      'agent\'s own process, which this route cannot see, so this can never be a green light from here',
+  }
+}
+
+/**
  * The trace parser's fixtures are pinned to this same captured CLI version
  * (research/2026-08-03-trace-era-captures.md §1); a beta span-name rename between
  * that version and what's actually installed is a fixture update, not a schema
@@ -526,7 +581,7 @@ function checkTelemetryEnv(env: NodeJS.ProcessEnv, platform: string): DoctorChec
  */
 const TRACE_FIXTURE_CLI_VERSION = '2.1.220'
 
-async function checkCliVersionDrift(exec: Exec): Promise<DoctorCheck> {
+export async function checkCliVersionDrift(exec: Exec): Promise<DoctorCheck> {
   const result = await exec('claude', ['--version'])
 
   if (isMissingBinary(result)) {
@@ -579,7 +634,7 @@ function parseClaudeVersion(stdout: string): string | null {
  * optional capability, not something the app needs to run), distinguished only by
  * message — "no lane manifest" vs "is broken: <detail>".
  */
-async function checkLaneManifest(repoPath: string): Promise<DoctorCheck> {
+export async function checkLaneManifest(repoPath: string): Promise<DoctorCheck> {
   const manifestPath = lanesManifestPath(repoPath)
   const result = await readLanesManifest(repoPath)
 
@@ -612,6 +667,11 @@ function checkOk(checks: readonly DoctorCheck[], id: string): boolean {
   return checks.find((check) => check.id === id)?.status === 'ok'
 }
 
+/** `true` when the named check in an already-computed report is itself flagged `assumed` — see `DoctorCheck.assumed`'s own doc. */
+function checkAssumed(checks: readonly DoctorCheck[], id: string): boolean {
+  return checks.find((check) => check.id === id)?.assumed === true
+}
+
 /**
  * prd15 ruling 5 — "`doctor` and the provenance strip SAY the rung per lane."
  * Reuses the tool/env checks already computed above rather than re-deriving
@@ -626,8 +686,16 @@ function checkOk(checks: readonly DoctorCheck[], id: string): boolean {
  * mechanisms here are process-wide, not per-lane, so every named lane shares
  * the same rung today — the loop that builds `lines` below is what makes
  * per-lane divergence free the moment a collector gains that granularity.
+ *
+ * Reads the `target-path` check's `ok`-ness out of `checks` the same way
+ * every other contributor here does — `GET /api/doctor` (which never runs
+ * `target-path` at all, prd-19 ruling 5) supplies a synthetic `ok` entry for
+ * it instead of skipping the contributor: the server is, by construction,
+ * already running against a valid git repository, so the fact `target-path`
+ * would have reported is already known true, just not from a check the route
+ * needs to expose.
  */
-async function checkEnrichmentLadder(checks: readonly DoctorCheck[], repoPath: string): Promise<DoctorCheck[]> {
+export async function checkEnrichmentLadder(checks: readonly DoctorCheck[], repoPath: string): Promise<DoctorCheck[]> {
   const contributors: AdapterCapabilities[] = [
     checkOk(checks, 'target-path') ? GIT_CAPABILITIES : absentCapabilities('target path is not a usable git repository'),
     checkOk(checks, 'session-logs')
@@ -646,13 +714,23 @@ async function checkEnrichmentLadder(checks: readonly DoctorCheck[], repoPath: s
       ? OTEL_CAPABILITIES
       : absentCapabilities(
           'telemetry env is not set in this shell',
-          'run `rhizomorph env <lane>` (see docs/telemetry.md)',
+          'run `npm exec rhizomorph -- env <lane>` (see docs/telemetry.md)',
         ),
   ]
 
   const rung = deriveRung(mergeCapabilities(contributors))
   const info = rungInfo(rung)
   const climbLine = info.climb === 'top rung — nothing further to climb' ? info.climb : `next: ${info.climb}`
+
+  // Visible, not just a code comment (adversarial review item 3): every
+  // ladder entry this call produces carries the SAME assumed-ness its own
+  // `target-path` input did, since the ladder's git contributor read that
+  // input directly — a stranger reading the JSON must be able to tell
+  // measured from assumed without reading this file's source.
+  const assumedNote = checkAssumed(checks, 'target-path')
+    ? ' (assumed: target-path was not itself measured by this call — see its own check for why)'
+    : ''
+  const assumedFlag: { assumed: true } | Record<string, never> = checkAssumed(checks, 'target-path') ? { assumed: true } : {}
 
   const lanesResult = await readLanesManifest(repoPath)
   const handles = lanesResult.available ? lanesResult.lanes.map((lane) => lane.handle) : []
@@ -662,7 +740,8 @@ async function checkEnrichmentLadder(checks: readonly DoctorCheck[], repoPath: s
       {
         id: 'ladder',
         status: 'ok',
-        message: `this repo sits at ${info.label} — ${climbLine}`,
+        message: `this repo sits at ${info.label} — ${climbLine}${assumedNote}`,
+        ...assumedFlag,
       },
     ]
   }
@@ -670,6 +749,7 @@ async function checkEnrichmentLadder(checks: readonly DoctorCheck[], repoPath: s
   return handles.map((handle) => ({
     id: `ladder:${handle}`,
     status: 'ok',
-    message: `lane ${handle} sits at ${info.label} — ${climbLine}`,
+    message: `lane ${handle} sits at ${info.label} — ${climbLine}${assumedNote}`,
+    ...assumedFlag,
   }))
 }
