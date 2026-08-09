@@ -124,6 +124,42 @@ describe('registerMutationGuard', () => {
       })
       expect(response.statusCode).toBe(200)
     })
+
+    it('rejects a malformed bracketed Host with trailing text after the bracket — fails closed, not open', async () => {
+      // `[::1]evil.example` is not a Host any browser can emit (a malformed
+      // IPv6 authority is refused at URL parse time), but a hand-rolled
+      // client can — and a parser that discards everything after `]` would
+      // read it as `::1` and wave it through.
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/read',
+        headers: { host: '[::1]evil.example' },
+      })
+      expect(response.statusCode).toBe(400)
+    })
+
+    it('rejects a bracketed Host whose port is not numeric — `[::1]:evil` is malformed, not loopback', async () => {
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/read',
+        headers: { host: '[::1]:evil' },
+      })
+      expect(response.statusCode).toBe(400)
+    })
+
+    it('rejects Host 0.0.0.0 — deliberately outside the accepted spellings (see LOOPBACK_HOSTNAMES doc)', async () => {
+      // Pins the disclosure: `curl http://0.0.0.0:PORT` reads worked before
+      // #235 and now 400 — a decision, not an accident.
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/read',
+        headers: { host: '0.0.0.0:4317' },
+      })
+      expect(response.statusCode).toBe(400)
+    })
   })
 
   describe('Content-Type', () => {
@@ -177,12 +213,23 @@ describe('registerMutationGuard', () => {
   })
 
   describe('read-only routes: Origin and Content-Type are exempt, Host is not', () => {
-    it('a cross-origin GET with a loopback Host still passes — Origin/Content-Type never apply to reads', async () => {
+    it('a cross-origin GET with a loopback Host still passes — Origin never applies to reads', async () => {
       const app = makeApp()
       const response = await app.inject({
         method: 'GET',
         url: '/read',
         headers: { origin: 'https://evil.example', host: '127.0.0.1:4317' },
+      })
+      expect(response.statusCode).toBe(200)
+    })
+
+    it('a GET declaring a non-JSON body still passes — Content-Type never applies to reads either', async () => {
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'GET',
+        url: '/read',
+        headers: { 'content-type': 'text/plain', host: '127.0.0.1:4317' },
+        payload: 'not json at all',
       })
       expect(response.statusCode).toBe(200)
     })

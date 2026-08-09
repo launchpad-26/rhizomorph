@@ -64,6 +64,19 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
  *    rather than silently accepted as an unparsed string.
  */
 
+/**
+ * The spellings this instrument accepts as its own address. Deliberately NOT
+ * here: `0.0.0.0` — dialling it does reach a `127.0.0.1`-bound socket, so
+ * `curl http://0.0.0.0:PORT` worked for reads before #235 — but it is the
+ * unspecified address (RFC 1122 §3.2.1.3 forbids it as a destination), the
+ * dial-through is an OS convenience Linux/macOS grant and Windows refuses,
+ * and no browser reaches this server through it. So the guard refuses it
+ * loudly (the 400 names the accepted spellings) rather than endorsing a
+ * non-portable spelling no doc advertises. Same posture for the trailing-dot
+ * `localhost.` and for a Host-less HTTP/1.0 request — see the CHANGELOG's
+ * #235 entry and `docs/user-guide/troubleshooting.md` for the operator-facing
+ * story.
+ */
 const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
 
 /**
@@ -81,12 +94,20 @@ const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
  * bracket-stripped for a bracketed IPv6 literal (`[::1]:4317` -> `::1`), and
  * returned whole for a bare (unbracketed, portless) IPv6 literal, which the
  * `Host` header grammar never combines with a port.
+ *
+ * A malformed bracketed value — anything after `]` that isn't a numeric
+ * `:port`, like `[::1]evil.example` — is returned whole rather than
+ * bracket-stripped, so it can never spell a loopback name: discarding the
+ * trailing text would read that header as `::1` and fail open.
  */
 function hostnameFromHostHeader(host: string): string {
   const trimmed = host.trim()
   if (trimmed.startsWith('[')) {
     const closingBracket = trimmed.indexOf(']')
-    return closingBracket === -1 ? trimmed : trimmed.slice(1, closingBracket)
+    if (closingBracket === -1) return trimmed
+    const afterBracket = trimmed.slice(closingBracket + 1)
+    if (!/^(:\d*)?$/.test(afterBracket)) return trimmed
+    return trimmed.slice(1, closingBracket)
   }
   const colonCount = trimmed.split(':').length - 1
   if (colonCount !== 1) return trimmed // 0 colons: bare name; >1: a bracket-less IPv6 literal
