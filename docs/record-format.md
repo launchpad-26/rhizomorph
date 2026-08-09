@@ -250,7 +250,7 @@ third.
 
 ```sh
 # Write a portable record for the most recently recorded session:
-rhizomorph export-record [path] [--session <id>] [--out <file>] [--handle <name>]
+rhizomorph export-record [path] [--session <id>] [--out <file>] [--handle <name>] [--force]
 
 # Verify + serve one, read-only, through the normal dashboard:
 rhizomorph replay <record-file> [--port <n>]
@@ -258,7 +258,9 @@ rhizomorph replay <record-file> [--port <n>]
 
 `export-record` writes the artifact **outside** the watched repo — by
 default alongside that repo's own session logs, named
-`<repo-slug>-<session-id>.rhizorecord.json`. `replay` verifies the chain
+`<repo-slug>-<session-id>.rhizorecord.json`. An explicit `--out` that
+already exists is refused unless `--force` is passed; the flagless default
+path is regenerable and always refreshes. `replay` verifies the chain
 first and refuses loudly (exit code 1, no server started) if it's broken,
 then boots the same dashboard the live command uses, pointed at the record's
 own events instead of a watched repo — a foreign actor's record renders its

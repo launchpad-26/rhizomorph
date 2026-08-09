@@ -38,6 +38,12 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **`export-record --force` (#298).** An explicit `--out` that already
+  exists is now refused with an error naming `--force`, which overwrites;
+  the flagless default artifact is regenerable and always refreshes.
+  `--force` without `--out` warns instead of silently doing nothing, and
+  an `--out` naming a directory is named as such rather than advised a
+  `--force` that would not help.
 - **System agnosticism (prd15).** A transcript-tail state machine derives a
   lane's liveness and attention (`working`/`waiting`/`frozen`/`gone`) from
   the agent CLI's own session transcript alone — no tmux, hooks, or

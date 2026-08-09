@@ -26,7 +26,7 @@ export interface ExportRecordResult {
   record: SessionRecord
 }
 
-/** Parses `rhizomorph export-record [path] [--session <id>] [--out <file>] [--handle <name>] [--help]`. */
+/** Parses `rhizomorph export-record [path] [--session <id>] [--out <file>] [--handle <name>] [--force] [--help]`. */
 export interface ExportRecordArgs {
   path: string | undefined
   /** Session id to export; defaults to the most recently recorded one. */
