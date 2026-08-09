@@ -1,10 +1,19 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ModeProvider } from '../app/ModeContext.js'
 import type { FetchLike } from '../replay/api.js'
+import { CAPABILITY_META_NAME } from './capability.js'
 import { RecordingsPage } from './RecordingsPage.js'
 import type { DownloadEnv } from './export.js'
 import type { LabelFetchLike } from './label.js'
+
+/** Stands in for what `server/static.ts` stamps into `index.html` on a real boot (#249). */
+beforeAll(() => {
+  const meta = document.createElement('meta')
+  meta.setAttribute('name', CAPABILITY_META_NAME)
+  meta.setAttribute('content', 'test-capability-token')
+  document.head.appendChild(meta)
+})
 
 afterEach(() => {
   cleanup()

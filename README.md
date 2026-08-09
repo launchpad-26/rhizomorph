@@ -204,7 +204,11 @@ holds it to. If an auto-title isn't the name you'd give it, rename it there
 or run `rhizomorph label <sessionId> "<text>"` — either way it's written to
 a sidecar file next to the log (`session-<id>.label.json`), never a
 mutation of the log itself, and a rename refreshes every picker showing
-that session, including the live dashboard's own. Once you've found the one
+that session, including the live dashboard's own. The dashboard's own save
+talks to the exact instrument you booted: the page it's running on carries a
+capability token, minted per process and never logged, that this one write
+requires — so it works against a real boot of the server, not a `vite`-only
+preview with nothing behind it. Once you've found the one
 you want, either replay it from the dashboard's own picker, or hand the
 file to someone else first with `rhizomorph export-record` (see [the record
 format](docs/record-format.md)).

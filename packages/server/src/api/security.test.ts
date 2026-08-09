@@ -9,6 +9,19 @@ import { CAPABILITY_TOKEN_HEADER, generateCapabilityToken, requireCapabilityToke
  * body validation, …) in the way. `label.test.ts` then proves the same
  * control holds for the real `/api/label` route end to end.
  */
+describe('CAPABILITY_TOKEN_HEADER', () => {
+  /**
+   * `packages/web/src/recordings/capability.ts` holds its own copy of this
+   * exact string — there is no shared package to import one constant from
+   * (`docs/adr/0012`'s Consequences names the cost). Pinning the literal
+   * here, and its mirror in `capability.test.ts`, turns a one-sided edit
+   * into a failing test instead of a silent 401 on every real boot (#249).
+   */
+  it('pins the exact literal string the web side must independently match', () => {
+    expect(CAPABILITY_TOKEN_HEADER).toBe('x-rhizomorph-capability')
+  })
+})
+
 describe('generateCapabilityToken', () => {
   it('mints a long, high-entropy hex string', () => {
     const token = generateCapabilityToken()

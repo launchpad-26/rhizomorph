@@ -119,6 +119,16 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   still-open question of whether going public means rewriting this
   repo's history or cutting a fresh tree (#177, unresolved).
 
+### Fixed
+
+- **Rename-in-place actually works (#249).** `POST /api/label` required a
+  per-process capability token nothing ever delivered to the browser, so
+  every rename in `/recordings` 401ed, on every boot. The server now
+  stamps the token into `index.html`'s `<head>` at serve time and the
+  dashboard reads it back — decision and threat-model consequences in
+  [ADR-0012](docs/adr/0012-in-band-capability-token-delivery.md), the
+  operator-facing account in [SECURITY.md](SECURITY.md#mutating-routes-and-the-capability-token).
+
 ## [0.1.0] - 2026-08-03
 
 First published release. What the tool actually is, at this point:

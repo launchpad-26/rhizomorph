@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'
 
 /**
  * THE MUTATING-CALLS LAW — prd16 ruling 2's condition on the web half, widened
@@ -98,7 +99,107 @@ function mutatingFiles(): string[] {
     .sort()
 }
 
-describe('the web app names exactly two mutating calls (prd16 rulings 2 and 4)', () => {
+/**
+ * A header key inside an inline object literal — a single- or double-quoted
+ * literal name, OR a computed `[identifier]` key. `label.ts`'s real call
+ * site spells its capability header as `[CAPABILITY_TOKEN_HEADER]:`, which a
+ * quote-only pattern cannot see at all: it would read that block as naming
+ * just `Content-Type`, silently accept a computed credential under any other
+ * name, and still compile (a computed key doesn't trigger TS's excess-
+ * property check). Every group is optional per alternative; callers read
+ * whichever of groups 1–3 is defined.
+ */
+const HEADER_KEY_RE = /(?:'([^']+)'|"([^"]+)"|\[([A-Za-z_$][\w$]*)\])\s*:/g
+
+/**
+ * `headers:` followed by anything other than an inline object literal — a
+ * bare variable reference (`headers: h`) hides its contents from
+ * {@link HEADER_KEY_RE} entirely, so the law must refuse that shape outright
+ * rather than silently reading zero headers as "nothing to complain about".
+ */
+const HEADERS_NOT_INLINE_RE = /headers\s*:\s*(?!\{)\S/
+
+/** Every name imported from `'./capability.js'` in `text` — the one source a computed capability-header key is ever trusted to come from. */
+function importedFromCapabilityModule(text: string): Set<string> {
+  const names = new Set<string>()
+  for (const match of text.matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\/capability\.js'/g)) {
+    for (const part of match[1]?.split(',') ?? []) {
+      const name = part.trim().split(/\s+as\s+/)[0]?.trim()
+      if (name) names.add(name)
+    }
+  }
+  return names
+}
+
+/** The two headers `label.ts` may send, and no third — the JSON body's own `Content-Type`, and the capability token #249 delivered a channel for. */
+const ALLOWED_HEADER_NAMES: readonly string[] = ['Content-Type', CAPABILITY_TOKEN_HEADER]
+
+/**
+ * THE HEADER LAW ITSELF, as one function both the law and its self-test call
+ * — the law asserts it holds on the real `label.ts`, the self-test asserts it
+ * throws on reconstructed defects, so the mechanism that guards the file is
+ * the same mechanism proven able to fail. (The 2026-08-09 verify pass caught
+ * the previous shape: a self-test that re-implemented the extraction inline
+ * stayed green when the real per-block loop was reverted to the aggregate.)
+ *
+ * Every `headers:` block must be an inline object literal naming exactly
+ * {@link ALLOWED_HEADER_NAMES} — per block, deliberately: an aggregate union
+ * across blocks would stay green when the type declares both headers but the
+ * call site sends only `Content-Type`, the pre-#249 defect hiding behind its
+ * own declaration. A spread is refused outright: `...extra` names nothing
+ * {@link HEADER_KEY_RE} can see and can smuggle any header at runtime.
+ * Throws with a sentence naming the violation; returns silently when the law
+ * holds.
+ */
+function assertHeaderBlocksExact(text: string): void {
+  if (HEADERS_NOT_INLINE_RE.test(text)) {
+    throw new Error('headers must stay an inline object literal, never a variable reference')
+  }
+  const importedFromCapability = importedFromCapabilityModule(text)
+  const headerBlocks = [...text.matchAll(/headers\s*:\s*\{([^}]*)\}/g)]
+  if (headerBlocks.length === 0) throw new Error('no headers: blocks found — an empty sweep proves nothing')
+
+  for (const block of headerBlocks) {
+    const body = block[1] ?? ''
+    if (body.includes('...')) {
+      throw new Error('a spread inside a headers block can carry a header no regex sees — refused outright')
+    }
+    const namesSeen = new Set<string>()
+    const matches = [...body.matchAll(HEADER_KEY_RE)]
+    if (matches.length === 0) throw new Error('a headers block that names no keys at all')
+    for (const match of matches) {
+      const literalName = match[1] ?? match[2]
+      const computedIdentifier = match[3]
+      if (literalName !== undefined) {
+        if (!ALLOWED_HEADER_NAMES.includes(literalName)) {
+          throw new Error(`${literalName} is not one of the two headers this call is allowed to send`)
+        }
+        namesSeen.add(literalName)
+        continue
+      }
+      // A computed key is only trusted when it names the one constant this
+      // call is allowed to send, imported from its one legitimate source — a
+      // same-named identifier shadowed locally, or imported from anywhere
+      // else, still fails.
+      if (computedIdentifier !== 'CAPABILITY_TOKEN_HEADER') {
+        throw new Error('a computed header key must name CAPABILITY_TOKEN_HEADER, nothing else')
+      }
+      if (!importedFromCapability.has('CAPABILITY_TOKEN_HEADER')) {
+        throw new Error('CAPABILITY_TOKEN_HEADER must be imported from ./capability.js, the one trusted source')
+      }
+      namesSeen.add(CAPABILITY_TOKEN_HEADER)
+    }
+    const seen = [...namesSeen].sort()
+    const allowed = [...ALLOWED_HEADER_NAMES].sort()
+    if (seen.length !== allowed.length || seen.some((name, i) => name !== allowed[i])) {
+      throw new Error(
+        `every headers: block must name exactly the two allowed headers — no more, no fewer (this block names: ${seen.join(', ') || 'none'})`,
+      )
+    }
+  }
+}
+
+describe('the web app names exactly three mutating calls (prd16 rulings 2 and 4; prd12/prd14 for the launch)', () => {
   it('has the whole app to check, not one directory — an empty grep proves nothing', () => {
     const files = sourceFiles()
     expect(files.length).toBeGreaterThan(80)
@@ -107,7 +208,7 @@ describe('the web app names exactly two mutating calls (prd16 rulings 2 and 4)',
     expect(files.map((file) => file.name)).toContain(path.join('drawer', 'useTranscript.ts'))
   })
 
-  it('are the ONLY two files in the app that name a mutating verb or build a request init', () => {
+  it('are the ONLY three files in the app that name a mutating verb or build a request init', () => {
     expect(mutatingFiles()).toEqual(
       MUTATING_MODULES.map((module) => path.relative(WEB_SRC, module.file)).sort(),
     )
@@ -154,25 +255,118 @@ describe('the web app names exactly two mutating calls (prd16 rulings 2 and 4)',
    * `label.ts` genuinely has something to say (which session, and what to
    * call it), unlike rotation — so it structurally cannot follow "no body at
    * all". What it must still never do is smuggle a credential or grow past
-   * the one header a JSON body needs the server's own parser to see it: the
-   * check names exactly the shape allowed rather than merely "some body,
-   * somehow", so a stray header or a widened payload fails here too.
+   * the two headers this call needs: the JSON body's own `Content-Type`,
+   * and — since #249 delivered a channel for it — the per-process capability
+   * token the server requires.
+   *
+   * AMENDED for #249, alongside `label.ts`'s own widening, in the same
+   * commit (`e9d506f`) — not a separate one, and this comment says so rather
+   * than claiming otherwise: a law that requires both headers to be present
+   * cannot go green before `label.ts` actually emits the second one, so the
+   * two could not land as two independently-green commits. The commit
+   * message names the amendment loudly instead.
+   *
+   * The check still names exactly the shape allowed rather than merely
+   * "some body, somehow", so a stray header or a widened payload fails here
+   * too — and, since the real call site spells its capability header as a
+   * computed `[CAPABILITY_TOKEN_HEADER]` key rather than a string literal,
+   * this resolves that computed key back to its one trusted import instead
+   * of trusting any bracketed identifier by name, and refuses a `headers:`
+   * value that isn't an inline object literal in the first place (either
+   * escape would hide a smuggled header from every check below).
    */
-  it("label.ts's body carries only sessionId and label, behind the one header JSON requires, no credential", () => {
+  it("label.ts's body carries only sessionId and label, behind exactly the two headers the mutating call needs, no credential", () => {
     const text = readFileSync(path.join(WEB_SRC, 'recordings', 'label.ts'), 'utf8')
     expect(text).not.toMatch(/FormData|URLSearchParams|new Request\(/)
     expect(text).not.toMatch(/apiKey|api_key|ANTHROPIC_API_KEY|Authorization|Bearer\s/i)
     expect(text).not.toMatch(/credentials\s*:/)
 
-    // Two occurrences are expected — the narrow fetch type's own shape and the
-    // one real call site — and both must name the identical single header.
-    const headerBlocks = [...text.matchAll(/headers\s*:\s*\{([^}]*)\}/g)]
-    expect(headerBlocks.length).toBeGreaterThan(0)
-    for (const block of headerBlocks) {
-      expect(block[1]?.replace(/\s/g, '')).toBe("'Content-Type':'application/json'")
-    }
+    // Two blocks are expected — the narrow fetch type's own shape and the one
+    // real call site — and {@link assertHeaderBlocksExact} holds each to
+    // exactly the fixed header set. The self-test below proves that same
+    // function able to fail; this line proves it holds on the real file.
+    expect(() => assertHeaderBlocksExact(text), 'the header law must hold on the real label.ts').not.toThrow()
 
     expect(text).toMatch(/body\s*:\s*JSON\.stringify\(\{\s*sessionId,\s*label\s*\}\)/)
+  })
+
+  it('the header checks themselves catch what they claim to — a computed credential under a different name, a shadowed import, and headers hidden in a variable', () => {
+    // A computed key naming anything other than CAPABILITY_TOKEN_HEADER is
+    // visible to the pattern (so the law can inspect and reject it) — the
+    // pattern's job is to surface the identifier, not silently miss it.
+    const smuggled = [
+      ..."{ 'Content-Type': 'application/json', [AUTH_HEADER]: token }".matchAll(HEADER_KEY_RE),
+    ].map((match) => match[3])
+    expect(smuggled).toContain('AUTH_HEADER')
+    expect(smuggled).not.toContain('CAPABILITY_TOKEN_HEADER')
+
+    // A same-named identifier imported from anywhere other than
+    // `./capability.js` does not satisfy the trusted-import check.
+    expect(
+      importedFromCapabilityModule("import { CAPABILITY_TOKEN_HEADER } from './somewhere-else.js'").has(
+        'CAPABILITY_TOKEN_HEADER',
+      ),
+    ).toBe(false)
+    expect(
+      importedFromCapabilityModule("import { CAPABILITY_TOKEN_HEADER } from './capability.js'").has(
+        'CAPABILITY_TOKEN_HEADER',
+      ),
+    ).toBe(true)
+
+    // `headers:` assigned from a bare variable hides its contents from
+    // HEADER_KEY_RE entirely — the law must refuse that shape outright.
+    expect(HEADERS_NOT_INLINE_RE.test('headers: h,')).toBe(true)
+    expect(HEADERS_NOT_INLINE_RE.test("headers: { 'Content-Type': 'application/json' }")).toBe(false)
+  })
+
+  it('the header law itself refuses the pre-#249 drop-back, a spread, and a smuggled name — and passes the healthy shape', () => {
+    // These probes call assertHeaderBlocksExact — THE function the law runs
+    // on the real label.ts — not a re-implementation of its regexes. (The
+    // 2026-08-09 verify pass showed the previous, re-implemented probe
+    // stayed green when the real per-block loop was reverted to the
+    // aggregate; a probe that doesn't run the mechanism pins nothing.)
+    const trustedImport = "import { CAPABILITY_TOKEN_HEADER, readCapabilityToken } from './capability.js'\n"
+
+    // The defect that shipped #249: the type declares both headers, the call
+    // site drops back to Content-Type alone. The union across blocks equals
+    // the allowed set — an aggregate check stays green — so only a per-block
+    // law can refuse it.
+    const dropBackLiteral =
+      trustedImport +
+      "headers: { 'Content-Type': 'application/json'; 'x-rhizomorph-capability': string }\n" +
+      "headers: { 'Content-Type': 'application/json' },\n"
+    expect(() => assertHeaderBlocksExact(dropBackLiteral)).toThrow(/no more, no fewer/)
+
+    // The same drop-back in the spelling the real call site actually uses —
+    // a computed [CAPABILITY_TOKEN_HEADER] key in the surviving block.
+    const dropBackComputed =
+      trustedImport +
+      "headers: { 'Content-Type': 'application/json', [CAPABILITY_TOKEN_HEADER]: capabilityToken }\n" +
+      "headers: { 'Content-Type': 'application/json' },\n"
+    expect(() => assertHeaderBlocksExact(dropBackComputed)).toThrow(/no more, no fewer/)
+
+    // A spread can smuggle any header past every name check at runtime —
+    // refused outright, not silently unseen (the verify pass executed this
+    // evasion against the pre-fix law and it passed; now it cannot).
+    const spread =
+      trustedImport +
+      "headers: { 'Content-Type': 'application/json', [CAPABILITY_TOKEN_HEADER]: capabilityToken, ...extra },\n"
+    expect(() => assertHeaderBlocksExact(spread)).toThrow(/spread/)
+
+    // A third named header is refused for its name.
+    const smuggled =
+      trustedImport +
+      "headers: { 'Content-Type': 'application/json', [CAPABILITY_TOKEN_HEADER]: capabilityToken, 'x-api-key': key },\n"
+    expect(() => assertHeaderBlocksExact(smuggled)).toThrow(/not one of the two headers/)
+
+    // And the healthy two-block shape — type declaration plus real call site,
+    // exactly as label.ts spells them — passes, so the probes above are
+    // distinguishing sick from well, not failing everything.
+    const healthy =
+      trustedImport +
+      "headers: { 'Content-Type': 'application/json'; 'x-rhizomorph-capability': string }\n" +
+      "headers: { 'Content-Type': 'application/json', [CAPABILITY_TOKEN_HEADER]: capabilityToken },\n"
+    expect(() => assertHeaderBlocksExact(healthy)).not.toThrow()
   })
 
   it('the buttons reach their routes only through their own module — never their own fetch', () => {
