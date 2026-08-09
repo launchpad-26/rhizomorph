@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { extractImportSpecifiers } from '../../test/import-specifiers.js'
 
 /**
  * THE LAUNCH PATH IS REACHABLE ONLY FROM AN EXPLICIT REQUEST (prd12 ruling 1's
@@ -56,6 +57,38 @@ function sourceFiles(): LaunchSourceFile[] {
 const SCHEDULING_RE = /\b(setInterval|setTimeout|setImmediate)\s*\(/
 const CALLS_REQUEST_LAUNCH_RE = /\brequestLaunch\s*\(/
 
+const FORBIDDEN_IDENTIFIERS: readonly RegExp[] = [
+  /\buseFleet\b/,
+  /\bFleetProvider\b/,
+  /\bbuildFleet\b/,
+  /\breduceAll\(/,
+]
+
+/**
+ * Import prefixes forbidden anywhere under lab/launch/, tested against
+ * every specifier `extractImportSpecifiers` (the shared extraction in
+ * `test/import-specifiers.ts`) finds — so a bare side-effect import, a
+ * dynamic `import('…')` and a template-literal specifier are exactly as
+ * visible as a static `… from '…'` (PR #301 review: the previous
+ * `from ['"]…` patterns saw the static form only). `(?:\.\.\/)+`, one or
+ * more hops, matches the sibling law's own prefixes — `lab/launch/` is flat
+ * today, so `../../…` is the only depth an import here could actually be
+ * written at, but pinning to that exact depth was itself part of the drift
+ * the audit flagged (finding #2): a copy that only happens to work because
+ * of a fact about today's tree.
+ */
+const FORBIDDEN_IMPORT_PREFIXES: readonly RegExp[] = [
+  /^(?:\.\.\/)+fleet\//,
+  /^(?:\.\.\/)+panels\//,
+  /^(?:\.\.\/)+scene\//,
+]
+
+function forbiddenImportsIn(text: string): string[] {
+  return extractImportSpecifiers(text).filter((specifier) =>
+    FORBIDDEN_IMPORT_PREFIXES.some((prefix) => prefix.test(specifier)),
+  )
+}
+
 describe("the lab launch path is reachable only from an explicit request (prd12 ruling 1's UI-button exception)", () => {
   it('has source files to check at all — an empty walk proves nothing', () => {
     // 3 real files as of the 2026-08-08 audit (estimate.ts, LaunchPanel.tsx,
@@ -97,14 +130,7 @@ describe("the lab launch path is reachable only from an explicit request (prd12 
   })
 
   /**
-   * `lab/launch/` is flat today, so `../../fleet/…` was the only depth an
-   * import here could actually be written at — but pinning the pattern to
-   * that exact depth was itself part of the drift the audit flagged (finding
-   * #2): a copy that only happens to work because of a fact about today's
-   * tree, not because it was written not to care. `(?:\.\.\/)+`, one or more
-   * hops, matches the sibling law's own patterns instead.
-   *
-   * **The `scene/` line is a blanket ban, not the sibling law's named
+   * **The `scene/` prefix is a blanket ban, not the sibling law's named
    * exception, and that's deliberate, not a leftover.** `no-live-fleet-
    * law.test.ts` is the ruling for `scene/` across all of `lab/`, launch/
    * included — its own recursive walk already asserts `scene/palette.js` in
@@ -117,37 +143,31 @@ describe("the lab launch path is reachable only from an explicit request (prd12 
    * this one refuses to ever carve out a name for one.
    */
   it('imports no fleet/panel/scene machinery — this is the lab console, never a second read of live fleet state', () => {
-    const FORBIDDEN_PATTERNS: readonly RegExp[] = [
-      /\buseFleet\b/,
-      /\bFleetProvider\b/,
-      /\bbuildFleet\b/,
-      /from ['"](?:\.\.\/)+fleet\//,
-      /from ['"](?:\.\.\/)+panels\//,
-      /from ['"](?:\.\.\/)+scene\//,
-      /\breduceAll\(/,
-    ]
     for (const file of sourceFiles()) {
-      for (const pattern of FORBIDDEN_PATTERNS) {
+      for (const pattern of FORBIDDEN_IDENTIFIERS) {
         expect(file.text, `${file.name} matches forbidden pattern ${pattern}`).not.toMatch(pattern)
       }
+      expect(
+        forbiddenImportsIn(file.text),
+        `${file.name} imports fleet/panel/scene machinery`,
+      ).toEqual([])
     }
   })
 
-  it('the detector bites — a fleet import added tomorrow, at any depth, would be caught by the path alone, not just a named identifier', () => {
-    const FORBIDDEN_PATTERNS: readonly RegExp[] = [
-      /\buseFleet\b/,
-      /\bFleetProvider\b/,
-      /\bbuildFleet\b/,
-      /from ['"](?:\.\.\/)+fleet\//,
-      /from ['"](?:\.\.\/)+panels\//,
-      /from ['"](?:\.\.\/)+scene\//,
-      /\breduceAll\(/,
+  it('the detector bites — a fleet import added tomorrow, at any depth and in any form, would be caught by the path alone, not just a named identifier', () => {
+    // No forbidden identifier in these probes — only deep import paths — so
+    // a pass here is the specifier check catching them, not an identifier
+    // riding along for free. The last three carry no `from` clause at all:
+    // bare, dynamic and template-literal forms, the ones a from-only
+    // pattern could not see (PR #301 review).
+    const probes = [
+      "import type { FetchLike } from '../../fleet/manifest.js'",
+      "import '../../fleet/manifest.js'",
+      "const manifest = await import('../../fleet/manifest.js')",
+      'const paint = await import(`../../scene/paint.js`)',
     ]
-    // No forbidden identifier in this probe — only a deep import path — so a
-    // pass here is the path pattern catching it, not an identifier riding
-    // along for free.
-    expect(
-      FORBIDDEN_PATTERNS.some((pattern) => pattern.test("import type { FetchLike } from '../../fleet/manifest.js'")),
-    ).toBe(true)
+    for (const probe of probes) {
+      expect(forbiddenImportsIn(probe), probe).not.toEqual([])
+    }
   })
 })

@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { extractImportSpecifiers } from '../test/import-specifiers.js'
 
 /**
  * THE LAB RENDERS NO LIVE FLEET STATE (prd14 direction; prd12 ruling 1) —
@@ -49,15 +50,10 @@ import { describe, expect, it } from 'vitest'
 
 const LAB_DIR = path.dirname(fileURLToPath(import.meta.url))
 
-const FORBIDDEN_PATTERNS: readonly RegExp[] = [
+const FORBIDDEN_IDENTIFIERS: readonly RegExp[] = [
   /\buseFleet\b/,
   /\bFleetProvider\b/,
   /\bbuildFleet\b/,
-  // Depth-independent: a recursive walk sees this import written as
-  // `../fleet/…` from lab/'s root and `../../fleet/…` from lab/branching/,
-  // lab/compare/ or lab/launch/ — one or more `../` segments, either way.
-  /from ['"](?:\.\.\/)+fleet\//,
-  /from ['"](?:\.\.\/)+panels\//,
   // No re-fold of the whole log either — the lab tab reads its own two
   // read-only routes (`/api/lab/checkpoints`, `/api/lab/experiments`), never
   // the raw event log itself.
@@ -65,17 +61,46 @@ const FORBIDDEN_PATTERNS: readonly RegExp[] = [
 ]
 
 /**
- * Any import reaching into `scene/`, at any depth — governed separately
- * below, by name, not by blanket forbid. Covers every form a scene import
- * could take, not just `import … from '…'`/`export … from '…'` (the `from`
- * branch): a bare side-effect import (`import '../../scene/x.js'`, no
- * `from` at all) and a dynamic one (`import('../../scene/x.js')`) reach the
- * same module and must be just as visible — this is newly load-bearing now
- * that the blanket `scene/` forbid below has been replaced by this named,
- * positive exception; a form the regex can't see is a form the exception
- * can't be checked against.
+ * Import prefixes forbidden anywhere in lab/, tested against every
+ * specifier `extractImportSpecifiers` finds — so a bare side-effect import,
+ * a dynamic `import('…')` and a template-literal specifier are exactly as
+ * visible as a static `… from '…'` (PR #301 review: the previous
+ * `from ['"]…` patterns saw the static form only, so
+ * `await import('../../fleet/manifest.js')` evaded the law). The shared
+ * extraction lives in `test/import-specifiers.ts` — a plain module, so
+ * importing it here has none of the suite-re-running cost that keeps the
+ * walkers duplicated (see the file doc above).
+ *
+ * Depth-independent: the walk sees this import written as `../fleet/…` from
+ * lab/'s root and `../../fleet/…` from lab/branching/, lab/compare/ or
+ * lab/launch/ — one or more `../` segments, either way.
  */
-const SCENE_IMPORT_RE = /(?:\bfrom\s+|\bimport\s*\(\s*|\bimport\s+)['"]((?:\.\.\/)+scene\/[^'"]+)['"]/g
+const FORBIDDEN_IMPORT_PREFIXES: readonly RegExp[] = [
+  /^(?:\.\.\/)+fleet\//,
+  /^(?:\.\.\/)+panels\//,
+]
+
+function forbiddenImportsIn(text: string): string[] {
+  return extractImportSpecifiers(text).filter((specifier) =>
+    FORBIDDEN_IMPORT_PREFIXES.some((prefix) => prefix.test(specifier)),
+  )
+}
+
+/**
+ * Any import reaching into `scene/`, at any depth — governed separately
+ * below, by name, not by blanket forbid. Built on the same shared
+ * extraction, so every form a scene import could take is visible: static
+ * `… from '…'`/`export … from '…'`, a bare side-effect import
+ * (`import '../../scene/x.js'`, no `from` at all), a dynamic one
+ * (`import('../../scene/x.js')`), and a template-literal specifier
+ * (``import(`../../scene/x.js`)``, which the old quoted-only regex missed —
+ * PR #301 review). This is load-bearing: the blanket `scene/` forbid has
+ * been replaced by a named, positive exception, and a form the detector
+ * can't see is a form the exception can't be checked against.
+ */
+function sceneImportsIn(text: string): string[] {
+  return extractImportSpecifiers(text).filter((specifier) => /^(?:\.\.\/)+scene\//.test(specifier))
+}
 
 /** The one named exception (`branching/geometry.ts`'s own doc: reused as-is, never forked). */
 const ALLOWED_SCENE_IMPORT = { file: path.join('branching', 'geometry.ts'), importPath: '../../scene/palette.js' }
@@ -131,45 +156,59 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
 
   it('imports no fleet/panel machinery, and folds nothing itself', () => {
     for (const file of sourceFiles()) {
-      for (const pattern of FORBIDDEN_PATTERNS) {
+      for (const pattern of FORBIDDEN_IDENTIFIERS) {
         expect(file.text, `${file.name} matches forbidden pattern ${pattern}`).not.toMatch(pattern)
       }
+      expect(
+        forbiddenImportsIn(file.text),
+        `${file.name} imports fleet/ or panels/ machinery`,
+      ).toEqual([])
     }
   })
 
   it('scene/palette.js is the only scene/ import anywhere in lab/, named and positive', () => {
     const sceneImports = sourceFiles().flatMap((file) =>
-      [...file.text.matchAll(SCENE_IMPORT_RE)].map((match) => ({ file: file.name, importPath: match[1] })),
+      sceneImportsIn(file.text).map((importPath) => ({ file: file.name, importPath })),
     )
     expect(sceneImports).toEqual([ALLOWED_SCENE_IMPORT])
   })
 
-  it('the detector bites — a fleet/panel import added tomorrow, at any depth, would be caught by the path alone, not just a named identifier', () => {
+  it('the detector bites — a fleet/panel import added tomorrow, at any depth and in any form, would be caught by the path alone, not just a named identifier', () => {
     // No `useFleet`/`FleetProvider`/`buildFleet`/`reduceAll(` anywhere in
-    // these probes — if they pass, it is the depth-independent path pattern
-    // catching them, not a forbidden identifier riding along for free.
-    expect(
-      FORBIDDEN_PATTERNS.some((pattern) => pattern.test("import type { FetchLike } from '../fleet/manifest.js'")),
-    ).toBe(true)
-    expect(
-      FORBIDDEN_PATTERNS.some((pattern) => pattern.test("import type { FetchLike } from '../../fleet/manifest.js'")),
-    ).toBe(true)
-    expect(
-      FORBIDDEN_PATTERNS.some((pattern) =>
-        pattern.test("import { costCellText } from '../../panels/fleet/format.js'"),
-      ),
-    ).toBe(true)
+    // these probes — if they pass, it is the depth-independent specifier
+    // check catching them, not a forbidden identifier riding along for
+    // free. The last three carry no `from` clause at all: bare, dynamic and
+    // template-literal forms, the ones a from-only pattern could not see
+    // (PR #301 review).
+    const probes = [
+      "import type { FetchLike } from '../fleet/manifest.js'",
+      "import type { FetchLike } from '../../fleet/manifest.js'",
+      "import { costCellText } from '../../panels/fleet/format.js'",
+      "import '../../fleet/manifest.js'",
+      "const manifest = await import('../../fleet/manifest.js')",
+      'const manifest = await import(`../../panels/fleet/format.js`)',
+    ]
+    for (const probe of probes) {
+      expect(forbiddenImportsIn(probe), probe).not.toEqual([])
+    }
   })
 
   it('the scene detector bites — a second scene/ import, anywhere, would be caught', () => {
-    const text = "import { cssColour } from '../scene/paint.js'"
-    expect([...text.matchAll(SCENE_IMPORT_RE)].map((match) => match[1])).toEqual(['../scene/paint.js'])
+    expect(sceneImportsIn("import { cssColour } from '../scene/paint.js'")).toEqual(['../scene/paint.js'])
   })
 
-  it('the scene detector bites on a bare side-effect import and a dynamic one too, not just `… from …`', () => {
-    const bare = "import '../../scene/reset.css.js'"
-    const dynamic = "const mod = await import('../../scene/lazy.js')"
-    expect([...bare.matchAll(SCENE_IMPORT_RE)].map((match) => match[1])).toEqual(['../../scene/reset.css.js'])
-    expect([...dynamic.matchAll(SCENE_IMPORT_RE)].map((match) => match[1])).toEqual(['../../scene/lazy.js'])
+  it('the scene detector bites on the forms that carry no `from` — bare, dynamic, and template-literal specifiers', () => {
+    expect(sceneImportsIn("import '../../scene/reset.css.js'")).toEqual(['../../scene/reset.css.js'])
+    expect(sceneImportsIn("const mod = await import('../../scene/lazy.js')")).toEqual(['../../scene/lazy.js'])
+    expect(sceneImportsIn('const mod = await import(`../../scene/paint.js`)')).toEqual(['../../scene/paint.js'])
+  })
+
+  it('the scene detector does not read prose as code — a backticked path after `from` in a doc comment is not an import', () => {
+    // `from `…`` is a syntax error in JS, so a backtick there can only be
+    // markdown — and LabPage.tsx:125's own doc comment is exactly this
+    // sentence. Template literals are specifiers only inside `import(…)`.
+    expect(sceneImportsIn('rather than importing `cssColour` from `../scene/`, which this tab may never do')).toEqual(
+      [],
+    )
   })
 })

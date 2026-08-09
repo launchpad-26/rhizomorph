@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { extractImportSpecifiers } from '../test/import-specifiers.js'
 
 /**
  * THE READ-ONLY CONSTITUTION, ASSERTED AT THE LEVEL OF THE SOURCE TEXT.
@@ -134,6 +135,21 @@ function governs(importPath: string): boolean {
   return inSurface || CONSUMED.includes(resolved)
 }
 
+/**
+ * Every relative import in `text` that leaves drawer/ — i.e. starts with
+ * `../` — in ANY syntactic form, not only `… from '…'` (PR #301 review): a
+ * side-effect `import '../launch/launch.js'` and a dynamic
+ * `import('../launch/launch.js')` (quoted or template-literal) reach the
+ * module just the same, and were exactly the forms a from-only sweep let
+ * escape while `governs()` would have rejected them. A bare `./…` import
+ * stays inside drawer/ and is already covered by the walk above; a computed
+ * template specifier that still starts with `../` is swept raw, `${…}` and
+ * all, and fails `governs()` loudly rather than passing unseen.
+ */
+function leavingImportsIn(text: string): string[] {
+  return extractImportSpecifiers(text).filter((specifier) => specifier.startsWith('../'))
+}
+
 describe('the drawer sends only GETs', () => {
   it('has source files to check at all, drawer/ AND every declared surface — an empty grep proves nothing', () => {
     // 13 real files as of the 2026-08-08 audit (10 in drawer/, 3 in why/) —
@@ -204,9 +220,7 @@ describe('the drawer sends only GETs', () => {
 
   it('every relative import leaving drawer/ in index.tsx resolves into DRAWER_SURFACES or the declared CONSUMED allowlist', () => {
     const indexText = readFileSync(path.join(DRAWER_DIR, 'index.tsx'), 'utf8')
-    // Only imports that leave drawer/ at all — a bare `./…` import stays
-    // inside drawer/ and is already covered by the walk above.
-    const leavingImports = [...indexText.matchAll(/from\s+['"](\.\.\/[^'"]+)['"]/g)].map((match) => match[1]!)
+    const leavingImports = leavingImportsIn(indexText)
     expect(leavingImports.length).toBeGreaterThan(0) // the check below would pass vacuously on an empty sweep
 
     for (const importPath of leavingImports) {
@@ -224,6 +238,25 @@ describe('the drawer sends only GETs', () => {
     // Exercises the real `governs()` — not a hand-built resolved string —
     // so weakening the resolver itself would show up here too.
     expect(governs('../launch/launch.js')).toBe(false)
+  })
+
+  it('the sweep bites — a leaving import with no `from` clause at all is still swept, in every form', () => {
+    // Exercises the real sweep (`leavingImportsIn`, extraction included) —
+    // these are exactly the forms the from-only regex missed (PR #301
+    // review), each reaching the module `governs()` above proves ungoverned.
+    const forms = [
+      "import '../launch/launch.js'",
+      "await import('../launch/launch.js')",
+      'await import(`../launch/launch.js`)',
+    ]
+    for (const form of forms) {
+      expect(leavingImportsIn(form), form).toEqual(['../launch/launch.js'])
+    }
+  })
+
+  it('the sweep does not over-reach — an inside-drawer/ import is not treated as leaving', () => {
+    expect(leavingImportsIn("import './Activity.js'")).toEqual([])
+    expect(leavingImportsIn("import { foldActivity } from './foldActivity.js'")).toEqual([])
   })
 
   it("the resolver does not accept a similarly-prefixed sibling as the WHY surface", () => {
