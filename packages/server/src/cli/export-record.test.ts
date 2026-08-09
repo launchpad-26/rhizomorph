@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir, userInfo } from 'node:os'
 import path from 'node:path'
 import { createEventFactory, eventsToJsonl, type RhizomorphEvent } from '@rhizomorph/core'
-import { verifyRecord } from '@rhizomorph/core/src/record/index.js'
+import { verifyRecord, type SessionRecord } from '@rhizomorph/core/src/record/index.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { repoSlug, sessionDirFor, sessionFileName } from '../log/paths.js'
 import { exportRecordHelpText, parseExportRecordArgs, runExportRecord } from './export-record.js'
@@ -12,10 +12,14 @@ async function writeSessionFile(sessionDir: string, ts: number, events: readonly
   await writeFile(path.join(sessionDir, sessionFileName(ts)), eventsToJsonl(events), 'utf8')
 }
 
-function sessionEvents(ts: number, sessionId: string): RhizomorphEvent[] {
+function sessionEvents(
+  ts: number,
+  sessionId: string,
+  statuses: readonly ('working' | 'waiting')[] = ['working'],
+): RhizomorphEvent[] {
   const f = createEventFactory({ startTs: ts, stepMs: 1000 })
   f.sessionStarted({ sessionId, repoPath: '/repo', repoName: 'repo' })
-  f.agentStatus({ handle: 'worker-1', status: 'working' })
+  for (const status of statuses) f.agentStatus({ handle: 'worker-1', status })
   return f.all()
 }
 
@@ -50,10 +54,17 @@ describe('runExportRecord', () => {
     await writeSessionFile(sessionDir, 1000, sessionEvents(1000, '1000'))
 
     const first = await runExportRecord({ repoPath, dataRoot })
+    expect(first.record.manifest.eventCount).toBe(2)
+
+    // The session grows between the two exports, so a refresh is observable:
+    // only a re-read and re-write of the artifact can surface the third event.
+    await writeSessionFile(sessionDir, 1000, sessionEvents(1000, '1000', ['working', 'waiting']))
     const second = await runExportRecord({ repoPath, dataRoot })
 
     expect(second.outPath).toBe(first.outPath)
-    expect(verifyRecord(second.record)).toEqual({ ok: true })
+    const onDisk = JSON.parse(await readFile(second.outPath, 'utf8')) as SessionRecord
+    expect(onDisk.manifest.eventCount).toBe(3)
+    expect(verifyRecord(onDisk)).toEqual({ ok: true })
   })
 
   it('honors --session to pick a specific recorded session', async () => {
