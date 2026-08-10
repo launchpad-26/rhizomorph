@@ -135,6 +135,14 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **A hung collector subprocess no longer freezes all polling or shutdown
+  (#236).** Every collector exec now carries a default timeout, and a
+  per-collector watchdog abandons a poll that exceeds its budget — surfacing
+  a `collector.error` — so one wedged `git`/`tmux`/`workmux` child can no
+  longer stall the other collectors or hang graceful shutdown. Decision and
+  budget rationale in
+  [ADR-0013](docs/adr/0013-collector-ticks-are-bounded.md) and
+  [`docs/design-notes/collector-tick-budget.md`](docs/design-notes/collector-tick-budget.md).
 - **Rename-in-place actually works (#249).** `POST /api/label` required a
   per-process capability token nothing ever delivered to the browser, so
   every rename in `/recordings` 401ed, on every boot. The server now
