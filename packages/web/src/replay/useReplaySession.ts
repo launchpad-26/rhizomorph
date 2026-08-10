@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   initialSessionState,
   voiceUnknownEvents,
@@ -68,14 +68,57 @@ export interface ReplaySession {
   scrubEvents: readonly RhizomorphEvent[]
   /** Count of `scrubEvents` at or before the scrub time. */
   scrubEventCount: number
+  /**
+   * The scrub position everything *derived* is standing at — the same instant
+   * {@link state} was folded to, which is `playback.currentTs` coalesced to at
+   * most one move per animation frame (#269).
+   *
+   * Two clocks, on purpose, and the split is the whole fix: `currentTs` is the
+   * finger (the scrubber thumb is a controlled input reading it, so it can
+   * never wait for anything), while this one is the derive. A pointer drag
+   * emits ~120 seeks a second and the screen can show 60, so what pays for a
+   * rebuild reads THIS — `FleetContext`'s `buildFleet`, through `ModeContext`'s
+   * `useModeClock`, and the scene's `asOf`, which is read as a distance from
+   * `fleet.now` and so has to agree with it rather than be fresher than it.
+   * What merely paints the position it was handed reads `currentTs` and stays
+   * exact to the pointer: the thumb, the elapsed labels beside it, the TIDE
+   * playhead.
+   *
+   * Never more than one frame behind `currentTs`, and equal to it whenever the
+   * scrub is at rest — a paused scrub, a lone click on the track or an arrow
+   * key folds immediately, so nothing an operator does one action at a time
+   * ever observes the two apart.
+   */
+  derivedTs: number
   /** State at the scrub time, folded through the core reducer — the replay controls' own summary. */
   state: SessionState
   isReplaying: boolean
 }
 
+/**
+ * Schedules `callback` for the next animation frame and hands back its own
+ * canceller. The seam exists because jsdom has a `requestAnimationFrame` but
+ * no frame cadence — it fires on a ~16 ms timer that no `await act()` drives —
+ * so a coalescer asserted against "whenever jsdom's timer happened to land"
+ * would be asserting the box, not the code (`CONTRIBUTING.md`'s note on
+ * quiet-machine greens). Tests inject a scheduler they flush by hand.
+ */
+export type FrameScheduler = (callback: () => void) => () => void
+
+const defaultScheduleFrame: FrameScheduler = (callback) => {
+  const handle = requestAnimationFrame(callback)
+  return () => cancelAnimationFrame(handle)
+}
+
 export interface UseReplaySessionOptions {
   /** Test-only escape hatch for injecting a mock fetch implementation. */
   fetchImpl?: FetchLike
+  /**
+   * Injectable frame scheduler for {@link useFrameCoalescedTs}. Defaults to
+   * `requestAnimationFrame`; a test passes a hand-driven one so "one derive
+   * per frame" is a counted fact rather than a timing hope.
+   */
+  scheduleFrame?: FrameScheduler
 }
 
 /**
@@ -84,7 +127,10 @@ export interface UseReplaySessionOptions {
  * controls and `StreamContext`, so panels and the transport never disagree
  * about "now" (architecture.md, "live and replay are the same reducer").
  */
-export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): ReplaySession {
+export function useReplaySession({
+  fetchImpl,
+  scheduleFrame = defaultScheduleFrame,
+}: UseReplaySessionOptions = {}): ReplaySession {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [events, setEvents] = useState<RhizomorphEvent[]>([])
@@ -175,16 +221,24 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
   // cache is keyed on `sessionIndex`'s own identity.
   const cursorCacheRef = useRef<{ index: SessionIndex; cursor: FoldCursor } | null>(null)
 
+  // #269: the clock and the derive are decoupled here. `playback.currentTs`
+  // moves on every scrubber `onChange` — up to ~120/s from a pointer drag, and
+  // the thumb reads it directly, so it must never wait for anything. The fold
+  // below (and every identity downstream of it: `state`, `StreamContext`'s
+  // `replayState`, `FleetContext`'s `buildFleet`) moves at most once per
+  // animation frame instead.
+  const foldTs = useFrameCoalescedTs(playback.currentTs, sessionIndex, scheduleFrame)
+
   const { scrubEventCount, state } = useMemo(() => {
     const cached = cursorCacheRef.current
     const from = cached !== null && cached.index === sessionIndex ? cached.cursor : initialFoldCursor()
-    const cursor = foldFrom(sessionIndex, playback.currentTs, from)
+    const cursor = foldFrom(sessionIndex, foldTs, from)
     cursorCacheRef.current = { index: sessionIndex, cursor }
     return {
       scrubEventCount: cursor.index,
       state: cursor.state,
     }
-  }, [sessionIndex, playback.currentTs])
+  }, [sessionIndex, foldTs])
   const isReplaying = selectedId !== null && events.length > 0
   const unknownVoice = useMemo(() => voiceUnknownEvents(unknown), [unknown])
 
@@ -202,9 +256,147 @@ export function useReplaySession({ fetchImpl }: UseReplaySessionOptions = {}): R
     range,
     scrubEvents: sessionIndex.sortedEvents,
     scrubEventCount,
+    derivedTs: foldTs,
     state,
     isReplaying,
   }
+}
+
+/**
+ * A scrub position that lands on the derive at most once per animation frame,
+ * while the caller's own `currentTs` keeps moving synchronously (#269).
+ *
+ * The live path solved the same problem for arriving events in #183: fold the
+ * lone one eagerly, coalesce anything that lands before that fold has drained.
+ * This is that shape with a frame, not a microtask, as the window — a drag
+ * emits a seek per pointer event (~120/s) and the screen can only show 60:
+ *
+ * - **A seek with the gate open folds immediately.** A click on the track, an
+ *   arrow key, a jump from a chapter marker — one seek in isolation is visible
+ *   the instant its handler returns, exactly as it always was. Nothing about
+ *   an isolated interaction pays for the coalescer.
+ * - **That fold consumes the frame.** Every further seek before the next frame
+ *   only updates the pending position; no fold, no new `state` identity, no
+ *   rebuild downstream. The eager fold *is* the frame's fold rather than an
+ *   extra one on top of a trailing flush, which is what makes the ceiling
+ *   exactly one derive per frame rather than two.
+ * - **The frame flushes the last pending position and re-arms**, so a
+ *   sustained drag settles into precisely one derive per frame, and the frame
+ *   after a drag ends finds nothing pending, updates no state at all, and
+ *   stops scheduling.
+ *
+ * `resetKey` (the session index) is not a seek: a newly loaded recording
+ * reopens the gate AND makes its first fold free of the frame budget, so both
+ * that fold and the operator's first seek into the recording land on the frame
+ * they happen. A session load is a one-off — nothing follows it 119 more times
+ * in the same second — and spending the budget on it would leave the first
+ * seek after every load waiting a frame for no reason. A drag's seeks never
+ * carry that exemption, so the one-derive-per-frame ceiling is untouched.
+ *
+ * The reset also *adopts* the current position rather than only dropping the
+ * pending one, and that is load-bearing rather than tidy: switching recordings
+ * mid-drag leaves a seek coalesced with a frame armed to fold it, and the reset
+ * cancels that frame. Usually the transport's own reset-on-new-range effect
+ * re-bases `currentTs` a commit later and the free fold lands on the new
+ * recording's position — but that effect is keyed on `[start, end]`, so two
+ * recordings spanning the identical range never re-base at all, and the seek
+ * the operator's finger last asked for would stay unfolded until they touched
+ * the scrubber again: a thumb sitting at one instant while the fleet reads
+ * another. Adopting `currentTs` here costs a derive only when a switch really
+ * did interrupt a drag (otherwise the two are already equal and React bails on
+ * the update), and it spends no exemption, so the first seek into the new
+ * recording is still instant.
+ *
+ * It runs as a layout effect for the ordering, not for the paint: a real
+ * animation frame can fire between a commit and React's passive-effect flush,
+ * and this must have re-based the gate before any flush belonging to the
+ * previous recording gets to run against the new one's index.
+ */
+function useFrameCoalescedTs(
+  currentTs: number,
+  resetKey: unknown,
+  scheduleFrame: FrameScheduler,
+): number {
+  const [foldTs, setFoldTs] = useState(currentTs)
+  /** False once this frame's one derive has been spent. */
+  const gateOpenRef = useRef(true)
+  /** The latest seek that has not been folded yet, or null when there is none. */
+  const pendingTsRef = useRef<number | null>(null)
+  const cancelFrameRef = useRef<(() => void) | null>(null)
+  /** True while the first fold of a freshly loaded recording is still owed. */
+  const freeFoldRef = useRef(true)
+  const scheduleFrameRef = useRef(scheduleFrame)
+  scheduleFrameRef.current = scheduleFrame
+
+  const armFrame = useCallback(() => {
+    cancelFrameRef.current?.()
+    cancelFrameRef.current = scheduleFrameRef.current(() => {
+      cancelFrameRef.current = null
+      gateOpenRef.current = true
+      const pending = pendingTsRef.current
+      // Nothing coalesced: the burst is over. Deliberately no state update —
+      // an idle frame must be silent, or every render of a replay surface
+      // would be woken once more for nothing.
+      if (pending === null) return
+      pendingTsRef.current = null
+      gateOpenRef.current = false
+      setFoldTs(pending)
+      armFrame()
+    })
+  }, [])
+
+  useLayoutEffect(() => {
+    cancelFrameRef.current?.()
+    cancelFrameRef.current = null
+    gateOpenRef.current = true
+    pendingTsRef.current = null
+    freeFoldRef.current = true
+    // Adopt, don't just drop: whatever the finger last asked for is where this
+    // recording starts being read from. A no-op (and no re-render) unless a
+    // switch interrupted a drag.
+    setFoldTs(currentTs)
+    // `currentTs` is deliberately absent from the deps below: this fires when
+    // the recording changes and reads the position as of that moment.
+  }, [resetKey])
+
+  useEffect(() => {
+    if (currentTs === foldTs) {
+      pendingTsRef.current = null
+      return
+    }
+    if (!gateOpenRef.current) {
+      pendingTsRef.current = currentTs
+      // Insurance, not a fix for anything observed: the gate is shut and no
+      // frame is coming to open it, which can only mean an armed one was
+      // cancelled by a remount (a keyed parent, a Fast Refresh — StrictMode's
+      // own double-mount arrives before anything is ever armed). Arming again
+      // costs nothing — `armFrame` cancels whatever it replaces — and the
+      // failure it rules out is a scrub position stranded until the next seek.
+      if (cancelFrameRef.current === null) armFrame()
+      return
+    }
+    pendingTsRef.current = null
+    if (freeFoldRef.current) {
+      // The first derive of a freshly loaded recording, budget-free: the gate
+      // stays open, so the operator's first seek into it is still instant.
+      freeFoldRef.current = false
+      setFoldTs(currentTs)
+      return
+    }
+    gateOpenRef.current = false
+    setFoldTs(currentTs)
+    armFrame()
+  }, [currentTs, foldTs, armFrame])
+
+  useEffect(
+    () => () => {
+      cancelFrameRef.current?.()
+      cancelFrameRef.current = null
+    },
+    [],
+  )
+
+  return foldTs
 }
 
 /** A replay slot with nothing selected — what `ModeContext` serves outside a `ModeProvider`. */
@@ -233,6 +425,7 @@ export function emptyReplaySession(): ReplaySession {
     range: { start: 0, end: 0 },
     scrubEvents: [],
     scrubEventCount: 0,
+    derivedTs: 0,
     state: initialSessionState(),
     isReplaying: false,
   }
