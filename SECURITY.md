@@ -13,16 +13,24 @@ Code session logs (`~/.claude/projects`) to show what your agents are
 doing. It serves that over HTTP on `127.0.0.1` only — nothing binds to a
 public interface, and nothing it reads is ever sent anywhere else.
 
-A second, separate hand exists on top of that: the laboratory, reachable
-only from your own command line (`rhizomorph lab checkpoint`/`fork`/
-`compare`), never from the server or the UI. It creates git objects and
-refs confined to `refs/rhizomorph/`, worktrees under its own data
-directory, and — only when you pass `--launch` — hands a dispatch off to
+A second, separate hand exists on top of that: the laboratory. It creates
+git objects and refs confined to `refs/rhizomorph/`, worktrees under its
+own data directory, and — when launched — hands a dispatch off to
 `workmux add`, which is what creates an actual branch and tmux pane. It
-never pushes, never merges, and never runs without you typing the command.
-See the [Trust section](README.md#trust) for the full account, and
-`packages/server/src/lab/namespace-law.test.ts` for the test that enforces
-it.
+never pushes and never merges. Two things trigger it, both an explicit
+human action rather than anything a collector, background poll, or timer
+could reach: typing `rhizomorph lab checkpoint`/`fork`/`compare` at your
+own command line, or clicking the dashboard's launch button, which sends
+`POST /api/lab/launch` to a server route that runs the exact same
+`rhizomorph lab fork --launch` in-process. The laboratory module itself
+(`packages/server/src/lab/`) is still only ever imported from the one CLI
+wiring point that route also goes through — enforced by
+`packages/server/src/lab/namespace-law.test.ts` — so the dashboard button
+is a second hand on the same lever, not a new path into the module. Unlike
+`POST /api/label`, the launch route does not yet require the
+`x-rhizomorph-capability` token (only the Origin/Host/Content-Type guard
+below); tracked under #234. See the [Trust section](README.md#trust) for
+the full account.
 
 If you find a code path that breaks either of those hands' fences — the
 observer writing to the watched repo, the laboratory writing outside its

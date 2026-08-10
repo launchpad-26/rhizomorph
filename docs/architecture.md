@@ -141,7 +141,16 @@ CLI entry `rhizomorph [path]` boots collectors + server, prints the URL.
 One SSE hook feeds one reducer (imported from `core`) into React context —
 no state library (one tree, one store). **Live and replay are the same
 reducer**: live folds the stream as it arrives; replay folds a history slice
-under a scrubber clock. That one property is why replay is free.
+under a scrubber clock. That one property is why replay is free — for
+whatever the fold itself computes. Three read paths sit outside it and read
+live state fresh per request rather than the event log: `GET /api/lanes`
+(`.swarm/lanes.json` off the watched repo's disk), `GET /api/transcript/:lane`
+(the agent's own session JSONL, resolved through the OTel collector's
+lane/worktree attribution), and that attribution's own live half. A replayed
+record has no watched repo and no live worktree to read either from, so all
+three report their own honest `{ available: false, reason: "..." }` rather
+than a stale or fabricated answer — replay doesn't reconstruct them, and the
+dashboard doesn't claim it does.
 
 Panels are sibling directories (`panels/attention`, `panels/burn`,
 `panels/fleet`, `panels/ledger`, `panels/collisions`, `panels/feed`, plus
@@ -1930,8 +1939,8 @@ verified by eyes, not units — said honestly. Merge gate: `npm test` +
 `pre_merge` hook and by `scripts/gate.sh` (fence compliance, a clean rebase,
 no NUL bytes, the test/typecheck gate itself, and the actual merge to
 `main`) — `scripts/fence-lint.sh` checks a wave's declared fences before any
-lane is dispatched against them. 3,158 tests across 202 files pass at commit
-`24dcaa5` (`npm test`), alongside a green `npm run typecheck`.
+lane is dispatched against them. 3,652 tests across 233 files pass at commit
+`69d10a0` (`npm test`), alongside a green `npm run typecheck`.
 
 ## Decisions log
 
