@@ -449,7 +449,17 @@ function transcriptSlug(input: ConnectInputs): ChainLink {
   }
   const check = doctorCheck(input.doctor, 'session-logs')
   if (check === null) {
-    return unproven(base, ['`GET /api/doctor` has not answered — the slug directory is unavailable from here'])
+    // TWO DIFFERENT NULLS, AND ONLY ONE OF THEM IS THE ROUTE'S FAULT (#346).
+    // `doctorCheck` answers `null` both when nothing answered and when the
+    // answer simply had no `session-logs` in it, and the second used to be
+    // reported as the first — sending a reader off to debug a route that is
+    // working perfectly well. What is unavailable is the same either way; WHY
+    // it is unavailable, and therefore where to look, is not.
+    return unproven(base, [
+      input.doctor === null
+        ? '`GET /api/doctor` has not answered — the slug directory is unavailable from here'
+        : '`GET /api/doctor` answered, but carried no `session-logs` check — the route is fine; this server is older than the check, or the check did not run',
+    ])
   }
   // A probe, not a stored fact: doctor answered about the filesystem as it is
   // now (the route re-probes every `PROBE_CACHE_TTL_MS`), so "as of this

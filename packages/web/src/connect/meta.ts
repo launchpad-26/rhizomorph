@@ -296,6 +296,20 @@ export function parseMeta(body: unknown): MetaFacts | null {
  * `GET /api/doctor` answers with the bare `DoctorCheck[]` array. A check
  * missing an id, a status this page doesn't know, or a message is dropped —
  * a half-read check would render as a fact with no finding in it.
+ *
+ * **AN ARRAY NOTHING SURVIVED IS `null`, NOT `[]` (#346).** The two are
+ * different facts and used to render as the same nothing: `[]` reached the
+ * panel as a heading with no rows and no "unavailable" note, indistinguishable
+ * from a doctor that genuinely had no checks to report. Dropping every entry
+ * of a non-empty body is not "doctor answered with no checks" — it is a body
+ * this page could not read, which is exactly the fact {@link readJson} already
+ * folds every other unreadable answer onto. `[]` in means `[]` out, and stays
+ * the honest answer for a route that ran and found nothing to say.
+ *
+ * A body only PARTLY unreadable still answers with its survivors, following
+ * {@link parseCollectors}: the checks that parsed are real findings, and
+ * withholding them because a sibling entry was malformed would lose more truth
+ * than it protects.
  */
 export function parseDoctor(body: unknown): DoctorFact[] | null {
   if (!Array.isArray(body)) return null
@@ -309,6 +323,7 @@ export function parseDoctor(body: unknown): DoctorFact[] | null {
     if (!DOCTOR_STATUSES.includes(status as DoctorStatus)) continue
     checks.push({ id, status: status as DoctorStatus, message, assumed: entry.assumed === true })
   }
+  if (checks.length === 0 && body.length > 0) return null
   return checks
 }
 

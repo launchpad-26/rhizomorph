@@ -489,6 +489,29 @@ describe('the two GETs the fold cannot replace', () => {
   })
 
   /**
+   * **"DID NOT ANSWER" AND "ANSWERED WITHOUT THE CHECK I WANTED" ARE NOT THE
+   * SAME NOTE (#346).** `doctorCheck` returns `null` for both, and this row
+   * used to report both as the first — sending a reader off to debug a route
+   * that was working perfectly well, which is the one failure mode worse than
+   * an unhelpful note. The row is UNPROVEN either way; where to look is not
+   * the same either way.
+   */
+  it('distinguishes a doctor route that never answered from one that answered without the session-logs check', () => {
+    const silent = row(build(reduceAll([])), 'transcripts-slug')
+    const answered = row(build(reduceAll([]), { doctor: [{ id: 'node', status: 'ok', message: 'Node v22.22.2', assumed: false }] }), 'transcripts-slug')
+
+    expect(silent.state).toBe('unproven')
+    expect(answered.state).toBe('unproven')
+    expect(silent.notes).not.toEqual(answered.notes)
+
+    expect(silent.notes.join(' ')).toContain('has not answered')
+    expect(answered.notes.join(' ')).toContain('answered, but carried no `session-logs` check')
+    // The route is not the thing to go and fix.
+    expect(answered.notes.join(' ')).not.toContain('has not answered')
+    expect(answered.notes.join(' ')).toContain('the route is fine')
+  })
+
+  /**
    * The plumbing and the flow are separate rows on purpose (this issue's own
    * direction): a directory that resolves proves nothing about a transcript
    * arriving from it, and one standing in for the other is exactly how
