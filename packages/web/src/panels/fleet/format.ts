@@ -1,5 +1,6 @@
 import {
   evidenceLine,
+  isTerminalDone,
   rankIndex,
   type Fleet,
   type Filament,
@@ -53,14 +54,46 @@ export function parkedTitle(): string {
   return 'parked — declared in .swarm/lanes.json; alarm inferences suppressed, other evidence unaffected'
 }
 
+/**
+ * TERMINAL-DONE's own title (issue #226) — distinct from a lane that declared
+ * `done` or whose worktree was removed: this one is inferred from git
+ * geography (clean, ahead of main, silent past FROZEN's own threshold) after
+ * a pane died mid-run. Read where DONE would otherwise be a bare, unexplained
+ * word — the whole point is telling the operator *which* kind of finish this
+ * was.
+ */
+export function terminalDoneTitle(): string {
+  return 'finished — worktree is clean and ahead of main, but nothing ever declared done: the pane likely died right after its last commit landed'
+}
+
 /** The STATE cell's title: the detector's own evidence, never a bare label (graft g4). */
 export function stateTitle(lane: Lane): string {
   if (lane.parked) return parkedTitle()
   const worst = worstPathology(lane)
-  if (worst === null) return ACTIVITY_TITLE[lane.activity]
+  if (worst === null) return isTerminalDone(lane) ? terminalDoneTitle() : ACTIVITY_TITLE[lane.activity]
   const extra = lane.pathologies.length - 1
   const line = evidenceLine(worst)
-  return extra === 0 ? line : `${line} · +${extra} more: ${lane.pathologies.map(evidenceLine).join(' · ')}`
+  const body = extra === 0 ? line : `${line} · +${extra} more: ${lane.pathologies.map(evidenceLine).join(' · ')}`
+  // A lane can carry a live pathology AND be terminal-done at once (issue
+  // #226): a pane can die clean-and-ahead right after landing the very commit
+  // that trespassed a fence. The alarm stays the loudest word (`stateSigilKind`
+  // never yields to DONE while a pathology stands — law 9b), but the title
+  // must still say the pane is gone, or the operator reads a live OFF-FENCE
+  // lane as one still being worked when nothing is behind the wheel any more.
+  return isTerminalDone(lane) ? `${body} · ${terminalDoneTitle()}` : body
+}
+
+/**
+ * The STATE cell's DONE suffix mark (issue #226) — sits beside the existing
+ * `~` (inferred) and `+N` (more faults) marks for the same reason `stateTitle`
+ * above appends its clause: a lane can be mid-alarm (OFF-FENCE, say) and
+ * terminal-done at the same time, and the sigil must keep showing the alarm
+ * (`stateSigilKind` is untouched by this — the pathology always wins). This
+ * mark is how the finish still gets said instead of silently vanishing behind
+ * the louder word.
+ */
+export function showsTerminalDoneMark(lane: Lane): boolean {
+  return !lane.parked && worstPathology(lane) !== null && isTerminalDone(lane)
 }
 
 export function outputCellTitle(lane: Lane): string {

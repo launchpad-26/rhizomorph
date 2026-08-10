@@ -65,7 +65,19 @@ export const FIXTURE_TICK_MS = 1_000
 
 export type FixtureId = 'live' | 'fleet20' | 'pathology'
 
-export type Behaviour = 'steady' | 'looping' | 'frozen' | 'waiting' | 'expensive' | 'off-fence' | 'done'
+export type Behaviour =
+  | 'steady'
+  | 'looping'
+  | 'frozen'
+  | 'waiting'
+  | 'expensive'
+  | 'off-fence'
+  | 'done'
+  // Issue #226 — the known workmux worker-death shape: committed everything,
+  // then the pane died. Ends in silence past FROZEN's own threshold, same as
+  // 'frozen', but leaves a CLEAN worktree behind rather than one still dirty
+  // with unresolved work — the fact that tells the two apart.
+  | 'terminal-done'
 
 export interface LaneSpec {
   name: string
@@ -78,6 +90,15 @@ export interface LaneSpec {
   fence: string[]
   /** Files it commits and dirties. An off-fence lane lists a neighbour's. */
   touches: string[]
+  /**
+   * Issue #226 — files the lane's worktree dirties but never commits: the
+   * `package-lock.json` shape, churned by every `npm install` in every
+   * worktree, never staged, always outside whatever fence it sits in. Never
+   * fed to `commit.landed`, so `BranchTouch.committed` stays false for these —
+   * off-fence detection (which reads the committed diff only) must stay quiet
+   * about them regardless of what fence they fall outside of.
+   */
+  dirtyOnly?: string[]
 }
 
 export interface FixtureSpec {
@@ -138,6 +159,7 @@ function freezeSpec(spec: FixtureSpec): FixtureSpec {
   for (const lane of spec.lanes) {
     Object.freeze(lane.fence)
     Object.freeze(lane.touches)
+    if (lane.dirtyOnly !== undefined) Object.freeze(lane.dirtyOnly)
     Object.freeze(lane)
   }
   Object.freeze(spec.lanes)
@@ -185,17 +207,14 @@ export function fleet20Spec(): FixtureSpec {
  * being asked to explain a contended file. The ladder floor gets its own,
  * sharper test instead.
  */
-let pathologySingleton: FixtureSpec | null = null
-
-export function pathologySpec(): FixtureSpec {
-  if (pathologySingleton !== null) return pathologySingleton
-
-  const lane = (
-    name: string,
-    behaviour: Behaviour,
-    area: string,
-    overrides: Partial<LaneSpec> = {},
-  ): LaneSpec => ({
+/** Shared by {@link pathologySpec} and {@link offFenceHonestySpec} — both are one-lane-per-fact fixtures. */
+function pathologyLane(
+  name: string,
+  behaviour: Behaviour,
+  area: string,
+  overrides: Partial<LaneSpec> = {},
+): LaneSpec {
+  return {
     name,
     behaviour,
     weight: 1,
@@ -203,7 +222,15 @@ export function pathologySpec(): FixtureSpec {
     fence: [`${area}/**`],
     touches: [`${area}/${slugOf(name)}.ts`],
     ...overrides,
-  })
+  }
+}
+
+let pathologySingleton: FixtureSpec | null = null
+
+export function pathologySpec(): FixtureSpec {
+  if (pathologySingleton !== null) return pathologySingleton
+
+  const lane = pathologyLane
 
   pathologySingleton = freezeSpec({
     id: 'pathology',
@@ -245,6 +272,65 @@ export function pathologySpec(): FixtureSpec {
     ],
   })
   return pathologySingleton
+}
+
+// ── fixture 4: off-fence honesty regressions (issue #226) ──────────────────
+
+/**
+ * Three lanes, kept out of {@link pathologySpec} on purpose: that fixture's
+ * lane count is pinned by tests all over this package (`StreamContext`,
+ * `FleetContext`, the scene, its geometry, its marks), so growing it here
+ * would make every one of those a casualty of a change that has nothing to do
+ * with them. This fixture is `pathologySpec`'s own shape — one lane per fact
+ * being pinned, healthy neighbours are unnecessary because none of these
+ * facts is EXPENSIVE's relative kind — reserved for the false readings issue
+ * #226 reported.
+ */
+let offFenceHonestySingleton: FixtureSpec | null = null
+
+export function offFenceHonestySpec(): FixtureSpec {
+  offFenceHonestySingleton ??= freezeSpec({
+    id: 'pathology',
+    label: 'OFF-FENCE HONESTY',
+    provenance: 'synthetic · off-fence honesty regressions (issue #226) · real schema events',
+    lanes: [
+      // Defect 1 (signal): this lane's worktree has npm-install churn sitting
+      // in package-lock.json — outside every lane's fence, never committed.
+      // It must read as calm; if it shows OFF-FENCE, the diagnosis is reading
+      // the dirty set instead of the committed diff `scripts/gate.sh` gates on.
+      pathologyLane('60-lockfile-churn', 'steady', 'packages/web/src/panels/attention', {
+        weight: 1,
+        dirtyOnly: ['package-lock.json'],
+      }),
+      // Defect 3: committed all its work, worktree left clean, then silence
+      // past FROZEN's own threshold — the workmux worker-death shape (a pane
+      // dying right after its last commit lands). Must read TERMINAL-DONE,
+      // never FROZEN: the git geography it left behind is a finish, not a
+      // flatline.
+      pathologyLane('61-pane-died-clean', 'terminal-done', 'packages/server/src/cli/lanes', {
+        weight: 1,
+      }),
+      // The combination the first pass missed: a lane can be BOTH mid-alarm
+      // and terminal-done at once — its pane died clean-and-ahead right after
+      // the very commit that trespassed 60's fence landed. The alarm sigil
+      // must not be swallowed by the finish (`stateSigilKind` stays on
+      // OFF-FENCE), and the finish must not be swallowed by the alarm (the
+      // STATE title and a small DONE mark must still say the pane is gone).
+      pathologyLane('62-pane-died-offence', 'terminal-done', 'packages/server/src/cli/offence', {
+        weight: 1,
+        touches: [
+          'packages/server/src/cli/offence/pane-died-offence.ts',
+          // 60's FENCE claims this path (it sits under its area), which is
+          // all a named victim needs — same pattern as 45 trespassing
+          // spend-subrows.ts while 46's own file is spend-selectors.ts. It
+          // must NOT be a file 60 itself touches, or the fixture stages a
+          // collision that has nothing to do with #226 (verify's finding).
+          'packages/web/src/panels/attention/churn-neighbour.ts',
+        ],
+      }),
+    ],
+  })
+  return offFenceHonestySingleton
 }
 
 /**
@@ -457,7 +543,11 @@ export class SyntheticFleet {
         this.laneCommit(lane, endAt - LAST_COMMIT_BEFORE_END_MS, events)
       }
 
-      events.push(this.laneDirty(lane, endAt - 10_000))
+      // terminal-done leaves nothing dirty behind — that clean tree, beside the
+      // commit just landed, is the whole of the fact the detector reads.
+      if (lane.spec.behaviour !== 'terminal-done') {
+        events.push(this.laneDirty(lane, endAt - 10_000))
+      }
       events.push(this.laneStatus(lane, endAt))
     }
 
@@ -493,7 +583,7 @@ export class SyntheticFleet {
 
     for (const lane of this.lanes) {
       const behaviour = lane.spec.behaviour
-      if (behaviour === 'frozen' || behaviour === 'done') continue
+      if (behaviour === 'frozen' || behaviour === 'done' || behaviour === 'terminal-done') continue
 
       if (behaviour === 'waiting') {
         events.push(
@@ -529,6 +619,7 @@ export class SyntheticFleet {
   private laneEndTs(lane: LaneRuntime, now: number): number {
     switch (lane.spec.behaviour) {
       case 'frozen':
+      case 'terminal-done':
         return now - FROZEN_SILENCE_MS
       case 'waiting':
         return now - WAITING_SILENCE_MS
@@ -650,10 +741,11 @@ export class SyntheticFleet {
 
   /** The uncommitted set — what makes "where is this agent" answerable early. */
   private laneDirty(lane: LaneRuntime, ts: number): RhizomorphEvent {
+    const files = [...lane.spec.touches, ...(lane.spec.dirtyOnly ?? [])]
     return this.event('worktree.dirty', {
       path: lane.worktreePath,
       branch: lane.spec.name,
-      files: lane.spec.touches.map((path) => ({ path, status: 'modified' as const })),
+      files: files.map((path) => ({ path, status: 'modified' as const })),
     }, ts)
   }
 

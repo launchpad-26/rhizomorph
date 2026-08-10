@@ -7,9 +7,8 @@ import {
   WAITING_PANE_FRESH_MS,
   WAITING_QUIET_MS,
 } from './constants.js'
-import type { Trespass } from './fences.js'
 import { PATHOLOGY_RANK, type Pathology } from './pathology.js'
-import { formatSpan, isString } from './plumbing.js'
+import { formatSpan } from './plumbing.js'
 import type { Lane } from './types.js'
 
 // ── the five detectors ──────────────────────────────────────────────────────
@@ -102,10 +101,16 @@ export function findCycle(
  *   off the log — it is the one exemption that comes from a fact *outside*
  *   the log: a declaration the operator made in `.swarm/lanes.json`, as real
  *   as `done` or a removed worktree, just written by a different hand.
+ *
+ * A fifth case is read off the git geography itself rather than declared:
+ * {@link isTerminalDone}, checked only once the silence has already crossed
+ * the threshold — a lane mid-work between two commits is not exempted just
+ * because its tree happens to be momentarily clean.
  */
 function detectFrozen(lane: Lane): Pathology | null {
   if (lane.agentStatus === 'done' || !lane.present || lane.telemetryOnly || lane.parked) return null
   if (lane.ageMs === null || lane.ageMs < FROZEN_AFTER_MS) return null
+  if (isTerminalDone(lane)) return null
   return {
     kind: 'frozen',
     rank: PATHOLOGY_RANK.frozen,
@@ -114,6 +119,31 @@ function detectFrozen(lane: Lane): Pathology | null {
     inferred: false,
   }
 }
+
+/**
+ * TERMINAL-DONE (issue #226) — the known workmux worker-death shape: a pane
+ * dies right after its lane commits everything, leaving a worktree that is
+ * clean and ahead of main but never got to say `done`. FROZEN would otherwise
+ * call this dead air; the git geography it left behind says it finished
+ * instead. Only ever checked once FROZEN's own age gate has already opened
+ * (see {@link detectFrozen}), so a lane that is merely between two commits —
+ * tree momentarily clean, work very much ongoing — is never mistaken for one
+ * whose pane went quiet for good.
+ */
+export function isTerminalDone(lane: Lane): boolean {
+  if (lane.agentStatus === 'done' || !lane.present || lane.telemetryOnly || lane.parked) return false
+  if (lane.ageMs === null || lane.ageMs < FROZEN_AFTER_MS) return false
+  return lane.dirtyCount === 0 && lane.aheadOfMain > 0
+}
+
+// A WAITING lane can also read terminal-done (a pane dying right at a
+// confirmation prompt, clean and ahead of main, is the same shape). The
+// voice in `panels/fleet` already composes it the same way it composes with
+// OFF-FENCE — `stateTitle` appends `terminalDoneTitle()` regardless of which
+// pathology is worst — so nothing here special-cases it; left unaddressed
+// only in the sense that no fixture yet exercises that specific pair, and no
+// ruling has said whether WAITING should behave any differently once a human
+// answer can no longer possibly land.
 
 /**
  * WAITING — stopped with its hand up. **Certain** when workmux declared it;
@@ -184,26 +214,24 @@ function detectExpensive(lane: Lane, ctx: DiagnoseContext): Pathology | null {
 /**
  * OFF-FENCE — touching files outside the fence this lane was dispatched with.
  * Only ever from a real manifest: `lane.trespasses` is empty whenever there was
- * no fence to cross, so this detector cannot fire on an inference.
+ * no fence to cross, so this detector cannot fire on an inference. Every
+ * trespass names its own path (and its victim, when exactly one fence claims
+ * it) — a bare count ("touching 1 other fence") tells the operator nothing
+ * they can act on; the path is what lets them tell a real breach from noise
+ * (issue #226).
  */
 function detectOffFence(lane: Lane): Pathology | null {
   if (!lane.fenced || lane.trespasses.length === 0) return null
 
-  const count = lane.trespasses.length
-  const files = `${count} file${count === 1 ? '' : 's'}`
-  const victims = [...new Set(lane.trespasses.map((t) => t.victim).filter(isString))]
-  const first = lane.trespasses[0] as Trespass
+  const named = lane.trespasses
+    .map((t) => (t.victim === null ? t.path : `${t.path} → ${t.victim}`))
+    .join(' · ')
 
   return {
     kind: 'off-fence',
     rank: PATHOLOGY_RANK['off-fence'],
     since: null,
-    evidence:
-      victims.length === 1
-        ? `touching ${victims[0]} — ${files}`
-        : victims.length > 1
-          ? `touching ${victims.length} other fences — ${files}`
-          : `outside fence — ${files}: ${first.path}`,
+    evidence: `outside fence — ${named}`,
     inferred: false,
   }
 }
