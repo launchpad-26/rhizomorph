@@ -230,7 +230,6 @@ function MarkView({
       window.removeEventListener('resize', reposition)
       window.removeEventListener('scroll', reposition, true)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchor !== null])
 
   const label = markShortLabel(group)

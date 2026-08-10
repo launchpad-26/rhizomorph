@@ -117,6 +117,8 @@ live fleet — a law its own source-grep test holds it to.
   [replay.md](replay.md).
 - **Export** — downloads the portable record (manifest + hash-chained log,
   captured transcripts included when the recording has them). Equivalent
-  CLI: `rhizomorph export-record [--session <id>] [--out <path>]` — see
-  [`docs/record-format.md`](../record-format.md) for the file format, and
-  note it refuses to write inside the watched repo.
+  CLI: `rhizomorph export-record [--session <id>] [--out <path>] [--force]`
+  — see [`docs/record-format.md`](../record-format.md) for the file format,
+  and note it refuses to write inside the watched repo, and refuses to
+  overwrite an existing `--out` file unless `--force` is passed (`--force`
+  without `--out` just warns — the default path always refreshes).

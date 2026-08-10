@@ -795,6 +795,69 @@ describe('runCli export-record and replay subcommands', () => {
     expect(events.some((e) => e.type === 'agent.status')).toBe(true)
   })
 
+  /**
+   * #298 asked for the CLI path under test, and runExportRecord's own tests
+   * can't see the parsed-flag → behaviour seam: they pass `force` directly.
+   * This is the test that fails if `force: args.force` is dropped from the
+   * runExportRecordCommand handoff — the flag would still parse, but
+   * `rhizomorph export-record … --force` would hit the refusal anyway.
+   */
+  it('a second export to the same --out refuses without --force and succeeds with it', async () => {
+    await recordASession()
+    const outFile = path.join(dataRoot, 'out.rhizorecord.json')
+    const first = await runCli(['export-record', repoPath, '--out', outFile], {
+      dataRoot,
+      log: silentLog,
+      exit: fakeExit(),
+    }).catch((err: unknown) => err)
+    expect(first).toBeInstanceOf(FakeExit)
+    expect((first as FakeExit).code).toBe(0)
+    const firstWrite = await readFile(outFile, 'utf8')
+
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const refused = await runCli(['export-record', repoPath, '--out', outFile], {
+      dataRoot,
+      log: silentLog,
+      exit: fakeExit(),
+    }).catch((err: unknown) => err)
+    const refusedOutput = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+
+    expect(refused).toBeInstanceOf(FakeExit)
+    expect((refused as FakeExit).code).toBe(1)
+    expect(refusedOutput).toContain('refusing to overwrite existing file')
+    expect(await readFile(outFile, 'utf8')).toBe(firstWrite)
+
+    // A sentinel, not a byte-compare against firstWrite: re-exporting the
+    // same session is byte-identical, so only planted content can prove the
+    // forced run actually wrote.
+    await writeFile(outFile, 'stale-sentinel', 'utf8')
+    const forced = await runCli(['export-record', repoPath, '--out', outFile, '--force'], {
+      dataRoot,
+      log: silentLog,
+      exit: fakeExit(),
+    }).catch((err: unknown) => err)
+
+    expect(forced).toBeInstanceOf(FakeExit)
+    expect((forced as FakeExit).code).toBe(0)
+    expect(await readFile(outFile, 'utf8')).toBe(firstWrite)
+  })
+
+  it('voices --force without --out as a no-op instead of silently accepting it', async () => {
+    await recordASession()
+    const log = { log: vi.fn(), warn: vi.fn() }
+
+    const thrown = await runCli(['export-record', repoPath, '--force'], {
+      dataRoot,
+      log,
+      exit: fakeExit(),
+    }).catch((err: unknown) => err)
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('--force has no effect without --out'))
+  })
+
   it('refuses to replay a tampered record, loudly, instead of serving it', async () => {
     await recordASession()
     const outFile = path.join(dataRoot, 'out.rhizorecord.json')

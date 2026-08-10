@@ -335,5 +335,4 @@ export function createCollectorContext(init: CollectorContextInit): CollectorCon
  * types. `any` rather than `unknown` so an implementation with a concrete
  * snapshot is assignable to it.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyCollector = Collector<any>

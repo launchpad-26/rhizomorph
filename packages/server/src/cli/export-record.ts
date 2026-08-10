@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, stat, writeFile } from 'node:fs/promises'
 import { userInfo } from 'node:os'
 import path from 'node:path'
 import { buildRecord, type Actor, type SessionRecord } from '@rhizomorph/core/src/record/index.js'
@@ -17,6 +17,8 @@ export interface ExportRecordOptions {
   out?: string
   /** Human-declared actor name; defaults to the OS username, marked `declared: false`. */
   handle?: string
+  /** Overwrite `outPath` if it already exists; default is to refuse. */
+  force?: boolean
 }
 
 export interface ExportRecordResult {
@@ -24,7 +26,7 @@ export interface ExportRecordResult {
   record: SessionRecord
 }
 
-/** Parses `rhizomorph export-record [path] [--session <id>] [--out <file>] [--handle <name>] [--help]`. */
+/** Parses `rhizomorph export-record [path] [--session <id>] [--out <file>] [--handle <name>] [--force] [--help]`. */
 export interface ExportRecordArgs {
   path: string | undefined
   /** Session id to export; defaults to the most recently recorded one. */
@@ -33,6 +35,8 @@ export interface ExportRecordArgs {
   out: string | undefined
   /** Human-declared actor name; defaults to the OS username, marked `declared: false`. */
   handle: string | undefined
+  /** Overwrite an existing `--out` file instead of refusing. */
+  force: boolean
   help: boolean
 }
 
@@ -53,23 +57,26 @@ Options:
   --session <id>          Session id to export (default: the most recently recorded session)
   --out <file>            Output file path (default: alongside the session logs)
   --handle <name>         Human-declared actor name (default: the OS username, marked undeclared)
+  --force                 Overwrite --out if it already exists (default: refuse)
   --help, -h              Show this help and exit
 `
 }
 
 export function parseExportRecordArgs(argv: readonly string[]): ExportRecordArgs {
   if (argv.includes('--help') || argv.includes('-h')) {
-    return { path: undefined, sessionId: undefined, out: undefined, handle: undefined, help: true }
+    return { path: undefined, sessionId: undefined, out: undefined, handle: undefined, force: false, help: true }
   }
 
   let sessionArg: string | undefined
   let outArg: string | undefined
   let handleArg: string | undefined
+  let force = false
 
   const specs: FlagSpec[] = [
     { flag: '--session', read: (v) => { sessionArg = v } },
     { flag: '--out', read: (v) => { outArg = v } },
     { flag: '--handle', read: (v) => { handleArg = v } },
+    { flag: '--force', boolean: true, read: () => { force = true } },
   ]
 
   const positionals = parseFlags(argv, specs)
@@ -85,7 +92,7 @@ export function parseExportRecordArgs(argv: readonly string[]): ExportRecordArgs
     throw new Error('invalid --handle value: (must be a non-empty name)')
   }
 
-  return { path, sessionId: sessionArg, out: outArg, handle: handleArg, help: false }
+  return { path, sessionId: sessionArg, out: outArg, handle: handleArg, force, help: false }
 }
 
 /** `os.userInfo()` can throw when the process has no passwd entry (some minimal containers) — an honest fallback, not a crash. */
@@ -109,7 +116,15 @@ function resolveActor(handle: string | undefined): Actor {
  * logs themselves already keep. `sessionId` defaults to the most recently
  * recorded session for this repo; `--out` may point anywhere except inside
  * `repoPath`, which would break the "export never touches the watched repo"
- * law, so that case is refused rather than silently allowed.
+ * law, so that case is refused rather than silently allowed. Separately, an
+ * *explicit* `--out` that already exists is refused unless `force` is set —
+ * this is a one-shot, non-interactive command, so refuse-by-default stands in
+ * for a confirmation prompt rather than silently overwriting a file the
+ * caller named. A directory at the out path is refused regardless of `force`,
+ * since overwriting it is never what was meant. The guard does not apply to the default path (derived from
+ * repo slug + session id, inside rhizomorph's own data dir): that artefact is
+ * regenerable and re-running export-record without `--out` is meant to
+ * refresh it, not fail on the second run.
  */
 export async function runExportRecord(options: ExportRecordOptions): Promise<ExportRecordResult> {
   const dataRoot = options.dataRoot ?? defaultDataRoot()
@@ -150,7 +165,35 @@ export async function runExportRecord(options: ExportRecordOptions): Promise<Exp
   }
 
   await mkdir(path.dirname(outPath), { recursive: true })
-  await writeFile(outPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
+
+  // `wx` refuses (EEXIST) instead of truncating, closing the stat-then-write
+  // TOCTOU window and also refusing through a dangling symlink — only when
+  // the caller named the path explicitly; the default path always refreshes.
+  const refuseExisting = options.out !== undefined && options.force !== true
+  try {
+    await writeFile(outPath, `${JSON.stringify(record, null, 2)}\n`, {
+      encoding: 'utf8',
+      flag: refuseExisting ? 'wx' : 'w',
+    })
+  } catch (err) {
+    const code = err instanceof Error ? (err as NodeJS.ErrnoException).code : undefined
+    // A directory at outPath surfaces as EEXIST under 'wx' and EISDIR under
+    // 'w' — either way --force cannot help, so don't advise it.
+    if (code === 'EEXIST' || code === 'EISDIR') {
+      const existing = await stat(outPath).catch(() => undefined)
+      if (existing?.isDirectory()) {
+        throw new Error(
+          options.out !== undefined
+            ? `--out names an existing directory (${outPath}) — pass a file path instead`
+            : `the default record path is an existing directory (${outPath}) — remove it, or pass --out with a file path`,
+        )
+      }
+    }
+    if (refuseExisting && code === 'EEXIST') {
+      throw new Error(`refusing to overwrite existing file (${outPath}) — pass --force to overwrite`)
+    }
+    throw err
+  }
 
   return { outPath, record }
 }
@@ -183,6 +226,13 @@ export async function runExportRecordCommand(
 
   const repoPath = path.resolve(args.path ?? process.cwd())
 
+  // Not an error — the export still does what was asked — but the flag buys
+  // nothing here (the default path always refreshes), and a silent no-op
+  // teaches callers the wrong contract.
+  if (args.force && args.out === undefined) {
+    log.warn('--force has no effect without --out — the default record path is always refreshed')
+  }
+
   try {
     const { outPath, record } = await runExportRecord({
       repoPath,
@@ -190,6 +240,7 @@ export async function runExportRecordCommand(
       sessionId: args.sessionId,
       out: args.out,
       handle: args.handle,
+      force: args.force,
     })
     const declared = record.manifest.actor.declared ? '' : ' (undeclared)'
     log.log(
