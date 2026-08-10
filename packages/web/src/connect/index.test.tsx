@@ -147,6 +147,29 @@ describe('the connect page', () => {
     expect(stateOf('transcripts-slug')).toContain('UNPROVEN')
   })
 
+  /**
+   * **THE BLANK PAGE.** `/connect` has no ErrorBoundary above it (`App.tsx`'s
+   * route switch), so a `RangeError` thrown out of `toISOString` during
+   * render takes the whole page with it.
+   *
+   * The gap is real and this fixture sits inside it: the envelope's own
+   * `timestampSchema` is `z.number().int().nonnegative()`, whose ceiling is
+   * `Number.MAX_SAFE_INTEGER` (~9.007e15), while a `Date` refuses anything
+   * past ±8.64e15. A `ts` between the two validates, folds, and throws only
+   * when something finally renders it — no malformed HTTP body required.
+   */
+  it('survives an unrenderable timestamp from the fold, and says so, rather than blanking the route', async () => {
+    const { source } = await renderConnect()
+    const beyondDate = 9e15
+    expect(() => new Date(beyondDate).toISOString()).toThrow(RangeError)
+
+    act(() => source.emit(f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, { ts: beyondDate })))
+
+    expect(screen.getByTestId('connect-page')).toBeInTheDocument()
+    expect(stateOf('repo-git')).toContain('VERIFIED')
+    expect(screen.getByTestId('connect-fact-repo-git').textContent).toContain('unavailable')
+  })
+
   it('shows doctor\'s own answer for the facts the fold cannot know', async () => {
     await renderConnect()
 

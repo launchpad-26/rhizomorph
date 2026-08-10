@@ -6,7 +6,7 @@ import { useStream } from '../app/StreamContext.js'
 import { copyToClipboard, type CopyText } from '../drawer/AttachButton.js'
 import { formatWallClock } from '../replay/format.js'
 import { buildLinks, portFrom, tally, type ChainLink, type LinkState } from './links.js'
-import { fetchDoctor, fetchMeta, UNAVAILABLE, type DoctorFact, type FetchLike, type MetaFacts } from './meta.js'
+import { fetchDoctor, fetchMeta, isRenderableTs, UNAVAILABLE, type DoctorFact, type FetchLike, type MetaFacts } from './meta.js'
 
 /**
  * THE CONNECT PAGE — THE HANDSHAKE CHECKLIST (prd19 rulings 3, 5 and 7, wave
@@ -287,6 +287,16 @@ function LinkRow({ link, onCopy }: { link: ChainLink; onCopy: CopyText }) {
  */
 function Stamp({ ts, kind }: { ts: number | null; kind: ChainLink['tsKind'] }) {
   if (ts === null || kind === null) return null
+  // The other end of the same guard `meta.ts` applies at the parse boundary,
+  // for the timestamps that never pass through it. The envelope's own
+  // `timestampSchema` (`z.number().int().nonnegative()`) tops out at
+  // `Number.MAX_SAFE_INTEGER`, ~9.007e15, while a `Date` refuses anything
+  // past ±8.64e15 — so a `ts` in that gap validates, folds, and would throw a
+  // `RangeError` out of `toISOString` mid-render, blanking a route that has
+  // no ErrorBoundary above it.
+  if (!isRenderableTs(ts)) {
+    return <span className="figures ml-2 text-ice-400 italic">{UNAVAILABLE}</span>
+  }
   return (
     <time dateTime={new Date(ts).toISOString()} className="figures ml-2 text-ice-400">
       {kind === 'render' ? `as of ${formatWallClock(ts)}` : formatWallClock(ts)}

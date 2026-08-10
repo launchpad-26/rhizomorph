@@ -6,6 +6,7 @@ import {
   doctorCheck,
   fetchDoctor,
   fetchMeta,
+  isRenderableTs,
   parseDoctor,
   parseMeta,
   type FetchLike,
@@ -129,6 +130,48 @@ describe('parseMeta', () => {
   it('never lets a non-finite number stand in for a timestamp', () => {
     const facts = parseMeta({ ...FULL_META, connection: { ...FULL_META.connection, git: { firstEventTs: Number.NaN, lastEventTs: 4_000, count: 11 } } })
     expect(facts?.connection?.sources.git).toEqual({ firstEventTs: null, lastEventTs: 4_000, count: 11 })
+  })
+
+  /**
+   * **THE RENDER CRASH.** `new Date(8.64e15 + 1).toISOString()` throws a
+   * `RangeError`, and `/connect` has no ErrorBoundary above it — so an
+   * out-of-range but finite timestamp used to blank the whole page, on the
+   * one surface a stranger opens precisely because their setup is already
+   * misbehaving. Guarded here, at the parse boundary, because the formatter
+   * that would throw (`replay/format.ts`) is shared with replay's chrome.
+   */
+  it('reads an out-of-range timestamp as unavailable rather than handing the formatter a RangeError', () => {
+    const beyond = 8.64e15 + 1
+    expect(() => new Date(beyond).toISOString()).toThrow(RangeError)
+
+    const facts = parseMeta({ ...FULL_META, connection: { ...FULL_META.connection, git: { firstEventTs: beyond, lastEventTs: 1e300, count: 11 } } })
+    expect(facts?.connection?.sources.git).toEqual({ firstEventTs: null, lastEventTs: null, count: 11 })
+    expect(isRenderableTs(beyond)).toBe(false)
+    expect(isRenderableTs(8.64e15)).toBe(true)
+  })
+
+  it('guards the uninstrumented sessions\' own timestamps the same way', () => {
+    const facts = parseMeta({
+      ...FULL_META,
+      connection: {
+        ...FULL_META.connection,
+        uninstrumentedSessions: [{ sessionId: 'sess-x', lanes: ['a'], roles: ['worker'], firstEventTs: 1e300, lastEventTs: -1 }],
+      },
+    })
+    expect(facts?.connection?.uninstrumentedSessions[0]).toEqual({ sessionId: 'sess-x', lanes: ['a'], roles: ['worker'], firstEventTs: null, lastEventTs: null })
+  })
+
+  /** "0.5 folded records" is not a fact any log can hold, and it must not be able to buy the strongest word this page has. */
+  it('refuses a fractional or negative count rather than rendering it as proof', () => {
+    for (const count of [0.5, -1, Number.POSITIVE_INFINITY]) {
+      const facts = parseMeta({ ...FULL_META, connection: { ...FULL_META.connection, git: { firstEventTs: 1, lastEventTs: 2, count } } })
+      expect(facts?.connection?.sources.git, `count ${count}`).toBeUndefined()
+    }
+  })
+
+  it('holds boot facts to the same integer discipline', () => {
+    expect(parseMeta({ ...FULL_META, resumedCount: 1.5 })?.boot).toBeNull()
+    expect(parseMeta({ ...FULL_META, resumeWindowMs: -1 })?.boot).toBeNull()
   })
 })
 

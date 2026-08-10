@@ -113,9 +113,51 @@ function str(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
 
-/** A finite number, or `null`. `NaN`/`Infinity` are not facts about a clock or a count. */
+/**
+ * The widest instant a `Date` can be, per ECMA-262 (`±8.64e15` ms — ±275,760
+ * years). **One millisecond past it, `toISOString()` throws a `RangeError`**,
+ * and the throw would land mid-render inside `LinkRow`'s `<time>` — on a
+ * route with no `ErrorBoundary` above it (`App.tsx`'s switch), so `/connect`
+ * would blank. On the page a stranger opens precisely when their setup is
+ * already misbehaving, that is the worst failure this file can have.
+ */
+const MAX_TIME_VALUE = 8.64e15
+
+/**
+ * A timestamp this page can both reason about and RENDER: a non-negative
+ * number no `Date` will refuse. The guard is here, at the parse boundary,
+ * rather than in the formatter — `replay/format.ts`'s `formatWallClock` is
+ * shared with replay's chrome and is not this issue's to change, so nothing
+ * invalid may reach it.
+ */
+export function isRenderableTs(value: number): boolean {
+  return Number.isFinite(value) && value >= 0 && value <= MAX_TIME_VALUE
+}
+
+/**
+ * A timestamp field, or `null` — `NaN`, `Infinity`, a negative, and the
+ * finite-but-unrenderable `1e300` all read as "this page has no timestamp
+ * for that", which is a state every consumer already handles.
+ *
+ * Worth stating why the served number cannot simply be trusted. This body is
+ * plain JSON — no schema ran on it at all, so any number at all can arrive.
+ * And even the validated path has a gap: the event envelope's own
+ * `timestampSchema` (`z.number().int().nonnegative()`) tops out at
+ * `Number.MAX_SAFE_INTEGER`, ~9.007e15, while a `Date` refuses anything past
+ * ±8.64e15 — so a `ts` between the two passes validation, folds, and is
+ * served back out of `/api/meta` intact.
+ */
+function ts(value: unknown): number | null {
+  return typeof value === 'number' && isRenderableTs(value) ? value : null
+}
+
+/**
+ * A tally: a non-negative INTEGER. Fractions are rejected rather than shown —
+ * "0.5 folded records" is not a fact any log can hold, and rendering one as
+ * VERIFIED would let a malformed body buy the strongest word this page has.
+ */
 function num(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null
 }
 
 function strings(value: unknown): string[] {
@@ -172,7 +214,7 @@ function parseFlow(value: unknown): FlowFacts | null {
   if (!isRecord(value)) return null
   const count = num(value.count)
   if (count === null) return null
-  return { firstEventTs: num(value.firstEventTs), lastEventTs: num(value.lastEventTs), count }
+  return { firstEventTs: ts(value.firstEventTs), lastEventTs: ts(value.lastEventTs), count }
 }
 
 function parseUninstrumented(value: unknown): UninstrumentedFacts[] {
@@ -186,8 +228,8 @@ function parseUninstrumented(value: unknown): UninstrumentedFacts[] {
       sessionId,
       lanes: strings(entry.lanes),
       roles: strings(entry.roles),
-      firstEventTs: num(entry.firstEventTs),
-      lastEventTs: num(entry.lastEventTs),
+      firstEventTs: ts(entry.firstEventTs),
+      lastEventTs: ts(entry.lastEventTs),
     })
   }
   return sessions
