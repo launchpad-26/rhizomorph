@@ -1,4 +1,4 @@
-import type { Exec, ExecOptions } from '@rhizomorph/core'
+import type { Exec } from '@rhizomorph/core'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import {
   checkCliVersionDrift,
@@ -12,7 +12,7 @@ import {
   type DoctorCheck,
 } from '../cli/doctor.js'
 import type { ServerContext } from '../server/context.js'
-import { exec as realExec } from '../server/exec.js'
+import { exec as realExec, withTimeout } from '../server/exec.js'
 import { isLoopbackHost } from '../server/mutation-guard.js'
 
 /**
@@ -133,11 +133,6 @@ export async function runServerDoctor(repoPath: string, options: ServerDoctorOpt
  * never wraps its `exec` this way.
  */
 export const ROUTE_EXEC_TIMEOUT_MS = 5000
-
-/** Wraps an `Exec` so every call it makes carries `timeoutMs`, without changing anything else about how it's invoked. */
-function withTimeout(exec: Exec, timeoutMs: number): Exec {
-  return (command: string, args: readonly string[], options?: ExecOptions) => exec(command, args, { ...options, timeoutMs })
-}
 
 /**
  * How long a served answer is reused before the next request triggers a

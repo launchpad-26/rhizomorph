@@ -13,6 +13,7 @@ import { SessionLogWriter } from '../recorder/index.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { createRouteDoctorProbe, PROBE_CACHE_TTL_MS, ROUTE_EXEC_TIMEOUT_MS, runServerDoctor } from './doctor.js'
+import type * as ExecModule from '../server/exec.js'
 
 function okResult(stdout = ''): ExecResult {
   return { stdout, stderr: '', code: 0, failed: false }
@@ -40,14 +41,18 @@ const healthyExec: Exec = async (command, args) => {
  * every test that calls `runServerDoctor` directly still passes its own
  * `exec` fixture and is unaffected by this mock.
  */
-vi.mock('../server/exec.js', () => ({
-  exec: (async (command: string, args: readonly string[]) => {
-    if (command === 'tmux' && args[0] === '-V') return okResult('tmux 3.3a\n')
-    if (command === 'workmux' && args[0] === 'status') return okResult('handle  status\n')
-    if (command === 'claude' && args[0] === '--version') return okResult('2.1.220 (Claude Code)\n')
-    return { stdout: '', stderr: 'not stubbed', code: 1, failed: true, errorMessage: 'not stubbed' }
-  }) satisfies Exec,
-}))
+vi.mock('../server/exec.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof ExecModule>()
+  return {
+    ...actual,
+    exec: (async (command: string, args: readonly string[]) => {
+      if (command === 'tmux' && args[0] === '-V') return okResult('tmux 3.3a\n')
+      if (command === 'workmux' && args[0] === 'status') return okResult('handle  status\n')
+      if (command === 'claude' && args[0] === '--version') return okResult('2.1.220 (Claude Code)\n')
+      return { stdout: '', stderr: 'not stubbed', code: 1, failed: true, errorMessage: 'not stubbed' }
+    }) satisfies Exec,
+  }
+})
 
 function checkFor(checks: readonly DoctorCheck[], id: string): DoctorCheck {
   const check = checks.find((c) => c.id === id)
