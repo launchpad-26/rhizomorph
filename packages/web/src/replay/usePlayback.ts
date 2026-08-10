@@ -23,8 +23,6 @@ export interface UsePlaybackResult {
   reset(): void
 }
 
-const TICK_MS = 100
-
 /**
  * Drives the scrubber clock forward in real time, scaled by speed, while
  * playing. Live and replay never touch this — it only exists to move the
@@ -37,6 +35,15 @@ const TICK_MS = 100
  * reads it directly, and `useReplaySession` frame-coalesces it into the
  * `derivedTs` that `ModeContext.useModeClock` serves while replaying (#269).
  * Nothing downstream of either ever calls `Date.now()` on its own account.
+ *
+ * The tick rides `requestAnimationFrame` (#271) rather than a 100 ms
+ * `setInterval`, so the painter gets a fresh instant on every frame it draws
+ * instead of one frame in six. The cadence changed; the clock's owner did not.
+ * Elapsed time is still measured by `now()` and not by the timestamp rAF hands
+ * the callback, which is what keeps the injection point above load-bearing and
+ * the read here the only one. It also means a window that stops receiving
+ * frames — hidden tab, throttled background — resumes at the wall-clock-correct
+ * instant instead of counting the frames it never got.
  */
 export function usePlayback({ start, end, now = Date.now }: UsePlaybackOptions): UsePlaybackResult {
   const [currentTs, setCurrentTs] = useState(start)
@@ -58,7 +65,9 @@ export function usePlayback({ start, end, now = Date.now }: UsePlaybackOptions):
     }
 
     lastTickRef.current = now()
-    const interval = setInterval(() => {
+
+    let frame = 0
+    const tick = () => {
       const nowTs = now()
       const last = lastTickRef.current ?? nowTs
       const deltaMs = (nowTs - last) * speed
@@ -68,13 +77,22 @@ export function usePlayback({ start, end, now = Date.now }: UsePlaybackOptions):
         const next = prev + deltaMs
         return next >= end ? end : next
       })
-    }, TICK_MS)
 
-    return () => clearInterval(interval)
+      // Each tick arms the next one, so `frame` always holds the only
+      // outstanding request and the cleanup below has exactly one to cancel.
+      frame = requestAnimationFrame(tick)
+    }
+
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
   }, [playing, speed, start, end, now])
 
   // A separate effect (rather than inlining in the tick) so it fires exactly
-  // once when playback crosses the end, regardless of tick granularity.
+  // once when playback crosses the end, regardless of tick granularity — and a
+  // frame-driven tick makes that granularity coarse relative to short ranges: a
+  // single 16 ms frame can step clean over the whole remainder. The clamp in the
+  // tick keeps `currentTs` at `end`; the `playing` guard here keeps this from
+  // firing twice, and ending playback tears down the loop above.
   useEffect(() => {
     if (playing && currentTs >= end) setPlaying(false)
   }, [playing, currentTs, end])
