@@ -1,4 +1,4 @@
-import type { AgentRole, Connection, RefusalState, SourceFlow, UninstrumentedSession } from '@rhizomorph/core'
+import { AGENT_ROLES, type AgentRole, type Connection, type RefusalState, type SourceFlow, type UninstrumentedSession } from '@rhizomorph/core'
 import type { ConnectionStatus } from '../hooks/useEventStream.js'
 import { doctorCheck, type CollectorFacts, type DoctorFact, type MetaFacts } from './meta.js'
 
@@ -405,8 +405,86 @@ function otelLink(input: ConnectInputs): ChainLink {
   return unproven(base, [...doctorNote(input.doctor, 'telemetry'), ...doctorNote(input.doctor, 'cli-version-drift')])
 }
 
+/**
+ * One witness's account of a session with transcript activity and no
+ * telemetry — the fold's own `UninstrumentedSession`, or the same fact as
+ * `/api/meta` served it, in one shape so the row cannot treat them
+ * differently.
+ */
+export interface UninstrumentedWitness {
+  sessionId: string
+  lanes: string[]
+  roles: AgentRole[]
+  /**
+   * `null` only when the witness carried no usable first sighting — a
+   * session that can be named but never aged. See {@link mergeUninstrumented}
+   * for why that case is not granted the grace window.
+   */
+  firstEventTs: number | null
+}
+
+/** A served role string is only a role if it is one of the four the schema has — anything else is dropped rather than passed to `--role`. */
+function knownRoles(roles: readonly string[]): AgentRole[] {
+  return roles.filter((role): role is AgentRole => (AGENT_ROLES as readonly string[]).includes(role))
+}
+
+/**
+ * TWO WITNESSES TO THE SAME ABSENCE, unioned by session id.
+ *
+ * `/api/meta` runs the same `selectConnection` over the same log this page's
+ * SSE fold does, so its `uninstrumentedSessions` is a second reading of one
+ * truth — and for the first seconds of every page load, and for as long as an
+ * SSE error keeps the fold empty, it is the ONLY reading. Consuming only the
+ * fold meant the row could read VERIFIED ("every session with transcript
+ * activity has also exported telemetry") off a merged sessionlog count that
+ * came from meta while ignoring the uninstrumented list meta served in the
+ * same body — the row contradicting its own source. Reviewer's finding on
+ * PR #334; ruled to merge rather than to gate the VERIFIED path down to the
+ * fold's own count, since that would go quiet exactly when SSE lags.
+ *
+ * The fold wins on a session both witnesses name: it is the live one, and its
+ * `roles`/`lanes` are typed rather than parsed. A session only meta named is
+ * appended whole.
+ */
+export function mergeUninstrumented(
+  folded: readonly UninstrumentedSession[],
+  served: readonly { sessionId: string; lanes: string[]; roles: string[]; firstEventTs: number | null }[] | undefined,
+): UninstrumentedWitness[] {
+  const witnesses: UninstrumentedWitness[] = folded.map((session) => ({
+    sessionId: session.sessionId,
+    lanes: [...session.lanes],
+    roles: [...session.roles],
+    firstEventTs: session.firstEventTs,
+  }))
+  const seen = new Set(witnesses.map((witness) => witness.sessionId))
+
+  for (const session of served ?? []) {
+    if (seen.has(session.sessionId)) continue
+    seen.add(session.sessionId)
+    witnesses.push({
+      sessionId: session.sessionId,
+      lanes: [...session.lanes],
+      roles: knownRoles(session.roles),
+      firstEventTs: session.firstEventTs,
+    })
+  }
+  return witnesses
+}
+
+/**
+ * Ripe for BROKEN: the grace window has passed, **or the witness carried no
+ * date to measure it against**. The window is an exemption granted to a
+ * session that might still be exporting its first batch, and an exemption
+ * this page cannot measure is one it must not grant — the alternative is a
+ * malformed timestamp buying a permanently silent row on the one page whose
+ * subject is what has been proven.
+ */
+function pastGrace(witness: UninstrumentedWitness, now: number): boolean {
+  return witness.firstEventTs === null || now - witness.firstEventTs >= FIRST_EXPORT_GRACE_MS
+}
+
 /** The lane whose env block would fix this session, and the role to generate it for. */
-function relaunchTarget(session: UninstrumentedSession): { lane: string | null; role: AgentRole | null } {
+function relaunchTarget(session: UninstrumentedWitness): { lane: string | null; role: AgentRole | null } {
   return {
     lane: session.lanes[0] ?? null,
     role: session.roles.includes('conductor') ? 'conductor' : (session.roles[0] ?? null),
@@ -426,6 +504,10 @@ function relaunchTarget(session: UninstrumentedSession): { lane: string | null; 
  * transcript activity started moments ago may be an instrumented agent whose
  * first batch is still in flight, and calling that dead would be an alarm
  * about waiting.
+ *
+ * Both witnesses count ({@link mergeUninstrumented}): a session `/api/meta`
+ * named is the same broken link as one the fold named, and reading only the
+ * fold let this row claim the opposite of what meta had just served.
  */
 function uninstrumentedConductor(input: ConnectInputs): ChainLink {
   const base = {
@@ -433,8 +515,8 @@ function uninstrumentedConductor(input: ConnectInputs): ChainLink {
     label: 'the uninstrumented conductor',
     question: 'is every agent with transcript activity also exporting telemetry?',
   }
-  const folded = input.flow.uninstrumentedSessions
-  const ripe = folded.filter((session) => input.now - session.firstEventTs >= FIRST_EXPORT_GRACE_MS)
+  const witnesses = mergeUninstrumented(input.flow.uninstrumentedSessions, input.meta?.connection?.uninstrumentedSessions)
+  const ripe = witnesses.filter((witness) => pastGrace(witness, input.now))
 
   if (ripe.length > 0) {
     const worst = ripe.find((session) => session.roles.includes('conductor')) ?? ripe[0]!
@@ -450,9 +532,9 @@ function uninstrumentedConductor(input: ConnectInputs): ChainLink {
     )
   }
 
-  if (folded.length > 0) {
+  if (witnesses.length > 0) {
     return unproven(base, [
-      `${folded.length} session${folded.length === 1 ? '' : 's'} with transcript activity and no telemetry yet — inside the ${Math.round(FIRST_EXPORT_GRACE_MS / 1000)}s window an instrumented agent's first export is allowed to take`,
+      `${witnesses.length} session${witnesses.length === 1 ? '' : 's'} with transcript activity and no telemetry yet — inside the ${Math.round(FIRST_EXPORT_GRACE_MS / 1000)}s window an instrumented agent's first export is allowed to take`,
     ])
   }
 

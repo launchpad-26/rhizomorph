@@ -10,7 +10,7 @@ import {
   type ChainLink,
   type ConnectInputs,
 } from './links.js'
-import type { DoctorFact, MetaFacts } from './meta.js'
+import type { ConnectionFacts, DoctorFact, MetaFacts } from './meta.js'
 
 /**
  * THE CHECKLIST'S DERIVATION, over real folds.
@@ -37,6 +37,20 @@ function inputs(state: SessionState, overrides: Partial<ConnectInputs> = {}): Co
     doctor: null,
     port: '4317',
     now: NOW,
+    ...overrides,
+  }
+}
+
+/** A served `/api/meta` body, already parsed — the second witness half of every input below. */
+function metaWith(connection: Partial<ConnectionFacts> = {}, overrides: Partial<MetaFacts> = {}): MetaFacts {
+  return {
+    sessionId: 'sess-ours',
+    repoPath: '/home/x/repo',
+    repoName: 'repo',
+    rung: 'L1',
+    collectors: [],
+    connection: { sources: {}, uninstrumentedSessions: [], refusals: null, ...connection },
+    boot: null,
     ...overrides,
   }
 }
@@ -137,19 +151,7 @@ describe('the OTel row — prd19 ruling 3, this issue\'s first stated law', () =
    * to reach BROKEN.
    */
   it('reaches BROKEN from /api/meta\'s refusal summary alone, when the fold has not seen one', () => {
-    const meta: MetaFacts = {
-      sessionId: 'sess-ours',
-      repoPath: '/repo',
-      repoName: 'repo',
-      rung: 'L1',
-      collectors: [],
-      connection: {
-        sources: {},
-        uninstrumentedSessions: [],
-        refusals: { count: 7, instance: 'sess-other', expectedInstance: 'sess-ours' },
-      },
-      boot: null,
-    }
+    const meta = metaWith({ refusals: { count: 7, instance: 'sess-other', expectedInstance: 'sess-ours' } })
     const otel = row(build(reduceAll([]), { meta }), 'otel')
 
     expect(otel.state).toBe('broken')
@@ -236,6 +238,60 @@ describe('the uninstrumented conductor — the PRD\'s evidence case', () => {
     expect(link.state).toBe('unproven')
     expect(link.notes.join(' ')).toContain('no transcript activity')
   })
+
+  /**
+   * The reviewer's finding on PR #334, and the shape it takes in the wild: the
+   * SSE errors on connect so the fold stays empty, both GETs succeed, and
+   * `/api/meta` serves 40 transcript records AND an uninstrumented session in
+   * the same body. Reading the merged count for VERIFIED while reading only
+   * the fold for the sessions made this row claim the exact opposite of what
+   * its own source had just said — and it flashed that on every ordinary load
+   * where meta resolved before the SSE backlog folded.
+   */
+  it('reads /api/meta\'s own uninstrumented session as a second witness, never contradicting the body it came from', () => {
+    const meta = metaWith({
+      sources: { sessionlog: { firstEventTs: 1_000, lastEventTs: NOW - 20 * 60_000, count: 40 } },
+      uninstrumentedSessions: [
+        { sessionId: 'sess-gabe', lanes: ['conductor'], roles: ['conductor'], firstEventTs: NOW - 20 * 60_000, lastEventTs: NOW - 19 * 60_000 },
+      ],
+    })
+    const link = row(build(reduceAll([]), { meta }), 'uninstrumented-conductor')
+
+    expect(link.state).toBe('broken')
+    expect(link.reason).toContain('sess-gabe')
+    expect(link.command).toBe('rhizomorph env conductor --role conductor --port 4317')
+  })
+
+  it('counts a session either witness names exactly once', () => {
+    const state = uninstrumentedConductorLog()
+    const meta = metaWith({
+      uninstrumentedSessions: [
+        { sessionId: 'sess-gabe', lanes: ['conductor'], roles: ['conductor'], firstEventTs: NOW - 10 * 60_000, lastEventTs: NOW - 9 * 60_000 },
+        { sessionId: 'sess-other', lanes: ['lane-b'], roles: ['worker'], firstEventTs: NOW - 10 * 60_000, lastEventTs: NOW - 9 * 60_000 },
+      ],
+    })
+    const link = row(build(state, { meta }), 'uninstrumented-conductor')
+
+    expect(link.state).toBe('broken')
+    expect(link.reason).toContain('1 more session')
+  })
+
+  /** A witness that carried no usable date cannot claim the window's exemption — a malformed timestamp must not buy a permanently silent row. */
+  it('refuses the grace window to a session it cannot date', () => {
+    const meta = metaWith({
+      uninstrumentedSessions: [{ sessionId: 'sess-undated', lanes: ['lane-a'], roles: ['worker'], firstEventTs: null, lastEventTs: null }],
+    })
+    expect(row(build(reduceAll([]), { meta }), 'uninstrumented-conductor').state).toBe('broken')
+  })
+
+  it('drops a served role the schema has never heard of, rather than passing it to --role', () => {
+    const meta = metaWith({
+      uninstrumentedSessions: [
+        { sessionId: 'sess-x', lanes: ['lane-a'], roles: ['overlord'], firstEventTs: NOW - 10 * 60_000, lastEventTs: NOW - 9 * 60_000 },
+      ],
+    })
+    expect(row(build(reduceAll([]), { meta }), 'uninstrumented-conductor').command).toBe('rhizomorph env lane-a --port 4317')
+  })
 })
 
 describe('the machine links — flow, never preconditions', () => {
@@ -252,20 +308,18 @@ describe('the machine links — flow, never preconditions', () => {
   })
 
   it('reads a disabled collector\'s own reason and remedy as BROKEN, from /api/meta', () => {
-    const meta: MetaFacts = {
-      sessionId: 'sess-ours',
-      repoPath: '/repo',
-      repoName: 'repo',
-      rung: 'L0',
-      collectors: [
-        {
-          name: 'git',
-          signals: [{ signal: 'identity', level: 'absent', reason: 'git collector disabled: not a repository', remedy: 'point the server at a git worktree' }],
-        },
-      ],
-      connection: null,
-      boot: null,
-    }
+    const meta = metaWith(
+      {},
+      {
+        rung: 'L0',
+        collectors: [
+          {
+            name: 'git',
+            signals: [{ signal: 'identity', level: 'absent', reason: 'git collector disabled: not a repository', remedy: 'point the server at a git worktree' }],
+          },
+        ],
+      },
+    )
     const git = row(build(reduceAll([]), { meta }), 'repo-git')
 
     expect(git.state).toBe('broken')
@@ -274,15 +328,7 @@ describe('the machine links — flow, never preconditions', () => {
   })
 
   it('keeps agents ↔ tmux/workmux unproven while only one of the two is disabled — a live mechanism has not reported, it has not died', () => {
-    const meta: MetaFacts = {
-      sessionId: null,
-      repoPath: null,
-      repoName: null,
-      rung: null,
-      collectors: [{ name: 'tmux', signals: [{ signal: 'identity', level: 'absent', reason: 'tmux not on PATH', remedy: null }] }],
-      connection: null,
-      boot: null,
-    }
+    const meta = metaWith({}, { collectors: [{ name: 'tmux', signals: [{ signal: 'identity', level: 'absent', reason: 'tmux not on PATH', remedy: null }] }] })
     expect(row(build(reduceAll([]), { meta }), 'agents-tmux').state).toBe('unproven')
   })
 
@@ -342,7 +388,7 @@ describe('browser ↔ server', () => {
   })
 
   it('is BROKEN with a restart command, port interpolated, when the stream is dead', () => {
-    const meta: MetaFacts = { sessionId: null, repoPath: '/home/x/repo', repoName: 'repo', rung: null, collectors: [], connection: null, boot: null }
+    const meta = metaWith()
     const link = row(build(reduceAll([]), { meta, stream: { status: 'error', eventCount: 0, provenance: 'live · /api/stream', live: true } }), 'browser-server')
 
     expect(link.state).toBe('broken')
