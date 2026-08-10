@@ -94,7 +94,7 @@ export async function runServerDoctor(repoPath: string, options: ServerDoctorOpt
 
   const baseChecks: DoctorCheck[] = [
     await checkNodeVersion({ nodeVersion: options.nodeVersion, rootPackageJsonPath: options.rootPackageJsonPath }),
-    checkClaudeProjects(options.claudeProjectsRoot),
+    checkClaudeProjects(options.claudeProjectsRoot, repoPath),
     replay ? notApplicableDuringReplay('session-boundary') : await checkSessionBoundary(repoPath, options.dataRoot, options.now ?? Date.now),
     await checkOptionalTool('tmux', 'tmux', ['-V'], exec),
     await checkOptionalTool('workmux', 'workmux', ['status'], exec),
