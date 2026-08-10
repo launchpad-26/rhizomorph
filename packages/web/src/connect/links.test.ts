@@ -215,9 +215,21 @@ describe('the OTel row — prd19 ruling 3, this issue\'s first stated law', () =
     expect(selectConnection(state).otel.count).toBe(0)
   })
 
-  it('names the "declared no instance at all" offender as such, never as an empty string', () => {
+  /**
+   * "From its own payload" (ruling 3) is the point of this one, which is why
+   * meta ALSO holds a refusal here naming a different offender: a folded
+   * refusal that declared no instance must read as such, never borrow the
+   * other witness's id. The `??` chain this pins used to fall through
+   * precisely because a legitimate `null` and an absent field are the same
+   * value to it (reviewer's finding, PR #334).
+   */
+  it('names the "declared no instance at all" offender as such, never borrowing meta\'s offender', () => {
     const state = reduceAll([f.make('telemetry.refused', { instance: null, expectedInstance: 'sess-ours', count: 1 }, { ts: 1_000 })])
-    expect(row(build(state), 'otel').reason).toContain('declared no instance at all')
+    const meta = metaWith({ refusals: { count: 1, instance: 'sess-someone-else', expectedInstance: 'sess-ours' } })
+    const otel = row(build(state, { meta }), 'otel')
+
+    expect(otel.reason).toContain('declared no instance at all')
+    expect(otel.reason).not.toContain('sess-someone-else')
   })
 
   /**
@@ -234,18 +246,39 @@ describe('the OTel row — prd19 ruling 3, this issue\'s first stated law', () =
     expect(otel.reason).toContain('7 telemetry exports refused')
   })
 
-  it('flips to VERIFIED once an otel-origin event folds, and keeps the standing refusal as a note rather than erasing it', () => {
-    const state = reduceAll([
-      f.make('telemetry.refused', { instance: 'sess-other', expectedInstance: 'sess-ours', count: 1 }, { ts: 1_000 }),
-      f.llmUsage({ sessionId: 'sess-live' }, { ts: 2_000, source: 'otel' }),
-    ])
+  it('flips to VERIFIED once an otel-origin event folds, dated by that event', () => {
+    const state = reduceAll([f.llmUsage({ sessionId: 'sess-live' }, { ts: 2_000, source: 'otel' })])
     const otel = row(build(state), 'otel')
 
     expect(otel.state).toBe('verified')
     expect(otel.fact).toContain('OTel')
     expect(otel.ts).toBe(2_000)
     expect(otel.tsKind).toBe('event')
-    expect(otel.notes.join(' ')).toContain('refused')
+  })
+
+  /**
+   * **The two-agents-one-stale fleet — ruled BROKEN on PR #334's review.**
+   * One lane wired to this instance, one to a stale one. This used to read
+   * VERIFIED with the refusal demoted to a note carrying no instance names,
+   * no command and no SCAR — so the tally said "0 broken" for the exact
+   * fleet prd19 was written about, and the operator read the money layer as
+   * healthy while one lane's dollars did not exist.
+   */
+  it('stays BROKEN when a refusal stands beside real flow, and says the flow is real too', () => {
+    const state = reduceAll([
+      f.make('telemetry.refused', { instance: 'sess-other', expectedInstance: 'sess-ours', count: 1 }, { ts: 1_000 }),
+      f.llmUsage({ sessionId: 'sess-live' }, { ts: 2_000, source: 'otel' }),
+    ])
+    const links = build(state)
+    const otel = row(links, 'otel')
+
+    expect(otel.state).toBe('broken')
+    expect(otel.reason).toContain('sess-other')
+    expect(otel.command).toBe('rhizomorph env <lane> --port 4317')
+    expect(otel.warning).toBe(SAME_PROCESS_WARNING)
+    // Neither fact erases the other: the flow that IS arriving is named.
+    expect(otel.notes.join(' ')).toContain('DID arrive')
+    expect(tally(links).broken).toBeGreaterThan(0)
   })
 
   it('stays UNPROVEN — not broken — when nothing has arrived and nothing was refused', () => {

@@ -454,10 +454,17 @@ function transcriptFlow(input: ConnectInputs): ChainLink {
  * yet": something arrived, was identified as someone else's, and was thrown
  * away.
  *
- * A refusal is never counted as flow (`selectConnection`'s load-bearing
- * exclusion), so a fleet that is refused AND flowing — two agents, one wired
- * to this instance and one to a stale one — reads VERIFIED with the standing
- * fault carried as a note rather than either fact erasing the other.
+ * **A REFUSAL OUTRANKS FLOW, and that is the ruling, not a preference.** A
+ * refusal is never counted as flow (`selectConnection`'s load-bearing
+ * exclusion), and the fleet where both are true — two agents, one wired to
+ * this instance and one to a stale one — used to read VERIFIED here with the
+ * standing fault demoted to a note. That put "0 broken" on the tally for
+ * exactly the fleet prd19 was written about: the operator reads the money
+ * layer as healthy while one lane's dollars do not exist. The PRD's binding
+ * sentence — a folded `telemetry.refused` renders this row BROKEN — wins
+ * whether or not somebody else is exporting fine, and the flow that IS
+ * arriving is carried as a note so neither fact erases the other. (Ruled on
+ * PR #334's review; prd-19 stands as written.)
  */
 function otelLink(input: ConnectInputs): ChainLink {
   const base = {
@@ -466,31 +473,55 @@ function otelLink(input: ConnectInputs): ChainLink {
     question: 'is any agent exporting telemetry to this instance?',
   }
   const flow = mergeFlow(input.flow.otel, input.meta?.connection?.sources.otel)
-  const folded = input.refusals.records
-  const latest = folded[folded.length - 1]
-  const served = input.meta?.connection?.refusals ?? null
-  // Whichever witness holds more refusals holds the fault; the fold is
-  // preferred at equal counts because it is the live one.
-  const refusedCount = Math.max(folded.length, served?.count ?? 0)
-  const declared = latest?.instance ?? served?.instance ?? null
-  const expected = latest?.expectedInstance ?? served?.expectedInstance ?? null
+  const refusal = latestRefusal(input)
 
-  if (flow.count > 0) {
-    const notes = refusedCount > 0 ? [`${refusedCount} export${refusedCount === 1 ? '' : 's'} were still refused — another exporter is pointed at the wrong instance`] : []
-    return verified(base, `${records(flow.count)} from OTel — usage, dollars, spans`, provenAt(flow.lastEventTs, input.now), notes)
-  }
-
-  if (refusedCount > 0) {
-    const who = declared === null ? 'declared no instance at all' : `declared instance ${declared}`
+  if (refusal !== null) {
+    const who = refusal.declared === null ? 'declared no instance at all' : `declared instance ${refusal.declared}`
+    const plural = refusal.count === 1 ? '' : 's'
     const command = envCommand(null, null, input.port)
+    const flowing =
+      flow.count > 0
+        ? [`${records(flow.count)} DID arrive from OTel — some agent is wired correctly; the refused one is not, and its dollars and traces do not exist`]
+        : []
     return broken(
       base,
-      `${refusedCount} telemetry export${refusedCount === 1 ? '' : 's'} refused: this Rhizomorph is instance ${expected ?? 'unavailable'}, and the export ${who} — one repo, one Rhizomorph, so nothing from it was recorded`,
-      { command, warning: SAME_PROCESS_WARNING, notes: [envApplyNote(command), ...doctorNote(input.doctor, 'telemetry')] },
+      `${refusal.count} telemetry export${plural} refused: this Rhizomorph is instance ${refusal.expected ?? 'unavailable'}, and the export ${who} — one repo, one Rhizomorph, so nothing from it was recorded`,
+      { command, warning: SAME_PROCESS_WARNING, notes: [...flowing, envApplyNote(command), ...doctorNote(input.doctor, 'telemetry')] },
     )
   }
 
+  if (flow.count > 0) {
+    return verified(base, `${records(flow.count)} from OTel — usage, dollars, spans`, provenAt(flow.lastEventTs, input.now))
+  }
+
   return unproven(base, [...doctorNote(input.doctor, 'telemetry'), ...doctorNote(input.doctor, 'cli-version-drift')])
+}
+
+/**
+ * The standing fault, read from **one** witness — never half from each.
+ *
+ * The fold and `/api/meta`'s summary both report the most recent refusal, and
+ * whichever holds more of them holds the fault (the fold wins a tie: it is
+ * the live one). What this must not do is take the count from one and the
+ * instance names from the other: a folded refusal that declared NO instance
+ * would then be described using meta's offender's id, and ruling 3 says the
+ * remedy comes "from its own payload". So the witness is chosen once, and
+ * every field below comes from it. (Reviewer's finding on PR #334: the `??`
+ * chain this replaces fell through on a legitimately-null `instance`.)
+ */
+function latestRefusal(input: ConnectInputs): { count: number; declared: string | null; expected: string | null } | null {
+  const folded = input.refusals.records
+  const latest = folded[folded.length - 1]
+  const served = input.meta?.connection?.refusals ?? null
+  const servedCount = served?.count ?? 0
+
+  if (latest !== undefined && folded.length >= servedCount) {
+    return { count: folded.length, declared: latest.instance, expected: latest.expectedInstance }
+  }
+  if (served !== null && servedCount > 0) {
+    return { count: servedCount, declared: served.instance, expected: served.expectedInstance }
+  }
+  return null
 }
 
 /**
