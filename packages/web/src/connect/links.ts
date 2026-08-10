@@ -32,12 +32,13 @@ import { doctorCheck, type CollectorFacts, type DoctorFact, type MetaFacts } fro
  * a proof because one witness was polled a second earlier.
  *
  * **VERIFIED MEANS "I CHECKED, AND IT HOLDS" — NEVER "THIS WAS TRUE ONCE"**
- * (#343). A row may say VERIFIED only on live evidence from ITS OWN source,
- * and you cannot check anything over a fold that was never live. The honest
- * state there is UNPROVEN, which is exactly why this page has a third state
- * rather than a choice between a green lie and a red one.
+ * (#343 and #345, ruled together: they are one question). A row may say
+ * VERIFIED only on live evidence from ITS OWN source. You cannot check over a
+ * fold that was never live, and you cannot check over a stream that has died;
+ * in both cases the honest state is UNPROVEN, which is exactly why this page
+ * has a third state rather than a choice between a green lie and a red one.
  * {@link ChainLink.evidence} names the source each row is checked by, and
- * {@link attest} is the one place that ruling is applied.
+ * {@link attest} is the one place both halves of that ruling are applied.
  *
  * The three states are also the hue law's own three (`theme/theme.css`):
  * verified wears the green family, broken wears the one red the instrument
@@ -50,17 +51,19 @@ export type LinkState = 'verified' | 'broken' | 'unproven'
 
 /**
  * WHAT IS CHECKING A ROW — and therefore what has to be both real and alive
- * before it may say VERIFIED (#343).
+ * before it may say VERIFIED (#343, #345).
  *
  * `'fold'`: the SSE stream. These rows are proved by records the fold
- * absorbed, so their claims are only as real as the log driving it.
+ * absorbed, so their claims are only as live as the stream carrying them, and
+ * only as real as the log driving it.
  *
  * `'poll'`: a GET this page re-reads on its own interval (`/api/meta`,
  * `GET /api/doctor`). These have their own freshness and their own failure
- * mode — a fixture in the fold says nothing about whether the filesystem
- * doctor just probed exists. Treating all seven rows identically is what makes
- * this look like a hard problem; most of the time, half of them are not
- * affected at all.
+ * mode — **a dead SSE says nothing about whether the last poll succeeded**,
+ * and a fixture in the fold says nothing about whether the filesystem doctor
+ * just probed exists. Treating all seven rows identically is what makes
+ * staleness look like a hard problem; most of the time, half of them are not
+ * actually stale.
  *
  * This very nearly coincides with {@link ChainLink.tsKind} — a fold row is
  * dated by a stored event, a poll row by the probe that is this render — and
@@ -80,12 +83,19 @@ export interface ChainLink {
   state: LinkState
   /** What checks this row, and what therefore has to be alive for it to say VERIFIED — see {@link Evidence}. */
   evidence: Evidence
-  /** VERIFIED only: the fact that proves it — and never a fact a fixture fabricated ({@link attest}). */
+  /**
+   * The fact that proves it. Always present on VERIFIED; **also present on an
+   * UNPROVEN row that was demoted by {@link attest} for a dead stream** — the
+   * fact and its date are still true statements about when they were last
+   * proven, and #345 keeps them precisely because "UNPROVEN plus a dated fact"
+   * is the whole reason a fourth LAST KNOWN state was not needed. Never
+   * present on BROKEN, and never present on a row a fixture drove.
+   */
   fact: string | null
   /**
-   * VERIFIED only, and **never null on a VERIFIED row** — ruling 3's own
-   * sentence is "a fact AND its timestamp", and a stale VERIFIED with nothing
-   * to date it is exactly the failure this page exists to remove.
+   * **Never null wherever {@link fact} is set** — ruling 3's own sentence is
+   * "a fact AND its timestamp", and a stale fact with nothing to date it is
+   * exactly the failure this page exists to remove.
    */
   ts: number | null
   /**
@@ -704,6 +714,11 @@ function uninstrumentedConductor(input: ConnectInputs): ChainLink {
   return unproven(base, ['no transcript activity has arrived yet, so there is no session to check'])
 }
 
+/** The two statuses {@link STREAM_REASON} itself describes as "nothing is arriving over it". */
+function streamIsDead(status: ConnectionStatus): boolean {
+  return status === 'error' || status === 'closed'
+}
+
 /**
  * **A FIXTURE FOLD IS NOT EVIDENCE, PER ROW** (#343).
  *
@@ -757,14 +772,56 @@ function fromFixture(link: ChainLink, input: ConnectInputs): ChainLink {
 }
 
 /**
- * The one gate #343 states: **VERIFIED requires live evidence from that row's
- * own source.** Poll-derived rows have their own source and are untouched — a
- * fixture in the fold says nothing about whether the directory
- * `GET /api/doctor` just probed exists.
+ * **A DEAD STREAM IS NOT EVIDENCE EITHER** (#345).
+ *
+ * VERIFIED on this page does not mean "this was true once"; it means "I
+ * checked, and it holds". A fold row's checker is the SSE stream, so when the
+ * stream dies nothing is checking and the strongest word this page has has to
+ * be withdrawn — however recently it was earned. A green row with a timestamp
+ * forty minutes old still reads green at a glance, and glancing is exactly what
+ * people do on a page they opened because something was already wrong.
+ *
+ * **The fact and its date stay.** They are not a lie and they are worth
+ * showing: "UNPROVEN, and here is the last thing that WAS proven, dated" says
+ * everything a fourth LAST KNOWN state would have said, using a word the
+ * reader has already had to learn. Three states are already a vocabulary a
+ * stranger picks up mid-incident; a fourth is not worth the precision.
+ *
+ * **Only VERIFIED is withdrawn.** A BROKEN fold row stays BROKEN: a refusal
+ * that folded, or a conductor that ran uninstrumented, is something that
+ * happened, and the stream dying afterwards does not un-happen it. The
+ * asymmetry with {@link fromFixture} is the same distinction one step on — a
+ * fixture's fault never happened at all.
+ *
+ * **`connecting` is not dead.** It is the ordinary first moment of every page
+ * load, and demoting there would make the first paint contradict the
+ * `/api/meta` body it had just read — the precise failure
+ * {@link mergeUninstrumented} was ruled into existence to remove ("that would
+ * go quiet exactly when SSE lags").
+ */
+function lastProven(link: ChainLink, input: ConnectInputs): ChainLink {
+  return {
+    ...link,
+    state: 'unproven',
+    notes: [
+      ...link.notes,
+      `${STREAM_REASON[input.stream.status]} — the fact above is the last one that WAS proven, and nothing has checked it since`,
+    ],
+  }
+}
+
+/**
+ * The one gate both #343 and #345 pass through, because they are one question:
+ * **VERIFIED requires live evidence from that row's own source.** Poll-derived
+ * rows have their own source and their own freshness and are untouched by
+ * either — a dead SSE says nothing about whether the last `GET /api/doctor`
+ * succeeded, and a fixture in the fold says nothing about whether the
+ * directory doctor just probed exists.
  */
 function attest(link: ChainLink, input: ConnectInputs): ChainLink {
   if (link.evidence === 'poll') return link
   if (!input.stream.live) return fromFixture(link, input)
+  if (link.state === 'verified' && streamIsDead(input.stream.status)) return lastProven(link, input)
   return link
 }
 

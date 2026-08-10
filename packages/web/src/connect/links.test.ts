@@ -31,6 +31,9 @@ const NOW = Date.UTC(2026, 7, 10, 12, 0, 0)
 /** A fixture driving the fold: `StreamContext` hands every fixture `status: 'open'` outright, so the fabricated part is exactly the part that reads healthiest. */
 const FIXTURE: ConnectInputs['stream'] = { status: 'open', eventCount: 900, provenance: 'fixture · 20-lane synthetic fleet', live: false }
 
+/** The live log's own stream, after it died. `live` stays true — this IS this instrument; nothing is carrying its news any more. */
+const DEAD: ConnectInputs['stream'] = { status: 'closed', eventCount: 5, provenance: 'live · /api/stream', live: true }
+
 function inputs(state: SessionState, overrides: Partial<ConnectInputs> = {}): ConnectInputs {
   return {
     flow: selectConnection(state),
@@ -91,6 +94,13 @@ describe('buildLinks — the chain ruling 3 names', () => {
    * row, so a new default path cannot ship VERIFIED with nothing to date it
    * or BROKEN with no remedy. Ruled on PR #334's review: the rows move, the
    * ruling stands, no waiver.
+   *
+   * **UNPROVEN's half of the triple is now "nothing PROVEN yet", not "nothing
+   * at all"** (#345). A fold row demoted by a dead stream keeps the fact it
+   * last proved and the date on it — that is a true statement and the reason
+   * a fourth LAST KNOWN state was not needed. What UNPROVEN still may never
+   * carry is a reason or a command: those are BROKEN's, and a row that is not
+   * claiming a fault must not hand out a remedy for one.
    */
   it('gives every row exactly one state, and every state carries the whole of what its name promises', () => {
     const scenarios = everyBranch()
@@ -102,6 +112,11 @@ describe('buildLinks — the chain ruling 3 names', () => {
     for (const links of scenarios) {
       for (const link of links) {
         expect(['verified', 'broken', 'unproven']).toContain(link.state)
+        // Ruling 3's "a fact AND its timestamp" as one clause rather than two
+        // fields that happen to agree: wherever a fact is shown at all, in
+        // any state, it is dated and says what kind of date that is.
+        expect(link.ts === null, `${link.id} shows a fact with nothing to date it`).toBe(link.fact === null)
+        expect(link.tsKind === null, link.id).toBe(link.ts === null)
         if (link.state === 'verified') {
           expect(link.fact, link.id).not.toBeNull()
           expect(link.ts, `${link.id} is VERIFIED with nothing to date it`).not.toBeNull()
@@ -116,10 +131,9 @@ describe('buildLinks — the chain ruling 3 names', () => {
           expect(link.ts, link.id).toBeNull()
         }
         if (link.state === 'unproven') {
-          expect(link.fact, link.id).toBeNull()
-          expect(link.ts, link.id).toBeNull()
           expect(link.reason, link.id).toBeNull()
-          expect(link.command, link.id).toBeNull()
+          expect(link.command, `${link.id} is UNPROVEN and still hands out a remedy`).toBeNull()
+          expect(link.warning, link.id).toBeNull()
         }
       }
     }
@@ -158,11 +172,12 @@ describe('buildLinks — the chain ruling 3 names', () => {
       build(reduceAll([]), { meta: allDisabled }),
       build(reduceAll([]), { meta: metaWith(), stream: { status: 'error', eventCount: 0, provenance: 'live · /api/stream', live: true } }),
       build(reduceAll([]), { stream: { status: 'connecting', eventCount: 0, provenance: 'live · /api/stream', live: true } }),
-      // The fixture demotion (#343), over the two logs that reach the most
+      // The two demotions (#343, #345), over the two logs that reach the most
       // states — so the triple is asserted on the rows `attest` rewrote, not
       // only on the rows it left alone.
       build(busy, { doctor: [slugOk], meta: metaWith(), stream: FIXTURE }),
       build(uninstrumented, { doctor: [slugMissing], meta: metaWith(), stream: FIXTURE }),
+      build(busy, { doctor: [slugOk], meta: metaWith(), stream: DEAD }),
     ]
   }
 
@@ -523,10 +538,11 @@ describe('browser ↔ server', () => {
 })
 
 /**
- * VERIFIED MEANS "I CHECKED, AND IT HOLDS" — the ruling behind #343. The
- * corpus below is a log that proves all seven rows outright when the stream
- * carrying it is live and real, so every assertion here is about the demotion
- * and not about a log that had nothing to say in the first place.
+ * VERIFIED MEANS "I CHECKED, AND IT HOLDS" — the one ruling behind #343 and
+ * #345, asserted from both ends. The corpus below is a log that proves five of
+ * the seven rows outright when the stream carrying it is live and real, so
+ * every assertion here is about the demotion and not about a log that had
+ * nothing to say in the first place.
  */
 function provingLog() {
   return reduceAll([
@@ -609,6 +625,73 @@ describe('a fixture fold is not evidence — #343', () => {
 
     expect(link.state).toBe('verified')
     expect(link.notes.join(' ')).not.toContain('synthetic fleet')
+  })
+})
+
+describe('a dead stream is not evidence either — #345', () => {
+  /**
+   * **THE LAW.** A fold row's checker is the SSE stream; when the stream dies,
+   * nothing is checking, and VERIFIED — which means "I checked, and it holds",
+   * not "this was true once" — has to be withdrawn. Leaving it green with a
+   * timestamp makes staleness legible rather than loud, and glancing is what
+   * people do on a page they opened because something was already wrong.
+   */
+  it('drops a fold-derived VERIFIED row to UNPROVEN when the stream is down, keeping the fact and its date', () => {
+    const alive = row(build(provingLog()), 'repo-git')
+    expect(alive.state).toBe('verified')
+
+    const dead = row(build(provingLog(), { stream: DEAD }), 'repo-git')
+
+    expect(dead.state).toBe('unproven')
+    // Not a fourth LAST KNOWN state: UNPROVEN plus a dated fact says the same
+    // thing with a word the reader has already had to learn.
+    expect(dead.fact).toBe(alive.fact)
+    expect(dead.ts).toBe(1_000)
+    expect(dead.tsKind).toBe('event')
+    expect(dead.notes.join(' ')).toContain('the last one that WAS proven')
+    expect(dead.notes.join(' ')).toContain('the event stream is closed')
+  })
+
+  /**
+   * **THE SUBSTANCE OF THE RULING: not all seven rows come from the fold.**
+   * `/api/doctor` has its own freshness and its own failure mode, and a dead
+   * SSE says nothing about whether the last poll succeeded. Treating all seven
+   * identically is what makes this look like a hard problem.
+   */
+  it('leaves the poll-derived slug row VERIFIED while every fold row goes unproven', () => {
+    const links = build(provingLog(), { doctor: [SLUG_OK], stream: DEAD })
+
+    expect(row(links, 'transcripts-slug').state).toBe('verified')
+    expect(row(links, 'transcripts-slug').notes.join(' ')).not.toContain('nothing has checked')
+    for (const id of ['repo-git', 'agents-tmux', 'transcripts-flow', 'otel', 'uninstrumented-conductor']) {
+      expect(row(links, id).state, id).toBe('unproven')
+    }
+  })
+
+  it('does it for an errored stream as well as a closed one, and not for one still opening', () => {
+    const errored = { status: 'error' as const, eventCount: 5, provenance: 'live · /api/stream', live: true }
+    expect(row(build(provingLog(), { stream: errored }), 'otel').state).toBe('unproven')
+
+    // `connecting` is the ordinary first moment of every page load. Demoting
+    // there would make the first paint contradict the /api/meta body it just
+    // read — the failure `mergeUninstrumented` was ruled in to remove.
+    const opening = { status: 'connecting' as const, eventCount: 5, provenance: 'live · /api/stream', live: true }
+    expect(row(build(provingLog(), { stream: opening }), 'otel').state).toBe('verified')
+  })
+
+  /**
+   * Only VERIFIED is withdrawn. A refusal that folded is something that
+   * happened, and the stream dying afterwards does not un-happen it — so the
+   * fault, and the remedy for it, stay exactly where they were.
+   */
+  it('keeps a fold-derived BROKEN row broken, with its command, when the stream dies', () => {
+    const state = reduceAll([f.make('telemetry.refused', { instance: 'sess-other', expectedInstance: 'sess-ours', count: 4 }, { ts: 1_000 })])
+    const link = row(build(state, { stream: DEAD }), 'otel')
+
+    expect(link.state).toBe('broken')
+    expect(link.reason).toContain('sess-other')
+    expect(link.command).toBe('rhizomorph env <lane> --port 4317')
+    expect(link.warning).toBe(SAME_PROCESS_WARNING)
   })
 })
 
