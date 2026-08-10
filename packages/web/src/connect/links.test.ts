@@ -28,6 +28,9 @@ beforeEach(() => {
 
 const NOW = Date.UTC(2026, 7, 10, 12, 0, 0)
 
+/** A fixture driving the fold: `StreamContext` hands every fixture `status: 'open'` outright, so the fabricated part is exactly the part that reads healthiest. */
+const FIXTURE: ConnectInputs['stream'] = { status: 'open', eventCount: 900, provenance: 'fixture · 20-lane synthetic fleet', live: false }
+
 function inputs(state: SessionState, overrides: Partial<ConnectInputs> = {}): ConnectInputs {
   return {
     flow: selectConnection(state),
@@ -155,6 +158,11 @@ describe('buildLinks — the chain ruling 3 names', () => {
       build(reduceAll([]), { meta: allDisabled }),
       build(reduceAll([]), { meta: metaWith(), stream: { status: 'error', eventCount: 0, provenance: 'live · /api/stream', live: true } }),
       build(reduceAll([]), { stream: { status: 'connecting', eventCount: 0, provenance: 'live · /api/stream', live: true } }),
+      // The fixture demotion (#343), over the two logs that reach the most
+      // states — so the triple is asserted on the rows `attest` rewrote, not
+      // only on the rows it left alone.
+      build(busy, { doctor: [slugOk], meta: metaWith(), stream: FIXTURE }),
+      build(uninstrumented, { doctor: [slugMissing], meta: metaWith(), stream: FIXTURE }),
     ]
   }
 
@@ -511,6 +519,96 @@ describe('browser ↔ server', () => {
 
     expect(link.state).toBe('unproven')
     expect(link.notes.join(' ')).toContain('synthetic fleet')
+  })
+})
+
+/**
+ * VERIFIED MEANS "I CHECKED, AND IT HOLDS" — the ruling behind #343. The
+ * corpus below is a log that proves all seven rows outright when the stream
+ * carrying it is live and real, so every assertion here is about the demotion
+ * and not about a log that had nothing to say in the first place.
+ */
+function provingLog() {
+  return reduceAll([
+    f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, { ts: 1_000 }),
+    f.agentStatus({ handle: 'lane-a', status: 'working' }, { ts: 3_000 }),
+    f.toolActivity({ lane: 'lane-a', role: 'worker', sessionId: 'sess-a', tool: 'Bash' }, { ts: 4_000, source: 'sessionlog' }),
+    f.llmUsage({ lane: 'lane-a', role: 'worker', sessionId: 'sess-a' }, { ts: 5_000, source: 'otel' }),
+  ])
+}
+
+const SLUG_OK: DoctorFact = { id: 'session-logs', status: 'ok', message: 'session logs found at /home/x/.claude/projects', assumed: false }
+
+describe('a fixture fold is not evidence — #343', () => {
+  /**
+   * **THE LAW.** Ruling 6 was already satisfied to the letter by the
+   * page-level `connect-not-live` banner, and that was not enough: a banner is
+   * a label on a page, not a property of a row, and a reader who scrolls past
+   * it sees six green ticks. This is the same claim as the banner, moved to
+   * where the reader is actually looking.
+   */
+  it('renders no VERIFIED row off a fixture fold, over a log that verifies all seven when live', () => {
+    const live = build(provingLog(), { doctor: [SLUG_OK], meta: metaWith() })
+    expect(live.filter((link) => link.state === 'verified').map((link) => link.id)).toEqual([
+      'browser-server',
+      'repo-git',
+      'agents-tmux',
+      'transcripts-slug',
+      'transcripts-flow',
+      'otel',
+      'uninstrumented-conductor',
+    ])
+
+    const fixture = build(provingLog(), { doctor: [SLUG_OK], meta: metaWith(), stream: FIXTURE })
+    const green = fixture.filter((link) => link.state === 'verified').map((link) => link.id)
+    // Only the row the fold does not feed at all survives — see the poll test below.
+    expect(green).toEqual(['transcripts-slug'])
+  })
+
+  it('names the fixture on the row itself, as the reason, rather than leaving it to a banner', () => {
+    const fixture = build(provingLog(), { doctor: [SLUG_OK], meta: metaWith(), stream: FIXTURE })
+
+    for (const link of fixture) {
+      if (link.id === 'transcripts-slug') continue
+      expect(link.state, link.id).toBe('unproven')
+      expect(link.notes.join(' '), `${link.id} does not say why it is silent`).toContain('20-lane synthetic fleet')
+      // A fabricated fact is not a fact worth keeping beside an honest word.
+      expect(link.fact, link.id).toBeNull()
+    }
+  })
+
+  /**
+   * **THE SYNTHETIC LANE'S COMMAND MUST NOT BE COPYABLE.** `lane-17` exists
+   * only inside the fixture; handing an operator `rhizomorph env lane-17 …` is
+   * worse than an unhelpful row, because it is an instruction to do something
+   * pointless and then wonder why nothing changed. `index.tsx` renders a copy
+   * button only where there is a command, so clearing it is what removes the
+   * button — the row stops offering the action rather than offering it with a
+   * caveat attached.
+   */
+  it('hands out no copyable command for a lane that only exists in the fixture', () => {
+    const state = reduceAll([
+      f.toolActivity({ lane: 'lane-17', role: 'conductor', sessionId: 'sess-synthetic', tool: 'Bash' }, { ts: NOW - 10 * 60_000, source: 'sessionlog' }),
+    ])
+    expect(row(build(state), 'uninstrumented-conductor').command).toBe('rhizomorph env lane-17 --role conductor --port 4317')
+
+    const fixture = build(state, { stream: FIXTURE })
+    const link = row(fixture, 'uninstrumented-conductor')
+
+    expect(link.state).toBe('unproven')
+    expect(link.command).toBeNull()
+    expect(link.warning).toBeNull()
+    expect(link.reason).toBeNull()
+    for (const other of fixture) expect(other.command, other.id).toBeNull()
+    expect(JSON.stringify(fixture)).not.toContain('rhizomorph env')
+  })
+
+  /** A fixture in the fold says nothing about whether the directory doctor just probed exists. */
+  it('leaves the poll-derived slug row alone — doctor probed this filesystem, whatever drives the fold', () => {
+    const link = row(build(reduceAll([]), { doctor: [SLUG_OK], stream: FIXTURE }), 'transcripts-slug')
+
+    expect(link.state).toBe('verified')
+    expect(link.notes.join(' ')).not.toContain('synthetic fleet')
   })
 })
 

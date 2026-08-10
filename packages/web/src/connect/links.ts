@@ -31,6 +31,14 @@ import { doctorCheck, type CollectorFacts, type DoctorFact, type MetaFacts } fro
  * of the same append-only truth, and a page whose job is proof must not lose
  * a proof because one witness was polled a second earlier.
  *
+ * **VERIFIED MEANS "I CHECKED, AND IT HOLDS" — NEVER "THIS WAS TRUE ONCE"**
+ * (#343). A row may say VERIFIED only on live evidence from ITS OWN source,
+ * and you cannot check anything over a fold that was never live. The honest
+ * state there is UNPROVEN, which is exactly why this page has a third state
+ * rather than a choice between a green lie and a red one.
+ * {@link ChainLink.evidence} names the source each row is checked by, and
+ * {@link attest} is the one place that ruling is applied.
+ *
  * The three states are also the hue law's own three (`theme/theme.css`):
  * verified wears the green family, broken wears the one red the instrument
  * has, and unproven wears the ice ramp — **waiting is not an alarm**, so a
@@ -40,6 +48,29 @@ import { doctorCheck, type CollectorFacts, type DoctorFact, type MetaFacts } fro
 
 export type LinkState = 'verified' | 'broken' | 'unproven'
 
+/**
+ * WHAT IS CHECKING A ROW — and therefore what has to be both real and alive
+ * before it may say VERIFIED (#343).
+ *
+ * `'fold'`: the SSE stream. These rows are proved by records the fold
+ * absorbed, so their claims are only as real as the log driving it.
+ *
+ * `'poll'`: a GET this page re-reads on its own interval (`/api/meta`,
+ * `GET /api/doctor`). These have their own freshness and their own failure
+ * mode — a fixture in the fold says nothing about whether the filesystem
+ * doctor just probed exists. Treating all seven rows identically is what makes
+ * this look like a hard problem; most of the time, half of them are not
+ * affected at all.
+ *
+ * This very nearly coincides with {@link ChainLink.tsKind} — a fold row is
+ * dated by a stored event, a poll row by the probe that is this render — and
+ * that is not a coincidence: both distinctions are the same one. It is
+ * declared per row rather than read off `tsKind` because `tsKind` leaks on
+ * one real case: a folded record whose every stamp was null is dated `'render'`
+ * ({@link provenAt}) while still being a stored fact nobody is checking.
+ */
+export type Evidence = 'fold' | 'poll'
+
 export interface ChainLink {
   id: string
   /** The link itself, as ruling 3 names it: `browser ↔ server`, `repo ↔ git`, … */
@@ -47,7 +78,9 @@ export interface ChainLink {
   /** What this row would prove — shown always, so an UNPROVEN row still says what it is waiting for. */
   question: string
   state: LinkState
-  /** VERIFIED only: the fact that proves it. */
+  /** What checks this row, and what therefore has to be alive for it to say VERIFIED — see {@link Evidence}. */
+  evidence: Evidence
+  /** VERIFIED only: the fact that proves it — and never a fact a fixture fabricated ({@link attest}). */
   fact: string | null
   /**
    * VERIFIED only, and **never null on a VERIFIED row** — ruling 3's own
@@ -304,16 +337,14 @@ function browserServer(input: ConnectInputs): ChainLink {
     id: 'browser-server',
     label: 'browser ↔ server',
     question: 'is this page actually talking to a running Rhizomorph?',
+    evidence: 'fold' as const,
   }
   const notes = [`source: ${input.stream.provenance}`, ...doctorNote(input.doctor, 'node')]
 
-  if (!input.stream.live) {
-    // Ruling 6, at this page's most load-bearing row: a fixture and a replay
-    // both fabricate `status: 'open'` (`StreamContext`), so reading it as
-    // proof would be exactly the lie this page exists to remove.
-    return unproven(base, [...notes, 'a recorded session or a synthetic fleet is driving this fold — nothing here proves this browser is talking to a live instrument'])
-  }
-
+  // Ruling 6 used to be enforced here, at this one row, because a fixture and
+  // a replay both fabricate `status: 'open'` (`StreamContext`). #343 moved it
+  // to {@link attest} so it reaches every row the fold feeds instead of only
+  // the row that reads `status` — the outcome for this row is unchanged.
   if (input.stream.status === 'open') {
     const instance = input.meta?.sessionId ?? null
     const served = instance === null ? '/api/meta has not named an instance' : `/api/meta names instance ${instance}`
@@ -333,7 +364,7 @@ function browserServer(input: ConnectInputs): ChainLink {
 
 /** **repo ↔ git.** Worktrees, branches and commits reaching the fold — the L0 floor every other link is measured against. */
 function repoGit(input: ConnectInputs): ChainLink {
-  const base = { id: 'repo-git', label: 'repo ↔ git', question: 'is the git collector reaching this repo?' }
+  const base = { id: 'repo-git', label: 'repo ↔ git', question: 'is the git collector reaching this repo?', evidence: 'fold' as const }
   const flow = mergeFlow(input.flow.git, input.meta?.connection?.sources.git)
   const notes = doctorNote(input.doctor, 'lane-manifest')
 
@@ -356,6 +387,7 @@ function agentsPanes(input: ConnectInputs): ChainLink {
     id: 'agents-tmux',
     label: 'agents ↔ tmux/workmux',
     question: 'is anything reporting live agent panes and handles?',
+    evidence: 'fold' as const,
   }
   const tmux = mergeFlow(input.flow.tmux, input.meta?.connection?.sources.tmux)
   const workmux = mergeFlow(input.flow.workmux, input.meta?.connection?.sources.workmux)
@@ -400,6 +432,10 @@ function transcriptSlug(input: ConnectInputs): ChainLink {
     id: 'transcripts-slug',
     label: 'transcripts ↔ slug (dir)',
     question: 'does the session-log directory this repo resolves to exist?',
+    // The one row in the chain the fold does not feed at all, which is why it
+    // survives both a fixture and a dead stream: doctor probed THIS
+    // filesystem, on its own interval, whatever log is driving the page.
+    evidence: 'poll' as const,
   }
   const check = doctorCheck(input.doctor, 'session-logs')
   if (check === null) {
@@ -427,6 +463,7 @@ function transcriptFlow(input: ConnectInputs): ChainLink {
     id: 'transcripts-flow',
     label: 'transcripts ↔ slug (flow)',
     question: 'has a single transcript event actually arrived?',
+    evidence: 'fold' as const,
   }
   const flow = mergeFlow(input.flow.sessionlog, input.meta?.connection?.sources.sessionlog)
   if (flow.count > 0) {
@@ -471,6 +508,7 @@ function otelLink(input: ConnectInputs): ChainLink {
     id: 'otel',
     label: 'dollars/traces ↔ OTel',
     question: 'is any agent exporting telemetry to this instance?',
+    evidence: 'fold' as const,
   }
   const flow = mergeFlow(input.flow.otel, input.meta?.connection?.sources.otel)
   const refusal = latestRefusal(input)
@@ -633,6 +671,7 @@ function uninstrumentedConductor(input: ConnectInputs): ChainLink {
     id: 'uninstrumented-conductor',
     label: 'the uninstrumented conductor',
     question: 'is every agent with transcript activity also exporting telemetry?',
+    evidence: 'fold' as const,
   }
   const witnesses = mergeUninstrumented(input.flow.uninstrumentedSessions, input.meta?.connection?.uninstrumentedSessions)
   const ripe = witnesses.filter((witness) => pastGrace(witness, input.now))
@@ -666,10 +705,75 @@ function uninstrumentedConductor(input: ConnectInputs): ChainLink {
 }
 
 /**
+ * **A FIXTURE FOLD IS NOT EVIDENCE, PER ROW** (#343).
+ *
+ * Ruling 6 was already satisfied to the letter by the page-level
+ * `connect-not-live` banner, and that was not enough: a banner is a label on a
+ * page, not a property of a row, and a reader who scrolls past it sees six
+ * green ticks. The whole design of this checklist is that each row carries its
+ * own truth so nobody has to hold context in their head, and that design is
+ * worth nothing if the single most important caveat on the page is the one
+ * thing kept outside the rows.
+ *
+ * Everything goes — the fact, the reason, the command — not just the green.
+ * **A synthetic lane's `env` command must never be copyable**: handing someone
+ * `rhizomorph env lane-17 …` for a lane that exists only inside a 20-lane
+ * fixture is worse than an unhelpful row, because it is an instruction to do
+ * something pointless and then wonder why nothing changed. Clearing `command`
+ * is what removes the copy button (`index.tsx` renders one only where there is
+ * a command), so the row stops offering the action rather than offering it
+ * with a warning attached.
+ *
+ * **The notes go with it, all of them.** Every note on a row was written to
+ * support a claim this row is no longer making — and one of them,
+ * {@link envApplyNote}, carries the exact command the copy button was just
+ * denied, wrapped in an `eval` a reader can select and paste. Clearing
+ * `command` while leaving that in prose would remove the button and keep the
+ * instruction. Doctor's own findings are not lost by this: they are unchanged
+ * and unranked in the panel below the rows, which is what that panel is for.
+ *
+ * What this costs, stated rather than hidden: a row that would have gone
+ * BROKEN on `/api/meta`'s own evidence — a collector disabled at boot — goes
+ * quiet under a fixture too. That is the right trade and not merely an
+ * accepted one. {@link mergeFlow} and {@link mergeUninstrumented} have by then
+ * FUSED the fabricated fold with the real poll into single counts and single
+ * session lists; the row can no longer say which witness it is quoting, and a
+ * page whose subject is proof must not make a claim it cannot attribute.
+ */
+function fromFixture(link: ChainLink, input: ConnectInputs): ChainLink {
+  return {
+    ...link,
+    state: 'unproven',
+    fact: null,
+    ts: null,
+    tsKind: null,
+    reason: null,
+    command: null,
+    warning: null,
+    notes: [
+      `${input.stream.provenance} is driving this fold — a recording or a synthetic fleet, not this instrument, so nothing folded from it is evidence about this instrument's own wiring`,
+    ],
+  }
+}
+
+/**
+ * The one gate #343 states: **VERIFIED requires live evidence from that row's
+ * own source.** Poll-derived rows have their own source and are untouched — a
+ * fixture in the fold says nothing about whether the directory
+ * `GET /api/doctor` just probed exists.
+ */
+function attest(link: ChainLink, input: ConnectInputs): ChainLink {
+  if (link.evidence === 'poll') return link
+  if (!input.stream.live) return fromFixture(link, input)
+  return link
+}
+
+/**
  * The chain, in the order ruling 3 lists it: browser↔server · repo↔git ·
  * agents↔tmux/workmux · transcripts↔slug (plumbing, then flow) ·
  * dollars/traces↔OTel — and last, the named case the whole PRD is evidence
- * for.
+ * for. Every row is then held to {@link attest}, in one place, so no row can
+ * be added that quietly skips it.
  */
 export function buildLinks(input: ConnectInputs): ChainLink[] {
   return [
@@ -680,7 +784,7 @@ export function buildLinks(input: ConnectInputs): ChainLink[] {
     transcriptFlow(input),
     otelLink(input),
     uninstrumentedConductor(input),
-  ]
+  ].map((link) => attest(link, input))
 }
 
 /** How many rows are in each state — the page's one-line summary, and never a score. */
