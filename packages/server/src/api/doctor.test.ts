@@ -296,31 +296,28 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
   describe('law: for the same fixture dir, the session-logs message equals the CLI\'s, character for character', () => {
     /**
      * #288 deepened `checkClaudeProjects` (`cli/doctor.ts`) to answer for the
-     * watched repo's own slug dir, not just the global root — but only
-     * `runDoctor`'s own call site, inside that issue's fence, was updated to
-     * pass `repoPath` through as the new second argument. `runServerDoctor`'s
-     * call here in `api/doctor.ts` sits outside that fence and still calls
-     * `checkClaudeProjects(options.claudeProjectsRoot)` with one argument, so
-     * the route keeps answering with the pre-#288 global-root-only rung until
-     * that file's own one-line follow-up (`checkClaudeProjects(options.claudeProjectsRoot,
-     * repoPath)`) lands. The two tests below prove what's true today (the
-     * route's still-shallow call matches the identically-shallow call
-     * `checkClaudeProjects` itself would answer) and what becomes true the
-     * moment that follow-up lands (the exact same shared function already
-     * agrees with the CLI on the deepened answer, given the same repoPath) —
-     * no further change to this function required, only that one call site.
+     * watched repo's own slug dir, not just the global root, and both call
+     * sites pass `repoPath` through: `runDoctor`'s and — after this issue's
+     * fence was widened by one file, recorded on #288 — `runServerDoctor`'s
+     * here in `api/doctor.ts`.
+     *
+     * That widening is what these assertions guard. The route and the CLI
+     * share one function, so the only way they can disagree is a call site
+     * dropping the argument; comparing the route's message to the same
+     * function called the same way catches exactly that, character for
+     * character, which is this issue's own Done-when.
      */
-    it("today: the route's still-shallow call agrees with `checkClaudeProjects` called the same (shallow) way", async () => {
+    it("the route's deepened call agrees with `checkClaudeProjects` called the same way", async () => {
       await setup()
       try {
         const serverChecks = await runServerDoctor(repoPath, { exec: healthyExec, claudeProjectsRoot, dataRoot })
-        expect(checkFor(serverChecks, 'session-logs').message).toBe(checkClaudeProjects(claudeProjectsRoot).message)
+        expect(checkFor(serverChecks, 'session-logs').message).toBe(checkClaudeProjects(claudeProjectsRoot, repoPath).message)
       } finally {
         await teardown()
       }
     })
 
-    it("today: the route's still-shallow warn branch agrees with `checkClaudeProjects` called the same (shallow) way", async () => {
+    it("the route's deepened warn branch agrees with `checkClaudeProjects` called the same way", async () => {
       await setup()
       try {
         const missingClaudeProjectsRoot = path.join(claudeProjectsRoot, 'does-not-exist')
@@ -333,13 +330,13 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
 
         const serverCheck = checkFor(serverChecks, 'session-logs')
         expect(serverCheck.status).toBe('warn')
-        expect(serverCheck.message).toBe(checkClaudeProjects(missingClaudeProjectsRoot).message)
+        expect(serverCheck.message).toBe(checkClaudeProjects(missingClaudeProjectsRoot, repoPath).message)
       } finally {
         await teardown()
       }
     })
 
-    it('pending the api/doctor.ts follow-up: the shared function already agrees with the CLI on the deepened answer, given the same repoPath', async () => {
+    it('the shared function agrees with the CLI on the deepened answer, given the same repoPath', async () => {
       await setup()
       try {
         const webDistDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-api-doctor-web2-'))
