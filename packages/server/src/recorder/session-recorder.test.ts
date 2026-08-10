@@ -40,4 +40,25 @@ describe('SessionRecorder#closeWith', () => {
       recorder.record(createEvent('collector.error', { collector: 'git', message: 'boom' }, { id: 'evt-2', ts: 1001 })),
     ).resolves.toBeUndefined()
   })
+
+  it('releases the seal instead of hanging forever when a subscriber throws', async () => {
+    const closeEvent = createEvent(
+      'session.closed',
+      { sessionId: FIRST, reason: 'rotated', eventCount: 1 },
+      { id: `session-closed-${FIRST}`, ts: 1000 },
+    )
+    const unsubscribe = recorder.subscribe(() => {
+      throw new Error('subscriber boom')
+    })
+
+    await expect(recorder.closeWith(closeEvent)).rejects.toThrow('subscriber boom')
+    expect(recorder.isSealed).toBe(false)
+    unsubscribe()
+
+    // A record() call after the throwing close must resolve promptly, not
+    // hang forever on a seal nobody released.
+    await expect(
+      recorder.record(createEvent('collector.error', { collector: 'git', message: 'boom' }, { id: 'evt-2', ts: 1001 })),
+    ).resolves.toBeUndefined()
+  })
 })

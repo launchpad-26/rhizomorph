@@ -274,4 +274,35 @@ describe('the poll loop and snapshot persistence', () => {
     // having died on an unhandled rejection from the first one.
     await expect(pollLoop.tick()).resolves.toBeUndefined()
   })
+
+  it('degrades to a log line instead of crashing when the recorder cannot report a snapshot-save failure', async () => {
+    const recorder = createFailingRecorder()
+    const store = createFakeStore()
+    store.failSave = new Error('EACCES: permission denied')
+    // Emits no events of its own, so the snapshot-save catch in `persist()`
+    // — not the collector-poll-failed catch in `runTick()` — is the one
+    // whose `recorder.record` call this test exercises.
+    const silent: AnyCollector = {
+      name: 'silent',
+      initialSnapshot: () => ({ polls: 0 }),
+      poll: (prev: { polls: number }) => ({
+        nextSnapshot: { polls: prev.polls + 1 },
+        events: [],
+      }),
+    }
+
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [silent],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+      snapshotStore: store,
+    })
+
+    await expect(pollLoop.tick()).resolves.toBeUndefined()
+    // The loop is still alive: a second tick runs rather than the process
+    // having died on an unhandled rejection from the first one.
+    await expect(pollLoop.tick()).resolves.toBeUndefined()
+  })
 })

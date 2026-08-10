@@ -1,4 +1,4 @@
-import type { AnyCollector, Exec } from '@rhizomorph/core'
+import type { AnyCollector, Exec, RhizomorphEvent } from '@rhizomorph/core'
 import { createCollectorContext, createEvent, createIdFactory } from '@rhizomorph/core'
 import type { SessionRecorder } from './recorder.js'
 import type { SnapshotStore } from './snapshot-store.js'
@@ -67,6 +67,21 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
     return hydration
   }
 
+  /**
+   * Reports a failure via the recorder without letting a *second* failure —
+   * the report itself rejecting — escape as an unhandled rejection. The
+   * reporting path is never the crash path (issue #239).
+   */
+  async function recordOrDegrade(event: RhizomorphEvent, collectorName: string): Promise<void> {
+    try {
+      await recorder.record(event)
+    } catch (reportError) {
+      console.error(
+        `[rhizomorph] failed to report ${event.type} for ${collectorName}: ${reportError instanceof Error ? reportError.message : String(reportError)}`,
+      )
+    }
+  }
+
   async function persist(collector: AnyCollector, snapshot: unknown): Promise<void> {
     if (!snapshotStore) return
     try {
@@ -75,7 +90,7 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
     } catch (error) {
       if (saveErrors.has(collector.name)) return
       saveErrors.add(collector.name)
-      await recorder.record(
+      await recordOrDegrade(
         createEvent(
           'collector.error',
           {
@@ -84,6 +99,7 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
           },
           { id: nextId(), ts: now() },
         ),
+        collector.name,
       )
     }
   }
@@ -112,13 +128,7 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
           },
           { id: nextId(), ts: now() },
         )
-        try {
-          await recorder.record(errorEvent)
-        } catch (reportError) {
-          console.error(
-            `[rhizomorph] failed to report collector.error for ${collector.name}: ${reportError instanceof Error ? reportError.message : String(reportError)}`,
-          )
-        }
+        await recordOrDegrade(errorEvent, collector.name)
       }
     }
   }
