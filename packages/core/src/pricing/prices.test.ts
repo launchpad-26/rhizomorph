@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import raw from './default-model-prices.json'
 import {
   PRICE_SOURCE_NAME,
   compilePattern,
@@ -132,5 +133,49 @@ describe('estimateCostUsd — against the real vendored table', () => {
 
   it('returns null for a model no pattern in the table covers at all', () => {
     expect(estimateCostUsd('some-made-up-model-nobody-ships', tokens(0, 100))).toBeNull()
+  })
+})
+
+describe('estimateCostUsd — memoized rate resolution (issue #287)', () => {
+  // A rates array parsed independently of the module's internal cache, so
+  // this exercises the "unmemoized scan" side of the law via the exported
+  // `findRate`/`priceTokens` directly against the same vendored table.
+  const freshRates = parsePriceTable(raw)
+  const usage = tokens(1_000, 1_000, 1_000, 1_000)
+
+  it('deep-equals the unmemoized scan for every model string in the table plus a miss', () => {
+    const modelStrings = [...freshRates.map((rate) => rate.modelName), 'a-model-nobody-ships-287']
+    for (const model of modelStrings) {
+      const scanned = findRate(freshRates, model)
+      const expected =
+        scanned === null ? null : { costUsd: priceTokens(scanned, usage), source: PRICE_SOURCE_NAME }
+      expect(estimateCostUsd(model, usage)).toEqual(expected)
+    }
+  })
+
+  it('scans the pattern table at most once per distinct model string, hit or miss', () => {
+    // Fresh, never-before-requested strings: a different-cased hit (a new
+    // memo key, still matching gpt-4o's case-insensitive pattern) and a miss.
+    const freshHit = 'GPT-4O'
+    const freshMiss = 'no-such-model-287-fresh-miss'
+    const spy = vi.spyOn(RegExp.prototype, 'test')
+
+    spy.mockClear()
+    estimateCostUsd(freshHit, usage)
+    expect(spy.mock.calls.length).toBeGreaterThan(0)
+    spy.mockClear()
+    estimateCostUsd(freshHit, usage)
+    estimateCostUsd(freshHit, usage)
+    expect(spy).not.toHaveBeenCalled()
+
+    spy.mockClear()
+    estimateCostUsd(freshMiss, usage)
+    expect(spy.mock.calls.length).toBeGreaterThan(0)
+    spy.mockClear()
+    estimateCostUsd(freshMiss, usage)
+    estimateCostUsd(freshMiss, usage)
+    expect(spy).not.toHaveBeenCalled()
+
+    spy.mockRestore()
   })
 })

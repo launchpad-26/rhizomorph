@@ -134,6 +134,23 @@ function vendoredRates(): ModelRate[] {
   return rates
 }
 
+/**
+ * `findRate` walks the (149-entry) table in order on every call — cheap once,
+ * ruinous per record. Model strings per session are a handful and the table
+ * is static per process, so the resolved rate (or the honest miss) is cached
+ * by the exact model string forever. `null` is cached too: a miss pays the
+ * full un-anchored walk to the end of the table, making it the most expensive
+ * case to repeat.
+ */
+const rateMemo = new Map<string, ModelRate | null>()
+
+function resolveRate(model: string): ModelRate | null {
+  if (rateMemo.has(model)) return rateMemo.get(model)!
+  const rate = findRate(vendoredRates(), model)
+  rateMemo.set(model, rate)
+  return rate
+}
+
 export interface CostEstimate {
   costUsd: number
   /** Names the table and pin, e.g. `langfuse-prices@cfac485` — never a bare number. */
@@ -146,7 +163,7 @@ export interface CostEstimate {
  * table's patterns do not cover), never a guessed price.
  */
 export function estimateCostUsd(model: string, tokens: TokenUsagePayload): CostEstimate | null {
-  const rate = findRate(vendoredRates(), model)
+  const rate = resolveRate(model)
   if (rate === null) return null
   return { costUsd: priceTokens(rate, tokens), source: PRICE_SOURCE_NAME }
 }
