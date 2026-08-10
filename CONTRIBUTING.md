@@ -6,10 +6,34 @@ has to clear.
 
 ## Running it
 
+**Check your Node version first.** `package.json`'s `engines` requires
+**Node >= 22.22.2**, and CI pins that exact minimum — so a machine on an older
+Node is not a machine this suite has ever been green on:
+
+```sh
+node --version        # must be >= 22.22.2
+```
+
+On Node 20 the entire `web` suite fails to start its test workers with
+`TypeError: webidl.util.markAsUncloneable is not a function`, thrown from
+`undici` by way of `jsdom`. It reads exactly like a broken checkout, and it
+isn't — the failure is one function that only exists in Node 22. The tell is
+that the run reports **every test passing and still exits non-zero**, because
+the workers died outside any test:
+
+```
+Test Files  <all> passed
+     Tests  <all> passed
+    Errors  116 errors            # <- workers that never booted; exit code 1
+```
+
+If you see that shape, upgrade Node rather than debugging the tests.
+
 ```sh
 npm install
 npm test              # vitest, all workspaces
 npm run typecheck     # tsc --noEmit, all workspaces
+npm run lint          # biome lint (linter only — the formatter is disabled)
 npm run build         # bundles the server CLI, builds the web dashboard
 npm start             # boots collectors + API, serving the build above
 ```
