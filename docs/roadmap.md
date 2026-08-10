@@ -159,7 +159,7 @@
   running process is physically impossible and never claimed), clones by URL
   with the machine's own credentials, discovers local repos, and retargets the
   watched repo in place. Harness picker built for N with claude first-class;
-  adapter contract stays prd15 ruling 3's.
+  adapter contract stays prd15 ruling 4's.
 
 ## Unclaimed candidates (cohort-facing)
 
@@ -172,8 +172,8 @@ project rather than this week's work:
   lane.
 - **LiteLLM/OpenRouter/pi capture** — CLIs without native OTel; prd9 ruling 9
   scoped these as cohort issues rather than building them now. Narrower
-  since prd15: ruling 3 (`docs/prds/prd-15-anywhere-instrument.md`) already rules the adapter contract
-  and names pi-on-OpenRouter/Gemini explicitly, ruled but not yet landed —
+  since prd15: ruling 4 (`docs/prds/prd-15-anywhere-instrument.md`) already rules the adapter contract,
+  and ruling 3 names pi-on-OpenRouter/Gemini explicitly, both ruled but not yet landed —
   what remains cohort-inheritable is building the adapters against it, not
   designing the contract.
 - **A Langfuse forwarder** — an opt-in outbound relay, filed as a future
