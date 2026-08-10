@@ -59,11 +59,16 @@ export const realDiscoveryFs: DiscoveryFs = {
  * Reverses one `~/.claude/projects` slug back to the real path it names, by
  * walking the filesystem from `/` one path segment at a time and matching
  * the next stretch of the slug against actual directory entries — never by
- * guessing which of `/`, `_`, `.` a given `-` used to be.
+ * guessing which of `/`, `_`, `.`, or a space a given `-` used to be.
  *
  * At each directory, every real subdirectory name is re-encoded the same way
- * Claude Code encodes a path segment (`.` and `_` both become `-`; a literal
- * `-` is left alone) and checked against the *remaining* slug. The longest
+ * Claude Code encodes a path segment (`.`, `_`, and a literal space all
+ * become `-`; a literal `-` is left alone) and checked against the
+ * *remaining* slug. Verified against this machine's own `~/.claude/projects`
+ * during development — the space case (`ASK JO` → `ASK-JO`, `TailR
+ * Nutrition` → `TailR-Nutrition`) is not in #243's own list, so it would
+ * otherwise have surfaced as a run of honestly-unresolved slugs that were,
+ * in fact, real and present. The longest
  * matching entry wins, so a directory whose own name contains a literal `-`
  * (`worktrees-challenge`) is preferred over stopping one token early — the
  * ambiguity a slug can never fully resolve on its own is resolved here by
@@ -87,7 +92,7 @@ export function reverseProjectSlug(slug: string, fs: DiscoveryFs = realDiscovery
     let bestEntry: string | null = null
     let bestEncodedLength = -1
     for (const entry of candidates) {
-      const encoded = entry.replace(/[._]/g, '-')
+      const encoded = entry.replace(/[._ ]/g, '-')
       const isFinalSegment = remaining === encoded
       const isMidSegment = remaining.startsWith(`${encoded}-`)
       if ((isFinalSegment || isMidSegment) && encoded.length > bestEncodedLength) {

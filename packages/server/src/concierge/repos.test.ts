@@ -60,6 +60,26 @@ describe('reverseProjectSlug', () => {
     })
   })
 
+  it('resolves a slug through a directory name with a literal SPACE — found by running this against a real machine, not in #243\'s own list', () => {
+    // Claude Code's slug transform maps a literal space to `-` too, alongside
+    // `/`, `_`, and `.` — confirmed against this machine's own
+    // `~/.claude/projects` during development (`ASK JO/askjo`, `TailR
+    // Nutrition/tailr-codebase`), where every slug through one of these
+    // directories was, before this test existed, honestly-but-wrongly
+    // reported unresolved.
+    const fs = fixtureFs({
+      '/': ['Users'],
+      '/Users': ['hannah'],
+      '/Users/operator': ['TailR Nutrition'],
+      '/Users/operator/TailR Nutrition': ['tailr-codebase'],
+      '/Users/operator/TailR Nutrition/tailr-codebase': [],
+    })
+
+    expect(reverseProjectSlug('-Users-operator-TailR-Nutrition-tailr-codebase', fs)).toEqual({
+      path: path.join('/', 'Users', 'hannah', 'TailR Nutrition', 'tailr-codebase'),
+    })
+  })
+
   it('resolves the exact example from worktree-slug.ts\'s own doc comment — double underscore and a literal dash together', () => {
     const fs = fixtureFs({
       '/': ['home'],
