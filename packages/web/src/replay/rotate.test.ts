@@ -104,6 +104,31 @@ describe('requestRotation', () => {
     )
   })
 
+  /**
+   * The token is minted per server process and stamped into the page at serve
+   * time, so a tab left open across a restart holds one that no longer
+   * exists. The up-front check cannot catch that — there IS a token on the
+   * page, it is simply dead — so the only place to say so is here, on the
+   * 401. The server's own sentence names a header, which is true and useless
+   * to someone looking at a button; it is kept, and what to do is added.
+   */
+  it('tells the operator to reload when the token on this page outlived the server that minted it', async () => {
+    const fetchImpl = answering(
+      { error: 'missing or invalid x-rhizomorph-capability header — this route requires the per-process capability token' },
+      401,
+    )
+
+    const failure = await requestRotation(fetchImpl).catch((err: unknown) => err)
+
+    expect(failure).toBeInstanceOf(Error)
+    const message = (failure as Error).message
+    // The server's own sentence still crosses back…
+    expect(message).toContain('missing or invalid x-rhizomorph-capability')
+    // …and the operator is told what to actually do about it.
+    expect(message).toMatch(/reload this page/i)
+    expect(message).toMatch(/every time it starts/i)
+  })
+
   it('falls back to the status when a refusal carries no message', async () => {
     await expect(requestRotation(answering(null, 500))).rejects.toThrow('the server answered 500')
   })

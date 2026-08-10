@@ -324,6 +324,22 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
   if (typeof lane !== 'string' || lane.trim().length === 0) {
     throw new LaunchValidationError('"lane" must be a non-empty string')
   }
+  // `lane` travels as an argv POSITIONAL (`launchExperiment` below), and
+  // `parseFlags` (`cli/args.ts`) reads any `-`-prefixed positional as a flag.
+  // The argv there puts it after `--` so this can never be misparsed, but
+  // `parseLabForkArgs` scans raw argv for `--help`/`-h` BEFORE `parseFlags`
+  // runs, so `--` does not cover those two: a lane spelled `--help` would
+  // print the fork command's help, exit 0, and surface as "unexpected CLI
+  // output" rather than as anything an operator could act on. Refused here
+  // instead, in the operator's own vocabulary. Deliberately narrow — a lane
+  // is a worktree handle and may legitimately contain `/`, `.` and `_`, so
+  // this constrains the first character only, which is the whole of what
+  // argv parsing can misread.
+  if (lane.trim().startsWith('-')) {
+    throw new LaunchValidationError(
+      `"lane" may not begin with "-" (received "${lane.trim()}") — a lane is a worktree handle, and a leading dash is how a command line spells a flag`,
+    )
+  }
   if (typeof checkpointId !== 'string' || checkpointId.trim().length === 0) {
     throw new LaunchValidationError(
       '"checkpointId" must be a non-empty string — the lab never launches from an interpolated moment (prd12 ruling 2)',
@@ -534,9 +550,18 @@ export async function launchExperiment(body: unknown, options: LaunchExperimentO
         await writeFile(briefFile, brief, 'utf8')
       }
 
-      const argv = ['fork', request.lane, '--path', options.repoPath, '--at', request.checkpointId, '--arms', '1', '--launch']
+      // Every flag first, then `--`, then the ONE positional. `parseFlags`
+      // (`cli/args.ts`) stops interpreting `-`-prefixed tokens after `--`,
+      // exactly as any POSIX tool does, so a caller-supplied lane can never
+      // be read as a flag no matter what it spells — the same argument-
+      // injection class the `model` grammar closes, closed structurally here
+      // rather than by another allowlist. `parseLaunchRequestBody` also
+      // refuses a leading `-` up front, for the `--help`/`-h` scan that runs
+      // before `parseFlags` and that `--` therefore cannot cover.
+      const argv = ['fork', '--path', options.repoPath, '--at', request.checkpointId, '--arms', '1', '--launch']
       if (hasModel) argv.push('--model', model)
       if (briefFile !== null) argv.push('--prompt-file', briefFile)
+      argv.push('--', request.lane)
 
       const invocation = await withLabCliLock(() =>
         runLabCliOnce(argv, {

@@ -389,6 +389,57 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     }
   })
 
+  /**
+   * The `model` grammar's sibling defect: `lane` is the ONE caller-supplied
+   * argv POSITIONAL on this path, and `parseFlags` reads any `-`-prefixed
+   * positional as a flag. Before the fix, `lane: "--model"` made `--path` the
+   * model value and left `--path` unset, so the fork resolved its parent
+   * worktree from the CLI's default instead of the server's repo and the arm
+   * ran a model the operator never chose.
+   *
+   * Two layers, like the model: `--` in the argv makes it structurally
+   * unparseable as a flag, and the boundary refuses a leading `-` outright
+   * for `--help`/`-h`, which `parseLabForkArgs` scans for before `parseFlags`
+   * ever runs. `exec` fails the test if anything is executed.
+   */
+  it('refuses a lane that would be read as a flag, before the laboratory runs at all', async () => {
+    const neverRuns: Exec = async (command, argv) => {
+      throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
+    }
+
+    for (const lane of ['--model', '--path', '--launch', '--arms', '--help', '-h', '-x']) {
+      await expect(
+        launchExperiment(
+          { lane, checkpointId: 'ckpt-1', arms: [{ model: 'opus' }] },
+          { repoPath: repoDir, exec: neverRuns, dataRoot, claudeProjectsRoot },
+        ),
+        `lane ${JSON.stringify(lane)} was not refused`,
+      ).rejects.toThrow(LaunchValidationError)
+    }
+  })
+
+  /**
+   * The structural half, proven rather than asserted about: a lane whose text
+   * looks nothing like a flag but which the CLI must still receive verbatim.
+   * A lane containing `/` and `.` is ordinary (worktree handles mirror branch
+   * names), so this also pins that the fix constrains only the FIRST
+   * character and did not quietly narrow what a lane may be called.
+   */
+  it('passes an ordinary lane through verbatim, slashes and dots included', async () => {
+    const lane = 'feature/some.thing_v2'
+    const checkpointId = await seedCheckpoint(lane, () => 1_000_000)
+    const exec = execWithStubs((command) => (command === 'workmux' ? OK : null))
+
+    const result = await launchExperiment(
+      { lane, checkpointId, arms: [{ model: 'sonnet' }] },
+      { repoPath: repoDir, exec, dataRoot, claudeProjectsRoot, now: () => 2_000_000 },
+    )
+
+    expect(result.failed).toBeNull()
+    expect(result.parentLane).toBe(lane)
+    expect(result.arms).toHaveLength(1)
+  })
+
   it('an arm whose model is only whitespace is "no model", not a violation — the fleet default, honestly', async () => {
     const checkpointId = await seedCheckpoint('lane-blank', () => 1_000_000)
     const exec = execWithStubs((command) => (command === 'workmux' ? OK : null))
@@ -639,6 +690,24 @@ describe('POST /api/lab/launch (route wiring — validation and the read-only re
 
     // Every one of them was refused at the boundary: nothing reached the
     // laboratory, so nothing was dispatched and nothing was recorded.
+    expect(recorder.eventsSoFar()).toEqual([])
+  })
+
+  it('400s a lane that would be read as a flag, naming the lane and why', async () => {
+    const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/lab/launch',
+      headers: authorised(app),
+      payload: { lane: '--model', checkpointId: 'ckpt-1', arms: [{ model: 'opus' }] },
+    })
+
+    expect(response.statusCode).toBe(400)
+    const { error } = response.json() as { error: string }
+    expect(error).toMatch(/"lane" may not begin with "-"/)
+    expect(error).toContain('--model')
     expect(recorder.eventsSoFar()).toEqual([])
   })
 

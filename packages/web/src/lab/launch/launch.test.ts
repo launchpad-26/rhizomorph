@@ -112,6 +112,29 @@ describe('requestLaunch', () => {
     )
   })
 
+  /**
+   * Same staleness as `replay/rotate.ts`, and it costs more here: by the time
+   * this refusal appears the operator has configured every arm and read a
+   * spend estimate, so a message that doesn't say "reload" makes them do all
+   * of it again to find out.
+   */
+  it('tells the operator to reload when the token on this page outlived the server that minted it', async () => {
+    const fetchImpl = answering(
+      { error: 'missing or invalid x-rhizomorph-capability header — this route requires the per-process capability token' },
+      401,
+    )
+
+    const failure = await requestLaunch({ lane: 'x', checkpointId: 'y', arms: [{}] }, fetchImpl).catch(
+      (err: unknown) => err,
+    )
+
+    expect(failure).toBeInstanceOf(Error)
+    const message = (failure as Error).message
+    expect(message).toContain('missing or invalid x-rhizomorph-capability')
+    expect(message).toMatch(/reload this page/i)
+    expect(message).toMatch(/every time it starts/i)
+  })
+
   it('falls back to the status when a refusal carries no message', async () => {
     await expect(
       requestLaunch({ lane: 'x', checkpointId: 'y', arms: [{}] }, answering(null, 500)),

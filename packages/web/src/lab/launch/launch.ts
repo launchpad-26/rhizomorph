@@ -153,6 +153,19 @@ export async function requestLaunch(request: LaunchRequest, fetchImpl?: LaunchFe
     throw new Error(`could not reach the instrument: ${err instanceof Error ? err.message : String(err)}`)
   }
 
+  // See `replay/rotate.ts` for the full reasoning: a 401 here means the token
+  // was sent and rejected, which in practice means the tab outlived the server
+  // process that minted it. It matters more here than there — by this point
+  // the operator has configured every arm and read a spend estimate, so a
+  // refusal that doesn't say "reload" costs them all of it twice.
+  if (response.status === 401) {
+    throw new Error(
+      `could not launch — ${await refusalDetail(response)}. ` +
+        'The instrument mints that token fresh every time it starts, so a page left open across a restart ' +
+        'is holding one that has expired. Reload this page and try again.',
+    )
+  }
+
   if (!response.ok) throw new Error(`could not launch — ${await refusalDetail(response)}`)
 
   let answer: unknown

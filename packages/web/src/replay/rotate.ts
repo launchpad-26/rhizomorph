@@ -105,6 +105,22 @@ export async function requestRotation(fetchImpl?: RotateFetchLike): Promise<Rota
     throw new Error(`could not reach the instrument: ${err instanceof Error ? err.message : String(err)}`)
   }
 
+  // A 401 here means the token WAS sent and the instrument rejected it, which
+  // in practice means one thing: the token is minted fresh per server process
+  // (`server/build-app.ts`) and stamped into the page at serve time, so a tab
+  // left open across a server restart is holding one that no longer exists.
+  // The server's own sentence names the header, which is true and useless to
+  // an operator looking at a button — so it is kept, and what to DO is added
+  // after it. Before #234 this button simply worked across a restart; this is
+  // the cost of the gate, said out loud rather than left to be discovered.
+  if (response.status === 401) {
+    throw new Error(
+      `could not end the session — ${await refusalDetail(response)}. ` +
+        'The instrument mints that token fresh every time it starts, so a page left open across a restart ' +
+        'is holding one that has expired. Reload this page and try again.',
+    )
+  }
+
   if (!response.ok) throw new Error(`could not end the session — ${await refusalDetail(response)}`)
 
   let answer: unknown
