@@ -8,6 +8,7 @@ import {
   AGENT_COMMANDS,
   createProcProcessProbe,
   defaultProcessProbe,
+  processProbeCapability,
   UNKNOWN_PROCESS_PROBE,
 } from './process-probe.js'
 
@@ -189,6 +190,65 @@ describe('unknown is never death', () => {
     for (const platform of ['darwin', 'win32', 'freebsd'] as const) {
       expect(defaultProcessProbe(platform), platform).toBe(UNKNOWN_PROCESS_PROBE)
     }
+  })
+})
+
+describe('a platform that answers null says WHY (ADR-0010, additive)', () => {
+  /**
+   * The behaviour was already honest — `null` everywhere this build cannot
+   * look. What was missing was the reason, so a caller could not tell "no
+   * reader is built for macOS" from "the reader ran and the table was
+   * unreadable". Both are unknown; only one is a missing platform leg.
+   *
+   * Additive on purpose, in ADR-0010's own shape: nothing below changes what
+   * `defaultProcessProbe` returns, and the identity of `UNKNOWN_PROCESS_PROBE`
+   * is deliberately left alone (the test above still asserts it).
+   */
+  it('declares linux provided — the one leg verified on a real machine', () => {
+    expect(processProbeCapability('linux')).toEqual({ level: 'provided' })
+  })
+
+  it.each(['darwin', 'win32', 'freebsd'] as const)('declares %s absent WITH a reason, never silently', (platform) => {
+    const capability = processProbeCapability(platform)
+
+    expect(capability.level).toBe('absent')
+    if (capability.level === 'provided') throw new Error('expected a reason-carrying level')
+    expect(capability.reason.length).toBeGreaterThan(0)
+  })
+
+  it('names the read-only strategy each unbuilt leg would use, rather than shrugging', () => {
+    // prd15 ruling 7: a platform leg lands behind a capture. Naming the strategy
+    // is what keeps "not built" from decaying into "not possible".
+    const macos = processProbeCapability('darwin')
+    const windows = processProbeCapability('win32')
+    if (macos.level === 'provided' || windows.level === 'provided') throw new Error('expected absent')
+
+    expect(macos.remedy).toMatch(/lsof/)
+    expect(macos.remedy).toMatch(/ps -axo/)
+    expect(windows.remedy).toMatch(/Win32_Process/)
+  })
+
+  it('records that Windows could match argv but not cwd — the gap, not a promise', () => {
+    const windows = processProbeCapability('win32')
+    if (windows.level === 'provided') throw new Error('expected absent')
+
+    expect(windows.reason).toMatch(/working directory/)
+  })
+
+  it('"absent" here means this build cannot SEE, which is why a reading of it is unknown', () => {
+    // The distinction the harness detector depends on: a capability of `absent`
+    // must map onto a *reading* of unknown, never onto a reading of absent.
+    // `defaultProcessProbe` already encodes that — it answers null, not false.
+    expect(processProbeCapability('darwin').level).toBe('absent')
+    expect(defaultProcessProbe('darwin')).toBe(UNKNOWN_PROCESS_PROBE)
+  })
+
+  it('has an answer for a platform nobody has thought about yet', () => {
+    const capability = processProbeCapability('sunos')
+
+    expect(capability.level).toBe('absent')
+    if (capability.level === 'provided') throw new Error('expected absent')
+    expect(capability.reason).toContain('sunos')
   })
 })
 

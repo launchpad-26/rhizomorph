@@ -1,5 +1,6 @@
 import { readFile, readdir, readlink } from 'node:fs/promises'
 import path from 'node:path'
+import type { CapabilityDetail } from '@rhizomorph/core'
 
 /**
  * Process aliveness — input (c) of the transcript-tail state machine
@@ -207,4 +208,64 @@ export const UNKNOWN_PROCESS_PROBE: ProcessProbe = {
  */
 export function defaultProcessProbe(platform: NodeJS.Platform = process.platform): ProcessProbe {
   return platform === 'linux' ? createProcProcessProbe() : UNKNOWN_PROCESS_PROBE
+}
+
+/**
+ * **Why** a platform answers `null`, in ADR-0010's vocabulary — additive, and
+ * deliberately so.
+ *
+ * The behaviour above is already honest: rule 3 returns `null` rather than
+ * `false` everywhere this build cannot look, and `defaultProcessProbe` picks
+ * the honest unknown for every non-Linux platform. What it could not do is say
+ * *why*, so a caller had a bare `null` and no way to tell "no reader is built
+ * for macOS" from "the reader ran and the table was unreadable". Both are
+ * unknown; only one of them is a missing platform leg.
+ *
+ * This is the same move ADR-0010 made against ADR-0004 — a new optional
+ * declaration alongside an untouched contract, rather than an amendment to it.
+ * Nothing here changes what {@link defaultProcessProbe} returns, and
+ * {@link UNKNOWN_PROCESS_PROBE} is still one shared instance.
+ *
+ * **`absent` here means "this build cannot see", not "no process is there".**
+ * That distinction is the whole point: a consumer must map a capability of
+ * `absent` onto a *reading* of unknown, never onto a reading of absent. The
+ * harness detector does exactly that, and its tests assert that a blind
+ * platform can never produce an "absent" answer about a harness.
+ *
+ * The strategies named in `remedy` are the ones the platform section above
+ * already records. They stay unbuilt behind prd15 ruling 7: a platform leg
+ * lands *behind a capture*, and a reader written from `man` pages would
+ * validate our reading of the man page rather than the machine.
+ */
+export function processProbeCapability(platform: NodeJS.Platform = process.platform): CapabilityDetail {
+  switch (platform) {
+    case 'linux':
+      // Native and complete for Linux-side processes, WSL2 included — the one
+      // leg verified on a real machine (79 pids enumerated; see above).
+      return { level: 'provided' }
+    case 'darwin':
+      return {
+        level: 'absent',
+        reason: 'macOS has no /proc, and this build ships no reader for its equivalent',
+        remedy:
+          'two read-only base-system reads, behind a capture (prd15 ruling 7): `ps -axo pid=,command=` for argv, ' +
+          'and `lsof -a -p <pid> -d cwd -Fn` for the working directory, which macOS exposes only through libproc',
+      }
+    case 'win32':
+      return {
+        level: 'absent',
+        reason:
+          'Windows native has no /proc, and this build ships no reader for it; note that even a built one could ' +
+          'match argv but not working directory, which Windows does not expose for another process',
+        remedy:
+          'argv via `Get-CimInstance Win32_Process` (or `tasklist /v`), read-only, behind a capture (prd15 ruling 7); ' +
+          'cwd attribution would be declared a capability the Windows leg lacks rather than guessed',
+      }
+    default:
+      return {
+        level: 'absent',
+        reason: `no process-table reader is built for ${platform}`,
+        remedy: 'name a read-only strategy for this platform and land it behind a capture (prd15 ruling 7)',
+      }
+  }
 }

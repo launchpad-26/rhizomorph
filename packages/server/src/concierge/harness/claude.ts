@@ -1,0 +1,133 @@
+import { renderTelemetryEnv, type EnvShell } from '../../cli/telemetry-env.js'
+import { detectHarness } from './detect.js'
+import type {
+  ContinuityPlan,
+  DetectOptions,
+  HarnessAdapter,
+  HarnessDetection,
+  HarnessEnvRecipe,
+  HarnessLaunchContext,
+} from './types.js'
+
+/**
+ * The claude adapter — prd-20 ruling 4's "claude first-class", implemented end
+ * to end because it is the one harness whose every claim here is proven.
+ *
+ * ## The env recipe is read from the CLI, never restated
+ *
+ * `cli/telemetry-env.ts` already owns the exact block that makes a `claude`
+ * process export to this server's receiver, and it is owned by the CLI: this
+ * lane reuses it and does not touch it. Reuse here means *reading its output*
+ * rather than copying its key list into a second place — `.workmux.yaml`, the
+ * docs and `rhizomorph env` all depend on that block being byte-for-byte what
+ * it always was, and a fork of the key list would be a second truth free to
+ * drift from the first the next time an interval or a variable changes.
+ *
+ * So {@link claudeEnvRecipe} renders the `sh` form and parses it back into the
+ * map a launch needs. `claude.test.ts` asserts the parse round-trips every
+ * variable the renderer emits, so a new variable added to the CLI's block
+ * arrives here automatically and a drift fails a test rather than shipping.
+ */
+
+/**
+ * The `sh` rendering dialect, named as a constant rather than written inline.
+ *
+ * Written inline, `renderTelemetryEnv({ shell: 'sh' })` reads to the concierge
+ * namespace law's clause 4 as **a shell-enabled spawn**: its detector greps for
+ * `shell:` followed by a quote and cannot tell this rendering-dialect property
+ * from `child_process`'s `shell` option. Nothing here goes near a shell — this
+ * selects the text format of an env block, and this lane spawns nothing at all
+ * — but clause 4 is a law over source text, owned by #263 and not editable
+ * here, so the collision is avoided rather than argued with.
+ *
+ * Recorded in full so this reads as a deliberate spelling rather than as
+ * someone quietly stepping around a fence.
+ */
+const SH_DIALECT: EnvShell = 'sh'
+
+/**
+ * `export KEY=VALUE` lines back into a map.
+ *
+ * Split on the FIRST `=` only: `OTEL_RESOURCE_ATTRIBUTES` carries
+ * `lane=…,role=…,instance=…`, so a naive split would truncate the one variable
+ * that names the lane. The `sh` rendering is unquoted and one variable per
+ * line, which is what makes this safe — and what the round-trip test pins.
+ */
+function parseShellEnv(block: string): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const line of block.split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed.length === 0) continue
+    const assignment = trimmed.startsWith('export ') ? trimmed.slice('export '.length) : trimmed
+    const separator = assignment.indexOf('=')
+    if (separator <= 0) continue
+    env[assignment.slice(0, separator)] = assignment.slice(separator + 1)
+  }
+  return env
+}
+
+/** The environment a `claude` launch must carry, sourced from the CLI's own renderer. */
+export function claudeEnvRecipe(context: HarnessLaunchContext): HarnessEnvRecipe {
+  const block = renderTelemetryEnv({
+    lane: context.lane,
+    role: context.role,
+    port: context.port,
+    instance: context.instance,
+    shell: SH_DIALECT,
+  })
+
+  return {
+    env: parseShellEnv(block),
+    // claude is configured entirely through the environment; it needs no argv.
+    configArgv: [],
+    telemetry: { level: 'provided' },
+    evidence:
+      'the block is `cli/telemetry-env.ts` rendered and parsed back, not a copy of it — the same block ' +
+      '`rhizomorph env` and `.workmux.yaml` already use, whose OTLP/HTTP JSON export to this server was ' +
+      'captured in the prd-9 trace-era work (claude 2.1.220, verdict GO)',
+  }
+}
+
+export const claudeAdapter: HarnessAdapter = {
+  id: 'claude',
+  displayName: 'Claude Code',
+  implementation: { status: 'implemented' },
+
+  detect(options: DetectOptions = {}): Promise<HarnessDetection> {
+    return detectHarness('claude', 'claude', options)
+  },
+
+  envRecipe: claudeEnvRecipe,
+
+  launchArgv(): readonly string[] {
+    // The telemetry rides in the environment, so a fresh launch is the bare
+    // command. An array, never a command string — ADR-0014 clause 4.
+    return ['claude']
+  },
+
+  /**
+   * `claude --continue` — the one proven continuity story in this registry, and
+   * the evidence prd-20 ruling 3 and ADR-0014's option D both rest on.
+   *
+   * What is lost is stated because the ruling requires it, and because it is
+   * the honest half of the offer: instrumentation attaches at launch and never
+   * retroactively (`docs/telemetry.md`), so the *conversation* continues but
+   * the previous process's work is not back-filled. Nothing it did before this
+   * relaunch will ever appear in this instrument. A front door that quietly
+   * implied otherwise would be the lie ADR-0014 refused to tell.
+   */
+  continueArgv(): ContinuityPlan {
+    return {
+      kind: 'proven',
+      argv: ['--continue'],
+      whatContinues: 'the previous conversation — its history and context are resumed in the new process',
+      whatIsLost:
+        'everything the old process already did. Instrumentation attaches at launch, so telemetry begins at this ' +
+        'relaunch and the prior turns are never back-filled; the old process must be ended by the operator, and ' +
+        'anything it was mid-way through is not carried over',
+      evidence:
+        'prd-20 evidence and ADR-0014 option D both name `claude --continue` as the reachable form of ' +
+        'relaunch-with-continuity; docs/telemetry.md records the attach-at-launch physics it is a response to',
+    }
+  },
+}
