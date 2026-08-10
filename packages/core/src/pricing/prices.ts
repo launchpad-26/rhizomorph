@@ -138,9 +138,9 @@ function vendoredRates(): ModelRate[] {
  * `findRate` walks the (149-entry) table in order on every call — cheap once,
  * ruinous per record. Model strings per session are a handful and the table
  * is static per process, so the resolved rate (or the honest miss) is cached
- * by the exact model string forever. `null` is cached too: a miss pays the
- * full un-anchored walk to the end of the table, making it the most expensive
- * case to repeat.
+ * by the exact model string forever. `null` is cached too: a miss matches no
+ * pattern, so it walks every entry to the end of the table — the most
+ * expensive case there is, and so the one most worth not repeating.
  */
 const rateMemo = new Map<string, ModelRate | null>()
 

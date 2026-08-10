@@ -158,11 +158,18 @@ describe('estimateCostUsd — memoized rate resolution (issue #287)', () => {
     // memo key, still matching gpt-4o's case-insensitive pattern) and a miss.
     const freshHit = 'GPT-4O'
     const freshMiss = 'no-such-model-287-fresh-miss'
+    // One walk tests each pattern at most once, so the table's own size is the
+    // ceiling for a single scan — and the floor a second scan cannot stay
+    // under. `toBeGreaterThan(0)` admitted any number of walks: a duplicated
+    // `findRate` before the cache write doubled the exact per-record cost #287
+    // was filed about and still passed. The bound is the law.
+    const tableSize = parsePriceTable(raw).length
     const spy = vi.spyOn(RegExp.prototype, 'test')
 
     spy.mockClear()
     estimateCostUsd(freshHit, usage)
     expect(spy.mock.calls.length).toBeGreaterThan(0)
+    expect(spy.mock.calls.length, 'a hit scanned the table more than once').toBeLessThanOrEqual(tableSize)
     spy.mockClear()
     estimateCostUsd(freshHit, usage)
     estimateCostUsd(freshHit, usage)
@@ -170,7 +177,9 @@ describe('estimateCostUsd — memoized rate resolution (issue #287)', () => {
 
     spy.mockClear()
     estimateCostUsd(freshMiss, usage)
-    expect(spy.mock.calls.length).toBeGreaterThan(0)
+    // A miss matches nothing, so it tests every pattern exactly once — the one
+    // count in this file that is exact rather than bounded.
+    expect(spy.mock.calls.length, 'a miss did not walk the table exactly once').toBe(tableSize)
     spy.mockClear()
     estimateCostUsd(freshMiss, usage)
     estimateCostUsd(freshMiss, usage)
