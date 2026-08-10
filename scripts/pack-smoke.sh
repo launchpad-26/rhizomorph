@@ -8,7 +8,14 @@
 # Every path this touches lives under a mktemp dir outside the repo, so a
 # stranger's `npm install` is exercised for real — no symlink back to the
 # monorepo, no workspace resolution shortcut.
+#
+# `-m` (job control) is load-bearing: it gives each backgrounded server its
+# own process group (pgid == its own pid), so the cleanup trap below can
+# kill that whole group — npx, the rhizomorph CLI, and anything it spawns —
+# with one `kill -TERM -$pid`, instead of only ever hitting the wrapper
+# (#225: that gap is how six servers were leaked live).
 set -euo pipefail
+set -m
 
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
@@ -19,7 +26,19 @@ cd "$ROOT"
 }
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+SERVER_PID=""
+
+cleanup() {
+  local ec=$?
+  if [ -n "$SERVER_PID" ]; then
+    kill -TERM -"$SERVER_PID" 2>/dev/null || true
+    sleep 1
+    kill -KILL -"$SERVER_PID" 2>/dev/null || true
+  fi
+  rm -rf "$WORK"
+  exit "$ec"
+}
+trap cleanup EXIT INT TERM
 
 TARBALLS="$WORK/tarballs"
 mkdir -p "$TARBALLS"
@@ -83,8 +102,9 @@ echo "npx rhizomorph --version -> $NPX_VERSION"
 
 # Boots the installed CLI (via npx, exactly prd8's `npx rhizomorph
 # <path-to-repo>` install story) against $1, waits for it to report a
-# listening URL, hits /api/meta and /, then shuts it down. $2 names the run
-# for its log file and error messages.
+# listening URL, hits /api/meta and /, then kills it immediately — a
+# bounded probe, not a long-running server left for someone to notice. $2
+# names the run for its log file and error messages.
 boot_and_check() {
   local watch_path="$1"
   local label="$2"
@@ -94,9 +114,10 @@ boot_and_check() {
   mkdir -p "$watch_path"
   git -C "$watch_path" init -q
 
-  (cd "$INSTALL_DIR" && npx --no-install rhizomorph "$watch_path" --port 0) > "$log" 2>&1 &
+  (cd "$INSTALL_DIR" && exec npx --no-install rhizomorph "$watch_path" --port 0) \
+    </dev/null >"$log" 2>&1 &
   local pid=$!
-  trap 'kill "$pid" 2>/dev/null || true' EXIT
+  SERVER_PID="$pid"
 
   local url=""
   local i
@@ -147,9 +168,9 @@ boot_and_check() {
       ;;
   esac
 
-  kill -TERM "$pid"
+  kill -TERM -"$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
-  trap - EXIT
+  SERVER_PID=""
   echo "server shut down cleanly ($label)"
 }
 
@@ -160,5 +181,24 @@ boot_and_check() {
 boot_and_check "$WORK/watched/plain-repo" "plain"
 boot_and_check "$WORK/watched/a repo with spaces" "spaces"
 boot_and_check "$WORK/watched/café-世界-repo" "unicode"
+
+# The assertions above are only half of what pack-smoke promises (#225): a
+# server that answered correctly and then outlived the script is still a
+# leak. Confirm, loudly, that nothing tied to this run's install is still
+# alive before reporting success — allow a short grace period since a
+# freshly TERMed process tree doesn't necessarily vanish instantly.
+echo "== verifying no leaked rhizomorph processes remain =="
+LEAKED=""
+for i in $(seq 1 5); do
+  LEAKED="$(pgrep -f "$INSTALL_DIR" 2>/dev/null || true)"
+  [ -z "$LEAKED" ] && break
+  sleep 1
+done
+if [ -n "$LEAKED" ]; then
+  echo "LEAK: process(es) still running under $INSTALL_DIR after cleanup:"
+  ps -fp $LEAKED 2>/dev/null || true
+  exit 1
+fi
+echo "no leaked processes: clean"
 
 echo "pack-smoke: all checks passed"
