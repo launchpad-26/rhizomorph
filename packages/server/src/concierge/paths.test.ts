@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -174,16 +175,69 @@ describe('isInside', () => {
     expect(isInside(real, path.join(link, 'child'))).toBe(true)
   })
 
-  it('does not disagree with itself over the case of a path that exists', async () => {
-    // On a case-insensitive filesystem (macOS's default) `realpath` returns the
-    // on-disk spelling, so the two agree. On a case-sensitive one they are
-    // genuinely different directories and `false` is the correct answer — the
-    // point is that neither filesystem can be made to give a false ALLOW.
+  it('answers a case-different spelling by where it really points, and never gives a false ALLOW', async () => {
+    // The property that holds on BOTH filesystems: containment follows the real
+    // directory, not the spelling. Whether two cases ARE one directory is a
+    // platform fact, so it is asked of the filesystem rather than assumed —
+    // asserting that they agree would encode macOS's rules as a universal law,
+    // and that is what CI caught on Linux.
     const dir = path.join(root, 'Clones')
     await mkdir(dir, { recursive: true })
     const lower = path.join(root, 'clones')
-    const sameDirectory = isInside(dir, path.join(lower, 'child'))
-    expect(sameDirectory).toBe(isInside(dir, path.join(dir, 'child')) && isInside(lower, lower))
+
+    // Same `realpath` the implementation defaults to (#228: the JS one has been
+    // seen disagreeing with itself), so the probe and the subject agree.
+    const canonical = realpathSync.native ?? realpathSync
+    let sameDirectory: boolean
+    try {
+      sameDirectory = canonical(lower) === canonical(dir)
+    } catch {
+      sameDirectory = false // ENOENT — case-sensitive filesystem, two distinct names
+    }
+
+    expect(isInside(dir, path.join(lower, 'child'))).toBe(sameDirectory)
+
+    // And the invariant neither filesystem may break: something genuinely
+    // outside the parent never reads as inside it, whatever the case rules —
+    // including a sibling whose name only differs from it by case plus a suffix.
+    expect(isInside(dir, path.join(root, 'Elsewhere', 'child'))).toBe(false)
+    expect(isInside(dir, path.join(root, 'clones-evil', 'child'))).toBe(false)
+  })
+
+  /**
+   * The platform half this machine cannot exercise. `isInside` takes an
+   * injectable `realpath` precisely so the other filesystem's rules can be
+   * simulated — the same trick #217/#227 used to prove a macOS symlink shape on
+   * Linux without a mac. Without these two, the case behaviour is only ever
+   * verified on whichever filesystem the author happens to have, which is
+   * exactly how the assertion CI rejected got written.
+   */
+  it('simulated case-SENSITIVE filesystem: the two spellings are different directories (the Linux answer)', () => {
+    const enoent = () => {
+      const err = new Error('ENOENT') as NodeJS.ErrnoException
+      err.code = 'ENOENT'
+      throw err
+    }
+    // Only `/root` and `/root/Clones` exist. `/root/clones` is a different name.
+    const caseSensitive = (p: string): string => (p === '/root' || p === '/root/Clones' ? p : enoent())
+
+    expect(isInside('/root/Clones', '/root/clones/child', caseSensitive)).toBe(false)
+    expect(isInside('/root/Clones', '/root/Clones/child', caseSensitive)).toBe(true)
+  })
+
+  it('simulated case-INSENSITIVE filesystem: the two spellings are one directory (the macOS answer)', () => {
+    const enoent = () => {
+      const err = new Error('ENOENT') as NodeJS.ErrnoException
+      err.code = 'ENOENT'
+      throw err
+    }
+    // Any casing of `/root/clones` resolves to the on-disk spelling `/root/Clones`.
+    const caseInsensitive = (p: string): string =>
+      p.toLowerCase() === '/root/clones' ? '/root/Clones' : p === '/root' ? p : enoent()
+
+    expect(isInside('/root/Clones', '/root/clones/child', caseInsensitive)).toBe(true)
+    // Still no false ALLOW: case-folding must not swallow a prefix sibling.
+    expect(isInside('/root/Clones', '/root/clones-evil/child', caseInsensitive)).toBe(false)
   })
 
   it('uses the realpath it is given, so a self-disagreeing canonicalizer is testable', () => {
