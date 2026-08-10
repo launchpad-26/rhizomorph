@@ -99,7 +99,11 @@ The meaning is not the same, and reusing `reason: 'rotated'` would be a lie:
 
 - `SESSION_CLOSE_REASONS` is `['rotated']` today, with a comment explicitly
   anticipating additive widening (`packages/core/src/events/system.ts:21-22`).
-  **Widen it with `'retargeted'`.**
+  **Widen it with `'retargeted'` — operator-decided 2026-08-10**, on this note.
+  This is settled, not proposed: issue 1 below is groomed from a ruling, and a
+  retarget must never close a log as `'rotated'`. The reason a reader needs the
+  distinction is the next bullet — the successor is not where a `'rotated'`
+  reader would look for it.
 - A reader of a closed log currently infers the successor is the next file *in
   the same directory*. After a retarget the successor is in a **different
   directory under a different slug**, and nothing anywhere links the two. Neither
@@ -304,9 +308,13 @@ into `[Ran]` and is worth writing regardless of which option ships.
 ## Implementation issues to groom from this ruling (dependency order — not opened)
 
 1. **`session.closed` learns `'retargeted'`, and the two logs learn about each
-   other.** Widen `SESSION_CLOSE_REASONS` additively; add the
-   predecessor/successor pointer so a closed log names the slug dir its run
-   continued in. Core-only. Blocks everything below.
+   other.** *(The reason itself is operator-decided 2026-08-10 — see Q2; this
+   issue implements a ruling, it does not re-open one.)* Widen
+   `SESSION_CLOSE_REASONS` additively; add the predecessor/successor pointer so a
+   closed log names the slug dir its run continued in. Two known compile-time
+   forcing functions come with it, both wanted: `bootExplanation`'s exhaustive
+   switch (`StatusBar.tsx:162-190`) and `SessionCloseReason`'s consumers.
+   Core-first, web second. Blocks everything below.
 2. **`retargetSession()` beside `rotateSession()`.** `closeCurrentSession(oldDir)`
    → `openNextSession(newDir)`, reusing the two halves already split for exactly
    this. Extends `recorder/namespace-law.test.ts` to the second dir.
