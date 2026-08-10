@@ -35,8 +35,8 @@ function stubTrackWidth(initial: number): (next: number) => void {
   }
 }
 
-/** jsdom has no `ResizeObserver`; this one hands the test the callback so a resize is deterministic, not timed. */
-function stubResizeObserver(): { resize(): void } {
+/** jsdom has no `ResizeObserver`; this one hands the test the callback so a resize is deterministic, not timed, and exposes the live observer set so teardown is observable. */
+function stubResizeObserver(): { resize(): void; observing(): number } {
   const callbacks = new Set<() => void>()
   vi.stubGlobal(
     'ResizeObserver',
@@ -59,6 +59,7 @@ function stubResizeObserver(): { resize(): void } {
         for (const callback of callbacks) callback()
       })
     },
+    observing: () => callbacks.size,
   }
 }
 
@@ -128,14 +129,14 @@ describe('Scrubber — a native range input, never a reimplementation (ruling 10
 })
 
 describe('Scrubber — one notch is one pixel of track, at any session length (#270)', () => {
-  it('an eight-hour session gets one stop per pixel, not 1000 stops in total', () => {
+  it('an eight-hour session gets at least one stop per pixel, not 1000 stops in total', () => {
     stubTrackWidth(1_920)
     render(<Scrubber start={0} end={EIGHT_HOURS} value={0} onChange={() => {}} />)
 
-    expect(stepOf()).toBe(EIGHT_HOURS / 1_920)
-    // The quantum is a pixel, so the thumb cannot jump a visible distance —
-    // the old `span / 1000` left 1.92px between stops on this track.
-    expect(EIGHT_HOURS / stepOf()).toBe(1_920)
+    // The quantum is at most a pixel, so the thumb cannot jump a visible
+    // distance — the old `span / 1000` left 1.92px between stops on this track.
+    expect(stepOf()).toBeLessThanOrEqual(EIGHT_HOURS / 1_920)
+    expect(stepOf()).toBe(EIGHT_HOURS / 2_048)
   })
 
   it('a two-minute session is no longer floored to one-second notches', () => {
@@ -143,8 +144,40 @@ describe('Scrubber — one notch is one pixel of track, at any session length (#
     render(<Scrubber start={0} end={TWO_MINUTES} value={0} onChange={() => {}} />)
 
     // `max(1000, span / 1000)` gave 1000ms here: 120 stops, 8 visible pixels apart.
-    expect(stepOf()).toBe(TWO_MINUTES / 960)
+    expect(stepOf()).toBeLessThanOrEqual(TWO_MINUTES / 960)
     expect(stepOf()).toBeLessThan(1_000)
+  })
+
+  it('`end` is a grid point at widths that do not divide the session — the last pixel is reachable', () => {
+    // The grid is `min + n * step`, and step membership is decided in decimal
+    // arithmetic on the serialized attribute, where `span / 1907` does not
+    // divide `span` however close the doubles look. Get this wrong and the far
+    // end rounds down a whole notch: `End`, and a drag to the right edge, land
+    // ~2.4 minutes short of the end of an eight-hour recording.
+    const setWidth = stubTrackWidth(0)
+
+    for (const width of [1_907, 1_001, 733, 397]) {
+      setWidth(width)
+      render(<Scrubber start={0} end={EIGHT_HOURS} value={EIGHT_HOURS} onChange={() => {}} />)
+
+      const input = screen.getByLabelText('Replay scrubber') as HTMLInputElement
+      expect(input.validity.stepMismatch).toBe(false)
+      expect(input.value).toBe(String(EIGHT_HOURS))
+      cleanup()
+    }
+  })
+
+  it('a notch is never coarser than a pixel, down to a one-pixel track', () => {
+    const setWidth = stubTrackWidth(0)
+
+    for (const width of [1, 17, 200, 479, 480]) {
+      setWidth(width)
+      render(<Scrubber start={0} end={EIGHT_HOURS} value={0} onChange={() => {}} />)
+
+      expect(stepOf()).toBeLessThanOrEqual(EIGHT_HOURS / width)
+      expect(stepOf()).toBeGreaterThanOrEqual(1)
+      cleanup()
+    }
   })
 
   it('an arrow press still moves a useful increment — about 0.1% of the session, never one millisecond', () => {
@@ -168,21 +201,39 @@ describe('Scrubber — one notch is one pixel of track, at any session length (#
 
   it('never produces a sub-millisecond step, however short the session', () => {
     stubTrackWidth(960)
-    render(<Scrubber start={0} end={500} value={0} onChange={() => {}} />)
+    render(<Scrubber start={0} end={500} value={500} onChange={() => {}} />)
 
-    expect(stepOf()).toBe(1)
+    // The floor binds here, so a notch is wider than a pixel — but the grid
+    // still holds `end`, and it still beats what shipped, which cut this
+    // session into a single 1000ms notch and froze the slider outright.
+    expect(stepOf()).toBeGreaterThanOrEqual(1)
+    expect(stepOf()).toBeLessThan(500)
+    expect((screen.getByLabelText('Replay scrubber') as HTMLInputElement).validity.stepMismatch).toBe(false)
   })
 
   it('re-measures when the track is resized — the pixel guarantee is not a mount-time snapshot', () => {
     const observer = stubResizeObserver()
     const setWidth = stubTrackWidth(480)
     render(<Scrubber start={0} end={EIGHT_HOURS} value={0} onChange={() => {}} />)
-    expect(stepOf()).toBe(EIGHT_HOURS / 480)
+    expect(stepOf()).toBe(EIGHT_HOURS / 512)
 
     setWidth(1_920)
     observer.resize()
 
-    expect(stepOf()).toBe(EIGHT_HOURS / 1_920)
+    expect(stepOf()).toBe(EIGHT_HOURS / 2_048)
+  })
+
+  it('disconnects the observer on unmount — a resize after teardown reaches nothing', () => {
+    const observer = stubResizeObserver()
+    stubTrackWidth(480)
+    const { unmount } = render(<Scrubber start={0} end={EIGHT_HOURS} value={0} onChange={() => {}} />)
+    expect(observer.observing()).toBe(1)
+
+    unmount()
+
+    expect(observer.observing()).toBe(0)
+    // And firing it anyway must not reach a `setState` on a dead component.
+    expect(() => observer.resize()).not.toThrow()
   })
 
   it('degrades to the previous 1/1000 expression when the track has no measurable width', () => {

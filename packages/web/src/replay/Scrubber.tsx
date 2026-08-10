@@ -47,17 +47,23 @@ export interface ScrubberProps {
  * only holds while you assume the pointer wants a sub-pixel one. It cannot
  * use one: a drag can address exactly as many positions as the track has
  * pixels. So the two requirements meet at one pixel, and a single `step` does
- * serve both — the quantum is invisible by construction at any session length
- * and any track width, while one arrow press moves one pixel of track, which
- * on a real dock is ~0.1% of the session: #186's calibration, held more
- * honestly than the 1-second floor held it on short recordings.
+ * serve both — a notch is never wider than a pixel, at any track width, for
+ * any session long enough to afford one (see `notchCount`: below roughly two
+ * seconds the 1ms floor binds and a notch is wider than a pixel, which is
+ * still strictly finer than what this replaced — `max(1000, span / 1000)` cut
+ * a 1.5-second session into a single notch and froze the slider outright).
+ * Meanwhile one arrow press moves half a pixel to a pixel of track, which on
+ * a real dock is ~0.1% of the session: #186's calibration, held more honestly
+ * than the 1-second floor held it on short recordings.
  *
  * This is deliberately the option that leaves the law above untouched — no
  * `onKeyDown`, no second granularity wired by hand, just a better-chosen
- * `step`. The cost, stated plainly: a seek from this input is now pixel-
- * granular rather than 1/1000-granular, which on a narrow track is marginally
- * coarser. Nothing a pointer can express is lost by that, and the TIDE's zoom
- * is what precision seeking goes through.
+ * `step`. The cost, stated plainly: a seek from this input is now grid-
+ * granular at roughly a pixel rather than 1/1000-granular, which on a track
+ * narrower than 1000px is marginally coarser. No position a pointer can
+ * address is unreachable at that granularity — `end` included, which is a
+ * grid point by construction rather than by luck — and precision seeking goes
+ * through the TIDE's zoom.
  *
  * **Issue #186 defect 2/R2: the nearest chapter's label while dragging**
  * (the YouTube "chapter title appears as you scrub" idiom) — a plain label
@@ -75,7 +81,7 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
   const clamped = Math.min(end, Math.max(start, value))
   const span = Math.max(1, end - start)
   const [trackRef, trackWidth] = useTrackWidth()
-  const step = trackWidth > 0 ? Math.max(1, span / trackWidth) : Math.max(1000, span / 1000)
+  const step = trackWidth > 0 ? span / notchCount(span, trackWidth) : Math.max(1000, span / 1000)
   const [dragging, setDragging] = useState(false)
 
   const nearest = dragging ? nearestMarker(chapterMarkers, clamped) : null
@@ -114,6 +120,31 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
       </div>
     </div>
   )
+}
+
+/**
+ * How many notches to cut the session into: the smallest power of two that is
+ * at least the track's width in pixels, capped so a notch is never finer than
+ * one millisecond.
+ *
+ * A power of two, and not the pixel count itself, because `end` has to *be* a
+ * grid point. The grid is `min + n * step`, and both the browser and jsdom
+ * test membership in decimal arithmetic on the serialized `step` attribute —
+ * where `span / 1907` does not divide `span`, however close the doubles look.
+ * The far end then rounds down to the previous notch and the last pixel of
+ * track, `End`, and a drag to the right edge all land a full step short: up to
+ * ~2.4 minutes on an eight-hour session at a narrow width. `span / 2 ** k` is
+ * exact in binary, terminates in decimal, and multiplies back to exactly
+ * `span`, so the endpoint is on the grid by construction at every width.
+ *
+ * The cost of rounding the notch count up to a power of two is up to 2x more
+ * notches than pixels — which is free, since a finer-than-pixel grid is still
+ * invisible, and it is never *coarser* than a pixel.
+ */
+function notchCount(span: number, trackWidth: number): number {
+  let notches = 1
+  while (notches < trackWidth && notches * 2 <= span) notches *= 2
+  return notches
 }
 
 /**
