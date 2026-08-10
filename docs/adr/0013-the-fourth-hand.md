@@ -1,0 +1,183 @@
+# 0013. The concierge: a fourth hand, granted two powers by explicit invocation
+
+- **Status:** accepted
+- **Date:** 2026-08-10
+
+## Context and Problem Statement
+
+> Written at decision time, from prd-20 and the operator rulings of 2026-08-07.
+> Not reconstructed — every claim below is either cited or is the decision itself.
+
+Reaching "an instrumented conductor watching my repo" is currently a chain of
+shell steps that must run in exactly the right process: clone, build, start,
+generate the env block, `eval` it in the shell that will exec the agent,
+relaunch the agent. The operator report of 2026-08-07 is a project lead who ran
+the instrument and still ended up with an **uninstrumented** conductor. prd-19
+made that failure honest; it still hands the user a command line. prd-20
+proposes a front door instead: choose a repo, choose a conductor CLI, launch it
+instrumented, verify — each an explicit click.
+
+Two of those steps are things no hand of this instrument may currently do.
+ADR-0001 grants three: the **observer** reads; the **laboratory** writes refs
+under `refs/rhizomorph/` and worktrees it owns; the **recorder** writes session
+logs outside the watched repo. None of them may start a process, and none may
+write a repo to disk. The concierge needs both.
+
+The forces in play:
+
+- **The trust claim is public and specific.** `cb4d133` rewrote it to *"state
+  the three hands, not one blanket read-only claim"*. The instrument's value is
+  that an operator debugging a swarm can tell the observatory's writes from an
+  agent's; a fourth power that arrives unannounced makes the published claim
+  false, which costs more than the feature is worth.
+- **The physics are fixed.** Instrumentation attaches at launch, not
+  retroactively (`docs/telemetry.md`). Whatever this hand does about a conductor
+  that is already running, it cannot be attachment.
+- **This is the largest blast radius yet.** The laboratory spawns `git` with an
+  argv array it built itself. This hand would spawn whatever harness the
+  operator names, with an environment block, in a directory it chose, and would
+  write a repo to disk from a URL a human typed.
+- **The existing enforcement is known to be weak.** ADR-0001's own Consequences
+  record it as convention rather than structure, and name the proof: the lab's
+  "sole importer" law passed for weeks while `api/lab.ts` crossed the boundary
+  through `await import('../cli/index.js')` — a dynamic import a source-text
+  grep cannot see, two hops deep (#245).
+- **The nearest fence is already breached.** #234 is open: the laboratory is
+  reachable from an unauthenticated HTTP route, which is exactly the
+  "explicitly invoked by a human" condition its amendment was granted under.
+
+## Considered Options
+
+- **A — A configuration flag.** Let the server launch processes and clone repos
+  when a flag or env var is set. No amendment, no new vocabulary.
+- **B — A fourth named hand.** Two named powers, each token-gated, each invoked
+  only by an explicit human act in the UI, each fenced by its own law test.
+- **C — Widen the laboratory's grant.** The lab already spawns child processes
+  and already creates directories outside the watched repo; extend its
+  namespace to cover launch and clone rather than adding a hand.
+- **D — No launch power at all.** Detect and instrument the conductor that is
+  already running, so the front door never needs to start anything.
+- **E — The hand holds its own credentials.** Give the concierge an OAuth flow
+  or a stored token so it can clone on its own authority rather than the
+  machine's.
+
+## Decision Outcome
+
+Chosen: **B**, a fourth named hand — the same shape ADR-0001 chose for the
+second and third, applied a third time rather than bent.
+
+The grant, in full:
+
+1. **Two powers, named.** The concierge may (a) launch or relaunch a conductor
+   process, and (b) clone a repo to disk. Nothing else. A power not on this list
+   costs another amendment.
+2. **Token-gated.** Every route that exposes either power sits behind the
+   capability token of ADR-0008 and ADR-0012. Per prd-20 ruling 2, **no
+   concierge route ships before #234's guard covers every mutating route** —
+   the fence is fixed before the hand is reachable, not after.
+3. **Explicitly invoked.** Each power runs only from a human act in the UI,
+   never from a collector, never from a poll, and never on a timer. The hand
+   has no clock.
+4. **Never inside the watched repo.** Clones land in a directory the concierge
+   was handed, which may not overlap the watched repo in either direction, and
+   may not be parked inside another hand's namespace under the data root.
+5. **It holds no secret.** Clone-by-URL borrows the machine's existing `git`/`gh`
+   credentials. "No auth, no cloud, no accounts" stands (operator-decided
+   2026-08-07).
+6. **It never claims to attach.** It detects an uninstrumented conductor, says
+   so plainly, and offers relaunch with continuity, naming what continuity means
+   per harness and what is lost (prd-20 ruling 3).
+7. **Its own law test**, `server/src/concierge/namespace-law.test.ts`, landing
+   before the hand's code — so the fence is never fitted around whatever got
+   built.
+
+**A lost** for the reason ADR-0001 rejected the same shape as its Option B: a
+flag makes mutation a configuration detail, so nothing structural stops the
+next feature adding another. The argument does not get weaker when the mutation
+is `spawn` instead of `write`; it gets stronger. prd12's clause — *"the
+read-only constitution is AMENDED, not dissolved"* — is what a flag dissolves.
+
+**C lost** as the most tempting option, and the one worth recording carefully.
+Reusing the laboratory would have cost no amendment and no new directory, and
+the lab genuinely does spawn processes already. It loses on two counts. The
+lab's grant is specific — refs under `refs/rhizomorph/`, worktrees it owns, and
+`git` verbs chosen from a list its law enforces — and "may start the operator's
+agent CLI with an env block" is not a widening of that grant but a different
+grant sharing a directory. Worse, it would make one module the subject of two
+fences with different shapes, and the module already at issue in #245 is the
+lab: the honest move when a fence is known to leak is not to hang more weight
+on it. A second reason is legibility — the public trust claim enumerates hands,
+so a fourth power hidden inside the second hand's name is precisely the
+Email-Driven Architecture failure `docs/adr/README.md` exists to prevent.
+
+**D lost to physics, and it is worth being explicit that it lost to evidence
+rather than to preference.** `docs/telemetry.md` records that instrumentation
+attaches at launch; the `.workmux.yaml` SCAR is the same requirement failing
+invisibly once already, proven only by reading `/proc/<pid>/environ`. A
+front door that silently "attached" to a running conductor would be a lie the
+instrument told about itself, which is the one failure this codebase treats as
+unrecoverable. Relaunch with continuity (`claude --continue`) is the reachable
+version of the same wish, and it is honest because it names what it costs.
+
+**E lost** on the non-goal it would breach, and it is a real fork rather than a
+strawman: a stored token is the obvious way to clone a private repo, and
+clone-by-URL is half of power (b). It loses because a hand that holds a
+credential has something worth stealing, and this instrument's security posture
+is built on having nowhere to put one — localhost-only, single-origin,
+no accounts (ADR-0008; prd-23 makes the same property load-bearing). Borrowing
+the machine's own `git`/`gh` credentials clones exactly the repos the operator
+could already clone from that shell, and no more.
+
+**On the record itself.** This ADR *is* the third amendment to ADR-0001, and it
+is the first one that exists as a file. ADR-0001's Status line has until now
+promised two records, `ADR-0001a` and `ADR-0001b`, that were never written — the
+laboratory and recorder amendments live as items 2 and 3 of ADR-0001's own
+Decision Outcome list, each with its commit. The convention this record asserts,
+and which `docs/adr/README.md` now states, is that **an amendment is a new
+top-level ADR**: the log has one numbering scheme, sub-numbers were never part
+of it, and an amendment is exactly the kind of decision — structural,
+constraining, expensive to reverse — the log is for. ADR-0001's dangling
+reference is repaired as a broken link, not rewritten; its reasoning is
+untouched.
+
+## Consequences
+
+**Good.** The public claim stays checkable: four hands, each named, each with
+its own enforcing test. The amendment lands before the code, so wave 2 inherits
+a fence rather than negotiating one. And prd-20 ruling 2 now has a structural
+partner — the declared-importer set in the concierge's law is empty, so the
+first route to reach this hand fails a test until someone reads the ruling.
+
+**Bad — this law is stricter than its predecessors, and still not structure.**
+It replaces the per-file grep with reachability over the whole import graph of
+both packages, reads backtick specifiers, canonicalizes paths through
+`realpath(3)`, and refuses to be blind: a dynamic `import()` with a non-literal
+specifier is itself a violation, because an edge the graph cannot follow would
+let the check pass while knowing nothing. That closes #245's two holes. It does
+not close `eval`, a native addon, a specifier assembled from a network
+response, or a shell that reaches the hand from outside the process. A law over
+source text is still a law over source text.
+
+**Bad — the strictness has a cost other lanes will pay.** "No non-literal
+dynamic `import()` anywhere in server source" is a constraint on files this hand
+does not own. It holds today (the one dynamic import in the tree is a literal),
+and a future lane that needs a computed specifier must either name it as a
+declared exception or lose the soundness of the reachability check. That
+friction is intended, and it is friction.
+
+**Bad — the fourth hand is the one that can execute.** A mistake in the lab
+costs a stray ref; a mistake here runs a command. The law's fourth clause
+forbids the module from reaching a shell at all — `exec`/`execSync` and
+`shell: true` are out, argv arrays are in — which removes the injection path a
+repo URL or branch name would otherwise take, but does not remove the fact that
+this hand's purpose is to run something.
+
+**Neutral — one open question stays open.** prd-20 does not rule where cloned
+repos live. The fence is therefore expressed relative to a clone root its caller
+supplies, not a hard-coded default, so answering the question later sets an
+argument rather than reopening this law. The fence does assume **one** watched
+repo (prd-20's "no simultaneous multi-repo" non-goal); simultaneous multi-repo
+would multiply fence roots and is a different decision.
+
+**Neutral.** A fifth power still costs a public argument and a fifth ADR, which
+is the intended friction.
