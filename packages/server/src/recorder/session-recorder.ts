@@ -98,8 +98,16 @@ export class SessionRecorder {
     })
     this.buffer.push(event)
     this.emitter.emit('event', event)
-    await this.writer.append(event)
-    await this.writer.sync()
+    try {
+      await this.writer.append(event)
+      await this.writer.sync()
+    } catch (error) {
+      const release = this.releaseSeal
+      this.sealed = null
+      this.releaseSeal = null
+      release?.()
+      throw error
+    }
   }
 
   /**

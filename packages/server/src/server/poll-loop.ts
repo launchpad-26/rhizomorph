@@ -104,16 +104,21 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
         // (nothing new, or an error branch) has nothing to write.
         if (result.nextSnapshot !== previous) await persist(collector, result.nextSnapshot)
       } catch (error) {
-        await recorder.record(
-          createEvent(
-            'collector.error',
-            {
-              collector: collector.name,
-              message: error instanceof Error ? error.message : String(error),
-            },
-            { id: nextId(), ts: now() },
-          ),
+        const errorEvent = createEvent(
+          'collector.error',
+          {
+            collector: collector.name,
+            message: error instanceof Error ? error.message : String(error),
+          },
+          { id: nextId(), ts: now() },
         )
+        try {
+          await recorder.record(errorEvent)
+        } catch (reportError) {
+          console.error(
+            `[rhizomorph] failed to report collector.error for ${collector.name}: ${reportError instanceof Error ? reportError.message : String(reportError)}`,
+          )
+        }
       }
     }
   }
