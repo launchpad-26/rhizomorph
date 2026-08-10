@@ -127,6 +127,14 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **A rotated or truncated session log resumes being read (#305).**
+  `sessionlog/tail.ts` treated "the file is now smaller than the offset we
+  hold" the same as "no new bytes" and handed back the same stale offset
+  forever, so a log truncated or rotated out from under the collector
+  (log rotation, a fresh `claude` session reusing a path) went quiet with
+  no error and never recovered short of a restart. The read cursor now
+  resets to the start of the file whenever it shrinks below the held
+  offset, so the next poll resumes reading normally.
 - **Rename-in-place actually works (#249).** `POST /api/label` required a
   per-process capability token nothing ever delivered to the browser, so
   every rename in `/recordings` 401ed, on every boot. The server now

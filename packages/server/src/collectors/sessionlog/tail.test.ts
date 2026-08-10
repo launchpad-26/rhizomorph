@@ -55,4 +55,55 @@ describe('readNewLines', () => {
     expect(second.lines).toEqual([])
     expect(second.nextOffset).toBe(first.nextOffset)
   })
+
+  it('resumes reading a rotated/truncated log instead of seeking past it forever', async () => {
+    await writeFile(filePath, 'one\ntwo\nthree\n', 'utf8')
+    const first = await readNewLines(filePath, 0)
+
+    await writeFile(filePath, 'a\nb\n', 'utf8')
+    const second = await readNewLines(filePath, first.nextOffset)
+    expect(second.lines).toEqual(['a', 'b'])
+    expect(second.nextOffset).toBe(Buffer.byteLength('a\nb\n'))
+
+    await appendFile(filePath, 'c\n', 'utf8')
+    const third = await readNewLines(filePath, second.nextOffset)
+    expect(third.lines).toEqual(['c'])
+  })
+
+  it('resets the cursor to 0 when truncated to empty', async () => {
+    await writeFile(filePath, 'one\ntwo\n', 'utf8')
+    const first = await readNewLines(filePath, 0)
+
+    await writeFile(filePath, '', 'utf8')
+    const second = await readNewLines(filePath, first.nextOffset)
+    expect(second.lines).toEqual([])
+    expect(second.nextOffset).toBe(0)
+
+    await appendFile(filePath, 'fresh\n', 'utf8')
+    const third = await readNewLines(filePath, 0)
+    expect(third.lines).toEqual(['fresh'])
+  })
+
+  it('does not re-read the same post-rotation content on a second poll', async () => {
+    await writeFile(filePath, 'one\ntwo\nthree\n', 'utf8')
+    const first = await readNewLines(filePath, 0)
+
+    await writeFile(filePath, 'a\nb\n', 'utf8')
+    const second = await readNewLines(filePath, first.nextOffset)
+    expect(second.lines).toEqual(['a', 'b'])
+
+    const third = await readNewLines(filePath, second.nextOffset)
+    expect(third.lines).toEqual([])
+    expect(third.nextOffset).toBe(second.nextOffset)
+  })
+
+  it('withholds a trailing incomplete line surviving a rotation reset', async () => {
+    await writeFile(filePath, 'one\ntwo\nthree\n', 'utf8')
+    const first = await readNewLines(filePath, 0)
+
+    await writeFile(filePath, 'x\ny\npartial', 'utf8')
+    const second = await readNewLines(filePath, first.nextOffset)
+    expect(second.lines).toEqual(['x', 'y'])
+    expect(second.nextOffset).toBe(Buffer.byteLength('x\ny\n'))
+  })
 })
