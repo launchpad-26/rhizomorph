@@ -30,9 +30,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
  * answers for `evil.example` later. `Host` is therefore checked for every
  * request this server receives, read or write, applied once, here, at app
  * assembly, so every route — present and future — gets it for free rather
- * than each route's author needing to remember to add it, including
- * `/api/rotate` and the laboratory's routes, neither of which this issue's
- * fence lets this lane edit directly.
+ * than each route's author needing to remember to add it, `/api/rotate` and
+ * the laboratory's routes included.
  *
  * `Origin` stays scoped to mutating methods below: a genuinely cross-origin
  * `fetch`/`XHR` DOES carry an `Origin` header, so it adds CSRF coverage on
@@ -53,10 +52,16 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
  *    once that name resolves to `127.0.0.1`.
  * 2. **`Origin`, if present, is loopback — mutating methods only.** Defeats
  *    a cross-origin CSRF-style POST from any other page. Absent entirely
- *    (true of every non-browser client — `rhizomorph rotate`'s own request
- *    today never sends one) is allowed through this check; {@link
- *    CAPABILITY_TOKEN_HEADER} in `api/security.ts` is the control that
- *    closes THAT gap.
+ *    (true of every non-browser client, `rhizomorph rotate` included) is
+ *    allowed through this check, deliberately and permanently — this guard is
+ *    not the control for a caller with no browser. `requireCapabilityToken`
+ *    in `api/security.ts` is, and since #234 all three of this server's
+ *    mutating routes require it: `/api/label`, `/api/rotate` and
+ *    `/api/lab/launch`. A bare `curl` still passes THIS hook and is then
+ *    refused by that one, which is the intended division of labour rather
+ *    than a hole; widening this hook to reject a missing `Origin` would
+ *    break every legitimate non-browser caller and buy nothing an attacker
+ *    could not forge, since a local process sets its own headers freely.
  * 3. **`Content-Type` is `application/json`, whenever a body is present —
  *    mutating methods only.** Ingestion enforcement (the audit's third ask)
  *    — a request smuggling a body as `text/plain` or `multipart/form-data`
@@ -82,10 +87,10 @@ const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
 
 /**
  * Methods the `Origin` and `Content-Type` checks apply to — `Host` above
- * runs for every method regardless. Every route this issue is scoped to
- * (`/api/label` today; `/api/rotate` and the laboratory's routes in their
- * own follow-ups) is a `POST`; `PUT`/`PATCH`/`DELETE` are included so a
- * future mutating route never has to remember to ask for this separately.
+ * runs for every method regardless. All three mutating routes this server has
+ * (`/api/label`, `/api/rotate`, `/api/lab/launch`) are a `POST`;
+ * `PUT`/`PATCH`/`DELETE` are included so a future mutating route never has to
+ * remember to ask for this separately.
  */
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 

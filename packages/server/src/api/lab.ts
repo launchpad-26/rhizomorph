@@ -7,6 +7,7 @@ import { reduceAll, selectSpendRateByLane } from '@rhizomorph/core'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { listSessions, readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import type { ServerContext } from '../server/context.js'
+import { requireCapabilityToken } from './security.js'
 
 /**
  * Read-only routes over the laboratory's own event slice (prd12 rulings 2/3;
@@ -226,6 +227,65 @@ export async function estimateLaunchSpend(ctx: ServerContext, lane: string, arms
 
 export class LaunchValidationError extends Error {}
 
+/**
+ * THE MODEL GRAMMAR (#234's second defect).
+ *
+ * An arm's `model` was validated as `typeof === 'string'` and nothing more.
+ * It travels `--model <model>` through `runCli(['lab','fork',…])` into
+ * `lab/fork.ts`'s `workmuxAddArgv`, which composes
+ * `` `bash scripts/lane-agent.sh ${model}` `` — a *string* that workmux then
+ * hands to a shell in a tmux pane. Every hop inside rhizomorph uses argv
+ * arrays correctly; the injection lands one hop downstream, in workmux's own
+ * execution of that string, which is why auditing this repo's spawn sites
+ * alone clears the code.
+ *
+ * So the value is refused HERE, at the request boundary, long before argv is
+ * built — and again in `lab/fork.ts` for the `rhizomorph lab fork --model`
+ * path, which never passes through this file at all. The two copies are
+ * deliberate and each is literal-pinned in its own test, the same mitigation
+ * ADR-0012 records for the capability header's duplicated spelling: the
+ * laboratory's namespace law (`lab/namespace-law.test.ts`) forbids this file
+ * from importing anything under `server/src/lab/`, so there is no module both
+ * sides may share today.
+ *
+ * The grammar is every character the real model strings this repo dispatches
+ * actually use — `sonnet`, `opus`, `haiku`, `claude-opus-5`,
+ * `claude-3-5-sonnet-20241022`, and a bedrock-style
+ * `us.anthropic.claude-3-5-sonnet-20241022-v1:0` — and no character a shell
+ * gives meaning to. Notably absent: the space, which is what makes a
+ * `model` that smuggles a second word impossible rather than merely
+ * suspicious.
+ */
+export const MODEL_GRAMMAR = /^[A-Za-z0-9._:-]+$/
+
+/**
+ * The first character of `model` the grammar refuses, rendered so a control
+ * character is legible in the refusal rather than vanishing into it — a
+ * refusal that says "invalid model" and nothing else sends the operator
+ * hunting through a value they cannot see.
+ */
+export function offendingModelCharacter(model: string): string | null {
+  for (const character of model) {
+    if (MODEL_GRAMMAR.test(character)) continue
+    const code = character.codePointAt(0) ?? 0
+    if (character === '\n') return '\\n'
+    if (character === '\r') return '\\r'
+    if (character === '\t') return '\\t'
+    if (code < 0x20 || code === 0x7f) return `\\u${code.toString(16).padStart(4, '0')}`
+    return character
+  }
+  return null
+}
+
+/** The sentence both refusal sites say, so the operator reads the same explanation whichever hand they used. */
+export function modelRefusalMessage(model: string, offender: string): string {
+  return (
+    `"model" contains ${offender === ' ' ? 'a space' : `"${offender}"`}, which this instrument refuses: ` +
+    `a model reaches the launcher inside a command line a shell interprets, so it may only use ` +
+    `letters, digits, and . _ : - (received "${model}")`
+  )
+}
+
 export interface LaunchArmInput {
   model?: string
   brief?: string
@@ -280,6 +340,17 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
     const { model, brief } = arm as Record<string, unknown>
     if (model !== undefined && typeof model !== 'string') {
       throw new LaunchValidationError(`arm ${index + 1}'s "model" must be a string when present`)
+    }
+    // The grammar is checked on the TRIMMED value, because that is the value
+    // that actually travels: `launchExperiment` below trims before deciding
+    // whether an arm names a model at all, and an all-whitespace `model` is
+    // "no model", not a violation.
+    if (typeof model === 'string') {
+      const trimmed = model.trim()
+      const offender = trimmed.length === 0 ? null : offendingModelCharacter(trimmed)
+      if (offender !== null) {
+        throw new LaunchValidationError(`arm ${index + 1}'s ${modelRefusalMessage(trimmed, offender)}`)
+      }
     }
     if (brief !== undefined && typeof brief !== 'string') {
       throw new LaunchValidationError(`arm ${index + 1}'s "brief" must be a string when present`)
@@ -529,7 +600,15 @@ export function registerLabRoutes(app: FastifyInstance, ctx: ServerContext): voi
     return estimateLaunchSpend(ctx, lane, armsRaw)
   })
 
-  app.post('/api/lab/launch', async (request: FastifyRequest, reply) => {
+  // Token-gated since #234: this route forks a worktree and dispatches a live
+  // agent that spends real money, and the app-wide guard deliberately lets a
+  // request with no `Origin` through (`server/mutation-guard.ts`) — which is
+  // every non-browser caller, `curl` included. The capability token
+  // (`api/security.ts`, delivered in-band per ADR-0012) is the control that
+  // closes that half; the launch panel was widened to send it in the same
+  // commit, because gating a route whose caller cannot authenticate is how
+  // #249 happened.
+  app.post('/api/lab/launch', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async (request: FastifyRequest, reply) => {
     if (ctx.readOnly === true) {
       return reply.code(409).send({
         error: 'this server is replaying a session record, not watching a repo — there is nothing live to fork',

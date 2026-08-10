@@ -1,9 +1,10 @@
 import { createEvent, createIdFactory, estimateCostUsd } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ModeProvider } from '../app/ModeContext.js'
 import { StreamProvider } from '../app/StreamContext.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
+import { CAPABILITY_META_NAME, CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'
 import ReplayControls from './index.js'
 import type { FetchLike } from './api.js'
 
@@ -488,6 +489,22 @@ describe('ReplayControls — the TIDE dock (#169; the band cut by ruling 13, iss
  * the session you just closed is choosable *immediately*, without a reload.
  */
 describe('ReplayControls · end session · start fresh', () => {
+  /**
+   * Stands in for what `server/static.ts` stamps into `index.html` on a real
+   * boot (ADR-0012). Needed here since #234: `POST /api/rotate` is
+   * token-gated, so `requestRotation` reads the token off the page and
+   * refuses before the wire if there is none — which is what the button would
+   * do under `npm run dev:web` too.
+   */
+  const TEST_TOKEN = 'test-capability-token'
+
+  beforeAll(() => {
+    const meta = document.createElement('meta')
+    meta.setAttribute('name', CAPABILITY_META_NAME)
+    meta.setAttribute('content', TEST_TOKEN)
+    document.head.appendChild(meta)
+  })
+
   /** A listing that grows when the rotation happens, the way the real one does. */
   function makeRotatingFetch(): { fetchImpl: FetchLike; rotate: () => void; listingFetches: () => number } {
     let rotated = false
@@ -539,7 +556,14 @@ describe('ReplayControls · end session · start fresh', () => {
       expect(rotateFetch).not.toHaveBeenCalled()
 
       await fireAndFlush(() => fireEvent.click(button))
-      expect(rotateFetch).toHaveBeenCalledWith('/api/rotate', { method: 'POST' })
+      // AMENDED for #234: the call now carries the capability token, because
+      // the route requires it. Widened here rather than loosened — the header
+      // is asserted by value, so a button that stopped sending it (or sent
+      // something else) still fails.
+      expect(rotateFetch).toHaveBeenCalledWith('/api/rotate', {
+        method: 'POST',
+        headers: { [CAPABILITY_TOKEN_HEADER]: TEST_TOKEN },
+      })
 
       // The listing was re-read, and the closed session is now choosable.
       await waitFor(() => expect(listingFetches()).toBe(2))

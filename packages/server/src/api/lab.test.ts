@@ -15,7 +15,14 @@ import { sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { exec as realExec } from '../server/exec.js'
 import { SessionRecorder } from '../server/recorder.js'
-import { LaunchValidationError, estimateLaunchSpend, launchExperiment, parseSingleArmForkStdout } from './lab.js'
+import {
+  LaunchValidationError,
+  MODEL_GRAMMAR,
+  estimateLaunchSpend,
+  launchExperiment,
+  parseSingleArmForkStdout,
+} from './lab.js'
+import { CAPABILITY_TOKEN_HEADER } from './security.js'
 
 describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
   let repoPath: string
@@ -352,6 +359,49 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     ).rejects.toThrow(/model/)
   })
 
+  /**
+   * #234's second defect, at the entry point rather than over HTTP: the
+   * refusal must be a `LaunchValidationError` (which the route renders as a
+   * 400) and it must arrive before `runCli` is reached, so no worktree is
+   * forked and no money is spent on a request that was never going to be
+   * honoured. `exec` is deliberately one that fails the test if it is called
+   * at all — the assertion is "nothing ran", not merely "it threw".
+   */
+  it('refuses a model carrying shell metacharacters before the laboratory runs at all', async () => {
+    const neverRuns: Exec = async (command, argv) => {
+      throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
+    }
+
+    for (const model of [
+      'opus; touch /tmp/pwned',
+      'opus$(touch /tmp/pwned)',
+      'opus`touch /tmp/pwned`',
+      'opus --dangerously-skip-permissions',
+      'opus\ntouch /tmp/pwned',
+    ]) {
+      await expect(
+        launchExperiment(
+          { lane: 'lane-a', checkpointId: 'ckpt-1', arms: [{ model }] },
+          { repoPath: repoDir, exec: neverRuns, dataRoot, claudeProjectsRoot },
+        ),
+        `${JSON.stringify(model)} was not refused`,
+      ).rejects.toThrow(LaunchValidationError)
+    }
+  })
+
+  it('an arm whose model is only whitespace is "no model", not a violation — the fleet default, honestly', async () => {
+    const checkpointId = await seedCheckpoint('lane-blank', () => 1_000_000)
+    const exec = execWithStubs((command) => (command === 'workmux' ? OK : null))
+
+    const result = await launchExperiment(
+      { lane: 'lane-blank', checkpointId, arms: [{ model: '   ' }] },
+      { repoPath: repoDir, exec, dataRoot, claudeProjectsRoot, now: () => 2_000_000 },
+    )
+
+    expect(result.failed).toBeNull()
+    expect(result.arms[0]?.model).toBeNull()
+  })
+
   it('dispatches a single arm with its own model and brief, and reports it as launched', async () => {
     const checkpointId = await seedCheckpoint('lane-a', () => 1_000_000)
     const exec = execWithStubs((command) => (command === 'workmux' ? OK : null))
@@ -465,6 +515,76 @@ describe('POST /api/lab/launch (route wiring — validation and the read-only re
     ])
   })
 
+  /** The header a caller who was actually served the dashboard page would carry (ADR-0012). */
+  function authorised(app: ReturnType<typeof buildApp>): Record<string, string> {
+    return { [CAPABILITY_TOKEN_HEADER]: app.capabilityToken }
+  }
+
+  /**
+   * #234's first defect, on the route that matters most. This one forks a
+   * worktree and dispatches a live agent that spends real money, and the
+   * app-wide guard deliberately admits a request with no `Origin`
+   * (`server/mutation-guard.ts`) — so a bare `curl` from any local process
+   * reached it.
+   *
+   * The tokenless case asserts more than the status: `launchExperiment` is
+   * never entered at all. A 401 arriving after a worktree was already forked
+   * would be a gate in name only. `readOnly` is left off deliberately here —
+   * the refusal must come from the token, not from a server that had nothing
+   * to fork anyway.
+   */
+  describe('requires the capability token (#234)', () => {
+    it('refuses a tokenless launch — the bare curl this issue is about — before the laboratory is touched', async () => {
+      const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+      const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/lab/launch',
+        payload: { lane: 'x', checkpointId: 'y', arms: [{ model: 'opus' }] },
+      })
+
+      expect(response.statusCode).toBe(401)
+      expect((response.json() as { error: string }).error).toContain(CAPABILITY_TOKEN_HEADER)
+      // Nothing was dispatched and nothing was recorded — the handler never ran.
+      expect(recorder.eventsSoFar()).toEqual([])
+    })
+
+    it('refuses a wrong token just as flatly — a guess is not a capability', async () => {
+      const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+      const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/lab/launch',
+        headers: { [CAPABILITY_TOKEN_HEADER]: 'not-the-real-token' },
+        payload: { lane: 'x', checkpointId: 'y', arms: [{ model: 'opus' }] },
+      })
+
+      expect(response.statusCode).toBe(401)
+      expect(recorder.eventsSoFar()).toEqual([])
+    })
+
+    it('lets the correctly-tokened request reach the handler — the gate is a gate, not a wall', async () => {
+      const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+      const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+      // A tokened request with a malformed payload reaches the handler and is
+      // answered by the handler's OWN validation — a 400, not a 401. That is
+      // what proves the token was accepted rather than the request refused
+      // for some other reason.
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/lab/launch',
+        headers: authorised(app),
+        payload: { lane: '', checkpointId: 'x', arms: [{}] },
+      })
+
+      expect(response.statusCode).toBe(400)
+      expect((response.json() as { error: string }).error).toMatch(/lane/)
+    })
+  })
+
   it('400s a malformed body before ever touching the laboratory', async () => {
     const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
     const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
@@ -472,10 +592,54 @@ describe('POST /api/lab/launch (route wiring — validation and the read-only re
     const response = await app.inject({
       method: 'POST',
       url: '/api/lab/launch',
+      headers: authorised(app),
       payload: { lane: '', checkpointId: 'x', arms: [{}] },
     })
     expect(response.statusCode).toBe(400)
     expect((response.json() as { error: string }).error).toMatch(/lane/)
+  })
+
+  /**
+   * #234's second defect, at the boundary. The payloads below are the ones
+   * that mattered: each ends up inside
+   * `` `bash scripts/lane-agent.sh ${model}` ``, a STRING workmux hands to a
+   * shell in a tmux pane, so each would have run a second command as the
+   * operator. The refusal is a 400 that names the offending character, and it
+   * happens in `parseLaunchRequestBody` — before `runCli`, before
+   * `dispatchFork`, before `workmuxAddArgv` exists to be called.
+   */
+  it('400s a model carrying shell metacharacters, naming the character, and dispatches nothing', async () => {
+    const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+    const payloads: ReadonlyArray<{ model: string; names: string }> = [
+      { model: 'sonnet; touch /tmp/pwned', names: ';' },
+      { model: 'sonnet$(touch /tmp/pwned)', names: '$' },
+      { model: 'sonnet`touch /tmp/pwned`', names: '`' },
+      { model: 'sonnet --dangerously-skip-permissions', names: 'a space' },
+      { model: 'sonnet\ntouch /tmp/pwned', names: '\\n' },
+      { model: 'sonnet && touch /tmp/pwned', names: 'a space' },
+      { model: 'sonnet | sh', names: 'a space' },
+      { model: '$(id)', names: '$' },
+    ]
+
+    for (const { model, names } of payloads) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/lab/launch',
+        headers: authorised(app),
+        payload: { lane: 'x', checkpointId: 'y', arms: [{ model }] },
+      })
+
+      expect(response.statusCode, `model ${JSON.stringify(model)} was not refused`).toBe(400)
+      const { error } = response.json() as { error: string }
+      expect(error, `refusal for ${JSON.stringify(model)} does not name the offender`).toContain(names)
+      expect(error).toMatch(/letters, digits/)
+    }
+
+    // Every one of them was refused at the boundary: nothing reached the
+    // laboratory, so nothing was dispatched and nothing was recorded.
+    expect(recorder.eventsSoFar()).toEqual([])
   })
 
   it('409s when this server is replaying a record instead of watching a repo — there is nothing live to fork', async () => {
@@ -485,9 +649,79 @@ describe('POST /api/lab/launch (route wiring — validation and the read-only re
     const response = await app.inject({
       method: 'POST',
       url: '/api/lab/launch',
+      headers: authorised(app),
       payload: { lane: 'x', checkpointId: 'y', arms: [{ model: 'opus' }] },
     })
     expect(response.statusCode).toBe(409)
+  })
+})
+
+/**
+ * THE MODEL GRAMMAR (#234's second defect), as a unit.
+ *
+ * The route test above proves the refusal reaches an HTTP caller. This proves
+ * the grammar itself is the right grammar — which is the half that can quietly
+ * be wrong in the other direction. A grammar that rejects a model this repo
+ * actually dispatches is a worse bug than the injection it closes: it would
+ * break every launch, and it would look like a lab failure rather than a
+ * validation one.
+ */
+describe('the model grammar admits every model this repo really dispatches (#234)', () => {
+  it('passes the fleet default and every model spelled anywhere in this repo or its config', () => {
+    const real = [
+      // `.workmux.yaml`'s `agent:` line, and `scripts/lane-agent.sh`'s own default.
+      'sonnet',
+      // Spelled in this file's own fixtures and in `web/src/lab/launch/`.
+      'opus',
+      'haiku',
+      // Full API model ids, both generations.
+      'claude-opus-5',
+      'claude-sonnet-5',
+      'claude-3-5-sonnet-20241022',
+      'claude-haiku-4-5-20251001',
+      // A bedrock-style id — dots and a colon, the two characters most likely
+      // to be left out of a hastily-written grammar.
+      'us.anthropic.claude-3-5-sonnet-20241022-v1:0',
+      // An underscore, for the same reason.
+      'some_internal_model',
+    ]
+    for (const model of real) {
+      expect(MODEL_GRAMMAR.test(model), `${model} is a legitimate model and must not be refused`).toBe(true)
+    }
+  })
+
+  it('refuses every character a shell would act on', () => {
+    for (const model of [
+      'a;b',
+      'a b',
+      'a|b',
+      'a&b',
+      'a$b',
+      'a`b',
+      'a(b',
+      'a)b',
+      'a>b',
+      'a<b',
+      'a\nb',
+      'a\rb',
+      'a\tb',
+      "a'b",
+      'a"b',
+      'a\\b',
+      'a*b',
+      'a#b',
+      'a!b',
+      'a{b',
+      'a/b',
+      '',
+    ]) {
+      expect(MODEL_GRAMMAR.test(model), `${JSON.stringify(model)} must be refused`).toBe(false)
+    }
+  })
+
+  it('is anchored at both ends — a payload after a legitimate prefix is still a payload', () => {
+    expect(MODEL_GRAMMAR.test('sonnet\nrm -rf /')).toBe(false)
+    expect(MODEL_GRAMMAR.test('rm -rf /\nsonnet')).toBe(false)
   })
 })
 

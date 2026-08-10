@@ -102,6 +102,90 @@ describe('workmuxAddArgv', () => {
     expect(workmuxAddArgv('h', { promptFile: '/tmp/p.md' })).toContain('-P')
     expect(workmuxAddArgv('h', { promptFile: '/tmp/p.md' })).toContain('/tmp/p.md')
   })
+
+  /**
+   * #234's second defect, at the exact line where it lands.
+   *
+   * `-a` is the ONE place in this repo where a caller-supplied value goes into
+   * a string rather than an argv element, because `workmux add -a` takes the
+   * agent's whole command line as one string and runs it through a shell in a
+   * tmux pane. So `model` was, in effect, `eval`'d one hop downstream — which
+   * is why auditing this repo's own `execFile` sites cleared the code.
+   *
+   * Two assertions per payload, deliberately: that the call is refused, AND
+   * that the argv which would have carried it does not exist. The second is
+   * the one that matters — a refusal that still returned a poisoned array for
+   * some caller to use would be no fix at all.
+   */
+  describe('refuses a model no shell may safely be handed (#234)', () => {
+    const PAYLOADS: ReadonlyArray<{ model: string; names: string }> = [
+      { model: 'opus; touch /tmp/pwned', names: '";"' },
+      { model: 'opus$(touch /tmp/pwned)', names: '"$"' },
+      { model: 'opus`touch /tmp/pwned`', names: '"`"' },
+      { model: 'opus && touch /tmp/pwned', names: 'a space' },
+      { model: 'opus | sh', names: 'a space' },
+      { model: 'opus\ntouch /tmp/pwned', names: '"\\n"' },
+      { model: 'opus --dangerously-skip-permissions', names: 'a space' },
+      { model: '$(id)', names: '"$"' },
+      { model: 'opus\t; sh', names: '"\\t"' },
+    ]
+
+    it('throws, naming the offending character an operator can act on, and builds no argv at all', () => {
+      for (const { model, names } of PAYLOADS) {
+        let built: readonly string[] | undefined
+        expect(
+          () => {
+            built = workmuxAddArgv('fork-1-arm-1', { model })
+          },
+          `${JSON.stringify(model)} was not refused, or was refused without naming ${names}`,
+        ).toThrow(names)
+        // Nothing came back — so no array anywhere carries the payload, which
+        // is the property that actually matters. A refusal that still handed a
+        // poisoned argv to some other caller would be no fix.
+        expect(built, `${JSON.stringify(model)} produced an argv`).toBeUndefined()
+      }
+    })
+
+    it('a legitimate model still produces exactly the documented argv, payload-free', () => {
+      // The healthy shape, restated here so the refusals above are proven to
+      // be discriminating rather than blanket.
+      for (const model of ['sonnet', 'opus', 'haiku', 'claude-opus-5', 'claude-3-5-sonnet-20241022']) {
+        const argv = workmuxAddArgv('fork-1-arm-1', { model })
+        expect(argv).toEqual(['add', 'fork-1-arm-1', '-b', '-a', `bash scripts/lane-agent.sh ${model}`])
+        expect(argv.join(' ')).not.toMatch(/[;$`|&\n]/)
+      }
+    })
+
+    it('a bedrock-style id with dots and a colon is a legitimate model, not a payload', () => {
+      const model = 'us.anthropic.claude-3-5-sonnet-20241022-v1:0'
+      expect(workmuxAddArgv('h', { model })).toEqual(['add', 'h', '-b', '-a', `bash scripts/lane-agent.sh ${model}`])
+    })
+  })
+})
+
+describe('dispatchFork refuses a poisoned model before anything is restored (#234)', () => {
+  it('throws before the checkpoint is even looked up — nothing forked, nothing executed', async () => {
+    const neverRuns: Exec = async (command, argv) => {
+      throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
+    }
+
+    await expect(
+      dispatchFork({
+        parentLane: 'parent-lane',
+        parentWorktreePath: repoDir,
+        arms: 1,
+        model: 'opus; touch /tmp/pwned',
+        launch: true,
+        exec: neverRuns,
+        dataRoot,
+        claudeProjectsRoot,
+      }),
+    ).rejects.toThrow(/refusing to launch/)
+
+    // No lab worktree root was created, so no arm was restored on the way to
+    // the refusal — the check really does run before the work.
+    await expect(readdir(labWorktreesRoot(dataRoot))).rejects.toThrow()
+  })
 })
 
 describe('findCheckpoint', () => {
