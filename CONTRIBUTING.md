@@ -14,20 +14,29 @@ Node is not a machine this suite has ever been green on:
 node --version        # must be >= 22.22.2
 ```
 
-On Node 20 the entire `web` suite fails to start its test workers with
+On Node 20 every test file in the `web` workspace fails to start its worker with
 `TypeError: webidl.util.markAsUncloneable is not a function`, thrown from
-`undici` by way of `jsdom`. It reads exactly like a broken checkout, and it
-isn't — the failure is one function that only exists in Node 22. The tell is
-that the run reports **every test passing and still exits non-zero**, because
-the workers died outside any test:
+`undici` by way of `jsdom` — one function that only exists in Node 22.
+
+**The danger is not that it fails, it's that it looks like it passed.** The
+counts describe only the files that ran, and the files that never started are
+reported separately as errors, one per file — so a run that silently skipped
+**about half the suite** still prints a wall of green:
 
 ```
-Test Files  <all> passed
-     Tests  <all> passed
-    Errors  116 errors            # <- workers that never booted; exit code 1
+Test Files  <that started> passed      # <- NOT the whole suite
+     Tests  <in those files> passed    # <- ditto
+    Errors  <n> errors                 # <- n = web test files that never booted
 ```
 
-If you see that shape, upgrade Node rather than debugging the tests.
+The tell is the **exit code**, not the counts: green figures and a non-zero
+exit. Compare `Test Files` against the real total — if `passed` plus `errors`
+equals it, the difference never ran and none of `web`'s behaviour was checked at
+all. On a supported Node the same command finishes with **exit 0 and no errors
+line**.
+
+If you see that shape, upgrade Node rather than debugging the tests, and don't
+trust any "all green" measured on the older one.
 
 ```sh
 npm install
