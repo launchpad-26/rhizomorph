@@ -255,11 +255,7 @@ function LinkRow({ link, onCopy }: { link: ChainLink; onCopy: CopyText }) {
       {link.fact !== null && (
         <p data-testid={`connect-fact-${link.id}`} className="mt-1 text-[11px] text-ice-200">
           {link.fact}
-          {link.ts !== null && (
-            <time dateTime={new Date(link.ts).toISOString()} className="figures ml-2 text-ice-400">
-              {formatWallClock(link.ts)}
-            </time>
-          )}
+          <Stamp ts={link.ts} kind={link.tsKind} />
         </p>
       )}
 
@@ -279,6 +275,22 @@ function LinkRow({ link, onCopy }: { link: ChainLink; onCopy: CopyText }) {
         </ul>
       )}
     </li>
+  )
+}
+
+/**
+ * A VERIFIED row's timestamp, and **what kind of timestamp it is** — the
+ * proving record's own moment, or "as of" this render where the proof is the
+ * present moment rather than a stored fact (an open socket, a fresh doctor
+ * probe). Ruling 3 wants every VERIFIED dated; saying which of the two it is
+ * keeps that from being a fabricated event time.
+ */
+function Stamp({ ts, kind }: { ts: number | null; kind: ChainLink['tsKind'] }) {
+  if (ts === null || kind === null) return null
+  return (
+    <time dateTime={new Date(ts).toISOString()} className="figures ml-2 text-ice-400">
+      {kind === 'render' ? `as of ${formatWallClock(ts)}` : formatWallClock(ts)}
+    </time>
   )
 }
 

@@ -49,11 +49,22 @@ export interface ChainLink {
   state: LinkState
   /** VERIFIED only: the fact that proves it. */
   fact: string | null
-  /** VERIFIED only: when it was proved, epoch millis, or `null` when the proof carries no timestamp. */
+  /**
+   * VERIFIED only, and **never null on a VERIFIED row** — ruling 3's own
+   * sentence is "a fact AND its timestamp", and a stale VERIFIED with nothing
+   * to date it is exactly the failure this page exists to remove.
+   */
   ts: number | null
+  /**
+   * What {@link ts} dates. `'event'` is the proving record's own timestamp;
+   * `'render'` is this render, and is the honest answer where the proof IS
+   * the present moment — an open stream, a fresh doctor probe — rather than a
+   * stored fact. Never a fabricated event time for a live proof.
+   */
+  tsKind: 'event' | 'render' | null
   /** BROKEN only: why. */
   reason: string | null
-  /** BROKEN only: the exact copy-paste command, port already interpolated. `null` when the honest remedy is prose, not a command. */
+  /** BROKEN only, and **never null on a BROKEN row**: the exact copy-paste command, port already interpolated. */
   command: string | null
   /** BROKEN only, beside a command: the same-process SCAR warning, verbatim. */
   warning: string | null
@@ -141,29 +152,77 @@ export function envApplyNote(command: string): string {
   return `apply it in the shell that will exec the agent — \`eval "$(${command})"\` — then start \`claude\` from that same shell`
 }
 
-function verified(base: Omit<ChainLink, 'state' | 'fact' | 'ts' | 'reason' | 'command' | 'warning' | 'notes'>, fact: string, ts: number | null, notes: string[] = []): ChainLink {
-  return { ...base, state: 'verified', fact, ts, reason: null, command: null, warning: null, notes }
+/**
+ * Relaunching the instrument itself, against this repo and this port — the
+ * command behind every row whose fault was decided at boot.
+ *
+ * A collector is enabled or disabled when the server starts (and retired
+ * mid-run by its own error policy); nothing this page or its operator can do
+ * from a browser re-enables one. So once the cause the row NAMES is fixed —
+ * the missing binary installed, the path pointed at a real worktree — this is
+ * the exact command that re-runs that decision. It is a real remedy rather
+ * than an invented one precisely because the row always carries the
+ * collector's own reason beside it: the reason says what to fix, this says
+ * how to make the instrument look again.
+ */
+export function restartCommand(repoPath: string | null, port: string, extra: readonly string[] = []): string {
+  return ['npm start --', repoPath ?? '<repo>', '--port', port, ...extra].join(' ')
 }
 
+type LinkBase = Omit<ChainLink, 'state' | 'fact' | 'ts' | 'tsKind' | 'reason' | 'command' | 'warning' | 'notes'>
+
+/** When a row was proved, and by what kind of proof — see {@link ChainLink.tsKind}. */
+export interface Proof {
+  ts: number
+  tsKind: 'event' | 'render'
+}
+
+/**
+ * A proving record's own timestamp when it has one, and otherwise this
+ * render, labelled as such. Some proofs genuinely carry no event time — a
+ * folded record whose every stamp was null, a doctor probe, an open socket —
+ * and ruling 3 still wants them dated. "As of now" is the true statement in
+ * those cases; inventing an event timestamp would not be.
+ */
+function provenAt(eventTs: number | null, now: number): Proof {
+  return eventTs === null ? { ts: now, tsKind: 'render' } : { ts: eventTs, tsKind: 'event' }
+}
+
+/** Dated by this render alone: the proof is the present moment, not a stored fact. */
+function provenNow(now: number): Proof {
+  return { ts: now, tsKind: 'render' }
+}
+
+function verified(base: LinkBase, fact: string, proof: Proof, notes: string[] = []): ChainLink {
+  return { ...base, state: 'verified', fact, ts: proof.ts, tsKind: proof.tsKind, reason: null, command: null, warning: null, notes }
+}
+
+/**
+ * `command` is REQUIRED, not optional — ruling 3's "a reason and the exact
+ * command" restated as a type rather than as a convention a future row could
+ * skip. A row that cannot name a command is not a BROKEN row this module
+ * knows how to build, and that is the conversation a diff should have.
+ */
 function broken(
-  base: Omit<ChainLink, 'state' | 'fact' | 'ts' | 'reason' | 'command' | 'warning' | 'notes'>,
+  base: LinkBase,
   reason: string,
-  options: { command?: string; warning?: string; notes?: string[] } = {},
+  options: { command: string; warning?: string; notes?: string[] },
 ): ChainLink {
   return {
     ...base,
     state: 'broken',
     fact: null,
     ts: null,
+    tsKind: null,
     reason,
-    command: options.command ?? null,
+    command: options.command,
     warning: options.warning ?? null,
     notes: options.notes ?? [],
   }
 }
 
-function unproven(base: Omit<ChainLink, 'state' | 'fact' | 'ts' | 'reason' | 'command' | 'warning' | 'notes'>, notes: string[] = []): ChainLink {
-  return { ...base, state: 'unproven', fact: null, ts: null, reason: null, command: null, warning: null, notes }
+function unproven(base: LinkBase, notes: string[] = []): ChainLink {
+  return { ...base, state: 'unproven', fact: null, ts: null, tsKind: null, reason: null, command: null, warning: null, notes }
 }
 
 /** `1 record` / `4 records` — the count is evidence of flow and a magnitude, never an event tally (`selectConnection`'s own first limit). */
@@ -259,13 +318,15 @@ function browserServer(input: ConnectInputs): ChainLink {
     const instance = input.meta?.sessionId ?? null
     const served = instance === null ? '/api/meta has not named an instance' : `/api/meta names instance ${instance}`
     const events = `${input.stream.eventCount} event${input.stream.eventCount === 1 ? '' : 's'} folded`
-    return verified(base, `${STREAM_REASON.open} — ${events}, ${served}`, null, notes)
+    // The proof here is the socket being open *now*, not any event on it —
+    // so the honest date is this render, never the last event's timestamp.
+    return verified(base, `${STREAM_REASON.open} — ${events}, ${served}`, provenNow(input.now), notes)
   }
 
   if (input.stream.status === 'connecting') return unproven(base, notes)
 
   return broken(base, STREAM_REASON[input.stream.status], {
-    command: `npm start -- ${input.meta?.repoPath ?? '<repo>'} --port ${input.port}`,
+    command: restartCommand(input.meta?.repoPath ?? null, input.port),
     notes,
   })
 }
@@ -277,11 +338,14 @@ function repoGit(input: ConnectInputs): ChainLink {
   const notes = doctorNote(input.doctor, 'lane-manifest')
 
   if (flow.count > 0) {
-    return verified(base, `${records(flow.count)} from git — worktrees, branches, commits`, flow.lastEventTs, notes)
+    return verified(base, `${records(flow.count)} from git — worktrees, branches, commits`, provenAt(flow.lastEventTs, input.now), notes)
   }
   const disabled = disabledReason(input.meta, 'git')
   if (disabled !== null) {
-    return broken(base, disabled.reason, { notes: disabled.remedy === null ? notes : [`remedy: ${disabled.remedy}`, ...notes] })
+    return broken(base, disabled.reason, {
+      command: restartCommand(input.meta?.repoPath ?? null, input.port),
+      notes: disabled.remedy === null ? notes : [`remedy: ${disabled.remedy}`, ...notes],
+    })
   }
   return unproven(base, notes)
 }
@@ -301,7 +365,7 @@ function agentsPanes(input: ConnectInputs): ChainLink {
     const proved = [tmux.count > 0 ? `tmux ${records(tmux.count)}` : null, workmux.count > 0 ? `workmux ${records(workmux.count)}` : null]
       .filter((part): part is string => part !== null)
       .join(' · ')
-    return verified(base, proved, maxTs(tmux.lastEventTs, workmux.lastEventTs), notes)
+    return verified(base, proved, provenAt(maxTs(tmux.lastEventTs, workmux.lastEventTs), input.now), notes)
   }
 
   const tmuxDisabled = disabledReason(input.meta, 'tmux')
@@ -310,7 +374,14 @@ function agentsPanes(input: ConnectInputs): ChainLink {
   // leaves a live mechanism that simply has not reported yet, which is
   // UNPROVEN, not dead.
   if (tmuxDisabled !== null && workmuxDisabled !== null) {
-    return broken(base, `tmux: ${tmuxDisabled.reason} · workmux: ${workmuxDisabled.reason}`, { notes })
+    return broken(base, `tmux: ${tmuxDisabled.reason} · workmux: ${workmuxDisabled.reason}`, {
+      // Each reason names its own tool; installing it is that tool's own
+      // business and has no portable command. What this page can name
+      // exactly is the one thing that makes the instrument look again once
+      // it is there.
+      command: restartCommand(input.meta?.repoPath ?? null, input.port),
+      notes,
+    })
   }
   return unproven(base, notes)
 }
@@ -334,8 +405,20 @@ function transcriptSlug(input: ConnectInputs): ChainLink {
   if (check === null) {
     return unproven(base, ['`GET /api/doctor` has not answered — the slug directory is unavailable from here'])
   }
-  if (check.status === 'ok') return verified(base, check.message, null, doctorNote(input.doctor, 'session-boundary'))
-  return broken(base, check.message, { notes: doctorNote(input.doctor, 'session-boundary') })
+  // A probe, not a stored fact: doctor answered about the filesystem as it is
+  // now (the route re-probes every `PROBE_CACHE_TTL_MS`), so "as of this
+  // render" is the only date this row can honestly carry.
+  if (check.status === 'ok') return verified(base, check.message, provenNow(input.now), doctorNote(input.doctor, 'session-boundary'))
+
+  // Doctor's own message carries both halves of the remedy — run `claude`
+  // here once, or point elsewhere with `--extra-sessions`. The second is the
+  // one that is a command, and the conductor-on-a-foreign-filesystem case
+  // (`args.ts`: a mounted `/mnt/c/…/.claude/projects/<slug>`) is exactly the
+  // one this row goes BROKEN for.
+  return broken(base, check.message, {
+    command: restartCommand(input.meta?.repoPath ?? null, input.port, ['--extra-sessions <session-log-dir>']),
+    notes: doctorNote(input.doctor, 'session-boundary'),
+  })
 }
 
 /** **transcripts ↔ slug, the flow half.** A first `sessionlog`-origin record — the dir resolving proves nothing about anything arriving from it. */
@@ -346,11 +429,16 @@ function transcriptFlow(input: ConnectInputs): ChainLink {
     question: 'has a single transcript event actually arrived?',
   }
   const flow = mergeFlow(input.flow.sessionlog, input.meta?.connection?.sources.sessionlog)
-  if (flow.count > 0) return verified(base, `${records(flow.count)} from the transcript collector`, flow.lastEventTs)
+  if (flow.count > 0) {
+    return verified(base, `${records(flow.count)} from the transcript collector`, provenAt(flow.lastEventTs, input.now))
+  }
 
   const disabled = disabledReason(input.meta, 'sessionlog')
   if (disabled !== null) {
-    return broken(base, disabled.reason, { notes: disabled.remedy === null ? [] : [`remedy: ${disabled.remedy}`] })
+    return broken(base, disabled.reason, {
+      command: restartCommand(input.meta?.repoPath ?? null, input.port),
+      notes: disabled.remedy === null ? [] : [`remedy: ${disabled.remedy}`],
+    })
   }
   return unproven(base)
 }
@@ -389,7 +477,7 @@ function otelLink(input: ConnectInputs): ChainLink {
 
   if (flow.count > 0) {
     const notes = refusedCount > 0 ? [`${refusedCount} export${refusedCount === 1 ? '' : 's'} were still refused — another exporter is pointed at the wrong instance`] : []
-    return verified(base, `${records(flow.count)} from OTel — usage, dollars, spans`, flow.lastEventTs, notes)
+    return verified(base, `${records(flow.count)} from OTel — usage, dollars, spans`, provenAt(flow.lastEventTs, input.now), notes)
   }
 
   if (refusedCount > 0) {
@@ -540,7 +628,8 @@ function uninstrumentedConductor(input: ConnectInputs): ChainLink {
 
   const sessionlog = mergeFlow(input.flow.sessionlog, input.meta?.connection?.sources.sessionlog)
   if (sessionlog.count > 0) {
-    return verified(base, 'every session with transcript activity has also exported telemetry', input.flow.otel.lastEventTs)
+    const otel = mergeFlow(input.flow.otel, input.meta?.connection?.sources.otel)
+    return verified(base, 'every session with transcript activity has also exported telemetry', provenAt(otel.lastEventTs, input.now))
   }
   return unproven(base, ['no transcript activity has arrived yet, so there is no session to check'])
 }

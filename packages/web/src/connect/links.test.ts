@@ -80,34 +80,110 @@ describe('buildLinks — the chain ruling 3 names', () => {
   })
 
   /**
-   * Ruling 3's whole shape, asserted as an invariant rather than row by row:
-   * exactly one state, and each state carries exactly the evidence its own
-   * name promises. A VERIFIED row with a remedy attached, or a BROKEN row
-   * with no reason, would be a fourth state wearing one of the three names.
+   * **RULING 3'S TRIPLE, AS AN INVARIANT OVER EVERY BRANCH THIS MODULE HAS.**
+   *
+   * "VERIFIED (a fact and its timestamp), BROKEN (a reason and the exact
+   * command), UNPROVEN (honestly nothing yet)" — asserted across a set of
+   * scenarios chosen to reach every row's every state, rather than row by
+   * row, so a new default path cannot ship VERIFIED with nothing to date it
+   * or BROKEN with no remedy. Ruled on PR #334's review: the rows move, the
+   * ruling stands, no waiver.
    */
-  it('gives every row exactly one state, and only that state carries its evidence', () => {
-    const state = reduceAll([
-      f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, { ts: 1_000 }),
-      f.make('telemetry.refused', { instance: 'stale', expectedInstance: 'ours', count: 2 }, { ts: 2_000 }),
-    ])
+  it('gives every row exactly one state, and every state carries the whole of what its name promises', () => {
+    const scenarios = everyBranch()
+    // The scenarios are only worth what they cover: this fails loudly if a
+    // future edit stops one of the three states being reached at all.
+    const reached = new Set(scenarios.flatMap((links) => links.map((link) => link.state)))
+    expect([...reached].sort()).toEqual(['broken', 'unproven', 'verified'])
 
-    for (const link of build(state)) {
-      expect(['verified', 'broken', 'unproven']).toContain(link.state)
-      if (link.state === 'verified') {
-        expect(link.fact, link.id).not.toBeNull()
-        expect(link.reason, link.id).toBeNull()
-        expect(link.command, link.id).toBeNull()
-      }
-      if (link.state === 'broken') {
-        expect(link.reason, link.id).not.toBeNull()
-        expect(link.fact, link.id).toBeNull()
-      }
-      if (link.state === 'unproven') {
-        expect(link.fact, link.id).toBeNull()
-        expect(link.reason, link.id).toBeNull()
-        expect(link.command, link.id).toBeNull()
+    for (const links of scenarios) {
+      for (const link of links) {
+        expect(['verified', 'broken', 'unproven']).toContain(link.state)
+        if (link.state === 'verified') {
+          expect(link.fact, link.id).not.toBeNull()
+          expect(link.ts, `${link.id} is VERIFIED with nothing to date it`).not.toBeNull()
+          expect(link.tsKind, link.id).not.toBeNull()
+          expect(link.reason, link.id).toBeNull()
+          expect(link.command, link.id).toBeNull()
+        }
+        if (link.state === 'broken') {
+          expect(link.reason, link.id).not.toBeNull()
+          expect(link.command, `${link.id} is BROKEN with no command to fix it`).not.toBeNull()
+          expect(link.fact, link.id).toBeNull()
+          expect(link.ts, link.id).toBeNull()
+        }
+        if (link.state === 'unproven') {
+          expect(link.fact, link.id).toBeNull()
+          expect(link.ts, link.id).toBeNull()
+          expect(link.reason, link.id).toBeNull()
+          expect(link.command, link.id).toBeNull()
+        }
       }
     }
+  })
+
+  /** Every row's VERIFIED and BROKEN branch, across seven builds — the corpus the invariant above is only as good as. */
+  function everyBranch(): ChainLink[][] {
+    const busy = reduceAll([
+      f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, { ts: 1_000 }),
+      f.paneDiscovered({ paneId: '%1', windowName: 'main', currentPath: '/repo' }, { ts: 2_000 }),
+      f.agentStatus({ handle: 'lane-a', status: 'working' }, { ts: 3_000 }),
+      f.toolActivity({ lane: 'lane-a', role: 'worker', sessionId: 'sess-a', tool: 'Bash' }, { ts: 4_000, source: 'sessionlog' }),
+      f.llmUsage({ lane: 'lane-a', role: 'worker', sessionId: 'sess-a' }, { ts: 5_000, source: 'otel' }),
+    ])
+    const refused = reduceAll([f.make('telemetry.refused', { instance: 'stale', expectedInstance: 'ours', count: 2 }, { ts: 2_000 })])
+    const uninstrumented = reduceAll([
+      f.toolActivity({ lane: 'conductor', role: 'conductor', sessionId: 'sess-gabe', tool: 'Bash' }, { ts: NOW - 10 * 60_000, source: 'sessionlog' }),
+    ])
+    const allDisabled = metaWith(
+      {},
+      {
+        collectors: ['git', 'tmux', 'workmux', 'sessionlog'].map((name) => ({
+          name,
+          signals: [{ signal: 'identity' as const, level: 'absent' as const, reason: `${name} collector disabled`, remedy: null }],
+        })),
+      },
+    )
+    const slugOk: DoctorFact = { id: 'session-logs', status: 'ok', message: 'session logs found at /home/x/.claude/projects', assumed: false }
+    const slugMissing: DoctorFact = { id: 'session-logs', status: 'warn', message: 'no session logs — point elsewhere with --extra-sessions', assumed: false }
+
+    return [
+      build(reduceAll([])),
+      build(busy, { doctor: [slugOk] }),
+      build(refused),
+      build(uninstrumented, { doctor: [slugMissing] }),
+      build(reduceAll([]), { meta: allDisabled }),
+      build(reduceAll([]), { meta: metaWith(), stream: { status: 'error', eventCount: 0, provenance: 'live · /api/stream', live: true } }),
+      build(reduceAll([]), { stream: { status: 'connecting', eventCount: 0, provenance: 'live · /api/stream', live: true } }),
+    ]
+  }
+
+  /**
+   * Where the proof IS the present moment — an open socket, a doctor probe —
+   * the row is dated by this render and SAYS so, rather than borrowing some
+   * unrelated event's timestamp and reading as a stored fact.
+   */
+  it('dates a live proof as of render time, and a stored proof by its own event', () => {
+    const state = reduceAll([f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, { ts: 1_000 })])
+    const links = build(state, { doctor: [{ id: 'session-logs', status: 'ok', message: 'found', assumed: false }] })
+
+    expect(row(links, 'browser-server').tsKind).toBe('render')
+    expect(row(links, 'browser-server').ts).toBe(NOW)
+    expect(row(links, 'transcripts-slug').tsKind).toBe('render')
+    expect(row(links, 'repo-git').tsKind).toBe('event')
+    expect(row(links, 'repo-git').ts).toBe(1_000)
+  })
+
+  it('names the restart command, repo and port interpolated, for a fault that was decided at boot', () => {
+    const meta = metaWith({}, { collectors: [{ name: 'git', signals: [{ signal: 'identity', level: 'absent', reason: 'not a repository', remedy: null }] }] })
+    expect(row(build(reduceAll([]), { meta }), 'repo-git').command).toBe('npm start -- /home/x/repo --port 4317')
+  })
+
+  it('names --extra-sessions for a slug directory that does not resolve', () => {
+    const doctor: DoctorFact[] = [{ id: 'session-logs', status: 'warn', message: 'no session logs at /home/x/.claude/projects', assumed: false }]
+    expect(row(build(reduceAll([]), { doctor, meta: metaWith() }), 'transcripts-slug').command).toBe(
+      'npm start -- /home/x/repo --port 4317 --extra-sessions <session-log-dir>',
+    )
   })
 
   it('counts the three states without ranking them', () => {
@@ -168,6 +244,7 @@ describe('the OTel row — prd19 ruling 3, this issue\'s first stated law', () =
     expect(otel.state).toBe('verified')
     expect(otel.fact).toContain('OTel')
     expect(otel.ts).toBe(2_000)
+    expect(otel.tsKind).toBe('event')
     expect(otel.notes.join(' ')).toContain('refused')
   })
 
