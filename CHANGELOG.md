@@ -93,6 +93,37 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Security
 
+- **`POST /api/rotate` and `POST /api/lab/launch` now require the capability
+  token (#234).** Both were reachable by a plain `curl` from any local
+  process — a compromised dependency, another tool, malware running as you.
+  The mutation guard deliberately admits a request carrying no `Origin`
+  (every non-browser caller), and `requireCapabilityToken` had only ever
+  been applied to `/api/label`. Rotation ends the operator's recording;
+  the launch route forks a worktree and dispatches a live agent that spends
+  real money. Both now carry the same gate `/api/label` has carried since
+  the 2026-08-06 audit. All three of their callers were widened in the same
+  change rather than a follow-up — the dashboard's rotate button, the lab's
+  launch panel, and `rhizomorph rotate` — because gating a route whose
+  callers cannot authenticate is exactly how #249 shipped.
+- **An arm's `model` is validated against `^[A-Za-z0-9._:-]+$` (#234).** It
+  was checked as `typeof === 'string'` and nothing more, then interpolated
+  into `` `bash scripts/lane-agent.sh ${model}` `` — a *string* workmux runs
+  through a shell in a tmux pane, so a `model` carrying `;`, `$(`, a
+  backtick or a space ran a second command as the operator. Chained with
+  the ungated route above, that was unauthenticated local code execution,
+  which is why the two landed together. Refused now at the HTTP boundary
+  and again in `lab/fork.ts`, which covers `rhizomorph lab fork --model` —
+  a path no request crosses. Every hop inside rhizomorph already used argv
+  arrays; the injection landed one hop downstream, in workmux's own
+  execution of that string, which is why an audit of this repo's spawn
+  sites cleared it. `lane` is refused a leading `-` for the adjacent
+  reason: it travels as an argv positional, where a `-`-prefixed value is
+  read as a flag. Deliberately disclosed blast radius: a model id
+  containing `/` or `@` — a Bedrock inference-profile ARN, a
+  provider-prefixed id — is now refused as well. Every model string this
+  repo dispatches passes (`sonnet`, `opus`, `haiku`, `claude-opus-5`,
+  `claude-3-5-sonnet-20241022`, and a bedrock-style
+  `us.anthropic.claude-3-5-sonnet-20241022-v1:0`).
 - **The loopback `Host` check now runs for every request, not just
   mutations (#235).** A DNS-rebound page could previously read
   `/api/transcript/:lane` and the `/api/stream` SSE, because every GET
@@ -113,6 +144,20 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Changed
 
+- **`rhizomorph rotate` now needs the dashboard to be built (#234).** The
+  capability token the command must now send is handed out through the
+  served page and nowhere else
+  ([ADR-0012](docs/adr/0012-in-band-capability-token-delivery.md)), so the
+  command reads it the way the browser does: one loopback `GET /`, then the
+  `<meta>` tag. A server started without `packages/web/dist` serves a
+  placeholder page carrying no token, and rotation there now exits 1 —
+  naming `npm run build --workspace packages/web` rather than surfacing a
+  bare 401 about a header the operator has no way to supply. Putting the
+  token in `GET /api/meta` was rejected: it would hand it to precisely the
+  local process #234 defends against. The dashboard's own rotate and launch
+  buttons refuse the same way under `npm run dev:web`, where vite serves
+  `index.html` itself and the injection never runs — a gap ADR-0012 already
+  named and this change does not close, only makes honest.
 - **Measured performance fixes.** A 55,000-event replay's main-thread load
   time dropped from ~20.9s blocked to ~25ms by folding the incoming event
   stream once per animation frame instead of once per event (#183). A
