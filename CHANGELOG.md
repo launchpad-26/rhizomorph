@@ -143,6 +143,11 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   budget rationale in
   [ADR-0013](docs/adr/0013-collector-ticks-are-bounded.md) and
   [`docs/design-notes/collector-tick-budget.md`](docs/design-notes/collector-tick-budget.md).
+  A bounded `git status` failure (including this new timeout) inside the
+  dirty-file diff was carrying forward the last known state silently, with
+  no `collector.error` — the one exec in the git collector that didn't
+  already follow this PR's own "a timeout is a visible error, not silence"
+  rule. It now reports one.
 - **Rename-in-place actually works (#249).** `POST /api/label` required a
   per-process capability token nothing ever delivered to the browser, so
   every rename in `/recordings` 401ed, on every boot. The server now
