@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { type RefObject, useLayoutEffect, useRef, useState } from 'react'
 import { formatElapsed } from './format.js'
 
 /** One real chapter instant, for the drag label only — never a seek target of its own (that stays `onChange`/`onSeek`'s job). */
@@ -37,6 +37,28 @@ export interface ScrubberProps {
  * "configure, never reimplement" law the module note above already states;
  * it does not reopen it.
  *
+ * **Issue #270: that step is one pixel of the rendered track, not a fixed
+ * 1/1000 of the session.** `max(1000, span / 1000)` quantized the input to
+ * ~1000 stops (fewer — one per second — on any session under ~17 minutes),
+ * and those stops are not a pointer affordance: they are notches the thumb
+ * jumps between, for the drag *and* for a playback position handed back
+ * through `value`, which the browser rounds onto the same grid. The claim
+ * that "keyboard stepping and pointer dragging want different granularities"
+ * only holds while you assume the pointer wants a sub-pixel one. It cannot
+ * use one: a drag can address exactly as many positions as the track has
+ * pixels. So the two requirements meet at one pixel, and a single `step` does
+ * serve both — the quantum is invisible by construction at any session length
+ * and any track width, while one arrow press moves one pixel of track, which
+ * on a real dock is ~0.1% of the session: #186's calibration, held more
+ * honestly than the 1-second floor held it on short recordings.
+ *
+ * This is deliberately the option that leaves the law above untouched — no
+ * `onKeyDown`, no second granularity wired by hand, just a better-chosen
+ * `step`. The cost, stated plainly: a seek from this input is now pixel-
+ * granular rather than 1/1000-granular, which on a narrow track is marginally
+ * coarser. Nothing a pointer can express is lost by that, and the TIDE's zoom
+ * is what precision seeking goes through.
+ *
  * **Issue #186 defect 2/R2: the nearest chapter's label while dragging**
  * (the YouTube "chapter title appears as you scrub" idiom) — a plain label
  * above the thumb, shown only while a pointer is down on this input. It
@@ -52,7 +74,8 @@ export interface ScrubberProps {
 export function Scrubber({ start, end, value, onChange, disabled = false, chapterMarkers = [] }: ScrubberProps) {
   const clamped = Math.min(end, Math.max(start, value))
   const span = Math.max(1, end - start)
-  const step = Math.max(1000, span / 1000)
+  const [trackRef, trackWidth] = useTrackWidth()
+  const step = trackWidth > 0 ? Math.max(1, span / trackWidth) : Math.max(1000, span / 1000)
   const [dragging, setDragging] = useState(false)
 
   const nearest = dragging ? nearestMarker(chapterMarkers, clamped) : null
@@ -71,6 +94,7 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
         </div>
       )}
       <input
+        ref={trackRef}
         type="range"
         aria-label="Replay scrubber"
         min={start}
@@ -90,6 +114,34 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
       </div>
     </div>
   )
+}
+
+/**
+ * The input's own rendered width in whole pixels — `0` until it is knowable,
+ * which is the honest answer under a DOM that reports no layout at all
+ * (jsdom) as well as before the first measurement. Same shape as `TideDock`'s
+ * `useElementWidth`, deliberately: measure once, then follow a
+ * `ResizeObserver` where the platform has one. A layout effect rather than a
+ * plain one so the very first painted frame is already pixel-stepped, instead
+ * of showing one frame snapped to the coarse fallback grid.
+ */
+function useTrackWidth(): [RefObject<HTMLInputElement | null>, number] {
+  const ref = useRef<HTMLInputElement | null>(null)
+  const [width, setWidth] = useState(0)
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (el === null) return
+
+    const measure = () => setWidth(Math.max(0, Math.floor(el.getBoundingClientRect().width)))
+    measure()
+
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
+    observer?.observe(el)
+    return () => observer?.disconnect()
+  }, [])
+
+  return [ref, width]
 }
 
 function nearestMarker(
