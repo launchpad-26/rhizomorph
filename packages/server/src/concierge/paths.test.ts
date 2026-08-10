@@ -140,7 +140,7 @@ describe('the clone fence', () => {
   })
 
   it('names the clause it refused on, so a failure is debuggable', () => {
-    expect(() => assertCloneTarget(fence(), path.join(root, 'elsewhere'))).toThrow(/ADR-0013/)
+    expect(() => assertCloneTarget(fence(), path.join(root, 'elsewhere'))).toThrow(/ADR-0014/)
   })
 })
 

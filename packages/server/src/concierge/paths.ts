@@ -129,7 +129,7 @@ export interface CloneFence {
 /** Thrown when a clone target fails the fence. Carries the clause it failed. */
 export class CloneFenceError extends Error {
   constructor(message: string) {
-    super(`${message} (prd-20 ruling 1 / ADR-0013 — the concierge clones only into its own namespace)`)
+    super(`${message} (prd-20 ruling 1 / ADR-0014 — the concierge clones only into its own namespace)`)
     this.name = 'CloneFenceError'
   }
 }

@@ -1,7 +1,7 @@
 # 0001. Read-only observer, amendable only by explicit invocation
 
 - **Status:** accepted (amended ×3 — the first two amendments are items 2 and 3 of
-  the Decision Outcome below; the third is [ADR-0013](0013-the-fourth-hand.md))
+  the Decision Outcome below; the third is [ADR-0014](0014-the-fourth-hand.md))
 - **Date:** 2026-08-06
 
 ## Context and Problem Statement

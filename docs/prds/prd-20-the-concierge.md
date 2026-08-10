@@ -1,7 +1,7 @@
 # prd-20 — the concierge: a one-stop front door
 
 > **Status:** proposed · wave 1 in progress — ruling 1's amendment is on the record as
-> [ADR-0013](../adr/0013-the-fourth-hand.md) (#260), with the concierge's namespace law
+> [ADR-0014](../adr/0014-the-fourth-hand.md) (#260), with the concierge's namespace law
 > landing ahead of its code. Every route still gated on #234 landing first (ruling 2).
 
 ## Problem

@@ -144,7 +144,7 @@ the day the log was reconstructed (`752748a`), and **neither file was ever
 written** — the two amendments it means are items 2 and 3 of ADR-0001's own
 Decision Outcome list, each with its commit. So the log simultaneously implied
 three different conventions: sub-numbered records, list items inside the amended
-ADR, and (by its own naming rule) new top-level records. ADR-0013 is the first
+ADR, and (by its own naming rule) new top-level records. ADR-0014 is the first
 amendment written as a file, and it asserts the third reading. ADR-0001's
 dangling reference was repaired as a broken link — the append-only rule's
 explicit exception — and its reasoning was not touched. The first two amendments
@@ -187,7 +187,7 @@ have carried no information.
 
 | # | Decision | Decided | Status |
 |---|---|---|---|
-| [0001](0001-read-only-observer-as-a-constitution.md) | Read-only observer, amendable only by explicit invocation | 2026-07-30 | accepted, amended ×3 (latest: [0013](0013-the-fourth-hand.md)) |
+| [0001](0001-read-only-observer-as-a-constitution.md) | Read-only observer, amendable only by explicit invocation | 2026-07-30 | accepted, amended ×3 (latest: [0014](0014-the-fourth-hand.md)) |
 | [0002](0002-one-reducer-for-live-and-replay.md) | One event log, one reducer, serving both live and replay | 2026-07-30 | accepted |
 | [0003](0003-core-is-browser-safe.md) | `core` is browser-safe: zod only, no `node:*` | 2026-07-30 | accepted |
 | [0004](0004-collector-contract-over-an-exec-seam.md) | Collectors are pure folds over command output, behind an injected `Exec` | 2026-07-30 | accepted |
@@ -199,7 +199,7 @@ have carried no information.
 | [0010](0010-adapter-capabilities-named-not-ranked.md) | Every collector declares what it cannot do; the ladder is named, not ranked | 2026-08-05 | accepted |
 | [0011](0011-recordings-never-rot.md) | Recordings never rot: lenient parse, reserved `upcast()`, golden era corpus | 2026-08-06 | accepted |
 | [0012](0012-in-band-capability-token-delivery.md) | Deliver the capability token in-band, via a `<meta>` tag in `index.html` | 2026-08-08 | accepted |
-| [0013](0013-the-fourth-hand.md) | The concierge: a fourth hand, granted two powers by explicit invocation — amends [0001](0001-read-only-observer-as-a-constitution.md) | 2026-08-10 | accepted |
+| [0014](0014-the-fourth-hand.md) | The concierge: a fourth hand, granted two powers by explicit invocation — amends [0001](0001-read-only-observer-as-a-constitution.md) | 2026-08-10 | accepted |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the

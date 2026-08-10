@@ -12,7 +12,7 @@ import { assertCloneTarget, conciergeRoot } from './paths.js'
  * BEFORE the hand's code exists so the fence is never retrofitted around
  * whatever got built.
  *
- * The constitution (ADR-0001) grants three hands. ADR-0013 adds a fourth, the
+ * The constitution (ADR-0001) grants three hands. ADR-0014 adds a fourth, the
  * concierge, with two powers no earlier hand has: it may **launch or relaunch a
  * conductor process**, and it may **clone a repo to disk**. Each is token-gated,
  * each is invoked only by an explicit human act in the UI, never from a
@@ -314,7 +314,7 @@ function conciergeSourceFiles(): string[] {
   return walkSourceFiles(CONCIERGE_DIR).filter((file) => !isTest(file))
 }
 
-describe('the concierge namespace law (prd-20 ruling 1 / ADR-0013)', () => {
+describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
   describe('the module the law is about actually exists — an empty directory proves nothing', () => {
     it('has non-test source files to check', () => {
       const files = conciergeSourceFiles().map(relative)
@@ -655,7 +655,7 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0013)', () => {
  *
  * Hermetic under 4x concurrency: one `mkdtemp` root per test, no ambient `~`.
  */
-describe('the concierge namespace law, live (prd-20 ruling 1 / ADR-0013)', () => {
+describe('the concierge namespace law, live (prd-20 ruling 1 / ADR-0014)', () => {
   let root: string
   let clonesRoot: string
   let watchedRepoPath: string
