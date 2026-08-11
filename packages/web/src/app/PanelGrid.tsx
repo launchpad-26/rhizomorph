@@ -1,8 +1,11 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useState, type MouseEvent } from 'react'
+import { useFleet } from '../fleet/index.js'
 import { ErrorBoundary } from './ErrorBoundary.js'
 import { PanelFrame } from './PanelFrame.js'
 import { useFocusRequest, usePanelCollapsed, usePanelFocus } from './panelPrefs.js'
+import { navigate } from './router.js'
 import { SceneSlot } from './SceneSlot.js'
+import { useStream } from './StreamContext.js'
 
 /**
  * The panel registry, in the curated order (ruling 6). This file is the whole
@@ -74,12 +77,21 @@ export function PanelGrid() {
   // flag can also tell FeedPanel to draw its collapsed peek rather than
   // disappear (PanelFrame's controlled-collapse mode).
   const [feedCollapsed, setFeedCollapsed] = usePanelCollapsed('feed')
+  const { state } = useStream()
+  const fleet = useFleet()
+  const foldIsEmpty = Object.keys(state.session.worktrees).length === 0 && fleet.lanes.length === 0
 
   const hiddenFor = (id: string) => focusedId !== null && focusedId !== id
   const onFocusChangeFor = (id: string) => (focused: boolean) => setFocusedId(focused ? id : null)
 
   return (
     <div className="flex min-h-0 flex-col gap-4 overflow-auto p-4 [scrollbar-gutter:stable]">
+      {/* prd19 ruling 1's "one quiet pointer from the empty balcony": a
+          pointer, not an interstitial — every panel below still renders (and
+          draws its own existing empty state) exactly as it does once a
+          worktree turns up. */}
+      {foldIsEmpty ? <BalconyConnectPointer /> : null}
+
       {/* The centerpiece (prd4 ruling 2): "what is the fleet doing?" answered
           before anything else, hero-sized directly beneath the dock. */}
       <FocusableScene hidden={hiddenFor(SCENE_ID)} onFocusChange={onFocusChangeFor(SCENE_ID)} />
@@ -145,6 +157,32 @@ export function PanelGrid() {
           section rather than a button in this grid — see `FocusableTrace`. */}
       <FocusableTrace hidden={hiddenFor(TRACE_ID)} onFocusChange={onFocusChangeFor(TRACE_ID)} />
     </div>
+  )
+}
+
+/**
+ * THE BALCONY POINTER (prd19 ruling 1, wave 3, #257) — "one quiet pointer from
+ * the empty balcony", the one sentence ruling 1 grants an otherwise
+ * panels-only grid. A real `<a href>`, modifier-aware like the drawer's own
+ * open-page link (`drawer/index.tsx`'s `OpenPageLink`), so ctrl/cmd/shift/
+ * middle-click still open `/connect` in a new tab and a plain click routes
+ * through the same `navigate` the nav strip uses rather than a full reload.
+ */
+function BalconyConnectPointer() {
+  const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.defaultPrevented || event.button !== 0) return
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    event.preventDefault()
+    navigate('/connect')
+  }
+
+  return (
+    <p className="px-1 text-xs text-ice-400">
+      nothing is flowing yet — see{' '}
+      <a href="/connect" onClick={onClick} className="text-ice-300 underline hover:text-ice-100">
+        Connect
+      </a>
+    </p>
   )
 }
 

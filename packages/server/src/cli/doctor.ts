@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
@@ -17,6 +17,7 @@ import { lanesManifestPath, readLanesManifest } from '../api/lanes.js'
 import { GIT_CAPABILITIES } from '../collectors/git/index.js'
 import { OTEL_CAPABILITIES } from '../collectors/otel/index.js'
 import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
+import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
 import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
 import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
@@ -143,7 +144,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
     await checkTargetPath(repoPath, exec),
     checkWebBuild(options.webDistDir ?? defaultWebDistDir()),
     await checkPort(options.port, repoPath, fetchImpl),
-    checkClaudeProjects(options.claudeProjectsRoot),
+    checkClaudeProjects(options.claudeProjectsRoot, repoPath, options.now),
     await checkSessionBoundary(repoPath, options.dataRoot, options.now ?? Date.now),
     await checkOptionalTool('tmux', 'tmux', ['-V'], exec),
     await checkOptionalTool('workmux', 'workmux', ['status'], exec),
@@ -372,16 +373,93 @@ function isPortFree(port: number): Promise<boolean> {
   })
 }
 
-export function checkClaudeProjects(claudeProjectsRoot?: string): DoctorCheck {
-  const dir = claudeProjectsRoot ?? path.join(homedir(), '.claude', 'projects')
+/** One line always safe to repeat in a warn message — never assumes which rung (slug dir vs global root) is the one to fix. */
+const NO_HISTORY_REMEDY =
+  'per-agent history stays empty until `claude` has run at least once here (or point elsewhere with --extra-sessions)'
+
+/**
+ * `~/.claude/projects` existing at all used to be the whole check (#284
+ * review, Seat A finding 7 / this issue): a machine where Claude Code was
+ * ever run for ANY repo greened this for an unrelated watched repo. The real
+ * fact prd-19 ruling 5 wants is the *slug dir the sessionlog collector would
+ * actually tail for this repo* — `~/.claude/projects/<slug>` — so this now
+ * derives that path with `worktreePathToProjectSlug`, the collector's own
+ * inference (`collectors/sessionlog/collector.ts`'s `tailProjectDir`), rather
+ * than duplicating the `/` `_` → `-` rule a second time. The global root stays
+ * in the message as a fallback rung — present or not, it never overrides what
+ * the slug dir itself says — so a warn here never reads as "nothing is set up
+ * anywhere" when the truth is narrower: "not for this repo".
+ *
+ * `repoPath` is `undefined` only when called exactly as before this issue —
+ * today that is `GET /api/doctor` (`packages/server/src/api/doctor.ts`),
+ * which sits outside this fix's fence (issue #288) and still calls this with
+ * one argument. That branch is kept so the route keeps compiling and behaving
+ * byte-for-byte as it did pre-#288; the moment that file's own call site
+ * threads its already-in-scope `repoPath` through as the second argument, it
+ * gets the same deepened, per-repo answer the CLI gets here.
+ */
+export function checkClaudeProjects(claudeProjectsRoot?: string, repoPath?: string, now?: () => number): DoctorCheck {
+  const root = claudeProjectsRoot ?? path.join(homedir(), '.claude', 'projects')
+
+  if (repoPath === undefined) {
+    return checkGlobalClaudeProjectsRootOnly(root)
+  }
+
+  const slugDir = path.join(root, worktreePathToProjectSlug(repoPath))
+  const slugState = readSessionLogDirState(slugDir)
+
+  if (slugState.kind === 'has-sessions') {
+    const age = formatBootDuration((now ?? Date.now)() - slugState.newestMtimeMs)
+    const count = slugState.jsonlCount
+    return {
+      id: 'session-logs',
+      status: 'ok',
+      message: `Claude Code session logs found at ${slugDir} (${count} session file${count === 1 ? '' : 's'}, newest ${age} old)`,
+    }
+  }
+
+  const rootExists = existsSync(root)
+  const missReason =
+    slugState.kind === 'empty-dir'
+      ? `a session log dir for this repo exists at ${slugDir} but has no *.jsonl files yet`
+      : `no Claude Code session log dir for this repo at ${slugDir}`
+  const rootClause = rootExists
+    ? `the global root at ${root} exists — Claude Code has been used for other repos, just not this one`
+    : `no Claude Code session logs exist anywhere at ${root} either`
+
+  return {
+    id: 'session-logs',
+    status: 'warn',
+    message: `${missReason} — ${rootClause} — ${NO_HISTORY_REMEDY}`,
+  }
+}
+
+/** Byte-identical to this check's pre-#288 behaviour — see `checkClaudeProjects`'s own doc for why this branch stays reachable. */
+function checkGlobalClaudeProjectsRootOnly(dir: string): DoctorCheck {
   if (existsSync(dir)) {
     return { id: 'session-logs', status: 'ok', message: `Claude Code session logs found at ${dir}` }
   }
   return {
     id: 'session-logs',
     status: 'warn',
-    message: `no Claude Code session logs at ${dir} — per-agent history stays empty until \`claude\` has run at least once here (or point elsewhere with --extra-sessions)`,
+    message: `no Claude Code session logs at ${dir} — ${NO_HISTORY_REMEDY}`,
   }
+}
+
+type SessionLogDirState =
+  | { kind: 'missing' }
+  | { kind: 'empty-dir' }
+  | { kind: 'has-sessions'; jsonlCount: number; newestMtimeMs: number }
+
+/** Synchronous by design — `checkClaudeProjects` must stay sync so it can keep sitting unawaited in both `runDoctor`'s and `runServerDoctor`'s check arrays. */
+function readSessionLogDirState(slugDir: string): SessionLogDirState {
+  if (!existsSync(slugDir)) return { kind: 'missing' }
+
+  const jsonlNames = readdirSync(slugDir).filter((name) => name.endsWith('.jsonl'))
+  if (jsonlNames.length === 0) return { kind: 'empty-dir' }
+
+  const newestMtimeMs = Math.max(...jsonlNames.map((name) => statSync(path.join(slugDir, name)).mtimeMs))
+  return { kind: 'has-sessions', jsonlCount: jsonlNames.length, newestMtimeMs }
 }
 
 /**

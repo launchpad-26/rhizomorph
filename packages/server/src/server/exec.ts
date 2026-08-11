@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import type { Exec, ExecResult } from '@rhizomorph/core'
+import type { Exec, ExecOptions, ExecResult } from '@rhizomorph/core'
 
 /**
  * The real `Exec` implementation handed to collectors via `CollectorContext`
@@ -42,3 +42,9 @@ export const exec: Exec = (command, args, options = {}) =>
       child.stdin?.end(options.input)
     }
   })
+
+/** Wraps an `Exec` so every call it makes carries `timeoutMs`, overriding any caller value. */
+export function withTimeout(exec: Exec, timeoutMs: number): Exec {
+  return (command: string, args: readonly string[], options?: ExecOptions) =>
+    exec(command, args, { ...options, timeoutMs })
+}
