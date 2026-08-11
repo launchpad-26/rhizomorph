@@ -1,5 +1,6 @@
 import type { Author, FileChange, FileStatus } from '@rhizomorph/core'
 import type { ParseSkip } from '../parse-skip.js'
+import { unquotePath } from './unquote-path.js'
 
 /**
  * Pure parser for `git log --raw --numstat -M --pretty=format:<LOG_PRETTY>`.
@@ -86,8 +87,8 @@ function parseFile(
   const paths = pathsField.split('\t')
   const isRenameOrCopy = statusCode === 'R' || statusCode === 'C'
 
-  const path = (isRenameOrCopy ? paths[1] : paths[0]) ?? ''
-  const previousPath = isRenameOrCopy ? paths[0] : undefined
+  const path = unquotePath((isRenameOrCopy ? paths[1] : paths[0]) ?? '')
+  const previousPath = isRenameOrCopy ? unquotePath(paths[0] ?? '') : undefined
   const { insertions, deletions } = parseNumstat(numstatLine)
 
   return { ok: true, file: { path, status: mapStatus(statusCode), previousPath, insertions, deletions } }

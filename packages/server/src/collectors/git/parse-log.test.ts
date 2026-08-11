@@ -55,6 +55,20 @@ describe('parseGitLog', () => {
     ])
   })
 
+  it('unquotes a C-quoted rename path and its previous path', () => {
+    const [commit] = parseGitLog(fixture('quoted-rename.txt'))
+
+    expect(commit?.files).toEqual([
+      {
+        path: 'src/näme.js',
+        status: 'renamed',
+        previousPath: 'src/index.js',
+        insertions: 0,
+        deletions: 0,
+      },
+    ])
+  })
+
   it('returns no commits for an empty range', () => {
     expect(parseGitLog(fixture('empty.txt')).commits).toEqual([])
     expect(parseGitLog('').commits).toEqual([])
