@@ -10,10 +10,12 @@
 # monorepo, no workspace resolution shortcut.
 #
 # `-m` (job control) is load-bearing: it gives each backgrounded server its
-# own process group (pgid == its own pid), so the cleanup trap below can
-# kill that whole group — npx, the rhizomorph CLI, and anything it spawns —
-# with one `kill -TERM -$pid`, instead of only ever hitting the wrapper
-# (#225: that gap is how six servers were leaked live).
+# own process group (pgid == its own pid), so `stop_jobs` below can kill that
+# whole group — npx, the rhizomorph CLI, and anything it spawns — with one
+# `kill -TERM -$pgid`, instead of only ever hitting the wrapper (#225: that
+# gap is how six servers were leaked live). It also gives the exit paths a
+# job table to read, which is what makes them independent of any variable this
+# script remembers to set.
 set -euo pipefail
 set -m
 
@@ -26,19 +28,117 @@ cd "$ROOT"
 }
 
 WORK="$(mktemp -d)"
-SERVER_PID=""
 
-cleanup() {
-  local ec=$?
-  if [ -n "$SERVER_PID" ]; then
-    kill -TERM -"$SERVER_PID" 2>/dev/null || true
+# Every background server this script starts, killed by process group.
+#
+# Read from **bash's own job table** rather than a hand-tracked `SERVER_PID`.
+# A variable assigned after `&` has a window: a signal landing between the
+# spawn and the assignment leaves nothing to kill — the #225 leak reproduced
+# by the fix for it. The job table has no such window and cannot go stale.
+# `set -m` (above) makes each job its own process group with pgid == pid, so
+# the negative pid reaches npx, the CLI, and anything either of them spawned.
+#
+# Escalation lives here rather than only on the signal path: TERM, a bounded
+# grace period, then KILL. A CLI that ignores TERM must not be able to hang
+# this script on an unbounded `wait`.
+#
+# Echoes `escalated` when the grace period ran out and SIGKILL was needed, so
+# a caller can report what happened instead of claiming a clean stop.
+stop_jobs() {
+  local pgid waited=0 escalated=""
+  for pgid in $(jobs -p); do
+    kill -TERM -"$pgid" 2>/dev/null || true
+  done
+  while [ -n "$(jobs -rp)" ] && [ "$waited" -lt 10 ]; do
     sleep 1
-    kill -KILL -"$SERVER_PID" 2>/dev/null || true
+    waited=$((waited + 1))
+  done
+  for pgid in $(jobs -rp); do
+    escalated=escalated
+    kill -KILL -"$pgid" 2>/dev/null || true
+  done
+  wait 2>/dev/null || true
+  printf '%s' "$escalated"
+}
+
+# The other half of what pack-smoke promises (#225): a server that answered
+# correctly and then outlived the script is still a leak.
+#
+# A function, called from EVERY exit path, because the paths that matter most
+# are the failing ones. As a straight-line block at the end of the script it
+# only ran once everything else had passed — so a boot that timed out, a check
+# that failed, or a CI timeout signalling the script all skipped the leak check
+# at exactly the moment a leak was most likely.
+#
+# Non-zero when something is still alive, after a short grace period: a freshly
+# TERMed process tree does not necessarily vanish instantly.
+verify_no_leak() {
+  echo "== verifying no leaked rhizomorph processes remain =="
+  # The traps are armed long before `INSTALL_DIR` exists, so any failure in
+  # between arrives here with nothing to search for. Answered explicitly:
+  # without the guard, `set -u` kills the `pgrep` substitution, `leaked` comes
+  # back empty, and this function prints "clean" — a false pass, which is the
+  # one outcome a leak check must never produce.
+  if [ -z "${INSTALL_DIR:-}" ]; then
+    echo "nothing was installed yet, so nothing can have leaked"
+    return 0
   fi
+  if ! command -v pgrep >/dev/null 2>&1; then
+    # A check that cannot run says so. Printing "clean" here would be this
+    # instrument's own cardinal sin: silence reported as a verdict.
+    echo "cannot verify: pgrep is unavailable here, so leaked processes were NOT checked for"
+    return 0
+  fi
+  local leaked="" i
+  for i in $(seq 1 5); do
+    leaked="$(pgrep -f "$INSTALL_DIR" 2>/dev/null || true)"
+    [ -z "$leaked" ] && break
+    sleep 1
+  done
+  if [ -n "$leaked" ]; then
+    echo "LEAK: process(es) still running under $INSTALL_DIR after cleanup:"
+    # shellcheck disable=SC2086 # word splitting is wanted: one pid per -p
+    ps -fp $leaked 2>/dev/null || true
+    return 1
+  fi
+  echo "no leaked processes: clean"
+  return 0
+}
+
+# Two handlers, not one function on three signals.
+#
+# `trap cleanup EXIT INT TERM` with `exit "$ec"` inside fires the handler
+# TWICE on a signal — its own `exit` re-enters the EXIT trap — and reports the
+# status of whatever command the signal interrupted rather than the signal.
+# Measured: **exit 0 after SIGTERM**, on bash 5.2 as well as 3.2. A gate script
+# that answers 0 because it was killed is a false green, which is worse than
+# the leak this PR is about.
+#
+# Both handlers disarm every trap first, so neither can re-enter.
+finish() {
+  local ec=$?
+  trap - EXIT INT TERM
+  stop_jobs >/dev/null
+  verify_no_leak || ec=1
   rm -rf "$WORK"
   exit "$ec"
 }
-trap cleanup EXIT INT TERM
+
+# Clean up, then re-raise, so the shell dies of the signal and reports 128+N
+# (143 for TERM) the way anything calling this script expects.
+on_signal() {
+  local sig="$1"
+  trap - EXIT INT TERM
+  echo "pack-smoke: caught SIG$sig — stopping servers and checking for leaks before exiting"
+  stop_jobs >/dev/null
+  verify_no_leak || true
+  rm -rf "$WORK"
+  kill "-$sig" $$
+}
+
+trap finish EXIT
+trap 'on_signal INT' INT
+trap 'on_signal TERM' TERM
 
 TARBALLS="$WORK/tarballs"
 mkdir -p "$TARBALLS"
@@ -117,7 +217,6 @@ boot_and_check() {
   (cd "$INSTALL_DIR" && exec npx --no-install rhizomorph "$watch_path" --port 0) \
     </dev/null >"$log" 2>&1 &
   local pid=$!
-  SERVER_PID="$pid"
 
   local url=""
   local i
@@ -168,10 +267,14 @@ boot_and_check() {
       ;;
   esac
 
-  kill -TERM -"$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
-  SERVER_PID=""
-  echo "server shut down cleanly ($label)"
+  # The same bounded stop the exit paths use, so this one cannot hang on an
+  # unbounded `wait` for a CLI that ignores TERM — and so "cleanly" is only
+  # said when it was actually clean.
+  if [ -n "$(stop_jobs)" ]; then
+    echo "server did not stop on SIGTERM and was killed ($label)"
+  else
+    echo "server shut down cleanly ($label)"
+  fi
 }
 
 # The default case, then two path-robustness cases the audit named
@@ -182,23 +285,7 @@ boot_and_check "$WORK/watched/plain-repo" "plain"
 boot_and_check "$WORK/watched/a repo with spaces" "spaces"
 boot_and_check "$WORK/watched/café-世界-repo" "unicode"
 
-# The assertions above are only half of what pack-smoke promises (#225): a
-# server that answered correctly and then outlived the script is still a
-# leak. Confirm, loudly, that nothing tied to this run's install is still
-# alive before reporting success — allow a short grace period since a
-# freshly TERMed process tree doesn't necessarily vanish instantly.
-echo "== verifying no leaked rhizomorph processes remain =="
-LEAKED=""
-for i in $(seq 1 5); do
-  LEAKED="$(pgrep -f "$INSTALL_DIR" 2>/dev/null || true)"
-  [ -z "$LEAKED" ] && break
-  sleep 1
-done
-if [ -n "$LEAKED" ]; then
-  echo "LEAK: process(es) still running under $INSTALL_DIR after cleanup:"
-  ps -fp $LEAKED 2>/dev/null || true
-  exit 1
-fi
-echo "no leaked processes: clean"
-
+# The leak check is NOT run here. `finish` runs it on the way out of every
+# exit path, including the failing ones — see `verify_no_leak`. Running it here
+# too would report twice on success and still miss every failure.
 echo "pack-smoke: all checks passed"
