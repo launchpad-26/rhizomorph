@@ -56,7 +56,8 @@ describe('parseGitLog', () => {
   })
 
   it('unquotes a C-quoted rename path and its previous path', () => {
-    const [commit] = parseGitLog(fixture('quoted-rename.txt'))
+    const { commits } = parseGitLog(fixture('quoted-rename.txt'))
+    const [commit] = commits
 
     expect(commit?.files).toEqual([
       {
