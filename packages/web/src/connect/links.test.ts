@@ -1,5 +1,6 @@
 import { createEventFactory, reduceAll, selectConnection, type SessionState } from '@rhizomorph/core'
 import { beforeEach, describe, expect, it } from 'vitest'
+import type { ConnectionStatus } from '../hooks/useEventStream.js'
 import {
   buildLinks,
   envCommand,
@@ -716,6 +717,40 @@ describe('a dead stream is not evidence either — #345', () => {
     for (const id of ['repo-git', 'agents-tmux', 'transcripts-flow', 'otel', 'uninstrumented-conductor']) {
       expect(row(links, id).state, id).toBe('unproven')
     }
+  })
+
+  /**
+   * **ONE PARTITION OF `ConnectionStatus`, NOT TWO THAT HAPPEN TO AGREE.**
+   *
+   * Two places decide that nothing is arriving over this socket: the
+   * browser↔server row, which calls the link BROKEN, and `attest`, which
+   * withdraws VERIFIED from every row that stream was checking. They are the
+   * same question about the same socket, and if they ever answered it
+   * differently the page would contradict itself in the most visible way it
+   * can — a first row calling the stream dead above five rows still calling
+   * themselves checked, or the reverse.
+   *
+   * `EVERY_STATUS` is a total `Record`, so adding a fifth status is a compile
+   * error here rather than a silent divergence: whoever adds `reconnecting`
+   * has to say, once, which side of the line it falls on.
+   */
+  it('calls the first row BROKEN on exactly the statuses that withdraw VERIFIED from the fold rows', () => {
+    const EVERY_STATUS: Record<ConnectionStatus, true> = { connecting: true, open: true, error: true, closed: true }
+    const dead: ConnectionStatus[] = []
+    const withdrawn: ConnectionStatus[] = []
+
+    for (const status of Object.keys(EVERY_STATUS) as ConnectionStatus[]) {
+      const links = build(provingLog(), {
+        meta: metaWith(),
+        stream: { status, eventCount: 5, provenance: 'live · /api/stream', live: true },
+      })
+      if (row(links, 'browser-server').state === 'broken') dead.push(status)
+      // A fold row this log proves outright when the stream is alive.
+      if (row(links, 'repo-git').state !== 'verified') withdrawn.push(status)
+    }
+
+    expect(dead).toEqual(['error', 'closed'])
+    expect(withdrawn, 'the two halves of "the stream is dead" disagree').toEqual(dead)
   })
 
   it('does it for an errored stream as well as a closed one, and not for one still opening', () => {

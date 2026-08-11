@@ -335,6 +335,28 @@ const STREAM_REASON: Record<ConnectionStatus, string> = {
 }
 
 /**
+ * The statuses {@link STREAM_REASON} itself describes as "nothing is arriving
+ * over it" — **the one partition of {@link ConnectionStatus} this module makes,
+ * declared once.**
+ *
+ * Two places need it and they must not disagree: {@link browserServer}, which
+ * calls the link itself BROKEN, and {@link attest}, which withdraws VERIFIED
+ * from every row the dead stream was checking. Both used to encode it
+ * separately — one as a predicate, one as an if/else fall-through — and agreed
+ * only by the coincidence that today's `ConnectionStatus` has exactly four
+ * values with exactly two of them dead. A fifth (`reconnecting`, say) would
+ * have split them silently, and the split reads as a contradiction on the page:
+ * a first row calling the stream dead above six rows still calling themselves
+ * checked, or the reverse.
+ *
+ * Not-dead is therefore the default on both sides, which is also the honest one
+ * — a status this module has never heard of is a stream it cannot call dead.
+ */
+function streamIsDead(status: ConnectionStatus): boolean {
+  return status === 'error' || status === 'closed'
+}
+
+/**
  * **browser ↔ server.** The one link this page can prove by existing: the SSE
  * connection is open, so this browser reached this server. It is deliberately
  * NOT gated on events having arrived — an open stream over a repo where
@@ -364,7 +386,13 @@ function browserServer(input: ConnectInputs): ChainLink {
     return verified(base, `${STREAM_REASON.open} — ${events}, ${served}`, provenNow(input.now), notes)
   }
 
-  if (input.stream.status === 'connecting') return unproven(base, notes)
+  // BROKEN is exactly {@link streamIsDead}, never a list of statuses restated
+  // here: this row and {@link attest} are answering the same question about
+  // the same socket, and a page that called the stream dead on one row while
+  // six others still called themselves checked would be contradicting itself
+  // about its own connection. Everything left over — `connecting` today — is
+  // waiting, and waiting is not an alarm.
+  if (!streamIsDead(input.stream.status)) return unproven(base, notes)
 
   return broken(base, STREAM_REASON[input.stream.status], {
     command: restartCommand(input.meta?.repoPath ?? null, input.port),
@@ -734,11 +762,6 @@ function uninstrumentedConductor(input: ConnectInputs): ChainLink {
     return verified(base, 'every session with transcript activity has also exported telemetry', provenAt(otel.lastEventTs, input.now))
   }
   return unproven(base, ['no transcript activity has arrived yet, so there is no session to check'])
-}
-
-/** The two statuses {@link STREAM_REASON} itself describes as "nothing is arriving over it". */
-function streamIsDead(status: ConnectionStatus): boolean {
-  return status === 'error' || status === 'closed'
 }
 
 /**
