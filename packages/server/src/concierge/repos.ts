@@ -6,8 +6,10 @@ import path from 'node:path'
  * prd-20 ruling 5's read-only repo discovery: enumerate `~/.claude/projects`
  * (the repos the user's own Claude already knows, reversing each slugged
  * directory name back to a real path) plus a shallow, bounded scan of common
- * roots (repos Claude has never opened). No writes, ever — this module reads
- * the filesystem and reports what it finds.
+ * roots. No writes, ever — this module reads the filesystem and reports what
+ * it finds. The two are independent, unmerged sources, not a "known" list and
+ * a "not yet known" list: a repo Claude already knows can also sit under a
+ * common root and so appear in both — see `scanCommonRoots`'s own doc.
  *
  * `#243` documents the known gaps in the *forward* slug transform
  * (`collectors/sessionlog/worktree-slug.ts` maps only `/` and `_` to `-`,
@@ -20,40 +22,64 @@ import path from 'node:path'
  */
 
 /**
- * The filesystem seam this module reads through — two operations, both
- * total (never throw) and both real-directory-only (never a symlink, even
- * one pointing at a directory). Fixture-driven tests supply an in-memory
- * implementation; `realDiscoveryFs` below is the only production caller.
+ * The result of listing a directory's real (non-symlink) subdirectories:
+ * either the names, or an honest refusal naming why nothing could be read.
+ * `readable: false` is reserved for a genuine read failure on a directory
+ * that IS there — permission denied, or anything else unexpected. A plain
+ * "nothing here" (`ENOENT`/`ENOTDIR` — the directory, or an ancestor of it,
+ * does not exist) is `readable: true` with `entries: []`: every call site in
+ * this module only ever lists a path it already confirmed exists, or a
+ * *candidate* common-root name that may honestly not be present on this
+ * machine, so treating "absent" as "empty" there is not a lossy shortcut.
+ * "Exists but I could not look" is the one outcome that must never collapse
+ * into the same shape as "exists and has nothing."
+ */
+export type SubdirectoryListing = { readable: true; entries: string[] } | { readable: false; reason: string }
+
+/**
+ * The filesystem seam this module reads through — both operations total
+ * (never throw). Fixture-driven tests supply an in-memory implementation;
+ * `realDiscoveryFs` below is the only production caller.
  */
 export interface DiscoveryFs {
   /** True if `target` exists at all, following symlinks — mirrors `cli/doctor.ts`'s own `checkClaudeProjects` check. */
   exists(target: string): boolean
   /**
-   * Names of the real (non-symlink) directory entries directly inside `dir`.
-   * `[]` when `dir` cannot be read — absent, permission denied, or not a
-   * directory — never thrown. A symlink entry is excluded even when it
-   * points at a directory: this is the one primitive both the slug-reversal
-   * walk and the common-roots scan traverse through, so excluding symlinks
-   * here is what keeps both of them from following a link out of the tree
-   * they were asked to look at.
+   * The real (non-symlink) directory entries directly inside `dir`, or an
+   * honest refusal — see {@link SubdirectoryListing}. A symlink entry is
+   * excluded from `entries` even when it points at a directory: this is the
+   * one primitive both the slug-reversal walk and the common-roots scan
+   * traverse through, so excluding symlinks here is what keeps both of them
+   * from following a link out of the tree they were asked to look at.
    */
-  listSubdirectories(dir: string): string[]
+  listSubdirectories(dir: string): SubdirectoryListing
 }
 
-function realListSubdirectories(dir: string): string[] {
-  let entries: Array<{ name: string; isDirectory(): boolean }>
+function realListSubdirectories(dir: string): SubdirectoryListing {
+  let dirents: Array<{ name: string; isDirectory(): boolean }>
   try {
-    entries = readdirSync(dir, { withFileTypes: true })
-  } catch {
-    return []
+    dirents = readdirSync(dir, { withFileTypes: true })
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code
+    if (code === 'ENOENT' || code === 'ENOTDIR') return { readable: true, entries: [] }
+    return { readable: false, reason: `could not read ${dir}: ${err instanceof Error ? err.message : String(err)}` }
   }
-  return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+  return { readable: true, entries: dirents.filter((entry) => entry.isDirectory()).map((entry) => entry.name) }
 }
 
 export const realDiscoveryFs: DiscoveryFs = {
   exists: existsSync,
   listSubdirectories: realListSubdirectories,
 }
+
+/**
+ * A Windows drive-rooted slug's own shape — Claude Code's project directory
+ * for a native-Windows session is e.g. `C--Users-operator-agenticlaunchpad`
+ * (`C:\` encoded, not a leading `/`). Detected only so the refusal reason
+ * below can say something TRUE about it; native Windows support is not
+ * implemented here.
+ */
+const WINDOWS_DRIVE_SLUG_RE = /^[A-Za-z]--/
 
 /**
  * Reverses one `~/.claude/projects` slug back to the real path it names, by
@@ -77,9 +103,21 @@ export const realDiscoveryFs: DiscoveryFs = {
  * Returns the resolved path, or `null` with a reason naming where the walk
  * stopped — this is the "unknown is not absent" half of the contract: a
  * slug that cannot be walked all the way through is reported, never dropped.
+ * That contract now also covers a directory the walk reaches but cannot
+ * read: the reason says so plainly, rather than reporting the same "no
+ * match" text a genuinely empty directory would get.
  */
 export function reverseProjectSlug(slug: string, fs: DiscoveryFs = realDiscoveryFs): { path: string } | { path: null; reason: string } {
   if (!slug.startsWith('-')) {
+    if (WINDOWS_DRIVE_SLUG_RE.test(slug)) {
+      return {
+        path: null,
+        reason:
+          `"${slug}" looks like a Windows drive-rooted slug (Claude Code encodes e.g. "C:\\Users\\..." as ` +
+          `"C--Users-..."); this walk starts at the filesystem root and does not resolve drive-rooted paths — ` +
+          `native Windows is out of this instrument's support matrix, so it is reported unresolved rather than guessed at`,
+      }
+    }
     return { path: null, reason: `"${slug}" does not start with "-", so it is not a slug for an absolute path` }
   }
 
@@ -87,11 +125,17 @@ export function reverseProjectSlug(slug: string, fs: DiscoveryFs = realDiscovery
   let remaining = slug.slice(1)
 
   while (remaining.length > 0) {
-    const candidates = fs.listSubdirectories(currentDir)
+    const listing = fs.listSubdirectories(currentDir)
+    if (!listing.readable) {
+      return {
+        path: null,
+        reason: `could not resolve slug "${slug}" past ${currentDir}: ${listing.reason}`,
+      }
+    }
 
     let bestEntry: string | null = null
     let bestEncodedLength = -1
-    for (const entry of candidates) {
+    for (const entry of listing.entries) {
       const encoded = entry.replace(/[._ ]/g, '-')
       const isFinalSegment = remaining === encoded
       const isMidSegment = remaining.startsWith(`${encoded}-`)
@@ -131,10 +175,13 @@ export type KnownProjectsResult = { available: true; projects: KnownProjectEntry
 
 /**
  * Every project slug under `claudeProjectsRoot`, each reversed honestly.
- * `available: false` only when the root itself is absent — the same
- * "nothing to enumerate yet" case `checkClaudeProjects` reports for a fresh
- * machine, not an error. A slug that fails to reverse still appears, with
- * `resolved: false` and a `reason` — never silently dropped from the list.
+ * `available: false` covers two DIFFERENT truths, both with their own
+ * reason: the root is absent — the same "nothing to enumerate yet" case
+ * `checkClaudeProjects` reports for a fresh machine, not an error — or the
+ * root exists but could not be READ (permission denied), which must never
+ * come back looking like "Claude has no history here." A slug that fails to
+ * reverse still appears, with `resolved: false` and a `reason` — never
+ * silently dropped from the list.
  */
 export function listKnownProjects(claudeProjectsRoot: string, fs: DiscoveryFs = realDiscoveryFs): KnownProjectsResult {
   if (!fs.exists(claudeProjectsRoot)) {
@@ -144,8 +191,12 @@ export function listKnownProjects(claudeProjectsRoot: string, fs: DiscoveryFs = 
     }
   }
 
-  const slugs = fs.listSubdirectories(claudeProjectsRoot)
-  const projects: KnownProjectEntry[] = slugs.map((slug) => {
+  const listing = fs.listSubdirectories(claudeProjectsRoot)
+  if (!listing.readable) {
+    return { available: false, reason: listing.reason }
+  }
+
+  const projects: KnownProjectEntry[] = listing.entries.map((slug) => {
     const reversed = reverseProjectSlug(slug, fs)
     return reversed.path === null
       ? { slug, path: null, resolved: false, reason: reversed.reason }
@@ -207,19 +258,39 @@ export interface ScanCommonRootsResult {
   repos: ScannedRepo[]
   /** True when `maxDirsVisited` was hit before the scan finished — the result is honest but incomplete. */
   truncated: boolean
+  /**
+   * Directories the scan reached but could not read — permission denied, or
+   * anything else unexpected. Kept separate from `truncated`: hitting the
+   * visit budget and being refused by the OS are different failures, and a
+   * caller cannot tell a genuinely empty `~/Desktop` from an unreadable one
+   * unless the two stay distinguishable.
+   */
+  unreadable: string[]
 }
 
 /**
- * A shallow, bounded scan of `homeDir`'s conventional subdirectories for
- * repos Claude has never opened. Bounded three ways at once: a short named
- * root list (not the whole home directory), a shallow depth per root, and a
- * hard cap on total directories visited. Never follows a symlink — `fs`'s
- * `listSubdirectories` excludes them at the source, so a symlink planted
- * inside a common root cannot walk the scan out into the rest of the
- * filesystem.
+ * A shallow, bounded scan of `homeDir`'s conventional subdirectories, for
+ * repos this scan finds independently of `listKnownProjects`. The two are
+ * NOT deduplicated against each other: a repo Claude already knows can also
+ * sit under a common root and so appear in both `known` and `scanned` — this
+ * function only reports what a filesystem walk finds, and merging that with
+ * `known` is the picker's call to make (it has the slug metadata `scanned`
+ * does not, and may want to show "already known" differently from "found by
+ * scanning" rather than collapsing the two).
  *
- * A directory containing `.git` is reported as a repo and not descended
- * into further — its own internals are not this scan's concern.
+ * Bounded three ways at once: a short named root list (not the whole home
+ * directory), a shallow depth per root, and a hard cap on total directories
+ * visited. Never follows a symlink — `fs`'s `listSubdirectories` excludes
+ * them at the source, so a symlink planted inside a common root cannot walk
+ * the scan out into the rest of the filesystem.
+ *
+ * A repo is recognised by `.git` merely EXISTING at that path, not by it
+ * being a directory: a *linked* git worktree's `.git` is a FILE containing
+ * `gitdir: …`, and this instrument's own subject matter is worktree swarms,
+ * so a scan that only recognised the plain-clone shape would walk past every
+ * worktree in a `~/code` full of them and then descend INTO each one looking
+ * for repos. Once recognised, a repo's own contents are not descended into
+ * further.
  */
 export function scanCommonRoots(homeDir: string, fs: DiscoveryFs = realDiscoveryFs, options: ScanCommonRootsOptions = {}): ScanCommonRootsResult {
   const skipDirNames = options.skipDirNames ?? DEFAULT_SKIP_DIR_NAMES
@@ -227,28 +298,42 @@ export function scanCommonRoots(homeDir: string, fs: DiscoveryFs = realDiscovery
   const maxDirsVisited = options.maxDirsVisited ?? DEFAULT_MAX_DIRS_VISITED
 
   const repos: ScannedRepo[] = []
+  const unreadable: string[] = []
   let dirsVisited = 0
   let truncated = false
 
-  /** `fs.listSubdirectories`, metered against the visit budget — the one place every directory read in this scan goes through. */
-  function readSubdirs(dir: string): string[] {
+  /**
+   * `fs.listSubdirectories`, metered against the visit budget — the one
+   * place every directory read in this scan goes through. Returns `null`
+   * for EITHER stop condition (budget hit, or a genuine read failure); the
+   * caller doesn't need to tell them apart, because `truncated`/`unreadable`
+   * are already recorded here, at the one place that knows which happened.
+   */
+  function readSubdirs(dir: string): string[] | null {
     dirsVisited += 1
     if (dirsVisited > maxDirsVisited) {
       truncated = true
-      return []
+      return null
     }
-    return fs.listSubdirectories(dir)
+    const listing = fs.listSubdirectories(dir)
+    if (!listing.readable) {
+      unreadable.push(dir)
+      return null
+    }
+    return listing.entries
   }
 
   function visit(dir: string, depthRemaining: number): void {
     if (truncated) return
 
-    const entries = readSubdirs(dir)
-    if (entries.includes('.git')) {
+    if (fs.exists(path.join(dir, '.git'))) {
       repos.push({ path: dir })
       return
     }
     if (depthRemaining <= 0) return
+
+    const entries = readSubdirs(dir)
+    if (entries === null) return
 
     for (const name of entries) {
       if (name.startsWith('.') || skipDirNames.has(name)) continue
@@ -264,14 +349,17 @@ export function scanCommonRoots(homeDir: string, fs: DiscoveryFs = realDiscovery
   // `path.join` to have named something real, is what keeps "never follow a
   // symlink out of the filesystem" true for the roots themselves too, not
   // only for what the walk finds underneath them.
-  const homeEntries = new Set(readSubdirs(homeDir))
-  for (const rootName of COMMON_ROOT_NAMES) {
-    if (truncated) break
-    if (!homeEntries.has(rootName)) continue
-    visit(path.join(homeDir, rootName), maxDepth)
+  const homeEntries = readSubdirs(homeDir)
+  if (homeEntries !== null) {
+    const homeEntrySet = new Set(homeEntries)
+    for (const rootName of COMMON_ROOT_NAMES) {
+      if (truncated) break
+      if (!homeEntrySet.has(rootName)) continue
+      visit(path.join(homeDir, rootName), maxDepth)
+    }
   }
 
-  return { repos, truncated }
+  return { repos, truncated, unreadable }
 }
 
 export interface DiscoverReposOptions {

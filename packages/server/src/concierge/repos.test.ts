@@ -1,9 +1,12 @@
-import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, statSync } from 'node:fs'
+import { chmod, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
+import { platform, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   type DiscoveryFs,
+  type SubdirectoryListing,
   discoverRepos,
   listKnownProjects,
   realDiscoveryFs,
@@ -12,16 +15,33 @@ import {
 } from './repos.js'
 
 /**
- * An in-memory `DiscoveryFs`: `tree[dir]` is the list of real (non-symlink)
- * subdirectory names directly inside `dir`. Absent from the map means "not
- * a directory here" — the same honest `[]` a real, unreadable directory
- * would produce, so tests never need to distinguish "doesn't exist" from
- * "exists but empty" unless a test is specifically about that.
+ * An in-memory `DiscoveryFs`. `tree[dir]` is the list of real (non-symlink)
+ * subdirectory names directly inside `dir` — absent from the map means "this
+ * directory does not exist," which `listSubdirectories` reports as
+ * `readable: true, entries: []` (matching real `ENOENT` behaviour: every
+ * call site in the module only ever lists a path it already confirmed
+ * exists, or a *candidate* name that may honestly not be there).
+ *
+ * `gitPaths` marks a `.git` path as PRESENT without saying whether it is a
+ * file or a directory — exactly the ambiguity `fs.exists` itself is
+ * indifferent to, and exactly why `scanCommonRoots` checks existence rather
+ * than looking for `.git` inside a directory listing. `unreadableDirs` marks
+ * a directory that EXISTS but cannot be read (permission denied) — a
+ * genuinely different outcome from "does not exist," and the one this
+ * fixture must be able to express on its own, not conflate with absence.
  */
-function fixtureFs(tree: Record<string, string[]>): DiscoveryFs {
+function fixtureFs(
+  tree: Record<string, string[]>,
+  options: { gitPaths?: ReadonlySet<string>; unreadableDirs?: ReadonlySet<string> } = {},
+): DiscoveryFs {
+  const gitPaths = options.gitPaths ?? new Set<string>()
+  const unreadableDirs = options.unreadableDirs ?? new Set<string>()
   return {
-    exists: (target) => target in tree,
-    listSubdirectories: (dir) => tree[dir] ?? [],
+    exists: (target) => target in tree || gitPaths.has(target),
+    listSubdirectories: (dir): SubdirectoryListing => {
+      if (unreadableDirs.has(dir)) return { readable: false, reason: `permission denied reading ${dir}` }
+      return { readable: true, entries: tree[dir] ?? [] }
+    },
   }
 }
 
@@ -126,6 +146,35 @@ describe('reverseProjectSlug', () => {
     expect(result.path).toBeNull()
     expect((result as { reason: string }).reason).toContain('does not start with "-"')
   })
+
+  it('names the Windows drive-rooted shape truthfully instead of just saying "not a slug for an absolute path"', () => {
+    // Claude Code's own project directory for a native-Windows session is
+    // e.g. "C--Users-operator-agenticlaunchpad" — the generic "does not start
+    // with -" reason would be false for this shape specifically, since it IS
+    // a Claude Code slug, just a drive-rooted one this walk does not resolve.
+    const result = reverseProjectSlug('C--Users-operator-agenticlaunchpad', fixtureFs({}))
+    expect(result.path).toBeNull()
+    const reason = (result as { reason: string }).reason
+    expect(reason).toContain('Windows')
+    expect(reason).not.toContain('is not a slug for an absolute path')
+  })
+
+  it('reports an unreadable directory mid-walk honestly, not as "no directory matches"', () => {
+    const fs = fixtureFs(
+      {
+        '/': ['Users'],
+        '/Users': ['hannah'],
+        '/Users/operator': ['blocked'],
+      },
+      { unreadableDirs: new Set([path.join('/', 'Users', 'hannah', 'blocked')]) },
+    )
+
+    const result = reverseProjectSlug('-Users-operator-blocked-repo', fs)
+    expect(result.path).toBeNull()
+    const reason = (result as { reason: string }).reason
+    expect(reason).toContain('permission denied')
+    expect(reason).not.toContain('no directory under')
+  })
 })
 
 describe('listKnownProjects', () => {
@@ -164,83 +213,110 @@ describe('listKnownProjects', () => {
     const fs = fixtureFs({ '/home/x/.claude/projects': [] })
     expect(listKnownProjects('/home/x/.claude/projects', fs)).toEqual({ available: true, projects: [] })
   })
+
+  it('reports available: false with an honest "could not read" reason for an existing-but-unreadable root — never a silent empty list', () => {
+    const root = path.join('/home', 'x', '.claude', 'projects')
+    const fs = fixtureFs({ [root]: [] }, { unreadableDirs: new Set([root]) })
+
+    const result = listKnownProjects(root, fs)
+    expect(result).toEqual({ available: false, reason: expect.stringContaining('permission denied') })
+    // Must not read as "Claude has no history here" — the false reading this finding is about.
+    expect((result as { reason: string }).reason).not.toContain('nothing to enumerate yet')
+  })
 })
 
 describe('scanCommonRoots', () => {
   it('finds a repo sitting directly under a common root', () => {
-    const fs = fixtureFs({
-      '/home/x': ['code'],
-      '/home/x/code': ['repo1'],
-      '/home/x/code/repo1': ['.git'],
-    })
+    const fs = fixtureFs(
+      { '/home/x': ['code'], '/home/x/code': ['repo1'] },
+      { gitPaths: new Set([path.join('/home/x/code/repo1', '.git')]) },
+    )
 
     const result = scanCommonRoots('/home/x', fs)
-    expect(result).toEqual({ repos: [{ path: path.join('/home/x/code/repo1') }], truncated: false })
+    expect(result).toEqual({ repos: [{ path: path.join('/home/x/code/repo1') }], truncated: false, unreadable: [] })
   })
 
   it('finds a repo nested one level deeper — the org/repo shape — within the default depth', () => {
-    const fs = fixtureFs({
-      '/home/x': ['code'],
-      '/home/x/code': ['org'],
-      '/home/x/code/org': ['repo2'],
-      '/home/x/code/org/repo2': ['.git'],
-    })
+    const fs = fixtureFs(
+      { '/home/x': ['code'], '/home/x/code': ['org'], '/home/x/code/org': ['repo2'] },
+      { gitPaths: new Set([path.join('/home/x/code/org/repo2', '.git')]) },
+    )
 
     const result = scanCommonRoots('/home/x', fs)
     expect(result.repos).toEqual([{ path: path.join('/home/x/code/org/repo2') }])
   })
 
   it('does not descend past the default depth — a repo three levels below a common root is missed, not found', () => {
-    const fs = fixtureFs({
-      '/home/x': ['code'],
-      '/home/x/code': ['a'],
-      '/home/x/code/a': ['b'],
-      '/home/x/code/a/b': ['repo'],
-      '/home/x/code/a/b/repo': ['.git'],
-    })
+    const fs = fixtureFs(
+      {
+        '/home/x': ['code'],
+        '/home/x/code': ['a'],
+        '/home/x/code/a': ['b'],
+        '/home/x/code/a/b': ['repo'],
+      },
+      { gitPaths: new Set([path.join('/home/x/code/a/b/repo', '.git')]) },
+    )
 
     expect(scanCommonRoots('/home/x', fs).repos).toEqual([])
   })
 
   it('never descends into a skipped directory name, even one that looks like it might hide a repo', () => {
-    const fs = fixtureFs({
-      '/home/x': ['code'],
-      '/home/x/code': ['node_modules'],
-      '/home/x/code/node_modules': ['pkg'],
-      '/home/x/code/node_modules/pkg': ['.git'],
-    })
+    const fs = fixtureFs(
+      { '/home/x': ['code'], '/home/x/code': ['node_modules'], '/home/x/code/node_modules': ['pkg'] },
+      { gitPaths: new Set([path.join('/home/x/code/node_modules/pkg', '.git')]) },
+    )
 
     expect(scanCommonRoots('/home/x', fs).repos).toEqual([])
   })
 
   it('never descends into a hidden (dot-prefixed) directory', () => {
-    const fs = fixtureFs({
-      '/home/x': ['code'],
-      '/home/x/code': ['.hidden'],
-      '/home/x/code/.hidden': ['.git'],
-    })
+    const fs = fixtureFs(
+      { '/home/x': ['code'], '/home/x/code': ['.hidden'] },
+      { gitPaths: new Set([path.join('/home/x/code/.hidden', '.git')]) },
+    )
 
     expect(scanCommonRoots('/home/x', fs).repos).toEqual([])
   })
 
   it('does not scan a repo\'s own internals once it is found — a nested .git inside a found repo is invisible', () => {
-    const fs = fixtureFs({
-      '/home/x': ['code'],
-      '/home/x/code': ['repo3'],
-      '/home/x/code/repo3': ['.git', 'nested'],
-      '/home/x/code/repo3/nested': ['.git'],
-    })
+    const fs = fixtureFs(
+      { '/home/x': ['code'], '/home/x/code': ['repo3'], '/home/x/code/repo3': ['nested'] },
+      {
+        gitPaths: new Set([
+          path.join('/home/x/code/repo3', '.git'),
+          path.join('/home/x/code/repo3/nested', '.git'),
+        ]),
+      },
+    )
 
     expect(scanCommonRoots('/home/x', fs).repos).toEqual([{ path: path.join('/home/x/code/repo3') }])
   })
 
+  it('recognises a LINKED git worktree as a repo — its .git is a FILE, which a directory-listing check can never see', () => {
+    // The exact bug: a worktree's `.git` never appears as a subdirectory NAME
+    // (it isn't one), so a check that looks for '.git' inside a directory
+    // listing walks straight past it. Modeled here with `.git` present via
+    // `gitPaths` alone — never listed as an entry of the parent — so a
+    // regression back to "check entries.includes('.git')" fails this test.
+    const fs = fixtureFs(
+      { '/home/x': ['code'], '/home/x/code': ['linked-worktree'] },
+      { gitPaths: new Set([path.join('/home/x/code/linked-worktree', '.git')]) },
+    )
+
+    expect(scanCommonRoots('/home/x', fs).repos).toEqual([{ path: path.join('/home/x/code/linked-worktree') }])
+  })
+
   it('is bounded by maxDirsVisited and reports truncated: true rather than a silently partial list', () => {
+    // None of a/b/c/homeDir/code are repos, so each one visited costs a
+    // metered `readSubdirs` call — a found repo would return before ever
+    // calling it, so this needs genuine non-repo directories to spend the
+    // budget, not repos that would short-circuit for free.
     const fs = fixtureFs({
       '/home/x': ['code'],
       '/home/x/code': ['a', 'b', 'c'],
-      '/home/x/code/a': ['.git'],
-      '/home/x/code/b': ['.git'],
-      '/home/x/code/c': ['.git'],
+      '/home/x/code/a': [],
+      '/home/x/code/b': [],
+      '/home/x/code/c': [],
     })
 
     const result = scanCommonRoots('/home/x', fs, { maxDirsVisited: 2 })
@@ -251,21 +327,40 @@ describe('scanCommonRoots', () => {
     expect(scanCommonRoots('/home/nobody-has-any-of-these-dirs', fixtureFs({}))).toEqual({
       repos: [],
       truncated: false,
+      unreadable: [],
     })
+  })
+
+  it('records an unreadable directory in `unreadable`, distinct from truncation — a genuinely empty root is not the same as a refused one', () => {
+    const blockedDir = path.join('/home/x/code', 'blocked')
+    const fs = fixtureFs(
+      { '/home/x': ['code'], '/home/x/code': ['blocked'] },
+      { unreadableDirs: new Set([blockedDir]) },
+    )
+
+    const result = scanCommonRoots('/home/x', fs)
+    expect(result).toEqual({ repos: [], truncated: false, unreadable: [blockedDir] })
+  })
+
+  it('records an unreadable homeDir itself, rather than reporting "nothing found" indistinguishably from a genuinely empty home', () => {
+    const fs = fixtureFs({}, { unreadableDirs: new Set(['/home/x']) })
+    expect(scanCommonRoots('/home/x', fs)).toEqual({ repos: [], truncated: false, unreadable: ['/home/x'] })
   })
 })
 
 describe('discoverRepos', () => {
   it('assembles the known-projects reversal and the common-roots scan into one result', () => {
-    const fs = fixtureFs({
-      '/': ['home'],
-      '/home': ['x'],
-      '/home/x/.claude/projects': ['-home-x-known'],
-      '/home/x': ['known', 'code'],
-      '/home/x/known': [],
-      '/home/x/code': ['scanned'],
-      '/home/x/code/scanned': ['.git'],
-    })
+    const fs = fixtureFs(
+      {
+        '/': ['home'],
+        '/home': ['x'],
+        '/home/x/.claude/projects': ['-home-x-known'],
+        '/home/x': ['known', 'code'],
+        '/home/x/known': [],
+        '/home/x/code': ['scanned'],
+      },
+      { gitPaths: new Set([path.join('/home/x/code/scanned', '.git')]) },
+    )
 
     const result = discoverRepos({ homeDir: '/home/x', fs })
 
@@ -273,7 +368,11 @@ describe('discoverRepos', () => {
       available: true,
       projects: [{ slug: '-home-x-known', path: path.join('/home/x/known'), resolved: true }],
     })
-    expect(result.scanned).toEqual({ repos: [{ path: path.join('/home/x/code/scanned') }], truncated: false })
+    expect(result.scanned).toEqual({
+      repos: [{ path: path.join('/home/x/code/scanned') }],
+      truncated: false,
+      unreadable: [],
+    })
   })
 
   it('derives claudeProjectsRoot from homeDir when not given explicitly', () => {
@@ -281,13 +380,38 @@ describe('discoverRepos', () => {
     const result = discoverRepos({ homeDir: '/home/x', fs })
     expect(result.known).toEqual({ available: true, projects: [] })
   })
+
+  it('does not deduplicate a repo Claude already knows against the scan finding it too — that is the picker\'s call, not this module\'s', () => {
+    const fs = fixtureFs(
+      {
+        '/': ['home'],
+        '/home': ['x'],
+        '/home/x/.claude/projects': ['-home-x-code-same-repo'],
+        '/home/x': ['code'],
+        '/home/x/code': ['same-repo'],
+      },
+      { gitPaths: new Set([path.join('/home/x/code/same-repo', '.git')]) },
+    )
+
+    const result = discoverRepos({ homeDir: '/home/x', fs })
+
+    expect((result.known as { available: true; projects: Array<{ path: string | null }> }).projects[0]?.path).toBe(
+      path.join('/home/x/code/same-repo'),
+    )
+    expect(result.scanned.repos).toEqual([{ path: path.join('/home/x/code/same-repo') }])
+  })
 })
 
+const isPosix = platform() !== 'win32'
+const isRoot = isPosix && typeof process.getuid === 'function' && process.getuid() === 0
+
 /**
- * `realDiscoveryFs` against a REAL filesystem — the one thing a fixture map
+ * `realDiscoveryFs` against a REAL filesystem — the things a fixture map
  * can never prove: that a symlink is genuinely excluded by the OS-level
- * `Dirent` this module reads, not just by a fixture that never had one.
- * Mirrors `concierge/namespace-law.test.ts`'s own "live" section.
+ * `Dirent` this module reads (not just by a fixture that never had one),
+ * that a REAL linked git worktree's `.git` file is recognised, and that a
+ * REAL permission-denied directory is reported as unreadable rather than
+ * empty. Mirrors `concierge/namespace-law.test.ts`'s own "live" section.
  */
 describe('realDiscoveryFs, live', () => {
   let root: string
@@ -305,7 +429,8 @@ describe('realDiscoveryFs, live', () => {
     await mkdir(realDir)
     await symlink(realDir, path.join(root, 'link-to-real-dir'))
 
-    expect(realDiscoveryFs.listSubdirectories(root).sort()).toEqual(['real-dir'])
+    const listing = realDiscoveryFs.listSubdirectories(root)
+    expect(listing.readable && listing.entries.sort()).toEqual(['real-dir'])
   })
 
   it('a symlinked common root is therefore never scanned into, even if it points at a directory full of repos', async () => {
@@ -325,5 +450,54 @@ describe('realDiscoveryFs, live', () => {
     await symlink(realProjects, linked)
 
     expect(realDiscoveryFs.exists(linked)).toBe(true)
+  })
+
+  it.runIf(isPosix)('detects a REAL linked git worktree as a repo — its .git is a git-worktree-add-shaped FILE', () => {
+    const mainRepo = path.join(root, 'main-repo')
+    execFileSync('git', ['init', '-q', mainRepo])
+    execFileSync('git', ['-C', mainRepo, 'config', 'user.email', 'test@example.com'])
+    execFileSync('git', ['-C', mainRepo, 'config', 'user.name', 'Test'])
+    execFileSync('git', ['-C', mainRepo, 'commit', '-q', '--allow-empty', '-m', 'init'])
+
+    const codeDir = path.join(root, 'home', 'code')
+    mkdirSync(codeDir, { recursive: true })
+    const worktreePath = path.join(codeDir, 'linked-worktree')
+    execFileSync('git', ['-C', mainRepo, 'worktree', 'add', '-q', worktreePath, '-b', 'wt-branch'])
+
+    // The fixture proves what it claims: a FILE, not a directory, unlike an
+    // ordinary clone's `.git`.
+    expect(statSync(path.join(worktreePath, '.git')).isFile()).toBe(true)
+
+    const result = scanCommonRoots(path.join(root, 'home'), realDiscoveryFs)
+    expect(result.repos).toEqual([{ path: worktreePath }])
+  })
+
+  it.runIf(isPosix && !isRoot)('reports a REAL permission-denied directory as unreadable, not as empty', async () => {
+    const blocked = path.join(root, 'blocked')
+    await mkdir(blocked)
+    await chmod(blocked, 0o000)
+
+    try {
+      const listing = realDiscoveryFs.listSubdirectories(blocked)
+      expect(listing.readable).toBe(false)
+      if (!listing.readable) expect(listing.reason).toContain(blocked)
+    } finally {
+      await chmod(blocked, 0o755)
+    }
+  })
+
+  it.runIf(isPosix && !isRoot)('carries that same permission-denied directory through scanCommonRoots as `unreadable`, not silently as empty', async () => {
+    await mkdir(path.join(root, 'home'))
+    const blocked = path.join(root, 'home', 'code')
+    await mkdir(blocked)
+    await chmod(blocked, 0o000)
+
+    try {
+      const result = scanCommonRoots(path.join(root, 'home'), realDiscoveryFs)
+      expect(result.repos).toEqual([])
+      expect(result.unreadable).toContain(blocked)
+    } finally {
+      await chmod(blocked, 0o755)
+    }
   })
 })
