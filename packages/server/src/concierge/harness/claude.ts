@@ -1,4 +1,4 @@
-import { renderTelemetryEnv, type EnvShell } from '../../cli/telemetry-env.js'
+import { renderTelemetryEnv } from '../../cli/telemetry-env.js'
 import { detectHarness } from './detect.js'
 import type {
   ContinuityPlan,
@@ -28,22 +28,6 @@ import type {
  * variable the renderer emits, so a new variable added to the CLI's block
  * arrives here automatically and a drift fails a test rather than shipping.
  */
-
-/**
- * The `sh` rendering dialect, named as a constant rather than written inline.
- *
- * Written inline, `renderTelemetryEnv({ shell: 'sh' })` reads to the concierge
- * namespace law's clause 4 as **a shell-enabled spawn**: its detector greps for
- * `shell:` followed by a quote and cannot tell this rendering-dialect property
- * from `child_process`'s `shell` option. Nothing here goes near a shell — this
- * selects the text format of an env block, and this lane spawns nothing at all
- * — but clause 4 is a law over source text, owned by #263 and not editable
- * here, so the collision is avoided rather than argued with.
- *
- * Recorded in full so this reads as a deliberate spelling rather than as
- * someone quietly stepping around a fence.
- */
-const SH_DIALECT: EnvShell = 'sh'
 
 /**
  * `export KEY=VALUE` lines back into a map.
@@ -109,12 +93,26 @@ function parseShellEnv(block: string): Record<string, string> {
 export function claudeEnvRecipe(context: HarnessLaunchContext): HarnessEnvRecipe {
   assertLaneIsRenderable(context.lane)
 
+  // The dialect is deliberately NOT passed. `renderTelemetryEnv` defaults to
+  // `sh`, which is the form this parses — and `cli/telemetry-env.ts` records
+  // that `sh` "is the default and must stay byte-for-byte what it always was",
+  // because `.workmux.yaml` and every doc built on it assume that exact output.
+  //
+  // Naming the dialect explicitly would spell `shell:` in this file, and the
+  // concierge namespace law's clause 4 now reads ANY `shell:` that is not
+  // literally `false` as a shell-enabled spawn. That rewrite is right — seven
+  // ordinary spellings walked through the old patterns — and this property is a
+  // text-format selector rather than a spawn option, but a law over source text
+  // cannot tell them apart and is not this lane's to amend. Relying on the
+  // documented default is the honest resolution rather than a way around it:
+  // there is now no `shell:` in this module at all. `claude.test.ts` pins the
+  // rendered form, so a changed default fails a test rather than silently
+  // producing a block this cannot parse.
   const block = renderTelemetryEnv({
     lane: context.lane,
     role: context.role,
     port: context.port,
     instance: context.instance,
-    shell: SH_DIALECT,
   })
 
   return {

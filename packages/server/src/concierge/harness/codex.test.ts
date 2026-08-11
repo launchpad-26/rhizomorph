@@ -181,6 +181,19 @@ describe('codex continuity is UNPROVEN, and says so', () => {
     expect(argv).toHaveLength(1 + VERIFIED_KEYS.length * 2)
   })
 
+  it('launches the executable detection verified, when the caller has one', () => {
+    // Same seam fix as claude's: a bare `codex` would be re-resolved by the
+    // spawner against its own PATH, discarding the filtering `detectOnPath`
+    // applied (no empty or relative entries, so nothing from the watched repo's
+    // working tree).
+    const executablePath = '/opt/homebrew/bin/codex'
+    const argv = codexAdapter.launchArgv({ ...CONTEXT, executablePath })
+
+    expect(argv[0]).toBe(executablePath)
+    // And the telemetry config still rides along behind it.
+    expect(argv).toHaveLength(1 + VERIFIED_KEYS.length * 2)
+  })
+
   it('launches the executable DETECTION verified, not the bare name, when one was detected', () => {
     // Same reason as claude's: a bare `codex` is re-resolved against the
     // spawner's PATH at spawn time, with none of detectOnPath's filtering.
