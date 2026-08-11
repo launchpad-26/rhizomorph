@@ -127,6 +127,15 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **Retargeting no longer shows the new repo's name over the old repo's
+  fleet (#390).** The dashboard's live fold was never reset, so pointing it
+  at another repository kept every worktree, branch, commit and spend fact
+  of the previous one — under a heading that had already updated, which
+  made the result a lie rather than a lag. The fold now drops what it has
+  accumulated when a `session.started` names a different `repoPath`. An
+  ordinary session rotation, and a reconnect that replays the same session
+  from the top, both leave it alone.
+
 - **Rename-in-place actually works (#249).** `POST /api/label` required a
   per-process capability token nothing ever delivered to the browser, so
   every rename in `/recordings` 401ed, on every boot. The server now
