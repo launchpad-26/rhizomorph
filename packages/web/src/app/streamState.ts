@@ -114,6 +114,20 @@ export function initialStreamState(connectedAt: number): StreamState {
 }
 
 /**
+ * The repo the fold currently describes, or `null` before any
+ * `session.started` has named one.
+ *
+ * Exported because it is the page's **repo identity**, not just this fold's
+ * private business: anything that caches a per-repo answer beside the fold has
+ * to invalidate on the same key the fold resets on, or the two drift apart.
+ * `FleetContext` keys `/api/lanes` off this for exactly that reason (#390
+ * review) — a lane manifest fetched for repo A must not fence repo B.
+ */
+export function foldedRepoPath(session: SessionState): string | null {
+  return session.session?.repoPath ?? null
+}
+
+/**
  * Whether `event` moves the fold to a **different repository** — a
  * `session.started` naming a `repoPath` other than the one already folded
  * (#390, from the retarget spike's Q5, #265).
@@ -149,10 +163,48 @@ export function initialStreamState(connectedAt: number): StreamState {
  *
  * `null` before any `session.started` has named a repo, so the first one to
  * arrive never resets: there is nothing folded for it to contradict.
+ *
+ * ## Identity is the server's spelling, not the directory
+ *
+ * The comparison is an exact string match on a `repoPath` the server produced
+ * with `path.resolve` (`server/src/cli/run.ts`), which normalises separators,
+ * `.`/`..` and trailing slashes but **not case**. Two spellings of one
+ * directory on a case-insensitive filesystem — macOS's default — therefore
+ * read as two repos here, and a relaunch spelled differently from the original
+ * (tab-completed once, typed the next time) resets a fold that did not need
+ * resetting.
+ *
+ * That is deliberate, and it is the cheaper error of the two available
+ * (#390 review). Case-folding would buy that narrow macOS case at the price of
+ * a case-sensitive filesystem — Linux, which CI runs — where `/repos/Alpha`
+ * and `/repos/alpha` genuinely *are* two repositories: there, folding case
+ * means the boundary is missed and the dashboard goes back to showing one
+ * repo's fleet under the other's name. The failure modes are not symmetric. A
+ * spurious reset costs amnesia, which is visible and refills from the replay
+ * that follows it; a missed boundary costs a lie, which is invisible and is
+ * the thing `docs/adr/0001-…` treats as unrecoverable. The client cannot tell
+ * which kind of filesystem the server is on, so it prefers the loud error.
+ * `boundary-on-case-difference` pins this as a decision rather than an
+ * oversight.
+ *
+ * ## What it assumes about ordering
+ *
+ * That a session's `session.started` **leads** its own events. The recorder
+ * provides this — a rotation opens the new log with `session.started` and
+ * nothing carried over, fenced by that module's own `rotate.test.ts` (not
+ * cited by path here: the recorder namespace law, prd16 ruling 2, keeps web
+ * files clear of that module's paths entirely) — and `/api/stream` replays a
+ * log in order. If that ever
+ * stopped holding, a new repo's event arriving *before* its `session.started`
+ * in the same flush would fold onto the old repo and then be dropped by the
+ * reset: one event lost rather than two repos merged, which is the right way
+ * round, but it is an assumption and not a guarantee this module can enforce.
+ * `drops-events-that-precede-the-boundary` pins the behaviour so a change here
+ * is a decision.
  */
 export function crossesRepoBoundary(session: SessionState, event: RhizomorphEvent): boolean {
   if (event.type !== 'session.started') return false
-  const folded = session.session?.repoPath ?? null
+  const folded = foldedRepoPath(session)
   return folded !== null && folded !== event.payload.repoPath
 }
 

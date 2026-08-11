@@ -134,7 +134,10 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   made the result a lie rather than a lag. The fold now drops what it has
   accumulated when a `session.started` names a different `repoPath`. An
   ordinary session rotation, and a reconnect that replays the same session
-  from the top, both leave it alone.
+  from the top, both leave it alone. The lane manifest is re-asked at the
+  same boundary: `/api/lanes` was previously fetched once for the life of
+  the page, so the new repo's lanes were fenced, labelled and judged
+  against the old repo's `.swarm/lanes.json`.
 
 - **Rename-in-place actually works (#249).** `POST /api/label` required a
   per-process capability token nothing ever delivered to the browser, so

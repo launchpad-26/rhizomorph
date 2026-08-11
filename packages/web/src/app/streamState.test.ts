@@ -626,3 +626,89 @@ describe('the repo boundary resets the fold (#390)', () => {
     expect(folded.session.eventCount).toBe(alpha.length)
   })
 })
+
+/**
+ * Two behaviours the #390 review asked to be settled one way or the other.
+ * Both are *decisions*, and both are pinned here so that changing them is a
+ * deliberate act rather than a silent side effect — the reasoning for each
+ * lives on `crossesRepoBoundary` in `streamState.ts`.
+ */
+describe('decisions the repo boundary pins deliberately (#390 review)', () => {
+  const connectedAt = Date.UTC(2026, 7, 10, 12, 0, 0)
+
+  it('boundary-on-case-difference: a case-only spelling resets, by choice', () => {
+    // macOS's default filesystem is case-insensitive, so `/repos/Alpha` and
+    // `/repos/alpha` can be one directory, and a relaunch spelled differently
+    // from the original resets a fold that did not need it. That is the
+    // chosen error: case-folding instead would miss a genuine boundary on a
+    // case-SENSITIVE filesystem (Linux, which CI runs), where those two paths
+    // really are two repositories — and a missed boundary is the lie this
+    // whole issue exists to remove, while a spurious reset is only amnesia.
+    // The client cannot see which filesystem the server is on, so it prefers
+    // the loud error. Flip this only with a way to know.
+    const f = createEventFactory({ idPrefix: 'case', startTs: connectedAt })
+    const upper = f.sessionStarted({
+      sessionId: 's-1',
+      repoPath: '/repos/Alpha',
+      repoName: 'Alpha',
+    })
+    const worktree = f.worktreeDiscovered({
+      path: '/repos/Alpha/lane',
+      branch: 'lane',
+      head: 'sha-1',
+      isMain: true,
+    })
+    const lower = f.sessionStarted({
+      sessionId: 's-2',
+      repoPath: '/repos/alpha',
+      repoName: 'alpha',
+    })
+
+    const folded = foldStreamEvents(initialStreamState(connectedAt), [upper, worktree])
+    expect(crossesRepoBoundary(folded.session, lower)).toBe(true)
+
+    const after = foldStreamEvent(folded, lower)
+    expect(after.session.session?.repoPath).toBe('/repos/alpha')
+    expect(Object.keys(after.session.worktrees)).toEqual([])
+  })
+
+  it('drops-events-that-precede-the-boundary: an event ahead of its own session.started is lost, not merged', () => {
+    // Not reachable today: the recorder opens a session with `session.started`
+    // and nothing carried over, fenced by that module's own `rotate.test.ts`
+    // (not cited by path: the recorder namespace law keeps web files clear of
+    // that module's paths), and `/api/stream` replays a log in order — so a
+    // session's own events always follow its `session.started`. This pins
+    // what the fold does if that ever stops holding: the stray event folds
+    // onto the OLD repo and is then discarded with it. One event lost, which
+    // is the right way round — the alternative is two repositories merged.
+    const f = createEventFactory({ idPrefix: 'order', startTs: connectedAt })
+    const alphaStart = f.sessionStarted({
+      sessionId: 's-alpha',
+      repoPath: '/repos/alpha',
+      repoName: 'alpha',
+    })
+    const strayFromBeta = f.worktreeDiscovered({
+      path: '/repos/beta/lane',
+      branch: 'lane',
+      head: 'sha-beta',
+      isMain: true,
+    })
+    const betaStart = f.sessionStarted({
+      sessionId: 's-beta',
+      repoPath: '/repos/beta',
+      repoName: 'beta',
+    })
+
+    const folded = foldStreamEvents(initialStreamState(connectedAt), [
+      alphaStart,
+      strayFromBeta,
+      betaStart,
+    ])
+
+    expect(folded.session.session?.repoPath).toBe('/repos/beta')
+    expect(folded.events).toEqual([betaStart])
+    // The stray is gone rather than sitting in beta's fleet as an alpha-era
+    // worktree — losing it is the failure mode, and this names it.
+    expect(Object.keys(folded.session.worktrees)).toEqual([])
+  })
+})
