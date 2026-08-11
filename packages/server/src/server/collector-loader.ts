@@ -5,6 +5,7 @@ import { createJudgeCollector, DEFAULT_JUDGE_CADENCE_MS } from '../collectors/ju
 import type { DisableableSnapshot } from '../collectors/resilience.js'
 import { withResilience } from '../collectors/resilience.js'
 import { withResumeReconciliation } from '../collectors/resume-reconcile.js'
+import { createSessionlogCollector, type SessionlogCollectorConfig } from '../collectors/sessionlog/index.js'
 import { tmuxCollector } from '../collectors/tmux/index.js'
 import { createWorkmuxCollector } from '../collectors/workmux/index.js'
 
@@ -24,13 +25,15 @@ function judgeCadenceMs(): number {
 }
 
 /**
- * Registers the four collectors via static imports, so Vite/Rollup can
+ * Registers the five collectors via static imports, so Vite/Rollup can
  * bundle them (a variable dynamic import like `import(\`./${slug}\`)` cannot be
  * statically analysed and fails at runtime). A collector whose binary is
  * missing (no tmux, no workmux) still loads fine here — it degrades to
  * `collector.disabled` at poll time, which is the collector's job, not this
- * one's. The judge (prd11 ruling 6b) is the fourth and, so far, the only one
- * that self-throttles its own cadence below the poll loop's tick.
+ * one's. The judge (prd11 ruling 6b) self-throttles its own cadence below the
+ * poll loop's tick; sessionlog (#240) is the only one that takes its own
+ * config (`claudeProjectsRoot`, `extraSessionDirs`, `backfill`), threaded
+ * through by the caller instead of a zero-arg factory like its peers.
  *
  * Every collector here is wrapped in `withResilience` (#110) — the shared
  * retry/backoff/self-heal policy, applied once at the seam where collectors
@@ -38,7 +41,12 @@ function judgeCadenceMs(): number {
  * A collector's own poll() still decides *whether* a tick failed (it emits
  * `collector.disabled` exactly as before); the wrapper decides how many
  * consecutive failures to tolerate before that actually sticks, and keeps
- * probing afterwards so it can un-stick itself.
+ * probing afterwards so it can un-stick itself. #240: sessionlog used to be
+ * constructed and spliced in *outside* this function (`cli/run.ts`), so it
+ * never got this wrap at all — one failed `stat(~/.claude/projects)` latched
+ * it disabled forever. Registering it here, through the same `wrap()`, is
+ * the fix: `loadCollectors` is now the only place any collector is built for
+ * the live poll loop.
  *
  * Then wrapped again in `withResumeReconciliation` (#111), fed the folded
  * status of whatever session this boot is resuming (`priorEvents`, empty for
@@ -51,6 +59,7 @@ function judgeCadenceMs(): number {
 export async function loadCollectors(
   _log: { warn: (msg: string) => void } = console,
   priorEvents: readonly RhizomorphEvent[] = [],
+  sessionlogConfig: SessionlogCollectorConfig = {},
 ): Promise<AnyCollector[]> {
   const folded = reduceAll(priorEvents)
   function wrap<S extends DisableableSnapshot>(collector: Collector<S>): AnyCollector {
@@ -62,5 +71,6 @@ export async function loadCollectors(
     wrap(tmuxCollector),
     wrap(createWorkmuxCollector()),
     wrap(createJudgeCollector({ cadenceMs: judgeCadenceMs() })),
+    wrap(createSessionlogCollector(sessionlogConfig)),
   ]
 }

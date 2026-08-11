@@ -1,4 +1,4 @@
-import type { AnyCollector, Exec, PollResult } from '@rhizomorph/core'
+import type { AnyCollector, Exec, PollResult, RhizomorphEvent } from '@rhizomorph/core'
 import { createCollectorContext, createEvent, createIdFactory } from '@rhizomorph/core'
 import type { SessionRecorder } from './recorder.js'
 import type { SnapshotStore } from './snapshot-store.js'
@@ -109,6 +109,21 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
     return hydration
   }
 
+  /**
+   * Reports a failure via the recorder without letting a *second* failure —
+   * the report itself rejecting — escape as an unhandled rejection. The
+   * reporting path is never the crash path (issue #239).
+   */
+  async function recordOrDegrade(event: RhizomorphEvent, collectorName: string): Promise<void> {
+    try {
+      await recorder.record(event)
+    } catch (reportError) {
+      console.error(
+        `[rhizomorph] failed to report ${event.type} for ${collectorName}: ${reportError instanceof Error ? reportError.message : String(reportError)}`,
+      )
+    }
+  }
+
   async function persist(collector: AnyCollector, snapshot: unknown): Promise<void> {
     if (!snapshotStore) return
     try {
@@ -117,7 +132,7 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
     } catch (error) {
       if (saveErrors.has(collector.name)) return
       saveErrors.add(collector.name)
-      await recorder.record(
+      await recordOrDegrade(
         createEvent(
           'collector.error',
           {
@@ -126,6 +141,7 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
           },
           { id: nextId(), ts: now() },
         ),
+        collector.name,
       )
     }
   }
@@ -162,15 +178,21 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
         // (nothing new, or an error branch) has nothing to write.
         if (result.nextSnapshot !== previous) await persist(collector, result.nextSnapshot)
       } catch (error) {
+        // #332's message (the timeout episode names its own budget) reported
+        // through #361's guarded path (a failing report degrades, never crashes
+        // the loop) — the two changes are orthogonal and both are kept.
         const message =
           error === TIMED_OUT
             ? `timed out after ${tickBudgetMs}ms`
             : error instanceof Error
               ? error.message
               : String(error)
-        await recorder.record(
-          createEvent('collector.error', { collector: collector.name, message }, { id: nextId(), ts: now() }),
+        const errorEvent = createEvent(
+          'collector.error',
+          { collector: collector.name, message },
+          { id: nextId(), ts: now() },
         )
+        await recordOrDegrade(errorEvent, collector.name)
       }
     }
   }
