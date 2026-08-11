@@ -19,10 +19,15 @@ export function unquotePath(field: string): string {
 
   let i = 0
   while (i < body.length) {
-    const char = body[i] ?? ''
+    // A full code point, not `body[i]`: an astral-plane character (emoji) is
+    // two UTF-16 code units, and encoding each surrogate half separately
+    // turns it into two U+FFFDs. Raw non-ASCII lands inside quotes whenever
+    // the user has `core.quotePath=false` — git then quotes for the space
+    // but leaves the bytes raw — and the collector inherits user config.
+    const char = String.fromCodePoint(body.codePointAt(i) ?? 0)
     if (char !== '\\') {
       pushChar(bytes, char)
-      i += 1
+      i += char.length
       continue
     }
 
