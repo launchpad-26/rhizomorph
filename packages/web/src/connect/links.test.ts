@@ -479,7 +479,7 @@ describe('the two GETs the fold cannot replace', () => {
   const slugOk: DoctorFact = { id: 'session-logs', status: 'ok', message: 'Claude Code session logs found at /home/x/.claude/projects', assumed: false }
   const slugMissing: DoctorFact = { id: 'session-logs', status: 'warn', message: 'no Claude Code session logs at /home/x/.claude/projects — per-agent history stays empty', assumed: false }
 
-  it('reads the slug directory from doctor, and says so when doctor never answered', () => {
+  it('reads the slug directory from doctor, and says so when no readable answer arrived', () => {
     expect(row(build(reduceAll([]), { doctor: [slugOk] }), 'transcripts-slug').state).toBe('verified')
     expect(row(build(reduceAll([]), { doctor: [slugMissing] }), 'transcripts-slug').state).toBe('broken')
 
@@ -496,19 +496,46 @@ describe('the two GETs the fold cannot replace', () => {
    * an unhelpful note. The row is UNPROVEN either way; where to look is not
    * the same either way.
    */
-  it('distinguishes a doctor route that never answered from one that answered without the session-logs check', () => {
-    const silent = row(build(reduceAll([])), 'transcripts-slug')
+  it('distinguishes a doctor route that gave no readable answer from one that answered without the session-logs check', () => {
+    const unread = row(build(reduceAll([])), 'transcripts-slug')
     const answered = row(build(reduceAll([]), { doctor: [{ id: 'node', status: 'ok', message: 'Node v22.22.2', assumed: false }] }), 'transcripts-slug')
 
-    expect(silent.state).toBe('unproven')
+    expect(unread.state).toBe('unproven')
     expect(answered.state).toBe('unproven')
-    expect(silent.notes).not.toEqual(answered.notes)
+    expect(unread.notes).not.toEqual(answered.notes)
 
-    expect(silent.notes.join(' ')).toContain('has not answered')
+    expect(unread.notes.join(' ')).toContain('no readable answer')
     expect(answered.notes.join(' ')).toContain('answered, but carried no `session-logs` check')
     // The route is not the thing to go and fix.
-    expect(answered.notes.join(' ')).not.toContain('has not answered')
+    expect(answered.notes.join(' ')).not.toContain('never answered')
     expect(answered.notes.join(' ')).toContain('the route is fine')
+  })
+
+  /**
+   * **AND `doctor === null` IS ITSELF TWO FACTS.** `parseDoctor` answers `null`
+   * both for a body that never arrived and for one it could not read — and
+   * `readJson` folds every other unreadable answer onto that same value — so a
+   * server whose doctor is answering perfectly, in a shape this build is too
+   * old to parse, reaches this row as `null`. Reporting that as "has not
+   * answered" is the same lie #346 removed one branch over, aimed at the same
+   * reader: go and debug a route that is working.
+   *
+   * This row cannot yet tell the two apart — the fix is a three-state result
+   * (absent / unreadable / checks) travelling through `fetchDoctor` and
+   * `index.tsx`, which is a wider change than this. What it CAN do, and what
+   * this pins, is refuse to assert the half it does not know: the note states
+   * what is true of both causes and names both.
+   */
+  it('never claims the route was silent when it may have answered unreadably', () => {
+    const note = row(build(reduceAll([])), 'transcripts-slug').notes.join(' ')
+
+    // The claim that is not this page's to make.
+    expect(note).not.toContain('has not answered')
+    expect(note).not.toMatch(/did not answer|never responded|is not answering/)
+    // Both causes, named, and the one consequence that holds either way.
+    expect(note).toContain('never answered')
+    expect(note).toContain('could not read')
+    expect(note).toContain('unavailable')
   })
 
   /**

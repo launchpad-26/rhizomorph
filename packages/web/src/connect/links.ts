@@ -449,15 +449,27 @@ function transcriptSlug(input: ConnectInputs): ChainLink {
   }
   const check = doctorCheck(input.doctor, 'session-logs')
   if (check === null) {
-    // TWO DIFFERENT NULLS, AND ONLY ONE OF THEM IS THE ROUTE'S FAULT (#346).
-    // `doctorCheck` answers `null` both when nothing answered and when the
-    // answer simply had no `session-logs` in it, and the second used to be
+    // DIFFERENT NULLS, AND NOT ALL OF THEM ARE THE ROUTE'S FAULT (#346).
+    // `doctorCheck` answers `null` both when nothing usable arrived and when
+    // the answer simply had no `session-logs` in it, and the second used to be
     // reported as the first — sending a reader off to debug a route that is
     // working perfectly well. What is unavailable is the same either way; WHY
     // it is unavailable, and therefore where to look, is not.
+    //
+    // **`input.doctor === null` IS ITSELF STILL TWO FACTS, so this note names
+    // both rather than picking one.** `parseDoctor` answers `null` for a route
+    // that never answered AND for one that answered in a shape this page could
+    // not read (`readJson` folds every unreadable answer onto the same value),
+    // and `DoctorFact[] | null` has nowhere to carry the difference. Saying
+    // "has not answered" here was the same lie #346 removed one branch over: a
+    // server whose doctor is answering perfectly, in a body this build is too
+    // old to parse, would send its reader off to debug a live route. Until the
+    // three-state result lands (absent / unreadable / checks — it has to travel
+    // through `fetchDoctor` and `index.tsx`, so not here), this row states what
+    // it actually knows and names both causes without choosing between them.
     return unproven(base, [
       input.doctor === null
-        ? '`GET /api/doctor` has not answered — the slug directory is unavailable from here'
+        ? '`GET /api/doctor` produced no readable answer — either it never answered, or it answered in a shape this page could not read; the slug directory is unavailable from here either way'
         : '`GET /api/doctor` answered, but carried no `session-logs` check — the route is fine; this server is older than the check, or the check did not run',
     ])
   }

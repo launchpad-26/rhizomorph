@@ -310,6 +310,17 @@ export function parseMeta(body: unknown): MetaFacts | null {
  * {@link parseCollectors}: the checks that parsed are real findings, and
  * withholding them because a sibling entry was malformed would lose more truth
  * than it protects.
+ *
+ * **`null` IS STILL CARRYING TWO FACTS, AND THAT IS A KNOWN DEBT.** The two
+ * returns above — "nothing usable arrived" and "it answered, unreadably" — are
+ * different facts about different things to fix, and `DoctorFact[] | null` has
+ * nowhere to put the difference; {@link readJson} folds a dead route, a non-2xx
+ * and a non-JSON body onto the same value again. Every consumer therefore
+ * knows only "no readable answer", and must say only that — `links.ts`'
+ * `transcriptSlug` names both causes rather than picking one. The fix is a
+ * three-state result (absent / unreadable / checks) threaded through
+ * {@link fetchDoctor} and the `/connect` page's own state; until it lands,
+ * nothing downstream may claim the route was silent.
  */
 export function parseDoctor(body: unknown): DoctorFact[] | null {
   if (!Array.isArray(body)) return null
