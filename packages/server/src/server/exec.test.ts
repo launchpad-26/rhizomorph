@@ -1,5 +1,6 @@
+import type { Exec, ExecOptions, ExecResult } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
-import { exec } from './exec.js'
+import { exec, withTimeout } from './exec.js'
 
 describe('exec', () => {
   it('resolves stdout for a successful command', async () => {
@@ -19,5 +20,29 @@ describe('exec', () => {
     expect(result.failed).toBe(true)
     expect(result.code).toBeNull()
     expect(result.errorMessage).toBeTruthy()
+  })
+})
+
+describe('withTimeout', () => {
+  const okResult: ExecResult = { stdout: '', stderr: '', code: 0, failed: false }
+
+  it('forwards a fixed timeoutMs while preserving the caller options', async () => {
+    const seen: (ExecOptions | undefined)[] = []
+    const spy: Exec = async (_command, _args, options) => {
+      seen.push(options)
+      return okResult
+    }
+    await withTimeout(spy, 1234)('git', ['status'], { cwd: '/tmp', input: 'x' })
+    expect(seen[0]).toEqual({ cwd: '/tmp', input: 'x', timeoutMs: 1234 })
+  })
+
+  it('overrides a caller-supplied timeoutMs', async () => {
+    const seen: (number | undefined)[] = []
+    const spy: Exec = async (_command, _args, options) => {
+      seen.push(options?.timeoutMs)
+      return okResult
+    }
+    await withTimeout(spy, 1234)('git', ['status'], { timeoutMs: 5 })
+    expect(seen[0]).toBe(1234)
   })
 })

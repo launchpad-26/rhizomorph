@@ -237,6 +237,55 @@ branch refs/heads/main
     expect(poll2.nextSnapshot.branches['main']).toBeDefined()
   })
 
+  it('reports a collector.error (not silence) when git status fails or times out, while still carrying forward the last known dirty state', async () => {
+    const worktrees = `worktree /repo
+HEAD 1111111111111111111111111111111111111111
+branch refs/heads/main
+`
+    const exec1 = scriptedExec({
+      'git worktree list --porcelain::/repo': worktrees,
+      'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo':
+        'main 1111111111111111111111111111111111111111\n',
+      'git status --porcelain::/repo': '?? scratch.txt\n',
+    })
+    const { nextSnapshot } = await gitCollector.poll(gitCollector.initialSnapshot(), makeContext(exec1, 1000))
+    expect(nextSnapshot.dirty['/repo']).toEqual([{ path: 'scratch.txt', status: 'untracked', staged: false }])
+
+    // Second poll: `git status` times out — the same shape `execFile`'s
+    // `timeout` option produces once ticks are bounded (#236): killed by a
+    // signal, so `code` is null and `errorMessage` is set, just like a
+    // missing binary.
+    const exec2: Exec = async (command, args, options) => {
+      if (args[0] === 'status') {
+        return { stdout: '', stderr: '', code: null, failed: true, errorMessage: 'Command failed: git status --porcelain' }
+      }
+      const key = `${command} ${args.join(' ')}::${options?.cwd ?? ''}`
+      const script: Record<string, string> = {
+        'git worktree list --porcelain::/repo': worktrees,
+        'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo':
+          'main 1111111111111111111111111111111111111111\n',
+      }
+      const stdout = script[key]
+      if (stdout === undefined) throw new Error(`no scripted output for "${key}"`)
+      return { stdout, stderr: '', code: 0, failed: false }
+    }
+
+    const poll2 = await gitCollector.poll(nextSnapshot, makeContext(exec2, 2000))
+
+    expect(poll2.events).toEqual([
+      expect.objectContaining({
+        type: 'collector.error',
+        payload: expect.objectContaining({
+          collector: 'git',
+          message: 'git status --porcelain failed for /repo',
+          detail: 'Command failed: git status --porcelain',
+        }),
+      }),
+    ])
+    // Last known dirty state survives the failed poll rather than vanishing.
+    expect(poll2.nextSnapshot.dirty['/repo']).toEqual([{ path: 'scratch.txt', status: 'untracked', staged: false }])
+  })
+
   it('latches disabled (not a repeating collector.error) when worktree list fails, e.g. a non-git directory', async () => {
     let execCalls = 0
     const exec: Exec = async () => {
