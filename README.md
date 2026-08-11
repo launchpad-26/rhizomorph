@@ -249,8 +249,9 @@ create outside its own directory. And
 [`packages/server/src/lab/namespace-law.test.ts`](packages/server/src/lab/namespace-law.test.ts)
 is the test that watches everything else: no source file outside
 `server/src/lab/` may even import it, except the one declared CLI wiring
-point — with a known blind spot for dynamic imports, which is exactly how
-`api/lab.ts` reaches that wiring today, tracked as #245; no ref literal in
+point — a per-file check on which files name the lab *directly*, blind to a
+reach that goes through that wiring point instead, which is exactly what
+`api/lab.ts` does today (#245); no ref literal in
 its source names anything but `refs/rhizomorph/`;
 no lab file shells out to `push`, `merge`, `checkout`, `branch`, `reset`,
 `rebase`, or any other verb that rewrites something that already exists;
@@ -309,8 +310,8 @@ life, not a supported product with an SLA. If something's broken, file an
 issue with what you ran and what happened; if you'd like to fix it
 yourself, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-3,652 tests across 233 files (`npm test`), plus `npm run typecheck`, gate
-every change — [Ran] as of commit `69d10a0`. Two scripts encode the landing
+3,768 tests across 237 files (`npm test`), plus `npm run typecheck`, gate
+every change — [Ran] as of commit `e434e70`. Two scripts encode the landing
 discipline that keeps that green: `scripts/fence-lint.sh` checks a wave's
 declared issue fences *before* dispatch (vague fences, overlapping claims,
 gaps against a known coupling point); `scripts/gate.sh` is what a lane runs

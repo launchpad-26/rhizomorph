@@ -142,35 +142,57 @@ One SSE hook feeds one reducer (imported from `core`) into React context —
 no state library (one tree, one store). **Live and replay are the same
 reducer**: live folds the stream as it arrives; replay folds a history slice
 under a scrubber clock. That one property is why replay is free — for
-whatever the fold itself computes. **Two** read paths sit outside it and read
-live state fresh per request rather than the event log: `GET /api/lanes`
-(`.swarm/lanes.json` off the watched repo's disk) and
-`GET /api/transcript/:lane` (the agent's own session JSONL, resolved through
-the OTel collector's lane/worktree attribution — a sub-step of that route, not
-a third path of its own; nothing else calls it).
+whatever the fold itself computes. **Three** of this server's read routes sit
+outside it and answer from live disk or the live machine rather than from the
+event log:
 
-**Neither is replay-aware, and one of them is a live hole.** Replay sets
-`repoPath` to the sentinel `record:<slug>` (`cli/replay.ts:157`) rather than
-switching either path off:
+- `GET /api/lanes` — `.swarm/lanes.json` off the watched repo, re-read per
+  request, never cached (`api/lanes.ts:59-71`).
+- `GET /api/transcript/:lane` — a lane's own session JSONL off disk, in the
+  precedence captured > live > honest gap (`api/transcript.ts:565-580`).
+  *Which* file that is comes from the folded events themselves
+  (`log/transcript-attribution.ts`), so attribution is a sub-step of this
+  route rather than a path of its own — not because it is private to the
+  handler (the recorder's capture-on-close shares the same helpers via
+  `allAttributedLanes`), but because no route exposes it. The worktree path
+  that makes a live file resolvable at all comes from the session-log
+  collector's events; OTel's rows set `worktreePath: null` unconditionally.
+- `GET /api/doctor` — the live machine, probed behind a 3s single-flight
+  cache (`api/doctor.ts:146`): node version, `tmux -V`, `workmux status`,
+  `claude --version`, the session-log slug dir.
 
+**Only the third one knows when it is replaying.** Replay sets `repoPath` to
+the sentinel `record:<slug>` (`cli/replay.ts:157`) rather than switching any
+of them off:
+
+- `/api/doctor` is told outright — the route passes `replay: ctx.readOnly`
+  (`api/doctor.ts:221-222`), so the three checks that presuppose a watched repo
+  (`session-boundary`, `lane-manifest`, and the enrichment ladder) return
+  labelled not-applicable instead of guessing. Its remaining checks describe
+  the machine serving the replay, which is what they claim to describe. This
+  is the shape the other two want.
 - `/api/lanes` answers honestly *by accident*. `lanesManifestPath` joins that
-  sentinel (`api/lanes.ts:59-60`), producing a relative path no real tree
-  contains, so the read misses and the route reports
-  `{ available: false, reason: … }`. Honest output, but from a path that cannot
-  resolve rather than from a check — and the reason it gives blames dispatch
+  sentinel, so the read is attempted at the relative path
+  `record:<slug>/.swarm/lanes.json`, resolved against the server process's
+  working directory — it misses, and the route reports
+  `{ available: false, reason: … }`. Honest output, but from a path that fails
+  to resolve rather than from a check, and the reason it gives blames dispatch
   rather than naming replay.
 - `/api/transcript/:lane` can serve **live data during a replay**. It never
   consults `repoPath`, and `replay.ts` never overrides `claudeProjectsRoot`, so
-  candidate transcript paths resolve against the real `~/.claude/projects`
-  (`api/transcript.ts:673`). Replaying a record on the machine that produced it
-  — the ordinary case — can therefore return the current session's transcript
-  beside a historical fold. Tracked as #370; the fix is for replay to
-  declare itself to both routes rather than rely on a path that happens not to
-  exist.
+  live candidates resolve under the real `~/.claude/projects`
+  (`api/transcript.ts:673`). The captured copy that would outrank them is
+  looked for beside *this* recording — replay's own temporary session dir,
+  which holds no captures — so resolution falls straight through to live.
+  Replaying a record on the machine that produced it, the ordinary case, can
+  therefore return the current session's transcript beside a historical fold.
+  Tracked as #370; the fix is for replay to declare itself to both routes, the
+  way it already does to the doctor, rather than rely on a path that happens
+  not to resolve.
 
-So the dashboard's honesty here rests on one accident and one gap, not on
-design. Stated rather than smoothed over, because a replay that quietly mixes
-in live state is the failure this instrument exists to make impossible.
+So of the three, one declares replay and two rest on an accident and a gap.
+Stated rather than smoothed over, because a replay that quietly mixes in live
+state is the failure this instrument exists to make impossible.
 
 Panels are sibling directories (`panels/attention`, `panels/burn`,
 `panels/fleet`, `panels/ledger`, `panels/collisions`, `panels/feed`, plus
@@ -1959,8 +1981,8 @@ verified by eyes, not units — said honestly. Merge gate: `npm test` +
 `pre_merge` hook and by `scripts/gate.sh` (fence compliance, a clean rebase,
 no NUL bytes, the test/typecheck gate itself, and the actual merge to
 `main`) — `scripts/fence-lint.sh` checks a wave's declared fences before any
-lane is dispatched against them. 3,652 tests across 233 files pass at commit
-`69d10a0` (`npm test`), alongside a green `npm run typecheck`.
+lane is dispatched against them. 3,768 tests across 237 files pass at commit
+`e434e70` (`npm test`), alongside a green `npm run typecheck`.
 
 ## Decisions log
 
