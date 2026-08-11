@@ -7,21 +7,20 @@ merge_strategy: merge   # keep the DAG visible — the Rhizomorph renders it
 
 post_create:
   - "[ -f package.json ] && npm install || true"
-  # AGENTS.md and CLAUDE.md are gitignored (.gitignore:12-13), so git creates
-  # every worktree without them: an agent dispatched into a lane has no runbook,
-  # and — because CLAUDE.md is what carries the `@AGENTS.md` import — no
-  # auto-loaded project instructions either. Six worktrees were checked on
-  # 2026-08-11 and all six were missing both, which is why prompts saying "read
-  # AGENTS.md first" had been pointing at a file that was not there.
+  # AGENTS.md is tracked (#399), so git puts the runbook in every worktree by
+  # itself and no copy is needed. Only CLAUDE.md still has to be carried across:
+  # it is per-contributor, stays gitignored, and is what loads `@AGENTS.md`
+  # automatically.
+  #
+  # The version of this hook that copied AGENTS.md too was copying a file that
+  # did not exist — it was gitignored repo-wide between 2d77e5b and #399, so the
+  # main checkout had no copy to hand out. The rule now documents itself in
+  # AGENTS.md, which is where it belongs.
   #
   # `--git-common-dir` is how a linked worktree finds the main checkout; same
-  # idiom as scripts/lane-agent.sh. The copies are ignored files, so they cannot
-  # dirty the worktree or reach a commit. Non-fatal by design: a worktree is
-  # still usable without them.
-  #
-  # This comment is the only place the rule can live — AGENTS.md itself is not
-  # in the repo, so it cannot document its own delivery.
-  - 'M=$(dirname "$(git rev-parse --git-common-dir)") && cp "$M/AGENTS.md" "$M/CLAUDE.md" . 2>/dev/null || true'
+  # idiom as scripts/lane-agent.sh. The copy is an ignored file, so it cannot
+  # dirty the worktree or reach a commit. Non-fatal by design.
+  - 'M=$(dirname "$(git rev-parse --git-common-dir)") && cp "$M/CLAUDE.md" . 2>/dev/null || true'
 
 # prd1 telemetry (docs/telemetry.md): every lane's agent exports OTLP/HTTP
 # JSON straight to this repo's own Rhizomorph server (the receiver at
