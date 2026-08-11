@@ -780,6 +780,93 @@ describe('a dead stream is not evidence either — #345', () => {
   })
 })
 
+/**
+ * **THE `evidence` TAG IS A CLAIM, AND THIS IS WHERE IT IS CHECKED.**
+ *
+ * `ChainLink.evidence` is a hand-written literal in each of the seven row
+ * builders, and nothing in the type system connects it to what the row
+ * actually reads. `attest` then acts on it with the bluntest instrument this
+ * module has: a `'fold'` row's state is wiped whenever the fold's carrier is
+ * dead or synthetic, and a `'poll'` row's is not. Six of the seven say
+ * `'fold'`, so an eighth row copy-pasted from a neighbour inherits the
+ * majority — and if that row is actually driven by `GET /api/doctor`, its
+ * VERIFIED is silently withdrawn every time the SSE drops, on a page whose
+ * whole subject is what has been proven. Nothing in the suite would have said
+ * a word.
+ *
+ * Restructuring the tag so it cannot be wrong — deriving it from the inputs a
+ * builder touches — is a larger change than the rows are worth right now. What
+ * is written instead is the law the tag is supposed to satisfy, in both
+ * directions, so a wrong tag is a red build rather than a quiet wipe.
+ *
+ * The corpus is deliberately one where all seven rows read VERIFIED, so every
+ * demotion below is about the withdrawal and not about a row that had nothing
+ * to say in the first place.
+ */
+describe('every row\'s evidence tag, against the inputs it actually responds to', () => {
+  const PROVING: Partial<ConnectInputs> = { doctor: [SLUG_OK], meta: metaWith() }
+
+  function tagged(links: ChainLink[], evidence: ChainLink['evidence']): string[] {
+    return links.filter((link) => link.evidence === evidence).map((link) => link.id)
+  }
+
+  /** The rows that stopped being VERIFIED between two builds of the same log. */
+  function withdrawn(before: ChainLink[], after: ChainLink[]): string[] {
+    return before.filter((link) => link.state === 'verified' && row(after, link.id).state !== 'verified').map((link) => link.id)
+  }
+
+  it('gives every row exactly one of the two tags, and neither tag is empty', () => {
+    const links = build(provingLog(), PROVING)
+    expect([...tagged(links, 'fold'), ...tagged(links, 'poll')].sort()).toEqual(links.map((link) => link.id).sort())
+    expect(tagged(links, 'fold').length).toBeGreaterThan(0)
+    expect(tagged(links, 'poll').length).toBeGreaterThan(0)
+  })
+
+  /**
+   * **THE FOLD HALF.** Take the fold's evidence away — the stream dies, or a
+   * fixture was driving it all along — and the rows that lose VERIFIED must be
+   * exactly the rows that said the fold was checking them. A `'fold'` row that
+   * survives is a row claiming a proof its own declared source can no longer
+   * make; a `'poll'` row that does not survive is a row whose state was wiped
+   * by something that was never checking it.
+   */
+  it('loses VERIFIED on exactly the fold-tagged rows when the fold stops being evidence', () => {
+    const live = build(provingLog(), PROVING)
+    expect(live.every((link) => link.state === 'verified'), 'the corpus no longer proves all seven rows').toBe(true)
+
+    for (const [why, stream] of [['a dead stream', DEAD], ['a fixture fold', FIXTURE]] as const) {
+      const gone = withdrawn(live, build(provingLog(), { ...PROVING, stream }))
+      expect(gone, `${why} withdrew the wrong rows`).toEqual(tagged(live, 'fold'))
+    }
+  })
+
+  /**
+   * **THE POLL HALF, AND THE ONE THAT CATCHES THE COPY-PASTE.** The fold half
+   * above cannot: a poll-driven row mislabelled `'fold'` is demoted BY the
+   * wrong label, so it lands in both sides of that equality and looks correct.
+   * The catch is the other direction — withdraw the poll input while the
+   * stream stays open, and the rows whose STATE moves must be exactly the ones
+   * tagged `'poll'`.
+   *
+   * State, not notes: `doctorNote` decorates fold rows with doctor's findings
+   * on purpose, and a row quoting a finding is not a row being checked by it.
+   *
+   * `/api/meta` is the other poll input and is deliberately not asserted the
+   * same way: it feeds BROKEN reasons into fold rows (`disabledReason`), so it
+   * genuinely moves their state. That does not make those rows poll-checked —
+   * `evidence` names what has to be ALIVE for a row to say VERIFIED, and
+   * meta's contribution is a fault, not a proof. Doctor is the input where the
+   * distinction is clean, so doctor is where the law is written.
+   */
+  it('moves state on exactly the poll-tagged rows when the doctor poll stops answering', () => {
+    const answered = build(provingLog(), PROVING)
+    const silent = build(provingLog(), { ...PROVING, doctor: null })
+
+    const moved = answered.filter((link) => row(silent, link.id).state !== link.state).map((link) => link.id)
+    expect(moved, 'a row responds to the doctor poll but is not tagged as polled').toEqual(tagged(answered, 'poll'))
+  })
+})
+
 describe('the command builders', () => {
   it('interpolates the port from location, falling back to the scheme\'s own default when it is implied', () => {
     expect(portFrom({ port: '4317', protocol: 'http:' })).toBe('4317')
