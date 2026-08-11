@@ -48,10 +48,14 @@ export interface ScrubberProps {
  * use one: a drag can address exactly as many positions as the track has
  * pixels. So the two requirements meet at one pixel, and a single `step` does
  * serve both — a notch is never wider than a pixel, at any track width, for
- * any session long enough to afford one (see `notchCount`: below roughly two
- * seconds the 1ms floor binds and a notch is wider than a pixel, which is
- * still strictly finer than what this replaced — `max(1000, span / 1000)` cut
- * a 1.5-second session into a single notch and froze the slider outright).
+ * any session long enough to afford one. "Long enough" is a fact about the
+ * *track*, not about the session: the 1ms floor binds below
+ * `2 ** ceil(log2(trackWidth))` ms of recording — 512ms at 480px, 1024ms at
+ * 960px, 4096ms on a 4K dock — and inside that band a notch is wider than a
+ * pixel (3.75px at 3840px for a two-second recording). That is still strictly
+ * finer than what this replaced: `max(1000, span / 1000)` gave a 1.5-second
+ * session one 1000ms notch of travel, and froze the slider outright — a
+ * single stop, nothing else reachable — on anything under a second.
  * Meanwhile one arrow press moves half a pixel to a pixel of track, which on
  * a real dock is ~0.1% of the session: #186's calibration, held more honestly
  * than the 1-second floor held it on short recordings.
@@ -61,9 +65,15 @@ export interface ScrubberProps {
  * `step`. The cost, stated plainly: a seek from this input is now grid-
  * granular at roughly a pixel rather than 1/1000-granular, which on a track
  * narrower than 1000px is marginally coarser. No position a pointer can
- * address is unreachable at that granularity — `end` included, which is a
- * grid point by construction rather than by luck — and precision seeking goes
- * through the TIDE's zoom.
+ * address is unreachable at that granularity — `end` included, which
+ * `notchCount` holds on the grid at every width and every session length by
+ * *testing* the one thing that can take it off (see there), not by assuming
+ * nothing can. The one branch where that is not true is the fallback below,
+ * taken only when the track has no measurable width: `max(1000, span / 1000)`
+ * leaves `end` up to 999ms off-grid on any sub-17-minute session that is not
+ * a whole number of seconds. It is what shipped before this change, and the
+ * layout effect means it never paints in a real browser. Precision seeking
+ * goes through the TIDE's zoom.
  *
  * **Issue #186 defect 2/R2: the nearest chapter's label while dragging**
  * (the YouTube "chapter title appears as you scrub" idiom) — a plain label
@@ -124,8 +134,8 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
 
 /**
  * How many notches to cut the session into: the smallest power of two that is
- * at least the track's width in pixels, capped so a notch is never finer than
- * one millisecond.
+ * at least the track's width in pixels — capped so a notch is never finer than
+ * one millisecond, and never finer than the `step` attribute can carry.
  *
  * A power of two, and not the pixel count itself, because `end` has to *be* a
  * grid point. The grid is `min + n * step`, and both the browser and jsdom
@@ -134,8 +144,25 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
  * The far end then rounds down to the previous notch and the last pixel of
  * track, `End`, and a drag to the right edge all land a full step short: up to
  * ~2.4 minutes on an eight-hour session at a narrow width. `span / 2 ** k` is
- * exact in binary, terminates in decimal, and multiplies back to exactly
- * `span`, so the endpoint is on the grid by construction at every width.
+ * exact in binary and multiplies back to exactly `span`.
+ *
+ * Exact in binary is necessary and not sufficient, which is what
+ * `serialisesExactly` is for. The attribute carries `String(step)` — the
+ * *shortest* decimal that round-trips, not the exact quotient — and the two
+ * part company once the exact quotient needs more than about 17 significant
+ * digits. That first bites at `2 ** 28 + 1` ms (3.107 days) on a dock wide
+ * enough to ask for 4096 notches, and then only sporadically: `2 ** 28 + 2` is
+ * exact again, `+ 3` is 65.5 seconds short, `+ 4` exact. Since that boundary is
+ * not a boundary, nothing here hardcodes one; the loop simply refuses a
+ * doubling whose step would not survive being written down. The grid is as fine
+ * as the pixels ask for wherever that is representable, and one power of two
+ * coarser where it is not.
+ *
+ * Measured over widths 200…3840 and sessions from 500ms to 60 days: endpoint
+ * shortfall is 0 everywhere; no recording of three days or less has its notch
+ * count changed by the guard at all; and where the track asks for 1024 notches
+ * or more the guard never returns fewer than 1024 — so even the guarded corner
+ * stays finer than the 1000 stops this replaced.
  *
  * The cost of rounding the notch count up to a power of two is up to 2x more
  * notches than pixels — which is free, since a finer-than-pixel grid is still
@@ -143,8 +170,45 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
  */
 function notchCount(span: number, trackWidth: number): number {
   let notches = 1
-  while (notches < trackWidth && notches * 2 <= span) notches *= 2
+  while (notches < trackWidth && notches * 2 <= span && serialisesExactly(span / (notches * 2))) {
+    notches *= 2
+  }
   return notches
+}
+
+/**
+ * Whether `String(step)` — the text the `step` attribute actually carries —
+ * denotes step's exact value rather than a rounded stand-in for it.
+ *
+ * ECMA-262 defines `Number::toString` as the shortest digit string that
+ * round-trips, and among equally short candidates the one closest to the value.
+ * So the written decimal is the exact expansion precisely when it carries as
+ * many fractional digits as the exact expansion has — and for a double
+ * `m * 2 ** -f` with `m` odd that is exactly `f`, because `m * 5 ** f` ends in
+ * 5 and so the last digit is never a droppable zero. Doubling to integrality
+ * recovers `f` without any arithmetic that could itself round.
+ *
+ * The alternative, writing the exact decimal out ourselves, is the only
+ * *complete* answer and is rejected anyway: it needs BigInt on a render path
+ * (the exact decimal passes 2 ** 53 at around 10.25 hours and 4096 notches),
+ * and it moves the bet from `Number::toString` — specified, and checkable in
+ * this suite — onto each engine's own step-attribute decimal parser, whose
+ * coefficient is finite too. Digits an engine does not keep buy nothing, and
+ * jsdom's parser keeps 20 of them, so such a test would pass here and still
+ * fail in a browser. Asking for *less* precision is the direction every engine
+ * can honour.
+ */
+function serialisesExactly(step: number): boolean {
+  if (!Number.isFinite(step)) return false
+
+  const text = String(step)
+  const point = text.indexOf('.')
+  const written = point === -1 ? 0 : text.length - point - 1
+
+  let exact = 0
+  for (let value = step; !Number.isInteger(value); value *= 2) exact += 1
+
+  return written === exact
 }
 
 /**
@@ -155,6 +219,11 @@ function notchCount(span: number, trackWidth: number): number {
  * `ResizeObserver` where the platform has one. A layout effect rather than a
  * plain one so the very first painted frame is already pixel-stepped, instead
  * of showing one frame snapped to the coarse fallback grid.
+ *
+ * That last sentence is not held by anything in `Scrubber.test.tsx`: swapping
+ * this for `useEffect` leaves the suite green, because RTL flushes passive
+ * effects inside `act()` before any assertion runs and jsdom never paints. That
+ * is a gap in the harness, not permission — pinning it needs a real browser.
  */
 function useTrackWidth(): [RefObject<HTMLInputElement | null>, number] {
   const ref = useRef<HTMLInputElement | null>(null)

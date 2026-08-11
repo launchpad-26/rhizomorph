@@ -189,6 +189,19 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   no `collector.error` — the one exec in the git collector that didn't
   already follow this PR's own "a timeout is a visible error, not silence"
   rule. It now reports one.
+- **The replay scrubber glides (#270).** Its `step` was `max(1000, span /
+  1000)` — about a thousand stops across any recording, so on an eight-hour
+  session the thumb jumped between notches ~29 seconds apart with nothing
+  between them reachable, and any session under a second was frozen on a
+  single stop. The step is now sized to the rendered track instead: the
+  session is cut into the smallest power of two notches at least as many as
+  the track has pixels, so a notch is never wider than a pixel at any window
+  size, and one arrow press still moves ~0.1% of the session. `end` stays a
+  grid point at every width and every session length — including multi-day
+  ones, where the step's exact quotient outgrows what the `step` attribute's
+  shortest decimal can carry and the last notch would otherwise be
+  unreachable. Native keyboard behaviour is untouched: this configures the
+  range input, it does not reimplement it.
 - **Rename-in-place actually works (#249).** `POST /api/label` required a
   per-process capability token nothing ever delivered to the browser, so
   every rename in `/recordings` 401ed, on every boot. The server now

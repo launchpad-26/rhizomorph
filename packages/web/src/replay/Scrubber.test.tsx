@@ -35,13 +35,21 @@ function stubTrackWidth(initial: number): (next: number) => void {
   }
 }
 
-/** jsdom has no `ResizeObserver`; this one hands the test the callback so a resize is deterministic, not timed, and exposes the live observer set so teardown is observable. */
-function stubResizeObserver(): { resize(): void; observing(): number } {
+/**
+ * jsdom has no `ResizeObserver`; this one hands the test the callback so a
+ * resize is deterministic, not timed, exposes the live observer set so teardown
+ * is observable, and counts constructions so "the effect subscribes once, not
+ * once per render" is observable too.
+ */
+function stubResizeObserver(): { resize(): void; observing(): number; instances(): number } {
   const callbacks = new Set<() => void>()
+  let constructed = 0
   vi.stubGlobal(
     'ResizeObserver',
     class {
-      constructor(private readonly callback: () => void) {}
+      constructor(private readonly callback: () => void) {
+        constructed += 1
+      }
       observe() {
         callbacks.add(this.callback)
       }
@@ -60,11 +68,13 @@ function stubResizeObserver(): { resize(): void; observing(): number } {
       })
     },
     observing: () => callbacks.size,
+    instances: () => constructed,
   }
 }
 
 const EIGHT_HOURS = 8 * 60 * 60 * 1000
 const TWO_MINUTES = 2 * 60 * 1000
+const DAY = 24 * 60 * 60 * 1000
 
 function stepOf(): number {
   return Number((screen.getByLabelText('Replay scrubber') as HTMLInputElement).step)
@@ -167,17 +177,105 @@ describe('Scrubber — one notch is one pixel of track, at any session length (#
     }
   })
 
-  it('a notch is never coarser than a pixel, down to a one-pixel track', () => {
+  it('`end` is still a grid point on a multi-day recording, where the step stops serialising exactly', () => {
+    // `span / 2 ** k` is exact in binary, but the attribute carries the
+    // shortest round-tripping decimal, which stops being the exact quotient
+    // past ~17 significant digits. Unguarded, a 3.107-day recording on a
+    // 2560px dock lands 65.5s short of its own end, and a 12.43-day one at
+    // 1920px lands 524s short — worse, in that corner, than the 1/1000 grid
+    // this replaced, which always serialised exactly.
     const setWidth = stubTrackWidth(0)
 
-    for (const width of [1, 17, 200, 479, 480]) {
+    const cases: readonly (readonly [width: number, span: number])[] = [
+      [2_049, 268_435_457], // 2**28 + 1, 3.1069 d — the earliest span that misses at all
+      [2_560, 268_435_459], // 2**28 + 3 — the earliest that misses by a whole notch
+      [2_560, 999_999_999], // 11.6 d
+      [1_920, 1_073_809_011], // 12.43 d
+      [3_840, 30 * DAY + 7],
+      [2_560, 60 * DAY + 3],
+    ]
+
+    for (const [width, span] of cases) {
+      setWidth(width)
+      render(<Scrubber start={0} end={span} value={span} onChange={() => {}} />)
+
+      const input = screen.getByLabelText('Replay scrubber') as HTMLInputElement
+      expect(input.validity.stepMismatch).toBe(false)
+      // And the guard must not pay for that with #270's own currency: even
+      // where it fires, the grid stays finer than the 1000 stops it replaced.
+      expect(Math.round(span / stepOf())).toBeGreaterThanOrEqual(1_024)
+      cleanup()
+    }
+  })
+
+  it('the guard never fires on an ordinary recording — pixel density up to three days is untouched', () => {
+    // The regression this change must not cause. A blanket notch-count cap
+    // would buy the endpoint above by coarsening these: an 8h + 1ms recording
+    // at 1920px would drop 2048 -> 1024 notches, 0.94px -> 1.88px per notch.
+    const setWidth = stubTrackWidth(0)
+
+    const cases: readonly (readonly [width: number, span: number, notches: number])[] = [
+      [1_920, EIGHT_HOURS, 2_048],
+      [1_920, EIGHT_HOURS + 1, 2_048],
+      [2_560, EIGHT_HOURS + 1, 4_096],
+      [2_560, 12 * 60 * 60 * 1_000 + 1, 4_096],
+      [3_840, DAY + 1, 4_096],
+      [2_560, 3 * DAY + 1, 4_096],
+    ]
+
+    for (const [width, span, notches] of cases) {
+      setWidth(width)
+      render(<Scrubber start={0} end={span} value={span} onChange={() => {}} />)
+
+      expect(stepOf()).toBe(span / notches)
+      expect((screen.getByLabelText('Replay scrubber') as HTMLInputElement).validity.stepMismatch).toBe(false)
+      cleanup()
+    }
+  })
+
+  it('a notch is half a pixel to a pixel of track — a two-sided law, down to a one-pixel track', () => {
+    const setWidth = stubTrackWidth(0)
+
+    // The notch count is the smallest power of two at least `width`, so it is
+    // in `[width, 2 * width)` whenever neither the 1ms floor nor the
+    // serialisation guard binds — which, for an eight-hour session, is every
+    // width. Stated as bounds rather than as a count, the upper one is "never
+    // coarser than a pixel" and the lower one is "never wastefully finer than
+    // half a pixel": together they leave no room for a width the grid ignores.
+    for (const width of [1, 17, 200, 479, 480, 960, 1_920, 2_560, 3_840]) {
       setWidth(width)
       render(<Scrubber start={0} end={EIGHT_HOURS} value={0} onChange={() => {}} />)
 
       expect(stepOf()).toBeLessThanOrEqual(EIGHT_HOURS / width)
+      expect(stepOf()).toBeGreaterThan(EIGHT_HOURS / (2 * width))
       expect(stepOf()).toBeGreaterThanOrEqual(1)
       cleanup()
     }
+  })
+
+  it('measures in whole pixels — a fractional track width does not buy a finer grid', () => {
+    // A width of 2048.5 asks for 2048 notches, not 4096: `Math.floor` on the
+    // measured rect and the strict `notches < trackWidth` are what decide that,
+    // and neither is visible in any other assertion here.
+    stubTrackWidth(2_048.5)
+    render(<Scrubber start={0} end={EIGHT_HOURS} value={0} onChange={() => {}} />)
+
+    expect(stepOf()).toBe(EIGHT_HOURS / 2_048)
+  })
+
+  it('subscribes to the observer once, not once per render', () => {
+    const observer = stubResizeObserver()
+    stubTrackWidth(1_920)
+    const { rerender } = render(<Scrubber start={0} end={EIGHT_HOURS} value={0} onChange={() => {}} />)
+
+    for (const value of [1_000, 2_000, 3_000]) {
+      rerender(<Scrubber start={0} end={EIGHT_HOURS} value={value} onChange={() => {}} />)
+    }
+
+    // The effect's empty dependency list is the only thing holding this: drop
+    // it and every render tears down and rebuilds the subscription.
+    expect(observer.instances()).toBe(1)
+    expect(observer.observing()).toBe(1)
   })
 
   it('an arrow press still moves a useful increment — about 0.1% of the session, never one millisecond', () => {
@@ -190,8 +288,11 @@ describe('Scrubber — one notch is one pixel of track, at any session length (#
 
         const step = stepOf()
         expect(step).toBeGreaterThan(1)
-        // #186's calibration was ~0.1% of the session per press; one pixel of
-        // any real track width stays inside a factor of ~2 of it either way.
+        // #186's calibration was ~0.1% of the session per press. This band is
+        // asserted for these three widths only, and it is not a law about all
+        // of them: a 200px track gives 0.39% and a 2049px one 0.024%, both
+        // outside it. The law that does hold at every width is the two-sided
+        // pixel bound above; this pins the calibration where a real dock sits.
         expect(step / span).toBeGreaterThan(0.000_4)
         expect(step / span).toBeLessThan(0.002_5)
         cleanup()
