@@ -8,7 +8,7 @@ import { ModeProvider } from '../app/ModeContext.js'
 import { StreamProvider } from '../app/StreamContext.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
 import type { FetchLike as ReplayFetchLike } from '../replay/api.js'
-import { ConnectPage, type ConnectPageProps } from './index.js'
+import { ConnectPage, type ConnectPageProps, DEFAULT_REFRESH_MS } from './index.js'
 import { DOCTOR_URL, META_URL, type FetchLike } from './meta.js'
 
 /**
@@ -305,21 +305,29 @@ describe('the sample-fleet affordance, mounted (#259)', () => {
 /**
  * #344 — THE POLL INTERVAL AGAINST THE PROBE CACHE TTL. `refreshMs > 0` had
  * zero coverage before this: every other test in this file pins `refreshMs:
- * 0` precisely to avoid racing a timer. This proves the interval this page
- * actually ships with (the `refreshMs` default) re-reads both GETs on a
- * timer and, just as importantly, stops once the page unmounts — the cache
- * TTL relationship itself (`api/doctor.ts`'s `PROBE_CACHE_TTL_MS`) is that
- * file's own test's job.
+ * 0` precisely to avoid racing a timer.
+ *
+ * The prop is deliberately NOT passed here. The mismatch #344 is about
+ * survived being *written about in a comment* because every test chose its
+ * own interval, so nothing ever exercised the number the page ships with:
+ * a test that passes `refreshMs={5000}` passes just as happily when the
+ * default is 60s. This drives `DEFAULT_REFRESH_MS` itself, and both GETs are
+ * counted — meta was polled but unasserted, so an interval that re-read
+ * doctor alone used to pass.
  */
 describe('the poll interval (#344)', () => {
   afterEach(() => vi.useRealTimers())
 
-  it('re-reads both GETs every refreshMs, and stops polling once unmounted', async () => {
+  it('re-reads both GETs every DEFAULT_REFRESH_MS, and stops polling once unmounted', async () => {
     vi.useFakeTimers()
 
     let doctorCalls = 0
+    let metaCalls = 0
     const fetchImpl: FetchLike = async (input) => {
-      if (input === META_URL) return { ok: true, json: async () => META_BODY }
+      if (input === META_URL) {
+        metaCalls++
+        return { ok: true, json: async () => META_BODY }
+      }
       if (input === DOCTOR_URL) {
         doctorCalls++
         return { ok: true, json: async () => DOCTOR_BODY }
@@ -340,7 +348,7 @@ describe('the poll interval (#344)', () => {
               return source
             }}
           >
-            <ConnectPage fetchImpl={fetchImpl} refreshMs={5000} now={NOW} location={LOCATION} />
+            <ConnectPage fetchImpl={fetchImpl} now={NOW} location={LOCATION} />
           </StreamProvider>
         </ModeProvider>,
       )
@@ -350,24 +358,80 @@ describe('the poll interval (#344)', () => {
     if (live === null) throw new Error('the stream never asked for a source')
     act(() => live.open())
 
-    expect(doctorCalls).toBe(1) // the immediate read, on mount, before any timer fires
+    // The immediate read, on mount, before any timer fires.
+    expect([doctorCalls, metaCalls]).toEqual([1, 1])
+
+    // One tick short of the interval: nothing has fired yet. This is what
+    // catches a default that has quietly grown — at `refreshMs = 60000` the
+    // page would still be on its mount read here and at the next assertion.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DEFAULT_REFRESH_MS - 1)
+    })
+    expect([doctorCalls, metaCalls]).toEqual([1, 1])
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(1)
     })
-    expect(doctorCalls).toBe(2)
+    expect([doctorCalls, metaCalls]).toEqual([2, 2])
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(DEFAULT_REFRESH_MS)
     })
-    expect(doctorCalls).toBe(3)
+    expect([doctorCalls, metaCalls]).toEqual([3, 3])
 
     unmount?.()
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(20_000)
+      await vi.advanceTimersByTimeAsync(20 * DEFAULT_REFRESH_MS)
     })
-    expect(doctorCalls).toBe(3) // the unmount's cleanup cleared the interval — no polling a torn-down page
+    // The unmount's cleanup cleared the interval — no polling a torn-down page.
+    expect([doctorCalls, metaCalls]).toEqual([3, 3])
+  })
+})
+
+/**
+ * #344 — THE TWO NUMBERS, HELD TOGETHER.
+ *
+ * `DEFAULT_REFRESH_MS` (here) and `PROBE_CACHE_TTL_MS` (`server/src/api/
+ * doctor.ts`) only mean anything relative to each other, and #344 was filed
+ * because they had drifted apart while a comment said otherwise. Nothing
+ * behavioural can hold that: the two live in different packages, `web` does
+ * not depend on `server`, and each file's own tests pass at any value —
+ * `doctor.test.ts` asserts relative to the constant (`TTL - 1`, `TTL + 1`),
+ * so it stays green if the TTL goes back to 3000, which is the defect
+ * itself.
+ *
+ * So this reads the constant out of the server source, the way the ruling-7
+ * tests below read this directory's own source: a cheap, honest guard that
+ * fails the moment either number moves without the other. It asserts the two
+ * claims the comments make, and nothing more — the strict inequality (below
+ * it, no poll ever hits) and the 3× sizing both comments state in words.
+ */
+describe('#344 — the two numbers, held together', () => {
+  const DOCTOR_SOURCE = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../../../server/src/api/doctor.ts',
+  )
+
+  function probeCacheTtlMs(): number {
+    const text = readFileSync(DOCTOR_SOURCE, 'utf8')
+    const digits = text.match(/export const PROBE_CACHE_TTL_MS = ([\d_]+)/)?.[1]
+    if (digits === undefined) throw new Error(`PROBE_CACHE_TTL_MS not found in ${DOCTOR_SOURCE} — did the constant move or get renamed?`)
+    return Number(digits.replaceAll('_', ''))
+  }
+
+  it('polls strictly under the probe cache TTL, so a poll can land inside the window at all', () => {
+    // A cache hit never pushes out `cached.at`, so at `>=` every poll is a
+    // cold probe again — exactly the state #344 was filed about.
+    expect(DEFAULT_REFRESH_MS).toBeLessThan(probeCacheTtlMs())
+  })
+
+  it('keeps the 3× sizing both comments state in words', () => {
+    // Two of every three polls reuse the last probe; the third pays for a
+    // fresh one. Retuning either number is fine — it just has to come with
+    // the comments in `index.tsx` and `doctor.ts`, which this line is here
+    // to force someone to re-read.
+    expect(probeCacheTtlMs()).toBe(3 * DEFAULT_REFRESH_MS)
   })
 })
 

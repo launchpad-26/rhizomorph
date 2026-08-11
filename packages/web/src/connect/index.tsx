@@ -66,16 +66,22 @@ export interface ConnectPageProps {
    *
    * **#344:** `GET /api/doctor` single-flights and caches for
    * `PROBE_CACHE_TTL_MS` (`api/doctor.ts`, 15s) — deliberately three times
-   * this default, not "behind" it as an earlier comment here claimed. A
-   * cache hit never pushes out its own expiry, so an entry always expires on
-   * the clock of the probe that created it; that makes it *this* interval's
-   * job to stay well under the TTL, never the other way round. At 5s against
-   * 15s, two of every three polls land inside the window and reuse the last
-   * probe (no new `tmux`/`workmux`/`claude --version` spawns); only the
-   * third pays for a fresh one. Raise this without raising the TTL to match
-   * — or the reverse — and every poll goes back to missing, same as before
-   * #344. `0` disables the interval; a test pins its own facts instead of
-   * racing a timer.
+   * `DEFAULT_REFRESH_MS`, not "behind" it as an earlier comment here claimed.
+   * A cache hit never pushes out its own expiry, so an entry always expires
+   * on the clock of the probe that created it; that makes it *this*
+   * interval's job to stay under the TTL, never the other way round. At 5s
+   * against 15s, a page polling alone reuses the last probe twice (no new
+   * `tmux`/`workmux`/`claude --version` spawns) and pays for a fresh one on
+   * the third. "Alone" is load-bearing: the cache is one per server, shared
+   * by every caller, so a second tab or a `curl` opens the window on its own
+   * clock and this page then hits on some other cadence. The guarantee that
+   * survives any number of callers is the probe *rate* — at most one real
+   * probe per TTL — which is the reason the single-flight exists. Push this
+   * to or past the TTL — or drop the TTL to or below this — and every one of
+   * this page's polls misses again, same as before #344.
+   * `index.test.tsx`'s "#344 — the two numbers, held together" reads both
+   * constants out of the source and fails if either moves alone. `0` disables
+   * the interval; a test pins its own facts instead of racing a timer.
    */
   refreshMs?: number
   /** Test seam for `window.location` — the port every command interpolates. */
@@ -118,7 +124,16 @@ const DOCTOR_CLASS: Record<DoctorFact['status'], string> = {
   fail: 'text-broken',
 }
 
-export function ConnectPage({ fetchImpl, onCopy = copyToClipboard, now, refreshMs = 5000, location }: ConnectPageProps = {}) {
+/**
+ * The interval this page actually ships with. Named and exported so the
+ * relationship #344 is about — this value against `PROBE_CACHE_TTL_MS` — can
+ * be asserted rather than described, and so a test can drive the shipped
+ * default instead of a number it chose itself (which is how the old mismatch
+ * survived: every test passed its own `refreshMs`).
+ */
+export const DEFAULT_REFRESH_MS = 5000
+
+export function ConnectPage({ fetchImpl, onCopy = copyToClipboard, now, refreshMs = DEFAULT_REFRESH_MS, location }: ConnectPageProps = {}) {
   const { state, status, provenance, source } = useStream()
   const mode = useMode()
   const [meta, setMeta] = useState<MetaFacts | null>(null)

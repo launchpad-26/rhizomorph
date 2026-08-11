@@ -1,4 +1,5 @@
-import { useStream } from '../app/StreamContext.js'
+import { useMode } from '../app/ModeContext.js'
+import { STREAM_SOURCE_KEYS, type StreamSource, useStream } from '../app/StreamContext.js'
 
 /**
  * THE SAMPLE-FLEET AFFORDANCE (prd-19 ruling 6, wave 3, #259).
@@ -17,9 +18,23 @@ import { useStream } from '../app/StreamContext.js'
  * undoes it — rather than a toast that fades or scrolls out of view.
  * `index.tsx` mounts it in the header, which never scrolls, on purpose: this
  * is meant to be a persistent tell, not a one-time notice.
+ *
+ * **Replay is not one of the three logs, and this control stands down for
+ * it.** `StreamContext.tsx`'s replay branch returns *before* its fixture
+ * branch, so while a recording is loaded `setSource('fleet20')` changes
+ * nothing about the fold and `provenance` reads `replay · recorded session`
+ * whatever `source` says. Rendering the button there would offer a sample
+ * fleet that never arrives and a "return to live" that does not return to
+ * live — and the page's own definition of live is `mode === 'live' && source
+ * === 'live'` (`index.tsx`), which this control now shares rather than
+ * contradicts. The provenance bar directly below already names the recording,
+ * so nothing goes unsaid by standing down.
  */
 export function SampleFleetControl() {
   const { source, setSource, provenance } = useStream()
+  const mode = useMode()
+
+  if (mode === 'replay') return null
 
   if (source !== 'live') {
     return (
@@ -51,8 +66,30 @@ export function SampleFleetControl() {
       </button>
       {/* The secret this control replaces, named rather than left for someone to stumble on. */}
       <span data-testid="connect-sample-keys" className="text-[10px] text-ice-400">
-        or press 1 live · 2 sample fleet · 3 staged pathologies
+        or press {keyDoc()}
       </span>
     </div>
   )
+}
+
+/**
+ * What each key actually does, in this instrument's own words. The `Record`
+ * is exhaustive by type — a fourth source is a compile error here, not a line
+ * of copy that quietly goes stale.
+ */
+const SOURCE_WORDS: Record<StreamSource, string> = {
+  live: 'live',
+  fleet20: 'sample fleet',
+  pathology: 'staged pathologies',
+}
+
+/**
+ * Derived from `STREAM_SOURCE_KEYS` rather than typed out beside it: the one
+ * thing this line can get wrong is the mapping, and prose copied from a map
+ * is prose that can disagree with it. Reading the map means it cannot.
+ */
+function keyDoc(): string {
+  return Object.entries(STREAM_SOURCE_KEYS)
+    .map(([key, id]) => `${key} ${SOURCE_WORDS[id]}`)
+    .join(' · ')
 }

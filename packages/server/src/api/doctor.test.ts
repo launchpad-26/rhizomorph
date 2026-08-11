@@ -620,6 +620,39 @@ describe('createRouteDoctorProbe (adversarial review item 2)', () => {
       await teardown()
     }
   })
+
+  /**
+   * #344 — THE BOUNDARY ITSELF, WHICH THE TWO TESTS ABOVE STEP OVER. They
+   * probe at `TTL - 1` and `TTL + 1` and leave exactly `TTL` untested, so
+   * relaxing the comparison to `<=` keeps both of them green — and moves the
+   * poll sequence `connect/index.tsx` and this file both document in words
+   * from miss/hit/hit/miss (one probe in three, the claim) to
+   * miss/hit/hit/hit/miss (one in four). A poll lands on the boundary exactly
+   * because the interval divides the TTL, so this is the ordinary case here,
+   * not a corner.
+   */
+  it('(#344) treats exactly the TTL as expired, since the connect page polls onto that boundary', async () => {
+    await setup()
+    try {
+      let callCount = 0
+      const countingExec: Exec = async (command, args, options) => {
+        callCount++
+        return healthyExec(command, args, options)
+      }
+
+      let now = 3_000_000
+      const probe = createRouteDoctorProbe(repoPath, { exec: countingExec, claudeProjectsRoot, dataRoot, now: () => now })
+
+      await probe()
+      expect(callCount).toBe(3)
+
+      now += PROBE_CACHE_TTL_MS // exactly the window, not one tick either side
+      await probe()
+      expect(callCount).toBe(6) // expired: the third poll pays for a fresh probe
+    } finally {
+      await teardown()
+    }
+  })
 })
 
 describe('GET /api/doctor', () => {
