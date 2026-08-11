@@ -29,4 +29,19 @@ describe('unquotePath', () => {
     expect(unquotePath('"trailing\\"')).toBe('trailing\\')
     expect(unquotePath('"un\\qknown"')).toBe('un\\qknown')
   })
+
+  /**
+   * The `core.quotePath=false` shape: git quotes for the space but leaves
+   * non-ASCII bytes raw, so an astral-plane character arrives inside the
+   * quotes as itself. Iterating UTF-16 code units fed each surrogate half to
+   * the byte encoder separately, turning every emoji into two U+FFFDs — so
+   * `lane 🎉 notes.txt` and `lane 🚀 notes.txt` decoded to the same string,
+   * a dirty file vanished from the path-keyed selectors, and status ↔ log
+   * stopped matching (log never quotes for a space, so its side was intact).
+   */
+  it('round-trips a raw astral-plane character inside a quoted field', () => {
+    expect(unquotePath('"lane 🎉 notes.txt"')).toBe('lane 🎉 notes.txt')
+    expect(unquotePath('"lane 🚀 notes.txt"')).toBe('lane 🚀 notes.txt')
+    expect(unquotePath('"lane 🎉 notes.txt"')).not.toBe(unquotePath('"lane 🚀 notes.txt"'))
+  })
 })
