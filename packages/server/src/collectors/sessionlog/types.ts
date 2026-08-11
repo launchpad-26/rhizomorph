@@ -1,5 +1,6 @@
 import type { AgentRole } from '@rhizomorph/core'
 import type { LaneState, LaneStateReading } from './lane-state.js'
+import type { TailIdentity } from './tail.js'
 import type { TurnShapeState } from './turn-shape.js'
 
 /** Internal snapshot shape for the sessionlog collector — opaque to the poll loop. */
@@ -30,6 +31,14 @@ export interface TailedFileState {
   worktreePath?: string | null
   /** Branch as the transcript itself reported it, when it did. */
   branch?: string | null
+  /**
+   * The `dev`+`ino` this file had at the last poll that read it. Absent means
+   * either a snapshot persisted before this field existed, or a file never
+   * read before — both cases where there is nothing yet to compare against,
+   * so `readNewLines` falls back to its size-only rotation check for this
+   * one poll and starts tracking identity from here.
+   */
+  identity?: TailIdentity
 }
 
 /**
