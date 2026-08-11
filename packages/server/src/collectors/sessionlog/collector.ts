@@ -443,7 +443,7 @@ async function tailProjectDir(
       branch: null,
     }
 
-    const { lines, nextOffset, lastWriteTs } = await readNewLines(filePath, prevFile.offset)
+    const { lines, nextOffset, lastWriteTs, identity } = await readNewLines(filePath, prevFile.offset, prevFile.identity)
     let lastUsageRequestId = prevFile.lastUsageRequestId
     // A snapshot persisted before the organ existed has no fold to resume, so
     // it starts one here. Its shape then only reflects lines appended from now
@@ -522,6 +522,7 @@ async function tailProjectDir(
       lastUsageRequestId,
       turnShape,
       lastWriteTs,
+      identity,
       // The organ needs a lane for every transcript it folded, including one
       // whose lines never reached `parseAssistantLine` (a turn made entirely
       // of user entries, or an assistant line with no usage block). Falling
