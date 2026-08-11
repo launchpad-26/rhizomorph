@@ -6,13 +6,14 @@ import path from 'node:path'
 import type { Exec, ExecResult } from '@rhizomorph/core'
 import { createEvent } from '@rhizomorph/core'
 import { describe, expect, it, vi } from 'vitest'
-import { runDoctor, type DoctorCheck } from '../cli/doctor.js'
+import { checkClaudeProjects, runDoctor, type DoctorCheck } from '../cli/doctor.js'
 import { sessionDirFor } from '../log/paths.js'
 import { readResumedCount, sessionFilePath } from '../log/session-log.js'
 import { SessionLogWriter } from '../recorder/index.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { createRouteDoctorProbe, PROBE_CACHE_TTL_MS, ROUTE_EXEC_TIMEOUT_MS, runServerDoctor } from './doctor.js'
+import type * as ExecModule from '../server/exec.js'
 
 function okResult(stdout = ''): ExecResult {
   return { stdout, stderr: '', code: 0, failed: false }
@@ -40,14 +41,18 @@ const healthyExec: Exec = async (command, args) => {
  * every test that calls `runServerDoctor` directly still passes its own
  * `exec` fixture and is unaffected by this mock.
  */
-vi.mock('../server/exec.js', () => ({
-  exec: (async (command: string, args: readonly string[]) => {
-    if (command === 'tmux' && args[0] === '-V') return okResult('tmux 3.3a\n')
-    if (command === 'workmux' && args[0] === 'status') return okResult('handle  status\n')
-    if (command === 'claude' && args[0] === '--version') return okResult('2.1.220 (Claude Code)\n')
-    return { stdout: '', stderr: 'not stubbed', code: 1, failed: true, errorMessage: 'not stubbed' }
-  }) satisfies Exec,
-}))
+vi.mock('../server/exec.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof ExecModule>()
+  return {
+    ...actual,
+    exec: (async (command: string, args: readonly string[]) => {
+      if (command === 'tmux' && args[0] === '-V') return okResult('tmux 3.3a\n')
+      if (command === 'workmux' && args[0] === 'status') return okResult('handle  status\n')
+      if (command === 'claude' && args[0] === '--version') return okResult('2.1.220 (Claude Code)\n')
+      return { stdout: '', stderr: 'not stubbed', code: 1, failed: true, errorMessage: 'not stubbed' }
+    }) satisfies Exec,
+  }
+})
 
 function checkFor(checks: readonly DoctorCheck[], id: string): DoctorCheck {
   const check = checks.find((c) => c.id === id)
@@ -294,11 +299,51 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
   })
 
   describe('law: for the same fixture dir, the session-logs message equals the CLI\'s, character for character', () => {
-    it('when Claude Code session logs are present', async () => {
+    /**
+     * #288 deepened `checkClaudeProjects` (`cli/doctor.ts`) to answer for the
+     * watched repo's own slug dir, not just the global root, and both call
+     * sites pass `repoPath` through: `runDoctor`'s and — after this issue's
+     * fence was widened by one file, recorded on #288 — `runServerDoctor`'s
+     * here in `api/doctor.ts`.
+     *
+     * That widening is what these assertions guard. The route and the CLI
+     * share one function, so the only way they can disagree is a call site
+     * dropping the argument; comparing the route's message to the same
+     * function called the same way catches exactly that, character for
+     * character, which is this issue's own Done-when.
+     */
+    it("the route's deepened call agrees with `checkClaudeProjects` called the same way", async () => {
       await setup()
       try {
         const serverChecks = await runServerDoctor(repoPath, { exec: healthyExec, claudeProjectsRoot, dataRoot })
+        expect(checkFor(serverChecks, 'session-logs').message).toBe(checkClaudeProjects(claudeProjectsRoot, repoPath).message)
+      } finally {
+        await teardown()
+      }
+    })
 
+    it("the route's deepened warn branch agrees with `checkClaudeProjects` called the same way", async () => {
+      await setup()
+      try {
+        const missingClaudeProjectsRoot = path.join(claudeProjectsRoot, 'does-not-exist')
+
+        const serverChecks = await runServerDoctor(repoPath, {
+          exec: healthyExec,
+          claudeProjectsRoot: missingClaudeProjectsRoot,
+          dataRoot,
+        })
+
+        const serverCheck = checkFor(serverChecks, 'session-logs')
+        expect(serverCheck.status).toBe('warn')
+        expect(serverCheck.message).toBe(checkClaudeProjects(missingClaudeProjectsRoot, repoPath).message)
+      } finally {
+        await teardown()
+      }
+    })
+
+    it('the shared function agrees with the CLI on the deepened answer, given the same repoPath', async () => {
+      await setup()
+      try {
         const webDistDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-api-doctor-web2-'))
         try {
           const cliReport = await runDoctor({
@@ -310,7 +355,10 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
             dataRoot,
           })
 
-          expect(checkFor(serverChecks, 'session-logs').message).toBe(checkFor(cliReport.checks, 'session-logs').message)
+          // What `runServerDoctor` would produce once its own call site threads
+          // `repoPath` through the way `runDoctor`'s already does.
+          const wouldBeRouteMessage = checkClaudeProjects(claudeProjectsRoot, repoPath).message
+          expect(wouldBeRouteMessage).toBe(checkFor(cliReport.checks, 'session-logs').message)
         } finally {
           await rm(webDistDir, { recursive: true, force: true })
         }
@@ -319,17 +367,10 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
       }
     })
 
-    it('when Claude Code session logs are absent (the warn branch)', async () => {
+    it('pending the api/doctor.ts follow-up: same agreement holds on the named-miss warn branch too', async () => {
       await setup()
       try {
         const missingClaudeProjectsRoot = path.join(claudeProjectsRoot, 'does-not-exist')
-
-        const serverChecks = await runServerDoctor(repoPath, {
-          exec: healthyExec,
-          claudeProjectsRoot: missingClaudeProjectsRoot,
-          dataRoot,
-        })
-
         const webDistDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-api-doctor-web3-'))
         try {
           const cliReport = await runDoctor({
@@ -341,10 +382,9 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
             dataRoot,
           })
 
-          const serverCheck = checkFor(serverChecks, 'session-logs')
           const cliCheck = checkFor(cliReport.checks, 'session-logs')
-          expect(serverCheck.status).toBe('warn')
-          expect(serverCheck.message).toBe(cliCheck.message)
+          expect(cliCheck.status).toBe('warn')
+          expect(checkClaudeProjects(missingClaudeProjectsRoot, repoPath).message).toBe(cliCheck.message)
         } finally {
           await rm(webDistDir, { recursive: true, force: true })
         }
