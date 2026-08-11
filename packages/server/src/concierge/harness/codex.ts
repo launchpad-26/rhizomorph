@@ -64,12 +64,23 @@ import type {
  * configured codex exports into a 404: the keys are right and the telemetry
  * still lands nowhere.
  *
+ * And there is a **second, independent blocker**, which matters because the
+ * remedy a reader infers from the first one alone would not work.
+ * `api/otel.ts`'s `blockInstance` reads the instance id from
+ * `resource.attributes` and from nowhere else; this recipe declares identity in
+ * `otel.span_attributes.lane/role/instance`, because that is the vocabulary
+ * codex has. Span attributes never reach that check, so adding the bare-path
+ * route would move codex from a 404 to a **refusal** — "this export declared no
+ * instance" — rather than to a received export. prd-26:42 records the same gap
+ * from the other side: codex's resource-attribute support is untested.
+ *
  * That is why {@link codexEnvRecipe} declares `telemetry` **absent with a
- * reason** rather than `provided`. Declaring it `provided` because the config
- * parses would be exactly the "confident number sourced from nothing" ADR-0010
- * exists to forbid — and the operator, seeing a configured harness and no data,
- * would have no way to tell a real zero from an unreceived export. The bare-path
- * receiving route is prd-26's work, not this lane's.
+ * reason** rather than `provided`, and why the reason names both blockers.
+ * Declaring it `provided` because the config parses would be exactly the
+ * "confident number sourced from nothing" ADR-0010 exists to forbid — and the
+ * operator, seeing a configured harness and no data, would have no way to tell a
+ * real zero from an unreceived export. Both remedies are prd-26's work, not this
+ * lane's.
  */
 
 /** A TOML basic string. The value is parsed as TOML by codex, so it is escaped for TOML, not for a shell. */
@@ -119,12 +130,18 @@ export function codexEnvRecipe(context: HarnessLaunchContext): HarnessEnvRecipe 
     telemetry: {
       level: 'absent',
       reason:
-        'the keys are verified against codex-cli 0.145.0, but codex posts OTLP to the BARE endpoint path with no ' +
-        '/v1/<signal> suffix [Ran — repo capture, docs/research/2026-08-05-agnostic-adapters-spike.md], and ' +
-        'api/otel.ts serves /v1/metrics, /v1/logs and /v1/traces only — so a correctly configured codex exports ' +
-        'into a 404 and this server receives nothing',
+        'TWO independent blockers, and either alone is enough. (1) the keys are verified against codex-cli 0.145.0, ' +
+        'but codex posts OTLP to the BARE endpoint path with no /v1/<signal> suffix [Ran — repo capture, ' +
+        'docs/research/2026-08-05-agnostic-adapters-spike.md], and api/otel.ts serves /v1/metrics, /v1/logs and ' +
+        '/v1/traces only — so a correctly configured codex exports into a 404. (2) even once a bare-path route ' +
+        'existed, api/otel.ts\u2019s blockInstance reads the instance id from resource.attributes ONLY, while this ' +
+        'recipe declares identity in otel.span_attributes — span attributes never reach that check, so the export ' +
+        'would then be REFUSED as declaring no instance rather than received',
       remedy:
-        'a bare-path OTLP route with body-shape routing, plus a pricing table for codex cost (prd-26) — not this lane',
+        'both halves: a bare-path OTLP route with body-shape routing, AND identity that reaches blockInstance — ' +
+        'either a codex resource-attribute setting (prd-26:42 records codex resource-attribute support as untested) ' +
+        'or an instance check that also reads span attributes. Plus a pricing table for codex cost (prd-26). ' +
+        'Fixing only the route would turn a 404 into a refusal, which is not an improvement — not this lane'
     },
     evidence:
       'every key above accepted by `codex exec --strict-config` on codex-cli 0.145.0, where an unknown field is ' +
@@ -144,7 +161,11 @@ export const codexAdapter: HarnessAdapter = {
   envRecipe: codexEnvRecipe,
 
   launchArgv(context: HarnessLaunchContext): readonly string[] {
-    return ['codex', ...codexEnvRecipe(context).configArgv]
+    // argv[0] is the file detection verified when the caller has one — see
+    // HarnessLaunchContext.executablePath. A bare `codex` would be re-resolved
+    // against the spawner's PATH, undoing detectOnPath's refusal to resolve out
+    // of the working directory.
+    return [context.executablePath ?? 'codex', ...codexEnvRecipe(context).configArgv]
   },
 
   /**
@@ -162,6 +183,8 @@ export const codexAdapter: HarnessAdapter = {
    * reach that argv without reading the word `unproven` first.
    */
   continueArgv(context: HarnessLaunchContext): ContinuityPlan {
+    // Arguments only — `ContinuityPlan.argv` is appended to launchArgv's
+    // command, so argv[0] is settled there and not restated here.
     return {
       kind: 'unproven',
       argv: ['resume', '--last', ...codexEnvRecipe(context).configArgv],

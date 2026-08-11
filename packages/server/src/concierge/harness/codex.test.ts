@@ -33,8 +33,19 @@ function overridesOf(argv: readonly string[]): Record<string, string> {
  * Error loading config.toml: unknown configuration field `otel.zzz_bogus` in -c/--config override
  * ```
  *
- * Re-run that to re-verify. This test pins the list so a codex that renames a
- * key fails here rather than emitting config nobody reads.
+ * Re-run that to re-verify — **by hand**. What the test below can and cannot do
+ * is worth being exact about, because the obvious reading of it is wrong: it
+ * compares `codexEnvRecipe`'s output against this list, and both live in this
+ * repo. An upstream codex that renamed a key would change neither side, so the
+ * test would stay green while the config went unread. It is not an upstream
+ * canary and nothing here can be: `codexAdapter.detect` accepts every version,
+ * so no code in this repo notices a codex upgrade at all.
+ *
+ * What it DOES pin: our recipe cannot drift from this list without someone
+ * editing both places in one commit. A key quietly added to, dropped from or
+ * respelled in `codex.ts` fails here — so the list stays the written record of
+ * what was actually verified against the binary, and changing it stays a
+ * deliberate act with this comment in front of it.
  */
 const VERIFIED_KEYS = [
   'otel.environment',
@@ -47,7 +58,7 @@ const VERIFIED_KEYS = [
 ]
 
 describe('codex is configured by argv, so this hand writes nothing', () => {
-  it('emits only keys verified against codex-cli 0.145.0', () => {
+  it('emits exactly the keys recorded as verified — our recipe cannot drift from the list unnoticed', () => {
     expect(Object.keys(overridesOf(codexEnvRecipe(CONTEXT).configArgv)).sort()).toEqual(VERIFIED_KEYS)
   })
 
@@ -110,6 +121,23 @@ describe('codex telemetry is declared ABSENT, and the reason is the point', () =
     expect(telemetry.remedy).toBeTruthy()
   })
 
+  it('names the SECOND blocker too, so nobody infers that a bare-path route would be enough', () => {
+    // api/otel.ts's blockInstance reads the instance id from resource.attributes
+    // only, and this recipe declares identity in otel.span_attributes. So adding
+    // the bare-path route would turn the 404 into "declared no instance" — a
+    // refusal, not an arrival. A reason that named only the 404 would send the
+    // next lane to do half a fix and find telemetry still missing.
+    const { telemetry } = codexEnvRecipe(CONTEXT)
+    if (telemetry.level === 'provided') throw new Error('expected a reason-carrying level')
+
+    expect(telemetry.reason).toMatch(/blockInstance/)
+    expect(telemetry.reason).toMatch(/resource\.attributes/)
+    expect(telemetry.reason).toMatch(/span_attributes/)
+    // The verdict is unchanged — it was right; only the remedy was incomplete.
+    expect(telemetry.level).toBe('absent')
+    expect(telemetry.remedy).toMatch(/blockInstance|resource-attribute/)
+  })
+
   it('separates what was verified from what was only cited', () => {
     // The keys were checked against the binary; the non-arrival is the repo's
     // capture, not something this lane re-captured. The evidence string has to
@@ -150,6 +178,15 @@ describe('codex continuity is UNPROVEN, and says so', () => {
     const argv = codexAdapter.launchArgv(CONTEXT)
 
     expect(argv[0]).toBe('codex')
+    expect(argv).toHaveLength(1 + VERIFIED_KEYS.length * 2)
+  })
+
+  it('launches the executable DETECTION verified, not the bare name, when one was detected', () => {
+    // Same reason as claude's: a bare `codex` is re-resolved against the
+    // spawner's PATH at spawn time, with none of detectOnPath's filtering.
+    const argv = codexAdapter.launchArgv({ ...CONTEXT, executablePath: '/opt/homebrew/bin/codex' })
+
+    expect(argv[0]).toBe('/opt/homebrew/bin/codex')
     expect(argv).toHaveLength(1 + VERIFIED_KEYS.length * 2)
   })
 })

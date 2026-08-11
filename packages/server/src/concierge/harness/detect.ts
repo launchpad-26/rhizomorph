@@ -1,4 +1,4 @@
-import { access, readFile, readdir } from 'node:fs/promises'
+import { access, readFile, readdir, stat } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import path from 'node:path'
 import { processProbeCapability } from '../../collectors/sessionlog/process-probe.js'
@@ -17,7 +17,18 @@ import type { DetectOptions, HarnessDetection, HarnessId, HarnessPresence } from
  *    picker actually needs.
  * 2. **Is one running?** A process-table read. That is `/proc`-only in this
  *    build, so on macOS and Windows the answer is `unknown` **with a named
- *    reason** — never `absent`.
+ *    reason** — never `absent`. And on Linux, `absent` is reached only from a
+ *    process table that was read in FULL: one entry that refused to say what it
+ *    is could be the harness, so a partial read is `unknown` too.
+ *
+ * ## `installed` and `launchable` are not the same question
+ *
+ * On Windows an npm-installed CLI is a `.cmd` shim, and Node cannot spawn a
+ * `.bat`/`.cmd` without a shell — which ADR-0014 clause 4 forbids this hand.
+ * Such a file is therefore found, reported with its path, and reported as
+ * `installed-not-launchable`: neither the false `absent` ("your CLI is not
+ * installed") nor the false `present` (a launch the launch path cannot
+ * perform). See {@link SHELL_ONLY_EXTENSIONS}.
  *
  * ## Why PATH detection reads the filesystem instead of asking a shell
  *
@@ -50,8 +61,40 @@ import type { DetectOptions, HarnessDetection, HarnessId, HarnessPresence } from
 /** Interpreters that front a JS/Python CLI, where the real name is argv[1]. */
 const INTERPRETERS = new Set(['node', 'node.exe', 'bun', 'deno', 'python', 'python3'])
 
-/** Windows' default executable extensions when `PATHEXT` says nothing. */
+/**
+ * Windows' default executable extensions when `PATHEXT` says nothing.
+ *
+ * All four are SEARCHED, including `.BAT` and `.CMD` — and the two groups are
+ * then reported differently, which is the whole point of
+ * {@link SHELL_ONLY_EXTENSIONS}.
+ */
 const DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD'
+
+/**
+ * The extensions Node cannot spawn without a shell — and therefore the ones
+ * this hand cannot launch at all.
+ *
+ * `child_process.spawn` cannot start a `.bat` or `.cmd` directly: it needs
+ * `shell: true` or an explicit `cmd.exe /c`
+ * (nodejs.org/api/child_process.html#spawning-bat-and-cmd-files-on-windows).
+ * ADR-0014 clause 4 forbids this hand a shell, so a `.cmd` on `PATH` is a file
+ * this hand structurally cannot start.
+ *
+ * They are still SEARCHED rather than dropped, because on Windows this is the
+ * NORMAL shape rather than an exotic one — an npm-installed CLI on Windows *is*
+ * a `.cmd` shim — so `absent` would tell an operator their installed CLI is not
+ * installed. The honest answer is the fourth state:
+ * `installed-not-launchable`, with the file named and clause 4 as the reason.
+ * The same shape pi already uses: "installed, and this instrument cannot
+ * instrument it" is two true statements.
+ */
+const SHELL_ONLY_EXTENSIONS: ReadonlySet<string> = new Set(['.BAT', '.CMD'])
+
+/** `.CMD` and `.cmd` are the same file on Windows, so the test is on the case-folded suffix. */
+function needsAShellToStart(candidate: string, platform: NodeJS.Platform): boolean {
+  if (platform !== 'win32') return false
+  return SHELL_ONLY_EXTENSIONS.has(path.extname(candidate).toUpperCase())
+}
 
 /** The `PATH` separator of the TARGET platform, not the host's — so a simulated platform is really simulated. */
 function pathDelimiter(platform: NodeJS.Platform): string {
@@ -77,14 +120,23 @@ function executableNames(command: string, env: NodeJS.ProcessEnv, platform: Node
 }
 
 /**
- * Is `candidate` a file this hand could hand to an argv-array launch?
+ * Is `candidate` a *file* this hand could hand to an argv-array launch?
  *
  * `X_OK` is meaningful on POSIX and not on Windows, where executability is
  * carried by the extension — so Windows asks only whether the file is there,
  * which is why {@link executableNames} does the `PATHEXT` work instead.
+ *
+ * **The `stat`/`isFile` check is not tidiness.** `access(dir, X_OK)` succeeds
+ * for any *searchable* directory on POSIX, and `F_OK` succeeds for any existing
+ * object at all on Windows — so a DIRECTORY named `claude` in a `PATH` entry
+ * would otherwise be reported `present`, with an `executablePath` pointing at
+ * something no spawn can ever run. A symlink to an executable is still a file
+ * here, because `stat` follows symlinks.
  */
-async function isLaunchable(candidate: string, platform: NodeJS.Platform): Promise<boolean> {
+async function isLaunchableFile(candidate: string, platform: NodeJS.Platform): Promise<boolean> {
   try {
+    const stats = await stat(candidate)
+    if (!stats.isFile()) return false
     await access(candidate, platform === 'win32' ? constants.F_OK : constants.X_OK)
     return true
   } catch {
@@ -126,12 +178,36 @@ export async function detectOnPath(command: string, options: DetectOptions = {})
     }
   }
 
+  // A shell-only shim found early must not shadow a real executable found later
+  // on PATH: the launchable answer always wins, so the first shim is reported
+  // only once the whole search has produced nothing better.
+  let shellOnly: string | undefined
+
   for (const entry of searchable) {
     for (const name of names) {
       const candidate = path.join(entry, name)
-      if (await isLaunchable(candidate, platform)) {
-        return { state: 'present', evidence: `an executable file on PATH at ${candidate}`, executablePath: candidate }
+      if (!(await isLaunchableFile(candidate, platform))) continue
+      if (needsAShellToStart(candidate, platform)) {
+        shellOnly ??= candidate
+        continue
       }
+      return { state: 'present', evidence: `an executable file on PATH at ${candidate}`, executablePath: candidate }
+    }
+  }
+
+  if (shellOnly !== undefined) {
+    return {
+      state: 'installed-not-launchable',
+      foundAt: shellOnly,
+      evidence: `${command} is installed on PATH at ${shellOnly}`,
+      reason:
+        `${path.extname(shellOnly)} is a Windows shell script: Node cannot spawn one without a shell (it needs ` +
+        'the spawn shell option, or an explicit `cmd.exe /c`), and ADR-0014 clause 4 forbids this hand a shell. So it is ' +
+        'genuinely installed and this hand genuinely cannot start it — reporting it as launchable would promise ' +
+        'something the launch path structurally cannot do',
+      remedy:
+        `start ${command} yourself and let the running-process detection find it, or point the concierge at a ` +
+        `native executable (.EXE/.COM) for ${command} if one is installed`,
     }
   }
 
@@ -183,12 +259,21 @@ export async function detectRunning(command: string, options: DetectOptions = {}
   }
 
   let readable = 0
+  // Counted separately from the exited ones, because they are two different
+  // events with different consequences — see the `denied > 0` branch below.
+  let denied = 0
   for (const pid of pids) {
     let cmdline: string
     try {
       cmdline = await readFile(path.join(procRoot, pid, 'cmdline'), 'utf8')
-    } catch {
-      continue // exited between the listing and the read, or another user's.
+    } catch (err) {
+      // ENOENT: the process exited between the listing and the read. Genuinely
+      // nothing to report — it is not running because it is not there.
+      // Anything else (EACCES/EPERM in practice): a process IS there and would
+      // not say what it is. That is a blind spot, and it must not be counted as
+      // a process this reader has cleared.
+      if (errorCode(err) !== 'ENOENT') denied += 1
+      continue
     }
     readable += 1
 
@@ -200,9 +285,32 @@ export async function detectRunning(command: string, options: DetectOptions = {}
     }
   }
 
+  if (denied > 0) {
+    // The partial read — and the reason this is `unknown` rather than `absent`.
+    //
+    // A readable non-target process is not evidence about the TARGET. If even
+    // one process refused to say what it is, that process could be the harness,
+    // so "none of the ones that answered is claude" is true and is NOT an answer
+    // to "is claude running". Falling through to `absent` here would be the
+    // false negative this whole lane forbids: the picker would offer to relaunch
+    // a conductor that is already running. On any multi-user box — or any box
+    // with a root daemon — a denied /proc entry is the COMMON case rather than a
+    // rare one, so `readable === 0` was far too weak a guard: it caught total
+    // blindness only, and never the partial blindness that actually happens.
+    return {
+      state: 'unknown',
+      reason:
+        `${denied} of the ${pids.length} processes in ${procRoot} would not reveal its argv to this reader, so ` +
+        `whether one of them is ${command} is not known — ${readable} were read and none of those is ${command}`,
+      remedy:
+        'read the process table as the user that owns the harness process, or as root, so every argv is visible',
+    }
+  }
+
   if (readable === 0) {
-    // Every process denied us. That is the reader's blindness, not an answer —
-    // `process-probe.ts` rule 4 makes the same call for the same reason.
+    // Every pid in the listing had exited before it could be read: there is no
+    // table left to conclude anything from — `process-probe.ts` rule 4 makes the
+    // same call. (A table that DENIED us is the branch above.)
     return {
       state: 'unknown',
       reason: `none of the ${pids.length} processes in ${procRoot} would reveal its argv to this reader`,
@@ -213,6 +321,13 @@ export async function detectRunning(command: string, options: DetectOptions = {}
     state: 'absent',
     evidence: `${readable} of ${pids.length} processes in ${procRoot} were readable and none is ${command}`,
   }
+}
+
+/** An errno off an unknown caught value, without asserting a shape it may not have. */
+function errorCode(err: unknown): string | undefined {
+  if (typeof err !== 'object' || err === null) return undefined
+  const code = (err as { code?: unknown }).code
+  return typeof code === 'string' ? code : undefined
 }
 
 /**

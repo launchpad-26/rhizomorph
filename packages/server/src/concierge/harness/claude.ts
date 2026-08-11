@@ -53,6 +53,45 @@ const SH_DIALECT: EnvShell = 'sh'
  * that names the lane. The `sh` rendering is unquoted and one variable per
  * line, which is what makes this safe — and what the round-trip test pins.
  */
+/**
+ * The characters a lane may not contain, and why the check lives *here*.
+ *
+ * `renderTelemetryEnv`'s `sh` arm is `export ${key}=${value}` — unquoted, one
+ * variable per line — and {@link parseShellEnv} reads it back line by line. So:
+ *
+ * - a **newline** in a lane becomes a whole extra `export` line, i.e. an
+ *   environment variable of the caller's choosing in the launched agent's
+ *   process. `OTEL_EXPORTER_OTLP_ENDPOINT` is the interesting one to overwrite:
+ *   telemetry the operator believes is arriving here would be posted somewhere
+ *   else entirely, and the picker would show a silent zero.
+ * - an **`=`** corrupts `OTEL_RESOURCE_ATTRIBUTES`, whose own grammar is
+ *   `lane=…,role=…,instance=…`, so the receiver books the telemetry against a
+ *   lane nobody named. A `,` does the same by adding a bogus attribute pair.
+ *
+ * The renderer is `cli/telemetry-env.ts`'s and belongs to the CLI — this lane
+ * reuses it and does not change it, so quoting is not the fix available here.
+ * The seam is where the precondition belongs instead, and it is a **refusal**
+ * rather than an escape or a silent sanitisation: escaping would fork the CLI's
+ * block, and sanitising would launch an agent booked under a lane name the
+ * operator did not choose. #263 inherits a thrown error, not a surprise.
+ */
+const LANE_FORBIDDEN = /[\n\r=,]/
+
+/**
+ * Refuse a lane the `sh` block cannot carry, before anything renders it.
+ *
+ * @throws {RangeError} for a lane containing a newline, `=` or `,`.
+ */
+function assertLaneIsRenderable(lane: string): void {
+  if (!LANE_FORBIDDEN.test(lane)) return
+  throw new RangeError(
+    'refused: a lane name may not contain a newline, `=` or `,`. The env block is `export KEY=VALUE`, unquoted and ' +
+      'one variable per line, so such a lane would inject an extra environment variable into the launched agent or ' +
+      'corrupt OTEL_RESOURCE_ATTRIBUTES\u2019 own key=value grammar (see HarnessLaunchContext.lane). ' +
+      `Received ${JSON.stringify(lane)}`,
+  )
+}
+
 function parseShellEnv(block: string): Record<string, string> {
   const env: Record<string, string> = {}
   for (const line of block.split('\n')) {
@@ -68,6 +107,8 @@ function parseShellEnv(block: string): Record<string, string> {
 
 /** The environment a `claude` launch must carry, sourced from the CLI's own renderer. */
 export function claudeEnvRecipe(context: HarnessLaunchContext): HarnessEnvRecipe {
+  assertLaneIsRenderable(context.lane)
+
   const block = renderTelemetryEnv({
     lane: context.lane,
     role: context.role,
@@ -88,6 +129,18 @@ export function claudeEnvRecipe(context: HarnessLaunchContext): HarnessEnvRecipe
   }
 }
 
+/**
+ * argv[0] for a claude launch: the executable detection verified, or the bare
+ * name when the caller detected nothing.
+ *
+ * The bare name is not a silent fallback — it is the honest answer when no path
+ * was supplied, and it leaves resolution to the spawner, which is exactly what
+ * a caller that skipped detection has asked for.
+ */
+function claudeCommand(context: HarnessLaunchContext): string {
+  return context.executablePath ?? 'claude'
+}
+
 export const claudeAdapter: HarnessAdapter = {
   id: 'claude',
   displayName: 'Claude Code',
@@ -99,10 +152,17 @@ export const claudeAdapter: HarnessAdapter = {
 
   envRecipe: claudeEnvRecipe,
 
-  launchArgv(): readonly string[] {
-    // The telemetry rides in the environment, so a fresh launch is the bare
-    // command. An array, never a command string — ADR-0014 clause 4.
-    return ['claude']
+  launchArgv(context: HarnessLaunchContext): readonly string[] {
+    // The telemetry rides in the environment, so a fresh launch is just the
+    // command — but WHICH file that is matters. `detectOnPath` skipped empty and
+    // relative PATH entries so a file inside the watched repo's working tree
+    // could never become the thing this hand launches; returning a bare
+    // `['claude']` would throw that away, because the spawner would re-resolve
+    // the name against its own PATH at spawn time with none of that filtering.
+    // So the verified path wins when the caller has one.
+    //
+    // An array, never a command string — ADR-0014 clause 4.
+    return [claudeCommand(context)]
   },
 
   /**

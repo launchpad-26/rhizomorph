@@ -48,7 +48,7 @@ import type { AgentRole, CapabilityDetail } from '@rhizomorph/core'
 export type HarnessId = 'claude' | 'codex' | 'openclaw' | 'pi' | 'shell'
 
 /**
- * Three states, never two.
+ * Never two states, and never a state that flatters.
  *
  * `unknown` is the state this whole lane turns on. A detector that reports a
  * present harness as absent is worse than one that admits it cannot see: the
@@ -57,7 +57,18 @@ export type HarnessId = 'claude' | 'codex' | 'openclaw' | 'pi' | 'shell'
  * facts. Collapsing `unknown` into `absent` is the specific failure mode this
  * type exists to make unrepresentable.
  *
- * `absent` and `unknown` are *compiler-required* to carry prose — the same move
+ * `installed-not-launchable` is the fourth arm, and it is ADR-0010's shape
+ * again — the one already used for pi at the {@link HarnessImplementation}
+ * level, brought down to detection: "the harness is installed, and this hand
+ * cannot start it" is two true statements, and neither `present` nor `absent`
+ * can say both. It exists because of Windows: an npm-installed CLI on Windows
+ * is a `.cmd` shim, Node cannot spawn a `.bat`/`.cmd` without a shell, and
+ * ADR-0014 clause 4 forbids this hand a shell. Reporting such a shim as
+ * `present` would promise a launch the launch path structurally cannot perform;
+ * reporting it as `absent` would tell an operator their installed CLI is not
+ * installed. Neither is true, so there is a fourth answer.
+ *
+ * Every non-`present` arm is *compiler-required* to carry prose — the same move
  * ADR-0010 makes for `CapabilityDetail`, and for the same reason: an optional
  * reason is a reason nobody writes.
  */
@@ -65,6 +76,19 @@ export type HarnessPresence =
   | { state: 'present'; evidence: string; executablePath?: string }
   /** The place was looked at, and the harness is not in it. */
   | { state: 'absent'; evidence: string }
+  /**
+   * Found, and unlaunchable by *this* hand. Never to be rendered as "not
+   * installed" and never as a thing the concierge can start.
+   */
+  | {
+      state: 'installed-not-launchable'
+      evidence: string
+      /** The file that was found. Reported so an operator can see it, NOT so a launch can use it. */
+      foundAt: string
+      /** Why this hand cannot start it. */
+      reason: string
+      remedy?: string
+    }
   /** This build could not look. Never to be rendered as "not installed". */
   | { state: 'unknown'; reason: string; remedy?: string }
 
@@ -83,13 +107,47 @@ export interface HarnessDetection {
 
 /** What a launch needs to know to point a harness at this server. */
 export interface HarnessLaunchContext {
-  /** The lane (or conductor) name the telemetry is booked under. */
+  /**
+   * The lane (or conductor) name the telemetry is booked under.
+   *
+   * **Precondition, inherited by every caller:** this value reaches
+   * `cli/telemetry-env.ts`'s renderer, whose `sh` arm is `export KEY=VALUE` —
+   * unquoted, one variable per line. A lane carrying a newline would therefore
+   * become an *extra* `export` line, i.e. an attacker-chosen environment
+   * variable in the launched agent's process (`OTEL_EXPORTER_OTLP_ENDPOINT`
+   * being the interesting one to overwrite), and a lane carrying `=` corrupts
+   * `OTEL_RESOURCE_ATTRIBUTES`'s own `key=value` grammar.
+   *
+   * The renderer is the CLI's and is not this lane's to change, so the
+   * obligation is stated here and *enforced at the seam*:
+   * {@link HarnessAdapter.envRecipe} refuses such a lane rather than rendering
+   * it (see `claude.ts`'s `assertLaneIsRenderable`). #263 inherits a refusal,
+   * not a surprise.
+   */
   readonly lane: string
   readonly role: AgentRole
   /** The port this Rhizomorph's OTLP receiver is listening on. */
   readonly port: number
   /** This Rhizomorph's instance id. The receiver refuses telemetry without it. */
   readonly instance: string
+  /**
+   * The executable file detection actually found —
+   * {@link HarnessPresence}'s `executablePath` from a `present` reading, passed
+   * back in.
+   *
+   * This exists so the *verified* path is what gets launched. `detectOnPath`
+   * skips empty and relative `PATH` entries precisely so a file inside the
+   * watched repo's working tree can never become the thing the concierge
+   * launches; a bare `['claude']` argv throws that away, because whatever
+   * spawns it re-resolves the name against the launching process's `PATH` at
+   * spawn time with none of that filtering applied.
+   *
+   * Optional, because a caller may legitimately not have detected (a test, or
+   * an operator-supplied path), in which case the bare command name is used and
+   * resolution is the spawner's business. When it IS supplied it must be the
+   * absolute path detection returned, not a name.
+   */
+  readonly executablePath?: string
 }
 
 /**
@@ -205,6 +263,9 @@ export interface HarnessAdapter {
    * An array, never a command string: ADR-0014 clause 4 forbids this hand a
    * shell, which is what removes the injection path a repo URL or branch name
    * would otherwise take.
+   *
+   * argv[0] is {@link HarnessLaunchContext.executablePath} when the caller
+   * supplies one, so the file detection verified is the file that runs.
    *
    * @throws {HarnessNotImplementedError} when {@link implementation} is `declared`.
    */
