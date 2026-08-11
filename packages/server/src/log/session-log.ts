@@ -203,9 +203,9 @@ export async function findResumableSession(
  * An ARRAY rather than a bare union (#384), for one reason only: the web's
  * provenance bar keeps its own list of the reasons it can explain
  * (`web/src/app/StatusBar.tsx`'s `KNOWN_BOOT_REASONS`) and cannot import this
- * one — `packages/web/src` never imports `@rhizomorph/server` (ADR-0003's
- * layering), and moving the union into browser-safe `core` would trade away
- * that bar's deliberate "an unknown reason reads as unavailable" posture.
+ * one: no non-test file under `packages/web/src` imports server source. And
+ * moving the union into browser-safe `core` would trade away that bar's
+ * deliberate "an unknown reason reads as unavailable" posture.
  * Nothing else catches the drift between the two lists, so a seam test reads
  * this array at runtime and pins the bar's against it
  * (`web/src/app/boot-reason-seam.test.ts`). The drift is not hypothetical:

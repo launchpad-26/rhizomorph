@@ -18,8 +18,9 @@ import { envelope, nonEmptyString } from './common.js'
  * (`record/schema.ts`, `docs/record-format.md`), and the slug IS the
  * directory's name under the data root — so a reader holding the log already
  * knows how to resolve it, while an absolute path would bake in one machine's
- * data root and rot the moment the recording travelled, which is exactly what
- * ADR-0011 says a recording must never do.
+ * data root. A record moves from one machine to another (ADR-0009, and
+ * `docs/record-format.md`'s own "Nothing auto-transmits"), so a pointer only
+ * the writing machine can resolve is a pointer that arrives broken.
  *
  * `sessionId` is optional because the close half genuinely cannot know it:
  * rotation's ordering law is close-then-open (`recorder/rotate.ts`), and the

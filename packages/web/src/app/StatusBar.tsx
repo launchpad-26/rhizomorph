@@ -47,9 +47,10 @@ const SESSION_META_URL = '/api/meta'
  *
  * What it cost, and what now guards it (#384): nothing upstream forces this
  * list to keep up. The server declares its own `SessionBootReason`
- * (`server/src/log/session-log.ts`) and `packages/web/src` cannot import it
- * (ADR-0003), so `bootExplanation`'s exhaustive switch is exhaustive over
- * THIS union and no server-side widening ever reaches it. The drift duly
+ * (`server/src/log/session-log.ts`) and no non-test file under
+ * `packages/web/src` imports server source, so `bootExplanation`'s exhaustive
+ * switch is exhaustive over THIS union and no server-side widening ever
+ * reaches it — there is no compiler behind this seam. The drift duly
  * happened: `writer-alive` shipped in #187 and this list never learned it, so
  * for that entire span a boot that refused to resume because another live
  * process held the session rendered the whole session voice as *unavailable*

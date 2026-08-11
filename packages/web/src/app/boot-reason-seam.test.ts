@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 // Deliberate, test-only cross-package edge — the same one
 // `recordings/label-seam.test.ts` opens, and for the same reason: the seam
 // this file exists to prove is web↔server, so the server's REAL list comes in
-// by path. The law's sweep excludes test files; no non-test file under
-// packages/web/src may import server source (ADR-0003).
+// by path. No non-test file under packages/web/src may import server source,
+// which is exactly why the two lists below cannot be one list.
 import { SESSION_BOOT_REASONS } from '../../../server/src/log/session-log.js'
 import { bootExplanation, KNOWN_BOOT_REASONS } from './StatusBar.js'
 
@@ -44,9 +44,12 @@ import { bootExplanation, KNOWN_BOOT_REASONS } from './StatusBar.js'
  * whole session voice.
  *
  * Every entry is a standing debt, so each names the issue that will pay it,
- * and the second law below forces it out of this list the moment the server
- * can emit it — a graduated reason left here would let a real member hide
- * behind a comment about the future.
+ * and the second law below holds this list to it from both sides: an entry
+ * here must actually be in `KNOWN_BOOT_REASONS` (or the declaration is a
+ * promise the bar never kept), and it must leave this list the moment the
+ * server can emit it (or a real member hides behind a comment about the
+ * future). Neither direction is optional — the first was missing until review
+ * of #392 walked the hole.
  *
  * - `retargeted`: prd20 ruling 5's repo switch closes the session in the old
  *   repo's directory and opens one here (#384 widened `SESSION_CLOSE_REASONS`
@@ -92,6 +95,24 @@ describe('the boot-reason seam: the bar can explain everything the server can sa
     expect(
       graduated,
       `${graduated.join(', ')} is a real SessionBootReason now — drop it from FORWARD_ONLY here`,
+    ).toEqual([])
+
+    // …and the promise is kept in the first place. Review of #392 walked the
+    // three checks above over a bar with `retargeted` deleted outright,
+    // FORWARD_ONLY still claiming it, and found all of them green: the first
+    // skips it (the server cannot emit it yet), the second iterates the bar's
+    // list, which no longer holds it, and the third finds it is not a server
+    // reason. Every check passed over a bar that had dropped the exact
+    // forward-declared promise this list exists to make. The window is bounded
+    // — once #390 lands, law 1 catches the absence — but that window is
+    // precisely what FORWARD_ONLY is for, so it is the one place the guarantee
+    // has to be airtight.
+    const known = new Set<string>(KNOWN_BOOT_REASONS)
+    const missing = FORWARD_ONLY.filter((reason) => !known.has(reason))
+    expect(
+      missing,
+      `${missing.join(', ')} is declared forward-only but the bar does not actually know it — ` +
+        'either add it to KNOWN_BOOT_REASONS in StatusBar.tsx, or stop claiming it here',
     ).toEqual([])
   })
 
