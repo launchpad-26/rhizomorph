@@ -135,6 +135,11 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **A tab in a tmux pane path, or one malformed `git log --raw` line, no
+  longer kills the collector (#242).** `list-panes.ts` and `parse-log.ts`
+  quarantine the one unparseable line — skipped, counted, and voiced as a
+  `collector.error` — instead of throwing and losing the rest of that poll's
+  events.
 - **A rotated or truncated session log resumes being read (#305).**
   `sessionlog/tail.ts` treated "the file is now smaller than the offset we
   hold" the same as "no new bytes" and handed back the same stale offset

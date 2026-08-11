@@ -3,6 +3,7 @@
  * shelling out here, so it runs against captured fixtures with no tmux
  * present.
  */
+import type { ParseSkip } from '../parse-skip.js'
 
 /** Passed to `tmux list-panes -a -F`. Tab-delimited: none of these fields can contain a tab. */
 export const LIST_PANES_FORMAT =
@@ -20,21 +21,30 @@ export interface TmuxPaneRecord {
 
 const FIELD_COUNT = 7
 
-/** Parses every line of `list-panes` output. Throws on a line that doesn't match {@link LIST_PANES_FORMAT}. */
-export function parseListPanes(output: string): TmuxPaneRecord[] {
-  return output
-    .split('\n')
-    .map((line) => line.replace(/\r$/, ''))
-    .filter((line) => line.length > 0)
-    .map(parseListPanesLine)
+/** Parses every line of `list-panes` output. Never throws — a line it can't make sense of is skipped, counted, and returned in `skipped`. */
+export function parseListPanes(output: string): { panes: TmuxPaneRecord[]; skipped: ParseSkip[] } {
+  const panes: TmuxPaneRecord[] = []
+  const skipped: ParseSkip[] = []
+
+  for (const rawLine of output.split('\n')) {
+    const line = rawLine.replace(/\r$/, '')
+    if (line.length === 0) continue
+
+    const result = parseListPanesLine(line)
+    if (result.ok) {
+      panes.push(result.pane)
+    } else {
+      skipped.push({ line, reason: result.reason })
+    }
+  }
+
+  return { panes, skipped }
 }
 
-function parseListPanesLine(line: string): TmuxPaneRecord {
+function parseListPanesLine(line: string): { ok: true; pane: TmuxPaneRecord } | { ok: false; reason: string } {
   const fields = line.split('\t')
   if (fields.length !== FIELD_COUNT) {
-    throw new Error(
-      `tmux collector: expected ${FIELD_COUNT} tab-separated fields, got ${fields.length}: ${line}`,
-    )
+    return { ok: false, reason: `expected ${FIELD_COUNT} tab-separated fields, got ${fields.length}` }
   }
 
   const [paneId, sessionName, windowIndex, windowName, currentPath, currentCommand, title] = fields as [
@@ -48,16 +58,19 @@ function parseListPanesLine(line: string): TmuxPaneRecord {
   ]
 
   if (paneId.length === 0 || currentPath.length === 0) {
-    throw new Error(`tmux collector: malformed list-panes line (missing pane id or path): ${line}`)
+    return { ok: false, reason: 'missing pane id or path' }
   }
 
   return {
-    paneId,
-    sessionName: sessionName.length > 0 ? sessionName : null,
-    windowIndex: Number.parseInt(windowIndex, 10),
-    windowName,
-    currentPath,
-    currentCommand,
-    title,
+    ok: true,
+    pane: {
+      paneId,
+      sessionName: sessionName.length > 0 ? sessionName : null,
+      windowIndex: Number.parseInt(windowIndex, 10),
+      windowName,
+      currentPath,
+      currentCommand,
+      title,
+    },
   }
 }
