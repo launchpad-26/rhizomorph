@@ -44,6 +44,13 @@ import { assertCloneTarget, conciergeRoot } from './paths.js'
  *    a dynamic `import()` whose specifier is not a literal string is itself a
  *    violation (`no blind spots`, below), because an unanalysable edge would let
  *    the reachability check pass while knowing nothing.
+ * 3. **A third spelling, found in review of #351: escape sequences.** The source
+ *    text `import { x } from '../concier\u0067e/paths.js'` is a plain string
+ *    literal, so clause 2 has nothing to complain about, and its RAW text
+ *    resolves to no file, so clause 1 saw a clean tree while Node loaded
+ *    `../concierge/paths.js` (executed against real Node, not reasoned about).
+ *    So every specifier is decoded before it is resolved — see
+ *    {@link decodeStringEscapes}.
  *
  * Path spellings are canonicalized on both sides through `realpath(3)`, so
  * `./concierge/../concierge/paths.js`, a symlinked directory, and a
@@ -92,6 +99,19 @@ const CONCIERGE_DIR = path.join(SERVER_SRC, 'concierge')
  * guard covers every mutating route, and this lane ships no route at all. The
  * set is the seam a later wave adds its ONE token-gated entry point to — named
  * here, in the law, rather than discovered in a diff.
+ *
+ * **It BOUNDS the walk; it does not exempt a node.** Found in review of #351:
+ * exempting the file itself admits the route and then convicts everything above
+ * it, because the sweep asks every other file for a chain into the hand — so
+ * `api/index.ts -> api/concierge.ts -> concierge/…`, `server/build-app.ts`, the
+ * CLI above it and every `buildApp` test would all become violations the moment
+ * the one legitimate route was declared. A declared importer is therefore a
+ * TERMINUS: chains stop there, and what lies above it inherits its grant.
+ *
+ * What that deliberately does NOT relax: {@link NEVER_AN_IMPORTER} is checked
+ * against the RAW graph, unbounded. A collector or a poll loop reaching the hand
+ * THROUGH the gate is still a violation, because ADR-0014's condition is "never
+ * from a collector, never from a poll" and a gate does not make a poll a human.
  */
 const ALLOWED_IMPORTERS: ReadonlySet<string> = new Set<string>()
 
@@ -105,6 +125,26 @@ const NEVER_AN_IMPORTER = [
   path.join(SERVER_SRC, 'server', 'collector-loader.ts'),
   path.join(SERVER_SRC, 'collectors'),
   WEB_SRC,
+]
+
+/**
+ * The four files judged against the RAW graph — no gate bound, no exemption.
+ *
+ * For a collector or a poll loop ANY route into the hand is a violation, gate or
+ * no gate (ADR-0014 grant 3, "never from a collector, never from a poll"). They
+ * are named rather than left to the bounded sweep because the bound is exactly
+ * what would hide them: once a route is declared, the sweep stops before it and
+ * a poll loop importing that route reads as clean.
+ *
+ * `cli/index.ts` is deliberately NOT here. It boots the server that carries the
+ * route, so reaching the hand through the gate is what it is for; it is asserted
+ * under the bounded walk instead.
+ */
+const RAW_GRAPH_FILES = [
+  path.join(SERVER_SRC, 'server', 'poll-loop.ts'),
+  path.join(SERVER_SRC, 'server', 'collector-loader.ts'),
+  path.join(SERVER_SRC, 'collectors', 'git', 'git-collector.ts'),
+  path.join(SERVER_SRC, 'collectors', 'sessionlog', 'collector.ts'),
 ]
 
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx'])
@@ -152,11 +192,46 @@ function codeOf(source: string): string {
  */
 const SPECIFIER_RE = /(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*|\bimport\s+)(['"`])([^'"`]*)\1/g
 
+/**
+ * A string literal's escape sequences, resolved to the characters they name —
+ * because Node resolves `'../concier\u0067e/paths.js'` to
+ * `../concierge/paths.js` and the law must see the same module Node does.
+ *
+ * Found in review of #351: this was a third spelling of #245's hole, cheaper
+ * than `eval` and invisible to both clause 1 (raw text resolves to no file, so
+ * no edge) and clause 2 (it is a plain literal, so not a blind edge). Decoding
+ * closes it in the one place both clauses read from.
+ *
+ * Deliberately generous: `\uXXXX`, `\u{X…}`, `\xXX`, the named control escapes,
+ * and for anything else the escaped character itself (`\/` is `/`). Over-eager
+ * decoding can only ever make MORE specifiers resolve to a real file, which is
+ * the safe direction for a fence.
+ */
+const ESCAPE_RE = /\\(?:u\{([0-9a-fA-F]{1,6})\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|([\s\S]))/g
+const NAMED_ESCAPES: Record<string, string> = {
+  n: '\n',
+  r: '\r',
+  t: '\t',
+  b: '\b',
+  f: '\f',
+  v: '\v',
+  '0': '\0',
+}
+
+function decodeStringEscapes(raw: string): string {
+  return raw.replace(ESCAPE_RE, (_match, braced, u4, x2, other) => {
+    if (braced !== undefined) return String.fromCodePoint(Number.parseInt(braced, 16))
+    if (u4 !== undefined) return String.fromCharCode(Number.parseInt(u4, 16))
+    if (x2 !== undefined) return String.fromCharCode(Number.parseInt(x2, 16))
+    return NAMED_ESCAPES[other as string] ?? (other as string)
+  })
+}
+
 function importSpecifiers(code: string): string[] {
   const out: string[] = []
   for (const match of code.matchAll(SPECIFIER_RE)) {
     const specifier = match[2]
-    if (specifier !== undefined && specifier.length > 0) out.push(specifier)
+    if (specifier !== undefined && specifier.length > 0) out.push(decodeStringEscapes(specifier))
   }
   return out
 }
@@ -279,11 +354,19 @@ function buildImportGraph(tree: SourceTree): Map<string, string[]> {
  * `null` if none exists. Returned as a path, not a boolean, so a failure names
  * the route rather than just its existence — the thing #245 needed and a
  * per-file grep can never produce.
+ *
+ * `stopAt` BOUNDS the walk: a file it names is still visited (so a chain that
+ * ENDS there is reported) but the walk does not continue through it. That is the
+ * declared-importer seam, and it is a route property rather than a node one —
+ * see {@link ALLOWED_IMPORTERS}. Omit `stopAt` for the RAW graph, which is what
+ * {@link NEVER_AN_IMPORTER} needs: for a collector or a poll loop, reaching the
+ * hand through the gate is as forbidden as reaching it around the gate.
  */
 function shortestChain(
   graph: ReadonlyMap<string, string[]>,
   start: string,
   isTarget: (file: string) => boolean,
+  stopAt: ReadonlySet<string> = new Set(),
 ): string[] | null {
   const queue: string[][] = [[start]]
   const seen = new Set([start])
@@ -291,6 +374,10 @@ function shortestChain(
     const chain = queue.shift() as string[]
     const tip = chain[chain.length - 1] as string
     if (chain.length > 1 && isTarget(tip)) return chain
+    // The bound. Checked after isTarget so a declared importer that IS the
+    // target is still reported, and applied to `start` too so a declared
+    // importer's own legitimate edge into the hand is not a violation.
+    if (stopAt.has(tip)) continue
     for (const next of graph.get(tip) ?? []) {
       if (seen.has(next)) continue
       seen.add(next)
@@ -359,37 +446,42 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
       expect((chain as string[]).length).toBeGreaterThan(2) // not a direct import; a chain
     })
 
+    // The declared importers, canonicalized — the graph's keys are: on a machine
+    // whose checkout sits behind a symlink, comparing a raw declared path against
+    // a canonical graph key would silently never match.
+    const declared = new Set([...ALLOWED_IMPORTERS].map(realCanonical))
+
     it('no file in either package reaches the concierge module', () => {
-      // Canonicalized, because the graph's keys are: on a machine whose checkout
-      // sits behind a symlink, comparing a raw declared path against a canonical
-      // graph key would silently never match.
-      const declared = new Set([...ALLOWED_IMPORTERS].map(realCanonical))
       const violations: string[] = []
       for (const file of tree.files.keys()) {
         if (isInConcierge(file)) continue
-        if (declared.has(file)) continue
-        const chain = shortestChain(graph, file, isInConcierge)
+        const chain = shortestChain(graph, file, isInConcierge, declared)
         if (chain !== null) violations.push(chain.map(relative).join(' -> '))
       }
       expect(violations).toEqual([])
     })
 
-    it('no collector and no poll loop reaches it — named files, not left to the sweep', () => {
-      // The sweep above covers these already. Naming them is what survives a
-      // future refactor of the sweep, and what makes the amendment's own
-      // condition ("never from a collector or a poll") legible as a test.
-      const named = [
-        path.join(SERVER_SRC, 'server', 'poll-loop.ts'),
-        path.join(SERVER_SRC, 'server', 'collector-loader.ts'),
-        path.join(SERVER_SRC, 'collectors', 'git', 'git-collector.ts'),
-        path.join(SERVER_SRC, 'collectors', 'sessionlog', 'collector.ts'),
-        path.join(SERVER_SRC, 'cli', 'index.ts'),
-      ]
-      for (const file of named) {
+    it('no collector and no poll loop reaches it, on the RAW graph — a gate does not make a poll a human', () => {
+      // NOT bounded by the declared-importer set, unlike the sweep above. For
+      // these four, reaching the hand THROUGH the gate is as forbidden as
+      // reaching it around the gate (ADR-0014 grant 3). Naming them is also what
+      // survives a future refactor of the sweep.
+      for (const file of RAW_GRAPH_FILES) {
         const canonical = realCanonical(file)
         expect(tree.files.has(canonical), `${relative(file)} is not in the graph — has it moved?`).toBe(true)
         expect(shortestChain(graph, canonical, isInConcierge)?.map(relative).join(' -> ')).toBeUndefined()
       }
+    })
+
+    it('and the CLI does not reach it either — through the gate, which is the one it may later use', () => {
+      // `cli/index.ts` boots the server that will carry the token-gated route, so
+      // it is judged under the BOUND: a chain that stops at a declared importer
+      // is legitimate for it. Today the set is empty, so this is the same
+      // question as the raw one — which is exactly why it is written separately
+      // now, before the answer diverges.
+      const canonical = realCanonical(path.join(SERVER_SRC, 'cli', 'index.ts'))
+      expect(tree.files.has(canonical), 'cli/index.ts is not in the graph — has it moved?').toBe(true)
+      expect(shortestChain(graph, canonical, isInConcierge, declared)?.map(relative).join(' -> ')).toBeUndefined()
     })
 
     it('the declared-importer set is empty, and that is the ruling, not an omission', () => {
@@ -420,18 +512,31 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
   })
 
   describe('clause 1, proven against synthetic violations — the detector bites', () => {
-    /** Every file in a synthetic tree that reaches `/repo/src/concierge/`. */
-    function reachers(files: Record<string, string>): string[] {
+    /**
+     * Every file in a synthetic tree that reaches `/repo/src/concierge/`, as the
+     * real sweep asks it: bounded by `declaredImporters`, which default to none.
+     */
+    function reachers(files: Record<string, string>, declaredImporters: string[] = []): string[] {
       const tree = syntheticTree(files)
       const graph = buildImportGraph(tree)
       const target = path.resolve('/repo/src/concierge')
       const inTarget = (file: string) => file.startsWith(target + path.sep)
+      const declared = new Set(declaredImporters.map((file) => path.resolve(file)))
       const out: string[] = []
       for (const file of tree.files.keys()) {
         if (inTarget(file)) continue
-        if (shortestChain(graph, file, inTarget) !== null) out.push(path.basename(file))
+        if (shortestChain(graph, file, inTarget, declared) !== null) out.push(path.basename(file))
       }
       return out.sort()
+    }
+
+    /** The same tree, asked on the RAW graph — what the four collector/poll files get. */
+    function rawReachers(files: Record<string, string>, from: string): string | undefined {
+      const tree = syntheticTree(files)
+      const graph = buildImportGraph(tree)
+      const target = path.resolve('/repo/src/concierge')
+      const chain = shortestChain(graph, path.resolve(from), (file) => file.startsWith(target + path.sep))
+      return chain?.map((file) => path.basename(file)).join(' -> ')
     }
 
     const THE_HAND = { '/repo/src/concierge/paths.ts': 'export const fence = 1\n' }
@@ -519,6 +624,93 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
       ).toEqual([])
     })
 
+    it('an ESCAPED specifier is caught — the third spelling of #245, found in review of #351', () => {
+      // `'../concier\u0067e/paths.js'` is what Node loads as
+      // `'../concierge/paths.js'` (verified against real Node, not reasoned
+      // about). Before decoding, the raw text resolved to no file at all, so this
+      // returned [] — a clean tree while the boundary was crossed.
+      expect(
+        reachers({
+          ...THE_HAND,
+          '/repo/src/collectors/git.ts': `import { fence } from '../concier\\u0067e/paths.js'\n`,
+        }),
+      ).toEqual(['git.ts'])
+    })
+
+    it('and every other escape spelling of the same segment', () => {
+      for (const spelling of [
+        '../concier\\u{67}e/paths.js', // \u{X…} code point form
+        '../concier\\x67e/paths.js', // \xXX byte form
+        '..\\/concierge\\/paths.js', // a pointlessly escaped separator
+        '../\\u0063oncierge/paths.js', // the first letter, so no `concierge` substring survives
+      ]) {
+        expect(
+          reachers({ ...THE_HAND, '/repo/src/collectors/git.ts': `import { fence } from '${spelling}'\n` }),
+          `missed the escaped spelling ${spelling}`,
+        ).toEqual(['git.ts'])
+      }
+    })
+
+    it('and decoding does not invent an edge that is not there', () => {
+      // The safe direction for a fence is over-eager decoding, but not so eager
+      // that an ordinary import of a different module lands on the hand.
+      expect(
+        reachers({
+          ...THE_HAND,
+          '/repo/src/collectors/git.ts': `import { readSessionEvents } from '../log/session-\\u006cog.js'\n`,
+          '/repo/src/log/session-log.ts': 'export const readSessionEvents = 1\n',
+        }),
+      ).toEqual([])
+    })
+
+    it('a declared importer BOUNDS the walk — its own route in is legitimate, and so is everything above it', () => {
+      // The seam as review of #351 required it. Exempting the NODE would admit
+      // `api/concierge.ts` and then convict `api/index.ts`, `build-app.ts` and
+      // every buildApp test above it. Bounding the WALK admits the route.
+      const tree = {
+        ...THE_HAND,
+        '/repo/src/api/concierge.ts': `import { fence } from '../concierge/paths.js'\n`,
+        '/repo/src/api/index.ts': `import './concierge.js'\n`,
+        '/repo/src/server/build-app.ts': `import '../api/index.js'\n`,
+        '/repo/src/cli/index.ts': `import '../server/build-app.js'\n`,
+      }
+      expect(reachers(tree), 'undeclared, the whole ancestor cone is a violation — as it should be').toEqual([
+        'build-app.ts',
+        'concierge.ts',
+        'index.ts',
+        'index.ts',
+      ])
+      expect(reachers(tree, ['/repo/src/api/concierge.ts'])).toEqual([])
+    })
+
+    it('but a declared importer only bounds ITS route — a second way round the gate is still caught', () => {
+      expect(
+        reachers(
+          {
+            ...THE_HAND,
+            '/repo/src/api/concierge.ts': `import { fence } from '../concierge/paths.js'\n`,
+            '/repo/src/api/index.ts': `import './concierge.js'\n`,
+            // The sneak: reaches the hand without going through the gate at all.
+            '/repo/src/api/sneaky.ts': `import { fence } from '../concierge/paths.js'\n`,
+          },
+          ['/repo/src/api/concierge.ts'],
+        ),
+      ).toEqual(['sneaky.ts'])
+    })
+
+    it('and a POLL LOOP importing the declared route is still a violation — the raw graph, no gate credit', () => {
+      // The half the bound must not swallow: ADR-0014 grant 3 is "never from a
+      // collector, never from a poll", and a token gate does not make a poll a
+      // human. Same tree, same declared route, opposite answer.
+      const tree = {
+        ...THE_HAND,
+        '/repo/src/api/concierge.ts': `import { fence } from '../concierge/paths.js'\n`,
+        '/repo/src/server/poll-loop.ts': `import '../api/concierge.js'\n`,
+      }
+      expect(reachers(tree, ['/repo/src/api/concierge.ts']), 'the bounded sweep credits the gate').toEqual([])
+      expect(rawReachers(tree, '/repo/src/server/poll-loop.ts')).toBe('poll-loop.ts -> concierge.ts -> paths.ts')
+    })
+
     it('and it does not confuse a same-named directory in the other package for this one', () => {
       // prd14 gave web its own `lab/`; the same trap is one commit away for the
       // concierge. Resolution is by path, so a sibling of the same name is not it.
@@ -583,6 +775,52 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
 
   describe('clause 4 — the hand that runs a process never reaches a shell', () => {
     /**
+     * `child_process` as a module specifier, with the `node:` prefix OPTIONAL.
+     * `import { exec } from 'child_process'` reaches the same shell as the
+     * prefixed spelling and is the more common way to write it; requiring the
+     * prefix was review of #351's first finding.
+     */
+    const CHILD_PROCESS_MODULE = String.raw`['"\x60](?:node:)?child_process['"\x60]`
+
+    /**
+     * The names of every namespace bound to `child_process` in a file — from
+     * `import * as cp from 'child_process'`, `import cp from …` and
+     * `const cp = require(…)` alike.
+     *
+     * Why an identifier and not a line: pattern 3 used to be
+     * `/\bchild_process\b[^\n]*\.\s*exec\b(?!File)/`, and `[^\n]*` forced the
+     * import and the call onto ONE line, which is not how anyone writes it
+     * (review of #351). Binding the name lets the call be found wherever it is.
+     */
+    function childProcessNamespaces(code: string): string[] {
+      const out: string[] = []
+      const patterns = [
+        new RegExp(String.raw`\bimport\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s*${CHILD_PROCESS_MODULE}`, 'g'),
+        new RegExp(String.raw`\bimport\s+([A-Za-z_$][\w$]*)\s*(?:,|\bfrom\b)\s*.*?${CHILD_PROCESS_MODULE}`, 'g'),
+        new RegExp(
+          String.raw`\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*${CHILD_PROCESS_MODULE}`,
+          'g',
+        ),
+      ]
+      for (const pattern of patterns) {
+        for (const match of code.matchAll(pattern)) if (match[1] !== undefined) out.push(match[1])
+      }
+      return out
+    }
+
+    /** True when `code` destructures a shell-command form out of `child_process`. */
+    function destructuresAShellForm(code: string): boolean {
+      // `import { exec } from …`, `import { exec as run } from …`, and the
+      // `const { exec } = require(…)` form, which the old pattern set missed
+      // entirely. `\bexec\b(?!File)` so `execFile`/`execFileSync` stay legal.
+      const braced = String.raw`\{[^}]*\b(?:exec|execSync)\b(?!File)[^}]*\}`
+      return (
+        new RegExp(String.raw`\bimport\s*${braced}\s*from\s*${CHILD_PROCESS_MODULE}`).test(code) ||
+        new RegExp(String.raw`\b(?:const|let|var)\s*${braced}\s*=\s*require\s*\(\s*${CHILD_PROCESS_MODULE}`).test(code)
+      )
+    }
+
+    /**
      * The string-command forms of `child_process`, and the option that turns any
      * spawn into one. `spawn`/`execFile`/`spawnSync`/`execFileSync` take an argv
      * array and are deliberately NOT forbidden — the launch power needs one of
@@ -591,17 +829,47 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
      *
      * `\bexec\s*\(` would also match this repo's own injected `Exec` seam
      * (ADR-0004, `server/exec.ts`), which is an argv-array function and not a
-     * shell — so the pattern requires the `child_process` spelling or the
-     * `Sync` suffix, and the negative test below pins that.
+     * shell — so a bare `exec(…)` is only a violation when the name was bound to
+     * `child_process` somewhere in the same file, and the negative test below
+     * pins that.
+     *
+     * All four detectors read the whole file, not a line: review of #351 found
+     * seven ordinary spellings that got through the line-scoped version, and each
+     * one now has its own positive fixture below so the set cannot regress to
+     * only the strings it was written against.
      */
-    const SHELL_PATTERNS: Array<{ what: string; pattern: RegExp }> = [
-      { what: 'execSync — a shell command line', pattern: /\bexecSync\s*\(/ },
+    const SHELL_PATTERNS: Array<{ what: string; pattern: (code: string) => boolean }> = [
       {
-        what: 'exec imported from child_process',
-        pattern: /import\s*\{[^}]*\bexec\b(?!File)[^}]*\}\s*from\s*['"]node:child_process['"]/,
+        what: 'execSync — a shell command line',
+        pattern: (code) => /\bexecSync\s*\(/.test(code),
       },
-      { what: 'exec off a child_process namespace', pattern: /\bchild_process\b[^\n]*\.\s*exec\b(?!File)/ },
-      { what: 'a shell-enabled spawn', pattern: /\bshell\s*:\s*(?:true|['"])/ },
+      {
+        what: 'a shell-command form destructured out of child_process',
+        pattern: destructuresAShellForm,
+      },
+      {
+        what: 'exec off a child_process namespace, anywhere in the file',
+        pattern: (code) =>
+          childProcessNamespaces(code).some((ns) =>
+            // `cp.exec(…)` and `promisify(cp.exec)` alike: the reference is the
+            // violation, not the call, because a reference is all it takes to
+            // hand the shell form to something that will call it.
+            new RegExp(String.raw`\b${ns}\s*\.\s*(?:exec|execSync)\b(?!File)`).test(code),
+          ),
+      },
+      {
+        what: 'a shell-enabled spawn — any `shell:` that is not literally false',
+        pattern: (code) => {
+          // Inverted from an allowlist of dangerous values to a denylist of the
+          // one safe one: `shell: enabled` and `shell: opts.useShell` both reach
+          // a shell whenever the variable is truthy, and neither was caught by
+          // `shell\s*:\s*(?:true|['"])` (review of #351).
+          for (const match of code.matchAll(/\bshell\s*:\s*([^,}\n]+)/g)) {
+            if ((match[1] ?? '').trim() !== 'false') return true
+          }
+          return false
+        },
+      },
     ]
 
     it('nothing in the module reaches a shell', () => {
@@ -609,7 +877,7 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
       for (const file of conciergeSourceFiles()) {
         const code = codeOf(readFileSync(file, 'utf8'))
         for (const { what, pattern } of SHELL_PATTERNS) {
-          if (pattern.test(code)) offenders.push(`${relative(file)}: ${what}`)
+          if (pattern(code)) offenders.push(`${relative(file)}: ${what}`)
         }
       }
       expect(offenders).toEqual([])
@@ -617,7 +885,7 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
 
     /** True if ANY clause-4 pattern fires — the check as the law applies it. */
     function reachesAShell(code: string): boolean {
-      return SHELL_PATTERNS.some(({ pattern }) => pattern.test(code))
+      return SHELL_PATTERNS.some(({ pattern }) => pattern(code))
     }
 
     it('those detectors bite on the forms that let a repo URL become code', () => {
@@ -633,6 +901,40 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
       }
     })
 
+    /**
+     * The seven forms review of #351 ran against the previous pattern set. All
+     * seven passed the law; each is now its own fixture, so "those detectors
+     * bite" cannot quietly narrow back to the six strings above.
+     */
+    it('and on the SEVEN ordinary spellings that got through the line-scoped version (review of #351)', () => {
+      const forms: Array<[label: string, code: string]> = [
+        ['no `node:` prefix', `import { exec } from 'child_process'`],
+        [
+          'namespace import, call on a LATER line',
+          `import * as cp from 'node:child_process'\nconst r = cp.exec(cmd)\n`,
+        ],
+        ['destructured require', `const { exec } = require('node:child_process')`],
+        ['require namespace, call on a LATER line', `const cp = require('node:child_process')\ncp.exec(cmd)\n`],
+        ['`shell:` set from an identifier', 'spawn(cmd, { shell: enabled })'],
+        ['`shell:` set from a member expression', 'spawn(cmd, { shell: opts.useShell })'],
+        ['promisify(cp.exec) — a reference, never a call', `import * as cp from 'child_process'\nconst run = promisify(cp.exec)\n`],
+      ]
+      for (const [label, code] of forms) {
+        expect(reachesAShell(code), `missed the ordinary spelling: ${label}`).toBe(true)
+      }
+    })
+
+    it('and on the unprefixed spelling of each earlier form too — `node:` was never the load-bearing part', () => {
+      for (const violation of [
+        `import { execSync } from 'child_process'`,
+        `const { execSync } = require('child_process')`,
+        `import cp from 'child_process'\ncp.exec(cmd)\n`,
+        `spawn(cmd, { shell: process.env.SHELL })`,
+      ]) {
+        expect(reachesAShell(violation), `missed: ${violation}`).toBe(true)
+      }
+    })
+
     it('and do not fire on the argv-array spawns the launch power will legitimately need', () => {
       for (const legitimate of [
         `import { spawn } from 'node:child_process'`,
@@ -641,6 +943,28 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
         `spawn('claude', ['--continue'], { env, cwd })`,
         `await execFile('git', ['clone', url, target])`,
         `import { exec as realExec } from '../server/exec.js'`, // ADR-0004's argv seam, not a shell
+      ]) {
+        expect(reachesAShell(legitimate), `false positive on: ${legitimate}`).toBe(false)
+      }
+    })
+
+    it('and the widened detectors stay narrow — the shapes a real launch path will be written in', () => {
+      // The mirror-image danger of a broad law: flagging the code the hand needs.
+      // Every entry here is a shape the launch power is expected to take.
+      for (const legitimate of [
+        // A namespace bound to child_process, used only for its argv forms.
+        `import * as cp from 'node:child_process'\nconst child = cp.spawn('claude', argv, { env })\n`,
+        `import * as cp from 'child_process'\nawait promisify(cp.execFile)('git', ['clone', url, target])\n`,
+        // The one `shell:` value that is not a violation, spelled the ways it is.
+        `spawn('claude', argv, { shell: false })`,
+        `spawn('claude', argv, { shell: false, env, cwd })`,
+        `const options = { shell:false }`,
+        // `exec` off something that is NOT child_process — ADR-0004's own seam,
+        // which is an argv function and which this module's callers inject.
+        `import { exec } from '../server/exec.js'\nawait exec('git', ['clone', url, target])\n`,
+        `const result = await ctx.exec('workmux', argv, { cwd })`,
+        // A field literally called `execFile`, and the word in a variable name.
+        `const { execFile } = deps\nawait execFile('git', argv)\n`,
       ]) {
         expect(reachesAShell(legitimate), `false positive on: ${legitimate}`).toBe(false)
       }

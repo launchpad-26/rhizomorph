@@ -20,8 +20,12 @@ instrumented, verify — each an explicit click.
 Two of those steps are things no hand of this instrument may currently do.
 ADR-0001 grants three: the **observer** reads; the **laboratory** writes refs
 under `refs/rhizomorph/` and worktrees it owns; the **recorder** writes session
-logs outside the watched repo. None of them may start a process, and none may
-write a repo to disk. The concierge needs both.
+logs outside the watched repo. The laboratory does start processes — `git`, and
+also `workmux` (`lab/fork.ts:277`) and `npm install` (`lab/restore.ts:293`) —
+so the line is not "no hand may spawn". It is narrower and sharper than that:
+none of them may start a process **the operator names**, with an environment
+block, in a directory it chose; and none may write a repo to disk. The concierge
+needs both.
 
 The forces in play:
 
@@ -33,10 +37,11 @@ The forces in play:
 - **The physics are fixed.** Instrumentation attaches at launch, not
   retroactively (`docs/telemetry.md`). Whatever this hand does about a conductor
   that is already running, it cannot be attachment.
-- **This is the largest blast radius yet.** The laboratory spawns `git` with an
-  argv array it built itself. This hand would spawn whatever harness the
-  operator names, with an environment block, in a directory it chose, and would
-  write a repo to disk from a URL a human typed.
+- **This is the largest blast radius yet.** The laboratory spawns `git`,
+  `workmux` and `npm` — but each is an executable *it* named, with an argv array
+  it built itself, and its law enforces the list. This hand would spawn whatever
+  harness the operator names, with an environment block, in a directory it
+  chose, and would write a repo to disk from a URL a human typed.
 - **The existing enforcement is known to be weak.** ADR-0001's own Consequences
   record it as convention rather than structure, and name the proof: the lab's
   "sole importer" law passed for weeks while `api/lab.ts` crossed the boundary
@@ -148,15 +153,37 @@ a fence rather than negotiating one. And prd-20 ruling 2 now has a structural
 partner — the declared-importer set in the concierge's law is empty, so the
 first route to reach this hand fails a test until someone reads the ruling.
 
+**Good, and decided here because later waves copy it: a declared importer bounds
+a route, it does not exempt a file.** Review of this PR found the first draft
+exempting the *node*, which would have admitted the one legitimate route and
+then convicted everything above it — `api/index.ts`, `build-app.ts`, the CLI and
+every `buildApp` test — so the wave that declared a route would have had to
+allowlist its whole ancestor cone or weaken the sweep. A declared importer is
+therefore a **terminus**: chains stop there, and what lies above inherits its
+grant. What that deliberately does not relax is grant 3 above. The collectors
+and the poll loop are judged against the *raw* graph, unbounded, because for
+them any route into this hand is a violation — a token gate does not make a poll
+a human.
+
 **Bad — this law is stricter than its predecessors, and still not structure.**
 It replaces the per-file grep with reachability over the whole import graph of
 both packages, reads backtick specifiers, canonicalizes paths through
 `realpath(3)`, and refuses to be blind: a dynamic `import()` with a non-literal
 specifier is itself a violation, because an edge the graph cannot follow would
-let the check pass while knowing nothing. That closes #245's two holes. It does
-not close `eval`, a native addon, a specifier assembled from a network
-response, or a shell that reaches the hand from outside the process. A law over
-source text is still a law over source text.
+let the check pass while knowing nothing. That closes #245's two holes — and a
+third that review of this PR found: **escape sequences**. A specifier may spell
+any of its letters as an escape, and `import { x } from '../concier\u0067e/paths.js'`
+is a plain string literal: the blind-spot clause has nothing to object to, and
+its *raw* text names no file, so the reachability clause saw a clean tree —
+while Node decoded it to `../concierge/paths.js` and loaded the hand. Specifiers
+are therefore decoded before they are resolved. That spelling is cheaper than
+any of the three below, and until review it sat unnamed beside them.
+
+It still does not close `eval`, a native addon, a specifier assembled from a
+network response, or a shell that reaches the hand from outside the process. A
+law over source text is still a law over source text — and the escape hole is
+the evidence for that sentence rather than a footnote to it: the list of
+spellings a text law cannot see is only ever as long as the last person to look.
 
 **Bad — the strictness has a cost other lanes will pay.** "No non-literal
 dynamic `import()` anywhere in server source" is a constraint on files this hand
@@ -165,12 +192,22 @@ and a future lane that needs a computed specifier must either name it as a
 declared exception or lose the soundness of the reachability check. That
 friction is intended, and it is friction.
 
-**Bad — the fourth hand is the one that can execute.** A mistake in the lab
-costs a stray ref; a mistake here runs a command. The law's fourth clause
-forbids the module from reaching a shell at all — `exec`/`execSync` and
-`shell: true` are out, argv arrays are in — which removes the injection path a
-repo URL or branch name would otherwise take, but does not remove the fact that
-this hand's purpose is to run something.
+**Bad — the fourth hand is the one whose command the operator wrote.** A mistake
+in the lab runs a command the lab itself chose from a fixed list; a mistake here
+runs the one a human typed into a form. The law's fourth clause
+forbids the module from reaching a shell at all — `exec`/`execSync` are out
+however they are imported, and the only permitted `shell:` value is a literal
+`false` — which removes the injection path a repo URL or branch name would
+otherwise take, but does not remove the fact that this hand's purpose is to run
+something.
+
+That clause is written the way it is because review of this PR ran seven
+ordinary spellings of a shell call past its first draft and all seven passed:
+the draft required a `node:` prefix on the module, and required the import and
+the call to share a line. A detector that only catches the spellings its author
+happened to write is the same defect as #245 wearing different clothes, so the
+clause now binds the imported name and reads the whole file, and each of the
+seven is a permanent fixture in the law.
 
 **Neutral — one open question stays open.** prd-20 does not rule where cloned
 repos live. The fence is therefore expressed relative to a clone root its caller

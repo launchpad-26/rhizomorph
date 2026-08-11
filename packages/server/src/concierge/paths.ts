@@ -8,10 +8,9 @@ import path from 'node:path'
  * This module exists *before* the concierge's code does, deliberately. It is
  * the minimum true subject the namespace law needs: the hand's footprint on
  * disk and the one predicate every future clone target must pass. It is not a
- * placeholder — `assertCloneTarget` is the runtime refusal, so wave 2's clone
- * path physically cannot point `git clone` at the operator's working tree, and
- * the law beside it can prove that by running it rather than by grepping for a
- * comment.
+ * placeholder — `assertCloneTarget` is a runtime refusal the law beside it
+ * proves by running rather than by grepping for a comment. What it is not, yet,
+ * is unavoidable: see that function's own note.
  *
  * What it deliberately does NOT decide: **where cloned repos live by default.**
  * prd-20 leaves that open ("Where cloned repos live by default. Open, not
@@ -135,9 +134,19 @@ export class CloneFenceError extends Error {
 }
 
 /**
- * The write fence for the clone power, enforced. Every future code path that
- * clones calls this with its target first, so the refusal is structural rather
- * than a comment a later lane can read past.
+ * The write fence for the clone power, enforced — everywhere it is *called*.
+ *
+ * Being honest about that limit, because review of #351 caught this comment
+ * claiming the opposite: the refusal is **not** structural today. Every caller
+ * in the tree is a test; no clone path exists yet, and clause 4 of the namespace
+ * law lists a bare `execFile('git', ['clone', url, target])` among the argv
+ * spawns the hand may legitimately make — so a lane could build that argv and
+ * never ask this function anything. What lands here is therefore an obligation
+ * on #262, not a wall #262 cannot walk round.
+ *
+ * Making it structural needs a law that fails when a `clone` argv is assembled
+ * without this call on the path to it. That law belongs with the code it would
+ * judge, so it lands with #262 rather than being written against nothing here.
  *
  * Four clauses, in the order a mistake is likely to arrive:
  *
