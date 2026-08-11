@@ -249,11 +249,14 @@ create outside its own directory. And
 [`packages/server/src/lab/namespace-law.test.ts`](packages/server/src/lab/namespace-law.test.ts)
 is the test that watches everything else: no source file outside
 `server/src/lab/` may even import it, except the one declared CLI wiring
-point; no ref literal in its source names anything but `refs/rhizomorph/`;
+point — with a known blind spot for dynamic imports, which is exactly how
+`api/lab.ts` reaches that wiring today, tracked as #245; no ref literal in
+its source names anything but `refs/rhizomorph/`;
 no lab file shells out to `push`, `merge`, `checkout`, `branch`, `reset`,
 `rebase`, or any other verb that rewrites something that already exists;
-nothing under `lab/` sets a timer of its own, so "never runs without your
-command" holds structurally, not just by convention; and a live run of
+nothing under `lab/` sets a timer of its own, so it never starts itself —
+every run traces back to a deliberate act of yours, the command you typed or
+the button you clicked, never a schedule; and a live run of
 `lab fork` against a real fixture repo proves the whole write surface by
 walking the filesystem and the ref namespace before and after, rather than
 trusting the source to say so.

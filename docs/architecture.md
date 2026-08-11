@@ -142,15 +142,35 @@ One SSE hook feeds one reducer (imported from `core`) into React context —
 no state library (one tree, one store). **Live and replay are the same
 reducer**: live folds the stream as it arrives; replay folds a history slice
 under a scrubber clock. That one property is why replay is free — for
-whatever the fold itself computes. Three read paths sit outside it and read
+whatever the fold itself computes. **Two** read paths sit outside it and read
 live state fresh per request rather than the event log: `GET /api/lanes`
-(`.swarm/lanes.json` off the watched repo's disk), `GET /api/transcript/:lane`
-(the agent's own session JSONL, resolved through the OTel collector's
-lane/worktree attribution), and that attribution's own live half. A replayed
-record has no watched repo and no live worktree to read either from, so all
-three report their own honest `{ available: false, reason: "..." }` rather
-than a stale or fabricated answer — replay doesn't reconstruct them, and the
-dashboard doesn't claim it does.
+(`.swarm/lanes.json` off the watched repo's disk) and
+`GET /api/transcript/:lane` (the agent's own session JSONL, resolved through
+the OTel collector's lane/worktree attribution — a sub-step of that route, not
+a third path of its own; nothing else calls it).
+
+**Neither is replay-aware, and one of them is a live hole.** Replay sets
+`repoPath` to the sentinel `record:<slug>` (`cli/replay.ts:157`) rather than
+switching either path off:
+
+- `/api/lanes` answers honestly *by accident*. `lanesManifestPath` joins that
+  sentinel (`api/lanes.ts:59-60`), producing a relative path no real tree
+  contains, so the read misses and the route reports
+  `{ available: false, reason: … }`. Honest output, but from a path that cannot
+  resolve rather than from a check — and the reason it gives blames dispatch
+  rather than naming replay.
+- `/api/transcript/:lane` can serve **live data during a replay**. It never
+  consults `repoPath`, and `replay.ts` never overrides `claudeProjectsRoot`, so
+  candidate transcript paths resolve against the real `~/.claude/projects`
+  (`api/transcript.ts:673`). Replaying a record on the machine that produced it
+  — the ordinary case — can therefore return the current session's transcript
+  beside a historical fold. Tracked as #370; the fix is for replay to
+  declare itself to both routes rather than rely on a path that happens not to
+  exist.
+
+So the dashboard's honesty here rests on one accident and one gap, not on
+design. Stated rather than smoothed over, because a replay that quietly mixes
+in live state is the failure this instrument exists to make impossible.
 
 Panels are sibling directories (`panels/attention`, `panels/burn`,
 `panels/fleet`, `panels/ledger`, `panels/collisions`, `panels/feed`, plus

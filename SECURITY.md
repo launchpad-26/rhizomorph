@@ -24,9 +24,13 @@ own command line, or clicking the dashboard's launch button, which sends
 `POST /api/lab/launch` to a server route that runs the exact same
 `rhizomorph lab fork --launch` in-process. The laboratory module itself
 (`packages/server/src/lab/`) is still only ever imported from the one CLI
-wiring point that route also goes through — enforced by
-`packages/server/src/lab/namespace-law.test.ts` — so the dashboard button
-is a second hand on the same lever, not a new path into the module. Unlike
+wiring point that route also goes through, so the dashboard button is a
+second hand on the same lever, not a new path into the module.
+`packages/server/src/lab/namespace-law.test.ts` asserts that — with a known
+blind spot: it reads source text, so it cannot follow the dynamic
+`import('../cli/index.js')` by which the route reaches that wiring, and #245
+tracks closing it. The concierge's own law (ADR-0014) is the shape that
+does. Unlike
 `POST /api/label`, the launch route does not yet require the
 `x-rhizomorph-capability` token (only the Origin/Host/Content-Type guard
 below); tracked under #234. See the [Trust section](README.md#trust) for
