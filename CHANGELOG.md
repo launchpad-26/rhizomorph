@@ -127,6 +127,11 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   30-lane scene with 200 retired lanes dropped from 28.37ms/frame (170.2%
   of the 60fps frame budget) to 11.95ms (71.7%) by caching the unchanging
   part of a scar (#175/#178).
+  Replay playback advances the timeline clock on an animation frame rather
+  than a 100ms interval (#271), so a playing scene animates at frame rate
+  instead of the 10fps its own 60fps ambient loop was being sampled at —
+  the cadence changed, not the clock's owner, so #155's single wall-clock
+  read in the replay path is untouched.
 - An independent, read-only adversarial audit of the whole instrument
   surfaced several findings, triaged into follow-up issues (#171–#177) —
   among them, unscrubbed identifiers in captured OTel fixtures, and the
