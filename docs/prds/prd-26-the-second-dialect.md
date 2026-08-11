@@ -159,10 +159,14 @@ board — never a predicted one.
 
 ## Open questions
 
-- **A citation drift, for a lead to settle.** The roadmap, prd-19's non-goals and
-  prd-20 ruling 4 all cite *"prd-15 ruling 3"* for the adapter contract; prd-15's
-  ruling 3 is the parity ruling, its ruling 4 the contract. Both are this PRD's
-  foundation; neither is renumbered here — the numbers are load-bearing.
+- **A citation drift — settled (#293), no longer open.** The roadmap, prd-19's
+  non-goals and prd-20 ruling 4 each cited *"prd-15 ruling 3"* for the adapter
+  contract. **prd-15's ruling 3 is the parity ruling; its ruling 4 is the
+  contract**, and those three citations now say ruling 4. Neither ruling was
+  renumbered — the numbers are load-bearing, which is why the citations moved
+  rather than the rulings. Recorded here rather than deleted: this PRD is built
+  on that contract, and the next reader should not have to re-derive which
+  ruling states it.
 - Whether a flagged `est.` dollar should promote a lane to L1: `deriveRung` reads
   any non-`absent` cost as L1, so an estimate buys an authoritative number's rung.
 - Live attention for a harness with neither hooks nor a pending-turn shape has no
