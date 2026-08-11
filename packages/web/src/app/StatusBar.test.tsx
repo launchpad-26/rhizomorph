@@ -377,6 +377,84 @@ describe('StatusBar — session voice', () => {
     expect(sessionVoice(container).title).toContain("previous session's activity was outside the 4h window")
   })
 
+  /**
+   * THE DRIFT, AS THE OPERATOR MET IT (#384). `writer-alive` has been served
+   * by `/api/meta` since #187 — `api/meta.test.ts` pins that it carries it —
+   * and `KNOWN_BOOT_REASONS` never learned the word, so `parseBootFacts`
+   * returned `null` and the whole session voice collapsed to the em-dash
+   * "unavailable" gap. The bar had the fact and rendered "I don't know".
+   *
+   * Read through the rendered bar rather than through `bootExplanation`
+   * directly, because the failure was never in the sentence — it was one
+   * `.includes()` upstream of it, and only an assertion that starts at the
+   * fetch can see that.
+   */
+  it('explains a boot another live writer forced, instead of collapsing the whole voice to "unavailable"', async () => {
+    const { container, source } = renderBar(
+      metaFetch({ resumedCount: 0, eventCount: 1, resumeWindowMs: RESUME_WINDOW_MS, lastBootReason: 'writer-alive' }),
+    )
+    const f = createEventFactory()
+
+    await act(async () => {
+      source()?.emit(f.sessionStarted({ sessionId: 'sess-live' }, { ts: NOW }))
+    })
+
+    const el = sessionVoice(container)
+    // The facts parsed at all — the pre-#384 bar rendered `session sess-live —`
+    // here and called the boot facts unavailable.
+    expect(el).toHaveTextContent('session 0m · 1 events')
+    expect(el.title).not.toContain('boot facts unavailable')
+    expect(el.title).toContain('another live rhizomorph still holds the previous session')
+    // It cannot name the pid — `liveWriter` is `SessionBootDecision`'s, not
+    // `/api/meta`'s — so it names the command that can, rather than guessing.
+    expect(el.title).toContain('rhizomorph doctor')
+  })
+
+  /**
+   * prd20 ruling 5's boot, learned before the route that reports it (#390)
+   * exists — the point of #384. The sentence deliberately does NOT reuse
+   * `rotated`'s "the closed recording is in the replay picker": after a
+   * retarget the closed log is under the OLD repo's slug dir, and the picker
+   * only ever lists this repo's `sessionDir`.
+   */
+  it('explains a retargeted boot, and does not promise the closed recording is in this repo\'s picker', async () => {
+    const { container, source } = renderBar(
+      metaFetch({ resumedCount: 0, eventCount: 1, resumeWindowMs: RESUME_WINDOW_MS, lastBootReason: 'retargeted' }),
+    )
+    const f = createEventFactory()
+
+    await act(async () => {
+      source()?.emit(f.sessionStarted({ sessionId: 'sess-live' }, { ts: NOW }))
+    })
+
+    const el = sessionVoice(container)
+    expect(el.title).not.toContain('boot facts unavailable')
+    expect(el.title).toContain('retargeted:')
+    expect(el.title).toContain('different repo')
+    expect(el.title).toContain("not in this repo's replay picker")
+  })
+
+  it('still reads a reason nobody has heard of as unavailable — forward-compat is not half-trust', async () => {
+    // The posture the local list exists for, unchanged by the widening: a
+    // server ahead of this dashboard must never have its vocabulary guessed
+    // at. Unknown stays unavailable; it does not fall through to a neighbour.
+    const { container, source } = renderBar(
+      metaFetch({ resumedCount: 3, eventCount: 1, resumeWindowMs: RESUME_WINDOW_MS, lastBootReason: 'teleported' }),
+    )
+    const f = createEventFactory()
+
+    await act(async () => {
+      source()?.emit(f.sessionStarted({ sessionId: 'sess-live' }, { ts: NOW }))
+    })
+
+    const el = sessionVoice(container)
+    expect(el).toHaveTextContent('session sess-live —')
+    expect(el.title).toContain('boot facts unavailable')
+    // And it takes the resume count down with it rather than half-trusting
+    // one field out of a body it could not read.
+    expect(el.textContent).not.toMatch(/resumed/)
+  })
+
   it('does not re-fetch /api/meta after switching to replay, and names the REPLAYED session — not the live one', async () => {
     const f = createEventFactory()
     const replayedEvents = [

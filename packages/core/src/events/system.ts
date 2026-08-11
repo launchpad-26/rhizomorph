@@ -3,22 +3,77 @@ import { envelope, nonEmptyString } from './common.js'
 
 /** system-sourced events: the session itself, and collectors misbehaving. */
 
+/**
+ * THE RUN POINTER (#384) — the seam between two logs that are one run.
+ *
+ * A rotation's successor is the next log in the SAME directory, so a reader
+ * has always been able to find it by looking there. prd20 ruling 5's retarget
+ * breaks that inference outright: the session directory is derived from the
+ * watched repo (`sessionDirFor(repoPath)` = `<dataRoot>/<repoSlug>`,
+ * `server/src/log/paths.ts`), so a retargeted run's successor is under a
+ * DIFFERENT slug in a DIFFERENT directory, and nothing in either file said so
+ * — one operator intent, two logs, no way to tell they were ever related.
+ *
+ * The slug, not a path. `repoSlug` is already the portable record's join key
+ * (`record/schema.ts`, `docs/record-format.md`), and the slug IS the
+ * directory's name under the data root — so a reader holding the log already
+ * knows how to resolve it, while an absolute path would bake in one machine's
+ * data root and rot the moment the recording travelled, which is exactly what
+ * ADR-0011 says a recording must never do.
+ *
+ * `sessionId` is optional because the close half genuinely cannot know it:
+ * rotation's ordering law is close-then-open (`recorder/rotate.ts`), and the
+ * successor's id is minted off the clock only after the close has landed. So
+ * a `session.closed` names the directory its run continued in and stops
+ * there, while the `session.started` on the other side — which knows both —
+ * names the predecessor exactly. A reader that wants the closed side of a
+ * seam should follow the successor's pointer back, not the other way.
+ */
+export const sessionLinkSchema = z.object({
+  /** The other log's repo slug, which is also the name of its directory under the data root. */
+  repoSlug: nonEmptyString,
+  /** The other log's session id, when the emitter can know it — see above. */
+  sessionId: nonEmptyString.optional(),
+})
+export type SessionLink = z.infer<typeof sessionLinkSchema>
+
 export const sessionStartedPayloadSchema = z.object({
   sessionId: nonEmptyString,
   repoPath: nonEmptyString,
   repoName: nonEmptyString,
   /** Branch everything is measured against. Falls back to the main worktree's branch. */
   mainBranch: nonEmptyString.nullable().optional(),
+  /**
+   * Where this run came from, when this session continues one that ended
+   * somewhere else — see {@link sessionLinkSchema}. Optional and absent for
+   * every ordinary boot: a session that started on its own has no
+   * predecessor, and saying so with a field would be inventing a seam.
+   */
+  predecessor: sessionLinkSchema.optional(),
 })
 export type SessionStartedPayload = z.infer<typeof sessionStartedPayloadSchema>
 
 /**
- * Why a session log ended. prd16 ruling 2 gives the recorder exactly one way
- * to end one — the operator's explicit rotation — so that is the only member
- * today; prd17 ruling 1 may widen this enum additively (a widened enum still
- * parses every log written before it).
+ * Why a session log ended. prd16 ruling 2 gave the recorder exactly one way
+ * to end one — the operator's explicit rotation — and prd17 ruling 1 reserved
+ * the right to widen this enum additively (a widened enum still parses every
+ * log written before it, which is the whole reason it widens rather than
+ * changes).
+ *
+ * `retargeted` is that widening, and it is prd20 ruling 5's: switching the
+ * watched repo ends the session too, but it is not a rotation and must never
+ * be recorded as one. Operator-decided 2026-08-10, at Q2 of
+ * `docs/research/2026-08-10-retarget-spike.md`; #384 implements it. The
+ * difference a reader depends on is where the successor lives — a rotation's
+ * is the next log in this same directory, a retarget's is under another slug
+ * entirely, which is why the reason arrives together with
+ * {@link sessionLinkSchema}.
+ *
+ * The recorder that emits it is #385's `retargetSession`; nothing writes this
+ * member yet. It is declared first, on purpose, so the vocabulary lands in
+ * one additive change a reader can date, rather than inside the machinery.
  */
-export const SESSION_CLOSE_REASONS = ['rotated'] as const
+export const SESSION_CLOSE_REASONS = ['rotated', 'retargeted'] as const
 export type SessionCloseReason = (typeof SESSION_CLOSE_REASONS)[number]
 
 /**
@@ -36,6 +91,13 @@ export const sessionClosedPayloadSchema = z.object({
   reason: z.enum(SESSION_CLOSE_REASONS),
   /** How many events the closed log holds, counting this one. Optional so a third-party emitter that doesn't count can still close a session honestly. */
   eventCount: z.number().int().positive().optional(),
+  /**
+   * Where this run continued, when it continued somewhere this directory
+   * cannot imply — see {@link sessionLinkSchema}. Optional and absent for an
+   * ordinary rotation, whose successor is the next log right here, and for a
+   * close that ends the run outright.
+   */
+  successor: sessionLinkSchema.optional(),
 })
 export type SessionClosedPayload = z.infer<typeof sessionClosedPayloadSchema>
 

@@ -199,15 +199,31 @@ export async function findResumableSession(
  *   `decideSessionBoot` never returns it (a boot is not a rotation) — the
  *   recorder's own hand reports it through `/api/meta` (`api/rotate.ts`), so
  *   the provenance line can say why the session it names is seconds old.
+ *
+ * An ARRAY rather than a bare union (#384), for one reason only: the web's
+ * provenance bar keeps its own list of the reasons it can explain
+ * (`web/src/app/StatusBar.tsx`'s `KNOWN_BOOT_REASONS`) and cannot import this
+ * one — `packages/web/src` never imports `@rhizomorph/server` (ADR-0003's
+ * layering), and moving the union into browser-safe `core` would trade away
+ * that bar's deliberate "an unknown reason reads as unavailable" posture.
+ * Nothing else catches the drift between the two lists, so a seam test reads
+ * this array at runtime and pins the bar's against it
+ * (`web/src/app/boot-reason-seam.test.ts`). The drift is not hypothetical:
+ * `writer-alive` shipped in #187 and the bar never learned it, so every boot
+ * blocked by a live writer since then has rendered the session voice as
+ * *unavailable* instead of saying so. The type below is derived, so this
+ * array is the single declaration.
  */
-export type SessionBootReason =
-  | 'fresh-flag'
-  | 'resumed'
-  | 'stale'
-  | 'first-run'
-  | 'writer-alive'
-  | 'closed'
-  | 'rotated'
+export const SESSION_BOOT_REASONS = [
+  'fresh-flag',
+  'resumed',
+  'stale',
+  'first-run',
+  'writer-alive',
+  'closed',
+  'rotated',
+] as const
+export type SessionBootReason = (typeof SESSION_BOOT_REASONS)[number]
 
 export interface SessionBootDecision {
   reason: SessionBootReason
