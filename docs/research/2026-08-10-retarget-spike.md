@@ -149,10 +149,14 @@ never retroactively (`docs/telemetry.md` `[Read]`). After a retarget:
   partial: a body mixing our id with a foreign one is refused entire, by design,
   because splitting it would be the silent merge prd2 forbids
   (`api/otel.ts:167-176`). `[Verified]`
-- Each distinct offender records **one** `telemetry.refused` per 60s
-  (`REFUSAL_THROTTLE_MS`, `api/otel.ts:154`, `:237-259`), so an eight-lane swarm
-  costs ~8 events/minute in the new log until a human re-issues env — a standing
-  fault, not a flood. `[Verified]`
+- The log noise is **roughly one event per window, not one per lane**. The
+  throttle keys by *declared* instance — `key = instance ?? ''`
+  (`api/otel.ts:242`, in `createRefusalThrottle` at `:237-257`) — and every
+  pre-retarget lane declares the **same** old session id, so an eight-lane swarm
+  is one key: at most one recorded `telemetry.refused` per 60 s
+  (`REFUSAL_THROTTLE_MS`, `:154`), with the suppressed count riding along on the
+  next one (`:250`, `:254`). A standing fault, and a quiet one. `[Verified]`
+  *(Corrected 2026-08-11 after review — the first draft charged this per lane.)*
 - **What is lost is dollars, traces and active-time, not the lane.** OTLP is the
   only source of `llm.cost` and `trace.span`; git and the sessionlog transcript
   organ keep working untouched, so a retargeted instrument drops from rung L1 to
@@ -194,10 +198,34 @@ retargeted browser shows **the new repo's name over the old repo's fleet**, unde
 either option, until a client-side reset lands. This is the honesty hole, and it
 is a web issue, not a server one.
 
-One free forcing function: `bootExplanation`'s switch over `SessionBootReason` is
-exhaustive (`StatusBar.tsx:162-190`), so widening that union with `'retargeted'`
-**fails the build** until someone writes the operator-facing sentence. Take that
-help.
+**And there is no compiler to catch it — I claimed there was, and I was wrong.**
+The first draft said `bootExplanation`'s exhaustive switch would fail the build
+on a widened union. It will not, and the reason matters for issue 1:
+
+- **`SessionCloseReason` has no consumer anywhere.** It is declared and used only
+  by its own zod enum (`core/events/system.ts:21-22`, `:36`); a repo-wide grep
+  finds nothing else in `core`, `server` or `web`. Widening
+  `SESSION_CLOSE_REASONS` forces **nothing at all**. `[Verified]`
+- **The web never sees the server's `SessionBootReason` either.** `StatusBar.tsx`
+  declares its *own* `KNOWN_BOOT_REASONS` and shadows the type name locally
+  (`:47-48`); `parseBootFacts` validates with `.includes()` and returns `null`
+  for anything it doesn't know (`:70-80`), deliberately — the comment at `:44`
+  says an unknown reason must read as *unavailable* rather than be half-trusted.
+  So `bootExplanation`'s switch (`:162-190`) is exhaustive over a **local** union
+  that no upstream widening reaches. `[Verified]`
+- **And it cannot simply import the server's type**: `SessionBootReason` lives in
+  `packages/server/src/log/session-log.ts:203-211`, and `packages/web/src` imports
+  from `@rhizomorph/server` nowhere — the layering ADR-0003 protects. `[Verified]`
+
+So a `retargeted` boot would silently render the provenance bar as **unavailable**,
+which is the opposite of the property issue 1 was being groomed to rely on.
+*(Found by review, 2026-08-11; verified here.)*
+
+> **This drift already exists, today.** The server's `SessionBootReason` includes
+> `'writer-alive'` (`session-log.ts:203-211`); `KNOWN_BOOT_REASONS` does not
+> (`StatusBar.tsx:47`). A boot that refused to resume because another process
+> holds the session already shows the bar as unavailable rather than saying so.
+> `[Verified]` Flagged, not fixed — see the bug list.
 
 ## Q6 — where the failure lands if the new repo is invalid
 
@@ -213,15 +241,37 @@ repo's session dir does not return `writer-alive` — because another rhizomorph
 already watching that repo is precisely the second instance ruling 5 forbids. A
 retarget that fails any of the three is a 409 and **nothing has happened**.
 
-**Respawn can validate too — but only in the image it is about to destroy.** Once
-`execve` returns, there is no rollback: the old image is gone, and Node offers no
-"come back". The residue is a time-of-check/time-of-use gap (the repo can vanish
-in the window) which is thin on its own — but the *irreversibility* is not thin.
-And the failure lands badly: `run.ts` exits 1 on a listen failure, and a bad
-repo does not even produce that — the git collector just disables itself
-(`git-collector.ts:73-81`), so the honest-looking outcome of a respawn onto a
-broken target is a **running instrument watching nothing**, which is exactly the
-outcome #265 names as worse than a refusal.
+**Respawn can validate too — but only in the image it is about to destroy, and
+the destruction has no error path.** `execve` never returns on success: the old
+image is gone, and Node offers no "come back". On failure it does not return
+either — it **aborts**, uncatchably, exit code 134 `[Ran]` (see the failure-modes
+section). So the validation is real but the commit is not transactional in either
+direction: a check that passes leaves no rollback, and a check that was wrong
+leaves no process.
+
+Two failure shapes follow, both `[Verified]` against source:
+
+- **Unlaunchable target** — the `execve` itself fails (bad `execPath`, a
+  permissions change between check and use). SIGABRT, no handler, no message.
+- **Launchable but not a repo** — the new image starts fine. `run.ts` exits 1
+  only on a *listen* failure (`:159-175`); a bad repo produces no exit at all,
+  because the git collector merely disables itself (`git-collector.ts:73-81`).
+  The result is a **running instrument watching nothing**, reporting healthy.
+
+Rotate-and-reinit has neither shape, because it never gives up the thing it would
+need to fall back to.
+
+> **On phrasing, after review.** An earlier draft called "watching nothing" the
+> outcome *"the operator has explicitly ranked worst"* and attributed it to #265.
+> That attribution was wrong and is withdrawn: prd-20's open questions say only
+> *"Retarget semantics — rotate-and-reinit in process vs. supervised respawn.
+> Needs its spike; open, not ruled"* (`docs/prds/prd-20-the-concierge.md:109-110`),
+> and #265's body ranks nothing `[Verified]`. The sentence came from this lane's
+> own dispatch brief (`.workmux/PROMPT-265-retarget-spike.md:53-54`), which is
+> **untracked** — `git ls-files .workmux/` is empty `[Ran]` — so it is exactly the
+> kind of citation the ADR README's reachability rule exists to prevent. The
+> argument above stands on the two source-verified failure shapes and needs no
+> appeal to anyone's prior preference.
 
 ## The two options, with their honest failure modes
 
@@ -240,28 +290,52 @@ none: `packages/server/src/index.ts` installs SIGINT/SIGTERM and nothing more
 `[Verified]`. So "supervised" means writing one, and "re-exec" means the
 mechanics below. Measured:
 
-- `process.execve` **exists on the pinned Node 22.23.1** and replaces the image
-  preserving the pid (`pid=86433` in both stages) `[Ran]`. It does **not** exist
-  on Node 20, which is this machine's shell default `[Ran]` — so the whole
-  approach is silently version-gated on a runtime the repo pins but the shell
-  does not.
+- **`process.execve` is experimental and POSIX-only — not version-gated.** It
+  landed in Node 22.15.0 and `package.json` requires `>=22.22.2` (`:25-27`), so
+  **every supported runtime has it** `[Verified]`. Node 20 is below this repo's
+  floor and is not a gate at all. *(The first draft called this "version-gated on
+  a runtime the repo pins but the shell does not" — wrong, and corrected after
+  review 2026-08-11.)* What it is instead is **experimental**, and on non-POSIX
+  hosts the property exists while the call fails with
+  `ERR_FEATURE_UNAVAILABLE_ON_PLATFORM` — observed by the reviewer on their
+  machine, not reproduced here `[Read]`. That is a worse foundation for the
+  heaviest server change in a PRD than a version gate would have been.
+- On darwin arm64 / Node 22.23.1 it **works** and replaces the image preserving
+  the pid (`typeof process.execve` = `function`; `pid=5872` in both stages,
+  re-run 2026-08-11) `[Ran]`.
+- **A failed `execve` is not catchable — it aborts the process.** Calling it with
+  a bad path raised no JS exception: `try/catch` never ran, nothing after the
+  call executed, and the process died with a native stack trace and **exit code
+  134 (SIGABRT)** `[Ran]`. So on the one platform where the primitive works, a
+  respawn onto a target that turns out to be unlaunchable has **no error handler,
+  no rollback, and no way to tell the browser what happened**. (No
+  `ExperimentalWarning` surfaced on darwin across three runs, including under
+  `--trace-warnings` `[Ran]` — the warning the reviewer saw appears to be
+  platform-specific.)
 - The listening socket is **not** inherited: stage B had to re-bind, and did so
   in **59 ms, first attempt**, with one client connection held open `[Ran]`.
-  That is a floor — a trivial script's whole Node boot — not the product's, which
-  must additionally load Fastify + core and complete a first poll before it can
-  answer honestly.
-- Preserving the pid **breaks the lock's own liveness backstop**: a lock left in
-  the old repo's dir keeps naming a pid `isPidAlive` reports as running
-  (`log/session-lock.ts:85-94`), so for up to `LOCK_STALE_MS` = 20 s
-  (`:23`) a boot against the old repo is told a live writer holds a session
-  nobody is writing. Self-healing, but wrong for 20 s, and wrong in the
-  direction that refuses work. `[Verified]` + `[Ran]`
+  Two caveats on that number: it was measured on **macOS only**, and socket
+  behaviour is exactly what it is about; and it is a floor — a trivial script's
+  whole Node boot — not the product's, which must additionally load Fastify +
+  core and complete a first poll before it can answer honestly.
+- **Only if a respawn re-execs *without* closing first**, preserving the pid
+  breaks the lock's own liveness backstop: the lock left in the old repo's dir
+  keeps naming a pid `isPidAlive` reports as running (`log/session-lock.ts:85-94`),
+  so for up to `LOCK_STALE_MS` = 20 s (`:23`) a boot against the old repo is told
+  a live writer holds a session nobody is writing. **The close-first sequence this
+  note recommends does not pay it**: `closeCurrentSession` calls
+  `removeSessionLock` (`recorder/rotate.ts:115`) and the heartbeat skips the
+  sealed instant so it cannot be recreated (`cli/run.ts:119-121`). `[Verified]`
+  *(Condition added after review 2026-08-11 — the first draft charged respawn for
+  an ordering nobody proposed.)*
 
 Respawn's real advantage is genuine and should not be waved away: **it makes the
 whole class of stale-state bugs structurally impossible.** That is worth a lot on
-the heaviest server change in a PRD. It loses because Q1 shows the class is four
-lines wide, and because Q6's irreversibility is the failure the operator has
-explicitly ranked worst.
+the heaviest server change in a PRD. It loses on two facts of its own, with no
+appeal to anyone's prior preference: Q1 shows the class it protects is four lines
+wide, and the primitive it rests on is an experimental, POSIX-only call whose
+failure mode is `SIGABRT` — so the retarget that goes wrong takes the instrument
+with it instead of refusing, which is the outcome Q6 exists to prevent.
 
 ## What to avoid
 
@@ -311,10 +385,20 @@ into `[Ran]` and is worth writing regardless of which option ships.
    other.** *(The reason itself is operator-decided 2026-08-10 — see Q2; this
    issue implements a ruling, it does not re-open one.)* Widen
    `SESSION_CLOSE_REASONS` additively; add the predecessor/successor pointer so a
-   closed log names the slug dir its run continued in. Two known compile-time
-   forcing functions come with it, both wanted: `bootExplanation`'s exhaustive
-   switch (`StatusBar.tsx:162-190`) and `SessionCloseReason`'s consumers.
-   Core-first, web second. Blocks everything below.
+   closed log names the slug dir its run continued in.
+
+   **This issue gets no compiler help — plan for that.** An earlier draft
+   promised two forcing functions; there are **zero** (Q5). `SessionCloseReason`
+   has no consumer at all, and the web validates boot reasons against its own
+   local `KNOWN_BOOT_REASONS` list. **The remedy this issue inherits: widen the
+   local union in `StatusBar.tsx:47` too, in the same PR, and pin the two lists
+   together with a test** — because nothing else will catch the drift. The
+   alternative (move the boot-reason union into browser-safe `core` and have both
+   sides read it) is *not* chosen here: it would trade away the deliberate
+   forward-compat posture at `StatusBar.tsx:44` — an unknown reason must read as
+   *unavailable*, never half-trusted — and it is a layering change that deserves
+   its own issue rather than riding along on this one. Ship the test instead.
+   Core-first, web in the same PR. Blocks everything below.
 2. **`retargetSession()` beside `rotateSession()`.** `closeCurrentSession(oldDir)`
    → `openNextSession(newDir)`, reusing the two halves already split for exactly
    this. Extends `recorder/namespace-law.test.ts` to the second dir.
@@ -358,14 +442,33 @@ into `[Ran]` and is worth writing regardless of which option ships.
   3 s (`api/doctor.ts:226`, `:151`). `[Verified]`
 - **e.** `build-app.ts:69` copies the context, so any "just mutate the context"
   approach fails silently. `[Verified]`
+- **f.** The web's `KNOWN_BOOT_REASONS` (`StatusBar.tsx:47`) is already missing
+  `'writer-alive'`, which the server has emitted since #187
+  (`log/session-log.ts:203-211`). So a boot that refused to resume because
+  another process holds the session **already** renders the provenance bar as
+  *unavailable* instead of explaining itself — the drift issue 1 must not repeat
+  is a drift that already happened. `[Verified]`
 
 ## Sources / probe artifacts
 
-- **Live probes, 2026-08-10**, darwin 25.5.0, Node 22.23.1 (and v20.19.6 for the
-  negative result), scripts kept at `<scratchpad>/retarget-probe/`
-  (`01-execve.mjs`, `02-port-handoff.mjs`, with `server.out` / `client.out`).
-  Probe 2 required the sandbox off to bind a loopback socket; it binds
-  `127.0.0.1:45671` from a standalone script and never starts the product.
+- **Live probes, 2026-08-10, re-run and extended 2026-08-11 after review.**
+  **darwin 25.5.0 arm64, Node 22.23.1 — one platform only**, which matters
+  because the two headline numbers (the 59 ms re-bind; `execve` succeeding at
+  all) are both platform-dependent. Scripts kept at
+  `<scratchpad>/retarget-probe/` (`01-execve.mjs`, `02-port-handoff.mjs`, with
+  `server.out` / `client.out`). Probe 2 required the sandbox off to bind a
+  loopback socket; it binds `127.0.0.1:45671` from a standalone script and never
+  starts the product. The 2026-08-11 round added: `typeof process.execve`, a
+  bad-path `execve` (uncatchable, exit 134), and a `--trace-warnings` run.
+  **Not reproduced here:** the reviewer's `ERR_FEATURE_UNAVAILABLE_ON_PLATFORM`
+  and `ExperimentalWarning`, which are on their platform, not this one — carried
+  as `[Read]`, not upgraded to `[Ran]`.
+- **Review round, 2026-08-11** (PR #357, KelliherL): four findings, all in the
+  citations rather than the conclusion. Three corrections landed above — the
+  withdrawn attribution (Q6), the zero-not-two forcing functions (Q5, issue 1),
+  the version gate that was really an experimental POSIX-only primitive — plus
+  two conditions on costs charged to respawn. The ruling is unchanged; the
+  failure-mode evidence for respawn came out stronger, not weaker.
 - **Our source:** `packages/server/src/{server,recorder,api,collectors,log,cli}/*`
   and `packages/core/src/{collector,reduce}.ts`,
   `packages/core/src/events/system.ts`, `packages/web/src/hooks/useEventStream.ts`,
