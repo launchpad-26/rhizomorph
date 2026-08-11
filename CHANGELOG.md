@@ -146,6 +146,18 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   quarantine the one unparseable line — skipped, counted, and voiced as a
   `collector.error` — instead of throwing and losing the rest of that poll's
   events.
+- **Three silent lane-identity gaps close (#243).** `workmux/collector.ts`
+  joined `workmux list`'s rows by branch name but looked them up by handle,
+  so a slashed branch (`feat/foo`) never matched and `branch`/`worktreePath`
+  stayed `null` in every `agent.status` for that lane; the join now keys off
+  the worktree directory name both commands actually share. `worktree-slug.ts`
+  mapped only `/` and `_` to `-`, so a dotted worktree path resolved to a
+  session directory that never existed and read as "no session yet" forever;
+  it now maps `.` too, matching Claude Code's own transform. A detached HEAD
+  on the *main* worktree silently degraded every branch's
+  `aheadOfMain`/`behindMain` to `null`; the git collector now emits one
+  `collector.error` naming the detached main worktree instead of staying
+  quiet about it.
 - **A rotated or truncated session log resumes being read (#305).**
   `sessionlog/tail.ts` treated "the file is now smaller than the offset we
   hold" the same as "no new bytes" and handed back the same stale offset

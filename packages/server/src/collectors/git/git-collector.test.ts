@@ -438,4 +438,74 @@ main 1111111111111111111111111111111111111111
     expect(gitCollector.capabilities?.telemetry.level).toBe('absent')
     expect(gitCollector.capabilities?.cost.level).toBe('absent')
   })
+
+  describe('detached main HEAD', () => {
+    const DETACHED_MAIN_WORKTREES = `worktree /repo
+HEAD 1111111111111111111111111111111111111111
+detached
+
+worktree /repo-worktrees/feature-x
+HEAD 2222222222222222222222222222222222222222
+branch refs/heads/feature-x
+`
+
+    const REATTACHED_MAIN_WORKTREES = `worktree /repo
+HEAD 1111111111111111111111111111111111111111
+branch refs/heads/main
+
+worktree /repo-worktrees/feature-x
+HEAD 2222222222222222222222222222222222222222
+branch refs/heads/feature-x
+`
+
+    it('voices a collector.error once, degrades aheadOfMain/behindMain to null, and never calls rev-list', async () => {
+      const detachedExec = scriptedExec({
+        'git worktree list --porcelain::/repo': DETACHED_MAIN_WORKTREES,
+        'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo':
+          'feature-x 2222222222222222222222222222222222222222\n',
+        'git status --porcelain::/repo': '',
+        'git status --porcelain::/repo-worktrees/feature-x': '',
+      })
+
+      const first = await gitCollector.poll(gitCollector.initialSnapshot(), makeContext(detachedExec, 1000))
+
+      expect(first.nextSnapshot.mainBranch).toBeNull()
+      expect(first.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'collector.error',
+            payload: expect.objectContaining({ collector: 'git' }),
+          }),
+        ]),
+      )
+      const branchEvent = first.events.find((event) => event.type === 'branch.updated')
+      expect(branchEvent?.payload).toEqual(
+        expect.objectContaining({ branch: 'feature-x', aheadOfMain: null, behindMain: null }),
+      )
+      // scriptedExec throws on any un-scripted command — no rev-list entry above
+      // means this already proves aheadOfMain/behindMain skip the git call entirely.
+
+      // Same detached state, second poll: no re-voicing, no repeated branch.updated
+      // (nothing about feature-x changed).
+      const second = await gitCollector.poll(first.nextSnapshot, makeContext(detachedExec, 2000))
+      expect(second.events.filter((event) => event.type === 'collector.error')).toHaveLength(0)
+      expect(second.events.filter((event) => event.type === 'branch.updated')).toHaveLength(0)
+
+      // Main gets checked out to a branch again: the flag resets...
+      const reattachedExec = scriptedExec({
+        'git worktree list --porcelain::/repo': REATTACHED_MAIN_WORKTREES,
+        'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo':
+          'feature-x 2222222222222222222222222222222222222222\nmain 1111111111111111111111111111111111111111\n',
+        'git rev-list --left-right --count main...feature-x::/repo': '0\t0',
+        'git status --porcelain::/repo': '',
+        'git status --porcelain::/repo-worktrees/feature-x': '',
+      })
+      const third = await gitCollector.poll(second.nextSnapshot, makeContext(reattachedExec, 3000))
+      expect(third.nextSnapshot.mainBranchGapVoiced).toBe(false)
+
+      // ...and detaching again re-voices rather than staying silent forever.
+      const fourth = await gitCollector.poll(third.nextSnapshot, makeContext(detachedExec, 4000))
+      expect(fourth.events.some((event) => event.type === 'collector.error')).toBe(true)
+    })
+  })
 })
