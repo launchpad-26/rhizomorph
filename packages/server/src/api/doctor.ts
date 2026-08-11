@@ -148,10 +148,13 @@ export const ROUTE_EXEC_TIMEOUT_MS = 5000
  * The seventh is the exception worth stating rather than glossing:
  * `connect/links.ts`'s `transcripts-slug` takes its *status* from this
  * route's `session-logs` check, so this TTL is its flip latency: creating
- * the missing slug directory shows up within 15s here, where the old 3s TTL
+ * the missing slug directory now shows up in up to 15s, where the old 3s TTL
  * (every poll a cold probe) showed it within one poll. Its VERIFIED reading
- * is dated "as of <render>", which at this TTL can be standing on a probe up
- * to `TTL - refreshMs` = 10s old. That is the price of the single-flight,
+ * is dated "as of <render>" while standing on a probe that can be 10s old
+ * when this page's own poll created the entry — and, since the cache is one
+ * per server shared by every caller, up to the full TTL when something else
+ * did (a second tab, a `curl`, the CLI). Worst case for the flip is then
+ * TTL + one poll interval, not TTL. That is the price of the single-flight,
  * paid by one row; #223's staleness voice is where a fact that carries its
  * own probe age belongs.
  *
@@ -161,11 +164,20 @@ export const ROUTE_EXEC_TIMEOUT_MS = 5000
  * connect page's own poll interval, the thing that has to be deliberately
  * sized: `connect/index.tsx`'s default `refreshMs` (5000) must stay strictly
  * below this value for any of its polls to ever land inside the window —
- * three times under it, here, so two of every three polls reuse the last
- * probe (no new `tmux`/`workmux`/`claude --version` spawns) and only the
- * third pays for a fresh one. Raising `refreshMs` without raising this in
- * step, or lowering this without checking `refreshMs`, silently puts the two
- * back at odds — see `connect/index.tsx`'s own comment on `refreshMs`.
+ * three times under it, here, so a page whose own poll opened the window
+ * reuses the last probe twice (no new `tmux`/`workmux`/`claude --version`
+ * spawns) and pays for a fresh one on the third. That ratio is a property of
+ * one client polling alone, not of this route: the cache is one per server,
+ * shared by every caller, so an entry opened by someone else leaves this
+ * page hitting on some other cadence entirely. What the TTL *does*
+ * guarantee, whoever asks, is the probe rate — at most one real probe per
+ * TTL across all callers, which is what the single-flight is for. Raising
+ * `refreshMs` without raising this in step, or lowering this without
+ * checking `refreshMs`, silently puts the two back at odds — see
+ * `connect/index.tsx`'s own comment on `refreshMs`. The comparison above is
+ * strict on purpose and `(#344)` in this file's tests pins it: at `<=` a
+ * poll landing exactly on the boundary hits, and the sequence documented
+ * here becomes one probe in four.
  */
 export const PROBE_CACHE_TTL_MS = 15_000
 
