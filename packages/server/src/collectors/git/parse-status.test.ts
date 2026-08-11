@@ -32,4 +32,13 @@ describe('parseStatusPorcelain', () => {
     expect(parseStatusPorcelain(fixture('clean.txt'))).toEqual([])
     expect(parseStatusPorcelain('')).toEqual([])
   })
+
+  it('unquotes C-quoted paths, and finds the real rename arrow past one containing " -> "', () => {
+    expect(parseStatusPorcelain(fixture('quoted-paths.txt'))).toEqual([
+      { path: 'hello world.txt', status: 'modified', staged: false },
+      { path: 'café.txt', status: 'untracked', staged: false },
+      { path: 'plain.txt', status: 'renamed', staged: true },
+      { path: 'café dst.txt', status: 'renamed', staged: true },
+    ])
+  })
 })
