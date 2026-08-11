@@ -8,7 +8,15 @@ export const PLAYBACK_SPEEDS: readonly PlaybackSpeed[] = [1, 4, 16]
 export interface UsePlaybackOptions {
   start: number
   end: number
-  /** Injectable clock for tests; defaults to the real one. */
+  /**
+   * Injectable clock for tests; defaults to the real one. Must be a *stable*
+   * reference: it is a dependency of the tick effect below, so a fresh identity
+   * on every render tears the loop down, re-arms it, and rebases `lastTickRef`
+   * to the moment of the re-arm — losing the interval between the last tick and
+   * that flush, up to a frame's worth per render. The one production call site
+   * (`useReplaySession`) passes nothing, so the dependency is the stable
+   * `Date.now`.
+   */
   now?: () => number
 }
 
@@ -41,9 +49,15 @@ export interface UsePlaybackResult {
  * instead of one frame in six. The cadence changed; the clock's owner did not.
  * Elapsed time is still measured by `now()` and not by the timestamp rAF hands
  * the callback, which is what keeps the injection point above load-bearing and
- * the read here the only one. It also means a window that stops receiving
- * frames — hidden tab, throttled background — resumes at the wall-clock-correct
- * instant instead of counting the frames it never got.
+ * the read here the only one. Measuring from `now()` rather than from frames
+ * received also means a window that stops getting them — hidden tab, throttled
+ * background — resumes at the wall-clock-correct instant instead of counting the
+ * frames it never got. That property predates #271: the old `setInterval`
+ * measured `now()` deltas too. What the frame-driven tick changes is the *shape*
+ * of the catch-up — rAF stops entirely in a hidden tab, so the whole gap is owed
+ * on the one resuming frame (clamped to `end`), where a throttled interval paid
+ * it down at roughly 1/s. Asserted in `usePlayback.test.ts`, both at 1x and at
+ * 16x into a range shorter than the gap.
  */
 export function usePlayback({ start, end, now = Date.now }: UsePlaybackOptions): UsePlaybackResult {
   const [currentTs, setCurrentTs] = useState(start)
@@ -91,8 +105,14 @@ export function usePlayback({ start, end, now = Date.now }: UsePlaybackOptions):
   // once when playback crosses the end, regardless of tick granularity — and a
   // frame-driven tick makes that granularity coarse relative to short ranges: a
   // single 16 ms frame can step clean over the whole remainder. The clamp in the
-  // tick keeps `currentTs` at `end`; the `playing` guard here keeps this from
-  // firing twice, and ending playback tears down the loop above.
+  // tick keeps `currentTs` at `end`, and setting `playing` false tears down the
+  // loop above, so no further frame arrives to run this again.
+  //
+  // The `playing` guard is defensive, not load-bearing: deleting it fails no
+  // test, because the effect's only re-run after the stop dispatches
+  // `setPlaying(false)` against an already-false state, which React bails out of
+  // without scheduling a render. What actually delivers fire-once is the
+  // teardown plus that bailout.
   useEffect(() => {
     if (playing && currentTs >= end) setPlaying(false)
   }, [playing, currentTs, end])

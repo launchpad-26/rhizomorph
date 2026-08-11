@@ -87,6 +87,80 @@ describe('usePlayback', () => {
     expect(result.current.currentTs).toBe(500)
   })
 
+  // The `now` stability contract on `UsePlaybackOptions`. Anything that changes
+  // the tick effect's dependencies every render — an inline `now`, or a new
+  // entry in the dep array — tears the loop down and re-arms it once per commit
+  // instead of once per frame. Under fake timers no simulated time is lost to
+  // that, so not one timing assertion in this file would notice; the arm count
+  // is what notices.
+  it('arms one frame per frame, not one per render', () => {
+    const arm = vi.spyOn(globalThis, 'requestAnimationFrame')
+    try {
+      const { result } = renderHook(() => usePlayback({ start: 0, end: 100_000 }))
+
+      act(() => result.current.play())
+      const afterPlay = arm.mock.calls.length
+
+      for (let i = 0; i < 6; i += 1) {
+        act(() => {
+          vi.advanceTimersByTime(16)
+        })
+      }
+
+      // Six frames fired, each arming its own successor and nothing else.
+      expect(arm.mock.calls.length - afterPlay).toBe(6)
+    } finally {
+      arm.mockRestore()
+    }
+  })
+
+  // The doc comment's hidden-tab claim, at 1x. rAF stops entirely in a hidden
+  // tab, so the resuming frame owes the whole gap — which holds only while
+  // `now()` owns the clock. The injected clock is deliberately decoupled from
+  // the fake timer clock here: moving `wall` *without* advancing timers is
+  // exactly "real time kept going while no frame arrived".
+  it('resumes at the wall-clock-correct instant after a gap with no frames', () => {
+    let wall = 0
+    const now = () => wall
+    const { result } = renderHook(() => usePlayback({ start: 0, end: 10_000_000, now }))
+
+    act(() => result.current.play())
+    act(() => {
+      wall += 16
+      vi.advanceTimersByTime(16)
+    })
+    expect(result.current.currentTs).toBe(16)
+
+    // Five minutes of wall clock, and exactly one frame on the far side of it.
+    act(() => {
+      wall += 300_000
+      vi.advanceTimersByTime(16)
+    })
+
+    // The whole gap, on the one resuming frame — not one frame's worth of it,
+    // and not the frames that never fired.
+    expect(result.current.currentTs).toBe(300_016)
+  })
+
+  // The same claim at 16x, where the gap is multiplied past the end of a short
+  // recording: the clamp has to hold against an arbitrarily large single step.
+  it('clamps a hidden-tab gap that overshoots the range at speed', () => {
+    let wall = 0
+    const now = () => wall
+    const { result } = renderHook(() => usePlayback({ start: 0, end: 60_000, now }))
+
+    act(() => result.current.setSpeed(16))
+    act(() => result.current.play())
+    act(() => {
+      wall += 300_000
+      vi.advanceTimersByTime(16)
+    })
+
+    // 300 s of wall clock at 16x is 4800 s of timeline against a 60 s range.
+    expect(result.current.currentTs).toBe(60_000)
+    expect(result.current.playing).toBe(false)
+  })
+
   it('cancels the armed frame on pause instead of leaving the loop running', () => {
     const { result } = renderHook(() => usePlayback({ start: 0, end: 100_000 }))
 
