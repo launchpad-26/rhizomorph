@@ -1,5 +1,6 @@
 import { createEventFactory, reduceAll, selectConnection, type SessionState } from '@rhizomorph/core'
 import { beforeEach, describe, expect, it } from 'vitest'
+import type { ConnectionStatus } from '../hooks/useEventStream.js'
 import {
   buildLinks,
   envCommand,
@@ -479,7 +480,7 @@ describe('the two GETs the fold cannot replace', () => {
   const slugOk: DoctorFact = { id: 'session-logs', status: 'ok', message: 'Claude Code session logs found at /home/x/.claude/projects', assumed: false }
   const slugMissing: DoctorFact = { id: 'session-logs', status: 'warn', message: 'no Claude Code session logs at /home/x/.claude/projects — per-agent history stays empty', assumed: false }
 
-  it('reads the slug directory from doctor, and says so when doctor never answered', () => {
+  it('reads the slug directory from doctor, and says so when no readable answer arrived', () => {
     expect(row(build(reduceAll([]), { doctor: [slugOk] }), 'transcripts-slug').state).toBe('verified')
     expect(row(build(reduceAll([]), { doctor: [slugMissing] }), 'transcripts-slug').state).toBe('broken')
 
@@ -496,19 +497,46 @@ describe('the two GETs the fold cannot replace', () => {
    * an unhelpful note. The row is UNPROVEN either way; where to look is not
    * the same either way.
    */
-  it('distinguishes a doctor route that never answered from one that answered without the session-logs check', () => {
-    const silent = row(build(reduceAll([])), 'transcripts-slug')
+  it('distinguishes a doctor route that gave no readable answer from one that answered without the session-logs check', () => {
+    const unread = row(build(reduceAll([])), 'transcripts-slug')
     const answered = row(build(reduceAll([]), { doctor: [{ id: 'node', status: 'ok', message: 'Node v22.22.2', assumed: false }] }), 'transcripts-slug')
 
-    expect(silent.state).toBe('unproven')
+    expect(unread.state).toBe('unproven')
     expect(answered.state).toBe('unproven')
-    expect(silent.notes).not.toEqual(answered.notes)
+    expect(unread.notes).not.toEqual(answered.notes)
 
-    expect(silent.notes.join(' ')).toContain('has not answered')
+    expect(unread.notes.join(' ')).toContain('no readable answer')
     expect(answered.notes.join(' ')).toContain('answered, but carried no `session-logs` check')
     // The route is not the thing to go and fix.
-    expect(answered.notes.join(' ')).not.toContain('has not answered')
+    expect(answered.notes.join(' ')).not.toContain('never answered')
     expect(answered.notes.join(' ')).toContain('the route is fine')
+  })
+
+  /**
+   * **AND `doctor === null` IS ITSELF TWO FACTS.** `parseDoctor` answers `null`
+   * both for a body that never arrived and for one it could not read — and
+   * `readJson` folds every other unreadable answer onto that same value — so a
+   * server whose doctor is answering perfectly, in a shape this build is too
+   * old to parse, reaches this row as `null`. Reporting that as "has not
+   * answered" is the same lie #346 removed one branch over, aimed at the same
+   * reader: go and debug a route that is working.
+   *
+   * This row cannot yet tell the two apart — the fix is a three-state result
+   * (absent / unreadable / checks) travelling through `fetchDoctor` and
+   * `index.tsx`, which is a wider change than this. What it CAN do, and what
+   * this pins, is refuse to assert the half it does not know: the note states
+   * what is true of both causes and names both.
+   */
+  it('never claims the route was silent when it may have answered unreadably', () => {
+    const note = row(build(reduceAll([])), 'transcripts-slug').notes.join(' ')
+
+    // The claim that is not this page's to make.
+    expect(note).not.toContain('has not answered')
+    expect(note).not.toMatch(/did not answer|never responded|is not answering/)
+    // Both causes, named, and the one consequence that holds either way.
+    expect(note).toContain('never answered')
+    expect(note).toContain('could not read')
+    expect(note).toContain('unavailable')
   })
 
   /**
@@ -691,6 +719,40 @@ describe('a dead stream is not evidence either — #345', () => {
     }
   })
 
+  /**
+   * **ONE PARTITION OF `ConnectionStatus`, NOT TWO THAT HAPPEN TO AGREE.**
+   *
+   * Two places decide that nothing is arriving over this socket: the
+   * browser↔server row, which calls the link BROKEN, and `attest`, which
+   * withdraws VERIFIED from every row that stream was checking. They are the
+   * same question about the same socket, and if they ever answered it
+   * differently the page would contradict itself in the most visible way it
+   * can — a first row calling the stream dead above five rows still calling
+   * themselves checked, or the reverse.
+   *
+   * `EVERY_STATUS` is a total `Record`, so adding a fifth status is a compile
+   * error here rather than a silent divergence: whoever adds `reconnecting`
+   * has to say, once, which side of the line it falls on.
+   */
+  it('calls the first row BROKEN on exactly the statuses that withdraw VERIFIED from the fold rows', () => {
+    const EVERY_STATUS: Record<ConnectionStatus, true> = { connecting: true, open: true, error: true, closed: true }
+    const dead: ConnectionStatus[] = []
+    const withdrawn: ConnectionStatus[] = []
+
+    for (const status of Object.keys(EVERY_STATUS) as ConnectionStatus[]) {
+      const links = build(provingLog(), {
+        meta: metaWith(),
+        stream: { status, eventCount: 5, provenance: 'live · /api/stream', live: true },
+      })
+      if (row(links, 'browser-server').state === 'broken') dead.push(status)
+      // A fold row this log proves outright when the stream is alive.
+      if (row(links, 'repo-git').state !== 'verified') withdrawn.push(status)
+    }
+
+    expect(dead).toEqual(['error', 'closed'])
+    expect(withdrawn, 'the two halves of "the stream is dead" disagree').toEqual(dead)
+  })
+
   it('does it for an errored stream as well as a closed one, and not for one still opening', () => {
     const errored = { status: 'error' as const, eventCount: 5, provenance: 'live · /api/stream', live: true }
     expect(row(build(provingLog(), { stream: errored }), 'otel').state).toBe('unproven')
@@ -715,6 +777,93 @@ describe('a dead stream is not evidence either — #345', () => {
     expect(link.reason).toContain('sess-other')
     expect(link.command).toBe('rhizomorph env <lane> --port 4317')
     expect(link.warning).toBe(SAME_PROCESS_WARNING)
+  })
+})
+
+/**
+ * **THE `evidence` TAG IS A CLAIM, AND THIS IS WHERE IT IS CHECKED.**
+ *
+ * `ChainLink.evidence` is a hand-written literal in each of the seven row
+ * builders, and nothing in the type system connects it to what the row
+ * actually reads. `attest` then acts on it with the bluntest instrument this
+ * module has: a `'fold'` row's state is wiped whenever the fold's carrier is
+ * dead or synthetic, and a `'poll'` row's is not. Six of the seven say
+ * `'fold'`, so an eighth row copy-pasted from a neighbour inherits the
+ * majority — and if that row is actually driven by `GET /api/doctor`, its
+ * VERIFIED is silently withdrawn every time the SSE drops, on a page whose
+ * whole subject is what has been proven. Nothing in the suite would have said
+ * a word.
+ *
+ * Restructuring the tag so it cannot be wrong — deriving it from the inputs a
+ * builder touches — is a larger change than the rows are worth right now. What
+ * is written instead is the law the tag is supposed to satisfy, in both
+ * directions, so a wrong tag is a red build rather than a quiet wipe.
+ *
+ * The corpus is deliberately one where all seven rows read VERIFIED, so every
+ * demotion below is about the withdrawal and not about a row that had nothing
+ * to say in the first place.
+ */
+describe('every row\'s evidence tag, against the inputs it actually responds to', () => {
+  const PROVING: Partial<ConnectInputs> = { doctor: [SLUG_OK], meta: metaWith() }
+
+  function tagged(links: ChainLink[], evidence: ChainLink['evidence']): string[] {
+    return links.filter((link) => link.evidence === evidence).map((link) => link.id)
+  }
+
+  /** The rows that stopped being VERIFIED between two builds of the same log. */
+  function withdrawn(before: ChainLink[], after: ChainLink[]): string[] {
+    return before.filter((link) => link.state === 'verified' && row(after, link.id).state !== 'verified').map((link) => link.id)
+  }
+
+  it('gives every row exactly one of the two tags, and neither tag is empty', () => {
+    const links = build(provingLog(), PROVING)
+    expect([...tagged(links, 'fold'), ...tagged(links, 'poll')].sort()).toEqual(links.map((link) => link.id).sort())
+    expect(tagged(links, 'fold').length).toBeGreaterThan(0)
+    expect(tagged(links, 'poll').length).toBeGreaterThan(0)
+  })
+
+  /**
+   * **THE FOLD HALF.** Take the fold's evidence away — the stream dies, or a
+   * fixture was driving it all along — and the rows that lose VERIFIED must be
+   * exactly the rows that said the fold was checking them. A `'fold'` row that
+   * survives is a row claiming a proof its own declared source can no longer
+   * make; a `'poll'` row that does not survive is a row whose state was wiped
+   * by something that was never checking it.
+   */
+  it('loses VERIFIED on exactly the fold-tagged rows when the fold stops being evidence', () => {
+    const live = build(provingLog(), PROVING)
+    expect(live.every((link) => link.state === 'verified'), 'the corpus no longer proves all seven rows').toBe(true)
+
+    for (const [why, stream] of [['a dead stream', DEAD], ['a fixture fold', FIXTURE]] as const) {
+      const gone = withdrawn(live, build(provingLog(), { ...PROVING, stream }))
+      expect(gone, `${why} withdrew the wrong rows`).toEqual(tagged(live, 'fold'))
+    }
+  })
+
+  /**
+   * **THE POLL HALF, AND THE ONE THAT CATCHES THE COPY-PASTE.** The fold half
+   * above cannot: a poll-driven row mislabelled `'fold'` is demoted BY the
+   * wrong label, so it lands in both sides of that equality and looks correct.
+   * The catch is the other direction — withdraw the poll input while the
+   * stream stays open, and the rows whose STATE moves must be exactly the ones
+   * tagged `'poll'`.
+   *
+   * State, not notes: `doctorNote` decorates fold rows with doctor's findings
+   * on purpose, and a row quoting a finding is not a row being checked by it.
+   *
+   * `/api/meta` is the other poll input and is deliberately not asserted the
+   * same way: it feeds BROKEN reasons into fold rows (`disabledReason`), so it
+   * genuinely moves their state. That does not make those rows poll-checked —
+   * `evidence` names what has to be ALIVE for a row to say VERIFIED, and
+   * meta's contribution is a fault, not a proof. Doctor is the input where the
+   * distinction is clean, so doctor is where the law is written.
+   */
+  it('moves state on exactly the poll-tagged rows when the doctor poll stops answering', () => {
+    const answered = build(provingLog(), PROVING)
+    const silent = build(provingLog(), { ...PROVING, doctor: null })
+
+    const moved = answered.filter((link) => row(silent, link.id).state !== link.state).map((link) => link.id)
+    expect(moved, 'a row responds to the doctor poll but is not tagged as polled').toEqual(tagged(answered, 'poll'))
   })
 })
 

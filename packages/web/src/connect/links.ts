@@ -335,6 +335,28 @@ const STREAM_REASON: Record<ConnectionStatus, string> = {
 }
 
 /**
+ * The statuses {@link STREAM_REASON} itself describes as "nothing is arriving
+ * over it" — **the one partition of {@link ConnectionStatus} this module makes,
+ * declared once.**
+ *
+ * Two places need it and they must not disagree: {@link browserServer}, which
+ * calls the link itself BROKEN, and {@link attest}, which withdraws VERIFIED
+ * from every row the dead stream was checking. Both used to encode it
+ * separately — one as a predicate, one as an if/else fall-through — and agreed
+ * only by the coincidence that today's `ConnectionStatus` has exactly four
+ * values with exactly two of them dead. A fifth (`reconnecting`, say) would
+ * have split them silently, and the split reads as a contradiction on the page:
+ * a first row calling the stream dead above six rows still calling themselves
+ * checked, or the reverse.
+ *
+ * Not-dead is therefore the default on both sides, which is also the honest one
+ * — a status this module has never heard of is a stream it cannot call dead.
+ */
+function streamIsDead(status: ConnectionStatus): boolean {
+  return status === 'error' || status === 'closed'
+}
+
+/**
  * **browser ↔ server.** The one link this page can prove by existing: the SSE
  * connection is open, so this browser reached this server. It is deliberately
  * NOT gated on events having arrived — an open stream over a repo where
@@ -364,7 +386,13 @@ function browserServer(input: ConnectInputs): ChainLink {
     return verified(base, `${STREAM_REASON.open} — ${events}, ${served}`, provenNow(input.now), notes)
   }
 
-  if (input.stream.status === 'connecting') return unproven(base, notes)
+  // BROKEN is exactly {@link streamIsDead}, never a list of statuses restated
+  // here: this row and {@link attest} are answering the same question about
+  // the same socket, and a page that called the stream dead on one row while
+  // six others still called themselves checked would be contradicting itself
+  // about its own connection. Everything left over — `connecting` today — is
+  // waiting, and waiting is not an alarm.
+  if (!streamIsDead(input.stream.status)) return unproven(base, notes)
 
   return broken(base, STREAM_REASON[input.stream.status], {
     command: restartCommand(input.meta?.repoPath ?? null, input.port),
@@ -449,15 +477,27 @@ function transcriptSlug(input: ConnectInputs): ChainLink {
   }
   const check = doctorCheck(input.doctor, 'session-logs')
   if (check === null) {
-    // TWO DIFFERENT NULLS, AND ONLY ONE OF THEM IS THE ROUTE'S FAULT (#346).
-    // `doctorCheck` answers `null` both when nothing answered and when the
-    // answer simply had no `session-logs` in it, and the second used to be
+    // DIFFERENT NULLS, AND NOT ALL OF THEM ARE THE ROUTE'S FAULT (#346).
+    // `doctorCheck` answers `null` both when nothing usable arrived and when
+    // the answer simply had no `session-logs` in it, and the second used to be
     // reported as the first — sending a reader off to debug a route that is
     // working perfectly well. What is unavailable is the same either way; WHY
     // it is unavailable, and therefore where to look, is not.
+    //
+    // **`input.doctor === null` IS ITSELF STILL TWO FACTS, so this note names
+    // both rather than picking one.** `parseDoctor` answers `null` for a route
+    // that never answered AND for one that answered in a shape this page could
+    // not read (`readJson` folds every unreadable answer onto the same value),
+    // and `DoctorFact[] | null` has nowhere to carry the difference. Saying
+    // "has not answered" here was the same lie #346 removed one branch over: a
+    // server whose doctor is answering perfectly, in a body this build is too
+    // old to parse, would send its reader off to debug a live route. Until the
+    // three-state result lands (absent / unreadable / checks — it has to travel
+    // through `fetchDoctor` and `index.tsx`, so not here), this row states what
+    // it actually knows and names both causes without choosing between them.
     return unproven(base, [
       input.doctor === null
-        ? '`GET /api/doctor` has not answered — the slug directory is unavailable from here'
+        ? '`GET /api/doctor` produced no readable answer — either it never answered, or it answered in a shape this page could not read; the slug directory is unavailable from here either way'
         : '`GET /api/doctor` answered, but carried no `session-logs` check — the route is fine; this server is older than the check, or the check did not run',
     ])
   }
@@ -724,11 +764,6 @@ function uninstrumentedConductor(input: ConnectInputs): ChainLink {
   return unproven(base, ['no transcript activity has arrived yet, so there is no session to check'])
 }
 
-/** The two statuses {@link STREAM_REASON} itself describes as "nothing is arriving over it". */
-function streamIsDead(status: ConnectionStatus): boolean {
-  return status === 'error' || status === 'closed'
-}
-
 /**
  * **A FIXTURE FOLD IS NOT EVIDENCE, PER ROW** (#343).
  *
@@ -764,21 +799,17 @@ function streamIsDead(status: ConnectionStatus): boolean {
  * FUSED the fabricated fold with the real poll into single counts and single
  * session lists; the row can no longer say which witness it is quoting, and a
  * page whose subject is proof must not make a claim it cannot attribute.
+ *
+ * "Everything goes" is {@link unproven}'s own definition, so this calls it
+ * rather than restating the reset field by field: a row rebuilt UNPROVEN from
+ * a fixture must be indistinguishable from one that was born UNPROVEN, and a
+ * hand-listed copy of the same seven nulls is exactly where a field added to
+ * one and not the other would survive a fixture as a fabricated claim.
  */
 function fromFixture(link: ChainLink, input: ConnectInputs): ChainLink {
-  return {
-    ...link,
-    state: 'unproven',
-    fact: null,
-    ts: null,
-    tsKind: null,
-    reason: null,
-    command: null,
-    warning: null,
-    notes: [
-      `${input.stream.provenance} is driving this fold — a recording or a synthetic fleet, not this instrument, so nothing folded from it is evidence about this instrument's own wiring`,
-    ],
-  }
+  return unproven(link, [
+    `${input.stream.provenance} is driving this fold — a recording or a synthetic fleet, not this instrument, so nothing folded from it is evidence about this instrument's own wiring`,
+  ])
 }
 
 /**
