@@ -776,21 +776,17 @@ function streamIsDead(status: ConnectionStatus): boolean {
  * FUSED the fabricated fold with the real poll into single counts and single
  * session lists; the row can no longer say which witness it is quoting, and a
  * page whose subject is proof must not make a claim it cannot attribute.
+ *
+ * "Everything goes" is {@link unproven}'s own definition, so this calls it
+ * rather than restating the reset field by field: a row rebuilt UNPROVEN from
+ * a fixture must be indistinguishable from one that was born UNPROVEN, and a
+ * hand-listed copy of the same seven nulls is exactly where a field added to
+ * one and not the other would survive a fixture as a fabricated claim.
  */
 function fromFixture(link: ChainLink, input: ConnectInputs): ChainLink {
-  return {
-    ...link,
-    state: 'unproven',
-    fact: null,
-    ts: null,
-    tsKind: null,
-    reason: null,
-    command: null,
-    warning: null,
-    notes: [
-      `${input.stream.provenance} is driving this fold — a recording or a synthetic fleet, not this instrument, so nothing folded from it is evidence about this instrument's own wiring`,
-    ],
-  }
+  return unproven(link, [
+    `${input.stream.provenance} is driving this fold — a recording or a synthetic fleet, not this instrument, so nothing folded from it is evidence about this instrument's own wiring`,
+  ])
 }
 
 /**
