@@ -322,6 +322,21 @@ function runtimeEvidence(): string {
 }
 
 /**
+ * True when `worktree` IS the watched repo itself, not one of the lab's own
+ * arms — the one worktree the containment check must exempt rather than
+ * judge, since git created it long before the lab ever ran. Both sides go
+ * through `fs.realpathSync.native`: git reports `worktree` already
+ * canonicalized (`/private/var/…` on macOS), so comparing it against
+ * `watchedRepoDir`'s raw spelling would make the watched repo look like an
+ * escapee merely because a TMPDIR symlink layer changed its own spelling,
+ * not because it moved (#231, #233 — the single implementation both live
+ * describe blocks below now share).
+ */
+function isWatchedRepo(worktree: string, watchedRepoDir: string): boolean {
+  return realpathSync.native(worktree) === realpathSync.native(watchedRepoDir)
+}
+
+/**
  * Evidence for a live containment-check failure: for every worktree the
  * `isInside(labRoot(dataRoot), worktree)` check judged as escaping, its raw
  * path and native form, set against the data root's own raw and native
@@ -478,12 +493,8 @@ describe('the lab namespace law, live (prd12 ruling 1, #153)', () => {
       .filter((line) => line.startsWith('worktree '))
       .map((line) => line.slice('worktree '.length).trim())
 
-    // #231: git reports `worktree` already canonicalized (`.native`-resolved);
-    // `repoDir` must be canonicalized the same way before comparing, or a
-    // macOS TMPDIR symlink layer makes the watched repo look like an escapee.
     const outside = registered.filter(
-      (worktree) =>
-        realpathSync.native(worktree) !== realpathSync.native(repoDir) && !isInside(labRoot(dataRoot), worktree),
+      (worktree) => !isWatchedRepo(worktree, repoDir) && !isInside(labRoot(dataRoot), worktree),
     )
     expect(outside, containmentFailureEvidence(outside, dataRoot)).toEqual([])
   })
@@ -664,11 +675,8 @@ describe('the lab namespace law, live, with the lab data dir behind a symlink (m
       roundTripFailureEvidence(registered, realDataRoot),
     ).toBe(true)
 
-    // #231: same canonicalization as above — `repoDir` must be resolved through
-    // `realpathSync.native` before comparing against git's already-canonical output.
     const outside = registered.filter(
-      (worktree) =>
-        realpathSync.native(worktree) !== realpathSync.native(repoDir) && !isInside(labRoot(dataRoot), worktree),
+      (worktree) => !isWatchedRepo(worktree, repoDir) && !isInside(labRoot(dataRoot), worktree),
     )
     expect(outside, containmentFailureEvidence(outside, dataRoot)).toEqual([])
   })
