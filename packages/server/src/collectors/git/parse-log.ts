@@ -1,4 +1,6 @@
 import type { Author, FileChange, FileStatus } from '@rhizomorph/core'
+import type { ParseSkip } from '../parse-skip.js'
+import { unquotePath } from './unquote-path.js'
 
 /**
  * Pure parser for `git log --raw --numstat -M --pretty=format:<LOG_PRETTY>`.
@@ -30,15 +32,17 @@ export interface ParsedCommit {
   deletions: number
 }
 
-export function parseGitLog(output: string): ParsedCommit[] {
-  return output
+export function parseGitLog(output: string): { commits: ParsedCommit[]; skipped: ParseSkip[] } {
+  const skipped: ParseSkip[] = []
+  const commits = output
     .split(RECORD_SEPARATOR)
     .map((chunk) => chunk.trim())
     .filter(Boolean)
-    .map(parseChunk)
+    .map((chunk) => parseChunk(chunk, skipped))
+  return { commits, skipped }
 }
 
-function parseChunk(chunk: string): ParsedCommit {
+function parseChunk(chunk: string, skipped: ParseSkip[]): ParsedCommit {
   const [headerLine = '', ...bodyLines] = chunk.split(/\r?\n/)
   const [sha = '', shortSha = '', authorName = '', authorEmail = '', authoredAtSeconds = '0', parentsRaw = '', subject = ''] =
     headerLine.split(FIELD_SEPARATOR)
@@ -46,7 +50,15 @@ function parseChunk(chunk: string): ParsedCommit {
   const rawLines = bodyLines.filter((line) => line.startsWith(':'))
   const numstatLines = bodyLines.filter((line) => /^(?:\d+|-)\t(?:\d+|-)\t/.test(line))
 
-  const files = rawLines.map((rawLine, index) => parseFile(rawLine, numstatLines[index]))
+  const files: FileChange[] = []
+  rawLines.forEach((rawLine, index) => {
+    const result = parseFile(rawLine, numstatLines[index])
+    if (result.ok) {
+      files.push(result.file)
+    } else {
+      skipped.push({ line: rawLine, reason: `${result.reason} (commit ${shortSha})` })
+    }
+  })
   const insertions = files.reduce((sum, file) => sum + (file.insertions ?? 0), 0)
   const deletions = files.reduce((sum, file) => sum + (file.deletions ?? 0), 0)
 
@@ -65,18 +77,21 @@ function parseChunk(chunk: string): ParsedCommit {
 
 const RAW_LINE_PATTERN = /^:\d+ \d+ [0-9a-f]+\.{0,3} [0-9a-f]+\.{0,3} ([A-Z])\d*\t(.+)$/
 
-function parseFile(rawLine: string, numstatLine: string | undefined): FileChange {
+function parseFile(
+  rawLine: string,
+  numstatLine: string | undefined,
+): { ok: true; file: FileChange } | { ok: false; reason: string } {
   const match = RAW_LINE_PATTERN.exec(rawLine)
-  if (!match) throw new Error(`unparseable git raw diff line: ${rawLine}`)
+  if (!match) return { ok: false, reason: 'unparseable git raw diff line' }
   const [, statusCode = 'M', pathsField = ''] = match
   const paths = pathsField.split('\t')
   const isRenameOrCopy = statusCode === 'R' || statusCode === 'C'
 
-  const path = (isRenameOrCopy ? paths[1] : paths[0]) ?? ''
-  const previousPath = isRenameOrCopy ? paths[0] : undefined
+  const path = unquotePath((isRenameOrCopy ? paths[1] : paths[0]) ?? '')
+  const previousPath = isRenameOrCopy ? unquotePath(paths[0] ?? '') : undefined
   const { insertions, deletions } = parseNumstat(numstatLine)
 
-  return { path, status: mapStatus(statusCode), previousPath, insertions, deletions }
+  return { ok: true, file: { path, status: mapStatus(statusCode), previousPath, insertions, deletions } }
 }
 
 function parseNumstat(line: string | undefined): { insertions?: number; deletions?: number } {
