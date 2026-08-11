@@ -386,7 +386,7 @@ function DoctorPanel({ checks }: { checks: DoctorFact[] | null }) {
       </h2>
       {checks === null ? (
         <p data-testid="connect-doctor-unavailable" className="mt-1 text-[11px] italic text-ice-400">
-          {UNAVAILABLE} — this server did not answer the doctor route
+          {UNAVAILABLE} — this server did not answer the doctor route, or answered with a body this page could not read
         </p>
       ) : (
         <ul className="mt-1 flex flex-col gap-1 text-[11px]">
