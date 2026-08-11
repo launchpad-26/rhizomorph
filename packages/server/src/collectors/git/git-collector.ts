@@ -260,7 +260,19 @@ async function diffDirty(
   for (const worktree of worktrees) {
     const statusResult = await runGit(context, ['status', '--porcelain'], worktree.path)
     if (statusResult.failed) {
-      // Transient (e.g. a worktree mid-removal); keep last known state.
+      // Transient (e.g. a worktree mid-removal) or a real failure — including
+      // an exec timeout now that ticks are bounded (#236) — either way the
+      // dirty-file list is stale until the next successful poll, so keep the
+      // last known state AND say so, matching `diffBranches`'s for-each-ref
+      // failure below rather than leaving the operator to notice a frozen
+      // dirty list on their own.
+      events.push(
+        context.emit('collector.error', {
+          collector: COLLECTOR_NAME,
+          message: `git status --porcelain failed for ${worktree.path}`,
+          detail: statusResult.errorMessage ?? statusResult.stderr,
+        }),
+      )
       const carried = prevSnapshot.dirty[worktree.path]
       if (carried) nextDirty[worktree.path] = carried
       continue

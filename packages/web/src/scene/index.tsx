@@ -34,10 +34,13 @@ import { SettleRegistry } from './settle.js'
  * - **state time** — the instant the fleet's ages are judged against — is the
  *   replay scrub position when there is one, and wall time when there is not. It
  *   is read from `ModeContext`, which is the same context #155 threads its own
- *   clock through and the same fold the replay controls and `StreamContext` read;
- *   at the time of writing #155 has not landed, so this takes the scrub position
- *   from `useReplay().playback.currentTs` directly rather than inventing a second
- *   source of replay truth to be reconciled later.
+ *   clock through and the same fold the replay controls and `StreamContext` read.
+ *   Specifically it is `useReplay().derivedTs`, the position the fold and
+ *   `buildFleet` were both taken at (#269) — not `playback.currentTs`, which
+ *   under a drag runs up to a frame ahead of them. The requirement is not
+ *   freshness, it is *agreement*: `asOf` and `fleet.now` are read as a distance
+ *   from each other, so they have to come from one clock, and the fleet's is the
+ *   one that decides.
  */
 export interface SceneProps {
   /**
@@ -123,7 +126,19 @@ export default function Scene({ now }: SceneProps = {}) {
       // The scrub position is "now" for a replay and there is no such thing live,
       // so the prop is absent live and `SceneView` falls back to its own real
       // clock — one source of replay truth, and no second one to disagree with it.
-      {...(replaying ? { asOf: replay.playback.currentTs } : {})}
+      //
+      // `derivedTs`, NOT `playback.currentTs` (#269): this has to be the exact
+      // instant `fleet.now` was built at, because `layout.ts` and
+      // `marks/frame.ts` both age lanes by `asOf - fleet.now` — the distance
+      // between the snapshot and the moment it is being read at. Those two were
+      // the same number while both came from the raw scrub position. Once
+      // `buildFleet`'s clock moved to the frame-coalesced position and this one
+      // did not, a forward drag would open a gap of one frame's *timeline*
+      // distance between them — minutes or hours in a long recording, which
+      // `RECENCY_SPAN_MS` (10 min) saturates on — and every lane would grey out
+      // as stale mid-drag while the summons pulses inflated to match. #155's
+      // graveyard bug in miniature, once per frame.
+      {...(replaying ? { asOf: replay.derivedTs } : {})}
       {...(now === undefined ? {} : { now })}
     />
   )

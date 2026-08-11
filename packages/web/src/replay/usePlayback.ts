@@ -33,9 +33,10 @@ const TICK_MS = 100
  * #155 audit: the one legitimate wall-clock read in the whole replay path.
  * This is not judging a lane's recency against real time (the bug) — it is
  * converting real elapsed seconds into simulated timeline seconds, which is
- * the transport's entire job. `currentTs` is what `ModeContext.useModeClock`
- * reads while replaying; nothing downstream of that ever calls `Date.now()`
- * on its own account.
+ * the transport's entire job. `currentTs` is the finger: the scrubber thumb
+ * reads it directly, and `useReplaySession` frame-coalesces it into the
+ * `derivedTs` that `ModeContext.useModeClock` serves while replaying (#269).
+ * Nothing downstream of either ever calls `Date.now()` on its own account.
  */
 export function usePlayback({ start, end, now = Date.now }: UsePlaybackOptions): UsePlaybackResult {
   const [currentTs, setCurrentTs] = useState(start)

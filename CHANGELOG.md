@@ -113,7 +113,15 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Changed
 
-- **Measured performance fixes.** A 55,000-event replay's main-thread load
+- **Measured performance fixes.** Dragging the scrubber now rebuilds the
+  derived fleet once per animation frame instead of once per pointer event
+  (#269): the scrub position and the fold it drives are two clocks now, so
+  the thumb still tracks the finger exactly while the fold and the
+  `buildFleet` rebuild behind it move at a frame's cadence. Where a drag
+  used to rebuild once per `onChange` — up to ~120 a second onto a screen
+  that shows 60 — the tests that ship with it count 9 rebuilds across an
+  80-seek drag over 8 frames, and 13 folds across a 120-seek drag over 12
+  frames of a 25,000-event recording. A 55,000-event replay's main-thread load
   time dropped from ~20.9s blocked to ~25ms by folding the incoming event
   stream once per animation frame instead of once per event (#183). A
   30-lane scene with 200 retired lanes dropped from 28.37ms/frame (170.2%
@@ -127,6 +135,32 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **A rotated or truncated session log resumes being read (#305).**
+  `sessionlog/tail.ts` treated "the file is now smaller than the offset we
+  hold" the same as "no new bytes" and handed back the same stale offset
+  forever, so a log truncated or rotated out from under the collector
+  (log rotation, a fresh `claude` session reusing a path) went quiet with
+  no error and never recovered short of a restart. The read cursor now
+  resets to the start of the file whenever it shrinks below the held
+  offset, so the next poll resumes reading normally. A same-path rotation
+  whose replacement had already grown past the old offset by the next poll
+  went undetected by size alone and read garbage from the middle of
+  unrelated content; the cursor now also resets whenever the file's inode
+  changes, so identity — not just size — decides when a poll is reading a
+  different file.
+- **A hung collector subprocess no longer freezes all polling or shutdown
+  (#236).** Every collector exec now carries a default timeout, and a
+  per-collector watchdog abandons a poll that exceeds its budget — surfacing
+  a `collector.error` — so one wedged `git`/`tmux`/`workmux` child can no
+  longer stall the other collectors or hang graceful shutdown. Decision and
+  budget rationale in
+  [ADR-0013](docs/adr/0013-collector-ticks-are-bounded.md) and
+  [`docs/design-notes/collector-tick-budget.md`](docs/design-notes/collector-tick-budget.md).
+  A bounded `git status` failure (including this new timeout) inside the
+  dirty-file diff was carrying forward the last known state silently, with
+  no `collector.error` — the one exec in the git collector that didn't
+  already follow this PR's own "a timeout is a visible error, not silence"
+  rule. It now reports one.
 - **Rename-in-place actually works (#249).** `POST /api/label` required a
   per-process capability token nothing ever delivered to the browser, so
   every rename in `/recordings` 401ed, on every boot. The server now
