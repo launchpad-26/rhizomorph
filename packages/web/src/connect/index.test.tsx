@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ModeProvider } from '../app/ModeContext.js'
 import { StreamProvider } from '../app/StreamContext.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
@@ -299,6 +299,75 @@ describe('the sample-fleet affordance, mounted (#259)', () => {
 
     expect(screen.queryByTestId('connect-not-live')).not.toBeInTheDocument()
     expect(screen.getByTestId('connect-sample-activate')).toBeInTheDocument()
+  })
+})
+
+/**
+ * #344 — THE POLL INTERVAL AGAINST THE PROBE CACHE TTL. `refreshMs > 0` had
+ * zero coverage before this: every other test in this file pins `refreshMs:
+ * 0` precisely to avoid racing a timer. This proves the interval this page
+ * actually ships with (the `refreshMs` default) re-reads both GETs on a
+ * timer and, just as importantly, stops once the page unmounts — the cache
+ * TTL relationship itself (`api/doctor.ts`'s `PROBE_CACHE_TTL_MS`) is that
+ * file's own test's job.
+ */
+describe('the poll interval (#344)', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('re-reads both GETs every refreshMs, and stops polling once unmounted', async () => {
+    vi.useFakeTimers()
+
+    let doctorCalls = 0
+    const fetchImpl: FetchLike = async (input) => {
+      if (input === META_URL) return { ok: true, json: async () => META_BODY }
+      if (input === DOCTOR_URL) {
+        doctorCalls++
+        return { ok: true, json: async () => DOCTOR_BODY }
+      }
+      throw new Error(`unexpected fetch: ${input}`)
+    }
+
+    let source: FakeEventSource | null = null
+    let unmount: (() => void) | undefined
+    await act(async () => {
+      const result = render(
+        <ModeProvider fetchImpl={modeFetch}>
+          <StreamProvider
+            url="/api/stream"
+            now={NOW}
+            createSource={() => {
+              source = new FakeEventSource()
+              return source
+            }}
+          >
+            <ConnectPage fetchImpl={fetchImpl} refreshMs={5000} now={NOW} location={LOCATION} />
+          </StreamProvider>
+        </ModeProvider>,
+      )
+      unmount = result.unmount
+    })
+    const live = source as FakeEventSource | null
+    if (live === null) throw new Error('the stream never asked for a source')
+    act(() => live.open())
+
+    expect(doctorCalls).toBe(1) // the immediate read, on mount, before any timer fires
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+    expect(doctorCalls).toBe(2)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+    expect(doctorCalls).toBe(3)
+
+    unmount?.()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000)
+    })
+    expect(doctorCalls).toBe(3) // the unmount's cleanup cleared the interval — no polling a torn-down page
   })
 })
 

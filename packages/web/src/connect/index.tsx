@@ -63,9 +63,19 @@ export interface ConnectPageProps {
    * live on its own; this interval only refreshes what a GET can answer —
    * doctor's filesystem facts and meta's capabilities — so a slug directory
    * created, or a collector that recovered, shows up without a reload.
-   * `GET /api/doctor` single-flights and caches for 3s behind exactly this
-   * (`api/doctor.ts`'s `PROBE_CACHE_TTL_MS`). `0` disables the interval; a
-   * test pins its own facts instead of racing a timer.
+   *
+   * **#344:** `GET /api/doctor` single-flights and caches for
+   * `PROBE_CACHE_TTL_MS` (`api/doctor.ts`, 15s) — deliberately three times
+   * this default, not "behind" it as an earlier comment here claimed. A
+   * cache hit never pushes out its own expiry, so an entry always expires on
+   * the clock of the probe that created it; that makes it *this* interval's
+   * job to stay well under the TTL, never the other way round. At 5s against
+   * 15s, two of every three polls land inside the window and reuse the last
+   * probe (no new `tmux`/`workmux`/`claude --version` spawns); only the
+   * third pays for a fresh one. Raise this without raising the TTL to match
+   * — or the reverse — and every poll goes back to missing, same as before
+   * #344. `0` disables the interval; a test pins its own facts instead of
+   * racing a timer.
    */
   refreshMs?: number
   /** Test seam for `window.location` — the port every command interpolates. */

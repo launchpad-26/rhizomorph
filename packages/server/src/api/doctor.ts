@@ -141,9 +141,23 @@ export const ROUTE_EXEC_TIMEOUT_MS = 5000
  * unauthenticated GETs (no token, no rate limit elsewhere on this route)
  * single-flights onto one real probe run instead of one each; short enough
  * that `/connect`'s "watch a row flip live" promise (prd-19's own success
- * criterion) still reads as current a few seconds later.
+ * criterion) still reads as current a few seconds later — that promise is
+ * the live SSE fold's, not this route's, so "a few seconds" has room to mean
+ * several.
+ *
+ * **#344:** a cache hit never pushes out `cached.at` (`createRouteDoctorProbe`
+ * below) — an entry expires on the clock of the probe that created it,
+ * regardless of how many hits land in between. That makes this TTL, not the
+ * connect page's own poll interval, the thing that has to be deliberately
+ * sized: `connect/index.tsx`'s default `refreshMs` (5000) must stay strictly
+ * below this value for any of its polls to ever land inside the window —
+ * three times under it, here, so two of every three polls reuse the last
+ * probe (no new `tmux`/`workmux`/`claude --version` spawns) and only the
+ * third pays for a fresh one. Raising `refreshMs` without raising this in
+ * step, or lowering this without checking `refreshMs`, silently puts the two
+ * back at odds — see `connect/index.tsx`'s own comment on `refreshMs`.
  */
-export const PROBE_CACHE_TTL_MS = 3000
+export const PROBE_CACHE_TTL_MS = 15_000
 
 /**
  * Builds a memoized prober scoped to one `registerDoctorRoute` call (one
