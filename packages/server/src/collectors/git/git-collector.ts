@@ -59,7 +59,7 @@ export const gitCollector: Collector<GitSnapshot> = {
   capabilities: GIT_CAPABILITIES,
 
   initialSnapshot(): GitSnapshot {
-    return { disabled: false, mainBranch: null, worktrees: {}, branches: {}, dirty: {} }
+    return { disabled: false, mainBranch: null, mainBranchGapVoiced: false, worktrees: {}, branches: {}, dirty: {} }
   },
 
   async poll(prevSnapshot, context): Promise<PollResult<GitSnapshot>> {
@@ -82,6 +82,18 @@ export const gitCollector: Collector<GitSnapshot> = {
 
     const worktrees = parseWorktreeList(worktreeListResult.stdout)
     const mainBranch = worktrees[0]?.branch ?? null
+    const mainWorktreeDetached = mainBranch === null
+
+    if (mainWorktreeDetached && !prevSnapshot.mainBranchGapVoiced) {
+      events.push(
+        context.emit('collector.error', {
+          collector: COLLECTOR_NAME,
+          message: 'main worktree HEAD is detached — aheadOfMain/behindMain cannot be computed for any branch',
+          detail: `no branch checked out at ${worktrees[0]?.path ?? context.repoPath}`,
+        }),
+      )
+    }
+
     const nextWorktrees = diffWorktrees(worktrees, prevSnapshot, context, events)
 
     const nextBranches = await diffBranches(context, worktrees, mainBranch, prevSnapshot, events)
@@ -89,7 +101,14 @@ export const gitCollector: Collector<GitSnapshot> = {
     const nextDirty = await diffDirty(context, worktrees, prevSnapshot, events)
 
     return {
-      nextSnapshot: { disabled: false, mainBranch, worktrees: nextWorktrees, branches: nextBranches, dirty: nextDirty },
+      nextSnapshot: {
+        disabled: false,
+        mainBranch,
+        mainBranchGapVoiced: mainWorktreeDetached,
+        worktrees: nextWorktrees,
+        branches: nextBranches,
+        dirty: nextDirty,
+      },
       events,
     }
   },

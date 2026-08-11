@@ -52,6 +52,7 @@ function ghostFreeSnapshot(): GitSnapshot {
   return {
     disabled: false,
     mainBranch: 'main',
+    mainBranchGapVoiced: false,
     worktrees: {
       '/repo': {
         path: '/repo',
