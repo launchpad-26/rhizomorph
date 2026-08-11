@@ -23,6 +23,12 @@ export interface GitSnapshot {
   disabled: boolean
   /** Branch of the main worktree, or null when it's detached. */
   mainBranch: string | null
+  /**
+   * True once the detached-main-HEAD gap has been voiced via `collector.error`.
+   * Resets to false the moment the main worktree has a branch again, so a
+   * later detach re-voices rather than staying silent forever.
+   */
+  mainBranchGapVoiced: boolean
   worktrees: Record<string, GitWorktreeState>
   branches: Record<string, GitBranchState>
   dirty: Record<string, DirtyFile[]>
