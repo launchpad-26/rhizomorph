@@ -274,6 +274,35 @@ describe('the page\'s only action', () => {
 })
 
 /**
+ * THE SAMPLE-FLEET AFFORDANCE, MOUNTED (#259). `sample.test.tsx` already
+ * drives `SampleFleetControl`'s own law in isolation; this restates it
+ * reached from the page itself — the fence-widening note on this issue is
+ * explicit that "a button that is never rendered is not an affordance" — and
+ * ties it to the page's own pre-existing provenance banner (ruling 6).
+ */
+describe('the sample-fleet affordance, mounted (#259)', () => {
+  it('flips the whole page\'s provenance reading when activated, and back when returned to live', async () => {
+    await renderConnect()
+
+    expect(screen.queryByTestId('connect-not-live')).not.toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('connect-sample-activate'))
+    })
+
+    expect(screen.getByTestId('connect-not-live').textContent).toContain('synthetic · 20 lanes · real schema events')
+    expect(screen.getByTestId('connect-sample-banner').textContent).toContain('synthetic · 20 lanes · real schema events')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('connect-sample-return'))
+    })
+
+    expect(screen.queryByTestId('connect-not-live')).not.toBeInTheDocument()
+    expect(screen.getByTestId('connect-sample-activate')).toBeInTheDocument()
+  })
+})
+
+/**
  * RULING 7, ASSERTED AT THE LEVEL OF THE SOURCE TEXT — the tactic
  * `drawer/readonly.test.ts` uses for the read-only constitution, restated
  * for this directory. "This page mutates nothing" is not a property any
@@ -292,7 +321,7 @@ describe('ruling 7 — this page mutates nothing', () => {
   }
 
   it('walks a directory that actually has sources in it', () => {
-    expect(sourceFiles().map((file) => file.name).sort()).toEqual(['index.tsx', 'links.ts', 'meta.ts'])
+    expect(sourceFiles().map((file) => file.name).sort()).toEqual(['index.tsx', 'links.ts', 'meta.ts', 'sample.tsx'])
   })
 
   it('reaches for no request path but the two GETs ruling 5 names', () => {

@@ -7,11 +7,16 @@ import { copyToClipboard, type CopyText } from '../drawer/AttachButton.js'
 import { formatWallClock } from '../replay/format.js'
 import { buildLinks, portFrom, tally, type ChainLink, type LinkState } from './links.js'
 import { fetchDoctor, fetchMeta, isRenderableTs, UNAVAILABLE, type DoctorFact, type FetchLike, type MetaFacts } from './meta.js'
+import { SampleFleetControl } from './sample.js'
 
 /**
  * THE CONNECT PAGE — THE HANDSHAKE CHECKLIST (prd19 rulings 3, 5 and 7, wave
  * 3, #258). `/connect`, the fourth nav hand, now that wave 2's fence
  * (#252's placeholder) has a page to hold.
+ *
+ * `SampleFleetControl` (`sample.tsx`), mounted in the header below, turns
+ * ruling 6's synthetic fleet into a button instead of a keyboard secret
+ * (wave 3, #259).
  *
  * One row per link in the chain, each rendering exactly one of VERIFIED /
  * BROKEN / UNPROVEN. The derivation is all in `links.ts` — this file is the
@@ -166,6 +171,7 @@ export function ConnectPage({ fetchImpl, onCopy = copyToClipboard, now, refreshM
         <span className="text-[11px] text-ice-400">
           every link in the chain, and the fact that proves it — this page reads, and never writes
         </span>
+        <SampleFleetControl />
         <span data-testid="connect-tally" className="figures ml-auto text-[11px] text-ice-400">
           <span className="text-working">{counts.verified} verified</span>
           {' · '}
