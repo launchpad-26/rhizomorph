@@ -93,12 +93,18 @@ const WEB_SRC = path.join(REPO_ROOT, 'packages', 'web', 'src')
 const CONCIERGE_DIR = path.join(SERVER_SRC, 'concierge')
 
 /**
- * The files allowed to reach the concierge module. **Empty, deliberately.**
+ * The files allowed to reach the concierge module. **Exactly one**, named here
+ * in the law rather than discovered in a diff.
  *
- * prd-20 ruling 2: no concierge route ships before #234's capability-token
- * guard covers every mutating route, and this lane ships no route at all. The
- * set is the seam a later wave adds its ONE token-gated entry point to — named
- * here, in the law, rather than discovered in a diff.
+ * #263 is the first lane to add one: `api/concierge.ts`, carrying
+ * `GET /api/concierge/repos` — prd-20 ruling 5's read-only repo discovery. It
+ * needs no capability token (ruling 2 gates MUTATING routes; this one writes
+ * nothing), and it is neither a collector nor a poll: a human opening the setup
+ * wizard's picker triggers it, like any other `GET`.
+ *
+ * Exactly this one file — not the `api/` directory, not a pattern. The next
+ * wave that wants in reads this comment and adds its own single file the same
+ * way, and #262 in particular is warned not to widen it to a glob.
  *
  * **It BOUNDS the walk; it does not exempt a node.** Found in review of #351:
  * exempting the file itself admits the route and then convicts everything above
@@ -113,7 +119,7 @@ const CONCIERGE_DIR = path.join(SERVER_SRC, 'concierge')
  * THROUGH the gate is still a violation, because ADR-0014's condition is "never
  * from a collector, never from a poll" and a gate does not make a poll a human.
  */
-const ALLOWED_IMPORTERS: ReadonlySet<string> = new Set<string>()
+const ALLOWED_IMPORTERS: ReadonlySet<string> = new Set<string>([path.join(SERVER_SRC, 'api', 'concierge.ts')])
 
 /**
  * Files that may never be in {@link ALLOWED_IMPORTERS}, whatever a later wave
@@ -473,21 +479,25 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
       }
     })
 
-    it('and the CLI does not reach it either — through the gate, which is the one it may later use', () => {
-      // `cli/index.ts` boots the server that will carry the token-gated route, so
-      // it is judged under the BOUND: a chain that stops at a declared importer
-      // is legitimate for it. Today the set is empty, so this is the same
-      // question as the raw one — which is exactly why it is written separately
-      // now, before the answer diverges.
+    it('and the CLI does not reach it either — except through the gate, which is the one it may use', () => {
+      // `cli/index.ts` boots the server that carries the route, so it is judged
+      // under the BOUND: a chain that stops at a declared importer is legitimate
+      // for it. #351 wrote this separately from the raw-graph four "before the
+      // answer diverges"; with #263's route declared, it HAS diverged — on the
+      // raw graph the CLI now reaches the hand through `api/index.ts`, and that
+      // is exactly the route it is allowed. The four above still get no such
+      // credit.
       const canonical = realCanonical(path.join(SERVER_SRC, 'cli', 'index.ts'))
       expect(tree.files.has(canonical), 'cli/index.ts is not in the graph — has it moved?').toBe(true)
       expect(shortestChain(graph, canonical, isInConcierge, declared)?.map(relative).join(' -> ')).toBeUndefined()
     })
 
-    it('the declared-importer set is empty, and that is the ruling, not an omission', () => {
-      // prd-20 ruling 2. When a later wave adds its token-gated route here, this
-      // assertion is what makes it stop and read the ruling first.
-      expect([...ALLOWED_IMPORTERS]).toEqual([])
+    it("the declared-importer set is EXACTLY #263's one route — not a directory, not a pattern", () => {
+      // prd-20 ruling 2. #351 landed this asserting the set was empty, which is
+      // what made the first lane to want in stop and read the ruling. #263 is
+      // that lane, so the assertion becomes the narrower one: a later wave
+      // widening this to `api/` wholesale or to a glob fails here.
+      expect([...ALLOWED_IMPORTERS]).toEqual([path.join(SERVER_SRC, 'api', 'concierge.ts')])
     })
 
     it('no collector, no poll loop and no web file may ever be a declared importer', () => {
@@ -696,6 +706,24 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
           ['/repo/src/api/concierge.ts'],
         ),
       ).toEqual(['sneaky.ts'])
+    })
+
+    it('and a leak through a helper the GATE ITSELF imports is still caught', () => {
+      // The bound zeroes the walk at the declared file, not at everything the
+      // declared file touches. If the route imported a helper that separately
+      // reached the hand, that helper's own edge is undeclared and must surface
+      // — the gate's grant covers the gate, not its dependencies.
+      expect(
+        reachers(
+          {
+            ...THE_HAND,
+            '/repo/src/api/concierge.ts': `import { fence } from '../concierge/paths.js'\nimport './helper.js'\n`,
+            '/repo/src/api/helper.ts': `import { fence } from '../concierge/paths.js'\n`,
+            '/repo/src/api/index.ts': `import './concierge.js'\n`,
+          },
+          ['/repo/src/api/concierge.ts'],
+        ),
+      ).toEqual(['helper.ts'])
     })
 
     it('and a POLL LOOP importing the declared route is still a violation — the raw graph, no gate credit', () => {
