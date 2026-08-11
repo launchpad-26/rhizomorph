@@ -135,6 +135,12 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **C-quoted git paths round-trip (#237).** `git status --porcelain` C-quotes any
+  path with a space or non-ASCII byte, and `git log --raw` quotes non-ASCII;
+  both parsers took the quoted slice verbatim, so a file as ordinary as
+  `my file.ts` reached the collision matrix as the literal `"my file.ts"` and
+  matched nothing. Paths are now unquoted on parse and status renames split on
+  the real arrow, not a ` -> ` inside a filename.
 - **Three silent lane-identity gaps close (#243).** `workmux/collector.ts`
   joined `workmux list`'s rows by branch name but looked them up by handle,
   so a slashed branch (`feat/foo`) never matched and `branch`/`worktreePath`

@@ -1,0 +1,4 @@
+ M "hello world.txt"
+?? "caf\303\251.txt"
+R  "arrow -> name.txt" -> plain.txt
+R  "renamed src.txt" -> "caf\303\251 dst.txt"
