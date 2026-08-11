@@ -31,6 +31,15 @@ import { doctorCheck, type CollectorFacts, type DoctorFact, type MetaFacts } fro
  * of the same append-only truth, and a page whose job is proof must not lose
  * a proof because one witness was polled a second earlier.
  *
+ * **VERIFIED MEANS "I CHECKED, AND IT HOLDS" — NEVER "THIS WAS TRUE ONCE"**
+ * (#343 and #345, ruled together: they are one question). A row may say
+ * VERIFIED only on live evidence from ITS OWN source. You cannot check over a
+ * fold that was never live, and you cannot check over a stream that has died;
+ * in both cases the honest state is UNPROVEN, which is exactly why this page
+ * has a third state rather than a choice between a green lie and a red one.
+ * {@link ChainLink.evidence} names the source each row is checked by, and
+ * {@link attest} is the one place both halves of that ruling are applied.
+ *
  * The three states are also the hue law's own three (`theme/theme.css`):
  * verified wears the green family, broken wears the one red the instrument
  * has, and unproven wears the ice ramp — **waiting is not an alarm**, so a
@@ -40,6 +49,31 @@ import { doctorCheck, type CollectorFacts, type DoctorFact, type MetaFacts } fro
 
 export type LinkState = 'verified' | 'broken' | 'unproven'
 
+/**
+ * WHAT IS CHECKING A ROW — and therefore what has to be both real and alive
+ * before it may say VERIFIED (#343, #345).
+ *
+ * `'fold'`: the SSE stream. These rows are proved by records the fold
+ * absorbed, so their claims are only as live as the stream carrying them, and
+ * only as real as the log driving it.
+ *
+ * `'poll'`: a GET this page re-reads on its own interval (`/api/meta`,
+ * `GET /api/doctor`). These have their own freshness and their own failure
+ * mode — **a dead SSE says nothing about whether the last poll succeeded**,
+ * and a fixture in the fold says nothing about whether the filesystem doctor
+ * just probed exists. Treating all seven rows identically is what makes
+ * staleness look like a hard problem; most of the time, half of them are not
+ * actually stale.
+ *
+ * This very nearly coincides with {@link ChainLink.tsKind} — a fold row is
+ * dated by a stored event, a poll row by the probe that is this render — and
+ * that is not a coincidence: both distinctions are the same one. It is
+ * declared per row rather than read off `tsKind` because `tsKind` leaks on
+ * one real case: a folded record whose every stamp was null is dated `'render'`
+ * ({@link provenAt}) while still being a stored fact nobody is checking.
+ */
+export type Evidence = 'fold' | 'poll'
+
 export interface ChainLink {
   id: string
   /** The link itself, as ruling 3 names it: `browser ↔ server`, `repo ↔ git`, … */
@@ -47,12 +81,21 @@ export interface ChainLink {
   /** What this row would prove — shown always, so an UNPROVEN row still says what it is waiting for. */
   question: string
   state: LinkState
-  /** VERIFIED only: the fact that proves it. */
+  /** What checks this row, and what therefore has to be alive for it to say VERIFIED — see {@link Evidence}. */
+  evidence: Evidence
+  /**
+   * The fact that proves it. Always present on VERIFIED; **also present on an
+   * UNPROVEN row that was demoted by {@link attest} for a dead stream** — the
+   * fact and its date are still true statements about when they were last
+   * proven, and #345 keeps them precisely because "UNPROVEN plus a dated fact"
+   * is the whole reason a fourth LAST KNOWN state was not needed. Never
+   * present on BROKEN, and never present on a row a fixture drove.
+   */
   fact: string | null
   /**
-   * VERIFIED only, and **never null on a VERIFIED row** — ruling 3's own
-   * sentence is "a fact AND its timestamp", and a stale VERIFIED with nothing
-   * to date it is exactly the failure this page exists to remove.
+   * **Never null wherever {@link fact} is set** — ruling 3's own sentence is
+   * "a fact AND its timestamp", and a stale fact with nothing to date it is
+   * exactly the failure this page exists to remove.
    */
   ts: number | null
   /**
@@ -292,6 +335,28 @@ const STREAM_REASON: Record<ConnectionStatus, string> = {
 }
 
 /**
+ * The statuses {@link STREAM_REASON} itself describes as "nothing is arriving
+ * over it" — **the one partition of {@link ConnectionStatus} this module makes,
+ * declared once.**
+ *
+ * Two places need it and they must not disagree: {@link browserServer}, which
+ * calls the link itself BROKEN, and {@link attest}, which withdraws VERIFIED
+ * from every row the dead stream was checking. Both used to encode it
+ * separately — one as a predicate, one as an if/else fall-through — and agreed
+ * only by the coincidence that today's `ConnectionStatus` has exactly four
+ * values with exactly two of them dead. A fifth (`reconnecting`, say) would
+ * have split them silently, and the split reads as a contradiction on the page:
+ * a first row calling the stream dead above six rows still calling themselves
+ * checked, or the reverse.
+ *
+ * Not-dead is therefore the default on both sides, which is also the honest one
+ * — a status this module has never heard of is a stream it cannot call dead.
+ */
+function streamIsDead(status: ConnectionStatus): boolean {
+  return status === 'error' || status === 'closed'
+}
+
+/**
  * **browser ↔ server.** The one link this page can prove by existing: the SSE
  * connection is open, so this browser reached this server. It is deliberately
  * NOT gated on events having arrived — an open stream over a repo where
@@ -304,16 +369,14 @@ function browserServer(input: ConnectInputs): ChainLink {
     id: 'browser-server',
     label: 'browser ↔ server',
     question: 'is this page actually talking to a running Rhizomorph?',
+    evidence: 'fold' as const,
   }
   const notes = [`source: ${input.stream.provenance}`, ...doctorNote(input.doctor, 'node')]
 
-  if (!input.stream.live) {
-    // Ruling 6, at this page's most load-bearing row: a fixture and a replay
-    // both fabricate `status: 'open'` (`StreamContext`), so reading it as
-    // proof would be exactly the lie this page exists to remove.
-    return unproven(base, [...notes, 'a recorded session or a synthetic fleet is driving this fold — nothing here proves this browser is talking to a live instrument'])
-  }
-
+  // Ruling 6 used to be enforced here, at this one row, because a fixture and
+  // a replay both fabricate `status: 'open'` (`StreamContext`). #343 moved it
+  // to {@link attest} so it reaches every row the fold feeds instead of only
+  // the row that reads `status` — the outcome for this row is unchanged.
   if (input.stream.status === 'open') {
     const instance = input.meta?.sessionId ?? null
     const served = instance === null ? '/api/meta has not named an instance' : `/api/meta names instance ${instance}`
@@ -323,7 +386,13 @@ function browserServer(input: ConnectInputs): ChainLink {
     return verified(base, `${STREAM_REASON.open} — ${events}, ${served}`, provenNow(input.now), notes)
   }
 
-  if (input.stream.status === 'connecting') return unproven(base, notes)
+  // BROKEN is exactly {@link streamIsDead}, never a list of statuses restated
+  // here: this row and {@link attest} are answering the same question about
+  // the same socket, and a page that called the stream dead on one row while
+  // six others still called themselves checked would be contradicting itself
+  // about its own connection. Everything left over — `connecting` today — is
+  // waiting, and waiting is not an alarm.
+  if (!streamIsDead(input.stream.status)) return unproven(base, notes)
 
   return broken(base, STREAM_REASON[input.stream.status], {
     command: restartCommand(input.meta?.repoPath ?? null, input.port),
@@ -333,7 +402,7 @@ function browserServer(input: ConnectInputs): ChainLink {
 
 /** **repo ↔ git.** Worktrees, branches and commits reaching the fold — the L0 floor every other link is measured against. */
 function repoGit(input: ConnectInputs): ChainLink {
-  const base = { id: 'repo-git', label: 'repo ↔ git', question: 'is the git collector reaching this repo?' }
+  const base = { id: 'repo-git', label: 'repo ↔ git', question: 'is the git collector reaching this repo?', evidence: 'fold' as const }
   const flow = mergeFlow(input.flow.git, input.meta?.connection?.sources.git)
   const notes = doctorNote(input.doctor, 'lane-manifest')
 
@@ -356,6 +425,7 @@ function agentsPanes(input: ConnectInputs): ChainLink {
     id: 'agents-tmux',
     label: 'agents ↔ tmux/workmux',
     question: 'is anything reporting live agent panes and handles?',
+    evidence: 'fold' as const,
   }
   const tmux = mergeFlow(input.flow.tmux, input.meta?.connection?.sources.tmux)
   const workmux = mergeFlow(input.flow.workmux, input.meta?.connection?.sources.workmux)
@@ -400,10 +470,36 @@ function transcriptSlug(input: ConnectInputs): ChainLink {
     id: 'transcripts-slug',
     label: 'transcripts ↔ slug (dir)',
     question: 'does the session-log directory this repo resolves to exist?',
+    // The one row in the chain the fold does not feed at all, which is why it
+    // survives both a fixture and a dead stream: doctor probed THIS
+    // filesystem, on its own interval, whatever log is driving the page.
+    evidence: 'poll' as const,
   }
   const check = doctorCheck(input.doctor, 'session-logs')
   if (check === null) {
-    return unproven(base, ['`GET /api/doctor` has not answered — the slug directory is unavailable from here'])
+    // DIFFERENT NULLS, AND NOT ALL OF THEM ARE THE ROUTE'S FAULT (#346).
+    // `doctorCheck` answers `null` both when nothing usable arrived and when
+    // the answer simply had no `session-logs` in it, and the second used to be
+    // reported as the first — sending a reader off to debug a route that is
+    // working perfectly well. What is unavailable is the same either way; WHY
+    // it is unavailable, and therefore where to look, is not.
+    //
+    // **`input.doctor === null` IS ITSELF STILL TWO FACTS, so this note names
+    // both rather than picking one.** `parseDoctor` answers `null` for a route
+    // that never answered AND for one that answered in a shape this page could
+    // not read (`readJson` folds every unreadable answer onto the same value),
+    // and `DoctorFact[] | null` has nowhere to carry the difference. Saying
+    // "has not answered" here was the same lie #346 removed one branch over: a
+    // server whose doctor is answering perfectly, in a body this build is too
+    // old to parse, would send its reader off to debug a live route. Until the
+    // three-state result lands (absent / unreadable / checks — it has to travel
+    // through `fetchDoctor` and `index.tsx`, so not here), this row states what
+    // it actually knows and names both causes without choosing between them.
+    return unproven(base, [
+      input.doctor === null
+        ? '`GET /api/doctor` produced no readable answer — either it never answered, or it answered in a shape this page could not read; the slug directory is unavailable from here either way'
+        : '`GET /api/doctor` answered, but carried no `session-logs` check — the route is fine; this server is older than the check, or the check did not run',
+    ])
   }
   // A probe, not a stored fact: doctor answered about the filesystem as it is
   // now (the route re-probes every `PROBE_CACHE_TTL_MS`), so "as of this
@@ -427,6 +523,7 @@ function transcriptFlow(input: ConnectInputs): ChainLink {
     id: 'transcripts-flow',
     label: 'transcripts ↔ slug (flow)',
     question: 'has a single transcript event actually arrived?',
+    evidence: 'fold' as const,
   }
   const flow = mergeFlow(input.flow.sessionlog, input.meta?.connection?.sources.sessionlog)
   if (flow.count > 0) {
@@ -471,6 +568,7 @@ function otelLink(input: ConnectInputs): ChainLink {
     id: 'otel',
     label: 'dollars/traces ↔ OTel',
     question: 'is any agent exporting telemetry to this instance?',
+    evidence: 'fold' as const,
   }
   const flow = mergeFlow(input.flow.otel, input.meta?.connection?.sources.otel)
   const refusal = latestRefusal(input)
@@ -633,6 +731,7 @@ function uninstrumentedConductor(input: ConnectInputs): ChainLink {
     id: 'uninstrumented-conductor',
     label: 'the uninstrumented conductor',
     question: 'is every agent with transcript activity also exporting telemetry?',
+    evidence: 'fold' as const,
   }
   const witnesses = mergeUninstrumented(input.flow.uninstrumentedSessions, input.meta?.connection?.uninstrumentedSessions)
   const ripe = witnesses.filter((witness) => pastGrace(witness, input.now))
@@ -666,10 +765,113 @@ function uninstrumentedConductor(input: ConnectInputs): ChainLink {
 }
 
 /**
+ * **A FIXTURE FOLD IS NOT EVIDENCE, PER ROW** (#343).
+ *
+ * Ruling 6 was already satisfied to the letter by the page-level
+ * `connect-not-live` banner, and that was not enough: a banner is a label on a
+ * page, not a property of a row, and a reader who scrolls past it sees six
+ * green ticks. The whole design of this checklist is that each row carries its
+ * own truth so nobody has to hold context in their head, and that design is
+ * worth nothing if the single most important caveat on the page is the one
+ * thing kept outside the rows.
+ *
+ * Everything goes — the fact, the reason, the command — not just the green.
+ * **A synthetic lane's `env` command must never be copyable**: handing someone
+ * `rhizomorph env lane-17 …` for a lane that exists only inside a 20-lane
+ * fixture is worse than an unhelpful row, because it is an instruction to do
+ * something pointless and then wonder why nothing changed. Clearing `command`
+ * is what removes the copy button (`index.tsx` renders one only where there is
+ * a command), so the row stops offering the action rather than offering it
+ * with a warning attached.
+ *
+ * **The notes go with it, all of them.** Every note on a row was written to
+ * support a claim this row is no longer making — and one of them,
+ * {@link envApplyNote}, carries the exact command the copy button was just
+ * denied, wrapped in an `eval` a reader can select and paste. Clearing
+ * `command` while leaving that in prose would remove the button and keep the
+ * instruction. Doctor's own findings are not lost by this: they are unchanged
+ * and unranked in the panel below the rows, which is what that panel is for.
+ *
+ * What this costs, stated rather than hidden: a row that would have gone
+ * BROKEN on `/api/meta`'s own evidence — a collector disabled at boot — goes
+ * quiet under a fixture too. That is the right trade and not merely an
+ * accepted one. {@link mergeFlow} and {@link mergeUninstrumented} have by then
+ * FUSED the fabricated fold with the real poll into single counts and single
+ * session lists; the row can no longer say which witness it is quoting, and a
+ * page whose subject is proof must not make a claim it cannot attribute.
+ *
+ * "Everything goes" is {@link unproven}'s own definition, so this calls it
+ * rather than restating the reset field by field: a row rebuilt UNPROVEN from
+ * a fixture must be indistinguishable from one that was born UNPROVEN, and a
+ * hand-listed copy of the same seven nulls is exactly where a field added to
+ * one and not the other would survive a fixture as a fabricated claim.
+ */
+function fromFixture(link: ChainLink, input: ConnectInputs): ChainLink {
+  return unproven(link, [
+    `${input.stream.provenance} is driving this fold — a recording or a synthetic fleet, not this instrument, so nothing folded from it is evidence about this instrument's own wiring`,
+  ])
+}
+
+/**
+ * **A DEAD STREAM IS NOT EVIDENCE EITHER** (#345).
+ *
+ * VERIFIED on this page does not mean "this was true once"; it means "I
+ * checked, and it holds". A fold row's checker is the SSE stream, so when the
+ * stream dies nothing is checking and the strongest word this page has has to
+ * be withdrawn — however recently it was earned. A green row with a timestamp
+ * forty minutes old still reads green at a glance, and glancing is exactly what
+ * people do on a page they opened because something was already wrong.
+ *
+ * **The fact and its date stay.** They are not a lie and they are worth
+ * showing: "UNPROVEN, and here is the last thing that WAS proven, dated" says
+ * everything a fourth LAST KNOWN state would have said, using a word the
+ * reader has already had to learn. Three states are already a vocabulary a
+ * stranger picks up mid-incident; a fourth is not worth the precision.
+ *
+ * **Only VERIFIED is withdrawn.** A BROKEN fold row stays BROKEN: a refusal
+ * that folded, or a conductor that ran uninstrumented, is something that
+ * happened, and the stream dying afterwards does not un-happen it. The
+ * asymmetry with {@link fromFixture} is the same distinction one step on — a
+ * fixture's fault never happened at all.
+ *
+ * **`connecting` is not dead.** It is the ordinary first moment of every page
+ * load, and demoting there would make the first paint contradict the
+ * `/api/meta` body it had just read — the precise failure
+ * {@link mergeUninstrumented} was ruled into existence to remove ("that would
+ * go quiet exactly when SSE lags").
+ */
+function lastProven(link: ChainLink, input: ConnectInputs): ChainLink {
+  return {
+    ...link,
+    state: 'unproven',
+    notes: [
+      ...link.notes,
+      `${STREAM_REASON[input.stream.status]} — the fact above is the last one that WAS proven, and nothing has checked it since`,
+    ],
+  }
+}
+
+/**
+ * The one gate both #343 and #345 pass through, because they are one question:
+ * **VERIFIED requires live evidence from that row's own source.** Poll-derived
+ * rows have their own source and their own freshness and are untouched by
+ * either — a dead SSE says nothing about whether the last `GET /api/doctor`
+ * succeeded, and a fixture in the fold says nothing about whether the
+ * directory doctor just probed exists.
+ */
+function attest(link: ChainLink, input: ConnectInputs): ChainLink {
+  if (link.evidence === 'poll') return link
+  if (!input.stream.live) return fromFixture(link, input)
+  if (link.state === 'verified' && streamIsDead(input.stream.status)) return lastProven(link, input)
+  return link
+}
+
+/**
  * The chain, in the order ruling 3 lists it: browser↔server · repo↔git ·
  * agents↔tmux/workmux · transcripts↔slug (plumbing, then flow) ·
  * dollars/traces↔OTel — and last, the named case the whole PRD is evidence
- * for.
+ * for. Every row is then held to {@link attest}, in one place, so no row can
+ * be added that quietly skips it.
  */
 export function buildLinks(input: ConnectInputs): ChainLink[] {
   return [
@@ -680,7 +882,7 @@ export function buildLinks(input: ConnectInputs): ChainLink[] {
     transcriptFlow(input),
     otelLink(input),
     uninstrumentedConductor(input),
-  ]
+  ].map((link) => attest(link, input))
 }
 
 /** How many rows are in each state — the page's one-line summary, and never a score. */

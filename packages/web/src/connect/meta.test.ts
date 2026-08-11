@@ -188,14 +188,37 @@ describe('parseDoctor', () => {
     ])
   })
 
-  it('drops a half-read check rather than rendering a finding with nothing in it', () => {
-    expect(parseDoctor([{ id: 'node', status: 'ok' }, { status: 'ok', message: 'no id' }, { id: 'x', status: 'maybe', message: 'm' }])).toEqual([])
+  it('drops a half-read check rather than rendering a finding with nothing in it, and still answers with its survivors', () => {
+    expect(
+      parseDoctor([
+        { id: 'node', status: 'ok' },
+        { id: 'tmux', status: 'warn', message: 'tmux not found on PATH' },
+        { status: 'ok', message: 'no id' },
+        { id: 'x', status: 'maybe', message: 'm' },
+      ]),
+    ).toEqual([{ id: 'tmux', status: 'warn', message: 'tmux not found on PATH', assumed: false }])
+  })
+
+  /**
+   * **TWO DIFFERENT NULLS, AND THEY MUST NOT LOOK ALIKE (#346).** An array
+   * whose every entry was unreadable used to answer `[]`, which reaches the
+   * panel as a heading with no rows and no "unavailable" note — pixel for
+   * pixel a doctor that ran and had nothing to report. One of those is a
+   * working route and the other is a body this page could not read, and only
+   * `null` says the second.
+   */
+  it('separates "answered with nothing" from "answered with nothing readable"', () => {
+    // Ran, reported no checks: an answer, and an empty one.
+    expect(parseDoctor([])).toEqual([])
+    // Answered, and not one entry of it could be read: the same fact as a body
+    // that was not JSON, and it lands on the same null.
+    expect(parseDoctor([{ id: 'node', status: 'ok' }, { status: 'ok', message: 'no id' }])).toBeNull()
+    expect(parseDoctor(['nope', 42, null])).toBeNull()
   })
 
   it('answers null for a body that is not an array — never an empty report, which would read as "all clear"', () => {
     expect(parseDoctor({ checks: [] })).toBeNull()
     expect(parseDoctor(null)).toBeNull()
-    expect(parseDoctor([])).toEqual([])
   })
 
   it('finds a named check, and answers null for one the route never reported', () => {
