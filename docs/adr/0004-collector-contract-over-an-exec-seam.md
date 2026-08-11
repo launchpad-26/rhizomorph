@@ -1,6 +1,6 @@
 # 0004. Collectors are pure folds over command output, behind an injected `Exec`
 
-- **Status:** accepted (extended by ADR-0010)
+- **Status:** accepted (extended by ADR-0010, ADR-0013)
 - **Date:** 2026-08-06
 
 ## Context and Problem Statement

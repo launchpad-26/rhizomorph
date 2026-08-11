@@ -135,6 +135,32 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **A rotated or truncated session log resumes being read (#305).**
+  `sessionlog/tail.ts` treated "the file is now smaller than the offset we
+  hold" the same as "no new bytes" and handed back the same stale offset
+  forever, so a log truncated or rotated out from under the collector
+  (log rotation, a fresh `claude` session reusing a path) went quiet with
+  no error and never recovered short of a restart. The read cursor now
+  resets to the start of the file whenever it shrinks below the held
+  offset, so the next poll resumes reading normally. A same-path rotation
+  whose replacement had already grown past the old offset by the next poll
+  went undetected by size alone and read garbage from the middle of
+  unrelated content; the cursor now also resets whenever the file's inode
+  changes, so identity — not just size — decides when a poll is reading a
+  different file.
+- **A hung collector subprocess no longer freezes all polling or shutdown
+  (#236).** Every collector exec now carries a default timeout, and a
+  per-collector watchdog abandons a poll that exceeds its budget — surfacing
+  a `collector.error` — so one wedged `git`/`tmux`/`workmux` child can no
+  longer stall the other collectors or hang graceful shutdown. Decision and
+  budget rationale in
+  [ADR-0013](docs/adr/0013-collector-ticks-are-bounded.md) and
+  [`docs/design-notes/collector-tick-budget.md`](docs/design-notes/collector-tick-budget.md).
+  A bounded `git status` failure (including this new timeout) inside the
+  dirty-file diff was carrying forward the last known state silently, with
+  no `collector.error` — the one exec in the git collector that didn't
+  already follow this PR's own "a timeout is a visible error, not silence"
+  rule. It now reports one.
 - **Rename-in-place actually works (#249).** `POST /api/label` required a
   per-process capability token nothing ever delivered to the browser, so
   every rename in `/recordings` 401ed, on every boot. The server now
