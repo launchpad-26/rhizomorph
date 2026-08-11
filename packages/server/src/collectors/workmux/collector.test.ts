@@ -158,4 +158,34 @@ describe('createWorkmuxCollector', () => {
     expect(result.events).toHaveLength(4)
     expect(result.events[0]?.payload).toMatchObject({ branch: null, worktreePath: null })
   })
+
+  it('joins on the worktree directory name, not the branch, so a slashed branch still resolves', async () => {
+    const collector = createWorkmuxCollector()
+    const statusText =
+      'WORKTREE             STATUS   ELAPSED  TITLE\nfeat-foo             working  1m       fixing bug\n'
+    const listText =
+      'BRANCH    AGE  AGENT   MUX  UNMERGED  PATH\nfeat/foo  1m   claude  1    0         ../feat-foo\n'
+    const context = makeContext(fakeExec({ status: [ok(statusText)], list: [ok(listText)] }))
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0]?.payload).toMatchObject({
+      handle: 'feat-foo',
+      branch: 'feat/foo',
+      worktreePath: '../feat-foo',
+    })
+  })
+
+  it('resolves branch/worktreePath to null, not a crash, when no list row matches the handle', async () => {
+    const collector = createWorkmuxCollector()
+    const statusText = 'WORKTREE             STATUS   ELAPSED  TITLE\nghost-lane           working  1m       -\n'
+    const context = makeContext(
+      fakeExec({ status: [ok(statusText)], list: [ok('BRANCH  AGE  AGENT  MUX  UNMERGED  PATH\n')] }),
+    )
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    expect(result.events[0]?.payload).toMatchObject({ branch: null, worktreePath: null })
+  })
 })
