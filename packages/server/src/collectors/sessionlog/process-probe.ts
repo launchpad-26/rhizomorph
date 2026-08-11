@@ -23,7 +23,9 @@ import type { CapabilityDetail } from '@rhizomorph/core'
  * 2. **argv-only identity.** A pid alone is not a lane. A process counts only
  *    when its argv names a known agent CLI **and** its cwd is the lane's
  *    worktree — so a recycled pid, or an unrelated shell sitting in the same
- *    directory, cannot impersonate a live agent.
+ *    directory, cannot impersonate a live agent. "Names a known agent CLI" is
+ *    argv[0], or — when argv[0] is a known interpreter — any later argument;
+ *    see {@link matchesAgentCommand} for why argv[0] alone fabricated deaths.
  * 3. **Unknown is never death.** Every failure path — no `/proc`, an
  *    unreadable one, a platform with no equivalent — returns `null`, not
  *    `false`. `lane-state.ts` may only escalate to GONE on an explicit
@@ -102,6 +104,50 @@ export interface ProcessProbe {
  */
 export const AGENT_COMMANDS = ['claude', 'codex', 'pi'] as const
 
+/**
+ * argv[0] basenames that front a script rather than being the program — the
+ * reason {@link matchesAgentCommand} looks past argv[0] at all.
+ */
+export const AGENT_INTERPRETERS = ['node', 'node.exe', 'bun', 'deno', 'python', 'python3'] as const
+
+/**
+ * Does this argv belong to an agent CLI?
+ *
+ * **argv[0] alone is not enough, and getting that wrong fabricates a death.**
+ * An agent CLI is frequently a JS entry point started as
+ * `node /path/to/claude`, whose argv[0] basename is `node`. Matching argv[0]
+ * only returned `false` for such a lane — not `null` — and `false` is the one
+ * answer `lane-state.ts` may escalate to GONE on. So the miss did not degrade a
+ * reading to the honest weaker claim; it reported a live, mid-turn agent as
+ * dead, which is precisely what rule 3 above exists to forbid.
+ *
+ * The interpreter arm is deliberately permissive: behind a known interpreter,
+ * ANY later argument naming an agent counts. That direction is the safe one
+ * *for this probe*, and the asymmetry is the whole argument — a miss invents a
+ * death, while a spurious match only leaves a stalled lane reading FROZEN,
+ * which rule 3 already calls the weaker and honest answer. Being clever about
+ * which argument is "really" the script (skipping flags, knowing which flags
+ * take values) would buy precision in the direction that does not matter and
+ * risk misses in the direction that does.
+ *
+ * What keeps it honest is the guard, not the scan: only a known interpreter at
+ * argv[0] opens the rest of argv to matching, so `vim claude` is still not a
+ * running agent. And the caller pairs this with rule 2's other half — the
+ * process's cwd must be the lane's worktree — which no argv confusion can
+ * satisfy on its own.
+ */
+export function matchesAgentCommand(
+  argv: readonly string[],
+  commands: ReadonlySet<string>,
+  interpreters: ReadonlySet<string> = new Set(AGENT_INTERPRETERS),
+): boolean {
+  const leader = argv[0]
+  if (leader === undefined) return false
+  if (commands.has(path.basename(leader))) return true
+  if (!interpreters.has(path.basename(leader))) return false
+  return argv.slice(1).some((argument) => commands.has(path.basename(argument)))
+}
+
 export interface ProcProcessProbeOptions {
   /** Overridable so tests can point at a fabricated procfs. Never written to. */
   procRoot?: string
@@ -174,8 +220,7 @@ export function createProcProcessProbe(options: ProcProcessProbeOptions = {}): P
         // it is the whole of "argv-only": no shell string is ever reassembled,
         // so no quoting or NUL byte escapes this function.
         const argv = cmdline.split('\0').filter((part) => part.length > 0)
-        const command = argv[0]
-        if (command === undefined || !commands.has(path.basename(command))) continue
+        if (!matchesAgentCommand(argv, commands)) continue
 
         for (const worktreePath of matches) result.set(worktreePath, true)
       }

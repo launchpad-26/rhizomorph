@@ -1,7 +1,7 @@
 import { access, readFile, readdir, stat } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import path from 'node:path'
-import { processProbeCapability } from '../../collectors/sessionlog/process-probe.js'
+import { matchesAgentCommand, processProbeCapability } from '../../collectors/sessionlog/process-probe.js'
 import type { DetectOptions, HarnessDetection, HarnessId, HarnessPresence } from './types.js'
 
 /**
@@ -20,6 +20,17 @@ import type { DetectOptions, HarnessDetection, HarnessId, HarnessPresence } from
  *    reason** — never `absent`. And on Linux, `absent` is reached only from a
  *    process table that was read in FULL: one entry that refused to say what it
  *    is could be the harness, so a partial read is `unknown` too.
+ *
+ * ## The argv matcher is the probe's, not a second copy
+ *
+ * `matchesAgentCommand` lives in `collectors/sessionlog/process-probe.ts` and is
+ * imported rather than reimplemented here. The direction matters: the probe may
+ * never import from the concierge (the namespace law's clause 1 forbids anything
+ * outside this module reaching in), so the shared rule belongs in the file that
+ * already owns reading the process table, and this hand borrows it. Both callers
+ * then answer "is an agent in this argv" the same way, which is the point — the
+ * two answering differently is what let an interpreter-launched lane read as
+ * dead to one and alive to the other.
  *
  * ## `installed` and `launchable` are not the same question
  *
@@ -57,9 +68,6 @@ import type { DetectOptions, HarnessDetection, HarnessId, HarnessPresence } from
  * working tree become the thing the concierge launches. That is a launch-power
  * hole, not a tidiness point.
  */
-
-/** Interpreters that front a JS/Python CLI, where the real name is argv[1]. */
-const INTERPRETERS = new Set(['node', 'node.exe', 'bun', 'deno', 'python', 'python3'])
 
 /**
  * Windows' default executable extensions when `PATHEXT` says nothing.
@@ -280,7 +288,7 @@ export async function detectRunning(command: string, options: DetectOptions = {}
     // NUL-separated argv, exactly as procfs writes it. No shell string is ever
     // reassembled, so no quoting and no NUL byte escapes this function.
     const argv = cmdline.split('\0').filter((part) => part.length > 0)
-    if (matchesCommand(argv, command)) {
+    if (matchesAgentCommand(argv, new Set([command]))) {
       return { state: 'present', evidence: `pid ${pid} in ${procRoot} has ${command} in its argv` }
     }
   }
@@ -328,25 +336,6 @@ function errorCode(err: unknown): string | undefined {
   if (typeof err !== 'object' || err === null) return undefined
   const code = (err as { code?: unknown }).code
   return typeof code === 'string' ? code : undefined
-}
-
-/**
- * argv[0]'s basename, or argv[1]'s when argv[0] is an interpreter.
- *
- * The second arm exists because a false *absent* is the failure this lane
- * forbids: `claude` is frequently a JS entry point launched as
- * `node /path/to/claude`, whose argv[0] basename is `node`. Matching argv[1]
- * only behind a known interpreter keeps `vim claude` from reading as a running
- * harness, so neither error is traded for the other.
- */
-function matchesCommand(argv: readonly string[], command: string): boolean {
-  const first = argv[0]
-  if (first === undefined) return false
-  const firstName = path.basename(first)
-  if (firstName === command) return true
-
-  const second = argv[1]
-  return INTERPRETERS.has(firstName) && second !== undefined && path.basename(second) === command
 }
 
 /** Both questions, for one harness. The shape every adapter's `detect` returns. */

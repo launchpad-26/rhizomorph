@@ -105,6 +105,60 @@ describe('the /proc process probe', () => {
     expect((await createProcProcessProbe({ procRoot }).probe([laneA()])).get(laneA())).toBe(true)
   })
 
+  describe('an interpreter-launched agent is alive, and must never read as dead', () => {
+    /**
+     * The bug this covers, and why it is the worst kind this probe can have.
+     *
+     * An agent CLI is frequently a JS entry point started as
+     * `node /path/to/claude`, whose argv[0] basename is `node`. Matching argv[0]
+     * alone therefore returns **`false`** — not `null` — for a lane that is
+     * plainly alive. `false` is the one answer `lane-state.ts` may escalate to
+     * GONE on (rule 3: "unknown is never death"), so this does not degrade a
+     * reading, it *invents a death*: the probe reports the lane dead while its
+     * agent is mid-turn.
+     *
+     * The safe direction for THIS probe is the weaker claim. A miss here is a
+     * fabricated death; a spurious match only leaves a stalled lane reading
+     * FROZEN, which rule 3 already calls the honest, weaker answer. So the
+     * interpreter arm is deliberately permissive — and still bounded by the cwd
+     * half of rule 2, which no amount of argv confusion can satisfy on its own.
+     */
+    it('finds an agent launched as `node /path/to/claude`', async () => {
+      await fabricate([{ pid: 4101, cwd: laneA(), argv: ['/usr/bin/node', '/opt/claude/bin/claude'] }])
+      expect((await createProcProcessProbe({ procRoot }).probe([laneA()])).get(laneA())).toBe(true)
+    })
+
+    it('finds one behind interpreter flags — `node --enable-source-maps … claude`', async () => {
+      await fabricate([
+        { pid: 4102, cwd: laneA(), argv: ['node', '--enable-source-maps', '/opt/claude/bin/claude', '--continue'] },
+      ])
+      expect((await createProcProcessProbe({ procRoot }).probe([laneA()])).get(laneA())).toBe(true)
+    })
+
+    it.each(['bun', 'deno', 'python3'])('finds one behind %s too', async (interpreter) => {
+      await fabricate([{ pid: 4103, cwd: laneA(), argv: [`/usr/bin/${interpreter}`, '/opt/bin/codex'] }])
+      expect((await createProcProcessProbe({ procRoot }).probe([laneA()])).get(laneA())).toBe(true)
+    })
+
+    it('still refuses an editor holding the name — the interpreter guard is what stops it', async () => {
+      // `vim claude` names an agent in argv, and must not read as one running.
+      // Only a known interpreter at argv[0] opens the rest of argv to matching.
+      await fabricate([{ pid: 4104, cwd: laneA(), argv: ['vim', 'claude'] }])
+      expect((await createProcProcessProbe({ procRoot }).probe([laneA()])).get(laneA())).toBe(false)
+    })
+
+    it('still refuses an interpreter running something that is not an agent', async () => {
+      await fabricate([{ pid: 4105, cwd: laneA(), argv: ['node', '/srv/app/server.js'] }])
+      expect((await createProcProcessProbe({ procRoot }).probe([laneA()])).get(laneA())).toBe(false)
+    })
+
+    it('still refuses an interpreter-launched agent in the WRONG place', async () => {
+      // The cwd half of rule 2 is untouched by any of this.
+      await fabricate([{ pid: 4106, cwd: path.join(root, 'repo'), argv: ['node', '/opt/claude/bin/claude'] }])
+      expect((await createProcProcessProbe({ procRoot }).probe([laneA()])).get(laneA())).toBe(false)
+    })
+  })
+
   it('sees the other agent CLIs a lane may be running', async () => {
     // Their transcript *grammars* are later waves; their processes are alive
     // now, and refusing to see one would fabricate a death.
