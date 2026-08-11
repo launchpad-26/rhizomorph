@@ -204,8 +204,10 @@ describe('usePlayback', () => {
     })
 
     // Not one further render in a second of frames: the stop cancelled the armed
-    // frame rather than leaving the loop re-arming itself, and — being guarded on
-    // `playing` — it cannot fire a second time either.
+    // frame rather than leaving the loop re-arming itself. That teardown, plus
+    // React bailing out of a `setPlaying(false)` dispatched against an already
+    // false state, is what makes the stop fire once — not the effect's `playing`
+    // guard, which is defensive only and whose deletion fails no test here.
     expect(renders).toBe(rendersAtStop)
     expect(result.current.currentTs).toBe(10)
     expect(result.current.playing).toBe(false)
