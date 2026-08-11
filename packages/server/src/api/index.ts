@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import type { ServerContext } from '../server/context.js'
+import { registerConciergeReposRoute } from './concierge.js'
 import { registerDoctorRoute } from './doctor.js'
 import { registerLabelRoute } from './label.js'
 import { registerLabRoutes } from './lab.js'
@@ -30,4 +31,8 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   // (prd-19 ruling 5) — see `doctor.ts`'s own doc for which checks it drops
   // and why.
   registerDoctorRoute(app, ctx)
+  // Read-only repo discovery for the setup wizard's picker (prd-20 ruling 5)
+  // — the concierge's first and, per its namespace law, only declared
+  // importer this wave. See `concierge.ts`'s own doc.
+  registerConciergeReposRoute(app, ctx)
 }
