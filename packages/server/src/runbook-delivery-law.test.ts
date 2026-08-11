@@ -64,9 +64,10 @@ describe('runbook delivery law: AGENTS.md reaches every checkout and worktree', 
       .map((line) => line.trim())
       .filter((line) => line.length > 0 && !line.startsWith('#'))
     expect(entries).not.toContain('AGENTS.md')
+    expect(entries).not.toContain('CLAUDE.md')
     // The sibling entries must still be there — otherwise this passes because
     // .gitignore was emptied, not because the rule holds.
-    expect(entries).toContain('CLAUDE.md')
+    expect(entries).toContain('CLAUDE.local.md')
     expect(entries).toContain('.claude/')
   })
 
@@ -81,11 +82,26 @@ describe('runbook delivery law: AGENTS.md reaches every checkout and worktree', 
     expect(contents).toContain('One commit per issue')
   })
 
+  it('CLAUDE.md is tracked and imports AGENTS.md — Claude Code reads this file, not the runbook', () => {
+    // Claude Code reads CLAUDE.md and NOT AGENTS.md
+    // (code.claude.com/docs/en/memory). A tracked runbook that no Claude
+    // session loads is the same outage in a new costume, so the import is
+    // part of the delivery chain and is checked here rather than trusted.
+    expect(isTracked('CLAUDE.md')).toBe(true)
+    const claudeMd = readFileSync(`${REPO_ROOT}/CLAUDE.md`, 'utf8')
+    // Must be outside a code span/fence to be a real import — backticked
+    // text is documentation, not an import, per the same docs.
+    const importLine = claudeMd
+      .split('\n')
+      .find((line) => line.trim() === '@AGENTS.md')
+    expect(importLine, 'CLAUDE.md must contain a bare `@AGENTS.md` import line').toBeDefined()
+  })
+
   it('the ignore-detector fires on a file that IS ignored — proving it bites', () => {
-    // CLAUDE.md is per-contributor and correctly stays ignored. It is the
-    // sibling of the file above, so if the detector cannot tell the two
-    // apart it is not checking anything.
-    expect(isIgnored('CLAUDE.md')).toBe(true)
+    // CLAUDE.local.md is per-contributor and correctly stays ignored. It is
+    // the sibling of the two tracked files above, so if the detector cannot
+    // tell them apart it is not checking anything.
+    expect(isIgnored('CLAUDE.local.md')).toBe(true)
     expect(isIgnored('node_modules')).toBe(true)
   })
 
@@ -100,7 +116,8 @@ describe('runbook delivery law: AGENTS.md reaches every checkout and worktree', 
     // reintroducing the dead code path, not restoring a safety net.
     const config = readFileSync(`${REPO_ROOT}/.workmux.yaml`, 'utf8')
     const postCreate = config.slice(config.indexOf('post_create:'), config.indexOf('# prd1 telemetry'))
-    expect(postCreate).toContain('CLAUDE.md')
+    expect(postCreate).toContain('CLAUDE.local.md"')
     expect(postCreate).not.toContain('AGENTS.md"')
+    expect(postCreate).not.toContain('CLAUDE.md"')
   })
 })

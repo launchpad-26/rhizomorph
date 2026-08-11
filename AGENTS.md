@@ -2,10 +2,32 @@
 
 **This file is the shared runbook.** It is tracked, and it describes how *the
 repo* works — not how one person's tooling behaves. Personal agent config lives
-in `CLAUDE.md`, which stays untracked.
+in `CLAUDE.local.md`, which stays untracked.
 
 If you are an agent: read this in full before your first edit. Everything below
 is prescriptive. Where it says *must*, a human reviewer will hold you to it.
+
+## Your first session in this repo
+
+Nothing to install. `git pull` delivers this file, and `CLAUDE.md` beside it
+carries the `@AGENTS.md` import — **Claude Code reads `CLAUDE.md`, not
+`AGENTS.md`**, so that import is the only reason a Claude session sees these
+conventions at all.
+
+One thing to check, once:
+
+```
+/context          # confirm CLAUDE.md AND AGENTS.md both appear under Memory files
+```
+
+If `AGENTS.md` is not listed, the import did not resolve and your agent is
+working without any of this. Two known causes: an external-import approval
+dialog declined once (it does not re-prompt), and a worktree created before
+#399.
+
+Personal notes go in `CLAUDE.local.md` — gitignored, loads automatically after
+`CLAUDE.md`, and carried into new worktrees by `.workmux.yaml`. Do not put
+personal content in `CLAUDE.md`; it is tracked and shared.
 
 ---
 

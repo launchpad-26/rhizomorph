@@ -5,18 +5,24 @@ scratchpad/
 .swarm/lanes.json
 .swarm/
 
-# Per-contributor agent instructions. `CLAUDE.md` describes how one person's
-# tooling should behave in this repo, so it stays untracked.
+# Agent instructions. NEITHER AGENTS.md NOR CLAUDE.md IS IGNORED, and neither
+# may be — together they are the only mechanism by which four contributors'
+# agents share conventions.
 #
-# `AGENTS.md` is NOT ignored, and must not be. It describes how *the repo*
-# works, and it is the only mechanism by which four contributors' agents share
-# conventions. It was ignored here between 2d77e5b and #399 on the reasoning
-# that "nothing in the tree cites either file" — a test run against tracked
-# files only, while every issue brief cites AGENTS.md and CLAUDE.md carries the
-# `@AGENTS.md` import. The result was a repo with no runbook: #379's
-# `.workmux.yaml` copy spent that whole period copying a file that did not
-# exist anywhere on disk. If you are about to re-add it here, read #399 first.
-CLAUDE.md
+#   AGENTS.md        the runbook. Read natively by codex and friends.
+#   CLAUDE.md        a one-line `@AGENTS.md` import. Claude Code reads
+#                    CLAUDE.md and NOT AGENTS.md, so without this file a
+#                    Claude session loads no project instructions at all.
+#   CLAUDE.local.md  per-contributor, ignored below. This is where personal
+#                    tooling notes go.
+#
+# Both were ignored here between 2d77e5b and #399, on the reasoning that
+# "nothing in the tree cites either file" — a test run against tracked files
+# only, while every issue brief cites AGENTS.md. The result was a repo with no
+# runbook at all: #379's `.workmux.yaml` copy spent that whole period copying
+# files that did not exist anywhere on disk. If you are about to re-add either
+# one here, read #399 first.
+CLAUDE.local.md
 
 # Agent CLI working state. Both of these run inside this repo — codex under
 # `codex exec -C`, claude in the worktrees the fleet creates — and each drops
