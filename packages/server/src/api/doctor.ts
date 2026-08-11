@@ -141,9 +141,19 @@ export const ROUTE_EXEC_TIMEOUT_MS = 5000
  * unauthenticated GETs (no token, no rate limit elsewhere on this route)
  * single-flights onto one real probe run instead of one each; short enough
  * that `/connect`'s "watch a row flip live" promise (prd-19's own success
- * criterion) still reads as current a few seconds later — that promise is
- * the live SSE fold's, not this route's, so "a few seconds" has room to mean
- * several.
+ * criterion) still reads as current a few seconds later — six of the
+ * checklist's seven rows flip off the live SSE fold and never wait on this
+ * route at all, so "a few seconds" has room to mean several.
+ *
+ * The seventh is the exception worth stating rather than glossing:
+ * `connect/links.ts`'s `transcripts-slug` takes its *status* from this
+ * route's `session-logs` check, so this TTL is its flip latency: creating
+ * the missing slug directory shows up within 15s here, where the old 3s TTL
+ * (every poll a cold probe) showed it within one poll. Its VERIFIED reading
+ * is dated "as of <render>", which at this TTL can be standing on a probe up
+ * to `TTL - refreshMs` = 10s old. That is the price of the single-flight,
+ * paid by one row; #223's staleness voice is where a fact that carries its
+ * own probe age belongs.
  *
  * **#344:** a cache hit never pushes out `cached.at` (`createRouteDoctorProbe`
  * below) — an entry expires on the clock of the probe that created it,
