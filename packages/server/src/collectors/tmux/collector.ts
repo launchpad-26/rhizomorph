@@ -2,6 +2,7 @@ import type { AdapterCapabilities, Collector, CollectorContext, RhizomorphEvent,
 import { countLines, hashPaneContent, lastNonEmptyLine } from './capture.js'
 import { LIST_PANES_FORMAT, parseListPanes } from './list-panes.js'
 import { resolveWorktreePath } from './worktree.js'
+import { voiceSkips } from '../parse-skip.js'
 
 const COLLECTOR_NAME = 'tmux'
 
@@ -91,7 +92,18 @@ export const tmuxCollector: Collector<TmuxSnapshot> = {
     const nextPanes: Record<string, TmuxPaneSnapshot> = {}
     const worktreeByPath = { ...prevSnapshot.worktreeByPath }
 
-    for (const entry of parseListPanes(listResult.stdout)) {
+    const { panes, skipped } = parseListPanes(listResult.stdout)
+    if (skipped.length > 0) {
+      events.push(
+        context.emit('collector.error', {
+          collector: COLLECTOR_NAME,
+          message: `skipped ${skipped.length} unparseable list-panes line${skipped.length === 1 ? '' : 's'}`,
+          detail: voiceSkips(skipped),
+        }),
+      )
+    }
+
+    for (const entry of panes) {
       let worktreePath = worktreeByPath[entry.currentPath]
       if (worktreePath === undefined) {
         worktreePath = await resolveWorktreePath(entry.currentPath, context.exec)

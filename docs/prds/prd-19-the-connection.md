@@ -51,7 +51,7 @@ refresh, when the fix takes; and never mistake a fixture for live data.
   nothing; fixing the mapping is that issue's work.
 - Not a replacement for #192 (WAITING vocabulary) or #223 (staleness voice) —
   related, not superseded; both stay open.
-- No adapters for other CLIs (prd-15 ruling 3 owns the adapter contract).
+- No adapters for other CLIs (prd-15 ruling 4 owns the adapter contract).
 
 ## Rulings
 

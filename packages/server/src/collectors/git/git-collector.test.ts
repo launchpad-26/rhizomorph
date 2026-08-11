@@ -326,6 +326,92 @@ branch refs/heads/main
     expect(poll2.nextSnapshot).toBe(nextSnapshot)
   })
 
+  it('skips an unparseable git raw diff line, keeping the rest of the poll (ruling 4)', async () => {
+    const worktrees1 = `worktree /repo
+HEAD 1111111111111111111111111111111111111111
+branch refs/heads/main
+
+worktree /repo-worktrees/feature-x
+HEAD 2222222222222222222222222222222222222222
+branch refs/heads/feature-x
+`
+    const refs1 = `feature-x 2222222222222222222222222222222222222222
+main 1111111111111111111111111111111111111111
+`
+    const exec1 = scriptedExec({
+      'git worktree list --porcelain::/repo': worktrees1,
+      'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo': refs1,
+      'git rev-list --left-right --count main...feature-x::/repo': '0\t1',
+      'git status --porcelain::/repo': '',
+      'git status --porcelain::/repo-worktrees/feature-x': '',
+    })
+    const { nextSnapshot } = await gitCollector.poll(gitCollector.initialSnapshot(), makeContext(exec1, 1000))
+
+    const FEATURE_X_HEAD_1 = '2222222222222222222222222222222222222222'
+    const FEATURE_X_HEAD_2 = '4444444444444444444444444444444444444444'
+    const worktrees2 = `worktree /repo
+HEAD 1111111111111111111111111111111111111111
+branch refs/heads/main
+
+worktree /repo-worktrees/feature-x
+HEAD ${FEATURE_X_HEAD_2}
+branch refs/heads/feature-x
+`
+    const refs2 = `feature-x ${FEATURE_X_HEAD_2}
+main 1111111111111111111111111111111111111111
+`
+    const logWithBadLine = `\x01${FEATURE_X_HEAD_2}\x1f4444444\x1fAda Dev\x1fdev@example.com\x1f1785360900\x1f${FEATURE_X_HEAD_1}\x1ffix: two good files around one bad raw line
+:100644 100644 aaaaaaa bbbbbbb M\tsrc/good-before.js
+:this-is-not-a-raw-diff-line
+:100644 100644 ccccccc ddddddd M\tsrc/good-after.js
+1\t0\tsrc/good-before.js
+9\t9\tsrc/whatever-this-numstat-is-discarded.js
+2\t1\tsrc/good-after.js
+`
+    const exec2 = scriptedExec({
+      'git worktree list --porcelain::/repo': worktrees2,
+      'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo': refs2,
+      'git rev-list --left-right --count main...feature-x::/repo': '0\t2',
+      [`git log --raw --numstat -M --reverse --pretty=format:${LOG_PRETTY} ${FEATURE_X_HEAD_1}..${FEATURE_X_HEAD_2}::/repo`]:
+        logWithBadLine,
+      'git status --porcelain::/repo': '',
+      'git status --porcelain::/repo-worktrees/feature-x': '?? untracked.txt\n',
+    })
+
+    const poll2 = await gitCollector.poll(nextSnapshot, makeContext(exec2, 2000))
+
+    expect(poll2.events.map((event) => event.type)).toEqual([
+      'collector.error',
+      'branch.updated',
+      'commit.landed',
+      'worktree.dirty',
+    ])
+
+    const errorEvent = poll2.events.find((event) => event.type === 'collector.error')
+    expect(errorEvent?.payload).toEqual({
+      collector: 'git',
+      message: 'skipped 1 unparseable git raw diff line on feature-x',
+      detail: expect.stringContaining(':this-is-not-a-raw-diff-line'),
+    })
+
+    const commitLanded = poll2.events.find((event) => event.type === 'commit.landed')
+    expect(commitLanded?.payload).toMatchObject({
+      files: [
+        { path: 'src/good-before.js', status: 'modified', previousPath: undefined, insertions: 1, deletions: 0 },
+        { path: 'src/good-after.js', status: 'modified', previousPath: undefined, insertions: 2, deletions: 1 },
+      ],
+    })
+
+    expect(poll2.nextSnapshot.disabled).toBe(false)
+    expect(poll2.nextSnapshot.branches['feature-x']?.head).toBe(FEATURE_X_HEAD_2)
+
+    // Repetition: same head, same log script — headMoved is false so
+    // loadNewCommits isn't even called, and the skip from poll 2 isn't
+    // re-voiced against an unrelated tick.
+    const poll3 = await gitCollector.poll(poll2.nextSnapshot, makeContext(exec2, 3000))
+    expect(poll3.events).toEqual([])
+  })
+
   it('capabilities: declares identity provided (worktree.discovered names path+branch) and never claims a signal it has no event to back', async () => {
     expect(gitCollector.capabilities?.identity).toEqual({ level: 'provided' })
 
@@ -351,5 +437,75 @@ branch refs/heads/main
     expect(gitCollector.capabilities?.attention.level).toBe('absent')
     expect(gitCollector.capabilities?.telemetry.level).toBe('absent')
     expect(gitCollector.capabilities?.cost.level).toBe('absent')
+  })
+
+  describe('detached main HEAD', () => {
+    const DETACHED_MAIN_WORKTREES = `worktree /repo
+HEAD 1111111111111111111111111111111111111111
+detached
+
+worktree /repo-worktrees/feature-x
+HEAD 2222222222222222222222222222222222222222
+branch refs/heads/feature-x
+`
+
+    const REATTACHED_MAIN_WORKTREES = `worktree /repo
+HEAD 1111111111111111111111111111111111111111
+branch refs/heads/main
+
+worktree /repo-worktrees/feature-x
+HEAD 2222222222222222222222222222222222222222
+branch refs/heads/feature-x
+`
+
+    it('voices a collector.error once, degrades aheadOfMain/behindMain to null, and never calls rev-list', async () => {
+      const detachedExec = scriptedExec({
+        'git worktree list --porcelain::/repo': DETACHED_MAIN_WORKTREES,
+        'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo':
+          'feature-x 2222222222222222222222222222222222222222\n',
+        'git status --porcelain::/repo': '',
+        'git status --porcelain::/repo-worktrees/feature-x': '',
+      })
+
+      const first = await gitCollector.poll(gitCollector.initialSnapshot(), makeContext(detachedExec, 1000))
+
+      expect(first.nextSnapshot.mainBranch).toBeNull()
+      expect(first.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'collector.error',
+            payload: expect.objectContaining({ collector: 'git' }),
+          }),
+        ]),
+      )
+      const branchEvent = first.events.find((event) => event.type === 'branch.updated')
+      expect(branchEvent?.payload).toEqual(
+        expect.objectContaining({ branch: 'feature-x', aheadOfMain: null, behindMain: null }),
+      )
+      // scriptedExec throws on any un-scripted command — no rev-list entry above
+      // means this already proves aheadOfMain/behindMain skip the git call entirely.
+
+      // Same detached state, second poll: no re-voicing, no repeated branch.updated
+      // (nothing about feature-x changed).
+      const second = await gitCollector.poll(first.nextSnapshot, makeContext(detachedExec, 2000))
+      expect(second.events.filter((event) => event.type === 'collector.error')).toHaveLength(0)
+      expect(second.events.filter((event) => event.type === 'branch.updated')).toHaveLength(0)
+
+      // Main gets checked out to a branch again: the flag resets...
+      const reattachedExec = scriptedExec({
+        'git worktree list --porcelain::/repo': REATTACHED_MAIN_WORKTREES,
+        'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo':
+          'feature-x 2222222222222222222222222222222222222222\nmain 1111111111111111111111111111111111111111\n',
+        'git rev-list --left-right --count main...feature-x::/repo': '0\t0',
+        'git status --porcelain::/repo': '',
+        'git status --porcelain::/repo-worktrees/feature-x': '',
+      })
+      const third = await gitCollector.poll(second.nextSnapshot, makeContext(reattachedExec, 3000))
+      expect(third.nextSnapshot.mainBranchGapVoiced).toBe(false)
+
+      // ...and detaching again re-voices rather than staying silent forever.
+      const fourth = await gitCollector.poll(third.nextSnapshot, makeContext(detachedExec, 4000))
+      expect(fourth.events.some((event) => event.type === 'collector.error')).toBe(true)
+    })
   })
 })
