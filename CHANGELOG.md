@@ -141,6 +141,11 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   `my file.ts` reached the collision matrix as the literal `"my file.ts"` and
   matched nothing. Paths are now unquoted on parse and status renames split on
   the real arrow, not a ` -> ` inside a filename.
+- **A tab in a tmux pane path, or one malformed `git log --raw` line, no
+  longer kills the collector (#242).** `list-panes.ts` and `parse-log.ts`
+  quarantine the one unparseable line — skipped, counted, and voiced as a
+  `collector.error` — instead of throwing and losing the rest of that poll's
+  events.
 - **Three silent lane-identity gaps close (#243).** `workmux/collector.ts`
   joined `workmux list`'s rows by branch name but looked them up by handle,
   so a slashed branch (`feat/foo`) never matched and `branch`/`worktreePath`

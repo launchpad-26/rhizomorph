@@ -261,6 +261,59 @@ describe('tmuxCollector', () => {
     expect(shell.gitCalls).toEqual(['/worktrees/a', '/worktrees/a'])
   })
 
+  it("a line list-panes can't parse is skipped and voiced, not thrown — other panes still process, and the collector stays enabled", async () => {
+    const paneA: PaneFixture = {
+      paneId: '%1',
+      sessionName: 'obs',
+      windowIndex: 0,
+      windowName: 'wm-a',
+      currentPath: '/worktrees/a',
+      currentCommand: 'claude',
+      title: '',
+    }
+    const paneB: PaneFixture = {
+      paneId: '%2',
+      sessionName: 'obs',
+      windowIndex: 1,
+      windowName: 'wm-b',
+      currentPath: '/worktrees/b',
+      currentCommand: 'claude',
+      title: '',
+    }
+    // A tab embedded in pane_current_path splits into 8 fields instead of 7.
+    const badLine = '%3\tobs\t2\twin-c\t/tmp/weird\tpath\tbash\ttitle'
+    shell.listPanesOutput = [listPanesLine(paneA), badLine, listPanesLine(paneB)].join('\n')
+    shell.worktreeByPath.set('/worktrees/a', '/worktrees/a')
+    shell.worktreeByPath.set('/worktrees/b', '/worktrees/b')
+    shell.captureByPane.set('%1', success('hello'))
+    shell.captureByPane.set('%2', success('world'))
+
+    const first = await tmuxCollector.poll(tmuxCollector.initialSnapshot(), makeContext(shell.exec))
+
+    expect(first.nextSnapshot.disabled).toBe(false)
+    const firstError = first.events.find((e) => e.type === 'collector.error')
+    expect(firstError).toMatchObject({
+      source: 'system',
+      type: 'collector.error',
+      payload: expect.objectContaining({
+        collector: 'tmux',
+        message: 'skipped 1 unparseable list-panes line',
+      }),
+    })
+    expect(first.events.filter((e) => e.type === 'pane.discovered')).toHaveLength(2)
+    expect(first.events.some((e) => e.type === 'collector.disabled')).toBe(false)
+
+    const second = await tmuxCollector.poll(first.nextSnapshot, makeContext(shell.exec))
+    expect(second.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+    expect(second.events.some((e) => e.type === 'collector.disabled' || e.type === 'collector.degraded')).toBe(false)
+    expect(second.events.some((e) => e.type === 'pane.discovered')).toBe(false)
+
+    const third = await tmuxCollector.poll(second.nextSnapshot, makeContext(shell.exec))
+    expect(third.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+    expect(third.events.some((e) => e.type === 'collector.disabled' || e.type === 'collector.degraded')).toBe(false)
+    expect(third.events.some((e) => e.type === 'pane.discovered')).toBe(false)
+  })
+
   it('maps a pane outside any git worktree to a null worktreePath', async () => {
     const paneA: PaneFixture = {
       paneId: '%1',
