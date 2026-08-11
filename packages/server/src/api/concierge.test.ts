@@ -31,11 +31,19 @@ const FIXTURE_RESULT = {
     available: true,
     projects: [{ slug: '-Users-operator-repo', path: '/Users/operator/repo', resolved: true }],
   },
-  scanned: { repos: [{ path: '/Users/operator/code/other-repo' }], truncated: false },
+  scanned: { repos: [{ path: '/Users/operator/code/other-repo' }], truncated: false, unreadable: [] },
 }
 
+// `vi.mock`'s factory is hoisted above every import in this file, so a plain
+// module-scope `vi.fn()` referenced inside it would be read before its own
+// declaration runs — `vi.hoisted` is the supported way to give the factory
+// something to close over anyway (needed to assert, in the replay test
+// below, that discoverRepos was never CALLED — not just that the response
+// happens to match).
+const { discoverReposMock } = vi.hoisted(() => ({ discoverReposMock: vi.fn() }))
+
 vi.mock('../concierge/repos.js', () => ({
-  discoverRepos: () => FIXTURE_RESULT,
+  discoverRepos: discoverReposMock,
 }))
 
 describe('GET /api/concierge/repos', () => {
@@ -45,6 +53,8 @@ describe('GET /api/concierge/repos', () => {
   beforeEach(async () => {
     repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-concierge-repo-'))
     sessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-concierge-session-'))
+    discoverReposMock.mockReset()
+    discoverReposMock.mockResolvedValue(FIXTURE_RESULT)
   })
 
   afterEach(async () => {
@@ -54,16 +64,31 @@ describe('GET /api/concierge/repos', () => {
     ])
   })
 
-  function makeApp() {
+  function makeApp(overrides: { readOnly?: boolean } = {}) {
     const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
-    return buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+    return buildApp({ repoPath, repoName: 'repo', sessionDir, recorder, ...overrides })
   }
 
-  it('serves exactly what discoverRepos returns', async () => {
+  it('serves exactly what discoverRepos returns, wrapped as available: true', async () => {
     const response = await makeApp().inject({ method: 'GET', url: '/api/concierge/repos' })
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual(FIXTURE_RESULT)
+    expect(response.json()).toEqual({ available: true, ...FIXTURE_RESULT })
+  })
+
+  describe('a replay server (ctx.readOnly) — the not-applicable posture, not label.ts\'s refusal', () => {
+    it('never calls discoverRepos at all, and answers available: false instead', async () => {
+      const response = await makeApp({ readOnly: true }).inject({ method: 'GET', url: '/api/concierge/repos' })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual({ available: false, reason: expect.stringContaining('replaying') })
+      expect(discoverReposMock).not.toHaveBeenCalled()
+    })
+
+    it('a live (non-replay) server always calls discoverRepos', async () => {
+      await makeApp({ readOnly: false }).inject({ method: 'GET', url: '/api/concierge/repos' })
+      expect(discoverReposMock).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('is GET-only — a POST is not a registered route', async () => {

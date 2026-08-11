@@ -1,6 +1,7 @@
-import { existsSync, readdirSync } from 'node:fs'
+import { access, readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { defaultClaudeProjectsRoot } from '../log/paths.js'
 
 /**
  * prd-20 ruling 5's read-only repo discovery: enumerate `~/.claude/projects`
@@ -18,7 +19,21 @@ import path from 'node:path'
  * directory hop at a time, matching each hop against actual directory
  * entries (encoded the same three ways Claude Code encodes them) rather than
  * guessing which characters a `-` used to be. That sidesteps the dotted-path
- * gap rather than fixing the forward helper, which this lane does not own.
+ * gap rather than fixing the forward helper, which this lane does not own —
+ * and the divergence between the two encodings is real but not this lane's
+ * to reconcile either, for the same reason.
+ *
+ * Every read goes through `node:fs/promises`, not the `Sync` family: a
+ * `GET /api/concierge/repos` request runs this on the server's single event
+ * loop thread, and the common-roots scan alone can issue up to
+ * `DEFAULT_MAX_DIRS_VISITED` directory reads. A synchronous walk would hold
+ * that thread — and every other in-flight request, including `/api/stream`'s
+ * SSE — hostage for the walk's entire duration. An `await`ed `readdir` yields
+ * between every single filesystem operation instead, so the walk's cost is
+ * spread across many microtasks rather than paid as one uninterruptible
+ * block. This changes nothing about WHAT is read or how `unreadable`/
+ * `truncated` are decided — see `DiscoveryFs`'s own doc — only that reading
+ * it no longer blocks anything else this process is doing.
  */
 
 /**
@@ -38,12 +53,16 @@ export type SubdirectoryListing = { readable: true; entries: string[] } | { read
 
 /**
  * The filesystem seam this module reads through — both operations total
- * (never throw). Fixture-driven tests supply an in-memory implementation;
- * `realDiscoveryFs` below is the only production caller.
+ * (never throw) and both asynchronous, so a real call yields the event loop
+ * rather than blocking it (see this module's own doc). Fixture-driven tests
+ * supply an in-memory implementation that resolves immediately; the
+ * `Promise` in the signature is still real, not decorative — an `await` in
+ * a test is what proves the caller actually awaits it rather than assuming a
+ * synchronous return. `realDiscoveryFs` below is the only production caller.
  */
 export interface DiscoveryFs {
   /** True if `target` exists at all, following symlinks — mirrors `cli/doctor.ts`'s own `checkClaudeProjects` check. */
-  exists(target: string): boolean
+  exists(target: string): Promise<boolean>
   /**
    * The real (non-symlink) directory entries directly inside `dir`, or an
    * honest refusal — see {@link SubdirectoryListing}. A symlink entry is
@@ -52,13 +71,22 @@ export interface DiscoveryFs {
    * traverse through, so excluding symlinks here is what keeps both of them
    * from following a link out of the tree they were asked to look at.
    */
-  listSubdirectories(dir: string): SubdirectoryListing
+  listSubdirectories(dir: string): Promise<SubdirectoryListing>
 }
 
-function realListSubdirectories(dir: string): SubdirectoryListing {
+async function realExists(target: string): Promise<boolean> {
+  try {
+    await access(target)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function realListSubdirectories(dir: string): Promise<SubdirectoryListing> {
   let dirents: Array<{ name: string; isDirectory(): boolean }>
   try {
-    dirents = readdirSync(dir, { withFileTypes: true })
+    dirents = await readdir(dir, { withFileTypes: true })
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code
     if (code === 'ENOENT' || code === 'ENOTDIR') return { readable: true, entries: [] }
@@ -68,8 +96,32 @@ function realListSubdirectories(dir: string): SubdirectoryListing {
 }
 
 export const realDiscoveryFs: DiscoveryFs = {
-  exists: existsSync,
+  exists: realExists,
   listSubdirectories: realListSubdirectories,
+}
+
+/**
+ * Wraps `fs` so every distinct directory it lists is read at most once,
+ * however many separate `listSubdirectories` calls ask for it — the cache
+ * lives only as long as the closure returned here, never module-level state,
+ * so a caller that discards this wrapper after one operation cannot leak a
+ * stale listing into an unrelated later call. `exists` passes through
+ * unwrapped: it is used for `.git` existence checks scattered across many
+ * distinct, rarely-repeated paths, not the shared-ancestor pattern this
+ * exists to fix.
+ */
+function withSharedDirectoryCache(fs: DiscoveryFs): DiscoveryFs {
+  const cache = new Map<string, Promise<SubdirectoryListing>>()
+  return {
+    exists: fs.exists,
+    listSubdirectories: (dir) => {
+      const cached = cache.get(dir)
+      if (cached) return cached
+      const pending = fs.listSubdirectories(dir)
+      cache.set(dir, pending)
+      return pending
+    },
+  }
 }
 
 /**
@@ -94,11 +146,18 @@ const WINDOWS_DRIVE_SLUG_RE = /^[A-Za-z]--/
  * during development — the space case (`ASK JO` → `ASK-JO`, `TailR
  * Nutrition` → `TailR-Nutrition`) is not in #243's own list, so it would
  * otherwise have surfaced as a run of honestly-unresolved slugs that were,
- * in fact, real and present. The longest
- * matching entry wins, so a directory whose own name contains a literal `-`
- * (`worktrees-challenge`) is preferred over stopping one token early — the
- * ambiguity a slug can never fully resolve on its own is resolved here by
- * asking the real filesystem instead of guessing.
+ * in fact, real and present.
+ *
+ * Among entries that match, the LONGEST encoded form wins, so a directory
+ * whose own name contains a literal `-` (`worktrees-challenge`) is preferred
+ * over stopping one token early. But when TWO OR MORE entries tie for that
+ * longest match — `foo-bar` and `foo.bar` both encode to `foo-bar`, and
+ * nothing about the slug says which one Claude Code meant — the walk does
+ * NOT pick whichever the filesystem happened to enumerate first. A silent
+ * pick would be a wrong answer with no sign it was ever in doubt, which is
+ * the one thing this module's whole contract refuses to do: the tie is
+ * reported as an ambiguous slug, naming every tied candidate, rather than
+ * guessed at.
  *
  * Returns the resolved path, or `null` with a reason naming where the walk
  * stopped — this is the "unknown is not absent" half of the contract: a
@@ -107,7 +166,10 @@ const WINDOWS_DRIVE_SLUG_RE = /^[A-Za-z]--/
  * read: the reason says so plainly, rather than reporting the same "no
  * match" text a genuinely empty directory would get.
  */
-export function reverseProjectSlug(slug: string, fs: DiscoveryFs = realDiscoveryFs): { path: string } | { path: null; reason: string } {
+export async function reverseProjectSlug(
+  slug: string,
+  fs: DiscoveryFs = realDiscoveryFs,
+): Promise<{ path: string } | { path: null; reason: string }> {
   if (!slug.startsWith('-')) {
     if (WINDOWS_DRIVE_SLUG_RE.test(slug)) {
       return {
@@ -125,7 +187,7 @@ export function reverseProjectSlug(slug: string, fs: DiscoveryFs = realDiscovery
   let remaining = slug.slice(1)
 
   while (remaining.length > 0) {
-    const listing = fs.listSubdirectories(currentDir)
+    const listing = await fs.listSubdirectories(currentDir)
     if (!listing.readable) {
       return {
         path: null,
@@ -133,19 +195,23 @@ export function reverseProjectSlug(slug: string, fs: DiscoveryFs = realDiscovery
       }
     }
 
-    let bestEntry: string | null = null
+    let bestEntries: string[] = []
     let bestEncodedLength = -1
     for (const entry of listing.entries) {
       const encoded = entry.replace(/[._ ]/g, '-')
       const isFinalSegment = remaining === encoded
       const isMidSegment = remaining.startsWith(`${encoded}-`)
-      if ((isFinalSegment || isMidSegment) && encoded.length > bestEncodedLength) {
-        bestEntry = entry
+      if (!isFinalSegment && !isMidSegment) continue
+
+      if (encoded.length > bestEncodedLength) {
+        bestEntries = [entry]
         bestEncodedLength = encoded.length
+      } else if (encoded.length === bestEncodedLength) {
+        bestEntries.push(entry)
       }
     }
 
-    if (bestEntry === null) {
+    if (bestEntries.length === 0) {
       return {
         path: null,
         reason:
@@ -154,6 +220,16 @@ export function reverseProjectSlug(slug: string, fs: DiscoveryFs = realDiscovery
       }
     }
 
+    if (bestEntries.length > 1) {
+      return {
+        path: null,
+        reason:
+          `ambiguous slug "${slug}": under ${currentDir}, ${bestEntries.map((entry) => `"${entry}"`).join(' and ')} ` +
+          `all encode to the same next part of the slug — cannot tell which one Claude Code meant without guessing`,
+      }
+    }
+
+    const bestEntry = bestEntries[0] as string
     currentDir = path.join(currentDir, bestEntry)
     remaining = remaining.length === bestEncodedLength ? '' : remaining.slice(bestEncodedLength + 1)
   }
@@ -182,26 +258,40 @@ export type KnownProjectsResult = { available: true; projects: KnownProjectEntry
  * come back looking like "Claude has no history here." A slug that fails to
  * reverse still appears, with `resolved: false` and a `reason` — never
  * silently dropped from the list.
+ *
+ * Every slug is reversed concurrently (`Promise.all`), through a
+ * `listSubdirectories` cache SCOPED TO THIS ONE CALL: many slugs share a long
+ * stretch of ancestor directories (every project under `/Users/operator/…`
+ * re-walks `/`, `/Users`, `/Users/operator` from scratch), so without it, a
+ * `~/.claude/projects` with dozens of slugs would re-read the same handful
+ * of shallow directories dozens of times over. The cache holds the PROMISE,
+ * not just the eventual value, so two slugs whose concurrent walks reach the
+ * same directory in the same tick single-flight onto one real read rather
+ * than issuing it twice — deliberately fresh per call, never a module-level
+ * cache, so nothing here can serve a stale listing across separate requests.
  */
-export function listKnownProjects(claudeProjectsRoot: string, fs: DiscoveryFs = realDiscoveryFs): KnownProjectsResult {
-  if (!fs.exists(claudeProjectsRoot)) {
+export async function listKnownProjects(claudeProjectsRoot: string, fs: DiscoveryFs = realDiscoveryFs): Promise<KnownProjectsResult> {
+  if (!(await fs.exists(claudeProjectsRoot))) {
     return {
       available: false,
       reason: `no Claude Code project history at ${claudeProjectsRoot} — nothing to enumerate yet`,
     }
   }
 
-  const listing = fs.listSubdirectories(claudeProjectsRoot)
+  const listing = await fs.listSubdirectories(claudeProjectsRoot)
   if (!listing.readable) {
     return { available: false, reason: listing.reason }
   }
 
-  const projects: KnownProjectEntry[] = listing.entries.map((slug) => {
-    const reversed = reverseProjectSlug(slug, fs)
-    return reversed.path === null
-      ? { slug, path: null, resolved: false, reason: reversed.reason }
-      : { slug, path: reversed.path, resolved: true }
-  })
+  const cachedFs = withSharedDirectoryCache(fs)
+  const projects: KnownProjectEntry[] = await Promise.all(
+    listing.entries.map(async (slug) => {
+      const reversed = await reverseProjectSlug(slug, cachedFs)
+      return reversed.path === null
+        ? { slug, path: null, resolved: false, reason: reversed.reason }
+        : { slug, path: reversed.path, resolved: true }
+    }),
+  )
 
   return { available: true, projects }
 }
@@ -291,8 +381,19 @@ export interface ScanCommonRootsResult {
  * worktree in a `~/code` full of them and then descend INTO each one looking
  * for repos. Once recognised, a repo's own contents are not descended into
  * further.
+ *
+ * The walk is sequential, not fanned out with `Promise.all` across
+ * siblings: every `await` here still yields the event loop between reads
+ * (the fix this function exists to carry — see this module's own doc), and
+ * staying sequential keeps `dirsVisited`/`truncated`/`unreadable` exactly as
+ * deterministic as they were when this was synchronous, rather than trading
+ * that for a speed-up nothing here asked for.
  */
-export function scanCommonRoots(homeDir: string, fs: DiscoveryFs = realDiscoveryFs, options: ScanCommonRootsOptions = {}): ScanCommonRootsResult {
+export async function scanCommonRoots(
+  homeDir: string,
+  fs: DiscoveryFs = realDiscoveryFs,
+  options: ScanCommonRootsOptions = {},
+): Promise<ScanCommonRootsResult> {
   const skipDirNames = options.skipDirNames ?? DEFAULT_SKIP_DIR_NAMES
   const maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH
   const maxDirsVisited = options.maxDirsVisited ?? DEFAULT_MAX_DIRS_VISITED
@@ -309,13 +410,13 @@ export function scanCommonRoots(homeDir: string, fs: DiscoveryFs = realDiscovery
    * caller doesn't need to tell them apart, because `truncated`/`unreadable`
    * are already recorded here, at the one place that knows which happened.
    */
-  function readSubdirs(dir: string): string[] | null {
+  async function readSubdirs(dir: string): Promise<string[] | null> {
     dirsVisited += 1
     if (dirsVisited > maxDirsVisited) {
       truncated = true
       return null
     }
-    const listing = fs.listSubdirectories(dir)
+    const listing = await fs.listSubdirectories(dir)
     if (!listing.readable) {
       unreadable.push(dir)
       return null
@@ -323,21 +424,21 @@ export function scanCommonRoots(homeDir: string, fs: DiscoveryFs = realDiscovery
     return listing.entries
   }
 
-  function visit(dir: string, depthRemaining: number): void {
+  async function visit(dir: string, depthRemaining: number): Promise<void> {
     if (truncated) return
 
-    if (fs.exists(path.join(dir, '.git'))) {
+    if (await fs.exists(path.join(dir, '.git'))) {
       repos.push({ path: dir })
       return
     }
     if (depthRemaining <= 0) return
 
-    const entries = readSubdirs(dir)
+    const entries = await readSubdirs(dir)
     if (entries === null) return
 
     for (const name of entries) {
       if (name.startsWith('.') || skipDirNames.has(name)) continue
-      visit(path.join(dir, name), depthRemaining - 1)
+      await visit(path.join(dir, name), depthRemaining - 1)
     }
   }
 
@@ -349,13 +450,13 @@ export function scanCommonRoots(homeDir: string, fs: DiscoveryFs = realDiscovery
   // `path.join` to have named something real, is what keeps "never follow a
   // symlink out of the filesystem" true for the roots themselves too, not
   // only for what the walk finds underneath them.
-  const homeEntries = readSubdirs(homeDir)
+  const homeEntries = await readSubdirs(homeDir)
   if (homeEntries !== null) {
     const homeEntrySet = new Set(homeEntries)
     for (const rootName of COMMON_ROOT_NAMES) {
       if (truncated) break
       if (!homeEntrySet.has(rootName)) continue
-      visit(path.join(homeDir, rootName), maxDepth)
+      await visit(path.join(homeDir, rootName), maxDepth)
     }
   }
 
@@ -379,15 +480,30 @@ export interface DiscoverReposResult {
  * (`~/.claude/projects`, honestly reversed) plus the repos a shallow,
  * bounded scan of common roots turns up. Every field defaults to the real
  * machine; tests override `homeDir`/`claudeProjectsRoot`/`fs` to run
- * hermetically against fixtures instead.
+ * hermetically against fixtures instead. Reuses `log/paths.ts`'s own
+ * `defaultClaudeProjectsRoot()` for the default rather than re-deriving the
+ * same join — that module is a shared, ungated utility (not `lab/`,
+ * `recorder/`, or `api/`, the three namespaces the concierge law fences
+ * against), and `namespace-law.test.ts` passes with this import in place.
+ *
+ * The two reads run CONCURRENTLY (`Promise.all`), not one after the other:
+ * they touch disjoint parts of the filesystem (`~/.claude/projects` vs. the
+ * common roots), so there is nothing to serialize them for.
  */
-export function discoverRepos(options: DiscoverReposOptions = {}): DiscoverReposResult {
+export async function discoverRepos(options: DiscoverReposOptions = {}): Promise<DiscoverReposResult> {
   const fs = options.fs ?? realDiscoveryFs
   const homeDir = options.homeDir ?? homedir()
-  const claudeProjectsRoot = options.claudeProjectsRoot ?? path.join(homeDir, '.claude', 'projects')
+  // `defaultClaudeProjectsRoot()` has no parameter of its own — it always
+  // means THE REAL machine's `~/.claude/projects`. That is exactly right
+  // when `homeDir` is also at its real default (the production path this
+  // finding is about), but a test overriding `homeDir` alone, without also
+  // naming `claudeProjectsRoot`, clearly means "derive it under the home I
+  // gave you" — `defaultClaudeProjectsRoot()` cannot honour that, so this
+  // only reaches for it when nothing here is overridden.
+  const claudeProjectsRoot =
+    options.claudeProjectsRoot ?? (options.homeDir === undefined ? defaultClaudeProjectsRoot() : path.join(homeDir, '.claude', 'projects'))
 
-  return {
-    known: listKnownProjects(claudeProjectsRoot, fs),
-    scanned: scanCommonRoots(homeDir, fs, options.scan),
-  }
+  const [known, scanned] = await Promise.all([listKnownProjects(claudeProjectsRoot, fs), scanCommonRoots(homeDir, fs, options.scan)])
+
+  return { known, scanned }
 }
