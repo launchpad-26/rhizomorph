@@ -137,7 +137,9 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   from the top, both leave it alone. The lane manifest is re-asked at the
   same boundary: `/api/lanes` was previously fetched once for the life of
   the page, so the new repo's lanes were fenced, labelled and judged
-  against the old repo's `.swarm/lanes.json`.
+  against the old repo's `.swarm/lanes.json`. The selected lane drops at
+  the boundary too — a lane id belongs to the repo it was selected in, and
+  names like `dev-1` and `main` recur across unrelated repositories.
 
 - **Rename-in-place actually works (#249).** `POST /api/label` required a
   per-process capability token nothing ever delivered to the browser, so
