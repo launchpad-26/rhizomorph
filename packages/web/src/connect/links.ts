@@ -1,6 +1,6 @@
 import { AGENT_ROLES, type AgentRole, type Connection, type RefusalState, type SourceFlow, type UninstrumentedSession } from '@rhizomorph/core'
 import type { ConnectionStatus } from '../hooks/useEventStream.js'
-import { doctorCheck, type CollectorFacts, type DoctorFact, type MetaFacts } from './meta.js'
+import { doctorCheck, type CollectorFacts, type DoctorReading, type MetaFacts } from './meta.js'
 
 /**
  * THE HANDSHAKE CHECKLIST'S ROWS (prd19 ruling 3, wave 3, #258).
@@ -165,7 +165,8 @@ export interface ConnectInputs {
   refusals: RefusalState
   stream: StreamFacts
   meta: MetaFacts | null
-  doctor: DoctorFact[] | null
+  /** The three-state doctor reading (#381) — `absent` and `unreadable` are different facts and this page says which. */
+  doctor: DoctorReading
   /** The port this browser is actually talking to, interpolated into every command. */
   port: string
   /** The page's clock, for {@link FIRST_EXPORT_GRACE_MS}. */
@@ -320,8 +321,8 @@ function disabledReason(meta: MetaFacts | null, name: string): { reason: string;
   return { reason: identity.reason, remedy: identity.remedy }
 }
 
-/** A doctor finding, in its own words, tagged with the check it came from — or nothing at all when the route never answered. */
-function doctorNote(doctor: DoctorFact[] | null, id: string): string[] {
+/** A doctor finding, in its own words, tagged with the check it came from — or nothing at all when there is no readable report to quote. */
+function doctorNote(doctor: DoctorReading, id: string): string[] {
   const check = doctorCheck(doctor, id)
   if (check === null) return []
   return [`doctor · ${id}: ${check.message}${check.assumed ? ' (assumed, not measured)' : ''}`]
@@ -477,28 +478,26 @@ function transcriptSlug(input: ConnectInputs): ChainLink {
   }
   const check = doctorCheck(input.doctor, 'session-logs')
   if (check === null) {
-    // DIFFERENT NULLS, AND NOT ALL OF THEM ARE THE ROUTE'S FAULT (#346).
-    // `doctorCheck` answers `null` both when nothing usable arrived and when
-    // the answer simply had no `session-logs` in it, and the second used to be
-    // reported as the first — sending a reader off to debug a route that is
-    // working perfectly well. What is unavailable is the same either way; WHY
-    // it is unavailable, and therefore where to look, is not.
+    // THREE DIFFERENT NOTHINGS, AND WHERE TO LOOK DIFFERS FOR EACH (#346,
+    // then #381). What is unavailable is the same in all three; WHY it is
+    // unavailable — and therefore what the reader debugs — is not:
     //
-    // **`input.doctor === null` IS ITSELF STILL TWO FACTS, so this note names
-    // both rather than picking one.** `parseDoctor` answers `null` for a route
-    // that never answered AND for one that answered in a shape this page could
-    // not read (`readJson` folds every unreadable answer onto the same value),
-    // and `DoctorFact[] | null` has nowhere to carry the difference. Saying
-    // "has not answered" here was the same lie #346 removed one branch over: a
-    // server whose doctor is answering perfectly, in a body this build is too
-    // old to parse, would send its reader off to debug a live route. Until the
-    // three-state result lands (absent / unreadable / checks — it has to travel
-    // through `fetchDoctor` and `index.tsx`, so not here), this row states what
-    // it actually knows and names both causes without choosing between them.
+    // - `absent`: nothing usable arrived. That still folds a dead route, a
+    //   non-2xx and a non-JSON body (`readJson`'s set), so this note says "no
+    //   usable answer" and sends the reader to the route — it does NOT flatly
+    //   claim silence, because a 500 or an error page is an answer of a kind.
+    // - `unreadable`: the route answered a non-empty report and this build
+    //   could not read one entry of it. Claiming the route was silent here was
+    //   the lie #346 removed one branch over — the reader's problem is the
+    //   payload (a page and server from different builds), not the route.
+    // - `checks` with no `session-logs` entry: the route is fine and readable;
+    //   this server is older than the check, or the check did not run.
     return unproven(base, [
-      input.doctor === null
-        ? '`GET /api/doctor` produced no readable answer — either it never answered, or it answered in a shape this page could not read; the slug directory is unavailable from here either way'
-        : '`GET /api/doctor` answered, but carried no `session-logs` check — the route is fine; this server is older than the check, or the check did not run',
+      input.doctor.kind === 'absent'
+        ? '`GET /api/doctor` produced no usable answer — a dead route, an error status, or a non-JSON body all land here; check the server this page came from. The slug directory is unavailable from here.'
+        : input.doctor.kind === 'unreadable'
+          ? '`GET /api/doctor` answered, but not one entry of its report was readable by this build — the route is alive; this page and its server likely come from different builds. Reload the page, or rebuild the web bundle. The slug directory is unavailable from here.'
+          : '`GET /api/doctor` answered, but carried no `session-logs` check — the route is fine; this server is older than the check, or the check did not run',
     ])
   }
   // A probe, not a stored fact: doctor answered about the filesystem as it is

@@ -182,10 +182,13 @@ describe('parseDoctor', () => {
       { id: 'ladder', status: 'ok', message: 'L1', assumed: true },
     ])
 
-    expect(checks).toEqual([
-      { id: 'node', status: 'ok', message: 'Node v22.22.2 satisfies the required >=22.22.2', assumed: false },
-      { id: 'ladder', status: 'ok', message: 'L1', assumed: true },
-    ])
+    expect(checks).toEqual({
+      kind: 'checks',
+      checks: [
+        { id: 'node', status: 'ok', message: 'Node v22.22.2 satisfies the required >=22.22.2', assumed: false },
+        { id: 'ladder', status: 'ok', message: 'L1', assumed: true },
+      ],
+    })
   })
 
   it('drops a half-read check rather than rendering a finding with nothing in it, and still answers with its survivors', () => {
@@ -196,37 +199,38 @@ describe('parseDoctor', () => {
         { status: 'ok', message: 'no id' },
         { id: 'x', status: 'maybe', message: 'm' },
       ]),
-    ).toEqual([{ id: 'tmux', status: 'warn', message: 'tmux not found on PATH', assumed: false }])
+    ).toEqual({ kind: 'checks', checks: [{ id: 'tmux', status: 'warn', message: 'tmux not found on PATH', assumed: false }] })
   })
 
   /**
-   * **TWO DIFFERENT NULLS, AND THEY MUST NOT LOOK ALIKE (#346).** An array
-   * whose every entry was unreadable used to answer `[]`, which reaches the
-   * panel as a heading with no rows and no "unavailable" note — pixel for
-   * pixel a doctor that ran and had nothing to report. One of those is a
-   * working route and the other is a body this page could not read, and only
-   * `null` says the second.
+   * **THE THREE SHAPES, EACH ITS OWN FACT (#346, then #381).** #346 stopped an
+   * all-malformed body collapsing onto `[]` ("all clear"); #381 stops it
+   * collapsing onto the transport failures too. An empty report, a report
+   * nothing survived of, and no usable answer at all are three different facts
+   * a reader debugs in three different places, and the parse now says which.
    */
   it('separates "answered with nothing" from "answered with nothing readable"', () => {
     // Ran, reported no checks: an answer, and an empty one.
-    expect(parseDoctor([])).toEqual([])
-    // Answered, and not one entry of it could be read: the same fact as a body
-    // that was not JSON, and it lands on the same null.
-    expect(parseDoctor([{ id: 'node', status: 'ok' }, { status: 'ok', message: 'no id' }])).toBeNull()
-    expect(parseDoctor(['nope', 42, null])).toBeNull()
+    expect(parseDoctor([])).toEqual({ kind: 'checks', checks: [] })
+    // Answered, and not one entry of it could be read: the route did its job;
+    // this build cannot read what it said — its own shape, no longer folded
+    // onto the transport failures (#381's whole point).
+    expect(parseDoctor([{ id: 'node', status: 'ok' }, { status: 'ok', message: 'no id' }])).toEqual({ kind: 'unreadable' })
+    expect(parseDoctor(['nope', 42, null])).toEqual({ kind: 'unreadable' })
   })
 
-  it('answers null for a body that is not an array — never an empty report, which would read as "all clear"', () => {
-    expect(parseDoctor({ checks: [] })).toBeNull()
-    expect(parseDoctor(null)).toBeNull()
+  it('reads a body that is not an array as no usable answer — never an empty report, which would read as "all clear"', () => {
+    expect(parseDoctor({ checks: [] })).toEqual({ kind: 'absent' })
+    expect(parseDoctor(null)).toEqual({ kind: 'absent' })
   })
 
-  it('finds a named check, and answers null for one the route never reported', () => {
-    const checks = parseDoctor([{ id: 'tmux', status: 'warn', message: 'tmux not found on PATH' }])
+  it('finds a named check, and answers null for one the reading cannot hold', () => {
+    const reading = parseDoctor([{ id: 'tmux', status: 'warn', message: 'tmux not found on PATH' }])
 
-    expect(doctorCheck(checks, 'tmux')?.message).toContain('not found')
-    expect(doctorCheck(checks, 'workmux')).toBeNull()
-    expect(doctorCheck(null, 'tmux')).toBeNull()
+    expect(doctorCheck(reading, 'tmux')?.message).toContain('not found')
+    expect(doctorCheck(reading, 'workmux')).toBeNull()
+    expect(doctorCheck({ kind: 'absent' }, 'tmux')).toBeNull()
+    expect(doctorCheck({ kind: 'unreadable' }, 'tmux')).toBeNull()
   })
 })
 
@@ -246,24 +250,25 @@ describe('the two reads', () => {
     const { impl, urls } = stubFetch({ [META_URL]: { body: FULL_META }, [DOCTOR_URL]: { body: [] } })
 
     expect((await fetchMeta(impl))?.sessionId).toBe('sess-1')
-    expect(await fetchDoctor(impl)).toEqual([])
+    expect(await fetchDoctor(impl)).toEqual({ kind: 'checks', checks: [] })
     expect(urls).toEqual(['/api/meta', '/api/doctor'])
   })
 
   /**
-   * A rejected request, a non-2xx, a body that is not JSON and a body that
-   * does not parse are one fact to a reader: this page could not read that
-   * route just now. The distinction it does make is null-vs-fact, never a
-   * fabricated middle.
+   * A rejected request, a non-2xx, a body that is not JSON and a body that is
+   * not the array shape are one fact to a reader: nothing usable arrived from
+   * that route just now. For meta that is still `null`; for doctor it is the
+   * `absent` reading — never a fabricated middle, and (#381) never the same
+   * value as a report that arrived and could not be read.
    */
-  it('lands every failure mode on the same null', async () => {
+  it('lands every transport failure on the same absent reading', async () => {
     const { impl } = stubFetch({
       [META_URL]: { throws: true },
       [DOCTOR_URL]: { ok: false, body: [] },
     })
 
     expect(await fetchMeta(impl)).toBeNull()
-    expect(await fetchDoctor(impl)).toBeNull()
+    expect(await fetchDoctor(impl)).toEqual({ kind: 'absent' })
 
     const badJson: FetchLike = async () => ({
       ok: true,
@@ -272,6 +277,30 @@ describe('the two reads', () => {
       },
     })
     expect(await fetchMeta(badJson)).toBeNull()
+    expect(await fetchDoctor(badJson)).toEqual({ kind: 'absent' })
+  })
+
+  /**
+   * #381's own acceptance: each of the three shapes, driven through the real
+   * fetch-and-parse path rather than `parseDoctor` alone — including the
+   * non-empty body whose every entry fails validation, which is the exact
+   * case that produced the old ambiguity.
+   */
+  it('carries all three doctor readings through the real fetch path', async () => {
+    const readable = stubFetch({ [DOCTOR_URL]: { body: [{ id: 'node', status: 'ok', message: 'Node v22.22.2' }] } })
+    expect(await fetchDoctor(readable.impl)).toEqual({
+      kind: 'checks',
+      checks: [{ id: 'node', status: 'ok', message: 'Node v22.22.2', assumed: false }],
+    })
+
+    const unreadable = stubFetch({ [DOCTOR_URL]: { body: [{ id: 'node', status: 'ok' }, 42] } })
+    expect(await fetchDoctor(unreadable.impl)).toEqual({ kind: 'unreadable' })
+
+    const rejected = stubFetch({ [DOCTOR_URL]: { throws: true } })
+    expect(await fetchDoctor(rejected.impl)).toEqual({ kind: 'absent' })
+
+    const nonArray = stubFetch({ [DOCTOR_URL]: { body: { error: 'boom' } } })
+    expect(await fetchDoctor(nonArray.impl)).toEqual({ kind: 'absent' })
   })
 
   it('has one word for a fact it could not read', () => {

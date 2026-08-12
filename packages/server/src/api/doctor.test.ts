@@ -355,10 +355,13 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
             dataRoot,
           })
 
-          // What `runServerDoctor` would produce once its own call site threads
-          // `repoPath` through the way `runDoctor`'s already does.
-          const wouldBeRouteMessage = checkClaudeProjects(claudeProjectsRoot, repoPath).message
-          expect(wouldBeRouteMessage).toBe(checkFor(cliReport.checks, 'session-logs').message)
+          // The answer both call sites must land on. `api/doctor.ts` threads
+          // `repoPath` through as well, since #288 (`api/doctor.ts:97`), so
+          // this is the route's message too and not merely a prospective one —
+          // the two tests above drive the route itself; this one drives the
+          // CLI leg.
+          const sharedMessage = checkClaudeProjects(claudeProjectsRoot, repoPath).message
+          expect(sharedMessage).toBe(checkFor(cliReport.checks, 'session-logs').message)
         } finally {
           await rm(webDistDir, { recursive: true, force: true })
         }
@@ -367,7 +370,7 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
       }
     })
 
-    it('pending the api/doctor.ts follow-up: same agreement holds on the named-miss warn branch too', async () => {
+    it('the CLI call site passes repoPath on the named-miss warn branch too', async () => {
       await setup()
       try {
         const missingClaudeProjectsRoot = path.join(claudeProjectsRoot, 'does-not-exist')
