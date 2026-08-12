@@ -193,13 +193,31 @@ describe('the symlink chase is bounded (#401)', () => {
 })
 
 /**
- * Step 5 of #401: a law asserting `isInside`/`canonicalize` are defined in
- * exactly one place under `packages/server/src/` — the thing that stops a
- * third copy the way this issue found a second one. Grep-law style, per
- * `lab/namespace-law.test.ts`/`api/route-class-law.test.ts`: real source
- * text, no AST, count-based so it cannot pass by matching nothing.
+ * Step 5 of #401, widened by #422: a law asserting `isInside`/`canonicalize`
+ * are defined in exactly one place under `packages/server/src/` — the thing
+ * that stops a third copy the way this issue found a second one. Grep-law
+ * style, per `lab/namespace-law.test.ts`/`api/route-class-law.test.ts`: real
+ * source text, no AST, count-based so it cannot pass by matching nothing.
+ *
+ * #422 found a THIRD and FOURTH copy of the same idea —
+ * `transcript-attribution.ts`'s `isPathContained` and `process-probe.ts`'s
+ * `isWithin` — spelled differently enough that this law's original two
+ * names never saw them. Both are now legitimate fail-closed WRAPPERS over
+ * `isInside`/`canonicalize` rather than reimplementations, so the fix here is
+ * not to make them disappear but to pin each to its one sanctioned home, the
+ * same way `isInside` itself is pinned. `isContained` is added pre-emptively:
+ * no code defines it today, so the assertion below is that it stays that way.
+ *
+ * This is still name-keyed, deliberately, and that is still a real limit: a
+ * FIFTH copy under a spelling not listed here (`canonicalizeUnderRoot`,
+ * `isInsideRepo`, `pathIsContained`, …) would not be caught by this law. The
+ * mitigation for a novel name is review, not grep — a regex broad enough to
+ * catch "any prefix-comparison of resolved paths" would false-positive across
+ * the whole tree, per the dispatch ruling. Extending the list when a new
+ * spelling is found (as this file's own history now shows twice) is the
+ * mechanism, not a one-time fix.
  */
-describe('no second definition of isInside/canonicalize exists (#401 step 5)', () => {
+describe('no second definition of isInside/canonicalize/isPathContained/isWithin/isContained exists (#401 step 5, #422)', () => {
   const HERE = path.dirname(fileURLToPath(import.meta.url))
   // packages/server/src/paths -> packages/server/src
   const SERVER_SRC = path.resolve(HERE, '..')
@@ -267,6 +285,26 @@ describe('no second definition of isInside/canonicalize exists (#401 step 5)', (
     const files = walkSourceFiles(SERVER_SRC)
     const defining = filesDefining('canonicalize', files)
     expect(defining.map((f) => path.relative(SERVER_SRC, f))).toEqual([path.join('paths', 'containment.ts')])
+  })
+
+  it('exactly one file under packages/server/src defines isPathContained — its fail-closed wrapper (#422)', () => {
+    const files = walkSourceFiles(SERVER_SRC)
+    const defining = filesDefining('isPathContained', files)
+    expect(defining.map((f) => path.relative(SERVER_SRC, f))).toEqual([path.join('log', 'transcript-attribution.ts')])
+  })
+
+  it('exactly one file under packages/server/src defines isWithin — its fail-closed wrapper (#422)', () => {
+    const files = walkSourceFiles(SERVER_SRC)
+    const defining = filesDefining('isWithin', files)
+    expect(defining.map((f) => path.relative(SERVER_SRC, f))).toEqual([
+      path.join('collectors', 'sessionlog', 'process-probe.ts'),
+    ])
+  })
+
+  it('no file under packages/server/src defines isContained — nothing has claimed this spelling yet', () => {
+    const files = walkSourceFiles(SERVER_SRC)
+    const defining = filesDefining('isContained', files)
+    expect(defining).toEqual([])
   })
 
   it('the detector fires on a deliberately-duplicated definition — proving it bites', () => {

@@ -736,6 +736,37 @@ describe('runCli export-record and replay subcommands', () => {
     expect(log.log).toHaveBeenCalledWith(expect.stringContaining('rhizomorph export-record [path]'))
   })
 
+  /**
+   * #128's wiring only — `export-otlp.ts`'s own behaviour (span serialisation,
+   * containment, overwrite refusal, the zero-outbound law) is covered by
+   * `export-otlp.test.ts`. This just proves `argv[0] === 'export-otlp'`
+   * actually reaches `runExportOtlpCommand`.
+   */
+  it('export-otlp --help prints usage and exits 0', async () => {
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const exit = fakeExit()
+
+    const thrown = await runCli(['export-otlp', '--help'], { log, exit }).catch((err: unknown) => err)
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    expect(log.log).toHaveBeenCalledWith(expect.stringContaining('rhizomorph export-otlp [path]'))
+  })
+
+  it('export-otlp exits 1 naming the repo when there is nothing recorded to export', async () => {
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+    const thrown = await runCli(['export-otlp', repoPath], { dataRoot, log: silentLog, exit }).catch(
+      (err: unknown) => err,
+    )
+    const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(1)
+    expect(output).toContain('no recorded sessions')
+  })
+
   it('replay --help prints usage and exits 0', async () => {
     const log = { log: vi.fn(), warn: vi.fn() }
     const exit = fakeExit()

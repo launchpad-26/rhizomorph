@@ -1,6 +1,7 @@
 import path from 'node:path'
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
+import { isInside } from '../paths/containment.js'
 import { transcriptCaptureDir, transcriptCaptureFileName } from './paths.js'
 
 /**
@@ -160,11 +161,23 @@ export function isSafeSessionId(sessionId: string): boolean {
  * been built from a filename that looked safe. Catches anything the shape
  * check did not anticipate rather than trusting construction alone — the
  * audit's ask was both checks, not either.
+ *
+ * A fail-closed wrapper over `paths/containment.ts`'s `isInside`, not a bare
+ * re-export: `isInside` canonicalizes both sides and THROWS on a
+ * canonicalization error it cannot recover from (ELOOP from a cyclic
+ * symlink, EACCES) rather than guessing. This function is called from a
+ * ternary at this file's own `candidateTranscriptPaths`/`capturedTranscriptPath`
+ * call sites (#422) — an uncaught throw there would take down the whole
+ * attribution lookup instead of refusing one path. A path that cannot be
+ * canonicalized must never be offered to a reader, so any such error refuses
+ * the path (`false`) rather than crashing or, worse, passing.
  */
 export function isPathContained(root: string, candidate: string): boolean {
-  const resolvedRoot = path.resolve(root)
-  const resolvedCandidate = path.resolve(candidate)
-  return resolvedCandidate === resolvedRoot || resolvedCandidate.startsWith(resolvedRoot + path.sep)
+  try {
+    return isInside(root, candidate)
+  } catch {
+    return false
+  }
 }
 
 /**

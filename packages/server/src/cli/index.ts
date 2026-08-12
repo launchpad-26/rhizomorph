@@ -6,6 +6,7 @@ import { compareFork, renderComparison } from '../lab/compare.js'
 import { dispatchFork } from '../lab/fork.js'
 import { runDoctorCommand } from './doctor.js'
 import { runEnvCommand } from './env.js'
+import { runExportOtlpCommand } from './export-otlp.js'
 import { runExportRecordCommand } from './export-record.js'
 import { runLabelCommand } from './label.js'
 import { labCompareHelpText, parseLabCompareArgs } from './lab-compare.js'
@@ -42,6 +43,10 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
 
   if (argv[0] === 'export-record') {
     return runExportRecordCommand(argv.slice(1), log, exit, options)
+  }
+
+  if (argv[0] === 'export-otlp') {
+    return runExportOtlpCommand(argv.slice(1), log, exit, options)
   }
 
   if (argv[0] === 'replay') {
