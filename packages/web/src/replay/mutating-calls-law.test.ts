@@ -187,6 +187,31 @@ function importedFromCapabilityModule(text: string, fromDir: string): Set<string
  * one function, which is the point: the mechanism the law asserts on the real
  * files is the same mechanism its self-test proves able to fail.
  */
+/**
+ * TypeScript primitive type names — the only values a `headers:` block can
+ * hold and still be a type annotation rather than a request. A real call's
+ * values are quoted literals or identifiers naming a runtime value.
+ */
+const BARE_TYPE_TOKEN_RE = /^(?:string|number|boolean|unknown|any|never|null|undefined)(?:\s*\|\s*\w+)*$/
+
+/**
+ * True when EVERY value in a `headers:` block body is a bare TypeScript type
+ * token — i.e. the block is `headers: { 'x-…': string }`, a declaration, and
+ * not a request that puts a value on the wire.
+ *
+ * Conservative by construction: a block it cannot parse is treated as a real
+ * request, so an unfamiliar shape makes the law stricter rather than blinder.
+ */
+function isTypeAnnotationShaped(body: string): boolean {
+  const values = body
+    .split(/[,;]/)
+    .map((pair) => pair.trim())
+    .filter((pair) => pair.length > 0)
+    .map((pair) => pair.slice(pair.indexOf(':') + 1).trim())
+  if (values.length === 0) return false
+  return values.every((value) => BARE_TYPE_TOKEN_RE.test(value))
+}
+
 function assertHeaderBlocksExact(text: string, allowed: readonly string[], fromDir: string): void {
   if (HEADERS_NOT_INLINE_RE.test(text)) {
     throw new Error('headers must stay an inline object literal, never a variable reference')
@@ -194,6 +219,27 @@ function assertHeaderBlocksExact(text: string, allowed: readonly string[], fromD
   const importedFromCapability = importedFromCapabilityModule(text, fromDir)
   const headerBlocks = [...text.matchAll(/headers\s*:\s*\{([^}]*)\}/g)]
   if (headerBlocks.length === 0) throw new Error('no headers: blocks found — an empty sweep proves nothing')
+
+  // At least one block must be a REQUEST, not a type annotation.
+  //
+  // Each gated module carries two `headers:` blocks — the `init` TYPE
+  // (`headers: { 'x-rhizomorph-capability': string }`) and the actual call.
+  // A text sweep cannot tell them apart, so deleting the call's `headers`
+  // property left `headerBlocks.length` at 1, the keys were read out of the
+  // *type*, `seen` equalled `expected`, and every check below passed over a
+  // module that had stopped sending the header. That is this function's own
+  // stated failure mode — "the type declares both headers but the call site
+  // sends only Content-Type" — surviving one level up.
+  //
+  // A type block's values are bare type tokens; a request's values are real
+  // expressions (a quoted literal, or an identifier holding a value). So a
+  // file whose header blocks are ALL type-shaped never reaches the wire.
+  if (headerBlocks.every((block) => isTypeAnnotationShaped(block[1] ?? ''))) {
+    throw new Error(
+      'every headers: block is a type annotation — no actual request sends these headers, ' +
+        'so the file declares the contract without honouring it',
+    )
+  }
 
   for (const block of headerBlocks) {
     const body = block[1] ?? ''
@@ -317,6 +363,35 @@ describe('the web app names exactly three mutating calls (prd16 rulings 2 and 4;
         dir,
       ),
     ).toThrow(/not one of the headers/)
+
+    // …and a file whose ONLY headers block is the `init` TYPE is refused,
+    // even though that type names exactly the right header.
+    //
+    // This is the hole the type/request distinction closes, and it was real:
+    // with the call's `headers` property deleted from rotate.ts, the
+    // unamended law reported `Tests 10 passed` — the sweep found the type
+    // block, read the right key out of it, and never noticed that nothing
+    // reached the wire.
+    expect(() =>
+      assertHeaderBlocksExact(
+        `import { CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'\n` +
+          `init: { method: 'POST'; headers: { 'x-rhizomorph-capability': string } },\n`,
+        [CAPABILITY_TOKEN_HEADER],
+        dir,
+      ),
+    ).toThrow(/type annotation/)
+
+    // Not vacuously strict: a real call sitting BESIDE that same type is
+    // still accepted, which is the actual shape of both gated modules.
+    expect(() =>
+      assertHeaderBlocksExact(
+        `import { CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'\n` +
+          `init: { method: 'POST'; headers: { 'x-rhizomorph-capability': string } },\n` +
+          `await impl(URL, { method: 'POST', headers: { [CAPABILITY_TOKEN_HEADER]: token } })\n`,
+        [CAPABILITY_TOKEN_HEADER],
+        dir,
+      ),
+    ).not.toThrow()
   })
 
   /**
