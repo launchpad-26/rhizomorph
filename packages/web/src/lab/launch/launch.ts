@@ -11,9 +11,22 @@
  * module is the one and only place that act reaches the server from.
  *
  * Unlike rotation, a launch has plenty to say — which lane, which checkpoint,
- * every arm's own model and brief — so it carries a body, the one header a
- * JSON body needs the server to parse it, and nothing else.
+ * every arm's own model and brief — so it carries a payload, the one header a
+ * JSON payload needs the server to parse it, and — since #234 — the
+ * per-process capability token the route now requires.
+ *
+ * **Why the token (#234).** This route forks a worktree and dispatches a live
+ * agent that spends real money, and until #234 the only thing standing in
+ * front of it was the app-wide Origin/Host guard, which deliberately admits a
+ * request carrying no `Origin` at all — every non-browser caller, a bare
+ * `curl` included. The token (`server/src/api/security.ts`) closes that half.
+ * This module reads it off the served page through
+ * `../../recordings/capability.js`, the one module in the app that ever
+ * touches the meta tag — the same read `recordings/label.ts` has done since
+ * #249 and `replay/rotate.ts` now does too.
  */
+
+import { CAPABILITY_TOKEN_HEADER, readCapabilityToken } from '../../recordings/capability.js'
 
 export const LAUNCH_URL = '/api/lab/launch'
 
@@ -47,14 +60,20 @@ export interface LaunchOutcome {
 
 /**
  * The narrowest shape this module needs of `fetch`: one url, one init naming
- * the verb, the one header the JSON body requires, and the body itself.
- * Deliberately not `typeof fetch` — a test injecting this cannot accidentally
- * be handed a way to smuggle credentials, because the type has nowhere to
- * put them.
+ * the verb, the two headers a gated mutation with a JSON payload needs — the
+ * `Content-Type` the server parses it by, and (since #234) the per-process
+ * capability token — and the payload itself. Deliberately not `typeof fetch`
+ * — a test injecting this cannot accidentally be handed a way to smuggle a
+ * credential, because the type has nowhere to put one beyond these two named
+ * headers.
  */
 export type LaunchFetchLike = (
   input: string,
-  init: { method: 'POST'; headers: { 'Content-Type': 'application/json' }; body: string },
+  init: {
+    method: 'POST'
+    headers: { 'Content-Type': 'application/json'; 'x-rhizomorph-capability': string }
+    body: string
+  },
 ) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -109,15 +128,42 @@ export async function requestLaunch(request: LaunchRequest, fetchImpl?: LaunchFe
   const impl = fetchImpl ?? (globalThis.fetch as unknown as LaunchFetchLike | undefined)
   if (impl === undefined) throw new Error('this browser has no fetch — cannot launch from here')
 
+  // Refused here rather than dispatched bare, so the operator reads what is
+  // missing instead of a 401 naming a header they cannot supply. ADR-0012's
+  // known dev-mode gap made honest, not closed: under `npm run dev:web` vite
+  // serves index.html itself, so the server's injection never runs.
+  const capabilityToken = readCapabilityToken()
+  if (capabilityToken === null) {
+    throw new Error(
+      'could not launch — this page carries no capability token, and the instrument requires one. ' +
+        'The server stamps the token into the dashboard page as it serves it, so a page served some other way ' +
+        'never gets one: `npm run dev:web` serves it through vite, which skips that step. Run the built server ' +
+        '(`npm run dev:server`, or `npm run build` then `npm start`) and reload this page.',
+    )
+  }
+
   let response: Awaited<ReturnType<LaunchFetchLike>>
   try {
     response = await impl(LAUNCH_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', [CAPABILITY_TOKEN_HEADER]: capabilityToken },
       body: JSON.stringify(request),
     })
   } catch (err) {
     throw new Error(`could not reach the instrument: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  // See `replay/rotate.ts` for the full reasoning: a 401 here means the token
+  // was sent and rejected, which in practice means the tab outlived the server
+  // process that minted it. It matters more here than there — by this point
+  // the operator has configured every arm and read a spend estimate, so a
+  // refusal that doesn't say "reload" costs them all of it twice.
+  if (response.status === 401) {
+    throw new Error(
+      `could not launch — ${await refusalDetail(response)}. ` +
+        'The instrument mints that token fresh every time it starts, so a page left open across a restart ' +
+        'is holding one that has expired. Reload this page and try again.',
+    )
   }
 
   if (!response.ok) throw new Error(`could not launch — ${await refusalDetail(response)}`)

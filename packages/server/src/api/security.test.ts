@@ -72,6 +72,31 @@ describe('requireCapabilityToken', () => {
     expect(response.statusCode).toBe(401)
   })
 
+  it('an UNCONFIGURED server refuses, rather than matching an empty header and opening the route', async () => {
+    // The fail-open this closes: `tokensMatch('', '')` is true, and every
+    // call site spells `requireCapabilityToken(ctx.capabilityToken ?? '')`,
+    // so an unset token would let an empty header through the gate.
+    const app = makeApp('')
+    const response = await app.inject({
+      method: 'POST',
+      url: '/mutate',
+      headers: { [CAPABILITY_TOKEN_HEADER]: '' },
+    })
+    expect(response.statusCode).toBe(401)
+    expect((response.json() as { error: string }).error).toContain('not configured')
+  })
+
+  it('an unconfigured server refuses a request with no header at all, and one bearing any token', async () => {
+    // Not vacuously true: the case above could pass for the wrong reason if
+    // the empty header were rejected on its own. An unconfigured gate must
+    // refuse EVERY request, whatever it carries.
+    const app = makeApp('')
+    for (const headers of [undefined, { [CAPABILITY_TOKEN_HEADER]: 'any-token-at-all' }]) {
+      const response = await app.inject({ method: 'POST', url: '/mutate', headers })
+      expect(response.statusCode).toBe(401)
+    }
+  })
+
   it('never echoes the expected token back in its refusal', async () => {
     const app = makeApp('super-secret-value')
     const response = await app.inject({ method: 'POST', url: '/mutate' })

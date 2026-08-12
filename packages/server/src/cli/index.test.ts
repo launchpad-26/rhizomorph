@@ -1540,15 +1540,32 @@ describe('runCli lab fork + compare subcommands (prd12 phase 2)', () => {
  * asked of the instrument that owns the log rather than performed on its
  * files, so this test boots one on an ephemeral port and then runs the verb
  * against it, exactly as an operator would.
+ *
+ * AMENDED for #234: `POST /api/rotate` is token-gated now, and the token is
+ * handed out through the served dashboard page and nowhere else (ADR-0012).
+ * So the server these tests boot is given a `webDistDir` — a real
+ * installation always has one, and without it there is no page to carry the
+ * token. The last test in this block is the honest failure for the case where
+ * there ISN'T one, which is a real consequence of the gate and is asserted
+ * rather than left to be discovered.
  */
 describe('runCli rotate subcommand', () => {
   let dataRoot: string
   let repoPath: string
+  let webDistDir: string
   let server: CliHandle | undefined
 
   beforeEach(async () => {
     dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-rotate-cli-test-'))
     repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-rotate-cli-repo-'))
+    webDistDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-rotate-cli-web-'))
+    // The shell vite emits, minus the bundle. No token in it — `server/
+    // static.ts` stamps that at serve time, which is the thing under test.
+    await writeFile(
+      path.join(webDistDir, 'index.html'),
+      '<!doctype html>\n<html lang="en"><head><title>the Rhizomorph</title></head><body><div id="root"></div></body></html>\n',
+      'utf8',
+    )
   })
 
   afterEach(async () => {
@@ -1556,13 +1573,15 @@ describe('runCli rotate subcommand', () => {
     server = undefined
     await rm(dataRoot, { recursive: true, force: true })
     await rm(repoPath, { recursive: true, force: true })
+    await rm(webDistDir, { recursive: true, force: true })
   })
 
-  async function bootServer(): Promise<{ port: number; sessionId: string }> {
+  async function bootServer(options: { webDistDir?: string } = {}): Promise<{ port: number; sessionId: string }> {
     server = await runCli([repoPath, '--port', '0'], {
       dataRoot,
       collectors: [],
       log: silentLog,
+      webDistDir: options.webDistDir ?? webDistDir,
     })
     return { port: Number(new URL(server.url).port), sessionId: server.recorder.sessionId }
   }
@@ -1660,5 +1679,58 @@ describe('runCli rotate subcommand', () => {
     expect(thrown).toBeInstanceOf(FakeExit)
     expect((thrown as FakeExit).code).toBe(0)
     expect(String(log.log.mock.calls[0]?.[0])).toContain('rhizomorph rotate [options]')
+  })
+
+  /**
+   * #234's first defect, proven closed against a REAL server over real HTTP —
+   * which is the only place it can be proven, because the whole point is that
+   * `curl` reaches the socket without a browser. A bare `POST` from this
+   * process is exactly the local-process attacker ADR-0008 names.
+   */
+  it('a tokenless POST from another local process is refused, and the recording survives it', async () => {
+    const { port, sessionId } = await bootServer()
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/rotate`, { method: 'POST' })
+
+    expect(response.status).toBe(401)
+    expect(((await response.json()) as { error: string }).error).toContain('x-rhizomorph-capability')
+    // The session the operator is recording into is untouched.
+    expect(server?.recorder.sessionId).toBe(sessionId)
+    const recorded = await listSessions(sessionDirFor(repoPath, dataRoot))
+    expect(recorded.map((session) => session.id)).toEqual([sessionId])
+  })
+
+  /**
+   * THE HONEST FAILURE, and a real consequence of #234 worth stating in a
+   * test rather than a comment: the token is handed out only through the
+   * served dashboard page, so `rhizomorph rotate` against a server with no
+   * built dashboard cannot authenticate. It must say what is missing and what
+   * to run — not surface a 401 naming a header the operator has no way to
+   * supply, which is precisely the shape #249 hid behind for weeks.
+   */
+  it('says what to build — never a bare 401 — when the server has no dashboard to hand the token out through', async () => {
+    const emptyDist = await mkdtemp(path.join(tmpdir(), 'rhizomorph-rotate-cli-nodist-'))
+    await rm(emptyDist, { recursive: true, force: true })
+    const { port, sessionId } = await bootServer({ webDistDir: emptyDist })
+
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const exit = fakeExit()
+
+    const thrown = await runCli(['rotate', '--port', String(port)], { log: silentLog, exit }).catch(
+      (err: unknown) => err,
+    )
+
+    const output = writeSpy.mock.calls.map((call) => String(call[0])).join('')
+    writeSpy.mockRestore()
+
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(1)
+    expect(output).toContain('carries no capability token')
+    expect(output).toContain('npm run build --workspace packages/web')
+    expect(output).toContain('dev:web')
+    expect(output).not.toContain('401')
+    expect(output).not.toMatch(/^\s*at /m)
+    // And it changed nothing on the way to saying so.
+    expect(server?.recorder.sessionId).toBe(sessionId)
   })
 })

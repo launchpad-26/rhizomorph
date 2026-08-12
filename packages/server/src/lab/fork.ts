@@ -104,6 +104,65 @@ export interface DispatchForkResult {
 export const DEFAULT_ARMS = 3
 
 /**
+ * THE MODEL GRAMMAR (#234's second defect), this side of the seam.
+ *
+ * {@link workmuxAddArgv} below is the one place in this repo that puts a
+ * caller-supplied value into a *string* rather than an argv element — because
+ * `workmux add -a` takes the agent's whole command line as one string and
+ * runs it through a shell in a tmux pane. Everything else here uses argv
+ * arrays, which is exactly why an audit of this repo's own spawn sites clears
+ * the code: the injection lands one hop downstream, inside workmux.
+ *
+ * `api/lab.ts` refuses a bad `model` at the HTTP boundary. This copy exists
+ * because `rhizomorph lab fork --model <x>` never passes through that file at
+ * all — the CLI is the laboratory's original hand, and a grammar enforced only
+ * on the route would leave the typed command wide open. Duplicated rather than
+ * shared: `lab/namespace-law.test.ts` forbids `api/lab.ts` from importing
+ * anything under `server/src/lab/`, so no module both sides may reach exists
+ * today. Both copies are literal-pinned in their own tests, the mitigation
+ * ADR-0012 already records for the capability header's identical split.
+ *
+ * Every real model string this repo dispatches passes — `sonnet` (the fleet
+ * default in `.workmux.yaml` and `scripts/lane-agent.sh`), `opus`, `haiku`,
+ * `claude-opus-5`, `claude-3-5-sonnet-20241022`, and a bedrock-style
+ * `us.anthropic.claude-3-5-sonnet-20241022-v1:0`. No shell metacharacter
+ * does, and neither does a space.
+ */
+export const MODEL_GRAMMAR = /^[A-Za-z0-9._:-]+$/
+
+/** The first refused character, rendered legibly — a raw newline in a refusal is a refusal that explains nothing. */
+function offendingModelCharacter(model: string): string | null {
+  for (const character of model) {
+    if (MODEL_GRAMMAR.test(character)) continue
+    const code = character.codePointAt(0) ?? 0
+    if (character === '\n') return '\\n'
+    if (character === '\r') return '\\r'
+    if (character === '\t') return '\\t'
+    if (code < 0x20 || code === 0x7f) return `\\u${code.toString(16).padStart(4, '0')}`
+    return character
+  }
+  return null
+}
+
+/**
+ * Refuses a `model` no shell may safely be handed, naming the character that
+ * caused it. Called twice on the dispatch path, deliberately: once by
+ * {@link dispatchFork} before any worktree exists, so a refused model costs
+ * nothing and leaves nothing behind, and once by {@link workmuxAddArgv}
+ * itself, so the argv builder cannot produce a poisoned command line even if
+ * a future caller reaches it by some other road.
+ */
+export function assertModelIsShellSafe(model: string): void {
+  const offender = offendingModelCharacter(model)
+  if (offender === null) return
+  throw new Error(
+    `refusing to launch: model contains ${offender === ' ' ? 'a space' : `"${offender}"`}, and the model is ` +
+      `interpolated into a command line workmux runs through a shell — a model may only use letters, digits, ` +
+      `and . _ : - (received "${model}")`,
+  )
+}
+
+/**
  * The workmux invocation, as a pure function so a test — and a reader — can
  * see the exact argv without a process being spawned. Shape per
  * `scripts/lane-agent.sh`'s own documented usage:
@@ -113,10 +172,16 @@ export const DEFAULT_ARMS = 3
  *
  * `-b` (background) because n arms must not yank the operator's tmux focus n
  * times.
+ *
+ * Throws on a `model` outside {@link MODEL_GRAMMAR} rather than escaping or
+ * quoting it — the argv this returns is the argv that gets executed, so the
+ * refusal has to happen before the array exists at all, never as a filter
+ * applied to it afterwards.
  */
 export function workmuxAddArgv(laneHandle: string, treatment: ForkTreatmentInput): string[] {
   const argv = ['add', laneHandle, '-b']
   if (treatment.model !== undefined) {
+    assertModelIsShellSafe(treatment.model)
     argv.push('-a', `bash scripts/lane-agent.sh ${treatment.model}`)
   }
   if (treatment.promptFile !== undefined) {
@@ -197,6 +262,10 @@ export async function dispatchFork(options: DispatchForkOptions): Promise<Dispat
   if (!Number.isInteger(options.arms) || options.arms < 1) {
     throw new Error(`invalid arm count: ${options.arms} (must be a positive integer)`)
   }
+
+  // Before the checkpoint is even looked up, so a refused model restores no
+  // workspace, creates no worktree, and records no `fork.dispatched`.
+  if (options.model !== undefined) assertModelIsShellSafe(options.model)
 
   const checkpoint = await findCheckpoint({
     parentWorktreePath,
