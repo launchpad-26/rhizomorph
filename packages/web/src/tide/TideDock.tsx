@@ -12,6 +12,7 @@ import type { RhizomorphEvent } from '@rhizomorph/core'
 import { Scrubber } from '../replay/Scrubber.js'
 import { ChapterMarks } from './ChapterMarks.js'
 import { chapterLabel, chaptersFor } from './chapters.js'
+import { Loupe } from './Loupe.js'
 import { formatClock } from './duration.js'
 import { medianEventSpacingMs } from './eventSpacing.js'
 import { coalesceMarks } from './markCoalesce.js'
@@ -145,6 +146,22 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
     [end, start, width, medianSpacing],
   )
 
+  /**
+   * THE LOUPE'S THRESHOLD (prd21 ruling 2, #273; trigger ruled 2026-08-13).
+   *
+   * `maxZoomLevel` is where mark-thinning stops being useful — the log's own
+   * median event spacing, below which there are no further marks to separate.
+   * It used to be where zooming stopped altogether. It is now a *threshold*:
+   * one level past it opens the loupe, which reads events rather than marks.
+   *
+   * One level and not several, because the loupe's neighbourhood is a fixed
+   * event count and so does not narrow with further zoom — there would be
+   * nothing for a second loupe level to do. The cap's own value is untouched,
+   * and so is everything the mark lane does at or below it.
+   */
+  const loupeZoomLevel = maxZoomLevel + 1
+  const loupeOpen = zoomLevel > maxZoomLevel
+
   const window_ = useMemo(
     () => windowForLevel(zoomLevel, windowCenter, start, end),
     [zoomLevel, windowCenter, start, end],
@@ -159,8 +176,8 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
 
   const zoomIn = useCallback(() => {
     setWindowCenter(value)
-    setZoomLevel((level) => Math.min(maxZoomLevel, level + 1))
-  }, [value, maxZoomLevel])
+    setZoomLevel((level) => Math.min(loupeZoomLevel, level + 1))
+  }, [value, loupeZoomLevel])
 
   const zoomOut = useCallback(() => setZoomLevel((level) => Math.max(0, level - 1)), [])
 
@@ -251,9 +268,9 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
       const cursorTs = scale.tsOf(event.clientX - rect.left)
       const direction = event.deltaY < 0 ? 1 : -1
       setWindowCenter(cursorTs)
-      setZoomLevel((level) => Math.min(maxZoomLevel, Math.max(0, level + direction)))
+      setZoomLevel((level) => Math.min(loupeZoomLevel, Math.max(0, level + direction)))
     },
-    [width, scale, maxZoomLevel, trackRef],
+    [width, scale, loupeZoomLevel, trackRef],
   )
 
   useEffect(() => {
@@ -410,7 +427,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
           aria-label="Zoom in"
           title="Zoom in on the playhead"
           onClick={zoomIn}
-          disabled={zoomLevel >= maxZoomLevel}
+          disabled={zoomLevel >= loupeZoomLevel}
           className={BUTTON_CLASS}
         >
           +
@@ -436,6 +453,19 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
           »
         </button>
       </div>
+
+      {/*
+        THE LOUPE (#273), inside the dock's own grid rather than portaled or
+        panelled. prd13 ruling 1 holds — the dock is the replay bar's body, and
+        a read-out that spans its columns is still the bar, where a panel would
+        be a surface competing with the scene. It is transient in the sense that
+        matters: it exists only past the mark lane's cap and closes the moment
+        the operator zooms back out.
+
+        `value`, not `window_`'s centre: the loupe reads around the playhead,
+        which is the instant the operator navigated to.
+      */}
+      {loupeOpen && <Loupe events={events} ts={value} />}
     </div>
   )
 }

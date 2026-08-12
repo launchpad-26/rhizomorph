@@ -2,8 +2,9 @@ import { createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { formatClock, formatClockSeconds } from './duration.js'
+import { medianEventSpacingMs } from './eventSpacing.js'
 import { timeScale } from './scale.js'
-import { windowForLevel } from './tideWindow.js'
+import { usefulMaxZoomLevel, windowForLevel } from './tideWindow.js'
 import { TideDock } from './TideDock.js'
 
 afterEach(cleanup)
@@ -462,6 +463,116 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
     expect(screen.getByTestId('scrubber-readout').textContent).toContain(
       '4 worktrees · 8 commits · $2.14',
     )
+  })
+
+  /**
+   * #273. The mark lane's cap used to be where zooming stopped. It is now a
+   * threshold: one level past it, marks stop thinning and events appear.
+   *
+   * These drive the real button rather than setting a level directly, because
+   * "the cap becomes a threshold rather than a stop" is a claim about the
+   * *gesture* — a test that reached past the control could pass while the
+   * button stayed disabled at the cap, which is the behaviour being changed.
+   */
+  describe('the loupe opens by zooming past the mark lane\'s cap', () => {
+    function zoomToCap() {
+      const button = screen.getByRole('button', { name: 'Zoom in' })
+      // Zoom until one click short of exhausting the control. The bound is
+      // generous and the loop stops on `disabled`, so this does not encode a
+      // particular cap value — `usefulMaxZoomLevel` is free to move.
+      const levels: number[] = []
+      for (let i = 0; i < 40 && !(button as HTMLButtonElement).disabled; i += 1) {
+        expect(screen.queryByTestId('tide-loupe')).not.toBeInTheDocument()
+        fireEvent.click(button)
+        levels.push(i)
+        if (screen.queryByTestId('tide-loupe') !== null) return levels.length
+      }
+      return levels.length
+    }
+
+    /**
+     * Counted against the cap, not merely "it opened eventually". An earlier
+     * draft of this test asserted only that the loupe was absent before each
+     * click and present after the last one — which is equally true of a loupe
+     * that opens *at* the cap, the one thing "the cap becomes a threshold"
+     * distinguishes. Mutating `>` to `>=` left it green. So the cap is computed
+     * from the same inputs the component uses, and the click count is the
+     * assertion.
+     */
+    it('stays shut at every level up to the cap, and opens exactly one past it', () => {
+      const events = threeLaneEvents()
+      const cap = usefulMaxZoomLevel(
+        Math.max(1, T_END - T0),
+        TRACK_WIDTH,
+        medianEventSpacingMs(events),
+      )
+      expect(cap).toBeGreaterThan(0)
+
+      render(
+        <TideDock mode="replay" events={events} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
+      )
+      const button = screen.getByRole('button', { name: 'Zoom in' })
+
+      // Every level up to and including the cap: marks, no events.
+      for (let level = 0; level < cap; level += 1) {
+        expect(screen.queryByTestId('tide-loupe')).not.toBeInTheDocument()
+        fireEvent.click(button)
+      }
+      // Now at the cap itself — still the mark lane's own territory.
+      expect(screen.queryByTestId('tide-loupe')).not.toBeInTheDocument()
+
+      // One more, and the cap has been crossed.
+      fireEvent.click(button)
+      expect(screen.getByTestId('tide-loupe')).toBeInTheDocument()
+    })
+
+    it('stops there — the threshold is one level, not an open-ended descent', () => {
+      render(
+        <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
+      )
+      zoomToCap()
+      expect(screen.getByRole('button', { name: 'Zoom in' })).toBeDisabled()
+    })
+
+    it('closes again on the way back out', () => {
+      render(
+        <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
+      )
+      zoomToCap()
+      expect(screen.getByTestId('tide-loupe')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }))
+      expect(screen.queryByTestId('tide-loupe')).not.toBeInTheDocument()
+    })
+
+    it('reads around the playhead, not around the window centre', () => {
+      render(
+        <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
+      )
+      zoomToCap()
+      expect(screen.getByTestId('tide-loupe-header').textContent).toContain(formatClockSeconds(9_000))
+    })
+
+    /**
+     * Ruling 2's own boundary: the loupe is additive. If opening it changed what
+     * the mark lane draws, the "coalescing law and its cap are untouched"
+     * sentence would be false, and no other test in this file is looking.
+     */
+    it('leaves the mark lane exactly as it was at the cap', () => {
+      render(
+        <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
+      )
+      const button = screen.getByRole('button', { name: 'Zoom in' })
+      let atCap = ''
+      for (let i = 0; i < 40 && !(button as HTMLButtonElement).disabled; i += 1) {
+        atCap = screen.getByTestId('chapter-marks').innerHTML
+        fireEvent.click(button)
+        if (screen.queryByTestId('tide-loupe') !== null) break
+      }
+
+      expect(screen.getByTestId('tide-loupe')).toBeInTheDocument()
+      expect(screen.getByTestId('chapter-marks').innerHTML).toBe(atCap)
+    })
   })
 
   it('reads the clock alone when there are no facts to carry — live has no scrub instant', () => {
