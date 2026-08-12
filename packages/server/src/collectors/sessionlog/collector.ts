@@ -15,7 +15,7 @@ import { deriveLaneState, needsProcessProbe, quietMsOf, type LaneStateReading } 
 import { parseAssistantLine } from './parse-session-line.js'
 import { parseWorktreePaths } from './parse-worktree-paths.js'
 import { defaultProcessProbe, type ProcessLiveness, type ProcessProbe } from './process-probe.js'
-import { readNewLines } from './tail.js'
+import { isRotated, readNewLines } from './tail.js'
 import { CLAUDE_JSONL_GRAMMAR } from './turn-grammar-claude.js'
 import type { TurnGrammar } from './turn-grammar.js'
 import { advanceTurnShape, initialTurnShape, type TurnShapeState } from './turn-shape.js'
@@ -444,16 +444,22 @@ async function tailProjectDir(
     }
 
     const { lines, nextOffset, lastWriteTs, identity } = await readNewLines(filePath, prevFile.offset, prevFile.identity)
-    let lastUsageRequestId = prevFile.lastUsageRequestId
+    // A rotation replaces the file wholesale — none of the predecessor's fold
+    // belongs to what's here now. Resuming it would fold the replacement's
+    // first lines onto a stale mid-turn shape, let a coincidentally-repeated
+    // requestId suppress the replacement's own usage block, and misattribute
+    // its lane and branch until an assistant line happens to overwrite them.
+    const rotated = isRotated(prevFile.identity, identity)
+    let lastUsageRequestId = rotated ? null : prevFile.lastUsageRequestId
     // A snapshot persisted before the organ existed has no fold to resume, so
     // it starts one here. Its shape then only reflects lines appended from now
     // on, which is the same contract `offset` already gives every other reader
     // of this file — never a claim about bytes this process never saw.
-    let turnShape: TurnShapeState = prevFile.turnShape ?? initialTurnShape()
+    let turnShape: TurnShapeState = rotated ? initialTurnShape() : prevFile.turnShape ?? initialTurnShape()
     // Which lane this transcript belongs to, remembered on the file so a poll
     // that reads no new lines still knows whose liveness it is looking at.
-    let fileLane = prevFile.lane ?? null
-    let fileBranch = prevFile.branch ?? null
+    let fileLane = rotated ? null : prevFile.lane ?? null
+    let fileBranch = rotated ? null : prevFile.branch ?? null
 
     for (const rawLine of lines) {
       // Input (a) of the state machine, folded over the very bytes the

@@ -277,6 +277,15 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   unrelated content; the cursor now also resets whenever the file's inode
   changes, so identity — not just size — decides when a poll is reading a
   different file.
+- **A rotated session log no longer folds onto its predecessor's turn state
+  (#366).** #305 made `sessionlog/tail.ts` reset the byte cursor on a
+  same-path rotation, but the collector still resumed `turnShape`,
+  `lastUsageRequestId`, lane, and branch from the file the rotation replaced
+  — so the replacement's first lines folded onto a stale mid-turn shape, a
+  coincidentally-repeated request id could suppress its own first usage
+  block, and its liveness was misattributed until an assistant line
+  happened to overwrite it. All four now reset to a fresh fold on a
+  detected rotation instead of resuming the predecessor's.
 - **A hung collector subprocess no longer freezes all polling or shutdown
   (#236).** Every collector exec now carries a default timeout, and a
   per-collector watchdog abandons a poll that exceeds its budget — surfacing

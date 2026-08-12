@@ -6,6 +6,16 @@ export interface TailIdentity {
   ino: number
 }
 
+/**
+ * True when `current` names a different underlying file than `previous` did.
+ * Absent `previous` means there is nothing yet to compare against — a file
+ * never read before, or a snapshot persisted before this field existed —
+ * which is never a rotation, only an unknown.
+ */
+export function isRotated(previous: TailIdentity | undefined, current: TailIdentity): boolean {
+  return previous !== undefined && (previous.dev !== current.dev || previous.ino !== current.ino)
+}
+
 export interface TailResult {
   /** Complete lines newly available since `offset`, oldest first. */
   lines: string[]
@@ -43,7 +53,7 @@ export async function readNewLines(filePath: string, offset: number, identity?: 
   // of size — the bytes at `offset` belong to the file that used to be here,
   // not this one. A same-inode shrink is truncation in place instead; either
   // way the cursor can no longer be trusted and restarts from 0.
-  const rotated = identity !== undefined && (identity.dev !== currentIdentity.dev || identity.ino !== currentIdentity.ino)
+  const rotated = isRotated(identity, currentIdentity)
   const readOffset = rotated || info.size < offset ? 0 : offset
   if (info.size <= readOffset) return { lines: [], nextOffset: readOffset, lastWriteTs, identity: currentIdentity }
 

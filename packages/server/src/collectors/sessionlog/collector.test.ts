@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -609,6 +609,98 @@ describe('createSessionlogCollector', () => {
     )
     const second = await collector.poll(first.nextSnapshot, makeContext(gitExec))
     expect(second.events.filter((e) => e.type === 'llm.usage')).toHaveLength(2)
+  })
+
+  it("resets the fold on a same-path rotation — turnShape, lane, and branch come from the replacement, not the predecessor", async () => {
+    const worktreePath = '/fake/worktrees/alpha'
+    const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
+    await mkdir(projectDir, { recursive: true })
+    const filePath = path.join(projectDir, 'session.jsonl')
+    await writeFile(filePath, await readFixture('claude-code-2.1.222-tail-pending-tool.jsonl'), 'utf8')
+
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    // '/repo' as the main worktree so `worktreePath` is a linked ('worker')
+    // one — lane comes from `facts.gitBranch` there, not the fixed
+    // `unattributed` laneOverride the main worktree always carries (#62).
+    const gitExec: Exec = async () => success(worktreeListOutput(['/repo', worktreePath]))
+
+    const first = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+    const before = first.nextSnapshot.files[filePath]
+    expect(before?.turnShape?.shape).toBe('pending-tool')
+    expect(before?.turnShape?.pendingToolUseIds).toEqual(['toolu_016B8H8YKsFicyG9JazwdoeV'])
+    expect(before?.lane).toBe('lane-a')
+    expect(before?.branch).toBe('lane-a')
+
+    // Same-path rotation: write the replacement elsewhere, then rename() it
+    // over the old path — the inode changes, the name doesn't. Its one line
+    // is a plain user prompt: no tool_result (so it cannot legitimately close
+    // the predecessor's pending tool call) and not an assistant line (so
+    // nothing here would overwrite lane/branch even without a reset) — the
+    // only way the assertions below can pass is if the reset happened.
+    const replacementPath = path.join(projectDir, 'session.jsonl.new')
+    await writeFile(
+      replacementPath,
+      '{"type":"user","isSidechain":false,"message":{"role":"user","content":"continue"},"timestamp":"2026-08-03T08:00:00.000Z"}\n',
+      'utf8',
+    )
+    await rename(replacementPath, filePath)
+
+    const second = await collector.poll(first.nextSnapshot, makeContext(gitExec))
+    const after = second.nextSnapshot.files[filePath]
+    // A fresh fold over one plain user line lands on 'awaiting-reply' with
+    // nothing pending. Folding it onto the predecessor's pending-tool state
+    // instead would leave pendingToolUseIds non-empty (the dangling call
+    // belongs to the replaced file) and shape stuck at 'pending-tool'.
+    expect(after?.turnShape?.shape).toBe('awaiting-reply')
+    expect(after?.turnShape?.pendingToolUseIds).toEqual([])
+    // Neither is derivable from the line above, so a pass here can only mean
+    // the reset ran, not that this poll's own content produced it.
+    expect(after?.lane).toBe('alpha')
+    expect(after?.branch).toBeNull()
+  })
+
+  it("does not let a carried lastUsageRequestId suppress a usage block belonging to the replacement file", async () => {
+    const worktreePath = '/fake/worktrees/alpha'
+    const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
+    await mkdir(projectDir, { recursive: true })
+    const filePath = path.join(projectDir, 'session.jsonl')
+
+    // Deliberately reuses the same requestId across the rotation. Real
+    // provider-issued ids won't collide in practice, but correctness here
+    // must not rest on that — the dedupe key has to be scoped to this file's
+    // own fold, reset on rotation, not merely "usually different next time."
+    const assistantLine = (branch: string, requestId: string): string =>
+      `${JSON.stringify({
+        type: 'assistant',
+        isSidechain: false,
+        message: {
+          model: 'claude-opus-5',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'hi' }],
+          stop_reason: 'end_turn',
+          usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        },
+        requestId,
+        gitBranch: branch,
+        cwd: `/fake/worktrees/${branch}`,
+        sessionId: 'session-one',
+        timestamp: '2026-08-03T08:00:00.000Z',
+      })}\n`
+
+    await writeFile(filePath, assistantLine('lane-a', 'req_SHARED'), 'utf8')
+
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
+
+    const first = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+    expect(first.events.filter((e) => e.type === 'llm.usage')).toHaveLength(1)
+
+    const replacementPath = path.join(projectDir, 'session.jsonl.new')
+    await writeFile(replacementPath, assistantLine('lane-b', 'req_SHARED'), 'utf8')
+    await rename(replacementPath, filePath)
+
+    const second = await collector.poll(first.nextSnapshot, makeContext(gitExec))
+    expect(second.events.filter((e) => e.type === 'llm.usage')).toHaveLength(1)
   })
 
   it('EOF-starts per file: a second file dropped in mid-run is new to it and, without backfill, emits nothing for its existing content', async () => {
