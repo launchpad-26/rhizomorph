@@ -95,263 +95,513 @@
     "records": []
   },
   "collectors": {},
-  "commitOrder": [
-    "b98b20ca7f105901663ffaa1e370235322ac2a31",
-    "29c146d4c740704a803dacf666fd03adc2fa7b6b",
-    "03a40ad7a420ef8b80b1a340acc9552acc8dcc41",
-    "e6d617b01c39a66ddde259f1548a08c175abf881",
-    "9ed4f1d2fa040a0963c00e87fa762c1a5380baaa",
-    "3fdd9536244eae3fddb8c7f5c8c762e32227e9ac",
-    "9a7153838e5b49d024a5daaf93ac3e327e146747",
-    "abe0c2d8535b2bd63f1a9fee0768c20498cb89be"
-  ],
   "commits": {
-    "03a40ad7a420ef8b80b1a340acc9552acc8dcc41": {
-      "author": {
-        "email": "author@example.com",
-        "name": "Era Author"
-      },
-      "authoredAt": 1785928639000,
-      "branches": [
-        "main"
-      ],
-      "deletions": 5,
-      "files": [
-        {
-          "deletions": 0,
-          "insertions": 67,
-          "path": "packages/web/src/tide/ChapterMarks.test.tsx",
-          "status": "modified"
+    "bySha": {
+      "03a40ad7a420ef8b80b1a340acc9552acc8dcc41": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
         },
-        {
-          "deletions": 5,
-          "insertions": 78,
-          "path": "packages/web/src/tide/ChapterMarks.tsx",
-          "status": "modified"
-        }
-      ],
-      "insertions": 145,
-      "landedAt": 1785933399595,
-      "message": "fix(tide): portal chapter-mark hover cards to document.body (#189 defect 1)",
-      "parents": [
-        "4fc6a5ac227be0c439181b63d1b16b79eeec5187"
-      ],
-      "sha": "03a40ad7a420ef8b80b1a340acc9552acc8dcc41",
-      "worktreePath": "/repo/rhizomorph"
-    },
-    "29c146d4c740704a803dacf666fd03adc2fa7b6b": {
-      "author": {
-        "email": "author@example.com",
-        "name": "Era Author"
+        "authoredAt": 1785928639000,
+        "branches": [
+          "main"
+        ],
+        "deletions": 5,
+        "files": [
+          {
+            "deletions": 0,
+            "insertions": 67,
+            "path": "packages/web/src/tide/ChapterMarks.test.tsx",
+            "status": "modified"
+          },
+          {
+            "deletions": 5,
+            "insertions": 78,
+            "path": "packages/web/src/tide/ChapterMarks.tsx",
+            "status": "modified"
+          }
+        ],
+        "insertions": 145,
+        "landedAt": 1785933399595,
+        "message": "fix(tide): portal chapter-mark hover cards to document.body (#189 defect 1)",
+        "parents": [
+          "4fc6a5ac227be0c439181b63d1b16b79eeec5187"
+        ],
+        "sha": "03a40ad7a420ef8b80b1a340acc9552acc8dcc41",
+        "worktreePath": "/repo/rhizomorph"
       },
-      "authoredAt": 1785930322000,
-      "branches": [
-        "191"
-      ],
-      "deletions": 33,
-      "files": [
-        {
-          "deletions": 0,
-          "insertions": 91,
-          "path": "packages/web/src/drawer/useTranscript.test.ts",
-          "status": "modified"
+      "29c146d4c740704a803dacf666fd03adc2fa7b6b": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
         },
-        {
-          "deletions": 33,
-          "insertions": 61,
-          "path": "packages/web/src/drawer/useTranscript.ts",
-          "status": "modified"
-        }
-      ],
-      "insertions": 152,
-      "landedAt": 1785933399595,
-      "message": "fix(drawer): cache a lane's last-good transcript per hook instance",
-      "parents": [
-        "b98b20ca7f105901663ffaa1e370235322ac2a31"
-      ],
-      "sha": "29c146d4c740704a803dacf666fd03adc2fa7b6b",
-      "worktreePath": "/repo/rhizomorph__worktrees/191"
-    },
-    "3fdd9536244eae3fddb8c7f5c8c762e32227e9ac": {
-      "author": {
-        "email": "author@example.com",
-        "name": "Era Author"
+        "authoredAt": 1785930322000,
+        "branches": [
+          "191"
+        ],
+        "deletions": 33,
+        "files": [
+          {
+            "deletions": 0,
+            "insertions": 91,
+            "path": "packages/web/src/drawer/useTranscript.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 33,
+            "insertions": 61,
+            "path": "packages/web/src/drawer/useTranscript.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 152,
+        "landedAt": 1785933399595,
+        "message": "fix(drawer): cache a lane's last-good transcript per hook instance",
+        "parents": [
+          "b98b20ca7f105901663ffaa1e370235322ac2a31"
+        ],
+        "sha": "29c146d4c740704a803dacf666fd03adc2fa7b6b",
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
       },
-      "authoredAt": 1785928662000,
-      "branches": [
-        "main"
-      ],
-      "deletions": 1,
-      "files": [
-        {
-          "deletions": 0,
-          "insertions": 103,
-          "path": "packages/web/src/tide/TideDock.test.tsx",
-          "status": "modified"
+      "3fdd9536244eae3fddb8c7f5c8c762e32227e9ac": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
         },
-        {
-          "deletions": 1,
-          "insertions": 24,
-          "path": "packages/web/src/tide/TideDock.tsx",
-          "status": "modified"
-        }
-      ],
-      "insertions": 127,
-      "landedAt": 1785933399595,
-      "message": "feat(tide): wire the mode-dependent expanded budget into TideDock (#189 defect 2)",
-      "parents": [
-        "9ed4f1d2fa040a0963c00e87fa762c1a5380baaa"
-      ],
-      "sha": "3fdd9536244eae3fddb8c7f5c8c762e32227e9ac",
-      "worktreePath": "/repo/rhizomorph"
-    },
-    "9a7153838e5b49d024a5daaf93ac3e327e146747": {
-      "author": {
-        "email": "author@example.com",
-        "name": "Era Author"
+        "authoredAt": 1785928662000,
+        "branches": [
+          "main"
+        ],
+        "deletions": 1,
+        "files": [
+          {
+            "deletions": 0,
+            "insertions": 103,
+            "path": "packages/web/src/tide/TideDock.test.tsx",
+            "status": "modified"
+          },
+          {
+            "deletions": 1,
+            "insertions": 24,
+            "path": "packages/web/src/tide/TideDock.tsx",
+            "status": "modified"
+          }
+        ],
+        "insertions": 127,
+        "landedAt": 1785933399595,
+        "message": "feat(tide): wire the mode-dependent expanded budget into TideDock (#189 defect 2)",
+        "parents": [
+          "9ed4f1d2fa040a0963c00e87fa762c1a5380baaa"
+        ],
+        "sha": "3fdd9536244eae3fddb8c7f5c8c762e32227e9ac",
+        "worktreePath": "/repo/rhizomorph"
       },
-      "authoredAt": 1785933901000,
-      "branches": [
-        "main"
-      ],
-      "deletions": 0,
-      "files": [
-        {
-          "deletions": 0,
-          "insertions": 33,
-          "path": "docs/prd13.md",
-          "status": "modified"
-        }
-      ],
-      "insertions": 33,
-      "landedAt": 1785933902813,
-      "message": "docs(prd13): ruling 13 — the band is CUT",
-      "parents": [
-        "3fdd9536244eae3fddb8c7f5c8c762e32227e9ac"
-      ],
-      "sha": "9a7153838e5b49d024a5daaf93ac3e327e146747",
-      "worktreePath": "/repo/rhizomorph"
-    },
-    "9ed4f1d2fa040a0963c00e87fa762c1a5380baaa": {
-      "author": {
-        "email": "author@example.com",
-        "name": "Era Author"
-      },
-      "authoredAt": 1785928654000,
-      "branches": [
-        "main"
-      ],
-      "deletions": 13,
-      "files": [
-        {
-          "deletions": 13,
-          "insertions": 21,
-          "path": "packages/web/src/tide/Tide.tsx",
-          "status": "modified"
-        }
-      ],
-      "insertions": 21,
-      "landedAt": 1785933399595,
-      "message": "fix(tide): the +N chip gets its own gutter, never the band's fill (#189 defect 2)",
-      "parents": [
-        "e6d617b01c39a66ddde259f1548a08c175abf881"
-      ],
-      "sha": "9ed4f1d2fa040a0963c00e87fa762c1a5380baaa",
-      "worktreePath": "/repo/rhizomorph"
-    },
-    "abe0c2d8535b2bd63f1a9fee0768c20498cb89be": {
-      "author": {
-        "email": "author@example.com",
-        "name": "Era Author"
-      },
-      "authoredAt": 1785933907000,
-      "branches": [
-        "main"
-      ],
-      "deletions": 0,
-      "files": [
-        {
-          "deletions": 0,
-          "insertions": 98,
-          "path": "prompts/194-band-cut.md",
-          "status": "added"
-        }
-      ],
-      "insertions": 98,
-      "landedAt": 1785933908814,
-      "message": "chore(prompts): brief for #194, the band cut",
-      "parents": [
-        "9a7153838e5b49d024a5daaf93ac3e327e146747"
-      ],
-      "sha": "abe0c2d8535b2bd63f1a9fee0768c20498cb89be",
-      "worktreePath": "/repo/rhizomorph"
-    },
-    "b98b20ca7f105901663ffaa1e370235322ac2a31": {
-      "author": {
-        "email": "author@example.com",
-        "name": "Era Author"
-      },
-      "authoredAt": 1785930310000,
-      "branches": [
-        "191"
-      ],
-      "deletions": 3,
-      "files": [
-        {
-          "deletions": 1,
-          "insertions": 65,
-          "path": "packages/web/src/drawer/Conversation.test.tsx",
-          "status": "modified"
+      "9a7153838e5b49d024a5daaf93ac3e327e146747": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
         },
-        {
-          "deletions": 2,
-          "insertions": 20,
-          "path": "packages/web/src/drawer/Conversation.tsx",
-          "status": "modified"
-        }
-      ],
-      "insertions": 85,
-      "landedAt": 1785933399595,
-      "message": "fix(drawer): never blank the conversation on a transient absent/error",
-      "parents": [
-        "4fc6a5ac227be0c439181b63d1b16b79eeec5187"
-      ],
-      "sha": "b98b20ca7f105901663ffaa1e370235322ac2a31",
-      "worktreePath": "/repo/rhizomorph__worktrees/191"
-    },
-    "e6d617b01c39a66ddde259f1548a08c175abf881": {
-      "author": {
-        "email": "author@example.com",
-        "name": "Era Author"
+        "authoredAt": 1785933901000,
+        "branches": [
+          "main"
+        ],
+        "deletions": 0,
+        "files": [
+          {
+            "deletions": 0,
+            "insertions": 33,
+            "path": "docs/prd13.md",
+            "status": "modified"
+          }
+        ],
+        "insertions": 33,
+        "landedAt": 1785933902813,
+        "message": "docs(prd13): ruling 13 — the band is CUT",
+        "parents": [
+          "3fdd9536244eae3fddb8c7f5c8c762e32227e9ac"
+        ],
+        "sha": "9a7153838e5b49d024a5daaf93ac3e327e146747",
+        "worktreePath": "/repo/rhizomorph"
       },
-      "authoredAt": 1785928646000,
-      "branches": [
-        "main"
-      ],
-      "deletions": 1,
-      "files": [
-        {
-          "deletions": 1,
-          "insertions": 34,
-          "path": "packages/web/src/tide/rowPlan.test.ts",
-          "status": "modified"
+      "9ed4f1d2fa040a0963c00e87fa762c1a5380baaa": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
         },
-        {
-          "deletions": 0,
-          "insertions": 17,
-          "path": "packages/web/src/tide/rowPlan.ts",
-          "status": "modified"
-        }
-      ],
-      "insertions": 51,
-      "landedAt": 1785933399595,
-      "message": "feat(tide): the expanded row budget is a function of height, not a constant (#189 defect 2)",
-      "parents": [
-        "03a40ad7a420ef8b80b1a340acc9552acc8dcc41"
-      ],
-      "sha": "e6d617b01c39a66ddde259f1548a08c175abf881",
-      "worktreePath": "/repo/rhizomorph"
-    }
+        "authoredAt": 1785928654000,
+        "branches": [
+          "main"
+        ],
+        "deletions": 13,
+        "files": [
+          {
+            "deletions": 13,
+            "insertions": 21,
+            "path": "packages/web/src/tide/Tide.tsx",
+            "status": "modified"
+          }
+        ],
+        "insertions": 21,
+        "landedAt": 1785933399595,
+        "message": "fix(tide): the +N chip gets its own gutter, never the band's fill (#189 defect 2)",
+        "parents": [
+          "e6d617b01c39a66ddde259f1548a08c175abf881"
+        ],
+        "sha": "9ed4f1d2fa040a0963c00e87fa762c1a5380baaa",
+        "worktreePath": "/repo/rhizomorph"
+      },
+      "abe0c2d8535b2bd63f1a9fee0768c20498cb89be": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1785933907000,
+        "branches": [
+          "main"
+        ],
+        "deletions": 0,
+        "files": [
+          {
+            "deletions": 0,
+            "insertions": 98,
+            "path": "prompts/194-band-cut.md",
+            "status": "added"
+          }
+        ],
+        "insertions": 98,
+        "landedAt": 1785933908814,
+        "message": "chore(prompts): brief for #194, the band cut",
+        "parents": [
+          "9a7153838e5b49d024a5daaf93ac3e327e146747"
+        ],
+        "sha": "abe0c2d8535b2bd63f1a9fee0768c20498cb89be",
+        "worktreePath": "/repo/rhizomorph"
+      },
+      "b98b20ca7f105901663ffaa1e370235322ac2a31": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1785930310000,
+        "branches": [
+          "191"
+        ],
+        "deletions": 3,
+        "files": [
+          {
+            "deletions": 1,
+            "insertions": 65,
+            "path": "packages/web/src/drawer/Conversation.test.tsx",
+            "status": "modified"
+          },
+          {
+            "deletions": 2,
+            "insertions": 20,
+            "path": "packages/web/src/drawer/Conversation.tsx",
+            "status": "modified"
+          }
+        ],
+        "insertions": 85,
+        "landedAt": 1785933399595,
+        "message": "fix(drawer): never blank the conversation on a transient absent/error",
+        "parents": [
+          "4fc6a5ac227be0c439181b63d1b16b79eeec5187"
+        ],
+        "sha": "b98b20ca7f105901663ffaa1e370235322ac2a31",
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      "e6d617b01c39a66ddde259f1548a08c175abf881": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1785928646000,
+        "branches": [
+          "main"
+        ],
+        "deletions": 1,
+        "files": [
+          {
+            "deletions": 1,
+            "insertions": 34,
+            "path": "packages/web/src/tide/rowPlan.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 17,
+            "path": "packages/web/src/tide/rowPlan.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 51,
+        "landedAt": 1785933399595,
+        "message": "feat(tide): the expanded row budget is a function of height, not a constant (#189 defect 2)",
+        "parents": [
+          "03a40ad7a420ef8b80b1a340acc9552acc8dcc41"
+        ],
+        "sha": "e6d617b01c39a66ddde259f1548a08c175abf881",
+        "worktreePath": "/repo/rhizomorph"
+      }
+    },
+    "log": [
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1785930310000,
+        "branches": [
+          "191"
+        ],
+        "deletions": 3,
+        "files": [
+          {
+            "deletions": 1,
+            "insertions": 65,
+            "path": "packages/web/src/drawer/Conversation.test.tsx",
+            "status": "modified"
+          },
+          {
+            "deletions": 2,
+            "insertions": 20,
+            "path": "packages/web/src/drawer/Conversation.tsx",
+            "status": "modified"
+          }
+        ],
+        "insertions": 85,
+        "landedAt": 1785933399595,
+        "message": "fix(drawer): never blank the conversation on a transient absent/error",
+        "parents": [
+          "4fc6a5ac227be0c439181b63d1b16b79eeec5187"
+        ],
+        "sha": "b98b20ca7f105901663ffaa1e370235322ac2a31",
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1785930322000,
+        "branches": [
+          "191"
+        ],
+        "deletions": 33,
+        "files": [
+          {
+            "deletions": 0,
+            "insertions": 91,
+            "path": "packages/web/src/drawer/useTranscript.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 33,
+            "insertions": 61,
+            "path": "packages/web/src/drawer/useTranscript.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 152,
+        "landedAt": 1785933399595,
+        "message": "fix(drawer): cache a lane's last-good transcript per hook instance",
+        "parents": [
+          "b98b20ca7f105901663ffaa1e370235322ac2a31"
+        ],
+        "sha": "29c146d4c740704a803dacf666fd03adc2fa7b6b",
+        "worktreePath": "/repo/rhizomorph__worktrees/191"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1785928639000,
+        "branches": [
+          "main"
+        ],
+        "deletions": 5,
+        "files": [
+          {
+            "deletions": 0,
+            "insertions": 67,
+            "path": "packages/web/src/tide/ChapterMarks.test.tsx",
+            "status": "modified"
+          },
+          {
+            "deletions": 5,
+            "insertions": 78,
+            "path": "packages/web/src/tide/ChapterMarks.tsx",
+            "status": "modified"
+          }
+        ],
+        "insertions": 145,
+        "landedAt": 1785933399595,
+        "message": "fix(tide): portal chapter-mark hover cards to document.body (#189 defect 1)",
+        "parents": [
+          "4fc6a5ac227be0c439181b63d1b16b79eeec5187"
+        ],
+        "sha": "03a40ad7a420ef8b80b1a340acc9552acc8dcc41",
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1785928646000,
+        "branches": [
+          "main"
+        ],
+        "deletions": 1,
+        "files": [
+          {
+            "deletions": 1,
+            "insertions": 34,
+            "path": "packages/web/src/tide/rowPlan.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 17,
+            "path": "packages/web/src/tide/rowPlan.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 51,
+        "landedAt": 1785933399595,
+        "message": "feat(tide): the expanded row budget is a function of height, not a constant (#189 defect 2)",
+        "parents": [
+          "03a40ad7a420ef8b80b1a340acc9552acc8dcc41"
+        ],
+        "sha": "e6d617b01c39a66ddde259f1548a08c175abf881",
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1785928654000,
+        "branches": [
+          "main"
+        ],
+        "deletions": 13,
+        "files": [
+          {
+            "deletions": 13,
+            "insertions": 21,
+            "path": "packages/web/src/tide/Tide.tsx",
+            "status": "modified"
+          }
+        ],
+        "insertions": 21,
+        "landedAt": 1785933399595,
+        "message": "fix(tide): the +N chip gets its own gutter, never the band's fill (#189 defect 2)",
+        "parents": [
+          "e6d617b01c39a66ddde259f1548a08c175abf881"
+        ],
+        "sha": "9ed4f1d2fa040a0963c00e87fa762c1a5380baaa",
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1785928662000,
+        "branches": [
+          "main"
+        ],
+        "deletions": 1,
+        "files": [
+          {
+            "deletions": 0,
+            "insertions": 103,
+            "path": "packages/web/src/tide/TideDock.test.tsx",
+            "status": "modified"
+          },
+          {
+            "deletions": 1,
+            "insertions": 24,
+            "path": "packages/web/src/tide/TideDock.tsx",
+            "status": "modified"
+          }
+        ],
+        "insertions": 127,
+        "landedAt": 1785933399595,
+        "message": "feat(tide): wire the mode-dependent expanded budget into TideDock (#189 defect 2)",
+        "parents": [
+          "9ed4f1d2fa040a0963c00e87fa762c1a5380baaa"
+        ],
+        "sha": "3fdd9536244eae3fddb8c7f5c8c762e32227e9ac",
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1785933901000,
+        "branches": [
+          "main"
+        ],
+        "deletions": 0,
+        "files": [
+          {
+            "deletions": 0,
+            "insertions": 33,
+            "path": "docs/prd13.md",
+            "status": "modified"
+          }
+        ],
+        "insertions": 33,
+        "landedAt": 1785933902813,
+        "message": "docs(prd13): ruling 13 — the band is CUT",
+        "parents": [
+          "3fdd9536244eae3fddb8c7f5c8c762e32227e9ac"
+        ],
+        "sha": "9a7153838e5b49d024a5daaf93ac3e327e146747",
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1785933907000,
+        "branches": [
+          "main"
+        ],
+        "deletions": 0,
+        "files": [
+          {
+            "deletions": 0,
+            "insertions": 98,
+            "path": "prompts/194-band-cut.md",
+            "status": "added"
+          }
+        ],
+        "insertions": 98,
+        "landedAt": 1785933908814,
+        "message": "chore(prompts): brief for #194, the band cut",
+        "parents": [
+          "9a7153838e5b49d024a5daaf93ac3e327e146747"
+        ],
+        "sha": "abe0c2d8535b2bd63f1a9fee0768c20498cb89be",
+        "worktreePath": "/repo/rhizomorph"
+      }
+    ],
+    "order": [
+      "b98b20ca7f105901663ffaa1e370235322ac2a31",
+      "29c146d4c740704a803dacf666fd03adc2fa7b6b",
+      "03a40ad7a420ef8b80b1a340acc9552acc8dcc41",
+      "e6d617b01c39a66ddde259f1548a08c175abf881",
+      "9ed4f1d2fa040a0963c00e87fa762c1a5380baaa",
+      "3fdd9536244eae3fddb8c7f5c8c762e32227e9ac",
+      "9a7153838e5b49d024a5daaf93ac3e327e146747",
+      "abe0c2d8535b2bd63f1a9fee0768c20498cb89be"
+    ]
   },
   "errors": [],
   "eventCount": 100,

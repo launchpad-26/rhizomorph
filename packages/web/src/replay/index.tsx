@@ -200,7 +200,7 @@ export default function ReplayControls() {
 
       {isReplaying && (
         <p className="normal-case tracking-normal text-ice-400">
-          {Object.keys(state.worktrees).length} worktrees · {Object.keys(state.commits).length}{' '}
+          {Object.keys(state.worktrees).length} worktrees · {state.commits.order.length}{' '}
           commits · {formatSpend(scrubSpend)} as of scrub time
         </p>
       )}

@@ -178,8 +178,8 @@ export function selectFileProvenance(
  */
 function commitsTouching(state: SessionState, path: string): CommitRecord[] {
   const commits: CommitRecord[] = []
-  for (const sha of state.commitOrder) {
-    const commit = state.commits[sha]
+  for (const sha of state.commits.order) {
+    const commit = state.commits.bySha[sha]
     if (commit === undefined) continue
     if (commit.files.some((file) => file.path === path)) commits.push(commit)
   }

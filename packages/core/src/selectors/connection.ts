@@ -200,7 +200,9 @@ export function selectConnection(state: SessionState): Connection {
   for (const branch of Object.values(state.branches)) {
     fold(flows.git, branch.firstSeenAt, branch.updatedAt)
   }
-  for (const commit of Object.values(state.commits)) fold(flows.git, commit.landedAt)
+  // `bySha`, not `log`: a re-landed sha appears in the log twice, and its
+  // first sighting already carried the `landedAt` this fold wants once.
+  for (const commit of Object.values(state.commits.bySha)) fold(flows.git, commit.landedAt)
 
   for (const pane of Object.values(state.panes)) {
     fold(flows.tmux, pane.discoveredAt, pane.closedAt, pane.lastActivityTs, pane.lastContentChangeTs)

@@ -206,7 +206,7 @@ describe('news vs history', () => {
     const state = foldStreamEvents(initialStreamState(connectedAt), burst)
 
     // Every fact landed in the fold…
-    expect(Object.keys(state.session.commits).sort()).toEqual(['c1', 'c2', 'c3', 'c4'])
+    expect(Object.keys(state.session.commits.bySha).sort()).toEqual(['c1', 'c2', 'c3', 'c4'])
     expect(state.events).toHaveLength(4)
     // …and not one of them is news, so nothing lights up.
     expect(state.news).toEqual([])
@@ -237,8 +237,10 @@ describe('news vs history', () => {
     )
 
     expect(single.newsCount).toBe(batched.newsCount)
-    expect(Object.keys(single.session.commits).sort()).toEqual(
-      Object.keys(batched.session.commits).sort(),
+    // `bySha`, not the slice object (#342): keys of `CommitsState` itself are
+    // its three static properties, which would make this equality vacuous.
+    expect(Object.keys(single.session.commits.bySha).sort()).toEqual(
+      Object.keys(batched.session.commits.bySha).sort(),
     )
   })
 
