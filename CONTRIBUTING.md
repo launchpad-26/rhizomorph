@@ -29,11 +29,11 @@ Test Files  <that started> passed      # <- NOT the whole suite
     Errors  <n> errors                 # <- n = web test files that never booted
 ```
 
-The tell is the **exit code**, not the counts: green figures and a non-zero
-exit. Compare `Test Files` against the real total — if `passed` plus `errors`
-equals it, the difference never ran and none of `web`'s behaviour was checked at
-all. On a supported Node the same command finishes with **exit 0 and no errors
-line**.
+The tell is the **`Errors` line existing at all**, under green counts and a
+non-zero exit. On a supported Node the same command finishes with **exit 0 and
+no `Errors` line**, so you never need to know the suite's real total to spot
+this: any `Errors` count is test files that never booted, and none of the
+behaviour in them was checked.
 
 If you see that shape, upgrade Node rather than debugging the tests, and don't
 trust any "all green" measured on the older one.
@@ -52,10 +52,11 @@ in watch mode individually, if you're working on one side.
 
 ## The gate standard
 
-A change is done when `npm test` and `npm run typecheck` are green — that's
-the bar CI (`.github/workflows/ci.yml`) checks on every push and pull
-request, alongside a boot smoke test (start the server, hit `/api/meta` and
-`/`, shut it down cleanly).
+A change is done when `npm test`, `npm run typecheck` and `npm run lint` are
+green — that's the bar CI (`.github/workflows/ci.yml`) checks on every push and
+pull request, alongside a boot smoke test (start the server, hit `/api/meta` and
+`/`, shut it down cleanly). Lint is a required CI step (`ci.yml:58`), not an
+optional tidy-up: skipping it locally means finding out in CI.
 
 For anything that touches tests, green isn't measured in isolation: this
 project's own build process ran suites **4x concurrently, beside whatever
