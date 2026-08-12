@@ -1,9 +1,10 @@
-import { lstat, mkdir, readlink, realpath, stat, writeFile } from 'node:fs/promises'
+import { mkdir, stat, writeFile } from 'node:fs/promises'
 import { userInfo } from 'node:os'
 import path from 'node:path'
 import { buildRecord, type Actor, type SessionRecord } from '@rhizomorph/core/src/record/index.js'
 import { defaultDataRoot, repoSlug, sessionDirFor } from '../log/paths.js'
 import { listSessions, readSessionEvents, sessionFilePath } from '../log/session-log.js'
+import { canonicalize, isInside } from '../paths/containment.js'
 import { parseFlags, type FlagSpec } from './args.js'
 import type { RunCliOptions } from './types.js'
 
@@ -111,40 +112,6 @@ function resolveActor(handle: string | undefined): Actor {
 }
 
 /**
- * `fs.realpath` throws ENOENT the moment any component of `target` — including
- * a symlink's ultimate target — doesn't exist, so it can't canonicalise a
- * path that is about to be created. This resolves as far as the filesystem
- * actually allows: it chases a symlink's `readlink` target even when that
- * target is itself missing (the dangling-symlink case, e.g. `--out` pointing
- * at a not-yet-written file inside the watched repo), and otherwise walks up
- * to the nearest ancestor that does exist, canonicalises that, and rejoins
- * the remainder. Ordinary non-symlink, non-existent paths (the common case —
- * the record hasn't been written yet) resolve the same way, via the ancestor
- * walk with no symlink involved.
- */
-async function canonicalizeExistingAncestor(target: string): Promise<string> {
-  try {
-    return await realpath(target)
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
-  }
-
-  const linkTarget = await lstat(target).then(
-    (s) => (s.isSymbolicLink() ? readlink(target) : undefined),
-    () => undefined,
-  )
-  if (linkTarget !== undefined) {
-    return canonicalizeExistingAncestor(path.resolve(path.dirname(target), linkTarget))
-  }
-
-  const parent = path.dirname(target)
-  if (parent === target) {
-    return target
-  }
-  return path.join(await canonicalizeExistingAncestor(parent), path.basename(target))
-}
-
-/**
  * Reads a recorded session off disk and writes it out as a portable session
  * record (prd11 ruling 3) — outside the watched repo, same law the session
  * logs themselves already keep. `sessionId` defaults to the most recently
@@ -193,13 +160,9 @@ export async function runExportRecord(options: ExportRecordOptions): Promise<Exp
   // Canonicalise both sides before comparing: `path.resolve` alone leaves a
   // symlinked --out looking like it's outside the repo when it textually is,
   // even though writeFile follows the link back inside it.
-  const canonicalOutPath = await canonicalizeExistingAncestor(outPath)
-  const canonicalRepoPath = await canonicalizeExistingAncestor(repoPathResolved)
-  const relativeToRepo = path.relative(canonicalRepoPath, canonicalOutPath)
-  const isInsideRepo = relativeToRepo === '' || (!relativeToRepo.startsWith('..') && !path.isAbsolute(relativeToRepo))
-  if (isInsideRepo) {
+  if (isInside(repoPathResolved, outPath)) {
     throw new Error(
-      `refusing to write the record inside the watched repo (${canonicalOutPath}) — pass --out with a path outside ${canonicalRepoPath}`,
+      `refusing to write the record inside the watched repo (${canonicalize(outPath)}) — pass --out with a path outside ${canonicalize(repoPathResolved)}`,
     )
   }
 

@@ -41,10 +41,14 @@ viol=$(git -C "$W" diff main...HEAD --name-only | grep -vE "$FENCE" || true)
 [ -n "$viol" ] && { echo "  outside fence:"; echo "$viol" | sed 's/^/    /'; fail "fence violated (widen it deliberately, with the diff as justification, or send it back)"; }
 echo "  fence OK: $(git -C "$W" diff main...HEAD --name-only | tr '\n' ' ')"
 
+# These two compare ARITHMETICALLY, not as text: BSD wc -l right-aligns its
+# count in an eight-char field ("       0"), and command substitution strips
+# only the trailing newline — compared as text on macOS, the stranded-work
+# check fired on every clean tree and the empty-branch check never (#416).
 n=$(git -C "$W" log --oneline main..HEAD | wc -l)
-[ "$n" = "0" ] && fail "no commits on the branch (a worker may have left work uncommitted — check git status in the worktree)"
+[ "$n" -eq 0 ] && fail "no commits on the branch (a worker may have left work uncommitted — check git status in the worktree)"
 dirty=$(git -C "$W" status --porcelain | grep -v package-lock.json | wc -l)
-[ "$dirty" != "0" ] && { git -C "$W" status --porcelain | head -5; fail "uncommitted work stranded in the worktree"; }
+[ "$dirty" -ne 0 ] && { git -C "$W" status --porcelain | head -5; fail "uncommitted work stranded in the worktree"; }
 echo "  commits: $n, worktree clean"
 
 # NUL check guards TEXT files (one stray NUL makes them binary to git —
