@@ -711,6 +711,55 @@ describe('POST /api/lab/launch (route wiring — validation and the read-only re
     expect(recorder.eventsSoFar()).toEqual([])
   })
 
+  it('400s a flag-shaped checkpointId and a flag-shaped model — every value that reaches argv, not just the lane', async () => {
+    // The lane guard alone left two other argv-bound fields open. Both reach
+    // `parseLabForkArgs`'s raw --help pre-scan, which runs BEFORE the `--`
+    // separator protects anything, so `-h` there prints the fork command's
+    // help and exits 0 — surfacing as "could not read the dispatch result"
+    // rather than as a validation error an operator can act on.
+    const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+    const cases: Array<{ payload: Record<string, unknown>; matches: RegExp }> = [
+      {
+        payload: { lane: 'dev-1', checkpointId: '--help', arms: [{ model: 'opus' }] },
+        matches: /"checkpointId" may not begin with "-"/,
+      },
+      {
+        payload: { lane: 'dev-1', checkpointId: 'ckpt-1', arms: [{ model: '-h' }] },
+        matches: /arm 1's "model" may not begin with "-"/,
+      },
+    ]
+
+    for (const { payload, matches } of cases) {
+      const response = await app.inject({ method: 'POST', url: '/api/lab/launch', headers: authorised(app), payload })
+      expect(response.statusCode).toBe(400)
+      expect((response.json() as { error: string }).error).toMatch(matches)
+    }
+    expect(recorder.eventsSoFar()).toEqual([])
+  })
+
+  it('still accepts a model whose name merely CONTAINS a dash — the guard is the first character only', async () => {
+    // Not vacuously strict: `-` is legal inside a model name, which is why
+    // MODEL_GRAMMAR admits it and why this guard constrains position rather
+    // than presence. A guard that rejected `claude-opus-5` would be worse
+    // than the hole it closes.
+    const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/lab/launch',
+      headers: authorised(app),
+      payload: { lane: 'dev-1', checkpointId: 'ckpt-1', arms: [{ model: 'claude-opus-5' }] },
+    })
+
+    // Whatever happens downstream, it must NOT be the flag-shaped refusal.
+    if (response.statusCode === 400) {
+      expect((response.json() as { error: string }).error).not.toMatch(/may not begin with "-"/)
+    }
+  })
+
   it('409s when this server is replaying a record instead of watching a repo — there is nothing live to fork', async () => {
     const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
     const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder, readOnly: true })

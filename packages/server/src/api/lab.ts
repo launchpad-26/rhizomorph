@@ -315,6 +315,37 @@ export interface LaunchResult {
   failed: { arm: number; error: string } | null
 }
 
+/**
+ * Refuses a value whose FIRST character is `-`, for every field that reaches
+ * the CLI as argv.
+ *
+ * `lane` travels as an argv positional, and `parseFlags` (`cli/args.ts`) reads
+ * any `-`-prefixed positional as a flag. The argv puts these after `--`, so
+ * `parseFlags` itself can never misread them — but `parseLabForkArgs` scans
+ * raw argv for `--help`/`-h` BEFORE `parseFlags` runs, and `--` does not cover
+ * that pre-scan. A value spelled `--help` prints the fork command's help,
+ * exits 0, and surfaces as "could not read the dispatch result" rather than as
+ * anything an operator can act on.
+ *
+ * Applied to `lane`, `checkpointId` and each arm's `model` — every value that
+ * reaches argv. `lane` had this guard alone; the other two reach the same
+ * pre-scan by the same route, and `MODEL_GRAMMAR` does not close it
+ * (`/^[A-Za-z0-9._:-]+$/` accepts `-h` and `--help`, since `-` is a legal
+ * character *within* a model name).
+ *
+ * Deliberately narrow: it constrains the first character only, which is the
+ * whole of what the pre-scan can misread. A lane may legitimately contain
+ * `/`, `.` and `_`; a model legitimately contains `-`.
+ */
+function refuseFlagShaped(value: string, label: string, why: string): void {
+  const trimmed = value.trim()
+  if (trimmed.startsWith('-')) {
+    throw new LaunchValidationError(
+      `${label} may not begin with "-" (received "${trimmed}") — ${why}, and a leading dash is how a command line spells a flag`,
+    )
+  }
+}
+
 function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
   if (typeof body !== 'object' || body === null) {
     throw new LaunchValidationError('request body must be a JSON object')
@@ -335,16 +366,13 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
   // is a worktree handle and may legitimately contain `/`, `.` and `_`, so
   // this constrains the first character only, which is the whole of what
   // argv parsing can misread.
-  if (lane.trim().startsWith('-')) {
-    throw new LaunchValidationError(
-      `"lane" may not begin with "-" (received "${lane.trim()}") — a lane is a worktree handle, and a leading dash is how a command line spells a flag`,
-    )
-  }
+  refuseFlagShaped(lane, '"lane"', 'a lane is a worktree handle')
   if (typeof checkpointId !== 'string' || checkpointId.trim().length === 0) {
     throw new LaunchValidationError(
       '"checkpointId" must be a non-empty string — the lab never launches from an interpolated moment (prd12 ruling 2)',
     )
   }
+  refuseFlagShaped(checkpointId, '"checkpointId"', 'a checkpoint id names a captured moment')
   if (!Array.isArray(arms) || arms.length === 0) {
     throw new LaunchValidationError('"arms" must be a non-empty array — an experiment needs at least one arm')
   }
@@ -366,6 +394,13 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
       const offender = trimmed.length === 0 ? null : offendingModelCharacter(trimmed)
       if (offender !== null) {
         throw new LaunchValidationError(`arm ${index + 1}'s ${modelRefusalMessage(trimmed, offender)}`)
+      }
+      // MODEL_GRAMMAR admits `-` because model names contain it
+      // (`claude-opus-5`), so it accepts `-h` and `--help` too. Those reach
+      // `parseLabForkArgs`'s raw `--help` pre-scan ahead of the `--`
+      // separator, exactly as a flag-shaped lane would.
+      if (trimmed.length > 0) {
+        refuseFlagShaped(trimmed, `arm ${index + 1}'s "model"`, 'a model is a name, not a flag')
       }
     }
     if (brief !== undefined && typeof brief !== 'string') {
