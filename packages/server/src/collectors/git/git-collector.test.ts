@@ -423,6 +423,40 @@ prunable gitdir file points to non-existent location
       ])
     })
 
+    it('a killed for-each-ref names the exec timeout too — the branches read is the status read’s structural sibling, and was the unpinned arm', async () => {
+      // The status-timeout test above pins one of the two call sites that
+      // voice describeGitFailure's third arm; this pins the other. Unlike
+      // status, a failed for-each-ref voices immediately (no carry-forward
+      // bound), so one poll suffices.
+      const execTimeout: Exec = async (command, args, options) => {
+        if (args[0] === 'for-each-ref') {
+          return { stdout: '', stderr: '', code: null, failed: true }
+        }
+        const key = `${command} ${args.join(' ')}::${options?.cwd ?? ''}`
+        const script: Record<string, string> = {
+          'git worktree list --porcelain::/repo': ONE_WORKTREE,
+          'git status --porcelain::/repo': '',
+        }
+        const stdout = script[key]
+        if (stdout === undefined) throw new Error(`no scripted output for "${key}"`)
+        return { stdout, stderr: '', code: 0, failed: false }
+      }
+
+      const poll = await gitCollector.poll(gitCollector.initialSnapshot(), makeContext(execTimeout, 1000))
+      expect(poll.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'collector.error',
+            payload: expect.objectContaining({
+              collector: 'git',
+              message: 'git for-each-ref failed',
+              detail: 'killed with no exit code — the exec timeout',
+            }),
+          }),
+        ]),
+      )
+    })
+
     it('a locked worktree whose directory is gone stays on the bounded-transient path, never worktree.removed — git itself refuses to mark a locked worktree prunable', async () => {
       const lockedWorktrees = `${ONE_WORKTREE}
 worktree /repo-worktrees/removable
