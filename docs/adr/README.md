@@ -180,6 +180,7 @@ have carried no information.
 | [0012](0012-in-band-capability-token-delivery.md) | Deliver the capability token in-band, via a `<meta>` tag in `index.html` | 2026-08-08 | accepted |
 | [0013](0013-collector-ticks-are-bounded.md) | Every collector tick is bounded: a default exec timeout and a loop-level watchdog | 2026-08-10 | accepted |
 | [0014](0014-exhaustive-route-classification.md) | Every route is declared into one of three classes, checked by walking the running app | 2026-08-12 | accepted |
+| [0015](0015-agent-removed-is-an-event.md) | Agent removed is an event, not a silent gap | 2026-08-12 | proposed |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the

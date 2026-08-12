@@ -21,6 +21,13 @@ describe('exec', () => {
     expect(result.code).toBeNull()
     expect(result.errorMessage).toBeTruthy()
   })
+
+  it('reports failure with no error message for a timeout kill — a hang is not a missing binary', async () => {
+    const result = await exec('node', ['-e', 'setTimeout(() => {}, 10000)'], { timeoutMs: 100 })
+    expect(result.failed).toBe(true)
+    expect(result.code).toBeNull()
+    expect(result.errorMessage).toBeUndefined()
+  })
 })
 
 describe('withTimeout', () => {

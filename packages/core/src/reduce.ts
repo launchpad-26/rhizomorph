@@ -110,6 +110,8 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       return paneActivity(state, event)
     case 'agent.status':
       return agentStatus(state, event)
+    case 'agent.removed':
+      return agentRemoved(state, event)
     case 'llm.usage':
       return llmUsage(state, event)
     case 'llm.cost':
@@ -484,13 +486,27 @@ function agentStatus(state: SessionState, event: EventOf<'agent.status'>): Sessi
     branch: p.branch ?? prev?.branch ?? null,
     elapsedSeconds: p.elapsedSeconds ?? null,
     detail: p.detail ?? null,
+    // Re-discovery must not forget: any fresh sighting is presence, even for
+    // a handle `agent.removed` had previously marked gone.
+    present: true,
     firstSeenAt: prev?.firstSeenAt ?? event.ts,
     updatedAt: event.ts,
+    removedAt: null,
     // Present only when true, and once present never removed: a status poll
     // cannot un-fork a lane, and an ordinary lane's record is untouched.
     ...(prev?.synthetic === true || isSyntheticLane(state, p.handle) ? { synthetic: true as const } : {}),
   }
   return { ...state, agents: { ...state.agents, [p.handle]: agent } }
+}
+
+function agentRemoved(state: SessionState, event: EventOf<'agent.removed'>): SessionState {
+  const prev = state.agents[event.payload.handle]
+  // No-op on an unknown handle, and idempotent on a handle already marked
+  // gone — a repeat `agent.removed` must not stamp `removedAt` forward to a
+  // later tick just because the log happened to carry it twice.
+  if (prev === undefined || prev.present === false) return state
+  const agent: AgentState = { ...prev, present: false, removedAt: event.ts }
+  return { ...state, agents: { ...state.agents, [prev.handle]: agent } }
 }
 
 // --- telemetry (prd1) -------------------------------------------------------

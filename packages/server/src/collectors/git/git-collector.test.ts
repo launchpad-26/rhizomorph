@@ -251,13 +251,16 @@ branch refs/heads/main
     const { nextSnapshot } = await gitCollector.poll(gitCollector.initialSnapshot(), makeContext(exec1, 1000))
     expect(nextSnapshot.dirty['/repo']).toEqual([{ path: 'scratch.txt', status: 'untracked', staged: false }])
 
-    // Second poll: `git status` times out — the same shape `execFile`'s
-    // `timeout` option produces once ticks are bounded (#236): killed by a
-    // signal, so `code` is null and `errorMessage` is set, just like a
-    // missing binary.
+    // Second poll: `git status` times out — the shape `execFile`'s `timeout`
+    // option actually produces once ticks are bounded (#236), killed by a
+    // signal: `code` null, empty stderr, and NO `errorMessage`, which is what
+    // tells it apart from a missing binary (#306 narrowed `errorMessage` to
+    // spawn errors only). This fixture asserted the pre-#306 shape until that
+    // narrowing landed, which left it modelling a result `exec` can no longer
+    // return — and hid that `detail` had gone empty for the timeout case.
     const exec2: Exec = async (command, args, options) => {
       if (args[0] === 'status') {
-        return { stdout: '', stderr: '', code: null, failed: true, errorMessage: 'Command failed: git status --porcelain' }
+        return { stdout: '', stderr: '', code: null, failed: true }
       }
       const key = `${command} ${args.join(' ')}::${options?.cwd ?? ''}`
       const script: Record<string, string> = {
@@ -278,7 +281,9 @@ branch refs/heads/main
         payload: expect.objectContaining({
           collector: 'git',
           message: 'git status --porcelain failed for /repo',
-          detail: 'Command failed: git status --porcelain',
+          // Names the timeout rather than going blank: with no spawn error and
+          // no stderr to quote, an empty `detail` is all the operator would get.
+          detail: 'killed with no exit code — the exec timeout',
         }),
       }),
     ])

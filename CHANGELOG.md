@@ -208,6 +208,15 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **A departed workmux agent is now announced (#306).** `workmux status`
+  failing for a reason other than a missing binary used to parse as an empty
+  roster and drop every known agent with no event at all; a handle that
+  genuinely left a healthy poll was never diffed against the previous roster
+  either, so it also just stopped appearing. Both now read distinctly: a
+  transient failure carries the roster forward and reports
+  `collector.disabled` (letting the existing degraded/disabled ladder handle
+  it), and a genuine departure emits the new `agent.removed` event —
+  [ADR-0015](docs/adr/0015-agent-removed-is-an-event.md).
 - **C-quoted git paths round-trip (#237).** `git status --porcelain` C-quotes any
   path with a space or non-ASCII byte, and `git log --raw` quotes non-ASCII;
   both parsers took the quoted slice verbatim, so a file as ordinary as

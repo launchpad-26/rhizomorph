@@ -167,7 +167,7 @@ export interface Connection {
  *   which can predate this session by months and says nothing about when the
  *   collector reached us.
  * - **tmux** — `panes`, every timestamp a pane record carries.
- * - **workmux** — `agents`, first seen and last updated.
+ * - **workmux** — `agents`, first seen, last updated and removed.
  * - **sessionlog** / **otel** — the money layer's four record arrays, split by
  *   the `origin` the envelope stamped on each record.
  * - **otel**, additionally — `traces.spans`. A span has no `origin` field
@@ -209,7 +209,7 @@ export function selectConnection(state: SessionState): Connection {
   }
 
   for (const agent of Object.values(state.agents)) {
-    fold(flows.workmux, agent.firstSeenAt, agent.updatedAt)
+    fold(flows.workmux, agent.firstSeenAt, agent.updatedAt, agent.removedAt)
   }
 
   const telemetry = state.telemetry

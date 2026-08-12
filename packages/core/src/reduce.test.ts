@@ -488,7 +488,48 @@ describe('reduce — panes and agents', () => {
       elapsedSeconds: 90,
       firstSeenAt: 10,
       updatedAt: 20,
+      present: true,
+      removedAt: null,
     })
+  })
+
+  it('marks a removed agent absent, keeping its last-known fields', () => {
+    const state = reduceAll([
+      f.agentStatus({ handle: 'feature', status: 'working', worktreePath: WT, branch: 'feature' }, { ts: 10 }),
+      f.agentRemoved({ handle: 'feature' }, { ts: 300 }),
+    ])
+    expect(state.agents['feature']).toMatchObject({
+      present: false,
+      removedAt: 300,
+      // The last-known status/branch/worktree survive removal for replay.
+      status: 'working',
+      worktreePath: WT,
+      branch: 'feature',
+    })
+  })
+
+  it('ignores removal of an agent handle it never saw', () => {
+    const before = initialSessionState()
+    const after = reduce(before, f.agentRemoved({ handle: 'nope' }))
+    expect(after.agents).toEqual({})
+  })
+
+  it('is idempotent on a repeat removal — removedAt stays pinned to the first', () => {
+    const state = reduceAll([
+      f.agentStatus({ handle: 'feature', status: 'working' }, { ts: 10 }),
+      f.agentRemoved({ handle: 'feature' }, { ts: 300 }),
+      f.agentRemoved({ handle: 'feature' }, { ts: 400 }),
+    ])
+    expect(state.agents['feature']).toMatchObject({ present: false, removedAt: 300 })
+  })
+
+  it('re-appearance after removal resets present and clears removedAt', () => {
+    const state = reduceAll([
+      f.agentStatus({ handle: 'feature', status: 'working' }, { ts: 10 }),
+      f.agentRemoved({ handle: 'feature' }, { ts: 300 }),
+      f.agentStatus({ handle: 'feature', status: 'working' }, { ts: 400 }),
+    ])
+    expect(state.agents['feature']).toMatchObject({ present: true, removedAt: null, updatedAt: 400 })
   })
 })
 

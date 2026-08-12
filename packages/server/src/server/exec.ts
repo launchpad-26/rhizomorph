@@ -21,6 +21,11 @@ export const exec: Exec = (command, args, options = {}) =>
         if (error) {
           const err = error as NodeJS.ErrnoException & { code?: number | string }
           const exitCode = typeof err.code === 'number' ? err.code : null
+          // A spawn error (ENOENT and friends) reports `err.code` as a *string*
+          // ('ENOENT'); a timeout kill reports `code: null` with `signal: 'SIGTERM'`
+          // and no string code at all — the same `null` exitCode as a spawn error,
+          // but a running process that was killed, not one that never ran.
+          const isSpawnError = typeof err.code === 'string'
           resolve({
             stdout: stdout ?? '',
             stderr: stderr ?? '',
@@ -28,9 +33,10 @@ export const exec: Exec = (command, args, options = {}) =>
             failed: true,
             // Per the `ExecResult.errorMessage` contract: set only when the binary itself
             // couldn't be run (ENOENT and friends), not for a real process that ran and
-            // exited non-zero — callers (doctor, the workmux collector) use its presence
-            // to tell "not installed" apart from "installed but erroring for a real reason".
-            errorMessage: exitCode === null ? err.message : undefined,
+            // exited non-zero or was killed on timeout — callers (doctor, the workmux
+            // collector) use its presence to tell "not installed" apart from "installed
+            // but erroring for a real reason".
+            errorMessage: isSpawnError ? err.message : undefined,
           })
           return
         }
