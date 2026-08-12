@@ -557,10 +557,22 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
      * Ruling 2's own boundary: the loupe is additive. If opening it changed what
      * the mark lane draws, the "coalescing law and its cap are untouched"
      * sentence would be false, and no other test in this file is looking.
+     *
+     * The marks sit AROUND THE PLAYHEAD, and the comparison asserts it saw
+     * them (review of #430): with `threeLaneEvents()`'s marks 8.7 s from the
+     * playhead, the cap's window held no marks at all and this comparison was
+     * between two empty lanes — green while the lane visibly re-laid past the
+     * cap on any recording whose `usefulMaxZoomLevel` sits below
+     * `MAX_ZOOM_LEVEL`, which is every sparse one.
      */
     it('leaves the mark lane exactly as it was at the cap', () => {
+      const events = log((fx) => {
+        fx.at(8_900).agentStatus({ handle: 'ke5', status: 'working' })
+        fx.at(9_000).agentStatus({ handle: 'm2', status: 'working' })
+        fx.at(9_100).agentStatus({ handle: 'q9', status: 'working' })
+      })
       render(
-        <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
+        <TideDock mode="replay" events={events} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
       )
       const button = screen.getByRole('button', { name: 'Zoom in' })
       let atCap = ''
@@ -571,6 +583,7 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
       }
 
       expect(screen.getByTestId('tide-loupe')).toBeInTheDocument()
+      expect(atCap.length).toBeGreaterThan(0)
       expect(screen.getByTestId('chapter-marks').innerHTML).toBe(atCap)
     })
   })

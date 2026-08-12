@@ -162,9 +162,15 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
   const loupeZoomLevel = maxZoomLevel + 1
   const loupeOpen = zoomLevel > maxZoomLevel
 
+  // Clamped at the cap: "past it, marks stop thinning" is the ruling's own
+  // sentence, so the lane keeps the cap's window while the loupe is open.
+  // Unclamped, the loupe level took one more ZOOM_FRACTIONS step whenever
+  // `usefulMaxZoomLevel < MAX_ZOOM_LEVEL` — a sparse recording's normal case —
+  // and every visible mark re-laid at the narrower window (review of #430,
+  // proven with marks in view at the threshold).
   const window_ = useMemo(
-    () => windowForLevel(zoomLevel, windowCenter, start, end),
-    [zoomLevel, windowCenter, start, end],
+    () => windowForLevel(Math.min(zoomLevel, maxZoomLevel), windowCenter, start, end),
+    [zoomLevel, maxZoomLevel, windowCenter, start, end],
   )
 
   const scale = useMemo(() => timeScale(window_.start, window_.end, width), [window_, width])
@@ -419,7 +425,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
             className="figures min-w-0 max-w-[180px] overflow-hidden text-ellipsis whitespace-nowrap text-[10px] leading-none text-ice-400"
             data-testid="window-indicator"
           >
-            window {zoomFractionLabel(zoomLevel)} · {formatClock(window_.start)}–{formatClock(window_.end)}
+            window {zoomFractionLabel(Math.min(zoomLevel, maxZoomLevel))} · {formatClock(window_.start)}–{formatClock(window_.end)}
           </span>
         )}
         <button
