@@ -311,18 +311,33 @@ cmd_orphans() {
   items="$(board_items)" || die "could not read the board"
   on_board="$(printf '%s' "$items" \
     | python3 -c 'import sys,json; [print(i["content"]["number"]) for i in json.load(sys.stdin).get("items",[]) if i.get("content",{}).get("number")]')"
-  gh issue list --repo "$REPO" --state open --limit "$BOARD_LIMIT" --json number,title \
+  # Captured, not piped, same reason as board_items: a failing gh would hand
+  # python an empty stdin and bury the real exit status under a JSONDecodeError
+  # traceback. And checked against the cap, same reason as cmd_list's
+  # reconciliation: open issues do not all live on the board — that is this
+  # command's whole premise — so the board read surviving the cap does not
+  # prove this read did.
+  local open_raw
+  open_raw="$(gh issue list --repo "$REPO" --state open --limit "$BOARD_LIMIT" --json number,title)" \
+    || die "could not read open issues (gh issue list failed)"
+  printf '%s' "$open_raw" \
     | python3 -c '
 import sys, json
 on = set(sys.argv[1].split())
-missing = [i for i in json.load(sys.stdin) if str(i["number"]) not in on]
+limit = int(sys.argv[2])
+issues = json.load(sys.stdin)
+if len(issues) >= limit:
+    sys.stderr.write("error: gh issue list returned %d issues, at or above the --limit of %d; raise BOARD_LIMIT in %s\n"
+                     % (len(issues), limit, sys.argv[3]))
+    sys.exit(1)
+missing = [i for i in issues if str(i["number"]) not in on]
 if not missing:
     print("all open issues are on the board")
 else:
     print("not on the board:")
     for i in missing:
         print("  #%d %s" % (i["number"], i["title"][:70]))
-' "$on_board"
+' "$on_board" "$BOARD_LIMIT" "$0"
 }
 
 cmd_show() {
