@@ -8,7 +8,7 @@ import { ModeProvider } from '../app/ModeContext.js'
 import { StreamProvider } from '../app/StreamContext.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
 import type { FetchLike as ReplayFetchLike } from '../replay/api.js'
-import { ConnectPage, type ConnectPageProps, DEFAULT_REFRESH_MS } from './index.js'
+import { ConnectPage, type ConnectPageProps, DEFAULT_REFRESH_MS, STATE_GLYPH, STATE_WORD } from './index.js'
 import { DOCTOR_URL, META_URL, type FetchLike } from './meta.js'
 
 /**
@@ -119,13 +119,29 @@ function stateOf(id: string): string {
   return screen.getByTestId(`connect-state-${id}`).textContent?.trim() ?? ''
 }
 
+/**
+ * Every reading a state cell is allowed to hold, derived from the page's own
+ * two maps rather than typed out here (#367).
+ *
+ * The cell renders the glyph *and* the word — `<span>✓</span> VERIFIED` — so
+ * its `textContent` is the pair, and a law that only looked at the word would
+ * be blind to a row whose glyph and word disagree. The assertion this replaces
+ * was `toMatch(/(VERIFIED|BROKEN|UNPROVEN)/)`: unanchored, with no exactness
+ * constraint, so a cell reading `VERIFIED BROKEN` or `UNPROVENISH` satisfied
+ * the one property the test's name promises. Membership of an exact set is
+ * that property, stated so it can fail.
+ */
+const LEGAL_STATE_READINGS = Object.keys(STATE_WORD).map(
+  (s) => `${STATE_GLYPH[s as keyof typeof STATE_GLYPH]} ${STATE_WORD[s as keyof typeof STATE_WORD]}`,
+)
+
 describe('the connect page', () => {
   it('renders one row per link in the chain, each in exactly one of the three states', async () => {
     await renderConnect()
 
     for (const id of ['browser-server', 'repo-git', 'agents-tmux', 'transcripts-slug', 'transcripts-flow', 'otel', 'uninstrumented-conductor']) {
       expect(screen.getByTestId(`connect-link-${id}`), id).toBeInTheDocument()
-      expect(stateOf(id), id).toMatch(/(VERIFIED|BROKEN|UNPROVEN)/)
+      expect(LEGAL_STATE_READINGS, `${id} rendered "${stateOf(id)}"`).toContain(stateOf(id))
     }
   })
 

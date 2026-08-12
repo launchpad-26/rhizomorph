@@ -88,7 +88,13 @@ export interface ConnectPageProps {
   location?: { port: string; protocol: string }
 }
 
-const STATE_WORD: Record<LinkState, string> = {
+/**
+ * Exported for the three-states law (#367): the law needs the exact set of
+ * readings a state cell may hold, and a set typed out beside this map is a set
+ * that can drift from it — the same reason `sample.tsx`'s `keyDoc()` derives
+ * its copy from `STREAM_SOURCE_KEYS` instead of restating it.
+ */
+export const STATE_WORD: Record<LinkState, string> = {
   verified: 'VERIFIED',
   broken: 'BROKEN',
   unproven: 'UNPROVEN',
@@ -98,8 +104,11 @@ const STATE_WORD: Record<LinkState, string> = {
  * Colour is never the sole carrier (law 9a's own condition): every state has
  * a glyph and a word as well as a hue, so the checklist survives greyscale,
  * colour-blindness and a photographed screen.
+ *
+ * Exported with `STATE_WORD`, and for the same reason: the cell renders the
+ * pair, so the law can only be exact if it knows both.
  */
-const STATE_GLYPH: Record<LinkState, string> = { verified: '✓', broken: '✕', unproven: '·' }
+export const STATE_GLYPH: Record<LinkState, string> = { verified: '✓', broken: '✕', unproven: '·' }
 
 const STATE_CLASS: Record<LinkState, string> = {
   verified: 'text-working',
