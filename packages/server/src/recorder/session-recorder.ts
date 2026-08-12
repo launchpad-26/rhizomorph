@@ -78,6 +78,8 @@ export class SessionRecorder {
   async record(event: RhizomorphEvent): Promise<void> {
     while (this.sealed !== null) await this.sealed
     this.buffer.push(event)
+    // A throwing subscriber here just rejects this call's promise — unlike
+    // closeWith, record() holds no seal that would otherwise stay stuck.
     this.emitter.emit('event', event)
     await this.writer.append(event)
   }
@@ -97,9 +99,17 @@ export class SessionRecorder {
       this.releaseSeal = resolve
     })
     this.buffer.push(event)
-    this.emitter.emit('event', event)
-    await this.writer.append(event)
-    await this.writer.sync()
+    try {
+      this.emitter.emit('event', event)
+      await this.writer.append(event)
+      await this.writer.sync()
+    } catch (error) {
+      const release = this.releaseSeal
+      this.sealed = null
+      this.releaseSeal = null
+      release?.()
+      throw error
+    }
   }
 
   /**

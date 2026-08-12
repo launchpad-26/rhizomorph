@@ -7,6 +7,21 @@ merge_strategy: merge   # keep the DAG visible — the Rhizomorph renders it
 
 post_create:
   - "[ -f package.json ] && npm install || true"
+  # AGENTS.md and CLAUDE.md are both tracked (#399), so git puts the runbook and
+  # its Claude-side import into every worktree by itself. Only CLAUDE.local.md
+  # has to be carried across: it is per-contributor and gitignored, so git will
+  # not create it in a new worktree.
+  #
+  # The version of this hook that copied AGENTS.md was copying a file that did
+  # not exist — both files were gitignored repo-wide between 2d77e5b and #399,
+  # so the main checkout had no copy to hand out. The rule now documents itself
+  # in AGENTS.md, which is where it belongs.
+  #
+  # `--git-common-dir` is how a linked worktree finds the main checkout; same
+  # idiom as scripts/lane-agent.sh. The copy is an ignored file, so it cannot
+  # dirty the worktree or reach a commit. Non-fatal by design — a contributor
+  # who keeps no CLAUDE.local.md is the common case.
+  - 'M=$(dirname "$(git rev-parse --git-common-dir)") && cp "$M/CLAUDE.local.md" . 2>/dev/null || true'
 
 # prd1 telemetry (docs/telemetry.md): every lane's agent exports OTLP/HTTP
 # JSON straight to this repo's own Rhizomorph server (the receiver at

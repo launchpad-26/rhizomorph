@@ -2,8 +2,12 @@ import type { AdapterCapabilities, Collector, CollectorContext, RhizomorphEvent,
 import { countLines, hashPaneContent, lastNonEmptyLine } from './capture.js'
 import { LIST_PANES_FORMAT, parseListPanes } from './list-panes.js'
 import { resolveWorktreePath } from './worktree.js'
+import { voiceSkips } from '../parse-skip.js'
 
 const COLLECTOR_NAME = 'tmux'
+
+/** A tmux pane id — `%` then digits (`%0`, `%73`). Used to recover the pane a skipped list-panes line belonged to, since the id is the one field that cannot itself contain the tab that made the line unparseable. */
+const PANE_ID = /^%\d+$/
 
 /**
  * prd15 ruling 5's L4 ingredient (paired with workmux): pane content is a
@@ -91,7 +95,18 @@ export const tmuxCollector: Collector<TmuxSnapshot> = {
     const nextPanes: Record<string, TmuxPaneSnapshot> = {}
     const worktreeByPath = { ...prevSnapshot.worktreeByPath }
 
-    for (const entry of parseListPanes(listResult.stdout)) {
+    const { panes, skipped } = parseListPanes(listResult.stdout)
+    if (skipped.length > 0) {
+      events.push(
+        context.emit('collector.error', {
+          collector: COLLECTOR_NAME,
+          message: `skipped ${skipped.length} unparseable list-panes line${skipped.length === 1 ? '' : 's'}`,
+          detail: voiceSkips(skipped),
+        }),
+      )
+    }
+
+    for (const entry of panes) {
       let worktreePath = worktreeByPath[entry.currentPath]
       if (worktreePath === undefined) {
         worktreePath = await resolveWorktreePath(entry.currentPath, context.exec)
@@ -144,10 +159,36 @@ export const tmuxCollector: Collector<TmuxSnapshot> = {
       }
     }
 
-    for (const paneId of Object.keys(prevSnapshot.panes)) {
-      if (!(paneId in nextPanes)) {
-        events.push(context.emit('pane.closed', { paneId }))
+    // A pane absent from `nextPanes` has not necessarily closed: its
+    // list-panes line may have been skipped this tick, when a tab in a title
+    // or path splits the line into the wrong field count. Announcing a
+    // closure for such a pane reports a live agent's pane as dead — and #242's
+    // whole point is that one bad line costs that line, not the collector's
+    // truth. So recover each skipped line's pane id (the tab-free first field,
+    // present whenever the line survived enough to skip at all) and hold those
+    // panes as still present. If a skip is so garbled its own pane id is gone,
+    // no absent pane can be proven closed this tick, so every closure waits
+    // for a tick we can fully account for.
+    const skippedPaneIds = new Set<string>()
+    let allSkipsAttributed = true
+    for (const skip of skipped) {
+      const candidate = skip.line.split('\t')[0] ?? ''
+      if (PANE_ID.test(candidate)) skippedPaneIds.add(candidate)
+      else allSkipsAttributed = false
+    }
+
+    for (const [paneId, prevPane] of Object.entries(prevSnapshot.panes)) {
+      if (paneId in nextPanes) continue
+      if (skippedPaneIds.has(paneId) || !allSkipsAttributed) {
+        // Alive but unreadable this tick — carry the last-known snapshot
+        // forward unchanged rather than announcing a closure that did not
+        // happen. When the line parses again the carried `contentHash` makes
+        // the diff correct; when the pane really is gone, the next fully
+        // accounted-for tick reports it.
+        nextPanes[paneId] = prevPane
+        continue
       }
+      events.push(context.emit('pane.closed', { paneId }))
     }
 
     return {

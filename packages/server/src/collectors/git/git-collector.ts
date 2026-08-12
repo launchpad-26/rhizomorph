@@ -12,6 +12,7 @@ import { parseForEachRef } from './parse-refs.js'
 import { parseStatusPorcelain } from './parse-status.js'
 import { parseWorktreeList, type ParsedWorktree } from './parse-worktrees.js'
 import type { GitBranchState, GitSnapshot, GitWorktreeState } from './types.js'
+import { voiceSkips } from '../parse-skip.js'
 
 const COLLECTOR_NAME = 'git'
 
@@ -59,7 +60,7 @@ export const gitCollector: Collector<GitSnapshot> = {
   capabilities: GIT_CAPABILITIES,
 
   initialSnapshot(): GitSnapshot {
-    return { disabled: false, mainBranch: null, worktrees: {}, branches: {}, dirty: {} }
+    return { disabled: false, mainBranch: null, mainBranchGapVoiced: false, worktrees: {}, branches: {}, dirty: {} }
   },
 
   async poll(prevSnapshot, context): Promise<PollResult<GitSnapshot>> {
@@ -82,6 +83,18 @@ export const gitCollector: Collector<GitSnapshot> = {
 
     const worktrees = parseWorktreeList(worktreeListResult.stdout)
     const mainBranch = worktrees[0]?.branch ?? null
+    const mainWorktreeDetached = mainBranch === null
+
+    if (mainWorktreeDetached && !prevSnapshot.mainBranchGapVoiced) {
+      events.push(
+        context.emit('collector.error', {
+          collector: COLLECTOR_NAME,
+          message: 'main worktree HEAD is detached — aheadOfMain/behindMain cannot be computed for any branch',
+          detail: `no branch checked out at ${worktrees[0]?.path ?? context.repoPath}`,
+        }),
+      )
+    }
+
     const nextWorktrees = diffWorktrees(worktrees, prevSnapshot, context, events)
 
     const nextBranches = await diffBranches(context, worktrees, mainBranch, prevSnapshot, events)
@@ -89,7 +102,14 @@ export const gitCollector: Collector<GitSnapshot> = {
     const nextDirty = await diffDirty(context, worktrees, prevSnapshot, events)
 
     return {
-      nextSnapshot: { disabled: false, mainBranch, worktrees: nextWorktrees, branches: nextBranches, dirty: nextDirty },
+      nextSnapshot: {
+        disabled: false,
+        mainBranch,
+        mainBranchGapVoiced: mainWorktreeDetached,
+        worktrees: nextWorktrees,
+        branches: nextBranches,
+        dirty: nextDirty,
+      },
       events,
     }
   },
@@ -175,6 +195,23 @@ async function diffBranches(
 
     if (headMoved || countsChanged) {
       const worktreePath = worktrees.find((worktree) => worktree.branch === ref.branch)?.path ?? null
+
+      const loaded =
+        prevBranch && headMoved ? await loadNewCommits(context, prevBranch.head, ref.head) : { commits: [], skipped: [] }
+
+      // The skip, when present, is voiced ahead of this tick's own
+      // branch.updated/commit.landed — same "error surfaces first" ordering
+      // the tmux collector's list-panes skip already follows.
+      if (loaded.skipped.length > 0) {
+        events.push(
+          context.emit('collector.error', {
+            collector: COLLECTOR_NAME,
+            message: `skipped ${loaded.skipped.length} unparseable git raw diff line${loaded.skipped.length === 1 ? '' : 's'} on ${ref.branch}`,
+            detail: voiceSkips(loaded.skipped),
+          }),
+        )
+      }
+
       events.push(
         context.emit('branch.updated', {
           branch: ref.branch,
@@ -186,24 +223,21 @@ async function diffBranches(
         }),
       )
 
-      if (prevBranch && headMoved) {
-        const commits = await loadNewCommits(context, prevBranch.head, ref.head)
-        for (const commit of commits) {
-          events.push(
-            context.emit('commit.landed', {
-              sha: commit.sha,
-              branch: ref.branch,
-              message: commit.subject,
-              author: commit.author,
-              authoredAt: commit.authoredAt,
-              parents: commit.parents,
-              files: commit.files,
-              insertions: commit.insertions,
-              deletions: commit.deletions,
-              worktreePath,
-            }),
-          )
-        }
+      for (const commit of loaded.commits) {
+        events.push(
+          context.emit('commit.landed', {
+            sha: commit.sha,
+            branch: ref.branch,
+            message: commit.subject,
+            author: commit.author,
+            authoredAt: commit.authoredAt,
+            parents: commit.parents,
+            files: commit.files,
+            insertions: commit.insertions,
+            deletions: commit.deletions,
+            worktreePath,
+          }),
+        )
       }
     }
   }
@@ -245,7 +279,7 @@ async function loadNewCommits(context: CollectorContext, fromHead: string, toHea
     ['log', '--raw', '--numstat', '-M', '--reverse', `--pretty=format:${LOG_PRETTY}`, `${fromHead}..${toHead}`],
     context.repoPath,
   )
-  if (result.failed) return []
+  if (result.failed) return { commits: [], skipped: [] }
   return parseGitLog(result.stdout)
 }
 
@@ -260,7 +294,19 @@ async function diffDirty(
   for (const worktree of worktrees) {
     const statusResult = await runGit(context, ['status', '--porcelain'], worktree.path)
     if (statusResult.failed) {
-      // Transient (e.g. a worktree mid-removal); keep last known state.
+      // Transient (e.g. a worktree mid-removal) or a real failure — including
+      // an exec timeout now that ticks are bounded (#236) — either way the
+      // dirty-file list is stale until the next successful poll, so keep the
+      // last known state AND say so, matching `diffBranches`'s for-each-ref
+      // failure below rather than leaving the operator to notice a frozen
+      // dirty list on their own.
+      events.push(
+        context.emit('collector.error', {
+          collector: COLLECTOR_NAME,
+          message: `git status --porcelain failed for ${worktree.path}`,
+          detail: statusResult.errorMessage ?? statusResult.stderr,
+        }),
+      )
       const carried = prevSnapshot.dirty[worktree.path]
       if (carried) nextDirty[worktree.path] = carried
       continue

@@ -1,7 +1,12 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { createEventFactory } from '@rhizomorph/core'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { FleetProvider } from '../fleet/FleetContext.js'
+import type { FetchLike } from '../fleet/manifest.js'
+import type { EventSourceLike } from '../hooks/useEventStream.js'
 import { PANEL_IDS, PanelGrid } from './PanelGrid.js'
 import { requestPanelFocus } from './panelPrefs.js'
+import { StreamProvider } from './StreamContext.js'
 
 // Stub the lazily-imported panels so this test is about the *registry* — which
 // panels are mounted, in what order, and whether collapse stays per-panel —
@@ -49,15 +54,66 @@ beforeEach(() => {
 
 afterEach(cleanup)
 
-// The one remaining tick — React's mandatory suspend-then-resume on a lazy
-// component's first render, now against an already-resolved promise — is
-// flushed deterministically with `act(async () => {})` instead of a timed
-// poll, so the assertions that follow are plain synchronous queries with
-// nothing left to race.
-async function renderGrid() {
-  const utils = render(<PanelGrid />)
+/** Pinned, so `FleetProvider`'s derived fleet never moves under a test. */
+const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
+
+/** A server that has not shipped `.swarm/lanes.json` — not this file's concern. */
+const noLaneManifest: FetchLike = async () => ({ ok: false, json: async () => null })
+
+class FakeEventSource implements EventSourceLike {
+  onopen: ((event: Event) => void) | null = null
+  onerror: ((event: Event) => void) | null = null
+  onmessage: ((event: MessageEvent<string>) => void) | null = null
+
+  open() {
+    this.onopen?.(new Event('open'))
+  }
+
+  emit(data: unknown) {
+    this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent<string>)
+  }
+
+  close() {}
+}
+
+/**
+ * The one remaining tick — React's mandatory suspend-then-resume on a lazy
+ * component's first render, now against an already-resolved promise — is
+ * flushed deterministically with `act(async () => {})` instead of a timed
+ * poll, so the assertions that follow are plain synchronous queries with
+ * nothing left to race.
+ *
+ * `PanelGrid` reads `useStream`/`useFleet` now (the balcony pointer, #257),
+ * so every render needs both providers underneath it. By default a worktree
+ * is discovered before the first assertion runs — the curated-order and
+ * focus tests below are about the panels, not about the empty-fold pointer,
+ * and a stray "nothing is flowing yet" line would otherwise sit in every one
+ * of them. Pass `emitWorktree: false` for the pointer's own tests.
+ */
+async function renderGrid({ emitWorktree = true }: { emitWorktree?: boolean } = {}) {
+  let source: FakeEventSource | undefined
+  const utils = render(
+    <StreamProvider
+      url="/api/stream"
+      now={NOW}
+      createSource={() => {
+        source = new FakeEventSource()
+        return source
+      }}
+    >
+      <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
+        <PanelGrid />
+      </FleetProvider>
+    </StreamProvider>,
+  )
   await act(async () => {})
-  return utils
+  if (emitWorktree) {
+    await act(async () => {
+      source?.open()
+      source?.emit(createEventFactory().worktreeDiscovered())
+    })
+  }
+  return { ...utils, source: () => source }
 }
 
 describe('PanelGrid', () => {
@@ -205,6 +261,39 @@ describe('PanelGrid', () => {
       expect(screen.queryByText('Trace')).not.toBeInTheDocument()
       expect(screen.getByText('Fleet')).toBeInTheDocument()
       expect(screen.getByText('Scene stub')).toBeInTheDocument()
+    })
+  })
+
+  describe('the balcony pointer (prd19 ruling 1 — "one quiet pointer from the empty balcony")', () => {
+    it('points at Connect when the fold has no lanes and no worktrees', async () => {
+      await renderGrid({ emitWorktree: false })
+
+      expect(screen.getByText(/nothing is flowing yet/i)).toBeInTheDocument()
+      const link = screen.getByRole('link', { name: 'Connect' })
+      expect(link).toHaveAttribute('href', '/connect')
+
+      // Every panel's own existing empty state is still drawn underneath it —
+      // this is a pointer, not an interstitial replacing the grid (ruling 1).
+      expect(screen.getByText('Fleet')).toBeInTheDocument()
+      expect(screen.getByText('Scene stub')).toBeInTheDocument()
+    })
+
+    it('is absent once any worktree is discovered', async () => {
+      await renderGrid()
+
+      expect(screen.queryByText(/nothing is flowing yet/i)).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: 'Connect' })).not.toBeInTheDocument()
+    })
+
+    it('disappears the moment the first worktree is discovered, without a remount', async () => {
+      const { source } = await renderGrid({ emitWorktree: false })
+      expect(screen.getByText(/nothing is flowing yet/i)).toBeInTheDocument()
+
+      await act(async () => {
+        source()?.emit(createEventFactory().worktreeDiscovered())
+      })
+
+      expect(screen.queryByText(/nothing is flowing yet/i)).not.toBeInTheDocument()
     })
   })
 })
