@@ -227,7 +227,12 @@ export function useReplaySession({
   // below (and every identity downstream of it: `state`, `StreamContext`'s
   // `replayState`, `FleetContext`'s `buildFleet`) moves at most once per
   // animation frame instead.
-  const foldTs = useFrameCoalescedTs(playback.currentTs, sessionIndex, scheduleFrame)
+  const foldTs = useFrameCoalescedTs(
+    playback.currentTs,
+    sessionIndex,
+    scheduleFrame,
+    sessionIndex.sortedEvents.length > 0,
+  )
 
   const { scrubEventCount, state } = useMemo(() => {
     const cached = cursorCacheRef.current
@@ -329,6 +334,7 @@ function useFrameCoalescedTs(
   currentTs: number,
   resetKey: unknown,
   scheduleFrame: FrameScheduler,
+  hasRecording: boolean,
 ): number {
   const [foldTs, setFoldTs] = useState(currentTs)
   /** False once this frame's one derive has been spent. */
@@ -340,6 +346,13 @@ function useFrameCoalescedTs(
   const freeFoldRef = useRef(true)
   const scheduleFrameRef = useRef(scheduleFrame)
   scheduleFrameRef.current = scheduleFrame
+  /**
+   * Whether there is a recording to fold at all. Read through a ref so it does
+   * not join the reset's deps: it is derived from `resetKey`, so listing it
+   * would be a second name for the same change.
+   */
+  const hasRecordingRef = useRef(hasRecording)
+  hasRecordingRef.current = hasRecording
 
   const armFrame = useCallback(() => {
     cancelFrameRef.current?.()
@@ -382,7 +395,12 @@ function useFrameCoalescedTs(
     // operator's first seek spends it instead: that seek folds with the gate
     // left open, so a second seek in the same frame folds again, which is one
     // more derive than the ceiling this hook documents.
-    armFrame()
+    //
+    // Only with a recording loaded. An empty index has nothing to fold and so
+    // nothing to exempt, and an instrument sitting in live mode should schedule
+    // no frames on replay's account at all — `SceneView.test.tsx` asserts
+    // exactly that about the mounted tree, and it is right to.
+    if (hasRecordingRef.current) armFrame()
     // `currentTs` is deliberately absent from the deps below: this fires when
     // the recording changes and reads the position as of that moment.
   }, [resetKey, armFrame])
