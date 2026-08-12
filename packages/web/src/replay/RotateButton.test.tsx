@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { CAPABILITY_META_NAME } from '../recordings/capability.js'
 import { RotateButton } from './RotateButton.js'
 import type { RotateFetchLike } from './rotate.js'
 
@@ -9,6 +10,21 @@ afterEach(cleanup)
  * "end session · start fresh" — the one confirm, and what it does with each
  * answer. The invariant worth stating plainly: ONE click never rotates.
  */
+
+/**
+ * Stands in for what `server/static.ts` stamps into `index.html` on a real
+ * boot (ADR-0012). Needed since #234 gated `POST /api/rotate`: `rotate.ts`
+ * reads the token off the page and refuses before the wire if there is none,
+ * so without this the button below would be exercising that refusal rather
+ * than the confirm it exists to test. `rotate.test.ts` is where the
+ * missing-token path is asserted on purpose.
+ */
+beforeAll(() => {
+  const meta = document.createElement('meta')
+  meta.setAttribute('name', CAPABILITY_META_NAME)
+  meta.setAttribute('content', 'test-capability-token')
+  document.head.appendChild(meta)
+})
 
 const ROTATION = {
   closed: { sessionId: '1000', filePath: '/data/repo/session-1000.jsonl', eventCount: 4321 },

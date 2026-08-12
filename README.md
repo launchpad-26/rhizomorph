@@ -296,8 +296,10 @@ calling `runCli(['lab', ...])`), not a separate import. Grep for `fetch(`,
 | WSL | The daily development platform — exercised constantly, just not by CI |
 | macOS | **Unverified.** No platform-specific code exists (paths go through `node:path`, collectors degrade loudly rather than fail silently), but nobody has run it on macOS and confirmed that. Treat it as untested, not as "should work." If you try it, [an issue](https://github.com/KelliherL/rhizomorph/issues) saying what happened is genuinely useful. |
 
-**Node >= 22** — enforced via `engines` in `package.json`; older Node warns
-on install and may not run at all.
+**Node >= 22.22.2** — `engines` in `package.json` is the source of truth, and
+CI pins that exact minimum. Older Node warns on install and may not run at all;
+on Node 20 the `web` suite reports green counts with a non-zero exit, which
+[CONTRIBUTING.md](CONTRIBUTING.md#running-it) explains.
 
 ## What the observer does not do
 
