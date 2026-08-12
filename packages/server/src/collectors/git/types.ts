@@ -32,4 +32,14 @@ export interface GitSnapshot {
   worktrees: Record<string, GitWorktreeState>
   branches: Record<string, GitBranchState>
   dirty: Record<string, DirtyFile[]>
+  /**
+   * Consecutive `git status --porcelain` failures per worktree path, for a
+   * worktree git's own `worktree list --porcelain` does not (yet) consider
+   * `prunable`. Bounds how long a stale `dirty` entry may be carried before
+   * the gap becomes a voiced `collector.error` instead of a silent
+   * carry-forward. Absent or reset to 0 on the next successful read; never
+   * grows once a worktree is dropped as prunable (it stops being polled at
+   * all).
+   */
+  dirtyFailures: Record<string, number>
 }

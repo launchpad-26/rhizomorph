@@ -17,6 +17,16 @@ import { voiceSkips } from '../parse-skip.js'
 const COLLECTOR_NAME = 'git'
 
 /**
+ * How many consecutive `git status --porcelain` failures a worktree may
+ * carry its last-known dirty set through before the gap becomes a voiced
+ * `collector.error` instead of silent stale data. Matches
+ * `resilience.ts`'s `DEFAULT_FAILURE_THRESHOLD` — no reason to invent a
+ * second convention for "how many failures before something becomes
+ * visible".
+ */
+export const MAX_DIRTY_STATUS_FAILURES = 3
+
+/**
  * prd15 ruling 5's L0 floor: git alone is fully CLI-agnostic and structural
  * for identity, but everything else is a lagging inference over commits and
  * dirty-file deltas, with no attention or telemetry signal at all — the
@@ -81,7 +91,15 @@ export const gitCollector: Collector<GitSnapshot> = {
   capabilities: GIT_CAPABILITIES,
 
   initialSnapshot(): GitSnapshot {
-    return { disabled: false, mainBranch: null, mainBranchGapVoiced: false, worktrees: {}, branches: {}, dirty: {} }
+    return {
+      disabled: false,
+      mainBranch: null,
+      mainBranchGapVoiced: false,
+      worktrees: {},
+      branches: {},
+      dirty: {},
+      dirtyFailures: {},
+    }
   },
 
   async poll(prevSnapshot, context): Promise<PollResult<GitSnapshot>> {
@@ -120,7 +138,12 @@ export const gitCollector: Collector<GitSnapshot> = {
 
     const nextBranches = await diffBranches(context, worktrees, mainBranch, prevSnapshot, events)
 
-    const nextDirty = await diffDirty(context, worktrees, prevSnapshot, events)
+    const { dirty: nextDirty, dirtyFailures: nextDirtyFailures } = await diffDirty(
+      context,
+      worktrees,
+      prevSnapshot,
+      events,
+    )
 
     return {
       nextSnapshot: {
@@ -130,6 +153,7 @@ export const gitCollector: Collector<GitSnapshot> = {
         worktrees: nextWorktrees,
         branches: nextBranches,
         dirty: nextDirty,
+        dirtyFailures: nextDirtyFailures,
       },
       events,
     }
@@ -145,6 +169,14 @@ function diffWorktrees(
   const nextWorktrees: Record<string, GitWorktreeState> = {}
 
   worktrees.forEach((worktree, index) => {
+    // Proven gone: git's own `list --porcelain` already checked the path and
+    // will keep listing this record forever (there is no `prune` call in
+    // this app), so it must never enter `nextWorktrees` even though it's
+    // right here in `worktrees`. Falls into the removal loop below exactly
+    // like a worktree that vanished from the list outright — same event,
+    // same reducer, no new branch of logic (ADR-0016).
+    if (worktree.prunable) return
+
     const state: GitWorktreeState = {
       path: worktree.path,
       branch: worktree.branch,
@@ -309,32 +341,47 @@ async function diffDirty(
   worktrees: ParsedWorktree[],
   prevSnapshot: GitSnapshot,
   events: RhizomorphEvent[],
-): Promise<Record<string, DirtyFile[]>> {
+): Promise<{ dirty: Record<string, DirtyFile[]>; dirtyFailures: Record<string, number> }> {
   const nextDirty: Record<string, DirtyFile[]> = {}
+  const nextFailures: Record<string, number> = {}
 
   for (const worktree of worktrees) {
+    // Dropped by diffWorktrees already — no exec, no carry-forward, and no
+    // ENOENT to misread as "git is gone" (ADR-0016).
+    if (worktree.prunable) continue
+
     const statusResult = await runGit(context, ['status', '--porcelain'], worktree.path)
     if (statusResult.failed) {
-      // Transient (e.g. a worktree mid-removal) or a real failure — including
-      // an exec timeout now that ticks are bounded (#236) — either way the
-      // dirty-file list is stale until the next successful poll, so keep the
-      // last known state AND say so, matching `diffBranches`'s for-each-ref
-      // failure below rather than leaving the operator to notice a frozen
-      // dirty list on their own.
-      events.push(
-        context.emit('collector.error', {
-          collector: COLLECTOR_NAME,
-          message: `git status --porcelain failed for ${worktree.path}`,
-          detail: describeGitFailure(statusResult),
-        }),
-      )
-      const carried = prevSnapshot.dirty[worktree.path]
-      if (carried) nextDirty[worktree.path] = carried
+      const failures = (prevSnapshot.dirtyFailures?.[worktree.path] ?? 0) + 1
+      if (failures <= MAX_DIRTY_STATUS_FAILURES) {
+        // Genuine transient (index lock, a locked-and-momentarily-
+        // unreachable worktree, a permission blip): carry the last known
+        // set forward, same as before, but only for a bounded number of
+        // polls — a real removal proves itself via `prunable` above, so
+        // this branch is never how "gone" is detected.
+        const carried = prevSnapshot.dirty[worktree.path]
+        if (carried) nextDirty[worktree.path] = carried
+        nextFailures[worktree.path] = failures
+      } else {
+        // Past the bound: asserting old data as current is the thing being
+        // fixed, so stop carrying and say so — the same event
+        // `diffBranches` already uses for its own single-thing-failed case.
+        nextFailures[worktree.path] = failures
+        events.push(
+          context.emit('collector.error', {
+            collector: COLLECTOR_NAME,
+            message: `git status --porcelain failed ${failures} times in a row for ${worktree.path}`,
+            detail: describeGitFailure(statusResult),
+          }),
+        )
+      }
       continue
     }
 
     const files = parseStatusPorcelain(statusResult.stdout)
     nextDirty[worktree.path] = files
+    // nextFailures[worktree.path] intentionally left unset: a success resets
+    // the count to 0, read back via `?? 0` next poll.
 
     if (!sameDirtySet(prevSnapshot.dirty[worktree.path], files)) {
       events.push(
@@ -347,7 +394,7 @@ async function diffDirty(
     }
   }
 
-  return nextDirty
+  return { dirty: nextDirty, dirtyFailures: nextFailures }
 }
 
 function sameDirtySet(previous: DirtyFile[] | undefined, current: DirtyFile[]): boolean {

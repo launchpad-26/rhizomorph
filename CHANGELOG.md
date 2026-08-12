@@ -217,6 +217,18 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   `collector.disabled` (letting the existing degraded/disabled ladder handle
   it), and a genuine departure emits the new `agent.removed` event —
   [ADR-0015](docs/adr/0015-agent-removed-is-an-event.md).
+- **A deleted worktree now leaves the dashboard, instead of rendering as
+  healthy forever (#241).** `git worktree list` never stops listing a
+  worktree removed by hand outside rhizomorph, and the git collector's
+  `git status` catch silently carried its last-known dirty-file set forward
+  with no event. The collector now reads git's own `prunable` annotation
+  (already parsed, already free) as proof a worktree is gone, drops it, and
+  emits `worktree.removed`; a real transient failure still carries forward,
+  but only for a bounded number of polls before it becomes a visible
+  `collector.error` instead of stale silent data. Decision and rejected
+  alternatives (including why the issue's own suggested ENOENT check would
+  have been wrong) in
+  [ADR-0016](docs/adr/0016-prunable-not-enoent-proves-a-worktree-gone.md).
 - **C-quoted git paths round-trip (#237).** `git status --porcelain` C-quotes any
   path with a space or non-ASCII byte, and `git log --raw` quotes non-ASCII;
   both parsers took the quoted slice verbatim, so a file as ordinary as
