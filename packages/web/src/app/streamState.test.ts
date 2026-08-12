@@ -1,9 +1,15 @@
-import { createEventFactory, reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
+import {
+  createEventFactory,
+  initialSessionState,
+  reduceAll,
+  type RhizomorphEvent,
+} from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { boundaryIndex, eventsUpTo, foldUpTo, sortEvents } from '../replay/replayFold.js'
 import {
   MAX_EVENTS,
   NEWS_GRACE_MS,
+  crossesRepoBoundary,
   eventsWindowLabel,
   foldStreamEvent,
   foldStreamEvents,
@@ -446,5 +452,263 @@ describe('eventsWindowLabel — the boundary voice (#221)', () => {
     expect(state.session.eventCount).toBe(total)
     expect(state.events).toHaveLength(MAX_EVENTS)
     expect(eventsWindowLabel(state)).toBe(`showing the last ${MAX_EVENTS} events`)
+  })
+})
+
+/**
+ * #390 (prd20 wave 3, from the retarget spike's Q5, #265): the live fold was
+ * never reset, so retargeting the dashboard at another repo left every
+ * worktree, branch, commit and spend fact of the *old* repo folded underneath
+ * the new repo's name. `StatusBar` re-reads `/api/meta` on a session-id
+ * change, so the heading was already right — which is precisely what made the
+ * untouched fold a lie rather than a lag.
+ *
+ * The trigger is `repoPath` changing on `session.started`, a fact the payload
+ * already carries. Deliberately NOT a `session.closed` reason: this lands
+ * without #384, and a repo-keyed reset is also right for boundaries that are
+ * not retargets at all.
+ *
+ * The eager-reset direction is the dangerous one, so it gets more tests than
+ * the reset itself — a reconnect that wipes good state would be a worse
+ * instrument than the bug being fixed.
+ */
+describe('the repo boundary resets the fold (#390)', () => {
+  const connectedAt = Date.UTC(2026, 7, 10, 12, 0, 0)
+
+  /**
+   * One repo's session, with a fact in each of the families the boundary has
+   * to clear — a worktree, a branch and a commit — so a fold that kept any of
+   * them says which.
+   */
+  function sessionFor(repo: string, sessionId: string): RhizomorphEvent[] {
+    const f = createEventFactory({ idPrefix: repo, startTs: connectedAt, stepMs: 1000 })
+    const lane = `${repo}-lane`
+    f.sessionStarted({
+      sessionId,
+      repoPath: `/repos/${repo}`,
+      repoName: repo,
+      mainBranch: 'main',
+    })
+    f.worktreeDiscovered({
+      path: `/repos/${repo}/${lane}`,
+      branch: lane,
+      head: `sha-${repo}`,
+      isMain: false,
+    })
+    f.branchUpdated({ branch: lane, head: `sha-${repo}` })
+    f.commitLanded({ sha: `sha-${repo}`, branch: lane, message: `work in ${repo}` })
+    return f.all()
+  }
+
+  const alpha = sessionFor('alpha', 's-alpha-1')
+  const beta = sessionFor('beta', 's-beta-1')
+
+  const foldAll = (events: readonly RhizomorphEvent[]) =>
+    foldStreamEvents(initialStreamState(connectedAt), events)
+
+  describe('crossesRepoBoundary', () => {
+    const foldedOnAlpha = foldAll(alpha).session
+
+    it('is true for a session.started naming a different repoPath', () => {
+      expect(crossesRepoBoundary(foldedOnAlpha, beta[0]!)).toBe(true)
+    })
+
+    it('is false for a session.started naming the same repoPath', () => {
+      expect(crossesRepoBoundary(foldedOnAlpha, alpha[0]!)).toBe(false)
+    })
+
+    it('is false before any repo has been folded — nothing to contradict', () => {
+      expect(crossesRepoBoundary(initialSessionState(), alpha[0]!)).toBe(false)
+    })
+
+    it('is false for every event that is not a session.started', () => {
+      for (const event of alpha.slice(1)) {
+        expect(crossesRepoBoundary(foldedOnAlpha, event)).toBe(false)
+      }
+    })
+  })
+
+  it('drops every fact of the old repo when session.started names a different repoPath', () => {
+    const folded = foldStreamEvents(foldAll(alpha), beta)
+
+    expect(folded.session.session?.repoPath).toBe('/repos/beta')
+    expect(Object.keys(folded.session.worktrees)).toEqual(['/repos/beta/beta-lane'])
+    expect(Object.keys(folded.session.branches)).toEqual(['beta-lane'])
+    expect(Object.keys(folded.session.commits)).toEqual(['sha-beta'])
+    expect(folded.session.commitOrder).toEqual(['sha-beta'])
+
+    // The totality claim the three assertions above sample: not one trace of
+    // alpha is left anywhere in the fold, under any key.
+    expect(JSON.stringify(folded.session)).not.toContain('alpha')
+  })
+
+  it('clears the raw window and the news queue with it, keeping connectedAt', () => {
+    const folded = foldStreamEvents(foldAll(alpha), beta)
+
+    expect(folded.events).toEqual(beta)
+    expect(folded.session.eventCount).toBe(beta.length)
+    // Every fixture event is at or after `connectedAt`, so all of beta is news
+    // and none of alpha's flares outlived the repo they belonged to.
+    expect(folded.news).toEqual(beta)
+    expect(folded.newsCount).toBe(beta.length)
+    // The news/history boundary belongs to the connection, not the repo.
+    expect(folded.connectedAt).toBe(connectedAt)
+  })
+
+  it('keeps events.length <= session.eventCount across the boundary', () => {
+    const folded = foldStreamEvents(foldAll(alpha), beta)
+
+    // `eventsWindowLabel` reads exactly this pair, so a half-reset that
+    // cleared one and not the other would have it comparing two repos.
+    expect(folded.events.length).toBeLessThanOrEqual(folded.session.eventCount)
+    expect(eventsWindowLabel(folded)).toBeNull()
+  })
+
+  it('resets mid-batch when one flush carries both repos', () => {
+    // The realistic shape: `useEventStream` coalesces a burst, so the
+    // retarget and the new repo's first events arrive in a single fold call.
+    const folded = foldAll([...alpha, ...beta])
+
+    expect(folded.session.session?.repoPath).toBe('/repos/beta')
+    expect(folded.events).toEqual(beta)
+    expect(JSON.stringify(folded.session)).not.toContain('alpha')
+  })
+
+  it('folds a boundary identically batched or one at a time (#166/#183 identity law)', () => {
+    const combined = [...alpha, ...beta]
+    const batched = foldAll(combined)
+    const perEvent = combined.reduce(
+      (state, event) => foldStreamEvent(state, event),
+      initialStreamState(connectedAt),
+    )
+
+    expect(batched).toEqual(perEvent)
+  })
+
+  it('does NOT reset when a reconnect replays the whole session for the same repo', () => {
+    // The #166 path, and the regression most likely to be introduced by an
+    // over-eager reset: `EventSource` reconnects on its own with
+    // `Last-Event-ID`, the new process's buffer never held that id, and
+    // `resumeBacklog` honestly falls back to a full replay — which re-emits
+    // `session.started` for the SAME repo.
+    const once = foldAll(alpha)
+    const replayed = foldStreamEvents(once, alpha)
+
+    expect(replayed.session.session?.repoPath).toBe('/repos/alpha')
+    expect(Object.keys(replayed.session.worktrees)).toEqual(
+      Object.keys(once.session.worktrees),
+    )
+    expect(Object.keys(replayed.session.commits)).toEqual(Object.keys(once.session.commits))
+    // Absorbed the replay rather than restarting on it.
+    expect(replayed.events).toHaveLength(alpha.length * 2)
+    expect(replayed.session.eventCount).toBe(alpha.length * 2)
+  })
+
+  it('does NOT reset for an ordinary rotation — new session id, same repo', () => {
+    const before = foldAll(alpha)
+    const f = createEventFactory({ idPrefix: 'rotation', startTs: connectedAt + 60_000 })
+    const rotated = f.sessionStarted({
+      sessionId: 's-alpha-2',
+      repoPath: '/repos/alpha',
+      repoName: 'alpha',
+    })
+    const after = foldStreamEvent(before, rotated)
+
+    expect(after.session.session?.sessionId).toBe('s-alpha-2')
+    expect(Object.keys(after.session.worktrees)).toEqual(Object.keys(before.session.worktrees))
+    expect(Object.keys(after.session.commits)).toEqual(Object.keys(before.session.commits))
+  })
+
+  it('does NOT reset on the first session.started of a fresh fold', () => {
+    const folded = foldAll(alpha)
+
+    expect(folded.events).toEqual(alpha)
+    expect(folded.session.eventCount).toBe(alpha.length)
+  })
+})
+
+/**
+ * Two behaviours the #390 review asked to be settled one way or the other.
+ * Both are *decisions*, and both are pinned here so that changing them is a
+ * deliberate act rather than a silent side effect — the reasoning for each
+ * lives on `crossesRepoBoundary` in `streamState.ts`.
+ */
+describe('decisions the repo boundary pins deliberately (#390 review)', () => {
+  const connectedAt = Date.UTC(2026, 7, 10, 12, 0, 0)
+
+  it('boundary-on-case-difference: a case-only spelling resets, by choice', () => {
+    // macOS's default filesystem is case-insensitive, so `/repos/Alpha` and
+    // `/repos/alpha` can be one directory, and a relaunch spelled differently
+    // from the original resets a fold that did not need it. That is the
+    // chosen error: case-folding instead would miss a genuine boundary on a
+    // case-SENSITIVE filesystem (Linux, which CI runs), where those two paths
+    // really are two repositories — and a missed boundary is the lie this
+    // whole issue exists to remove, while a spurious reset is only amnesia.
+    // The client cannot see which filesystem the server is on, so it prefers
+    // the loud error. Flip this only with a way to know.
+    const f = createEventFactory({ idPrefix: 'case', startTs: connectedAt })
+    const upper = f.sessionStarted({
+      sessionId: 's-1',
+      repoPath: '/repos/Alpha',
+      repoName: 'Alpha',
+    })
+    const worktree = f.worktreeDiscovered({
+      path: '/repos/Alpha/lane',
+      branch: 'lane',
+      head: 'sha-1',
+      isMain: true,
+    })
+    const lower = f.sessionStarted({
+      sessionId: 's-2',
+      repoPath: '/repos/alpha',
+      repoName: 'alpha',
+    })
+
+    const folded = foldStreamEvents(initialStreamState(connectedAt), [upper, worktree])
+    expect(crossesRepoBoundary(folded.session, lower)).toBe(true)
+
+    const after = foldStreamEvent(folded, lower)
+    expect(after.session.session?.repoPath).toBe('/repos/alpha')
+    expect(Object.keys(after.session.worktrees)).toEqual([])
+  })
+
+  it('drops-events-that-precede-the-boundary: an event ahead of its own session.started is lost, not merged', () => {
+    // Not reachable today: the recorder opens a session with `session.started`
+    // and nothing carried over, fenced by that module's own `rotate.test.ts`
+    // (not cited by path: the recorder namespace law keeps web files clear of
+    // that module's paths), and `/api/stream` replays a log in order — so a
+    // session's own events always follow its `session.started`. This pins
+    // what the fold does if that ever stops holding: the stray event folds
+    // onto the OLD repo and is then discarded with it. One event lost, which
+    // is the right way round — the alternative is two repositories merged.
+    const f = createEventFactory({ idPrefix: 'order', startTs: connectedAt })
+    const alphaStart = f.sessionStarted({
+      sessionId: 's-alpha',
+      repoPath: '/repos/alpha',
+      repoName: 'alpha',
+    })
+    const strayFromBeta = f.worktreeDiscovered({
+      path: '/repos/beta/lane',
+      branch: 'lane',
+      head: 'sha-beta',
+      isMain: true,
+    })
+    const betaStart = f.sessionStarted({
+      sessionId: 's-beta',
+      repoPath: '/repos/beta',
+      repoName: 'beta',
+    })
+
+    const folded = foldStreamEvents(initialStreamState(connectedAt), [
+      alphaStart,
+      strayFromBeta,
+      betaStart,
+    ])
+
+    expect(folded.session.session?.repoPath).toBe('/repos/beta')
+    expect(folded.events).toEqual([betaStart])
+    // The stray is gone rather than sitting in beta's fleet as an alpha-era
+    // worktree — losing it is the failure mode, and this names it.
+    expect(Object.keys(folded.session.worktrees)).toEqual([])
   })
 })

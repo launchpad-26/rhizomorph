@@ -150,6 +150,20 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   lists are on opposite sides of a layering boundary neither can import
   across), so a seam test now reads both at runtime and fails on the next
   one.
+
+- **Retargeting no longer shows the new repo's name over the old repo's
+  fleet (#390).** The dashboard's live fold was never reset, so pointing it
+  at another repository kept every worktree, branch, commit and spend fact
+  of the previous one — under a heading that had already updated, which
+  made the result a lie rather than a lag. The fold now drops what it has
+  accumulated when a `session.started` names a different `repoPath`. An
+  ordinary session rotation, and a reconnect that replays the same session
+  from the top, both leave it alone. The lane manifest is re-asked at the
+  same boundary: `/api/lanes` was previously fetched once for the life of
+  the page, so the new repo's lanes were fenced, labelled and judged
+  against the old repo's `.swarm/lanes.json`. The selected lane drops at
+  the boundary too — a lane id belongs to the repo it was selected in, and
+  names like `dev-1` and `main` recur across unrelated repositories.
 - **Rename-in-place actually works (#249).** `POST /api/label` required a
   per-process capability token nothing ever delivered to the browser, so
   every rename in `/recordings` 401ed, on every boot. The server now
