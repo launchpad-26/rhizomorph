@@ -57,7 +57,10 @@ import { buildSessionIndex } from './replayFold.js'
  * (structurally shared — `reduce` replaces only the slices an event touches)
  * and one O(n) `isSorted` pass. The lane below reports today's number at
  * #274's own three sizes so the next reader starts from the instrument as it
- * is, not as it was.
+ * is, not as it was — and records why its per-event rise stays reported
+ * rather than asserted: a hard ceiling was prototyped under mutation for
+ * #419's review and could not tell the purity floor from the defect class
+ * (the lane's own comment carries the tables).
  */
 
 declare const performance: { now(): number }
@@ -174,14 +177,20 @@ describe('buildSessionIndex under commit-dense load (#342)', () => {
     report(`#342 · 25k events, 5k commits/new   : ${dense.toFixed(1)} ms`)
     report(
       `#342 · growth-driven excess ${(dense / capped).toFixed(2)}× ` +
-        `(the Record-spread defect read ~150× here; the purity-floor residual read 1.1–1.6× while authoring)`,
+        `(the Record-spread defect read ~150× here; the purity-floor residual read 1.1–1.7× across authoring and review boxes)`,
     )
 
     // THE BUDGET (#342's done-when, spelled so a loaded box cannot flunk it):
     // both sides fold the same event count, the same types, the same sizes, in
     // the same pass — only the growth of the accumulated commit structures
     // differs. Re-introduce a per-event copy of anything that grows with the
-    // commit count and this ratio explodes past any box's noise.
+    // DISTINCT-SHA count and this ratio explodes past any box's noise. That
+    // scope is exact, not cautious (#419 review, F5): both arms append the
+    // same number of log entries, so log-length-driven growth cancels here —
+    // measured, not assumed: a deliberate per-event scan of `commits.log`
+    // (~12.5M reads at 5k commits) moved this ratio only 1.65× → 1.82×.
+    // What falls outside the scope shows in the #274 lane's reported
+    // per-event curve below, and stays reported for the reason given there.
     expect(dense / capped).toBeLessThan(3)
 
     // And the fold actually did the work it claims to have measured.
@@ -209,10 +218,22 @@ describe("buildSessionIndex at #274's own three sizes, on today's fold", () => {
     const first = results[0] as { n: number; ms: number }
     const last = results[results.length - 1] as { n: number; ms: number }
     const perEventRatio = last.ms / last.n / (first.ms / first.n)
-    // Reported, not asserted (the file header says why): whether today's
-    // reading is a line or a curve is the human call, and the honest
-    // comparison is against the 2026-08-07 instrument's own ~11.6× per-event
-    // rise across these same three sizes.
+    // Reported, not asserted — and that is now measured, not only argued
+    // (#419 review, F5): a hard ceiling on this ratio was prototyped and
+    // mutation-tested before declining it. Clean tree: 4.41–4.83× across two
+    // runs the same day, one box (4.2× while authoring). A per-event scan of
+    // `telemetry.usage` injected into the pane.activity arm — the #179/#184
+    // defect class, ~170M reads at 55k — read only 6.24×, because a scan
+    // taxes the 5k end too and the two ends move together; a `commits.log`
+    // scan confined to commit.landed read 4.99×, sub-noise, because this
+    // census's 1-in-100 commit density puts ~150k reads at 55k. No budget
+    // passes clean runs across boxes yet fails those mutations — and unlike
+    // #342's shas, the usage slice has no "same events, less growth" control
+    // corpus to build a cancelling ratio from, because it appends per event
+    // by design. So the honest instrument for this class is the absolute
+    // table above, where the same usage-scan mutation is loud (615 → 1,026 ms
+    // at 55k on the same run), read against the 2026-08-07 instrument's own
+    // ~11.6× per-event rise.
     report(
       `#274 · µs/event grew ${perEventRatio.toFixed(2)}× across ${(last.n / first.n).toFixed(0)}× the events ` +
         `(the 2026-08-07 instrument read ~11.6× here)`,
