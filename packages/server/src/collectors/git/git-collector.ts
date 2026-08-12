@@ -23,7 +23,12 @@ const COLLECTOR_NAME = 'git'
  * `collector.error` instead of silent stale data. Matches
  * `resilience.ts`'s `DEFAULT_FAILURE_THRESHOLD` — no reason to invent a
  * second convention for "how many failures before something becomes
- * visible".
+ * visible". Voicing happens exactly once per incident — on the poll that
+ * crosses this bound — never on every poll in between, and never again on
+ * recovery: the counter resets silently so a later incident re-arms and
+ * voices again (#415). A voiced close was tried and reverted — per-worktree
+ * recovery routed through per-collector `CollectorState` can mask a sibling
+ * worktree's still-open incident (#429).
  */
 export const MAX_DIRTY_STATUS_FAILURES = 3
 
@@ -341,6 +346,8 @@ async function diffDirty(
     const statusResult = await runGit(context, ['status', '--porcelain'], worktree.path)
     if (statusResult.failed) {
       const failures = (prevSnapshot.dirtyFailures?.[worktree.path] ?? 0) + 1
+      nextFailures[worktree.path] = failures
+
       if (failures <= MAX_DIRTY_STATUS_FAILURES) {
         // Genuine transient (index lock, a locked-and-momentarily-
         // unreachable worktree, a permission blip): carry the last known
@@ -349,12 +356,11 @@ async function diffDirty(
         // this branch is never how "gone" is detected.
         const carried = prevSnapshot.dirty[worktree.path]
         if (carried) nextDirty[worktree.path] = carried
-        nextFailures[worktree.path] = failures
-      } else {
-        // Past the bound: asserting old data as current is the thing being
-        // fixed, so stop carrying and say so — the same event
-        // `diffBranches` already uses for its own single-thing-failed case.
-        nextFailures[worktree.path] = failures
+      } else if (failures === MAX_DIRTY_STATUS_FAILURES + 1) {
+        // Past the bound, and only on the one poll that crosses it: asserting
+        // old data as current is the thing being fixed, so stop carrying and
+        // say so, once (#415). The count is fixed at this single moment, so
+        // the message text is stable for the rest of the incident too.
         events.push(
           context.emit('collector.error', {
             collector: COLLECTOR_NAME,
@@ -363,13 +369,18 @@ async function diffDirty(
           }),
         )
       }
+      // Every failure after that stays silent — the incident was already
+      // voiced once; repeating it every poll is the heartbeat #415 removes.
       continue
     }
 
     const files = parseStatusPorcelain(statusResult.stdout)
     nextDirty[worktree.path] = files
     // nextFailures[worktree.path] intentionally left unset: a success resets
-    // the count to 0, read back via `?? 0` next poll.
+    // the count to 0, silently, so a later incident re-arms and voices again
+    // (#415 ruling — no voiced close: per-worktree recovery routed through
+    // per-collector CollectorState can mask a sibling worktree's still-open
+    // incident; see #429).
 
     if (!sameDirtySet(prevSnapshot.dirty[worktree.path], files)) {
       events.push(

@@ -215,6 +215,14 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **A failing dirty-status poll now voices one honest event per incident, not
+  a heartbeat (#415).** Once `MAX_DIRTY_STATUS_FAILURES` (#241) was crossed,
+  `git status --porcelain`'s `collector.error` re-fired on every subsequent
+  failed poll, with the growing failure count baked into the message — never
+  the same string twice, ~35 → 45 session-log lines in 10s. It now fires once,
+  on the poll that crosses the bound, and stays silent through further
+  failures; the counter resets silently on recovery so a later incident
+  re-arms and voices again.
 - **A departed workmux agent is now announced (#306).** `workmux status`
   failing for a reason other than a missing binary used to parse as an empty
   roster and drop every known agent with no event at all; a handle that

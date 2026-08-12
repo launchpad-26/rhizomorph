@@ -320,7 +320,7 @@ prunable gitdir file points to non-existent location
       expect(poll3.events).toEqual([])
     })
 
-    it('carries the last dirty set forward silently for up to MAX_DIRTY_STATUS_FAILURES consecutive git status failures, then voices collector.error and drops it — never worktree.removed, since prunable never fired', async () => {
+    it('carries the last dirty set forward silently for up to MAX_DIRTY_STATUS_FAILURES consecutive git status failures, then voices collector.error exactly once, stays silent through further failures, voices nothing on recovery, and re-arms for a second incident', async () => {
       const exec1 = scriptedExec({
         'git worktree list --porcelain::/repo': ONE_WORKTREE,
         'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo': ONE_REF,
@@ -365,16 +365,34 @@ prunable gitdir file points to non-existent location
       expect(poll4.nextSnapshot.worktrees['/repo']).toBeDefined()
       expect(poll4.events.some((event) => event.type === 'worktree.removed')).toBe(false)
 
+      // Failures 5 and 6: still past the bound. No re-emission — this is the
+      // heartbeat #415 removes. The message would have said "failed 5 times"
+      // and "failed 6 times" if the bug were still present; asserting an
+      // empty events array is what kills that mutation.
+      let heartbeatSnapshot = poll4.nextSnapshot
+      for (const failure of [5, 6]) {
+        const poll = await gitCollector.poll(heartbeatSnapshot, makeContext(exec2, 5000 + failure * 1000))
+        expect(poll.events).toEqual([])
+        expect(poll.nextSnapshot.dirtyFailures['/repo']).toBe(failure)
+        expect(poll.nextSnapshot.dirty['/repo']).toBeUndefined()
+        heartbeatSnapshot = poll.nextSnapshot
+      }
+
       // Recovery: the very next successful `git status` resets the failure
-      // count and records the fresh set — not the stale one that was
-      // already dropped — firing worktree.dirty since the set differs from
-      // what was last actually observed (nothing, past the bound).
+      // count silently and records the fresh set — not the stale one that
+      // was already dropped. No close event (#415 ruling: a per-worktree
+      // recovery voiced through the per-collector `lastErrorMessage` slot
+      // can mask a sibling worktree's still-open incident — see #429). This
+      // asserts the events array is exactly the dirty-set change with
+      // nothing ahead of it — if a close were reintroduced it would prepend
+      // a `collector.error` here, same as the reverted commit did, and this
+      // assertion would go red.
       const exec5 = scriptedExec({
         'git worktree list --porcelain::/repo': ONE_WORKTREE,
         'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo': ONE_REF,
         'git status --porcelain::/repo': '?? fresh.txt\n',
       })
-      const poll5 = await gitCollector.poll(poll4.nextSnapshot, makeContext(exec5, 6000))
+      const poll5 = await gitCollector.poll(heartbeatSnapshot, makeContext(exec5, 9000))
       expect(poll5.nextSnapshot.dirtyFailures['/repo']).toBeUndefined()
       expect(poll5.nextSnapshot.dirty['/repo']).toEqual([{ path: 'fresh.txt', status: 'untracked', staged: false }])
       expect(poll5.events).toEqual([
@@ -383,6 +401,59 @@ prunable gitdir file points to non-existent location
           payload: { path: '/repo', branch: 'main', files: [{ path: 'fresh.txt', status: 'untracked', staged: false }] },
         }),
       ])
+
+      // Re-arm: the silent counter reset must not latch "already voiced"
+      // forever — a second, independent incident on the same worktree must
+      // voice its own open event once it crosses the bound again.
+      let secondIncidentSnapshot = poll5.nextSnapshot
+      for (let failure = 1; failure <= 3; failure += 1) {
+        const poll = await gitCollector.poll(secondIncidentSnapshot, makeContext(exec2, 9000 + failure * 1000))
+        expect(poll.events).toEqual([])
+        expect(poll.nextSnapshot.dirtyFailures['/repo']).toBe(failure)
+        secondIncidentSnapshot = poll.nextSnapshot
+      }
+      const poll6 = await gitCollector.poll(secondIncidentSnapshot, makeContext(exec2, 13000))
+      expect(poll6.events).toEqual([
+        expect.objectContaining({
+          type: 'collector.error',
+          payload: expect.objectContaining({
+            collector: 'git',
+            message: 'git status --porcelain failed 4 times in a row for /repo',
+          }),
+        }),
+      ])
+      expect(poll6.nextSnapshot.dirtyFailures['/repo']).toBe(4)
+    })
+
+    it('a git status recovery that never crossed the failure bound voices nothing, same as one that did', async () => {
+      const exec1 = scriptedExec({
+        'git worktree list --porcelain::/repo': ONE_WORKTREE,
+        'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo': ONE_REF,
+        'git status --porcelain::/repo': '?? scratch.txt\n',
+      })
+      let snapshot = (await gitCollector.poll(gitCollector.initialSnapshot(), makeContext(exec1, 1000))).nextSnapshot
+
+      const exec2 = execWithFailingStatus({
+        'git worktree list --porcelain::/repo': ONE_WORKTREE,
+        'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo': ONE_REF,
+      })
+
+      // Two failures — below MAX_DIRTY_STATUS_FAILURES, so no incident is
+      // ever opened.
+      for (let failure = 1; failure <= 2; failure += 1) {
+        const poll = await gitCollector.poll(snapshot, makeContext(exec2, 1000 + failure * 1000))
+        expect(poll.events).toEqual([])
+        snapshot = poll.nextSnapshot
+      }
+
+      const exec3 = scriptedExec({
+        'git worktree list --porcelain::/repo': ONE_WORKTREE,
+        'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo': ONE_REF,
+        'git status --porcelain::/repo': '?? scratch.txt\n',
+      })
+      const recovered = await gitCollector.poll(snapshot, makeContext(exec3, 5000))
+      expect(recovered.nextSnapshot.dirtyFailures['/repo']).toBeUndefined()
+      expect(recovered.events).toEqual([])
     })
 
     it('names the exec timeout in the voiced detail rather than going blank — a killed status has neither an errorMessage nor stderr to quote', async () => {
