@@ -231,11 +231,31 @@ do-not-approve.
 
 ---
 
-## Before you push
+## Before you commit
 
-Run `scripts/gate.sh`. It blocks rather than reports:
+Run, in your own worktree: `npm run typecheck`, `npm run lint`, and
+`VITEST_MAX_WORKERS=6 npm test`. That is the whole of what a lane runs. Do
+**not** run `scripts/gate.sh` — see below for what it actually does.
+
+## Landing — the operator's step, and nobody else's
+
+`scripts/gate.sh <handle> <fence-regex>` is **not a pre-push check**. Running it
+*is* the landing. It blocks rather than reports —
 `rebase → fence audit → nothing stranded → typecheck → suite`, every check
-exiting non-zero on failure.
+exiting non-zero on failure — and then, once green, it **merges the branch into
+local `main`** (`gate.sh:172`), runs `npm install` and `npm run build` against
+the merged result, and ends with **`git push origin main`** (`gate.sh:177`).
+
+That last third used to be missing from this section, which described the
+command under a heading that read as "the thing you run before pushing". On
+2026-08-12 a lane followed that reading, ran the gate, and came within a stale
+local checkout of pushing unreviewed work to `origin/main` — the push was
+rejected only because `main` happened to be 13 commits behind (#408). The lane
+was not being careless; it was doing what this file said.
+
+So: the operator runs it. A lane never does, and never needs to — the three
+commands above are what a lane's work is gated on, and the operator's review is
+what everything else is gated on.
 
 CI runs `test`, `typecheck`, `lint`, a packaging guard, and a boot smoke across
 ubuntu + macOS. The macOS leg is the one that carries signal for path-shape bugs
