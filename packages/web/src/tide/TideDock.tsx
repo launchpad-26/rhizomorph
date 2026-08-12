@@ -44,8 +44,12 @@ import { canShiftWindow, shiftWindow, usefulMaxZoomLevel, windowForLevel, zoomFr
  *   a taller mark lane and row height for replay because replay's per-lane
  *   rows were the dock's primary control and earned the room; with the rows
  *   gone there is nothing left to earn it for, so `ChapterMarks` renders at
- *   its one default height in both modes and the axis appears whenever
- *   zoomed, in either mode — not gated to replay.
+ *   its one default height in both modes and the axis is not gated to replay.
+ * - **The axis is always on (#272).** It used to appear only when zoomed,
+ *   which meant the default view — fully zoomed out — said nothing about when
+ *   the playhead was. Together with the readout beside the thumb (`Scrubber`'s
+ *   `facts`) that is this dock's answer to "where am I": the axis orients, the
+ *   readout carries the instant.
  *
  * **One draggable body, not two (issue #186 restating ruling 1).** The
  * `Scrubber` beneath is the *overview* — full range, the only element with a
@@ -80,6 +84,12 @@ export interface TideDockProps {
   onSeek(ts: number): void
   /** Mirrors the transport's own enable rule: off outside an active replay. */
   seekEnabled: boolean
+  /**
+   * The scrub instant's headline facts, passed straight through to
+   * {@link Scrubber}'s readout (#272). Formatted by the caller, which is the
+   * surface that owns the vocabulary; `null` in live mode.
+   */
+  scrubFacts?: string | null
 }
 
 const BUTTON_CLASS =
@@ -115,7 +125,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return target.tagName === 'INPUT' && target.getAttribute('type') !== 'range'
 }
 
-export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled }: TideDockProps): ReactElement {
+export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled, scrubFacts = null }: TideDockProps): ReactElement {
   const [trackRef, width] = useElementWidth()
 
   const [zoomLevel, setZoomLevel] = useState(0)
@@ -296,8 +306,12 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
 
   const zoomed = zoomLevel > 0
   // Ruling 13: no mode-dependent height left to gate this on — the axis
-  // shows whenever zoomed, in either mode.
-  const showAxis = zoomed
+  // shows in either mode. #272: and at every zoom level, not only when zoomed.
+  // Fully zoomed out is the *default* view, so gating on `zoomed` meant the
+  // dock said nothing about when the playhead was until the operator went
+  // looking. The axis is the orientation half of that fix; the readout beside
+  // the thumb (`Scrubber`, `facts` below) is the instant half.
+  const showAxis = true
 
   const bracketLeft = zoomed ? fullScale.xOf(window_.start) : 0
   const bracketWidth = zoomed ? Math.max(1, fullScale.xOf(window_.end) - bracketLeft) : 0
@@ -370,6 +384,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
           onChange={onSeek}
           disabled={!seekEnabled}
           chapterMarkers={chapterMarkers}
+          facts={scrubFacts}
         />
         {zoomed && width > 0 && (
           <div

@@ -160,11 +160,18 @@ describe('ReplayControls', () => {
     expect(screen.getByText('Replay mode')).toBeInTheDocument()
 
     const scrubber = screen.getByLabelText('Replay scrubber')
+    // #272 moved these facts off a prose row at the foot of the bar and into
+    // the readout beside the thumb. Same facts, same dependence on the scrub
+    // position — the assertion follows them rather than being relaxed.
     fireEvent.change(scrubber, { target: { value: '2000' } })
-    await waitFor(() => expect(screen.getByText(/^1 worktrees/)).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByTestId('scrubber-readout').textContent).toContain('1 worktrees'),
+    )
 
     fireEvent.change(scrubber, { target: { value: '3000' } })
-    await waitFor(() => expect(screen.getByText(/^2 worktrees/)).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByTestId('scrubber-readout').textContent).toContain('2 worktrees'),
+    )
   })
 
   it('returning to live clears the session and disables the transport', async () => {
@@ -360,7 +367,9 @@ describe('ReplayControls — spend', () => {
     const estimate = estimateCostUsd('claude-opus-5', { input: 1, output: 1, cacheRead: 0, cacheCreation: 0 })
     expect(estimate).not.toBeNull()
     expect(estimate!.costUsd).toBeLessThan(0.01)
-    await waitFor(() => expect(screen.getByText(/<\$0\.01 as of scrub time/)).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByTestId('scrubber-readout').textContent).toContain('<$0.01'),
+    )
   })
 
   it('switches the scrub line to dollars once an authoritative cost event lands', async () => {
@@ -371,7 +380,9 @@ describe('ReplayControls — spend', () => {
 
     const scrubber = screen.getByLabelText('Replay scrubber')
     fireEvent.change(scrubber, { target: { value: '4000' } })
-    await waitFor(() => expect(screen.getByText(/\$1\.50 as of scrub time/)).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByTestId('scrubber-readout').textContent).toContain('$1.50'),
+    )
   })
 
   it('shows the whole session total in the picker regardless of scrub position', async () => {

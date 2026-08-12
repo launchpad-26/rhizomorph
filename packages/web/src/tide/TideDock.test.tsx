@@ -1,7 +1,7 @@
 import { createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { formatClock } from './duration.js'
+import { formatClock, formatClockSeconds } from './duration.js'
 import { timeScale } from './scale.js'
 import { windowForLevel } from './tideWindow.js'
 import { TideDock } from './TideDock.js'
@@ -414,11 +414,19 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
     expect(screen.getByTestId('chapter-marks').style.height).toBe('10px')
   })
 
-  it('the axis appears once zoomed in replay', () => {
+  // #272 changed the first assertion of each of these two from "absent until
+  // zoomed" to "present at rest, reading the full range". Zoomed out is the
+  // *default* view, so gating the axis on zoom meant the dock said nothing
+  // about when the playhead was until the operator went looking for it.
+  it('the axis reads the full range at rest in replay, and the window once zoomed', () => {
     render(
       <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
     )
-    expect(screen.queryByTestId('tide-axis')).not.toBeInTheDocument()
+    // At rest the window IS the full range, so the axis reads the recording's
+    // own first and last instant — the orientation half of #272.
+    expect(screen.getByTestId('tide-axis').textContent).toBe(
+      `${formatClock(T0)}${formatClock(T_END)}`,
+    )
 
     fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
     const window_ = windowForLevel(1, 9_000, T0, T_END)
@@ -426,13 +434,40 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
     expect(axis.textContent).toBe(`${formatClock(window_.start)}${formatClock(window_.end)}`)
   })
 
-  it('the axis appears once zoomed in live too — zoom is not replay-only', () => {
+  it('the axis is on in live too — it is gated on neither mode nor zoom', () => {
     render(
       <TideDock mode="live" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled={false} />,
     )
-    expect(screen.queryByTestId('tide-axis')).not.toBeInTheDocument()
+    expect(screen.getByTestId('tide-axis')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
     expect(screen.getByTestId('tide-axis')).toBeInTheDocument()
+  })
+
+  // The readout is `Scrubber`'s, but the thread from `TideDock`'s own prop to
+  // it is this file's, and nothing else asserts the two are connected.
+  it('passes the scrub facts through to the readout beside the thumb', () => {
+    render(
+      <TideDock
+        mode="replay"
+        events={threeLaneEvents()}
+        start={T0}
+        end={T_END}
+        value={9_000}
+        onSeek={() => {}}
+        seekEnabled
+        scrubFacts="4 worktrees · 8 commits · $2.14"
+      />,
+    )
+    expect(screen.getByTestId('scrubber-readout').textContent).toContain(
+      '4 worktrees · 8 commits · $2.14',
+    )
+  })
+
+  it('reads the clock alone when there are no facts to carry — live has no scrub instant', () => {
+    render(
+      <TideDock mode="live" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled={false} />,
+    )
+    expect(screen.getByTestId('scrubber-readout').textContent).toBe(formatClockSeconds(9_000))
   })
 })
