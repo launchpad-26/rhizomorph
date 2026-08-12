@@ -1,4 +1,5 @@
 import type { Exec } from '@rhizomorph/core'
+import { describeExecFailure } from '../server/exec.js'
 
 /**
  * prd11 ruling 6b, phase 1 — the structural judge organ's symbol-extraction
@@ -94,7 +95,7 @@ export async function extractLaneSymbols(options: SymbolExtractionOptions): Prom
   const { exec, repoPath, mainBranch, branch } = options
   const result = await exec('git', ['diff', '--unified=0', `${mainBranch}...${branch}`], { cwd: repoPath })
   if (result.failed) {
-    throw new Error(`git diff failed for branch "${branch}": ${result.errorMessage ?? result.stderr}`)
+    throw new Error(`git diff failed for branch "${branch}": ${describeExecFailure(result)}`)
   }
   return { branch, symbols: parseAddedDeclarations(result.stdout) }
 }

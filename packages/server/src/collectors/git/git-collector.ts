@@ -13,6 +13,7 @@ import { parseStatusPorcelain } from './parse-status.js'
 import { parseWorktreeList, type ParsedWorktree } from './parse-worktrees.js'
 import type { GitBranchState, GitSnapshot, GitWorktreeState } from './types.js'
 import { voiceSkips } from '../parse-skip.js'
+import { describeExecFailure } from '../../server/exec.js'
 
 const COLLECTOR_NAME = 'git'
 
@@ -66,25 +67,12 @@ function runGit(context: CollectorContext, args: readonly string[], cwd: string)
 }
 
 /**
- * Best available one-line reason a git call failed, in the same order the
- * worktree-list arm of `poll` already uses: the spawn error if the binary
- * could not be run at all, else real stderr, else the exit status.
- *
- * That last arm is load-bearing, not decoration. `errorMessage` is set only
- * for a spawn error (#306 narrowed it there so a hung collector stops reading
- * as an uninstalled one), and a call killed on the exec timeout has no stderr
- * either — so without a literal fallback the `detail` these events carry
- * would be the empty string for exactly the timeout case the callers below
- * exist to describe.
+ * The three-arm failure describer lives in `server/exec.ts`, beside the
+ * `errorMessage` contract that creates its third case — one home (#425
+ * review), because the two-arm `errorMessage ?? stderr` bug reappeared in
+ * the judge readers after being fixed here.
  */
-function describeGitFailure(result: ExecResult): string {
-  if (result.errorMessage !== undefined) return result.errorMessage
-  const stderr = result.stderr.trim()
-  if (stderr.length > 0) return stderr
-  // No spawn error and no stderr leaves a signal kill, which is what the
-  // per-exec timeout (`COLLECTOR_EXEC_TIMEOUT_MS`) produces.
-  return result.code === null ? 'killed with no exit code — the exec timeout' : `exited with code ${String(result.code)}`
-}
+const describeGitFailure = describeExecFailure
 
 export const gitCollector: Collector<GitSnapshot> = {
   name: COLLECTOR_NAME,

@@ -54,3 +54,25 @@ export function withTimeout(exec: Exec, timeoutMs: number): Exec {
   return (command: string, args: readonly string[], options?: ExecOptions) =>
     exec(command, args, { ...options, timeoutMs })
 }
+
+/**
+ * Best available one-line reason an exec'd call failed: the spawn error if
+ * the binary could not be run at all, else real stderr, else the exit
+ * status.
+ *
+ * The last arm is load-bearing, not decoration. `errorMessage` is set only
+ * for a spawn error (#306 narrowed it there, so a hung binary stops reading
+ * as an uninstalled one), and a call killed on the exec timeout has no
+ * stderr either — so a two-arm `errorMessage ?? stderr` reads as the empty
+ * string for exactly the failure a `withTimeout`-bounded exec is guaranteed
+ * to eventually produce. This lives here, beside the contract that creates
+ * the third case, because the blank-detail bug appeared once per unshared
+ * copy: first in the git collector (fixed on #306), then in all three judge
+ * readers (found on #425's review).
+ */
+export function describeExecFailure(result: ExecResult): string {
+  if (result.errorMessage !== undefined) return result.errorMessage
+  const stderr = result.stderr.trim()
+  if (stderr.length > 0) return stderr
+  return result.code === null ? 'killed with no exit code — the exec timeout' : `exited with code ${String(result.code)}`
+}
