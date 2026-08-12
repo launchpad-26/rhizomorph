@@ -11,7 +11,7 @@ import {
   type ChainLink,
   type ConnectInputs,
 } from './links.js'
-import type { ConnectionFacts, DoctorFact, MetaFacts } from './meta.js'
+import type { ConnectionFacts, DoctorFact, DoctorReading, MetaFacts } from './meta.js'
 
 /**
  * THE CHECKLIST'S DERIVATION, over real folds.
@@ -35,13 +35,20 @@ const FIXTURE: ConnectInputs['stream'] = { status: 'open', eventCount: 900, prov
 /** The live log's own stream, after it died. `live` stays true — this IS this instrument; nothing is carrying its news any more. */
 const DEAD: ConnectInputs['stream'] = { status: 'closed', eventCount: 5, provenance: 'live · /api/stream', live: true }
 
+/** The three doctor readings (#381), spelled once each. */
+const ABSENT: DoctorReading = { kind: 'absent' }
+const UNREADABLE: DoctorReading = { kind: 'unreadable' }
+function checksOf(...checks: DoctorFact[]): DoctorReading {
+  return { kind: 'checks', checks }
+}
+
 function inputs(state: SessionState, overrides: Partial<ConnectInputs> = {}): ConnectInputs {
   return {
     flow: selectConnection(state),
     refusals: state.refusals,
     stream: { status: 'open', eventCount: state.eventCount, provenance: 'live · /api/stream', live: true },
     meta: null,
-    doctor: null,
+    doctor: ABSENT,
     port: '4317',
     now: NOW,
     ...overrides,
@@ -167,18 +174,18 @@ describe('buildLinks — the chain ruling 3 names', () => {
 
     return [
       build(reduceAll([])),
-      build(busy, { doctor: [slugOk] }),
+      build(busy, { doctor: checksOf(slugOk) }),
       build(refused),
-      build(uninstrumented, { doctor: [slugMissing] }),
+      build(uninstrumented, { doctor: checksOf(slugMissing) }),
       build(reduceAll([]), { meta: allDisabled }),
       build(reduceAll([]), { meta: metaWith(), stream: { status: 'error', eventCount: 0, provenance: 'live · /api/stream', live: true } }),
       build(reduceAll([]), { stream: { status: 'connecting', eventCount: 0, provenance: 'live · /api/stream', live: true } }),
       // The two demotions (#343, #345), over the two logs that reach the most
       // states — so the triple is asserted on the rows `attest` rewrote, not
       // only on the rows it left alone.
-      build(busy, { doctor: [slugOk], meta: metaWith(), stream: FIXTURE }),
-      build(uninstrumented, { doctor: [slugMissing], meta: metaWith(), stream: FIXTURE }),
-      build(busy, { doctor: [slugOk], meta: metaWith(), stream: DEAD }),
+      build(busy, { doctor: checksOf(slugOk), meta: metaWith(), stream: FIXTURE }),
+      build(uninstrumented, { doctor: checksOf(slugMissing), meta: metaWith(), stream: FIXTURE }),
+      build(busy, { doctor: checksOf(slugOk), meta: metaWith(), stream: DEAD }),
     ]
   }
 
@@ -189,7 +196,7 @@ describe('buildLinks — the chain ruling 3 names', () => {
    */
   it('dates a live proof as of render time, and a stored proof by its own event', () => {
     const state = reduceAll([f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, { ts: 1_000 })])
-    const links = build(state, { doctor: [{ id: 'session-logs', status: 'ok', message: 'found', assumed: false }] })
+    const links = build(state, { doctor: checksOf({ id: 'session-logs', status: 'ok', message: 'found', assumed: false }) })
 
     expect(row(links, 'browser-server').tsKind).toBe('render')
     expect(row(links, 'browser-server').ts).toBe(NOW)
@@ -204,7 +211,7 @@ describe('buildLinks — the chain ruling 3 names', () => {
   })
 
   it('names --extra-sessions for a slug directory that does not resolve', () => {
-    const doctor: DoctorFact[] = [{ id: 'session-logs', status: 'warn', message: 'no session logs at /home/x/.claude/projects', assumed: false }]
+    const doctor = checksOf({ id: 'session-logs', status: 'warn', message: 'no session logs at /home/x/.claude/projects', assumed: false })
     expect(row(build(reduceAll([]), { doctor, meta: metaWith() }), 'transcripts-slug').command).toBe(
       'npm start -- /home/x/repo --port 4317 --extra-sessions <session-log-dir>',
     )
@@ -481,8 +488,8 @@ describe('the two GETs the fold cannot replace', () => {
   const slugMissing: DoctorFact = { id: 'session-logs', status: 'warn', message: 'no Claude Code session logs at /home/x/.claude/projects — per-agent history stays empty', assumed: false }
 
   it('reads the slug directory from doctor, and says so when no readable answer arrived', () => {
-    expect(row(build(reduceAll([]), { doctor: [slugOk] }), 'transcripts-slug').state).toBe('verified')
-    expect(row(build(reduceAll([]), { doctor: [slugMissing] }), 'transcripts-slug').state).toBe('broken')
+    expect(row(build(reduceAll([]), { doctor: checksOf(slugOk) }), 'transcripts-slug').state).toBe('verified')
+    expect(row(build(reduceAll([]), { doctor: checksOf(slugMissing) }), 'transcripts-slug').state).toBe('broken')
 
     const unread = row(build(reduceAll([])), 'transcripts-slug')
     expect(unread.state).toBe('unproven')
@@ -499,13 +506,13 @@ describe('the two GETs the fold cannot replace', () => {
    */
   it('distinguishes a doctor route that gave no readable answer from one that answered without the session-logs check', () => {
     const unread = row(build(reduceAll([])), 'transcripts-slug')
-    const answered = row(build(reduceAll([]), { doctor: [{ id: 'node', status: 'ok', message: 'Node v22.22.2', assumed: false }] }), 'transcripts-slug')
+    const answered = row(build(reduceAll([]), { doctor: checksOf({ id: 'node', status: 'ok', message: 'Node v22.22.2', assumed: false }) }), 'transcripts-slug')
 
     expect(unread.state).toBe('unproven')
     expect(answered.state).toBe('unproven')
     expect(unread.notes).not.toEqual(answered.notes)
 
-    expect(unread.notes.join(' ')).toContain('no readable answer')
+    expect(unread.notes.join(' ')).toContain('no usable answer')
     expect(answered.notes.join(' ')).toContain('answered, but carried no `session-logs` check')
     // The route is not the thing to go and fix.
     expect(answered.notes.join(' ')).not.toContain('never answered')
@@ -513,30 +520,43 @@ describe('the two GETs the fold cannot replace', () => {
   })
 
   /**
-   * **AND `doctor === null` IS ITSELF TWO FACTS.** `parseDoctor` answers `null`
-   * both for a body that never arrived and for one it could not read — and
-   * `readJson` folds every other unreadable answer onto that same value — so a
-   * server whose doctor is answering perfectly, in a shape this build is too
-   * old to parse, reaches this row as `null`. Reporting that as "has not
-   * answered" is the same lie #346 removed one branch over, aimed at the same
-   * reader: go and debug a route that is working.
-   *
-   * This row cannot yet tell the two apart — the fix is a three-state result
-   * (absent / unreadable / checks) travelling through `fetchDoctor` and
-   * `index.tsx`, which is a wider change than this. What it CAN do, and what
-   * this pins, is refuse to assert the half it does not know: the note states
-   * what is true of both causes and names both.
+   * **THE TWO FACTS `null` USED TO FOLD NOW ARRIVE SEPARATELY (#381),** and
+   * this row must send the reader to different places for each. `absent`
+   * still folds a dead route with a non-2xx and a non-JSON body (`readJson`'s
+   * set), so even there the note must not flatly claim silence — a 500 is an
+   * answer of a kind. What it may say is "no usable answer", and point at the
+   * route. `unreadable` is the case #346 was really about: a route answering
+   * perfectly in a shape this build cannot read. Sending that reader to debug
+   * the route is the exact lie the three-state result exists to end — the
+   * remedy is the payload: page and server from different builds.
    */
-  it('never claims the route was silent when it may have answered unreadably', () => {
-    const note = row(build(reduceAll([])), 'transcripts-slug').notes.join(' ')
+  it('sends the reader to the route for an absent reading, and to the payload for an unreadable one', () => {
+    const absentNote = row(build(reduceAll([]), { doctor: ABSENT }), 'transcripts-slug').notes.join(' ')
+    const unreadableNote = row(build(reduceAll([]), { doctor: UNREADABLE }), 'transcripts-slug').notes.join(' ')
 
-    // The claim that is not this page's to make.
-    expect(note).not.toContain('has not answered')
-    expect(note).not.toMatch(/did not answer|never responded|is not answering/)
-    // Both causes, named, and the one consequence that holds either way.
-    expect(note).toContain('never answered')
-    expect(note).toContain('could not read')
-    expect(note).toContain('unavailable')
+    // Different facts must not read alike.
+    expect(absentNote).not.toEqual(unreadableNote)
+
+    // absent: the route is the suspect — but silence is still not this page's
+    // claim to make, because absent also covers a route that answered a 500
+    // or an error page.
+    expect(absentNote).toContain('no usable answer')
+    expect(absentNote).toContain('check the server')
+    expect(absentNote).not.toMatch(/did not answer|never responded|is not answering|route is alive/)
+
+    // unreadable: the route is explicitly NOT the suspect.
+    expect(unreadableNote).toContain('answered')
+    expect(unreadableNote).toContain('the route is alive')
+    expect(unreadableNote).toContain('different builds')
+    expect(unreadableNote).not.toMatch(/did not answer|never responded|no usable answer/)
+
+    // The one consequence that holds in both: the directory is unknowable.
+    expect(absentNote).toContain('unavailable')
+    expect(unreadableNote).toContain('unavailable')
+
+    // And neither reading may ever harden into a verdict on the directory.
+    expect(row(build(reduceAll([]), { doctor: ABSENT }), 'transcripts-slug').state).toBe('unproven')
+    expect(row(build(reduceAll([]), { doctor: UNREADABLE }), 'transcripts-slug').state).toBe('unproven')
   })
 
   /**
@@ -546,7 +566,7 @@ describe('the two GETs the fold cannot replace', () => {
    * "connected" starts meaning "preconditions passed".
    */
   it('keeps the transcript flow row unproven even when the slug directory is verified', () => {
-    const links = build(reduceAll([]), { doctor: [slugOk] })
+    const links = build(reduceAll([]), { doctor: checksOf(slugOk) })
     expect(row(links, 'transcripts-slug').state).toBe('verified')
     expect(row(links, 'transcripts-flow').state).toBe('unproven')
   })
@@ -556,7 +576,7 @@ describe('the two GETs the fold cannot replace', () => {
       { id: 'cli-version-drift', status: 'warn', message: 'claude 2.1.300 does not match the pinned trace fixture version 2.1.220', assumed: false },
       { id: 'lane-manifest', status: 'ok', message: 'lane manifest present and valid at /repo/.swarm/lanes.json — 3 lanes', assumed: true },
     ]
-    const links = build(reduceAll([]), { doctor })
+    const links = build(reduceAll([]), { doctor: checksOf(...doctor) })
 
     expect(row(links, 'otel').notes.join(' ')).toContain('2.1.220')
     expect(row(links, 'repo-git').notes.join(' ')).toContain('3 lanes')
@@ -615,7 +635,7 @@ describe('a fixture fold is not evidence — #343', () => {
    * where the reader is actually looking.
    */
   it('renders no VERIFIED row off a fixture fold, over a log that verifies all seven when live', () => {
-    const live = build(provingLog(), { doctor: [SLUG_OK], meta: metaWith() })
+    const live = build(provingLog(), { doctor: checksOf(SLUG_OK), meta: metaWith() })
     expect(live.filter((link) => link.state === 'verified').map((link) => link.id)).toEqual([
       'browser-server',
       'repo-git',
@@ -626,14 +646,14 @@ describe('a fixture fold is not evidence — #343', () => {
       'uninstrumented-conductor',
     ])
 
-    const fixture = build(provingLog(), { doctor: [SLUG_OK], meta: metaWith(), stream: FIXTURE })
+    const fixture = build(provingLog(), { doctor: checksOf(SLUG_OK), meta: metaWith(), stream: FIXTURE })
     const green = fixture.filter((link) => link.state === 'verified').map((link) => link.id)
     // Only the row the fold does not feed at all survives — see the poll test below.
     expect(green).toEqual(['transcripts-slug'])
   })
 
   it('names the fixture on the row itself, as the reason, rather than leaving it to a banner', () => {
-    const fixture = build(provingLog(), { doctor: [SLUG_OK], meta: metaWith(), stream: FIXTURE })
+    const fixture = build(provingLog(), { doctor: checksOf(SLUG_OK), meta: metaWith(), stream: FIXTURE })
 
     for (const link of fixture) {
       if (link.id === 'transcripts-slug') continue
@@ -672,7 +692,7 @@ describe('a fixture fold is not evidence — #343', () => {
 
   /** A fixture in the fold says nothing about whether the directory doctor just probed exists. */
   it('leaves the poll-derived slug row alone — doctor probed this filesystem, whatever drives the fold', () => {
-    const link = row(build(reduceAll([]), { doctor: [SLUG_OK], stream: FIXTURE }), 'transcripts-slug')
+    const link = row(build(reduceAll([]), { doctor: checksOf(SLUG_OK), stream: FIXTURE }), 'transcripts-slug')
 
     expect(link.state).toBe('verified')
     expect(link.notes.join(' ')).not.toContain('synthetic fleet')
@@ -710,7 +730,7 @@ describe('a dead stream is not evidence either — #345', () => {
    * identically is what makes this look like a hard problem.
    */
   it('leaves the poll-derived slug row VERIFIED while every fold row goes unproven', () => {
-    const links = build(provingLog(), { doctor: [SLUG_OK], stream: DEAD })
+    const links = build(provingLog(), { doctor: checksOf(SLUG_OK), stream: DEAD })
 
     expect(row(links, 'transcripts-slug').state).toBe('verified')
     expect(row(links, 'transcripts-slug').notes.join(' ')).not.toContain('nothing has checked')
@@ -804,7 +824,7 @@ describe('a dead stream is not evidence either — #345', () => {
  * to say in the first place.
  */
 describe('every row\'s evidence tag, against the inputs it actually responds to', () => {
-  const PROVING: Partial<ConnectInputs> = { doctor: [SLUG_OK], meta: metaWith() }
+  const PROVING: Partial<ConnectInputs> = { doctor: checksOf(SLUG_OK), meta: metaWith() }
 
   function tagged(links: ChainLink[], evidence: ChainLink['evidence']): string[] {
     return links.filter((link) => link.evidence === evidence).map((link) => link.id)
@@ -860,7 +880,7 @@ describe('every row\'s evidence tag, against the inputs it actually responds to'
    */
   it('moves state on exactly the poll-tagged rows when the doctor poll stops answering', () => {
     const answered = build(provingLog(), PROVING)
-    const silent = build(provingLog(), { ...PROVING, doctor: null })
+    const silent = build(provingLog(), { ...PROVING, doctor: ABSENT })
 
     const moved = answered.filter((link) => row(silent, link.id).state !== link.state).map((link) => link.id)
     expect(moved, 'a row responds to the doctor poll but is not tagged as polled').toEqual(tagged(answered, 'poll'))

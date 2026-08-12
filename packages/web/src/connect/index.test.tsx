@@ -159,7 +159,24 @@ describe('the connect page', () => {
 
     expect(screen.getByTestId('connect-rung').textContent).toBe('unavailable')
     expect(screen.getByTestId('connect-instance').textContent).toBe('unavailable')
-    expect(screen.getByTestId('connect-doctor-unavailable')).toBeInTheDocument()
+    // #381: and the doctor note points at the route, not the payload.
+    expect(screen.getByTestId('connect-doctor-unavailable').textContent).toContain('no usable answer')
+    expect(stateOf('transcripts-slug')).toContain('UNPROVEN')
+  })
+
+  /**
+   * The other nothing (#381): the route answered a non-empty report and this
+   * build could not read one entry of it. The panel must say the route is not
+   * the suspect — through the real fetch-and-parse path, not a stubbed
+   * reading.
+   */
+  it('says the doctor route answered when its payload, not the route, is unreadable', async () => {
+    await renderConnect({ fetchImpl: stubFetch(META_BODY, [{ id: 'node' }, 42]) })
+
+    const note = screen.getByTestId('connect-doctor-unavailable').textContent ?? ''
+    expect(note).toContain('answered')
+    expect(note).toContain('readable by this build')
+    expect(note).not.toContain('no usable answer')
     expect(stateOf('transcripts-slug')).toContain('UNPROVEN')
   })
 

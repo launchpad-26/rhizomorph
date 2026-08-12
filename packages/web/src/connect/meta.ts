@@ -293,37 +293,41 @@ export function parseMeta(body: unknown): MetaFacts | null {
 }
 
 /**
+ * What a read of `GET /api/doctor` can actually come to (#381, paying the
+ * debt #346 recorded). Three facts, three shapes, because a consumer that
+ * gets one value for two facts has nowhere to put the difference:
+ *
+ * - **`absent`** — nothing usable arrived. A dead route, a rejected request,
+ *   a non-2xx, a body that was not JSON, a body that was not the array shape
+ *   ({@link readJson} and {@link parseDoctor} both land here). The reader's
+ *   next move is the route.
+ * - **`unreadable`** — the route ANSWERED: a non-empty report arrived, and
+ *   not one entry of it survived this page's parse. The route is doing its
+ *   job; this build cannot read what it says. The reader's next move is the
+ *   payload — a page and server built from different versions, usually.
+ * - **`checks`** — the answer, as parsed. `[]` stays the honest reading of a
+ *   route that ran and found nothing to say (#346: an all-malformed body must
+ *   never collapse onto it, and now cannot — it is `unreadable`).
+ */
+export type DoctorReading =
+  | { kind: 'absent' }
+  | { kind: 'unreadable' }
+  | { kind: 'checks'; checks: DoctorFact[] }
+
+/**
  * `GET /api/doctor` answers with the bare `DoctorCheck[]` array. A check
  * missing an id, a status this page doesn't know, or a message is dropped —
  * a half-read check would render as a fact with no finding in it.
  *
- * **AN ARRAY NOTHING SURVIVED IS `null`, NOT `[]` (#346).** The two are
- * different facts and used to render as the same nothing: `[]` reached the
- * panel as a heading with no rows and no "unavailable" note, indistinguishable
- * from a doctor that genuinely had no checks to report. Dropping every entry
- * of a non-empty body is not "doctor answered with no checks" — it is a body
- * this page could not read, which is exactly the fact {@link readJson} already
- * folds every other unreadable answer onto. `[]` in means `[]` out, and stays
- * the honest answer for a route that ran and found nothing to say.
- *
  * A body only PARTLY unreadable still answers with its survivors, following
  * {@link parseCollectors}: the checks that parsed are real findings, and
  * withholding them because a sibling entry was malformed would lose more truth
- * than it protects.
- *
- * **`null` IS STILL CARRYING TWO FACTS, AND THAT IS A KNOWN DEBT.** The two
- * returns above — "nothing usable arrived" and "it answered, unreadably" — are
- * different facts about different things to fix, and `DoctorFact[] | null` has
- * nowhere to put the difference; {@link readJson} folds a dead route, a non-2xx
- * and a non-JSON body onto the same value again. Every consumer therefore
- * knows only "no readable answer", and must say only that — `links.ts`'
- * `transcriptSlug` names both causes rather than picking one. The fix is a
- * three-state result (absent / unreadable / checks) threaded through
- * {@link fetchDoctor} and the `/connect` page's own state; until it lands,
- * nothing downstream may claim the route was silent.
+ * than it protects. Only a non-empty body with NO survivors is `unreadable` —
+ * that is #346's fact ("a body this page could not read"), now carried as its
+ * own shape instead of folded onto the transport failures (#381).
  */
-export function parseDoctor(body: unknown): DoctorFact[] | null {
-  if (!Array.isArray(body)) return null
+export function parseDoctor(body: unknown): DoctorReading {
+  if (!Array.isArray(body)) return { kind: 'absent' }
   const checks: DoctorFact[] = []
   for (const entry of body) {
     if (!isRecord(entry)) continue
@@ -334,13 +338,13 @@ export function parseDoctor(body: unknown): DoctorFact[] | null {
     if (!DOCTOR_STATUSES.includes(status as DoctorStatus)) continue
     checks.push({ id, status: status as DoctorStatus, message, assumed: entry.assumed === true })
   }
-  if (checks.length === 0 && body.length > 0) return null
-  return checks
+  if (checks.length === 0 && body.length > 0) return { kind: 'unreadable' }
+  return { kind: 'checks', checks }
 }
 
-/** The named check, or `null` — the caller renders {@link UNAVAILABLE} rather than inventing a status. */
-export function doctorCheck(checks: readonly DoctorFact[] | null, id: string): DoctorFact | null {
-  return checks?.find((check) => check.id === id) ?? null
+/** The named check, or `null` — the caller renders {@link UNAVAILABLE} rather than inventing a status. A reading with no checks in it has no named check. */
+export function doctorCheck(reading: DoctorReading, id: string): DoctorFact | null {
+  return reading.kind === 'checks' ? (reading.checks.find((check) => check.id === id) ?? null) : null
 }
 
 function defaultFetch(): FetchLike | null {
@@ -370,6 +374,7 @@ export function fetchMeta(fetchImpl?: FetchLike): Promise<MetaFacts | null> {
   return readJson(META_URL, parseMeta, fetchImpl)
 }
 
-export function fetchDoctor(fetchImpl?: FetchLike): Promise<DoctorFact[] | null> {
-  return readJson(DOCTOR_URL, parseDoctor, fetchImpl)
+/** {@link readJson}'s transport-level `null` is the same fact as a non-array body: nothing usable arrived. */
+export async function fetchDoctor(fetchImpl?: FetchLike): Promise<DoctorReading> {
+  return (await readJson(DOCTOR_URL, parseDoctor, fetchImpl)) ?? { kind: 'absent' }
 }

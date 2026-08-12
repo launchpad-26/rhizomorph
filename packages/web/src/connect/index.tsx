@@ -6,7 +6,7 @@ import { useStream } from '../app/StreamContext.js'
 import { copyToClipboard, type CopyText } from '../drawer/AttachButton.js'
 import { formatWallClock } from '../replay/format.js'
 import { buildLinks, portFrom, tally, type ChainLink, type LinkState } from './links.js'
-import { fetchDoctor, fetchMeta, isRenderableTs, UNAVAILABLE, type DoctorFact, type FetchLike, type MetaFacts } from './meta.js'
+import { fetchDoctor, fetchMeta, isRenderableTs, UNAVAILABLE, type DoctorFact, type DoctorReading, type FetchLike, type MetaFacts } from './meta.js'
 import { SampleFleetControl } from './sample.js'
 
 /**
@@ -146,7 +146,9 @@ export function ConnectPage({ fetchImpl, onCopy = copyToClipboard, now, refreshM
   const { state, status, provenance, source } = useStream()
   const mode = useMode()
   const [meta, setMeta] = useState<MetaFacts | null>(null)
-  const [doctor, setDoctor] = useState<DoctorFact[] | null>(null)
+  // `absent` is the honest reading before the first GET resolves too: nothing
+  // usable has arrived yet (#381).
+  const [doctor, setDoctor] = useState<DoctorReading>({ kind: 'absent' })
 
   useEffect(() => {
     let live = true
@@ -154,8 +156,8 @@ export function ConnectPage({ fetchImpl, onCopy = copyToClipboard, now, refreshM
       void fetchMeta(fetchImpl).then((facts) => {
         if (live) setMeta(facts)
       })
-      void fetchDoctor(fetchImpl).then((checks) => {
-        if (live) setDoctor(checks)
+      void fetchDoctor(fetchImpl).then((reading) => {
+        if (live) setDoctor(reading)
       })
     }
 
@@ -224,7 +226,7 @@ export function ConnectPage({ fetchImpl, onCopy = copyToClipboard, now, refreshM
           ))}
         </ul>
 
-        <DoctorPanel checks={doctor} />
+        <DoctorPanel reading={doctor} />
       </div>
     </div>
   )
@@ -402,19 +404,24 @@ function CommandBlock({ id, command, warning, onCopy }: { id: string; command: s
  * session boundary — are still readable by a stranger with no terminal,
  * which is the whole reason ruling 5 put the check functions behind a GET.
  */
-function DoctorPanel({ checks }: { checks: DoctorFact[] | null }) {
+function DoctorPanel({ reading }: { reading: DoctorReading }) {
   return (
     <section data-testid="connect-doctor" className="mt-5">
       <h2 className="text-[10px] uppercase tracking-[0.18em] text-ice-400">
         facts the fold cannot know — <span className="font-mono normal-case tracking-normal">GET /api/doctor</span>
       </h2>
-      {checks === null ? (
+      {reading.kind !== 'checks' ? (
+        // Which nothing happened, in the note itself (#381): the old copy had
+        // one value for two facts and could only name both. Now the reader is
+        // told whether to look at the route or at the payload.
         <p data-testid="connect-doctor-unavailable" className="mt-1 text-[11px] italic text-ice-400">
-          {UNAVAILABLE} — this server did not answer the doctor route, or answered with a body this page could not read
+          {reading.kind === 'absent'
+            ? `${UNAVAILABLE} — no usable answer from the doctor route: it may be down, erroring, or answering something other than JSON`
+            : `${UNAVAILABLE} — the doctor route answered, but not one entry of its report was readable by this build of the page`}
         </p>
       ) : (
         <ul className="mt-1 flex flex-col gap-1 text-[11px]">
-          {checks.map((check) => (
+          {reading.checks.map((check) => (
             <li key={check.id} data-testid={`connect-doctor-${check.id}`} className="flex gap-2">
               <span className={`figures w-10 shrink-0 uppercase tracking-wider ${DOCTOR_CLASS[check.status]}`}>{check.status}</span>
               <span className="w-36 shrink-0 font-mono text-ice-300">{check.id}</span>
