@@ -223,6 +223,13 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   on the poll that crosses the bound, and stays silent through further
   failures; the counter resets silently on recovery so a later incident
   re-arms and voices again.
+- **A removed workmux agent's lane stops rendering as healthy (#417).**
+  `AgentState` gained `present`/`removedAt` in #306, but `findAgent()`
+  (`selectors/worktrees.ts`) matched by path/branch/handle with no presence
+  filter — unlike the worktree and pane joins beside it — so a departed
+  agent's last-known status (`working`, `waiting`, …) stood forever even
+  though the worktree itself was never removed. `findAgent` now filters on
+  `present` first, the same way the worktree and pane selectors already do.
 - **A departed workmux agent is now announced (#306).** `workmux status`
   failing for a reason other than a missing binary used to parse as an empty
   roster and drop every known agent with no event at all; a handle that

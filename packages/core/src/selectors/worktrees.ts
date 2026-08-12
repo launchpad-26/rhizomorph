@@ -118,7 +118,7 @@ function groupPanesByWorktree(state: SessionState): Map<string, PaneState[]> {
  * first, then branch, then the worktree's own name.
  */
 function findAgent(state: SessionState, worktree: WorktreeState): AgentState | null {
-  const agents = Object.values(state.agents)
+  const agents = Object.values(state.agents).filter((agent) => agent.present)
   return (
     agents.find((agent) => agent.worktreePath === worktree.path) ??
     agents.find((agent) => worktree.branch !== null && agent.branch === worktree.branch) ??
