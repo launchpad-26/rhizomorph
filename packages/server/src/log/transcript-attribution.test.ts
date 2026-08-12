@@ -1,6 +1,9 @@
+import { realpathSync } from 'node:fs'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createEventFactory } from '@rhizomorph/core'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   CONDUCTOR_LANE,
   allAttributedLanes,
@@ -8,6 +11,7 @@ import {
   capturedTranscriptPath,
   findConductorAttribution,
   findLaneAttribution,
+  isPathContained,
 } from './transcript-attribution.js'
 
 const LANE = '84-chat-drawer'
@@ -155,22 +159,22 @@ describe('findConductorAttribution (prd6 ruling 5)', () => {
 describe('candidateTranscriptPaths', () => {
   it('offers the slug-inferred project dir first, then the dir-first extra-sessions location', () => {
     expect(
-      candidateTranscriptPaths({ sessionId: SESSION_ID, worktreePath: WORKTREE }, '/root/projects'),
+      candidateTranscriptPaths({ sessionId: SESSION_ID, worktreePath: WORKTREE }, '/tmp/rhizomorph-fixture/projects'),
     ).toEqual([
-      path.join('/root/projects', PROJECT_SLUG, `${SESSION_ID}.jsonl`),
+      path.join('/tmp/rhizomorph-fixture/projects', PROJECT_SLUG, `${SESSION_ID}.jsonl`),
       path.join(WORKTREE, `${SESSION_ID}.jsonl`),
     ])
   })
 
   it('offers nothing when no worktree path was recorded', () => {
-    expect(candidateTranscriptPaths({ sessionId: SESSION_ID, worktreePath: null }, '/root')).toEqual([])
+    expect(candidateTranscriptPaths({ sessionId: SESSION_ID, worktreePath: null }, '/tmp/rhizomorph-fixture/projects')).toEqual([])
   })
 
   it('resolves a legitimate UUID session id exactly like any other bare filename', () => {
     const uuid = '550e8400-e29b-41d4-a716-446655440000'
 
-    expect(candidateTranscriptPaths({ sessionId: uuid, worktreePath: WORKTREE }, '/root/projects')).toEqual([
-      path.join('/root/projects', PROJECT_SLUG, `${uuid}.jsonl`),
+    expect(candidateTranscriptPaths({ sessionId: uuid, worktreePath: WORKTREE }, '/tmp/rhizomorph-fixture/projects')).toEqual([
+      path.join('/tmp/rhizomorph-fixture/projects', PROJECT_SLUG, `${uuid}.jsonl`),
       path.join(WORKTREE, `${uuid}.jsonl`),
     ])
   })
@@ -179,20 +183,20 @@ describe('candidateTranscriptPaths', () => {
     expect(
       candidateTranscriptPaths(
         { sessionId: '../../../../etc/passwd', worktreePath: WORKTREE },
-        '/root/projects',
+        '/tmp/rhizomorph-fixture/projects',
       ),
     ).toEqual([])
   })
 
   it('refuses a session id that is itself an absolute path', () => {
     expect(
-      candidateTranscriptPaths({ sessionId: '/etc/passwd', worktreePath: WORKTREE }, '/root/projects'),
+      candidateTranscriptPaths({ sessionId: '/etc/passwd', worktreePath: WORKTREE }, '/tmp/rhizomorph-fixture/projects'),
     ).toEqual([])
   })
 
   it('refuses a session id carrying an embedded NUL byte', () => {
     expect(
-      candidateTranscriptPaths({ sessionId: 'sess-84\0.evil', worktreePath: WORKTREE }, '/root/projects'),
+      candidateTranscriptPaths({ sessionId: 'sess-84\0.evil', worktreePath: WORKTREE }, '/tmp/rhizomorph-fixture/projects'),
     ).toEqual([])
   })
 })
@@ -258,5 +262,70 @@ describe('capturedTranscriptPath', () => {
         worktreePath: WORKTREE,
       }),
     ).toBeNull()
+  })
+})
+
+/**
+ * #422: `isPathContained` was `path.resolve`-only — it never chased a
+ * symlink, so a session file that was itself a symlink escaping the
+ * projects root passed on its own un-followed spelling. These tests need a
+ * real filesystem (the earlier tests above are string-only, which is exactly
+ * how the defect stayed invisible), so they get their own fixture.
+ */
+describe('isPathContained (#422): fail-closed over the shared containment primitive', () => {
+  let root: string
+
+  beforeEach(async () => {
+    // Canonicalized at creation, deliberately: os.tmpdir() is a symlink on
+    // macOS (`/var` -> `/private/var`) and is not on Linux. Leaving `root`
+    // raw would let a raw-vs-canonical comparison inside THIS test — which
+    // is exactly what containment is about — pass vacuously on ubuntu and
+    // red only the macOS leg (paths/containment.test.ts's note, same trap).
+    root = realpathSync.native(await mkdtemp(path.join(tmpdir(), 'transcript-attribution-containment-')))
+  })
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it(
+    'refuses a session file that is a symlink escaping claudeProjectsRoot — followed before this ' +
+      "fix, refused after (mutation: reverting to path.resolve-only turns this red)",
+    async () => {
+      const claudeProjectsRoot = path.join(root, 'projects')
+      const slugDir = path.join(claudeProjectsRoot, 'some-slug')
+      const outsideDir = path.join(root, 'outside')
+      await mkdir(slugDir, { recursive: true })
+      await mkdir(outsideDir, { recursive: true })
+
+      const secret = path.join(outsideDir, 'secret.jsonl')
+      await writeFile(secret, 'not this reader\'s to see')
+      const escapingSessionFile = path.join(slugDir, 'sess-escape.jsonl')
+      await symlink(secret, escapingSessionFile)
+
+      expect(isPathContained(claudeProjectsRoot, escapingSessionFile)).toBe(false)
+    },
+  )
+
+  it('still contains an ordinary session file that is not a symlink at all', async () => {
+    const claudeProjectsRoot = path.join(root, 'projects')
+    const slugDir = path.join(claudeProjectsRoot, 'some-slug')
+    await mkdir(slugDir, { recursive: true })
+    const ordinary = path.join(slugDir, 'sess-ok.jsonl') // does not exist yet — capture writes it later
+
+    expect(isPathContained(claudeProjectsRoot, ordinary)).toBe(true)
+  })
+
+  it('fails closed — refuses, never throws — on an ELOOP-shaped path', async () => {
+    const dir = path.join(root, 'x')
+    await mkdir(dir, { recursive: true })
+    const link = path.join(dir, 'link')
+    // Traverses a MISSING directory back to itself — realpath(3) reports
+    // this as ENOENT, not ELOOP, so paths/containment.ts's bounded chase is
+    // what turns it into ELOOP rather than an infinite, synchronous spin.
+    await symlink(path.join('.', 'missing', '..', 'link'), link)
+
+    expect(() => isPathContained(root, link)).not.toThrow()
+    expect(isPathContained(root, link)).toBe(false)
   })
 })
