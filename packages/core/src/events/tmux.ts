@@ -23,15 +23,15 @@ export type PaneClosedPayload = z.infer<typeof paneClosedPayloadSchema>
 
 /**
  * Emitted only when a pane's captured content hash changes between polls —
- * the raw fact behind the flatline detector.
+ * the raw fact behind the flatline detector. It says *that* a pane changed and
+ * when, never *what* it said: a hash and a line count are derived from the
+ * capture, and the captured text itself is discarded (#292).
  */
 export const paneActivityPayloadSchema = z.object({
   paneId: nonEmptyString,
   contentHash: nonEmptyString,
   previousHash: nonEmptyString.nullable().optional(),
   lines: z.number().int().nonnegative().optional(),
-  /** Last non-empty captured line, for "what is it doing" display. */
-  preview: z.string().optional(),
 })
 export type PaneActivityPayload = z.infer<typeof paneActivityPayloadSchema>
 

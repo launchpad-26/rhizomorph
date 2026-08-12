@@ -47,6 +47,49 @@ own namespace, anything listening on a non-loopback address, or anything
 transmitting data off the machine — that's exactly the kind of thing this
 file is for.
 
+## What a shared record contains
+
+A session record (`rhizomorph export-record`, or the dashboard's download
+button) is meant to be handed to someone else, so it is worth being precise
+about what travels with it.
+
+The narrow claim first, because it is the only one this project can make
+without lying: **no captured tmux pane content enters an event.** The tmux
+collector shells to `capture-pane`, derives a SHA-256 content hash and a
+line count from what comes back, and discards the text. `pane.activity`
+therefore says *that* a pane changed and *when*, never *what* it said. The
+payload's key-set is fixed at `paneId`, `contentHash`, `previousHash`,
+`lines`, and `packages/core/src/events/tmux.test.ts` fails if a fifth key
+appears.
+
+Until #292 that payload also carried `preview`: the last non-empty line of
+the capture, verbatim. A log recorded before that change still holds those
+lines on disk. They are stripped on the way into any record built after it —
+a record's body is re-serialized from parsed events, and parsing drops keys
+the schema no longer declares — and the stripped line still verifies, so an
+old session exports as a complete record rather than one with a hole in it.
+`packages/core/src/record/reserialization-law.test.ts` holds the mechanism,
+`packages/server/src/cli/export-record.test.ts` and
+`packages/web/src/recordings/export.test.ts` hold both export paths end to
+end. Nothing rewrites the old log itself; if you want the raw lines gone,
+delete the log.
+
+What a record still carries, honestly:
+
+- pane and window titles, and the workmux status line — free-form text that
+  a program or your shell can set to anything, including a hostname
+- absolute paths, which normally include your home directory and username
+- git commit subjects, and the author's name and email address
+- branch and lane names
+- verbatim stderr from a git or tmux command that failed
+- symbol names lifted from your own diff, in judge findings
+
+A record is **not** scanned for secrets, and it cannot be cleaned up after
+the fact: the body is a hash chain, so editing any line invalidates every
+link after it. Read a record before you share it. There is no override flag
+to record the use of, because there is no scan and no gate to override —
+the boundary is the event schema, enforced at parse time.
+
 ## Mutating routes and the capability token
 
 The dashboard itself can mutate exactly three things, each behind a button

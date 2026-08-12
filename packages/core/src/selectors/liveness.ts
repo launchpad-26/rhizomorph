@@ -30,7 +30,6 @@ export interface PaneLiveness {
   idleMs: number
   lastActivityTs: number
   present: boolean
-  preview: string | null
 }
 
 export interface WorktreeLiveness {
@@ -64,7 +63,6 @@ export function paneLiveness(pane: PaneState, options: LivenessOptions): PaneLiv
     idleMs,
     lastActivityTs: pane.lastActivityTs,
     present: pane.present,
-    preview: pane.preview,
   }
 }
 

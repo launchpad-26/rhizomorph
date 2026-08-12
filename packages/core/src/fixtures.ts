@@ -464,7 +464,7 @@ export function fixtureSession(): RhizomorphEvent[] {
   f.at(FIXTURE_START_TS + minute)
   f.paneActivity({ paneId: '%1', contentHash: 'h1-a', previousHash: 'h1-0' })
   f.paneActivity({ paneId: '%2', contentHash: 'h2-a', previousHash: 'h2-0' })
-  f.paneActivity({ paneId: '%3', contentHash: 'h3-a', previousHash: 'h3-0', preview: 'running tests' })
+  f.paneActivity({ paneId: '%3', contentHash: 'h3-a', previousHash: 'h3-0' })
 
   // t+2m — first commit lands on 2-core.
   f.at(FIXTURE_START_TS + 2 * minute)

@@ -1,6 +1,6 @@
 export { TMUX_CAPABILITIES, tmuxCollector } from './collector.js'
 export type { TmuxPaneSnapshot, TmuxSnapshot } from './collector.js'
-export { countLines, hashPaneContent, lastNonEmptyLine } from './capture.js'
+export { countLines, hashPaneContent } from './capture.js'
 export { LIST_PANES_FORMAT, parseListPanes } from './list-panes.js'
 export type { TmuxPaneRecord } from './list-panes.js'
 export { resolveWorktreePath } from './worktree.js'
