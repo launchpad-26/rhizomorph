@@ -293,6 +293,19 @@ export function useReplaySession({
  * seek after every load waiting a frame for no reason. A drag's seeks never
  * carry that exemption, so the one-derive-per-frame ceiling is untouched.
  *
+ * **The exemption expires with the frame the reset armed** (#364), and that
+ * bound is what keeps the sentence above true. The exemption is owed to a
+ * *load fold*, which arrives in the commit right after the reset and so is
+ * still inside that frame. But some switches owe no load fold at all — the
+ * transport's re-base is keyed on `[start, end]`, so two recordings spanning an
+ * identical range never move `currentTs`, and a switch mid-drag has already had
+ * its position adopted by the reset. Unbounded, the exemption would survive
+ * those switches and be spent on the operator's first seek instead: that seek
+ * would fold with the gate left open, and a second seek in the same frame would
+ * fold again — two derives in one frame, against a ceiling this comment states
+ * as an invariant. Expiring it on the reset's own frame spends it on a load
+ * fold or on nothing.
+ *
  * The reset also *adopts* the current position rather than only dropping the
  * pending one, and that is load-bearing rather than tidy: switching recordings
  * mid-drag leaves a seek coalesced with a frame armed to fold it, and the reset
@@ -333,6 +346,13 @@ function useFrameCoalescedTs(
     cancelFrameRef.current = scheduleFrameRef.current(() => {
       cancelFrameRef.current = null
       gateOpenRef.current = true
+      // The exemption never outlives the frame it was armed in (#364). A load
+      // fold arrives in the commit immediately after the reset, so it is still
+      // inside this frame and still free; anything later — an operator's first
+      // seek, arriving whole frames afterwards — is an ordinary seek and pays
+      // the ordinary budget. Cleared before the early return below, because the
+      // frame that ends an unspent exemption is precisely the silent one.
+      freeFoldRef.current = false
       const pending = pendingTsRef.current
       // Nothing coalesced: the burst is over. Deliberately no state update —
       // an idle frame must be silent, or every render of a replay surface
@@ -355,9 +375,17 @@ function useFrameCoalescedTs(
     // recording starts being read from. A no-op (and no re-render) unless a
     // switch interrupted a drag.
     setFoldTs(currentTs)
+    // Arm the frame that will expire the exemption if no load fold claims it
+    // (#364). Silent when it fires — nothing is pending — so this costs one
+    // scheduled callback per session switch and no render. Without it, a switch
+    // that owes no fold leaves the exemption alive indefinitely, and the
+    // operator's first seek spends it instead: that seek folds with the gate
+    // left open, so a second seek in the same frame folds again, which is one
+    // more derive than the ceiling this hook documents.
+    armFrame()
     // `currentTs` is deliberately absent from the deps below: this fires when
     // the recording changes and reads the position as of that moment.
-  }, [resetKey])
+  }, [resetKey, armFrame])
 
   useEffect(() => {
     if (currentTs === foldTs) {
