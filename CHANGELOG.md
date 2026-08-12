@@ -113,12 +113,25 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Changed
 
-- **Measured performance fixes.** A 55,000-event replay's main-thread load
+- **Measured performance fixes.** Dragging the scrubber now rebuilds the
+  derived fleet once per animation frame instead of once per pointer event
+  (#269): the scrub position and the fold it drives are two clocks now, so
+  the thumb still tracks the finger exactly while the fold and the
+  `buildFleet` rebuild behind it move at a frame's cadence. Where a drag
+  used to rebuild once per `onChange` — up to ~120 a second onto a screen
+  that shows 60 — the tests that ship with it count 9 rebuilds across an
+  80-seek drag over 8 frames, and 13 folds across a 120-seek drag over 12
+  frames of a 25,000-event recording. A 55,000-event replay's main-thread load
   time dropped from ~20.9s blocked to ~25ms by folding the incoming event
   stream once per animation frame instead of once per event (#183). A
   30-lane scene with 200 retired lanes dropped from 28.37ms/frame (170.2%
   of the 60fps frame budget) to 11.95ms (71.7%) by caching the unchanging
   part of a scar (#175/#178).
+  Replay playback advances the timeline clock on an animation frame rather
+  than a 100ms interval (#271), so a playing scene animates at frame rate
+  instead of the 10fps its own 60fps ambient loop was being sampled at —
+  the cadence changed, not the clock's owner, so #155's single wall-clock
+  read in the replay path is untouched.
 - An independent, read-only adversarial audit of the whole instrument
   surfaced several findings, triaged into follow-up issues (#171–#177) —
   among them, unscrubbed identifiers in captured OTel fixtures, and the
@@ -127,6 +140,68 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **C-quoted git paths round-trip (#237).** `git status --porcelain` C-quotes any
+  path with a space or non-ASCII byte, and `git log --raw` quotes non-ASCII;
+  both parsers took the quoted slice verbatim, so a file as ordinary as
+  `my file.ts` reached the collision matrix as the literal `"my file.ts"` and
+  matched nothing. Paths are now unquoted on parse and status renames split on
+  the real arrow, not a ` -> ` inside a filename.
+- **A tab in a tmux pane path, or one malformed `git log --raw` line, no
+  longer kills the collector (#242).** `list-panes.ts` and `parse-log.ts`
+  quarantine the one unparseable line — skipped, counted, and voiced as a
+  `collector.error` — instead of throwing and losing the rest of that poll's
+  events.
+- **Three silent lane-identity gaps close (#243).** `workmux/collector.ts`
+  joined `workmux list`'s rows by branch name but looked them up by handle,
+  so a slashed branch (`feat/foo`) never matched and `branch`/`worktreePath`
+  stayed `null` in every `agent.status` for that lane; the join now keys off
+  the worktree directory name both commands actually share. `worktree-slug.ts`
+  mapped only `/` and `_` to `-`, so a dotted worktree path resolved to a
+  session directory that never existed and read as "no session yet" forever;
+  it now maps `.` too, matching Claude Code's own transform. A detached HEAD
+  on the *main* worktree silently degraded every branch's
+  `aheadOfMain`/`behindMain` to `null`; the git collector now emits one
+  `collector.error` naming the detached main worktree instead of staying
+  quiet about it.
+- **A rotated or truncated session log resumes being read (#305).**
+  `sessionlog/tail.ts` treated "the file is now smaller than the offset we
+  hold" the same as "no new bytes" and handed back the same stale offset
+  forever, so a log truncated or rotated out from under the collector
+  (log rotation, a fresh `claude` session reusing a path) went quiet with
+  no error and never recovered short of a restart. The read cursor now
+  resets to the start of the file whenever it shrinks below the held
+  offset, so the next poll resumes reading normally. A same-path rotation
+  whose replacement had already grown past the old offset by the next poll
+  went undetected by size alone and read garbage from the middle of
+  unrelated content; the cursor now also resets whenever the file's inode
+  changes, so identity — not just size — decides when a poll is reading a
+  different file.
+- **A hung collector subprocess no longer freezes all polling or shutdown
+  (#236).** Every collector exec now carries a default timeout, and a
+  per-collector watchdog abandons a poll that exceeds its budget — surfacing
+  a `collector.error` — so one wedged `git`/`tmux`/`workmux` child can no
+  longer stall the other collectors or hang graceful shutdown. Decision and
+  budget rationale in
+  [ADR-0013](docs/adr/0013-collector-ticks-are-bounded.md) and
+  [`docs/design-notes/collector-tick-budget.md`](docs/design-notes/collector-tick-budget.md).
+  A bounded `git status` failure (including this new timeout) inside the
+  dirty-file diff was carrying forward the last known state silently, with
+  no `collector.error` — the one exec in the git collector that didn't
+  already follow this PR's own "a timeout is a visible error, not silence"
+  rule. It now reports one.
+- **The replay scrubber glides (#270).** Its `step` was `max(1000, span /
+  1000)` — about a thousand stops across any recording, so on an eight-hour
+  session the thumb jumped between notches ~29 seconds apart with nothing
+  between them reachable, and any session under a second was frozen on a
+  single stop. The step is now sized to the rendered track instead: the
+  session is cut into the smallest power of two notches at least as many as
+  the track has pixels, so a notch is never wider than a pixel at any window
+  size, and one arrow press still moves ~0.1% of the session. `end` stays a
+  grid point at every width and every session length — including multi-day
+  ones, where the step's exact quotient outgrows what the `step` attribute's
+  shortest decimal can carry and the last notch would otherwise be
+  unreachable. Native keyboard behaviour is untouched: this configures the
+  range input, it does not reimplement it.
 - **Rename-in-place actually works (#249).** `POST /api/label` required a
   per-process capability token nothing ever delivered to the browser, so
   every rename in `/recordings` 401ed, on every boot. The server now

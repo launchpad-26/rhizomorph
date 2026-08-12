@@ -63,8 +63,8 @@ attention: { level: 'partial',
 - **Not the removal of inference.** prd-15 ruling 1's organ stays universal; an uninstrumented harness
   keeps all it can infer. The beacon is an upgrade, never a prerequisite — #133's third law for
   attention.
-- **Not the adapter contract** (prd-15 ruling 4 — prd-19's non-goal cites ruling 3; ruling 4 states
-  it), and no per-CLI emitters beyond claude. No new hue, no fifth state, no era/upcast work.
+- **Not the adapter contract** (prd-15 ruling 4), and no per-CLI emitters beyond claude. No new hue,
+  no fifth state, no era/upcast work.
 
 **Rejected alternatives.** *Polling the agent* — the observer never instruments, and a poll is a write
 into what is watched. *Scraping pane text harder* — the #133 scar is what that produces; the pane was

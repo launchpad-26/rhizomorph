@@ -238,6 +238,126 @@ describe('tmuxCollector', () => {
     expect(second.nextSnapshot.panes).toEqual({})
   })
 
+  it('does NOT report a known pane closed when its own line is merely skipped this tick, and recovers it when the line parses again', async () => {
+    const paneA: PaneFixture = {
+      paneId: '%1',
+      sessionName: 'obs',
+      windowIndex: 0,
+      windowName: 'wm-a',
+      currentPath: '/worktrees/a',
+      currentCommand: 'claude',
+      title: 'A',
+    }
+    const paneB: PaneFixture = {
+      paneId: '%2',
+      sessionName: 'obs',
+      windowIndex: 1,
+      windowName: 'wm-b',
+      currentPath: '/worktrees/b',
+      currentCommand: 'claude',
+      title: 'B',
+    }
+    shell.listPanesOutput = [listPanesLine(paneA), listPanesLine(paneB)].join('\n')
+    shell.worktreeByPath.set('/worktrees/a', '/worktrees/a')
+    shell.worktreeByPath.set('/worktrees/b', '/worktrees/b')
+    shell.captureByPane.set('%1', success('hello'))
+    shell.captureByPane.set('%2', success('world'))
+
+    const first = await tmuxCollector.poll(tmuxCollector.initialSnapshot(), makeContext(shell.exec))
+    expect(Object.keys(first.nextSnapshot.panes).sort()).toEqual(['%1', '%2'])
+
+    // %2 gains a tab in its title, so its line splits into 8 fields and is
+    // skipped — but %2 is still running. Its id (`%2`) survives as the line's
+    // first field, so it must be carried forward, not declared closed.
+    const paneBWithTab = '%2\tobs\t1\twm-b\t/worktrees/b\tclaude\tB\twith a tab'
+    shell.listPanesOutput = [listPanesLine(paneA), paneBWithTab].join('\n')
+    const second = await tmuxCollector.poll(first.nextSnapshot, makeContext(shell.exec))
+
+    expect(second.events.some((e) => e.type === 'pane.closed')).toBe(false)
+    expect(second.events.some((e) => e.type === 'collector.error')).toBe(true)
+    expect(Object.keys(second.nextSnapshot.panes).sort()).toEqual(['%1', '%2'])
+    // Carried forward unchanged — same snapshot the last good tick produced.
+    expect(second.nextSnapshot.panes['%2']).toEqual(first.nextSnapshot.panes['%2'])
+
+    // The tab clears: %2 parses again. It was never closed, so it is not
+    // re-discovered, and with an unchanged hash there is no spurious activity.
+    shell.listPanesOutput = [listPanesLine(paneA), listPanesLine(paneB)].join('\n')
+    const third = await tmuxCollector.poll(second.nextSnapshot, makeContext(shell.exec))
+    expect(third.events.some((e) => e.type === 'pane.discovered')).toBe(false)
+    expect(third.events.some((e) => e.type === 'pane.closed')).toBe(false)
+  })
+
+  it('still reports a genuine closure on a tick that also skipped an unrelated line', async () => {
+    const paneA: PaneFixture = {
+      paneId: '%1',
+      sessionName: 'obs',
+      windowIndex: 0,
+      windowName: 'wm-a',
+      currentPath: '/worktrees/a',
+      currentCommand: 'claude',
+      title: 'A',
+    }
+    const paneB: PaneFixture = {
+      paneId: '%2',
+      sessionName: 'obs',
+      windowIndex: 1,
+      windowName: 'wm-b',
+      currentPath: '/worktrees/b',
+      currentCommand: 'claude',
+      title: 'B',
+    }
+    shell.listPanesOutput = [listPanesLine(paneA), listPanesLine(paneB)].join('\n')
+    shell.worktreeByPath.set('/worktrees/a', '/worktrees/a')
+    shell.worktreeByPath.set('/worktrees/b', '/worktrees/b')
+    shell.captureByPane.set('%1', success('hello'))
+    shell.captureByPane.set('%2', success('world'))
+
+    const first = await tmuxCollector.poll(tmuxCollector.initialSnapshot(), makeContext(shell.exec))
+    expect(Object.keys(first.nextSnapshot.panes).sort()).toEqual(['%1', '%2'])
+
+    // %1 genuinely disappears; a brand-new pane %3's line is skipped (a tab).
+    // The skip is fully attributed (its id `%3` survives), so %1's absence is
+    // a real closure and must still be reported — the fix is precise, not a
+    // blanket "any skip suppresses all closures".
+    const newPaneWithTab = '%3\tobs\t2\twm-c\t/worktrees/c\tclaude\tC\ttab here'
+    shell.listPanesOutput = [listPanesLine(paneB), newPaneWithTab].join('\n')
+    const second = await tmuxCollector.poll(first.nextSnapshot, makeContext(shell.exec))
+
+    const closed = second.events.filter((e) => e.type === 'pane.closed')
+    expect(closed).toHaveLength(1)
+    expect(closed[0]).toMatchObject({ payload: { paneId: '%1' } })
+    expect('%1' in second.nextSnapshot.panes).toBe(false)
+  })
+
+  it('holds every closure on a tick whose skip is too garbled to name its pane', async () => {
+    const paneA: PaneFixture = {
+      paneId: '%1',
+      sessionName: 'obs',
+      windowIndex: 0,
+      windowName: 'wm-a',
+      currentPath: '/worktrees/a',
+      currentCommand: 'claude',
+      title: 'A',
+    }
+    shell.listPanesOutput = listPanesLine(paneA)
+    shell.worktreeByPath.set('/worktrees/a', '/worktrees/a')
+    shell.captureByPane.set('%1', success('hello'))
+
+    const first = await tmuxCollector.poll(tmuxCollector.initialSnapshot(), makeContext(shell.exec))
+    expect(Object.keys(first.nextSnapshot.panes)).toEqual(['%1'])
+
+    // A 7-field line with an empty pane id: skipped, and its own id is gone,
+    // so we cannot know it was not %1's line arriving mangled. We must not
+    // declare %1 closed on the strength of that; carry it forward instead.
+    const idlessLine = '\tobs\t0\twm-a\t/worktrees/a\tclaude\tA'
+    shell.listPanesOutput = idlessLine
+    const second = await tmuxCollector.poll(first.nextSnapshot, makeContext(shell.exec))
+
+    expect(second.events.some((e) => e.type === 'pane.closed')).toBe(false)
+    expect(second.events.some((e) => e.type === 'collector.error')).toBe(true)
+    expect(Object.keys(second.nextSnapshot.panes)).toEqual(['%1'])
+  })
+
   it('caches worktree resolution per path and only shells out to git once per path', async () => {
     const paneA: PaneFixture = {
       paneId: '%1',
@@ -259,6 +379,59 @@ describe('tmuxCollector', () => {
       .nextSnapshot
     await tmuxCollector.poll(snapshotAfterFirst, makeContext(shell.exec))
     expect(shell.gitCalls).toEqual(['/worktrees/a', '/worktrees/a'])
+  })
+
+  it("a line list-panes can't parse is skipped and voiced, not thrown — other panes still process, and the collector stays enabled", async () => {
+    const paneA: PaneFixture = {
+      paneId: '%1',
+      sessionName: 'obs',
+      windowIndex: 0,
+      windowName: 'wm-a',
+      currentPath: '/worktrees/a',
+      currentCommand: 'claude',
+      title: '',
+    }
+    const paneB: PaneFixture = {
+      paneId: '%2',
+      sessionName: 'obs',
+      windowIndex: 1,
+      windowName: 'wm-b',
+      currentPath: '/worktrees/b',
+      currentCommand: 'claude',
+      title: '',
+    }
+    // A tab embedded in pane_current_path splits into 8 fields instead of 7.
+    const badLine = '%3\tobs\t2\twin-c\t/tmp/weird\tpath\tbash\ttitle'
+    shell.listPanesOutput = [listPanesLine(paneA), badLine, listPanesLine(paneB)].join('\n')
+    shell.worktreeByPath.set('/worktrees/a', '/worktrees/a')
+    shell.worktreeByPath.set('/worktrees/b', '/worktrees/b')
+    shell.captureByPane.set('%1', success('hello'))
+    shell.captureByPane.set('%2', success('world'))
+
+    const first = await tmuxCollector.poll(tmuxCollector.initialSnapshot(), makeContext(shell.exec))
+
+    expect(first.nextSnapshot.disabled).toBe(false)
+    const firstError = first.events.find((e) => e.type === 'collector.error')
+    expect(firstError).toMatchObject({
+      source: 'system',
+      type: 'collector.error',
+      payload: expect.objectContaining({
+        collector: 'tmux',
+        message: 'skipped 1 unparseable list-panes line',
+      }),
+    })
+    expect(first.events.filter((e) => e.type === 'pane.discovered')).toHaveLength(2)
+    expect(first.events.some((e) => e.type === 'collector.disabled')).toBe(false)
+
+    const second = await tmuxCollector.poll(first.nextSnapshot, makeContext(shell.exec))
+    expect(second.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+    expect(second.events.some((e) => e.type === 'collector.disabled' || e.type === 'collector.degraded')).toBe(false)
+    expect(second.events.some((e) => e.type === 'pane.discovered')).toBe(false)
+
+    const third = await tmuxCollector.poll(second.nextSnapshot, makeContext(shell.exec))
+    expect(third.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+    expect(third.events.some((e) => e.type === 'collector.disabled' || e.type === 'collector.degraded')).toBe(false)
+    expect(third.events.some((e) => e.type === 'pane.discovered')).toBe(false)
   })
 
   it('maps a pane outside any git worktree to a null worktreePath', async () => {

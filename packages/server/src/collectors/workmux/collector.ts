@@ -1,3 +1,4 @@
+import { basename } from 'node:path'
 import {
   agentStatusSchema,
   type AdapterCapabilities,
@@ -89,7 +90,16 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
       const listRows = isMissingBinary(listResult) || listResult.failed
         ? []
         : parseListTable(listResult.stdout)
-      const listByHandle = new Map(listRows.map((row) => [row.branch, row]))
+      // workmux's own name for a worktree is the WORKTREE column in `status` and
+      // the basename of the PATH column in `list` — the same identity, since
+      // workmux names the directory after the handle. The BRANCH column is the
+      // git branch actually checked out there, a different namespace once a
+      // branch contains a character (`/`) illegal in a directory name. `(here)`
+      // carries no path to take a basename from — it falls back to branch,
+      // unchanged from today's behaviour for that one row.
+      const listByHandle = new Map(
+        listRows.map((row) => [row.path === '(here)' ? row.branch : basename(row.path), row]),
+      )
 
       const nextAgents: WorkmuxSnapshot['agents'] = {}
       const events: RhizomorphEvent[] = []
