@@ -38,6 +38,17 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **A session's end can say it was a retarget, and the two logs can find
+  each other (#384).** `session.closed` accepts `reason: 'retargeted'`
+  alongside `'rotated'` — prd20 ruling 5's repo switch ends a session too,
+  and recording it as a rotation would be a lie, because a rotation's
+  successor is the next log in the same directory while a retarget's is
+  under a different repo slug entirely. So both events also gained an
+  optional pointer: `session.closed.successor` names the slug dir the run
+  continued in, and `session.started.predecessor` names the slug dir and
+  session id it came from. Additive — every recording written before this
+  parses unchanged, and an ordinary boot or rotation carries no pointer at
+  all. Nothing emits the new reason yet; the machinery is #385–#391.
 - **`export-record --force` (#298).** An explicit `--out` that already
   exists is now refused with an error naming `--force`, which overwrites;
   the flagless default artifact is regenerable and always refreshes.
@@ -127,6 +138,18 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **The provenance bar explains a boot another live instance forced,
+  instead of going blank (#384).** `GET /api/meta` has reported
+  `lastBootReason: 'writer-alive'` since #187 — a boot that started a fresh
+  session because another rhizomorph still held the previous one — but the
+  dashboard's own list of reasons it can explain never learned the word, so
+  it discarded the whole response and rendered the session line as
+  unavailable: the instrument saying "I don't know" about something it did
+  know. It now says so, and points at `rhizomorph doctor` for the pid it
+  cannot name itself. Nothing upstream could have caught this (the two
+  lists are on opposite sides of a layering boundary neither can import
+  across), so a seam test now reads both at runtime and fails on the next
+  one.
 - **Rename-in-place actually works (#249).** `POST /api/label` required a
   per-process capability token nothing ever delivered to the browser, so
   every rename in `/recordings` 401ed, on every boot. The server now
