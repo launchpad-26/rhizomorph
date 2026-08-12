@@ -47,7 +47,7 @@ concierge route accepts a request without the capability token.
 - **No simultaneous multi-repo.** One repo, one rhizomorph — switching
   retargets, never multiplies.
 - No npm publish — prd-15's last wave, still gated on #177.
-- No building codex/pi/OpenClaw adapters — prd-15 ruling 3 owns the adapter
+- No building codex/pi/OpenClaw adapters — prd-15 ruling 4 owns the adapter
   contract; the picker lists them honestly as not-yet-implemented.
 - No autostart of anything not explicitly clicked; never a write inside the
   watched repo's working tree.

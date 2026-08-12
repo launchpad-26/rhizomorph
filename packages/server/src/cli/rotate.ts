@@ -1,3 +1,4 @@
+import { CAPABILITY_TOKEN_HEADER } from '../api/security.js'
 import { DEFAULT_PORT, parseFlags, type FlagSpec } from './args.js'
 import { otlpEndpoint } from './telemetry-env.js'
 
@@ -12,6 +13,42 @@ import { otlpEndpoint } from './telemetry-env.js'
  * next line — exactly the two-writers-one-log hazard the lock exists to end.
  * So this module is a thin, honest HTTP client, and `recorder/rotate.ts` (in
  * the server) is where rotation actually happens.
+ *
+ * ## How a separate process gets the capability token (#234)
+ *
+ * `POST /api/rotate` is token-gated since #234. The token is minted per
+ * server process and held in memory (`server/build-app.ts`); the ONE channel
+ * that ever hands it out is the dashboard page itself, stamped with a
+ * `<meta>` tag at serve time (ADR-0012). `rhizomorph rotate` is a different
+ * process and cannot read the server's memory, so it reads the token the same
+ * way the browser does: one loopback `GET /`, then the meta tag off the shell
+ * it was served.
+ *
+ * **Why that channel and not a file on disk.** The alternative considered was
+ * having the server write the token beside its session log, in its own data
+ * dir, and letting filesystem permissions be the boundary. Rejected on two
+ * counts. First, it creates a SECOND copy of the secret, at rest, outliving
+ * the process that minted it — ADR-0012's whole point is that the token lives
+ * in memory and is handed out only over a channel the threat model already
+ * accounts for. Reading it back off `GET /` adds no exposure whatsoever: an
+ * attacker who can issue that request already had the token before this
+ * command existed, which is exactly what ADR-0012 records as the cost of
+ * in-band delivery. A file adds an exposure that was not there. Second, it
+ * would need the server to grow a new write, and this lane may not touch
+ * `server/build-app.ts` or `server/static.ts`.
+ *
+ * **What it costs, stated plainly.** One extra request per `rhizomorph
+ * rotate`. And it inherits ADR-0012's known gaps exactly: a server with no
+ * built dashboard serves a placeholder page carrying no token, and `npm run
+ * dev:web` serves `index.html` through vite, which never runs the injection.
+ * In both cases this command refuses with a sentence naming what is missing
+ * and what to run — see {@link capabilityTokenMissing} — rather than letting
+ * the operator meet a bare 401.
+ *
+ * Explicitly NOT done: putting the token in `GET /api/meta`. That would hand
+ * it to precisely the attacker #234 defends against — another local process
+ * running as the user, which can read `/api/meta` without ever fetching a
+ * page — and would make the gate ornamental.
  */
 
 /** Mirrors `POST /api/rotate`'s body — see `api/rotate.ts`. */
@@ -22,6 +59,46 @@ export interface RotationSummary {
 
 export function rotateUrl(port: number): string {
   return `${otlpEndpoint(port)}/api/rotate`
+}
+
+/** The app shell — the one place the server hands the capability token out (ADR-0012). */
+export function dashboardUrl(port: number): string {
+  return `${otlpEndpoint(port)}/`
+}
+
+/**
+ * The `<meta name="...">` the server stamps the token under. Mirrors
+ * `server/static.ts`'s own `CAPABILITY_META_NAME` and
+ * `packages/web/src/recordings/capability.ts`'s copy — duplicated rather than
+ * imported because `static.ts` does not export it and this lane may not edit
+ * that file. Pinned literally in `cli/rotate.test.ts`, the same mitigation
+ * ADR-0012 records for the other two copies: a one-sided rename fails a test
+ * on whichever side changed rather than drifting silently into #249 again.
+ */
+export const CAPABILITY_META_NAME = 'rhizomorph-capability'
+
+/**
+ * Reads the capability token off a served app shell, or null when the page
+ * carries none. Deliberately not an HTML parser: the tag this looks for is
+ * written by exactly one line of `server/static.ts`, and a regex that reads
+ * `name`/`content` off any `<meta>` tag, in either attribute order and either
+ * quote style, covers that with room to spare. A page with no token is a
+ * `null` to explain, never a guess.
+ */
+export function readCapabilityTokenFromHtml(html: string): string | null {
+  for (const tag of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const attributes = tag[0]
+    if (attributeValue(attributes, 'name') !== CAPABILITY_META_NAME) continue
+    const content = attributeValue(attributes, 'content')
+    if (content !== null && content.length > 0) return content
+  }
+  return null
+}
+
+function attributeValue(attributes: string, name: string): string | null {
+  const match = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i').exec(attributes)
+  if (match === null) return null
+  return match[1] ?? match[2] ?? null
 }
 
 export interface RequestRotationOptions {
@@ -52,11 +129,55 @@ function parseRotation(body: unknown): RotationSummary | null {
 }
 
 /**
+ * Fetches the capability token the way the dashboard does — one loopback
+ * `GET /`, then the meta tag off the shell that came back. Every failure is a
+ * sentence naming what is missing and what to run, never a bare status: this
+ * command's whole reason to exist is that the operator is at a terminal, not
+ * a devtools panel.
+ */
+export async function fetchCapabilityToken(
+  port: number,
+  options: RequestRotationOptions = {},
+): Promise<string> {
+  const fetchImpl = options.fetch ?? globalThis.fetch
+  const url = dashboardUrl(port)
+
+  let response: Response
+  try {
+    response = await fetchImpl(url)
+  } catch (err) {
+    throw new Error(unreachable(port, err instanceof Error ? err.message : String(err)))
+  }
+
+  if (!response.ok) {
+    throw new Error(capabilityTokenMissing(port, `${url} answered HTTP ${response.status}`))
+  }
+
+  let html: string
+  try {
+    html = await response.text()
+  } catch (err) {
+    throw new Error(
+      capabilityTokenMissing(port, `${url} did not answer a page: ${err instanceof Error ? err.message : String(err)}`),
+    )
+  }
+
+  const token = readCapabilityTokenFromHtml(html)
+  if (token === null) {
+    throw new Error(capabilityTokenMissing(port, `the page served at ${url} carries no capability token`))
+  }
+  return token
+}
+
+/**
  * Asks the Rhizomorph on `port` to close its session and open a fresh one.
  * Throws with a message that names what to do instead — never a stack trace —
- * when nothing is listening, when the server refuses (a `rhizomorph replay`
- * server has no live recording to rotate), or when the answer isn't the shape
- * this command understands.
+ * when nothing is listening, when the server has no token to hand out, when
+ * the server refuses (a `rhizomorph replay` server has no live recording to
+ * rotate), or when the answer isn't the shape this command understands.
+ *
+ * The token is fetched first, per #234 — see this module's doc for why the
+ * served page is the channel and what that costs.
  */
 export async function requestRotation(
   port: number,
@@ -64,10 +185,11 @@ export async function requestRotation(
 ): Promise<RotationSummary> {
   const fetchImpl = options.fetch ?? globalThis.fetch
   const url = rotateUrl(port)
+  const capabilityToken = await fetchCapabilityToken(port, options)
 
   let response: Response
   try {
-    response = await fetchImpl(url, { method: 'POST' })
+    response = await fetchImpl(url, { method: 'POST', headers: { [CAPABILITY_TOKEN_HEADER]: capabilityToken } })
   } catch (err) {
     throw new Error(unreachable(port, err instanceof Error ? err.message : String(err)))
   }
@@ -108,6 +230,19 @@ async function refusalDetail(response: Response): Promise<string> {
 function unreachable(port: number, detail: string): string {
   return `cannot rotate the session on port ${port}: ${detail}
 A session is closed by the instrument that owns its log, so the server must be running (\`npm start -- --port ${port}\`) — or use the dashboard's "end session · start fresh" button.`
+}
+
+/**
+ * The refusal an operator meets when the server is up but has no token to
+ * hand out. Says what is missing and what to run, because the alternative —
+ * letting the request go out bare and reporting the 401 — is a message about
+ * a header the operator never knew existed and cannot supply.
+ */
+function capabilityTokenMissing(port: number, detail: string): string {
+  return `cannot rotate the session on port ${port}: ${detail}
+Rotation requires the per-process capability token, and the only place the server hands it out is the dashboard page it serves — stamped into index.html at serve time (docs/adr/0012-in-band-capability-token-delivery.md).
+So the server on port ${port} is not serving a built dashboard. Build it (\`npm run build --workspace packages/web\`) and restart the server, then try again.
+Note that \`npm run dev:web\` alone never stamps the token: vite serves index.html itself and skips the server's injection entirely. Exercising rotation in development means running the built server.`
 }
 
 /** What the command prints on success: what ended, how big it was, and what is being recorded now. */

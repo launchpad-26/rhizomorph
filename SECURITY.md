@@ -13,16 +13,33 @@ Code session logs (`~/.claude/projects`) to show what your agents are
 doing. It serves that over HTTP on `127.0.0.1` only — nothing binds to a
 public interface, and nothing it reads is ever sent anywhere else.
 
-A second, separate hand exists on top of that: the laboratory, reachable
-only from your own command line (`rhizomorph lab checkpoint`/`fork`/
-`compare`), never from the server or the UI. It creates git objects and
-refs confined to `refs/rhizomorph/`, worktrees under its own data
-directory, and — only when you pass `--launch` — hands a dispatch off to
+A second, separate hand exists on top of that: the laboratory. It creates
+git objects and refs confined to `refs/rhizomorph/`, worktrees under its
+own data directory, and — when launched — hands a dispatch off to
 `workmux add`, which is what creates an actual branch and tmux pane. It
-never pushes, never merges, and never runs without you typing the command.
-See the [Trust section](README.md#trust) for the full account, and
-`packages/server/src/lab/namespace-law.test.ts` for the test that enforces
-it.
+never pushes and never merges. Two things trigger it, both an explicit
+human action rather than anything a collector, background poll, or timer
+could reach: typing `rhizomorph lab checkpoint`/`fork`/`compare` at your
+own command line, or clicking the dashboard's launch button, which sends
+`POST /api/lab/launch` to a server route that runs the exact same
+`rhizomorph lab fork --launch` in-process. The laboratory module itself
+(`packages/server/src/lab/`) is still imported from exactly one file outside
+itself — the CLI wiring point that route also goes through — so the dashboard
+button is a second hand on the same lever, not a new path into the module.
+`packages/server/src/lab/namespace-law.test.ts` asserts that, with a known
+blind spot: it asks, file by file, whether that file's own import specifiers
+name `lab/`, and it never follows the import graph further. `api/lab.ts`
+names `../cli/index.js`, so the reach that lands in the lab a hop later is
+invisible to it — the law passes because it cannot see that path, not
+because the path is absent. Read it as a check on who imports the lab
+*directly*, not as a structural boundary; the specifier scan does see
+dynamic `import()` calls, so the gap is the indirection rather than the
+syntax. Nothing in the tree enforces the boundary itself today, and #245
+tracks building something that would.
+Separately, and unlike `POST /api/label`, the launch route does not yet
+require the `x-rhizomorph-capability` token (only the Origin/Host/Content-Type
+guard below); tracked under #234. See the
+[Trust section](README.md#trust) for the full account.
 
 If you find a code path that breaks either of those hands' fences — the
 observer writing to the watched repo, the laboratory writing outside its

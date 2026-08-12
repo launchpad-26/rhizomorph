@@ -93,6 +93,37 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Security
 
+- **`POST /api/rotate` and `POST /api/lab/launch` now require the capability
+  token (#234).** Both were reachable by a plain `curl` from any local
+  process — a compromised dependency, another tool, malware running as you.
+  The mutation guard deliberately admits a request carrying no `Origin`
+  (every non-browser caller), and `requireCapabilityToken` had only ever
+  been applied to `/api/label`. Rotation ends the operator's recording;
+  the launch route forks a worktree and dispatches a live agent that spends
+  real money. Both now carry the same gate `/api/label` has carried since
+  the 2026-08-06 audit. All three of their callers were widened in the same
+  change rather than a follow-up — the dashboard's rotate button, the lab's
+  launch panel, and `rhizomorph rotate` — because gating a route whose
+  callers cannot authenticate is exactly how #249 shipped.
+- **An arm's `model` is validated against `^[A-Za-z0-9._:-]+$` (#234).** It
+  was checked as `typeof === 'string'` and nothing more, then interpolated
+  into `` `bash scripts/lane-agent.sh ${model}` `` — a *string* workmux runs
+  through a shell in a tmux pane, so a `model` carrying `;`, `$(`, a
+  backtick or a space ran a second command as the operator. Chained with
+  the ungated route above, that was unauthenticated local code execution,
+  which is why the two landed together. Refused now at the HTTP boundary
+  and again in `lab/fork.ts`, which covers `rhizomorph lab fork --model` —
+  a path no request crosses. Every hop inside rhizomorph already used argv
+  arrays; the injection landed one hop downstream, in workmux's own
+  execution of that string, which is why an audit of this repo's spawn
+  sites cleared it. `lane` is refused a leading `-` for the adjacent
+  reason: it travels as an argv positional, where a `-`-prefixed value is
+  read as a flag. Deliberately disclosed blast radius: a model id
+  containing `/` or `@` — a Bedrock inference-profile ARN, a
+  provider-prefixed id — is now refused as well. Every model string this
+  repo dispatches passes (`sonnet`, `opus`, `haiku`, `claude-opus-5`,
+  `claude-3-5-sonnet-20241022`, and a bedrock-style
+  `us.anthropic.claude-3-5-sonnet-20241022-v1:0`).
 - **The loopback `Host` check now runs for every request, not just
   mutations (#235).** A DNS-rebound page could previously read
   `/api/transcript/:lane` and the `/api/stream` SSE, because every GET
@@ -113,6 +144,20 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Changed
 
+- **`rhizomorph rotate` now needs the dashboard to be built (#234).** The
+  capability token the command must now send is handed out through the
+  served page and nowhere else
+  ([ADR-0012](docs/adr/0012-in-band-capability-token-delivery.md)), so the
+  command reads it the way the browser does: one loopback `GET /`, then the
+  `<meta>` tag. A server started without `packages/web/dist` serves a
+  placeholder page carrying no token, and rotation there now exits 1 —
+  naming `npm run build --workspace packages/web` rather than surfacing a
+  bare 401 about a header the operator has no way to supply. Putting the
+  token in `GET /api/meta` was rejected: it would hand it to precisely the
+  local process #234 defends against. The dashboard's own rotate and launch
+  buttons refuse the same way under `npm run dev:web`, where vite serves
+  `index.html` itself and the injection never runs — a gap ADR-0012 already
+  named and this change does not close, only makes honest.
 - **Measured performance fixes.** Dragging the scrubber now rebuilds the
   derived fleet once per animation frame instead of once per pointer event
   (#269): the scrub position and the fold it drives are two clocks now, so
@@ -127,6 +172,11 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   30-lane scene with 200 retired lanes dropped from 28.37ms/frame (170.2%
   of the 60fps frame budget) to 11.95ms (71.7%) by caching the unchanging
   part of a scar (#175/#178).
+  Replay playback advances the timeline clock on an animation frame rather
+  than a 100ms interval (#271), so a playing scene animates at frame rate
+  instead of the 10fps its own 60fps ambient loop was being sampled at —
+  the cadence changed, not the clock's owner, so #155's single wall-clock
+  read in the replay path is untouched.
 - An independent, read-only adversarial audit of the whole instrument
   surfaced several findings, triaged into follow-up issues (#171–#177) —
   among them, unscrubbed identifiers in captured OTel fixtures, and the
@@ -135,6 +185,29 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **C-quoted git paths round-trip (#237).** `git status --porcelain` C-quotes any
+  path with a space or non-ASCII byte, and `git log --raw` quotes non-ASCII;
+  both parsers took the quoted slice verbatim, so a file as ordinary as
+  `my file.ts` reached the collision matrix as the literal `"my file.ts"` and
+  matched nothing. Paths are now unquoted on parse and status renames split on
+  the real arrow, not a ` -> ` inside a filename.
+- **A tab in a tmux pane path, or one malformed `git log --raw` line, no
+  longer kills the collector (#242).** `list-panes.ts` and `parse-log.ts`
+  quarantine the one unparseable line — skipped, counted, and voiced as a
+  `collector.error` — instead of throwing and losing the rest of that poll's
+  events.
+- **Three silent lane-identity gaps close (#243).** `workmux/collector.ts`
+  joined `workmux list`'s rows by branch name but looked them up by handle,
+  so a slashed branch (`feat/foo`) never matched and `branch`/`worktreePath`
+  stayed `null` in every `agent.status` for that lane; the join now keys off
+  the worktree directory name both commands actually share. `worktree-slug.ts`
+  mapped only `/` and `_` to `-`, so a dotted worktree path resolved to a
+  session directory that never existed and read as "no session yet" forever;
+  it now maps `.` too, matching Claude Code's own transform. A detached HEAD
+  on the *main* worktree silently degraded every branch's
+  `aheadOfMain`/`behindMain` to `null`; the git collector now emits one
+  `collector.error` naming the detached main worktree instead of staying
+  quiet about it.
 - **A rotated or truncated session log resumes being read (#305).**
   `sessionlog/tail.ts` treated "the file is now smaller than the offset we
   hold" the same as "no new bytes" and handed back the same stale offset
@@ -161,6 +234,19 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   no `collector.error` — the one exec in the git collector that didn't
   already follow this PR's own "a timeout is a visible error, not silence"
   rule. It now reports one.
+- **The replay scrubber glides (#270).** Its `step` was `max(1000, span /
+  1000)` — about a thousand stops across any recording, so on an eight-hour
+  session the thumb jumped between notches ~29 seconds apart with nothing
+  between them reachable, and any session under a second was frozen on a
+  single stop. The step is now sized to the rendered track instead: the
+  session is cut into the smallest power of two notches at least as many as
+  the track has pixels, so a notch is never wider than a pixel at any window
+  size, and one arrow press still moves ~0.1% of the session. `end` stays a
+  grid point at every width and every session length — including multi-day
+  ones, where the step's exact quotient outgrows what the `step` attribute's
+  shortest decimal can carry and the last notch would otherwise be
+  unreachable. Native keyboard behaviour is untouched: this configures the
+  range input, it does not reimplement it.
 - **Rename-in-place actually works (#249).** `POST /api/label` required a
   per-process capability token nothing ever delivered to the browser, so
   every rename in `/recordings` 401ed, on every boot. The server now

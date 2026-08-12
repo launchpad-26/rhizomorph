@@ -14,6 +14,15 @@ function createFakeRecorder(): { recorder: SessionRecorder; events: RhizomorphEv
   return { recorder, events }
 }
 
+/** A recorder whose every `record` call rejects — simulates a disk-full or permission-denied append. */
+function createFailingRecorder(): SessionRecorder {
+  return {
+    record: async () => {
+      throw new Error('ENOSPC: no space left on device')
+    },
+  } as unknown as SessionRecorder
+}
+
 /** In-memory {@link SnapshotStore}, plus the call log the tests assert against. */
 function createFakeStore(initial: Record<string, unknown> = {}): SnapshotStore & {
   saves: { name: string; snapshot: unknown }[]
@@ -262,6 +271,61 @@ describe('the poll loop and snapshot persistence', () => {
       payload: { collector: 'broken', message: 'broken blew up' },
     })
     expect(store.saves).toEqual([])
+  })
+
+  it('degrades to a log line instead of crashing when the recorder itself cannot report a collector failure', async () => {
+    const recorder = createFailingRecorder()
+    const broken: AnyCollector = {
+      name: 'broken',
+      initialSnapshot: () => ({ polls: 0 }),
+      poll: () => {
+        throw new Error('broken blew up')
+      },
+    }
+
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [broken],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+
+    await expect(pollLoop.tick()).resolves.toBeUndefined()
+    // The loop is still alive: a second tick runs rather than the process
+    // having died on an unhandled rejection from the first one.
+    await expect(pollLoop.tick()).resolves.toBeUndefined()
+  })
+
+  it('degrades to a log line instead of crashing when the recorder cannot report a snapshot-save failure', async () => {
+    const recorder = createFailingRecorder()
+    const store = createFakeStore()
+    store.failSave = new Error('EACCES: permission denied')
+    // Emits no events of its own, so the snapshot-save catch in `persist()`
+    // — not the collector-poll-failed catch in `runTick()` — is the one
+    // whose `recorder.record` call this test exercises.
+    const silent: AnyCollector = {
+      name: 'silent',
+      initialSnapshot: () => ({ polls: 0 }),
+      poll: (prev: { polls: number }) => ({
+        nextSnapshot: { polls: prev.polls + 1 },
+        events: [],
+      }),
+    }
+
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [silent],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+      snapshotStore: store,
+    })
+
+    await expect(pollLoop.tick()).resolves.toBeUndefined()
+    // The loop is still alive: a second tick runs rather than the process
+    // having died on an unhandled rejection from the first one.
+    await expect(pollLoop.tick()).resolves.toBeUndefined()
   })
 })
 
