@@ -8,11 +8,12 @@ import type { CommitRecord, SessionState } from '../state.js'
  * that deterministic where a sort by ts would not.
  */
 export function selectCommits(state: SessionState): CommitRecord[] {
+  const { bySha, order } = state.commits
   const commits: CommitRecord[] = []
-  for (let i = state.commitOrder.length - 1; i >= 0; i -= 1) {
-    const sha = state.commitOrder[i]
+  for (let i = order.length - 1; i >= 0; i -= 1) {
+    const sha = order[i]
     if (sha === undefined) continue
-    const commit = state.commits[sha]
+    const commit = bySha[sha]
     if (commit !== undefined) commits.push(commit)
   }
   return commits

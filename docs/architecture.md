@@ -1945,7 +1945,7 @@ laws now hold, four of them landed in this tree:
 rather than assumes, that **live and replay fold the same interleaved
 recording to two different states** on at least three axes: last-write-wins
 fields (`agent.status`), create-vs-delete ordering (`branch.updated` vs.
-`branch.removed`), and first-sighting order (`commitOrder`,
+`branch.removed`), and first-sighting order (`commits.order`,
 `firstEventTs`). prd17 ruling 3 item 4 states the law only pins what a
 fixture is owed and requires the divergence itself to be *"ruled and
 documented"* — that ruling has not been made. **Issue #205 is open**: no

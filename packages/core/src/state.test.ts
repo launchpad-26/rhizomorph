@@ -402,7 +402,8 @@ describe('initialSessionState — fresh containers, never shared ones', () => {
     expect(a.refusals).not.toBe(b.refusals)
     expect(a.refusals.records).not.toBe(b.refusals.records)
     expect(a.refusals.byInstance).not.toBe(b.refusals.byInstance)
-    expect(a.commitOrder).not.toBe(b.commitOrder)
+    expect(a.commits).not.toBe(b.commits)
+    expect(a.commits.log).not.toBe(b.commits.log)
     expect(a.errors).not.toBe(b.errors)
   })
 

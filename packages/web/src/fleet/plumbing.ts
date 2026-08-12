@@ -318,8 +318,8 @@ export function latestSpanTsByLane(state: SessionState, since: number): Map<stri
 
 export function latestCommitTsByBranch(state: SessionState): Map<string, number> {
   const latest = new Map<string, number>()
-  for (const sha of state.commitOrder) {
-    const commit = state.commits[sha]
+  for (const sha of state.commits.order) {
+    const commit = state.commits.bySha[sha]
     if (commit === undefined) continue
     for (const branch of commit.branches) {
       const current = latest.get(branch)
