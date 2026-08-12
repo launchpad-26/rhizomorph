@@ -1,5 +1,5 @@
 import type { Exec } from '@rhizomorph/core'
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import {
   checkCliVersionDrift,
   checkClaudeProjects,
@@ -13,7 +13,6 @@ import {
 } from '../cli/doctor.js'
 import type { ServerContext } from '../server/context.js'
 import { exec as realExec, withTimeout } from '../server/exec.js'
-import { isLoopbackHost } from '../server/mutation-guard.js'
 
 /**
  * The seams `runServerDoctor` needs, mirroring the CLI's own `DoctorOptions`
@@ -218,42 +217,26 @@ export function createRouteDoctorProbe(
 }
 
 /**
- * Fastify `preHandler`: refuses a request whose `Host` header is not
- * loopback, reusing `server/mutation-guard.ts`'s own predicate rather than
- * re-deriving it (adversarial review item 1). `GET /api/doctor` is a
- * recon-grade disclosure — repo/home paths, versions, tool presence, session
- * facts — that would otherwise sit behind #235's known gap: every `GET` is
- * exempt from the mutation guard's own Host/Origin check until that issue
- * widens `MUTATING_METHODS`. This opts THIS route into that same check
- * directly rather than waiting; the global `GET` exemption stays #235's own
- * work.
- */
-function requireLoopbackHost() {
-  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    const host = request.headers.host
-    if (!isLoopbackHost(host)) {
-      await reply.code(400).send({
-        error: `refused: Host "${host ?? ''}" is not loopback — GET /api/doctor only answers requests addressed to 127.0.0.1/localhost`,
-      })
-    }
-  }
-}
-
-/**
  * Read-only `GET /api/doctor` (prd-19 ruling 5): no body, no token (GET-only
  * under the #216 posture), no writes — every check it calls is one of
  * `cli/doctor.ts`'s own read-only seams (filesystem facts, an injected
  * `exec`), and this route additionally bounds what an unauthenticated caller
- * can force: a loopback-only `Host` guard, a per-exec timeout, and a
- * single-flight/short-TTL cache over the whole answer (adversarial review
- * items 1–2). Serves the server-relevant subset of the CLI's report for the
- * repo this very server is already running, so a stranger looking at
- * `/connect` can see facts the page's own GETs and stream cannot know (the
- * slug dir, version drift, the lane manifest) without needing a terminal at
- * all — honestly labeled as not applicable when this server is a replay
- * (`ctx.readOnly`, item 5) rather than a live repo.
+ * can force: a per-exec timeout and a single-flight/short-TTL cache over the
+ * whole answer (adversarial review item 2). This route used to also carry
+ * its own route-local loopback-`Host` guard (adversarial review item 1), back
+ * when every `GET` was exempt from the app-wide mutation guard's Host check;
+ * #235 closed that gap globally and prd-23 ruling 5 retired the now-redundant
+ * copy — every request this server answers, this one included, is refused
+ * before reaching any handler if its `Host` is not loopback
+ * (`server/mutation-guard.ts`). Serves the server-relevant subset of the
+ * CLI's report for the repo this very server is already running, so a
+ * stranger looking at `/connect` can see facts the page's own GETs and
+ * stream cannot know (the slug dir, version drift, the lane manifest)
+ * without needing a terminal at all — honestly labeled as not applicable
+ * when this server is a replay (`ctx.readOnly`, item 5) rather than a live
+ * repo.
  */
 export function registerDoctorRoute(app: FastifyInstance, ctx: ServerContext): void {
   const probe = createRouteDoctorProbe(ctx.repoPath, { replay: ctx.readOnly === true })
-  app.get('/api/doctor', { preHandler: requireLoopbackHost() }, async () => probe())
+  app.get('/api/doctor', async () => probe())
 }

@@ -723,7 +723,7 @@ describe('GET /api/doctor', () => {
     }
   })
 
-  describe('law: the Host/loopback guard (adversarial review item 1)', () => {
+  describe('law: the Host/loopback guard (adversarial review item 1, now the app-wide mutation guard)', () => {
     it('a loopback Host succeeds', async () => {
       await setup()
       try {
@@ -734,12 +734,19 @@ describe('GET /api/doctor', () => {
       }
     })
 
+    // Pinned to the exact GLOBAL refusal, not `stringContaining('not loopback')`
+    // — this route's own (now-deleted) route-local message contained that same
+    // phrase, so a substring match would stay green even if the app-wide guard
+    // stopped running before this route (prd-23 #307: the route-local
+    // `preHandler` is gone; this is the sentence that survives it).
     it('a non-loopback Host is refused, before any check runs', async () => {
       await setup()
       try {
         const response = await makeApp().inject({ method: 'GET', url: '/api/doctor', headers: { host: 'evil.example' } })
         expect(response.statusCode).toBe(400)
-        expect(response.json()).toMatchObject({ error: expect.stringContaining('not loopback') })
+        expect(response.json()).toEqual({
+          error: 'refused: Host "evil.example" is not loopback — this instrument only accepts requests addressed to 127.0.0.1/localhost',
+        })
       } finally {
         await teardown()
       }
