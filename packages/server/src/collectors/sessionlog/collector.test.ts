@@ -659,6 +659,58 @@ describe('createSessionlogCollector', () => {
     expect(after?.branch).toBeNull()
   })
 
+  it('does not reset the fold on a same-inode truncation, unlike a rotation', async () => {
+    const worktreePath = '/fake/worktrees/alpha'
+    // The `lane` assertions below prove preservation only because 'alpha'
+    // (this path's basename, the post-reset fallback) differs from 'lane-a'
+    // (the fixture's gitBranch, the preserved value) — if a future edit ever
+    // makes them equal, a reset-then-fallback would read identically to a
+    // preserved fold and `lane` could no longer tell the two apart.
+    expect(path.basename(worktreePath)).not.toBe('lane-a')
+    const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
+    await mkdir(projectDir, { recursive: true })
+    const filePath = path.join(projectDir, 'session.jsonl')
+    await writeFile(filePath, await readFixture('claude-code-2.1.222-tail-pending-tool.jsonl'), 'utf8')
+
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const gitExec: Exec = async () => success(worktreeListOutput(['/repo', worktreePath]))
+
+    const first = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+    const before = first.nextSnapshot.files[filePath]
+    expect(before?.turnShape?.shape).toBe('pending-tool')
+    expect(before?.turnShape?.pendingToolUseIds).toEqual(['toolu_016B8H8YKsFicyG9JazwdoeV'])
+    expect(before?.lane).toBe('lane-a')
+    expect(before?.branch).toBe('lane-a')
+    expect(before?.lastUsageRequestId).toBe('req_011CdfKhwWU9Hi5mf8UWvj8X')
+
+    // Same-inode truncation: overwrite the SAME path directly (no rename, no
+    // new file) with far less content — the byte cursor can no longer be
+    // trusted (tail.ts resets it to 0), but the inode is unchanged, so
+    // isRotated is false. The replacement line is a plain user prompt: no
+    // tool_result (so it cannot legitimately close the predecessor's pending
+    // tool call) and not an assistant line (so it cannot legitimately
+    // overwrite lane/branch/lastUsageRequestId either) — the only way every
+    // assertion below can pass is if the fold was preserved, not reset (#413).
+    await writeFile(
+      filePath,
+      '{"type":"user","isSidechain":false,"message":{"role":"user","content":"continue"},"timestamp":"2026-08-03T08:00:00.000Z"}\n',
+      'utf8',
+    )
+
+    const second = await collector.poll(first.nextSnapshot, makeContext(gitExec))
+    const after = second.nextSnapshot.files[filePath]
+    // Folding this line onto the PRESERVED pending-tool state leaves it
+    // pending (closesToolUseIds is empty, so nothing closes toolu_016B8...).
+    // Contrast the rotation test above: the identical line folded onto a
+    // FRESH state lands on 'awaiting-reply' / [] instead — the two tests
+    // together are the asymmetry this issue rules on.
+    expect(after?.turnShape?.shape).toBe('pending-tool')
+    expect(after?.turnShape?.pendingToolUseIds).toEqual(['toolu_016B8H8YKsFicyG9JazwdoeV'])
+    expect(after?.lane).toBe('lane-a')
+    expect(after?.branch).toBe('lane-a')
+    expect(after?.lastUsageRequestId).toBe('req_011CdfKhwWU9Hi5mf8UWvj8X')
+  })
+
   it("does not let a carried lastUsageRequestId suppress a usage block belonging to the replacement file", async () => {
     const worktreePath = '/fake/worktrees/alpha'
     const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
