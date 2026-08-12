@@ -19,4 +19,12 @@ export type AgentStatusPayload = z.infer<typeof agentStatusPayloadSchema>
 
 export const agentStatusEventSchema = envelope('workmux', 'agent.status', agentStatusPayloadSchema)
 
-export const workmuxEventSchemas = [agentStatusEventSchema] as const
+export const agentRemovedPayloadSchema = z.object({
+  /** workmux's handle for the agent that no longer appears in `workmux status`. */
+  handle: nonEmptyString,
+})
+export type AgentRemovedPayload = z.infer<typeof agentRemovedPayloadSchema>
+
+export const agentRemovedEventSchema = envelope('workmux', 'agent.removed', agentRemovedPayloadSchema)
+
+export const workmuxEventSchemas = [agentStatusEventSchema, agentRemovedEventSchema] as const

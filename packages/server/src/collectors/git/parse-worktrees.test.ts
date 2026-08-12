@@ -78,4 +78,18 @@ describe('parseWorktreeList', () => {
   it('returns an empty array for empty output', () => {
     expect(parseWorktreeList('')).toEqual([])
   })
+
+  it('parses a prunable record — git worktree list its own proof a worktree directory is gone (prd-22 ruling 3, ADR-0016)', () => {
+    const worktrees = parseWorktreeList(fixture('gone.txt'))
+
+    expect(worktrees[1]).toEqual({
+      path: '/home/dev/rhizomorph-demo-worktrees/removed-by-hand',
+      head: '6e164406fdc3e92168183601862506dbce13cec4',
+      branch: 'feature/removed-by-hand',
+      detached: false,
+      locked: false,
+      prunable: true,
+      prunableReason: 'gitdir file points to non-existent location',
+    })
+  })
 })

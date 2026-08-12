@@ -1,0 +1,8 @@
+worktree /home/dev/rhizomorph-demo
+HEAD d129e8d9ede5050302a93cd9d66ccadad0f2713d
+branch refs/heads/main
+
+worktree /home/dev/rhizomorph-demo-worktrees/removed-by-hand
+HEAD 6e164406fdc3e92168183601862506dbce13cec4
+branch refs/heads/feature/removed-by-hand
+prunable gitdir file points to non-existent location

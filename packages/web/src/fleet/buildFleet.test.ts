@@ -1,4 +1,4 @@
-import { createEvent, createIdFactory, reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
+import { createEvent, createEventFactory, createIdFactory, reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import {
   buildFleet,
@@ -355,6 +355,71 @@ describe('the ladder floor', () => {
     expect(fleet.ladder.items.some((item) => item.kind === 'collision')).toBe(false)
     expect(laneIn(fleet, 'a').dirtyCount).toBe(1)
     expect(laneIn(fleet, 'b').dirtyCount).toBe(0)
+  })
+})
+
+// ── the honest middle — degraded-retrying gap voice (#304, ruling 2) ───────
+
+describe('the honest middle — degraded-retrying gap voice (#304, ruling 2)', () => {
+  it('speaks the gap voice for a degraded-but-retrying collector', () => {
+    const f = createEventFactory()
+    const state = reduceAll([
+      f.collectorDegraded({ collector: 'tmux', reason: 'capture-pane timed out', consecutiveFailures: 1 }),
+    ])
+    const fleet = buildFleet(state, { now: NOW })
+
+    const degraded = fleet.gaps.filter((gap) => gap.id === 'collector-degraded:tmux')
+    expect(degraded).toHaveLength(1)
+    expect(degraded[0]?.what).toBe('TMUX COLLECTOR DEGRADED')
+    expect(degraded[0]?.why).toContain('capture-pane timed out')
+    expect(degraded[0]?.command).toBe('rhizomorph doctor')
+  })
+
+  it('a healed collector is silent, not a stale gap', () => {
+    const f = createEventFactory()
+    const state = reduceAll([
+      f.collectorDegraded({ collector: 'tmux', reason: 'capture-pane timed out', consecutiveFailures: 1 }),
+      f.collectorRecovered({ collector: 'tmux' }),
+    ])
+    const fleet = buildFleet(state, { now: NOW })
+
+    expect(fleet.gaps.some((gap) => gap.id.startsWith('collector-degraded:') || gap.id.startsWith('collector-disabled:'))).toBe(false)
+  })
+
+  it('a second degraded poll updates the same gap, never adds a second', () => {
+    const f = createEventFactory()
+    const state = reduceAll([
+      f.collectorDegraded({ collector: 'tmux', reason: 'capture-pane timed out', consecutiveFailures: 1 }),
+      f.collectorDegraded({ collector: 'tmux', reason: 'tmux exited with code 1', consecutiveFailures: 2 }),
+    ])
+    const fleet = buildFleet(state, { now: NOW })
+
+    const degraded = fleet.gaps.filter((gap) => gap.id === 'collector-degraded:tmux')
+    expect(degraded).toHaveLength(1)
+    expect(degraded[0]?.why).toContain('tmux exited with code 1')
+  })
+
+  it('the stronger, terminal fact replaces the weaker one once the threshold is crossed', () => {
+    const f = createEventFactory()
+    const state = reduceAll([
+      f.collectorDegraded({ collector: 'tmux', reason: 'capture-pane timed out', consecutiveFailures: 1 }),
+      f.collectorDisabled({ collector: 'tmux', reason: 'tmux exited with code 1', consecutiveFailures: 3 }),
+    ])
+    const fleet = buildFleet(state, { now: NOW })
+
+    expect(fleet.gaps.some((gap) => gap.id === 'collector-disabled:tmux')).toBe(true)
+    expect(fleet.gaps.some((gap) => gap.id === 'collector-degraded:tmux')).toBe(false)
+  })
+
+  it('stays ambient-only: a degraded collector never climbs the attention strip', () => {
+    const f = createEventFactory()
+    const state = reduceAll([
+      f.collectorDegraded({ collector: 'tmux', reason: 'capture-pane timed out', consecutiveFailures: 1 }),
+    ])
+    const fleet = buildFleet(state, { now: NOW })
+
+    expect(fleet.ladder.rank).toBe('calm')
+    expect(fleet.ladder.items).toEqual([])
   })
 })
 

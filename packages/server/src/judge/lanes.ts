@@ -1,4 +1,5 @@
 import type { Exec } from '@rhizomorph/core'
+import { describeExecFailure } from '../server/exec.js'
 
 /**
  * prd11 ruling 6b, phase 1 — the judge organ's own read of which branches are
@@ -61,7 +62,7 @@ export function parseLanes(porcelain: string): LaneDiscovery {
 export async function discoverLanes(exec: Exec, repoPath: string): Promise<LaneDiscovery> {
   const result = await exec('git', ['worktree', 'list', '--porcelain'], { cwd: repoPath })
   if (result.failed) {
-    throw new Error(`git worktree list failed: ${result.errorMessage ?? result.stderr}`)
+    throw new Error(`git worktree list failed: ${describeExecFailure(result)}`)
   }
   return parseLanes(result.stdout)
 }

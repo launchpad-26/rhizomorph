@@ -38,6 +38,13 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **The honest middle gets a voice (prd-22 ruling 2, #304).** A collector that is
+  answering but degraded — retrying after consecutive failures, not yet disabled —
+  now reads `degraded` in the provenance bar's per-source pill (distinct from a dead
+  `disabled` source and from a one-off `errored` blip) and speaks the same
+  what/why/`rhizomorph doctor` gap voice a disabled collector already does. It stays
+  ambient: unlike `error`, it never escalates to the attention strip, since it may
+  self-heal on the very next poll.
 - **`export-record --force` (#298).** An explicit `--out` that already
   exists is now refused with an error naming `--force`, which overwrites;
   the flagless default artifact is regenerable and always refreshes.
@@ -208,6 +215,32 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **A departed workmux agent is now announced (#306).** `workmux status`
+  failing for a reason other than a missing binary used to parse as an empty
+  roster and drop every known agent with no event at all; a handle that
+  genuinely left a healthy poll was never diffed against the previous roster
+  either, so it also just stopped appearing. Both now read distinctly: a
+  transient failure carries the roster forward and reports
+  `collector.disabled` (letting the existing degraded/disabled ladder handle
+  it), and a genuine departure emits the new `agent.removed` event —
+  [ADR-0015](docs/adr/0015-agent-removed-is-an-event.md).
+- **A deleted worktree now leaves the dashboard, instead of rendering as
+  healthy forever (#241).** `git worktree list` never stops listing a
+  worktree removed by hand outside rhizomorph, and the git collector's
+  `git status` catch silently carried its last-known dirty-file set forward
+  with no event. The collector now reads git's own `prunable` annotation
+  (already parsed, already free) as proof a worktree is gone, drops it, and
+  emits `worktree.removed`; a real transient failure still carries forward,
+  but only for a bounded number of polls before it becomes a visible
+  `collector.error` instead of stale silent data. Decision and rejected
+  alternatives (including why the issue's own suggested ENOENT check would
+  have been wrong) in
+  [ADR-0016](docs/adr/0016-prunable-not-enoent-proves-a-worktree-gone.md).
+- **A recovered collector's pill no longer sticks on `errored` forever (#304).**
+  A collector that had failed and then recovered (`status: 'healthy'`) used to
+  read `errored` in the provenance bar forever, with its last (stale) error
+  message still shown on hover — the pill never got the self-heal news. It now
+  reads `live`, silently, the moment `collector.recovered` folds.
 - **C-quoted git paths round-trip (#237).** `git status --porcelain` C-quotes any
   path with a space or non-ASCII byte, and `git log --raw` quotes non-ASCII;
   both parsers took the quoted slice verbatim, so a file as ordinary as

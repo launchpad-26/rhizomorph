@@ -88,7 +88,11 @@ describe('the golden era corpus', () => {
     // mid-flight, the four `collector.*` families only fire when a collector is
     // unhealthy, `telemetry.refused` needs a misconfigured lane, and
     // `fork.*`/`judge.finding` need the lab and the judge to have run.
+    // `agent.removed` (#306) is newer than era-1's 2026-08-06 capture and
+    // needs a workmux handle to actually depart mid-recording — neither
+    // happened in it.
     expect(EVENT_TYPES.filter((type) => !covered.has(type)).sort()).toEqual([
+      'agent.removed',
       'collector.degraded',
       'collector.disabled',
       'collector.error',

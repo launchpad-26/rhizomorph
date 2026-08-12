@@ -66,6 +66,7 @@ function ghostFreeSnapshot(): GitSnapshot {
     },
     branches: { main: { head: MAIN_HEAD, aheadOfMain: 0, behindMain: 0 } },
     dirty: { '/repo': [] },
+    dirtyFailures: {},
   }
 }
 
