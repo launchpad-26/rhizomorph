@@ -70,8 +70,46 @@ field_id()   { fields | awk -F'\t' -v f="$1" 'tolower($1)==tolower(f){print $2; 
 field_kind() { fields | awk -F'\t' -v f="$1" 'tolower($1)==tolower(f){print $3; exit}'; }
 option_id()  { fields | awk -F'\t' -v f="$1" -v o="$2" 'tolower($1)==tolower(f) && tolower($4)==tolower(o){print $5; exit}'; }
 
+# The board's item cap, in ONE place. Every reader below uses it, and every
+# reader checks whether it was hit — a truncated read here is not a smaller
+# answer, it is a wrong one: `item_id` returning empty makes `set_select` die
+# with "#N is not on project", which is false, and sends the reader to
+# `orphans`, which would then agree because it truncated identically. That is
+# the same silent-cap defect #420 fixed in `cmd_list`, one function over.
+BOARD_LIMIT=1000
+
+# Every item on the board, as JSON on stdout. Dies loudly rather than returning
+# a short list if the cap is ever reached.
+board_items() {
+  # Captured, not piped: a failing `gh` handed python an empty stdin, which
+  # raised JSONDecodeError and buried gh's own error under a traceback — the
+  # real exit status replaced by the parser's. Executed during review with a
+  # mock `gh` exiting 7.
+  local raw
+  raw="$(gh project item-list "$PROJECT" --owner "$OWNER" --limit "$BOARD_LIMIT" --format json)" \
+    || die "could not read the board (gh project item-list failed)"
+  printf '%s' "$raw" \
+    | python3 -c '
+import sys, json
+limit = int(sys.argv[1])
+data = json.load(sys.stdin)
+items = data.get("items", [])
+if len(items) >= limit:
+    sys.stderr.write("error: board returned %d items, at or above the --limit of %d; raise BOARD_LIMIT in %s\n"
+                     % (len(items), limit, sys.argv[2]))
+    sys.exit(1)
+json.dump(data, sys.stdout)
+' "$BOARD_LIMIT" "$0"
+}
+
 item_id() {
-  gh project item-list "$PROJECT" --owner "$OWNER" --limit 200 --format json \
+  # Command substitution, not a pipe: `board_items` dies with a specific
+  # message when the cap is hit, and a pipe would hand its empty stdout to the
+  # reader below, which would fail with a JSON decode error instead — burying
+  # the real cause under a stack trace.
+  local items
+  items="$(board_items)" || die "could not read the board"
+  printf '%s' "$items" \
     | python3 -c '
 import sys, json
 want = sys.argv[1]
@@ -102,18 +140,67 @@ set_select() { # set_select <issue> <Field> <Option>
 # `gh project item-list --format json` returns only `status` — it does not
 # surface multi-select values at all, so Timeline reads have to go through
 # GraphQL. Issue type comes from the same query rather than a second round trip.
+# The board is read through ONE paginated code path (#420). The previous
+# version asked for `items(first:100)` with no pagination AND filtered to OPEN
+# downstream in python — so every CLOSED item consumed the page budget before
+# any open issue was filtered in. On a board with more closed items than the
+# page size, that silently rendered 51 of 74 open issues and still exited 0.
+#
+# Worse than a plain truncation: project items come back in board order, so the
+# rows that fell off the end were the NEWEST — exactly the freshly-filed,
+# un-triaged work the triage view exists to surface. A Now/High issue filed the
+# same day was invisible.
+#
+# Two defences, because pagination alone would fail silently again if the query
+# shape ever changed: the walk pages until `hasNextPage` is false, and the
+# output reconciles what it rendered against the repo's own open-issue list,
+# saying so when they differ rather than printing a table that looks complete.
 cmd_list() {
-  gh api graphql -f query="{node(id:\"$PROJECT_ID\"){... on ProjectV2{items(first:100){nodes{
-      content{... on Issue{number title state issueType{name}
-        issueFieldValues(first:10){nodes{... on IssueFieldSingleSelectValue{name field{... on IssueFieldSingleSelect{name}}}}}}}
-      fieldValues(first:20){nodes{
+  PROJECT_ID="$PROJECT_ID" REPO="$REPO" BOARD_LIMIT="$BOARD_LIMIT" python3 -c '
+import json, os, subprocess, sys
+
+PROJECT_ID = os.environ["PROJECT_ID"]
+REPO = os.environ["REPO"]
+
+QUERY = """
+query($id: ID!, $after: String) {
+  node(id: $id) { ... on ProjectV2 { items(first: 100, after: $after) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      content { ... on Issue { number title state issueType { name }
+        issueFieldValues(first: 10) { nodes {
+          ... on IssueFieldSingleSelectValue { name field { ... on IssueFieldSingleSelect { name } } } } } } }
+      fieldValues(first: 20) { nodes {
         __typename
-        ... on ProjectV2ItemFieldSingleSelectValue{name field{... on ProjectV2FieldCommon{name}}}
-        ... on ProjectV2ItemFieldMultiSelectValue{options{name} field{... on ProjectV2FieldCommon{name}}}
-      }}
-  }}}}}" \
-    | python3 -c '
-import sys, json
+        ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } }
+        ... on ProjectV2ItemFieldMultiSelectValue { options { name } field { ... on ProjectV2FieldCommon { name } } }
+      } }
+    }
+  } } }
+}
+"""
+
+def run(cmd):
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    if p.returncode != 0:
+        sys.stderr.write(p.stderr)
+        sys.exit(p.returncode)
+    return json.loads(p.stdout)
+
+def page(after):
+    cmd = ["gh", "api", "graphql", "-f", "query=" + QUERY, "-f", "id=" + PROJECT_ID]
+    if after:
+        cmd += ["-f", "after=" + after]
+    return run(cmd)["data"]["node"]["items"]
+
+nodes, after = [], None
+while True:
+    items = page(after)
+    nodes.extend(items["nodes"])
+    info = items["pageInfo"]
+    if not info["hasNextPage"]:
+        break
+    after = info["endCursor"]
 
 def field_values(item):
     out = {}
@@ -127,7 +214,6 @@ def field_values(item):
             out[f] = v.get("name") or ""
     return out
 
-nodes = json.load(sys.stdin)["data"]["node"]["items"]["nodes"]
 rows = []
 for n in nodes:
     c = n.get("content") or {}
@@ -147,6 +233,33 @@ rows.sort(key=lambda r: (when_order.get(r[0], 4), prio_order.get(r[3], 4), -r[4]
 print("%-6s %-7s %-8s %-12s %-6s %s" % ("WHEN", "PRIO", "TYPE", "STATUS", "ISSUE", "TITLE"))
 for when, status, typ, prio, num, title in rows:
     print("%-6s %-7s %-8s %-12s %-6s %s" % (when or "-", prio or "-", typ or "-", status or "-", "#%d" % num, title[:48]))
+
+# The reconciliation. `orphans` reads the board through a different API and a
+# different limit, so the two commands could previously contradict each other
+# in the same breath — one reporting every open issue on the board while the
+# other silently omitted 23 of them. This makes that impossible to miss.
+shown = {r[4] for r in rows}
+# Capped the same way the board read is, and for the same reason: a silently
+# truncated count here would make the reconciliation itself the thing that
+# lies. Executed during review against a mock with 501 open issues: the old
+# `--limit 500` printed "500 shown, 500 open" with no warning while `orphans`
+# reported #501 missing — the exact two-commands-disagree symptom this fix
+# exists to end, reappearing inside the fix.
+ISSUE_LIMIT = int(os.environ["BOARD_LIMIT"])
+open_issues = run(["gh", "issue", "list", "--repo", REPO, "--state", "open",
+                   "--limit", str(ISSUE_LIMIT), "--json", "number"])
+if len(open_issues) >= ISSUE_LIMIT:
+    sys.stderr.write("error: gh issue list returned %d issues, at or above the --limit of %d; "
+                     "raise BOARD_LIMIT in scripts/dev/issues.sh\n" % (len(open_issues), ISSUE_LIMIT))
+    sys.exit(1)
+missing = sorted({i["number"] for i in open_issues} - shown)
+print()
+print("%d shown, %d open in %s" % (len(shown), len(open_issues), REPO))
+if missing:
+    print("WARNING: %d open issue(s) not shown above." % len(missing))
+    print("  Either they are not on the board (check: issues.sh orphans), or this")
+    print("  listing truncated. Both have happened; the counts above say which.")
+    print("  " + " ".join("#%d" % n for n in missing))
 '
 }
 
@@ -194,9 +307,11 @@ for f in json.load(sys.stdin)["data"]["organization"]["issueFields"]["nodes"]:
 
 cmd_orphans() {
   local on_board
-  on_board="$(gh project item-list "$PROJECT" --owner "$OWNER" --limit 200 --format json \
+  local items
+  items="$(board_items)" || die "could not read the board"
+  on_board="$(printf '%s' "$items" \
     | python3 -c 'import sys,json; [print(i["content"]["number"]) for i in json.load(sys.stdin).get("items",[]) if i.get("content",{}).get("number")]')"
-  gh issue list --repo "$REPO" --state open --limit 200 --json number,title \
+  gh issue list --repo "$REPO" --state open --limit "$BOARD_LIMIT" --json number,title \
     | python3 -c '
 import sys, json
 on = set(sys.argv[1].split())
