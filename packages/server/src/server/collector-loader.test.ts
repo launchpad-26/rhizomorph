@@ -117,6 +117,57 @@ describe('loadCollectors — resume reconciliation (#111)', () => {
   })
 })
 
+describe('loadCollectors — agent reconciliation (#418)', () => {
+  it('retires a folded agent absent from the first live poll, when the workmux snapshot is missing', async () => {
+    // The exact shape of the bug: this session's log already folds
+    // 'old-lane' to present — from a run that ended before this process
+    // ever polled — and workmux's own snapshot has no memory of that
+    // departure (a fresh boot, or a lost/pruned snapshot dir). workmux
+    // itself reports zero agents right now.
+    const nextId = createIdFactory('evt')
+    const priorEvents = [
+      createEvent(
+        'agent.status',
+        { handle: 'old-lane', status: 'working', branch: 'old-lane', worktreePath: '../old-lane', elapsedSeconds: 60 },
+        { id: nextId(), ts: 1000 },
+      ),
+    ]
+    const foldedBefore = reduceAll(priorEvents)
+    expect(foldedBefore.agents['old-lane']?.present).toBe(true)
+
+    const collectors = await loadCollectors({ warn: () => {} }, priorEvents)
+    const workmux = collectors.find((c) => c.name === 'workmux')
+    if (!workmux) throw new Error('workmux collector missing')
+
+    const emptyStatus: ExecResult = { stdout: 'WORKTREE  STATUS  ELAPSED  TITLE\n', stderr: '', code: 0, failed: false }
+    const emptyList: ExecResult = { stdout: 'BRANCH  AGE  AGENT  MUX  UNMERGED  PATH\n', stderr: '', code: 0, failed: false }
+    const exec: Exec = async (_command, args) => (args[0] === 'list' ? emptyList : emptyStatus)
+
+    function context(now: number): CollectorContext {
+      return {
+        repoPath: '/repo',
+        now,
+        exec,
+        nextId,
+        emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: now }),
+      }
+    }
+
+    const first = await workmux.poll(workmux.initialSnapshot(), context(2000))
+
+    expect(first.events).toEqual([expect.objectContaining({ type: 'agent.removed', payload: { handle: 'old-lane' } })])
+
+    const foldedAfter = reduceAll([...priorEvents, ...first.events])
+    expect(foldedAfter.agents['old-lane']?.present).toBe(false)
+
+    // Repetition: the wiring inherits the wrapper's own once-only latch, not
+    // just the unit test's — a second poll on the same collector, with the
+    // handle still missing, must not re-emit.
+    const second = await workmux.poll(first.nextSnapshot, context(3000))
+    expect(second.events).toHaveLength(0)
+  })
+})
+
 describe('loadCollectors — sessionlog (#240)', () => {
   let claudeProjectsRoot: string
 

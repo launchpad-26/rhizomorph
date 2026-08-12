@@ -230,6 +230,18 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   agent's last-known status (`working`, `waiting`, …) stood forever even
   though the worktree itself was never removed. `findAgent` now filters on
   `present` first, the same way the worktree and pane selectors already do.
+- **A resumed session with no workmux snapshot now retires its stale agents
+  too (#418).** `agent.removed` (#306) only fires from a live poll's
+  snapshot-to-snapshot diff; a session resumed with a missing or stale
+  workmux snapshot had nothing to diff against, so a lane folded away before
+  or during the restart stayed `present` for the rest of the session. The
+  first live poll after resume now reconciles the fold's still-present
+  handles against reality, the same way `withBranchReconciliation` (#139)
+  retires a ghost branch. The reconciliation's one-shot latch no longer
+  spends itself on a poll that failed transiently — a workmux hiccup on the
+  very first post-resume tick used to burn the shot for nothing and leave the
+  ghost `present` for the rest of the process; the wrapper now waits for a
+  poll that actually observed reality before latching.
 - **A departed workmux agent is now announced (#306).** `workmux status`
   failing for a reason other than a missing binary used to parse as an empty
   roster and drop every known agent with no event at all; a handle that
