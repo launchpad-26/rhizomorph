@@ -26,6 +26,7 @@
  * a second header.
  */
 
+import { missingTokenMessage, staleTokenMessage } from '../recordings/capability-guidance.js'
 import { CAPABILITY_TOKEN_HEADER, readCapabilityToken } from '../recordings/capability.js'
 
 export const ROTATE_URL = '/api/rotate'
@@ -90,12 +91,7 @@ export async function requestRotation(fetchImpl?: RotateFetchLike): Promise<Rota
   // never runs, so there is no token on the page to find.
   const capabilityToken = readCapabilityToken()
   if (capabilityToken === null) {
-    throw new Error(
-      'could not end the session — this page carries no capability token, and the instrument requires one. ' +
-        'The server stamps the token into the dashboard page as it serves it, so a page served some other way ' +
-        'never gets one: `npm run dev:web` serves it through vite, which skips that step. Run the built server ' +
-        '(`npm run dev:server`, or `npm run build` then `npm start`) and reload this page.',
-    )
+    throw new Error(missingTokenMessage('end the session'))
   }
 
   let response: Awaited<ReturnType<RotateFetchLike>>
@@ -114,11 +110,7 @@ export async function requestRotation(fetchImpl?: RotateFetchLike): Promise<Rota
   // after it. Before #234 this button simply worked across a restart; this is
   // the cost of the gate, said out loud rather than left to be discovered.
   if (response.status === 401) {
-    throw new Error(
-      `could not end the session — ${await refusalDetail(response)}. ` +
-        'The instrument mints that token fresh every time it starts, so a page left open across a restart ' +
-        'is holding one that has expired. Reload this page and try again.',
-    )
+    throw new Error(staleTokenMessage('end the session', await refusalDetail(response)))
   }
 
   if (!response.ok) throw new Error(`could not end the session — ${await refusalDetail(response)}`)

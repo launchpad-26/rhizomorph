@@ -36,10 +36,9 @@ because the path is absent. Read it as a check on who imports the lab
 dynamic `import()` calls, so the gap is the indirection rather than the
 syntax. Nothing in the tree enforces the boundary itself today, and #245
 tracks building something that would.
-Separately, and unlike `POST /api/label`, the launch route does not yet
-require the `x-rhizomorph-capability` token (only the Origin/Host/Content-Type
-guard below); tracked under #234. See the
-[Trust section](README.md#trust) for the full account.
+Since #234, the launch route requires the same `x-rhizomorph-capability`
+token `POST /api/label` does, on top of the Origin/Host/Content-Type guard
+below. See the [Trust section](README.md#trust) for the full account.
 
 If you find a code path that breaks either of those hands' fences — the
 observer writing to the watched repo, the laboratory writing outside its
@@ -97,21 +96,40 @@ the operator clicks (`packages/web/src/replay/mutating-calls-law.test.ts`
 enumerates them and fails on a fourth): rotating the current recording
 (`POST /api/rotate`), renaming a recording's label sidecar
 (`POST /api/label`), and dispatching a laboratory fork
-(`POST /api/lab/launch`). Every mutating request passes an Origin/Host/
-Content-Type guard (`packages/server/src/server/mutation-guard.ts`) so a
-foreign web page can't drive them cross-origin.
+(`POST /api/lab/launch`). Every mutating request — these three and the
+telemetry inbox below — passes an Origin/Host/Content-Type guard
+(`packages/server/src/server/mutation-guard.ts`) so a foreign web page can't
+drive them cross-origin.
 
-`POST /api/label` additionally requires `x-rhizomorph-capability`: a token
-minted fresh each boot, held in memory, and delivered in-band — stamped
-into `index.html`'s `<head>` as a `<meta>` tag at serve time, where the
-dashboard's own JS reads it back
-(`docs/adr/0012-in-band-capability-token-delivery.md`; the other two routes
-will adopt the same mechanism under #234). Stated plainly, what that buys and
-what it doesn't: a caller with no access to the served page — no browser,
-no ability to issue a loopback `GET /` — cannot rename anything; a local
-process that *can* fetch the page gets the token exactly as the browser
-does. A value handed to a page over unauthenticated loopback HTTP cannot
-be hidden from something that can already reach that page.
+All three dashboard-driven routes additionally require
+`x-rhizomorph-capability`: a token minted fresh each boot, held in memory,
+and delivered in-band — stamped into `index.html`'s `<head>` as a `<meta>`
+tag at serve time, where the dashboard's own JS reads it back
+(`docs/adr/0012-in-band-capability-token-delivery.md`). Stated plainly, what
+that buys and what it doesn't: a caller with no access to the served page —
+no browser, no ability to issue a loopback `GET /` — cannot mutate anything
+through them; a local process that *can* fetch the page gets the token
+exactly as the browser does. A value handed to a page over unauthenticated
+loopback HTTP cannot be hidden from something that can already reach that
+page.
+
+This server answers **six** mutating routes in total, not three — the other
+three are the OTLP telemetry inbox (`POST /v1/metrics`, `/v1/logs`,
+`/v1/traces`), and they are **deliberately ungated**, not an oversight
+(prd-23 ruling 6). Threading a per-process capability token into every
+lane's environment block would fail worse than not gating it at all: the
+token dies with the server on every restart while a lane's env block does
+not, so an ordinary restart would silently kill every already-running
+lane's telemetry — the invisible failure prd-19 exists to end. In place of a
+token, the inbox checks the resource attributes every accepted export must
+carry (the session id of the Rhizomorph instance it targets,
+`packages/server/src/api/otel.ts`) and refuses — recording a throttled
+`telemetry.refused` event, not merely dropping the request — anything
+declaring a different instance or none at all. All six mutating routes, and
+which of these two classes each falls into, are declared in one place —
+`packages/server/src/api/index.ts`'s `ROUTE_CLASSES` — walked by a test that
+fails the build if a new mutating route lands in neither class (prd-23
+ruling 5, `docs/adr/0014-exhaustive-route-classification.md`).
 
 ## Reporting a vulnerability
 

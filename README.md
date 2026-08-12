@@ -326,14 +326,19 @@ life, not a supported product with an SLA. If something's broken, file an
 issue with what you ran and what happened; if you'd like to fix it
 yourself, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-3,768 tests across 237 files (`npm test`), plus `npm run typecheck`, gate
-every change — [Ran] as of commit `e434e70`. Two scripts encode the landing
-discipline that keeps that green: `scripts/fence-lint.sh` checks a wave's
-declared issue fences *before* dispatch (vague fences, overlapping claims,
-gaps against a known coupling point); `scripts/gate.sh` is what a lane runs
-to land — fence compliance, a clean rebase, no NUL bytes, `npm test` +
-`npm run typecheck` green (optionally repeated under concurrent load to
-catch race-condition flakiness), then the actual merge to `main`.
+The full suite (`npm test`), plus `npm run typecheck`, gates every change —
+run `npm test` yourself for the current count rather than trust a number
+pinned here: nothing in this file enforces one staying current, and a
+literal count written here has already gone stale once (#238) and drifted
+again since. Two scripts encode the landing discipline that keeps the suite
+green: `scripts/fence-lint.sh` checks a wave's declared issue fences *before*
+dispatch (vague fences, overlapping claims, gaps against a known coupling
+point); `scripts/gate.sh` is the **operator's** landing step, not a lane's —
+fence compliance, a clean rebase, no NUL bytes, `npm test` + `npm run
+typecheck` green (optionally repeated under concurrent load to catch
+race-condition flakiness), then the actual merge to `main` and push. A
+lane's own job ends at a verified, gate-clean commit handed back for that
+landing step — see `AGENTS.md` for the working agreement this repo runs on.
 
 ---
 

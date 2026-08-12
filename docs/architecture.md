@@ -1981,11 +1981,13 @@ Mass on core selectors/reducers and collector parsers (fixtures captured
 from real command output). Light render tests on panels. The scene is
 verified by eyes, not units — said honestly. Merge gate: `npm test` +
 `npm run typecheck` green, enforced mechanically both by a workmux
-`pre_merge` hook and by `scripts/gate.sh` (fence compliance, a clean rebase,
-no NUL bytes, the test/typecheck gate itself, and the actual merge to
-`main`) — `scripts/fence-lint.sh` checks a wave's declared fences before any
-lane is dispatched against them. 3,768 tests across 237 files pass at commit
-`e434e70` (`npm test`), alongside a green `npm run typecheck`.
+`pre_merge` hook and by `scripts/gate.sh` — the operator's own landing step,
+not something a lane runs (fence compliance, a clean rebase, no NUL bytes,
+the test/typecheck gate itself, and the actual merge to `main`) —
+`scripts/fence-lint.sh` checks a wave's declared fences before any lane is
+dispatched against them. Run `npm test` yourself for the current test count
+rather than trust a number pinned here — this file has carried one that went
+stale before (#238), and it drifted again since.
 
 ## Decisions log
 

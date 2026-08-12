@@ -11,7 +11,7 @@ import { sessionDirFor } from '../log/paths.js'
 import { listSessions, readSessionEvents } from '../log/session-log.js'
 import { exec as realExec } from '../server/exec.js'
 import { captureCheckpoint } from './checkpoint.js'
-import { armLaneHandle, dispatchFork, findCheckpoint, workmuxAddArgv } from './fork.js'
+import { armLaneHandle, dispatchFork, findCheckpoint, MODEL_GRAMMAR, workmuxAddArgv } from './fork.js'
 import { labWorktreesRoot } from './paths.js'
 
 /** Hermetic under 4x concurrency: per-test `mkdtemp` root, pid+uuid ids, no shared state. */
@@ -160,31 +160,88 @@ describe('workmuxAddArgv', () => {
       const model = 'us.anthropic.claude-3-5-sonnet-20241022-v1:0'
       expect(workmuxAddArgv('h', { model })).toEqual(['add', 'h', '-b', '-a', `bash scripts/lane-agent.sh ${model}`])
     })
+
+    /**
+     * #405: this file pinned `MODEL_GRAMMAR` nowhere, so widening the
+     * `fork.ts` copy alone — exactly what #234's open item contemplates for
+     * Bedrock ARNs, which carry slashes — left every test here green while
+     * the two copies drifted. The grammar is asserted against directly, not
+     * only through `workmuxAddArgv`, so a change to the constant fails on the
+     * constant rather than somewhere downstream of it.
+     */
+    it('is the exact grammar api/lab.ts declares, and it admits no slash', () => {
+      expect(MODEL_GRAMMAR.source).toBe('^[A-Za-z0-9._:-]+$')
+
+      // The Bedrock ARN shape the open item is about. It is refused today;
+      // admitting it is a decision to be taken in both copies at once, and
+      // `model-grammar-law.test.ts` is what makes that simultaneous.
+      expect(MODEL_GRAMMAR.test('anthropic.claude-v2')).toBe(true)
+      expect(MODEL_GRAMMAR.test('arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2')).toBe(false)
+      expect(() => workmuxAddArgv('h', { model: 'anthropic/claude-v2' })).toThrow('"/"')
+    })
   })
 })
 
+/**
+ * The guard makes two separate ordering claims, and they need two separate
+ * tests — #405 found the single test that existed proving only the first.
+ *
+ * 1. It runs before `findCheckpoint`. Proved WITHOUT a seeded checkpoint: if
+ *    the guard moved below the lookup, `findCheckpoint` would throw its own
+ *    "no fork.checkpoint recorded" first and the `/refusing to launch/`
+ *    assertion goes red.
+ * 2. It runs before anything is RESTORED. That needs a seeded checkpoint, and
+ *    is why the second test exists. With no checkpoint on disk, execution
+ *    cannot reach the restore on either path, so `labWorktreesRoot` is absent
+ *    whether the guard ran or not — the assertion that used to live in test 1
+ *    could not tell the two apart and proved nothing (#405).
+ */
 describe('dispatchFork refuses a poisoned model before anything is restored (#234)', () => {
+  const neverRuns: Exec = async (command, argv) => {
+    throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
+  }
+
+  const poisoned = {
+    parentLane: 'parent-lane',
+    arms: 1,
+    model: 'opus; touch /tmp/pwned',
+    launch: true,
+  } as const
+
   it('throws before the checkpoint is even looked up — nothing forked, nothing executed', async () => {
-    const neverRuns: Exec = async (command, argv) => {
-      throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
-    }
+    // Deliberately no `capture()`: the refusal must beat the checkpoint
+    // lookup, so the lookup must be capable of failing on its own.
+    await expect(
+      dispatchFork({ ...poisoned, parentWorktreePath: repoDir, exec: neverRuns, dataRoot, claudeProjectsRoot }),
+    ).rejects.toThrow(/refusing to launch/)
+  })
+
+  it('restores nothing even when the checkpoint it would have used does exist', async () => {
+    // The checkpoint is seeded, so `findCheckpoint` succeeds and the only
+    // thing between the poisoned model and a restored worktree is the guard.
+    //
+    // The exec here RECORDS rather than throws, which is the whole point: a
+    // throwing stub aborts the restore at its first git call, so the refusal
+    // still arrives and every containment assertion passes vacuously — the
+    // stub, not the guard, did the work. Letting git actually run means a
+    // guard that fired too late leaves real evidence behind, and these
+    // assertions are what fail.
+    await capture()
+    const calls: string[][] = []
 
     await expect(
       dispatchFork({
-        parentLane: 'parent-lane',
+        ...poisoned,
         parentWorktreePath: repoDir,
-        arms: 1,
-        model: 'opus; touch /tmp/pwned',
-        launch: true,
-        exec: neverRuns,
         dataRoot,
         claudeProjectsRoot,
+        install: false,
+        exec: execWithStubs(calls, (command) => (command === 'workmux' ? OK : null)),
       }),
     ).rejects.toThrow(/refusing to launch/)
 
-    // No lab worktree root was created, so no arm was restored on the way to
-    // the refusal — the check really does run before the work.
-    await expect(readdir(labWorktreesRoot(dataRoot))).rejects.toThrow()
+    expect(calls, 'the refusal came after something had already been run').toEqual([])
+    await expect(readdir(labWorktreesRoot(dataRoot))).rejects.toThrow(/ENOENT/)
   })
 })
 

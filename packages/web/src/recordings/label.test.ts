@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { missingTokenMessage, staleTokenMessage } from './capability-guidance.js'
 import { CAPABILITY_META_NAME } from './capability.js'
 import { LABEL_URL, requestLabel, type LabelFetchLike } from './label.js'
 
@@ -70,12 +71,48 @@ describe('requestLabel', () => {
     meta?.remove()
     try {
       const fetchImpl = vi.fn(answering({ sessionId: '1000', label: 'x' }))
-      await expect(requestLabel('1000', 'x', fetchImpl)).rejects.toThrow(
-        'no capability token found on this page — cannot save the label',
-      )
+      // #406: the refusal names the remedy, not only the problem. Asserted
+      // against the shared copy rather than a literal, so this test cannot
+      // drift out of agreement with the two sibling callers.
+      await expect(requestLabel('1000', 'x', fetchImpl)).rejects.toThrow(missingTokenMessage('save the label'))
       expect(fetchImpl).not.toHaveBeenCalled()
     } finally {
       if (meta) document.head.appendChild(meta)
+    }
+  })
+
+  /**
+   * #406. The stale-token path — a tab left open across a server restart —
+   * is the failure an operator is most likely to hit, and until now it fell
+   * into the generic `!response.ok` branch and produced a true, useless
+   * sentence about a header they never knew existed.
+   *
+   * Two assertions, because either alone is survivable: that the server's own
+   * account still crosses back verbatim, AND that the remedy was added after
+   * it. A test asserting only "reload this page" would pass on a branch that
+   * threw the guidance away and lost what the instrument actually said.
+   */
+  it('turns a 401 into something an operator can act on, without discarding the server\'s own sentence (#406)', async () => {
+    const fetchImpl = answering({ error: 'missing or invalid x-rhizomorph-capability header' }, 401)
+
+    await expect(requestLabel('1000', 'x', fetchImpl)).rejects.toThrow(
+      staleTokenMessage('save the label', 'missing or invalid x-rhizomorph-capability header'),
+    )
+    await expect(requestLabel('1000', 'x', fetchImpl)).rejects.toThrow(/missing or invalid x-rhizomorph-capability/)
+    await expect(requestLabel('1000', 'x', fetchImpl)).rejects.toThrow(/reload this page/i)
+  })
+
+  it('leaves every other refusal on the generic branch — the 401 case is specific, not a catch-all (#406)', async () => {
+    // The sibling case for the branch above: a 403 or a 500 must NOT be
+    // dressed up as an expired token, or the guidance becomes noise that
+    // sends operators to reload a page over an unrelated failure.
+    for (const status of [403, 404, 500]) {
+      await expect(requestLabel('1000', 'x', answering({ error: 'nope' }, status))).rejects.toThrow(
+        'could not save the label — nope',
+      )
+      await expect(requestLabel('1000', 'x', answering({ error: 'nope' }, status))).rejects.not.toThrow(
+        /reload this page/i,
+      )
     }
   })
 })
