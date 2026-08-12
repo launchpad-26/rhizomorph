@@ -1,7 +1,18 @@
 # Fleet config — The Rhizomorph build day (2026-07-30).
-# Ruling: workers run with skipped permissions in isolated worktrees
-# (throwaway repo, no secrets, non-root user).
-agent: claude --model sonnet --dangerously-skip-permissions
+#
+# The 2026-07-30 ruling — workers run with skipped permissions in isolated
+# worktrees (throwaway repo, no secrets, non-root user) — was WITHDRAWN by the
+# operator on 2026-08-13. Lanes ask. A lane that reaches an approval prompt goes
+# to `waiting` and sits there, which is the correct outcome for a dispatched
+# agent rather than something to route around: a lane with nobody to ask should
+# stop and be asked about. The sidebar is how you see it waiting.
+#
+# `claude-study` is ~/.local/bin/claude-study — a real executable, NOT a zsh
+# alias. workmux launches the agent outside the pane command's shell, so an
+# alias resolves to nothing there. It runs Claude Code under its own config
+# directory (~/.claude-study) so lane state never mixes with the operator's own
+# session, and it carries no permission flags.
+agent: claude-study
 
 merge_strategy: merge   # keep the DAG visible — the Rhizomorph renders it
 
