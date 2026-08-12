@@ -161,6 +161,19 @@
   with the machine's own credentials, discovers local repos, and retargets the
   watched repo in place. Harness picker built for N with claude first-class;
   adapter contract stays prd15 ruling 4's.
+- **prd21 — the scrub bar** (`docs/prds/prd-21-scrub-bar.md`, proposed
+  2026-08-07, never blessed, ruling 1 shipped anyway): replay that moves
+  smoothly, says where it is, and opens to the full record at a point. Profiling
+  overturned the obvious diagnosis — #160's incremental fold is sub-millisecond
+  at every size, and the cost is `buildFleet`, which is O(telemetry records) and
+  over the frame budget even on a four-lane session. **Ruling 1 landed in full**
+  (#267's incremental spend cursor in core, then #269's seek coalescing, #270's
+  1000-notch step, #271's 10 fps tick), leaving two open defects found by verify
+  passes afterwards: #364 and #395. **Ruling 2 — the loupe, reading raw events
+  past the mark lane's cap — is not built** (#273), still gated on three of the
+  PRD's own open questions, alongside the unruled readability half (#272).
+  Numbered 21 at the operator's direction: prd18 stays reserved for prd17's
+  richer-UI thread.
 
 ## Unclaimed candidates (cohort-facing)
 
