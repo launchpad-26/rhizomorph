@@ -24,7 +24,7 @@ describe('buildRecord', () => {
     expect(record.body).toHaveLength(events.length)
   })
 
-  it('holds the log lines verbatim — a round trip through the body reproduces the exact events', () => {
+  it('round-trips — parsing every body line back reproduces the exact events, and the same fold', () => {
     const events = fixtureSession()
     const record = buildRecord(events, { repoSlug: 'rhizomorph-abc123', actor: ACTOR })
 

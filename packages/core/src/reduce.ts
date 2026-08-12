@@ -398,7 +398,6 @@ function paneDiscovered(state: SessionState, event: EventOf<'pane.discovered'>):
     lastContentChangeTs: prev?.lastContentChangeTs ?? null,
     contentHash: prev?.contentHash ?? null,
     activityCount: prev?.activityCount ?? 0,
-    preview: prev?.preview ?? null,
   }
   return { ...state, panes: { ...state.panes, [p.paneId]: pane } }
 }
@@ -424,7 +423,6 @@ function paneActivity(state: SessionState, event: EventOf<'pane.activity'>): Ses
     lastActivityTs: event.ts,
     lastContentChangeTs: event.ts,
     activityCount: prev.activityCount + 1,
-    preview: p.preview ?? prev.preview,
   }
   return { ...state, panes: { ...state.panes, [p.paneId]: pane } }
 }
@@ -1414,6 +1412,5 @@ function stubPane(paneId: string, ts: number): PaneState {
     lastContentChangeTs: null,
     contentHash: null,
     activityCount: 0,
-    preview: null,
   }
 }

@@ -97,7 +97,6 @@ export interface PaneState {
   lastContentChangeTs: number | null
   contentHash: string | null
   activityCount: number
-  preview: string | null
 }
 
 export interface AgentState {

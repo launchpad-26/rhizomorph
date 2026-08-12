@@ -24,7 +24,7 @@ describe('pane liveness', () => {
   const state = reduceAll([
     f.paneDiscovered({ paneId: '%1', windowName: 'a', worktreePath: wt('a') }, { ts: T0 }),
     f.paneDiscovered({ paneId: '%2', windowName: 'b', worktreePath: wt('b') }, { ts: T0 }),
-    f.paneActivity({ paneId: '%1', contentHash: 'h', preview: 'npm test' }, { ts: T0 + 9 * MINUTE }),
+    f.paneActivity({ paneId: '%1', contentHash: 'h' }, { ts: T0 + 9 * MINUTE }),
     f.paneActivity({ paneId: '%2', contentHash: 'h' }, { ts: T0 + 1 * MINUTE }),
   ])
 
@@ -39,7 +39,6 @@ describe('pane liveness', () => {
       idleMs: MINUTE,
       lastActivityTs: T0 + 9 * MINUTE,
       present: true,
-      preview: 'npm test',
     })
     expect(index['%2']).toMatchObject({ status: 'flatline', idleMs: 9 * MINUTE })
   })

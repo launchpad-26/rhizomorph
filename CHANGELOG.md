@@ -142,6 +142,29 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   portable (the rationale lives on `LOOPBACK_HOSTNAMES` in
   `packages/server/src/server/mutation-guard.ts`).
 
+### Removed
+
+- **`pane.activity` no longer carries `preview` (#292).** The tmux
+  collector used to put the last non-empty line of every `capture-pane`
+  into the event, which meant a stranger's terminal text was written to the
+  session log and exported verbatim into a hash-chained record — an
+  artefact that, by construction, cannot be redacted after the fact.
+  `contentHash` and `lines` already carried every signal the fleet reads
+  (the flatline detector compares hashes; nothing rendered the preview), so
+  nothing on screen changes. Recordings made before this remain readable:
+  the field is ignored on parse, the line still folds, and an old session
+  still exports as a complete, verifying record — the value is stripped,
+  not the line dropped. One consequence worth stating: re-exporting a
+  *pre-change* session after this lands yields a different `chainDigest`
+  than an export taken before it, because a record's body is re-serialized
+  from parsed events rather than copied from the log's bytes. Files already
+  on disk are unaffected. #292's definition of done asks that any override
+  path leave a record of having been used; there is no override here,
+  because there is no scan and no gate to override — the boundary is the
+  event schema itself, enforced at parse time. See
+  [SECURITY.md](SECURITY.md#what-a-shared-record-contains) for what a
+  shared record does still contain.
+
 ### Changed
 
 - **`rhizomorph rotate` now needs the dashboard to be built (#234).** The

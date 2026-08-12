@@ -376,7 +376,7 @@ describe('detection honesty', () => {
       event('worktree.discovered', { path: '/repo-wt/q', branch: 'q', head: 'sha-q', isMain: false }, NOW - 600_000),
       event('pane.discovered', { paneId: '%9', windowName: 'q', currentPath: '/repo-wt/q', worktreePath: '/repo-wt/q' }, NOW - 600_000),
       event('worktree.dirty', { path: '/repo-wt/q', branch: 'q', files: [{ path: 'a.ts', status: 'modified' }] }, NOW - 130_000),
-      event('pane.activity', { paneId: '%9', contentHash: 'h1', preview: 'Do you want to proceed?' }, NOW - 5_000),
+      event('pane.activity', { paneId: '%9', contentHash: 'h1' }, NOW - 5_000),
     ]
 
     const fleet = buildFleet(reduceAll(log), { now: NOW })
@@ -481,7 +481,7 @@ describe('the second witness: telemetry recency alongside pane stillness', () =>
       event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 20 * 60_000),
       event('worktree.discovered', { path: '/repo-wt/f', branch: HANDLE, head: 'sha-f', isMain: false }, NOW - 20 * 60_000),
       event('pane.discovered', { paneId: '%40', windowName: HANDLE, currentPath: '/repo-wt/f', worktreePath: '/repo-wt/f' }, NOW - 20 * 60_000),
-      event('pane.activity', { paneId: '%40', contentHash: 'h0', preview: 'delegating to Explore…' }, NOW - 12 * 60_000),
+      event('pane.activity', { paneId: '%40', contentHash: 'h0' }, NOW - 12 * 60_000),
       event('agent.status', { handle: HANDLE, status: 'working', worktreePath: '/repo-wt/f', branch: HANDLE }, NOW - 12 * 60_000),
       span(HANDLE, '/repo-wt/f', NOW - 4_000),
     ]
@@ -506,7 +506,7 @@ describe('the second witness: telemetry recency alongside pane stillness', () =>
       event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 20 * 60_000),
       event('worktree.discovered', { path: '/repo-wt/g', branch: HANDLE, head: 'sha-g', isMain: false }, NOW - 20 * 60_000),
       event('pane.discovered', { paneId: '%41', windowName: HANDLE, currentPath: '/repo-wt/g', worktreePath: '/repo-wt/g' }, NOW - 20 * 60_000),
-      event('pane.activity', { paneId: '%41', contentHash: 'h0', preview: 'delegating to Explore…' }, NOW - 15 * 60_000),
+      event('pane.activity', { paneId: '%41', contentHash: 'h0' }, NOW - 15 * 60_000),
       event('agent.status', { handle: HANDLE, status: 'working', worktreePath: '/repo-wt/g', branch: HANDLE }, NOW - 15 * 60_000),
       // Older than `SPAN_WITNESS_WINDOW_MS`: too old to speak for the lane
       // now, so it must not rescue it either.
@@ -533,7 +533,7 @@ describe('the second witness: telemetry recency alongside pane stillness', () =>
       event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 20 * 60_000),
       event('worktree.discovered', { path: '/repo-wt/j', branch: HANDLE, head: 'sha-j', isMain: false }, NOW - 20 * 60_000),
       event('pane.discovered', { paneId: '%42', windowName: HANDLE, currentPath: '/repo-wt/j', worktreePath: '/repo-wt/j' }, NOW - 20 * 60_000),
-      event('pane.activity', { paneId: '%42', contentHash: 'h0', preview: '$ ' }, NOW - 15 * 60_000),
+      event('pane.activity', { paneId: '%42', contentHash: 'h0' }, NOW - 15 * 60_000),
     ]
 
     const fleet = buildFleet(reduceAll(log), { now: NOW })
