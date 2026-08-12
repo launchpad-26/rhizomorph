@@ -7,11 +7,16 @@ import { copyToClipboard, type CopyText } from '../drawer/AttachButton.js'
 import { formatWallClock } from '../replay/format.js'
 import { buildLinks, portFrom, tally, type ChainLink, type LinkState } from './links.js'
 import { fetchDoctor, fetchMeta, isRenderableTs, UNAVAILABLE, type DoctorFact, type FetchLike, type MetaFacts } from './meta.js'
+import { SampleFleetControl } from './sample.js'
 
 /**
  * THE CONNECT PAGE — THE HANDSHAKE CHECKLIST (prd19 rulings 3, 5 and 7, wave
  * 3, #258). `/connect`, the fourth nav hand, now that wave 2's fence
  * (#252's placeholder) has a page to hold.
+ *
+ * `SampleFleetControl` (`sample.tsx`), mounted in the header below, turns
+ * ruling 6's synthetic fleet into a button instead of a keyboard secret
+ * (wave 3, #259).
  *
  * One row per link in the chain, each rendering exactly one of VERIFIED /
  * BROKEN / UNPROVEN. The derivation is all in `links.ts` — this file is the
@@ -58,9 +63,25 @@ export interface ConnectPageProps {
    * live on its own; this interval only refreshes what a GET can answer —
    * doctor's filesystem facts and meta's capabilities — so a slug directory
    * created, or a collector that recovered, shows up without a reload.
-   * `GET /api/doctor` single-flights and caches for 3s behind exactly this
-   * (`api/doctor.ts`'s `PROBE_CACHE_TTL_MS`). `0` disables the interval; a
-   * test pins its own facts instead of racing a timer.
+   *
+   * **#344:** `GET /api/doctor` single-flights and caches for
+   * `PROBE_CACHE_TTL_MS` (`api/doctor.ts`, 15s) — deliberately three times
+   * `DEFAULT_REFRESH_MS`, not "behind" it as an earlier comment here claimed.
+   * A cache hit never pushes out its own expiry, so an entry always expires
+   * on the clock of the probe that created it; that makes it *this*
+   * interval's job to stay under the TTL, never the other way round. At 5s
+   * against 15s, a page polling alone reuses the last probe twice (no new
+   * `tmux`/`workmux`/`claude --version` spawns) and pays for a fresh one on
+   * the third. "Alone" is load-bearing: the cache is one per server, shared
+   * by every caller, so a second tab or a `curl` opens the window on its own
+   * clock and this page then hits on some other cadence. The guarantee that
+   * survives any number of callers is the probe *rate* — at most one real
+   * probe per TTL — which is the reason the single-flight exists. Push this
+   * to or past the TTL — or drop the TTL to or below this — and every one of
+   * this page's polls misses again, same as before #344.
+   * `index.test.tsx`'s "#344 — the two numbers, held together" reads both
+   * constants out of the source and fails if either moves alone. `0` disables
+   * the interval; a test pins its own facts instead of racing a timer.
    */
   refreshMs?: number
   /** Test seam for `window.location` — the port every command interpolates. */
@@ -103,7 +124,16 @@ const DOCTOR_CLASS: Record<DoctorFact['status'], string> = {
   fail: 'text-broken',
 }
 
-export function ConnectPage({ fetchImpl, onCopy = copyToClipboard, now, refreshMs = 5000, location }: ConnectPageProps = {}) {
+/**
+ * The interval this page actually ships with. Named and exported so the
+ * relationship #344 is about — this value against `PROBE_CACHE_TTL_MS` — can
+ * be asserted rather than described, and so a test can drive the shipped
+ * default instead of a number it chose itself (which is how the old mismatch
+ * survived: every test passed its own `refreshMs`).
+ */
+export const DEFAULT_REFRESH_MS = 5000
+
+export function ConnectPage({ fetchImpl, onCopy = copyToClipboard, now, refreshMs = DEFAULT_REFRESH_MS, location }: ConnectPageProps = {}) {
   const { state, status, provenance, source } = useStream()
   const mode = useMode()
   const [meta, setMeta] = useState<MetaFacts | null>(null)
@@ -166,6 +196,7 @@ export function ConnectPage({ fetchImpl, onCopy = copyToClipboard, now, refreshM
         <span className="text-[11px] text-ice-400">
           every link in the chain, and the fact that proves it — this page reads, and never writes
         </span>
+        <SampleFleetControl />
         <span data-testid="connect-tally" className="figures ml-auto text-[11px] text-ice-400">
           <span className="text-working">{counts.verified} verified</span>
           {' · '}
@@ -370,7 +401,7 @@ function DoctorPanel({ checks }: { checks: DoctorFact[] | null }) {
       </h2>
       {checks === null ? (
         <p data-testid="connect-doctor-unavailable" className="mt-1 text-[11px] italic text-ice-400">
-          {UNAVAILABLE} — this server did not answer the doctor route
+          {UNAVAILABLE} — this server did not answer the doctor route, or answered with a body this page could not read
         </p>
       ) : (
         <ul className="mt-1 flex flex-col gap-1 text-[11px]">
