@@ -74,9 +74,10 @@
   what a colour, shape, or motion class means.
 - **prd11 — the causal record** (`docs/prds/done/prd-11-causal-record.md`, shipped): provenance at
   file granularity (`tool.activity`'s optional `filePath`/`toolUseId`) and
-  the portable session record — a manifest, the event log's own lines
-  verbatim, and a hash chain closing in the manifest's digest, specified in
-  full in [docs/record-format.md](record-format.md). Built toward a future
+  the portable session record — a manifest, the event log's own events
+  re-serialized one line each, and a hash chain closing in the manifest's
+  digest, specified in full in
+  [docs/record-format.md](record-format.md). Built toward a future
   "forest" (a multiplayer instrument with persistent cross-coworker
   knowledge) as a merge later, not a rewrite, but the forest itself is not
   built here.

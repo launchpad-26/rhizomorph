@@ -6,11 +6,12 @@ import { describe, expect, it } from 'vitest'
  * prd9 ruling 5 names `user.email`, `user.account_*` and `organization.id`
  * as identity-relevant by the product's own reckoning (the parser allowlist
  * is what keeps them out of stored state); the record format's laws say a
- * record ships exactly what the log contains, verbatim. A captured OTel
- * fixture is exactly that kind of log — so a real account/org identifier
- * checked into `fixtures/` is a leak the moment the repo goes public, even
- * though no parser ever reads the field. This law makes that structurally
- * checked instead of relying on a human catching it at capture time.
+ * record ships what the log contains, filtered only by the event schema. A
+ * captured OTel fixture is exactly that kind of log — so a real account/org
+ * identifier checked into `fixtures/` is a leak the moment the repo goes
+ * public, even though no parser ever reads the field. This law makes that
+ * structurally checked instead of relying on a human catching it at capture
+ * time.
  *
  * Grep-law style: real source text over the fixture files, no schema, no
  * OTLP envelope assumptions — so it also catches a leak in a fixture whose

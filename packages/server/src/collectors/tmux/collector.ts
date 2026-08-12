@@ -1,5 +1,5 @@
 import type { AdapterCapabilities, Collector, CollectorContext, RhizomorphEvent, PollResult } from '@rhizomorph/core'
-import { countLines, hashPaneContent, lastNonEmptyLine } from './capture.js'
+import { countLines, hashPaneContent } from './capture.js'
 import { LIST_PANES_FORMAT, parseListPanes } from './list-panes.js'
 import { resolveWorktreePath } from './worktree.js'
 import { voiceSkips } from '../parse-skip.js'
@@ -153,7 +153,6 @@ export const tmuxCollector: Collector<TmuxSnapshot> = {
             contentHash,
             previousHash: prevPane?.contentHash ?? null,
             lines: countLines(captureResult.stdout),
-            preview: lastNonEmptyLine(captureResult.stdout),
           }),
         )
       }

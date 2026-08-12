@@ -431,7 +431,7 @@ describe('reduce — panes and agents', () => {
   it('advances last activity on each content delta', () => {
     const state = reduceAll([
       f.paneDiscovered({ paneId: '%1' }, { ts: 100 }),
-      f.paneActivity({ paneId: '%1', contentHash: 'h1', preview: 'npm test' }, { ts: 200 }),
+      f.paneActivity({ paneId: '%1', contentHash: 'h1' }, { ts: 200 }),
       f.paneActivity({ paneId: '%1', contentHash: 'h2' }, { ts: 300 }),
     ])
     expect(state.panes['%1']).toMatchObject({
@@ -439,7 +439,6 @@ describe('reduce — panes and agents', () => {
       lastActivityTs: 300,
       lastContentChangeTs: 300,
       activityCount: 2,
-      preview: 'npm test',
     })
   })
 

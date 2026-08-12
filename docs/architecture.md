@@ -33,7 +33,7 @@ v0 event types:
   (uncommitted changed-file set — what makes collision warnings *early*,
   before commits exist)
 - **tmux:** `pane.discovered/closed` · `pane.activity` (content-hash delta
-  per poll)
+  per poll — never the pane's text)
 - **workmux:** `agent.status` (working/waiting/done)
 - **system:** `session.started` · `collector.error/disabled`
 
@@ -1555,9 +1555,12 @@ rewrite. Two do-now pieces:
 - **The portable record — federation-first from its first field.**
   `packages/core/src/record/` (build, hash, merge, verify, schema) is one
   file: a manifest (schema version, repo slug, actor identity, time range,
-  event count), the event log's own lines verbatim, and a per-line hash
-  chain closing in the manifest's digest — integrity-checked now,
-  signature-ready (the manifest reserves the field). `rhizomorph
+  event count), one line per event re-serialized through the current event
+  schema (not a copy of the log's bytes, so a field the schema has since
+  dropped never reaches a new record; files already written keep their own
+  lines), and a per-line hash chain closing in the manifest's digest —
+  integrity-checked now, signature-ready (the manifest reserves the
+  field). `rhizomorph
   export-record` writes it; `rhizomorph replay <record>` serves a foreign
   record read-only through the existing replay machinery. The wire shape
   itself is specified in [`docs/record-format.md`](record-format.md); prd16

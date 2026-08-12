@@ -186,6 +186,20 @@ never silently dropped either — it's counted and preserved byte-for-byte,
 and replay says so in words (`"N events from a newer era were preserved but
 not understood (...)"`) rather than pretending nothing happened.
 
+**What's in it, before you hand it to anyone:** no captured tmux pane
+content enters an event — the collector derives a content hash and a line
+count from a `capture-pane` and discards the text, so `pane.activity` says
+*that* a pane changed and when, never *what* it said. A log recorded before
+that was true (#292) may hold a `preview` line; it's stripped on the way
+into any record built now, and the record still verifies. But a record is
+not a redacted artefact: it still carries pane and window titles, absolute
+paths including your home directory and username, commit subjects with the
+author's name and email, branch and lane names, stderr from failed git or
+tmux commands, and symbol names from your own diff. Nothing scans it for
+secrets, and a hash-chained body can't be cleaned up afterwards. Read one
+before you share it — [SECURITY.md](SECURITY.md#what-a-shared-record-contains)
+has the full list.
+
 **Where it writes it:** the exact path is printed at boot —
 `watching <repo> — N worktrees, M branches · recording to <path>` — so you
 never have to go looking for it.

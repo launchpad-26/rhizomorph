@@ -66,6 +66,41 @@ describe('exportRecording', () => {
     expect(outcome.fileName).toBe('repo-1000.rhizorecord.json')
   })
 
+  /**
+   * #292, on the browser's own export path. This one does NOT go through the
+   * CLI's `parseJsonl`: `fetchSessionEvents` reads the API's JSON with
+   * `parseEventLenient` (`replay/api.ts`), a different reader, and hands the
+   * result to the same `buildRecord`. A pre-change session replayed in a tab
+   * and downloaded must strip the captured line exactly as the CLI does —
+   * otherwise the leak just moves to the button.
+   */
+  it('strips a legacy pane.activity `preview` out of the downloaded record', async () => {
+    const { env } = fakeDownloadEnv()
+    const legacy = {
+      v: 1,
+      id: 'e2',
+      ts: 2000,
+      source: 'tmux',
+      type: 'pane.activity',
+      payload: { paneId: '%1', contentHash: 'h1', lines: 42, preview: 'sk-live-SENTINEL-9f2a' },
+    }
+    const fetchImpl: FetchLike = (async (url: string) => {
+      if (url === '/api/meta') {
+        return { ok: true, status: 200, json: async () => ({ repoName: 'demo' }) } as Response
+      }
+      return { ok: true, status: 200, json: async () => ({ events: [...EVENTS, legacy] }) } as Response
+    }) as FetchLike
+
+    const outcome = await exportRecording('1000', fetchImpl, env)
+
+    // Stripped, not dropped — both lines are still in the record.
+    expect(outcome.record.manifest.eventCount).toBe(2)
+    const serialized = JSON.stringify(outcome.record)
+    expect(serialized).not.toContain('sk-live-SENTINEL-9f2a')
+    expect(serialized).not.toContain('preview')
+    expect(outcome.record.body[1]?.line).toContain('"contentHash":"h1"')
+  })
+
   it('throws rather than silently exporting nothing when /api/meta refuses', async () => {
     const { env } = fakeDownloadEnv()
     const fetchImpl = (async () => ({ ok: false, status: 500, json: async () => ({}) })) as unknown as FetchLike
