@@ -247,19 +247,25 @@ const SOURCE_LABEL: Record<SourceKey, string> = {
   otel: 'OTel',
 }
 
-type SourceHealth = 'live' | 'waiting' | 'disabled' | 'errored'
+type SourceHealth = 'live' | 'waiting' | 'disabled' | 'degraded' | 'errored'
 
 /**
  * Law 9: only `errored` is a real ladder rung here (`buildFleet` climbs an
  * errored collector to NOTICE), so only it may wear a ladder hue. `live` is
  * the calm, neutral ice register; `waiting` and `disabled` share the same
  * muted mark the ice ramp reserves for "absent" — an unproven source is an
- * expected degrade, same as a deliberately-off one, never an alarm.
+ * expected degrade, never an alarm. `degraded` (ruling 2's honest middle,
+ * #304) shares `errored`'s hue family — it is the same self-reported-fault
+ * notice, not a different meaning — but never wears the glow: it is still
+ * answering, only retrying, and ambient-only by the leads' own call (never
+ * escalates to the ladder), so it must read calmer than a collector that is
+ * actually broken.
  */
 const HEALTH_DOT_CLASS: Record<SourceHealth, string> = {
   live: 'bg-calm glow-calm',
   waiting: 'bg-ice-700',
   disabled: 'bg-ice-700',
+  degraded: 'bg-notice',
   errored: 'bg-notice glow-notice',
 }
 
@@ -295,10 +301,16 @@ function sourceStatus(collector: CollectorState | undefined, flow: SourceFlow): 
       ? { health: 'waiting', message: 'no data yet' }
       : { health: 'live', message: null }
   }
-  if (collector.status === 'disabled') {
-    return { health: 'disabled', message: collector.disabledReason }
+  switch (collector.status) {
+    case 'disabled':
+      return { health: 'disabled', message: collector.disabledReason }
+    case 'degraded-retrying':
+      return { health: 'degraded', message: collector.lastErrorMessage }
+    case 'healthy':
+      return { health: 'live', message: null }
+    case 'error':
+      return { health: 'errored', message: collector.lastErrorMessage }
   }
-  return { health: 'errored', message: collector.lastErrorMessage }
 }
 
 export interface StatusBarProps {
@@ -326,10 +338,14 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
   // sources have proved flow.
   const connection = useMemo(() => selectConnection(session), [session])
 
-  // Law 12: WHAT is missing → WHY it matters → THE command. Only the dead
-  // (disabled) collectors speak here; a merely errored one already reads
-  // `errored` in the pill above and has escalated to the strip separately.
-  const deadCollectorGaps = fleet.gaps.filter((gap) => gap.id.startsWith('collector-disabled:'))
+  // Law 12: WHAT is missing → WHY it matters → THE command. The dead
+  // (disabled) and the actively-retrying (degraded-retrying, ruling 2's
+  // honest middle, #304) speak here; a merely one-off errored collector
+  // already reads `errored` in the pill above and has escalated to the
+  // strip separately.
+  const collectorGaps = fleet.gaps.filter(
+    (gap) => gap.id.startsWith('collector-disabled:') || gap.id.startsWith('collector-degraded:'),
+  )
 
   return (
     <div className="flex flex-col gap-1 border-t border-ice-850 bg-ice-950 px-4 py-1.5 text-xs">
@@ -384,9 +400,9 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
         </span>
       </div>
 
-      {deadCollectorGaps.length > 0 ? (
+      {collectorGaps.length > 0 ? (
         <ul className="flex flex-col gap-0.5" aria-label="Collector gaps">
-          {deadCollectorGaps.map((gap) => (
+          {collectorGaps.map((gap) => (
             <li
               key={gap.id}
               role="status"

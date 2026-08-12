@@ -3,6 +3,12 @@ import type { LaneManifest } from './fences.js'
 import type { Gap, Lane } from './types.js'
 
 // ── gap voice (law 12) ──────────────────────────────────────────────────────
+//
+// A collector speaks here in two of its four statuses: `disabled` (dead) and
+// `degraded-retrying` (ruling 2's honest middle, #304 — answering, but
+// retrying after consecutive failures). `healthy` and a one-off `error` stay
+// silent here by design: `error` already escalates through the ladder
+// (`ladder.ts`), and a collector that never failed has nothing to report.
 
 export function buildGaps(
   state: SessionState,
@@ -63,13 +69,21 @@ export function buildGaps(
   }
 
   for (const collector of Object.values(state.collectors)) {
-    if (collector.status !== 'disabled') continue
-    add(
-      `collector-disabled:${collector.name}`,
-      `${collector.name.toUpperCase()} COLLECTOR DISABLED`,
-      collector.disabledReason ?? 'source unavailable',
-      'rhizomorph doctor',
-    )
+    if (collector.status === 'disabled') {
+      add(
+        `collector-disabled:${collector.name}`,
+        `${collector.name.toUpperCase()} COLLECTOR DISABLED`,
+        collector.disabledReason ?? 'source unavailable',
+        'rhizomorph doctor',
+      )
+    } else if (collector.status === 'degraded-retrying') {
+      add(
+        `collector-degraded:${collector.name}`,
+        `${collector.name.toUpperCase()} COLLECTOR DEGRADED`,
+        collector.lastErrorMessage ?? 'retrying after failures',
+        'rhizomorph doctor',
+      )
+    }
   }
 
   return gaps

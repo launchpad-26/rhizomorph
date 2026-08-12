@@ -38,6 +38,13 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **The honest middle gets a voice (prd-22 ruling 2, #304).** A collector that is
+  answering but degraded — retrying after consecutive failures, not yet disabled —
+  now reads `degraded` in the provenance bar's per-source pill (distinct from a dead
+  `disabled` source and from a one-off `errored` blip) and speaks the same
+  what/why/`rhizomorph doctor` gap voice a disabled collector already does. It stays
+  ambient: unlike `error`, it never escalates to the attention strip, since it may
+  self-heal on the very next poll.
 - **`export-record --force` (#298).** An explicit `--out` that already
   exists is now refused with an error naming `--force`, which overwrites;
   the flagless default artifact is regenerable and always refreshes.
@@ -229,6 +236,11 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   alternatives (including why the issue's own suggested ENOENT check would
   have been wrong) in
   [ADR-0016](docs/adr/0016-prunable-not-enoent-proves-a-worktree-gone.md).
+- **A recovered collector's pill no longer sticks on `errored` forever (#304).**
+  A collector that had failed and then recovered (`status: 'healthy'`) used to
+  read `errored` in the provenance bar forever, with its last (stale) error
+  message still shown on hover — the pill never got the self-heal news. It now
+  reads `live`, silently, the moment `collector.recovered` folds.
 - **C-quoted git paths round-trip (#237).** `git status --porcelain` C-quotes any
   path with a space or non-ASCII byte, and `git log --raw` quotes non-ASCII;
   both parsers took the quoted slice verbatim, so a file as ordinary as
