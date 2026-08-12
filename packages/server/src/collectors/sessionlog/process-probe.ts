@@ -1,5 +1,6 @@
 import { readFile, readdir, readlink } from 'node:fs/promises'
 import path from 'node:path'
+import type { CapabilityDetail } from '@rhizomorph/core'
 
 /**
  * Process aliveness — input (c) of the transcript-tail state machine
@@ -22,7 +23,9 @@ import path from 'node:path'
  * 2. **argv-only identity.** A pid alone is not a lane. A process counts only
  *    when its argv names a known agent CLI **and** its cwd is the lane's
  *    worktree — so a recycled pid, or an unrelated shell sitting in the same
- *    directory, cannot impersonate a live agent.
+ *    directory, cannot impersonate a live agent. "Names a known agent CLI" is
+ *    argv[0], or — when argv[0] is a known interpreter — any later argument;
+ *    see {@link matchesAgentCommand} for why argv[0] alone fabricated deaths.
  * 3. **Unknown is never death.** Every failure path — no `/proc`, an
  *    unreadable one, a platform with no equivalent — returns `null`, not
  *    `false`. `lane-state.ts` may only escalate to GONE on an explicit
@@ -101,6 +104,50 @@ export interface ProcessProbe {
  */
 export const AGENT_COMMANDS = ['claude', 'codex', 'pi'] as const
 
+/**
+ * argv[0] basenames that front a script rather than being the program — the
+ * reason {@link matchesAgentCommand} looks past argv[0] at all.
+ */
+export const AGENT_INTERPRETERS = ['node', 'node.exe', 'bun', 'deno', 'python', 'python3'] as const
+
+/**
+ * Does this argv belong to an agent CLI?
+ *
+ * **argv[0] alone is not enough, and getting that wrong fabricates a death.**
+ * An agent CLI is frequently a JS entry point started as
+ * `node /path/to/claude`, whose argv[0] basename is `node`. Matching argv[0]
+ * only returned `false` for such a lane — not `null` — and `false` is the one
+ * answer `lane-state.ts` may escalate to GONE on. So the miss did not degrade a
+ * reading to the honest weaker claim; it reported a live, mid-turn agent as
+ * dead, which is precisely what rule 3 above exists to forbid.
+ *
+ * The interpreter arm is deliberately permissive: behind a known interpreter,
+ * ANY later argument naming an agent counts. That direction is the safe one
+ * *for this probe*, and the asymmetry is the whole argument — a miss invents a
+ * death, while a spurious match only leaves a stalled lane reading FROZEN,
+ * which rule 3 already calls the weaker and honest answer. Being clever about
+ * which argument is "really" the script (skipping flags, knowing which flags
+ * take values) would buy precision in the direction that does not matter and
+ * risk misses in the direction that does.
+ *
+ * What keeps it honest is the guard, not the scan: only a known interpreter at
+ * argv[0] opens the rest of argv to matching, so `vim claude` is still not a
+ * running agent. And the caller pairs this with rule 2's other half — the
+ * process's cwd must be the lane's worktree — which no argv confusion can
+ * satisfy on its own.
+ */
+export function matchesAgentCommand(
+  argv: readonly string[],
+  commands: ReadonlySet<string>,
+  interpreters: ReadonlySet<string> = new Set(AGENT_INTERPRETERS),
+): boolean {
+  const leader = argv[0]
+  if (leader === undefined) return false
+  if (commands.has(path.basename(leader))) return true
+  if (!interpreters.has(path.basename(leader))) return false
+  return argv.slice(1).some((argument) => commands.has(path.basename(argument)))
+}
+
 export interface ProcProcessProbeOptions {
   /** Overridable so tests can point at a fabricated procfs. Never written to. */
   procRoot?: string
@@ -173,8 +220,7 @@ export function createProcProcessProbe(options: ProcProcessProbeOptions = {}): P
         // it is the whole of "argv-only": no shell string is ever reassembled,
         // so no quoting or NUL byte escapes this function.
         const argv = cmdline.split('\0').filter((part) => part.length > 0)
-        const command = argv[0]
-        if (command === undefined || !commands.has(path.basename(command))) continue
+        if (!matchesAgentCommand(argv, commands)) continue
 
         for (const worktreePath of matches) result.set(worktreePath, true)
       }
@@ -207,4 +253,64 @@ export const UNKNOWN_PROCESS_PROBE: ProcessProbe = {
  */
 export function defaultProcessProbe(platform: NodeJS.Platform = process.platform): ProcessProbe {
   return platform === 'linux' ? createProcProcessProbe() : UNKNOWN_PROCESS_PROBE
+}
+
+/**
+ * **Why** a platform answers `null`, in ADR-0010's vocabulary — additive, and
+ * deliberately so.
+ *
+ * The behaviour above is already honest: rule 3 returns `null` rather than
+ * `false` everywhere this build cannot look, and `defaultProcessProbe` picks
+ * the honest unknown for every non-Linux platform. What it could not do is say
+ * *why*, so a caller had a bare `null` and no way to tell "no reader is built
+ * for macOS" from "the reader ran and the table was unreadable". Both are
+ * unknown; only one of them is a missing platform leg.
+ *
+ * This is the same move ADR-0010 made against ADR-0004 — a new optional
+ * declaration alongside an untouched contract, rather than an amendment to it.
+ * Nothing here changes what {@link defaultProcessProbe} returns, and
+ * {@link UNKNOWN_PROCESS_PROBE} is still one shared instance.
+ *
+ * **`absent` here means "this build cannot see", not "no process is there".**
+ * That distinction is the whole point: a consumer must map a capability of
+ * `absent` onto a *reading* of unknown, never onto a reading of absent. The
+ * harness detector does exactly that, and its tests assert that a blind
+ * platform can never produce an "absent" answer about a harness.
+ *
+ * The strategies named in `remedy` are the ones the platform section above
+ * already records. They stay unbuilt behind prd15 ruling 7: a platform leg
+ * lands *behind a capture*, and a reader written from `man` pages would
+ * validate our reading of the man page rather than the machine.
+ */
+export function processProbeCapability(platform: NodeJS.Platform = process.platform): CapabilityDetail {
+  switch (platform) {
+    case 'linux':
+      // Native and complete for Linux-side processes, WSL2 included — the one
+      // leg verified on a real machine (79 pids enumerated; see above).
+      return { level: 'provided' }
+    case 'darwin':
+      return {
+        level: 'absent',
+        reason: 'macOS has no /proc, and this build ships no reader for its equivalent',
+        remedy:
+          'two read-only base-system reads, behind a capture (prd15 ruling 7): `ps -axo pid=,command=` for argv, ' +
+          'and `lsof -a -p <pid> -d cwd -Fn` for the working directory, which macOS exposes only through libproc',
+      }
+    case 'win32':
+      return {
+        level: 'absent',
+        reason:
+          'Windows native has no /proc, and this build ships no reader for it; note that even a built one could ' +
+          'match argv but not working directory, which Windows does not expose for another process',
+        remedy:
+          'argv via `Get-CimInstance Win32_Process` (or `tasklist /v`), read-only, behind a capture (prd15 ruling 7); ' +
+          'cwd attribution would be declared a capability the Windows leg lacks rather than guessed',
+      }
+    default:
+      return {
+        level: 'absent',
+        reason: `no process-table reader is built for ${platform}`,
+        remedy: 'name a read-only strategy for this platform and land it behind a capture (prd15 ruling 7)',
+      }
+  }
 }
