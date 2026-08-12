@@ -84,6 +84,28 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
         }
       }
 
+      if (statusResult.failed) {
+        // Ruling 3, direction 1: a non-ENOENT failure (workmux itself errored —
+        // a corrupted session index, a dead server) is a transient, not proof
+        // every agent vanished. Carry the roster forward and let withResilience's
+        // own degraded/disabled ladder (ruling 2, already wired at the loader
+        // seam) decide how many consecutive misses this survives, instead of
+        // parsing empty stdout and reading that as "zero agents."
+        return {
+          nextSnapshot: { ...prevSnapshot, disabled: true },
+          events: [
+            context.emit('collector.disabled', {
+              collector: 'workmux',
+              reason:
+                statusResult.errorMessage ??
+                (statusResult.stderr.trim().length > 0
+                  ? statusResult.stderr.trim()
+                  : 'workmux status exited non-zero'),
+            }),
+          ],
+        }
+      }
+
       const statusRows = parseStatusTable(statusResult.stdout)
 
       const listResult = await context.exec('workmux', ['list'])
@@ -103,8 +125,10 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
 
       const nextAgents: WorkmuxSnapshot['agents'] = {}
       const events: RhizomorphEvent[] = []
+      const seenHandles = new Set<string>()
 
       for (const row of statusRows) {
+        seenHandles.add(row.handle)
         const statusCheck = agentStatusSchema.safeParse(row.status)
         if (!statusCheck.success) {
           events.push(
@@ -113,6 +137,11 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
               message: `unrecognised agent status '${row.status}' for handle '${row.handle}'`,
             }),
           )
+          // Ruling 4 (quarantine one record, never the collector) must not
+          // collide with ruling 3: a malformed row is not proof its handle is
+          // gone, so carry the last known agent forward if there was one.
+          const existingAgent = prevSnapshot.agents[row.handle]
+          if (existingAgent) nextAgents[row.handle] = existingAgent
           continue
         }
         const status = statusCheck.data
@@ -142,6 +171,15 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
         }
 
         nextAgents[row.handle] = { status, branch, worktreePath }
+      }
+
+      // Ruling 3, direction 2: a handle workmux no longer lists at all, in an
+      // otherwise successful, well-formed poll, is genuinely gone — announce it
+      // once, the same trailing-diff shape diffWorktrees uses for `worktree.removed`.
+      for (const handle of Object.keys(prevSnapshot.agents)) {
+        if (!seenHandles.has(handle)) {
+          events.push(context.emit('agent.removed', { handle }))
+        }
       }
 
       return { nextSnapshot: { disabled: false, agents: nextAgents }, events }

@@ -203,8 +203,11 @@ export interface AgentState {
   branch: string | null
   elapsedSeconds: number | null
   detail: string | null
+  /** False once `agent.removed` has been seen; the record is kept for replay. */
+  present: boolean
   firstSeenAt: number
   updatedAt: number
+  removedAt: number | null
   /**
    * prd12 ruling 3: present and `true` exactly when this handle is a fork arm
    * — set by the existence of a `fork.dispatched` naming it, and never unset.

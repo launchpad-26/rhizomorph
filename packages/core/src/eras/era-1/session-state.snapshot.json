@@ -6,7 +6,9 @@
       "elapsedSeconds": 3660,
       "firstSeenAt": 1785933399716,
       "handle": "190",
+      "present": true,
       "previousStatus": null,
+      "removedAt": null,
       "status": "done",
       "updatedAt": 1785933399716,
       "worktreePath": "../rhizomorph__worktrees/190"
@@ -17,7 +19,9 @@
       "elapsedSeconds": 3000,
       "firstSeenAt": 1785933399716,
       "handle": "191",
+      "present": true,
       "previousStatus": null,
+      "removedAt": null,
       "status": "done",
       "updatedAt": 1785933399716,
       "worktreePath": "../rhizomorph__worktrees/191"
@@ -28,7 +32,9 @@
       "elapsedSeconds": 1,
       "firstSeenAt": 1785933924461,
       "handle": "194",
+      "present": true,
       "previousStatus": null,
+      "removedAt": null,
       "status": "working",
       "updatedAt": 1785933924461,
       "worktreePath": "../rhizomorph__worktrees/194"

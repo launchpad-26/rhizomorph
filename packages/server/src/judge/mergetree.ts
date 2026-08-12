@@ -1,4 +1,5 @@
 import type { Exec } from '@rhizomorph/core'
+import { describeExecFailure } from '../server/exec.js'
 
 /**
  * prd11 ruling 6b, phase 1 — the structural judge organ's speculative-merge
@@ -84,6 +85,6 @@ export async function speculativeMergeTree(options: MergeTreeOptions): Promise<M
   }
 
   throw new Error(
-    `git merge-tree failed unexpectedly for "${branchA}" vs "${branchB}" (code ${result.code}): ${result.errorMessage ?? result.stderr}`,
+    `git merge-tree failed unexpectedly for "${branchA}" vs "${branchB}" (code ${result.code}): ${describeExecFailure(result)}`,
   )
 }

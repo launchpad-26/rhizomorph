@@ -188,4 +188,119 @@ describe('createWorkmuxCollector', () => {
 
     expect(result.events[0]?.payload).toMatchObject({ branch: null, worktreePath: null })
   })
+
+  // --- ruling 3 (prd-22, #306): gone vs unchanged, in both directions -------
+
+  it('direction 1 — a non-ENOENT status failure carries the roster forward instead of emptying it', async () => {
+    const collector = createWorkmuxCollector()
+    const exec = fakeExec({
+      status: [
+        ok(fixture('status-mixed.txt')),
+        { stdout: '', stderr: 'workmux: session index corrupted', code: 1, failed: true },
+      ],
+      list: [ok('BRANCH  AGE  AGENT  MUX  UNMERGED  PATH\n')],
+    })
+    const context = makeContext(exec)
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    expect(first.events).toHaveLength(4)
+
+    const second = await collector.poll(first.nextSnapshot, context)
+    expect(second.events).toEqual([
+      expect.objectContaining({
+        type: 'collector.disabled',
+        payload: expect.objectContaining({
+          collector: 'workmux',
+          reason: expect.stringContaining('session index corrupted'),
+        }),
+      }),
+    ])
+    expect(second.nextSnapshot.agents).toEqual(first.nextSnapshot.agents)
+    expect(second.nextSnapshot.disabled).toBe(true)
+    expect(second.events.some((event) => event.type === 'agent.removed')).toBe(false)
+  })
+
+  it('direction 1 — repeated non-ENOENT failures keep carrying the same roster, never announcing a removal', async () => {
+    const collector = createWorkmuxCollector()
+    const failure = { stdout: '', stderr: 'workmux: session index corrupted', code: 1, failed: true }
+    const exec = fakeExec({
+      status: [ok(fixture('status-mixed.txt')), failure, failure],
+      list: [ok('BRANCH  AGE  AGENT  MUX  UNMERGED  PATH\n')],
+    })
+    const context = makeContext(exec)
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    // `withResilience` resets `disabled: false` on every attempt in production
+    // (resilience.ts) — simulated here the same way the missing-binary test
+    // above does not need to, since that path never sets `disabled` back.
+    const second = await collector.poll({ ...first.nextSnapshot, disabled: false }, context)
+    const third = await collector.poll({ ...second.nextSnapshot, disabled: false }, context)
+
+    expect(second.nextSnapshot.agents).toEqual(first.nextSnapshot.agents)
+    expect(third.nextSnapshot.agents).toEqual(first.nextSnapshot.agents)
+    expect([...second.events, ...third.events].every((event) => event.type === 'collector.disabled')).toBe(true)
+  })
+
+  it('direction 2 — a handle that drops out of a successful poll is announced gone, once', async () => {
+    const collector = createWorkmuxCollector()
+    const exec = fakeExec({
+      status: [ok(fixture('status-mixed.txt')), ok(fixture('status-mixed-no-git.txt'))],
+      list: [ok(fixture('list-working.txt')), ok(fixture('list-working.txt'))],
+    })
+    const context = makeContext(exec)
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    expect(Object.keys(first.nextSnapshot.agents)).toHaveLength(4)
+
+    const second = await collector.poll(first.nextSnapshot, context)
+    expect(second.events).toEqual([
+      expect.objectContaining({ type: 'agent.removed', payload: { handle: '3-git-collector' } }),
+    ])
+    expect(Object.keys(second.nextSnapshot.agents).sort()).toEqual(
+      ['2-core', '4-tmux-collector', '5-workmux-collector'].sort(),
+    )
+  })
+
+  it('direction 2 — an already-gone handle is not re-announced on a later poll', async () => {
+    const collector = createWorkmuxCollector()
+    const exec = fakeExec({
+      status: [
+        ok(fixture('status-mixed.txt')),
+        ok(fixture('status-mixed-no-git.txt')),
+        ok(fixture('status-mixed-no-git.txt')),
+      ],
+      list: [ok(fixture('list-working.txt')), ok(fixture('list-working.txt')), ok(fixture('list-working.txt'))],
+    })
+    const context = makeContext(exec)
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    const second = await collector.poll(first.nextSnapshot, context)
+    expect(second.events).toHaveLength(1)
+
+    const third = await collector.poll(second.nextSnapshot, context)
+    expect(third.events).toEqual([])
+  })
+
+  it('a quarantined malformed row is not read as proof its handle is gone', async () => {
+    const collector = createWorkmuxCollector()
+    const zombieStatus =
+      'WORKTREE             STATUS   ELAPSED  TITLE\n' +
+      '2-core               working  12m      ⠂ Implement core event schema and reducer\n' +
+      '3-git-collector      zombie   1m       stuck\n' +
+      '4-tmux-collector     done     9m       ✓ tmux collector complete\n' +
+      '5-workmux-collector  working  5m       ⠐ Implement workmux collector with status parsing\n'
+    const exec = fakeExec({
+      status: [ok(fixture('status-mixed.txt')), ok(zombieStatus)],
+      list: [ok(fixture('list-working.txt')), ok(fixture('list-working.txt'))],
+    })
+    const context = makeContext(exec)
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    const second = await collector.poll(first.nextSnapshot, context)
+
+    expect(second.events).toHaveLength(1)
+    expect(second.events[0]).toMatchObject({ type: 'collector.error', payload: { collector: 'workmux' } })
+    expect(second.events.some((event) => event.type === 'agent.removed')).toBe(false)
+    expect(second.nextSnapshot.agents['3-git-collector']).toEqual(first.nextSnapshot.agents['3-git-collector'])
+  })
 })
