@@ -26,6 +26,7 @@
  * #249 and `replay/rotate.ts` now does too.
  */
 
+import { missingTokenMessage, staleTokenMessage } from '../../recordings/capability-guidance.js'
 import { CAPABILITY_TOKEN_HEADER, readCapabilityToken } from '../../recordings/capability.js'
 
 export const LAUNCH_URL = '/api/lab/launch'
@@ -134,12 +135,7 @@ export async function requestLaunch(request: LaunchRequest, fetchImpl?: LaunchFe
   // serves index.html itself, so the server's injection never runs.
   const capabilityToken = readCapabilityToken()
   if (capabilityToken === null) {
-    throw new Error(
-      'could not launch — this page carries no capability token, and the instrument requires one. ' +
-        'The server stamps the token into the dashboard page as it serves it, so a page served some other way ' +
-        'never gets one: `npm run dev:web` serves it through vite, which skips that step. Run the built server ' +
-        '(`npm run dev:server`, or `npm run build` then `npm start`) and reload this page.',
-    )
+    throw new Error(missingTokenMessage('launch'))
   }
 
   let response: Awaited<ReturnType<LaunchFetchLike>>
@@ -159,11 +155,7 @@ export async function requestLaunch(request: LaunchRequest, fetchImpl?: LaunchFe
   // the operator has configured every arm and read a spend estimate, so a
   // refusal that doesn't say "reload" costs them all of it twice.
   if (response.status === 401) {
-    throw new Error(
-      `could not launch — ${await refusalDetail(response)}. ` +
-        'The instrument mints that token fresh every time it starts, so a page left open across a restart ' +
-        'is holding one that has expired. Reload this page and try again.',
-    )
+    throw new Error(staleTokenMessage('launch', await refusalDetail(response)))
   }
 
   if (!response.ok) throw new Error(`could not launch — ${await refusalDetail(response)}`)

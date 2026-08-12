@@ -13,6 +13,7 @@ import { readSessionLabel } from '../../../server/src/log/label.js'
 import { sessionFileName } from '../../../server/src/log/paths.js'
 import { buildApp } from '../../../server/src/server/build-app.js'
 import { SessionRecorder } from '../../../server/src/server/recorder.js'
+import { missingTokenMessage } from './capability-guidance.js'
 import { CAPABILITY_META_NAME } from './capability.js'
 import { type LabelFetchLike, requestLabel } from './label.js'
 
@@ -128,11 +129,18 @@ describe('the rename seam: served page → real client → real gate (#249)', ()
     document.querySelector(`meta[name="${CAPABILITY_META_NAME}"]`)?.setAttribute('content', '0'.repeat(64))
 
     // The server's phrase, not the client's — /capability token/ alone would
-    // also match the client's own "no capability token found" refusal, and
-    // this test's whole claim is that the SERVER's sentence crossed back.
+    // also match the client's own missing-token refusal, and this test's
+    // whole claim is that the SERVER's sentence crossed back.
+    //
+    // Since #406 this is also the end-to-end proof of the 401 branch: the
+    // gate really answers 401, the client really wraps it, and the wrapping
+    // really preserves what the instrument said. A branch that replaced the
+    // server's sentence with guidance instead of appending to it fails here,
+    // against a real gate rather than a stubbed status code.
     await expect(requestLabel('1000', 'renamed', transportOnly(app))).rejects.toThrow(
       /missing or invalid x-rhizomorph-capability/,
     )
+    await expect(requestLabel('1000', 'renamed', transportOnly(app))).rejects.toThrow(/reload this page/i)
     expect(await readSessionLabel(sessionDir, '1000')).toBeNull()
   })
 
@@ -140,9 +148,10 @@ describe('the rename seam: served page → real client → real gate (#249)', ()
     document.querySelector(`meta[name="${CAPABILITY_META_NAME}"]`)?.remove()
     const transport = vi.fn(transportOnly(app))
 
-    await expect(requestLabel('1000', 'renamed', transport)).rejects.toThrow(
-      'no capability token found on this page — cannot save the label',
-    )
+    // #406 replaced this caller's terse refusal with the shared one the two
+    // sibling callers already used. Still the client's own words, still
+    // before the wire — now naming the remedy as well as the problem.
+    await expect(requestLabel('1000', 'renamed', transport)).rejects.toThrow(missingTokenMessage('save the label'))
     expect(transport).not.toHaveBeenCalled()
   })
 })
