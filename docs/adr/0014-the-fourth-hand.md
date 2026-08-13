@@ -188,9 +188,14 @@ spellings a text law cannot see is only ever as long as the last person to look.
 **Bad — the strictness has a cost other lanes will pay.** "No non-literal
 dynamic `import()` anywhere in server source" is a constraint on files this hand
 does not own. It holds today (the one dynamic import in the tree is a literal),
-and a future lane that needs a computed specifier must either name it as a
-declared exception or lose the soundness of the reachability check. That
-friction is intended, and it is friction.
+and a future lane that needs a computed specifier must widen clause 2's own
+exemption and argue for it in review — there is no declared-exception
+mechanism today, so the set such a lane would name starts, and may stay,
+empty. (This sentence used to promise a mechanism the law never got — found in
+review of #351's re-review, #374 — the same shape `ALLOWED_IMPORTERS` gives
+clause 1, but clause 2 has no analogue of it, and the fix here is naming that
+rather than building one nobody has needed yet.) That friction is intended,
+and it is friction.
 
 **Bad — the fourth hand is the one whose command the operator wrote.** A mistake
 in the lab runs a command the lab itself chose from a fixed list; a mistake here

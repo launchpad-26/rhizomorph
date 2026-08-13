@@ -249,6 +249,24 @@ function importSpecifiers(code: string): string[] {
  */
 const DYNAMIC_CALL_RE = /\b(?:import|require)\s*\(\s*([^)]*)/g
 
+/**
+ * Scans `code` from just past a literal's opening quote for the first
+ * UNESCAPED instance of that same quote character. Returns its index, or -1
+ * if the literal never closes.
+ */
+function matchingQuoteIndex(code: string, openQuoteIndex: number, quote: string): number {
+  let i = openQuoteIndex + 1
+  while (i < code.length) {
+    if (code[i] === '\\') {
+      i += 2
+      continue
+    }
+    if (code[i] === quote) return i
+    i++
+  }
+  return -1
+}
+
 function nonLiteralDynamicSpecifiers(code: string): string[] {
   const out: string[] = []
   for (const match of code.matchAll(DYNAMIC_CALL_RE)) {
@@ -257,17 +275,30 @@ function nonLiteralDynamicSpecifiers(code: string): string[] {
     // A literal is a quote, then no further quote of that kind until the close.
     const quote = argument[0]
     if (quote === "'" || quote === '"' || quote === '`') {
-      const rest = argument.slice(1)
-      const end = rest.indexOf(quote)
-      // Two things that LOOK like a literal but are not, and both matter here:
-      // `'./x.js' + suffix` is a literal that has been concatenated, and
-      // `` `./${slug}.js` `` is a template whose real specifier is decided at
-      // runtime. Clause 1's regex happily reads the literal TEXT of the second
-      // one — which is why it catches `` import(`../concierge/${x}.js`) `` — but
-      // reading the text is not the same as knowing where it resolves, so a
-      // template with a substitution in it is still a blind edge.
-      const interpolated = quote === '`' && rest.slice(0, end < 0 ? rest.length : end).includes('${')
-      if (end >= 0 && !interpolated && rest.slice(end + 1).trim().length === 0) continue
+      // DYNAMIC_CALL_RE stops at the first `)`, so a literal containing one —
+      // `import('./(group)/foo.js')` — truncates `argument` mid-string, before
+      // its own closing quote. Re-scanning the full `code` from the literal's
+      // true start (rather than trusting where the capture happened to stop)
+      // finds the real closing quote regardless of what the literal contains
+      // (#374 — review of #351 found this reads a correct route-group path as
+      // an unanalysable specifier, a false CI failure on legitimate code).
+      const argStart = (match.index ?? 0) + match[0].length - match[1]!.length
+      const closeQuote = matchingQuoteIndex(code, argStart, quote)
+      if (closeQuote >= 0) {
+        let after = closeQuote + 1
+        while (after < code.length && /\s/.test(code[after]!)) after++
+        // Two things that LOOK like a literal but are not, and both matter here:
+        // `'./x.js' + suffix` is a literal that has been concatenated, and
+        // `` `./${slug}.js` `` is a template whose real specifier is decided at
+        // runtime. Clause 1's regex happily reads the literal TEXT of the second
+        // one — which is why it catches `` import(`../concierge/${x}.js`) `` —
+        // but reading the text is not the same as knowing where it resolves, so
+        // a template with a substitution in it is still a blind edge.
+        const interpolated = quote === '`' && code.slice(argStart + 1, closeQuote).includes('${')
+        // A plain literal call has nothing between the closing quote and the
+        // call's own closing paren.
+        if (!interpolated && code[after] === ')') continue
+      }
     }
     out.push(argument)
   }
@@ -782,6 +813,24 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
       expect(nonLiteralDynamicSpecifiers(codeOf('// a variable import like import(`./${slug}`) is banned\n'))).toEqual(
         [],
       )
+    })
+
+    it('and does not fire on a literal specifier that itself contains a `)` — #374', () => {
+      // `DYNAMIC_CALL_RE` stops capturing at the first `)`, which used to
+      // truncate this literal mid-string and read it as unterminated — a
+      // false CI failure on a route-group path several frameworks spell this
+      // way. Mutation check: this line fails against the pre-#374 capture
+      // (`rest.indexOf(quote)` on the truncated argument returns -1), and the
+      // genuinely-computed sibling directly below must keep failing.
+      expect(nonLiteralDynamicSpecifiers(`const m = await import('./(group)/foo.js')`)).toEqual([])
+      expect(nonLiteralDynamicSpecifiers('const m = await import(`./(group)/foo.js`)')).toEqual([])
+      expect(nonLiteralDynamicSpecifiers(`const m = require('./(group)/foo.js')`)).toEqual([])
+      // The genuinely computed sibling — a parenthesis in the literal text
+      // before the substitution must never become a way to smuggle a computed
+      // specifier past this detector. (The reported text is still truncated
+      // at the first `)`, same as any other multi-`)` argument; only whether
+      // it fires is this issue's concern.)
+      expect(nonLiteralDynamicSpecifiers('const m = await import(`./(${slug})/foo.js`)')).not.toEqual([])
     })
   })
 
