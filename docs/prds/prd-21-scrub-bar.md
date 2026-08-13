@@ -243,31 +243,47 @@ of the closed `docs/prd21-scrub-bar` branch.
 | seek-path frame coalescing (web half) | #269 | 2026-08-10 |
 | the 1000-notch step | #270 | 2026-08-10 |
 | the 10 fps playback tick | #271 | 2026-08-11 |
+| the exemption's frame bound | #364 | 2026-08-13 |
+| resume-after-pause, pinned | #395 | 2026-08-13 |
 
-Two defects in that work were found afterwards by verify passes and remain open:
-**#364** (the free-fold exemption survives a session switch, so two seeks can
-fold in one frame — a breach of the one-derive-per-frame ceiling #269's own doc
-comment states as an invariant) and **#395** (resume-after-pause is correct but
-untested; two redundant guards make the gap invisible to single-point mutation
-testing).
+Two defects in that work were found afterwards by verify passes and closed on
+2026-08-13: **#364** (the free-fold exemption survived a session switch, so two
+seeks could fold in one frame — a breach of the one-derive-per-frame ceiling
+#269's own doc comment states as an invariant) and **#395** (resume-after-pause
+was correct but untested; two redundant guards made the gap invisible to
+single-point mutation testing).
 
-### Ruling 2 — not built
+### Ruling 2 — landed 2026-08-13
 
-**#273** is open and is not merely unstarted: three of this document's own open
-questions still gate it — what triggers the loupe, how it handles payloads that
-vary by orders of magnitude, and the neighbourhood width. They want an operator
-ruling recorded on the issue before dispatch.
+**#273** is built. The three open questions this document left were resolved on
+the day: the operator ruled the **trigger** — zooming past the mark lane's cap,
+which becomes a threshold rather than a stop — and left the **neighbourhood
+width** (a fixed event count) and **payload handling** (truncate-and-declare) as
+implementation defaults to be judged running rather than in the abstract. Two
+further rulings followed the verify pass on PR #430: the loupe keeps its in-grid
+form with a halved height ceiling, and it keeps reading `value` rather than
+growing a `derivedTs` prop for a cost measured at 1–7% of a frame. All four are
+recorded on #273.
 
-**#272** (absolute time, and the scrub instant's facts scattered across four
-rows) is also open. It belongs to neither ruling — it is the readability half of
-the operator's original report, which this document scoped but never ruled on.
+**#272** landed beside it. It belongs to neither ruling — it is the readability
+half of the operator's original report, which this document scoped but never
+ruled on; the operator ruled it directly on 2026-08-13 (an always-on axis *and*
+a readout at the thumb, because the axis alone fixes the missing clock and
+leaves the scattering).
 
 Both fences were amended on 2026-08-13, before any change: #272 widened to
 include the three sibling test files, #273 narrowed from the whole of
-`packages/web/src/tide/` to the new module plus `TideDock.tsx` and their tests,
-so that a diff reaching the mark lane's own modules fails the fence audit and
-that failure carries ruling 2's "the coalescing law and its cap are untouched".
-The two share `TideDock.tsx` and must not run as concurrent lanes.
+`packages/web/src/tide/` to the new module plus `TideDock.tsx` and their tests.
+
+**That narrowing did not do what it was justified as doing, and the record
+should say so.** The stated reason was that putting `chapters.ts`,
+`markCoalesce.ts`, `eventSpacing.ts` and `ChapterMarks.tsx` outside the fence
+would make ruling 2 mechanically checkable — a diff reaching them *being* the
+breach signal. The first cut of #273 breached the ruling anyway, with all four
+files untouched and the fence audit passing cleanly: the mark lane was re-laid
+through `TideDock`'s own `window_`, which is inside the fence. A fence over the
+lane's *modules* cannot check a law about the lane's *window*. Caught by the
+verify pass on PR #430, not by the audit.
 
 ### One correction to the evidence
 

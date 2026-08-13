@@ -169,9 +169,11 @@
   over the frame budget even on a four-lane session. **Ruling 1 landed in full**
   (#267's incremental spend cursor in core, then #269's seek coalescing, #270's
   1000-notch step, #271's 10 fps tick), leaving two open defects found by verify
-  passes afterwards: #364 and #395. **Ruling 2 — the loupe, reading raw events
-  past the mark lane's cap — is not built** (#273), still gated on three of the
-  PRD's own open questions, alongside the unruled readability half (#272).
+  passes afterwards, both closed 2026-08-13: #364 and #395. **Ruling 2 — the
+  loupe, reading raw events past the mark lane's cap — landed** (#273): the
+  operator ruled the trigger on 2026-08-13 and left the neighbourhood width and
+  payload handling as defaults to be judged running, with the readability half
+  (#272) beside it.
   Numbered 21 at the operator's direction: prd18 stays reserved for prd17's
   richer-UI thread.
 
