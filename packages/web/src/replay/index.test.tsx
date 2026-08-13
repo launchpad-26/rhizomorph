@@ -165,12 +165,12 @@ describe('ReplayControls', () => {
     // position — the assertion follows them rather than being relaxed.
     fireEvent.change(scrubber, { target: { value: '2000' } })
     await waitFor(() =>
-      expect(screen.getByTestId('scrubber-readout').textContent).toContain('1 worktrees'),
+      expect(screen.getByTestId('scrubber-readout').textContent).toMatch(/\b1 worktrees\b/),
     )
 
     fireEvent.change(scrubber, { target: { value: '3000' } })
     await waitFor(() =>
-      expect(screen.getByTestId('scrubber-readout').textContent).toContain('2 worktrees'),
+      expect(screen.getByTestId('scrubber-readout').textContent).toMatch(/\b2 worktrees\b/),
     )
   })
 
