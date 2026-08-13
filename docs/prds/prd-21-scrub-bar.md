@@ -1,6 +1,6 @@
 # prd21 — the scrub bar moves smoothly, reads its position, and opens to the full record at a point
 
-> **Outcome:** proposed 2026-08-07, never blessed. **Ruling 1 shipped in full; ruling 2 has not been built and is still blocked on three unruled questions.** See [Outcome](#outcome--closed-out-2026-08-13) at the foot of this file for what landed, what did not, and one correction to the evidence below.
+> **Outcome:** proposed 2026-08-07, never blessed; closed out 2026-08-13. **Everything shipped — ruling 1 in full, then ruling 2 and the readability half later the same day, in the same change (#430) that landed this document.** See [Outcome](#outcome--closed-out-2026-08-13) at the foot of this file, and the postscript beneath it, for what landed in what order and one correction to the evidence below.
 
 **Status:** PROPOSED — operator report 2026-08-07, evidence measured the same
 day. Sequenced after prd13 (the TIDE, whose dock this modifies). Numbered 21 at
@@ -317,3 +317,19 @@ Answered by events rather than by a ruling: **two.** The smoothness half shipped
 inside four days. The readability half and the loupe are still open six days
 later, one of them blocked on questions this document left open. They were
 independent wins and they proved it.
+
+### Postscript — later the same day (2026-08-13)
+
+The closeout above describes the tree as it stood when this document was
+authored for landing — and the change that landed it (#430) is the same one
+that closed what the closeout calls open. **Ruling 2 shipped**: the loupe
+(#273), its trigger ruled on the issue (zooming past the cap — the cap becomes
+a threshold, not a stop), with the neighbourhood and payload handling marked
+as defaults in `Loupe.tsx`. The readability half shipped beside it (#272: an
+always-on axis *and* a readout at the thumb, both ruled on the issue). And the
+two ruling-1 defects closed in the same change: #364 (the load-fold exemption
+now expires with the frame that armed it) and #395 (the resume-after-pause
+pin). The closeout's sections are left as written for the same reason the
+proposal is: each says what was true on the date it carries, and this
+postscript is what changed between that writing and this document reaching
+`main`.

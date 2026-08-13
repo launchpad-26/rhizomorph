@@ -584,6 +584,13 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
      * Ruling 2's own boundary: the loupe is additive. If opening it changed what
      * the mark lane draws, the "coalescing law and its cap are untouched"
      * sentence would be false, and no other test in this file is looking.
+     *
+     * The marks sit AROUND THE PLAYHEAD, and the comparison asserts it saw
+     * them (review of #430): with `threeLaneEvents()`'s marks 8.7 s from the
+     * playhead, the cap's window held no marks at all and this comparison was
+     * between two empty lanes — green while the lane visibly re-laid past the
+     * cap on any recording whose `usefulMaxZoomLevel` sits below
+     * `MAX_ZOOM_LEVEL`, which is every sparse one.
      */
     it('leaves the mark lane exactly as it was at the cap', () => {
       render(
@@ -600,10 +607,18 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
       }
 
       expect(screen.getByTestId('tide-loupe')).toBeInTheDocument()
-      // The precondition, asserted rather than assumed. Without a coalesced
-      // group inside the cap's window this whole comparison is vacuous, and it
-      // silently was: a fixture 8.7 s from the playhead clamped every mark to
-      // x=0, so the assertion below compared three zeros to three zeros.
+      // Two preconditions, asserted rather than assumed — this comparison has
+      // been vacuous once already, and each guards a different way of being so.
+      //
+      // `atCap.length` (from the review of #430) rules out the original defect:
+      // a fixture 8.7 s from the playhead left the cap's window holding no
+      // marks at all, so the lane was compared empty-to-empty.
+      //
+      // `capCounts` contains '2' additionally requires a *coalesced group* to
+      // exist at the cap. Marks merely present prove the layout did not move;
+      // a coalesced pair is what the ruling is actually about — "marks are
+      // still not separated below it" — and it is the thing that splits.
+      expect(atCap.length).toBeGreaterThan(0)
       expect(capCounts).toContain('2')
       expect(screen.getAllByTestId('chapter-mark').map((mark) => mark.dataset.count)).toEqual(capCounts)
       expect(screen.getByTestId('chapter-marks').innerHTML).toBe(atCap)

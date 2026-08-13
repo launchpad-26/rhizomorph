@@ -168,12 +168,12 @@
   at every size, and the cost is `buildFleet`, which is O(telemetry records) and
   over the frame budget even on a four-lane session. **Ruling 1 landed in full**
   (#267's incremental spend cursor in core, then #269's seek coalescing, #270's
-  1000-notch step, #271's 10 fps tick), leaving two open defects found by verify
-  passes afterwards, both closed 2026-08-13: #364 and #395. **Ruling 2 — the
-  loupe, reading raw events past the mark lane's cap — landed** (#273): the
-  operator ruled the trigger on 2026-08-13 and left the neighbourhood width and
-  payload handling as defaults to be judged running, with the readability half
-  (#272) beside it.
+  1000-notch step, #271's 10 fps tick); the two defects verify passes found
+  afterwards closed 2026-08-13 (#364 the frame-bounded exemption, #395 the
+  resume-after-pause pin). **Ruling 2 — the loupe, reading raw events past the
+  mark lane's cap — shipped 2026-08-13** (#273, trigger ruled on the issue:
+  zooming past the cap opens it), alongside the readability half (#272: an
+  always-on axis and a readout at the thumb, both ruled).
   Numbered 21 at the operator's direction: prd18 stays reserved for prd17's
   richer-UI thread.
 

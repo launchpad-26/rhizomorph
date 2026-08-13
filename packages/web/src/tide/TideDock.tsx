@@ -186,6 +186,12 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
    */
   const windowLevel = Math.min(zoomLevel, maxZoomLevel)
 
+  // Clamped at the cap: "past it, marks stop thinning" is the ruling's own
+  // sentence, so the lane keeps the cap's window while the loupe is open.
+  // Unclamped, the loupe level took one more ZOOM_FRACTIONS step whenever
+  // `usefulMaxZoomLevel < MAX_ZOOM_LEVEL` — a sparse recording's normal case —
+  // and every visible mark re-laid at the narrower window (review of #430,
+  // proven with marks in view at the threshold).
   const window_ = useMemo(
     () => windowForLevel(windowLevel, windowCenter, start, end),
     [windowLevel, windowCenter, start, end],

@@ -20,5 +20,13 @@
   "devDependencies": {
     "esbuild": "0.28.1",
     "tsx": "4.23.1"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./server/build-app": "./src/server/build-app.ts",
+    "./server/recorder": "./src/server/recorder.ts",
+    "./log/paths": "./src/log/paths.ts",
+    "./log/label": "./src/log/label.ts",
+    "./log/session-log": "./src/log/session-log.ts"
   }
 }
