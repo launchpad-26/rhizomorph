@@ -57,9 +57,10 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
  *    not the control for a caller with no browser. `requireCapabilityToken`
  *    in `api/security.ts` is, and since #234 each of this server's three
  *    GATED mutating routes requires it: `/api/label`, `/api/rotate` and
- *    `/api/lab/launch`. The other three mutating routes — the OTLP inbox's
- *    `/v1/metrics`, `/v1/logs`, `/v1/traces` — are ungated by design (prd-23
- *    ruling 6): an exporter has no channel to learn the token at all. A bare
+ *    `/api/lab/launch`. The other four mutating routes — the OTLP inbox's
+ *    `/v1/metrics`, `/v1/logs`, `/v1/traces`, and the bare-path fallback
+ *    `POST /` (ADR-0018) — are ungated by design (prd-23 ruling 6): an
+ *    exporter has no channel to learn the token at all. A bare
  *    `curl` against a gated route still passes THIS hook and is then refused
  *    by that one, which is the intended division of labour rather than a
  *    hole; widening this hook to reject a missing `Origin` would break every
@@ -90,13 +91,14 @@ const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
 
 /**
  * Methods the `Origin` and `Content-Type` checks apply to — `Host` above
- * runs for every method regardless. This server has six mutating routes
+ * runs for every method regardless. This server has seven mutating routes
  * today (prd-23 ruling 5's route-class law — `api/index.ts`'s `ROUTE_CLASSES`
- * is where all six are declared): three gated (`/api/label`, `/api/rotate`,
- * `/api/lab/launch`) and three ungated by design (the OTLP inbox:
- * `/v1/metrics`, `/v1/logs`, `/v1/traces`) — every one of them a `POST`;
- * `PUT`/`PATCH`/`DELETE` are included so a future mutating route never has to
- * remember to ask for this separately.
+ * is where all seven are declared): three gated (`/api/label`, `/api/rotate`,
+ * `/api/lab/launch`) and four ungated by design (the OTLP inbox:
+ * `/v1/metrics`, `/v1/logs`, `/v1/traces`, and the bare-path fallback
+ * `POST /`, ADR-0018) — every one of them a `POST`; `PUT`/`PATCH`/`DELETE` are
+ * included so a future mutating route never has to remember to ask for this
+ * separately.
  */
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 

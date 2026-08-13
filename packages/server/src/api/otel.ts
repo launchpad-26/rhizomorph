@@ -1,5 +1,5 @@
 import { createEvent, createIdFactory } from '@rhizomorph/core'
-import type { FastifyError, FastifyInstance, FastifyReply } from 'fastify'
+import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { parseMetricsExport, parseTracesExport, validateLogsExport } from '../collectors/otel/index.js'
 import type { ServerContext } from '../server/context.js'
 
@@ -9,7 +9,7 @@ import type { ServerContext } from '../server/context.js'
  * accepts their export requests without ever taking the server down, and
  * refuses everyone else's. Registered in its own encapsulated context so
  * `setErrorHandler` (the net for genuinely invalid JSON, which Fastify rejects
- * before our handlers run) only covers these two routes.
+ * before our handlers run) only covers these four routes.
  *
  * **Instance identity (prd2 wave B, #60).** The live baseline found another
  * repo's lanes inside this repo's dashboard: the receiver took any POST from
@@ -65,11 +65,11 @@ export function registerOtelRoutes(
       return reply.code(403).send({ error: refusalMessage(declared, expectedInstance) })
     }
 
-    instance.post('/v1/metrics', async (request, reply) => {
-      // Parse first: `parseMetricsExport` is pure, and a malformed body is a
-      // 400 whoever sent it — refusing it as foreign would report the wrong
-      // fault. Nothing is recorded until identity checks out, so a refused
-      // post contributes no events at all, not even its datapoint errors.
+    // Parse first: `parseMetricsExport` is pure, and a malformed body is a
+    // 400 whoever sent it — refusing it as foreign would report the wrong
+    // fault. Nothing is recorded until identity checks out, so a refused
+    // post contributes no events at all, not even its datapoint errors.
+    const handleMetrics = async (request: FastifyRequest, reply: FastifyReply) => {
       const result = parseMetricsExport(request.body, {
         emit: (type, payload, source) => createEvent(type, payload, { id: nextId(), ts: now(), source }),
       })
@@ -87,9 +87,9 @@ export function registerOtelRoutes(
         await ctx.recorder.record(event)
       }
       return reply.code(200).send({})
-    })
+    }
 
-    instance.post('/v1/logs', async (request, reply) => {
+    const handleLogs = async (request: FastifyRequest, reply: FastifyReply) => {
       const result = validateLogsExport(request.body)
       if (result.malformed) {
         await ctx.recorder.record(
@@ -111,12 +111,12 @@ export function registerOtelRoutes(
       // Log records themselves are the sessionlog collector's territory; this
       // route's whole job is accepting the exporter's traffic without a crash.
       return reply.code(200).send({})
-    })
+    }
 
-    instance.post('/v1/traces', async (request, reply) => {
-      // Same parse-first, refuse-second order as /v1/metrics: a malformed
-      // body is a 400 whoever sent it, so identity is only checked once the
-      // body is known to be OTLP-shaped.
+    const handleTraces = async (request: FastifyRequest, reply: FastifyReply) => {
+      // Same parse-first, refuse-second order as metrics: a malformed body
+      // is a 400 whoever sent it, so identity is only checked once the body
+      // is known to be OTLP-shaped.
       const result = parseTracesExport(request.body, {
         emit: (type, payload, source) => createEvent(type, payload, { id: nextId(), ts: now(), source }),
       })
@@ -134,6 +134,54 @@ export function registerOtelRoutes(
         await ctx.recorder.record(event)
       }
       return reply.code(200).send({})
+    }
+
+    // The three native, signal-specific routes — unconditional, and tried
+    // first by any spec-compliant exporter (OTLP/HTTP appends `/v1/<signal>`
+    // to the configured base endpoint itself, per the OTLP spec; this is what
+    // `rhizomorph env` is built against, and claude's beta OTLP export
+    // reaches these three unaided).
+    instance.post('/v1/metrics', handleMetrics)
+    instance.post('/v1/logs', handleLogs)
+    instance.post('/v1/traces', handleTraces)
+
+    /**
+     * The **fallback** the native routes above are not: some exporters (codex,
+     * per the spike, [Ran — repo capture]) post every signal to the bare
+     * configured endpoint verbatim — no `/v1/<signal>` suffix appended at all
+     * — because `OTEL_EXPORTER_OTLP_ENDPOINT` is exactly `http://127.0.0.1:
+     * <port>` with no path (`cli/telemetry-env.ts`'s `otlpEndpoint`), and not
+     * every SDK follows the spec's own append rule. ADR-0018 records why this
+     * is the one route that exists to catch that, rather than a guessed
+     * per-harness path.
+     *
+     * Body-shape routing, never a new dialect: which of `resourceMetrics` /
+     * `resourceLogs` / `resourceSpans` is present decides which of the three
+     * handlers above runs, unchanged — no codex-specific parsing lives here
+     * or anywhere else this issue touches (that's wave 4, #322). A shape this
+     * can't name (none of the three keys, or more than one at once) is
+     * refused by name by {@link classifyBareBody}, not half-parsed.
+     */
+    instance.post('/', async (request, reply) => {
+      const shape = classifyBareBody(request.body)
+      switch (shape.signal) {
+        case 'metrics':
+          return handleMetrics(request, reply)
+        case 'logs':
+          return handleLogs(request, reply)
+        case 'traces':
+          return handleTraces(request, reply)
+        case 'unrecognized': {
+          await ctx.recorder.record(
+            createEvent(
+              'collector.error',
+              { collector: 'otel', message: 'unrecognized OTLP body at the bare endpoint', detail: shape.detail },
+              { id: nextId(), ts: now() },
+            ),
+          )
+          return reply.code(400).send({ error: shape.detail })
+        }
+      }
     })
   })
 }
@@ -212,6 +260,59 @@ function blockInstance(block: unknown): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+/** Which of the three native handlers a bare-path body routes to — see {@link classifyBareBody}. */
+type BareBodySignal = 'metrics' | 'logs' | 'traces'
+
+type BareBodyShape = { signal: BareBodySignal } | { signal: 'unrecognized'; detail: string }
+
+/** The one top-level key naming each signal, in the same order the OTLP inbox has always classified them. */
+const SIGNAL_KEYS = [
+  ['resourceMetrics', 'metrics'],
+  ['resourceLogs', 'logs'],
+  ['resourceSpans', 'traces'],
+] as const satisfies ReadonlyArray<readonly [string, BareBodySignal]>
+
+/**
+ * Decides which native handler a bare-path POST belongs to, from the body's
+ * own shape alone — never a header, never a query param, never a per-harness
+ * table. Exactly one of `resourceMetrics` / `resourceLogs` / `resourceSpans`
+ * **named as a key** — present at all, whatever its value — routes to that
+ * signal's handler unambiguously; zero or more than one named key is refused
+ * **by name**, not guessed at — the same all-or-nothing posture
+ * {@link foreignInstance} already takes for a body mixing two instances.
+ *
+ * Deliberately keys on presence (`!== undefined`; JSON has no `undefined`, so
+ * this is unambiguous) rather than `Array.isArray`: a body naming a key with
+ * the wrong-shaped value (`resourceLogs: "not-an-array"`) is a named claim
+ * about which signal this is, not an absent one — routing it to the handler
+ * that claim names, rather than filtering it out as if it were never there,
+ * is what lets a single bad key still land as a 400 from its own native
+ * schema instead of silently vanishing behind a sibling key that *is*
+ * well-formed. The native handler's own schema then refuses the malformed
+ * value exactly as `/v1/logs` would for the identical body — no new
+ * refusal wording, no new leniency.
+ */
+function classifyBareBody(body: unknown): BareBodyShape {
+  if (!isRecord(body)) {
+    return { signal: 'unrecognized', detail: 'unrecognized OTLP body: not a JSON object' }
+  }
+  const present = SIGNAL_KEYS.filter(([key]) => body[key] !== undefined)
+  if (present.length === 0) {
+    return {
+      signal: 'unrecognized',
+      detail: 'unrecognized OTLP body: expected exactly one of resourceMetrics, resourceLogs, resourceSpans',
+    }
+  }
+  if (present.length > 1) {
+    return {
+      signal: 'unrecognized',
+      detail: `ambiguous OTLP body: carries more than one of resourceMetrics, resourceLogs, resourceSpans at once (${present.map(([key]) => key).join(', ')}) — the bare endpoint routes by shape and cannot split a body naming two`,
+    }
+  }
+  const [, signal] = present[0] as readonly [string, BareBodySignal]
+  return { signal }
 }
 
 function refusalMessage(declared: string | null, expected: string): string {
