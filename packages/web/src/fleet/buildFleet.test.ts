@@ -482,6 +482,35 @@ describe('detection honesty', () => {
     expect(fleet.ladder.rank).toBe('calm')
   })
 
+  it('lets a declared WAITING lapse once its own agent is removed, even though the worktree stands', () => {
+    // The direct sibling of the worktree-removal test above: this time the
+    // git worktree never goes anywhere (workmux's handle and a git worktree
+    // are different identities per ADR-0015 — one can depart without the
+    // other), only the workmux agent departs. Without findAgent() filtering
+    // on presence, WorktreeView.agent keeps returning the stale 'waiting'
+    // record forever, since lane.present here (the worktree's own presence)
+    // never flips false.
+    const log = [
+      event('session.started', {
+        sessionId: 'agent-removed',
+        repoPath: '/repo',
+        repoName: 'rhizomorph',
+        mainBranch: 'main',
+      }, NOW - 600_000),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 600_000),
+      event('worktree.discovered', { path: '/repo-wt/s', branch: 's', head: 'sha-s', isMain: false }, NOW - 600_000),
+      event('agent.status', { handle: 's', status: 'waiting', worktreePath: '/repo-wt/s', branch: 's' }, NOW - 500_000),
+      event('agent.removed', { handle: 's' }, NOW - 300_000),
+    ]
+
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    const lane = laneIn(fleet, 's')
+
+    expect(lane.present).toBe(true)
+    expect(lane.agentStatus).toBeNull()
+    expect(lane.pathologies.map((pathology) => pathology.kind)).not.toContain('waiting')
+  })
+
   it('never infers off-fence without a manifest, and names the gap instead', () => {
     // The same staged fleet, with the manifest withheld: the lane really is
     // outside its fence, and the instrument still refuses to say so, because

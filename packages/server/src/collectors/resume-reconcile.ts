@@ -154,3 +154,89 @@ export function withBranchReconciliation<S extends BranchBearingSnapshot>(
     },
   }
 }
+
+/** A collector snapshot shaped enough to reconcile agent ghosts against. */
+export interface AgentBearingSnapshot {
+  agents: Record<string, unknown>
+}
+
+/**
+ * Extends the #111/#139 resume-reconciliation seam from collector health,
+ * then branch content, to workmux's own agent roster — see #418.
+ *
+ * #306 taught the workmux collector to emit `agent.removed` from a
+ * snapshot→snapshot diff: present last poll, absent from this poll's
+ * `workmux status`. That is correct for every departure that happens while
+ * the collector is running. A departure that happened while the process was
+ * down, or whose workmux snapshot is missing or stale, is never diffed at
+ * all — the fold still carries the handle's last `agent.status` with nothing
+ * to retire it with, the same gap #139 closed for branches.
+ *
+ * At the first poll after a resume, compare what the fold still believes is
+ * live (`foldedHandles` — the resumed session's still-`present` agent
+ * handles) against this poll's actual reality (`nextSnapshot.agents`, read
+ * *after* the inner collector's own diff already ran). Any handle the fold
+ * holds that reality doesn't gets a real `agent.removed` — reconstructed
+ * once for the departure the live diff arrived too late, or had nothing, to
+ * see itself.
+ *
+ * Idempotent by construction, same as `withBranchReconciliation`: emitting
+ * `agent.removed` flips the fold's `present` to false (`reduce.ts`'s
+ * `agentRemoved`), so the next boot's `foldedHandles` no longer carries that
+ * handle — unlike `branches`, an agent record is a soft delete, so the ghost
+ * set must be *present* handles, not all folded keys. That filtering is the
+ * caller's job (`collector-loader.ts`); this wrapper is agnostic to how the
+ * set was built, same as `withBranchReconciliation`.
+ *
+ * This wrapper sits inside `withResilience` (see `collector-loader.ts`), so
+ * `collector` here is the raw inner collector — its only failure signal is a
+ * `collector.disabled` event; `collector.degraded` / `collector.recovered`
+ * are translations `withResilience` produces one layer out and never appear
+ * here. A poll that emits `collector.disabled` did not observe reality: the
+ * raw collector either couldn't run at all, or carried the previous snapshot
+ * forward unchanged (workmux's own ruling 3 direction 1) — which, on a
+ * resume with a missing snapshot, is empty. Comparing that against the fold
+ * would read "nothing observed yet" as "everyone left" and mass-retire the
+ * whole roster on a transient blip, and the one-shot latch would be spent for
+ * nothing, leaving any real departure unreconciled for the rest of the
+ * process. So this wrapper bails without latching whenever the poll failed.
+ */
+export function withAgentReconciliation<S extends AgentBearingSnapshot>(
+  collector: Collector<S>,
+  foldedHandles: ReadonlySet<string> | undefined,
+): Collector<S> {
+  let reconciled = false
+
+  return {
+    name: collector.name,
+    initialSnapshot: collector.initialSnapshot,
+
+    async poll(prevSnapshot, context) {
+      const result = await collector.poll(prevSnapshot, context)
+      if (reconciled) return result
+
+      const pollFailed = result.events.some((event) => event.type === 'collector.disabled')
+      if (pollFailed) return result
+
+      reconciled = true
+
+      if (!foldedHandles || foldedHandles.size === 0) return result
+
+      const alreadyReported = new Set<string>()
+      for (const event of result.events) {
+        if (event.type === 'agent.removed') alreadyReported.add(event.payload.handle)
+      }
+
+      const ghosts = [...foldedHandles]
+        .filter((handle) => !(handle in result.nextSnapshot.agents) && !alreadyReported.has(handle))
+        .sort()
+
+      if (ghosts.length === 0) return result
+
+      return {
+        nextSnapshot: result.nextSnapshot,
+        events: [...result.events, ...ghosts.map((handle) => context.emit('agent.removed', { handle }))],
+      }
+    },
+  }
+}

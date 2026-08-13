@@ -2,7 +2,7 @@ import type { Collector, CollectorContext, CollectorState, EventType, Exec, Payl
 import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { withResilience, type ResilientSnapshot } from './resilience.js'
-import { withBranchReconciliation, withResumeReconciliation } from './resume-reconcile.js'
+import { withAgentReconciliation, withBranchReconciliation, withResumeReconciliation } from './resume-reconcile.js'
 
 function makeContext(exec: Exec, now: number): CollectorContext {
   const nextId = createIdFactory('evt')
@@ -224,6 +224,136 @@ describe('withBranchReconciliation — fold and reality already agree', () => {
   it('passes through untouched when every folded branch is still present in reality', async () => {
     const inner = fakeBranchCollector('git', [{ main: { head: 'aaa' } }])
     const reconciled = withBranchReconciliation(inner, new Set(['main']))
+
+    const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+
+    expect(result.events).toHaveLength(0)
+  })
+})
+
+interface FakeAgentSnapshot {
+  agents: Record<string, { status: string }>
+}
+
+function fakeAgentCollector(
+  name: string,
+  responses: readonly Record<string, { status: string }>[],
+): Collector<FakeAgentSnapshot> {
+  const agentQueue = [...responses]
+  return {
+    name,
+    initialSnapshot: (): FakeAgentSnapshot => ({ agents: {} }),
+    poll: (_prev: FakeAgentSnapshot, _ctx: CollectorContext) => {
+      const agents = agentQueue.shift() ?? {}
+      return { nextSnapshot: { agents }, events: [] }
+    },
+  }
+}
+
+describe('withAgentReconciliation — fold holds ghost agents, reality has moved on', () => {
+  it('emits one agent.removed per ghost the fold believes live but workmux status lacks', async () => {
+    const inner = fakeAgentCollector('workmux', [{ main: { status: 'working' } }])
+    const reconciled = withAgentReconciliation(inner, new Set(['132-old-lane', '134-something', 'main']))
+
+    const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+
+    expect(result.events.map((event) => event.type)).toEqual(['agent.removed', 'agent.removed'])
+    expect(result.events.map((event) => event.payload)).toEqual([
+      { handle: '132-old-lane' },
+      { handle: '134-something' },
+    ])
+  })
+
+  // Pins the latch itself, not just "the ghost is gone": the same missing
+  // handle is still absent on the second poll, but only the wrapper's
+  // reconciled-once flag — not a fresh diff — decides not to re-emit. If
+  // `reconciled` were read before calling collector.poll instead of after,
+  // this would still pass; the point is the *second* poll below emitting
+  // nothing despite the ghost still being missing.
+  it('reconciles only once — a later poll does not re-emit for the same ghost', async () => {
+    const inner = fakeAgentCollector('workmux', [{ main: { status: 'working' } }, { main: { status: 'working' } }])
+    const reconciled = withAgentReconciliation(inner, new Set(['132-old-lane']))
+
+    const first = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+    expect(first.events.map((event) => event.type)).toEqual(['agent.removed'])
+
+    const second = await reconciled.poll(first.nextSnapshot, makeContext(nullExec, 2000))
+    expect(second.events).toHaveLength(0)
+  })
+
+  it('does not double-report a ghost the inner collector already reported this same poll', async () => {
+    // The inner collector's own diff (#306's live roster diff) got to
+    // '132-old-lane' independently, in the same poll — reconciliation must
+    // not pile a second agent.removed on top of it.
+    const inner: Collector<FakeAgentSnapshot> = {
+      name: 'workmux',
+      initialSnapshot: (): FakeAgentSnapshot => ({ agents: {} }),
+      poll: (_prev, ctx) => ({
+        nextSnapshot: { agents: {} },
+        events: [ctx.emit('agent.removed', { handle: '132-old-lane' })],
+      }),
+    }
+    const reconciled = withAgentReconciliation(inner, new Set(['132-old-lane']))
+
+    const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0]?.payload).toEqual({ handle: '132-old-lane' })
+  })
+})
+
+describe('withAgentReconciliation — the first poll after a resume fails transiently', () => {
+  // Verify report on #418, steps 8-9: a resumed session with no workmux
+  // snapshot whose first poll hits a transient, non-ENOENT workmux failure
+  // (ruling 3 direction 1 — the raw collector carries the prior, empty
+  // snapshot forward and emits collector.disabled) must not burn its one
+  // reconciliation shot on that non-observation. The ghost has to survive to
+  // the next poll that actually comes back healthy, and get retired there.
+  it('does not latch on a failed poll, and retires the ghost on the next healthy poll', async () => {
+    let call = 0
+    const inner: Collector<FakeAgentSnapshot> = {
+      name: 'workmux',
+      initialSnapshot: (): FakeAgentSnapshot => ({ agents: {} }),
+      poll: (prev, ctx) => {
+        call += 1
+        if (call === 1) {
+          return {
+            nextSnapshot: prev,
+            events: [
+              ctx.emit('collector.disabled', {
+                collector: 'workmux',
+                reason: 'workmux: session index corrupted',
+              }),
+            ],
+          }
+        }
+        return { nextSnapshot: { agents: {} }, events: [] }
+      },
+    }
+    const reconciled = withAgentReconciliation(inner, new Set(['lane-alpha']))
+
+    const first = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+    expect(first.events.map((event) => event.type)).toEqual(['collector.disabled'])
+
+    const second = await reconciled.poll(first.nextSnapshot, makeContext(nullExec, 2000))
+    expect(second.events.map((event) => event.type)).toEqual(['agent.removed'])
+    expect(second.events[0]?.payload).toEqual({ handle: 'lane-alpha' })
+  })
+})
+
+describe('withAgentReconciliation — fold and reality already agree', () => {
+  it('passes through untouched when there is no folded agent history', async () => {
+    const inner = fakeAgentCollector('workmux', [{ main: { status: 'working' } }])
+    const reconciled = withAgentReconciliation(inner, undefined)
+
+    const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+
+    expect(result.events).toHaveLength(0)
+  })
+
+  it('passes through untouched when every folded handle is still present in reality', async () => {
+    const inner = fakeAgentCollector('workmux', [{ main: { status: 'working' } }])
+    const reconciled = withAgentReconciliation(inner, new Set(['main']))
 
     const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
 

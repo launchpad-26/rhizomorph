@@ -6,6 +6,16 @@ export interface TailIdentity {
   ino: number
 }
 
+/**
+ * True when `current` names a different underlying file than `previous` did.
+ * Absent `previous` means there is nothing yet to compare against — a file
+ * never read before, or a snapshot persisted before this field existed —
+ * which is never a rotation, only an unknown.
+ */
+export function isRotated(previous: TailIdentity | undefined, current: TailIdentity): boolean {
+  return previous !== undefined && (previous.dev !== current.dev || previous.ino !== current.ino)
+}
+
 export interface TailResult {
   /** Complete lines newly available since `offset`, oldest first. */
   lines: string[]
@@ -43,7 +53,29 @@ export async function readNewLines(filePath: string, offset: number, identity?: 
   // of size — the bytes at `offset` belong to the file that used to be here,
   // not this one. A same-inode shrink is truncation in place instead; either
   // way the cursor can no longer be trusted and restarts from 0.
-  const rotated = identity !== undefined && (identity.dev !== currentIdentity.dev || identity.ino !== currentIdentity.ino)
+  //
+  // That symmetry stops at the cursor. `collector.ts`'s `tailProjectDir` resets
+  // the FOLD (turnShape, lastUsageRequestId, lane, branch) only when `isRotated`
+  // is true, not on a same-inode shrink alone — deliberately, not by omission
+  // (#413). `isRotated` is identity-based and by construction never fires on a
+  // truncation, so a same-inode shrink always resumes the existing fold. This is
+  // NOT covered by a fallback: `nextOffset < prevFile.offset` (collector.ts's
+  // spelling of the shrink this function detects as `info.size < offset`) only
+  // catches a same-inode replacement that leaves the new file smaller than the
+  // old cursor. A same-inode whole-file replacement that grows past the cursor
+  // is invisible to both `isRotated` and that size check — it reads as ordinary
+  // growth, resumes the existing fold, and silently drops whatever the
+  // replacement wrote before the old offset. Safety here rests entirely on the
+  // unreachability ruling: every `--resume` observed appends to the file it
+  // resumes, and the one mechanism in this codebase that intentionally shortens
+  // a transcript (the lab fork spike,
+  // `docs/research/2026-08-04-fork-checkpoint-spike.md` Q2) places the
+  // truncated copy under a new session id rather than truncating the original
+  // in place. If that ever stops holding — including for the grow-past-cursor
+  // case above, which no predicate here catches — the fix has to detect the
+  // replacement itself (e.g. content-hash the first bytes at the old offset),
+  // not widen `isRotated` or the size check.
+  const rotated = isRotated(identity, currentIdentity)
   const readOffset = rotated || info.size < offset ? 0 : offset
   if (info.size <= readOffset) return { lines: [], nextOffset: readOffset, lastWriteTs, identity: currentIdentity }
 
