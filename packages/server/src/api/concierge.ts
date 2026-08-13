@@ -1,6 +1,27 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
+import {
+  CloneDestinationExistsError,
+  CloneValidationError,
+  parseCloneRequestBody,
+  planClone,
+  runClone,
+} from '../concierge/clone.js'
+import { CloneFenceError } from '../concierge/paths.js'
 import { type DiscoverReposResult, discoverRepos } from '../concierge/repos.js'
 import type { ServerContext } from '../server/context.js'
+import { requireCapabilityToken } from './security.js'
+
+/**
+ * Re-exported so `concierge.test.ts` can assert on these without importing
+ * `../concierge/*` directly — this file is the namespace law's one declared
+ * importer (a TERMINUS, per ADR-0014's own Consequences: "chains stop there,
+ * and what lies above it inherits its grant"), and a test file reaching
+ * `concierge/clone.js` or `concierge/paths.js` on its own would be a second,
+ * undeclared route in — exactly what `namespace-law.test.ts`'s clause 1 sweep
+ * exists to catch (it does not exempt test files; the original `repos.test.ts`
+ * comment already flags this for a type-only import of `concierge/repos.js`).
+ */
+export { CloneDestinationExistsError, CloneValidationError, CloneFenceError }
 
 /**
  * The one thing this route can answer with when it should not run
@@ -54,4 +75,73 @@ export function registerConciergeReposRoute(app: FastifyInstance, ctx: ServerCon
     const result = await discoverRepos()
     return { available: true, ...result }
   })
+}
+
+/**
+ * `POST /api/concierge/clone` — prd-20 ruling 1 / ADR-0014's second power,
+ * wired for real (#262): `git clone` a URL the operator typed, into the
+ * concierge's own namespace (`concierge/paths.ts#defaultClonesRoot`), never
+ * inside the currently watched repo. Token-gated per ruling 2 — the ONE
+ * mutating route this file adds, sitting behind `requireCapabilityToken`
+ * exactly as `/api/label` does.
+ *
+ * `planClone` (`concierge/clone.ts`) does every check that can be answered
+ * before a byte of `git` output exists — URL grammar, the namespace fence,
+ * "does the destination already exist" — and maps to a precise status before
+ * this route commits to anything: 400 for a malformed URL
+ * ({@link CloneValidationError}), 403 for a fence refusal
+ * ({@link CloneFenceError}), 409 for a destination that already exists
+ * ({@link CloneDestinationExistsError}) or for a replay server (nothing live
+ * to clone into, same posture as `/api/lab/launch`/`/api/label`).
+ *
+ * Only once planning succeeds does this hijack the reply and stream
+ * `runClone`'s progress as newline-delimited JSON — the long-running half of
+ * "progress surfaced to the caller" the issue asks for. Deliberately no
+ * `request.raw.on('close', ...)` handler killing the child: a disconnected
+ * caller must not abort a clone that might be most of the way through a large
+ * repo, so `runClone` is always drained to its own natural end regardless of
+ * whether the response socket is still open (`concierge/clone.ts`'s own doc
+ * has the full reasoning). Writes are guarded on `writableEnded`/`destroyed`
+ * so a dead socket is skipped rather than thrown on.
+ */
+export function registerConciergeCloneRoute(app: FastifyInstance, ctx: ServerContext): void {
+  app.post(
+    '/api/concierge/clone',
+    { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') },
+    async (request: FastifyRequest, reply) => {
+      if (ctx.readOnly === true) {
+        return reply.code(409).send({
+          error: 'this server is replaying a session record, not watching a repo — there is nowhere to clone into',
+        })
+      }
+
+      let url: string
+      try {
+        url = parseCloneRequestBody(request.body).url
+      } catch (err) {
+        if (err instanceof CloneValidationError) return reply.code(400).send({ error: err.message })
+        throw err
+      }
+
+      let plan: Awaited<ReturnType<typeof planClone>>
+      try {
+        plan = await planClone(url, { watchedRepoPath: ctx.repoPath })
+      } catch (err) {
+        if (err instanceof CloneValidationError) return reply.code(400).send({ error: err.message })
+        if (err instanceof CloneFenceError) return reply.code(403).send({ error: err.message })
+        if (err instanceof CloneDestinationExistsError) return reply.code(409).send({ error: err.message })
+        throw err
+      }
+
+      reply.hijack()
+      const res = reply.raw
+      res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-cache' })
+
+      for await (const event of runClone(url, plan)) {
+        if (res.writableEnded || res.destroyed) continue
+        res.write(`${JSON.stringify(event)}\n`)
+      }
+      if (!res.writableEnded && !res.destroyed) res.end()
+    },
+  )
 }

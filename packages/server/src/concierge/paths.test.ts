@@ -1,9 +1,10 @@
 import { realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { assertCloneTarget, CloneFenceError, conciergeRoot, isInside } from './paths.js'
+import { assertCloneTarget, CloneFenceError, conciergeRoot, defaultClonesRoot, isInside } from './paths.js'
 
 /**
  * The fourth hand's clone fence, tested against real directories on a real
@@ -19,6 +20,12 @@ describe('conciergeRoot', () => {
 
   it('resolves a relative data root, so the fence never compares a cwd-dependent path', () => {
     expect(path.isAbsolute(conciergeRoot('data'))).toBe(true)
+  })
+})
+
+describe('defaultClonesRoot', () => {
+  it('is a visible top-level directory, not the hidden data root', () => {
+    expect(defaultClonesRoot()).toBe(path.join(homedir(), 'rhizomorph', 'repos'))
   })
 })
 
