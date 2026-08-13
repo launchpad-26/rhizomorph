@@ -134,6 +134,39 @@ describe('the sample-fleet affordance', () => {
     expect(screen.getByTestId('connect-sample-return')).toBeInTheDocument()
   })
 
+  /**
+   * #411: from `pathology`, the only *offered* route was "return to live" —
+   * reaching `fleet20` meant going live first and clicking activate again.
+   * The keyboard shortcut already worked from any state (`useFixtureKeys`
+   * never gates on `source`); the bug was that the banner branch didn't say
+   * so. This drives the fix by the same route the key-doc line now documents
+   * — pressing `2` — and never touches `connect-sample-return`.
+   */
+  it('reaches fleet20 straight from pathology, key-doc line and all, without returning to live first', async () => {
+    await renderControl(<SourceDriver />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('drive-pathology'))
+    })
+
+    const bannerWhilePathology = screen.getByTestId('connect-sample-banner').textContent ?? ''
+    expect(bannerWhilePathology).toContain(specFor('pathology').provenance)
+
+    // The key-doc line is the whole point of #411: it must be visible from
+    // the state it was missing from, naming the very key pressed next.
+    const keysWhilePathology = screen.getByTestId('connect-sample-keys').textContent ?? ''
+    expect(keysWhilePathology).toContain('2 sample fleet')
+    expect(screen.queryByTestId('connect-sample-return')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: '2' })
+    })
+
+    const bannerWhileFleet20 = screen.getByTestId('connect-sample-banner').textContent ?? ''
+    expect(bannerWhileFleet20).toContain(specFor('fleet20').provenance)
+    expect(bannerWhileFleet20).not.toContain(specFor('pathology').provenance)
+  })
+
   /** THE LAW, SECOND HALF: returning to live restores `source === 'live'` without a reload. */
   it('restores the live source, with no reload, the instant "return to live" is clicked', async () => {
     await renderControl()
