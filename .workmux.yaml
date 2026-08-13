@@ -12,7 +12,15 @@
 # alias resolves to nothing there. It runs Claude Code under its own config
 # directory (~/.claude-study) so lane state never mixes with the operator's own
 # session, and it carries no permission flags.
-agent: claude-study
+# REVIEW OF #504: the line above described `claude-study`, a wrapper in ONE
+# contributor's ~/.local/bin (isolating lane state under ~/.claude-study).
+# Fine as a personal tool -- but this file is tracked and shared, and workmux
+# launches whatever this line names on every contributor's box; a binary only
+# one machine has turns every other contributor's dispatch into a dead pane
+# (the stranger's-machine rule, AGENTS.md). Plain `claude`, still with no
+# permission flags, keeps the ask-before-acting substance portably. Anyone
+# wanting the study-config isolation locally can shim it on their own box.
+agent: claude --model sonnet
 
 merge_strategy: merge   # keep the DAG visible — the Rhizomorph renders it
 
