@@ -32,11 +32,23 @@ function missingBinary(): ExecResult {
  * `--json` would still be fed JSON by this fake and every test in the file
  * would stay green — while against a real workmux it would receive the table
  * form, fail to parse it, and disable itself on every poll (#383).
+ *
+ * An optional `git` queue answers `resolveWorktreePath`'s
+ * `git -C <path> rev-parse --show-toplevel` (#463). It is separate from the
+ * `workmux` queues and throws when exhausted — a test whose scenario should
+ * never call git (or should call it only once, per the memoisation ruling)
+ * fails loudly on an unexpected/extra call instead of silently degrading.
  */
-function fakeExec(responses: { status: ExecResult[]; list?: ExecResult[] }): Exec {
+function fakeExec(responses: { status: ExecResult[]; list?: ExecResult[]; git?: ExecResult[] }): Exec {
   const status = [...responses.status]
   const list = [...(responses.list ?? [])]
+  const git = [...(responses.git ?? [])]
   return async (command, args) => {
+    if (command === 'git') {
+      const next = git.shift()
+      if (!next) throw new Error('unexpected git call — fakeExec git queue exhausted')
+      return next
+    }
     expect(command).toBe('workmux')
     const subcommand = args[0]
     if (subcommand === 'status') {
@@ -276,7 +288,18 @@ describe('createWorkmuxCollector', () => {
         is_main: false,
       },
     ])
-    const context = makeContext(fakeExec({ status: [ok(statusJson)], list: [ok(listJson)] }))
+    const context = makeContext(
+      fakeExec({
+        status: [ok(statusJson)],
+        list: [ok(listJson)],
+        // #463: this exact scenario (a healthy `list` join missing on a
+        // subdirectory workdir) now resolves `worktreePath` via git instead
+        // of soft-nulling — see the dedicated #463 tests below for the
+        // resolution/memoisation behaviour itself; this test's own job stays
+        // proving `branch` comes from `status.branch`, independent of it.
+        git: [ok('/Users/operator/Projects/rhizomorph__worktrees/455-branch-from-status\n')],
+      }),
+    )
 
     const result = await collector.poll(collector.initialSnapshot(), context)
 
@@ -284,11 +307,78 @@ describe('createWorkmuxCollector', () => {
     expect(result.events[0]?.payload).toMatchObject({
       handle: '455-branch-from-status',
       branch: '455-branch-from-status',
-      // The path join misses on a subdirectory workdir — a named absence,
-      // not a guess (PRD-22 ruling 5); worktreePath stays null rather than
-      // prefix-matching against list rows.
-      worktreePath: null,
+      worktreePath: '/Users/operator/Projects/rhizomorph__worktrees/455-branch-from-status',
     })
+  })
+
+  it('resolves worktreePath via git on a first-sight subdirectory pane, not a soft null (#463)', async () => {
+    const collector = createWorkmuxCollector()
+    const statusJson = JSON.stringify([
+      {
+        worktree: '463-first-sight',
+        branch: '463-first-sight',
+        status: 'working',
+        elapsed_secs: 60,
+        title: null,
+        workdir: '/Users/operator/Projects/rhizomorph__worktrees/463-first-sight/packages/server',
+      },
+    ])
+    const listJson = JSON.stringify([
+      {
+        handle: '463-first-sight',
+        branch: '463-first-sight',
+        path: '/Users/operator/Projects/rhizomorph__worktrees/463-first-sight',
+        is_main: false,
+      },
+    ])
+    const context = makeContext(
+      fakeExec({
+        status: [ok(statusJson)],
+        list: [ok(listJson)],
+        git: [ok('/Users/operator/Projects/rhizomorph__worktrees/463-first-sight\n')],
+      }),
+    )
+
+    // No prior snapshot value — this is the pane's very first poll, so there
+    // is nothing to carry forward and the join miss can only be closed by
+    // asking git directly.
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0]?.payload).toMatchObject({
+      handle: '463-first-sight',
+      branch: '463-first-sight',
+      worktreePath: '/Users/operator/Projects/rhizomorph__worktrees/463-first-sight',
+    })
+  })
+
+  it('memoises the git resolution across polls for the same subdirectory workdir (#463)', async () => {
+    const collector = createWorkmuxCollector()
+    const workdir = '/Users/operator/Projects/rhizomorph__worktrees/463-memo/packages/server'
+    const worktreePath = '/Users/operator/Projects/rhizomorph__worktrees/463-memo'
+    const statusJson = JSON.stringify([
+      { worktree: '463-memo', branch: '463-memo', status: 'working', elapsed_secs: 60, title: null, workdir },
+    ])
+    const listJson = JSON.stringify([{ handle: '463-memo', branch: '463-memo', path: worktreePath, is_main: false }])
+    const context = makeContext(
+      fakeExec({
+        status: [ok(statusJson), ok(statusJson)],
+        list: [ok(listJson), ok(listJson)],
+        // Exactly one git response queued — a second call throws (see
+        // fakeExec's doc comment), which is what makes this test prove
+        // memoisation rather than just asserting the happy path twice.
+        git: [ok(`${worktreePath}\n`)],
+      }),
+    )
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    expect(first.events[0]?.payload).toMatchObject({ worktreePath })
+
+    const second = await collector.poll(first.nextSnapshot, context)
+    // Nothing changed since the first poll, so no new event — but reaching
+    // here at all (without fakeExec's git queue throwing) is the point: the
+    // second poll must reuse the cached resolution, not call git again.
+    expect(second.events).toHaveLength(0)
   })
 
   it('resolves branch/worktreePath to null, not a crash, when no list row matches the handle', async () => {

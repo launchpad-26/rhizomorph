@@ -8,6 +8,7 @@ import {
   type RhizomorphEvent,
   type PollResult,
 } from '@rhizomorph/core'
+import { resolveWorktreePath } from '../tmux/worktree.js'
 
 /**
  * prd15 ruling 5's L4 rung: the full rig. `agent.status` is the ladder's
@@ -42,6 +43,14 @@ export interface WorkmuxSnapshot {
   /** Set once the binary is confirmed missing, so we stop shelling out. */
   disabled: boolean
   agents: Record<string, WorkmuxAgentSnapshot>
+  /**
+   * Memoises `workdir → worktreePath` for the subdirectory-join fallback
+   * (#463): once a workdir's worktree root is resolved via git, it is never
+   * re-resolved, so a pane parked in the same subdirectory across polls
+   * costs one `git` exec total, not one per poll (PRD-22 ruling 1). Mirrors
+   * `tmux/collector.ts`'s field of the same name and purpose.
+   */
+  worktreeByPath: Record<string, string | null>
 }
 
 /** True only when the binary itself could not be run — not for a non-zero exit with real output. */
@@ -143,11 +152,17 @@ function parseListJson(stdout: string): WorkmuxListJsonRow[] {
  *
  * `workdir` is the pane's live cwd, not the worktree root — workmux rewrites
  * it every poll from `#{pane_current_path}`. A pane sitting in a subdirectory
- * of its worktree (e.g. `cd packages/server`) makes the path join miss:
- * `worktreePath` resolves to `null`, a named absence rather than a guess
- * (PRD-22 ruling 5 rules out a lossy/heuristic join key). `branch` is
- * unaffected, since it comes from the same row's own `branch` field, not the
- * join.
+ * of its worktree (e.g. `cd packages/server`) makes the exact-path join miss.
+ * When that happens and `list` itself is healthy (succeeded, returned rows —
+ * just none matching this `workdir`), `worktreePath` is resolved instead by
+ * asking git directly (`resolveWorktreePath`, #463): authoritative, not a
+ * guess, so PRD-22 ruling 5's ban on a lossy/heuristic join key does not
+ * apply. The resolution is memoised per `workdir` (`worktreeByPath`) so a
+ * pane parked in the same subdirectory only pays the extra `exec` once. If
+ * `list` itself failed, returned unparseable output, or returned zero rows,
+ * `worktreePath` still soft-nulls — the fallback only fires once `list` has
+ * proven it can join something. `branch` is unaffected either way, since it
+ * comes from the same row's own `branch` field, not the join (#455).
  *
  * Emits `agent.status` only when an agent's status, branch or worktree path
  * actually changes — elapsed alone ticking up every poll is not a state
@@ -159,7 +174,7 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
     capabilities: WORKMUX_CAPABILITIES,
 
     initialSnapshot(): WorkmuxSnapshot {
-      return { disabled: false, agents: {} }
+      return { disabled: false, agents: {}, worktreeByPath: {} }
     },
 
     async poll(prevSnapshot, context: CollectorContext): Promise<PollResult<WorkmuxSnapshot>> {
@@ -170,7 +185,7 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
       const statusResult = await context.exec('workmux', ['status', '--json'])
       if (isMissingBinary(statusResult)) {
         return {
-          nextSnapshot: { disabled: true, agents: {} },
+          nextSnapshot: { disabled: true, agents: {}, worktreeByPath: {} },
           events: [
             context.emit('collector.disabled', {
               collector: 'workmux',
@@ -227,13 +242,15 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
       // status row (#455). Both sides of the join are absolute paths under
       // `--json` (`status.workdir`, `list.path`), so this can't collide the
       // way basename(path) could — see the collector-level doc comment
-      // above. It can still *miss* (soft `null`) when `workdir` is a
-      // subdirectory of `list.path` rather than equal to it.
+      // above. It can still *miss* when `workdir` is a subdirectory of
+      // `list.path` rather than equal to it, in which case the loop below
+      // falls back to `resolveWorktreePath` (#463) rather than soft-nulling.
       const listByPath = new Map(listRows.map((row) => [row.path, row]))
 
       const nextAgents: WorkmuxSnapshot['agents'] = {}
       const events: RhizomorphEvent[] = []
       const seenHandles = new Set<string>()
+      const worktreeByPath = { ...prevSnapshot.worktreeByPath }
 
       for (const row of statusRows) {
         seenHandles.add(row.handle)
@@ -256,7 +273,24 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
 
         const listRow = listByPath.get(row.workdir)
         const branch = row.branch
-        const worktreePath = listRow?.path ?? null
+        let worktreePath: string | null
+        if (listRow) {
+          worktreePath = listRow.path
+        } else if (listRows.length > 0) {
+          // `list` is healthy and joined at least one row, just not this
+          // one — a subdirectory `workdir` (#463). Ask git directly rather
+          // than soft-nulling; memoise so a pane parked in the same
+          // subdirectory across polls only pays the `exec` once.
+          const cached = worktreeByPath[row.workdir]
+          if (cached !== undefined) {
+            worktreePath = cached
+          } else {
+            worktreePath = await resolveWorktreePath(row.workdir, context.exec)
+            worktreeByPath[row.workdir] = worktreePath
+          }
+        } else {
+          worktreePath = null
+        }
 
         const prevAgent: WorkmuxAgentSnapshot | undefined = prevSnapshot.agents[row.handle]
         const changed =
@@ -290,7 +324,7 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
         }
       }
 
-      return { nextSnapshot: { disabled: false, agents: nextAgents }, events }
+      return { nextSnapshot: { disabled: false, agents: nextAgents, worktreeByPath }, events }
     },
   }
 }
