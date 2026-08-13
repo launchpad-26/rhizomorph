@@ -215,6 +215,33 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **A failing dirty-status poll now voices one honest event per incident, not
+  a heartbeat (#415).** Once `MAX_DIRTY_STATUS_FAILURES` (#241) was crossed,
+  `git status --porcelain`'s `collector.error` re-fired on every subsequent
+  failed poll, with the growing failure count baked into the message — never
+  the same string twice, ~35 → 45 session-log lines in 10s. It now fires once,
+  on the poll that crosses the bound, and stays silent through further
+  failures; the counter resets silently on recovery so a later incident
+  re-arms and voices again.
+- **A removed workmux agent's lane stops rendering as healthy (#417).**
+  `AgentState` gained `present`/`removedAt` in #306, but `findAgent()`
+  (`selectors/worktrees.ts`) matched by path/branch/handle with no presence
+  filter — unlike the worktree and pane joins beside it — so a departed
+  agent's last-known status (`working`, `waiting`, …) stood forever even
+  though the worktree itself was never removed. `findAgent` now filters on
+  `present` first, the same way the worktree and pane selectors already do.
+- **A resumed session with no workmux snapshot now retires its stale agents
+  too (#418).** `agent.removed` (#306) only fires from a live poll's
+  snapshot-to-snapshot diff; a session resumed with a missing or stale
+  workmux snapshot had nothing to diff against, so a lane folded away before
+  or during the restart stayed `present` for the rest of the session. The
+  first live poll after resume now reconciles the fold's still-present
+  handles against reality, the same way `withBranchReconciliation` (#139)
+  retires a ghost branch. The reconciliation's one-shot latch no longer
+  spends itself on a poll that failed transiently — a workmux hiccup on the
+  very first post-resume tick used to burn the shot for nothing and leave the
+  ghost `present` for the rest of the process; the wrapper now waits for a
+  poll that actually observed reality before latching.
 - **A departed workmux agent is now announced (#306).** `workmux status`
   failing for a reason other than a missing binary used to parse as an empty
   roster and drop every known agent with no event at all; a handle that
@@ -277,6 +304,15 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   unrelated content; the cursor now also resets whenever the file's inode
   changes, so identity — not just size — decides when a poll is reading a
   different file.
+- **A rotated session log no longer folds onto its predecessor's turn state
+  (#366).** #305 made `sessionlog/tail.ts` reset the byte cursor on a
+  same-path rotation, but the collector still resumed `turnShape`,
+  `lastUsageRequestId`, lane, and branch from the file the rotation replaced
+  — so the replacement's first lines folded onto a stale mid-turn shape, a
+  coincidentally-repeated request id could suppress its own first usage
+  block, and its liveness was misattributed until an assistant line
+  happened to overwrite it. All four now reset to a fresh fold on a
+  detected rotation instead of resuming the predecessor's.
 - **A hung collector subprocess no longer freezes all polling or shutdown
   (#236).** Every collector exec now carries a default timeout, and a
   per-collector watchdog abandons a poll that exceeds its budget — surfacing
