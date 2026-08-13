@@ -8,7 +8,9 @@
 >
 > 2026-08-13 · verified against `origin/main` at `e62fd93` (post-#428).
 >
-> Visual companion: _artifact link to follow — the artifact restates, never rules._
+> Visual companion: [`charter-companion.html`](./charter-companion.html) — open it in a
+> browser; it renders both registers, the band, and every table above with the faces
+> actually loaded. The artifact restates, never rules.
 
 ## 1 · identity
 

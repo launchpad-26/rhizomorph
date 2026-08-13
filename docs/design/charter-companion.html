@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>the design charter — visual companion</title>
+<!--
+  The visual companion to docs/design/charter.md.
+  THE ARTIFACT RESTATES, NEVER RULES (charter §9): where this file and the charter
+  disagree, the charter is right and this file has a rendering bug.
+  Every hex, number and law sentence below is transcribed from the charter / theme.css.
+  Sections are tagged BINDING (charter-normative on merge), PENDING (a pending ruling,
+  owned by a named PRD, illustrative only), or TODAY (ground truth being replaced).
+  Fonts: this page links Google Fonts for preview fidelity only — the app itself
+  self-hosts via @fontsource-variable (charter §3; a localhost instrument never CDNs).
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ── tokens, transcribed from theme.css (the ice ramp, one hue ~218°) ── */
+  :root{
+    --ice-1000:#04060c; --ice-950:#080b14; --ice-900:#0d1220; --ice-850:#131a2b;
+    --ice-800:#1b2438;  --ice-700:#26334d; --ice-600:#364768; --ice-500:#4c6289;
+    --ice-400:#6a81a8;  --ice-300:#8ea3c4; --ice-200:#b3c6de; --ice-100:#d6e2f2;
+    --ice-050:#f0f5fc;
+    --working:#40d98c; --done:#2e9d74; --waiting:#d9a441; --needs-you:#ffc857;
+    --broken:#ff3d68;  --notice:#4deaff; --necrotic:#4a5266;
+    --tissue-900:#1e1833; --tissue-700:#322752; --tissue-500:#4b3a7a;
+    --tissue-400:#6b4fa8; --tissue-200:#8f6fd6;
+    --sans:'Inter',ui-sans-serif,system-ui,sans-serif;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--ice-1000);color:var(--ice-300);font-family:var(--sans);
+       font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased;padding:48px 24px 96px}
+  main{max-width:960px;margin:0 auto}
+  a{color:var(--notice);text-decoration:none}
+  h1{font-family:var(--mono);font-size:22px;font-weight:600;color:var(--ice-100);letter-spacing:-.01em}
+  h2{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.2em;
+     text-transform:uppercase;color:var(--ice-400);margin:64px 0 16px;
+     padding-bottom:8px;border-bottom:1px solid var(--ice-850)}
+  h3{font-size:12px;font-weight:600;color:var(--ice-200);margin:24px 0 8px}
+  p{margin:8px 0;max-width:72ch}
+  em{color:var(--ice-200);font-style:italic}
+  code{font-family:var(--mono);font-size:.92em;color:var(--ice-200);
+       background:var(--ice-900);padding:1px 5px;border-radius:3px}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:12px}
+  th{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+     color:var(--ice-400);text-align:left;padding:6px 10px;border-bottom:1px solid var(--ice-800)}
+  td{padding:7px 10px;border-bottom:1px solid var(--ice-900);vertical-align:top}
+  .fig{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .kicker{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ice-500)}
+  .chip{display:inline-block;font-family:var(--mono);font-size:9px;letter-spacing:.14em;
+        text-transform:uppercase;padding:2px 8px;border-radius:3px;margin-left:10px;vertical-align:2px}
+  .chip.binding{color:var(--working);border:1px solid color-mix(in oklab,var(--working) 40%,transparent)}
+  .chip.pending{color:var(--waiting);border:1px solid color-mix(in oklab,var(--waiting) 40%,transparent)}
+  .chip.today{color:var(--ice-400);border:1px solid var(--ice-700)}
+  .note{border-left:2px solid var(--ice-800);padding:10px 14px;margin:14px 0;
+        background:var(--ice-950);font-size:12.5px;color:var(--ice-300)}
+  .note strong{color:var(--ice-100)}
+  .sw{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;
+      margin-right:8px;border:1px solid rgba(255,255,255,.08)}
+  /* ramp strip */
+  .ramp{display:flex;gap:0;border-radius:6px;overflow:hidden;margin:12px 0 4px;border:1px solid var(--ice-850)}
+  .ramp div{flex:1;height:44px;position:relative}
+  .ramp .floor{outline:2px solid var(--notice);outline-offset:-2px;z-index:1}
+  .ramp-labels{display:flex;font-family:var(--mono);font-size:8.5px;color:var(--ice-500);letter-spacing:.02em}
+  .ramp-labels div{flex:1;text-align:center;padding-top:3px}
+  /* salience band */
+  .band{position:relative;height:96px;margin:20px 0 8px;border-radius:6px;
+        background:linear-gradient(90deg,#04060c 0%,#131a2b 30%,#4c6289 60%,#b3c6de 84%,#f0f5fc 100%);
+        border:1px solid var(--ice-850)}
+  .band .mark{position:absolute;top:0;bottom:0;width:2px;background:var(--ice-100)}
+  .band .mark span{position:absolute;top:100%;left:50%;transform:translateX(-50%);
+        font-family:var(--mono);font-size:9px;white-space:nowrap;color:var(--ice-400);padding-top:6px}
+  .band .gap{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(45deg,
+        color-mix(in oklab,var(--needs-you) 22%,transparent) 0 6px, transparent 6px 12px);
+        border-left:2px solid var(--needs-you);border-right:2px solid var(--needs-you)}
+  .band .gap span{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);
+        font-family:var(--mono);font-size:9px;color:var(--needs-you);white-space:nowrap;padding-bottom:6px}
+  /* type specimens */
+  .spec{border:1px solid var(--ice-850);border-radius:6px;padding:16px 18px;margin:10px 0;background:var(--ice-950)}
+  .spec .lab{font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;
+        color:var(--ice-500);margin-bottom:8px}
+  /* two-column demo grid */
+  .duo{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:12px 0}
+  @media(max-width:720px){.duo{grid-template-columns:1fr}}
+  .panel{border:1px solid var(--ice-850);border-radius:6px;padding:14px 16px;background:var(--ice-950)}
+  .panel.light{background:#f4f6fa;border-color:#d4dae6;color:#3d4c66}
+  .panel.light .lab{color:#8a97ad}
+  .lab{font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;
+       color:var(--ice-500);margin-bottom:10px}
+  /* ambient demo */
+  .amb{height:72px;border-radius:6px;position:relative;overflow:hidden;border:1px solid var(--ice-850)}
+  .amb.alive{background:
+      radial-gradient(120% 90% at 20% 110%, color-mix(in oklab,var(--tissue-700) 55%,var(--ice-1000)) 0%, transparent 60%),
+      radial-gradient(80% 70% at 80% -10%, color-mix(in oklab,var(--ice-800) 70%,transparent) 0%, transparent 55%),
+      var(--ice-950)}
+  .amb.alive::after{content:'';position:absolute;inset:0;
+      background:radial-gradient(60% 50% at 55% 45%, color-mix(in oklab,var(--tissue-400) 12%,transparent), transparent 70%);
+      animation:breath 5.4s ease-in-out infinite}
+  @keyframes breath{0%,100%{opacity:.55}50%{opacity:.85}}
+  @media(prefers-reduced-motion:reduce){.amb.alive::after{animation:none}}
+  /* tooltip mock */
+  .tip{max-width:340px;border:1px solid var(--ice-800);border-radius:6px;background:var(--ice-900);
+       padding:10px 12px;font-size:12px;box-shadow:0 8px 28px rgba(0,0,0,.5)}
+  .tip .t-label{font-family:var(--mono);font-size:11px;color:var(--needs-you);font-weight:600}
+  .tip .t-why{color:var(--ice-300);margin-top:4px}
+  .tip .t-remedy{color:var(--ice-200);margin-top:6px;border-top:1px solid var(--ice-850);padding-top:6px}
+  .tip .t-remedy::before{content:'remedy · ';font-family:var(--mono);font-size:9px;
+       letter-spacing:.14em;text-transform:uppercase;color:var(--ice-500)}
+  /* conversation sketch */
+  .convo{border:1px solid var(--ice-850);border-radius:6px;background:var(--ice-1000);
+         padding:14px 16px;font-size:12px}
+  .turn{padding:6px 0 6px 12px;margin:4px 0;border-left:2px solid var(--ice-850)}
+  .turn.user{border-left-color:var(--notice)}
+  .turn.assistant{border-left-color:var(--ice-600)}
+  .turn.subagent{border-left-color:var(--ice-800);margin-left:16px}
+  .turn .who{font-family:var(--mono);font-size:9px;letter-spacing:.16em;
+       text-transform:uppercase;color:var(--ice-500)}
+  .turn .prose{color:var(--ice-200);margin-top:2px}
+  .turn.user .prose{color:var(--ice-100)}
+  .tool{font-family:var(--mono);font-size:10.5px;color:var(--ice-400);padding:2px 0 2px 24px}
+  .tool .glyph{color:var(--ice-600)}
+  footer{margin-top:72px;padding-top:16px;border-top:1px solid var(--ice-850);
+         font-size:11px;color:var(--ice-500)}
+</style>
+</head>
+<body>
+<main>
+  <p class="kicker">visual companion to docs/design/charter.md · restates, never rules · 2026-08-13</p>
+  <h1>the design charter — visual companion</h1>
+  <p style="margin-top:10px">One page, both registers, every number transcribed. Sections are tagged:
+    <span class="chip binding">binding</span> charter-normative on merge ·
+    <span class="chip pending">pending</span> a proposed ruling owned by a named PRD ·
+    <span class="chip today">today</span> ground truth being replaced.</p>
+
+  <h2>identity</h2>
+  <p>A living instrument, not a dashboard. Calm technology: attention is bought only with the
+  alarm grammar, never with decoration. Dark-first, the ice register on the void — now with two
+  real themes, dark remaining the source of truth. Mono-forward: an instrument that reports
+  figures speaks mono; prose is the deliberate exception that reads as human.
+  <em>An ugly surface that refuses to lie beats a gorgeous one that ranks.</em></p>
+
+  <h2>the hue table — law 9a<span class="chip binding">binding</span></h2>
+  <p>Six status hues, each owning exactly one meaning. A stranger can guess them; that is the test.</p>
+  <table>
+    <tr><th>swatch</th><th>token</th><th>hex</th><th>meaning</th></tr>
+    <tr><td><span class="sw" style="background:var(--working)"></span></td><td class="fig">--color-working</td><td class="fig">#40d98c</td><td>productive — the lane is getting on with it</td></tr>
+    <tr><td><span class="sw" style="background:var(--done)"></span></td><td class="fig">--color-done</td><td class="fig">#2e9d74</td><td>the same green, dimmer: it got on with it, and stopped</td></tr>
+    <tr><td><span class="sw" style="background:var(--waiting)"></span></td><td class="fig">--color-waiting-benign</td><td class="fig">#d9a441</td><td>blocked on a human, nobody summoned — amber's muted end</td></tr>
+    <tr><td><span class="sw" style="background:var(--needs-you)"></span></td><td class="fig">--color-needs-you</td><td class="fig">#ffc857</td><td>amber's incandescent end: a human must act</td></tr>
+    <tr><td><span class="sw" style="background:var(--broken)"></span></td><td class="fig">--color-broken</td><td class="fig">#ff3d68</td><td>dead — red only ever means dead, anywhere</td></tr>
+    <tr><td><span class="sw" style="background:var(--notice)"></span></td><td class="fig">--color-notice</td><td class="fig">#4deaff</td><td>something changed; nobody is needed yet</td></tr>
+    <tr><td><span class="sw" style="background:var(--necrotic)"></span></td><td class="fig">--color-necrotic</td><td class="fig">#4a5266</td><td>a frozen lane's thread — a luminance, not a seventh hue</td></tr>
+  </table>
+  <p style="font-size:12px">IDLE and UNKNOWN deliberately have no token: they are <code>ice-400</code> and
+  <code>ice-600</code> — nothing-to-say is structure. Colour is never the sole carrier (law 9):
+  every state also has a glyph and a word.</p>
+
+  <h2>the ice ramp, and the text floor<span class="chip binding">binding</span></h2>
+  <div class="ramp">
+    <div style="background:var(--ice-1000)"></div><div style="background:var(--ice-950)"></div>
+    <div style="background:var(--ice-900)"></div><div style="background:var(--ice-850)"></div>
+    <div style="background:var(--ice-800)"></div><div style="background:var(--ice-700)"></div>
+    <div style="background:var(--ice-600)"></div><div style="background:var(--ice-500)"></div>
+    <div style="background:var(--ice-400)" class="floor"></div><div style="background:var(--ice-300)"></div>
+    <div style="background:var(--ice-200)"></div><div style="background:var(--ice-100)"></div>
+    <div style="background:var(--ice-050)"></div>
+  </div>
+  <div class="ramp-labels">
+    <div>1000</div><div>950</div><div>900</div><div>850</div><div>800</div><div>700</div>
+    <div>600</div><div>500</div><div style="color:var(--notice)">400 ⌊text⌋</div><div>300</div><div>200</div><div>100</div><div>050</div>
+  </div>
+  <p style="font-size:12px">Everything left of <code>ice-400</code> is structure — hairlines, wells,
+  disabled marks — and is <em>never text</em> (the legibility floor, 5.1:1, source-walked with a
+  self-policing allowlist). The white at the top is <code>ice-050</code>: the instrument reaches
+  white through its own ramp, never <code>#ffffff</code>. The tissue ramp
+  <span class="sw" style="background:var(--tissue-900)"></span><span class="sw" style="background:var(--tissue-700)"></span><span class="sw" style="background:var(--tissue-500)"></span><span class="sw" style="background:var(--tissue-400)"></span><span class="sw" style="background:var(--tissue-200)"></span>
+  (OKLCH H 295.5) sits below the floor by design — tissue is living matter in the scene, never ink,
+  never chrome, never status.</p>
+
+  <h2>the salience band — law 9b<span class="chip binding">binding</span></h2>
+  <div class="band" role="img" aria-label="luminance scale from 0 to 1 with RECEDE at 0.30, CALM_FLOOR at 0.15, CALM_CEILING at 0.78, ALARM_FLOOR at 0.84; the gap between 0.78 and 0.84 is the salience mechanism">
+    <div class="mark" style="left:15%"><span>CALM_FLOOR ·15</span></div>
+    <div class="mark" style="left:30%"><span>RECEDE ·30</span></div>
+    <div class="gap" style="left:78%;width:6%"><span>the six hundredths</span></div>
+    <div class="mark" style="left:81%;background:transparent"><span style="padding-top:20px">TIP ·81</span></div>
+  </div>
+  <p style="font-size:12px;margin-top:26px">Calm marks live under <code>CALM_CEILING 0.78</code>; a summons must clear
+  <code>ALARM_FLOOR 0.84</code>. Since prd-04 dropped hue exclusivity, <strong style="color:var(--ice-100)">that
+  six-hundredths gap <em>is</em> the salience mechanism, and it is never spent</strong> — not on ambient
+  prettiness, not on vibrancy, not on a theme. The band's one amendment (the working tip's glow door at
+  <code>0.81</code>) was stricter in three clauses and laxer in exactly one number — the template every
+  future amendment answers to. BROKEN is exempt by ruling: pushed to 0.84 it turns pink and stops meaning
+  dead; it buys dominance with the spotlight, the only cartouche, and fade exemption instead.</p>
+
+  <h2>the type ramp, two registers<span class="chip binding">binding — structure, units, floors</span><span class="chip pending">values tuned here, with hchristina</span></h2>
+  <p style="font-size:12px"><span class="chip today">today</span> The named faces have never shipped —
+  <code>--font-sans</code> and <code>--font-mono</code> name Inter and JetBrains Mono but nothing loads
+  them; 239 sizing sites, mode 10px, ceiling 14px, zero rem. This page is the first surface where the
+  instrument wears its own typeface. The app self-hosts via <code>@fontsource-variable</code>.</p>
+  <div class="duo">
+    <div class="spec">
+      <div class="lab">reading register — conversation · tooltips · prose</div>
+      <p style="font-size:.8125rem;color:var(--ice-200);line-height:1.6">body · 0.8125rem (13px-eq) — an
+      assistant turn reads like this: room to breathe, sans voice, ice-200 ink.</p>
+      <p style="font-size:.75rem;color:var(--ice-300);line-height:1.55">floor · 0.75rem (12px-eq) —
+      secondary prose never drops below this.</p>
+    </div>
+    <div class="spec">
+      <div class="lab">instrument register — tables · trace · figures</div>
+      <p class="fig" style="font-size:.6875rem;color:var(--ice-200)">11px-eq · lane-7f3a&nbsp;&nbsp;main&nbsp;&nbsp;+312/−87&nbsp;&nbsp;$2.31</p>
+      <p class="fig" style="font-size:.625rem;color:var(--ice-300)">10px-eq · the dense legal floor for data surfaces — tabular-nums always</p>
+      <p class="fig" style="font-size:.5625rem;color:var(--ice-400)">9px-eq · aria-hidden ornament only — never a fact</p>
+    </div>
+  </div>
+  <div class="spec">
+    <div class="lab">the heading utility — today's copy-pasted idiom, becoming one name</div>
+    <div style="font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:var(--ice-400)">conversation</div>
+  </div>
+  <p style="font-size:12px">Two mono registers, now named: <em>figures</em> (mono + tabular-nums — anything
+  compared down a column) and <em>code-voice</em> (bare mono — tool names, results, transcript lines).
+  Law 11, stated in full for the first time in the charter: <strong style="color:var(--ice-100)">sans for
+  prose, mono for figures, tabular numerals for anything a reader could compare down a column.</strong></p>
+
+  <h2>role tokens, and the second theme<span class="chip binding">roles binding</span><span class="chip pending">light — owned by the legibility PRD</span></h2>
+  <div class="duo">
+    <div class="panel">
+      <div class="lab">dark — the source of truth</div>
+      <div style="font-size:12px">
+        <div><span class="sw" style="background:var(--ice-1000)"></span><code>--surface-void</code> ← ice-1000</div>
+        <div style="margin-top:4px"><span class="sw" style="background:var(--ice-950)"></span><code>--surface-raised</code> ← ice-950</div>
+        <div style="margin-top:4px"><span class="sw" style="background:var(--ice-850)"></span><code>--line-hairline</code> ← ice-850</div>
+        <div style="margin-top:4px"><span class="sw" style="background:var(--ice-200)"></span><code>--ink-data</code> ← ice-200</div>
+        <div style="margin-top:4px"><span class="sw" style="background:var(--ice-400)"></span><code>--ink-secondary</code> ← ice-400 (the floor)</div>
+      </div>
+    </div>
+    <div class="panel light">
+      <div class="lab">light — pending ruling, illustrative only</div>
+      <div style="font-size:12px">
+        <p style="color:#5b6b85">The 9b band is luminance-directional and <strong style="color:#3d4c66">inverts on
+        light ground</strong> — “brighter than the calm world” cannot mean the same thing on white.
+        Severity here is carried by <strong style="color:#3d4c66">enclosure, weight and saturation</strong>, plus a
+        per-theme re-derived band. Canvas gains a theme-aware palette path; the colour mirror test doubles.
+        The switch is chrome, not status: persisted preference, defaulting to
+        <span style="font-family:var(--mono)">prefers-color-scheme</span>.</p>
+      </div>
+    </div>
+  </div>
+
+  <h2>the ambient layer<span class="chip pending">owned by the scene PRD</span></h2>
+  <div class="duo">
+    <div>
+      <div class="amb alive" aria-label="ambient demo: depth washes and tissue undertone, breathing within the ambient motion class"></div>
+      <p style="font-size:11px;margin-top:6px;color:var(--ice-400)">MAY vary — depth washes, iridescence,
+      texture, environmental tint. Granted through the variation-table device: only channels that
+      <em>carry nothing</em>, each grant bounded, breathing only inside the ambient class (4–8s, ≤3%).</p>
+    </div>
+    <div>
+      <div class="amb" style="display:flex;align-items:center;justify-content:center">
+        <span class="fig" style="font-size:11px;color:var(--broken)">status hue = meaning · never ambient</span>
+      </div>
+      <p style="font-size:11px;margin-top:6px;color:var(--ice-400)">NEVER — the six semantic hues, the alarm
+      grammar, the salience band, the tissue fence. The accompanying law is four words:
+      <strong style="color:var(--ice-200)">ambient never means.</strong> “No new hue” survives as
+      “no new <em>semantic</em> hue” — stronger about meaning, not weaker about colour.</p>
+    </div>
+  </div>
+  <p style="font-size:12px">Vibrancy rises only via the lawful recipe: chroma (<code>ACTIVITY_TINT</code>)
+  and the floor (<code>CALM_BODY_FLOOR</code>) — the 0.78/0.84 band does not move.</p>
+
+  <h2>motion — four closed classes<span class="chip binding">binding</span><span class="chip pending">growth — owned by the scene PRD</span></h2>
+  <table>
+    <tr><th>class</th><th>what moves</th><th>budget</th></tr>
+    <tr><td class="fig">ambient</td><td>root-mass breath, idle life</td><td class="fig">4–8s · ≤3% amplitude · unlimited</td></tr>
+    <tr><td class="fig">event</td><td>pulse travel, flare, alarm throb</td><td class="fig">400–600ms · ≤5 concurrent</td></tr>
+    <tr><td class="fig">structural</td><td>a lane appearing, reflowing</td><td class="fig">~800ms critically damped · ≤2 staggered</td></tr>
+    <tr><td class="fig">dissolution</td><td>matter returning</td><td class="fig">≤240 pooled motes · luminance-only · typed cause</td></tr>
+  </table>
+  <p style="font-size:12px">Degradation substitutes rather than stops: <em>reduced</em> drops travel and
+  scale, keeps colour and opacity; <em>paused</em> stops everything, except structural motion settles
+  first. The growth question — threads growing like living matter — either fits inside structural's
+  damped envelope or becomes a fifth class, opened only the way dissolution was: typed cause, hard caps,
+  every older cap untouched.</p>
+
+  <h2>one hover-disclosure vocabulary<span class="chip binding">the “one, not three” ruling binds now</span></h2>
+  <p style="font-size:12px"><span class="chip today">today</span> three components in flight plus ~85
+  native <code>title=</code> attributes — keyboard-inaccessible, touch-invisible, OS-delayed. The one
+  vocabulary is prd-27 ruling 5's triple, assembled once so every surface says a condition identically.
+  Whatever hover discloses, focus discloses.</p>
+  <div class="tip" role="tooltip">
+    <div class="t-label">NEEDS-YOU · waited 14m</div>
+    <div class="t-why">the lane asked a question at 14:32 and no human has answered; the summons has been
+    aging since (declared by the harness, not inferred)</div>
+    <div class="t-remedy">open the lane's conversation and answer, or park the lane if the question is stale</div>
+  </div>
+
+  <h2>conversation bracketing — the reserved vocabulary<span class="chip binding">law shape binds; design is the conversation PRD's</span></h2>
+  <div class="convo">
+    <div class="turn user"><div class="who">you</div><div class="prose">run the suite and tell me what broke</div></div>
+    <div class="turn assistant"><div class="who">lane-7f3a</div><div class="prose">Two failures, both in the fold — reading them now.</div>
+      <div class="tool"><span class="glyph">●</span> Bash <span style="color:var(--ice-500)">npm test — 2 failed | 3922 passed</span></div>
+      <div class="tool"><span class="glyph">⎿</span> FAIL reduce.test.ts › checkpoints.byLane …</div>
+    </div>
+    <div class="turn subagent"><div class="who">subagent</div><div class="prose">Verified: both failures reproduce at HEAD; the second is the prototype-key shape.</div></div>
+  </div>
+  <p style="font-size:12px;margin-top:8px">Role chrome — brackets, gutters, rules — is <em>structure, drawn
+  in the ice register</em>. Kind dispatches before role (a session log records tool results on user
+  lines). <code>data-role</code> is the hook and already exists. Prompts may carry the one existing
+  notice accent — never a new hue.</p>
+
+  <h2>the dispositions, at a glance</h2>
+  <p style="font-size:12px">All fifteen registered laws: <strong style="color:var(--working)">KEEP</strong>.
+  The four amendments are pending rulings with named owners — ambient layer, ceilings and growth to the
+  <em>scene PRD</em>; the light-mode band to the <em>legibility PRD</em>. The charter's own additive rulings
+  (fonts, ramp, roles, mirrors, contrast-as-arithmetic, hover vocabulary, focus floor, kind→lightness
+  module, bracketing reservation) bind on merge and amend nothing. Two tensions named, not resolved:
+  prd-14 ruling 1's contradictory amendments (PR #431 r5 vs r8 — the lab review owns it), and prd-21
+  cited-but-unlanded. One standing booking: the #158 glance re-run rides the scene PRD's gate — an
+  operator act with a real lay viewer.</p>
+
+  <footer>
+    the artifact restates, never rules — where this page and <span class="fig">docs/design/charter.md</span>
+    disagree, the charter is right and this page has a rendering bug · iterate here, record there ·
+    2026-08-13
+  </footer>
+</main>
+</body>
+</html>
