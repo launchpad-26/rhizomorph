@@ -153,7 +153,7 @@ export async function runServerCommand(
   const flatlineMs = args.flatlineMinutes * 60_000
   // `now` is threaded through for the one route that writes (`POST /api/rotate`),
   // so a rotation asked of a test's server happens on the test's clock.
-  const app = buildApp({ repoPath, repoName, sessionDir, recorder, webDistDir, flatlineMs, now })
+  const app = buildApp({ repoPath, repoName, sessionDir, recorder, webDistDir, flatlineMs, now, port: args.port })
 
   let url: string
   try {

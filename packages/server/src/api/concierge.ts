@@ -6,6 +6,14 @@ import {
   planClone,
   runClone,
 } from '../concierge/clone.js'
+import {
+  HarnessNotAvailableError,
+  LaunchContinuityUnavailableError,
+  ConciergeLaunchValidationError,
+  parseConciergeLaunchRequestBody,
+  planLaunch,
+  runLaunch,
+} from '../concierge/launch.js'
 import { CloneFenceError } from '../concierge/paths.js'
 import { type DiscoverReposResult, discoverRepos } from '../concierge/repos.js'
 import type { ServerContext } from '../server/context.js'
@@ -22,6 +30,7 @@ import { requireCapabilityToken } from './security.js'
  * comment already flags this for a type-only import of `concierge/repos.js`).
  */
 export { CloneDestinationExistsError, CloneValidationError, CloneFenceError }
+export { HarnessNotAvailableError, LaunchContinuityUnavailableError, ConciergeLaunchValidationError }
 
 /**
  * The one thing this route can answer with when it should not run
@@ -142,6 +151,87 @@ export function registerConciergeCloneRoute(app: FastifyInstance, ctx: ServerCon
         res.write(`${JSON.stringify(event)}\n`)
       }
       if (!res.writableEnded && !res.destroyed) res.end()
+    },
+  )
+}
+
+/**
+ * `POST /api/concierge/launch` — prd-20 ruling 1 / ADR-0014's SECOND power,
+ * wired for real (#264): spawn (or relaunch-with-continuity) the conductor
+ * watching this server's repo, instrumented. Token-gated per ruling 2, the
+ * same posture as `/api/concierge/clone`.
+ *
+ * Unlike clone, this never hijacks the reply: a spawn settles in milliseconds
+ * (one `spawn`/`error` event), so there is no progress to stream and the
+ * whole thing is one JSON response. `planLaunch` (`concierge/launch.ts`) does
+ * every check answerable before a process exists and maps to a precise status
+ * before this route commits to anything: 400 for a malformed body or an
+ * unknown harness id ({@link ConciergeLaunchValidationError}), 409 for a real harness
+ * this machine cannot launch right now or that has no continuity story
+ * ({@link HarnessNotAvailableError}, {@link LaunchContinuityUnavailableError}),
+ * or for a replay server (nothing live to launch into, same posture as
+ * `/api/concierge/clone`/`/api/lab/launch`).
+ *
+ * `runLaunch`'s outcome — launched, or the spawn itself failed — rides in the
+ * 200 body rather than the status line, the same split clone.ts makes for
+ * `runClone`'s own terminal event: planning failures are HTTP-shaped, runtime
+ * ones are IN the response. Ruling 3 means a 200 here is never a claim that
+ * telemetry is flowing — only that planning succeeded and the OS was asked to
+ * start the process. `ctx.port` is required for this one route: it is what
+ * tells the harness where to export TO, and a server booted without it (never
+ * true for `cli/run.ts`/`cli/replay.ts`, only possible for a test ctx built by
+ * hand) gets an honest 500 rather than a harness launched pointed at nowhere.
+ */
+export function registerConciergeLaunchRoute(app: FastifyInstance, ctx: ServerContext): void {
+  app.post(
+    '/api/concierge/launch',
+    { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') },
+    async (request: FastifyRequest, reply) => {
+      if (ctx.readOnly === true) {
+        return reply.code(409).send({
+          error: 'this server is replaying a session record, not watching a repo — there is no conductor to launch',
+        })
+      }
+      if (!ctx.port) {
+        // Falsy, not `=== undefined`: `--port 0` ("let the OS pick a free
+        // port", cli/args.ts) is a real, documented value, and `ServerContext.
+        // port` (see its own doc) is the port the CLI ASKED for, not the real
+        // bound one whenever the OS picked. `0` is therefore just as unknown
+        // as `undefined` here — refusing both is the honest choice over
+        // launching a harness wired to an endpoint nothing is listening on.
+        return reply.code(500).send({
+          error: 'this server has no known listening port (ServerContext.port) — cannot tell a harness where to export to',
+        })
+      }
+
+      let body: { harness: string; mode: 'launch' | 'continue' }
+      let plan: Awaited<ReturnType<typeof planLaunch>>
+      try {
+        body = parseConciergeLaunchRequestBody(request.body)
+        plan = await planLaunch(body.harness, body.mode, {
+          watchedRepoPath: ctx.repoPath,
+          port: ctx.port,
+          instance: ctx.recorder.sessionId,
+        })
+      } catch (err) {
+        if (err instanceof ConciergeLaunchValidationError) return reply.code(400).send({ error: err.message })
+        if (err instanceof HarnessNotAvailableError || err instanceof LaunchContinuityUnavailableError) {
+          return reply.code(409).send({ error: err.message })
+        }
+        throw err
+      }
+
+      const outcome = await runLaunch(plan)
+      return reply.code(200).send({
+        harness: body.harness,
+        mode: body.mode,
+        telemetry: plan.telemetry,
+        // Explicit `null`, not an omitted key: `mode: 'launch'` has no
+        // continuity to report, and that is a fact worth a value rather than
+        // a key a caller has to remember to check for.
+        continuity: plan.continuity ?? null,
+        ...outcome,
+      })
     },
   )
 }

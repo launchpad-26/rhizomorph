@@ -9,7 +9,14 @@ import { SessionRecorder } from '../server/recorder.js'
 // namespace law's one declared importer, and importing the error classes
 // straight from `concierge/` here would be a second, undeclared route in.
 // See `concierge.ts`'s own re-export comment.
-import { CloneDestinationExistsError, CloneFenceError, CloneValidationError } from './concierge.js'
+import {
+  CloneDestinationExistsError,
+  CloneFenceError,
+  CloneValidationError,
+  HarnessNotAvailableError,
+  LaunchContinuityUnavailableError,
+  ConciergeLaunchValidationError,
+} from './concierge.js'
 import { CAPABILITY_TOKEN_HEADER } from './security.js'
 
 /**
@@ -73,6 +80,21 @@ const { planCloneMock, runCloneMock } = vi.hoisted(() => ({ planCloneMock: vi.fn
 vi.mock('../concierge/clone.js', async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
   return { ...actual, planClone: planCloneMock, runClone: runCloneMock }
+})
+
+/**
+ * `planLaunch`/`runLaunch` mocked wholesale, the same posture as clone's
+ * above: this file covers only the WIRING (capability token, readOnly, the
+ * missing-port guard, status-code mapping, the response shape) —
+ * `concierge/launch.test.ts` covers `planLaunch`'s real harness-lookup/
+ * detect/continuity behaviour and `runLaunch`'s real spawn-outcome behaviour
+ * exhaustively. `parseConciergeLaunchRequestBody` and the error classes are left REAL.
+ */
+const { planLaunchMock, runLaunchMock } = vi.hoisted(() => ({ planLaunchMock: vi.fn(), runLaunchMock: vi.fn() }))
+
+vi.mock('../concierge/launch.js', async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>
+  return { ...actual, planLaunch: planLaunchMock, runLaunch: runLaunchMock }
 })
 
 describe('GET /api/concierge/repos', () => {
@@ -278,6 +300,201 @@ describe('POST /api/concierge/clone', () => {
       const response = await post(makeApp(), { url: 'https://example.com/repo.git' }, { origin: 'https://evil.example' })
       expect(response.statusCode).toBe(403)
       expect(planCloneMock).not.toHaveBeenCalled()
+    })
+  })
+})
+
+describe('POST /api/concierge/launch', () => {
+  let repoPath: string
+  let sessionDir: string
+  const CAPABILITY_TOKEN = 'test-token'
+  const PORT = 4321
+
+  beforeEach(async () => {
+    repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-concierge-launch-repo-'))
+    sessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-concierge-launch-session-'))
+    planLaunchMock.mockReset()
+    runLaunchMock.mockReset()
+  })
+
+  afterEach(async () => {
+    await Promise.all([
+      rm(repoPath, { recursive: true, force: true }),
+      rm(sessionDir, { recursive: true, force: true }),
+    ])
+  })
+
+  function makeApp(overrides: { readOnly?: boolean; port?: number } = {}) {
+    const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+    return buildApp({
+      repoPath,
+      repoName: 'repo',
+      sessionDir,
+      recorder,
+      capabilityToken: CAPABILITY_TOKEN,
+      port: PORT,
+      ...overrides,
+    })
+  }
+
+  function post(app: ReturnType<typeof makeApp>, body: Record<string, unknown>, headers: Record<string, string> = {}) {
+    return app.inject({
+      method: 'POST',
+      url: '/api/concierge/launch',
+      payload: body,
+      headers: { [CAPABILITY_TOKEN_HEADER]: CAPABILITY_TOKEN, ...headers },
+    })
+  }
+
+  it('refuses a request with no capability token, before planLaunch ever runs', async () => {
+    const response = await makeApp().inject({
+      method: 'POST',
+      url: '/api/concierge/launch',
+      payload: { harness: 'claude', mode: 'launch' },
+    })
+    expect(response.statusCode).toBe(401)
+    expect(planLaunchMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses a replay server — nowhere live to launch a conductor into', async () => {
+    const response = await post(makeApp({ readOnly: true }), { harness: 'claude', mode: 'launch' })
+    expect(response.statusCode).toBe(409)
+    expect(planLaunchMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses a server with no known port, honestly, rather than launching pointed at nowhere', async () => {
+    const response = await post(makeApp({ port: undefined }), { harness: 'claude', mode: 'launch' })
+    expect(response.statusCode).toBe(500)
+    expect(planLaunchMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses port: 0 the same way — "let the OS pick" is real and documented, not only a test value, and this ctx never learns the real bound port', async () => {
+    const response = await post(makeApp({ port: 0 }), { harness: 'claude', mode: 'launch' })
+    expect(response.statusCode).toBe(500)
+    expect(planLaunchMock).not.toHaveBeenCalled()
+  })
+
+  it('checks readOnly BEFORE the port guard — a replaying server with no port still answers 409, not 500', async () => {
+    // Both failure conditions armed at once, so this would catch a reordering
+    // regression the single-condition tests above cannot: each of those only
+    // ever turns on ONE guard's failure.
+    const response = await post(makeApp({ readOnly: true, port: 0 }), { harness: 'claude', mode: 'launch' })
+    expect(response.statusCode).toBe(409)
+    expect(planLaunchMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses a malformed body with 400, via the real (unmocked) parser', async () => {
+    const response = await post(makeApp(), { harness: 42, mode: 'launch' })
+    expect(response.statusCode).toBe(400)
+    expect(planLaunchMock).not.toHaveBeenCalled()
+  })
+
+  it('maps a ConciergeLaunchValidationError from planLaunch to 400', async () => {
+    planLaunchMock.mockRejectedValue(new ConciergeLaunchValidationError('unknown harness "bogus"'))
+    const response = await post(makeApp(), { harness: 'bogus', mode: 'launch' })
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).toEqual({ error: 'unknown harness "bogus"' })
+  })
+
+  it('maps a HarnessNotAvailableError from planLaunch to 409', async () => {
+    planLaunchMock.mockRejectedValue(new HarnessNotAvailableError('claude cannot be launched on this machine'))
+    const response = await post(makeApp(), { harness: 'claude', mode: 'launch' })
+    expect(response.statusCode).toBe(409)
+    expect(response.json()).toEqual({ error: 'claude cannot be launched on this machine' })
+  })
+
+  it('maps a LaunchContinuityUnavailableError from planLaunch to 409', async () => {
+    planLaunchMock.mockRejectedValue(new LaunchContinuityUnavailableError('no continuity story'))
+    const response = await post(makeApp(), { harness: 'claude', mode: 'continue' })
+    expect(response.statusCode).toBe(409)
+    expect(response.json()).toEqual({ error: 'no continuity story' })
+  })
+
+  it('plans with ctx.repoPath/port/instance, then reports runLaunch’s outcome in a 200 body', async () => {
+    planLaunchMock.mockResolvedValue({
+      argv: ['claude'],
+      env: {},
+      cwd: repoPath,
+      telemetry: { level: 'provided' },
+    })
+    runLaunchMock.mockResolvedValue({ kind: 'launched', pid: 4242 })
+
+    const response = await post(makeApp(), { harness: 'claude', mode: 'launch' })
+
+    expect(planLaunchMock).toHaveBeenCalledWith('claude', 'launch', {
+      watchedRepoPath: repoPath,
+      port: PORT,
+      instance: '1000',
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({
+      harness: 'claude',
+      mode: 'launch',
+      telemetry: { level: 'provided' },
+      continuity: null,
+      kind: 'launched',
+      pid: 4242,
+    })
+  })
+
+  it('a spawn failure still answers 200 — the outcome rides in the body, never the status line', async () => {
+    planLaunchMock.mockResolvedValue({ argv: ['claude'], env: {}, cwd: repoPath, telemetry: { level: 'provided' } })
+    runLaunchMock.mockResolvedValue({ kind: 'error', message: 'could not start claude: ENOENT' })
+
+    const response = await post(makeApp(), { harness: 'claude', mode: 'launch' })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ kind: 'error', message: 'could not start claude: ENOENT' })
+  })
+
+  it('a continue-mode plan’s continuity AND telemetry ride along VERBATIM — never hardcoded, never upgraded', async () => {
+    const continuity = {
+      kind: 'proven',
+      argv: ['--continue'],
+      whatContinues: 'the conversation',
+      whatIsLost: 'nothing',
+      evidence: 'fixture',
+    }
+    // Deliberately NOT `{ level: 'provided' }` — every other fixture in this
+    // file uses that value, which would let a route that hardcodes it in the
+    // response (instead of forwarding `plan.telemetry`) pass every other
+    // test here. `absent` proves the pass-through is real.
+    const telemetry = { level: 'absent' as const, reason: 'fixture: this harness reports no telemetry' }
+    planLaunchMock.mockResolvedValue({
+      argv: ['claude', '--continue'],
+      env: {},
+      cwd: repoPath,
+      telemetry,
+      continuity,
+    })
+    runLaunchMock.mockResolvedValue({ kind: 'launched', pid: 4343 })
+
+    const response = await post(makeApp(), { harness: 'claude', mode: 'continue' })
+
+    // Full-body `toEqual`, not `toMatchObject`: also proves `mode` is echoed
+    // as the REQUEST's mode ('continue'), not hardcoded to 'launch' the way
+    // the sibling fresh-launch test above could not distinguish.
+    expect(response.json()).toEqual({
+      harness: 'claude',
+      mode: 'continue',
+      telemetry,
+      continuity,
+      kind: 'launched',
+      pid: 4343,
+    })
+  })
+
+  describe('the app-wide mutation guard (mutation-guard.ts) covers this route too', () => {
+    it('a non-loopback Host is refused before the route ever runs', async () => {
+      const response = await post(makeApp(), { harness: 'claude', mode: 'launch' }, { host: 'evil.example' })
+      expect(response.statusCode).toBe(400)
+      expect(planLaunchMock).not.toHaveBeenCalled()
+    })
+
+    it('a cross-origin Origin is refused as a mutating request', async () => {
+      const response = await post(makeApp(), { harness: 'claude', mode: 'launch' }, { origin: 'https://evil.example' })
+      expect(response.statusCode).toBe(403)
+      expect(planLaunchMock).not.toHaveBeenCalled()
     })
   })
 })

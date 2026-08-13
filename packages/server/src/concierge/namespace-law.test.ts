@@ -65,9 +65,9 @@ import { assertCloneTarget, conciergeRoot } from './paths.js'
  *    or re-export — reaches it. The declared-importer set started EMPTY (this
  *    law landed before the hand's first route, so nothing could reach it yet)
  *    and now names exactly `api/concierge.ts` — #263's read-only discovery
- *    route and #262's clone-by-URL route both go through that one file, per
- *    prd-20 ruling 2's gate on #234. Whatever is added to that set later may
- *    never be a collector or a poll loop.
+ *    route, #262's clone-by-URL route, and #264's launch route all go through
+ *    that one file, per prd-20 ruling 2's gate on #234. Whatever is added to
+ *    that set later may never be a collector or a poll loop.
  * 2. **No blind spots.** No non-test server source file contains a dynamic
  *    `import()` with a non-literal specifier, because clause 1's graph cannot
  *    see through one. A law that cannot see is worse than no law (#245, #319).
