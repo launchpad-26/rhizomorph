@@ -173,7 +173,7 @@ describe('createWorkmuxCollector', () => {
     const result = await collector.poll(collector.initialSnapshot(), context)
 
     expect(result.events).toHaveLength(4)
-    expect(result.events[0]?.payload).toMatchObject({ branch: null, worktreePath: null })
+    expect(result.events[0]?.payload).toMatchObject({ branch: '2-core', worktreePath: null })
   })
 
   it('degrades gracefully when list --json returns unparseable output', async () => {
@@ -188,7 +188,7 @@ describe('createWorkmuxCollector', () => {
     const result = await collector.poll(collector.initialSnapshot(), context)
 
     expect(result.events).toHaveLength(4)
-    expect(result.events[0]?.payload).toMatchObject({ branch: null, worktreePath: null })
+    expect(result.events[0]?.payload).toMatchObject({ branch: '2-core', worktreePath: null })
   })
 
   it('rides the disabled ladder, not a table-parse fallback, when status --json is unparseable (e.g. an older workmux)', async () => {
@@ -229,6 +229,68 @@ describe('createWorkmuxCollector', () => {
     })
   })
 
+  it('resolves branch from the status row directly, not a matching list row, even when they disagree (#455)', async () => {
+    const collector = createWorkmuxCollector()
+    // Real workmux never disagrees like this — the point is to prove `branch`
+    // comes from `status.branch` alone. A collector that silently preferred
+    // `list.branch` whenever the path join hits would resolve
+    // 'stale-list-branch' here instead of the status row's own value.
+    const statusJson = JSON.stringify([
+      { worktree: 'feat-foo', branch: 'feat-foo', status: 'working', elapsed_secs: 60, title: null, workdir: '/Users/dev/proj__worktrees/feat-foo' },
+    ])
+    const listJson = JSON.stringify([
+      { handle: 'feat-foo', branch: 'stale-list-branch', path: '/Users/dev/proj__worktrees/feat-foo', is_main: false },
+    ])
+    const context = makeContext(fakeExec({ status: [ok(statusJson)], list: [ok(listJson)] }))
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    expect(result.events[0]?.payload).toMatchObject({
+      branch: 'feat-foo',
+      worktreePath: '/Users/dev/proj__worktrees/feat-foo',
+    })
+  })
+
+  it('resolves branch from status.branch when workdir sits in a subdirectory of the matching list path, not the path join (#455)', async () => {
+    const collector = createWorkmuxCollector()
+    // Shaped like real 0.1.233 `--json` output: normalised absolute paths,
+    // real field names. `workdir` is the pane's live cwd — a pane that `cd`s
+    // into a subdirectory of its worktree (probed in #383's re-verify:
+    // `<worktree>/packages/server`) makes the exact-path join against
+    // `list.path` miss, even though `status.branch` on the same row is fine.
+    const statusJson = JSON.stringify([
+      {
+        worktree: '455-branch-from-status',
+        branch: '455-branch-from-status',
+        status: 'working',
+        elapsed_secs: 60,
+        title: null,
+        workdir: '/Users/operator/Projects/rhizomorph__worktrees/455-branch-from-status/packages/server',
+      },
+    ])
+    const listJson = JSON.stringify([
+      {
+        handle: '455-branch-from-status',
+        branch: '455-branch-from-status',
+        path: '/Users/operator/Projects/rhizomorph__worktrees/455-branch-from-status',
+        is_main: false,
+      },
+    ])
+    const context = makeContext(fakeExec({ status: [ok(statusJson)], list: [ok(listJson)] }))
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0]?.payload).toMatchObject({
+      handle: '455-branch-from-status',
+      branch: '455-branch-from-status',
+      // The path join misses on a subdirectory workdir — a named absence,
+      // not a guess (PRD-22 ruling 5); worktreePath stays null rather than
+      // prefix-matching against list rows.
+      worktreePath: null,
+    })
+  })
+
   it('resolves branch/worktreePath to null, not a crash, when no list row matches the handle', async () => {
     const collector = createWorkmuxCollector()
     const statusJson = JSON.stringify([
@@ -238,7 +300,7 @@ describe('createWorkmuxCollector', () => {
 
     const result = await collector.poll(collector.initialSnapshot(), context)
 
-    expect(result.events[0]?.payload).toMatchObject({ branch: null, worktreePath: null })
+    expect(result.events[0]?.payload).toMatchObject({ branch: 'ghost-lane', worktreePath: null })
   })
 
   it('two worktrees sharing a basename under different parents both keep their own branch/worktreePath (#383)', async () => {
@@ -247,8 +309,11 @@ describe('createWorkmuxCollector', () => {
     // worktrees that share a basename under different parents (confirmed
     // against 0.1.233 — that field is derived from the basename and workmux
     // does not dedupe it). This collector never reads `list.handle` at all;
-    // it joins purely on the absolute `path`/`workdir`, so a basename
-    // collision on the `list` side cannot bleed into the resolved agents.
+    // it joins purely on the absolute `path`/`workdir` to resolve
+    // `worktreePath`, so a basename collision on the `list` side cannot bleed
+    // into the resolved agents. `branch` comes from each row's own
+    // `status.branch` (#455) — the list rows' `branch` values are
+    // deliberately different (`a-bar`/`b-bar`) to prove that.
     const statusJson = JSON.stringify([
       { worktree: 'bar-a', branch: 'bar-a', status: 'working', elapsed_secs: 60, title: null, workdir: '/parent-a/bar' },
       { worktree: 'bar-b', branch: 'bar-b', status: 'working', elapsed_secs: 90, title: null, workdir: '/parent-b/bar' },
@@ -264,8 +329,8 @@ describe('createWorkmuxCollector', () => {
     expect(result.events).toHaveLength(2)
     const statusEvents = result.events.filter((event) => event.type === 'agent.status')
     const byHandle = Object.fromEntries(statusEvents.map((event) => [event.payload.handle, event.payload]))
-    expect(byHandle['bar-a']).toMatchObject({ branch: 'a-bar', worktreePath: '/parent-a/bar' })
-    expect(byHandle['bar-b']).toMatchObject({ branch: 'b-bar', worktreePath: '/parent-b/bar' })
+    expect(byHandle['bar-a']).toMatchObject({ branch: 'bar-a', worktreePath: '/parent-a/bar' })
+    expect(byHandle['bar-b']).toMatchObject({ branch: 'bar-b', worktreePath: '/parent-b/bar' })
   })
 
   it('resolves the main worktree row, which the old basename join broke (#383)', async () => {
