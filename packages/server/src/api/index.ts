@@ -18,7 +18,7 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   registerOtelRoutes(app, ctx)
   registerLanesRoute(app, ctx)
   registerTranscriptRoute(app, ctx)
-  // The app's six mutating routes (prd16 rulings 2 and 4; prd1's OTLP inbox)
+  // The app's seven mutating routes (prd16 rulings 2 and 4; prd1's OTLP inbox)
   // — see `ROUTE_CLASSES` below for the full classification, and `rotate.ts`
   // / `label.ts` for why each of these two is allowed to exist and what
   // still may not.
@@ -60,11 +60,14 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   { method: 'POST', url: '/api/rotate', routeClass: 'gated-mutation' },
   { method: 'POST', url: '/api/lab/launch', routeClass: 'gated-mutation' },
 
-  // Ungated mutations (3) — the OTLP inbox, ungated by design (prd-23 ruling
+  // Ungated mutations (4) — the OTLP inbox, ungated by design (prd-23 ruling
   // 6): an exporter has no channel to learn the capability token at all.
+  // `POST /` is the bare-path fallback ADR-0018 adds for an exporter that
+  // never appends `/v1/<signal>` to its configured endpoint.
   { method: 'POST', url: '/v1/metrics', routeClass: 'ungated-mutation' },
   { method: 'POST', url: '/v1/logs', routeClass: 'ungated-mutation' },
   { method: 'POST', url: '/v1/traces', routeClass: 'ungated-mutation' },
+  { method: 'POST', url: '/', routeClass: 'ungated-mutation' },
 
   // Reads (10).
   { method: 'GET', url: '/api/meta', routeClass: 'read' },
