@@ -25,15 +25,28 @@ function missingBinary(): ExecResult {
   }
 }
 
-/** Routes `workmux status` / `workmux list` to canned results, in call order per command. */
+/**
+ * Routes `workmux status --json` / `workmux list --json` to canned results, in
+ * call order per command. The full argv is asserted, not just the subcommand:
+ * every canned response here is JSON, so a collector that stopped passing
+ * `--json` would still be fed JSON by this fake and every test in the file
+ * would stay green — while against a real workmux it would receive the table
+ * form, fail to parse it, and disable itself on every poll (#383).
+ */
 function fakeExec(responses: { status: ExecResult[]; list?: ExecResult[] }): Exec {
   const status = [...responses.status]
   const list = [...(responses.list ?? [])]
   return async (command, args) => {
     expect(command).toBe('workmux')
     const subcommand = args[0]
-    if (subcommand === 'status') return status.shift() ?? ok('No active agents\n')
-    if (subcommand === 'list') return list.shift() ?? ok('BRANCH  AGE  AGENT  MUX  UNMERGED  PATH\n')
+    if (subcommand === 'status') {
+      expect(args).toEqual(['status', '--json'])
+      return status.shift() ?? ok('[]')
+    }
+    if (subcommand === 'list') {
+      expect(args).toEqual(['list', '--json'])
+      return list.shift() ?? ok('[]')
+    }
     throw new Error(`unexpected workmux subcommand: ${String(subcommand)}`)
   }
 }
@@ -55,8 +68,8 @@ describe('createWorkmuxCollector', () => {
     const collector = createWorkmuxCollector()
     const context = makeContext(
       fakeExec({
-        status: [ok(fixture('status-working.txt'))],
-        list: [ok(fixture('list-working.txt'))],
+        status: [ok(fixture('status-working.json'))],
+        list: [ok(fixture('list-working.json'))],
       }),
     )
 
@@ -69,7 +82,7 @@ describe('createWorkmuxCollector', () => {
       handle: '2-core',
       status: 'working',
       branch: '2-core',
-      worktreePath: '../2-core',
+      worktreePath: '/repo/../2-core',
       elapsedSeconds: 12 * 60,
       detail: '⠐ Implement core event schema and reducer',
     })
@@ -77,7 +90,9 @@ describe('createWorkmuxCollector', () => {
     const workmuxSelf = result.events.find(
       (event) => event.type === 'agent.status' && event.payload.handle === '5-workmux-collector',
     )
-    expect(workmuxSelf?.payload).toMatchObject({ worktreePath: '(here)' })
+    // No more `(here)` sentinel under --json — the join resolves the self row
+    // to its own absolute workdir, same as every other row.
+    expect(workmuxSelf?.payload).toMatchObject({ worktreePath: '/repo' })
 
     // prd15's capability law: a collector claiming a signal `provided` must
     // have a path that actually emits it — this poll just proved `agent.status`
@@ -89,8 +104,8 @@ describe('createWorkmuxCollector', () => {
   it('does not re-emit when nothing changed, but does on a real status change', async () => {
     const collector = createWorkmuxCollector()
     const exec = fakeExec({
-      status: [fixture('status-mixed.txt'), fixture('status-mixed.txt')].map(ok),
-      list: [ok('BRANCH  AGE  AGENT  MUX  UNMERGED  PATH\n')],
+      status: [fixture('status-mixed.json'), fixture('status-mixed.json')].map(ok),
+      list: [ok('[]')],
     })
     const context = makeContext(exec)
 
@@ -126,11 +141,13 @@ describe('createWorkmuxCollector', () => {
 
   it('never crashes on an unrecognised status value, and reports it loudly', async () => {
     const collector = createWorkmuxCollector()
-    const weirdStatus = 'WORKTREE             STATUS   ELAPSED  TITLE\nfeat-x               zombie   1m       stuck\n'
+    const weirdStatus = JSON.stringify([
+      { worktree: 'feat-x', branch: 'feat-x', status: 'zombie', elapsed_secs: 60, title: 'stuck', workdir: '/repo/../feat-x' },
+    ])
     const context = makeContext(
       fakeExec({
         status: [ok(weirdStatus)],
-        list: [ok('BRANCH  AGE  AGENT  MUX  UNMERGED  PATH\n')],
+        list: [ok('[]')],
       }),
     )
 
@@ -148,7 +165,7 @@ describe('createWorkmuxCollector', () => {
     const collector = createWorkmuxCollector()
     const context = makeContext(
       fakeExec({
-        status: [ok(fixture('status-mixed.txt'))],
+        status: [ok(fixture('status-mixed.json'))],
         list: [{ stdout: '', stderr: 'boom', code: 1, failed: true }],
       }),
     )
@@ -159,13 +176,48 @@ describe('createWorkmuxCollector', () => {
     expect(result.events[0]?.payload).toMatchObject({ branch: null, worktreePath: null })
   })
 
-  it('joins on the worktree directory name, not the branch, so a slashed branch still resolves', async () => {
+  it('degrades gracefully when list --json returns unparseable output', async () => {
     const collector = createWorkmuxCollector()
-    const statusText =
-      'WORKTREE             STATUS   ELAPSED  TITLE\nfeat-foo             working  1m       fixing bug\n'
-    const listText =
-      'BRANCH    AGE  AGENT   MUX  UNMERGED  PATH\nfeat/foo  1m   claude  1    0         ../feat-foo\n'
-    const context = makeContext(fakeExec({ status: [ok(statusText)], list: [ok(listText)] }))
+    const context = makeContext(
+      fakeExec({
+        status: [ok(fixture('status-mixed.json'))],
+        list: [ok('BRANCH  AGE  AGENT  MUX  UNMERGED  PATH\n')],
+      }),
+    )
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    expect(result.events).toHaveLength(4)
+    expect(result.events[0]?.payload).toMatchObject({ branch: null, worktreePath: null })
+  })
+
+  it('rides the disabled ladder, not a table-parse fallback, when status --json is unparseable (e.g. an older workmux)', async () => {
+    const collector = createWorkmuxCollector()
+    const context = makeContext(
+      fakeExec({
+        status: [ok('WORKTREE             STATUS   ELAPSED  TITLE\nfeat-foo             working  1m       fixing bug\n')],
+        list: [ok('[]')],
+      }),
+    )
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    expect(result.events).toEqual([
+      expect.objectContaining({
+        type: 'collector.disabled',
+        payload: expect.objectContaining({ collector: 'workmux' }),
+      }),
+    ])
+    expect(result.nextSnapshot.disabled).toBe(true)
+  })
+
+  it('joins on absolute path, not the branch, so a slashed branch still resolves', async () => {
+    const collector = createWorkmuxCollector()
+    const statusJson = JSON.stringify([
+      { worktree: 'feat-foo', branch: 'feat/foo', status: 'working', elapsed_secs: 60, title: 'fixing bug', workdir: '/repo/../feat-foo' },
+    ])
+    const listJson = JSON.stringify([{ handle: 'feat-foo', branch: 'feat/foo', path: '/repo/../feat-foo', is_main: false }])
+    const context = makeContext(fakeExec({ status: [ok(statusJson)], list: [ok(listJson)] }))
 
     const result = await collector.poll(collector.initialSnapshot(), context)
 
@@ -173,20 +225,69 @@ describe('createWorkmuxCollector', () => {
     expect(result.events[0]?.payload).toMatchObject({
       handle: 'feat-foo',
       branch: 'feat/foo',
-      worktreePath: '../feat-foo',
+      worktreePath: '/repo/../feat-foo',
     })
   })
 
   it('resolves branch/worktreePath to null, not a crash, when no list row matches the handle', async () => {
     const collector = createWorkmuxCollector()
-    const statusText = 'WORKTREE             STATUS   ELAPSED  TITLE\nghost-lane           working  1m       -\n'
-    const context = makeContext(
-      fakeExec({ status: [ok(statusText)], list: [ok('BRANCH  AGE  AGENT  MUX  UNMERGED  PATH\n')] }),
-    )
+    const statusJson = JSON.stringify([
+      { worktree: 'ghost-lane', branch: 'ghost-lane', status: 'working', elapsed_secs: 60, title: null, workdir: '/repo/../ghost-lane' },
+    ])
+    const context = makeContext(fakeExec({ status: [ok(statusJson)], list: [ok('[]')] }))
 
     const result = await collector.poll(collector.initialSnapshot(), context)
 
     expect(result.events[0]?.payload).toMatchObject({ branch: null, worktreePath: null })
+  })
+
+  it('two worktrees sharing a basename under different parents both keep their own branch/worktreePath (#383)', async () => {
+    const collector = createWorkmuxCollector()
+    // workmux's own `list --json` can hand back duplicate `handle`s for two
+    // worktrees that share a basename under different parents (confirmed
+    // against 0.1.233 — that field is derived from the basename and workmux
+    // does not dedupe it). This collector never reads `list.handle` at all;
+    // it joins purely on the absolute `path`/`workdir`, so a basename
+    // collision on the `list` side cannot bleed into the resolved agents.
+    const statusJson = JSON.stringify([
+      { worktree: 'bar-a', branch: 'bar-a', status: 'working', elapsed_secs: 60, title: null, workdir: '/parent-a/bar' },
+      { worktree: 'bar-b', branch: 'bar-b', status: 'working', elapsed_secs: 90, title: null, workdir: '/parent-b/bar' },
+    ])
+    const listJson = JSON.stringify([
+      { handle: 'bar', branch: 'a-bar', path: '/parent-a/bar', is_main: false },
+      { handle: 'bar', branch: 'b-bar', path: '/parent-b/bar', is_main: false },
+    ])
+    const context = makeContext(fakeExec({ status: [ok(statusJson)], list: [ok(listJson)] }))
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    expect(result.events).toHaveLength(2)
+    const statusEvents = result.events.filter((event) => event.type === 'agent.status')
+    const byHandle = Object.fromEntries(statusEvents.map((event) => [event.payload.handle, event.payload]))
+    expect(byHandle['bar-a']).toMatchObject({ branch: 'a-bar', worktreePath: '/parent-a/bar' })
+    expect(byHandle['bar-b']).toMatchObject({ branch: 'b-bar', worktreePath: '/parent-b/bar' })
+  })
+
+  it('resolves the main worktree row, which the old basename join broke (#383)', async () => {
+    const collector = createWorkmuxCollector()
+    // Reproduces the live failure the #383 verifier found on 0.1.233: the
+    // table form's `status` row for the main worktree is suffixed ` (main)`,
+    // which never matches `basename(list.path)`. `--json`'s `worktree` field
+    // is clean and both sides carry the same absolute path, so this now joins.
+    const statusJson = JSON.stringify([
+      { worktree: 'myproj', branch: 'main', status: 'working', elapsed_secs: 60, title: null, workdir: '/Users/dev/myproj' },
+    ])
+    const listJson = JSON.stringify([{ handle: 'myproj', branch: 'main', path: '/Users/dev/myproj', is_main: true }])
+    const context = makeContext(fakeExec({ status: [ok(statusJson)], list: [ok(listJson)] }))
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0]?.payload).toMatchObject({
+      handle: 'myproj',
+      branch: 'main',
+      worktreePath: '/Users/dev/myproj',
+    })
   })
 
   // --- ruling 3 (prd-22, #306): gone vs unchanged, in both directions -------
@@ -195,10 +296,10 @@ describe('createWorkmuxCollector', () => {
     const collector = createWorkmuxCollector()
     const exec = fakeExec({
       status: [
-        ok(fixture('status-mixed.txt')),
+        ok(fixture('status-mixed.json')),
         { stdout: '', stderr: 'workmux: session index corrupted', code: 1, failed: true },
       ],
-      list: [ok('BRANCH  AGE  AGENT  MUX  UNMERGED  PATH\n')],
+      list: [ok('[]')],
     })
     const context = makeContext(exec)
 
@@ -224,8 +325,8 @@ describe('createWorkmuxCollector', () => {
     const collector = createWorkmuxCollector()
     const failure = { stdout: '', stderr: 'workmux: session index corrupted', code: 1, failed: true }
     const exec = fakeExec({
-      status: [ok(fixture('status-mixed.txt')), failure, failure],
-      list: [ok('BRANCH  AGE  AGENT  MUX  UNMERGED  PATH\n')],
+      status: [ok(fixture('status-mixed.json')), failure, failure],
+      list: [ok('[]')],
     })
     const context = makeContext(exec)
 
@@ -244,8 +345,8 @@ describe('createWorkmuxCollector', () => {
   it('direction 2 — a handle that drops out of a successful poll is announced gone, once', async () => {
     const collector = createWorkmuxCollector()
     const exec = fakeExec({
-      status: [ok(fixture('status-mixed.txt')), ok(fixture('status-mixed-no-git.txt'))],
-      list: [ok(fixture('list-working.txt')), ok(fixture('list-working.txt'))],
+      status: [ok(fixture('status-mixed.json')), ok(fixture('status-mixed-no-git.json'))],
+      list: [ok(fixture('list-working.json')), ok(fixture('list-working.json'))],
     })
     const context = makeContext(exec)
 
@@ -265,11 +366,11 @@ describe('createWorkmuxCollector', () => {
     const collector = createWorkmuxCollector()
     const exec = fakeExec({
       status: [
-        ok(fixture('status-mixed.txt')),
-        ok(fixture('status-mixed-no-git.txt')),
-        ok(fixture('status-mixed-no-git.txt')),
+        ok(fixture('status-mixed.json')),
+        ok(fixture('status-mixed-no-git.json')),
+        ok(fixture('status-mixed-no-git.json')),
       ],
-      list: [ok(fixture('list-working.txt')), ok(fixture('list-working.txt')), ok(fixture('list-working.txt'))],
+      list: [ok(fixture('list-working.json')), ok(fixture('list-working.json')), ok(fixture('list-working.json'))],
     })
     const context = makeContext(exec)
 
@@ -283,15 +384,15 @@ describe('createWorkmuxCollector', () => {
 
   it('a quarantined malformed row is not read as proof its handle is gone', async () => {
     const collector = createWorkmuxCollector()
-    const zombieStatus =
-      'WORKTREE             STATUS   ELAPSED  TITLE\n' +
-      '2-core               working  12m      ⠂ Implement core event schema and reducer\n' +
-      '3-git-collector      zombie   1m       stuck\n' +
-      '4-tmux-collector     done     9m       ✓ tmux collector complete\n' +
-      '5-workmux-collector  working  5m       ⠐ Implement workmux collector with status parsing\n'
+    const zombieStatus = JSON.stringify([
+      { worktree: '2-core', branch: '2-core', status: 'working', elapsed_secs: 720, title: 'Implement core event schema and reducer', workdir: '/repo/../2-core' },
+      { worktree: '3-git-collector', branch: '3-git-collector', status: 'zombie', elapsed_secs: 60, title: 'stuck', workdir: '/repo/../3-git-collector' },
+      { worktree: '4-tmux-collector', branch: '4-tmux-collector', status: 'done', elapsed_secs: 540, title: 'tmux collector complete', workdir: '/repo/../4-tmux-collector' },
+      { worktree: '5-workmux-collector', branch: '5-workmux-collector', status: 'working', elapsed_secs: 300, title: 'Implement workmux collector with status parsing', workdir: '/repo' },
+    ])
     const exec = fakeExec({
-      status: [ok(fixture('status-mixed.txt')), ok(zombieStatus)],
-      list: [ok(fixture('list-working.txt')), ok(fixture('list-working.txt'))],
+      status: [ok(fixture('status-mixed.json')), ok(zombieStatus)],
+      list: [ok(fixture('list-working.json')), ok(fixture('list-working.json'))],
     })
     const context = makeContext(exec)
 

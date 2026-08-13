@@ -211,6 +211,92 @@ describe('withBranchReconciliation — fold holds ghost branches, reality has mo
   })
 })
 
+describe('withBranchReconciliation — the first poll after a resume fails transiently', () => {
+  // Same shape as withAgentReconciliation's equivalent test below (#449): a
+  // resumed session with no persisted git snapshot whose first poll hits a
+  // transient `git worktree list --porcelain` failure (git-collector.ts
+  // carries prevSnapshot forward and emits collector.disabled) must not burn
+  // its one reconciliation shot on that non-observation. The ghost has to
+  // survive to the next poll that actually comes back healthy, and get
+  // retired there.
+  it('does not latch on a failed poll, and retires the ghost on the next healthy poll', async () => {
+    let call = 0
+    const inner: Collector<FakeBranchSnapshot> = {
+      name: 'git',
+      initialSnapshot: (): FakeBranchSnapshot => ({ branches: {} }),
+      poll: (prev, ctx) => {
+        call += 1
+        if (call === 1) {
+          return {
+            nextSnapshot: prev,
+            events: [
+              ctx.emit('collector.disabled', {
+                collector: 'git',
+                reason: 'git worktree list --porcelain failed',
+              }),
+            ],
+          }
+        }
+        return { nextSnapshot: { branches: {} }, events: [] }
+      },
+    }
+    const reconciled = withBranchReconciliation(inner, new Set(['132-old-feature']))
+
+    const first = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+    expect(first.events.map((event) => event.type)).toEqual(['collector.disabled'])
+
+    const second = await reconciled.poll(first.nextSnapshot, makeContext(nullExec, 2000))
+    expect(second.events.map((event) => event.type)).toEqual(['branch.removed'])
+    expect(second.events[0]?.payload).toEqual({ branch: '132-old-feature' })
+  })
+})
+
+describe('withBranchReconciliation — the first poll after a resume hits a for-each-ref-only failure', () => {
+  // Verify report on #449, step 10: `git worktree list` succeeds but `git
+  // for-each-ref` fails — the collector emits `collector.error` (not
+  // `collector.disabled`) and, per `diffBranches` (`git-collector.ts`),
+  // returns `prevSnapshot.branches` completely unchanged (the very same
+  // object, not a copy — that's what `nextSnapshot: prev` below models).
+  // Both folded branches are still alive on this poll; the fold must not
+  // read "no branches observed" as "every folded branch is gone." Only
+  // '132-old-feature' is a real ghost — it goes missing on the next, healthy
+  // poll, and only then should it be retired.
+  it('does not latch on a collector.error-only poll, and retires only the real ghost on the next healthy poll', async () => {
+    let call = 0
+    const inner: Collector<FakeBranchSnapshot> = {
+      name: 'git',
+      initialSnapshot: (): FakeBranchSnapshot => ({ branches: {} }),
+      poll: (prev, ctx) => {
+        call += 1
+        if (call === 1) {
+          return {
+            nextSnapshot: prev,
+            events: [
+              ctx.emit('collector.error', {
+                collector: 'git',
+                message: 'git for-each-ref failed',
+              }),
+            ],
+          }
+        }
+        return { nextSnapshot: { branches: { main: { head: 'aaa' } } }, events: [] }
+      },
+    }
+    const reconciled = withBranchReconciliation(inner, new Set(['main', '132-old-feature']))
+
+    const first = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+    expect(first.events.map((event) => event.type)).toEqual(['collector.error'])
+
+    // The latch was not spent on the failed poll above, so this healthy poll
+    // still gets to reconcile — and only the branch actually missing from
+    // reality ('132-old-feature') is retired. 'main' is observed live both
+    // times and must not be touched.
+    const second = await reconciled.poll(first.nextSnapshot, makeContext(nullExec, 2000))
+    expect(second.events.map((event) => event.type)).toEqual(['branch.removed'])
+    expect(second.events[0]?.payload).toEqual({ branch: '132-old-feature' })
+  })
+})
+
 describe('withBranchReconciliation — fold and reality already agree', () => {
   it('passes through untouched when there is no folded branch history', async () => {
     const inner = fakeBranchCollector('git', [{ main: { head: 'aaa' } }])

@@ -1,0 +1,5 @@
+[
+  { "worktree": "2-core", "branch": "2-core", "status": "working", "elapsed_secs": 720, "title": "⠂ Implement core event schema and reducer", "workdir": "/repo/../2-core" },
+  { "worktree": "4-tmux-collector", "branch": "4-tmux-collector", "status": "done", "elapsed_secs": 540, "title": "✓ tmux collector complete", "workdir": "/repo/../4-tmux-collector" },
+  { "worktree": "5-workmux-collector", "branch": "5-workmux-collector", "status": "working", "elapsed_secs": 300, "title": "⠐ Implement workmux collector with status parsing", "workdir": "/repo" }
+]

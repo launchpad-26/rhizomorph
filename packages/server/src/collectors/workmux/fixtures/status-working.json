@@ -1,0 +1,8 @@
+[
+  { "worktree": "2-core", "branch": "2-core", "status": "working", "elapsed_secs": 720, "title": "⠐ Implement core event schema and reducer", "workdir": "/repo/../2-core" },
+  { "worktree": "3-git-collector", "branch": "3-git-collector", "status": "working", "elapsed_secs": 360, "title": "⠐ Implement Git collector with shell commands and parsers", "workdir": "/repo/../3-git-collector" },
+  { "worktree": "4-tmux-collector", "branch": "4-tmux-collector", "status": "working", "elapsed_secs": 300, "title": "⠐ Implement tmux collector for The Rhizomorph", "workdir": "/repo/../4-tmux-collector" },
+  { "worktree": "5-workmux-collector", "branch": "5-workmux-collector", "status": "working", "elapsed_secs": 300, "title": "⠂ Implement workmux collector with status parsing", "workdir": "/repo" },
+  { "worktree": "6-server", "branch": "6-server", "status": "working", "elapsed_secs": 300, "title": "⠂ Build server SSE API and CLI with session logging", "workdir": "/repo/../6-server" },
+  { "worktree": "7-web-shell", "branch": "7-web-shell", "status": "working", "elapsed_secs": 240, "title": "⠂ Build web shell with stream hook and layout", "workdir": "/repo/../7-web-shell" }
+]

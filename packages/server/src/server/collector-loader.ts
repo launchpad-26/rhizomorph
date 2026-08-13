@@ -4,7 +4,11 @@ import { gitCollector } from '../collectors/git/index.js'
 import { createJudgeCollector, DEFAULT_JUDGE_CADENCE_MS } from '../collectors/judge/index.js'
 import type { DisableableSnapshot } from '../collectors/resilience.js'
 import { withResilience } from '../collectors/resilience.js'
-import { withAgentReconciliation, withResumeReconciliation } from '../collectors/resume-reconcile.js'
+import {
+  withAgentReconciliation,
+  withBranchReconciliation,
+  withResumeReconciliation,
+} from '../collectors/resume-reconcile.js'
 import { createSessionlogCollector, type SessionlogCollectorConfig } from '../collectors/sessionlog/index.js'
 import { tmuxCollector } from '../collectors/tmux/index.js'
 import { createWorkmuxCollector } from '../collectors/workmux/index.js'
@@ -90,8 +94,14 @@ export async function loadCollectors(
       .map(([handle]) => handle),
   )
 
+  // #449: branches are a hard delete from the fold (`reduce.ts`'s
+  // `branchRemoved`), unlike agents' soft `present: false` — so the ghost
+  // set is every folded branch name, not a filtered subset. Object.keys is
+  // deliberate here; do not copy the agent wrapper's `.present` filter.
+  const foldedBranchNames = new Set(Object.keys(folded.branches))
+
   return [
-    wrap(gitCollector),
+    wrap(withBranchReconciliation(gitCollector, foldedBranchNames)),
     wrap(tmuxCollector),
     wrap(withAgentReconciliation(createWorkmuxCollector(), foldedPresentAgentHandles)),
     wrap(createJudgeCollector({ cadenceMs: judgeCadenceMs() })),

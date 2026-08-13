@@ -118,6 +118,42 @@ export interface BranchBearingSnapshot {
  * this only ever appends a new event, it never touches replay — a log that
  * still lacks the reconciling event replays exactly as it always did; the
  * reconciliation is a live-boot act, never a rewrite of history.
+ *
+ * A poll that did not observe branches did not observe reality — and
+ * `collector.disabled` is not the only way that happens. The git collector
+ * carries `prevSnapshot` forward unchanged on a failed
+ * `git worktree list --porcelain` (`collector.disabled`, `git-collector.ts`),
+ * but a *second*, sibling path does the identical carry-forward one call
+ * later: a failed `git for-each-ref` emits `collector.error` (not
+ * `collector.disabled`) and `diffBranches` returns `prevSnapshot.branches`
+ * verbatim — same object, not a copy. Gating on the event type alone (as
+ * originally written here) covers the first path and misses the second:
+ * verified live (#449 verify findings, step 10) that a for-each-ref blip on
+ * a fresh post-resume boot (empty persisted snapshot) reads as "every folded
+ * branch is gone" and mass-retires a repo's entire real branch set, and
+ * because that path emits `collector.error` rather than `collector.disabled`,
+ * `withResilience` does not swallow it — the false removals reach the
+ * recorder and land permanently in the append-only session log.
+ *
+ * The honest gate is not "which event type did this poll emit" but "did this
+ * poll hand back branches it actually observed, or just the ones it was
+ * given" — and the collector's own return value already answers that: every
+ * successful `diffBranches` call builds a fresh `nextBranches` object, so
+ * `result.nextSnapshot.branches` is only ever the *same object reference* as
+ * `prevSnapshot.branches` when nothing was observed this tick, whether that's
+ * because the whole poll failed (`collector.disabled`) or just the branch
+ * read within it did (`collector.error`). Checking identity instead of event
+ * type catches both without needing to know which failure produced which
+ * event — and doesn't misfire on an unrelated `collector.error` (e.g. a
+ * detached-HEAD warning) that a poll which *did* observe branches might also
+ * emit.
+ *
+ * Comparing a carried-forward snapshot against the fold would read "nothing
+ * observed yet" as "every folded branch is gone" and mass-retire the whole
+ * set on one transient blip, spending the one-shot latch for nothing and
+ * leaving any real removal unreconciled for the rest of the process. So this
+ * wrapper bails without latching whenever the poll it just ran didn't
+ * actually observe branches (#449).
  */
 export function withBranchReconciliation<S extends BranchBearingSnapshot>(
   collector: Collector<S>,
@@ -132,6 +168,10 @@ export function withBranchReconciliation<S extends BranchBearingSnapshot>(
     async poll(prevSnapshot, context) {
       const result = await collector.poll(prevSnapshot, context)
       if (reconciled) return result
+
+      const observedBranches = result.nextSnapshot.branches !== prevSnapshot.branches
+      if (!observedBranches) return result
+
       reconciled = true
 
       if (!foldedBranches || foldedBranches.size === 0) return result
