@@ -75,8 +75,18 @@ describe('assertValidCloneUrl', () => {
     expect(() => assertValidCloneUrl('ssh://user:password@example.com/owner/repo.git')).toThrow(CloneValidationError)
   })
 
+  it('refuses a token carried as a BARE username over http(s) — the colon-less leak the password check misses', () => {
+    // GitHub and GitLab both accept a PAT as the URL username with no password,
+    // so `https://<token>@host/…` leaks the token to ps/proc exactly as the
+    // `user:pass@` form does — but carries no `:` for the password check to catch.
+    expect(() => assertValidCloneUrl('https://ghp_secrettoken@github.com/owner/repo.git')).toThrow(CloneValidationError)
+    expect(() => assertValidCloneUrl('https://glpat-secret@gitlab.com/owner/repo.git')).toThrow(CloneValidationError)
+    expect(() => assertValidCloneUrl('http://tok@internal.example/repo.git')).toThrow(CloneValidationError)
+  })
+
   it('does not confuse a bare SSH username (no password) for an embedded credential', () => {
     // `git@host` and the scp-like form carry no secret — auth is by key, not by a password in the URL.
+    // Only the http(s) userinfo refusal is scheme-gated; the SSH login name stays legal.
     expect(() => assertValidCloneUrl('ssh://git@example.com/owner/repo.git')).not.toThrow()
     expect(() => assertValidCloneUrl('git@github.com:owner/repo.git')).not.toThrow()
   })

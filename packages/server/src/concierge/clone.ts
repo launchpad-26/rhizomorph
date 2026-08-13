@@ -76,6 +76,21 @@ const CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/
 const EMBEDDED_CREDENTIAL_RE = /^[a-z][a-z0-9+.-]*:\/\/[^/@]*:[^/@]*@/i
 
 /**
+ * ANY userinfo (`user@` or `user:pass@`) in front of an `http(s)://` host.
+ * Distinct from {@link EMBEDDED_CREDENTIAL_RE}, which only fires when a colon
+ * separates a username from a password — and which therefore MISSES the way a
+ * token most often rides in a URL: as the bare username itself,
+ * `https://ghp_…@github.com/owner/repo.git` (GitHub and GitLab both accept a
+ * PAT as the username with no password). Over `http(s)` a username in the URL
+ * is either a token or useless — the machine's own credential helper supplies
+ * real auth, per prd-20's credential story — so any userinfo is refused. The
+ * bare `user@` SSH LOGIN name (`ssh://git@…`, `git@github.com:…`) is a
+ * different thing and stays legal: it is scheme-gated to `http(s)` here so an
+ * SSH key login never trips it.
+ */
+const HTTP_USERINFO_RE = /^https?:\/\/[^/@]+@/i
+
+/**
  * Validates a clone URL well before it ever reaches an argv array: non-empty,
  * no control characters or whitespace (a repo URL is one token, never a
  * command line), not flag-shaped (the same defence-in-depth `lab.ts` grew
@@ -113,10 +128,11 @@ export function assertValidCloneUrl(url: string): void {
       '"url" must be an http(s)/ssh/git URL, or the scp-like "user@host:path" form git itself accepts',
     )
   }
-  if (EMBEDDED_CREDENTIAL_RE.test(url)) {
+  if (EMBEDDED_CREDENTIAL_RE.test(url) || HTTP_USERINFO_RE.test(url)) {
     throw new CloneValidationError(
-      '"url" must not embed a credential (user:password@host) — it would be visible to every other process on ' +
-        'this machine for the whole clone; use the machine\'s own SSH key or git credential helper instead',
+      '"url" must not embed a credential (user@host or user:password@host over http(s)) — it would be visible to ' +
+        'every other process on this machine for the whole clone; use the machine\'s own SSH key or git credential ' +
+        'helper instead',
     )
   }
 }
