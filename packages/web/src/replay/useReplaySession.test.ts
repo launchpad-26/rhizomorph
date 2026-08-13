@@ -601,6 +601,146 @@ describe('useReplaySession — seek coalescing (#269)', () => {
     expect(result.current.state).toEqual(foldUpTo(eventsB, target))
   })
 
+  /**
+   * #364. The exemption is owed to a *load fold*, and it used to have no bound:
+   * a switch that owes no load fold left it alive indefinitely, so the
+   * operator's first seek spent it instead — folding with the gate left open,
+   * which let a second seek in the same frame fold again. Two derives in one
+   * frame, against the ceiling `useFrameCoalescedTs`' doc comment states as an
+   * invariant.
+   *
+   * Two switches reach the no-load-fold state, and the second is the reason
+   * this is not simply "consume the exemption when the reset lands
+   * `foldTs === currentTs`":
+   *
+   * - **Identical ranges.** The transport's re-base is keyed on `[start, end]`,
+   *   so `currentTs` never moves and no fold is owed.
+   * - **Mid-drag.** The reset *adopts* the pending position, so `foldTs` and
+   *   `currentTs` agree by the time the fold effect runs — whatever they were
+   *   at reset time. A fix keyed on their equality at reset misses this one.
+   *
+   * Both assert against a counted derive rather than against `derivedTs`,
+   * because `derivedTs` lands on the right value either way — the defect is the
+   * cost of getting there, not the answer.
+   */
+  describe('the load-fold exemption does not outlive the frame that armed it', () => {
+    const sameRange = (branch: string, prefix: string) => {
+      const f = createEventFactory({ stepMs: 1000, idPrefix: prefix })
+      f.sessionStarted()
+      f.worktreeDiscovered({ path: `/repo/${branch}`, branch, head: 'sha-0', isMain: true })
+      for (let i = 0; i < 40; i++) {
+        f.worktreeDirty({
+          path: `/repo/${branch}`,
+          branch,
+          files: [{ path: `file-${i}.ts`, status: 'modified' }],
+        })
+      }
+      return f.all()
+    }
+
+    /** Two recordings spanning an identical range, with a counted derive. */
+    async function renderSwitch() {
+      const eventsA = sameRange('alpha', 'a')
+      const eventsB = sameRange('beta', 'b')
+      expect(eventsB.at(-1)!.ts).toBe(eventsA.at(-1)!.ts)
+
+      const fetchImpl = (async (url: string | URL | Request) => {
+        const href = String(url)
+        if (href === '/api/sessions') {
+          return jsonResponse({
+            sessions: [
+              { id: 'a', fileName: 'a.jsonl', startedAt: 1000, sizeBytes: 100 },
+              { id: 'b', fileName: 'b.jsonl', startedAt: 1000, sizeBytes: 100 },
+            ],
+          })
+        }
+        if (href === '/api/sessions/a/events') return jsonResponse({ events: eventsA })
+        if (href === '/api/sessions/b/events') return jsonResponse({ events: eventsB })
+        throw new Error(`unexpected fetch: ${href}`)
+      }) as unknown as FetchLike
+
+      const driver = createFrameDriver()
+      const counts = { derives: 0 }
+      let lastState: unknown = null
+      const utils = renderHook(() => {
+        const session = useReplaySession({ fetchImpl, scheduleFrame: driver.scheduleFrame })
+        if (session.state !== lastState) {
+          lastState = session.state
+          counts.derives++
+        }
+        return session
+      })
+
+      await act(async () => {
+        utils.result.current.selectSession('a')
+      })
+      return { ...utils, frame: driver.frame, counts, eventsA, eventsB }
+    }
+
+    it('spends it on nothing when an identical-range switch owes no load fold', async () => {
+      const { result, frame, counts, eventsB } = await renderSwitch()
+
+      await act(async () => {
+        result.current.selectSession('b')
+      })
+
+      // The switch's own frame. On a recording that re-based this is where the
+      // load fold would already have claimed the exemption; here there was no
+      // load fold, so this frame is what ends it.
+      frame()
+      counts.derives = 0
+
+      act(() => {
+        result.current.playback.seek(eventsB[10]!.ts)
+      })
+      act(() => {
+        result.current.playback.seek(eventsB[20]!.ts)
+      })
+
+      // One derive: the first seek folds and shuts the gate, the second
+      // coalesces onto the next frame. With an unbounded exemption the first
+      // seek folded *free* — gate left open — and the second folded too.
+      expect(counts.derives).toBe(1)
+      expect(result.current.derivedTs).toBe(eventsB[10]!.ts)
+
+      // The second seek is not lost, only deferred.
+      frame()
+      expect(counts.derives).toBe(2)
+      expect(result.current.derivedTs).toBe(eventsB[20]!.ts)
+      expect(result.current.state).toEqual(foldUpTo(eventsB, eventsB[20]!.ts))
+    })
+
+    it('spends it on nothing when a mid-drag switch had its position adopted', async () => {
+      const { result, frame, counts, eventsA, eventsB } = await renderSwitch()
+
+      // Interrupt a drag: a folded seek and a coalesced one still pending.
+      act(() => {
+        result.current.playback.seek(eventsA[10]!.ts)
+      })
+      act(() => {
+        result.current.playback.seek(eventsA[20]!.ts)
+      })
+      expect(result.current.derivedTs).toBe(eventsA[10]!.ts)
+
+      await act(async () => {
+        result.current.selectSession('b')
+      })
+
+      frame()
+      counts.derives = 0
+
+      act(() => {
+        result.current.playback.seek(eventsB[12]!.ts)
+      })
+      act(() => {
+        result.current.playback.seek(eventsB[24]!.ts)
+      })
+
+      expect(counts.derives).toBe(1)
+      expect(result.current.derivedTs).toBe(eventsB[12]!.ts)
+    })
+  })
+
   it('uses the browser\'s own frames when no scheduler is injected', async () => {
     const events = dragSession(200)
     const fetchImpl = dragFetch(events)

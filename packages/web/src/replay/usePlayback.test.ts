@@ -181,6 +181,56 @@ describe('usePlayback', () => {
     expect(result.current.currentTs).toBe(pausedAt)
   })
 
+  // #395. The mirror of the hidden-tab tests above: there, a gap with no frames
+  // is genuinely owed and must be paid on the resuming frame. Here the gap is
+  // *paused* time, which is owed to nobody — press play after five minutes and
+  // the timeline moves one frame, not five minutes.
+  //
+  // This assertion looks unnecessary, and that is exactly why it is written
+  // down. The property is guarded twice over in `usePlayback.ts`: the paused
+  // branch nulls `lastTickRef`, *and* the arming path rebases it to `now()`.
+  // Either guard alone delivers it, so no single-point mutation can expose the
+  // gap and ordinary mutation testing reports the area as covered. A plausible
+  // tidy-up — "one of these two is redundant" — removes both halves of the
+  // belt-and-braces across two commits with every gate green. The two-point
+  // mutation this test exists to fail is:
+  //
+  //     if (!playing || start >= end) {
+  //  -    lastTickRef.current = null
+  //       return
+  //     }
+  //  -  lastTickRef.current = now()
+  //  +  lastTickRef.current = lastTickRef.current ?? now()
+  //
+  // Against that, the rest of this file stays green and the whole suite exits 0;
+  // this test fails with `expected 300032 to be 32`.
+  it('does not credit the paused interval on resume', () => {
+    let wall = 0
+    const now = () => wall
+    const { result } = renderHook(() => usePlayback({ start: 0, end: 10_000_000, now }))
+
+    act(() => result.current.play())
+    act(() => {
+      wall += 16
+      vi.advanceTimersByTime(16)
+    })
+    expect(result.current.currentTs).toBe(16)
+
+    act(() => result.current.pause())
+
+    // Five minutes paused. Real time passes; no simulated time is owed, because
+    // no frame was *missed* — the loop was torn down deliberately.
+    wall += 300_000
+    act(() => result.current.play())
+    act(() => {
+      wall += 16
+      vi.advanceTimersByTime(16)
+    })
+
+    // One frame since the resume, not five minutes.
+    expect(result.current.currentTs).toBe(32)
+  })
+
   it('clamps to end on a frame that steps over it, then goes quiet', () => {
     let renders = 0
     const { result } = renderHook(() => {
