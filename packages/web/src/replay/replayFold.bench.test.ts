@@ -177,7 +177,7 @@ describe('buildSessionIndex under commit-dense load (#342)', () => {
     report(`#342 · 25k events, 5k commits/new   : ${dense.toFixed(1)} ms`)
     report(
       `#342 · growth-driven excess ${(dense / capped).toFixed(2)}× ` +
-        `(the Record-spread defect read ~150× here; the purity-floor residual read 1.1–1.7× across authoring and review boxes)`,
+        `(the Record-spread defect read ~150× here; the purity-floor residual has read 1.1–3.5× across boxes, loads and CI runners — #470)`,
     )
 
     // THE BUDGET (#342's done-when, spelled so a loaded box cannot flunk it):
@@ -191,7 +191,19 @@ describe('buildSessionIndex under commit-dense load (#342)', () => {
     // (~12.5M reads at 5k commits) moved this ratio only 1.65× → 1.82×.
     // What falls outside the scope shows in the #274 lane's reported
     // per-event curve below, and stays reported for the reason given there.
-    expect(dense / capped).toBeLessThan(3)
+    //
+    // 8, not the original 3 (#470): the ratio cancels *uniform* load, but the
+    // floor's real cross-box envelope kept crossing 3 with nothing wrong —
+    // 3.02× three times under concurrent-lane load (#465's assembly), then
+    // 3.49× on a clean macOS CI runner, where it blocked an approved PR as
+    // the one red in 4,115 tests. The separation this budget polices is not
+    // 1.7-vs-3; it is floor-vs-defect: the measured floor tops out at 3.49×
+    // while the weakest measured defect signal is 12.5× (#419's mutation,
+    // both boxes) and the original Record-spread defect read ~150×. 8 sits
+    // ~2.3× above the worst floor reading and ~1.6× below the weakest defect
+    // — re-executed against the #342 mutation (per-event bySha copy) at this
+    // value before landing.
+    expect(dense / capped).toBeLessThan(8)
 
     // And the fold actually did the work it claims to have measured.
     const index = buildSessionIndex(commitCorpus(25_000, Infinity))
