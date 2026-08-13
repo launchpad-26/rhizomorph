@@ -192,6 +192,43 @@ export function honestCapabilities(input: {
   return input.active ? input.capabilities : absentCapabilities(input.inactiveReason ?? 'collector is disabled')
 }
 
+// ── the declared-vs-emitted check (ADR-0010's hole; prd26 w1, #319) ─────────
+
+/**
+ * One signal's real evidence from running an organ's own fixtures through its
+ * own real code — never the organ's self-report. `detail` is the one line a
+ * failing check prints, so it must say what was (or was not) actually seen.
+ */
+export interface SignalObservation {
+  emitted: boolean
+  detail: string
+}
+
+/** Every signal's observation for one conformance run, keyed the same as {@link AdapterCapabilities}. */
+export type SignalObservations = Record<Signal, SignalObservation>
+
+/**
+ * ADR-0010, in its own words: *"declaration is not verification … Nothing
+ * checks that a collector declaring `provided` for a signal actually emits
+ * it."* This is that check, pure and shared so anything built on it — the
+ * conformance suite (`collectors/conformance/`), and later maybe a `doctor`
+ * check — applies the same law rather than a bespoke copy: a signal declared
+ * `provided` with no observed evidence is named, by signal, in the result.
+ *
+ * `partial` and `absent` are never checked here — prd26 ruling 2 only
+ * requires that nothing claim `provided` it cannot back. Whether a flagged
+ * `partial` (an `est.` dollar, say) is itself under- or over-claimed is the
+ * PRD's open question, not this law's to settle.
+ */
+export function findUnbackedProvidedSignals(
+  capabilities: AdapterCapabilities,
+  observed: SignalObservations,
+): string[] {
+  return SIGNALS.filter((signal) => capabilities[signal].level === 'provided' && !observed[signal].emitted).map(
+    (signal) => `${signal}: declared provided, but ${observed[signal].detail}`,
+  )
+}
+
 const LEVEL_RANK: Record<CapabilityLevel, number> = { absent: 0, partial: 1, provided: 2 }
 
 /**
