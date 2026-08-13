@@ -215,6 +215,16 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **A resumed session with a stale fold now retires ghost branches too
+  (#449).** `withBranchReconciliation` (#139) diffed a resume's folded
+  branches against reality correctly since #132-134, but was never wired into
+  `loadCollectors` — a branch removed before #137 shipped, or while the git
+  collector's own snapshot was stale, stayed in the fold forever, `NEED
+  ATTENTION` banner and all. It is now applied to the git collector the same
+  way `withAgentReconciliation` (#418) is applied to workmux, and carries the
+  same one-shot-latch fix: a transient `git worktree list --porcelain`
+  failure on the very first post-resume poll no longer burns the wrapper's
+  only shot and mass-reports every folded branch as removed.
 - **A failing dirty-status poll now voices one honest event per incident, not
   a heartbeat (#415).** Once `MAX_DIRTY_STATUS_FAILURES` (#241) was crossed,
   `git status --porcelain`'s `collector.error` re-fired on every subsequent

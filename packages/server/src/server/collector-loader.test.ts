@@ -168,6 +168,67 @@ describe('loadCollectors — agent reconciliation (#418)', () => {
   })
 })
 
+describe('loadCollectors — branch reconciliation (#449)', () => {
+  it('retires a folded ghost branch absent from the first live poll, when the git snapshot has no memory of it', async () => {
+    // The exact shape of the bug: this session's log already folds
+    // 'old-feature' into `folded.branches` — from a run that ended before
+    // this process ever polled, or from before #137 taught the collector to
+    // diff branch removals at all — and the git collector's own persisted
+    // snapshot has no memory of it (a fresh boot with no snapshot). git
+    // itself reports only 'main' right now.
+    const nextId = createIdFactory('evt')
+    const priorEvents = [
+      createEvent('branch.updated', { branch: 'old-feature', head: 'aaaaaaaaaa' }, { id: nextId(), ts: 1000 }),
+    ]
+    const foldedBefore = reduceAll(priorEvents)
+    expect(foldedBefore.branches['old-feature']).toBeDefined()
+
+    const collectors = await loadCollectors({ warn: () => {} }, priorEvents)
+    const git = collectors.find((c) => c.name === 'git')
+    if (!git) throw new Error('git collector missing')
+
+    const MAIN_HEAD = '1111111111111111111111111111111111111111'
+    const worktreeList: ExecResult = {
+      stdout: `worktree /repo\nHEAD ${MAIN_HEAD}\nbranch refs/heads/main\n`,
+      stderr: '',
+      code: 0,
+      failed: false,
+    }
+    const refs: ExecResult = { stdout: `main ${MAIN_HEAD}\n`, stderr: '', code: 0, failed: false }
+    const status: ExecResult = { stdout: '', stderr: '', code: 0, failed: false }
+    const exec: Exec = async (_command, args) => {
+      if (args[0] === 'worktree') return worktreeList
+      if (args[0] === 'for-each-ref') return refs
+      return status
+    }
+
+    function context(now: number): CollectorContext {
+      return {
+        repoPath: '/repo',
+        now,
+        exec,
+        nextId,
+        emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: now }),
+      }
+    }
+
+    const first = await git.poll(git.initialSnapshot(), context(2000))
+
+    expect(first.events).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: 'branch.removed', payload: { branch: 'old-feature' } })]),
+    )
+
+    const foldedAfter = reduceAll([...priorEvents, ...first.events])
+    expect(foldedAfter.branches['old-feature']).toBeUndefined()
+
+    // Repetition: the wiring inherits the wrapper's own once-only latch, not
+    // just the unit test's — a second poll on the same collector, with the
+    // branch still missing, must not re-emit.
+    const second = await git.poll(first.nextSnapshot, context(3000))
+    expect(second.events.filter((event) => event.type === 'branch.removed')).toHaveLength(0)
+  })
+})
+
 describe('loadCollectors — sessionlog (#240)', () => {
   let claudeProjectsRoot: string
 
