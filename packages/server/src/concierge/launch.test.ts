@@ -11,6 +11,7 @@ import {
   HarnessNotAvailableError,
   LaunchContinuityUnavailableError,
   ConciergeLaunchValidationError,
+  launchSpawnNodeOptions,
   parseConciergeLaunchRequestBody,
   planLaunch,
   runLaunch,
@@ -307,5 +308,37 @@ describe('runLaunch', () => {
 
     expect(outcome).toEqual({ kind: 'error', message: 'could not start fake: ENOENT' })
     expect(child.unref).not.toHaveBeenCalled()
+  })
+})
+
+describe('launchSpawnNodeOptions — the SCAR, pinned on the real spawn seam', () => {
+  // Every other test injects `spawnLaunch`, so the options the REAL spawn is
+  // handed were the one line no test reached: swapping the env merge order
+  // left the whole file green. #264's Direction names exactly this failure
+  // mode — "an env prefix that doesn't reach the exec'd process fails
+  // invisibly" — so the merge itself is asserted here, on the exported
+  // builder `realSpawnLaunch` actually uses.
+  it('the recipe wins over the inherited environment, and the inherited environment still arrives', () => {
+    process.env.RHIZO_TEST_INHERITED = 'from-parent'
+    process.env.RHIZO_TEST_CLOBBERED = 'parent-value'
+    try {
+      const options = launchSpawnNodeOptions({
+        cwd: '/repo',
+        env: { RHIZO_TEST_CLOBBERED: 'recipe-value', OTEL_TEST_MARKER: 'set' },
+      })
+      expect(options.env.RHIZO_TEST_INHERITED).toBe('from-parent') // PATH and friends survive
+      expect(options.env.RHIZO_TEST_CLOBBERED).toBe('recipe-value') // the recipe owns its keys
+      expect(options.env.OTEL_TEST_MARKER).toBe('set')
+      expect(options.cwd).toBe('/repo')
+    } finally {
+      delete process.env.RHIZO_TEST_INHERITED
+      delete process.env.RHIZO_TEST_CLOBBERED
+    }
+  })
+
+  it('the conductor outlives the request: detached, stdio ignored', () => {
+    const options = launchSpawnNodeOptions({ cwd: '/repo', env: {} })
+    expect(options.detached).toBe(true)
+    expect(options.stdio).toBe('ignore')
   })
 })

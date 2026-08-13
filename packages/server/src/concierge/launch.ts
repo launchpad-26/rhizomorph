@@ -214,14 +214,30 @@ export type SpawnLaunchFn = (command: string, args: readonly string[], options: 
  * merge shape `server/exec.ts` already uses for collectors — never the
  * recipe alone, so the launched process still inherits `PATH` and everything
  * else an ordinary shell launch would have given it.
+ *
+ * Exported so the SCAR's own line is pinned by a test rather than living in
+ * the one seam tests cannot reach: every test injects `spawnLaunch`, so
+ * without this the real merge order (recipe over inherited, never recipe
+ * alone) survived mutation — swapping it left all 195 targeted tests green.
+ * #264's own Direction names exactly this failure: "an env prefix that
+ * doesn't reach the exec'd process fails invisibly."
  */
-const realSpawnLaunch: SpawnLaunchFn = (command, args, options) =>
-  spawn(command, args, {
+export function launchSpawnNodeOptions(options: SpawnLaunchOptions): {
+  cwd: string
+  env: Record<string, string>
+  detached: true
+  stdio: 'ignore'
+} {
+  return {
     cwd: options.cwd,
-    env: { ...process.env, ...options.env },
+    env: { ...(process.env as Record<string, string>), ...options.env },
     detached: true,
     stdio: 'ignore',
-  })
+  }
+}
+
+const realSpawnLaunch: SpawnLaunchFn = (command, args, options) =>
+  spawn(command, args, launchSpawnNodeOptions(options))
 
 export interface RunLaunchOptions {
   spawnLaunch?: SpawnLaunchFn
