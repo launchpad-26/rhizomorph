@@ -1,4 +1,3 @@
-import { basename } from 'node:path'
 import {
   agentStatusSchema,
   type AdapterCapabilities,
@@ -9,7 +8,6 @@ import {
   type RhizomorphEvent,
   type PollResult,
 } from '@rhizomorph/core'
-import { parseElapsed, parseListTable, parseStatusTable } from './parse.js'
 
 /**
  * prd15 ruling 5's L4 rung: the full rig. `agent.status` is the ladder's
@@ -51,11 +49,90 @@ function isMissingBinary(result: ExecResult): boolean {
   return result.failed && result.errorMessage !== undefined
 }
 
+interface WorkmuxStatusJsonRow {
+  /** workmux's clean handle for the agent (`"worktree"` in `status --json`) — e.g. `"rhizomorph"`, never `"rhizomorph (main)"`. */
+  handle: string
+  status: string
+  elapsedSeconds: number | null
+  detail: string | null
+  /** Absolute path — the join key against `list --json`'s `path`. */
+  workdir: string
+}
+
+interface WorkmuxListJsonRow {
+  branch: string
+  /** Absolute path — no `(here)` sentinel, unlike the table form. */
+  path: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
 /**
- * Shells to `workmux status` (handle/status/elapsed/title) and `workmux list`
- * (branch/path), joining on handle. Emits `agent.status` only when an
- * agent's status, branch or worktree path actually changes — elapsed alone
- * ticking up every poll is not a state change worth logging.
+ * Parses `workmux status --json`. Returns `null` — not `[]` — when the
+ * output isn't the array-of-objects shape this collector depends on, so the
+ * caller can tell "no agents" apart from "an older workmux that doesn't
+ * support --json and printed its table instead."
+ */
+function parseStatusJson(stdout: string): WorkmuxStatusJsonRow[] | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stdout)
+  } catch {
+    return null
+  }
+  if (!Array.isArray(parsed)) return null
+
+  const rows: WorkmuxStatusJsonRow[] = []
+  for (const entry of parsed) {
+    if (!isRecord(entry) || typeof entry.worktree !== 'string' || typeof entry.status !== 'string' || typeof entry.workdir !== 'string') {
+      return null
+    }
+    rows.push({
+      handle: entry.worktree,
+      status: entry.status,
+      elapsedSeconds: typeof entry.elapsed_secs === 'number' ? entry.elapsed_secs : null,
+      detail: typeof entry.title === 'string' && entry.title.trim() !== '' ? entry.title : null,
+      workdir: entry.workdir,
+    })
+  }
+  return rows
+}
+
+/**
+ * Parses `workmux list --json`. Unlike {@link parseStatusJson}, a shape
+ * mismatch here degrades to `[]` (every status row's branch/worktreePath
+ * resolve to `null`) rather than disabling the whole poll — `list` failing
+ * has always been the softer failure of the two (see the `degrades
+ * gracefully when list fails` test).
+ */
+function parseListJson(stdout: string): WorkmuxListJsonRow[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stdout)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(parsed)) return []
+
+  const rows: WorkmuxListJsonRow[] = []
+  for (const entry of parsed) {
+    if (!isRecord(entry) || typeof entry.branch !== 'string' || typeof entry.path !== 'string') continue
+    rows.push({ branch: entry.branch, path: entry.path })
+  }
+  return rows
+}
+
+/**
+ * Shells to `workmux status --json` and `workmux list --json`, joining on
+ * absolute path (`status.workdir` ↔ `list.path` — issue #383: the table
+ * form's only shared key was a directory basename, which collides whenever
+ * two worktrees share a basename under different parents, and was already
+ * broken for the main worktree, whose `status` table row is suffixed
+ * ` (main)` with no matching `list` basename). Emits `agent.status` only when
+ * an agent's status, branch or worktree path actually changes — elapsed
+ * alone ticking up every poll is not a state change worth logging.
  */
 export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
   return {
@@ -71,7 +148,7 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
         return { nextSnapshot: prevSnapshot, events: [] }
       }
 
-      const statusResult = await context.exec('workmux', ['status'])
+      const statusResult = await context.exec('workmux', ['status', '--json'])
       if (isMissingBinary(statusResult)) {
         return {
           nextSnapshot: { disabled: true, agents: {} },
@@ -100,28 +177,37 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
                 statusResult.errorMessage ??
                 (statusResult.stderr.trim().length > 0
                   ? statusResult.stderr.trim()
-                  : 'workmux status exited non-zero'),
+                  : 'workmux status --json exited non-zero'),
             }),
           ],
         }
       }
 
-      const statusRows = parseStatusTable(statusResult.stdout)
+      const statusRows = parseStatusJson(statusResult.stdout)
+      if (statusRows === null) {
+        // #383's ruling: an older workmux that doesn't support `--json` (and
+        // silently printed its table instead, or emitted something else we
+        // can't parse) rides this same degraded/disabled ladder — never a
+        // fallback to table-parsing.
+        return {
+          nextSnapshot: { ...prevSnapshot, disabled: true },
+          events: [
+            context.emit('collector.disabled', {
+              collector: 'workmux',
+              reason: 'workmux status --json did not return parseable JSON (is --json supported by this version?)',
+            }),
+          ],
+        }
+      }
 
-      const listResult = await context.exec('workmux', ['list'])
+      const listResult = await context.exec('workmux', ['list', '--json'])
       const listRows = isMissingBinary(listResult) || listResult.failed
         ? []
-        : parseListTable(listResult.stdout)
-      // workmux's own name for a worktree is the WORKTREE column in `status` and
-      // the basename of the PATH column in `list` — the same identity, since
-      // workmux names the directory after the handle. The BRANCH column is the
-      // git branch actually checked out there, a different namespace once a
-      // branch contains a character (`/`) illegal in a directory name. `(here)`
-      // carries no path to take a basename from — it falls back to branch,
-      // unchanged from today's behaviour for that one row.
-      const listByHandle = new Map(
-        listRows.map((row) => [row.path === '(here)' ? row.branch : basename(row.path), row]),
-      )
+        : parseListJson(listResult.stdout)
+      // Both sides of the join are absolute paths under `--json`
+      // (`status.workdir`, `list.path`), so this can't collide the way
+      // basename(path) could — see the collector-level doc comment above.
+      const listByPath = new Map(listRows.map((row) => [row.path, row]))
 
       const nextAgents: WorkmuxSnapshot['agents'] = {}
       const events: RhizomorphEvent[] = []
@@ -146,7 +232,7 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
         }
         const status = statusCheck.data
 
-        const listRow = listByHandle.get(row.handle)
+        const listRow = listByPath.get(row.workdir)
         const branch = listRow?.branch ?? null
         const worktreePath = listRow?.path ?? null
 
@@ -186,5 +272,3 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
     },
   }
 }
-
-export { parseElapsed, parseListTable, parseStatusTable }

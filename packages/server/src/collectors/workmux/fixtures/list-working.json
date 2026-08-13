@@ -1,0 +1,9 @@
+[
+  { "handle": "main", "branch": "main", "path": "/repo/../../worktrees-challenge", "is_main": true },
+  { "handle": "2-core", "branch": "2-core", "path": "/repo/../2-core", "is_main": false },
+  { "handle": "3-git-collector", "branch": "3-git-collector", "path": "/repo/../3-git-collector", "is_main": false },
+  { "handle": "4-tmux-collector", "branch": "4-tmux-collector", "path": "/repo/../4-tmux-collector", "is_main": false },
+  { "handle": "5-workmux-collector", "branch": "5-workmux-collector", "path": "/repo", "is_main": false },
+  { "handle": "6-server", "branch": "6-server", "path": "/repo/../6-server", "is_main": false },
+  { "handle": "7-web-shell", "branch": "7-web-shell", "path": "/repo/../7-web-shell", "is_main": false }
+]

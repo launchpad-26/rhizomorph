@@ -139,8 +139,8 @@ describe('loadCollectors — agent reconciliation (#418)', () => {
     const workmux = collectors.find((c) => c.name === 'workmux')
     if (!workmux) throw new Error('workmux collector missing')
 
-    const emptyStatus: ExecResult = { stdout: 'WORKTREE  STATUS  ELAPSED  TITLE\n', stderr: '', code: 0, failed: false }
-    const emptyList: ExecResult = { stdout: 'BRANCH  AGE  AGENT  MUX  UNMERGED  PATH\n', stderr: '', code: 0, failed: false }
+    const emptyStatus: ExecResult = { stdout: '[]', stderr: '', code: 0, failed: false }
+    const emptyList: ExecResult = { stdout: '[]', stderr: '', code: 0, failed: false }
     const exec: Exec = async (_command, args) => (args[0] === 'list' ? emptyList : emptyStatus)
 
     function context(now: number): CollectorContext {

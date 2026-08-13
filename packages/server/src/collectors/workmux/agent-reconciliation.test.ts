@@ -25,14 +25,26 @@ function ok(stdout: string): ExecResult {
   return { stdout, stderr: '', code: 0, failed: false }
 }
 
-/** Routes `workmux status` / `workmux list` to canned results, in call order per command. */
+/**
+ * Routes `workmux status --json` / `workmux list --json` to canned results, in
+ * call order per command. The full argv is asserted for the same reason as in
+ * `collector.test.ts`: the canned responses are JSON either way, so dropping
+ * `--json` from the collector's shell-out would leave this file green while
+ * breaking it against a real workmux (#383).
+ */
 function fakeExec(responses: { status: ExecResult[]; list?: ExecResult[] }): Exec {
   const status = [...responses.status]
   const list = [...(responses.list ?? [])]
   return async (_command, args) => {
     const subcommand = args[0]
-    if (subcommand === 'status') return status.shift() ?? ok('No active agents\n')
-    if (subcommand === 'list') return list.shift() ?? ok('BRANCH  AGE  AGENT  MUX  UNMERGED  PATH\n')
+    if (subcommand === 'status') {
+      expect(args).toEqual(['status', '--json'])
+      return status.shift() ?? ok('[]')
+    }
+    if (subcommand === 'list') {
+      expect(args).toEqual(['list', '--json'])
+      return list.shift() ?? ok('[]')
+    }
     throw new Error(`unexpected workmux subcommand: ${String(subcommand)}`)
   }
 }
@@ -56,7 +68,7 @@ function makeContext(exec: Exec, now = 1000): CollectorContext {
  * the process was down (or under a pre-#306 build, before `agent.removed`
  * existed). The persisted workmux snapshot never held it past that poll, so
  * there is nothing left for the live collector to diff against — only the
- * fold still remembers it as present. `status-working.txt`/`list-working.txt`
+ * fold still remembers it as present. `status-working.json`/`list-working.json`
  * never mention this handle at all.
  */
 function ghostLog() {
@@ -86,8 +98,8 @@ function presentHandles(folded: ReturnType<typeof reduceAll>): Set<string> {
 
 function realityExec(): Exec {
   return fakeExec({
-    status: [ok(fixture('status-working.txt'))],
-    list: [ok(fixture('list-working.txt'))],
+    status: [ok(fixture('status-working.json'))],
+    list: [ok(fixture('list-working.json'))],
   })
 }
 
