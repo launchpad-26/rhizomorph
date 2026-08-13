@@ -219,6 +219,18 @@ describe('estimateLaunchSpend unit shape', () => {
   it('is exercised end to end above via the route — this just pins the exported name stays a function', () => {
     expect(typeof estimateLaunchSpend).toBe('function')
   })
+
+  // #246 — before `buildFleet` moved to `@rhizomorph/core`, this file could not
+  // import it (server may not depend on web) and re-derived one lane's spend
+  // rate with its own `reduceAll` + `selectSpendRateByLane` instead of asking
+  // the one fleet object buildFleet already answers the same question for
+  // (`Burn.costUsdPerHour`). A grep-style pin, legible by eye like this
+  // package's other namespace/law tests: the re-fold must not come back.
+  it('reads the launch estimate off buildFleet, never re-folding with its own selectSpendRateByLane call', () => {
+    const source = readFileSync(fileURLToPath(new URL('./lab.ts', import.meta.url)), 'utf8')
+    expect(source).toMatch(/\bbuildFleet\(/)
+    expect(source).not.toMatch(/\bselectSpendRateByLane\b/)
+  })
 })
 
 describe('parseSingleArmForkStdout', () => {

@@ -7,6 +7,7 @@
 
 export * from './collector.js'
 export * from './events/index.js'
+export * from './fleet/index.js'
 export * from './fixtures.js'
 export * from './jsonl.js'
 export * from './placeholder.js'

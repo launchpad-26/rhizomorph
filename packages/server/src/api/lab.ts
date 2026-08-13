@@ -3,7 +3,7 @@ import { rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Exec, RhizomorphEvent } from '@rhizomorph/core'
-import { reduceAll, selectSpendRateByLane } from '@rhizomorph/core'
+import { buildFleet, reduceAll } from '@rhizomorph/core'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { listSessions, readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import type { ServerContext } from '../server/context.js'
@@ -189,22 +189,31 @@ export interface LabEstimateResult {
 }
 
 /**
- * `costUsdPerHour` derived from the forked lane's OWN recent spend (never a
- * fleet-wide or borrowed rate), over the trailing hour. Zero real activity in
- * that window means the rate cannot be established — reported as
- * `available: false` with a `reason`, never as a `$0.00` that reads as a real
- * answer (ruling 4's own words: "a guess wearing a suit").
+ * `costUsdPerHour` read straight off the forked lane's own `Lane` row in
+ * `buildFleet`'s output (never a fleet-wide or borrowed rate) — the same
+ * derivation `Burn.costUsdPerHour` already sums across every lane, over the
+ * trailing hour. Reading it from the one fleet object rather than re-folding
+ * the log a second time with its own spend-rate selector call is issue #246:
+ * two callers asking buildFleet's own question independently is exactly how
+ * a lane's judged spend ends up disagreeing between two surfaces. Zero
+ * real activity in that window means the rate cannot be established —
+ * reported as `available: false` with a `reason`, never as a `$0.00` that
+ * reads as a real answer (ruling 4's own words: "a guess wearing a suit").
  */
 export async function estimateLaunchSpend(ctx: ServerContext, lane: string, arms: number): Promise<LabEstimateResult> {
   const events = await readAllEvents(ctx)
   const state = reduceAll(events)
   const now = ctx.now?.() ?? Date.now()
-  const rate = selectSpendRateByLane(state, { now, windowMs: ESTIMATE_WINDOW_MS })[lane]
+  const fleet = buildFleet(state, { now, windowMs: ESTIMATE_WINDOW_MS })
+  const laneRow = fleet.lanes.find(
+    (row) => row.handles.includes(lane) || row.id === lane || row.branch === lane,
+  )
 
-  // `costIsAuthoritative` is `null` exactly when no dollars were counted at
-  // all (`selectors/spend.ts`'s own vocabulary) — the one case ruling 4 says
-  // must read as "the rate cannot be established", never as `$0.00`.
-  if (rate === undefined || rate.totals.costIsAuthoritative === null) {
+  // `costRateIsAuthoritative` is `null` exactly when no dollars were counted
+  // at all for this lane inside the window (`Lane`'s own vocabulary) — the
+  // one case ruling 4 says must read as "the rate cannot be established",
+  // never as `$0.00`.
+  if (laneRow === undefined || laneRow.costRateIsAuthoritative === null) {
     return {
       lane,
       arms,
@@ -217,9 +226,9 @@ export async function estimateLaunchSpend(ctx: ServerContext, lane: string, arms
     lane,
     arms,
     available: true,
-    windowMs: rate.windowMs,
-    costUsdPerHour: rate.costUsdPerHour,
-    estimatedTotalUsd: rate.costUsdPerHour * arms,
+    windowMs: ESTIMATE_WINDOW_MS,
+    costUsdPerHour: laneRow.costUsdPerHour,
+    estimatedTotalUsd: laneRow.costUsdPerHour * arms,
   }
 }
 

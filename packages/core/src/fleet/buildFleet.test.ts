@@ -1,4 +1,6 @@
-import { createEvent, createEventFactory, createIdFactory, reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
+import { createEvent, createIdFactory, type RhizomorphEvent } from '../events/index.js'
+import { createEventFactory } from '../fixtures.js'
+import { reduceAll } from '../reduce.js'
 import { describe, expect, it } from 'vitest'
 import {
   buildFleet,

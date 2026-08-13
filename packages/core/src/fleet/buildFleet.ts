@@ -11,9 +11,9 @@ import {
   selectTouchesByBranch,
   selectWorktreeViews,
   type LaneSpend,
-  type SessionState,
-} from '@rhizomorph/core'
-import { bucketizeSeries } from '../spark/bucketize.js'
+} from '../selectors/index.js'
+import type { SessionState } from '../state.js'
+import { bucketizeSeries } from './bucketize.js'
 import {
   EXPENSIVE_FLOOR_PER_MIN,
   EXPENSIVE_MULTIPLE,
@@ -111,7 +111,7 @@ export { formatSpan } from './plumbing.js'
  * that each re-derive "how many lanes are working" will eventually disagree by
  * one, in public, on the one screen whose job is to be trusted at a glance.
  *
- * Everything below is derived by `@rhizomorph/core`'s selectors over the same
+ * Everything below is derived by this package's own selectors over the same
  * `SessionState` every other consumer folds. Nothing is summed locally that a
  * selector already sums, no new event type is invented, and nothing the log did
  * not say is guessed:
@@ -259,6 +259,16 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       (sum, handle) => sum + perMinute(tokenRates[handle]?.totals.tokens.output ?? 0, windowMs),
       0,
     )
+    const costUsdPerHour = handles.reduce((sum, handle) => sum + (costRates[handle]?.costUsdPerHour ?? 0), 0)
+    const costRateEventCount = handles.reduce(
+      (sum, handle) => sum + (costRates[handle]?.totals.costEventCount ?? 0),
+      0,
+    )
+    const costRateEstimatedEventCount = handles.reduce(
+      (sum, handle) => sum + (costRates[handle]?.totals.estimatedCostEventCount ?? 0),
+      0,
+    )
+    const costRateIsAuthoritative = costRateEventCount === 0 ? null : costRateEstimatedEventCount === 0
     // A lane whose only telemetry is spans (no usage/cost/tool event ever
     // claimed a handle for it) has nothing in `handles` to look span recency
     // up by, so the lookup also tries the lane's own id and branch — the same
@@ -307,6 +317,8 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       requestCount: tokens?.requestCount ?? 0,
       toolCallCount: tokens?.toolCallCount ?? 0,
       outputPerMin,
+      costUsdPerHour,
+      costRateIsAuthoritative,
       recentOutputTokens,
       filaments: filamentsOf(tokens),
       model: fence?.model ?? null,
