@@ -94,7 +94,7 @@ describe('createWorkmuxCollector', () => {
       handle: '2-core',
       status: 'working',
       branch: '2-core',
-      worktreePath: '/repo/../2-core',
+      worktreePath: '/Users/dev/rhizomorph__worktrees/2-core',
       elapsedSeconds: 12 * 60,
       detail: '⠐ Implement core event schema and reducer',
     })
@@ -104,7 +104,7 @@ describe('createWorkmuxCollector', () => {
     )
     // No more `(here)` sentinel under --json — the join resolves the self row
     // to its own absolute workdir, same as every other row.
-    expect(workmuxSelf?.payload).toMatchObject({ worktreePath: '/repo' })
+    expect(workmuxSelf?.payload).toMatchObject({ worktreePath: '/Users/dev/rhizomorph' })
 
     // prd15's capability law: a collector claiming a signal `provided` must
     // have a path that actually emits it — this poll just proved `agent.status`
@@ -540,10 +540,10 @@ describe('createWorkmuxCollector', () => {
   it('a quarantined malformed row is not read as proof its handle is gone', async () => {
     const collector = createWorkmuxCollector()
     const zombieStatus = JSON.stringify([
-      { worktree: '2-core', branch: '2-core', status: 'working', elapsed_secs: 720, title: 'Implement core event schema and reducer', workdir: '/repo/../2-core' },
-      { worktree: '3-git-collector', branch: '3-git-collector', status: 'zombie', elapsed_secs: 60, title: 'stuck', workdir: '/repo/../3-git-collector' },
-      { worktree: '4-tmux-collector', branch: '4-tmux-collector', status: 'done', elapsed_secs: 540, title: 'tmux collector complete', workdir: '/repo/../4-tmux-collector' },
-      { worktree: '5-workmux-collector', branch: '5-workmux-collector', status: 'working', elapsed_secs: 300, title: 'Implement workmux collector with status parsing', workdir: '/repo' },
+      { worktree: '2-core', branch: '2-core', status: 'working', elapsed_secs: 720, title: 'Implement core event schema and reducer', workdir: '/Users/dev/rhizomorph__worktrees/2-core' },
+      { worktree: '3-git-collector', branch: '3-git-collector', status: 'zombie', elapsed_secs: 60, title: 'stuck', workdir: '/Users/dev/rhizomorph__worktrees/3-git-collector' },
+      { worktree: '4-tmux-collector', branch: '4-tmux-collector', status: 'done', elapsed_secs: 540, title: 'tmux collector complete', workdir: '/Users/dev/rhizomorph__worktrees/4-tmux-collector' },
+      { worktree: '5-workmux-collector', branch: '5-workmux-collector', status: 'working', elapsed_secs: 300, title: 'Implement workmux collector with status parsing', workdir: '/Users/dev/rhizomorph' },
     ])
     const exec = fakeExec({
       status: [ok(fixture('status-mixed.json')), ok(zombieStatus)],
@@ -558,5 +558,199 @@ describe('createWorkmuxCollector', () => {
     expect(second.events[0]).toMatchObject({ type: 'collector.error', payload: { collector: 'workmux' } })
     expect(second.events.some((event) => event.type === 'agent.removed')).toBe(false)
     expect(second.nextSnapshot.agents['3-git-collector']).toEqual(first.nextSnapshot.agents['3-git-collector'])
+  })
+
+  // --- #456: a malformed status/list row quarantines, mirroring ruling 4 ---
+
+  it('quarantines a structurally malformed status row instead of disabling the whole poll (#456)', async () => {
+    const collector = createWorkmuxCollector()
+    const statusJson = JSON.stringify([
+      {
+        worktree: 'feat-good',
+        branch: 'feat-good',
+        status: 'working',
+        elapsed_secs: 60,
+        title: null,
+        workdir: '/Users/dev/proj__worktrees/feat-good',
+      },
+      // No `worktree`, no `workdir` — cannot even be identified by handle.
+      { branch: 'feat-bad', status: 'working', elapsed_secs: 60, title: null },
+    ])
+    const listJson = JSON.stringify([{ path: '/Users/dev/proj__worktrees/feat-good' }])
+    const context = makeContext(fakeExec({ status: [ok(statusJson)], list: [ok(listJson)] }))
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    const statusEvents = result.events.filter((event) => event.type === 'agent.status')
+    expect(statusEvents).toHaveLength(1)
+    expect(statusEvents[0]?.payload).toMatchObject({ handle: 'feat-good', branch: 'feat-good' })
+    expect(result.events).toContainEqual(
+      expect.objectContaining({
+        type: 'collector.error',
+        payload: expect.objectContaining({
+          collector: 'workmux',
+          message: 'skipped 1 malformed status row',
+          detail: expect.stringContaining('missing required worktree/status/workdir'),
+        }),
+      }),
+    )
+    // The whole poll must not disable — only the one bad row quarantines.
+    expect(result.nextSnapshot.disabled).toBe(false)
+  })
+
+  it('a malformed status row with a recoverable handle carries its prior agent forward, not a removal (#456)', async () => {
+    const collector = createWorkmuxCollector()
+    const good = JSON.stringify([
+      {
+        worktree: 'flaky',
+        branch: 'flaky',
+        status: 'working',
+        elapsed_secs: 60,
+        title: null,
+        workdir: '/Users/dev/proj__worktrees/flaky',
+      },
+    ])
+    // Same handle recoverable (`worktree` present), but `workdir` missing
+    // this poll — a genuinely malformed row, not just an unrecognised status
+    // value, so it exercises parseStatusJson's own carry-forward path.
+    const malformed = JSON.stringify([{ worktree: 'flaky', branch: 'flaky', status: 'working' }])
+    const context = makeContext(fakeExec({ status: [ok(good), ok(malformed)], list: [ok('[]'), ok('[]')] }))
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    const second = await collector.poll(first.nextSnapshot, context)
+
+    expect(second.events.some((event) => event.type === 'agent.removed')).toBe(false)
+    expect(second.nextSnapshot.agents.flaky).toEqual(first.nextSnapshot.agents.flaky)
+  })
+
+  it('quarantines a malformed list row and voices it, rather than dropping it silently (#456)', async () => {
+    const collector = createWorkmuxCollector()
+    const statusJson = JSON.stringify([
+      {
+        worktree: 'feat-x',
+        branch: 'feat-x',
+        status: 'working',
+        elapsed_secs: 60,
+        title: null,
+        workdir: '/Users/dev/proj__worktrees/feat-x',
+      },
+    ])
+    const listJson = JSON.stringify([{ is_main: false }]) // no `path`
+    const context = makeContext(fakeExec({ status: [ok(statusJson)], list: [ok(listJson)] }))
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    expect(result.events).toContainEqual(
+      expect.objectContaining({
+        type: 'collector.error',
+        payload: expect.objectContaining({
+          collector: 'workmux',
+          message: 'skipped 1 malformed list row',
+          detail: expect.stringContaining('missing required path string field'),
+        }),
+      }),
+    )
+    expect(result.events.find((event) => event.type === 'agent.status')?.payload).toMatchObject({
+      handle: 'feat-x',
+      worktreePath: null,
+    })
+  })
+
+  // --- #456 follow-up: a handle-less skip cannot attribute an `agent.removed` ---
+
+  it('a handle-less skip does not announce a removal, and the lane re-appears with no flap (#456)', async () => {
+    const collector = createWorkmuxCollector()
+    const goodPoll = JSON.stringify([
+      {
+        worktree: 'feat-good',
+        branch: 'feat-good',
+        status: 'working',
+        elapsed_secs: 60,
+        title: null,
+        workdir: '/Users/dev/proj__worktrees/feat-good',
+      },
+      {
+        worktree: 'feat-other',
+        branch: 'feat-other',
+        status: 'working',
+        elapsed_secs: 60,
+        title: null,
+        workdir: '/Users/dev/proj__worktrees/feat-other',
+      },
+    ])
+    // Poll 2: `feat-good`'s row loses its `worktree` field entirely — cannot
+    // be attributed to any handle — while `feat-other` stays healthy.
+    const malformedPoll = JSON.stringify([
+      { branch: 'feat-good', status: 'working', elapsed_secs: 60, title: null, workdir: '/Users/dev/proj__worktrees/feat-good' },
+      {
+        worktree: 'feat-other',
+        branch: 'feat-other',
+        status: 'working',
+        elapsed_secs: 60,
+        title: null,
+        workdir: '/Users/dev/proj__worktrees/feat-other',
+      },
+    ])
+    const context = makeContext(
+      fakeExec({
+        status: [ok(goodPoll), ok(malformedPoll), ok(goodPoll)],
+        list: [ok('[]'), ok('[]'), ok('[]')],
+      }),
+    )
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    expect(Object.keys(first.nextSnapshot.agents).sort()).toEqual(['feat-good', 'feat-other'])
+
+    const second = await collector.poll(first.nextSnapshot, context)
+    expect(second.events).toEqual([expect.objectContaining({ type: 'collector.error' })])
+    expect(second.events.some((event) => event.type === 'agent.removed')).toBe(false)
+    expect(second.nextSnapshot.agents['feat-good']).toEqual(first.nextSnapshot.agents['feat-good'])
+
+    const third = await collector.poll(second.nextSnapshot, context)
+    // The lane never left the roster, so its re-appearance is not news.
+    expect(third.events).toEqual([])
+  })
+
+  it('every status row losing `worktree` in one poll carries the whole roster forward, not a wipe (#456)', async () => {
+    const collector = createWorkmuxCollector()
+    const goodPoll = JSON.stringify([
+      {
+        worktree: 'feat-a',
+        branch: 'feat-a',
+        status: 'working',
+        elapsed_secs: 60,
+        title: null,
+        workdir: '/Users/dev/proj__worktrees/feat-a',
+      },
+      {
+        worktree: 'feat-b',
+        branch: 'feat-b',
+        status: 'working',
+        elapsed_secs: 60,
+        title: null,
+        workdir: '/Users/dev/proj__worktrees/feat-b',
+      },
+    ])
+    // A format change (workmux renaming the field, per ruling 4) drops
+    // `worktree` from every row in the same poll.
+    const massMalformedPoll = JSON.stringify([
+      { branch: 'feat-a', status: 'working', elapsed_secs: 60, title: null, workdir: '/Users/dev/proj__worktrees/feat-a' },
+      { branch: 'feat-b', status: 'working', elapsed_secs: 60, title: null, workdir: '/Users/dev/proj__worktrees/feat-b' },
+    ])
+    const context = makeContext(
+      fakeExec({ status: [ok(goodPoll), ok(massMalformedPoll)], list: [ok('[]'), ok('[]')] }),
+    )
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    const second = await collector.poll(first.nextSnapshot, context)
+
+    expect(second.events).toEqual([
+      expect.objectContaining({
+        type: 'collector.error',
+        payload: expect.objectContaining({ message: 'skipped 2 malformed status rows' }),
+      }),
+    ])
+    expect(second.events.some((event) => event.type === 'agent.removed')).toBe(false)
+    expect(second.nextSnapshot.agents).toEqual(first.nextSnapshot.agents)
   })
 })
