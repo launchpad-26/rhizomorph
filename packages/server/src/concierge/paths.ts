@@ -1,4 +1,5 @@
 import { realpathSync } from 'node:fs'
+import { homedir } from 'node:os'
 import path from 'node:path'
 
 /**
@@ -41,6 +42,25 @@ import path from 'node:path'
  */
 export function conciergeRoot(dataRoot: string): string {
   return path.join(path.resolve(dataRoot), 'concierge')
+}
+
+/**
+ * `~/rhizomorph/repos` — the default `clonesRoot` (#262), answering prd-20's
+ * open question ("where cloned repos live by default") as a comment on that
+ * issue rather than silently: a visible, top-level directory, deliberately
+ * NOT under `defaultDataRoot()` (`~/.local/share/rhizomorph`, ADR-0005). The
+ * data root is this instrument's own bookkeeping — session logs, the lab's
+ * worktrees; a cloned repo is the operator's real workspace, something they
+ * `cd` into and work in, so it gets a home a shell or file browser finds
+ * easily, the same way other dev tools default a project home (e.g.
+ * `~/AndroidStudioProjects`) rather than hiding it in an XDG data directory.
+ * `assertCloneTarget`'s own fence is unaffected either way — this only sets
+ * the argument its `clonesRoot` parameter defaults to when a caller doesn't
+ * override it, per ADR-0014's Consequences: "answering the question later
+ * sets that argument; it does not reopen this law."
+ */
+export function defaultClonesRoot(): string {
+  return path.join(homedir(), 'rhizomorph', 'repos')
 }
 
 /** A `realpath`-shaped function: resolves an existing path to its canonical form. */

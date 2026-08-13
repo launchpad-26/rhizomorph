@@ -62,9 +62,12 @@ import { assertCloneTarget, conciergeRoot } from './paths.js'
  *
  * 1. **Reachability.** No source file outside the concierge module — in either
  *    package, at any depth, through static import, dynamic `import()`, `require`
- *    or re-export — reaches it. The declared-importer set is EMPTY: prd-20
- *    ruling 2 gates every concierge route on #234, and this lane ships no route.
- *    Whatever is added to that set later may never be a collector or a poll loop.
+ *    or re-export — reaches it. The declared-importer set started EMPTY (this
+ *    law landed before the hand's first route, so nothing could reach it yet)
+ *    and now names exactly `api/concierge.ts` — #263's read-only discovery
+ *    route and #262's clone-by-URL route both go through that one file, per
+ *    prd-20 ruling 2's gate on #234. Whatever is added to that set later may
+ *    never be a collector or a poll loop.
  * 2. **No blind spots.** No non-test server source file contains a dynamic
  *    `import()` with a non-literal specifier, because clause 1's graph cannot
  *    see through one. A law that cannot see is worse than no law (#245, #319).
