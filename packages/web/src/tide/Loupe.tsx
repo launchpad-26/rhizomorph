@@ -75,9 +75,21 @@ export interface LoupeProps {
  *
  * Linear in the log with a bounded insert, rather than a sort of the whole
  * thing. At `count` = 20 the inner loop is 20 comparisons worst case and
- * usually none, which matters because prd21 exists to stop the scrub path
- * paying O(log-size) work per frame — replacing one such cost with another
- * would be a poor joke.
+ * usually none, and nothing is allocated beyond that 20-element list.
+ *
+ * **Stated honestly, because an earlier draft of this comment did not
+ * (verify pass, PR #430):** this *is* O(n) per scrub position, not per frame.
+ * It reads `value` — the finger clock — so it re-runs whenever the playhead
+ * moves. Measured `[Ran]` 2026-08-13: 0.190 ms at 5,000 events, 0.809 ms at
+ * 25,000, 1.261 ms at 55,000 — 1.1% / 4.8% / 7.5% of a 16.7 ms frame. The
+ * operator ruled that cost acceptable rather than thread a `derivedTs` prop
+ * for it, because it is ~0.4% of the 26.6–317.9 ms per-seek `buildFleet` cost
+ * prd21 actually exists to fix, and because it is only paid while the loupe is
+ * open. That ruling is on #273; revisit it there, not here.
+ *
+ * A binary search over `ts` would remove the scan and is **unsound here by
+ * construction** — the log is append-ordered, not `ts`-ordered, which is
+ * exactly what `Loupe.test.tsx`'s non-monotonic fixture pins.
  */
 export function loupeSlice(
   events: readonly RhizomorphEvent[],
@@ -136,7 +148,7 @@ export function Loupe({ events, ts, count = LOUPE_EVENT_COUNT }: LoupeProps): Re
   return (
     <div
       data-testid="tide-loupe"
-      className="col-span-3 mt-1 max-h-40 overflow-y-auto rounded border border-ice-800 bg-ice-950 p-1 normal-case tracking-normal"
+      className="col-span-3 mt-1 max-h-20 overflow-y-auto rounded border border-ice-800 bg-ice-950 p-1 normal-case tracking-normal"
     >
       <div className="figures mb-1 text-[10px] leading-none text-ice-400" data-testid="tide-loupe-header">
         {slice.length === 0

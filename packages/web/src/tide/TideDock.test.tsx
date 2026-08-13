@@ -35,6 +35,25 @@ function log(build: (fx: ReturnType<typeof createEventFactory>) => void): Rhizom
   return fx.all()
 }
 
+/**
+ * A coalesced pair sitting next to the playhead — the fixture the mark-lane
+ * guard below needs, and the one it did not have (verify pass, PR #430).
+ *
+ * At the cap the lane's hover threshold is wide enough to draw 5000 and 5006 as
+ * one glyph; one level further in it is halved and they split. That split IS
+ * the breach #273's Done-when forbids, and no fixture whose marks all clamp to
+ * x=0 can see it — which is precisely why the first version of the guard
+ * compared three zeros to three zeros and stayed green through the defect.
+ */
+function coalescingNearPlayhead(): RhizomorphEvent[] {
+  return log((fx) => {
+    fx.at(4_800).agentStatus({ handle: 'ke5', status: 'working' })
+    fx.at(5_000).agentStatus({ handle: 'm2', status: 'working' })
+    fx.at(5_006).agentStatus({ handle: 'q9', status: 'working' })
+    fx.at(5_200).agentStatus({ handle: 'r3', status: 'working' })
+  })
+}
+
 /** Three lanes, enough for the mark lane to have something to chew on. */
 function threeLaneEvents(): RhizomorphEvent[] {
   return log((fx) => {
@@ -550,6 +569,14 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
         <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
       )
       zoomToCap()
+      expect(screen.getByTestId('tide-loupe')).toBeInTheDocument()
+
+      // Pan the window off the playhead first. `zoomIn` re-centres on `value`
+      // at every click, so until something pans, the playhead and the window
+      // centre are the same number and this assertion holds for either of
+      // them — which is why it used to survive the mutation it names.
+      fireEvent.click(screen.getByRole('button', { name: 'Shift window earlier' }))
+
       expect(screen.getByTestId('tide-loupe-header').textContent).toContain(formatClockSeconds(9_000))
     })
 
@@ -560,25 +587,40 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
      */
     it('leaves the mark lane exactly as it was at the cap', () => {
       render(
-        <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
+        <TideDock mode="replay" events={coalescingNearPlayhead()} start={T0} end={T_END} value={5_000} onSeek={() => {}} seekEnabled />,
       )
       const button = screen.getByRole('button', { name: 'Zoom in' })
       let atCap = ''
+      let capCounts: (string | undefined)[] = []
       for (let i = 0; i < 40 && !(button as HTMLButtonElement).disabled; i += 1) {
         atCap = screen.getByTestId('chapter-marks').innerHTML
+        capCounts = screen.getAllByTestId('chapter-mark').map((mark) => mark.dataset.count)
         fireEvent.click(button)
         if (screen.queryByTestId('tide-loupe') !== null) break
       }
 
       expect(screen.getByTestId('tide-loupe')).toBeInTheDocument()
+      // The precondition, asserted rather than assumed. Without a coalesced
+      // group inside the cap's window this whole comparison is vacuous, and it
+      // silently was: a fixture 8.7 s from the playhead clamped every mark to
+      // x=0, so the assertion below compared three zeros to three zeros.
+      expect(capCounts).toContain('2')
+      expect(screen.getAllByTestId('chapter-mark').map((mark) => mark.dataset.count)).toEqual(capCounts)
       expect(screen.getByTestId('chapter-marks').innerHTML).toBe(atCap)
     })
   })
 
-  it('reads the clock alone when there are no facts to carry — live has no scrub instant', () => {
+  it('reads now in live, not the dormant replay clock, and carries no facts', () => {
     render(
       <TideDock mode="live" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled={false} />,
     )
-    expect(screen.getByTestId('scrubber-readout').textContent).toBe(formatClockSeconds(9_000))
+    // `value` is deliberately NOT `end` here, and that gap is the whole test.
+    // Live paints the playhead at "now" (the range's right edge), so the
+    // readout must agree with the playhead and disagree with `value`. The
+    // previous version asserted `value` — it was pinning the defect: in the
+    // real live prop shape `currentTs` is frozen at the range start, so the
+    // readout printed the session's beginning beside a playhead at its end.
+    expect(screen.getByTestId('scrubber-readout').textContent).toBe(formatClockSeconds(T_END))
+    expect(screen.getByTestId('scrubber-readout').textContent).not.toBe(formatClockSeconds(9_000))
   })
 })
