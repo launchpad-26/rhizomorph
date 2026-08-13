@@ -3,7 +3,6 @@ import type {
   RhizomorphEvent,
 } from './events/index.js'
 import { totalTokens } from './events/index.js'
-import { upcast } from './events/upcast.js'
 import type {
   ActiveTimeRecord,
   AgentState,
@@ -41,15 +40,10 @@ import {
  * `reduce(state, event) → state`, pure and immutable.
  *
  * The same function folds the live SSE stream and a replayed history slice —
- * that identity is the whole reason replay is free, and it is also why
- * {@link upcast} is called *here*: this is the one function both paths bottom
- * out in, so "every event flows through the migration chokepoint" is true by
- * construction rather than by every future fold remembering (prd17 ruling 3,
- * item 3 — see `events/upcast.ts` for what that chokepoint is for).
+ * that identity is the whole reason replay is free.
  */
 export function reduce(state: SessionState, event: RhizomorphEvent): SessionState {
-  const current = upcast(event)
-  return applyEvent(withEnvelope(state, current), current)
+  return applyEvent(withEnvelope(state, event), event)
 }
 
 /** Fold a whole log. Handy for replay slices and for tests. */

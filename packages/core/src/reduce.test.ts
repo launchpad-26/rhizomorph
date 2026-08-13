@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { eraCorpusEntry } from './eras/corpus.js'
 import { canonicalStateJson, foldEraRecording } from './eras/fold.js'
 import type { EventOf, RhizomorphEvent } from './events/index.js'
-import { observeUpcast, upcast } from './events/upcast.js'
 import { createEventFactory, fixtureSession } from './fixtures.js'
 import { reduce, reduceAll } from './reduce.js'
 import type { SessionState, SpanRecord } from './state.js'
@@ -1264,7 +1263,7 @@ describe('reduce — the trace index is an accelerator, never an input (#184)', 
 })
 
 // ---------------------------------------------------------------------------
-// prd17 ruling 3, item 3 — the upcast chokepoint
+// prd17 ruling 3, item 4 — the fold-order law
 // ---------------------------------------------------------------------------
 
 /**
@@ -1286,77 +1285,6 @@ function foldLive(events: readonly RhizomorphEvent[]): SessionState {
 function foldReplay(events: readonly RhizomorphEvent[]): SessionState {
   return reduceAll([...events].sort((a, b) => a.ts - b.ts))
 }
-
-describe('reduce — every event flows through upcast(), in both paths (prd17 ruling 3.3)', () => {
-  /** Installs the observer and always disposes it, so a leak can't reach the next test. */
-  function watching<T>(body: (seen: RhizomorphEvent[]) => T): { seen: RhizomorphEvent[]; result: T } {
-    const seen: RhizomorphEvent[] = []
-    const dispose = observeUpcast((event) => seen.push(event))
-    try {
-      return { seen, result: body(seen) }
-    } finally {
-      dispose()
-    }
-  }
-
-  const log = (): RhizomorphEvent[] => [
-    f.sessionStarted({}, { ts: 3_000 }),
-    f.paneActivity({ paneId: '%1', contentHash: 'h1' }, { ts: 1_000 }),
-    f.agentStatus({ handle: 'a', status: 'working' }, { ts: 2_000 }),
-  ]
-
-  it('is an identity function — it returns the very event it was handed', () => {
-    const event = f.sessionStarted()
-    expect(upcast(event)).toBe(event)
-  })
-
-  it('the LIVE fold puts every event through it, in arrival order', () => {
-    const events = log()
-    const { seen } = watching(() => foldLive(events))
-    expect(seen).toEqual(events)
-    expect(seen.map((event) => event.id)).toEqual(events.map((event) => event.id))
-  })
-
-  it('the REPLAY fold puts every event through it, in ts order', () => {
-    const events = log()
-    const sorted = [...events].sort((a, b) => a.ts - b.ts)
-    const { seen } = watching(() => foldReplay(events))
-    expect(seen).toEqual(sorted)
-  })
-
-  it('reduceAll routes through it too — no fold shape bypasses the chokepoint', () => {
-    const events = log()
-    const { seen } = watching(() => reduceAll(events))
-    expect(seen).toHaveLength(events.length)
-  })
-
-  it('is reached once per event, not once per fold — a 40-event log upcasts 40 times', () => {
-    const events = Array.from({ length: 40 }, (_, at) =>
-      f.paneActivity({ paneId: `%${at}`, contentHash: `h${at}` }),
-    )
-    const { seen } = watching(() => foldLive(events))
-    expect(seen).toHaveLength(40)
-  })
-
-  it('refuses a second observer rather than shadowing the first', () => {
-    const dispose = observeUpcast(() => {})
-    try {
-      expect(() => observeUpcast(() => {})).toThrow(/already has an observer/)
-    } finally {
-      dispose()
-    }
-  })
-
-  it('leaves the fold untouched — observing it cannot change what it folds', () => {
-    const events = log()
-    const watched = watching(() => foldLive(events)).result
-    expect(JSON.stringify(foldLive(events))).toBe(JSON.stringify(watched))
-  })
-})
-
-// ---------------------------------------------------------------------------
-// prd17 ruling 3, item 4 — the fold-order law
-// ---------------------------------------------------------------------------
 
 /**
  * THE FOLD-ORDER LAW, and the divergence it found.
