@@ -55,13 +55,19 @@ interface WorkmuxStatusJsonRow {
   status: string
   elapsedSeconds: number | null
   detail: string | null
-  /** Absolute path — the join key against `list --json`'s `path`. */
+  /** Absolute path — the join key against `list --json`'s `path`, used only to resolve `worktreePath` (#455: `branch` no longer depends on this join). */
   workdir: string
+  /**
+   * workmux's branch for this handle, read directly off the same row — the
+   * only source `branch` resolves from (#455). Unlike `workdir`, this is not
+   * the pane's live cwd, so a pane sitting in a worktree subdirectory doesn't
+   * affect it.
+   */
+  branch: string | null
 }
 
 interface WorkmuxListJsonRow {
-  branch: string
-  /** Absolute path — no `(here)` sentinel, unlike the table form. */
+  /** Absolute path — no `(here)` sentinel, unlike the table form. Used only to resolve `worktreePath`; `branch` comes from the status row directly (#455). */
   path: string
 }
 
@@ -95,6 +101,7 @@ function parseStatusJson(stdout: string): WorkmuxStatusJsonRow[] | null {
       elapsedSeconds: typeof entry.elapsed_secs === 'number' ? entry.elapsed_secs : null,
       detail: typeof entry.title === 'string' && entry.title.trim() !== '' ? entry.title : null,
       workdir: entry.workdir,
+      branch: typeof entry.branch === 'string' ? entry.branch : null,
     })
   }
   return rows
@@ -118,21 +125,33 @@ function parseListJson(stdout: string): WorkmuxListJsonRow[] {
 
   const rows: WorkmuxListJsonRow[] = []
   for (const entry of parsed) {
-    if (!isRecord(entry) || typeof entry.branch !== 'string' || typeof entry.path !== 'string') continue
-    rows.push({ branch: entry.branch, path: entry.path })
+    if (!isRecord(entry) || typeof entry.path !== 'string') continue
+    rows.push({ path: entry.path })
   }
   return rows
 }
 
 /**
- * Shells to `workmux status --json` and `workmux list --json`, joining on
- * absolute path (`status.workdir` ↔ `list.path` — issue #383: the table
- * form's only shared key was a directory basename, which collides whenever
- * two worktrees share a basename under different parents, and was already
- * broken for the main worktree, whose `status` table row is suffixed
- * ` (main)` with no matching `list` basename). Emits `agent.status` only when
- * an agent's status, branch or worktree path actually changes — elapsed
- * alone ticking up every poll is not a state change worth logging.
+ * Shells to `workmux status --json` and `workmux list --json`. `branch` is
+ * read directly off the `status` row (#455) — it no longer depends on any
+ * join. The `list` side is joined on absolute path (`status.workdir` ↔
+ * `list.path` — issue #383: the table form's only shared key was a directory
+ * basename, which collides whenever two worktrees share a basename under
+ * different parents, and was already broken for the main worktree, whose
+ * `status` table row is suffixed ` (main)` with no matching `list` basename)
+ * and is now used only to resolve `worktreePath`.
+ *
+ * `workdir` is the pane's live cwd, not the worktree root — workmux rewrites
+ * it every poll from `#{pane_current_path}`. A pane sitting in a subdirectory
+ * of its worktree (e.g. `cd packages/server`) makes the path join miss:
+ * `worktreePath` resolves to `null`, a named absence rather than a guess
+ * (PRD-22 ruling 5 rules out a lossy/heuristic join key). `branch` is
+ * unaffected, since it comes from the same row's own `branch` field, not the
+ * join.
+ *
+ * Emits `agent.status` only when an agent's status, branch or worktree path
+ * actually changes — elapsed alone ticking up every poll is not a state
+ * change worth logging.
  */
 export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
   return {
@@ -204,9 +223,12 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
       const listRows = isMissingBinary(listResult) || listResult.failed
         ? []
         : parseListJson(listResult.stdout)
-      // Both sides of the join are absolute paths under `--json`
-      // (`status.workdir`, `list.path`), so this can't collide the way
-      // basename(path) could — see the collector-level doc comment above.
+      // Resolves `worktreePath` only — `branch` comes straight off the
+      // status row (#455). Both sides of the join are absolute paths under
+      // `--json` (`status.workdir`, `list.path`), so this can't collide the
+      // way basename(path) could — see the collector-level doc comment
+      // above. It can still *miss* (soft `null`) when `workdir` is a
+      // subdirectory of `list.path` rather than equal to it.
       const listByPath = new Map(listRows.map((row) => [row.path, row]))
 
       const nextAgents: WorkmuxSnapshot['agents'] = {}
@@ -233,7 +255,7 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
         const status = statusCheck.data
 
         const listRow = listByPath.get(row.workdir)
-        const branch = listRow?.branch ?? null
+        const branch = row.branch
         const worktreePath = listRow?.path ?? null
 
         const prevAgent: WorkmuxAgentSnapshot | undefined = prevSnapshot.agents[row.handle]
