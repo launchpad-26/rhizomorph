@@ -74,6 +74,18 @@ import { assertCloneTarget, conciergeRoot } from './paths.js'
  *    `execSync` string-command form, no `shell: true`. When the launch power
  *    lands it spawns an argv array or it does not spawn. This is the clause that
  *    matters most: the hand's whole purpose is to run a process.
+ *
+ *    **Known limit (#373), not regex-fixable.** An argv launch can still reach
+ *    a shell — `execFile('/bin/sh', ['-c', cmd])` or `spawn('bash', ['-lc',
+ *    cmd])` obey this clause's letter, because the clause forbids the
+ *    shell-COMMAND form, not the executable named, and the launch power
+ *    deliberately needs argv spawns. `spawn('claude', […])` and
+ *    `spawn('bash', […])` differ only in which executable — an allowlist
+ *    question, not a spelling one — so this law does not attempt it. #358's
+ *    harness registry is the mechanism that closes it: once the executable a
+ *    real launch spawns comes from the adapter rather than from a request,
+ *    "nothing under `concierge/` reaches a shell" is true by construction, not
+ *    by this law's text-reading.
  * 5. **The clone fence, live.** `assertCloneTarget` is run against real
  *    directories on a real filesystem — symlink escape, `..` escape, the watched
  *    repo, the other hands' namespaces — so the containment claim is executed,
@@ -861,8 +873,11 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
 
     /**
      * The names of every namespace bound to `child_process` in a file — from
-     * `import * as cp from 'child_process'`, `import cp from …` and
-     * `const cp = require(…)` alike.
+     * `import * as cp from 'child_process'`, `import cp from …`,
+     * `const cp = require(…)`, and `const cp = await import(…)` alike. The
+     * last is review-of-#351's own point turned into a #373 finding: the
+     * specifier is a plain literal, so clause 2 has nothing to say about it,
+     * and a static-import-only binder would never see `cp.exec(…)` below it.
      *
      * Why an identifier and not a line: pattern 3 used to be
      * `/\bchild_process\b[^\n]*\.\s*exec\b(?!File)/`, and `[^\n]*` forced the
@@ -876,6 +891,10 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
         new RegExp(String.raw`\bimport\s+([A-Za-z_$][\w$]*)\s*(?:,|\bfrom\b)\s*.*?${CHILD_PROCESS_MODULE}`, 'g'),
         new RegExp(
           String.raw`\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*${CHILD_PROCESS_MODULE}`,
+          'g',
+        ),
+        new RegExp(
+          String.raw`\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?import\s*\(\s*${CHILD_PROCESS_MODULE}`,
           'g',
         ),
       ]
@@ -923,6 +942,17 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
       {
         what: 'a shell-command form destructured out of child_process',
         pattern: destructuresAShellForm,
+      },
+      {
+        what: 'an inline `require(child_process).exec(…)`, never bound to a name',
+        // #373: `childProcessNamespaces` binds an identifier, so
+        // `require('child_process').exec(url)` — called straight off the
+        // `require(...)` expression, nothing to bind — was invisible to every
+        // other detector here. Its own pattern, same module test.
+        pattern: (code) =>
+          new RegExp(
+            String.raw`\brequire\s*\(\s*${CHILD_PROCESS_MODULE}\s*\)\s*\.\s*(?:exec|execSync)\b(?!File)`,
+          ).test(code),
       },
       {
         what: 'exec off a child_process namespace, anywhere in the file',
@@ -1012,6 +1042,24 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
       }
     })
 
+    /**
+     * The two spellings review of #351's re-review found still passing
+     * (#373): an inline `require(...).exec(...)` that binds no name at all,
+     * and a dynamic-import binding — `const cp = await
+     * import('node:child_process')` — which clause 2 permits outright because
+     * the specifier is a plain literal; "no blind spots" has nothing to say
+     * about it.
+     */
+    it('and on the two routes review of #351 found still passing (#373)', () => {
+      const forms: Array<[label: string, code: string]> = [
+        ['inline require, never bound to a name', `require('child_process').exec('git clone ' + url)`],
+        ['dynamic-import binding', `const cp = await import('node:child_process')\ncp.exec(url)\n`],
+      ]
+      for (const [label, code] of forms) {
+        expect(reachesAShell(code), `missed the ordinary spelling: ${label}`).toBe(true)
+      }
+    })
+
     it('and do not fire on the argv-array spawns the launch power will legitimately need', () => {
       for (const legitimate of [
         `import { spawn } from 'node:child_process'`,
@@ -1032,6 +1080,10 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
         // A namespace bound to child_process, used only for its argv forms.
         `import * as cp from 'node:child_process'\nconst child = cp.spawn('claude', argv, { env })\n`,
         `import * as cp from 'child_process'\nawait promisify(cp.execFile)('git', ['clone', url, target])\n`,
+        // The dynamic-import binding, used only for its argv form — the
+        // widening #373 added to `childProcessNamespaces` must not convict
+        // this the way it does `cp.exec(url)`.
+        `const cp = await import('node:child_process')\ncp.spawn('claude', argv, { env })\n`,
         // The one `shell:` value that is not a violation, spelled the ways it is.
         `spawn('claude', argv, { shell: false })`,
         `spawn('claude', argv, { shell: false, env, cwd })`,
