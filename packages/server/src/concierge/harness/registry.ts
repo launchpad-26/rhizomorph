@@ -27,11 +27,12 @@ import type { DetectOptions, HarnessAdapter, HarnessDetection, HarnessId } from 
  * explicitly, in the UI, where a human can see it — not by inheriting one from
  * this array and mistaking it for a fact.
  *
- * ## Nothing imports this yet
+ * ## Wiring
  *
- * The concierge namespace law's declared-importer set is empty and a test
- * asserts it stays empty. The first route to reach this module is #263's,
- * gated on #234 (prd-20 ruling 2). This registry is built before it is wired,
+ * The concierge namespace law's declared-importer set names exactly
+ * `api/concierge.ts`. #264's `POST /api/concierge/launch` (`concierge/
+ * launch.ts`) is the first route to actually reach this module, gated on
+ * #234 (prd-20 ruling 2) — this registry was built before it was wired,
  * which is what fencing a hand before it exists means.
  */
 export const HARNESS_ADAPTERS: readonly HarnessAdapter[] = [claudeAdapter, codexAdapter, ...declaredAdapters].sort(

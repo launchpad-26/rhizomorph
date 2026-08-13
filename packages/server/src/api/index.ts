@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import type { ServerContext } from '../server/context.js'
-import { registerConciergeCloneRoute, registerConciergeReposRoute } from './concierge.js'
+import { registerConciergeCloneRoute, registerConciergeLaunchRoute, registerConciergeReposRoute } from './concierge.js'
 import { registerDoctorRoute } from './doctor.js'
 import { registerLabelRoute } from './label.js'
 import { registerLabRoutes } from './lab.js'
@@ -38,4 +38,7 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   // THIRD mutating route. See `concierge.ts`'s own doc for each.
   registerConciergeReposRoute(app, ctx)
   registerConciergeCloneRoute(app, ctx)
+  // The concierge's second power (#264): launch/relaunch-with-continuity the
+  // conductor. Also gated through `api/concierge.ts` — see its own doc.
+  registerConciergeLaunchRoute(app, ctx)
 }

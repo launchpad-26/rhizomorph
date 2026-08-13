@@ -32,4 +32,24 @@ export interface ServerContext {
    * is the only reason to set this directly.
    */
   capabilityToken?: string
+  /**
+   * The port this Rhizomorph is (or will be) listening on — what
+   * `POST /api/concierge/launch` (prd-20 ruling 4) hands a harness adapter as
+   * `HarnessLaunchContext.port`, so the launched process's OTLP export points
+   * back at this same server. Optional for the same reason `capabilityToken`
+   * is: only that one route reads it, `cli/run.ts` and `cli/replay.ts` always
+   * supply the real `--port` value, and no other route has a reason to set it.
+   *
+   * Read at `buildApp` time, not from the live socket: `app.server.address()`
+   * is `null` until `app.listen()` resolves, which is *after* `ServerContext`
+   * exists and is unreachable under Fastify's `.inject()` (no real socket is
+   * ever bound), so a route reading the socket directly could never be unit
+   * tested. This field is therefore the value the CLI *asked* `--port` for —
+   * identical to the real bound port whenever it resolves, except the
+   * `--port 0` "let the OS pick" form (a real, documented CLI value, not only
+   * a test convenience), which this does not chase: the launch route treats
+   * `0` the same as `undefined` — an honest refusal rather than a harness
+   * wired to a port nothing is listening on.
+   */
+  port?: number
 }

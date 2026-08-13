@@ -17,13 +17,13 @@ import type { AgentRole, CapabilityDetail } from '@rhizomorph/core'
  * - {@link HarnessAdapter.continueArgv} — the argv array to relaunch it with
  *   continuity, and what that continuity does and does not preserve.
  *
- * ## This module is deliberately unwired
+ * ## This module was built before it was wired
  *
  * ADR-0014 clause 7 and the concierge namespace law: the declared-importer set
- * is EMPTY and a test asserts it stays empty, so nothing may import this yet.
- * The registry is built before it is reachable, which is the whole point of
- * fencing a hand before it exists. The route that reaches it is #263's, gated
- * on #234 (prd-20 ruling 2).
+ * names exactly `api/concierge.ts`, and #264's `POST /api/concierge/launch`
+ * (`concierge/launch.ts`) is the first route to actually reach this registry,
+ * gated on #234 (prd-20 ruling 2) — this seam was built before it was
+ * reachable, which is the whole point of fencing a hand before it exists.
  *
  * ## Named, not ranked (ADR-0010)
  *
