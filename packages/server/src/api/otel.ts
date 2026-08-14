@@ -32,17 +32,36 @@ export function registerOtelRoutes(
 ): void {
   const nextId = createIdFactory('otel')
   const now = options.now ?? Date.now
-  const refusals = createRefusalThrottle(now)
+  const refusals = createFaultThrottle(now)
+  const collectorFaults = createFaultThrottle(now)
 
   app.register(async (instance) => {
-    instance.setErrorHandler<FastifyError>(async (error, _request, reply) => {
+    /**
+     * Records a `collector.error` for a route-level fault — invalid JSON, a
+     * malformed body, or an unroutable bare-path body — throttled per fault
+     * signature (at most one recorded event per `message` per window) so a
+     * misconfigured exporter posting the same fault every few seconds
+     * collapses to one event carrying a count, not one per POST. The first
+     * occurrence's payload is unchanged (`collector`, `message`, `detail`
+     * verbatim) plus `count`; suppressed occurrences record nothing until the
+     * window closes, same as `refuse` below.
+     */
+    const recordFault = async (message: string, detail?: string) => {
+      const count = collectorFaults.register(message)
+      if (count === null) return
       await ctx.recorder.record(
         createEvent(
           'collector.error',
-          { collector: 'otel', message: 'malformed OTLP request body', detail: error.message },
+          detail === undefined
+            ? { collector: 'otel', message, count }
+            : { collector: 'otel', message, detail, count },
           { id: nextId(), ts: now() },
         ),
       )
+    }
+
+    instance.setErrorHandler<FastifyError>(async (error, _request, reply) => {
+      await recordFault('malformed OTLP request body', error.message)
       await reply.code(400).send({ error: 'malformed OTLP request body' })
     })
 
@@ -75,7 +94,11 @@ export function registerOtelRoutes(
       })
       if (result.malformed) {
         for (const event of result.events) {
-          await ctx.recorder.record(event)
+          if (event.type === 'collector.error') {
+            await recordFault(event.payload.message, event.payload.detail)
+          } else {
+            await ctx.recorder.record(event)
+          }
         }
         return reply.code(400).send({ error: 'malformed OTLP metrics export request' })
       }
@@ -92,13 +115,7 @@ export function registerOtelRoutes(
     const handleLogs = async (request: FastifyRequest, reply: FastifyReply) => {
       const result = validateLogsExport(request.body)
       if (result.malformed) {
-        await ctx.recorder.record(
-          createEvent(
-            'collector.error',
-            { collector: 'otel', message: 'malformed OTLP logs export request', detail: result.detail },
-            { id: nextId(), ts: now() },
-          ),
-        )
+        await recordFault('malformed OTLP logs export request', result.detail)
         return reply.code(400).send({ error: 'malformed OTLP logs export request' })
       }
 
@@ -122,7 +139,11 @@ export function registerOtelRoutes(
       })
       if (result.malformed) {
         for (const event of result.events) {
-          await ctx.recorder.record(event)
+          if (event.type === 'collector.error') {
+            await recordFault(event.payload.message, event.payload.detail)
+          } else {
+            await ctx.recorder.record(event)
+          }
         }
         return reply.code(400).send({ error: 'malformed OTLP traces export request' })
       }
@@ -172,13 +193,7 @@ export function registerOtelRoutes(
         case 'traces':
           return handleTraces(request, reply)
         case 'unrecognized': {
-          await ctx.recorder.record(
-            createEvent(
-              'collector.error',
-              { collector: 'otel', message: 'unrecognized OTLP body at the bare endpoint', detail: shape.detail },
-              { id: nextId(), ts: now() },
-            ),
-          )
+          await recordFault('unrecognized OTLP body at the bare endpoint', shape.detail)
           return reply.code(400).send({ error: shape.detail })
         }
       }
@@ -187,7 +202,7 @@ export function registerOtelRoutes(
 }
 
 export interface OtelRouteOptions {
-  /** Injectable clock, so the refusal throttle is testable without fake timers. */
+  /** Injectable clock, so the fault throttles are testable without fake timers. */
   now?: () => number
 }
 
@@ -195,11 +210,13 @@ export interface OtelRouteOptions {
 export const INSTANCE_ATTRIBUTE = 'instance'
 
 /**
- * How long one offender's refusals collapse into a single recorded event. A
- * misconfigured exporter posts every few seconds and will keep doing so until a
- * human fixes it; that is one standing fault, not hundreds of events.
+ * How long one fault collapses into a single recorded event — a repeated
+ * refusal from the same offender, or a repeated `collector.error` for the
+ * same route-level fault. A misconfigured exporter posts every few seconds
+ * and will keep doing so until a human fixes it; that is one standing fault,
+ * not hundreds of events.
  */
-export const REFUSAL_THROTTLE_MS = 60_000
+export const FAULT_THROTTLE_MS = 60_000
 
 /** `foreignInstance`'s "this post is ours" answer — distinct from a declared `null`. */
 const ACCEPTED = Symbol('accepted')
@@ -320,38 +337,41 @@ function refusalMessage(declared: string | null, expected: string): string {
   return `refused: this Rhizomorph is instance ${expected}, and this export ${who} — one repo, one Rhizomorph. Re-generate the lane's env with \`rhizomorph env <lane> --port <port>\` against the server you meant to export to.`
 }
 
-interface RefusalThrottle {
+interface FaultThrottle {
   /**
-   * Registers one refusal. Returns the count to record — every refusal from
-   * this offender since the last recorded one, this one included — or `null`
-   * when this offender already had an event within the window.
+   * Registers one occurrence. Returns the count to record — every occurrence
+   * of this key since the last recorded one, this one included — or `null`
+   * when this key already had an event within the window.
    */
-  register(instance: string | null): number | null
+  register(key: string | null): number | null
 }
 
 /**
- * One entry per distinct offender (a fleet has as many offenders as it has
- * misconfigured instances, so this stays small), keyed by declared id with `''`
- * standing for "declared none" — safe, because a real instance id is a
- * non-empty string.
+ * Generic over its key: `telemetry.refused` keys on the declared instance id
+ * (a `null` faulter's key is `''`, safe because a real instance id is a
+ * non-empty string), and `collector.error`'s route-level faults key on the
+ * recorded `message` string instead — the fault, not the faulter, since a
+ * malformed body declares no instance and every request here is 127.0.0.1
+ * anyway (ADR-0008). Each caller gets its own instance, so the two key
+ * spaces never merge into one map.
  */
-function createRefusalThrottle(now: () => number): RefusalThrottle {
+function createFaultThrottle(now: () => number): FaultThrottle {
   const offenders = new Map<string, { lastRecordedAt: number; suppressed: number }>()
 
   return {
-    register(instance) {
-      const key = instance ?? ''
+    register(key) {
+      const mapKey = key ?? ''
       const at = now()
-      const entry = offenders.get(key)
+      const entry = offenders.get(mapKey)
       if (entry === undefined) {
-        offenders.set(key, { lastRecordedAt: at, suppressed: 0 })
+        offenders.set(mapKey, { lastRecordedAt: at, suppressed: 0 })
         return 1
       }
-      if (at - entry.lastRecordedAt < REFUSAL_THROTTLE_MS) {
+      if (at - entry.lastRecordedAt < FAULT_THROTTLE_MS) {
         entry.suppressed += 1
         return null
       }
-      offenders.set(key, { lastRecordedAt: at, suppressed: 0 })
+      offenders.set(mapKey, { lastRecordedAt: at, suppressed: 0 })
       return entry.suppressed + 1
     },
   }
