@@ -1,4 +1,5 @@
-import { selectSessionSpend, type SessionState } from '@rhizomorph/core'
+import { selectSessionSpend } from '../selectors/index.js'
+import type { SessionState } from '../state.js'
 import type { LaneManifest } from './fences.js'
 import type { Gap, Lane } from './types.js'
 

@@ -1,6 +1,5 @@
-import { createEventFactory, reduceAll, type SessionState } from '@rhizomorph/core'
+import { buildFleet, createEventFactory, reduceAll, type SessionState } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
-import { buildFleet } from '../../fleet/buildFleet.js'
 import {
   buildFeedEntries,
   buildLaneIndex,

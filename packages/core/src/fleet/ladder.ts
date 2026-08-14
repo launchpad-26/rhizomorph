@@ -1,4 +1,5 @@
-import { compareStrings, type CollisionEntry, type SessionState } from '@rhizomorph/core'
+import { compareStrings, type CollisionEntry } from '../selectors/index.js'
+import type { SessionState } from '../state.js'
 import { rankIndex, type LadderRank } from './pathology.js'
 import type { AttentionItem, CalmEvidence, Ladder, Lane } from './types.js'
 

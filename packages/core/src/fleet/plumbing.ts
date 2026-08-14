@@ -1,17 +1,13 @@
 import {
   compareStrings,
   selectWaitingOnHuman,
-  type AgentRole,
-  type AgentStatus,
-  type AgentThread,
   type LaneSpend,
   type LaneSubagentActivity,
-  type SessionState,
-  type SpanDecision,
-  type TelemetryOrigin,
   type TokenTotals,
   type WaitingOnHumanSummary,
-} from '@rhizomorph/core'
+} from '../selectors/index.js'
+import type { AgentRole, AgentStatus, AgentThread, SpanDecision, TelemetryOrigin } from '../events/index.js'
+import type { SessionState } from '../state.js'
 import { IDLE_AFTER_MS } from './constants.js'
 import type { LaneManifest } from './fences.js'
 import { rankIndex } from './pathology.js'

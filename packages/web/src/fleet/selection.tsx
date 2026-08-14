@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { Fleet } from './buildFleet.js'
+import type { Fleet } from '@rhizomorph/core'
 
 /**
  * The one lane selection, shared by every surface that can point at a lane: the

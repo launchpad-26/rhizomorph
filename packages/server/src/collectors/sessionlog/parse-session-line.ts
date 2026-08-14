@@ -1,7 +1,9 @@
 /**
- * Pure parsing of one raw line from a Claude Code session JSONL file. Real
- * shapes captured on this machine (see `research/2026-07-30-telemetry-capture-routes.md`
- * §S2 and the fixtures alongside this collector):
+ * Claude's implementation of `TurnGrammar`'s (`turn-grammar.ts`) `extractFacts`
+ * half — the claude dialect's usage/model/tool extraction (prd26 ruling 5 /
+ * ADR-0017). Real shapes captured on this machine (see
+ * `research/2026-07-30-telemetry-capture-routes.md` §S2 and the fixtures
+ * alongside this collector):
  *
  * - Every line is one JSON object; only `type: "assistant"` lines carry
  *   token usage or tool calls — everything else (`user`, `system`,
@@ -11,55 +13,22 @@
  *   one of those lines repeats the *same* `message.usage` and `requestId`.
  *   Counting tokens per line would overcount; the collector dedupes on
  *   `requestId` and this module just reports it per line so that's possible.
+ *
+ * `parseAssistantLine` is wired into `CLAUDE_JSONL_GRAMMAR`
+ * (`turn-grammar-claude.ts`) as its `extractFacts`, and kept as a standalone
+ * export here too — `collector.ts` calls it directly today, unchanged by
+ * this split.
  */
 
-/**
- * One `tool_use` content block's facts. `filePath` is populated straight from
- * the block's own `input.file_path` — present on Edit/Write/Read and kin,
- * absent on Bash and everything else that isn't a file tool. Never inferred,
- * never guessed: a tool that didn't report `input.file_path` gets `null`.
- */
-export interface ToolUseFacts {
-  tool: string
-  /** The block's own `tool_use` id, when present — the join key to `trace.span.toolUseId`. */
-  toolUseId: string | null
-  filePath: string | null
-}
+import type { AssistantLineFacts, ToolUseFacts } from './turn-grammar.js'
 
-export interface AssistantLineFacts {
-  sessionId: string | null
-  cwd: string | null
-  gitBranch: string | null
-  requestId: string | null
-  model: string
-  tokens: {
-    input: number
-    output: number
-    cacheRead: number
-    cacheCreation: number
-  }
-  /** Every `tool_use` content block on this line, in order. */
-  toolUses: ToolUseFacts[]
-  /**
-   * Epoch millis parsed from the line's own `timestamp` (when the agent
-   * actually said this), or null when absent/unparsable — the caller falls
-   * back to tick time rather than guessing.
-   */
-  timestamp: number | null
-  /**
-   * The line's own `isSidechain` marker: true when this turn ran on a
-   * Task/subagent thread rather than the session's main conversation. Absent
-   * or non-boolean is treated as `false`, same as every real capture seen so
-   * far (`fixtures/conductor-root.jsonl:1` et al., always an explicit boolean).
-   */
-  isSidechain: boolean
-}
+export type { AssistantLineFacts, ToolUseFacts }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
+export function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null
 }
 
-function asString(value: unknown): string | null {
+export function asString(value: unknown): string | null {
   return typeof value === 'string' ? value : null
 }
 
@@ -67,7 +36,7 @@ function asCount(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0
 }
 
-function asTimestamp(value: unknown): number | null {
+export function asTimestamp(value: unknown): number | null {
   if (typeof value !== 'string') return null
   const parsed = Date.parse(value)
   return Number.isFinite(parsed) ? parsed : null

@@ -1,4 +1,5 @@
 import type { Collector, CollectorState } from '@rhizomorph/core'
+import type { GitSnapshot } from './git/types.js'
 import type { DisableableSnapshot, ResilientSnapshot } from './resilience.js'
 
 /**
@@ -85,11 +86,6 @@ export function withResumeReconciliation<S extends DisableableSnapshot>(
   }
 }
 
-/** A collector snapshot shaped enough to reconcile branch ghosts against. */
-export interface BranchBearingSnapshot {
-  branches: Record<string, unknown>
-}
-
 /**
  * Extends the #111 resume-reconciliation pattern above from collector
  * *health* to a collector's own diffed *content* — see #139.
@@ -154,11 +150,62 @@ export interface BranchBearingSnapshot {
  * leaving any real removal unreconciled for the rest of the process. So this
  * wrapper bails without latching whenever the poll it just ran didn't
  * actually observe branches (#449).
+ *
+ * The signature below takes `GitSnapshot` concretely rather than a generic
+ * `S extends BranchBearingSnapshot` (#454). The identity gate above is an
+ * inferred contract — "not observed" is read off an allocation side effect,
+ * not stated by the collector — and that inference is only as good as the
+ * one collector it has actually been checked against: every reachable
+ * `gitCollector` poll either allocates a fresh `branches` object or hits one
+ * of the two known non-observation paths above, both of which emit
+ * `collector.disabled` or `collector.error` (#449 re-verify, step 2's
+ * exhaustive enumeration: unborn HEAD, detached HEAD, four-tick steady
+ * state, both carry-forward failures, and the sticky-disabled latch, which
+ * is unreachable on the wired path).
+ *
+ * That "unreachable" claim rests on a second inferred contract one layer
+ * out, in `withResilience` rather than this wrapper: the sticky-disabled
+ * latch above only stays unreachable because `withResilience` hands every
+ * attempt `{ ...prevInner, disabled: false }` (`resilience.ts:118`), and
+ * that spread is shallow — `branches` keeps its original reference, so the
+ * identity gate here still reads "not observed" correctly on that path too.
+ * A deep-clone of `prevInner` there would silently break this gate with no
+ * type error and no failing test on either side, since neither file's
+ * signature says anything about how nested fields are copied.
+ *
+ * Before #454 the wrapper was generic, so
+ * nothing stopped some unrelated future collector from being handed to it
+ * with that contract never checked at all — silently disabling
+ * reconciliation for the life of the process, no event, no log line, green
+ * suite. Naming `GitSnapshot` here makes that contract visible to the
+ * compiler: only a collector whose snapshot is (structurally) a
+ * `GitSnapshot` may be wrapped, so reusing this for anything else is a type
+ * error, not a silent gap.
+ *
+ * That narrowing cannot check `gitCollector`'s own *behaviour*, though — a
+ * future edit to `git-collector.ts` could still add a "nothing changed →
+ * return `prevSnapshot`" fast path (the same shape its own sticky-disabled
+ * latch already has one screen up) without changing any type. The `poll`
+ * body below closes that residual gap at runtime: if identity says "not
+ * observed" and neither known failure event is present, that is an
+ * unexplained contract violation, and it is reported as a loud
+ * `collector.error` rather than passed through silently.
+ *
+ * Gate asymmetry, for whoever next reads this next to
+ * `withAgentReconciliation` and is tempted to unify the two: this wrapper
+ * gates on allocation identity because `gitCollector` allocates fresh
+ * `branches` on every poll that isn't a known failure (verified above).
+ * `withAgentReconciliation` below gates on the `collector.disabled` event
+ * instead, because workmux's missing-binary path returns a *fresh* empty
+ * `agents: {}` — identity there would misread "observed an empty roster" as
+ * legitimate and retire every folded agent. Do not port either gate to the
+ * other collector without re-verifying its allocation behaviour from
+ * scratch; they are correct only because they are different.
  */
-export function withBranchReconciliation<S extends BranchBearingSnapshot>(
-  collector: Collector<S>,
+export function withBranchReconciliation(
+  collector: Collector<GitSnapshot>,
   foldedBranches: ReadonlySet<string> | undefined,
-): Collector<S> {
+): Collector<GitSnapshot> {
   let reconciled = false
 
   return {
@@ -170,7 +217,33 @@ export function withBranchReconciliation<S extends BranchBearingSnapshot>(
       if (reconciled) return result
 
       const observedBranches = result.nextSnapshot.branches !== prevSnapshot.branches
-      if (!observedBranches) return result
+      if (!observedBranches) {
+        const explainedByKnownFailure = result.events.some(
+          (event) => event.type === 'collector.disabled' || event.type === 'collector.error',
+        )
+        if (explainedByKnownFailure) return result
+
+        // #454: identity says nothing was observed, but neither known
+        // non-observation path (a failed `git worktree list`, a failed
+        // `git for-each-ref`) explains it — gitCollector's own allocation
+        // contract, which the identity gate above depends on, has been
+        // silently broken. Say so loudly instead of disabling reconciliation
+        // for the rest of the process with nothing to show for it.
+        return {
+          nextSnapshot: result.nextSnapshot,
+          events: [
+            ...result.events,
+            context.emit('collector.error', {
+              collector: collector.name,
+              message:
+                `${collector.name} returned branches unchanged from the previous snapshot without emitting ` +
+                `collector.disabled or collector.error — withBranchReconciliation's identity gate (#454) can ` +
+                `only tell "not observed" from "observed, nothing changed" because this collector is verified ` +
+                `to always allocate fresh branches otherwise; that contract just broke`,
+            }),
+          ],
+        }
+      }
 
       reconciled = true
 
@@ -235,8 +308,19 @@ export interface AgentBearingSnapshot {
  * here. A poll that emits `collector.disabled` did not observe reality: the
  * raw collector either couldn't run at all, or carried the previous snapshot
  * forward unchanged (workmux's own ruling 3 direction 1) — which, on a
- * resume with a missing snapshot, is empty. Comparing that against the fold
- * would read "nothing observed yet" as "everyone left" and mass-retire the
+ * resume with a missing snapshot, is empty.
+ *
+ * Gate asymmetry, deliberate (#454, see `withBranchReconciliation` above for
+ * the full argument): this wrapper gates on the `collector.disabled` event
+ * rather than `agents` reference identity because workmux's missing-binary
+ * path returns a *fresh* empty `agents: {}` — identity would misread that as
+ * "observed an empty roster" and retire everyone folded. Do not port
+ * `withBranchReconciliation`'s identity gate here without re-verifying
+ * workmux's allocation behaviour from scratch; the two wrappers use
+ * different gates on purpose.
+ *
+ * Comparing that against the fold would read "nothing observed yet" as
+ * "everyone left" and mass-retire the
  * whole roster on a transient blip, and the one-shot latch would be spent for
  * nothing, leaving any real departure unreconciled for the rest of the
  * process. So this wrapper bails without latching whenever the poll failed.
