@@ -238,37 +238,74 @@ span" cases the same function already handles gracefully — missing
 `traceId`/`spanId`/`name`, or an unparseable timestamp — which return a
 `collector.error` for that span alone and let the rest of the body through).
 
-This is a real receiver-side defect, first exposed by codex's real bytes —
+This was a real receiver-side defect, first exposed by codex's real bytes —
 claude's own captured fixtures apparently never exercise a root span this way
-(claude's own capture note never records one). **`packages/server/src/collectors/otel/parse-traces.ts`
-is out of this issue's fence** (recorded as a fence widening candidate, not
-taken, per ruling 1/ADR-0018's "record a fence widening on this issue BEFORE
-the change" — this issue does not make that change). Filed as **#510**.
+(claude's own capture note never records one). Filed as **#510**.
 
-Correction from review: in production this does not crash silently — `api/otel.ts`
+Correction from review: in production this did not crash silently — `api/otel.ts`
 registers a route-level error handler (`api/otel.ts:38-47`) that catches the
 thrown error, answers the POST **`400`**, and records one `collector.error`
-event naming the malformed body. So the honest framing is: **the whole
+event naming the malformed body. So the honest framing was: **the whole
 export's batch is refused and recorded as an error, not just the one
 offending span** — a real, if coarse, failure mode, not a silent one.
 
+**#510 is now fixed.** `anyValueToString` (`../otel/types.ts`) treats an empty
+`stringValue` as absent rather than passing it through unchanged, which fixes
+this case and its eleven siblings (every other `attrString(...)`-derived field
+feeding a `nonEmptyString.nullable()` schema — `parse-traces.ts`'s `sessionId`,
+`model`, `requestId`, `agentId`, `parentAgentId`, `toolName`, `toolUseId`,
+`subagentType`, and `parse-metrics.ts`'s `sessionId` ×3); `parse-traces.ts`'s
+`buildSpanEvent` separately reads `span.parentSpanId || null` instead of `??
+null`, since that field comes straight off the span body rather than through
+`attrString`. The per-span loop in `parseTracesExport` is also now wrapped in
+a `try`/`catch` so an unforeseen future throw degrades to a single
+`collector.error` rather than losing the rest of the request's spans, matching
+the graceful-degradation pattern the missing-identity and unparseable-timestamp
+cases already had.
+
 The three affected real spans were excluded from the committed
-`codex-cli-0.146.0-otlp-traces-turn.json` so this organ's conformance suite
-proves what `CODEX_CAPABILITIES` claims (`activity: provided`) rather than
-tripping this unrelated defect on every run — but the exclusion is **pinned**,
-not silent: the same three real spans (a fresh equivalent capture — same
-recipe, same real shapes, not byte-identical to the excluded ones, per this
-file's own "Re-deriving" note) are committed separately as
-`codex-cli-0.146.0-otlp-traces-root-spans-parentspanid-empty.json`, and
-`conformance/codex.test.ts` asserts `parseTracesExport` throws on that fixture
-by name, citing #510. That test is what #510's own fix will need to update
-(from `.toThrow()` to a passing parse) — it is the fence #510 inherits, not
-just a comment. To reproduce by hand: re-add any span with
-`"parentSpanId": ""` to `codex-cli-0.146.0-otlp-traces-turn.json` and run
-`conformance/codex.test.ts` — the same `ZodError` reappears. Likely fix:
-treat `""` the same as `null`/`undefined` in `buildSpanEvent`, or make the
-per-span loop resilient to one span's `createEvent` throwing, matching its
-neighbors' graceful-degradation pattern.
+`codex-cli-0.146.0-otlp-traces-turn.json` while this defect stood, so this
+organ's conformance suite could prove what `CODEX_CAPABILITIES` claims
+(`activity: provided`) rather than tripping this defect on every run — but the
+exclusion was **pinned**, not silent: the same three real spans (a fresh
+equivalent capture — same recipe, same real shapes, not byte-identical to the
+excluded ones, per this file's own "Re-deriving" note) were committed
+separately as `codex-cli-0.146.0-otlp-traces-root-spans-parentspanid-empty.json`,
+and `conformance/codex.test.ts` asserted `parseTracesExport` threw on that
+fixture by name, citing #510.
+
+Now that #510 is fixed, that pin is flipped: the same test asserts the fixture
+parses cleanly into three `trace.span` events, each with `parentSpanId: null`.
+The crash fixture's three spans have also been merged into
+`codex-cli-0.146.0-otlp-traces-turn.json` (as an added `scopeSpans` entry
+under the same resource, matching their real captured scope name
+`codex_otel::trace_context` rather than folding them into the existing
+`codex_exec`-scoped spans array), bringing the main fixture to 59 real spans,
+not 56.
+
+**Correction, provenance:** those 59 are not a reconstruction of the exact
+spans originally excluded from this fixture — the three merged in are
+byte-identical to the dedicated crash fixture's, i.e. from the *separate,
+later* root-spans capture (their traceIds appear nowhere else in the file, and
+their `startTimeUnixNano` sits ~62 minutes after the other 56 spans). The
+originally-excluded spans were never separately preserved, so there was
+nothing else to restore. What *is* true: both captures share identical
+resource attributes (`lane`/`role`/`env`/`instance`), so lane/role attribution
+in the merged fixture is unaffected either way, and every span kept is
+byte-real from one of the two real captures — the fixture is still honest as
+a capture, just not the specific one it might read as at a glance. 59 real
+spans, three of which are from the later root-span capture, is the accurate
+claim; "restored to its original 59" was not.
+
+The crash fixture itself was **kept**, not folded away, as a dedicated
+regression pin: it is real captured bytes proving the shape exists in the
+wild, and keeping it separate means a future regression in this area fails on
+a small, targeted fixture instead of only showing up as a subtle count change
+in the 59-span main one. (Its own conformance case pins the failure shape
+directly; it does not pin the main fixture's 59-span/3-root count — removing
+the merged spans from the main fixture again would leave that case green.
+Judged non-blocking: cheap to add, but the crash fixture already proves the
+shape that matters.)
 
 ## What the rollout format could support, and why no `TurnGrammar` is registered
 
@@ -357,26 +394,31 @@ recipe is restated below so it's re-derivable):
   correlation ids, not identifying on their own, same treatment as claude's
   `requestId`/`tool_use_id` in `../../sessionlog/fixtures/CAPTURE.md`.
 - The OTLP trace and metrics fixtures are **trimmed excerpts** of the real
-  capture (~350 spans down to 59, then down to 56 after excluding the three
-  `parentSpanId: ""` root spans — Finding 7; ~45 metric names down to 5), not
-  the full raw export — every span/metric kept is byte-real, only the *count*
-  was reduced, documented here rather than silently shipped as if it were the
-  whole body. The kept metric names:
-  `codex.turn.token_usage`, `codex.turn.e2e_duration_ms`,
-  `codex.turn.ttft.duration_ms`, `codex.conversation.turn.count`,
-  `codex.process.start`. The three excluded root spans are not discarded —
-  they are pinned separately, real and unmodified, in
-  `codex-cli-0.146.0-otlp-traces-root-spans-parentspanid-empty.json`
-  (Finding 7, #510).
+  capture (~350 spans down to 59; ~45 metric names down to 5), not the full
+  raw export — every span/metric kept is byte-real, only the *count* was
+  reduced, documented here rather than silently shipped as if it were the
+  whole body. The kept metric names: `codex.turn.token_usage`,
+  `codex.turn.e2e_duration_ms`, `codex.turn.ttft.duration_ms`,
+  `codex.conversation.turn.count`, `codex.process.start`. (While #510 stood,
+  this fixture was temporarily trimmed to 56 by excluding the three
+  `parentSpanId: ""` root spans — Finding 7 — with an equivalent real capture
+  of those three pinned separately in
+  `codex-cli-0.146.0-otlp-traces-root-spans-parentspanid-empty.json`. Now that
+  #510 is fixed, three spans — byte-identical to that separate pin's, not a
+  reconstruction of the originally-excluded ones, which were never kept — are
+  merged back in, bringing the fixture to 59 spans again; the separate pin
+  survives as a dedicated regression fixture rather than being folded away —
+  see Finding 7 for the full provenance correction.)
 - **The trimmed trace fixture is a dangling forest, disclosed rather than
-  hidden**: of the 56 kept spans, 51 name a `parentSpanId` that does not
-  appear as any other kept span's `spanId` — i.e. most parents were trimmed
-  away along with everything else outside the `keep_names`/`max_other`
-  budget, not just the three root spans. Harmless to `parseTracesExport`
-  (which emits one flat `trace.span` event per span, no tree-building), but a
-  future test that folds spans into a call tree would be asserting against a
-  shape codex's binary never actually sent — worth knowing before writing
-  one, not a defect in this fixture's current use.
+  hidden**: of the 59 kept spans, 3 are real roots (`parentSpanId: ""`) and
+  51 more name a `parentSpanId` that does not appear as any other kept span's
+  `spanId` — i.e. most parents were trimmed away along with everything else
+  outside the `keep_names`/`max_other` budget, not just the three root spans.
+  Harmless to `parseTracesExport` (which emits one flat `trace.span` event per
+  span, no tree-building), but a future test that folds spans into a call
+  tree would be asserting against a shape codex's binary never actually sent
+  — worth knowing before writing one, not a defect in this fixture's current
+  use.
 
 ## Re-deriving
 

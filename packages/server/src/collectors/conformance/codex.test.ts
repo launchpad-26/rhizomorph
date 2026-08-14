@@ -29,11 +29,13 @@ function makeEmitter(events: RhizomorphEvent[]): OtelEmitter {
 type OtlpFixtureKind = 'traces' | 'metrics' | 'logs'
 
 /**
- * `codex-cli-0.146.0-otlp-traces-root-spans-parentspanid-empty.json` is
- * deliberately excluded from normal routing — feeding it through
- * `parseTracesExport` is the point of `it('crashes...')` below, not something
- * `observeCodex()`'s per-fixture loop should ever do (it would crash the
- * whole suite's evidence gathering, not just prove the one thing it's for).
+ * `codex-cli-0.146.0-otlp-traces-root-spans-parentspanid-empty.json` is kept
+ * excluded from normal routing even after #510's fix — not because it still
+ * crashes (it no longer does), but because it is a dedicated regression pin
+ * for that fix, and equivalent real root spans are now also merged into the
+ * main turn fixture. Routing it through `observeCodex()`'s shared evidence
+ * loop too would just double-count the same three real spans, not prove
+ * anything new.
  */
 const CRASH_FIXTURE = 'codex-cli-0.146.0-otlp-traces-root-spans-parentspanid-empty.json'
 
@@ -131,19 +133,28 @@ describe('conformance suite: codex — the check bites (mutation, executed)', ()
     expect(errorRecord?.['event.name']).toBe('codex.sse_event')
   })
 
-  it('a real codex root span (parentSpanId: "") crashes the unmodified trace parser — #510, reported not fixed here', async () => {
+  it('a real codex root span (parentSpanId: "") now parses as a parentless span, not a crash — #510 fixed', async () => {
     const body: unknown = JSON.parse(await readFile(path.join(fixturesDir, CRASH_FIXTURE), 'utf8'))
     const events: RhizomorphEvent[] = []
     const emitter = makeEmitter(events)
 
-    // #510: `buildSpanEvent`'s `span.parentSpanId ?? null` does not treat an
-    // empty string as absent, and the core schema's `parentSpanId` is
-    // `nonEmptyString.nullable()` — so `createEvent` throws, uncaught, and
-    // one bad span crashes the whole request's parse rather than degrading
-    // gracefully the way a missing traceId/spanId/name already does. This
-    // fixture pins that fact so it can't silently stop being true once #510
-    // is fixed (this test would then need to assert the opposite).
-    expect(() => parseTracesExport(body, emitter)).toThrow(/parentSpanId/)
+    // #510: `anyValueToString` now treats an empty stringValue as absent, and
+    // `buildSpanEvent`'s parentSpanId read uses `||` instead of `??` — so an
+    // empty-string parentSpanId on a real root span degrades to `parentSpanId:
+    // null` (no parent) instead of throwing a ZodError. Kept as its own
+    // fixture — a dedicated regression pin of three real captured root spans,
+    // proving the shape stays fixed — even though equivalent real spans are
+    // now also merged into the main turn fixture below.
+    expect(() => parseTracesExport(body, emitter)).not.toThrow()
+    const result = parseTracesExport(body, emitter)
+    expect(result.malformed).toBe(false)
+    expect(result.events).toHaveLength(3)
+    for (const event of result.events) {
+      expect(event.type).toBe('trace.span')
+      expect(event.payload).toMatchObject({ parentSpanId: null })
+    }
+    const names = result.events.map((e) => (e.payload as { name: string }).name).sort()
+    expect(names).toEqual(['auth', 'auth', 'session_loop'])
   })
 
   it('rollout raw shapes are asserted directly — no collector needed to prove what the capture actually contains', async () => {
