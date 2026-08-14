@@ -1,6 +1,6 @@
 [
-  { "worktree": "2-core", "branch": "2-core", "status": "working", "elapsed_secs": 720, "title": "⠂ Implement core event schema and reducer", "workdir": "/repo/../2-core" },
-  { "worktree": "3-git-collector", "branch": "3-git-collector", "status": "waiting", "elapsed_secs": 360, "title": "⠂ Needs input: which diff format for renames?", "workdir": "/repo/../3-git-collector" },
-  { "worktree": "4-tmux-collector", "branch": "4-tmux-collector", "status": "done", "elapsed_secs": 540, "title": "✓ tmux collector complete", "workdir": "/repo/../4-tmux-collector" },
-  { "worktree": "5-workmux-collector", "branch": "5-workmux-collector", "status": "working", "elapsed_secs": 300, "title": "⠐ Implement workmux collector with status parsing", "workdir": "/repo" }
+  { "worktree": "2-core", "branch": "2-core", "status": "working", "elapsed_secs": 720, "title": "⠂ Implement core event schema and reducer", "workdir": "/Users/dev/rhizomorph__worktrees/2-core", "pane_id": "%10", "agent_kind": "claude", "session": "rhizomorph", "window_name": "2-core", "updated_ts": 1786588910 },
+  { "worktree": "3-git-collector", "branch": "3-git-collector", "status": "waiting", "elapsed_secs": 360, "title": "⠂ Needs input: which diff format for renames?", "workdir": "/Users/dev/rhizomorph__worktrees/3-git-collector", "pane_id": "%11", "agent_kind": "claude", "session": "rhizomorph", "window_name": "3-git-collector", "updated_ts": 1786588911 },
+  { "worktree": "4-tmux-collector", "branch": "4-tmux-collector", "status": "done", "elapsed_secs": 540, "title": "✓ tmux collector complete", "workdir": "/Users/dev/rhizomorph__worktrees/4-tmux-collector", "pane_id": "%12", "agent_kind": "claude", "session": "rhizomorph", "window_name": "4-tmux-collector", "updated_ts": 1786588912 },
+  { "worktree": "5-workmux-collector", "branch": "5-workmux-collector", "status": "working", "elapsed_secs": 300, "title": "⠐ Implement workmux collector with status parsing", "workdir": "/Users/dev/rhizomorph", "pane_id": "%13", "agent_kind": "claude", "session": "rhizomorph", "window_name": "rhizomorph", "updated_ts": 1786588913 }
 ]

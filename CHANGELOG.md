@@ -215,6 +215,16 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **A pane parked in a worktree subdirectory on its very first poll now shows
+  the right worktree path (#463).** `worktreePath` resolved only by joining
+  `status`'s `workdir` against `list`'s `path` exactly; a pane whose workdir
+  was already a subdirectory of its worktree (e.g. a pane that `cd`s into
+  `packages/server`) never matched that join, and with no prior poll to carry
+  a good value forward, `worktreePath` stayed `null` for the whole session.
+  When `list` is otherwise healthy but the exact-path join misses,
+  `worktreePath` is now resolved directly via `git rev-parse
+  --show-toplevel`, memoised per workdir so a pane parked in the same
+  subdirectory across polls only pays the extra `exec` once.
 - **`withBranchReconciliation`'s "did this poll observe reality" signal is
   still inferred from allocation identity, but the snapshot shape it can be
   inferred from is now compiler-checked (#454).** The wrapper decided "not
