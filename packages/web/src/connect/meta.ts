@@ -1,14 +1,16 @@
 import { CONNECTION_SOURCES, RUNGS, SIGNALS, type ConnectionSource, type Rung, type Signal } from '@rhizomorph/core'
 
 /**
- * THE TWO GETS THE CONNECT PAGE READS, PARSED DEFENSIVELY (prd19 ruling 5,
- * wave 3, #258).
+ * THE GETS THE CONNECT PAGE READS, PARSED DEFENSIVELY (prd19 ruling 5,
+ * wave 3, #258; a third joined them in prd-20 w7, #520).
  *
  * `/api/meta` (#255) carries the enrichment rung, every collector's declared
  * capabilities with their `reason`/`remedy`, the `selectConnection` facts, the
  * session id and the boot facts. `GET /api/doctor` (#253) carries the
  * filesystem facts state cannot know — the slug dir, version drift, the lane
- * manifest.
+ * manifest. `GET /api/session-preview/:sessionId` (#516) carries one session's
+ * first words, read per enumerated session rather than on the poll — see
+ * {@link fetchSessionPreview}.
  *
  * **Everything here follows `parseBootFacts`' precedent (`app/StatusBar.tsx`):
  * a missing or wrong-typed field reads "unavailable", never half-trusted.**
@@ -378,6 +380,69 @@ async function readJson<T>(url: string, parse: (body: unknown) => T | null, fetc
 
 export function fetchMeta(fetchImpl?: FetchLike): Promise<MetaFacts | null> {
   return readJson(META_URL, parseMeta, fetchImpl)
+}
+
+/**
+ * A SESSION'S FIRST WORDS (#516's route, read by #520's enumeration).
+ *
+ * A list of session ids is not something an operator can choose between — the
+ * ids are opaque, and the one question they are actually asking is "which of
+ * these is the conversation I am in?". The first user message answers it in a
+ * glance, which is the whole reason `GET /api/session-preview/:sessionId`
+ * exists.
+ *
+ * Deliberately NOT part of the page's polling pair. It is read once per
+ * enumerated session when there is an enumeration to read for, so a page with
+ * nothing broken makes no preview request at all.
+ */
+export interface SessionPreview {
+  sessionId: string
+  /**
+   * The first user turn in the head of the transcript, capped by the route.
+   * `null` covers both nothings the route can answer with — a head chunk
+   * holding no user turn, and no transcript to read at all — because the
+   * consumer's move is the same in each: say there is no preview, and never
+   * block on it.
+   */
+  text: string | null
+  /** Characters the route cut from the full first message. `0` when it all fit. */
+  dropped: number
+  /** The route's own account when it has nothing to show — WHAT is missing → WHY → what to do. */
+  reason: string | null
+}
+
+/**
+ * The preview body, or `null` for anything this page cannot read as one —
+ * `readJson`'s own rule, one route further on. The distinction that IS kept is
+ * the route's two answers: a preview it read, and a named absence it can
+ * explain. A body with no `sessionId` is neither, and reads as nothing.
+ */
+export function parseSessionPreview(body: unknown): SessionPreview | null {
+  if (!isRecord(body)) return null
+  const sessionId = str(body.sessionId)
+  if (sessionId === null) return null
+
+  const first = body.firstUserMessage
+  if (body.available === true && isRecord(first)) {
+    const text = str(first.text)
+    // `available: true` with no readable first message is an honest 200 (the
+    // head chunk held no user turn yet) — it falls through to the same
+    // no-preview answer as an unavailable one, carrying whatever reason came
+    // with it rather than inventing text.
+    if (text !== null) return { sessionId, text, dropped: num(first.dropped) ?? 0, reason: null }
+  }
+  return { sessionId, text: null, dropped: 0, reason: str(body.reason) }
+}
+
+/**
+ * The in-directory GET. **`encodeURIComponent` is not decoration**: the id is
+ * interpolated into a path, and the route refuses a traversal-shaped id with a
+ * 400 (`isValidSessionIdParam`) — which lands here as the same `null` every
+ * other unreadable answer does, so a malformed id degrades to "no preview"
+ * rather than to a broken page.
+ */
+export function fetchSessionPreview(sessionId: string, fetchImpl?: FetchLike): Promise<SessionPreview | null> {
+  return readJson(`/api/session-preview/${encodeURIComponent(sessionId)}`, parseSessionPreview, fetchImpl)
 }
 
 /** {@link readJson}'s transport-level `null` is the same fact as a non-array body: nothing usable arrived. */

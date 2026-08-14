@@ -6,9 +6,11 @@ import {
   doctorCheck,
   fetchDoctor,
   fetchMeta,
+  fetchSessionPreview,
   isRenderableTs,
   parseDoctor,
   parseMeta,
+  parseSessionPreview,
   type FetchLike,
 } from './meta.js'
 
@@ -363,5 +365,91 @@ describe('the two reads', () => {
 
   it('has one word for a fact it could not read', () => {
     expect(UNAVAILABLE).toBe('unavailable')
+  })
+})
+
+/**
+ * THE THIRD GET (#516's route, read by #520's enumeration). Same defensive
+ * rule as the other two, with one distinction kept deliberately: the route's
+ * two honest answers — a preview it read, and a named absence it can explain —
+ * are different values, because the panel says something different for each.
+ */
+describe('the session preview', () => {
+  const AVAILABLE = {
+    available: true,
+    sessionId: 'sess-1',
+    place: { worktreePath: '/home/x/repo', branch: 'main' },
+    firstUserMessage: { text: 'dispatch wave 4', dropped: 12, ts: '2026-08-14T00:00:00.000Z' },
+  }
+
+  it('reads the first user message and how much of it the route cut', () => {
+    expect(parseSessionPreview(AVAILABLE)).toEqual({ sessionId: 'sess-1', text: 'dispatch wave 4', dropped: 12, reason: null })
+  })
+
+  /** An honest 200 with nothing to show: the route's own law-12 sentence survives, and no text is invented. */
+  it('keeps the route\'s own reason when there is no preview to give', () => {
+    expect(parseSessionPreview({ available: false, sessionId: 'sess-1', reason: 'NO TRANSCRIPT for session "sess-1" — …' })).toEqual({
+      sessionId: 'sess-1',
+      text: null,
+      dropped: 0,
+      reason: 'NO TRANSCRIPT for session "sess-1" — …',
+    })
+  })
+
+  /**
+   * `available: true` with no readable first message is the head-chunk case —
+   * the transcript is there, the first user turn is not in the part that was
+   * read. It is a no-preview answer, never an empty-string preview.
+   */
+  it('reads an available session with no first user message as no preview, not as empty text', () => {
+    expect(parseSessionPreview({ ...AVAILABLE, firstUserMessage: null })).toEqual({ sessionId: 'sess-1', text: null, dropped: 0, reason: null })
+    expect(parseSessionPreview({ ...AVAILABLE, firstUserMessage: { text: '', dropped: 0 } })?.text).toBeNull()
+  })
+
+  /** A count that is not a count is dropped rather than rendered — the `num` rule, one route further on. */
+  it('refuses a fractional or negative dropped count instead of showing it', () => {
+    expect(parseSessionPreview({ ...AVAILABLE, firstUserMessage: { text: 'hi', dropped: -4 } })?.dropped).toBe(0)
+    expect(parseSessionPreview({ ...AVAILABLE, firstUserMessage: { text: 'hi', dropped: 0.5 } })?.dropped).toBe(0)
+  })
+
+  it('reads a body with no session id in it as nothing at all', () => {
+    expect(parseSessionPreview({ available: true, firstUserMessage: { text: 'hi', dropped: 0 } })).toBeNull()
+    expect(parseSessionPreview('a preview')).toBeNull()
+    expect(parseSessionPreview(null)).toBeNull()
+  })
+
+  it('asks the route for exactly this session, with the id encoded rather than pasted into the path', async () => {
+    const urls: string[] = []
+    const impl: FetchLike = async (input) => {
+      urls.push(input)
+      return { ok: true, json: async () => AVAILABLE }
+    }
+
+    expect((await fetchSessionPreview('sess-1', impl))?.text).toBe('dispatch wave 4')
+    expect(await fetchSessionPreview('../../etc/passwd', impl)).not.toBeNull()
+    expect(urls).toEqual(['/api/session-preview/sess-1', '/api/session-preview/..%2F..%2Fetc%2Fpasswd'])
+  })
+
+  /**
+   * **A FAILED PREVIEW MUST NEVER BLOCK THE ENUMERATION.** Every transport
+   * failure and every unreadable body lands on the same `null` — the panel
+   * renders a no-preview label and the commands beside it are unaffected,
+   * which is the whole reason this read is not part of the page's poll.
+   */
+  it('lands every failure on null, the reading the panel degrades to', async () => {
+    const rejected: FetchLike = async () => {
+      throw new Error('offline')
+    }
+    const refused: FetchLike = async () => ({ ok: false, json: async () => ({ error: 'not a valid identifier' }) })
+    const notJson: FetchLike = async () => ({
+      ok: true,
+      json: async () => {
+        throw new Error('not json')
+      },
+    })
+
+    expect(await fetchSessionPreview('sess-1', rejected)).toBeNull()
+    expect(await fetchSessionPreview('.', refused)).toBeNull()
+    expect(await fetchSessionPreview('sess-1', notJson)).toBeNull()
   })
 })
