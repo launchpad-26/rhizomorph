@@ -1,4 +1,4 @@
-import { createEventFactory, reduceAll } from '@rhizomorph/core'
+import { buildFleet, createEventFactory, reduceAll, type AttentionItem, type Fleet } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -6,7 +6,6 @@ import { StreamProvider } from '../app/StreamContext.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
 import FleetTable from '../panels/fleet/index.js'
 import { FleetProvider } from './FleetContext.js'
-import { buildFleet, type AttentionItem, type Fleet } from './buildFleet.js'
 import {
   isMainSelected,
   MAIN_SELECTION,

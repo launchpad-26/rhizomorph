@@ -1,7 +1,13 @@
-import { createEvent, createIdFactory, type RhizomorphEvent } from '@rhizomorph/core'
+import {
+  createEvent,
+  createIdFactory,
+  fixtureHistory,
+  fleet20Spec,
+  pathologySpec,
+  type RhizomorphEvent,
+} from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { fixtureHistory, fleet20Spec, pathologySpec } from '../fleet/fixtures.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
 import type { FetchLike } from '../replay/api.js'
 import { ModeProvider, useReplay } from './ModeContext.js'

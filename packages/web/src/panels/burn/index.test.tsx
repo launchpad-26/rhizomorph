@@ -1,7 +1,14 @@
 import { cleanup, render, screen } from '@testing-library/react'
-import { createEvent, reduceAll } from '@rhizomorph/core'
+import {
+  buildFleet,
+  createEvent,
+  reduceAll,
+  type Burn,
+  type CalmEvidence,
+  type Fleet,
+  type Ladder,
+} from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildFleet, type Burn, type CalmEvidence, type Fleet, type Ladder } from '../../fleet/buildFleet.js'
 import BurnStrip from './index.js'
 
 const { useFleetMock } = vi.hoisted(() => ({

@@ -12,7 +12,6 @@ import {
   type PollResult,
 } from '@rhizomorph/core'
 import { deriveLaneState, needsProcessProbe, quietMsOf, type LaneStateReading } from './lane-state.js'
-import { parseAssistantLine } from './parse-session-line.js'
 import { parseWorktreePaths } from './parse-worktree-paths.js'
 import { defaultProcessProbe, type ProcessLiveness, type ProcessProbe } from './process-probe.js'
 import { isRotated, readNewLines } from './tail.js'
@@ -468,7 +467,7 @@ async function tailProjectDir(
       const entry = turnGrammar.classify(rawLine)
       if (entry !== null) turnShape = advanceTurnShape(turnShape, entry)
 
-      const facts = parseAssistantLine(rawLine)
+      const facts = turnGrammar.extractFacts(rawLine)
       if (!facts) continue
 
       const lane =
@@ -530,8 +529,8 @@ async function tailProjectDir(
       lastWriteTs,
       identity,
       // The organ needs a lane for every transcript it folded, including one
-      // whose lines never reached `parseAssistantLine` (a turn made entirely
-      // of user entries, or an assistant line with no usage block). Falling
+      // whose lines never reached `turnGrammar.extractFacts` (a turn made
+      // entirely of user entries, or an assistant line with no usage block). Falling
       // back to the watched dir keeps such a transcript's liveness legible
       // instead of silently unattributed; the *events* above keep their own
       // stricter, line-derived attribution untouched.

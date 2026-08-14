@@ -1760,7 +1760,17 @@ describe('runCli rotate subcommand', () => {
     expect(output).toContain('carries no capability token')
     expect(output).toContain('npm run build --workspace packages/web')
     expect(output).toContain('dev:web')
-    expect(output).not.toContain('401')
+    // The refusal names the port four times, and the port came from the OS
+    // (`--port 0`, read back off `server.url`) — so its digits are the
+    // kernel's to choose, and it is free to choose digits that spell the very
+    // status this assertion hunts for. Linux hands out 32768–60999; 158 of
+    // those contain `401`, and under suite load two of them turned up in 48
+    // runs (`40173`, `40161` — #410). Blank the port out first, so what is
+    // asserted is the sentence the CLI wrote rather than the number the
+    // kernel drew. Substring, not `\b401\b`: a bare status can be reported
+    // flush against punctuation, and a word boundary would let `HTTP401`
+    // through.
+    expect(output.replaceAll(String(port), '<port>')).not.toContain('401')
     expect(output).not.toMatch(/^\s*at /m)
     // And it changed nothing on the way to saying so.
     expect(server?.recorder.sessionId).toBe(sessionId)

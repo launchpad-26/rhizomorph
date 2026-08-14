@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { parseLaneManifest, type LaneManifest } from './fences.js'
+import { parseLaneManifest, type LaneManifest } from '@rhizomorph/core'
 
 /**
  * Fetching the lane manifest the conductor wrote at dispatch (ruling 19),

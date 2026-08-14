@@ -7,14 +7,14 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import type { LaneManifest } from '../fleet/fences.js'
 import {
   FIXTURE_TICK_MS,
   SyntheticFleet,
   manifestFor,
   specFor,
   type FixtureId,
-} from '../fleet/fixtures.js'
+  type LaneManifest,
+} from '@rhizomorph/core'
 import type { ConnectionStatus, EventSourceFactory } from '../hooks/useEventStream.js'
 import { useEventStream } from '../hooks/useEventStream.js'
 import { useMode, useReplay } from './ModeContext.js'

@@ -31,6 +31,13 @@ import type { SessionPreview } from './meta.js'
  * === 'live'` (`index.tsx`), which this control now shares rather than
  * contradicts. The provenance bar directly below already names the recording,
  * so nothing goes unsaid by standing down.
+ *
+ * The key-doc line (#411) renders in *both* remaining branches, not just the
+ * live one. `STREAM_SOURCE_KEYS`' keys work regardless of which source is
+ * driving — `useFixtureKeys` never gates on `source` — so an operator sitting
+ * in `pathology` already has a route straight to `fleet20`; the bug was that
+ * the banner branch didn't say so, leaving "return to live" as the only
+ * *offered* way out of a fold where the documentation is needed most.
  */
 export function SampleFleetControl() {
   const { source, setSource, provenance } = useStream()
@@ -52,6 +59,10 @@ export function SampleFleetControl() {
         >
           return to live
         </button>
+        {/* The route onward, not just back: pressing 2 or 3 works from here exactly as it does from live. */}
+        <span data-testid="connect-sample-keys" className="text-[10px] text-ice-400">
+          or press {keyDoc()}
+        </span>
       </div>
     )
   }
