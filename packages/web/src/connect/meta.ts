@@ -34,6 +34,7 @@ export const UNAVAILABLE = 'unavailable'
 
 export const META_URL = '/api/meta'
 export const DOCTOR_URL = '/api/doctor'
+export const REPOS_URL = '/api/concierge/repos'
 
 /** The narrow slice of `fetch` these reads need — the same seam `StatusBar`'s `MetaFetchLike` uses. */
 export type FetchLike = (input: string) => Promise<{ ok: boolean; json: () => Promise<unknown> }>
@@ -448,4 +449,145 @@ export function fetchSessionPreview(sessionId: string, fetchImpl?: FetchLike): P
 /** {@link readJson}'s transport-level `null` is the same fact as a non-array body: nothing usable arrived. */
 export async function fetchDoctor(fetchImpl?: FetchLike): Promise<DoctorReading> {
   return (await readJson(DOCTOR_URL, parseDoctor, fetchImpl)) ?? { kind: 'absent' }
+}
+
+/**
+ * THE REPOS THIS MACHINE ALREADY HAS (prd-20 ruling 5, wave 4, #266) —
+ * `GET /api/concierge/repos`, the read-only half of the fourth hand and a
+ * fourth GET of doctor's own class: no body, no token, no write.
+ *
+ * The route answers with two INDEPENDENT, UNMERGED sources, and its own doc is
+ * explicit that merging them is the picker's call rather than the route's:
+ * `known` reverses every slug under `~/.claude/projects` (the repos the
+ * operator's own Claude already knows), and `scanned` is a shallow, bounded
+ * walk of conventional roots. This parse is where that call gets made, and it
+ * makes it in one direction only — see {@link parseRepos}.
+ */
+export interface RepoCandidate {
+  path: string
+  /**
+   * How this instrument came to know about it. `claude-history` is the
+   * stronger fact — a conversation actually happened there — so it wins a tie,
+   * and the reader is shown which it was rather than a merged list that hides
+   * the difference.
+   */
+  origin: 'claude-history' | 'scan'
+}
+
+/** A slug under `~/.claude/projects` the server could not walk back to a real path — reported, never dropped. */
+export interface UnresolvedRepo {
+  slug: string
+  reason: string
+}
+
+/**
+ * What a read of the repos route can come to — the same three-way shape
+ * {@link DoctorReading} makes, for the same reason: "nothing arrived", "the
+ * route answered that it does not apply here" and "here is the list" send a
+ * reader to three different places.
+ *
+ * `unavailable` is not an error. It is what a REPLAY server answers, on
+ * purpose: discovery would still work there and the route declines to run it
+ * anyway (`api/concierge.ts` argues why), so the reason is a sentence to show,
+ * never a failure to retry.
+ */
+export type ReposReading =
+  | {
+      kind: 'repos'
+      repos: RepoCandidate[]
+      /** Slugs the server could not resolve. Shown, because a missing repo an operator expected is a fact about this list. */
+      unresolved: UnresolvedRepo[]
+      /** The scan hit its visit budget — the list is honest and incomplete, and saying so is the whole point of the flag. */
+      truncated: boolean
+      /** Directories the scan reached and could not read. Distinct from `truncated`; see the route's own type. */
+      unreadable: string[]
+      /** Present when the `~/.claude/projects` half specifically could not be enumerated, with the server's own reason. */
+      historyUnavailable: string | null
+    }
+  | { kind: 'unavailable'; reason: string }
+  | { kind: 'absent' }
+
+function parseKnown(value: unknown): { repos: RepoCandidate[]; unresolved: UnresolvedRepo[]; unavailable: string | null } {
+  if (!isRecord(value)) return { repos: [], unresolved: [], unavailable: null }
+  if (value.available !== true) {
+    return { repos: [], unresolved: [], unavailable: str(value.reason) }
+  }
+  const repos: RepoCandidate[] = []
+  const unresolved: UnresolvedRepo[] = []
+  if (Array.isArray(value.projects)) {
+    for (const entry of value.projects) {
+      if (!isRecord(entry)) continue
+      const target = str(entry.path)
+      if (entry.resolved === true && target !== null) {
+        repos.push({ path: target, origin: 'claude-history' })
+        continue
+      }
+      const slug = str(entry.slug)
+      // An unresolved entry with no slug and no reason says nothing at all —
+      // there is no fact in it to show, so it is dropped rather than rendered
+      // as an empty row implying something was found.
+      if (slug !== null) {
+        unresolved.push({ slug, reason: str(entry.reason) ?? 'the server gave no reason' })
+      }
+    }
+  }
+  return { repos, unresolved, unavailable: null }
+}
+
+function parseScanned(value: unknown): { repos: RepoCandidate[]; truncated: boolean; unreadable: string[] } {
+  if (!isRecord(value)) return { repos: [], truncated: false, unreadable: [] }
+  const repos: RepoCandidate[] = []
+  if (Array.isArray(value.repos)) {
+    for (const entry of value.repos) {
+      if (!isRecord(entry)) continue
+      const target = str(entry.path)
+      if (target !== null) repos.push({ path: target, origin: 'scan' })
+    }
+  }
+  return { repos, truncated: value.truncated === true, unreadable: strings(value.unreadable) }
+}
+
+/**
+ * The repos body, parsed, with the route's two lists merged BY PATH — the one
+ * decision the route deliberately left to its caller.
+ *
+ * The merge is deduplication and nothing more: a repo Claude already knows can
+ * also sit under a common root and would otherwise appear twice in a picker,
+ * which reads as two different repos with the same name. Where the two sources
+ * name the same path, `claude-history` wins, because "a conversation happened
+ * here" is a stronger and more useful fact about a repo than "a directory walk
+ * found a `.git` in it" — and neither the count nor the ORDER of the underlying
+ * lists is otherwise disturbed: history first, then whatever the scan turned up
+ * that history did not already name.
+ *
+ * `truncated`, `unreadable` and an unenumerable history are all carried rather
+ * than swallowed. A picker that showed a short list with no note is a picker
+ * that says "these are your repos" when it means "these are some of them".
+ */
+export function parseRepos(body: unknown): ReposReading | null {
+  if (!isRecord(body)) return null
+  if (body.available !== true) {
+    const reason = str(body.reason)
+    return reason === null ? null : { kind: 'unavailable', reason }
+  }
+
+  const known = parseKnown(body.known)
+  const scanned = parseScanned(body.scanned)
+
+  const seen = new Set(known.repos.map((repo) => repo.path))
+  const repos = [...known.repos, ...scanned.repos.filter((repo) => !seen.has(repo.path))]
+
+  return {
+    kind: 'repos',
+    repos,
+    unresolved: known.unresolved,
+    truncated: scanned.truncated,
+    unreadable: scanned.unreadable,
+    historyUnavailable: known.unavailable,
+  }
+}
+
+/** {@link readJson}'s transport-level `null` is the same fact as an unreadable body: nothing usable arrived. */
+export async function fetchRepos(fetchImpl?: FetchLike): Promise<ReposReading> {
+  return (await readJson(REPOS_URL, parseRepos, fetchImpl)) ?? { kind: 'absent' }
 }

@@ -17,9 +17,12 @@ import { requestInstrument, type InstrumentFetchLike, type InstrumentOutcome, ty
  * **One confirmation, and it is the whole gate** (prd-14 ruling 4). This
  * spawns a real process that spends real money, so the first click only arms
  * the act: it shows what is about to happen and what it costs, and the button
- * on THAT panel is the single call site the law pins. There is no second
+ * on THAT panel is the call site the law pins for this file. There is no second
  * dialog after it, and — the part the law actually proves — there is no timer
  * and no effect in this directory that could reach the act without a human.
+ * `../connect/wizard.tsx` is the relaunch's other caller since #266 and holds
+ * the same bar; the law pins the caller SET and both arming shapes, so neither
+ * file's claim rests on this paragraph.
  *
  * **What it says afterwards is the honest account, not the happy one**
  * (ruling 6, ADR-0020). Three facts travel with every success and none of
@@ -87,7 +90,11 @@ export function InstrumentButton({
   async function confirmInstrument() {
     setPhase({ status: 'working' })
     try {
-      const outcome = await requestInstrument({ sessionId }, fetchImpl)
+      // Both fields spelled out rather than left to the module's defaults: this
+      // button asks for exactly one thing — claude, resuming this one named
+      // conversation — and #266 gave that request two other shapes it must
+      // never silently drift into.
+      const outcome = await requestInstrument({ harness: 'claude', mode: 'resume', sessionId }, fetchImpl)
       setPhase({ status: 'done', outcome })
       onInstrumented?.(outcome)
     } catch (err) {
@@ -151,12 +158,31 @@ export function InstrumentButton({
         <div data-testid={`${testId}-result`} className="flex flex-col gap-1 rounded border border-ice-700 p-3">
           <p className="text-[12px] text-ice-100">
             {phase.outcome.spawn.launched
-              ? `the conductor was started (pid ${phase.outcome.spawn.pid}) on session ${phase.outcome.sessionId} — the same id, not a new one`
-              : `session ${phase.outcome.sessionId} was prepared, but the process could not be started`}
+              ? `the conductor was started (pid ${phase.outcome.spawn.pid}) on session ${sessionId} — the same id, not a new one`
+              : `session ${sessionId} was prepared, but the process could not be started`}
           </p>
-          <p data-testid={`${testId}-migration`} className="text-[12px] text-ice-300">
-            {MIGRATION_SENTENCE[phase.outcome.migration]}
-          </p>
+          {/* WHERE IT WENT, when the server said (#532). A tmux window is a
+              surface the operator can attach to and type into; a detached
+              process is not, and an interactive harness with no terminal is
+              exactly what #532 found exiting on its own. Saying which is the
+              difference between "go here" and "watch and see". */}
+          {phase.outcome.spawn.launched && (
+            <p data-testid={`${testId}-where`} className="text-[11px] text-ice-300">
+              {phase.outcome.spawn.via === 'tmux'
+                ? `it is running in the tmux window ${phase.outcome.spawn.window} — attach with \`tmux attach -t ${phase.outcome.spawn.window}\` to type in it`
+                : 'it was started detached, with no terminal attached — nothing here can type in it, and an interactive harness with nobody attached may exit on its own (#532). If it does, run the harness yourself in a terminal.'}
+            </p>
+          )}
+          {/* This button only ever asks for a resume, so a `null` migration —
+              the route's "nothing to migrate", true on `launch` and `continue`
+              — is a shape it cannot produce. Rendered as nothing rather than
+              as a fabricated sentence: an answer this component did not ask
+              for is not one it should narrate. */}
+          {phase.outcome.migration !== null && (
+            <p data-testid={`${testId}-migration`} className="text-[12px] text-ice-300">
+              {MIGRATION_SENTENCE[phase.outcome.migration]}
+            </p>
+          )}
           {phase.outcome.spawn.launched === false && (
             <p role="status" data-testid={`${testId}-spawn-error`} className="text-[12px] text-broken">
               {phase.outcome.spawn.message}

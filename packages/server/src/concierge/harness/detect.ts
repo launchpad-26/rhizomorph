@@ -2,6 +2,7 @@ import { access, readFile, readdir, stat } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import path from 'node:path'
 import { matchesAgentCommand, processProbeCapability } from '../../collectors/sessionlog/process-probe.js'
+import { isInside } from '../paths.js'
 import type { DetectOptions, HarnessDetection, HarnessId, HarnessPresence } from './types.js'
 
 /**
@@ -60,13 +61,31 @@ import type { DetectOptions, HarnessDetection, HarnessId, HarnessPresence } from
  * Reading the filesystem also keeps clause 3 (no clock) free: a subprocess
  * would want a timeout, and a timeout is a thing this module may not own.
  *
- * ## Never resolved from the working directory
+ * ## Never resolved from the watched repo
  *
  * Empty and relative `PATH` entries are skipped. POSIX reads an empty entry as
  * the current directory, and this hand's current directory may be the *watched
  * repo* — resolving an executable from there would let a file inside somebody's
  * working tree become the thing the concierge launches. That is a launch-power
  * hole, not a tidiness point.
+ *
+ * **And an ABSOLUTE entry inside the watched repo is the same hole with a
+ * longer name** (ledger #6). The paragraph above used to be the whole of the
+ * rule, and it only ever refused the spellings that *resolve* against the cwd
+ * — so `/home/me/repo/node_modules/.bin` on `PATH`, which is an ordinary entry
+ * an ordinary toolchain puts there, walked straight past a comment claiming a
+ * file in the working tree could never be argv[0]. The check that matches the
+ * claim is a CONTAINMENT check, not a spelling one, so
+ * {@link DetectOptions.watchedRepoPath} is compared with `../paths.js`'s
+ * `isInside` — the same symlink-chasing primitive the clone and migration
+ * fences are judged by (#401), which also means a symlink on `PATH` pointing
+ * into the repo is refused rather than passing on its own spelling.
+ *
+ * The refusal is silent by design: a skipped entry is one this hand did not
+ * search, exactly as an empty one is, and the `absent` evidence counts what it
+ * did search. Reporting a found-then-refused file would be naming a path
+ * inside the operator's repo as a near-miss, which is the opposite of the
+ * point.
  */
 
 /**
@@ -153,6 +172,36 @@ async function isLaunchableFile(candidate: string, platform: NodeJS.Platform): P
 }
 
 /**
+ * Is this absolute `PATH` entry inside the repo this server is watching?
+ *
+ * `isInside` rather than a prefix test, and it is the concierge's own
+ * (`../paths.js` re-exports `paths/containment.ts`) rather than a fourth copy:
+ * #401's lesson is that duplicated containment primitives diverge, and the next
+ * hardening lands in whichever copy the author was looking at. It follows
+ * symlinks on both sides, so a `PATH` entry that merely POINTS into the repo is
+ * refused too — the check the comment above has always claimed and only now
+ * makes.
+ *
+ * A caller with no watched repo refuses nothing: `api/doctor.ts` asking "is
+ * claude installed on this machine" has no repo to fence against, and answering
+ * a narrower question than it asked would be its own kind of lie. `launch.ts`,
+ * the caller that can actually spawn something, always names one.
+ *
+ * A containment check that THROWS (an unreadable ancestor, an `ELOOP` chase) is
+ * read as contained. That is the safe direction: an entry this hand could not
+ * judge is one it declines to launch out of, and the cost is a `PATH` directory
+ * left unsearched rather than a working-tree file becoming argv[0].
+ */
+function insideWatchedRepo(entry: string, watchedRepoPath: string | undefined): boolean {
+  if (watchedRepoPath === undefined || watchedRepoPath.length === 0) return false
+  try {
+    return isInside(watchedRepoPath, entry)
+  } catch {
+    return true
+  }
+}
+
+/**
  * Is there an executable file named `command` on `PATH`?
  *
  * Three outcomes, and the `unknown` one is real rather than defensive: an
@@ -174,15 +223,22 @@ export async function detectOnPath(command: string, options: DetectOptions = {})
 
   const entries = rawPath.split(pathDelimiter(platform))
   const names = executableNames(command, env, platform)
-  // Skipped, not searched — see the module comment: an empty entry means the
-  // working directory, which may be the watched repo.
-  const searchable = entries.filter((entry) => entry.length > 0 && path.isAbsolute(entry))
+  // Skipped, not searched — see the module comment. Three refusals, and they
+  // are one rule: nothing inside the watched repo may become argv[0]. An empty
+  // entry IS the cwd; a relative one resolves against it; and an absolute one
+  // contained by the watched repo is the same file reached by its full name,
+  // which is the spelling the old rule let through (ledger #6).
+  const searchable = entries.filter(
+    (entry) => entry.length > 0 && path.isAbsolute(entry) && !insideWatchedRepo(entry, options.watchedRepoPath),
+  )
 
   if (searchable.length === 0) {
     return {
       state: 'unknown',
       reason: `PATH holds no absolute directory to search, so whether ${command} is installed cannot be read from it`,
-      remedy: 'relative and empty PATH entries are deliberately not searched, because they resolve against the cwd',
+      remedy:
+        'relative and empty PATH entries are deliberately not searched, because they resolve against the cwd; nor ' +
+        'are absolute entries inside the watched repo, because a file in the working tree may never be launched',
     }
   }
 

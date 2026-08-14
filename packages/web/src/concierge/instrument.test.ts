@@ -53,7 +53,8 @@ describe('requestInstrument', () => {
       kind: 'instrumented',
       sessionId: SESSION_ID,
       migration: 'migrated',
-      spawn: { launched: true, pid: 4242 },
+      telemetry: null,
+      spawn: { launched: true, via: 'detached', pid: 4242 },
     })
   })
 
@@ -69,7 +70,8 @@ describe('requestInstrument', () => {
         kind: 'instrumented',
         sessionId: SESSION_ID,
         migration,
-        spawn: { launched: true, pid: 4242 },
+        telemetry: null,
+        spawn: { launched: true, via: 'detached', pid: 4242 },
       })
     },
   )
@@ -89,6 +91,7 @@ describe('requestInstrument', () => {
       kind: 'instrumented',
       sessionId: SESSION_ID,
       migration: 'already-present',
+      telemetry: null,
       spawn: { launched: false, message: 'ENOENT claude' },
     })
   })
@@ -117,6 +120,7 @@ describe('requestInstrument', () => {
       kind: 'instrumented',
       sessionId: SESSION_ID,
       migration: 'migrated',
+      telemetry: null,
       spawn: {
         launched: false,
         message: 'the process started and then exited with code 1 straight away — nothing survived the launch',
@@ -136,7 +140,7 @@ describe('requestInstrument', () => {
       answering({ ...LAUNCHED, via: 'tmux', pid: 9911, window: 'main:3' }),
     )
 
-    expect(outcome).toMatchObject({ spawn: { launched: true, pid: 9911 } })
+    expect(outcome).toMatchObject({ spawn: { launched: true, via: 'tmux', pid: 9911, window: 'main:3' } })
   })
 
   /**
@@ -144,6 +148,187 @@ describe('requestInstrument', () => {
    * copied, so there is nothing to warn about — only a next step to hand over,
    * which is why the instrument's own sentence rides along.
    */
+  /**
+   * #266's widening. Three properties, and the third is the one a route would
+   * otherwise 400 over: `sessionId` belongs to `resume` and to no other mode,
+   * so the key is OMITTED rather than sent as `undefined` or as an empty
+   * string.
+   */
+  describe('the three modes (#266)', () => {
+    it('defaults to a claude resume — the request this module has always sent', async () => {
+      const fetchImpl = vi.fn(answering(LAUNCHED))
+
+      await requestInstrument({ sessionId: SESSION_ID }, fetchImpl)
+
+      expect(fetchImpl.mock.calls[0]?.[1].body).toBe(
+        JSON.stringify({ harness: 'claude', mode: 'resume', sessionId: SESSION_ID }),
+      )
+    })
+
+    it.each(['launch', 'continue'] as const)('sends %s with no session id at all — not undefined, not empty', async (mode) => {
+      const fetchImpl = vi.fn(answering({ ...LAUNCHED, mode, migration: null }))
+
+      await requestInstrument({ harness: 'codex', mode }, fetchImpl)
+
+      const body = fetchImpl.mock.calls[0]?.[1].body as string
+      expect(body).toBe(JSON.stringify({ harness: 'codex', mode }))
+      expect(body).not.toContain('sessionId')
+    })
+
+    it('refuses a resume with no session, before the wire — the page has a bug, not the machine', async () => {
+      const fetchImpl = vi.fn(answering(LAUNCHED))
+
+      await expect(requestInstrument({ mode: 'resume' }, fetchImpl)).rejects.toThrow(
+        'cannot resume without a session id — mode "resume" names one exact prior conversation',
+      )
+      expect(fetchImpl).not.toHaveBeenCalled()
+    })
+
+    it('refuses a launch that names a session, before the wire — the route would 400 over exactly this', async () => {
+      const fetchImpl = vi.fn(answering(LAUNCHED))
+
+      await expect(requestInstrument({ mode: 'launch', sessionId: SESSION_ID }, fetchImpl)).rejects.toThrow(
+        'a session id means mode "resume" — it has no meaning for mode "launch"',
+      )
+      expect(fetchImpl).not.toHaveBeenCalled()
+    })
+
+    it('answers with a null session id on the modes that name none — never an invented one', async () => {
+      const outcome = await requestInstrument(
+        { mode: 'launch' },
+        answering({ ...LAUNCHED, mode: 'launch', migration: null }),
+      )
+
+      expect(outcome).toEqual({
+        kind: 'instrumented',
+        sessionId: null,
+        migration: null,
+        telemetry: null,
+        spawn: { launched: true, via: 'detached', pid: 4242 },
+      })
+    })
+
+    /**
+     * `null` is the route's own "nothing to migrate" (`api/concierge.ts` is
+     * deliberate that it is a value and not an omitted key). An ABSENT key is
+     * something else entirely — a body this module cannot read — and reading
+     * the second as the first would let any malformed answer through.
+     */
+    it('accepts an explicit null migration and still refuses an absent one', async () => {
+      await expect(
+        requestInstrument({ mode: 'launch' }, answering({ kind: 'launched', pid: 1, migration: null })),
+      ).resolves.toMatchObject({ migration: null })
+
+      await expect(requestInstrument({ mode: 'launch' }, answering({ kind: 'launched', pid: 1 }))).rejects.toThrow(
+        'the instrument answered something other than a relaunch result',
+      )
+    })
+  })
+
+  /**
+   * #532's `via`, which the client used to discard. "There is a pid" and
+   * "there is a window you can attach to and type into" are different facts,
+   * and a UI can only send an operator somewhere if this carries the second.
+   */
+  describe('where the process went (#532)', () => {
+    it('reads a tmux launch as one, carrying the window to attach to', async () => {
+      const outcome = await requestInstrument(
+        { sessionId: SESSION_ID },
+        answering({ ...LAUNCHED, via: 'tmux', pid: 9911, window: 'main:3' }),
+      )
+
+      expect(outcome).toMatchObject({ spawn: { launched: true, via: 'tmux', pid: 9911, window: 'main:3' } })
+    })
+
+    it.each([
+      ['a tmux launch with no window named', { via: 'tmux' }],
+      ['a tmux launch with an empty window', { via: 'tmux', window: '' }],
+    ])('falls back to detached for %s — the weaker claim, never the stronger', async (_label, extra) => {
+      const outcome = await requestInstrument({ sessionId: SESSION_ID }, answering({ ...LAUNCHED, ...extra }))
+
+      expect(outcome).toMatchObject({ spawn: { launched: true, via: 'detached', pid: 4242 } })
+    })
+
+    it('reads an unnamed via as detached — a server that says nothing is not a server that says tmux', async () => {
+      const outcome = await requestInstrument({ sessionId: SESSION_ID }, answering(LAUNCHED))
+
+      expect(outcome).toMatchObject({ spawn: { launched: true, via: 'detached' } })
+    })
+  })
+
+  /**
+   * **THE FIELD THIS PARSER USED TO DROP AT THE DESTRUCTURE** (ledger #4).
+   *
+   * `api/concierge.ts` has sent `telemetry` — the launched harness's own
+   * adapter claim about whether telemetry reaches this instrument — on every
+   * answer since #264, and this module read every other key and threw that one
+   * away. The cost was not abstract: with the field invisible, the wizard had
+   * no way to know codex declares telemetry ABSENT, so a codex launch was
+   * offered and reported as instrumenting.
+   *
+   * Three values, and the third is why this is not two booleans: an absent key
+   * (`null` — an older server said nothing) is a different fact from `absent`
+   * (an adapter said no), and a present-but-malformed one refuses the whole
+   * body rather than defaulting to something reassuring.
+   */
+  describe('the telemetry claim (ledger #4)', () => {
+    it('carries a provided claim through', async () => {
+      await expect(
+        requestInstrument({ sessionId: SESSION_ID }, answering({ ...LAUNCHED, telemetry: { level: 'provided' } })),
+      ).resolves.toMatchObject({ telemetry: { level: 'provided' } })
+    })
+
+    it('carries an absent claim through with the adapter’s own reason and remedy', async () => {
+      const outcome = await requestInstrument(
+        { sessionId: SESSION_ID },
+        answering({
+          ...LAUNCHED,
+          telemetry: { level: 'absent', reason: 'codex exports into a 404', remedy: 'a bare-path OTLP route' },
+        }),
+      )
+
+      expect(outcome).toMatchObject({
+        telemetry: { level: 'absent', reason: 'codex exports into a 404', remedy: 'a bare-path OTLP route' },
+      })
+    })
+
+    it('carries the claim on a DEAD launch too — it is a fact about the harness, not about the outcome', async () => {
+      await expect(
+        requestInstrument(
+          { sessionId: SESSION_ID },
+          answering({ ...LAUNCHED, kind: 'died', pid: undefined, message: 'gone at once', telemetry: { level: 'provided' } }),
+        ),
+      ).resolves.toMatchObject({ spawn: { launched: false }, telemetry: { level: 'provided' } })
+    })
+
+    it('reads a remedy-less refusal as one, rather than as a body it cannot understand', async () => {
+      await expect(
+        requestInstrument(
+          { sessionId: SESSION_ID },
+          answering({ ...LAUNCHED, telemetry: { level: 'partial', reason: 'tokens yes, dollars no' } }),
+        ),
+      ).resolves.toMatchObject({ telemetry: { level: 'partial', reason: 'tokens yes, dollars no', remedy: null } })
+    })
+
+    it('answers null for a body that said nothing — never read as a claim either way', async () => {
+      await expect(requestInstrument({ sessionId: SESSION_ID }, answering(LAUNCHED))).resolves.toMatchObject({
+        telemetry: null,
+      })
+    })
+
+    it.each([
+      ['a level the union does not have', { level: 'excellent' }],
+      ['a refusal with no reason — core makes it compiler-required', { level: 'absent' }],
+      ['a refusal with an empty reason', { level: 'absent', reason: '' }],
+      ['a remedy that is not a sentence', { level: 'absent', reason: 'no', remedy: 7 }],
+      ['a claim that is not an object at all', 'provided'],
+    ])('refuses the whole answer for %s — a half-read capability claim is not a relaunch result', async (_label, telemetry) => {
+      await expect(
+        requestInstrument({ sessionId: SESSION_ID }, answering({ ...LAUNCHED, telemetry })),
+      ).rejects.toThrow('the instrument answered something other than a relaunch result')
+    })
+  })
+
   it('turns a 404 into a no-transcript-reachable outcome, carrying the instrument’s own reason', async () => {
     const outcome = await requestInstrument(
       { sessionId: SESSION_ID },

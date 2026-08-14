@@ -52,6 +52,30 @@ import { doctorCheck, type CollectorFacts, type DoctorReading, type MetaFacts } 
 export type LinkState = 'verified' | 'broken' | 'unproven'
 
 /**
+ * The one word each state is rendered as, and the glyph beside it — declared
+ * HERE, beside {@link LinkState} itself, so the two cannot drift.
+ *
+ * Colour is never the sole carrier (hue law 9a's own condition): every state
+ * has a glyph and a word as well as a hue, so the checklist survives greyscale,
+ * colour-blindness and a photographed screen.
+ *
+ * They moved down here from `index.tsx` in wave 4 (#266), which is where the
+ * three-states law (#367) still reads them from — `index.tsx` re-exports them
+ * unchanged. The reason is the wizard: it shows the same three readings for the
+ * same rows, and a second surface reaching back INTO the page module for its
+ * vocabulary would be an import cycle between the page and the panel it
+ * renders. A word about a `LinkState` belongs with `LinkState`.
+ */
+export const STATE_WORD: Record<LinkState, string> = {
+  verified: 'VERIFIED',
+  broken: 'BROKEN',
+  unproven: 'UNPROVEN',
+}
+
+/** The glyph beside {@link STATE_WORD} — see its doc for why both exist. */
+export const STATE_GLYPH: Record<LinkState, string> = { verified: '✓', broken: '✕', unproven: '·' }
+
+/**
  * WHAT IS CHECKING A ROW — and therefore what has to be both real and alive
  * before it may say VERIFIED (#343, #345).
  *

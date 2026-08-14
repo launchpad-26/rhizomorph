@@ -141,7 +141,15 @@ function fakeAdapter(overrides: Partial<HarnessAdapter> = {}): HarnessAdapter {
   }
 }
 
-const CONTEXT = { watchedRepoPath: '/repo', port: 4321, instance: 'instance-1' }
+/**
+ * A version probe that finds nothing, so no test in this file shells out to a
+ * `/usr/local/bin/fake` that does not exist (ledger #7). `harnessVersion: null`
+ * is what planning then carries — "we asked and could not tell" — and the tests
+ * that care about a REAL version inject their own exec.
+ */
+const NO_VERSION = (async () => ({ stdout: '', stderr: 'not here', code: 127, failed: true })) as unknown as Exec
+
+const CONTEXT = { watchedRepoPath: '/repo', port: 4321, instance: 'instance-1', exec: NO_VERSION }
 
 describe('planLaunch', () => {
   it('refuses an unknown harness id', async () => {
@@ -158,6 +166,82 @@ describe('planLaunch', () => {
     await expect(planLaunch('definitely-not-a-real-harness', 'launch', CONTEXT)).rejects.toThrow(
       ConciergeLaunchValidationError,
     )
+  })
+
+  /**
+   * The other half of ledger #6, and it lives here rather than in `detect.ts`:
+   * detection can only refuse a `PATH` entry inside the watched repo if it is
+   * TOLD which repo that is, and this is the one caller that goes on to spawn
+   * what detection found. A fix that hardened `detectOnPath` and left this call
+   * bare would have been correct code reached by nobody.
+   */
+  it('tells detection which repo is watched — the fence is useless to a detector that was not told', async () => {
+    const adapter = fakeAdapter()
+
+    await planLaunch('claude', 'launch', { ...CONTEXT, harnessLookup: () => adapter })
+
+    expect(adapter.detect).toHaveBeenCalledWith({ watchedRepoPath: '/repo' })
+  })
+
+  /**
+   * The other half of ledger #7, and the half a `claude.ts`-only fix would have
+   * left dead: `resumeArgv` can only degrade off-pin if something actually
+   * probed this machine, and planning is the phase already allowed to read it.
+   */
+  describe('the harness version reaches the continuity plan (ledger #7)', () => {
+    const versionSaying = (stdout: string) =>
+      vi.fn((async () => ({ stdout, stderr: '', code: 0, failed: false })) as unknown as Exec)
+
+    it('probes the DETECTED executable with --version, not a bare name a spawner would re-resolve', async () => {
+      const adapter = fakeAdapter()
+      const exec = versionSaying('2.1.232 (Claude Code)\n')
+
+      await planLaunch('claude', 'launch', { ...CONTEXT, harnessLookup: () => adapter, exec })
+
+      expect(exec).toHaveBeenCalledWith('/usr/local/bin/fake', ['--version'], expect.anything())
+    })
+
+    it('hands the parsed version to the adapter, so a continuity plan can judge the machine', async () => {
+      const adapter = fakeAdapter()
+      const exec = versionSaying('2.1.232 (Claude Code)\n')
+
+      await planLaunch('claude', 'resume', { ...CONTEXT, harnessLookup: () => adapter, exec }, 'sess-1')
+
+      expect(adapter.resumeArgv).toHaveBeenCalledWith(
+        expect.objectContaining({ harnessVersion: '2.1.232' }),
+        'sess-1',
+      )
+    })
+
+    it.each([
+      ['a failed probe', vi.fn((async () => ({ stdout: '', stderr: 'boom', code: 1, failed: true })) as unknown as Exec)],
+      ['output with no version in it', versionSaying('claude code, the good one\n')],
+      ['a probe that throws', vi.fn((async () => { throw new Error('ENOENT') }) as unknown as Exec)],
+    ])('answers null for %s — never a guess, and never a throw out of planning', async (_case, exec) => {
+      const adapter = fakeAdapter()
+
+      await planLaunch('claude', 'resume', { ...CONTEXT, harnessLookup: () => adapter, exec }, 'sess-1')
+
+      expect(adapter.resumeArgv).toHaveBeenCalledWith(expect.objectContaining({ harnessVersion: null }), 'sess-1')
+    })
+
+    it('answers null when detection found no path to probe', async () => {
+      const adapter = fakeAdapter({
+        detect: vi.fn(
+          async (): Promise<HarnessDetection> => ({
+            harness: 'claude',
+            onPath: { state: 'present', evidence: 'found, path unrecorded' },
+            running: { state: 'unknown', reason: 'not checked' },
+          }),
+        ),
+      })
+      const exec = versionSaying('2.1.232\n')
+
+      await planLaunch('claude', 'resume', { ...CONTEXT, harnessLookup: () => adapter, exec }, 'sess-1')
+
+      expect(exec).not.toHaveBeenCalled()
+      expect(adapter.resumeArgv).toHaveBeenCalledWith(expect.objectContaining({ harnessVersion: null }), 'sess-1')
+    })
   })
 
   it('refuses a declared-not-implemented harness, naming its reason — never calls detect', async () => {
@@ -236,6 +320,7 @@ describe('planLaunch', () => {
       port: 4321,
       instance: 'instance-1',
       executablePath: '/usr/local/bin/fake',
+      harnessVersion: null,
     })
   })
 
@@ -354,6 +439,7 @@ describe('planLaunch', () => {
         port: 4321,
         instance: 'instance-1',
         executablePath: '/usr/local/bin/fake',
+        harnessVersion: null,
       },
       'session-xyz',
     )
@@ -585,14 +671,21 @@ describe('runLaunch — the tmux path', () => {
   const ok = (stdout = '') => ({ stdout, stderr: '', code: 0, failed: false })
   const fails = () => ({ stdout: '', stderr: 'no server running', code: 1, failed: true })
 
-  /** A tmux that answers every call: a live server, one session, and a window it reports back. */
-  function tmuxAnswering(overrides: Partial<Record<'has-session' | 'list-sessions' | 'new-window', ReturnType<typeof ok>>> = {}) {
+  type TmuxVerb = 'has-session' | 'list-sessions' | 'new-window' | 'list-panes'
+
+  /**
+   * A tmux that answers every call: a live server, one session, a window it
+   * reports back, and — since ledger #3 — a `list-panes` that says the pane is
+   * still there (`#{pane_dead}` of `0`) when the settle window closes.
+   */
+  function tmuxAnswering(overrides: Partial<Record<TmuxVerb, ReturnType<typeof ok>>> = {}) {
     return vi.fn(((_command: string, args: readonly string[]) => {
-      const verb = args[0] as 'has-session' | 'list-sessions' | 'new-window'
+      const verb = args[0] as TmuxVerb
       const override = overrides[verb]
       if (override !== undefined) return Promise.resolve(override)
       if (verb === 'has-session') return Promise.resolve(ok())
       if (verb === 'list-sessions') return Promise.resolve(ok('main\nother\n'))
+      if (verb === 'list-panes') return Promise.resolve(ok('0\n'))
       return Promise.resolve(ok('9911 main:3\n'))
     }) as Exec)
   }
@@ -689,6 +782,88 @@ describe('runLaunch — the tmux path', () => {
     expect(outcome).toMatchObject({ kind: 'error' })
     expect((outcome as { message: string }).message).toContain(CONDUCTOR_WINDOW_NAME)
     expect(spawnLaunch).not.toHaveBeenCalled()
+  })
+
+  /**
+   * **THE SAME SETTLE WINDOW, ON THE STRONGER CLAIM** (ledger #3). `new-window`
+   * reports the moment the window is created; it never says anything survived.
+   * The detached path stopped trusting `spawn`'s success in #532 and this path
+   * went on trusting `new-window`'s — the identical shape, one layer up, over
+   * the answer that promises the operator MORE (a window to attach to and type
+   * in, not merely a pid).
+   *
+   * A pane has a TTY, so #532's own death cannot recur here; what these cover
+   * is every other insta-death — a wrapper rejecting its arguments, a harness
+   * exiting on a bad config — which closes the pane in milliseconds and used to
+   * read as a live conductor.
+   */
+  it('rechecks the pane after the settle window, on the same clock the detached path uses', async () => {
+    const exec = tmuxAnswering()
+    const wait = vi.fn(immediately)
+
+    const outcome = await runLaunch(plan, { exec, wait })
+
+    expect(outcome).toEqual({ kind: 'launched', via: 'tmux', pid: 9911, window: 'main:3' })
+    // The window is the module's own, not a caller's, and it really elapsed
+    // before the recheck: `list-panes` is the LAST call, after the wait.
+    expect(wait).toHaveBeenCalledWith(LAUNCH_SETTLE_MS)
+    const verbs = exec.mock.calls.map((call) => (call[1] as string[])[0])
+    expect(verbs).toEqual(['has-session', 'list-sessions', 'new-window', 'list-panes'])
+    // …and it asks about the window it is about to name, not about some other one.
+    const panes = exec.mock.calls[3]?.[1] as string[]
+    expect(panes[panes.indexOf('-t') + 1]).toBe('main:3')
+  })
+
+  it('reports a vanished pane as died, via tmux, rather than a window to attach to', async () => {
+    const exec = tmuxAnswering({ 'list-panes': fails() })
+    const spawnLaunch = vi.fn(() => fakeLaunch())
+
+    const outcome = await runLaunch(plan, { spawnLaunch, exec, wait: immediately })
+
+    expect(outcome).toMatchObject({ kind: 'died', via: 'tmux', window: 'main:3' })
+    const message = (outcome as { message: string }).message
+    expect(message).toContain('main:3')
+    // The stderr tmux actually gave, and the command the operator can run.
+    expect(message).toContain('no server running')
+    expect(message).toContain('/usr/local/bin/claude --resume sess-1')
+    // Not #532's death, and it must not be described as one — a pane HAS a TTY.
+    expect(message).toContain('not the no-TTY death')
+    // A died is not a licence to start a second conductor.
+    expect(spawnLaunch).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The sibling of the vanished window, and the one a "does the window exist"
+   * check would call alive: `remain-on-exit on` keeps the dead pane on screen,
+   * so `list-panes` succeeds and lists a window whose command has exited.
+   * `#{pane_dead}` is tmux's own name for that state, which is why the format
+   * string asks for it rather than for a pid.
+   */
+  it('reports a listed-but-dead pane as died — remain-on-exit keeps the corpse visible', async () => {
+    const exec = tmuxAnswering({ 'list-panes': ok('1\n') })
+
+    const outcome = await runLaunch(plan, { exec, wait: immediately })
+
+    expect(outcome).toMatchObject({ kind: 'died', via: 'tmux' })
+    expect((outcome as { message: string }).message).toContain('remain-on-exit')
+  })
+
+  it('a window listing no pane at all is died too, never a launch over an empty answer', async () => {
+    const exec = tmuxAnswering({ 'list-panes': ok('  \n') })
+
+    expect(await runLaunch(plan, { exec, wait: immediately })).toMatchObject({ kind: 'died', via: 'tmux' })
+  })
+
+  /** One live pane beside a dead one is a live window — the operator has somewhere to type. */
+  it('a window with one live pane among dead ones is still a launch', async () => {
+    const exec = tmuxAnswering({ 'list-panes': ok('1\n0\n') })
+
+    expect(await runLaunch(plan, { exec, wait: immediately })).toEqual({
+      kind: 'launched',
+      via: 'tmux',
+      pid: 9911,
+      window: 'main:3',
+    })
   })
 
   it('probes tmux in argv form only — no command string ever reaches this module’s own exec', async () => {
