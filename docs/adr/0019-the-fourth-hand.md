@@ -188,9 +188,14 @@ spellings a text law cannot see is only ever as long as the last person to look.
 **Bad — the strictness has a cost other lanes will pay.** "No non-literal
 dynamic `import()` anywhere in server source" is a constraint on files this hand
 does not own. It holds today (the one dynamic import in the tree is a literal),
-and a future lane that needs a computed specifier must either name it as a
-declared exception or lose the soundness of the reachability check. That
-friction is intended, and it is friction.
+and a future lane that needs a computed specifier must widen clause 2's own
+exemption and argue for it in review — there is no declared-exception
+mechanism today, so the set such a lane would name starts, and may stay,
+empty. (This sentence used to promise a mechanism the law never got — found in
+review of #351's re-review, #374 — the same shape `ALLOWED_IMPORTERS` gives
+clause 1, but clause 2 has no analogue of it, and the fix here is naming that
+rather than building one nobody has needed yet.) That friction is intended,
+and it is friction.
 
 **Bad — the fourth hand is the one whose command the operator wrote.** A mistake
 in the lab runs a command the lab itself chose from a fixed list; a mistake here
@@ -207,7 +212,26 @@ the draft required a `node:` prefix on the module, and required the import and
 the call to share a line. A detector that only catches the spellings its author
 happened to write is the same defect as #245 wearing different clothes, so the
 clause now binds the imported name and reads the whole file, and each of the
-seven is a permanent fixture in the law.
+seven is a permanent fixture in the law. The re-review found two more ordinary
+spellings the identifier-binding still missed — an inline
+`require('child_process').exec(…)` that binds no name at all, and a
+`const cp = await import('node:child_process')` binding, which clause 2 has
+nothing to say about because the specifier is a plain literal (#373) — both
+now permanent fixtures too.
+
+**Bad — and one route to a shell the clause admits on purpose, because it
+cannot tell it apart from the launch power's own need.** `execFile('/bin/sh',
+['-c', cmd])` and `spawn('bash', ['-lc', cmd])` are argv-array calls, exactly
+the shape clause 4 must permit so the launch power has something to spawn —
+and both reach a shell anyway (#373). The clause's stated promise, "nothing
+under `concierge/` reaches a shell," is therefore not fully true of the text
+it enforces: the gap is *which executable* is named, not *how* it is
+invoked, and which-executable is an allowlist question, not a spelling one,
+so this is not a hole the clause's regexes can close without banning the argv
+forms the hand needs. #358's harness registry is the mechanism that closes it
+— once the executable a real launch spawns comes from the adapter rather than
+from a request, the promise becomes true by construction. Named here, and in
+the law's own module comment, rather than left implied.
 
 **Neutral — one open question stays open.** prd-20 does not rule where cloned
 repos live. The fence is therefore expressed relative to a clone root its caller

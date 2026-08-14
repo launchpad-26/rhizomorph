@@ -77,6 +77,18 @@ import { assertCloneTarget, conciergeRoot } from './paths.js'
  *    `execSync` string-command form, no `shell: true`. When the launch power
  *    lands it spawns an argv array or it does not spawn. This is the clause that
  *    matters most: the hand's whole purpose is to run a process.
+ *
+ *    **Known limit (#373), not regex-fixable.** An argv launch can still reach
+ *    a shell — `execFile('/bin/sh', ['-c', cmd])` or `spawn('bash', ['-lc',
+ *    cmd])` obey this clause's letter, because the clause forbids the
+ *    shell-COMMAND form, not the executable named, and the launch power
+ *    deliberately needs argv spawns. `spawn('claude', […])` and
+ *    `spawn('bash', […])` differ only in which executable — an allowlist
+ *    question, not a spelling one — so this law does not attempt it. #358's
+ *    harness registry is the mechanism that closes it: once the executable a
+ *    real launch spawns comes from the adapter rather than from a request,
+ *    "nothing under `concierge/` reaches a shell" is true by construction, not
+ *    by this law's text-reading.
  * 5. **The clone fence, live.** `assertCloneTarget` is run against real
  *    directories on a real filesystem — symlink escape, `..` escape, the watched
  *    repo, the other hands' namespaces — so the containment claim is executed,
@@ -252,6 +264,24 @@ function importSpecifiers(code: string): string[] {
  */
 const DYNAMIC_CALL_RE = /\b(?:import|require)\s*\(\s*([^)]*)/g
 
+/**
+ * Scans `code` from just past a literal's opening quote for the first
+ * UNESCAPED instance of that same quote character. Returns its index, or -1
+ * if the literal never closes.
+ */
+function matchingQuoteIndex(code: string, openQuoteIndex: number, quote: string): number {
+  let i = openQuoteIndex + 1
+  while (i < code.length) {
+    if (code[i] === '\\') {
+      i += 2
+      continue
+    }
+    if (code[i] === quote) return i
+    i++
+  }
+  return -1
+}
+
 function nonLiteralDynamicSpecifiers(code: string): string[] {
   const out: string[] = []
   for (const match of code.matchAll(DYNAMIC_CALL_RE)) {
@@ -260,17 +290,30 @@ function nonLiteralDynamicSpecifiers(code: string): string[] {
     // A literal is a quote, then no further quote of that kind until the close.
     const quote = argument[0]
     if (quote === "'" || quote === '"' || quote === '`') {
-      const rest = argument.slice(1)
-      const end = rest.indexOf(quote)
-      // Two things that LOOK like a literal but are not, and both matter here:
-      // `'./x.js' + suffix` is a literal that has been concatenated, and
-      // `` `./${slug}.js` `` is a template whose real specifier is decided at
-      // runtime. Clause 1's regex happily reads the literal TEXT of the second
-      // one — which is why it catches `` import(`../concierge/${x}.js`) `` — but
-      // reading the text is not the same as knowing where it resolves, so a
-      // template with a substitution in it is still a blind edge.
-      const interpolated = quote === '`' && rest.slice(0, end < 0 ? rest.length : end).includes('${')
-      if (end >= 0 && !interpolated && rest.slice(end + 1).trim().length === 0) continue
+      // DYNAMIC_CALL_RE stops at the first `)`, so a literal containing one —
+      // `import('./(group)/foo.js')` — truncates `argument` mid-string, before
+      // its own closing quote. Re-scanning the full `code` from the literal's
+      // true start (rather than trusting where the capture happened to stop)
+      // finds the real closing quote regardless of what the literal contains
+      // (#374 — review of #351 found this reads a correct route-group path as
+      // an unanalysable specifier, a false CI failure on legitimate code).
+      const argStart = (match.index ?? 0) + match[0].length - match[1]!.length
+      const closeQuote = matchingQuoteIndex(code, argStart, quote)
+      if (closeQuote >= 0) {
+        let after = closeQuote + 1
+        while (after < code.length && /\s/.test(code[after]!)) after++
+        // Two things that LOOK like a literal but are not, and both matter here:
+        // `'./x.js' + suffix` is a literal that has been concatenated, and
+        // `` `./${slug}.js` `` is a template whose real specifier is decided at
+        // runtime. Clause 1's regex happily reads the literal TEXT of the second
+        // one — which is why it catches `` import(`../concierge/${x}.js`) `` —
+        // but reading the text is not the same as knowing where it resolves, so
+        // a template with a substitution in it is still a blind edge.
+        const interpolated = quote === '`' && code.slice(argStart + 1, closeQuote).includes('${')
+        // A plain literal call has nothing between the closing quote and the
+        // call's own closing paren.
+        if (!interpolated && code[after] === ')') continue
+      }
     }
     out.push(argument)
   }
@@ -786,6 +829,24 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0019)', () => {
         [],
       )
     })
+
+    it('and does not fire on a literal specifier that itself contains a `)` — #374', () => {
+      // `DYNAMIC_CALL_RE` stops capturing at the first `)`, which used to
+      // truncate this literal mid-string and read it as unterminated — a
+      // false CI failure on a route-group path several frameworks spell this
+      // way. Mutation check: this line fails against the pre-#374 capture
+      // (`rest.indexOf(quote)` on the truncated argument returns -1), and the
+      // genuinely-computed sibling directly below must keep failing.
+      expect(nonLiteralDynamicSpecifiers(`const m = await import('./(group)/foo.js')`)).toEqual([])
+      expect(nonLiteralDynamicSpecifiers('const m = await import(`./(group)/foo.js`)')).toEqual([])
+      expect(nonLiteralDynamicSpecifiers(`const m = require('./(group)/foo.js')`)).toEqual([])
+      // The genuinely computed sibling — a parenthesis in the literal text
+      // before the substitution must never become a way to smuggle a computed
+      // specifier past this detector. (The reported text is still truncated
+      // at the first `)`, same as any other multi-`)` argument; only whether
+      // it fires is this issue's concern.)
+      expect(nonLiteralDynamicSpecifiers('const m = await import(`./(${slug})/foo.js`)')).not.toEqual([])
+    })
   })
 
   describe('clause 3 — the concierge has no clock of its own', () => {
@@ -815,8 +876,11 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0019)', () => {
 
     /**
      * The names of every namespace bound to `child_process` in a file — from
-     * `import * as cp from 'child_process'`, `import cp from …` and
-     * `const cp = require(…)` alike.
+     * `import * as cp from 'child_process'`, `import cp from …`,
+     * `const cp = require(…)`, and `const cp = await import(…)` alike. The
+     * last is review-of-#351's own point turned into a #373 finding: the
+     * specifier is a plain literal, so clause 2 has nothing to say about it,
+     * and a static-import-only binder would never see `cp.exec(…)` below it.
      *
      * Why an identifier and not a line: pattern 3 used to be
      * `/\bchild_process\b[^\n]*\.\s*exec\b(?!File)/`, and `[^\n]*` forced the
@@ -830,6 +894,10 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0019)', () => {
         new RegExp(String.raw`\bimport\s+([A-Za-z_$][\w$]*)\s*(?:,|\bfrom\b)\s*.*?${CHILD_PROCESS_MODULE}`, 'g'),
         new RegExp(
           String.raw`\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*${CHILD_PROCESS_MODULE}`,
+          'g',
+        ),
+        new RegExp(
+          String.raw`\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?import\s*\(\s*${CHILD_PROCESS_MODULE}`,
           'g',
         ),
       ]
@@ -877,6 +945,17 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0019)', () => {
       {
         what: 'a shell-command form destructured out of child_process',
         pattern: destructuresAShellForm,
+      },
+      {
+        what: 'an inline `require(child_process).exec(…)`, never bound to a name',
+        // #373: `childProcessNamespaces` binds an identifier, so
+        // `require('child_process').exec(url)` — called straight off the
+        // `require(...)` expression, nothing to bind — was invisible to every
+        // other detector here. Its own pattern, same module test.
+        pattern: (code) =>
+          new RegExp(
+            String.raw`\brequire\s*\(\s*${CHILD_PROCESS_MODULE}\s*\)\s*\.\s*(?:exec|execSync)\b(?!File)`,
+          ).test(code),
       },
       {
         what: 'exec off a child_process namespace, anywhere in the file',
@@ -966,6 +1045,24 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0019)', () => {
       }
     })
 
+    /**
+     * The two spellings review of #351's re-review found still passing
+     * (#373): an inline `require(...).exec(...)` that binds no name at all,
+     * and a dynamic-import binding — `const cp = await
+     * import('node:child_process')` — which clause 2 permits outright because
+     * the specifier is a plain literal; "no blind spots" has nothing to say
+     * about it.
+     */
+    it('and on the two routes review of #351 found still passing (#373)', () => {
+      const forms: Array<[label: string, code: string]> = [
+        ['inline require, never bound to a name', `require('child_process').exec('git clone ' + url)`],
+        ['dynamic-import binding', `const cp = await import('node:child_process')\ncp.exec(url)\n`],
+      ]
+      for (const [label, code] of forms) {
+        expect(reachesAShell(code), `missed the ordinary spelling: ${label}`).toBe(true)
+      }
+    })
+
     it('and do not fire on the argv-array spawns the launch power will legitimately need', () => {
       for (const legitimate of [
         `import { spawn } from 'node:child_process'`,
@@ -986,6 +1083,10 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0019)', () => {
         // A namespace bound to child_process, used only for its argv forms.
         `import * as cp from 'node:child_process'\nconst child = cp.spawn('claude', argv, { env })\n`,
         `import * as cp from 'child_process'\nawait promisify(cp.execFile)('git', ['clone', url, target])\n`,
+        // The dynamic-import binding, used only for its argv form — the
+        // widening #373 added to `childProcessNamespaces` must not convict
+        // this the way it does `cp.exec(url)`.
+        `const cp = await import('node:child_process')\ncp.spawn('claude', argv, { env })\n`,
         // The one `shell:` value that is not a violation, spelled the ways it is.
         `spawn('claude', argv, { shell: false })`,
         `spawn('claude', argv, { shell: false, env, cwd })`,
