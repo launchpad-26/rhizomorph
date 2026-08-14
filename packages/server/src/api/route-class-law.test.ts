@@ -58,8 +58,8 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     // that silently matched zero real routes, or a classification table
     // quietly emptied, must not both agree and pass anyway. This repo has
     // had two laws walk vacuously before.
-    expect(routes.length).toBe(21)
-    expect(ROUTE_CLASSES.length).toBe(21)
+    expect(routes.length).toBe(22)
+    expect(ROUTE_CLASSES.length).toBe(22)
 
     await app.close()
   })

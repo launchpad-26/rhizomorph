@@ -8,6 +8,7 @@ import { registerLanesRoute } from './lanes.js'
 import { registerMetaRoute } from './meta.js'
 import { registerOtelRoutes } from './otel.js'
 import { registerRotateRoute } from './rotate.js'
+import { registerSessionPreviewRoute } from './session-preview.js'
 import { registerSessionsRoutes } from './sessions.js'
 import { registerStreamRoute } from './stream.js'
 import { registerTranscriptRoute } from './transcript.js'
@@ -19,6 +20,9 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   registerOtelRoutes(app, ctx)
   registerLanesRoute(app, ctx)
   registerTranscriptRoute(app, ctx)
+  // A session's first words (prd20 w6) — the read-only companion to the
+  // transcript tail, sharing its attribution and its bounded-read shape.
+  registerSessionPreviewRoute(app, ctx)
   // The app's nine mutating routes (prd16 rulings 2 and 4; prd1's OTLP inbox;
   // prd-20's two concierge powers) — see `ROUTE_CLASSES` below for the full
   // classification, and `rotate.ts` / `label.ts` for why each of these two is
@@ -92,6 +96,7 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   { method: 'GET', url: '/api/stream', routeClass: 'read' },
   { method: 'GET', url: '/api/lanes', routeClass: 'read' },
   { method: 'GET', url: '/api/transcript/:lane', routeClass: 'read' },
+  { method: 'GET', url: '/api/session-preview/:sessionId', routeClass: 'read' },
   { method: 'GET', url: '/api/lab/checkpoints', routeClass: 'read' },
   { method: 'GET', url: '/api/lab/experiments', routeClass: 'read' },
   { method: 'GET', url: '/api/lab/estimate', routeClass: 'read' },
