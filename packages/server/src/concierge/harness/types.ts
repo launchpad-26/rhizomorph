@@ -246,6 +246,25 @@ export interface DetectOptions {
   readonly env?: NodeJS.ProcessEnv
   /** Where the process table lives. Overridable so tests can point at a fabricated procfs. */
   readonly procRoot?: string
+  /**
+   * The repo this server is watching, so PATH search can REFUSE to resolve an
+   * executable out of it (ledger #6).
+   *
+   * `detect.ts` has always said a file inside somebody's working tree must
+   * never become the thing the concierge launches, and it enforced that only
+   * for empty and relative PATH entries. An operator whose PATH carries
+   * `/home/me/repo/node_modules/.bin` — an ordinary, absolute, entirely normal
+   * entry — had a launch-power hole the comments claimed was closed. Detection
+   * cannot make that judgement without knowing which repo is watched, so the
+   * fact travels here.
+   *
+   * Optional because the two callers that legitimately have no watched repo
+   * (`api/doctor.ts`'s capability probe, a test asking only "is claude
+   * installed") are asking a different question. Omitting it is the wide
+   * answer, and `launch.ts` — the one caller that can actually spawn something
+   * — always supplies it.
+   */
+  readonly watchedRepoPath?: string
 }
 
 /** The seam itself. Five members; everything above is what they return. */

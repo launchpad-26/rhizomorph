@@ -306,7 +306,11 @@ export async function planLaunch(
     throw new ConciergeLaunchValidationError('"sessionId" is required for mode: "resume"')
   }
 
-  const detection = await adapter.detect()
+  // The watched repo travels INTO detection (ledger #6). This is the one caller
+  // that goes on to spawn what detection found, so it is the one that must not
+  // be handed an argv[0] out of the operator's own working tree — and detection
+  // cannot refuse a `PATH` entry inside a repo it was never told about.
+  const detection = await adapter.detect({ watchedRepoPath: context.watchedRepoPath })
   if (detection.onPath.state !== 'present') {
     throw new HarnessNotAvailableError(
       `${adapter.displayName} cannot be launched on this machine: ${unavailableReason(detection.onPath)}`,

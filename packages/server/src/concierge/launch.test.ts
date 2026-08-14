@@ -160,6 +160,21 @@ describe('planLaunch', () => {
     )
   })
 
+  /**
+   * The other half of ledger #6, and it lives here rather than in `detect.ts`:
+   * detection can only refuse a `PATH` entry inside the watched repo if it is
+   * TOLD which repo that is, and this is the one caller that goes on to spawn
+   * what detection found. A fix that hardened `detectOnPath` and left this call
+   * bare would have been correct code reached by nobody.
+   */
+  it('tells detection which repo is watched — the fence is useless to a detector that was not told', async () => {
+    const adapter = fakeAdapter()
+
+    await planLaunch('claude', 'launch', { ...CONTEXT, harnessLookup: () => adapter })
+
+    expect(adapter.detect).toHaveBeenCalledWith({ watchedRepoPath: '/repo' })
+  })
+
   it('refuses a declared-not-implemented harness, naming its reason — never calls detect', async () => {
     const detect = vi.fn()
     const adapter = fakeAdapter({
