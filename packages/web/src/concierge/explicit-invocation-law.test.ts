@@ -203,6 +203,41 @@ describe('the concierge instrument path is reachable only from an explicit reque
   })
 
   /**
+   * **THE ARMING BAR, PINNED FOR BOTH CALLERS** (prd-14 ruling 4; ledger #2).
+   *
+   * The relaunch spawns a process that spends money, so a caller may not reach
+   * it on one click. That was true of `InstrumentButton.tsx` from the start and
+   * NOT true of `connect/wizard.tsx` when it landed: its launch button called
+   * the act directly, while `instrument.ts`'s module doc went on claiming the
+   * act sat "behind exactly one confirmation… one caller, arms before it acts".
+   * The prose was the only thing asserting the bar, and prose does not hold —
+   * so the bar is asserted here instead, per caller, in both halves that
+   * matter: something ARMS (a click that only moves to a confirming state and
+   * spends nothing), and the button that ACTS exists only inside that state.
+   *
+   * Deliberately per-file rather than a sweep: a generic "some confirming state
+   * exists" check over the caller set would pass on a file where the two
+   * buttons were wired the wrong way round, which is precisely the defect.
+   */
+  it('every caller arms before it acts — the act is never one click away', () => {
+    const button = readFileSync(path.join(CONCIERGE_DIR, 'InstrumentButton.tsx'), 'utf8')
+    // Arms: the idle button only moves the phase.
+    expect(button).toMatch(/data-testid=\{`\$\{testId\}-start`\}\s+onClick=\{\(\)\s*=>\s*setPhase\(\{ status: 'confirming' \}\)\}/)
+    // Acts: the button that reaches the act lives in the confirming branch.
+    expect(button).toMatch(/phase\.status === 'confirming'/)
+    expect(button).toMatch(/data-testid=\{`\$\{testId\}-confirm`\}\s+onClick=\{\(\)\s*=>\s*void confirmInstrument\(\)\}/)
+
+    const wizard = readFileSync(path.join(WEB_SRC, 'connect', 'wizard.tsx'), 'utf8')
+    expect(wizard).toMatch(/onArm=\{\(\)\s*=>\s*setLaunch\(\{ status: 'confirming' \}\)\}/)
+    expect(wizard).toMatch(/data-testid="wizard-launch"[\s\S]{0,120}?onClick=\{onArm\}/)
+    expect(wizard).toMatch(/launch\.status === 'confirming'/)
+    expect(wizard).toMatch(/data-testid="wizard-launch-confirm"\s+onClick=\{onLaunch\}/)
+    // …and `onLaunch` is reachable from nowhere else in the file, so the
+    // confirming branch is the only door rather than merely one of them.
+    expect(wizard.match(/onClick=\{onLaunch\}/g)).toHaveLength(1)
+  })
+
+  /**
    * The wizard's two acts, pinned across BOTH hops of their wiring — the
    * handler the step component receives, and the `onClick` that is the only
    * thing which fires it. Pinning one hop alone would leave the other free to

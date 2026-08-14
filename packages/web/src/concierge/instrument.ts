@@ -37,13 +37,23 @@
  *    why nothing in the body below is a path). The watched repo's working tree
  *    is untouched by both, so the observer's read-only law over it is exactly
  *    as absolute as it was.
- * 2. **It is triggered only by an explicit operator act, behind exactly one
- *    confirmation.** A relaunch spawns a real process that spends real money,
- *    so prd-14 ruling 4's one-confirmation bar applies to it the way it does
- *    to a lab launch. `InstrumentButton.tsx` is the one caller and arms before
- *    it acts; `explicit-invocation-law.test.ts` proves that STRUCTURALLY —
- *    one call site, pinned to one `onClick`, and no timer or effect anywhere
- *    in this directory that could fire it without a human.
+ * 2. **It is triggered only by an explicit operator act, and every caller arms
+ *    before it acts.** A relaunch spawns a real process that spends real
+ *    money, so prd-14 ruling 4's one-confirmation bar applies to it the way it
+ *    does to a lab launch. There are TWO callers since #266, and this sentence
+ *    is written as an enumeration rather than a count because the count is what
+ *    went stale: `InstrumentButton.tsx` (a resume of one named session) and
+ *    `../connect/wizard.tsx`'s conductor step (a fresh launch or a continue).
+ *    Each holds its own two-step bar — a first click that shows what is about
+ *    to happen and what it costs and spends nothing, a second that spends —
+ *    and neither has a second dialog behind that. This paragraph read "one
+ *    caller" for a while after the wizard landed unarmed, which is worth
+ *    recording: the prose was the only thing claiming the bar, and prose does
+ *    not hold. `explicit-invocation-law.test.ts` is what holds it, STRUCTURALLY
+ *    — the exact caller SET rather than a count, each caller's act pinned to
+ *    the `onClick` of a button that only exists in a confirming state, and no
+ *    timer or effect anywhere in this directory that could fire it without a
+ *    human.
  * 3. **It never mutates the event log's past.** The relaunched process is
  *    instrumented from its first turn and appends from there, under the same
  *    preserved sessionId (ADR-0020's Q3/Q4). Nothing here rewrites a recorded

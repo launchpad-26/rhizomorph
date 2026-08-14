@@ -195,8 +195,19 @@ type CloneState =
   | { status: 'done'; outcome: CloneOutcome }
   | { status: 'failed'; message: string }
 
+/**
+ * **`confirming` is prd-14 ruling 4's bar, and it is not optional here.** This
+ * step spawns a real process that spends real money, which is the same fact
+ * that put a confirmation in front of `../concierge/InstrumentButton.tsx` — and
+ * for a while this state was missing, so the wizard reached the app's fourth
+ * mutating call on ONE unarmed click while `instrument.ts`'s own module doc
+ * still said the act was "behind exactly one confirmation". The two callers now
+ * share the bar rather than the prose about it: first click arms and shows what
+ * is about to happen and what it costs, second click spends.
+ */
 type LaunchState =
   | { status: 'idle' }
+  | { status: 'confirming' }
   | { status: 'working' }
   | { status: 'done'; outcome: InstrumentOutcome }
   | { status: 'failed'; message: string }
@@ -311,6 +322,8 @@ export function SetupWizard({
           target={target}
           port={port}
           launch={launch}
+          onArm={() => setLaunch({ status: 'confirming' })}
+          onCancelLaunch={() => setLaunch({ status: 'idle' })}
           onLaunch={() => void confirmLaunch()}
           onCopy={onCopy}
         />
@@ -521,6 +534,8 @@ function ConductorStep({
   target,
   port,
   launch,
+  onArm,
+  onCancelLaunch,
   onLaunch,
   onCopy,
 }: {
@@ -534,6 +549,11 @@ function ConductorStep({
   target: string | null
   port: string
   launch: LaunchState
+  /** The first click — it shows what is about to happen and spends nothing. */
+  onArm: () => void
+  /** The way back out of an armed launch, which must exist for the arming to mean anything. */
+  onCancelLaunch: () => void
+  /** The second click, and the only thing in this file that reaches the act. */
   onLaunch: () => void
   onCopy: CopyText
 }) {
@@ -615,15 +635,44 @@ function ConductorStep({
             {chosenMode?.means}
           </p>
 
-          <button
-            type="button"
-            data-testid="wizard-launch"
-            disabled={!canAct || launch.status === 'working'}
-            onClick={onLaunch}
-            className={PRIMARY_CLASS}
-          >
-            start it instrumented
-          </button>
+          {/* ARMS, NEVER ACTS (prd-14 ruling 4). Its sibling
+              `../concierge/InstrumentButton.tsx` has always worked this way,
+              and for the same reason: what is on the other side of this click
+              is a process that spends money, so the click that starts it is
+              the one on the panel below, after the operator has read what it
+              is about to do. */}
+          {launch.status !== 'confirming' && (
+            <button
+              type="button"
+              data-testid="wizard-launch"
+              disabled={!canAct || launch.status === 'working'}
+              onClick={onArm}
+              className={PRIMARY_CLASS}
+            >
+              start it instrumented
+            </button>
+          )}
+
+          {launch.status === 'confirming' && (
+            <div data-testid="wizard-launch-confirm-dialog" className="flex flex-col gap-2 rounded border border-ice-700 p-3">
+              <p className="text-[12px] text-ice-100">
+                Start a {facts?.displayName ?? harness} conductor in {target ?? UNAVAILABLE}, {chosenMode?.label}?
+              </p>
+              <p className="text-[11px] leading-snug text-ice-400">
+                {chosenMode?.means} This spawns a real process on this machine and it spends real money from the moment
+                it starts. Nothing here stops a process you already have running, and nothing spent before this point
+                ever reaches this instrument’s record.
+              </p>
+              <div className="flex gap-2">
+                <button type="button" data-testid="wizard-launch-cancel" onClick={onCancelLaunch} className={BUTTON_CLASS}>
+                  cancel
+                </button>
+                <button type="button" data-testid="wizard-launch-confirm" onClick={onLaunch} className={PRIMARY_CLASS}>
+                  start it
+                </button>
+              </div>
+            </div>
+          )}
           {!live && (
             <p data-testid="wizard-launch-fixture" className="text-[10px] leading-snug text-notice">
               this page is reading a fixture, not the live log — nothing here will start a process. Return to live to

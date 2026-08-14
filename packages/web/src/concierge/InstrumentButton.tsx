@@ -17,9 +17,12 @@ import { requestInstrument, type InstrumentFetchLike, type InstrumentOutcome, ty
  * **One confirmation, and it is the whole gate** (prd-14 ruling 4). This
  * spawns a real process that spends real money, so the first click only arms
  * the act: it shows what is about to happen and what it costs, and the button
- * on THAT panel is the single call site the law pins. There is no second
+ * on THAT panel is the call site the law pins for this file. There is no second
  * dialog after it, and — the part the law actually proves — there is no timer
  * and no effect in this directory that could reach the act without a human.
+ * `../connect/wizard.tsx` is the relaunch's other caller since #266 and holds
+ * the same bar; the law pins the caller SET and both arming shapes, so neither
+ * file's claim rests on this paragraph.
  *
  * **What it says afterwards is the honest account, not the happy one**
  * (ruling 6, ADR-0020). Three facts travel with every success and none of

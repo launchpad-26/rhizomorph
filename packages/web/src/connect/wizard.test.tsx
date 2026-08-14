@@ -341,6 +341,64 @@ describe('step 2 — the conductor', () => {
     return async () => ({ ok: status >= 200 && status < 300, status, json: async () => payload })
   }
 
+  /**
+   * TWO CLICKS, because there are two (prd-14 ruling 4; ledger #2). The first
+   * arms and spends nothing; the second is the only one that reaches the app's
+   * fourth mutating call. Every test below that wants an outcome goes through
+   * this, so a launch that ever became reachable in one click would fail the
+   * arming tests rather than quietly changing what these ones exercise.
+   */
+  async function launch() {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-launch'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-launch-confirm'))
+    })
+  }
+
+  /**
+   * **THE FIRST CLICK SPENDS NOTHING** — the finding itself. This step reaches
+   * the same mutating call `InstrumentButton` does, over a process that costs
+   * real money, and it used to reach it on a single unarmed click while
+   * `concierge/instrument.ts`'s own module doc claimed the act sat behind a
+   * confirmation. Asserting the panel appeared is not enough: what makes this
+   * a test of the BAR rather than of a panel is `not.toHaveBeenCalled()`.
+   */
+  it('arms before it spends — the first click starts nothing at all', async () => {
+    const instrumentFetchImpl = vi.fn(answering(LAUNCHED_IN_TMUX))
+    await renderWizard({ instrumentFetchImpl })
+    step('conductor')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-launch'))
+    })
+
+    expect(instrumentFetchImpl).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('wizard-launch-result')).toBeNull()
+    // What it costs, and what it does NOT stop, said before the money is spent.
+    const armed = screen.getByTestId('wizard-launch-confirm-dialog').textContent ?? ''
+    expect(armed).toContain('spends real money')
+    expect(armed).toContain('Nothing here stops a process you already have running')
+  })
+
+  it('cancelling an armed launch spends nothing and puts the button back', async () => {
+    const instrumentFetchImpl = vi.fn(answering(LAUNCHED_IN_TMUX))
+    await renderWizard({ instrumentFetchImpl })
+    step('conductor')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-launch'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-launch-cancel'))
+    })
+
+    expect(instrumentFetchImpl).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('wizard-launch-confirm-dialog')).toBeNull()
+    expect(screen.getByTestId('wizard-launch')).toBeTruthy()
+  })
+
   it('lists every harness the registry knows, implemented and merely named alike', async () => {
     await renderWizard()
     step('conductor')
@@ -410,9 +468,7 @@ describe('step 2 — the conductor', () => {
     step('conductor')
 
     fireEvent.click(screen.getByTestId('wizard-mode-continue'))
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('wizard-launch'))
-    })
+    await launch()
 
     expect(instrumentFetchImpl.mock.calls[0]?.[1].body).toBe(JSON.stringify({ harness: 'claude', mode: 'continue' }))
   })
@@ -420,9 +476,7 @@ describe('step 2 — the conductor', () => {
   it('says WHERE a tmux launch landed — a window to attach to, not merely a pid', async () => {
     await renderWizard({ instrumentFetchImpl: answering(LAUNCHED_IN_TMUX) })
     step('conductor')
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('wizard-launch'))
-    })
+    await launch()
 
     const result = screen.getByTestId('wizard-launch-result').textContent ?? ''
     expect(result).toContain('main:3')
@@ -434,9 +488,7 @@ describe('step 2 — the conductor', () => {
       instrumentFetchImpl: answering({ ...LAUNCHED_IN_TMUX, via: 'detached', window: undefined }),
     })
     step('conductor')
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('wizard-launch'))
-    })
+    await launch()
 
     const result = screen.getByTestId('wizard-launch-result').textContent ?? ''
     expect(result).toContain('no tmux window')
@@ -456,9 +508,7 @@ describe('step 2 — the conductor', () => {
       }),
     })
     step('conductor')
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('wizard-launch'))
-    })
+    await launch()
 
     expect(screen.getByTestId('wizard-launch-result').textContent).toContain('exited with code 1 straight away')
   })
@@ -468,9 +518,7 @@ describe('step 2 — the conductor', () => {
       instrumentFetchImpl: answering({ error: 'Claude Code cannot be launched on this machine' }, 409),
     })
     step('conductor')
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('wizard-launch'))
-    })
+    await launch()
 
     expect(screen.getByTestId('wizard-launch-error').textContent).toContain('cannot be launched on this machine')
   })
