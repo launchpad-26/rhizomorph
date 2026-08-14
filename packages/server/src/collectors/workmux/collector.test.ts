@@ -381,6 +381,56 @@ describe('createWorkmuxCollector', () => {
     expect(second.events).toHaveLength(0)
   })
 
+  it('a failed git resolve calls git exactly once and resolves to null, not a cached failure (#505)', async () => {
+    const collector = createWorkmuxCollector()
+    const workdir = '/Users/operator/Projects/rhizomorph__worktrees/505-flaky/packages/server'
+    const worktreePath = '/Users/operator/Projects/rhizomorph__worktrees/505-flaky'
+    const statusJson = JSON.stringify([
+      { worktree: '505-flaky', branch: '505-flaky', status: 'working', elapsed_secs: 60, title: null, workdir },
+    ])
+    const listJson = JSON.stringify([{ handle: '505-flaky', branch: '505-flaky', path: worktreePath, is_main: false }])
+    const context = makeContext(
+      fakeExec({
+        status: [ok(statusJson)],
+        list: [ok(listJson)],
+        // Exactly one failing response — proves the resolve was attempted
+        // and failed, rather than the git queue simply being empty.
+        git: [{ stdout: '', stderr: 'fatal: not a git repository', code: 128, failed: true }],
+      }),
+    )
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    expect(result.events[0]?.payload).toMatchObject({ worktreePath: null })
+  })
+
+  it('retries a failed git resolve on every later poll, and recovers once git succeeds (#505)', async () => {
+    const collector = createWorkmuxCollector()
+    const workdir = '/Users/operator/Projects/rhizomorph__worktrees/505-recover/packages/server'
+    const worktreePath = '/Users/operator/Projects/rhizomorph__worktrees/505-recover'
+    const statusJson = JSON.stringify([
+      { worktree: '505-recover', branch: '505-recover', status: 'working', elapsed_secs: 60, title: null, workdir },
+    ])
+    const listJson = JSON.stringify([{ handle: '505-recover', branch: '505-recover', path: worktreePath, is_main: false }])
+    const context = makeContext(
+      fakeExec({
+        status: [ok(statusJson), ok(statusJson)],
+        list: [ok(listJson), ok(listJson)],
+        // First git call fails (transient); the second, on the retry, succeeds.
+        // A permanently-cached `null` would never reach the second entry.
+        git: [{ stdout: '', stderr: 'fatal: not a git repository', code: 128, failed: true }, ok(`${worktreePath}\n`)],
+      }),
+    )
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    expect(first.events[0]?.payload).toMatchObject({ worktreePath: null })
+
+    const second = await collector.poll(first.nextSnapshot, context)
+    // A null → real-path change is itself a "changed" transition, so a fresh
+    // agent.status fires with the recovered worktreePath.
+    expect(second.events[0]?.payload).toMatchObject({ worktreePath })
+  })
+
   it('resolves branch/worktreePath to null, not a crash, when no list row matches the handle', async () => {
     const collector = createWorkmuxCollector()
     const statusJson = JSON.stringify([

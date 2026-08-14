@@ -53,7 +53,12 @@ export interface TmuxSnapshot {
   /** Set once tmux is missing or no server is running. Every later poll is a no-op. */
   disabled: boolean
   panes: Record<string, TmuxPaneSnapshot>
-  /** Cache of pane_current_path → worktree root, since a path's toplevel never changes mid-session. */
+  /**
+   * Cache of pane_current_path → worktree root, since a path's toplevel never
+   * changes mid-session once resolved. Only a successful resolution is
+   * memoised here — a failed resolve is not cached and is retried on every
+   * later poll (#505).
+   */
   worktreeByPath: Record<string, string | null>
 }
 
@@ -108,9 +113,11 @@ export const tmuxCollector: Collector<TmuxSnapshot> = {
 
     for (const entry of panes) {
       let worktreePath = worktreeByPath[entry.currentPath]
-      if (worktreePath === undefined) {
+      if (worktreePath === undefined || worktreePath === null) {
         worktreePath = await resolveWorktreePath(entry.currentPath, context.exec)
-        worktreeByPath[entry.currentPath] = worktreePath
+        if (worktreePath !== null) {
+          worktreeByPath[entry.currentPath] = worktreePath
+        }
       }
 
       const prevPane = prevSnapshot.panes[entry.paneId]

@@ -452,4 +452,53 @@ describe('tmuxCollector', () => {
     const discovered = result.events.find((e) => e.type === 'pane.discovered')
     expect(discovered?.payload).toMatchObject({ worktreePath: null })
   })
+
+  it('a failed worktree resolve calls git exactly once and resolves to null, not a cached failure (#505)', async () => {
+    const paneA: PaneFixture = {
+      paneId: '%1',
+      sessionName: 'obs',
+      windowIndex: 0,
+      windowName: 'wm-a',
+      currentPath: '/worktrees/flaky',
+      currentCommand: 'claude',
+      title: '',
+    }
+    shell.listPanesOutput = listPanesLine(paneA)
+    shell.captureByPane.set('%1', success('hello'))
+    // No entry in shell.worktreeByPath ⇒ `git rev-parse` fails.
+
+    const result = await tmuxCollector.poll(tmuxCollector.initialSnapshot(), makeContext(shell.exec))
+
+    expect(result.nextSnapshot.panes['%1']?.worktreePath).toBeNull()
+    expect(shell.gitCalls).toEqual(['/worktrees/flaky'])
+  })
+
+  it('retries a failed worktree resolve on every later poll, and recovers once git succeeds (#505)', async () => {
+    const paneA: PaneFixture = {
+      paneId: '%1',
+      sessionName: 'obs',
+      windowIndex: 0,
+      windowName: 'wm-a',
+      currentPath: '/worktrees/flaky',
+      currentCommand: 'claude',
+      title: '',
+    }
+    shell.listPanesOutput = listPanesLine(paneA)
+    shell.captureByPane.set('%1', success('hello'))
+    // No entry in shell.worktreeByPath ⇒ first poll's `git rev-parse` fails.
+
+    const first = await tmuxCollector.poll(tmuxCollector.initialSnapshot(), makeContext(shell.exec))
+    expect(first.nextSnapshot.panes['%1']?.worktreePath).toBeNull()
+    expect(shell.gitCalls).toEqual(['/worktrees/flaky'])
+
+    // The transient condition clears between polls (e.g. the worktree was
+    // recreated) — a permanently-cached `null` would never see this.
+    shell.worktreeByPath.set('/worktrees/flaky', '/worktrees/flaky')
+    const second = await tmuxCollector.poll(first.nextSnapshot, makeContext(shell.exec))
+
+    expect(second.nextSnapshot.panes['%1']?.worktreePath).toBe('/worktrees/flaky')
+    // Two calls total for the same path proves the failure was retried, not
+    // served from a stale cache.
+    expect(shell.gitCalls).toEqual(['/worktrees/flaky', '/worktrees/flaky'])
+  })
 })

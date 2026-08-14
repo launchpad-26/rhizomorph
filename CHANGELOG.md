@@ -215,6 +215,14 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **A worktree-root resolve that fails once no longer stays broken for the rest of
+  the session (#505).** The subdirectory-join fallback added by #463 memoised
+  `workdir → worktreePath` per pane/agent, but memoised a *failed* resolve
+  (`null`) exactly the same as a successful one — a transient `git` failure, or a
+  worktree removed and recreated under a parked pane, left `worktreePath: null`
+  for the rest of the session with no way to recover short of a restart. Only a
+  successful resolution is memoised now; a failure is retried on every later
+  poll, in both the workmux and tmux collectors.
 - **A pane parked in a worktree subdirectory on its very first poll now shows
   the right worktree path (#463).** `worktreePath` resolved only by joining
   `status`'s `workdir` against `list`'s `path` exactly; a pane whose workdir

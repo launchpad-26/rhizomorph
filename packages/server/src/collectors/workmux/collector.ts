@@ -46,10 +46,11 @@ export interface WorkmuxSnapshot {
   agents: Record<string, WorkmuxAgentSnapshot>
   /**
    * Memoises `workdir → worktreePath` for the subdirectory-join fallback
-   * (#463): once a workdir's worktree root is resolved via git, it is never
-   * re-resolved, so a pane parked in the same subdirectory across polls
-   * costs one `git` exec total, not one per poll (PRD-22 ruling 1). Mirrors
-   * `tmux/collector.ts`'s field of the same name and purpose.
+   * (#463): once a workdir's worktree root has *successfully* resolved via
+   * git, it is not re-resolved, so a pane parked in the same subdirectory
+   * across polls costs one `git` exec total, not one per poll (PRD-22 ruling
+   * 1). A failed resolve is not cached and is retried on every later poll
+   * (#505). Mirrors `tmux/collector.ts`'s field of the same name and purpose.
    */
   worktreeByPath: Record<string, string | null>
 }
@@ -187,8 +188,10 @@ function parseListJson(stdout: string): { rows: WorkmuxListJsonRow[]; skipped: P
  * just none matching this `workdir`), `worktreePath` is resolved instead by
  * asking git directly (`resolveWorktreePath`, #463): authoritative, not a
  * guess, so PRD-22 ruling 5's ban on a lossy/heuristic join key does not
- * apply. The resolution is memoised per `workdir` (`worktreeByPath`) so a
- * pane parked in the same subdirectory only pays the extra `exec` once. If
+ * apply. The resolution is memoised per `workdir` (`worktreeByPath`) once it
+ * has succeeded, so a pane parked in the same subdirectory only pays the
+ * extra `exec` once — a failed resolve is not memoised and is retried every
+ * poll (#505). If
  * `list` itself failed, returned unparseable output, or returned zero rows,
  * `worktreePath` still soft-nulls — the fallback only fires once `list` has
  * proven it can join something. `branch` is unaffected either way, since it
@@ -356,11 +359,13 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
           // than soft-nulling; memoise so a pane parked in the same
           // subdirectory across polls only pays the `exec` once.
           const cached = worktreeByPath[row.workdir]
-          if (cached !== undefined) {
+          if (cached !== undefined && cached !== null) {
             worktreePath = cached
           } else {
             worktreePath = await resolveWorktreePath(row.workdir, context.exec)
-            worktreeByPath[row.workdir] = worktreePath
+            if (worktreePath !== null) {
+              worktreeByPath[row.workdir] = worktreePath
+            }
           }
         } else {
           worktreePath = null
