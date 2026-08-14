@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import type { Exec } from '@rhizomorph/core'
 import { describe, expect, it, vi } from 'vitest'
 import type {
   ContinuityPlan,
@@ -8,7 +9,9 @@ import type {
   HarnessLaunchContext,
 } from './harness/types.js'
 import {
+  CONDUCTOR_WINDOW_NAME,
   HarnessNotAvailableError,
+  LAUNCH_SETTLE_MS,
   LaunchContinuityUnavailableError,
   ConciergeLaunchValidationError,
   launchSpawnNodeOptions,
@@ -395,50 +398,308 @@ describe('planLaunch', () => {
   })
 })
 
-/** A fake spawned child good enough for `runLaunch` — `once('spawn'|'error', ...)`, `unref()`, a `pid`. */
-type FakeLaunch = SpawnedLaunch & { emitSpawn: () => void; emitError: (err: Error) => void }
+/**
+ * A fake spawned child good enough for `runLaunch` — `once('spawn'|'error'|
+ * 'exit', ...)`, `unref()`, a `pid`.
+ *
+ * `emitExit` is #532's whole subject: a real interactive `claude` spawned
+ * detached with no TTY emits `spawn` and then, milliseconds later, `exit`.
+ * Before this issue there was no way to say that in a test, which is precisely
+ * why the defect shipped — every test here injected a child that spawned and
+ * then, being an object, sat there being alive forever.
+ */
+type FakeLaunch = SpawnedLaunch & {
+  emitSpawn: () => void
+  emitError: (err: Error) => void
+  emitExit: (code: number | null, signal?: NodeJS.Signals | null) => void
+}
 
 function fakeLaunch(pid = 4242): FakeLaunch {
   const emitter = new EventEmitter()
   const child: FakeLaunch = {
     pid,
     unref: vi.fn(),
-    once: (event: 'spawn' | 'error', listener: never) => {
+    once: (event: 'spawn' | 'error' | 'exit', listener: never) => {
       emitter.once(event, listener)
       return child
     },
     emitSpawn: () => emitter.emit('spawn'),
     emitError: (err: Error) => emitter.emit('error', err),
+    emitExit: (code, signal = null) => emitter.emit('exit', code, signal),
   }
   return child
 }
 
-describe('runLaunch', () => {
+/**
+ * An `Exec` that fails the way a machine with no tmux does — the default for
+ * every detached-path test below, and the reason each of them is really
+ * exercising the fallback rather than whatever tmux the suite's own machine
+ * happens to be running. Without this the tests would pass or fail depending
+ * on whether the developer had tmux open.
+ */
+const noTmux: Exec = () =>
+  Promise.resolve({ stdout: '', stderr: '', code: null, failed: true, errorMessage: 'spawn tmux ENOENT' })
+
+/** A settle window that closes immediately — for the cases where the child's own event is what settles the answer. */
+const immediately = () => Promise.resolve()
+
+/**
+ * Lets `runLaunch`'s own awaits — the tmux probes, which every test here
+ * answers from an injected `Exec` — drain before the test emits the fake
+ * child's events. A `setImmediate` runs after the whole microtask queue, so
+ * one is enough however many probes ran, and emitting before this would fire
+ * the events at a listener that does not exist yet.
+ */
+const untilSpawned = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
+/** A promise plus its resolver, so a test can hold the settle window open and close it on its own schedule. */
+function deferred(): { promise: Promise<void>; close: () => void } {
+  let close = (): void => {}
+  const promise = new Promise<void>((resolve) => {
+    close = resolve
+  })
+  return { promise, close }
+}
+
+describe('runLaunch — the detached path (no tmux reachable)', () => {
   const plan = { argv: ['fake', '--continue'], env: { FAKE_VAR: '1' }, cwd: '/repo', telemetry: { level: 'provided' as const } }
 
-  it('resolves { kind: launched, pid } and unrefs the child once spawn fires', async () => {
+  it('resolves { kind: launched, via: detached, pid } and unrefs the child once the settle window closes', async () => {
     const child = fakeLaunch(4242)
     const spawnLaunch = vi.fn(() => child)
 
-    const outcomePromise = runLaunch(plan, { spawnLaunch })
+    const outcomePromise = runLaunch(plan, { spawnLaunch, exec: noTmux, wait: immediately })
+    await untilSpawned()
     child.emitSpawn()
     const outcome = await outcomePromise
 
-    expect(outcome).toEqual({ kind: 'launched', pid: 4242 })
+    expect(outcome).toEqual({ kind: 'launched', via: 'detached', pid: 4242 })
     expect(child.unref).toHaveBeenCalledTimes(1)
     expect(spawnLaunch).toHaveBeenCalledWith('fake', ['--continue'], { cwd: '/repo', env: { FAKE_VAR: '1' } })
   })
 
-  it('resolves { kind: error } when the spawn itself fails — never throws', async () => {
-    const child = fakeLaunch()
-    const spawnLaunch = vi.fn(() => child)
+  /**
+   * THE DEFECT (#532), as a test that could not have passed before it.
+   *
+   * The child spawns and then exits at once — a real `claude --resume` with no
+   * TTY and no prompt, captured live during the wave-8 proof. The settle
+   * window is held open across the exit, so the only way to answer `launched`
+   * here is to have never looked.
+   */
+  it('a child that exits inside the settle window is DIED, never launched', async () => {
+    const child = fakeLaunch(4242)
+    const window = deferred()
 
-    const outcomePromise = runLaunch(plan, { spawnLaunch })
+    const outcomePromise = runLaunch(plan, { spawnLaunch: () => child, exec: noTmux, wait: () => window.promise })
+    await untilSpawned()
+    child.emitSpawn()
+    child.emitExit(1)
+    const outcome = await outcomePromise
+    window.close()
+
+    expect(outcome.kind).toBe('died')
+    expect(outcome).toMatchObject({ kind: 'died', via: 'detached' })
+    const message = (outcome as { message: string }).message
+    expect(message).toContain('exited with code 1')
+    // The three things the operator needs from a corpse: that it died, why it
+    // most likely died, and what to run instead.
+    expect(message).toMatch(/no terminal|TTY/)
+    expect(message).toContain('fake --continue')
+  })
+
+  it('reports the signal when the child was killed rather than exiting', async () => {
+    const child = fakeLaunch(4242)
+    const window = deferred()
+
+    const outcomePromise = runLaunch(plan, { spawnLaunch: () => child, exec: noTmux, wait: () => window.promise })
+    await untilSpawned()
+    child.emitSpawn()
+    child.emitExit(null, 'SIGTERM')
+    const outcome = await outcomePromise
+    window.close()
+
+    expect(outcome).toMatchObject({ kind: 'died' })
+    expect((outcome as { message: string }).message).toContain('SIGTERM')
+  })
+
+  /**
+   * The mutation this pins: turning the bounded window into "await the child's
+   * exit" would make the test above pass and hang every healthy launch
+   * forever. A child that outlives the window is `launched`, and the window is
+   * what decides — not the exit.
+   */
+  it('a child that exits AFTER the settle window has closed is still launched — the window is bounded, not a wait-for-exit', async () => {
+    const child = fakeLaunch(4242)
+
+    const outcomePromise = runLaunch(plan, { spawnLaunch: () => child, exec: noTmux, wait: immediately })
+    await untilSpawned()
+    child.emitSpawn()
+    const outcome = await outcomePromise
+    child.emitExit(0)
+
+    expect(outcome).toEqual({ kind: 'launched', via: 'detached', pid: 4242 })
+  })
+
+  it('waits LAUNCH_SETTLE_MS by default — the honesty window is the module’s own value, not the caller’s', async () => {
+    const child = fakeLaunch()
+    const wait = vi.fn(immediately)
+
+    const outcomePromise = runLaunch(plan, { spawnLaunch: () => child, exec: noTmux, wait })
+    await untilSpawned()
+    child.emitSpawn()
+    await outcomePromise
+
+    expect(wait).toHaveBeenCalledWith(LAUNCH_SETTLE_MS)
+    expect(LAUNCH_SETTLE_MS).toBeGreaterThan(0)
+  })
+
+  it('never starts the settle window at all when the spawn itself failed — { kind: error }, and never throws', async () => {
+    const child = fakeLaunch()
+    const wait = vi.fn(immediately)
+
+    const outcomePromise = runLaunch(plan, { spawnLaunch: () => child, exec: noTmux, wait })
+    await untilSpawned()
     child.emitError(new Error('ENOENT'))
     const outcome = await outcomePromise
 
     expect(outcome).toEqual({ kind: 'error', message: 'could not start fake: ENOENT' })
     expect(child.unref).not.toHaveBeenCalled()
+    expect(wait).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The tmux half of #532: when a tmux server is reachable the conductor gets a
+ * REAL TTY, which is the only condition under which an interactive harness
+ * survives at all. Every case injects `Exec`, so none of this needs tmux — or
+ * cares whether the machine running the suite has one.
+ */
+describe('runLaunch — the tmux path', () => {
+  const plan = {
+    argv: ['/usr/local/bin/claude', '--resume', 'sess-1'],
+    env: { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4321', OTEL_RESOURCE_ATTRIBUTES: 'lane=conductor,role=conductor,instance=1000' },
+    cwd: '/repo',
+    telemetry: { level: 'provided' as const },
+  }
+
+  const ok = (stdout = '') => ({ stdout, stderr: '', code: 0, failed: false })
+  const fails = () => ({ stdout: '', stderr: 'no server running', code: 1, failed: true })
+
+  /** A tmux that answers every call: a live server, one session, and a window it reports back. */
+  function tmuxAnswering(overrides: Partial<Record<'has-session' | 'list-sessions' | 'new-window', ReturnType<typeof ok>>> = {}) {
+    return vi.fn(((_command: string, args: readonly string[]) => {
+      const verb = args[0] as 'has-session' | 'list-sessions' | 'new-window'
+      const override = overrides[verb]
+      if (override !== undefined) return Promise.resolve(override)
+      if (verb === 'has-session') return Promise.resolve(ok())
+      if (verb === 'list-sessions') return Promise.resolve(ok('main\nother\n'))
+      return Promise.resolve(ok('9911 main:3\n'))
+    }) as Exec)
+  }
+
+  it('launches into a real window, says WHERE, and never spawns anything detached', async () => {
+    const exec = tmuxAnswering()
+    const spawnLaunch = vi.fn(() => fakeLaunch())
+
+    const outcome = await runLaunch(plan, { spawnLaunch, exec, wait: immediately })
+
+    expect(outcome).toEqual({ kind: 'launched', via: 'tmux', pid: 9911, window: 'main:3' })
+    // The whole point: no second conductor, ever.
+    expect(spawnLaunch).not.toHaveBeenCalled()
+  })
+
+  it('threads the env envelope as tmux’s own -e flags — argv, never text inside the window command', async () => {
+    const exec = tmuxAnswering()
+
+    await runLaunch(plan, { exec, wait: immediately })
+
+    const args = exec.mock.calls[2]?.[1] as string[]
+    expect(args[0]).toBe('new-window')
+    expect(args).toContain('-d')
+    expect(args).toContain('-e')
+    expect(args).toContain('OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4321')
+    expect(args).toContain('OTEL_RESOURCE_ATTRIBUTES=lane=conductor,role=conductor,instance=1000')
+    // The session it targets is the one `list-sessions` named, not tmux's
+    // implicit "current" one, and the window carries a findable name.
+    expect(args[args.indexOf('-t') + 1]).toBe('main')
+    expect(args[args.indexOf('-n') + 1]).toBe(CONDUCTOR_WINDOW_NAME)
+    expect(args[args.indexOf('-c') + 1]).toBe('/repo')
+    // Not one env value in the command string — the only thing a shell ever sees.
+    const command = args[args.length - 1] as string
+    expect(command).not.toContain('OTEL_')
+    expect(command).toBe(`'/usr/local/bin/claude' '--resume' 'sess-1'`)
+  })
+
+  it('single-quotes every token of the window command, and closes the quote on a value carrying one', async () => {
+    const exec = tmuxAnswering()
+    const awkward = { ...plan, argv: ['/opt/my tools/claude', "--resume", "o'brien"] }
+
+    await runLaunch(awkward, { exec, wait: immediately })
+
+    const args = exec.mock.calls[2]?.[1] as string[]
+    expect(args[args.length - 1]).toBe(`'/opt/my tools/claude' '--resume' 'o'\\''brien'`)
+  })
+
+  it('refuses to build a window command from a token carrying a control character, and falls back rather than quoting and hoping', async () => {
+    const exec = tmuxAnswering()
+    const child = fakeLaunch()
+    const spawnLaunch = vi.fn(() => child)
+    const smuggled = { ...plan, argv: ['/usr/local/bin/claude', '--resume', 'sess\n; rm -rf /'] }
+
+    const outcomePromise = runLaunch(smuggled, { spawnLaunch, exec, wait: immediately })
+    await untilSpawned()
+    child.emitSpawn()
+
+    expect(await outcomePromise).toMatchObject({ kind: 'launched', via: 'detached' })
+    // `new-window` was never reached: has-session and list-sessions only.
+    expect(exec.mock.calls.map((call) => (call[1] as string[])[0])).toEqual(['has-session', 'list-sessions'])
+    expect(spawnLaunch).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['no tmux server is reachable', { 'has-session': fails() }],
+    ['tmux is there but has no session to hang a window on', { 'list-sessions': ok('  \n') }],
+    ['list-sessions itself fails', { 'list-sessions': fails() }],
+    ['new-window fails — an old tmux with no -e, most likely', { 'new-window': fails() }],
+  ])('falls back to the detached path when %s', async (_case, overrides) => {
+    const exec = tmuxAnswering(overrides as Parameters<typeof tmuxAnswering>[0])
+    const child = fakeLaunch(777)
+    const spawnLaunch = vi.fn(() => child)
+
+    const outcomePromise = runLaunch(plan, { spawnLaunch, exec, wait: immediately })
+    await untilSpawned()
+    child.emitSpawn()
+
+    expect(await outcomePromise).toEqual({ kind: 'launched', via: 'detached', pid: 777 })
+    expect(spawnLaunch).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * The sibling case the fall-back rule has to stop at. Every `null` above
+   * means "nothing was started"; once `new-window` has SUCCEEDED that is no
+   * longer true, so an answer this cannot parse must not become a second
+   * conductor in a detached process.
+   */
+  it('never spawns a second conductor when new-window succeeded but reported something unreadable', async () => {
+    const exec = tmuxAnswering({ 'new-window': ok('what?\n') })
+    const spawnLaunch = vi.fn(() => fakeLaunch())
+
+    const outcome = await runLaunch(plan, { spawnLaunch, exec, wait: immediately })
+
+    expect(outcome).toMatchObject({ kind: 'error' })
+    expect((outcome as { message: string }).message).toContain(CONDUCTOR_WINDOW_NAME)
+    expect(spawnLaunch).not.toHaveBeenCalled()
+  })
+
+  it('probes tmux in argv form only — no command string ever reaches this module’s own exec', async () => {
+    const exec = tmuxAnswering()
+
+    await runLaunch(plan, { exec, wait: immediately })
+
+    for (const [command, args] of exec.mock.calls) {
+      expect(command).toBe('tmux')
+      expect(Array.isArray(args)).toBe(true)
+    }
   })
 })
 

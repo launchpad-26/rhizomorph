@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
-import type { AgentRole, CapabilityDetail } from '@rhizomorph/core'
+import type { AgentRole, CapabilityDetail, Exec } from '@rhizomorph/core'
 import { isSafeSessionId } from '../log/transcript-attribution.js'
+import { exec as realExec } from '../server/exec.js'
 import { harnessById } from './harness/registry.js'
 import type {
   ContinuityPlan,
@@ -37,11 +38,85 @@ import type {
  * telemetry is `/api/meta`'s `connection` facts' story to tell, not this
  * module's.
  *
- * The launched process is spawned detached and `unref`'d, stdio ignored: it
- * must outlive both this HTTP request and this server. Nothing here opens a
+ * ## The gap that was not a gap (#532)
+ *
+ * The paragraph that used to end this header said the launched process is
+ * spawned detached, `unref`'d, stdio ignored, and that "nothing here opens a
  * terminal, a pane, or any surface for the operator to type into — that
- * interaction surface is a known, explicit gap this issue does not close
- * (prd-20 leaves several such things "open, not ruled", and this is another).
+ * interaction surface is a known, explicit gap this issue does not close".
+ *
+ * That reading was wrong, and the wave-8 live proof is what proved it wrong: a
+ * real `claude --resume <id>` under those exact conditions does not sit there
+ * waiting for a terminal that never comes. It **exits at once** — "Provide a
+ * prompt to continue the conversation" — in every mode, launch, continue and
+ * resume alike. So the missing surface was not a usability gap on top of a
+ * working spawn; it was the reason nothing survived the spawn. And because
+ * #264's tests all inject `spawnLaunch`, no test ever ran a real interactive
+ * CLI, so `{kind:'launched', pid}` was reported over a corpse every time.
+ *
+ * Two halves answer it, and they answer different questions.
+ *
+ * ### 1. A TTY when one is reachable — {@link tryTmuxLaunch}
+ *
+ * When a tmux server is running, this launches the conductor into a real
+ * window (`tmux new-window -d`) instead of into the void. The operator can
+ * then attach and type, which is the whole point of an interactive harness,
+ * and the response says WHERE it landed (`via: 'tmux'`, and the
+ * `session:index` to attach to) rather than only that a process exists. The
+ * precedent is the repo's own: `scripts/lane-agent.sh` and workmux both put
+ * agents in panes, and `collectors/tmux/` already reads them back.
+ *
+ * **The honest limit, stated rather than discovered.** `tmux new-window`'s
+ * window command is a COMMAND STRING, which tmux hands to a shell — the very
+ * thing namespace-law clause 4 exists to keep out of this module. Clause 4's
+ * own documented shape is "an argv launch of a shell" (#373), and that is
+ * exactly what this is: tmux itself is invoked in argv form through ADR-0004's
+ * `Exec` seam (never `exec`/a command line of our own), so nothing this module
+ * writes is parsed by a shell of ours; what tmux then does with the string is
+ * tmux's documented behaviour. The mitigation is that every value interpolated
+ * into that string is fenced twice over:
+ *
+ * - `sessionId` passed `isSafeSessionId` at parse time, before it could reach
+ *   any argv at all ({@link parseConciergeLaunchRequestBody});
+ * - argv[0] is the executable `detect()` verified on PATH, never caller text;
+ * - every token is then POSIX single-quoted by {@link quoteForTmux}, which
+ *   also REFUSES a token carrying a control character — and a refusal is a
+ *   fall back to the detached path, never a "quote it and hope";
+ * - the env envelope never enters the string at all. It rides as tmux's own
+ *   `-e KEY=VALUE` argv flags (tmux ≥ 3.2), which no shell ever sees. On an
+ *   older tmux `new-window` fails on the unknown flag, and this falls back to
+ *   the detached path rather than degrading to a quoted `env …` prefix.
+ *
+ * ### 2. Liveness honesty when it is not — {@link runDetachedLaunch}
+ *
+ * With no tmux, the detached spawn is still the only thing available, and it
+ * will still die. What changes is that this stops CLAIMING otherwise: after
+ * `spawn` fires, a short bounded window ({@link LAUNCH_SETTLE_MS}) is given to
+ * the child's own `exit` event. A child that exits inside it resolves
+ * `{kind:'died'}` — carrying its exit status and the known no-TTY explanation,
+ * pointing at the command line the operator can run themselves — and never
+ * `launched`. Ruling 3 already said a `launched` is not a claim that telemetry
+ * is flowing; this makes it at least a claim that something is still running.
+ *
+ * **Why no stderr tail, when the outcome would read better with one.** It
+ * would cost the fix its own premise. Capturing stderr means a pipe, and this
+ * server owns the read end: when the server exits, the conductor it launched
+ * to outlive it starts writing into a pipe with no reader and takes an EPIPE
+ * for it. Killing the process this route exists to keep alive, to improve the
+ * wording of the message for the case where it died anyway, is a bad trade.
+ * The exit status and the signal are the child's own evidence and cost
+ * nothing, so those are what the message carries.
+ *
+ * ### The clock this module still does not own (clause 3)
+ *
+ * A bounded window needs a clock, and nothing under `concierge/` may schedule
+ * work — the law's clause 3, and `clone.ts` says the same for itself. So the
+ * wait is **the caller's**, a required field of {@link RunLaunchOptions}, not
+ * an optional one with a timer hidden behind it: `api/concierge.ts` supplies
+ * the real one, which is precisely where `clone.ts`'s own header already
+ * points for "a hard wall-clock cap on top of that". Required rather than
+ * optional so a future call site cannot silently opt back into claiming
+ * `launched` over a corpse — there is no default to fall through to.
  */
 
 export class ConciergeLaunchValidationError extends Error {}
@@ -268,7 +343,31 @@ export async function planLaunch(
   )
 }
 
-export type LaunchOutcome = { kind: 'launched'; pid: number } | { kind: 'error'; message: string }
+/**
+ * What became of the launch, and — for the two that made a process — WHERE.
+ *
+ * `via` is not decoration: "there is a pid" and "there is a window you can
+ * attach to and type into" are different facts about an interactive harness,
+ * and #532 is the bill for reporting the first as if it were the second.
+ *
+ * - `launched, via: 'tmux'` — a real window in a real tmux session, named by
+ *   `window` (`<session>:<index>`, what `tmux attach -t` takes) with the
+ *   pane's own pid. The one outcome where the operator has a surface to type
+ *   into.
+ * - `launched, via: 'detached'` — a detached, TTY-less process that was still
+ *   alive when the settle window closed. Everything ruling 3 says about a
+ *   `launched` still applies, and so does the reason it may not last: an
+ *   interactive harness with nothing attached has no one to talk to.
+ * - `died` — the process was made and was gone again within the settle window.
+ *   The defect class #532 named, now a reportable outcome instead of a lie.
+ * - `error` — no process was made at all (the binary vanished between
+ *   `detect()` and here), or tmux made a window it then could not describe.
+ */
+export type LaunchOutcome =
+  | { kind: 'launched'; via: 'tmux'; pid: number; window: string }
+  | { kind: 'launched'; via: 'detached'; pid: number }
+  | { kind: 'died'; via: 'detached'; message: string }
+  | { kind: 'error'; message: string }
 
 /** The minimal shape {@link runLaunch} needs from a spawned child — real `ChildProcess` satisfies it structurally. */
 export interface SpawnedLaunch {
@@ -276,6 +375,7 @@ export interface SpawnedLaunch {
   unref(): void
   once(event: 'spawn', listener: () => void): this
   once(event: 'error', listener: (err: Error) => void): this
+  once(event: 'exit', listener: (code: number | null, signal: NodeJS.Signals | null) => void): this
 }
 
 export interface SpawnLaunchOptions {
@@ -299,6 +399,11 @@ export type SpawnLaunchFn = (command: string, args: readonly string[], options: 
  * alone) survived mutation — swapping it left all 195 targeted tests green.
  * #264's own Direction names exactly this failure: "an env prefix that
  * doesn't reach the exec'd process fails invisibly."
+ *
+ * `stdio: 'ignore'` survives #532 unchanged, and the header says why at
+ * length: piping stderr to quote it back in a `died` message would hand this
+ * server the read end of a pipe the conductor must outlive, which is a way of
+ * killing the healthy launches to describe the dead ones better.
  */
 export function launchSpawnNodeOptions(options: SpawnLaunchOptions): {
   cwd: string
@@ -317,30 +422,249 @@ export function launchSpawnNodeOptions(options: SpawnLaunchOptions): {
 const realSpawnLaunch: SpawnLaunchFn = (command, args, options) =>
   spawn(command, args, launchSpawnNodeOptions(options))
 
+/**
+ * How long a detached child gets to prove it is still there before this
+ * reports `launched`. Short enough that the one HTTP request the operator is
+ * already waiting on does not visibly stall, long enough for the failure it
+ * exists to catch: the live capture in #532 had `claude` printing its refusal
+ * and exiting immediately, which is milliseconds, not seconds.
+ *
+ * It is a floor on honesty, never a promise of health — a process that dies at
+ * 1.6 seconds is reported `launched` here and shows up as a connection fact
+ * that never flips, which is ruling 3's own answer to "is it really working".
+ */
+export const LAUNCH_SETTLE_MS = 1500
+
+/** The tmux window a launched conductor is given, so the operator can find it by name and not by index alone. */
+export const CONDUCTOR_WINDOW_NAME = 'rhizomorph-conductor'
+
+/** Neither probe reads a large output and neither should ever hang; a tmux that does is a tmux this falls back from. */
+const TMUX_PROBE_TIMEOUT_MS = 2000
+
 export interface RunLaunchOptions {
   spawnLaunch?: SpawnLaunchFn
+  /**
+   * ADR-0004's argv-form seam, used for `tmux` and nothing else. Defaults to
+   * the real `server/exec.ts`. A test injects one and needs no tmux; an
+   * injected exec that fails is exactly what "this machine has no tmux" looks
+   * like from here.
+   */
+  exec?: Exec
+  /**
+   * Resolves after roughly `ms`. **Required** — the concierge owns no clock
+   * (namespace-law clause 3), and see this module's header for why this is not
+   * an optional field with a hidden default.
+   */
+  wait: (ms: number) => Promise<void>
+  /** Override {@link LAUNCH_SETTLE_MS}. Tests name their own; production never passes one. */
+  settleMs?: number
 }
 
 /**
- * Spawns {@link LaunchPlan}, detached and stdio-ignored, `unref`'s it, then
- * walks away. Never throws — resolves `{ kind: 'error' }` for a spawn that
- * never started (the binary vanished between `detect()` and here, or
- * similar), and ruling 3 means even a clean `{ kind: 'launched' }` is not a
- * claim that telemetry is flowing: only that the OS created the process.
- * No clock: exactly one of the child's own `spawn`/`error` events settles
- * this, the same event-driven shape `clone.ts`'s `runClone` uses for `git`.
+ * POSIX single-quoting for one token of a tmux window command, or `null` for a
+ * token that may not be quoted at all.
+ *
+ * `'` → `'\''` is the whole of the escaping, and it is total: inside single
+ * quotes a POSIX shell gives no character any meaning, so a correctly closed
+ * and reopened quote leaves nothing a value can do. A CONTROL CHARACTER is
+ * refused rather than quoted anyway — not because quoting would fail on it,
+ * but because no legitimate token here contains one (argv[0] is a detected
+ * executable path, the rest is `isSafeSessionId`-fenced) and a refusal that
+ * falls back to the detached path costs nothing, while a newline reaching a
+ * command line is the one class worth never testing our quoting against.
  */
-export function runLaunch(plan: LaunchPlan, options: RunLaunchOptions = {}): Promise<LaunchOutcome> {
+function quoteForTmux(token: string): string | null {
+  // Char codes rather than a regex: the class this refuses is exactly the one
+  // a regex literal cannot spell without carrying control characters in this
+  // file's own source text.
+  for (const character of token) {
+    const code = character.codePointAt(0) ?? 0
+    if (code < 0x20 || code === 0x7f) return null
+  }
+  return `'${token.replaceAll("'", "'\\''")}'`
+}
+
+/** The whole argv as one quoted command line, or `null` if any token was refused. */
+function tmuxCommandLine(argv: readonly string[]): string | null {
+  const quoted: string[] = []
+  for (const token of argv) {
+    const safe = quoteForTmux(token)
+    if (safe === null) return null
+    quoted.push(safe)
+  }
+  return quoted.join(' ')
+}
+
+/**
+ * The env envelope as tmux's own `-e KEY=VALUE` argv flags — never text in the
+ * window command. This is the half of the tmux path that touches no shell at
+ * all: tmux sets these in the pane's environment itself.
+ */
+function tmuxEnvFlags(env: Readonly<Record<string, string>>): string[] {
+  return Object.entries(env).flatMap(([key, value]) => ['-e', `${key}=${value}`])
+}
+
+/**
+ * Launch into a real tmux window, or `null` when this machine cannot offer one
+ * — no tmux server, no session to hang a window on, a token this refuses to
+ * quote, or a `new-window` that failed (an old tmux with no `-e`, most
+ * likely). Every one of those is a fall-back to the detached path, so `null`
+ * always means "nothing was started here".
+ *
+ * The one non-null non-launch is deliberate: once `new-window` has SUCCEEDED a
+ * window exists, and this must never return `null` after that point, because
+ * `null` means the caller spawns a second conductor. So a `new-window` that
+ * somehow reports no pane pid resolves `{kind:'error'}` naming the window it
+ * did make, rather than falling back and starting a second one.
+ *
+ * **Executed against real tmux 3.4** (2026-08-14, on a throwaway `-L` socket
+ * so no operator's own server was touched), because every test below injects
+ * `Exec` and would therefore be just as green against an argv tmux rejects:
+ * `has-session` exits 0 with a server running and 1 with none; `list-sessions
+ * -F '#{session_name}'` prints one name per line; and this exact `new-window`
+ * argv answered `4069121 main:1` — parsed here as pid and window — with both
+ * `-e` variables present in the pane's own environment and the single-quoted
+ * command line running as written.
+ */
+async function tryTmuxLaunch(plan: LaunchPlan, exec: Exec): Promise<LaunchOutcome | null> {
+  const options = { cwd: plan.cwd, timeoutMs: TMUX_PROBE_TIMEOUT_MS }
+
+  // Is a tmux server reachable at all? Cheapest possible probe, and the one
+  // that answers "no tmux installed" (a spawn error) and "installed, no server
+  // running" identically — both are `failed`, and both mean no window.
+  const probe = await exec('tmux', ['has-session'], options)
+  if (probe.failed) return null
+
+  // WHICH session gets the window. Named, not defaulted: `new-window` with no
+  // `-t` picks tmux's own current session, which outside a client is whichever
+  // was most recently used — and the response would then be naming a window in
+  // a session this never looked at.
+  const sessions = await exec('tmux', ['list-sessions', '-F', '#{session_name}'], options)
+  if (sessions.failed) return null
+  const session = sessions.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0)
+  if (session === undefined) return null
+
+  const command = tmuxCommandLine(plan.argv)
+  if (command === null) return null
+
+  // `-d` so the operator's current pane is not yanked away by a window they
+  // asked for in a browser; `-P -F` so the answer names the window rather than
+  // leaving the operator to hunt for it.
+  const created = await exec(
+    'tmux',
+    [
+      'new-window',
+      '-d',
+      '-P',
+      '-F',
+      '#{pane_pid} #{session_name}:#{window_index}',
+      '-t',
+      session,
+      '-n',
+      CONDUCTOR_WINDOW_NAME,
+      '-c',
+      plan.cwd,
+      ...tmuxEnvFlags(plan.env),
+      command,
+    ],
+    { cwd: plan.cwd },
+  )
+  if (created.failed) return null
+
+  const reported = created.stdout.trim()
+  const separator = reported.indexOf(' ')
+  const pid = Number(separator === -1 ? '' : reported.slice(0, separator))
+  const window = separator === -1 ? '' : reported.slice(separator + 1).trim()
+  if (!Number.isInteger(pid) || pid <= 0 || window.length === 0) {
+    return {
+      kind: 'error',
+      message:
+        `tmux created a window in session ${session} but did not report a pane pid and window index ` +
+        `(it answered ${JSON.stringify(reported)}). The conductor may well be running: look for the ` +
+        `${CONDUCTOR_WINDOW_NAME} window. Nothing else was started, so there is no second process.`,
+    }
+  }
+
+  return { kind: 'launched', via: 'tmux', pid, window }
+}
+
+/**
+ * The message a corpse gets. It says what happened (the child's own exit
+ * status), why it most likely happened (this is the path with no terminal),
+ * and what the operator can do instead — the command line itself, which is the
+ * no-trust path prd-20 ruling 3 keeps working for exactly this case.
+ */
+function describeDeath(argv: readonly string[], code: number | null, signal: NodeJS.Signals | null): string {
+  const status = signal !== null ? `killed by ${signal}` : `exited with code ${String(code)}`
+  return (
+    `the process started and then ${status} straight away — nothing survived the launch. ` +
+    'No tmux window was available for this launch, so the conductor was spawned detached with no terminal ' +
+    'attached, and an interactive harness with no TTY and no prompt exits immediately (#532). ' +
+    `Run it yourself in a terminal instead: ${argv.join(' ')}`
+  )
+}
+
+/**
+ * The no-tmux path: spawn detached, `unref`, and then — the half #532 adds —
+ * hold the answer open for {@link LAUNCH_SETTLE_MS} to see whether the child
+ * is still there. Never throws; exactly one of `error`, `exit`-inside-the-
+ * window or the window closing settles it.
+ */
+function runDetachedLaunch(plan: LaunchPlan, options: RunLaunchOptions): Promise<LaunchOutcome> {
   const spawnLaunch = options.spawnLaunch ?? realSpawnLaunch
+  const settleMs = options.settleMs ?? LAUNCH_SETTLE_MS
   return new Promise((resolve) => {
     const [command, ...args] = plan.argv
+    let settled = false
+    const settle = (outcome: LaunchOutcome): void => {
+      if (settled) return
+      settled = true
+      resolve(outcome)
+    }
+
     const child = spawnLaunch(command as string, args, { cwd: plan.cwd, env: plan.env })
+    child.once('error', (err) => {
+      settle({ kind: 'error', message: `could not start ${command as string}: ${err.message}` })
+    })
+    // Registered before `spawn` fires, not inside its handler: a child that
+    // exits between the two events is precisely the case being caught, and a
+    // listener attached later could miss it.
+    child.once('exit', (code, signal) => {
+      settle({ kind: 'died', via: 'detached', message: describeDeath(plan.argv, code, signal) })
+    })
     child.once('spawn', () => {
       child.unref()
-      resolve({ kind: 'launched', pid: child.pid as number })
-    })
-    child.once('error', (err) => {
-      resolve({ kind: 'error', message: `could not start ${command as string}: ${err.message}` })
+      const pid = child.pid as number
+      // A clock that rejects is the caller's bug, not evidence about the
+      // child — so it closes the window rather than hanging the request the
+      // operator is waiting on. If the child had already exited, `settle` has
+      // long since answered `died` and this is a no-op.
+      void options
+        .wait(settleMs)
+        .catch(() => undefined)
+        .then(() => {
+          settle({ kind: 'launched', via: 'detached', pid })
+        })
     })
   })
+}
+
+/**
+ * Starts {@link LaunchPlan}: into a real tmux window when this machine has a
+ * tmux server, and detached-with-a-liveness-check when it does not. Never
+ * throws — every failure is a value, and ruling 3 means even a clean
+ * `launched` is not a claim that telemetry is flowing, only that a process
+ * exists and (for `via: 'detached'`) was still there a moment later.
+ *
+ * The tmux attempt runs FIRST and is all-or-nothing: it either returns an
+ * outcome (and nothing detached is spawned) or it returns `null` having
+ * started nothing. There is no path on which both run.
+ */
+export async function runLaunch(plan: LaunchPlan, options: RunLaunchOptions): Promise<LaunchOutcome> {
+  const viaTmux = await tryTmuxLaunch(plan, options.exec ?? realExec)
+  if (viaTmux !== null) return viaTmux
+  return runDetachedLaunch(plan, options)
 }

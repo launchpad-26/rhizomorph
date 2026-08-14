@@ -480,6 +480,67 @@ describe('POST /api/concierge/launch', () => {
     expect(planMigrationMock).not.toHaveBeenCalled()
   })
 
+  /**
+   * #532. The route used to answer `{kind:'launched', pid}` for a conductor
+   * that had already exited, because `runLaunch` had no way to notice and this
+   * route asked it for nothing more. Two claims, one per half of the fix.
+   */
+  describe('the launch is reported honestly, and this route lends the clock that makes that possible', () => {
+    beforeEach(() => {
+      planLaunchMock.mockResolvedValue({ argv: ['claude'], env: {}, cwd: repoPath, telemetry: { level: 'provided' } })
+    })
+
+    it('a died outcome rides the 200 body verbatim — never rewritten into a launched, never a 500', async () => {
+      runLaunchMock.mockResolvedValue({
+        kind: 'died',
+        via: 'detached',
+        message: 'the process started and then exited with code 1 straight away',
+      })
+
+      const response = await post(makeApp(), { harness: 'claude', mode: 'launch' })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual({
+        harness: 'claude',
+        mode: 'launch',
+        telemetry: { level: 'provided' },
+        continuity: null,
+        migration: null,
+        kind: 'died',
+        via: 'detached',
+        message: 'the process started and then exited with code 1 straight away',
+      })
+    })
+
+    it('a tmux launch says WHERE — via and window cross into the body unchanged', async () => {
+      runLaunchMock.mockResolvedValue({ kind: 'launched', via: 'tmux', pid: 9911, window: 'main:3' })
+
+      const response = await post(makeApp(), { harness: 'claude', mode: 'launch' })
+
+      expect(response.json()).toMatchObject({ kind: 'launched', via: 'tmux', pid: 9911, window: 'main:3' })
+    })
+
+    /**
+     * The concierge owns no clock (its namespace law's clause 3), so the wait
+     * that makes a `died` findable at all is this route's to supply. Asserted
+     * as a REAL delay, not merely a function: a `wait` stubbed to resolve at
+     * once would satisfy the type, pass a `toHaveBeenCalledWith(expect.any(
+     * Function))`, and quietly restore the defect — the settle window would
+     * close before any child could exit inside it.
+     */
+    it('hands runLaunch a wait that really waits', async () => {
+      runLaunchMock.mockResolvedValue({ kind: 'launched', via: 'detached', pid: 4242 })
+
+      await post(makeApp(), { harness: 'claude', mode: 'launch' })
+
+      const options = runLaunchMock.mock.calls[0]?.[1] as { wait: (ms: number) => Promise<void> }
+      expect(typeof options.wait).toBe('function')
+      const before = Date.now()
+      await options.wait(25)
+      expect(Date.now() - before).toBeGreaterThanOrEqual(20)
+    })
+  })
+
   it('a spawn failure still answers 200 — the outcome rides in the body, never the status line', async () => {
     planLaunchMock.mockResolvedValue({ argv: ['claude'], env: {}, cwd: repoPath, telemetry: { level: 'provided' } })
     runLaunchMock.mockResolvedValue({ kind: 'error', message: 'could not start claude: ENOENT' })

@@ -74,9 +74,14 @@ export interface InstrumentRequest {
 export type MigrationFact = 'migrated' | 'already-present' | 'not-needed'
 
 /**
- * Whether the OS actually made the process. prd-20 ruling 3 is explicit that a
- * spawn's success is not a claim that telemetry is flowing — the operator
- * watches the connection facts flip — so this says only what it knows.
+ * Whether the OS actually made the process AND it was still there a moment
+ * later. prd-20 ruling 3 is explicit that a spawn's success is not a claim
+ * that telemetry is flowing — the operator watches the connection facts flip —
+ * so this says only what it knows.
+ *
+ * `launched: false` covers both "no process was ever made" and #532's
+ * "it exited immediately"; the server's own sentence says which, and see
+ * {@link parseStarted} for why the two are one value here.
  */
 export type SpawnResult = { launched: true; pid: number } | { launched: false; message: string }
 
@@ -146,10 +151,21 @@ function parseStarted(answer: unknown, sessionId: string): InstrumentStarted | n
     if (typeof pid !== 'number' || !Number.isFinite(pid)) return null
     return { kind: 'instrumented', sessionId, migration, spawn: { launched: true, pid } }
   }
-  // The spawn itself failed. It rides in the 200 body rather than the status
-  // line (`api/concierge.ts` makes that split deliberately), and it is
-  // reported, never discarded: the migration copy may already have run.
-  if (kind === 'error') {
+  // Two ways the process is not there, and both are reported rather than
+  // discarded: the migration copy may already have run.
+  //
+  // `'error'` — the spawn itself failed, no process was ever made. It rides in
+  // the 200 body rather than the status line (`api/concierge.ts` makes that
+  // split deliberately).
+  //
+  // `'died'` — #532, and the one this module must not read as an unknown
+  // shape. The process WAS made and was gone again a moment later, which for a
+  // TTY-less detached `claude` is what always happened; the server used to
+  // call that `launched`. Read as `launched: false` carrying the server's own
+  // account, because for the operator "it exited immediately" and "it never
+  // started" have the same next move — run the command themselves — and a
+  // relaunch half-believed is the one answer this parser exists to refuse.
+  if (kind === 'error' || kind === 'died') {
     if (typeof message !== 'string' || message.length === 0) return null
     return { kind: 'instrumented', sessionId, migration, spawn: { launched: false, message } }
   }

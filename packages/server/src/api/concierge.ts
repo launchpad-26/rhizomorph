@@ -182,12 +182,23 @@ export function registerConciergeCloneRoute(app: FastifyInstance, ctx: ServerCon
  * or for a replay server (nothing live to launch into, same posture as
  * `/api/concierge/clone`/`/api/lab/launch`).
  *
- * `runLaunch`'s outcome — launched, or the spawn itself failed — rides in the
- * 200 body rather than the status line, the same split clone.ts makes for
- * `runClone`'s own terminal event: planning failures are HTTP-shaped, runtime
- * ones are IN the response. Ruling 3 means a 200 here is never a claim that
- * telemetry is flowing — only that planning succeeded and the OS was asked to
- * start the process. `ctx.port` is required for this one route: it is what
+ * `runLaunch`'s outcome rides in the 200 body rather than the status line, the
+ * same split clone.ts makes for `runClone`'s own terminal event: planning
+ * failures are HTTP-shaped, runtime ones are IN the response. Ruling 3 means a
+ * 200 here is never a claim that telemetry is flowing — only that planning
+ * succeeded and the OS was asked to start the process.
+ *
+ * **Four outcomes since #532, not two, and one of them is the point.** The
+ * live wave-8 proof caught this route answering `{kind:'launched', pid}` for a
+ * conductor that had already exited — a detached, TTY-less `claude --resume`
+ * exits immediately, and the spawn's own success said nothing about it. So the
+ * body now carries WHERE the process went (`via: 'tmux'` with the window to
+ * attach to, or `via: 'detached'`) and, when the detached child was gone again
+ * within `runLaunch`'s settle window, `kind: 'died'` with the reason — never
+ * `launched` over a corpse. This route's contribution to that is the clock
+ * itself ({@link waitForMs}), which the concierge may not own.
+ *
+ * `ctx.port` is required for this one route: it is what
  * tells the harness where to export TO, and a server booted without it (never
  * true for `cli/run.ts`/`cli/replay.ts`, only possible for a test ctx built by
  * hand) gets an honest 500 rather than a harness launched pointed at nowhere.
@@ -238,6 +249,31 @@ export function registerConciergeCloneRoute(app: FastifyInstance, ctx: ServerCon
 export interface ConciergeLaunchOptions {
   /** Defaults to the real `~/.claude/projects`. A test names a temp dir here so no suite ever touches the operator's own. */
   claudeProjectsRoot?: string
+}
+
+/**
+ * THE LAUNCH'S CLOCK, and the reason it lives in this file rather than in the
+ * module that uses it (#532).
+ *
+ * `runLaunch` holds its answer open for a moment after a detached spawn to see
+ * whether the child is still there, because a `claude` with no TTY exits at
+ * once and the route used to report `launched` over the corpse. That needs a
+ * timer, and the concierge namespace law's clause 3 says nothing under
+ * `concierge/` may schedule work — a law worth keeping exactly as absolute as
+ * it is, since it is what makes "never launches without a human's explicit
+ * command" structural rather than a promise.
+ *
+ * `concierge/clone.ts`'s own header already named this file as where the
+ * exception belongs: "a caller wanting a hard wall-clock cap on top of that
+ * can add one in `api/concierge.ts`, which this law does not fence." This is
+ * that caller. It is not unref'd: the request it belongs to is in flight for
+ * the duration either way, and a server that exited mid-request would abandon
+ * the response, not just the timer.
+ */
+function waitForMs(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
 }
 
 export function registerConciergeLaunchRoute(
@@ -323,7 +359,7 @@ export function registerConciergeLaunchRoute(
                 `not launched: the transcript for session ${JSON.stringify(body.sessionId)} did not reach this ` +
                 `repo's harness state directory, so \`resume\` would find nothing — ${migration.message}`,
             }
-          : await runLaunch(plan)
+          : await runLaunch(plan, { wait: waitForMs })
 
       return reply.code(200).send({
         harness: body.harness,

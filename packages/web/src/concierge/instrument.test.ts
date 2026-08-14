@@ -94,6 +94,52 @@ describe('requestInstrument', () => {
   })
 
   /**
+   * #532: the answer this client did not know how to read, and the one it will
+   * meet most often on a machine with no tmux. `kind: 'died'` means the
+   * process WAS made and was gone again a moment later — which for a detached,
+   * TTY-less `claude` is what always happened, while the server called it
+   * `launched` and this parser dutifully reported a pid nothing was running
+   * under. Read as a non-launch carrying the server's own account.
+   */
+  it('reports a process that started and died as a non-launch, not as an unreadable answer', async () => {
+    const outcome = await requestInstrument(
+      { sessionId: SESSION_ID },
+      answering({
+        ...LAUNCHED,
+        kind: 'died',
+        via: 'detached',
+        pid: undefined,
+        message: 'the process started and then exited with code 1 straight away — nothing survived the launch',
+      }),
+    )
+
+    expect(outcome).toEqual({
+      kind: 'instrumented',
+      sessionId: SESSION_ID,
+      migration: 'migrated',
+      spawn: {
+        launched: false,
+        message: 'the process started and then exited with code 1 straight away — nothing survived the launch',
+      },
+    })
+  })
+
+  it('refuses a died answer that explains nothing — a corpse with no sentence is not a relaunch result', async () => {
+    await expect(
+      requestInstrument({ sessionId: SESSION_ID }, answering({ ...LAUNCHED, kind: 'died', pid: undefined, message: '' })),
+    ).rejects.toThrow('the instrument answered something other than a relaunch result')
+  })
+
+  it('carries a tmux launch’s pid through — the extra facts it rides with change nothing this parser reads', async () => {
+    const outcome = await requestInstrument(
+      { sessionId: SESSION_ID },
+      answering({ ...LAUNCHED, via: 'tmux', pid: 9911, window: 'main:3' }),
+    )
+
+    expect(outcome).toMatchObject({ spawn: { launched: true, pid: 9911 } })
+  })
+
+  /**
    * The one refusal that is a value. Nothing was spawned and nothing was
    * copied, so there is nothing to warn about — only a next step to hand over,
    * which is why the instrument's own sentence rides along.
