@@ -199,6 +199,13 @@ export async function findResumableSession(
  *   `decideSessionBoot` never returns it (a boot is not a rotation) — the
  *   recorder's own hand reports it through `/api/meta` (`api/rotate.ts`), so
  *   the provenance line can say why the session it names is seconds old.
+ * - `retargeted`: the same, for prd20 ruling 5's repo switch (#389,
+ *   `api/retarget.ts`). A separate word from `rotated` for the reason
+ *   `SESSION_CLOSE_REASONS` gained one (#384): a rotation's predecessor is the
+ *   previous log in this same directory, a retarget's is under another repo's
+ *   slug entirely — so the closed recording this session succeeds is NOT in
+ *   this repo's replay picker, which is exactly what the provenance bar says
+ *   when it reads this word.
  *
  * An ARRAY rather than a bare union (#384), for one reason only: the web's
  * provenance bar keeps its own list of the reasons it can explain
@@ -222,6 +229,7 @@ export const SESSION_BOOT_REASONS = [
   'writer-alive',
   'closed',
   'rotated',
+  'retargeted',
 ] as const
 export type SessionBootReason = (typeof SESSION_BOOT_REASONS)[number]
 

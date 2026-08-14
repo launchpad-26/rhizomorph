@@ -51,13 +51,15 @@ import { bootExplanation, KNOWN_BOOT_REASONS } from './StatusBar.js'
  * future). Neither direction is optional — the first was missing until review
  * of #392 walked the hole.
  *
- * - `retargeted`: prd20 ruling 5's repo switch closes the session in the old
- *   repo's directory and opens one here (#384 widened `SESSION_CLOSE_REASONS`
- *   to match). `SessionBootReason` learns it with the route that reports it,
- *   #390 — the bar learns it now so that boot is never the first one to
- *   discover the bar can't read it.
+ * Empty since #389, and that is the mechanism working rather than the list
+ * going away. `retargeted` was its one entry: the bar learned prd20 ruling 5's
+ * word ahead of any server that could say it, and the graduation law above
+ * turned red the moment `SESSION_BOOT_REASONS` learned it too. The fix was
+ * deleting one string. (#384's note named #390 as the issue that would pay the
+ * debt; #390 turned out to be the client's fold reset, and `POST /api/retarget`
+ * — #389 — is the route that actually reports the boundary.)
  */
-const FORWARD_ONLY: readonly string[] = ['retargeted']
+const FORWARD_ONLY: readonly string[] = []
 
 describe('the boot-reason seam: the bar can explain everything the server can say (#384)', () => {
   it('has both lists to compare at all — an empty sweep proves nothing', () => {

@@ -7,6 +7,7 @@ import { registerLabRoutes } from './lab.js'
 import { registerLanesRoute } from './lanes.js'
 import { registerMetaRoute } from './meta.js'
 import { registerOtelRoutes } from './otel.js'
+import { registerRetargetRoute } from './retarget.js'
 import { registerRotateRoute } from './rotate.js'
 import { registerSessionPreviewRoute } from './session-preview.js'
 import { registerSessionsRoutes } from './sessions.js'
@@ -23,12 +24,17 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   // A session's first words (prd20 w6) — the read-only companion to the
   // transcript tail, sharing its attribution and its bounded-read shape.
   registerSessionPreviewRoute(app, ctx)
-  // The app's nine mutating routes (prd16 rulings 2 and 4; prd1's OTLP inbox;
-  // prd-20's two concierge powers) — see `ROUTE_CLASSES` below for the full
-  // classification, and `rotate.ts` / `label.ts` for why each of these two is
-  // allowed to exist and what still may not.
+  // The app's ten mutating routes (prd16 rulings 2 and 4; prd1's OTLP inbox;
+  // prd-20's two concierge powers and its repo switch) — see `ROUTE_CLASSES`
+  // below for the full classification, and `rotate.ts` / `label.ts` for why
+  // each of these two is allowed to exist and what still may not.
   registerRotateRoute(app, ctx)
   registerLabelRoute(app, ctx)
+  // prd-20 ruling 5's repo switch (#389) — the session boundary drawn across
+  // two repos, assembling #385–#388. Registered beside rotation because it is
+  // the same hand: see `retarget.ts`'s own doc for the order it runs in, and
+  // `retarget-law.test.ts` for the clause that keeps it a human's act.
+  registerRetargetRoute(app, ctx)
   // Read-only routes over the laboratory's checkpoint/experiment slice
   // (prd14 wave 1) — see `lab.ts`'s own doc for why this never imports
   // `server/src/lab/` directly.
@@ -69,10 +75,13 @@ export interface RouteClassification {
  * remembered.
  */
 export const ROUTE_CLASSES: readonly RouteClassification[] = [
-  // Gated mutations (5) — each carries `requireCapabilityToken` as a
+  // Gated mutations (6) — each carries `requireCapabilityToken` as a
   // route-local `preHandler` (`api/security.ts`).
   { method: 'POST', url: '/api/label', routeClass: 'gated-mutation' },
   { method: 'POST', url: '/api/rotate', routeClass: 'gated-mutation' },
+  // prd-20 ruling 5's repo switch: the same hand as rotation, drawn across two
+  // repos' session directories (#389).
+  { method: 'POST', url: '/api/retarget', routeClass: 'gated-mutation' },
   { method: 'POST', url: '/api/lab/launch', routeClass: 'gated-mutation' },
   // The concierge's two granted powers (prd-20 ruling 1 / ADR-0019): clone a
   // repo into its own namespace, and launch/relaunch the conductor. Both are
@@ -89,7 +98,7 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   { method: 'POST', url: '/v1/traces', routeClass: 'ungated-mutation' },
   { method: 'POST', url: '/', routeClass: 'ungated-mutation' },
 
-  // Reads (11).
+  // Reads (12, plus the static catch-all below).
   { method: 'GET', url: '/api/meta', routeClass: 'read' },
   { method: 'GET', url: '/api/sessions', routeClass: 'read' },
   { method: 'GET', url: '/api/sessions/:id/events', routeClass: 'read' },
