@@ -28,7 +28,7 @@ function answering(payload: unknown, status = 200): InstrumentFetchLike {
   return async () => ({ ok: status >= 200 && status < 300, status, json: async () => payload })
 }
 
-const LAUNCHED = { migration: 'migrated', kind: 'launched', pid: 4242 }
+const LAUNCHED = { migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'launched', pid: 4242 }
 
 async function click(element: HTMLElement) {
   await act(async () => {
@@ -83,7 +83,7 @@ describe('InstrumentButton', () => {
     expect(onInstrumented).toHaveBeenCalledWith({
       kind: 'instrumented',
       sessionId: SESSION_ID,
-      migration: 'migrated',
+      migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl', message: null },
       // This fixture's answer says nothing about telemetry, and `null` is that
       // said as itself rather than as a claim either way (ledger #4).
       telemetry: null,
@@ -127,8 +127,13 @@ describe('InstrumentButton', () => {
   it.each([
     ['already-present', 'already in this repo'],
     ['not-needed', 'no copy was needed'],
-  ])('says what the copy actually did when it was %s', async (migration, sentence) => {
-    render(<InstrumentButton sessionId={SESSION_ID} fetchImpl={answering({ ...LAUNCHED, migration })} />)
+  ])('says what the copy actually did when it was %s', async (kind, sentence) => {
+    render(
+      <InstrumentButton
+        sessionId={SESSION_ID}
+        fetchImpl={answering({ ...LAUNCHED, migration: { kind, at: '/home/u/.claude/projects/-repo/s.jsonl' } })}
+      />,
+    )
 
     await click(screen.getByTestId('instrument-button-start'))
     await click(screen.getByTestId('instrument-button-confirm'))
@@ -140,7 +145,7 @@ describe('InstrumentButton', () => {
     render(
       <InstrumentButton
         sessionId={SESSION_ID}
-        fetchImpl={answering({ migration: 'migrated', kind: 'error', message: 'ENOENT claude' })}
+        fetchImpl={answering({ migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'error', message: 'ENOENT claude' })}
       />,
     )
 

@@ -145,7 +145,24 @@ function assertModeAndSessionAgree(mode: InstrumentMode, sessionId: string | und
  * the watched repo's own slug directory and no copy was called for
  * (`not-needed`).
  */
-export type MigrationFact = 'migrated' | 'already-present' | 'not-needed'
+export type MigrationKind = 'migrated' | 'already-present' | 'not-needed' | 'copy-failed'
+
+/**
+ * THE SHAPE THE ROUTE ACTUALLY SENDS (#543). `concierge/migrate.ts` answers an
+ * OBJECT — `{kind, at}` for the three that placed a file, `{kind, message}` for
+ * the copy that failed — and this module read it as a bare word until a live
+ * browser pass caught every success being refused as unreadable. The union is
+ * mirrored from the server's own `MigrationOutcome`, and `copy-failed` is here
+ * because it rides a 200 body: the launch went ahead, and the operator is owed
+ * the reason the copy did not.
+ */
+export interface MigrationFact {
+  readonly kind: MigrationKind
+  /** Where the transcript ended up — absent on `copy-failed`. */
+  readonly at: string | null
+  /** Why the copy failed — present only on `copy-failed`. */
+  readonly message: string | null
+}
 
 /**
  * The fourth answer, and it is a `null` on the wire rather than a word: **there
@@ -269,7 +286,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isMigrationFact(value: unknown): value is MigrationFact {
-  return value === 'migrated' || value === 'already-present' || value === 'not-needed'
+  if (!isRecord(value)) return false
+  const { kind, at, message } = value
+  if (kind !== 'migrated' && kind !== 'already-present' && kind !== 'not-needed' && kind !== 'copy-failed') {
+    return false
+  }
+  // Each kind carries its own half of the story, and neither is optional in the
+  // shape the route sends: a placed file names WHERE, a failed copy names WHY.
+  if (kind === 'copy-failed') return typeof message === 'string' && message.length > 0
+  return typeof at === 'string' && at.length > 0
 }
 
 /**
@@ -323,6 +348,14 @@ function parseStarted(answer: unknown, sessionId: string | null): InstrumentStar
   const { migration, kind, pid, message, via } = answer
   const tmuxWindow = answer.window
   if (!isMigrationOutcome(migration, 'migration' in answer)) return null
+  const migrationFact: MigrationOutcome =
+    migration === null
+      ? null
+      : {
+          kind: migration.kind,
+          at: typeof migration.at === 'string' && migration.at.length > 0 ? migration.at : null,
+          message: typeof migration.message === 'string' && migration.message.length > 0 ? migration.message : null,
+        }
   // The field this destructure used to leave behind (ledger #4). It rides on
   // every outcome, launched and dead alike: what the harness's own adapter says
   // about telemetry arriving here is true of the request, not of its result.
@@ -340,12 +373,12 @@ function parseStarted(answer: unknown, sessionId: string | null): InstrumentStar
       return {
         kind: 'instrumented',
         sessionId,
-        migration,
+        migration: migrationFact,
         telemetry,
         spawn: { launched: true, via: 'tmux', pid, window: tmuxWindow },
       }
     }
-    return { kind: 'instrumented', sessionId, migration, telemetry, spawn: { launched: true, via: 'detached', pid } }
+    return { kind: 'instrumented', sessionId, migration: migrationFact, telemetry, spawn: { launched: true, via: 'detached', pid } }
   }
   // Two ways the process is not there, and both are reported rather than
   // discarded: the migration copy may already have run.
@@ -363,7 +396,7 @@ function parseStarted(answer: unknown, sessionId: string | null): InstrumentStar
   // relaunch half-believed is the one answer this parser exists to refuse.
   if (kind === 'error' || kind === 'died') {
     if (typeof message !== 'string' || message.length === 0) return null
-    return { kind: 'instrumented', sessionId, migration, telemetry, spawn: { launched: false, message } }
+    return { kind: 'instrumented', sessionId, migration: migrationFact, telemetry, spawn: { launched: false, message } }
   }
   return null
 }

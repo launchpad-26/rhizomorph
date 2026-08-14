@@ -485,7 +485,7 @@ describe('the uninstrumented sessions, enumerated (#520)', () => {
    * page says in the same breath.
    */
   it('says what a successful relaunch actually did — same session, and this row clears itself', async () => {
-    await instrument(async () => ({ ok: true, status: 200, json: async () => ({ migration: 'migrated', kind: 'launched', pid: 4242 }) }))
+    await instrument(async () => ({ ok: true, status: 200, json: async () => ({ migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'launched', pid: 4242 }) }))
 
     const status = screen.getByTestId('connect-instrument-status-sess-gabe').textContent ?? ''
     expect(status).toContain('telemetry now flows under this same session')
@@ -509,7 +509,7 @@ describe('the uninstrumented sessions, enumerated (#520)', () => {
       ok: true,
       status: 200,
       json: async () => ({
-        migration: 'migrated',
+        migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl' },
         kind: 'died',
         message: 'the process exited 40ms after it started — an interactive harness with no terminal attached',
       }),
@@ -535,7 +535,7 @@ describe('the uninstrumented sessions, enumerated (#520)', () => {
     await instrument(async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ migration: 'already-present', kind: 'error', message: 'spawn claude ENOENT' }),
+      json: async () => ({ migration: { kind: 'already-present', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'error', message: 'spawn claude ENOENT' }),
     }))
 
     const status = screen.getByTestId('connect-instrument-status-sess-gabe').textContent ?? ''

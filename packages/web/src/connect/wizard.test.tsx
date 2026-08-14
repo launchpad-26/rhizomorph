@@ -590,7 +590,7 @@ describe('step 2 — the conductor', () => {
       instrumentFetchImpl: answering({
         harness: 'claude',
         mode: 'launch',
-        migration: 'not-needed',
+        migration: { kind: 'not-needed', at: '/home/u/.claude/projects/-repo/s.jsonl' },
         kind: 'died',
         via: 'detached',
         message: 'the process started and then exited with code 1 straight away',

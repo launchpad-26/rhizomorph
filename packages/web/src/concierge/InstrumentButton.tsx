@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { copyToClipboard, type CopyText } from '../drawer/AttachButton.js'
-import { requestInstrument, type InstrumentFetchLike, type InstrumentOutcome, type MigrationFact } from './instrument.js'
+import { requestInstrument, type InstrumentFetchLike, type InstrumentOutcome, type MigrationKind } from './instrument.js'
 
 /**
  * "INSTRUMENT THIS SESSION" (prd-20 rulings 3 and 6) — the operator's explicit
@@ -64,10 +64,11 @@ type Phase =
 type CopyState = 'idle' | 'copied' | 'failed'
 
 /** What the copy actually did, said in the operator's terms rather than the flag's. */
-const MIGRATION_SENTENCE: Record<MigrationFact, string> = {
+const MIGRATION_SENTENCE: Record<MigrationKind, string> = {
   migrated: 'the transcript was copied into this repo’s harness state directory — the original was left exactly as it was',
   'already-present': 'the transcript was already in this repo’s harness state directory — nothing was copied or overwritten',
   'not-needed': 'no copy was needed — this conversation already lives where the harness looks for it',
+  'copy-failed': 'the transcript could not be copied — the relaunch went ahead against whatever the harness already had',
 }
 
 const BUTTON_CLASS =
@@ -180,7 +181,7 @@ export function InstrumentButton({
               for is not one it should narrate. */}
           {phase.outcome.migration !== null && (
             <p data-testid={`${testId}-migration`} className="text-[12px] text-ice-300">
-              {MIGRATION_SENTENCE[phase.outcome.migration]}
+              {MIGRATION_SENTENCE[phase.outcome.migration.kind]}
             </p>
           )}
           {phase.outcome.spawn.launched === false && (

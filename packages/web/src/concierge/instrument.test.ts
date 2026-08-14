@@ -31,7 +31,7 @@ function answering(payload: unknown, status = 200): InstrumentFetchLike {
   return async () => ({ ok: status >= 200 && status < 300, status, json: async () => payload })
 }
 
-const LAUNCHED = { harness: 'claude', mode: 'resume', migration: 'migrated', kind: 'launched', pid: 4242 }
+const LAUNCHED = { harness: 'claude', mode: 'resume', migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'launched', pid: 4242 }
 
 describe('requestInstrument', () => {
   it('asks the one route, with the one verb, carrying both headers and the resume body', async () => {
@@ -52,7 +52,7 @@ describe('requestInstrument', () => {
     expect(outcome).toEqual({
       kind: 'instrumented',
       sessionId: SESSION_ID,
-      migration: 'migrated',
+      migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl', message: null },
       telemetry: null,
       spawn: { launched: true, via: 'detached', pid: 4242 },
     })
@@ -60,16 +60,16 @@ describe('requestInstrument', () => {
 
   it.each(['migrated', 'already-present', 'not-needed'] as const)(
     'carries the migration fact through verbatim: %s',
-    async (migration) => {
+    async (kind) => {
       const outcome = await requestInstrument(
         { sessionId: SESSION_ID },
-        answering({ ...LAUNCHED, migration }),
+        answering({ ...LAUNCHED, migration: { kind, at: '/home/u/.claude/projects/-repo/s.jsonl' } }),
       )
 
       expect(outcome).toEqual({
         kind: 'instrumented',
         sessionId: SESSION_ID,
-        migration,
+        migration: { kind, at: '/home/u/.claude/projects/-repo/s.jsonl', message: null },
         telemetry: null,
         spawn: { launched: true, via: 'detached', pid: 4242 },
       })
@@ -84,13 +84,13 @@ describe('requestInstrument', () => {
   it('reports a spawn that failed as an outcome, not a throw — the copy may already have happened', async () => {
     const outcome = await requestInstrument(
       { sessionId: SESSION_ID },
-      answering({ ...LAUNCHED, migration: 'already-present', kind: 'error', pid: undefined, message: 'ENOENT claude' }),
+      answering({ ...LAUNCHED, migration: { kind: 'already-present', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'error', pid: undefined, message: 'ENOENT claude' }),
     )
 
     expect(outcome).toEqual({
       kind: 'instrumented',
       sessionId: SESSION_ID,
-      migration: 'already-present',
+      migration: { kind: 'already-present', at: '/home/u/.claude/projects/-repo/s.jsonl', message: null },
       telemetry: null,
       spawn: { launched: false, message: 'ENOENT claude' },
     })
@@ -119,7 +119,7 @@ describe('requestInstrument', () => {
     expect(outcome).toEqual({
       kind: 'instrumented',
       sessionId: SESSION_ID,
-      migration: 'migrated',
+      migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl', message: null },
       telemetry: null,
       spawn: {
         launched: false,
@@ -415,10 +415,10 @@ describe('requestInstrument', () => {
   it.each([
     ['a body that is not an object', 'a relaunch, surely'],
     ['no migration fact at all', { kind: 'launched', pid: 1 }],
-    ['a migration fact this module does not know', { migration: 'moved', kind: 'launched', pid: 1 }],
-    ['a spawn result it cannot read', { migration: 'migrated', kind: 'started', pid: 1 }],
-    ['a launched spawn with no pid', { migration: 'migrated', kind: 'launched' }],
-    ['a failed spawn with no message', { migration: 'migrated', kind: 'error' }],
+    ['a migration fact this module does not know', { migration: { kind: 'moved', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'launched', pid: 1 }],
+    ['a spawn result it cannot read', { migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'started', pid: 1 }],
+    ['a launched spawn with no pid', { migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'launched' }],
+    ['a failed spawn with no message', { migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'error' }],
   ])('refuses to believe %s', async (_label, payload) => {
     const failure = await requestInstrument({ sessionId: SESSION_ID }, answering(payload)).catch(
       (err: unknown) => err,
@@ -440,4 +440,60 @@ describe('requestInstrument', () => {
     expect(failure).toBeInstanceOf(Error)
     expect((failure as Error).message).toBe('the instrument answered something other than a relaunch result')
   })
+
+  /**
+   * #543 — THE BODY THE ROUTE ACTUALLY SENDS, CAPTURED OFF THE WIRE.
+   *
+   * Every fixture above is hand-written, and hand-written fixtures agreed with
+   * each other while disagreeing with the server for a whole stack: this module
+   * read `migration` as a bare word, `concierge/migrate.ts` had always answered
+   * an object, and both sides' suites were green. A live browser click found it
+   * — the act succeeded, the transcript was copied, a wired conductor came up
+   * in tmux, and the page said "the instrument answered something other than a
+   * relaunch result". This body is pasted verbatim from that capture, so the
+   * next shape change on either side breaks HERE rather than in a browser.
+   */
+  it('reads the route’s own captured body — the success that used to read as a refusal (#543)', async () => {
+    const captured = {
+      harness: 'claude',
+      mode: 'resume',
+      telemetry: { level: 'provided' },
+      continuity: {
+        kind: 'proven',
+        argv: ['--resume', SESSION_ID],
+        whatContinues: 'the transcript for this exact sessionId',
+        whatIsLost: 'everything the old process already did',
+        evidence: 'research/2026-08-14-cross-host-resume.md (VERDICT: GO)',
+      },
+      migration: { kind: 'migrated', at: '/home/u/.claude/projects/-home-u-repo/' + SESSION_ID + '.jsonl' },
+      kind: 'launched',
+      via: 'tmux',
+      pid: 3243092,
+      window: 'swarm:21',
+    }
+
+    const outcome = await requestInstrument({ sessionId: SESSION_ID }, answering(captured))
+
+    expect(outcome.kind).toBe('instrumented')
+    if (outcome.kind !== 'instrumented') return
+    expect(outcome.migration).toEqual({
+      kind: 'migrated',
+      at: '/home/u/.claude/projects/-home-u-repo/' + SESSION_ID + '.jsonl',
+      message: null,
+    })
+    expect(outcome.spawn).toEqual({ launched: true, via: 'tmux', pid: 3243092, window: 'swarm:21' })
+  })
+
+  /** The fourth outcome, which rides a 200 body: the launch went ahead, the copy did not. */
+  it('carries copy-failed through with the reason the copy did not happen (#543)', async () => {
+    const outcome = await requestInstrument(
+      { sessionId: SESSION_ID },
+      answering({ ...LAUNCHED, migration: { kind: 'copy-failed', message: 'could not copy /a to /b: EACCES' } }),
+    )
+
+    expect(outcome.kind).toBe('instrumented')
+    if (outcome.kind !== 'instrumented') return
+    expect(outcome.migration).toEqual({ kind: 'copy-failed', at: null, message: 'could not copy /a to /b: EACCES' })
+  })
+
 })

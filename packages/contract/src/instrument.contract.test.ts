@@ -92,6 +92,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(HERE, '..', '..', '..')
 const LAUNCH_MODULE = path.join(REPO_ROOT, 'packages', 'server', 'src', 'concierge', 'launch.ts')
 const INSTRUMENT_MODULE = path.join(REPO_ROOT, 'packages', 'web', 'src', 'concierge', 'instrument.ts')
+const MIGRATE_MODULE = path.join(REPO_ROOT, 'packages', 'server', 'src', 'concierge', 'migrate.ts')
 
 /** Every `kind: '…'` in the server's `LaunchOutcome` union declaration — the answers the route can send. */
 function serverOutcomeKinds(source: string): string[] {
@@ -99,9 +100,28 @@ function serverOutcomeKinds(source: string): string[] {
   return [...new Set([...declaration.matchAll(/kind: '([a-z-]+)'/g)].map((match) => match[1] as string))].sort()
 }
 
-/** Every `kind === '…'` the client's parser compares against — the answers it can read. */
+/**
+ * Every `kind === '…'` the client's parser compares against — the answers it
+ * can read. Since #543 the same module also names the MIGRATION vocabulary,
+ * which comes from a different server module, so the two are read apart: this
+ * one takes only what `parseStarted` tests the spawn against.
+ */
 function clientRecognisedKinds(source: string): string[] {
-  return [...new Set([...source.matchAll(/kind === '([a-z-]+)'/g)].map((match) => match[1] as string))].sort()
+  const start = source.indexOf('function parseStarted(')
+  const spawn = start === -1 ? '' : source.slice(start, source.indexOf('\n}', start))
+  return [...new Set([...spawn.matchAll(/kind === '([a-z-]+)'/g)].map((match) => match[1] as string))].sort()
+}
+
+/** The migration words the server's `MigrationResult` can send. */
+function serverMigrationKinds(source: string): string[] {
+  const declaration = /export type MigrationOutcome =([\s\S]*?)\n\n/.exec(source)?.[1] ?? ''
+  return [...new Set([...declaration.matchAll(/kind: '([a-z-]+)'/g)].map((match) => match[1] as string))].sort()
+}
+
+/** The migration words the client can name — its own union, since #543. */
+function clientMigrationKinds(source: string): string[] {
+  const declaration = /export type MigrationKind =([^\n]*)/.exec(source)?.[1] ?? ''
+  return [...new Set([...declaration.matchAll(/'([a-z-]+)'/g)].map((match) => match[1] as string))].sort()
 }
 
 /**
@@ -138,6 +158,29 @@ describe('contract: the instrument’s two sides answer in one vocabulary (#532)
     expect(recognised).toEqual(kinds)
   })
 
+  /**
+   * THE OTHER HALF OF THE ANSWER, AND THE ONE THAT ACTUALLY BROKE (#543).
+   *
+   * The vocabulary check above passed the whole time the feature was broken,
+   * because the two sides agreed on the WORDS and disagreed on the SHAPE: the
+   * route sent `migration: {kind, at}` and the client read `migration` as a
+   * bare word, so every successful relaunch was refused as unreadable and the
+   * operator was told the act failed while a wired conductor was running. A
+   * live browser click found it; nothing in 4,930 tests did.
+   *
+   * So the migration half gets the same enumeration check — and the runtime
+   * half, which is the part that would have caught the shape, lives in
+   * `instrument.test.ts`'s captured-body case, pasted off the wire.
+   */
+  it('every migration kind the route can send is one the client can name (#543)', () => {
+    const kinds = serverMigrationKinds(readFileSync(MIGRATE_MODULE, 'utf8'))
+    const named = clientMigrationKinds(readFileSync(INSTRUMENT_MODULE, 'utf8'))
+
+    expect(kinds.length).toBeGreaterThan(2)
+    expect(kinds).toContain('copy-failed')
+    expect(named).toEqual(kinds)
+  })
+
   it('both parsers actually parse — pinned against the shapes they run on', () => {
     // The same functions the case above uses, on samples shaped like the real
     // declarations, so a parser silently returning nothing fails here too.
@@ -146,10 +189,22 @@ describe('contract: the instrument’s two sides answer in one vocabulary (#532)
         "export type LaunchOutcome =\n  | { kind: 'launched'; via: 'tmux'; pid: number }\n  | { kind: 'died'; via: 'detached'; message: string }\n\nexport interface Next {}",
       ),
     ).toEqual(['died', 'launched'])
-    expect(clientRecognisedKinds("if (kind === 'launched') {}\n  if (kind === 'error' || kind === 'died') {}")).toEqual([
-      'died',
-      'error',
-      'launched',
+    // Since #543 the client scraper is scoped to `parseStarted`, so the sample
+    // carries the wrapper: a bare fragment would now (correctly) read as no
+    // parser at all, which is the failure this case exists to make loud.
+    expect(
+      clientRecognisedKinds(
+        "function parseStarted(a: unknown) {\n  if (kind === 'launched') {}\n  if (kind === 'error' || kind === 'died') {}\n}\n",
+      ),
+    ).toEqual(['died', 'error', 'launched'])
+    expect(
+      serverMigrationKinds(
+        "export type MigrationOutcome =\n  | { kind: 'migrated'; at: string }\n  | { kind: 'copy-failed'; message: string }\n\nexport interface Next {}",
+      ),
+    ).toEqual(['copy-failed', 'migrated'])
+    expect(clientMigrationKinds("export type MigrationKind = 'migrated' | 'copy-failed'\n")).toEqual([
+      'copy-failed',
+      'migrated',
     ])
   })
 })
