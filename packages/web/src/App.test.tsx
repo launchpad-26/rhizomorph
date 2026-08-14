@@ -383,7 +383,7 @@ describe('App', () => {
     })
   })
 
-  describe('the connect placeholder (prd19 ruling 1, #252)', () => {
+  describe('the connect page (prd19 ruling 1, #252; the page itself, #258)', () => {
     afterEach(() => {
       window.history.replaceState(null, '', '/')
     })
@@ -394,7 +394,7 @@ describe('App', () => {
       act(() => source()?.open())
 
       expect(await screen.findByTestId('connect-page')).toBeInTheDocument()
-      expect(screen.getByText('connect — the handshake checklist lands in wave 3')).toBeInTheDocument()
+      expect(screen.getByTestId('connect-links')).toBeInTheDocument()
       expect(screen.queryByText('THE OBSERVATORY')).not.toBeInTheDocument()
     })
 
@@ -503,5 +503,70 @@ describe('App', () => {
       expect(screen.getByTestId('nav-lab')).toBeVisible()
       expect(screen.getByTestId('nav-connect')).toBeVisible()
     })
+  })
+})
+/**
+ * The composition root's own wiring (#390 review). `SelectionProvider` can be
+ * mounted unscoped — most panel tests do — so the fact that the REAL tree
+ * hands it the folded repo path is a separate claim from the provider's own
+ * laws in `fleet/selection.test.tsx`, and this is what fences it.
+ *
+ * The drawer is the observable: it is open exactly while a lane is selected,
+ * so a drawer that survives a retarget is a lane id from the old repo still
+ * pointing at something in the new one.
+ */
+describe('a repo boundary drops the selection (#390 review)', () => {
+  it('closes a lane drawer opened in the old repo when session.started names a different one', async () => {
+    const { source } = await renderApp()
+    for (const event of fixtureEvents()) act(() => source()?.emit(event))
+    await act(async () => {})
+
+    fireEvent.click(screen.getByText('select lane'))
+    await act(async () => {})
+    expect(screen.getByTestId('lane-drawer')).toBeInTheDocument()
+
+    // The retarget: same page, same connection, different repository.
+    act(() =>
+      source()?.emit(
+        createEvent(
+          'session.started',
+          {
+            sessionId: 's2',
+            repoPath: '/other-repo',
+            repoName: 'other',
+            mainBranch: 'main',
+          },
+          { id: nextId(), ts: 3 },
+        ),
+      ),
+    )
+    await act(async () => {})
+
+    expect(screen.queryByTestId('lane-drawer')).not.toBeInTheDocument()
+  })
+
+  it('keeps a lane drawer open across an ordinary rotation over the same repo', async () => {
+    const { source } = await renderApp()
+    for (const event of fixtureEvents()) act(() => source()?.emit(event))
+    await act(async () => {})
+
+    fireEvent.click(screen.getByText('select lane'))
+    await act(async () => {})
+    expect(screen.getByTestId('lane-drawer')).toBeInTheDocument()
+
+    // A rotation changes the session id and nothing else. The lane the
+    // operator was reading is still the same lane in the same repo.
+    act(() =>
+      source()?.emit(
+        createEvent(
+          'session.started',
+          { sessionId: 's2', repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' },
+          { id: nextId(), ts: 3 },
+        ),
+      ),
+    )
+    await act(async () => {})
+
+    expect(screen.getByTestId('lane-drawer')).toBeInTheDocument()
   })
 })

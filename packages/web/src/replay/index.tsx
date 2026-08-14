@@ -83,6 +83,28 @@ export default function ReplayControls() {
   const tideStart = isReplaying ? range.start : liveStart
   const tideEnd = isReplaying ? range.end : now
 
+  /**
+   * THE SCRUB INSTANT'S HEADLINE FACTS (#272), formatted here and painted
+   * beside the thumb by `Scrubber` through `TideDock`.
+   *
+   * These are the same three facts that used to sit on a prose row at the foot
+   * of the replay bar — `N worktrees · M commits · $X as of scrub time`. The
+   * row is gone: "as of scrub time" was the whole of what tied it to the
+   * playhead, and a caption a screen away from the thumb is what the issue
+   * calls scattered. Beside the thumb the tie is the position itself, so the
+   * phrase is no longer needed to explain what the numbers are about.
+   *
+   * `null` outside replay: live has no scrub instant, and the readout falls
+   * back to the clock alone.
+   */
+  const scrubFacts = useMemo(
+    () =>
+      isReplaying
+        ? `${Object.keys(state.worktrees).length} worktrees · ${state.commits.order.length} commits · ${formatSpend(scrubSpend)}`
+        : null,
+    [isReplaying, state.worktrees, state.commits.order.length, scrubSpend],
+  )
+
   function replayBirth() {
     const richest = pickRichestSession(sessions)
     if (!richest) return
@@ -194,16 +216,10 @@ export default function ReplayControls() {
         value={playback.currentTs}
         onSeek={playback.seek}
         seekEnabled={isReplaying}
+        scrubFacts={scrubFacts}
       />
 
       {error !== null && <p className="normal-case tracking-normal text-broken">{error}</p>}
-
-      {isReplaying && (
-        <p className="normal-case tracking-normal text-ice-400">
-          {Object.keys(state.worktrees).length} worktrees · {Object.keys(state.commits).length}{' '}
-          commits · {formatSpend(scrubSpend)} as of scrub time
-        </p>
-      )}
 
       {/*
         THE SESSION LISTING'S OWN VOICE (prd17 ruling 3, item 1) — on the row

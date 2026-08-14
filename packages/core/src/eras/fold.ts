@@ -126,13 +126,14 @@ export function foldEraRecording(text: string): EraFold {
  * constructor would fail the build having changed nothing anybody can observe.
  * That is a false alarm, and a corpus that cries wolf gets re-blessed
  * reflexively, which is exactly how a golden snapshot stops guarding anything.
- * Array order is untouched — `commitOrder`, `usage`, `spans` and every index's
- * positions are recorded facts about sequence, and a change to any of them
- * SHOULD fail.
+ * Array order is untouched — `commits.order`, `usage`, `spans` and every
+ * index's positions are recorded facts about sequence, and a change to any of
+ * them SHOULD fail.
  *
- * `traces.byTrace`/`bySession` are getters on the state object; `Object.keys`
- * sees them (they are enumerable own properties) and reading them materialises
- * the projection, so the snapshot covers them like any other key.
+ * `traces.byTrace`/`bySession` — and `commits.bySha`/`order` since #342 — are
+ * getters on their slice objects; `Object.keys` sees them (they are enumerable
+ * own properties) and reading them materialises the projection, so the
+ * snapshot covers them like any other key.
  */
 export function canonicalStateJson(state: SessionState): string {
   return `${JSON.stringify(withSortedKeys(state), null, 2)}\n`

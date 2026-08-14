@@ -1,7 +1,8 @@
 # 0001. Read-only observer, amendable only by explicit invocation
 
-- **Status:** accepted (amended ×3 — the first two amendments are items 2 and 3 of
-  the Decision Outcome below; the third is [ADR-0014](0014-the-fourth-hand.md))
+- **Status:** accepted (amended ×4 — the first two amendments are items 2 and 3 of
+  the Decision Outcome below; the third is [ADR-0019](0019-the-fourth-hand.md) and
+  the fourth is [ADR-0020](0020-transcript-migration-is-a-create-only-copy.md))
 - **Date:** 2026-08-06
 
 ## Context and Problem Statement

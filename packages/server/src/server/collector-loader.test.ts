@@ -1,15 +1,19 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import type { AnyCollector, CollectorContext, Exec, ExecResult } from '@rhizomorph/core'
 import { createEvent, createIdFactory, reduceAll } from '@rhizomorph/core'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { DEFAULT_FAILURE_THRESHOLD, DEFAULT_RETRY_INTERVAL_MS } from '../collectors/resilience.js'
 import { loadCollectors } from './collector-loader.js'
 import { createPollLoop } from './poll-loop.js'
 import type { SessionRecorder } from './recorder.js'
 
 describe('loadCollectors', () => {
-  it('registers all four collectors', async () => {
+  it('registers all five collectors', async () => {
     const collectors = await loadCollectors({ warn: () => {} })
 
-    expect(collectors.map((c) => c.name).sort()).toEqual(['git', 'judge', 'tmux', 'workmux'])
+    expect(collectors.map((c) => c.name).sort()).toEqual(['git', 'judge', 'sessionlog', 'tmux', 'workmux'])
   })
 
   it('never warns for the real collectors, which are always present', async () => {
@@ -110,5 +114,212 @@ describe('loadCollectors — resume reconciliation (#111)', () => {
 
     const foldedAfter = reduceAll([...priorEvents, ...result.events])
     expect(foldedAfter.collectors.tmux?.status).toBe('healthy')
+  })
+})
+
+describe('loadCollectors — agent reconciliation (#418)', () => {
+  it('retires a folded agent absent from the first live poll, when the workmux snapshot is missing', async () => {
+    // The exact shape of the bug: this session's log already folds
+    // 'old-lane' to present — from a run that ended before this process
+    // ever polled — and workmux's own snapshot has no memory of that
+    // departure (a fresh boot, or a lost/pruned snapshot dir). workmux
+    // itself reports zero agents right now.
+    const nextId = createIdFactory('evt')
+    const priorEvents = [
+      createEvent(
+        'agent.status',
+        { handle: 'old-lane', status: 'working', branch: 'old-lane', worktreePath: '../old-lane', elapsedSeconds: 60 },
+        { id: nextId(), ts: 1000 },
+      ),
+    ]
+    const foldedBefore = reduceAll(priorEvents)
+    expect(foldedBefore.agents['old-lane']?.present).toBe(true)
+
+    const collectors = await loadCollectors({ warn: () => {} }, priorEvents)
+    const workmux = collectors.find((c) => c.name === 'workmux')
+    if (!workmux) throw new Error('workmux collector missing')
+
+    const emptyStatus: ExecResult = { stdout: '[]', stderr: '', code: 0, failed: false }
+    const emptyList: ExecResult = { stdout: '[]', stderr: '', code: 0, failed: false }
+    const exec: Exec = async (_command, args) => (args[0] === 'list' ? emptyList : emptyStatus)
+
+    function context(now: number): CollectorContext {
+      return {
+        repoPath: '/repo',
+        now,
+        exec,
+        nextId,
+        emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: now }),
+      }
+    }
+
+    const first = await workmux.poll(workmux.initialSnapshot(), context(2000))
+
+    expect(first.events).toEqual([expect.objectContaining({ type: 'agent.removed', payload: { handle: 'old-lane' } })])
+
+    const foldedAfter = reduceAll([...priorEvents, ...first.events])
+    expect(foldedAfter.agents['old-lane']?.present).toBe(false)
+
+    // Repetition: the wiring inherits the wrapper's own once-only latch, not
+    // just the unit test's — a second poll on the same collector, with the
+    // handle still missing, must not re-emit.
+    const second = await workmux.poll(first.nextSnapshot, context(3000))
+    expect(second.events).toHaveLength(0)
+  })
+})
+
+describe('loadCollectors — branch reconciliation (#449)', () => {
+  it('retires a folded ghost branch absent from the first live poll, when the git snapshot has no memory of it', async () => {
+    // The exact shape of the bug: this session's log already folds
+    // 'old-feature' into `folded.branches` — from a run that ended before
+    // this process ever polled, or from before #137 taught the collector to
+    // diff branch removals at all — and the git collector's own persisted
+    // snapshot has no memory of it (a fresh boot with no snapshot). git
+    // itself reports only 'main' right now.
+    const nextId = createIdFactory('evt')
+    const priorEvents = [
+      createEvent('branch.updated', { branch: 'old-feature', head: 'aaaaaaaaaa' }, { id: nextId(), ts: 1000 }),
+    ]
+    const foldedBefore = reduceAll(priorEvents)
+    expect(foldedBefore.branches['old-feature']).toBeDefined()
+
+    const collectors = await loadCollectors({ warn: () => {} }, priorEvents)
+    const git = collectors.find((c) => c.name === 'git')
+    if (!git) throw new Error('git collector missing')
+
+    const MAIN_HEAD = '1111111111111111111111111111111111111111'
+    const worktreeList: ExecResult = {
+      stdout: `worktree /repo\nHEAD ${MAIN_HEAD}\nbranch refs/heads/main\n`,
+      stderr: '',
+      code: 0,
+      failed: false,
+    }
+    const refs: ExecResult = { stdout: `main ${MAIN_HEAD}\n`, stderr: '', code: 0, failed: false }
+    const status: ExecResult = { stdout: '', stderr: '', code: 0, failed: false }
+    const exec: Exec = async (_command, args) => {
+      if (args[0] === 'worktree') return worktreeList
+      if (args[0] === 'for-each-ref') return refs
+      return status
+    }
+
+    function context(now: number): CollectorContext {
+      return {
+        repoPath: '/repo',
+        now,
+        exec,
+        nextId,
+        emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: now }),
+      }
+    }
+
+    const first = await git.poll(git.initialSnapshot(), context(2000))
+
+    expect(first.events).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: 'branch.removed', payload: { branch: 'old-feature' } })]),
+    )
+
+    const foldedAfter = reduceAll([...priorEvents, ...first.events])
+    expect(foldedAfter.branches['old-feature']).toBeUndefined()
+
+    // Repetition: the wiring inherits the wrapper's own once-only latch, not
+    // just the unit test's — a second poll on the same collector, with the
+    // branch still missing, must not re-emit.
+    const second = await git.poll(first.nextSnapshot, context(3000))
+    expect(second.events.filter((event) => event.type === 'branch.removed')).toHaveLength(0)
+  })
+})
+
+describe('loadCollectors — sessionlog (#240)', () => {
+  let claudeProjectsRoot: string
+
+  beforeEach(async () => {
+    claudeProjectsRoot = await mkdtemp(path.join(tmpdir(), 'collector-loader-sessionlog-'))
+  })
+
+  afterEach(async () => {
+    await rm(claudeProjectsRoot, { recursive: true, force: true })
+  })
+
+  it('registers sessionlog wrapped in resilience, so it also reconciles a stale collector.disabled on resume', async () => {
+    const nextId = createIdFactory('evt')
+    const priorEvents = [
+      createEvent(
+        'collector.disabled',
+        { collector: 'sessionlog', reason: 'no Claude Code session log directory', consecutiveFailures: 3 },
+        { id: nextId(), ts: 1000 },
+      ),
+    ]
+    const foldedBefore = reduceAll(priorEvents)
+    expect(foldedBefore.collectors.sessionlog?.status).toBe('disabled')
+
+    const collectors = await loadCollectors({ warn: () => {} }, priorEvents, { claudeProjectsRoot })
+    const sessionlog = collectors.find((c) => c.name === 'sessionlog')
+    if (!sessionlog) throw new Error('sessionlog collector missing')
+
+    const ok: ExecResult = { stdout: 'worktree /repo\nHEAD abc123\nbranch refs/heads/main\n', stderr: '', code: 0, failed: false }
+    const exec: Exec = async () => ok
+    const context: CollectorContext = {
+      repoPath: '/repo',
+      now: 2000,
+      exec,
+      nextId,
+      emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: 2000 }),
+    }
+
+    const result = await sessionlog.poll(sessionlog.initialSnapshot(), context)
+
+    expect(result.events.some((event) => event.type === 'collector.recovered')).toBe(true)
+
+    const foldedAfter = reduceAll([...priorEvents, ...result.events])
+    expect(foldedAfter.collectors.sessionlog?.status).toBe('healthy')
+  })
+
+  it('retries a run of failed git worktree list calls instead of disabling forever, then recovers (#240 done-when)', async () => {
+    const fail: ExecResult = { stdout: '', stderr: 'fatal: transient', code: 128, failed: true }
+    const ok: ExecResult = { stdout: 'worktree /repo\nHEAD abc123\nbranch refs/heads/main\n', stderr: '', code: 0, failed: false }
+    let gitCalls = 0
+    const exec: Exec = async (command) => {
+      if (command !== 'git') return ok
+      gitCalls += 1
+      return gitCalls <= DEFAULT_FAILURE_THRESHOLD ? fail : ok
+    }
+
+    const collectors = await loadCollectors({ warn: () => {} }, [], { claudeProjectsRoot })
+    const sessionlog = collectors.find((c) => c.name === 'sessionlog')
+    if (!sessionlog) throw new Error('sessionlog collector missing')
+
+    const nextId = createIdFactory('evt')
+    function context(now: number): CollectorContext {
+      return {
+        repoPath: '/repo',
+        now,
+        exec,
+        nextId,
+        emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: now }),
+      }
+    }
+
+    let snapshot = sessionlog.initialSnapshot()
+    let lastEvents: readonly { type: string }[] = []
+    for (let attempt = 1; attempt <= DEFAULT_FAILURE_THRESHOLD; attempt += 1) {
+      const tick = await sessionlog.poll(snapshot, context(attempt * 1000))
+      snapshot = tick.nextSnapshot
+      lastEvents = tick.events
+    }
+    // Threshold consecutive failures actually disable it, with the count named.
+    expect(lastEvents.some((event) => event.type === 'collector.disabled')).toBe(true)
+
+    // Still inside the backoff window: the wrapper skips the attempt entirely.
+    const backingOff = await sessionlog.poll(snapshot, context(DEFAULT_FAILURE_THRESHOLD * 1000 + 1))
+    expect(gitCalls).toBe(DEFAULT_FAILURE_THRESHOLD)
+    snapshot = backingOff.nextSnapshot
+
+    // Past the retry interval, and git is healthy again: it resumes reporting.
+    const recovered = await sessionlog.poll(
+      snapshot,
+      context(DEFAULT_FAILURE_THRESHOLD * 1000 + DEFAULT_RETRY_INTERVAL_MS + 1),
+    )
+    expect(recovered.events.some((event) => event.type === 'collector.recovered')).toBe(true)
+    expect(gitCalls).toBe(DEFAULT_FAILURE_THRESHOLD + 1)
   })
 })

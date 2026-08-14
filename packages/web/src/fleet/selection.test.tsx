@@ -405,3 +405,64 @@ describe('lane selection — the idle-worker jump', () => {
     expect(screen.getByTestId('selected-after').textContent).toBe('lane-already-selected')
   })
 })
+
+/**
+ * The selection is the one piece of page state that names a lane without ever
+ * having gone through the fold, so the fold's own repo-boundary reset
+ * (`app/streamState.ts`) cannot reach it — the same shape as the lane manifest,
+ * and as #370. A lane id belongs to the repo it was selected in (#390 review).
+ *
+ * `repoPath` is optional, so the many surfaces that mount this provider with no
+ * stream in the tree keep an unscoped selection. These laws cover both.
+ */
+describe('the selection is scoped to its repo (#390 review)', () => {
+  function ScopedSurfaces({ repoPath }: { repoPath?: string | null }) {
+    return (
+      <SelectionProvider initialSelectedId="dev-1" repoPath={repoPath}>
+        <Table />
+      </SelectionProvider>
+    )
+  }
+
+  it('drops the selection when the fold moves to a different repo', () => {
+    const view = render(<ScopedSurfaces repoPath="/repos/alpha" />)
+    expect(screen.getByTestId('selected').textContent).toBe('dev-1')
+
+    // The retarget. `dev-1` is a name that plausibly exists in both repos, so
+    // carrying it over would spotlight a stranger rather than simply resolve
+    // to nothing.
+    view.rerender(<ScopedSurfaces repoPath="/repos/beta" />)
+
+    expect(screen.getByTestId('selected').textContent).toBe('(none)')
+  })
+
+  it('keeps the selection when the repo has not moved', () => {
+    const view = render(<ScopedSurfaces repoPath="/repos/alpha" />)
+    // An ordinary rotation, a fleet rebuild on the beat, any re-render at all:
+    // same repo, same selection.
+    view.rerender(<ScopedSurfaces repoPath="/repos/alpha" />)
+
+    expect(screen.getByTestId('selected').textContent).toBe('dev-1')
+  })
+
+  it('keeps the selection when the fold learns its FIRST repo', () => {
+    // Boot, not a retarget: the page mounts before `session.started` names a
+    // repo, so the first path to arrive must not wipe what the operator (or a
+    // deep link) already selected.
+    const view = render(<ScopedSurfaces repoPath={null} />)
+    expect(screen.getByTestId('selected').textContent).toBe('dev-1')
+
+    view.rerender(<ScopedSurfaces repoPath="/repos/alpha" />)
+
+    expect(screen.getByTestId('selected').textContent).toBe('dev-1')
+  })
+
+  it('leaves the selection unscoped when no repo is supplied at all', () => {
+    // Most panel tests mount this provider with no stream in the tree; an
+    // unsupplied `repoPath` must not make the selection unusable.
+    const view = render(<ScopedSurfaces />)
+    view.rerender(<ScopedSurfaces />)
+
+    expect(screen.getByTestId('selected').textContent).toBe('dev-1')
+  })
+})

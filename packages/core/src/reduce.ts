@@ -31,6 +31,7 @@ import type {
 import {
   MAX_ERRORS,
   basename,
+  commitsStateOf,
   initialSessionState,
   refusalStateWith,
   traceStateOf,
@@ -109,6 +110,8 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       return paneActivity(state, event)
     case 'agent.status':
       return agentStatus(state, event)
+    case 'agent.removed':
+      return agentRemoved(state, event)
     case 'llm.usage':
       return llmUsage(state, event)
     case 'llm.cost':
@@ -345,9 +348,49 @@ function branchRemoved(state: SessionState, event: EventOf<'branch.removed'>): S
   return { ...state, branches }
 }
 
+/**
+ * The fold's lookup table over `commits.log` (#342) — the third of its kind,
+ * after {@link UsageIndex} (#179) and {@link TraceIndex} (#184), with the
+ * identical ownership rules: keyed by the identity of the log it describes,
+ * *detached* on take so a second fold branching off the same state rebuilds
+ * its own rather than reading one that has moved on.
+ *
+ * The one question the fold asks per `commit.landed` — "what is the latest
+ * folded record for this sha?" — used to be answered by the accumulated
+ * Record the fold was also paying to copy per event. The copy is gone
+ * (`CommitsState` in `state.ts` explains where it went and what it cost);
+ * the question is answered here, in O(1), by a table carried forward.
+ */
+type CommitIndex = Map<string, CommitRecord>
+
+const commitIndexes = new WeakMap<readonly CommitRecord[], CommitIndex>()
+
+/** The table `log` would have if nothing had ever been carried forward: latest record per sha. */
+function buildCommitIndex(log: readonly CommitRecord[]): CommitIndex {
+  const index: CommitIndex = new Map()
+  for (const record of log) index.set(record.sha, record)
+  return index
+}
+
+/** Detaches `log`'s table for the caller to carry forward, or builds one. */
+function takeCommitIndex(log: readonly CommitRecord[]): CommitIndex {
+  const held = commitIndexes.get(log)
+  if (held === undefined) return buildCommitIndex(log)
+  commitIndexes.delete(log)
+  return held
+}
+
+/** Attaches `index` to the log it now describes, and returns that log. */
+function indexedCommits(log: CommitRecord[], index: CommitIndex): CommitRecord[] {
+  commitIndexes.set(log, index)
+  return log
+}
+
 function commitLanded(state: SessionState, event: EventOf<'commit.landed'>): SessionState {
   const p = event.payload
-  const prev = state.commits[p.sha]
+  const log = state.commits.log
+  const index = takeCommitIndex(log)
+  const prev = index.get(p.sha)
   const commit: CommitRecord = {
     sha: p.sha,
     branches: prev === undefined
@@ -366,10 +409,13 @@ function commitLanded(state: SessionState, event: EventOf<'commit.landed'>): Ses
     worktreePath: p.worktreePath ?? prev?.worktreePath ?? null,
   }
 
+  // Append the merged record — never rewrite the log — and carry the table to
+  // the successor array. `bySha`/`order` are projections; nothing else to keep
+  // in step (#342).
+  index.set(p.sha, commit)
   const next: SessionState = {
     ...state,
-    commits: { ...state.commits, [p.sha]: commit },
-    commitOrder: prev === undefined ? [...state.commitOrder, p.sha] : state.commitOrder,
+    commits: commitsStateOf(indexedCommits([...log, commit], index)),
   }
 
   return upsertBranch(next, p.branch, event.ts, (branch) => ({
@@ -398,7 +444,6 @@ function paneDiscovered(state: SessionState, event: EventOf<'pane.discovered'>):
     lastContentChangeTs: prev?.lastContentChangeTs ?? null,
     contentHash: prev?.contentHash ?? null,
     activityCount: prev?.activityCount ?? 0,
-    preview: prev?.preview ?? null,
   }
   return { ...state, panes: { ...state.panes, [p.paneId]: pane } }
 }
@@ -424,7 +469,6 @@ function paneActivity(state: SessionState, event: EventOf<'pane.activity'>): Ses
     lastActivityTs: event.ts,
     lastContentChangeTs: event.ts,
     activityCount: prev.activityCount + 1,
-    preview: p.preview ?? prev.preview,
   }
   return { ...state, panes: { ...state.panes, [p.paneId]: pane } }
 }
@@ -442,13 +486,27 @@ function agentStatus(state: SessionState, event: EventOf<'agent.status'>): Sessi
     branch: p.branch ?? prev?.branch ?? null,
     elapsedSeconds: p.elapsedSeconds ?? null,
     detail: p.detail ?? null,
+    // Re-discovery must not forget: any fresh sighting is presence, even for
+    // a handle `agent.removed` had previously marked gone.
+    present: true,
     firstSeenAt: prev?.firstSeenAt ?? event.ts,
     updatedAt: event.ts,
+    removedAt: null,
     // Present only when true, and once present never removed: a status poll
     // cannot un-fork a lane, and an ordinary lane's record is untouched.
     ...(prev?.synthetic === true || isSyntheticLane(state, p.handle) ? { synthetic: true as const } : {}),
   }
   return { ...state, agents: { ...state.agents, [p.handle]: agent } }
+}
+
+function agentRemoved(state: SessionState, event: EventOf<'agent.removed'>): SessionState {
+  const prev = state.agents[event.payload.handle]
+  // No-op on an unknown handle, and idempotent on a handle already marked
+  // gone — a repeat `agent.removed` must not stamp `removedAt` forward to a
+  // later tick just because the log happened to carry it twice.
+  if (prev === undefined || prev.present === false) return state
+  const agent: AgentState = { ...prev, present: false, removedAt: event.ts }
+  return { ...state, agents: { ...state.agents, [prev.handle]: agent } }
 }
 
 // --- telemetry (prd1) -------------------------------------------------------
@@ -1414,6 +1472,5 @@ function stubPane(paneId: string, ts: number): PaneState {
     lastContentChangeTs: null,
     contentHash: null,
     activityCount: 0,
-    preview: null,
   }
 }

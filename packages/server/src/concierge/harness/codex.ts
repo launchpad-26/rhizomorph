@@ -44,7 +44,7 @@ import type {
  * ## Configured by argv, so this hand writes nothing
  *
  * codex reads `~/.codex/config.toml`, and the obvious implementation would
- * write that file. This adapter refuses to. ADR-0014 grants the concierge two
+ * write that file. This adapter refuses to. ADR-0019 grants the concierge two
  * powers, and "edit the operator's codex configuration" is not among them —
  * a power not on the list costs another amendment.
  *

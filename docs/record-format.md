@@ -75,12 +75,33 @@ appended:
 
 | Field      | Type                  | Meaning |
 |------------|-----------------------|---------|
-| `line`     | string                | The exact text of one event-log line — **verbatim**, not re-serialized. A record contains exactly what the log contains (see "Laws"): whatever privacy allowlisting happened at collection time already happened before this line existed, and nothing here adds or removes fields. In this codebase, one line is one JSON object matching the envelope `{ id, ts, source, type, payload }` (see `docs/architecture.md`), but this format does not require that shape — the hash chain covers `line` as opaque text, so a compatible emitter for a different event schema can reuse this exact record format unchanged. |
+| `line`     | string                | One event's text. The format constrains nothing about its shape: the chain hashes it as **opaque bytes**, so any emitter may produce it however it likes. Rhizomorph's own CLI and web emitters re-serialize it from the parsed event rather than copying the log file's bytes — see "How `line` is produced", below. |
 | `prevHash` | 64-char lowercase hex | The previous link's `hash`, or the chain's **genesis** digest for the first line (`body[0]`). |
 | `hash`     | 64-char lowercase hex | `sha256hex(prevHash + line)` — see below. |
 
 An empty session (`eventCount: 0`) has `body: []` and `chainDigest` equal to
 the bare genesis digest (no links to chain).
+
+### How `line` is produced
+
+This codebase's emitter parses each log line through the event schema on its
+**read** path, before a record is built: `parseJsonl`
+(`packages/core/src/jsonl.ts`) when exporting from the CLI, `parseEventLenient`
+(`packages/web/src/replay/api.ts`) when exporting from the browser. The record
+builder itself (`packages/core/src/record/build.ts`) parses nothing — it
+serializes the validated events it is handed, with the same serializer the
+session log uses. For a line the current schema wrote, the log's text and the
+re-serialized text are the same; for an older line carrying a field the schema
+no longer declares, they are not, because parsing drops undeclared keys — so
+the schema acts as an allowlist on the way into a new record (see "Laws").
+Records already on disk are never rewritten: they keep, and verify against, the
+lines they were built with.
+
+None of that is required of *your* emitter. In this codebase, one line is one
+JSON object matching the envelope `{ id, ts, source, type, payload }` (see
+`docs/architecture.md`), but this format does not require that shape — the hash
+chain covers `line` as opaque text, so a compatible emitter for a different
+event schema can reuse this exact record format unchanged.
 
 ## The hash chain
 
@@ -282,9 +303,21 @@ emitter or reader must also honor:
    only by a human's hand — there is no push, no server-to-server exchange,
    no background sync. This format's whole design (one self-contained file)
    exists so that stays true by construction.
-3. **A record contains exactly what the log contains.** Whatever privacy
-   allowlisting a collector already applied before a line ever reached the
-   log is the allowlisting this record ships with — verbatim, not
-   re-filtered, not enriched. If a fact isn't safe to export, it was never
-   safe to log in the first place; this format does not add a second privacy
-   boundary of its own.
+3. **A record is never enriched.** Nothing reaches a record that the log did
+   not already contain — no lookups, no re-reading of the repo, no facts
+   added at export time. That is all this law requires of a compatible
+   emitter; how it produces each `line` is its own business.
+
+   **How Rhizomorph's own emitters go further**, which anyone sharing a
+   record written by *this* tool should know: a record is not a byte copy of
+   the log either. The CLI and web export paths parse each line through the
+   *current* event schema and re-serialize the validated event (see "How
+   `line` is produced"), so that schema is an allowlist applied at build
+   time. A field the schema no longer declares (e.g. `pane.activity.preview`,
+   removed by #292) cannot ride an old log line into a new record. Records
+   already written are not rewritten — they keep, and verify against, the
+   lines they were built with, which is why a removal has to be caught at
+   build time or not at all. Treat this as a thin boundary, not a strong
+   one: everything the current schema *does* declare is exported as logged.
+   If a fact isn't safe to export, it was never safe to log in the first
+   place.

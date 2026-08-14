@@ -67,10 +67,15 @@ function downloadJson(fileName: string, data: unknown, env: DownloadEnv): void {
 
 /**
  * Builds the portable record for one recorded session and triggers its
- * download — the manifest plus the log's own lines verbatim under a hash
- * chain (prd11's federation wire format), exactly what `rhizomorph
- * export-record` writes to disk, here written to the browser's downloads
- * instead.
+ * download — the manifest plus one hash-chained line per event (prd11's
+ * federation wire format), exactly what `rhizomorph export-record` writes to
+ * disk, here written to the browser's downloads instead.
+ *
+ * Those lines are re-serialized from events parsed through the current event
+ * schema, never copied from the log's bytes, so a field the schema no longer
+ * declares (e.g. `pane.activity.preview`, #292) does not reach a record
+ * exported from here. Records exported earlier are untouched — they still
+ * verify against the lines they were built with.
  */
 export async function exportRecording(
   sessionId: string,

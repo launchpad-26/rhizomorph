@@ -91,7 +91,8 @@ starting from `initialSessionState()`. The same function folds the live SSE
 stream and a replayed history slice — that is why replay is free.
 
 `SessionState` holds `session`, `mainBranch`, `worktrees`, `branches`,
-`commits` + `commitOrder`, `panes`, `agents`, `collectors`, `errors`,
+`commits` (an append-only `log` with `bySha` and `order` as memoized
+projections), `panes`, `agents`, `collectors`, `errors`,
 `telemetry`, and envelope bookkeeping (`eventCount`, `firstEventTs`,
 `lastEventTs`). Removed worktrees and closed panes are marked `present: false`
 rather than deleted, so history stays intact.

@@ -35,7 +35,7 @@ import type { DetectOptions, HarnessDetection, HarnessId, HarnessPresence } from
  * ## `installed` and `launchable` are not the same question
  *
  * On Windows an npm-installed CLI is a `.cmd` shim, and Node cannot spawn a
- * `.bat`/`.cmd` without a shell — which ADR-0014 clause 4 forbids this hand.
+ * `.bat`/`.cmd` without a shell — which ADR-0019 clause 4 forbids this hand.
  * Such a file is therefore found, reported with its path, and reported as
  * `installed-not-launchable`: neither the false `absent` ("your CLI is not
  * installed") nor the false `present` (a launch the launch path cannot
@@ -43,7 +43,7 @@ import type { DetectOptions, HarnessDetection, HarnessId, HarnessPresence } from
  *
  * ## Why PATH detection reads the filesystem instead of asking a shell
  *
- * `which`/`command -v` would answer a *different and wrong* question. ADR-0014
+ * `which`/`command -v` would answer a *different and wrong* question. ADR-0019
  * clause 4 forbids this hand a shell: when the launch power lands it passes an
  * argv array or it does not launch at all. A shell alias or shell function is
  * therefore something the concierge **cannot start**, however happily the
@@ -85,7 +85,7 @@ const DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD'
  * `child_process.spawn` cannot start a `.bat` or `.cmd` directly: it needs
  * `shell: true` or an explicit `cmd.exe /c`
  * (nodejs.org/api/child_process.html#spawning-bat-and-cmd-files-on-windows).
- * ADR-0014 clause 4 forbids this hand a shell, so a `.cmd` on `PATH` is a file
+ * ADR-0019 clause 4 forbids this hand a shell, so a `.cmd` on `PATH` is a file
  * this hand structurally cannot start.
  *
  * They are still SEARCHED rather than dropped, because on Windows this is the
@@ -210,7 +210,7 @@ export async function detectOnPath(command: string, options: DetectOptions = {})
       evidence: `${command} is installed on PATH at ${shellOnly}`,
       reason:
         `${path.extname(shellOnly)} is a Windows shell script: Node cannot spawn one without a shell (it needs ` +
-        'the spawn shell option, or an explicit `cmd.exe /c`), and ADR-0014 clause 4 forbids this hand a shell. So it is ' +
+        'the spawn shell option, or an explicit `cmd.exe /c`), and ADR-0019 clause 4 forbids this hand a shell. So it is ' +
         'genuinely installed and this hand genuinely cannot start it — reporting it as launchable would promise ' +
         'something the launch path structurally cannot do',
       remedy:
@@ -224,7 +224,7 @@ export async function detectOnPath(command: string, options: DetectOptions = {})
     evidence:
       `no executable file named ${command} in any of the ${searchable.length} absolute PATH directories searched. ` +
       'A shell alias or shell function of that name is deliberately not counted: this hand launches an argv array ' +
-      'and never a shell (ADR-0014 clause 4), so it could not start one.',
+      'and never a shell (ADR-0019 clause 4), so it could not start one.',
   }
 }
 

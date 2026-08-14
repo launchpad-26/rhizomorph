@@ -5,11 +5,13 @@ import path from 'node:path'
 import type { Exec, ExecResult } from '@rhizomorph/core'
 import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
 import { sessionDirFor } from '../log/paths.js'
 import { SessionLogWriter } from '../recorder/index.js'
 import { readResumedCount, recordResume, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import { writeSessionLock } from '../log/session-lock.js'
 import {
+  checkClaudeProjects,
   checkTelemetryEnv,
   doctorHelpText,
   parseDoctorArgs,
@@ -90,6 +92,9 @@ describe('runDoctor', () => {
   it('reports ok on every check for a fully healthy machine and exits 0', async () => {
     await mkdir(path.join(repoPath, '.swarm'), { recursive: true })
     await writeFile(path.join(repoPath, '.swarm', 'lanes.json'), JSON.stringify({ version: 1, lanes: [] }))
+    const slugDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(repoPath))
+    await mkdir(slugDir, { recursive: true })
+    await writeFile(path.join(slugDir, 'session-1.jsonl'), '')
 
     const report = await runDoctor({
       path: repoPath,
@@ -338,7 +343,7 @@ describe('runDoctor', () => {
     })
   })
 
-  it('warns when ~/.claude/projects (or its override) is missing', async () => {
+  it('warns when ~/.claude/projects (or its override) is missing entirely — no slug dir, no global root either', async () => {
     const report = await runDoctor({
       path: repoPath,
       port: 0,
@@ -352,6 +357,89 @@ describe('runDoctor', () => {
     expect(sessionLogs.status).toBe('warn')
     expect(sessionLogs.message).toContain('--extra-sessions')
     expect(report.exitCode).toBe(0)
+  })
+
+  describe('session-logs check answers for the watched repo\'s own slug dir, not just the global root (#288)', () => {
+    it('reads a named miss with the expected slug dir path when this repo has none, while the global root fact still reads present', async () => {
+      // claudeProjectsRoot exists (a real machine that has used Claude Code for
+      // OTHER repos) but no <slug> subdir for THIS repoPath exists under it —
+      // the exact bug #288 reports: today this alone would green the check.
+      const report = await runDoctor({
+        path: repoPath,
+        port: 0,
+        exec: healthyExec,
+        webDistDir,
+        claudeProjectsRoot,
+        dataRoot,
+      })
+
+      const expectedSlugDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(repoPath))
+      const sessionLogs = checkFor(report.checks, 'session-logs')
+      expect(sessionLogs.status).toBe('warn')
+      expect(sessionLogs.message).toContain(expectedSlugDir)
+      expect(sessionLogs.message).toContain(claudeProjectsRoot)
+      expect(sessionLogs.message).toContain('other repos')
+      expect(report.exitCode).toBe(0)
+    })
+
+    it('warns distinctly when the slug dir exists but has no *.jsonl files yet, rather than claiming a total miss', async () => {
+      const slugDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(repoPath))
+      await mkdir(slugDir, { recursive: true })
+
+      const report = await runDoctor({
+        path: repoPath,
+        port: 0,
+        exec: healthyExec,
+        webDistDir,
+        claudeProjectsRoot,
+        dataRoot,
+      })
+
+      const sessionLogs = checkFor(report.checks, 'session-logs')
+      expect(sessionLogs.status).toBe('warn')
+      expect(sessionLogs.message).toContain(slugDir)
+      expect(sessionLogs.message).toContain('no *.jsonl files yet')
+    })
+
+    it('reports ok with the session file count and newest-file age once the slug dir actually has sessions', async () => {
+      const slugDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(repoPath))
+      await mkdir(slugDir, { recursive: true })
+      await writeFile(path.join(slugDir, 'old.jsonl'), '')
+      await writeFile(path.join(slugDir, 'new.jsonl'), '')
+
+      const fixedNow = Date.now() + 5 * 60 * 1000
+      const report = await runDoctor({
+        path: repoPath,
+        port: 0,
+        exec: healthyExec,
+        webDistDir,
+        claudeProjectsRoot,
+        dataRoot,
+        now: () => fixedNow,
+      })
+
+      const sessionLogs = checkFor(report.checks, 'session-logs')
+      expect(sessionLogs.status).toBe('ok')
+      expect(sessionLogs.message).toContain(slugDir)
+      expect(sessionLogs.message).toContain('2 session files')
+      expect(sessionLogs.message).toMatch(/newest .+ old/)
+    })
+
+    it('checkClaudeProjects called with just a root — the pre-#288 call shape — stays byte-identical to before', () => {
+      const withRoot = checkClaudeProjects(claudeProjectsRoot)
+      expect(withRoot).toEqual({
+        id: 'session-logs',
+        status: 'ok',
+        message: `Claude Code session logs found at ${claudeProjectsRoot}`,
+      })
+
+      const missingRoot = path.join(claudeProjectsRoot, 'does-not-exist')
+      const withMissingRoot = checkClaudeProjects(missingRoot)
+      expect(withMissingRoot.status).toBe('warn')
+      expect(withMissingRoot.message).toBe(
+        `no Claude Code session logs at ${missingRoot} — per-agent history stays empty until \`claude\` has run at least once here (or point elsewhere with --extra-sessions)`,
+      )
+    })
   })
 
   it('warns (degraded, not fatal) when tmux is missing', async () => {
@@ -844,6 +932,12 @@ describe('runDoctor', () => {
         if (command === 'workmux') return missingBinary('workmux')
         return healthyExec(command, args)
       }
+      // The transcript organ's own `telemetry: provided` is what keeps a
+      // partial-attention, no-OTel machine off L3 — give it a real slug dir
+      // (#288) so this test's only variable is workmux, as its name promises.
+      const slugDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(repoPath))
+      await mkdir(slugDir, { recursive: true })
+      await writeFile(path.join(slugDir, 'session-1.jsonl'), '')
 
       const report = await runDoctor({
         path: repoPath,

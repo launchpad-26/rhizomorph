@@ -1,8 +1,11 @@
 # prd-20 — the concierge: a one-stop front door
 
 > **Status:** proposed · wave 1 in progress — ruling 1's amendment is on the record as
-> [ADR-0014](../adr/0014-the-fourth-hand.md) (#260), with the concierge's namespace law
+> [ADR-0019](../adr/0019-the-fourth-hand.md) (#260), with the concierge's namespace law
 > landing ahead of its code. Every route still gated on #234 landing first (ruling 2).
+> Wave 5 adds ruling 6 and its amendment, [ADR-0020](../adr/0020-transcript-migration-is-a-create-only-copy.md)
+> (#514), on the evidence of the cross-host resume spike (#513) — again fence first,
+> copy later.
 
 ## Problem
 
@@ -49,7 +52,7 @@ concierge route accepts a request without the capability token.
 - **No simultaneous multi-repo.** One repo, one rhizomorph — switching
   retargets, never multiplies.
 - No npm publish — prd-15's last wave, still gated on #177.
-- No building codex/pi/OpenClaw adapters — prd-15 ruling 3 owns the adapter
+- No building codex/pi/OpenClaw adapters — prd-15 ruling 4 owns the adapter
   contract; the picker lists them honestly as not-yet-implemented.
 - No autostart of anything not explicitly clicked; never a write inside the
   watched repo's working tree.
@@ -94,6 +97,63 @@ clone-by-URL through the machine's own credentials. Switching the watched repo
 rotates the session and retargets the collectors; it never spawns a second
 instance.
 
+## Ruling 6 — the migration power: one create-only copy, and the UI says what it costs
+
+Ruling 3 promises relaunch *with continuity*, and for the operator whose
+conversation happened somewhere else — another checkout, another machine — the
+instrument could not keep that promise: `claude --resume` looks only in the
+slug directory of the cwd it is launched in. So the fourth hand gains one
+further write, and **only** one.
+
+It may COPY a session transcript from a place already declared to this
+instrument — a location `candidateTranscriptPaths` derives from the event log's
+own attribution — into the harness state directory for the watched repo,
+`~/.claude/projects/<watched-repo-slug>/`. **Create-only:** it never
+overwrites, never deletes, never edits a line, and never writes anywhere else
+under `~/.claude`. It is invoked only by the same explicit human act that
+requests the resume — never a collector, never a poll, never a timer. **The
+original file is never touched and the original process is never stopped, and
+the UI says both, every time.**
+
+To ruling 3's bar — what continuity means, and what is lost:
+
+- **Means:** the conversation history resumes in the new, instrumented process
+  under the **same sessionId**. The resume appends to the copied file in place;
+  it does not fork it and does not mint a new id, and telemetry from the
+  relaunched process books under that same preserved id. Transcript filename,
+  in-file `sessionId` and event log agree.
+- **Lost:** everything the old process already did. Telemetry never back-fills,
+  so every token, dollar and tool call spent before the relaunch is outside
+  this instrument's record permanently.
+- **Also lost, and the part that is easiest not to say:** the old process keeps
+  running on its own host until the operator ends it. Anything typed there
+  after the copy belongs to a **fork** — one this instrument can see only
+  through its transcript tail, never through telemetry, and which nothing in
+  either file marks as divergent.
+
+**Evidence:** `research/2026-08-14-cross-host-resume.md` (#513) — four
+questions, four GO, with raw output reproduced: the copy-and-resume works
+same-host and cross-host (a Windows-authored transcript resumed on Linux, `cwd`
+fields untouched), the resume appends in place preserving the sessionId, and
+OTLP books under that preserved id. Size and dead paths in tool results are
+settled too, by the note's own Q2b: a 23 MB / 6133-line Windows transcript, 1294
+tool-use blocks and 542 absolute Windows paths across its tool results, resumed
+cleanly with full context and left the source byte-identical.
+
+One caveat travels with the ruling and is not a footnote: it is verified on
+Claude Code **`2.1.232`**, whose session-log format is explicitly free to change
+between releases. Two narrower limits stay open and are named rather than
+implied — a transcript past ~24 MB, and one whose dead Windows paths the
+*resumed* agent is asked to act on rather than summarize.
+
+The amendment is on the record as
+[ADR-0020](../adr/0020-transcript-migration-is-a-create-only-copy.md), and the
+fence lands before the copy does: `assertMigrationPaths`
+(`server/src/concierge/paths.ts`) derives both paths rather than validating a
+supplied one, and clause 6 of the concierge's namespace law runs it against
+real directories and pins `COPYFILE_EXCL` as an obligation on the wave that
+writes the copy.
+
 ## Sequencing (waves, each gated as ever)
 
 0. **#234** (exists, Ready) — the token guard, extended to all mutating routes.
@@ -106,6 +166,14 @@ instance.
    first.
 4. The setup wizard on `/connect`: repo → conductor → verify (reusing prd-19's
    handshake rows) → done.
+5. The migration ruling and its fence — ruling 6, [ADR-0020], and
+   `assertMigrationPaths` + namespace-law clause 6, landing ahead of the copy
+   the same way wave 1 landed ahead of the hand (#514). Gated on the
+   cross-host resume spike (#513), which is what made the ruling writable.
+6. The migration itself: the `COPYFILE_EXCL` copy behind the token gate, and
+   the relaunch-with-continuity UI that names the fork and the lost telemetry.
+
+[ADR-0020]: ../adr/0020-transcript-migration-is-a-create-only-copy.md
 
 ## Open questions
 

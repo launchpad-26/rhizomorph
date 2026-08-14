@@ -34,5 +34,12 @@
     "jsdom": "30.0.1",
     "tailwindcss": "4.3.3",
     "vite": "8.1.5"
+  },
+  "exports": {
+    "./recordings/label": "./src/recordings/label.ts",
+    "./recordings/capability": "./src/recordings/capability.ts",
+    "./recordings/capability-guidance": "./src/recordings/capability-guidance.ts",
+    "./replay/rotate": "./src/replay/rotate.ts",
+    "./lab/launch": "./src/lab/launch/launch.ts"
   }
 }

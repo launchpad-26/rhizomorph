@@ -17,13 +17,13 @@ import type { AgentRole, CapabilityDetail } from '@rhizomorph/core'
  * - {@link HarnessAdapter.continueArgv} — the argv array to relaunch it with
  *   continuity, and what that continuity does and does not preserve.
  *
- * ## This module is deliberately unwired
+ * ## This module was built before it was wired
  *
- * ADR-0014 clause 7 and the concierge namespace law: the declared-importer set
- * is EMPTY and a test asserts it stays empty, so nothing may import this yet.
- * The registry is built before it is reachable, which is the whole point of
- * fencing a hand before it exists. The route that reaches it is #263's, gated
- * on #234 (prd-20 ruling 2).
+ * ADR-0019 clause 7 and the concierge namespace law: the declared-importer set
+ * names exactly `api/concierge.ts`, and #264's `POST /api/concierge/launch`
+ * (`concierge/launch.ts`) is the first route to actually reach this registry,
+ * gated on #234 (prd-20 ruling 2) — this seam was built before it was
+ * reachable, which is the whole point of fencing a hand before it exists.
  *
  * ## Named, not ranked (ADR-0010)
  *
@@ -63,7 +63,7 @@ export type HarnessId = 'claude' | 'codex' | 'openclaw' | 'pi' | 'shell'
  * cannot start it" is two true statements, and neither `present` nor `absent`
  * can say both. It exists because of Windows: an npm-installed CLI on Windows
  * is a `.cmd` shim, Node cannot spawn a `.bat`/`.cmd` without a shell, and
- * ADR-0014 clause 4 forbids this hand a shell. Reporting such a shim as
+ * ADR-0019 clause 4 forbids this hand a shell. Reporting such a shim as
  * `present` would promise a launch the launch path structurally cannot perform;
  * reporting it as `absent` would tell an operator their installed CLI is not
  * installed. Neither is true, so there is a fourth answer.
@@ -164,7 +164,7 @@ export interface HarnessEnvRecipe {
   /**
    * Extra argv the harness needs in order to be configured — codex's
    * `-c otel.*` overrides. Deliberately argv rather than a config file: the
-   * concierge writes nothing outside its own namespace, and ADR-0014 clause 4
+   * concierge writes nothing outside its own namespace, and ADR-0019 clause 4
    * means these are passed as an argv array, never through a shell.
    */
   readonly configArgv: readonly string[]
@@ -260,7 +260,7 @@ export interface HarnessAdapter {
 
   /**
    * The argv array to start this harness fresh, telemetry config included.
-   * An array, never a command string: ADR-0014 clause 4 forbids this hand a
+   * An array, never a command string: ADR-0019 clause 4 forbids this hand a
    * shell, which is what removes the injection path a repo URL or branch name
    * would otherwise take.
    *

@@ -7,6 +7,7 @@ import { reduceAll, selectSpendRateByLane } from '@rhizomorph/core'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { listSessions, readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import type { ServerContext } from '../server/context.js'
+import { requireCapabilityToken } from './security.js'
 
 /**
  * Read-only routes over the laboratory's own event slice (prd12 rulings 2/3;
@@ -226,6 +227,65 @@ export async function estimateLaunchSpend(ctx: ServerContext, lane: string, arms
 
 export class LaunchValidationError extends Error {}
 
+/**
+ * THE MODEL GRAMMAR (#234's second defect).
+ *
+ * An arm's `model` was validated as `typeof === 'string'` and nothing more.
+ * It travels `--model <model>` through `runCli(['lab','fork',…])` into
+ * `lab/fork.ts`'s `workmuxAddArgv`, which composes
+ * `` `bash scripts/lane-agent.sh ${model}` `` — a *string* that workmux then
+ * hands to a shell in a tmux pane. Every hop inside rhizomorph uses argv
+ * arrays correctly; the injection lands one hop downstream, in workmux's own
+ * execution of that string, which is why auditing this repo's spawn sites
+ * alone clears the code.
+ *
+ * So the value is refused HERE, at the request boundary, long before argv is
+ * built — and again in `lab/fork.ts` for the `rhizomorph lab fork --model`
+ * path, which never passes through this file at all. The two copies are
+ * deliberate and each is literal-pinned in its own test, the same mitigation
+ * ADR-0012 records for the capability header's duplicated spelling: the
+ * laboratory's namespace law (`lab/namespace-law.test.ts`) forbids this file
+ * from importing anything under `server/src/lab/`, so there is no module both
+ * sides may share today.
+ *
+ * The grammar is every character the real model strings this repo dispatches
+ * actually use — `sonnet`, `opus`, `haiku`, `claude-opus-5`,
+ * `claude-3-5-sonnet-20241022`, and a bedrock-style
+ * `us.anthropic.claude-3-5-sonnet-20241022-v1:0` — and no character a shell
+ * gives meaning to. Notably absent: the space, which is what makes a
+ * `model` that smuggles a second word impossible rather than merely
+ * suspicious.
+ */
+export const MODEL_GRAMMAR = /^[A-Za-z0-9._:-]+$/
+
+/**
+ * The first character of `model` the grammar refuses, rendered so a control
+ * character is legible in the refusal rather than vanishing into it — a
+ * refusal that says "invalid model" and nothing else sends the operator
+ * hunting through a value they cannot see.
+ */
+export function offendingModelCharacter(model: string): string | null {
+  for (const character of model) {
+    if (MODEL_GRAMMAR.test(character)) continue
+    const code = character.codePointAt(0) ?? 0
+    if (character === '\n') return '\\n'
+    if (character === '\r') return '\\r'
+    if (character === '\t') return '\\t'
+    if (code < 0x20 || code === 0x7f) return `\\u${code.toString(16).padStart(4, '0')}`
+    return character
+  }
+  return null
+}
+
+/** The sentence both refusal sites say, so the operator reads the same explanation whichever hand they used. */
+export function modelRefusalMessage(model: string, offender: string): string {
+  return (
+    `"model" contains ${offender === ' ' ? 'a space' : `"${offender}"`}, which this instrument refuses: ` +
+    `a model reaches the launcher inside a command line a shell interprets, so it may only use ` +
+    `letters, digits, and . _ : - (received "${model}")`
+  )
+}
+
 export interface LaunchArmInput {
   model?: string
   brief?: string
@@ -255,6 +315,37 @@ export interface LaunchResult {
   failed: { arm: number; error: string } | null
 }
 
+/**
+ * Refuses a value whose FIRST character is `-`, for every field that reaches
+ * the CLI as argv.
+ *
+ * `lane` travels as an argv positional, and `parseFlags` (`cli/args.ts`) reads
+ * any `-`-prefixed positional as a flag. The argv puts these after `--`, so
+ * `parseFlags` itself can never misread them — but `parseLabForkArgs` scans
+ * raw argv for `--help`/`-h` BEFORE `parseFlags` runs, and `--` does not cover
+ * that pre-scan. A value spelled `--help` prints the fork command's help,
+ * exits 0, and surfaces as "could not read the dispatch result" rather than as
+ * anything an operator can act on.
+ *
+ * Applied to `lane`, `checkpointId` and each arm's `model` — every value that
+ * reaches argv. `lane` had this guard alone; the other two reach the same
+ * pre-scan by the same route, and `MODEL_GRAMMAR` does not close it
+ * (`/^[A-Za-z0-9._:-]+$/` accepts `-h` and `--help`, since `-` is a legal
+ * character *within* a model name).
+ *
+ * Deliberately narrow: it constrains the first character only, which is the
+ * whole of what the pre-scan can misread. A lane may legitimately contain
+ * `/`, `.` and `_`; a model legitimately contains `-`.
+ */
+function refuseFlagShaped(value: string, label: string, why: string): void {
+  const trimmed = value.trim()
+  if (trimmed.startsWith('-')) {
+    throw new LaunchValidationError(
+      `${label} may not begin with "-" (received "${trimmed}") — ${why}, and a leading dash is how a command line spells a flag`,
+    )
+  }
+}
+
 function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
   if (typeof body !== 'object' || body === null) {
     throw new LaunchValidationError('request body must be a JSON object')
@@ -264,11 +355,24 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
   if (typeof lane !== 'string' || lane.trim().length === 0) {
     throw new LaunchValidationError('"lane" must be a non-empty string')
   }
+  // `lane` travels as an argv POSITIONAL (`launchExperiment` below), and
+  // `parseFlags` (`cli/args.ts`) reads any `-`-prefixed positional as a flag.
+  // The argv there puts it after `--` so this can never be misparsed, but
+  // `parseLabForkArgs` scans raw argv for `--help`/`-h` BEFORE `parseFlags`
+  // runs, so `--` does not cover those two: a lane spelled `--help` would
+  // print the fork command's help, exit 0, and surface as "unexpected CLI
+  // output" rather than as anything an operator could act on. Refused here
+  // instead, in the operator's own vocabulary. Deliberately narrow — a lane
+  // is a worktree handle and may legitimately contain `/`, `.` and `_`, so
+  // this constrains the first character only, which is the whole of what
+  // argv parsing can misread.
+  refuseFlagShaped(lane, '"lane"', 'a lane is a worktree handle')
   if (typeof checkpointId !== 'string' || checkpointId.trim().length === 0) {
     throw new LaunchValidationError(
       '"checkpointId" must be a non-empty string — the lab never launches from an interpolated moment (prd12 ruling 2)',
     )
   }
+  refuseFlagShaped(checkpointId, '"checkpointId"', 'a checkpoint id names a captured moment')
   if (!Array.isArray(arms) || arms.length === 0) {
     throw new LaunchValidationError('"arms" must be a non-empty array — an experiment needs at least one arm')
   }
@@ -280,6 +384,24 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
     const { model, brief } = arm as Record<string, unknown>
     if (model !== undefined && typeof model !== 'string') {
       throw new LaunchValidationError(`arm ${index + 1}'s "model" must be a string when present`)
+    }
+    // The grammar is checked on the TRIMMED value, because that is the value
+    // that actually travels: `launchExperiment` below trims before deciding
+    // whether an arm names a model at all, and an all-whitespace `model` is
+    // "no model", not a violation.
+    if (typeof model === 'string') {
+      const trimmed = model.trim()
+      const offender = trimmed.length === 0 ? null : offendingModelCharacter(trimmed)
+      if (offender !== null) {
+        throw new LaunchValidationError(`arm ${index + 1}'s ${modelRefusalMessage(trimmed, offender)}`)
+      }
+      // MODEL_GRAMMAR admits `-` because model names contain it
+      // (`claude-opus-5`), so it accepts `-h` and `--help` too. Those reach
+      // `parseLabForkArgs`'s raw `--help` pre-scan ahead of the `--`
+      // separator, exactly as a flag-shaped lane would.
+      if (trimmed.length > 0) {
+        refuseFlagShaped(trimmed, `arm ${index + 1}'s "model"`, 'a model is a name, not a flag')
+      }
     }
     if (brief !== undefined && typeof brief !== 'string') {
       throw new LaunchValidationError(`arm ${index + 1}'s "brief" must be a string when present`)
@@ -463,9 +585,18 @@ export async function launchExperiment(body: unknown, options: LaunchExperimentO
         await writeFile(briefFile, brief, 'utf8')
       }
 
-      const argv = ['fork', request.lane, '--path', options.repoPath, '--at', request.checkpointId, '--arms', '1', '--launch']
+      // Every flag first, then `--`, then the ONE positional. `parseFlags`
+      // (`cli/args.ts`) stops interpreting `-`-prefixed tokens after `--`,
+      // exactly as any POSIX tool does, so a caller-supplied lane can never
+      // be read as a flag no matter what it spells — the same argument-
+      // injection class the `model` grammar closes, closed structurally here
+      // rather than by another allowlist. `parseLaunchRequestBody` also
+      // refuses a leading `-` up front, for the `--help`/`-h` scan that runs
+      // before `parseFlags` and that `--` therefore cannot cover.
+      const argv = ['fork', '--path', options.repoPath, '--at', request.checkpointId, '--arms', '1', '--launch']
       if (hasModel) argv.push('--model', model)
       if (briefFile !== null) argv.push('--prompt-file', briefFile)
+      argv.push('--', request.lane)
 
       const invocation = await withLabCliLock(() =>
         runLabCliOnce(argv, {
@@ -529,7 +660,15 @@ export function registerLabRoutes(app: FastifyInstance, ctx: ServerContext): voi
     return estimateLaunchSpend(ctx, lane, armsRaw)
   })
 
-  app.post('/api/lab/launch', async (request: FastifyRequest, reply) => {
+  // Token-gated since #234: this route forks a worktree and dispatches a live
+  // agent that spends real money, and the app-wide guard deliberately lets a
+  // request with no `Origin` through (`server/mutation-guard.ts`) — which is
+  // every non-browser caller, `curl` included. The capability token
+  // (`api/security.ts`, delivered in-band per ADR-0012) is the control that
+  // closes that half; the launch panel was widened to send it in the same
+  // commit, because gating a route whose caller cannot authenticate is how
+  // #249 happened.
+  app.post('/api/lab/launch', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async (request: FastifyRequest, reply) => {
     if (ctx.readOnly === true) {
       return reply.code(409).send({
         error: 'this server is replaying a session record, not watching a repo — there is nothing live to fork',

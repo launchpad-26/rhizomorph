@@ -6,10 +6,43 @@ has to clear.
 
 ## Running it
 
+**Check your Node version first.** `package.json`'s `engines` requires
+**Node >= 22.22.2**, and CI pins that exact minimum — so a machine on an older
+Node is not a machine this suite has ever been green on:
+
+```sh
+node --version        # must be >= 22.22.2
+```
+
+On Node 20 every test file in the `web` workspace fails to start its worker with
+`TypeError: webidl.util.markAsUncloneable is not a function`, thrown from
+`undici` by way of `jsdom` — one function that only exists in Node 22.
+
+**The danger is not that it fails, it's that it looks like it passed.** The
+counts describe only the files that ran, and the files that never started are
+reported separately as errors, one per file — so a run that silently skipped
+**about half the suite** still prints a wall of green:
+
+```
+Test Files  <that started> passed      # <- NOT the whole suite
+     Tests  <in those files> passed    # <- ditto
+    Errors  <n> errors                 # <- n = web test files that never booted
+```
+
+The tell is the **`Errors` line existing at all**, under green counts and a
+non-zero exit. On a supported Node the same command finishes with **exit 0 and
+no `Errors` line**, so you never need to know the suite's real total to spot
+this: any `Errors` count is test files that never booted, and none of the
+behaviour in them was checked.
+
+If you see that shape, upgrade Node rather than debugging the tests, and don't
+trust any "all green" measured on the older one.
+
 ```sh
 npm install
 npm test              # vitest, all workspaces
 npm run typecheck     # tsc --noEmit, all workspaces
+npm run lint          # biome lint (linter only — the formatter is disabled)
 npm run build         # bundles the server CLI, builds the web dashboard
 npm start             # boots collectors + API, serving the build above
 ```
@@ -19,10 +52,11 @@ in watch mode individually, if you're working on one side.
 
 ## The gate standard
 
-A change is done when `npm test` and `npm run typecheck` are green — that's
-the bar CI (`.github/workflows/ci.yml`) checks on every push and pull
-request, alongside a boot smoke test (start the server, hit `/api/meta` and
-`/`, shut it down cleanly).
+A change is done when `npm test`, `npm run typecheck` and `npm run lint` are
+green — that's the bar CI (`.github/workflows/ci.yml`) checks on every push and
+pull request, alongside a boot smoke test (start the server, hit `/api/meta` and
+`/`, shut it down cleanly). Lint is a required CI step (`ci.yml:58`), not an
+optional tidy-up: skipping it locally means finding out in CI.
 
 For anything that touches tests, green isn't measured in isolation: this
 project's own build process ran suites **4x concurrently, beside whatever

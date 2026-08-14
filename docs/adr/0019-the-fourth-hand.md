@@ -1,4 +1,4 @@
-# 0014. The concierge: a fourth hand, granted two powers by explicit invocation
+# 0019. The concierge: a fourth hand, granted two powers by explicit invocation
 
 - **Status:** accepted
 - **Date:** 2026-08-10

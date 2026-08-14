@@ -70,3 +70,31 @@ so a record replays the fold faithfully but not every panel. Replay reports
 
 **Neutral.** Sharing is a file transfer, so the security model is whatever the
 user's file transfer is. That is deliberate: there is no upload to secure.
+
+## Clarified by #292
+
+The text above is left as decided. #292 supersedes **one** aspect of it: the
+description of a record as containing the session's events *verbatim*, and the
+rejection of "re-serializing each line". The emitter does now re-serialize, but
+not where this note first claimed. The parsing happens *upstream of* the record
+builder, on the export paths: `parseJsonl` in `packages/core/src/jsonl.ts` on
+the CLI path, and `parseEventLenient` in `packages/web/src/replay/api.ts` on the
+web path, each running every log line through the *current* event schema before
+`buildRecord` is called. `buildRecord` itself
+(`packages/core/src/record/build.ts:58`) serializes the validated events it is
+handed — it parses nothing. So a record's body is built from parsed events
+rather than copied out of the log file's bytes. The consequence is deliberate:
+parsing drops keys the schema does not declare, so the schema acts as an
+allowlist at build time, which is what lets a field the schema no longer
+declares — `pane.activity.preview`, removed by #292 — be stripped out of a
+record built from a pre-change log.
+
+What this note does **not** overturn is the reason the chain was built over
+opaque bytes. Each link's digest still covers `line` as text this reader need
+not understand, so a compatible emitter with a different event schema can reuse
+the record format unchanged. That property survives, and both halves are stated
+in [docs/record-format.md](../record-format.md), in two different places: what
+a record is *filtered by* is Law 3, and what the chain is *over* — `line` as
+opaque bytes, whatever an emitter puts there — is the "How `line` is produced"
+subsection under `body`. Records already written are never rewritten; they keep,
+and verify against, the lines they were built with.

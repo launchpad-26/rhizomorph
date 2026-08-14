@@ -434,11 +434,36 @@ confirms Langfuse (v4.1.0, MIT core) already auto-classifies Claude Code's
 beta spans (`llm_request` → `GENERATION`, `tool.execution` → `TOOL`) — the
 same span vocabulary this parser reads.
 
-An **opt-in forwarder** — the Rhizomorph itself relaying to Langfuse or
-another sink — is deliberately not built. prd9 ruling 9 keeps all outbound
-forwarding out this week and until re-ruled; a forwarder is filed as a
-future issue, gated on a re-ruling of the Trust section that would have to
-explicitly bless an exception to "nothing leaves the machine."
+**Rung 3, the offline dump, ships:** `rhizomorph export-otlp [path] [--session
+<id>] [--out <file>]` reads back the `trace.span` events one of this repo's
+recorded sessions already stored — never the original exporter stream, so
+the privacy allowlist (ruling 5) still bounds what can appear in it — and
+writes them out as one OTLP/HTTP JSON export-trace request, byte-identical
+in shape to what Claude Code's own exporter would have sent. The tool itself
+sends nothing: the file just sits on disk until an operator replays it by
+hand, e.g.
+
+```
+curl -u <public-key>:<secret-key> \
+  https://<your-langfuse-host>/api/public/otel/v1/traces \
+  -H 'Content-Type: application/json' \
+  -d @<the file export-otlp wrote>
+```
+
+against Langfuse's public OTLP ingestion route (Basic auth — verified live
+2026-08-03 against v4.1.0). Because the operator's own `curl` is the only
+thing that ever leaves the machine, the ruling that shipped this
+(2026-08-12) needed no renegotiation of the Trust section at all: "nothing
+is ever sent anywhere" by the Rhizomorph itself stays true word for word.
+
+An **opt-in *live* forwarder** — the Rhizomorph itself relaying to Langfuse
+or another sink as spans arrive, with no human act in between — is
+deliberately still not built. prd9 ruling 9 keeps that kind of outbound
+forwarding out until re-ruled, and unlike rung 3, building it would require
+rewriting the Trust section to say exactly what leaves and when. `export-otlp`
+becomes that forwarder's wire format if a live rung is ever ruled for later —
+its OTLP serialisation, proven here, is the transport a "C" implementation
+would sit around.
 
 ## The subscription-dollars honesty note
 

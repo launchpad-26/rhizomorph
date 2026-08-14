@@ -167,7 +167,7 @@ export interface Connection {
  *   which can predate this session by months and says nothing about when the
  *   collector reached us.
  * - **tmux** — `panes`, every timestamp a pane record carries.
- * - **workmux** — `agents`, first seen and last updated.
+ * - **workmux** — `agents`, first seen, last updated and removed.
  * - **sessionlog** / **otel** — the money layer's four record arrays, split by
  *   the `origin` the envelope stamped on each record.
  * - **otel**, additionally — `traces.spans`. A span has no `origin` field
@@ -200,14 +200,16 @@ export function selectConnection(state: SessionState): Connection {
   for (const branch of Object.values(state.branches)) {
     fold(flows.git, branch.firstSeenAt, branch.updatedAt)
   }
-  for (const commit of Object.values(state.commits)) fold(flows.git, commit.landedAt)
+  // `bySha`, not `log`: a re-landed sha appears in the log twice, and its
+  // first sighting already carried the `landedAt` this fold wants once.
+  for (const commit of Object.values(state.commits.bySha)) fold(flows.git, commit.landedAt)
 
   for (const pane of Object.values(state.panes)) {
     fold(flows.tmux, pane.discoveredAt, pane.closedAt, pane.lastActivityTs, pane.lastContentChangeTs)
   }
 
   for (const agent of Object.values(state.agents)) {
-    fold(flows.workmux, agent.firstSeenAt, agent.updatedAt)
+    fold(flows.workmux, agent.firstSeenAt, agent.updatedAt, agent.removedAt)
   }
 
   const telemetry = state.telemetry

@@ -341,6 +341,182 @@ describe('OTLP/HTTP receiver routes', () => {
     })
   })
 
+  describe('the bare-path fallback route (ADR-0018)', () => {
+    it('routes a bare POST carrying resourceMetrics to the same handling as /v1/metrics', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: declaring(fixture('metrics-token-and-cost.json'), OUR_INSTANCE),
+      })
+
+      expect(response.statusCode).toBe(200)
+      const costs = recorder.eventsSoFar().filter((e) => e.type === 'llm.cost')
+      expect(costs.length).toBeGreaterThan(0)
+      expect(refusals()).toHaveLength(0)
+    })
+
+    it('routes a bare POST carrying resourceLogs to the same handling as /v1/logs', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: declaring(fixture('logs-basic.json'), OUR_INSTANCE),
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(refusals()).toHaveLength(0)
+    })
+
+    it('routes a bare POST carrying resourceSpans to the same handling as /v1/traces', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: declaring(fixture('claude-code-2.1.220-traces-llm-request.json'), OUR_INSTANCE),
+      })
+
+      expect(response.statusCode).toBe(200)
+      const spans = recorder.eventsSoFar().filter((e) => e.type === 'trace.span')
+      expect(spans).toHaveLength(1)
+      expect(spans[0]?.source).toBe('otel')
+      expect(refusals()).toHaveLength(0)
+    })
+
+    it('refuses a bare POST from a foreign instance exactly as loudly as the native routes', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: declaring(fixture('metrics-token-and-cost.json'), 'factory-rhizomorph-77'),
+      })
+
+      expect(response.statusCode).toBe(403)
+      expect(refusals()[0]?.payload).toMatchObject({ instance: 'factory-rhizomorph-77' })
+      expect(recorder.eventsSoFar().filter((e) => e.type === 'llm.cost')).toHaveLength(0)
+    })
+
+    it('refuses a bare POST naming none of resourceMetrics/resourceLogs/resourceSpans, by name, without crashing', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: { someOtherShape: [] },
+      })
+
+      expect(response.statusCode).toBe(400)
+      expect(response.json()).toMatchObject({
+        error: expect.stringContaining('expected exactly one of resourceMetrics, resourceLogs, resourceSpans'),
+      })
+      const errors = recorder.eventsSoFar().filter((e) => e.type === 'collector.error')
+      expect(errors).toHaveLength(1)
+      expect(errors[0]?.payload).toMatchObject({ collector: 'otel' })
+      expect(refusals()).toHaveLength(0)
+    })
+
+    it('refuses a bare POST naming more than one shape at once, rather than guessing which to parse, and names both in the detail', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: {
+          ...declaring(fixture('metrics-token-and-cost.json'), OUR_INSTANCE),
+          ...declaring(fixture('logs-basic.json'), OUR_INSTANCE),
+        },
+      })
+
+      expect(response.statusCode).toBe(400)
+      const body = response.json() as { error: string }
+      expect(body.error).toContain('ambiguous OTLP body')
+      expect(body.error).toContain('resourceMetrics')
+      expect(body.error).toContain('resourceLogs')
+      const errors = recorder.eventsSoFar().filter((e) => e.type === 'collector.error')
+      expect(errors).toHaveLength(1)
+      expect(recorder.eventsSoFar().filter((e) => e.type === 'llm.cost')).toHaveLength(0)
+    })
+
+    /**
+     * The gate fix this issue's review found (#321): `classifyBareBody` used
+     * to filter on `Array.isArray(body[key])`, so a *named* key with the
+     * wrong-shaped value was invisible to it — a body carrying a valid,
+     * instance-tagged metrics export **and** a bogus, non-array `resourceLogs`
+     * routed straight past the second key as if it were never there, landing
+     * as an ordinary 200 with the metrics events recorded and the malformed
+     * `resourceLogs` silently dropped (the metrics schema's `.passthrough()`
+     * lets an unrelated key ride along unexamined). Presence (`!==
+     * undefined`) sees both named keys and refuses the body as ambiguous
+     * instead — the same all-or-nothing posture `foreignInstance` already
+     * takes for a body naming two instances.
+     */
+    it('refuses a bare POST naming a valid metrics shape alongside a wrongly-shaped resourceLogs key, rather than routing past the second key unseen', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: {
+          ...declaring(fixture('metrics-token-and-cost.json'), OUR_INSTANCE),
+          resourceLogs: 'not-an-array',
+        },
+      })
+
+      expect(response.statusCode).toBe(400)
+      const body = response.json() as { error: string }
+      expect(body.error).toContain('ambiguous OTLP body')
+      const errors = recorder.eventsSoFar().filter((e) => e.type === 'collector.error')
+      expect(errors).toHaveLength(1)
+      expect(recorder.eventsSoFar().filter((e) => e.type === 'llm.usage' || e.type === 'llm.cost')).toHaveLength(0)
+    })
+
+    it('refuses a bare foreign-instance POST carrying resourceLogs, not only resourceMetrics', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: declaring(fixture('logs-basic.json'), 'factory-rhizomorph-77'),
+      })
+
+      expect(response.statusCode).toBe(403)
+      expect(refusals()[0]?.payload).toMatchObject({ instance: 'factory-rhizomorph-77' })
+    })
+
+    it('refuses a bare POST with an empty resourceMetrics array exactly like the native route — no identity is not our identity', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: { resourceMetrics: [] },
+      })
+
+      expect(response.statusCode).toBe(403)
+      expect(refusals()[0]?.payload).toMatchObject({ instance: null, count: 1 })
+    })
+
+    it('refuses a bare POST whose body is a scalar JSON value, naming that it is not a JSON object', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        payload: '42',
+      })
+
+      expect(response.statusCode).toBe(400)
+      expect(response.json()).toMatchObject({ error: 'unrecognized OTLP body: not a JSON object' })
+      const errors = recorder.eventsSoFar().filter((e) => e.type === 'collector.error')
+      expect(errors).toHaveLength(1)
+    })
+  })
+
   describe('the refusal throttle', () => {
     /**
      * A misconfigured fleet exports every few seconds; the log must show one

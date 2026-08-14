@@ -8,7 +8,7 @@ function fixture(name: string): string {
 
 describe('parseGitLog', () => {
   it('parses commits with modified, added and deleted files plus diffstat', () => {
-    const commits = parseGitLog(fixture('feature-alpha.txt'))
+    const { commits } = parseGitLog(fixture('feature-alpha.txt'))
 
     expect(commits).toHaveLength(2)
 
@@ -41,7 +41,8 @@ describe('parseGitLog', () => {
   })
 
   it('parses a renamed file, carrying its previous path', () => {
-    const [commit] = parseGitLog(fixture('renamed.txt'))
+    const { commits } = parseGitLog(fixture('renamed.txt'))
+    const [commit] = commits
 
     expect(commit?.files).toEqual([
       {
@@ -54,8 +55,38 @@ describe('parseGitLog', () => {
     ])
   })
 
+  it('unquotes a C-quoted rename path and its previous path', () => {
+    const { commits } = parseGitLog(fixture('quoted-rename.txt'))
+    const [commit] = commits
+
+    expect(commit?.files).toEqual([
+      {
+        path: 'src/näme.js',
+        status: 'renamed',
+        previousPath: 'src/index.js',
+        insertions: 0,
+        deletions: 0,
+      },
+    ])
+  })
+
   it('returns no commits for an empty range', () => {
-    expect(parseGitLog(fixture('empty.txt'))).toEqual([])
-    expect(parseGitLog('')).toEqual([])
+    expect(parseGitLog(fixture('empty.txt')).commits).toEqual([])
+    expect(parseGitLog('').commits).toEqual([])
+  })
+
+  it('skips an unparseable raw diff line, keeping the good files in the same commit', () => {
+    const { commits, skipped } = parseGitLog(fixture('malformed-raw-line.txt'))
+
+    expect(commits).toHaveLength(1)
+    expect(commits[0]?.files).toEqual([
+      { path: 'src/good-before.js', status: 'modified', previousPath: undefined, insertions: 1, deletions: 0 },
+      { path: 'src/good-after.js', status: 'modified', previousPath: undefined, insertions: 2, deletions: 1 },
+    ])
+    expect(commits[0]?.insertions).toBe(3)
+    expect(commits[0]?.deletions).toBe(1)
+    expect(skipped).toEqual([
+      { line: ':this-is-not-a-raw-diff-line', reason: 'unparseable git raw diff line (commit deadbee)' },
+    ])
   })
 })

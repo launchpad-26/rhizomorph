@@ -206,7 +206,7 @@ describe('news vs history', () => {
     const state = foldStreamEvents(initialStreamState(connectedAt), burst)
 
     // Every fact landed in the fold…
-    expect(Object.keys(state.session.commits).sort()).toEqual(['c1', 'c2', 'c3', 'c4'])
+    expect(Object.keys(state.session.commits.bySha).sort()).toEqual(['c1', 'c2', 'c3', 'c4'])
     expect(state.events).toHaveLength(4)
     // …and not one of them is news, so nothing lights up.
     expect(state.news).toEqual([])
@@ -237,8 +237,10 @@ describe('news vs history', () => {
     )
 
     expect(single.newsCount).toBe(batched.newsCount)
-    expect(Object.keys(single.session.commits).sort()).toEqual(
-      Object.keys(batched.session.commits).sort(),
+    // `bySha`, not the slice object (#342): keys of `CommitsState` itself are
+    // its three static properties, which would make this equality vacuous.
+    expect(Object.keys(single.session.commits.bySha).sort()).toEqual(
+      Object.keys(batched.session.commits.bySha).sort(),
     )
   })
 
@@ -483,5 +485,117 @@ describe('fixture switching', () => {
       fireEvent.keyDown(window, { key: '3' })
     })
     expect(screen.getByTestId('events-window-label').textContent).toBe('')
+  })
+})
+
+// ── the repo boundary (#390) ────────────────────────────────────────────────
+
+/**
+ * #390 (prd20 wave 3, from the retarget spike's Q5, #265). The unit laws live
+ * in `streamState.test.ts`; this is the same rule through the real provider,
+ * because the lie is a *surface* fact: a panel reading `useStream` must never
+ * be able to render the new repo's name over the old repo's fleet.
+ */
+function RepoConsumer() {
+  const { state } = useStream()
+  return (
+    <div>
+      <span data-testid="repo-path">{state.session.session?.repoPath ?? ''}</span>
+      <span data-testid="repo-worktrees">
+        {Object.keys(state.session.worktrees).sort().join(',')}
+      </span>
+      <span data-testid="repo-events">{state.events.length}</span>
+    </div>
+  )
+}
+
+async function renderRepoApp() {
+  let source: FakeEventSource | undefined
+  await act(async () => {
+    render(
+      <ModeProvider fetchImpl={makeFetch(replaySessionEvents())}>
+        <StreamProvider
+          url="/api/stream"
+          createSource={() => {
+            source = new FakeEventSource()
+            return source
+          }}
+        >
+          <RepoConsumer />
+        </StreamProvider>
+      </ModeProvider>,
+    )
+  })
+  return { getSource: () => source as FakeEventSource }
+}
+
+/** `session.started` plus one worktree, for a named repo. */
+function repoEvents(repo: string) {
+  return [
+    createEvent(
+      'session.started',
+      {
+        sessionId: `s-${repo}`,
+        repoPath: `/repos/${repo}`,
+        repoName: repo,
+        mainBranch: 'main',
+      },
+      { id: nextId(), ts: 10_000 },
+    ),
+    createEvent(
+      'worktree.discovered',
+      { path: `/repos/${repo}/lane`, branch: 'lane', head: `sha-${repo}`, isMain: true },
+      { id: nextId(), ts: 10_001 },
+    ),
+  ]
+}
+
+describe('the repo boundary through the provider (#390)', () => {
+  it('shows only the new repo after a retarget, never its name over the old fleet', async () => {
+    const { getSource } = await renderRepoApp()
+    act(() => getSource().open())
+
+    for (const event of repoEvents('alpha')) act(() => getSource().emit(event))
+    await waitFor(() =>
+      expect(screen.getByTestId('repo-worktrees').textContent).toBe('/repos/alpha/lane'),
+    )
+
+    // The retarget: the concierge points the dashboard at another repo, and
+    // the stream announces it the only way it can today — a `session.started`
+    // naming a different `repoPath`. No `'retargeted'` close reason involved
+    // (#384 is a separate lane and this must not wait on it).
+    for (const event of repoEvents('beta')) act(() => getSource().emit(event))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('repo-path').textContent).toBe('/repos/beta'),
+    )
+    // The whole point: alpha's worktree is gone, not merged underneath beta's
+    // heading. `StatusBar` re-reads `/api/meta` on the session-id change, so
+    // the heading was already right — an untouched fleet under it is the
+    // instrument lying about what it watches.
+    expect(screen.getByTestId('repo-worktrees').textContent).toBe('/repos/beta/lane')
+    expect(screen.getByTestId('repo-events').textContent).toBe('2')
+  })
+
+  it('survives a reconnect that replays the same repo from the top', async () => {
+    const { getSource } = await renderRepoApp()
+    act(() => getSource().open())
+
+    const alpha = repoEvents('alpha')
+    for (const event of alpha) act(() => getSource().emit(event))
+    await waitFor(() =>
+      expect(screen.getByTestId('repo-worktrees').textContent).toBe('/repos/alpha/lane'),
+    )
+
+    // `EventSource` reconnects on its own with `Last-Event-ID`; when the new
+    // process's buffer never held that id, `resumeBacklog` falls back to
+    // replaying the whole session (`server/src/api/stream.ts`). Same repo,
+    // same events, from the top — and the fold must absorb that rather than
+    // be wiped by it.
+    for (const event of alpha) act(() => getSource().emit(event))
+
+    await waitFor(() => expect(screen.getByTestId('repo-events').textContent).toBe('4'))
+    expect(screen.getByTestId('repo-path').textContent).toBe('/repos/alpha')
+    expect(screen.getByTestId('repo-worktrees').textContent).toBe('/repos/alpha/lane')
   })
 })

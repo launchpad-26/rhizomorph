@@ -9,6 +9,7 @@ import type { SessionState, SpanRecord } from './state.js'
 import {
   MAX_ERRORS,
   initialCheckpointState,
+  initialCommitsState,
   initialForkState,
   initialJudgeState,
   initialRefusalState,
@@ -35,8 +36,7 @@ describe('reduce — envelope bookkeeping', () => {
       mainBranch: null,
       worktrees: {},
       branches: {},
-      commits: {},
-      commitOrder: [],
+      commits: initialCommitsState(),
       panes: {},
       agents: {},
       collectors: {},
@@ -342,9 +342,9 @@ describe('reduce — branches and commits', () => {
       f.commitLanded({ sha: 'c1', branch: 'feature', message: 'first' }, { ts: 10 }),
       f.commitLanded({ sha: 'c2', branch: 'feature', message: 'second' }, { ts: 20 }),
     ])
-    expect(state.commitOrder).toEqual(['c1', 'c2'])
+    expect(state.commits.order).toEqual(['c1', 'c2'])
     expect(state.branches['feature']?.commits).toEqual(['c1', 'c2'])
-    expect(state.commits['c1']).toMatchObject({
+    expect(state.commits.bySha['c1']).toMatchObject({
       sha: 'c1',
       branches: ['feature'],
       message: 'first',
@@ -358,7 +358,7 @@ describe('reduce — branches and commits', () => {
       initialSessionState(),
       f.commitLanded({ sha: 'c1', authoredAt: 5 }, { ts: 900 }),
     )
-    expect(state.commits['c1']).toMatchObject({ authoredAt: 5, landedAt: 900 })
+    expect(state.commits.bySha['c1']).toMatchObject({ authoredAt: 5, landedAt: 900 })
   })
 
   it('adds a branch to an existing commit when the same sha lands again', () => {
@@ -367,9 +367,9 @@ describe('reduce — branches and commits', () => {
       f.commitLanded({ sha: 'c1', branch: 'main' }, { ts: 20 }),
       f.commitLanded({ sha: 'c1', branch: 'main' }, { ts: 30 }),
     ])
-    expect(state.commits['c1']?.branches).toEqual(['feature', 'main'])
-    expect(state.commits['c1']?.landedAt).toBe(10)
-    expect(state.commitOrder).toEqual(['c1'])
+    expect(state.commits.bySha['c1']?.branches).toEqual(['feature', 'main'])
+    expect(state.commits.bySha['c1']?.landedAt).toBe(10)
+    expect(state.commits.order).toEqual(['c1'])
     expect(state.branches['main']?.commits).toEqual(['c1'])
   })
 
@@ -378,7 +378,7 @@ describe('reduce — branches and commits', () => {
       f.commitLanded({ sha: 'c1', branch: 'feature', files: [{ path: 'a.ts', status: 'added' }] }),
       f.commitLanded({ sha: 'c1', branch: 'main', files: [] }),
     ])
-    expect(state.commits['c1']?.files).toEqual([{ path: 'a.ts', status: 'added' }])
+    expect(state.commits.bySha['c1']?.files).toEqual([{ path: 'a.ts', status: 'added' }])
   })
 
   it('drops a removed branch from state.branches entirely, keeping its commits', () => {
@@ -390,8 +390,8 @@ describe('reduce — branches and commits', () => {
     expect(state.branches['feature']).toBeUndefined()
     expect(Object.keys(state.branches)).toHaveLength(0)
     // The work still happened — commit history is not removal's business.
-    expect(state.commits['c1']).toMatchObject({ sha: 'c1', branches: ['feature'] })
-    expect(state.commitOrder).toEqual(['c1'])
+    expect(state.commits.bySha['c1']).toMatchObject({ sha: 'c1', branches: ['feature'] })
+    expect(state.commits.order).toEqual(['c1'])
   })
 
   it('ignores removal of a branch it never saw', () => {
@@ -431,7 +431,7 @@ describe('reduce — panes and agents', () => {
   it('advances last activity on each content delta', () => {
     const state = reduceAll([
       f.paneDiscovered({ paneId: '%1' }, { ts: 100 }),
-      f.paneActivity({ paneId: '%1', contentHash: 'h1', preview: 'npm test' }, { ts: 200 }),
+      f.paneActivity({ paneId: '%1', contentHash: 'h1' }, { ts: 200 }),
       f.paneActivity({ paneId: '%1', contentHash: 'h2' }, { ts: 300 }),
     ])
     expect(state.panes['%1']).toMatchObject({
@@ -439,7 +439,6 @@ describe('reduce — panes and agents', () => {
       lastActivityTs: 300,
       lastContentChangeTs: 300,
       activityCount: 2,
-      preview: 'npm test',
     })
   })
 
@@ -489,7 +488,48 @@ describe('reduce — panes and agents', () => {
       elapsedSeconds: 90,
       firstSeenAt: 10,
       updatedAt: 20,
+      present: true,
+      removedAt: null,
     })
+  })
+
+  it('marks a removed agent absent, keeping its last-known fields', () => {
+    const state = reduceAll([
+      f.agentStatus({ handle: 'feature', status: 'working', worktreePath: WT, branch: 'feature' }, { ts: 10 }),
+      f.agentRemoved({ handle: 'feature' }, { ts: 300 }),
+    ])
+    expect(state.agents['feature']).toMatchObject({
+      present: false,
+      removedAt: 300,
+      // The last-known status/branch/worktree survive removal for replay.
+      status: 'working',
+      worktreePath: WT,
+      branch: 'feature',
+    })
+  })
+
+  it('ignores removal of an agent handle it never saw', () => {
+    const before = initialSessionState()
+    const after = reduce(before, f.agentRemoved({ handle: 'nope' }))
+    expect(after.agents).toEqual({})
+  })
+
+  it('is idempotent on a repeat removal — removedAt stays pinned to the first', () => {
+    const state = reduceAll([
+      f.agentStatus({ handle: 'feature', status: 'working' }, { ts: 10 }),
+      f.agentRemoved({ handle: 'feature' }, { ts: 300 }),
+      f.agentRemoved({ handle: 'feature' }, { ts: 400 }),
+    ])
+    expect(state.agents['feature']).toMatchObject({ present: false, removedAt: 300 })
+  })
+
+  it('re-appearance after removal resets present and clears removedAt', () => {
+    const state = reduceAll([
+      f.agentStatus({ handle: 'feature', status: 'working' }, { ts: 10 }),
+      f.agentRemoved({ handle: 'feature' }, { ts: 300 }),
+      f.agentStatus({ handle: 'feature', status: 'working' }, { ts: 400 }),
+    ])
+    expect(state.agents['feature']).toMatchObject({ present: true, removedAt: null, updatedAt: 400 })
   })
 })
 
@@ -502,7 +542,7 @@ describe('reduce — the fixture session', () => {
     expect(Object.keys(state.worktrees)).toHaveLength(4)
     expect(Object.keys(state.panes)).toHaveLength(3)
     expect(Object.keys(state.agents)).toHaveLength(3)
-    expect(state.commitOrder).toEqual(['sha-core-1', 'sha-core-2', 'sha-git-1'])
+    expect(state.commits.order).toEqual(['sha-core-1', 'sha-core-2', 'sha-git-1'])
     expect(state.branches['2-core']?.commits).toEqual(['sha-core-1', 'sha-core-2'])
     expect(state.collectors['tmux']?.status).toBe('error')
     expect(state.eventCount).toBe(fixtureSession().length)
@@ -1328,7 +1368,7 @@ describe('reduce — every event flows through upcast(), in both paths (prd17 ru
  * The reducer is order-sensitive in three distinct ways, each exercised below:
  * last-write-wins on a keyed record (`agent.status`), create-vs-delete on a key
  * (`branch.updated` / `branch.removed`), and first-sighting sequence
- * (`commitOrder`, `firstEventTs`). For a log whose own append order disagrees
+ * (`commits.order`, `firstEventTs`). For a log whose own append order disagrees
  * with its timestamps — which real logs do, see `foldOrderEvidence` below —
  * the two paths therefore fold the SAME log to DIFFERENT state.
  *
@@ -1393,8 +1433,8 @@ describe('reduce — the fold-order law: what order is the reducer owed? (prd17 
 
     it('holds the same set of commits, whatever order they were sighted in', () => {
       const events = interleaved()
-      expect(Object.keys(foldLive(events).commits).sort()).toEqual(['sha-1', 'sha-2'])
-      expect(Object.keys(foldReplay(events).commits).sort()).toEqual(['sha-1', 'sha-2'])
+      expect(Object.keys(foldLive(events).commits.bySha).sort()).toEqual(['sha-1', 'sha-2'])
+      expect(Object.keys(foldReplay(events).commits.bySha).sort()).toEqual(['sha-1', 'sha-2'])
     })
 
     it('counts the same tokens — spend is a sum, and a sum has no order', () => {
@@ -1428,8 +1468,8 @@ describe('reduce — the fold-order law: what order is the reducer owed? (prd17 
 
     it('disagrees about the commit ticker\'s order', () => {
       const events = interleaved()
-      expect(foldLive(events).commitOrder).toEqual(['sha-2', 'sha-1'])
-      expect(foldReplay(events).commitOrder).toEqual(['sha-1', 'sha-2'])
+      expect(foldLive(events).commits.order).toEqual(['sha-2', 'sha-1'])
+      expect(foldReplay(events).commits.order).toEqual(['sha-1', 'sha-2'])
     })
 
     it('disagrees about when the session began: live takes the first ARRIVAL, replay the earliest TIMESTAMP', () => {
