@@ -110,6 +110,47 @@ export function findConductorAttribution(events: readonly RhizomorphEvent[]): At
 }
 
 /**
+ * {@link findAttribution}'s result, plus the branch the same session id was
+ * ever seen with — what the session-preview route (prd20 w6) needs to say
+ * WHERE a raw Claude Code session id lives, having no lane handle to look one
+ * up by.
+ */
+export interface SessionAttribution {
+  sessionId: string
+  worktreePath: string | null
+  branch: string | null
+}
+
+/**
+ * The newest attribution the log carries for a bare session id — reuses
+ * {@link findAttribution}'s two-pass newest-wins shape verbatim (matched on
+ * `payload.sessionId` directly rather than on a lane's `lane`/`branch`, since
+ * a session-preview caller has a Claude Code session id and no lane handle at
+ * all), then adds one more same-session newest-wins pass for `branch`, which
+ * `findAttribution` itself never collects.
+ */
+export function findSessionAttribution(
+  events: readonly RhizomorphEvent[],
+  sessionId: string,
+): SessionAttribution | null {
+  const attribution = findAttribution(events, (payload) => payload.sessionId === sessionId)
+  if (attribution === null) return null
+
+  let branch: string | null = null
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]
+    if (!event || !ATTRIBUTED_TYPES.has(event.type)) continue
+    const payload = event.payload as AttributedPayload
+    if (payload.sessionId !== sessionId) continue
+    if (typeof payload.branch === 'string') {
+      branch = payload.branch
+      break
+    }
+  }
+  return { sessionId: attribution.sessionId, worktreePath: attribution.worktreePath, branch }
+}
+
+/**
  * Every lane (including the conductor, as {@link CONDUCTOR_LANE}) the event log
  * ever attributed to a real session id — what transcript capture on close
  * (prd16 ruling 3) walks, so it captures exactly the lanes a reader could ever

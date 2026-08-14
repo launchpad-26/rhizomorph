@@ -90,12 +90,18 @@ export function buildApp(ctx: ServerContext): FastifyInstance {
   })
   app.decorate('registeredRoutes', registeredRoutes)
 
+  // Mutated onto the SAME object the caller handed us, rather than spread
+  // into a copy — a copy is exactly the trap prd20's retarget spike found
+  // here (Q1, gap e): every route below holds this one reference, so a later
+  // re-point of `ctx.repoPath`/`repoName`/`sessionDir` (prd20 ruling 5) is
+  // visible to all of them immediately. A copy would have made that silent:
+  // the routes would keep reading the object as it looked at boot.
   const capabilityToken = ctx.capabilityToken ?? generateCapabilityToken()
+  ctx.capabilityToken = capabilityToken
   app.decorate('capabilityToken', capabilityToken)
   registerMutationGuard(app)
 
-  const resolvedCtx: ServerContext = { ...ctx, capabilityToken }
-  registerApiRoutes(app, resolvedCtx)
+  registerApiRoutes(app, ctx)
 
   if (ctx.webDistDir && existsSync(ctx.webDistDir)) {
     registerStaticRoute(app, ctx.webDistDir, capabilityToken)

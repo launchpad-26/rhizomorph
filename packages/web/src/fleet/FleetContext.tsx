@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { buildFleet, type Fleet } from '@rhizomorph/core'
 import { useMode, useModeClock } from '../app/ModeContext.js'
 import { useStream } from '../app/StreamContext.js'
+import { foldedRepoPath } from '../app/streamState.js'
 import { useLaneManifest, type FetchLike } from './manifest.js'
 
 /**
@@ -63,8 +64,11 @@ export function FleetProvider({ children, now, fetchLanes }: FleetProviderProps)
   const clock = now ?? (mode === 'replay' ? modeClock : liveClock)
 
   // A fixture brings the manifest it was dispatched with; only the live stream
-  // has to go and ask the server for one.
-  const fetched = useLaneManifest(source === 'live', fetchLanes)
+  // has to go and ask the server for one — and it has to ask again when the
+  // fold changes repo, or repo B's lanes get fenced by repo A's manifest
+  // (#390 review; the fold's own reset cannot reach state that never went
+  // through it).
+  const fetched = useLaneManifest(source === 'live', fetchLanes, foldedRepoPath(state.session))
   const manifest = fixtureManifest ?? fetched.manifest
 
   const fleet = useMemo(
