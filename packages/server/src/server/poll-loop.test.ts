@@ -242,3 +242,252 @@ describe('the poll loop and snapshot persistence', () => {
     expect(store.saves).toEqual([])
   })
 })
+
+/** Emits `worktree.discovered`-shaped events ONLY on a snapshot miss — the same "discover once, then go quiet" shape every real discovery collector (git, tmux, workmux) uses. */
+function discoveryCollector(name = 'discovery'): AnyCollector {
+  return {
+    name,
+    initialSnapshot: () => ({ seen: [] as string[] }),
+    poll: (prev: { seen: string[] }, ctx: CollectorContext) => {
+      const known = new Set(prev.seen)
+      if (known.has('the-one-worktree')) return { nextSnapshot: prev, events: [] }
+      return {
+        nextSnapshot: { seen: [...prev.seen, 'the-one-worktree'] },
+        events: [ctx.emit('collector.error', { collector: name, message: 'discovered the-one-worktree' })],
+      }
+    },
+  }
+}
+
+/**
+ * Like {@link discoveryCollector}, but its `poll()` blocks until `release()`
+ * is called — for staging a tick that's still in flight when something else
+ * (a `reset()`) happens concurrently. `whenPolled()` resolves the instant
+ * `poll()` is entered (before it blocks), so a test can await the exact
+ * boundary "the tick has started" instead of guessing a microtask count —
+ * the same pattern `cli/index.test.ts`'s `OffsetCollector.whenPolled` uses.
+ * Each `poll()` call re-arms both signals, so calling `release()` always
+ * unblocks the MOST RECENT call.
+ */
+function createSlowCollector(): { collector: AnyCollector; whenPolled: () => Promise<void>; release: () => void } {
+  let releaseCurrent: (() => void) | null = null
+  let polledResolve: (() => void) | null = null
+  let polledPromise = new Promise<void>((resolve) => {
+    polledResolve = resolve
+  })
+
+  const collector: AnyCollector = {
+    name: 'slow',
+    initialSnapshot: () => ({ seen: false }),
+    poll: (prev: { seen: boolean }, ctx: CollectorContext) => {
+      polledResolve?.()
+      return new Promise((resolve) => {
+        releaseCurrent = () => {
+          if (prev.seen) {
+            resolve({ nextSnapshot: prev, events: [] })
+          } else {
+            resolve({
+              nextSnapshot: { seen: true },
+              events: [ctx.emit('collector.error', { collector: 'slow', message: 'discovered' })],
+            })
+          }
+        }
+      })
+    },
+  }
+  return {
+    collector,
+    whenPolled: () => polledPromise,
+    release: () => {
+      releaseCurrent?.()
+      polledPromise = new Promise((resolve) => {
+        polledResolve = resolve
+      })
+    },
+  }
+}
+
+describe('the poll loop, rebuildable (prd20 ruling 5, retarget spike Q1/gap a+b)', () => {
+  it('reset() drops every collector back to initialSnapshot() — the next tick re-discovers everything, exactly as a fresh session boundary demands', async () => {
+    const { recorder, events } = createFakeRecorder()
+    const pollLoop = createPollLoop({
+      repoPath: '/repo/watched',
+      collectors: [discoveryCollector()],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+
+    await pollLoop.tick()
+    await pollLoop.tick()
+    expect(events).toHaveLength(1) // discovered once, then quiet — the ordinary steady state
+
+    await pollLoop.reset()
+    await pollLoop.tick()
+
+    // A session boundary just happened (rotation or retarget): the collector
+    // has no memory of "the-one-worktree" anymore, so it fires again — this is
+    // the fix for gap (a): a rotated/retargeted log that opens with warm
+    // snapshots gets no discovery events at all for what already existed.
+    expect(events).toHaveLength(2)
+    expect(events[1]).toMatchObject({ payload: { message: 'discovered the-one-worktree' } })
+  })
+
+  it('reset() with a snapshotStore repoints persistence — the fix for gap (b): snapshots stop landing in the closed session\'s directory', async () => {
+    const { recorder } = createFakeRecorder()
+    const oldStore = createFakeStore()
+    const newStore = createFakeStore()
+    const pollLoop = createPollLoop({
+      repoPath: '/repo/watched',
+      collectors: [countingCollector()],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+      snapshotStore: oldStore,
+    })
+
+    await pollLoop.tick()
+    expect(oldStore.saves).toHaveLength(1)
+
+    await pollLoop.reset({ snapshotStore: newStore })
+    await pollLoop.tick()
+
+    // The new session's snapshot dir gets the next persist — never the old one again.
+    expect(newStore.saves).toHaveLength(1)
+    expect(oldStore.saves).toHaveLength(1)
+  })
+
+  it('reset() without a snapshotStore keeps persisting to the SAME store — a plain rotation only needs the in-memory reset, never a new dir', async () => {
+    const { recorder } = createFakeRecorder()
+    const store = createFakeStore()
+    const pollLoop = createPollLoop({
+      repoPath: '/repo/watched',
+      collectors: [countingCollector()],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+      snapshotStore: store,
+    })
+
+    await pollLoop.tick()
+    await pollLoop.reset()
+    await pollLoop.tick()
+
+    expect(store.saves).toHaveLength(2)
+  })
+
+  it('reset({ repoPath }) re-points the ONE thing this module itself closes over (Q1) — a retarget\'s job, never a plain rotation\'s', async () => {
+    const { recorder } = createFakeRecorder()
+    const seenRepoPaths: string[] = []
+    const repoPathSpy: AnyCollector = {
+      name: 'spy',
+      initialSnapshot: () => undefined,
+      poll: (_prev: unknown, ctx: CollectorContext) => {
+        seenRepoPaths.push(ctx.repoPath)
+        return { nextSnapshot: undefined, events: [] }
+      },
+    }
+    const pollLoop = createPollLoop({
+      repoPath: '/repo/old',
+      collectors: [repoPathSpy],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+
+    await pollLoop.tick()
+    await pollLoop.reset({ repoPath: '/repo/new' })
+    await pollLoop.tick()
+
+    expect(seenRepoPaths).toEqual(['/repo/old', '/repo/new'])
+  })
+
+  it('reset() clears a suppressed save-error, so a persist failure against the NEW store gets its own fresh report', async () => {
+    const { recorder, events } = createFakeRecorder()
+    const failingStore = createFakeStore()
+    failingStore.failSave = new Error('disk full')
+    const pollLoop = createPollLoop({
+      repoPath: '/repo/watched',
+      collectors: [countingCollector()],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+      snapshotStore: failingStore,
+    })
+
+    await pollLoop.tick()
+    await pollLoop.tick()
+    expect(events.filter((e) => e.type === 'collector.error' && 'message' in e.payload && String(e.payload.message).includes('snapshot save failed'))).toHaveLength(1)
+
+    await pollLoop.reset()
+    await pollLoop.tick()
+
+    const saveErrorEvents = events.filter(
+      (e) => e.type === 'collector.error' && 'message' in e.payload && String(e.payload.message).includes('snapshot save failed'),
+    )
+    expect(saveErrorEvents).toHaveLength(2)
+  })
+
+  it('reset() awaits an in-flight tick before clearing snapshots — a race here would silently reintroduce gap (a) for whichever collector was mid-poll at rotate time', async () => {
+    const { recorder, events } = createFakeRecorder()
+    const { collector, whenPolled, release } = createSlowCollector()
+    const pollLoop = createPollLoop({ repoPath: '/repo/watched', collectors: [collector], recorder, exec: nullExec, now: () => 0 })
+
+    const firstTick = pollLoop.tick() // begins
+    await whenPolled() // ...and is now definitely blocked inside poll(), mid-tick
+
+    const resetPromise = pollLoop.reset()
+    let resetSettled = false
+    void resetPromise.then(() => {
+      resetSettled = true
+    })
+
+    // Reset must not have raced ahead of the tick it overlapped with.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(resetSettled).toBe(false)
+    expect(events).toHaveLength(0)
+
+    release()
+    await firstTick
+    await resetPromise
+
+    // The overlapping tick's own discovery landed normally — into the Map it
+    // started with, not corrupted by the reset that was waiting on it.
+    expect(resetSettled).toBe(true)
+    expect(events).toHaveLength(1)
+
+    // And the reset itself took effect cleanly once its wait was over: the
+    // very next tick re-discovers, exactly as an uncontested reset() would.
+    const secondTick = pollLoop.tick()
+    await whenPolled()
+    release()
+    await secondTick
+    expect(events).toHaveLength(2)
+  })
+
+  it('reset() never re-hydrates from ANY store, old or new — a session boundary means no snapshot survives it, even one the new store already holds', async () => {
+    const { recorder, events } = createFakeRecorder()
+    const seededStore = createFakeStore({ counter: { polls: 99 } })
+    const pollLoop = createPollLoop({
+      repoPath: '/repo/watched',
+      collectors: [countingCollector()],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+
+    await pollLoop.tick() // no store at boot — starts from initialSnapshot(), polls: 0
+    await pollLoop.reset({ snapshotStore: seededStore })
+    await pollLoop.tick()
+
+    // If reset() had re-hydrated from the new store, this tick would have seen
+    // `polls: 99` (what `seededStore` was pre-loaded with) instead of the
+    // fresh `polls: 0` reset() itself just set — both ticks see the same
+    // fresh start, proving the seeded store was never consulted.
+    const messages = events
+      .filter((e) => e.type === 'collector.error' && 'message' in e.payload)
+      .map((e) => (e.type === 'collector.error' ? e.payload.message : undefined))
+    expect(messages).toEqual(['saw 0', 'saw 0'])
+  })
+})

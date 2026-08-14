@@ -13,6 +13,7 @@ import {
 import { LOCK_HEARTBEAT_INTERVAL_MS, removeSessionLock, writeSessionLock } from '../log/session-lock.js'
 import { buildApp } from '../server/build-app.js'
 import { loadCollectors } from '../server/collector-loader.js'
+import type { ServerContext } from '../server/context.js'
 import { exec as realExec } from '../server/exec.js'
 import { createPollLoop } from '../server/poll-loop.js'
 import { SessionRecorder } from '../server/recorder.js'
@@ -99,29 +100,6 @@ export async function runServerCommand(
     lastBootReason: decision.reason,
   })
 
-  // Claim the session's lock as this process — beside the log, in this
-  // repo's own session dir, never anywhere else (the constitution's
-  // observer-owns-its-data-dir law intact). A boot that resumed just proved
-  // the previous lock (if any) was stale, so overwriting it with our own pid
-  // is exactly the handoff; a fresh boot claims a lock that never existed.
-  // The heartbeat keeps it fresh for as long as this process actually runs,
-  // so the next boot's `decideSessionBoot` can tell "still writing" from
-  // "crashed" without waiting out `LOCK_STALE_MS` in the common case —
-  // `isPidAlive` (`session-lock.ts`) reports a crashed pid gone immediately.
-  //
-  // The heartbeat names `recorder.sessionId`, not the `sessionId` this boot
-  // decided on: since prd16 ruling 2 the operator can rotate mid-run, and the
-  // lock belongs to the session being written *now*. It also skips the sealed
-  // instant of a rotation, when the closed session's lock has just been
-  // released and the new one is not claimed yet — re-creating the old one
-  // there would put a live writer's claim back over a log that has ended.
-  await writeSessionLock(sessionDir, sessionId, process.pid, now())
-  const lockHeartbeat = setInterval(() => {
-    if (recorder.isSealed) return
-    void writeSessionLock(sessionDir, recorder.sessionId, process.pid, now())
-  }, LOCK_HEARTBEAT_INTERVAL_MS)
-  lockHeartbeat.unref()
-
   const collectors =
     options.collectors ??
     [
@@ -151,9 +129,57 @@ export async function runServerCommand(
 
   const webDistDir = options.webDistDir ?? defaultWebDistDir()
   const flatlineMs = args.flatlineMinutes * 60_000
+  // The one object every route AND this boot's own lock bookkeeping share
+  // (prd20 ruling 5) — built once, mutated in place by a retarget, never
+  // copied (`build-app.ts` no longer spreads it). `repoPath`/`repoName`/
+  // `sessionDir` below are this boot's starting values; anything that reads
+  // them after this point reads `ctx`'s copies, not these locals, so a later
+  // re-point is visible everywhere at once.
+  const ctx: ServerContext = {
+    repoPath,
+    repoName,
+    sessionDir,
+    recorder,
+    webDistDir,
+    flatlineMs,
+    now,
+    pollLoop,
+    port: args.port,
+  }
+
+  // Claim the session's lock as this process — beside the log, in this
+  // repo's own session dir, never anywhere else (the constitution's
+  // observer-owns-its-data-dir law intact). A boot that resumed just proved
+  // the previous lock (if any) was stale, so overwriting it with our own pid
+  // is exactly the handoff; a fresh boot claims a lock that never existed.
+  // The heartbeat keeps it fresh for as long as this process actually runs,
+  // so the next boot's `decideSessionBoot` can tell "still writing" from
+  // "crashed" without waiting out `LOCK_STALE_MS` in the common case —
+  // `isPidAlive` (`session-lock.ts`) reports a crashed pid gone immediately.
+  //
+  // The heartbeat names `recorder.sessionId`, not the `sessionId` this boot
+  // decided on: since prd16 ruling 2 the operator can rotate mid-run, and the
+  // lock belongs to the session being written *now*. It also skips the sealed
+  // instant of a rotation, when the closed session's lock has just been
+  // released and the new one is not claimed yet — re-creating the old one
+  // there would put a live writer's claim back over a log that has ended.
+  //
+  // `ctx.sessionDir`, not the `sessionDir` local, for the same reason the
+  // heartbeat already used `recorder.sessionId` over the boot's own
+  // `sessionId` (prd20 retarget spike, verified bug): a retarget re-points
+  // `ctx.sessionDir` at the NEW repo's directory, and a heartbeat that kept
+  // closing over the boot-time constant would write the new session's lock
+  // into the OLD repo's directory forever — this is what stops that.
+  await writeSessionLock(ctx.sessionDir, sessionId, process.pid, now())
+  const lockHeartbeat = setInterval(() => {
+    if (recorder.isSealed) return
+    void writeSessionLock(ctx.sessionDir, recorder.sessionId, process.pid, now())
+  }, LOCK_HEARTBEAT_INTERVAL_MS)
+  lockHeartbeat.unref()
+
   // `now` is threaded through for the one route that writes (`POST /api/rotate`),
   // so a rotation asked of a test's server happens on the test's clock.
-  const app = buildApp({ repoPath, repoName, sessionDir, recorder, webDistDir, flatlineMs, now, port: args.port })
+  const app = buildApp(ctx)
 
   let url: string
   try {
@@ -163,7 +189,7 @@ export async function runServerCommand(
     // leak past this catch and race a caller's cleanup (e.g. a test's rm of
     // its temp dataRoot) with an unawaited snapshot write.
     clearInterval(lockHeartbeat)
-    await removeSessionLock(sessionDir, sessionId).catch(() => {})
+    await removeSessionLock(ctx.sessionDir, sessionId).catch(() => {})
     await app.close().catch(() => {})
     const code = err instanceof Error ? (err as NodeJS.ErrnoException).code : undefined
     const message =
@@ -197,14 +223,16 @@ export async function runServerCommand(
     // pid to die and the next boot's staleness check to notice — the same
     // process may be the very next thing to boot this session (the resume
     // tests do exactly that), and it shouldn't have to wait itself out.
-    // `recorder.sessionId` rather than the boot's, for the same reason the
-    // heartbeat uses it: after a rotation, the lock this process holds is the
-    // new session's, and leaving *that* one behind would make the next boot
-    // refuse to resume a session nobody is writing.
-    await removeSessionLock(sessionDir, recorder.sessionId).catch(() => {})
+    // `ctx.sessionDir` and `recorder.sessionId` rather than the boot's, for
+    // the same reason the heartbeat uses them: after a rotation OR a
+    // retarget, the lock this process holds is the CURRENT session's, in the
+    // CURRENT repo's directory, and leaving either boot-time value behind
+    // would make the next boot refuse to resume a session nobody is writing,
+    // or leave a stale lock in a repo this process no longer watches.
+    await removeSessionLock(ctx.sessionDir, recorder.sessionId).catch(() => {})
   }
 
-  return { app, recorder, pollLoop, url, stop }
+  return { app, recorder, pollLoop, url, stop, ctx }
 }
 
 /**

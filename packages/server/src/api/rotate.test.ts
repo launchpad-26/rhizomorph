@@ -1,13 +1,16 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import type { AnyCollector, CollectorContext } from '@rhizomorph/core'
 import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { snapshotDirFor } from '../log/paths.js'
 import { readSessionEvents, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import { readSessionLock, writeSessionLock } from '../log/session-lock.js'
 import { writeSessionLabel } from '../log/label.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { buildApp } from '../server/build-app.js'
+import { createPollLoop } from '../server/poll-loop.js'
 import { recordSessionBootMeta } from './meta.js'
 
 /**
@@ -166,5 +169,94 @@ describe('POST /api/rotate', () => {
     expect((await readSessionEvents(sessionFilePath(sessionDir, FIRST))).map((e) => e.type)).toEqual([
       'session.started',
     ])
+  })
+})
+
+/** Emits a `collector.error`-shaped "discovery" event ONLY on a snapshot miss — the same "discover once, then go quiet" shape every real discovery collector uses. */
+const discoveryCollector: AnyCollector = {
+  name: 'discovery',
+  initialSnapshot: () => ({ seen: false }),
+  poll: (prev: { seen: boolean }, ctx: CollectorContext) => {
+    if (prev.seen) return { nextSnapshot: prev, events: [] }
+    return {
+      nextSnapshot: { seen: true },
+      events: [ctx.emit('collector.error', { collector: 'discovery', message: 'discovered the-one-worktree' })],
+    }
+  },
+}
+
+const nullExec = async () => ({ stdout: '', stderr: '', code: 0, failed: false })
+
+/**
+ * gaps (a) and (b) from the retarget spike: `POST /api/rotate` used to hold no
+ * reference to the poll loop at all, so a rotated session opened with every
+ * collector's snapshot still warm (no discovery events for anything that
+ * already existed) and any snapshot the poll loop later persisted kept
+ * landing in the CLOSED session's directory. `ctx.pollLoop` (#387/#388) is
+ * what lets this route reach in and fix both.
+ */
+describe("POST /api/rotate resets the poll loop's warm snapshots (prd20 retarget spike, gaps a+b)", () => {
+  let repoPath: string
+  let sessionDir: string
+  let recorder: SessionRecorder
+
+  beforeEach(async () => {
+    repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-rotate-poll-repo-'))
+    sessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-rotate-poll-dir-'))
+    recorder = new SessionRecorder(FIRST, sessionFilePath(sessionDir, FIRST))
+    await recorder.record(
+      createEvent(
+        'session.started',
+        { sessionId: FIRST, repoPath, repoName: 'repo' },
+        { id: 'evt-000001', ts: Number(FIRST) },
+      ),
+    )
+    await writeSessionLock(sessionDir, FIRST, process.pid, Number(FIRST))
+  })
+
+  afterEach(async () => {
+    await Promise.all([
+      rm(repoPath, { recursive: true, force: true }),
+      rm(sessionDir, { recursive: true, force: true }),
+    ])
+  })
+
+  it('gap (a): the rotated log gets a fresh discovery event on the next tick — a warm snapshot would have stayed silent', async () => {
+    const pollLoop = createPollLoop({ repoPath, collectors: [discoveryCollector], recorder, exec: nullExec })
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder, now: () => ROTATE_AT, pollLoop })
+
+    await pollLoop.tick() // discovers once, in the OLD session
+    await app.inject({ method: 'POST', url: '/api/rotate' })
+    await pollLoop.tick() // the NEW session's first tick
+
+    const newSessionEvents = await readSessionEvents(sessionFilePath(sessionDir, String(ROTATE_AT)))
+    const discoveries = newSessionEvents.filter(
+      (e) => e.type === 'collector.error' && 'message' in e.payload && e.payload.message === 'discovered the-one-worktree',
+    )
+    // Without the reset, this collector's snapshot already has `seen: true`
+    // carried over from the closed session, and the new log would show none.
+    expect(discoveries).toHaveLength(1)
+  })
+
+  it('gap (b): the next persisted snapshot lands in the NEW session\'s own directory, never the closed one\'s', async () => {
+    const pollLoop = createPollLoop({ repoPath, collectors: [discoveryCollector], recorder, exec: nullExec })
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder, now: () => ROTATE_AT, pollLoop })
+
+    // No snapshotStore configured at boot in this test (mirrors a plain
+    // `createPollLoop` call with none) — the reset itself is what supplies one.
+    await pollLoop.tick()
+    await app.inject({ method: 'POST', url: '/api/rotate' })
+    await pollLoop.tick()
+
+    const newSnapshotDir = snapshotDirFor(sessionDir, String(ROTATE_AT))
+    const oldSnapshotDir = snapshotDirFor(sessionDir, FIRST)
+    expect(await readdir(newSnapshotDir)).toEqual([expect.stringContaining('discovery')])
+    await expect(readdir(oldSnapshotDir)).rejects.toThrow()
+  })
+
+  it('leaves the poll loop untouched when this server has none (e.g. a replay) — `ctx.pollLoop` is optional', async () => {
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder, now: () => ROTATE_AT })
+    const response = await app.inject({ method: 'POST', url: '/api/rotate' })
+    expect(response.statusCode).toBe(200)
   })
 })

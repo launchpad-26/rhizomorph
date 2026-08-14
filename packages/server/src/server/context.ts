@@ -1,3 +1,4 @@
+import type { PollLoop } from './poll-loop.js'
 import type { SessionRecorder } from './recorder.js'
 
 /**
@@ -19,6 +20,14 @@ export interface ServerContext {
   /** Directory holding this repo's session-*.jsonl files, past and present. */
   sessionDir: string
   recorder: SessionRecorder
+  /**
+   * The poll loop this boot is running, when there is one (a replay server
+   * has none). Exposed here — rather than left a `cli/run.ts`-local variable
+   * — so a mutating route that needs to react to a session boundary (today,
+   * `POST /api/rotate`'s snapshot reset; prd20 ruling 5's retarget tomorrow)
+   * can reach it without a new plumbing seam of its own.
+   */
+  pollLoop?: PollLoop
   /** Path to the built web app (packages/web/dist), if it should be served statically. */
   webDistDir?: string
   /** Flatline threshold in ms, for routes/selectors that derive agent liveness. Defaults to the core selector's own default. */
