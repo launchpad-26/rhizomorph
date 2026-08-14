@@ -4,8 +4,10 @@
 
 All four questions were answered by real runs on 2026-08-14. Copying a Claude
 Code transcript into another cwd's slug directory and resuming it there works —
-same host and **across hosts** (a Windows-origin transcript with `C:\...` `cwd`
-fields resumed cleanly on Linux). The resume **appends in place** and
+same host and **across hosts** (Windows-origin transcripts with `C:\...` `cwd`
+fields resumed cleanly on Linux, at 2 KB and at 23 MB with 1294 tool-use blocks
+and 542 absolute Windows paths in their tool results). The resume **appends in
+place** and
 **preserves the sessionId**, and OTLP telemetry books under that same preserved
 sessionId. The suspected failure point (Windows `cwd` fields) is not a failure
 point.
@@ -99,8 +101,9 @@ migration mechanism. A failed lookup creates no slug dir.
 
 ## Q2 — cross-host (Windows transcript on Linux)
 
-**Verdict: GO — a Windows-origin transcript resumes on Linux. The `C:\...` `cwd`
-fields are not a failure point.**
+**Verdict: GO — Windows-origin transcripts resume on Linux, small (2 KB) and
+large (23 MB) alike. The `C:\...` `cwd` fields are not a failure point, and
+neither are absolute Windows paths inside tool results.**
 
 Candidate selection from
 `/mnt/c/Users/operator/.claude/projects/C--Users-operator-agenticlaunchpad/`:
@@ -183,6 +186,99 @@ The Windows source was read-only throughout — mtime and size unchanged:
 $ ls -l --time-style=full-iso .../200fb100-b3e2-4828-a3a6-01333a255127.jsonl
 -rwxrwxrwx 1 lachlan lachlan 2090 2026-07-30 10:15:38.672816800 +1200 .../200fb100-....jsonl
 ```
+
+### Q2b — a large transcript with Windows paths in tool results
+
+The first pass of this note flagged its own biggest gap: the tested transcripts
+were tiny, and the likeliest place for a latent problem was a **large** one
+carrying absolute Windows paths inside tool *results* — paths that do not exist
+on the target host. That gap is now closed by a run.
+
+Specimen: the largest transcript in the Windows project dir, 23 MB / 6133 lines,
+authored entirely on Windows.
+
+```console
+$ ls -lS .../C--Users-operator-agenticlaunchpad/*.jsonl | head -1
+-rwxrwxrwx 1 lachlan lachlan 23818029 2026-08-03 11:06:22 .../b1bc51ab-0d2a-4d53-bc3a-b92b9de4ef10.jsonl
+
+$ wc -l < .../b1bc51ab-....jsonl
+6133
+$ grep -o '"cwd":"[^"]*"' .../b1bc51ab-....jsonl | sort | uniq -c
+   3922 "cwd":"C:\\Users\\lachl\\agenticlaunchpad"
+$ grep -c '"tool_use"' .../b1bc51ab-....jsonl ; grep -c '"tool_result"' .../b1bc51ab-....jsonl
+1294
+684
+```
+
+It contains the hazard in quantity — **233** Windows paths inside `tool_result`
+content and **309** inside the top-level `toolUseResult` records, including
+`filePath` values naming files that are absent on this Linux host:
+
+```console
+$ python3 ...   # Windows paths inside tool_result CONTENT: 233
+    C:\Users\operator\nextjs-project
+    C:\Users\operator\.claude\skills\swarm-conduct\scripts\board.sh
+    C:\Users\operator\.claude\skills\swarm-conduct\SKILL.md
+    C:\Users\operator\AppData\Local\Temp\claude\C--Users-operator-agenticlaunchpad\
+
+                # Windows paths inside toolUseResult: 309
+    C:\Users\operator\agenticlaunchpad\AGENTS.md
+    C:\Users\operator\agenticlaunchpad\learner-context.md
+    C:\Users\operator\agenticlaunchpad\JOURNAL.md
+```
+
+Copied by the same guarded method as above (target checked for existence
+first), then resumed:
+
+```console
+$ cd ~/spike-resume-b
+$ claude --resume b1bc51ab-0d2a-4d53-bc3a-b92b9de4ef10 -p "In one line: what was this session about?"
+Conducting a swarm of coding agents to take the Observatory from a half-landed prd3 through five more prds — palette, camera, cord-cut, procedural form, beautification — and out the other side as `rhizomorph`, a publishable open-source package awaiting only your npm token and a tag.
+=== EXIT=0 ===
+```
+
+**GO.** The answer reconstructs specifics that exist only deep inside the
+migrated history (prd3's half-landed state, the five follow-on prds by name, the
+rename to `rhizomorph`), so the full transcript was genuinely loaded, not just
+its tail. No error, no warning about the dead paths, no size complaint.
+
+Same append-in-place, same preserved identity as the small cases:
+
+```console
+$ stat -c '%s' .../-home-operator-spike-resume-b/b1bc51ab-....jsonl
+23828389                                    # source was 23818029 — appended in place
+$ grep -o '"sessionId":"[^"]*"' .../b1bc51ab-....jsonl | sort -u
+"sessionId":"b1bc51ab-0d2a-4d53-bc3a-b92b9de4ef10"
+$ grep -o '"cwd":"[^"]*"' .../b1bc51ab-....jsonl | sort | uniq -c
+      9 "cwd":"/home/operator/spike-resume-b"
+   3922 "cwd":"C:\\Users\\lachl\\agenticlaunchpad"
+```
+
+The 23 MB source was not modified — byte-identical after the run:
+
+```console
+$ sha256sum .../C--Users-operator-agenticlaunchpad/b1bc51ab-....jsonl | cut -c1-16
+2ca56cdbf42c4e46                            # unchanged
+$ stat -c '%s %y' .../b1bc51ab-....jsonl
+23818029 2026-08-03 11:06:22.802849700 +1200
+```
+
+**One new behaviour, and it is a graceful one.** The appended lines include a
+replayed notification for a background task left in flight on the origin host:
+
+```
+<task-notification>
+<task-id>bsb67osa5</task-id>
+<tool-use-id>toolu_01BdsQZojC8i4u7j1arsxpnU</tool-use-id>
+<status>stopped</status>
+<summary>No completion record was found for this background shell command from the previous session. It may have been stopped (via the UI, Monitor timeout, or agent teardown — these leave no transcript marker), or it may have been running when the previous Claude Code process exited. Check the output file for partial results before assuming it completed.</summary>
+</task-notification>
+```
+
+In-flight background task state does **not** migrate, but the CLI reconciles it
+explicitly and marks it `stopped` rather than hanging or erroring. A migration
+should expect this line and treat it as informational. Note the task's output
+file, which the summary tells the reader to check, lives on the *origin* host.
 
 ---
 
@@ -342,29 +438,39 @@ d  /home/operator/.claude/projects/-home-operator-spike-resume-b/
 f  /home/operator/.claude/projects/-home-operator-spike-resume-b/edf0eb2b-9c37-4d15-8f06-99e9306cdac6.jsonl   (24382 B — Q1 copy + 2 appended turns)
 f  /home/operator/.claude/projects/-home-operator-spike-resume-b/200fb100-b3e2-4828-a3a6-01333a255127.jsonl   (21682 B — Q2 Windows copy + 1 appended turn)
 f  /home/operator/.claude/projects/-home-operator-spike-resume-b/a3a4ee6a-40bf-4b8c-9901-03b60831e0e2.jsonl   (  278 B — Q2 Windows copy, never resumed)
+f  /home/operator/.claude/projects/-home-operator-spike-resume-b/b1bc51ab-0d2a-4d53-bc3a-b92b9de4ef10.jsonl   (23828389 B — Q2b large Windows copy + 1 appended turn)
 d  /home/operator/.claude/projects/-home-operator-spike-resume-b/memory/                                       (empty, CLI side effect)
 ```
+
+Note the last entry is 23 MB. If disk matters, it is the one to delete — it is a
+copy, and its source is intact.
 
 No slug dir was created for `~/spike-resume-c` — a failed resume lookup creates
 nothing.
 
-Source files read but never written:
-`/mnt/c/Users/operator/.claude/projects/C--Users-operator-agenticlaunchpad/{200fb100-...,a3a4ee6a-...}.jsonl`
-— both verified unchanged in size and mtime after the runs.
+Source files read but never written, under
+`/mnt/c/Users/operator/.claude/projects/C--Users-operator-agenticlaunchpad/`:
+`200fb100-...`, `a3a4ee6a-...`, and `b1bc51ab-...` — all verified unchanged in
+size and mtime after the runs, the last also by sha256.
 
 ## Cleanup
 
 `~/spike-resume-a`, `~/spike-resume-b` and `~/spike-resume-c` were removed at
-the end of the spike. The copied transcripts under `~/.claude/projects/` were
-left in place, as listed above.
+the end of the spike. (`~/spike-resume-b` was recreated for the Q2b run and
+removed again afterwards; its slug dir under `~/.claude/projects/` persisted
+throughout and is what the resume actually reads.) The copied transcripts under
+`~/.claude/projects/` were left in place, as listed above.
 
 ## What this means for the migration design
 
 1. The mechanism is **file placement**: put `<id>.jsonl` in
    `~/.claude/projects/<cwd-with-slashes-as-dashes>/` and `claude --resume <id>`
    from that cwd picks it up. Lookup is slug-scoped, not global.
-2. **No transformation is needed.** Windows `cwd` values, and mixed `cwd` values
-   within one file, are tolerated. Do not rewrite paths.
+2. **No transformation is needed**, and this is now tested at scale. Windows
+   `cwd` values, mixed `cwd` values within one file, and absolute Windows paths
+   embedded in tool results (including paths to files absent on the target host)
+   are all tolerated. Do not rewrite paths — a rewriting pass would be work
+   spent to fix a problem that does not exist, and would corrupt history.
 3. **Identity survives**: the sessionId is preserved in the file and in
    telemetry. Resume appends; it never forks and never touches the source, so a
    migration can be a plain copy and the origin stays a valid rollback.
@@ -375,6 +481,10 @@ left in place, as listed above.
    Validate before migrating rather than relying on the resume's error text.
 5. Telemetry re-attachment is orthogonal to migration and controlled entirely by
    the launch env block, so a migrated session can be moved between lanes.
+6. **In-flight background tasks do not migrate.** The CLI reconciles them on
+   resume and marks them `stopped` with an explanatory notification, so this
+   degrades gracefully — but any output file the notification points at stays on
+   the origin host. Migrate quiesced sessions, or accept the loss knowingly.
 
 ## Caveats and limits of this evidence
 
@@ -382,11 +492,13 @@ left in place, as listed above.
   WSL2 mount, on one machine with one `~/.claude` config and one credential set.
   A genuinely different machine (different auth, different CLI version) was not
   tested.
-- Both transcripts tested were tiny (2–15 lines). Large transcripts, transcripts
-  containing tool-use blocks with absolute Windows paths in tool *results*, and
-  transcripts referencing files absent on the target host were not exercised —
-  those are the most likely places for a latent problem, and item 2 above should
-  be re-verified against one before wave 6 depends on it.
+- ~~Both transcripts tested were tiny (2–15 lines)...~~ **Closed** by Q2b: a
+  23 MB / 6133-line Windows transcript, with 1294 tool-use blocks and 542
+  absolute Windows paths across its tool results (many naming files absent on
+  this host), resumed cleanly with full context. Size and dead paths in tool
+  results are no longer open questions. What remains untested at scale is a
+  transcript larger than ~24 MB, and one whose tool results carry Windows paths
+  the *resumed* agent is then asked to act on — Q2b only asked it to summarize.
 - CLI version `2.1.232`. This behaviour is undocumented and unversioned; per
   `CHANGELOG.md`'s semver policy the session-log format is explicitly free to
   change release to release. Treat this verdict as valid for a pinned CLI, and
