@@ -8,7 +8,7 @@ import {
   type RhizomorphEvent,
   type PollResult,
 } from '@rhizomorph/core'
-import { voiceSkips, type ParseSkip } from '../parse-skip.js'
+import { truncateForVoice, voiceSkips, type ParseSkip } from '../parse-skip.js'
 import { resolveWorktreePath } from '../tmux/worktree.js'
 
 /**
@@ -53,6 +53,15 @@ export interface WorkmuxSnapshot {
    * (#505). Mirrors `tmux/collector.ts`'s field of the same name and purpose.
    */
   worktreeByPath: Record<string, string | null>
+  /** Per-handle (or `~unattributed:<reason>`) latch: this identity's malformed
+   * status row has already been voiced this incident. Cleared silently when
+   * the identity drops out of a poll's skip batch, so a later recurrence
+   * re-arms and voices again (#415's shape, generalized — #506). */
+  statusSkipVoiced: Record<string, boolean>
+  /** Same shape as `statusSkipVoiced`, for malformed `list` rows (#506). */
+  listSkipVoiced: Record<string, boolean>
+  /** Per-handle latch for an unrecognised `agent.status` value (#506). */
+  unrecognisedStatusVoiced: Record<string, boolean>
 }
 
 /** True only when the binary itself could not be run — not for a non-zero exit with real output. */
@@ -191,8 +200,8 @@ function parseListJson(stdout: string): { rows: WorkmuxListJsonRow[]; skipped: P
  * apply. The resolution is memoised per `workdir` (`worktreeByPath`) once it
  * has succeeded, so a pane parked in the same subdirectory only pays the
  * extra `exec` once — a failed resolve is not memoised and is retried every
- * poll (#505). If
- * `list` itself failed, returned unparseable output, or returned zero rows,
+ * poll (#505). If `list` itself failed, returned unparseable output, or
+ * returned zero rows,
  * `worktreePath` still soft-nulls — the fallback only fires once `list` has
  * proven it can join something. `branch` is unaffected either way, since it
  * comes from the same row's own `branch` field, not the join (#455).
@@ -213,7 +222,14 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
     capabilities: WORKMUX_CAPABILITIES,
 
     initialSnapshot(): WorkmuxSnapshot {
-      return { disabled: false, agents: {}, worktreeByPath: {} }
+      return {
+        disabled: false,
+        agents: {},
+        worktreeByPath: {},
+        statusSkipVoiced: {},
+        listSkipVoiced: {},
+        unrecognisedStatusVoiced: {},
+      }
     },
 
     async poll(prevSnapshot, context: CollectorContext): Promise<PollResult<WorkmuxSnapshot>> {
@@ -224,7 +240,14 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
       const statusResult = await context.exec('workmux', ['status', '--json'])
       if (isMissingBinary(statusResult)) {
         return {
-          nextSnapshot: { disabled: true, agents: {}, worktreeByPath: {} },
+          nextSnapshot: {
+            disabled: true,
+            agents: {},
+            worktreeByPath: {},
+            statusSkipVoiced: {},
+            listSkipVoiced: {},
+            unrecognisedStatusVoiced: {},
+          },
           events: [
             context.emit('collector.disabled', {
               collector: 'workmux',
@@ -286,15 +309,33 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
       const events: RhizomorphEvent[] = []
       const seenHandles = new Set<string>()
       const worktreeByPath = { ...prevSnapshot.worktreeByPath }
+      // Resume-safety: a snapshot persisted by a pre-#506 build has none of
+      // these fields at all, so `prevSnapshot.statusSkipVoiced` is
+      // `undefined`, not `{}` — never read it without this default.
+      const statusSkipVoiced = prevSnapshot.statusSkipVoiced ?? {}
+      const nextStatusSkipVoiced: Record<string, boolean> = {}
+      const listSkipVoiced = prevSnapshot.listSkipVoiced ?? {}
+      const nextListSkipVoiced: Record<string, boolean> = {}
+      const unrecognisedStatusVoiced = prevSnapshot.unrecognisedStatusVoiced ?? {}
+      const nextUnrecognisedStatusVoiced: Record<string, boolean> = {}
 
       if (statusSkipped.length > 0) {
-        events.push(
-          context.emit('collector.error', {
-            collector: 'workmux',
-            message: `skipped ${statusSkipped.length} malformed status row${statusSkipped.length === 1 ? '' : 's'}`,
-            detail: voiceSkips(statusSkipped),
-          }),
-        )
+        // Per-identity latch (#506, #415's shape generalized): voice only
+        // when at least one of this batch's keys wasn't already latched;
+        // `nextStatusSkipVoiced` is built fresh from just this poll's keys,
+        // so any key absent from a later poll silently re-arms.
+        const skipKeys = statusSkipped.map((skip) => skip.handle ?? `~unattributed:${skip.reason}`)
+        const hasNewIncident = skipKeys.some((key) => !statusSkipVoiced[key])
+        if (hasNewIncident) {
+          events.push(
+            context.emit('collector.error', {
+              collector: 'workmux',
+              message: `skipped ${statusSkipped.length} malformed status row${statusSkipped.length === 1 ? '' : 's'}`,
+              detail: voiceSkips(statusSkipped),
+            }),
+          )
+        }
+        for (const key of skipKeys) nextStatusSkipVoiced[key] = true
         // Ruling 4 (quarantine one record, never the collector) must not
         // collide with ruling 3: a malformed row is not proof its handle is
         // gone, so carry the last known agent forward when the row's handle
@@ -312,13 +353,22 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
         ? { rows: [], skipped: [] }
         : parseListJson(listResult.stdout)
       if (listSkipped.length > 0) {
-        events.push(
-          context.emit('collector.error', {
-            collector: 'workmux',
-            message: `skipped ${listSkipped.length} malformed list row${listSkipped.length === 1 ? '' : 's'}`,
-            detail: voiceSkips(listSkipped),
-          }),
-        )
+        // No per-row identity survives a malformed `list` row (it only ever
+        // carries `path`), so every skip's key is its failure reason —
+        // still bounds the incident to "per distinct failure mode," not
+        // "per poll forever" (#506).
+        const skipKeys = listSkipped.map((skip) => `~unattributed:${skip.reason}`)
+        const hasNewIncident = skipKeys.some((key) => !listSkipVoiced[key])
+        if (hasNewIncident) {
+          events.push(
+            context.emit('collector.error', {
+              collector: 'workmux',
+              message: `skipped ${listSkipped.length} malformed list row${listSkipped.length === 1 ? '' : 's'}`,
+              detail: voiceSkips(listSkipped),
+            }),
+          )
+        }
+        for (const key of skipKeys) nextListSkipVoiced[key] = true
       }
       // Resolves `worktreePath` only — `branch` comes straight off the
       // status row (#455). Both sides of the join are absolute paths under
@@ -333,12 +383,19 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
         seenHandles.add(row.handle)
         const statusCheck = agentStatusSchema.safeParse(row.status)
         if (!statusCheck.success) {
-          events.push(
-            context.emit('collector.error', {
-              collector: 'workmux',
-              message: `unrecognised agent status '${row.status}' for handle '${row.handle}'`,
-            }),
-          )
+          // This branch is already per-row, unlike the two skip-batch sites
+          // above, so its latch needs no batch/hasNewIncident reduction — a
+          // handle that parses fine this poll simply never re-enters
+          // `nextUnrecognisedStatusVoiced`, so recovery is silent (#506).
+          if (!unrecognisedStatusVoiced[row.handle]) {
+            events.push(
+              context.emit('collector.error', {
+                collector: 'workmux',
+                message: `unrecognised agent status '${truncateForVoice(row.status)}' for handle '${row.handle}'`,
+              }),
+            )
+          }
+          nextUnrecognisedStatusVoiced[row.handle] = true
           // Ruling 4 (quarantine one record, never the collector) must not
           // collide with ruling 3: a malformed row is not proof its handle is
           // gone, so carry the last known agent forward if there was one.
@@ -410,7 +467,17 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
         }
       }
 
-      return { nextSnapshot: { disabled: false, agents: nextAgents, worktreeByPath }, events }
+      return {
+        nextSnapshot: {
+          disabled: false,
+          agents: nextAgents,
+          worktreeByPath,
+          statusSkipVoiced: nextStatusSkipVoiced,
+          listSkipVoiced: nextListSkipVoiced,
+          unrecognisedStatusVoiced: nextUnrecognisedStatusVoiced,
+        },
+        events,
+      }
     },
   }
 }

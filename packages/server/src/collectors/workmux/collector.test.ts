@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { createEvent, createIdFactory, type CollectorContext, type Exec, type ExecResult, type EventType, type PayloadOf } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { createWorkmuxCollector, WORKMUX_CAPABILITIES } from './collector.js'
+import { MAX_VOICE_LENGTH } from '../parse-skip.js'
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 
@@ -802,5 +803,138 @@ describe('createWorkmuxCollector', () => {
     ])
     expect(second.events.some((event) => event.type === 'agent.removed')).toBe(false)
     expect(second.nextSnapshot.agents).toEqual(first.nextSnapshot.agents)
+  })
+
+  // --- #506: per-incident latching — a persistently-malformed row voices once, not every poll ---
+
+  it('a malformed status row voices once, stays silent while it recurs, and re-voices after recovering and recurring (#506)', async () => {
+    const collector = createWorkmuxCollector()
+    const malformed = JSON.stringify([{ worktree: 'flaky-row', branch: 'flaky-row', status: 'working' }]) // no `workdir`
+    const recovered = JSON.stringify([
+      { worktree: 'flaky-row', branch: 'flaky-row', status: 'working', elapsed_secs: 60, title: null, workdir: '/repo/../flaky-row' },
+    ])
+    const context = makeContext(
+      fakeExec({
+        status: [ok(malformed), ok(malformed), ok(recovered), ok(malformed)],
+        list: [ok('[]'), ok('[]'), ok('[]'), ok('[]')],
+      }),
+    )
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    expect(first.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+
+    const second = await collector.poll(first.nextSnapshot, context)
+    expect(second.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
+
+    // The row parses fine this poll — the latch clears silently.
+    const third = await collector.poll(second.nextSnapshot, context)
+    expect(third.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
+
+    // Identical malformed row recurs — a genuinely new incident, must voice again.
+    const fourth = await collector.poll(third.nextSnapshot, context)
+    expect(fourth.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+  })
+
+  it('a malformed list row voices once, stays silent while it recurs, and re-voices after recovering and recurring (#506)', async () => {
+    const collector = createWorkmuxCollector()
+    const statusJson = JSON.stringify([
+      { worktree: 'feat-x', branch: 'feat-x', status: 'working', elapsed_secs: 60, title: null, workdir: '/repo/../feat-x' },
+    ])
+    const malformedList = JSON.stringify([{ is_main: false }]) // no `path`
+    const goodList = JSON.stringify([{ path: '/repo/../feat-x' }])
+    const context = makeContext(
+      fakeExec({
+        status: [ok(statusJson), ok(statusJson), ok(statusJson), ok(statusJson)],
+        list: [ok(malformedList), ok(malformedList), ok(goodList), ok(malformedList)],
+      }),
+    )
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    expect(first.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+
+    const second = await collector.poll(first.nextSnapshot, context)
+    expect(second.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
+
+    const third = await collector.poll(second.nextSnapshot, context)
+    expect(third.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
+
+    const fourth = await collector.poll(third.nextSnapshot, context)
+    expect(fourth.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+  })
+
+  it('an unrecognised agent.status value voices once, stays silent while it recurs, and re-voices after recovering and recurring (#506)', async () => {
+    const collector = createWorkmuxCollector()
+    const bad = JSON.stringify([
+      { worktree: 'stuck-row', branch: 'stuck-row', status: 'zombie', elapsed_secs: 60, title: 'stuck', workdir: '/repo/../stuck-row' },
+    ])
+    const good = JSON.stringify([
+      { worktree: 'stuck-row', branch: 'stuck-row', status: 'working', elapsed_secs: 60, title: 'stuck', workdir: '/repo/../stuck-row' },
+    ])
+    const context = makeContext(
+      fakeExec({
+        status: [ok(bad), ok(bad), ok(good), ok(bad)],
+        list: [ok('[]'), ok('[]'), ok('[]'), ok('[]')],
+      }),
+    )
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    expect(first.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+
+    const second = await collector.poll(first.nextSnapshot, context)
+    expect(second.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
+
+    // The status value parses fine this poll — the latch clears silently.
+    const third = await collector.poll(second.nextSnapshot, context)
+    expect(third.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
+
+    // The identical unrecognised value recurs — must voice again.
+    const fourth = await collector.poll(third.nextSnapshot, context)
+    expect(fourth.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+  })
+
+  it('truncates an oversized unrecognised agent.status value in the voiced message, not just the list-skip sites (#506)', async () => {
+    const collector = createWorkmuxCollector()
+    const hugeStatus = 'z'.repeat(MAX_VOICE_LENGTH + 5000)
+    const bad = JSON.stringify([
+      { worktree: 'stuck-row', branch: 'stuck-row', status: hugeStatus, elapsed_secs: 60, title: 'stuck', workdir: '/repo/../stuck-row' },
+    ])
+    const context = makeContext(
+      fakeExec({
+        status: [ok(bad)],
+        list: [ok('[]')],
+      }),
+    )
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    expect(result.events).toHaveLength(1)
+    const message = (result.events[0]?.payload as { message: string }).message
+    expect(message).toContain(`(+5000 more chars)`)
+    expect(message.length).toBeLessThan(hugeStatus.length)
+  })
+
+  it("a second, distinct malformed status row still voices even though the first row's latch alone would not have (the sibling case, #506)", async () => {
+    const collector = createWorkmuxCollector()
+    // Poll 1: only handle `a` is malformed.
+    const onlyA = JSON.stringify([{ worktree: 'a', branch: 'a', status: 'working' }]) // no `workdir`
+    // Poll 2: `a` is still malformed (unchanged — alone this would stay
+    // silent), but `b` is now malformed too, for the first time. A single
+    // global boolean latch would miss this; a per-key `Record` must not.
+    const aAndB = JSON.stringify([
+      { worktree: 'a', branch: 'a', status: 'working' },
+      { worktree: 'b', branch: 'b', status: 'working' },
+    ])
+    const context = makeContext(
+      fakeExec({
+        status: [ok(onlyA), ok(aAndB)],
+        list: [ok('[]'), ok('[]')],
+      }),
+    )
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    expect(first.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+
+    const second = await collector.poll(first.nextSnapshot, context)
+    expect(second.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
   })
 })

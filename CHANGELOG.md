@@ -215,6 +215,16 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **A persistently-malformed row no longer re-voices every poll, forever (#506).**
+  Four sites — workmux's status-row and list-row skip quarantines, its
+  unrecognised-`agent.status`-value branch, and tmux's list-panes skip quarantine —
+  emitted a fresh `collector.error` on every single poll for as long as the same bad
+  row or line kept recurring (`#415`'s already-fixed heartbeat shape, not yet applied
+  here). Each now voices once when the incident opens and stays silent through
+  repeats of the identical row, re-arming silently on recovery so a later, genuinely
+  new incident still voices. Also: a skip's rendered detail is now capped at 200
+  characters instead of embedding an unbounded field (e.g. a very long agent title)
+  verbatim into every occurrence of the message.
 - **A worktree-root resolve that fails once no longer stays broken for the rest of
   the session (#505).** The subdirectory-join fallback added by #463 memoised
   `workdir → worktreePath` per pane/agent, but memoised a *failed* resolve

@@ -423,15 +423,49 @@ describe('tmuxCollector', () => {
     expect(first.events.filter((e) => e.type === 'pane.discovered')).toHaveLength(2)
     expect(first.events.some((e) => e.type === 'collector.disabled')).toBe(false)
 
+    // The identical bad line recurs on polls 2 and 3 — per-incident latching
+    // (#506) means it voices only once, not on every poll it persists (the
+    // pre-#506 shape this test used to assert, restated at greater strength
+    // per AGENTS.md rather than weakened).
     const second = await tmuxCollector.poll(first.nextSnapshot, makeContext(shell.exec))
-    expect(second.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+    expect(second.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
     expect(second.events.some((e) => e.type === 'collector.disabled' || e.type === 'collector.degraded')).toBe(false)
     expect(second.events.some((e) => e.type === 'pane.discovered')).toBe(false)
 
     const third = await tmuxCollector.poll(second.nextSnapshot, makeContext(shell.exec))
-    expect(third.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+    expect(third.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
     expect(third.events.some((e) => e.type === 'collector.disabled' || e.type === 'collector.degraded')).toBe(false)
     expect(third.events.some((e) => e.type === 'pane.discovered')).toBe(false)
+  })
+
+  it('a list-panes skip re-arms silently on recovery, so a later recurrence voices again (#506)', async () => {
+    const paneA: PaneFixture = {
+      paneId: '%1',
+      sessionName: 'obs',
+      windowIndex: 0,
+      windowName: 'wm-a',
+      currentPath: '/worktrees/a',
+      currentCommand: 'claude',
+      title: '',
+    }
+    shell.worktreeByPath.set('/worktrees/a', '/worktrees/a')
+    shell.captureByPane.set('%1', success('hello'))
+    const badLine = '%3\tobs\t2\twin-c\t/tmp/weird\tpath\tbash\ttitle'
+    const goodLine = '%3\tobs\t2\twin-c\t/tmp/weird\tbash\ttitle'
+
+    shell.listPanesOutput = [listPanesLine(paneA), badLine].join('\n')
+    const first = await tmuxCollector.poll(tmuxCollector.initialSnapshot(), makeContext(shell.exec))
+    expect(first.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+
+    // The bad line parses fine this poll — latch clears silently, no error.
+    shell.listPanesOutput = [listPanesLine(paneA), goodLine].join('\n')
+    const second = await tmuxCollector.poll(first.nextSnapshot, makeContext(shell.exec))
+    expect(second.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
+
+    // The identical bad line recurs — a genuinely new incident, must voice again.
+    shell.listPanesOutput = [listPanesLine(paneA), badLine].join('\n')
+    const third = await tmuxCollector.poll(second.nextSnapshot, makeContext(shell.exec))
+    expect(third.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
   })
 
   it('maps a pane outside any git worktree to a null worktreePath', async () => {
