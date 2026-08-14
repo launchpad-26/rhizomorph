@@ -66,6 +66,18 @@ import type {
  * precedent is the repo's own: `scripts/lane-agent.sh` and workmux both put
  * agents in panes, and `collectors/tmux/` already reads them back.
  *
+ * **And it settles before it claims, exactly as the detached path does**
+ * (ledger #3). `new-window`'s report is made the moment the window is created;
+ * it says a window exists, never that anything is still running in it. Trusting
+ * it was #532's own defect at one remove — the detached path had stopped
+ * trusting `spawn`'s success while this path went on trusting `new-window`'s.
+ * So after the SAME {@link LAUNCH_SETTLE_MS} window, on the same injected
+ * clock, {@link tmuxPaneStillThere} asks tmux whether the pane is there; a
+ * vanished or dead pane is `{kind:'died', via:'tmux'}` carrying the window it
+ * would have pointed the operator at. The #532 death itself cannot recur here
+ * (a pane has a TTY) — what this catches is every other insta-death, a wrapper
+ * refusing its arguments or a harness exiting on a bad config.
+ *
  * **The honest limit, stated rather than discovered.** `tmux new-window`'s
  * window command is a COMMAND STRING, which tmux hands to a shell — the very
  * thing namespace-law clause 4 exists to keep out of this module. Clause 4's
@@ -360,6 +372,10 @@ export async function planLaunch(
  *   interactive harness with nothing attached has no one to talk to.
  * - `died` — the process was made and was gone again within the settle window.
  *   The defect class #532 named, now a reportable outcome instead of a lie.
+ *   It has BOTH `via` values, and that is the point of the second one: a tmux
+ *   window is a stronger claim than a pid, so it earns the same settle-window
+ *   check the detached path already made rather than being trusted because
+ *   `new-window` said so (ledger #3).
  * - `error` — no process was made at all (the binary vanished between
  *   `detect()` and here), or tmux made a window it then could not describe.
  */
@@ -367,6 +383,7 @@ export type LaunchOutcome =
   | { kind: 'launched'; via: 'tmux'; pid: number; window: string }
   | { kind: 'launched'; via: 'detached'; pid: number }
   | { kind: 'died'; via: 'detached'; message: string }
+  | { kind: 'died'; via: 'tmux'; window: string; message: string }
   | { kind: 'error'; message: string }
 
 /** The minimal shape {@link runLaunch} needs from a spawned child — real `ChildProcess` satisfies it structurally. */
@@ -526,7 +543,7 @@ function tmuxEnvFlags(env: Readonly<Record<string, string>>): string[] {
  * `-e` variables present in the pane's own environment and the single-quoted
  * command line running as written.
  */
-async function tryTmuxLaunch(plan: LaunchPlan, exec: Exec): Promise<LaunchOutcome | null> {
+async function tryTmuxLaunch(plan: LaunchPlan, exec: Exec, run: RunLaunchOptions): Promise<LaunchOutcome | null> {
   const options = { cwd: plan.cwd, timeoutMs: TMUX_PROBE_TIMEOUT_MS }
 
   // Is a tmux server reachable at all? Cheapest possible probe, and the one
@@ -588,7 +605,84 @@ async function tryTmuxLaunch(plan: LaunchPlan, exec: Exec): Promise<LaunchOutcom
     }
   }
 
+  // THE SAME SETTLE WINDOW THE DETACHED PATH GIVES, for the same reason
+  // (ledger #3). Everything above is `new-window`'s own report, and that report
+  // is made the instant the window is created — it says a window was made, not
+  // that anything is still running in it. #532's exact failure at one remove:
+  // the detached path stopped trusting `spawn`'s success and this path went on
+  // trusting `new-window`'s.
+  //
+  // A pane HAS a TTY, so the specific death #532 caught — an interactive
+  // harness exiting for want of a terminal — cannot happen here, and this is
+  // not that bug again. What it catches is every OTHER insta-death: a wrapper
+  // that rejects its arguments, a harness that exits on a bad config, a command
+  // tmux could start and the shell could not run. All of those close the pane
+  // within milliseconds, and all of them read as `launched` with a window to
+  // attach to that is no longer there.
+  await run.wait(run.settleMs ?? LAUNCH_SETTLE_MS).catch(() => undefined)
+  const still = await tmuxPaneStillThere(window, exec, options)
+  if (still !== null) {
+    return {
+      kind: 'died',
+      via: 'tmux',
+      window,
+      message:
+        `the process was started in the tmux window ${window} and was gone again within ` +
+        `${String(run.settleMs ?? LAUNCH_SETTLE_MS)}ms — ${still}. The window had a terminal, so this is not the ` +
+        'no-TTY death (#532): whatever was launched exited on its own. ' +
+        `Run it yourself in a terminal to see what it says: ${plan.argv.join(' ')}`,
+    }
+  }
+
   return { kind: 'launched', via: 'tmux', pid, window }
+}
+
+/**
+ * Whether the window this launch made still holds a live pane — `null` when it
+ * does, and the EVIDENCE of its absence when it does not.
+ *
+ * Two ways a pane is gone, and both are checked because only checking the first
+ * would leave the second reading as alive:
+ *
+ * - the window itself is gone (`list-panes -t` exits non-zero, "can't find
+ *   window"), which is what tmux does by default when a pane's command exits;
+ * - the window is still listed and its pane is DEAD — `remain-on-exit on`, a
+ *   real and not-rare tmux setting, keeps the corpse's pane on screen so the
+ *   operator can read what it printed. `#{pane_dead}` is tmux's own name for
+ *   exactly that state, and a check that only asked "does the window exist"
+ *   would call it a live conductor.
+ *
+ * An exec that fails for a reason other than a missing window (tmux gone
+ * between the two calls, a timeout) also reads as absent here. That is the
+ * conservative direction and the one this module already takes everywhere else:
+ * "we could not confirm it is there" is reported as not-there, never as
+ * launched, because a `died` costs the operator a look at a window that turns
+ * out to be fine and a false `launched` costs them the search for a process
+ * that never was.
+ */
+async function tmuxPaneStillThere(
+  window: string,
+  exec: Exec,
+  options: { cwd: string; timeoutMs: number },
+): Promise<string | null> {
+  const panes = await exec('tmux', ['list-panes', '-t', window, '-F', '#{pane_dead}'], options)
+  if (panes.failed) {
+    const said = panes.stderr.trim()
+    return said.length > 0
+      ? `tmux no longer lists a pane in it (${said})`
+      : 'tmux no longer lists a pane in it, so the command it was given has already exited'
+  }
+  const states = panes.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+  if (states.length === 0) return 'tmux listed the window with no pane in it at all'
+  // `remain-on-exit on` keeps a dead pane visible; every pane reporting dead is
+  // a window the operator can attach to and type into nothing.
+  if (states.every((state) => state === '1')) {
+    return 'its pane is still on screen and its command has exited (tmux reports the pane dead — this server has `remain-on-exit` on)'
+  }
+  return null
 }
 
 /**
@@ -664,7 +758,7 @@ function runDetachedLaunch(plan: LaunchPlan, options: RunLaunchOptions): Promise
  * started nothing. There is no path on which both run.
  */
 export async function runLaunch(plan: LaunchPlan, options: RunLaunchOptions): Promise<LaunchOutcome> {
-  const viaTmux = await tryTmuxLaunch(plan, options.exec ?? realExec)
+  const viaTmux = await tryTmuxLaunch(plan, options.exec ?? realExec, options)
   if (viaTmux !== null) return viaTmux
   return runDetachedLaunch(plan, options)
 }
