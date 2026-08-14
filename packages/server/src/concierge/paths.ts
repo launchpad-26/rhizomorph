@@ -1,5 +1,13 @@
+import { lstatSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
+import {
+  type Attribution,
+  candidateTranscriptPaths,
+  isPathContained,
+  isSafeSessionId,
+} from '../log/transcript-attribution.js'
 import { canonicalize, isInside, type Realpath } from '../paths/containment.js'
 
 export { isInside, type Realpath }
@@ -20,6 +28,14 @@ export { isInside, type Realpath }
  * ruled."), so the fence takes the clone root as an argument rather than
  * hard-coding one. Answering the open question later sets that argument; it
  * does not reopen this law.
+ *
+ * Since #514 it carries a SECOND fence, the same way and for the same reason:
+ * `assertMigrationPaths` is prd-20 ruling 6 / ADR-0020's fence for the fourth
+ * hand's third power — copying one attributed session transcript into the
+ * watched repo's slug directory under `~/.claude/projects`. It shares this
+ * file, and the canonicalize/isInside helpers, deliberately: the two powers are
+ * judged by the same containment primitive, and #401's lesson is that a
+ * security predicate with two homes gets hardened in one of them.
  *
  * `canonicalize`/`isInside` are imported from `../paths/containment.ts`, not
  * redefined here. This file used to carry its own copy, because borrowing
@@ -160,4 +176,240 @@ export function assertCloneTarget(fence: CloneFence, candidate: string, realpath
       `refusing to clone: ${path.resolve(candidate)} is inside the watched repo ${path.resolve(watchedRepoPath)}`,
     )
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/* prd-20 ruling 6 / ADR-0020 — the migration fence                           */
+/* -------------------------------------------------------------------------- */
+
+/** What Claude Code names a session transcript. */
+const TRANSCRIPT_SUFFIX = '.jsonl'
+
+/**
+ * The two paths a transcript migration is judged against. Note what is NOT
+ * here: a source file. See {@link assertMigrationPaths}.
+ */
+export interface MigrationFence {
+  /**
+   * `~/.claude/projects` on THIS machine — the harness state directory the copy
+   * lands under. The destination's slug directory is derived from
+   * `watchedRepoPath`, never supplied.
+   */
+  claudeProjectsRoot: string
+  /**
+   * The repo the observer is watching, and the cwd a resumed process will run
+   * in. Its slug is the destination directory; it is also off-limits as a
+   * destination, which is the clone fence's own fourth clause reapplied.
+   */
+  watchedRepoPath: string
+  /**
+   * Where the ORIGIN's transcripts live, when that is not this machine's own
+   * projects root — a mounted host's `~/.claude/projects`, which is the
+   * cross-host case `research/2026-08-14-cross-host-resume.md` Q2 proves.
+   * Defaults to {@link claudeProjectsRoot}. It is a ROOT, never a file: the
+   * directory beneath it and the filename are still derived from the
+   * attribution, so widening this does not widen what may be read.
+   */
+  sourceProjectsRoot?: string
+}
+
+/** The one copy the fourth hand's third power may make, once it has passed. */
+export interface MigrationPaths {
+  /** The transcript to read. Attribution-derived; the origin is never touched. */
+  source: string
+  /** Where it lands. Create-only — see {@link assertMigrationPaths} clause 6. */
+  destination: string
+}
+
+/** Thrown when a migration fails the fence. Carries the clause it failed. */
+export class MigrationFenceError extends Error {
+  constructor(message: string) {
+    super(
+      `${message} (prd-20 ruling 6 / ADR-0020 — the concierge copies one attributed transcript, ` +
+        `create-only, into the watched repo's own slug directory)`,
+    )
+    this.name = 'MigrationFenceError'
+  }
+}
+
+/**
+ * `isInside`, for a clause that REFUSES on containment rather than requiring
+ * it — so a path that cannot be canonicalized must read as *inside*.
+ *
+ * `isPathContained` (`log/transcript-attribution.ts`) is the fail-closed
+ * wrapper for the other direction: a positive containment check, where an
+ * ELOOP or EACCES must refuse the path. Fail-closed is a direction, not a
+ * value, and using that wrapper here would invert it — an unreadable
+ * destination would sail past the one clause that can never be relaxed.
+ *
+ * Named to stay clear of the `isInside…` / `canonicalize…` prefixes
+ * `paths/containment.test.ts` sweeps for (#401 step 5), and this comment is
+ * the honest half of that: these two are call-site adapters over the ONE
+ * implementation, not a second copy of it. Anything here that actually
+ * compared path prefixes would be the violation that law is about, whatever it
+ * was called.
+ */
+function insideOrUnreadable(parent: string, candidate: string): boolean {
+  try {
+    return isInside(parent, candidate)
+  } catch {
+    return true
+  }
+}
+
+/** `canonicalize`, with its errors converted to the fence's own refusal. */
+function realPathOrRefuse(candidate: string, what: string): string {
+  try {
+    return canonicalize(candidate)
+  } catch (err) {
+    throw new MigrationFenceError(`refusing to migrate: cannot resolve ${what} ${path.resolve(candidate)} — ${err}`)
+  }
+}
+
+/** True when `candidate` is a regular file, following symlinks. */
+function isRegularFile(candidate: string): boolean {
+  try {
+    // `statSync`, not `lstatSync`: a symlink to a real transcript is a real
+    // transcript. Where the link POINTS is already fenced —
+    // `candidateTranscriptPaths` canonicalizes each candidate through
+    // `isPathContained` before offering it, so a link out of the source root
+    // never reaches this function.
+    return statSync(candidate).isFile()
+  } catch {
+    return false
+  }
+}
+
+/** True when anything at all exists at `candidate`, a dangling symlink included. */
+function somethingExistsAt(candidate: string): boolean {
+  try {
+    // `lstatSync`, not `existsSync`: `existsSync` follows the link and answers
+    // FALSE for a dangling one, while `copyFile` would happily write through
+    // it and create the target. The create-only clause has to see the link.
+    lstatSync(candidate)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The write fence for the migration power — prd-20 ruling 6, ADR-0020.
+ *
+ * The fourth hand gains one further write and only one: it may COPY a session
+ * transcript into the harness state directory for the watched repo, so that a
+ * conversation begun somewhere else can be resumed *here*, instrumented.
+ * `research/2026-08-14-cross-host-resume.md` is the evidence that this works
+ * at all, and that placing the file IS the whole mechanism: resume lookup is
+ * scoped to the slug directory of the current working directory (Q1's
+ * control), the resume appends in place under the preserved sessionId (Q3),
+ * and telemetry books under that same id (Q4). Verified on Claude Code
+ * `2.1.232`, whose session-log format is explicitly free to change.
+ *
+ * **The signature is the fence's first clause.** There is no `source`
+ * parameter, because a fence that validates a caller-supplied path can only
+ * ever refuse the spellings its author thought of. Both paths are DERIVED
+ * from an {@link Attribution} the event log itself produced — the source
+ * through `candidateTranscriptPaths`, the destination from the watched repo's
+ * own slug — so "copy me `/etc/shadow`" is not a request this function can be
+ * asked. That is why an `assert…` returns a value: the only way to make an
+ * arbitrary source unrepresentable is to not accept one.
+ *
+ * It deliberately takes no injectable `realpath`, unlike
+ * {@link assertCloneTarget}. The derivation runs through
+ * `candidateTranscriptPaths`, which canonicalizes with `realpath(3)` and takes
+ * no such argument; a fence that honoured an injected canonicalizer in three
+ * clauses and ignored it in the fourth would be worse than one that never
+ * claims to. The tests use real temp directories instead.
+ *
+ * Six clauses, in the order a mistake arrives:
+ *
+ * 1. The session id passes `isSafeSessionId` BEFORE any path is built — an
+ *    absolute path, a `/` and a NUL byte are all refused while they are still
+ *    a string, not after they have become a directory — **and** it is not `.`
+ *    or `..`. That second half is not redundant, which is worth stating rather
+ *    than leaving for the next reader to rediscover: `path.basename('..')` is
+ *    `'..'`, so the shared shape check admits both dot ids. This fence appends
+ *    `.jsonl`, so `'..'` would land as a file called `...jsonl` rather than
+ *    escaping anywhere — but an id that names a directory is not a session id,
+ *    and a later caller that builds a filename some other way must not inherit
+ *    an admitted `..` from here.
+ * 2. The destination is exactly
+ *    `<claudeProjectsRoot>/<slug(watchedRepoPath)>/<sessionId>.jsonl`, and it
+ *    must still be contained by `claudeProjectsRoot` once canonicalized — the
+ *    slug directory itself can be a symlink pointing anywhere.
+ * 3. The destination is never inside the watched repo's working tree. Clause 2
+ *    implies it for any ordinary layout; it is asserted independently because
+ *    prd-20's non-goal ("never a write inside the watched repo's working
+ *    tree") is the one line this instrument cannot cross, and defence in depth
+ *    is cheap — the clone fence's own fourth clause, reapplied.
+ * 4. The source is one of `candidateTranscriptPaths`' offerings, and is a
+ *    regular file. Nothing else can be named.
+ * 5. Source and destination are different files once canonicalized — a
+ *    transcript already where a resume would find it is not a migration.
+ * 6. Create-only: nothing may exist at the destination. **This clause is
+ *    advisory, and saying so is the point.** It is a check-then-write, so it
+ *    is a TOCTOU by construction; the guarantee is `COPYFILE_EXCL` on the
+ *    `copyFile` itself, which the namespace law's clause 6 pins as an
+ *    obligation on the wave that writes it. This clause exists to give the
+ *    operator a legible refusal, not to be the thing standing between them
+ *    and a lost transcript.
+ */
+export function assertMigrationPaths(fence: MigrationFence, attribution: Attribution): MigrationPaths {
+  const { claudeProjectsRoot, watchedRepoPath } = fence
+  const sourceProjectsRoot = fence.sourceProjectsRoot ?? claudeProjectsRoot
+
+  // 1 — the shape of the id, while it is still a string. See the doc comment
+  // for why `.`/`..` need naming separately: `path.basename` returns them
+  // unchanged, so `isSafeSessionId` alone admits both.
+  if (!isSafeSessionId(attribution.sessionId) || attribution.sessionId === '.' || attribution.sessionId === '..') {
+    throw new MigrationFenceError(
+      `refusing to migrate: ${JSON.stringify(attribution.sessionId)} is not a bare session id`,
+    )
+  }
+
+  // 2 — the destination, derived. `canonicalize` before slugging because
+  // Claude Code slugs its own `process.cwd()`, which Node has already resolved
+  // through `realpath(3)`: on macOS a `/var/…` repo path and the `/private/var/…`
+  // the CLI actually sees produce two DIFFERENT slugs, so an unresolved
+  // spelling would place the file in a directory no resume ever reads.
+  const watchedRepoReal = realPathOrRefuse(watchedRepoPath, 'the watched repo')
+  const destination = path.join(
+    claudeProjectsRoot,
+    worktreePathToProjectSlug(watchedRepoReal),
+    `${attribution.sessionId}${TRANSCRIPT_SUFFIX}`,
+  )
+  if (!isPathContained(claudeProjectsRoot, destination)) {
+    throw new MigrationFenceError(
+      `refusing to migrate: ${destination} does not resolve inside ${path.resolve(claudeProjectsRoot)}`,
+    )
+  }
+
+  // 3 — never a write inside the watched repo's working tree.
+  if (insideOrUnreadable(watchedRepoReal, destination)) {
+    throw new MigrationFenceError(`refusing to migrate: ${destination} is inside the watched repo ${watchedRepoReal}`)
+  }
+
+  // 4 — the source, derived. The event log's attribution decides it; a caller
+  // cannot name a file, only the root the attributed path is resolved against.
+  const candidates = candidateTranscriptPaths(attribution, sourceProjectsRoot)
+  const source = candidates.find(isRegularFile)
+  if (source === undefined) {
+    throw new MigrationFenceError(
+      `refusing to migrate: no transcript for session ${attribution.sessionId} at any path its attribution derives ` +
+        `(looked in ${candidates.length === 0 ? '<no candidate path passed containment>' : candidates.join(', ')})`,
+    )
+  }
+
+  // 5 — a transcript already where a resume would find it is not a migration.
+  if (realPathOrRefuse(source, 'the source') === realPathOrRefuse(destination, 'the destination')) {
+    throw new MigrationFenceError(`refusing to migrate: ${source} is already where a resume in the watched repo looks`)
+  }
+
+  // 6 — create-only. Advisory; `COPYFILE_EXCL` is the guarantee.
+  if (somethingExistsAt(destination)) {
+    throw new MigrationFenceError(`refusing to migrate: ${destination} already exists — this hand never overwrites`)
+  }
+
+  return { source, destination }
 }

@@ -187,7 +187,7 @@ have carried no information.
 
 | # | Decision | Decided | Status |
 |---|---|---|---|
-| [0001](0001-read-only-observer-as-a-constitution.md) | Read-only observer, amendable only by explicit invocation | 2026-07-30 | accepted, amended ×3 (latest: [0019](0019-the-fourth-hand.md)) |
+| [0001](0001-read-only-observer-as-a-constitution.md) | Read-only observer, amendable only by explicit invocation | 2026-07-30 | accepted, amended ×4 (latest: [0020](0020-transcript-migration-is-a-create-only-copy.md)) |
 | [0002](0002-one-reducer-for-live-and-replay.md) | One event log, one reducer, serving both live and replay | 2026-07-30 | accepted |
 | [0003](0003-core-is-browser-safe.md) | `core` is browser-safe: zod only, no `node:*` | 2026-07-30 | accepted |
 | [0004](0004-collector-contract-over-an-exec-seam.md) | Collectors are pure folds over command output, behind an injected `Exec` | 2026-07-30 | accepted |
@@ -206,6 +206,7 @@ have carried no information.
 | [0017](0017-one-turngrammar-seams-shape-and-extraction.md) | One `TurnGrammar` seams turn shape and extraction, not two | 2026-08-13 | accepted |
 | [0018](0018-bare-path-body-shape-routing.md) | The OTLP receiver adds one bare-path route, dispatched by body shape | 2026-08-13 | proposed |
 | [0019](0019-the-fourth-hand.md) | The concierge: a fourth hand, granted two powers by explicit invocation — amends [0001](0001-read-only-observer-as-a-constitution.md) | 2026-08-10 | accepted |
+| [0020](0020-transcript-migration-is-a-create-only-copy.md) | Transcript migration is one create-only copy into the watched repo's slug directory — amends [0001](0001-read-only-observer-as-a-constitution.md), extends [0019](0019-the-fourth-hand.md) | 2026-08-14 | accepted |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the

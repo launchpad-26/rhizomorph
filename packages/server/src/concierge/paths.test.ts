@@ -1,10 +1,19 @@
 import { realpathSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { assertCloneTarget, CloneFenceError, conciergeRoot, defaultClonesRoot, isInside } from './paths.js'
+import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
+import {
+  assertCloneTarget,
+  assertMigrationPaths,
+  CloneFenceError,
+  conciergeRoot,
+  defaultClonesRoot,
+  isInside,
+  MigrationFenceError,
+} from './paths.js'
 
 /**
  * The fourth hand's clone fence, tested against real directories on a real
@@ -149,6 +158,238 @@ describe('the clone fence', () => {
 
   it('names the clause it refused on, so a failure is debuggable', () => {
     expect(() => assertCloneTarget(fence(), path.join(root, 'elsewhere'))).toThrow(/ADR-0019/)
+  })
+})
+
+/**
+ * The fourth hand's THIRD power (prd-20 ruling 6 / ADR-0020), against real
+ * directories on a real filesystem — every path here is under one `mkdtemp`
+ * root, so the suite never reads or writes the machine's own `~/.claude`.
+ *
+ * The root is `realpathSync`'d immediately: `mkdtemp` hands back the raw
+ * `/var/folders/…` spelling on macOS, where `/var` is a symlink, and the fence
+ * canonicalizes the watched repo before slugging it. Without this, the
+ * destination's slug and the tests' own expectations would disagree on one
+ * platform and agree on the other — the exact shape the macOS CI leg exists to
+ * catch, and worth removing from every test that is not ABOUT it (there is one
+ * below that is).
+ */
+describe('the migration fence', () => {
+  const SESSION_ID = 'edf0eb2b-9c37-4d15-8f06-99e9306cdac6'
+
+  let root: string
+  let claudeProjectsRoot: string
+  let watchedRepoPath: string
+  /** Where the conversation was had — the cwd the event log attributed it to. */
+  let originRepoPath: string
+  let originTranscript: string
+
+  function fence() {
+    return { claudeProjectsRoot, watchedRepoPath }
+  }
+
+  function attribution(overrides: Partial<{ sessionId: string; worktreePath: string | null }> = {}) {
+    return { sessionId: SESSION_ID, worktreePath: originRepoPath, ...overrides }
+  }
+
+  /** Where a resume in `repoPath` looks for `sessionId` — the destination, spelled independently. */
+  function slugDir(repoPath: string): string {
+    return path.join(claudeProjectsRoot, worktreePathToProjectSlug(repoPath))
+  }
+
+  beforeEach(async () => {
+    root = realpathSync(await mkdtemp(path.join(tmpdir(), 'rhizomorph-concierge-migration-test-')))
+    claudeProjectsRoot = path.join(root, 'claude-projects')
+    watchedRepoPath = path.join(root, 'watched-repo')
+    originRepoPath = path.join(root, 'origin-repo')
+    await mkdir(claudeProjectsRoot, { recursive: true })
+    await mkdir(watchedRepoPath, { recursive: true })
+    await mkdir(originRepoPath, { recursive: true })
+
+    // The transcript, where the collector would have tailed it.
+    await mkdir(slugDir(originRepoPath), { recursive: true })
+    originTranscript = path.join(slugDir(originRepoPath), `${SESSION_ID}.jsonl`)
+    await writeFile(originTranscript, '{"type":"user","sessionId":"x"}\n')
+  })
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('derives both paths from the attribution — the one thing the power is for', () => {
+    expect(assertMigrationPaths(fence(), attribution())).toEqual({
+      source: originTranscript,
+      destination: path.join(slugDir(watchedRepoPath), `${SESSION_ID}.jsonl`),
+    })
+  })
+
+  it('lands in the WATCHED repo\'s slug directory, never the origin\'s — the wrong-slug destination', () => {
+    // The mutation this exists to catch: deriving the destination directory
+    // from `attribution.worktreePath` instead of from the watched repo would
+    // copy the file onto itself, and resume from the watched repo would never
+    // find it (the spike's Q1 control: lookup is slug-scoped to the cwd).
+    const { destination } = assertMigrationPaths(fence(), attribution())
+    expect(path.dirname(destination)).toBe(slugDir(watchedRepoPath))
+    expect(path.dirname(destination)).not.toBe(slugDir(originRepoPath))
+    expect(path.basename(destination)).toBe(`${SESSION_ID}.jsonl`)
+  })
+
+  it('slugs the watched repo by where it REALLY is, not by the spelling it was handed', async () => {
+    // The macOS `/var` → `/private/var` shape, reproduced on any filesystem
+    // (#217's trick). Claude Code slugs its own `process.cwd()`, which Node has
+    // already resolved, so a file placed under the LINK's slug would sit in a
+    // directory no resume ever reads.
+    const linked = path.join(root, 'watched-link')
+    await symlink(watchedRepoPath, linked)
+
+    const { destination } = assertMigrationPaths({ ...fence(), watchedRepoPath: linked }, attribution())
+    expect(path.dirname(destination)).toBe(slugDir(watchedRepoPath))
+    expect(path.dirname(destination)).not.toBe(slugDir(linked))
+  })
+
+  it('refuses a traversal-shaped session id before it builds any path at all', () => {
+    // `..` and `.` are in this list because `path.basename` returns them
+    // unchanged, so `isSafeSessionId` — the shared check — admits both. Found
+    // by running this test, not by reading the function.
+    for (const sessionId of ['..', '../../etc/passwd', '/etc/passwd', 'a/b', `${SESSION_ID}\0.jsonl`, '.']) {
+      expect(
+        () => assertMigrationPaths(fence(), attribution({ sessionId })),
+        `permitted the session id ${JSON.stringify(sessionId)}`,
+      ).toThrow(/not a bare session id/)
+    }
+  })
+
+  it('refuses when the destination\'s slug directory is a symlink out of the projects root', async () => {
+    // The hostile spelling: the directory the file would land in is a link
+    // pointing anywhere. Its un-followed name passes a raw prefix check; every
+    // byte written through it lands in `outside`.
+    const outside = path.join(root, 'outside')
+    await mkdir(outside, { recursive: true })
+    await symlink(outside, slugDir(watchedRepoPath))
+
+    expect(() => assertMigrationPaths(fence(), attribution())).toThrow(/does not resolve inside/)
+  })
+
+  it('refuses a destination inside the watched repo\'s working tree, however the roots are arranged', async () => {
+    // prd-20's non-goal, and the clone fence's own fourth clause. Clause 2 is
+    // satisfied here — the destination IS inside the projects root it was
+    // given — so only the independent clause can catch it.
+    const insideRepo = path.join(watchedRepoPath, '.claude', 'projects')
+    await mkdir(insideRepo, { recursive: true })
+    expect(() => assertMigrationPaths({ ...fence(), claudeProjectsRoot: insideRepo }, attribution())).toThrow(
+      /is inside the watched repo/,
+    )
+  })
+
+  it('refuses to overwrite — the copy is create-only', async () => {
+    await mkdir(slugDir(watchedRepoPath), { recursive: true })
+    await writeFile(path.join(slugDir(watchedRepoPath), `${SESSION_ID}.jsonl`), 'someone else\'s conversation\n')
+
+    expect(() => assertMigrationPaths(fence(), attribution())).toThrow(/already exists/)
+  })
+
+  it('refuses a DANGLING symlink at the destination too — the sibling case `existsSync` misses', async () => {
+    // `existsSync` follows the link and answers false; `copyFile` follows it
+    // and creates the target. Only an `lstat` sees the thing that is there.
+    //
+    // The link points INSIDE the projects root deliberately: a dangling link
+    // pointing out of it is refused too, but by clause 2 (`canonicalize`
+    // chases a dangling target), and then this test would pass without the
+    // create-only clause ever running.
+    await mkdir(slugDir(watchedRepoPath), { recursive: true })
+    await symlink(
+      path.join(claudeProjectsRoot, 'nothing-here'),
+      path.join(slugDir(watchedRepoPath), `${SESSION_ID}.jsonl`),
+    )
+
+    expect(() => assertMigrationPaths(fence(), attribution())).toThrow(/already exists/)
+  })
+
+  it('refuses when the transcript is already where a resume in the watched repo would look', async () => {
+    // Nothing to migrate: the conversation was had in the watched repo itself.
+    // Caught before the create-only clause, so the operator is told WHY rather
+    // than that something is in the way.
+    const alreadyHere = path.join(slugDir(watchedRepoPath), `${SESSION_ID}.jsonl`)
+    await mkdir(path.dirname(alreadyHere), { recursive: true })
+    await writeFile(alreadyHere, '{"type":"user"}\n')
+
+    expect(() => assertMigrationPaths(fence(), attribution({ worktreePath: watchedRepoPath }))).toThrow(
+      /already where a resume/,
+    )
+  })
+
+  it('never names a source the attribution does not derive — an arbitrary path is unrepresentable', async () => {
+    // A perfectly good transcript, with the right name, sitting somewhere the
+    // event log never pointed at. There is no parameter that could ask for it,
+    // and nothing the fence derives resolves to it.
+    const elsewhere = path.join(root, 'elsewhere')
+    await mkdir(elsewhere, { recursive: true })
+    await writeFile(path.join(elsewhere, `${SESSION_ID}.jsonl`), '{"type":"user"}\n')
+    await rm(originTranscript)
+
+    expect(() => assertMigrationPaths(fence(), attribution())).toThrow(/no transcript for session/)
+  })
+
+  it('refuses a source that is not a regular file', async () => {
+    await rm(originTranscript)
+    await mkdir(originTranscript) // a DIRECTORY wearing the transcript's name
+
+    expect(() => assertMigrationPaths(fence(), attribution())).toThrow(/no transcript for session/)
+  })
+
+  it('refuses a source reached through a symlink that leaves the source root', async () => {
+    // The mirror of the destination case: the ORIGIN's slug directory is a
+    // link out of the projects root, so the candidate path resolves somewhere
+    // the attribution never named. `candidateTranscriptPaths` drops it, and
+    // there is nothing left to migrate.
+    await rm(slugDir(originRepoPath), { recursive: true })
+    const outside = path.join(root, 'outside')
+    await mkdir(outside, { recursive: true })
+    await writeFile(path.join(outside, `${SESSION_ID}.jsonl`), '{"type":"user"}\n')
+    await symlink(outside, slugDir(originRepoPath))
+
+    expect(() => assertMigrationPaths(fence(), attribution())).toThrow(/no transcript for session/)
+  })
+
+  it('refuses an attribution that never named a worktree — there is nothing to derive from', () => {
+    expect(() => assertMigrationPaths(fence(), attribution({ worktreePath: null }))).toThrow(
+      /<no candidate path passed containment>/,
+    )
+  })
+
+  it('accepts the transcript beside its worktree — the `--extra-sessions` candidate', async () => {
+    await rm(slugDir(originRepoPath), { recursive: true })
+    const beside = path.join(originRepoPath, `${SESSION_ID}.jsonl`)
+    await writeFile(beside, '{"type":"user"}\n')
+
+    expect(assertMigrationPaths(fence(), attribution()).source).toBe(beside)
+  })
+
+  it('reads a foreign projects root when it is given one — the cross-host case', async () => {
+    // `research/2026-08-14-cross-host-resume.md` Q2: a Windows-authored
+    // transcript, reached through a mount, resumed on Linux. The source ROOT
+    // moves; the directory beneath it and the filename are still derived.
+    const foreignRoot = path.join(root, 'mnt-c-users-lachl-claude-projects')
+    const foreignSlugDir = path.join(foreignRoot, worktreePathToProjectSlug(originRepoPath))
+    await mkdir(foreignSlugDir, { recursive: true })
+    const foreign = path.join(foreignSlugDir, `${SESSION_ID}.jsonl`)
+    await writeFile(foreign, '{"cwd":"C:\\\\Users\\\\lachl\\\\agenticlaunchpad"}\n')
+
+    expect(assertMigrationPaths({ ...fence(), sourceProjectsRoot: foreignRoot }, attribution())).toEqual({
+      source: foreign,
+      destination: path.join(slugDir(watchedRepoPath), `${SESSION_ID}.jsonl`),
+    })
+  })
+
+  it('names the ruling it refused on, so a failure is debuggable', () => {
+    expect(() => assertMigrationPaths(fence(), attribution({ sessionId: '..' }))).toThrow(MigrationFenceError)
+    expect(() => assertMigrationPaths(fence(), attribution({ sessionId: '..' }))).toThrow(/ADR-0020/)
+  })
+
+  it('writes nothing itself — a fence that passed has still created no file', () => {
+    assertMigrationPaths(fence(), attribution())
+    expect(() => realpathSync(path.join(slugDir(watchedRepoPath), `${SESSION_ID}.jsonl`))).toThrow()
+    expect(() => realpathSync(slugDir(watchedRepoPath))).toThrow()
   })
 })
 

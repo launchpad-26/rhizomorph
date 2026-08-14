@@ -1084,3 +1084,229 @@ describe('the concierge namespace law, live (prd-20 ruling 1 / ADR-0019)', () =>
     expect(() => assertCloneTarget({ ...fence(), clonesRoot: shouted }, path.join(root, 'elsewhere'))).toThrow()
   })
 })
+
+/* ========================================================================== */
+/* Clause 6 — the migration power (prd-20 ruling 6 / ADR-0020, #514).         */
+/* Appended. Nothing above this line is touched by it.                        */
+/* ========================================================================== */
+
+import { writeFile } from 'node:fs/promises'
+import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
+import { assertMigrationPaths, MigrationFenceError } from './paths.js'
+
+/**
+ * CLAUSE 6 — the fourth hand's THIRD power, fenced before it exists.
+ *
+ * ADR-0020 amends ADR-0019 with one further write and only one: the concierge
+ * may COPY a session transcript into `~/.claude/projects/<watched-repo-slug>/`,
+ * create-only. `research/2026-08-14-cross-host-resume.md` is the evidence that
+ * placing the file is the whole mechanism (Q1's control: resume lookup is
+ * scoped to the slug directory of the cwd), that the resume appends in place
+ * under the preserved sessionId (Q3), and that telemetry books under that same
+ * id (Q4) — on Claude Code `2.1.232`, a pin the ADR carries.
+ *
+ * Two halves, matching the two halves of the ruling:
+ *
+ * - **The fence, live.** `assertMigrationPaths` is run against real
+ *   directories, the way clause 5 runs the clone fence — because a containment
+ *   predicate that has never met a symlink is a claim, not a fence. It derives
+ *   both paths rather than validating a supplied one, so "copy me
+ *   `/etc/shadow`" is a request the signature cannot express; the live tests
+ *   below prove the derivation, not just the refusals.
+ * - **The create-only pin.** The copy itself is wave 6's work and does not
+ *   exist yet, so this half pins the OBLIGATION rather than the code, the way
+ *   this suite has pinned future obligations before: *if* a `copyFile` ever
+ *   appears under `concierge/`, the file it appears in names `COPYFILE_EXCL`.
+ *   That flag is the actual guarantee — `assertMigrationPaths`' own
+ *   create-only clause is a check-then-write, so it is a TOCTOU by
+ *   construction and says so in its own doc.
+ *
+ * **The pin is vacuous today, deliberately and visibly.** There is no
+ * `copyFile` under `concierge/` for it to judge; it fires the moment wave 6
+ * writes one. A vacuous law is exactly the failure this file's own history is
+ * about, so the detector is proven to bite on synthetic code below rather than
+ * being trusted because the sweep came back empty.
+ */
+describe('the concierge namespace law, clause 6 — the migration power (prd-20 ruling 6 / ADR-0020)', () => {
+  describe('the fence exists before the copy does', () => {
+    it('exports a runtime refusal, not a comment', () => {
+      expect(typeof assertMigrationPaths).toBe('function')
+      expect(MigrationFenceError.prototype).toBeInstanceOf(Error)
+    })
+
+    it('and takes no source path — an arbitrary file is unrepresentable, not merely refused', () => {
+      // The signature IS the first clause (ADR-0020's Decision Outcome). A
+      // fence that validated a caller-supplied path could only ever refuse the
+      // spellings its author thought of, which is #245's shape in a new place.
+      // `(fence, attribution)` — two parameters, neither of them a file.
+      expect(assertMigrationPaths.length).toBe(2)
+    })
+  })
+
+  describe('the fence, live — real directories, hermetic under concurrency', () => {
+    const SESSION_ID = '200fb100-b3e2-4828-a3a6-01333a255127'
+
+    let root: string
+    let claudeProjectsRoot: string
+    let watchedRepoPath: string
+    let originRepoPath: string
+
+    function fence() {
+      return { claudeProjectsRoot, watchedRepoPath }
+    }
+
+    function attribution(sessionId: string = SESSION_ID) {
+      return { sessionId, worktreePath: originRepoPath }
+    }
+
+    function slugDir(repoPath: string): string {
+      return path.join(claudeProjectsRoot, worktreePathToProjectSlug(repoPath))
+    }
+
+    beforeEach(async () => {
+      // `realpathSync` because the fence canonicalizes the watched repo before
+      // slugging it: on macOS `mkdtemp` hands back the `/var/…` spelling of a
+      // `/private/var/…` directory, and the two slug differently.
+      root = realpathSync(await mkdtemp(path.join(tmpdir(), 'rhizomorph-concierge-migration-law-')))
+      claudeProjectsRoot = path.join(root, 'claude-projects')
+      watchedRepoPath = path.join(root, 'watched-repo')
+      originRepoPath = path.join(root, 'origin-repo')
+      await mkdir(slugDir(originRepoPath), { recursive: true })
+      await mkdir(path.join(watchedRepoPath, 'src'), { recursive: true })
+      await mkdir(originRepoPath, { recursive: true })
+      await writeFile(path.join(slugDir(originRepoPath), `${SESSION_ID}.jsonl`), '{"type":"user"}\n')
+    })
+
+    afterEach(async () => {
+      await rm(root, { recursive: true, force: true })
+    })
+
+    it('permits the one thing the power is for — the attributed transcript, into the watched repo\'s slug dir', () => {
+      const { source, destination } = assertMigrationPaths(fence(), attribution())
+      expect(source).toBe(path.join(slugDir(originRepoPath), `${SESSION_ID}.jsonl`))
+      expect(destination).toBe(path.join(slugDir(watchedRepoPath), `${SESSION_ID}.jsonl`))
+    })
+
+    it('and writes nothing while permitting it — the fence is a judgement, not the copy', () => {
+      assertMigrationPaths(fence(), attribution())
+      expect(() => statSync(slugDir(watchedRepoPath))).toThrow()
+    })
+
+    it('refuses every destination inside the watched repo — the clause that can never be relaxed', async () => {
+      for (const projectsRoot of [
+        watchedRepoPath,
+        path.join(watchedRepoPath, 'src'),
+        path.join(watchedRepoPath, '.claude', 'projects'),
+      ]) {
+        await mkdir(projectsRoot, { recursive: true })
+        expect(
+          () => assertMigrationPaths({ ...fence(), claudeProjectsRoot: projectsRoot }, attribution()),
+          `permitted a write under ${projectsRoot}`,
+        ).toThrow(MigrationFenceError)
+      }
+    })
+
+    it('refuses a slug directory that is a symlink out of the projects root', async () => {
+      const outside = path.join(root, 'outside')
+      await mkdir(outside, { recursive: true })
+      await mkdir(claudeProjectsRoot, { recursive: true })
+      await symlink(outside, slugDir(watchedRepoPath))
+      expect(() => assertMigrationPaths(fence(), attribution())).toThrow(MigrationFenceError)
+    })
+
+    it('refuses to overwrite — the copy is create-only, and the law runs that refusal', async () => {
+      await mkdir(slugDir(watchedRepoPath), { recursive: true })
+      await writeFile(path.join(slugDir(watchedRepoPath), `${SESSION_ID}.jsonl`), 'someone else\'s history\n')
+      expect(() => assertMigrationPaths(fence(), attribution())).toThrow(/already exists/)
+    })
+
+    it('refuses a traversal-shaped session id before any path is built', () => {
+      for (const sessionId of ['..', '/etc/passwd', 'a/b', `${SESSION_ID}\0`]) {
+        expect(
+          () => assertMigrationPaths(fence(), attribution(sessionId)),
+          `permitted the session id ${JSON.stringify(sessionId)}`,
+        ).toThrow(/not a bare session id/)
+      }
+    })
+
+    it('never reaches a transcript the attribution did not derive, however well-named', async () => {
+      const elsewhere = path.join(root, 'elsewhere')
+      await mkdir(elsewhere, { recursive: true })
+      await writeFile(path.join(elsewhere, `${SESSION_ID}.jsonl`), '{"type":"user"}\n')
+      await rm(path.join(slugDir(originRepoPath), `${SESSION_ID}.jsonl`))
+      expect(() => assertMigrationPaths(fence(), attribution())).toThrow(/no transcript for session/)
+    })
+
+    it('and leaves the origin alone — the source is read, never moved, never deleted', () => {
+      const before = statSync(path.join(slugDir(originRepoPath), `${SESSION_ID}.jsonl`))
+      assertMigrationPaths(fence(), attribution())
+      const after = statSync(path.join(slugDir(originRepoPath), `${SESSION_ID}.jsonl`))
+      expect(after.size).toBe(before.size)
+      expect(after.mtimeMs).toBe(before.mtimeMs)
+    })
+  })
+
+  describe('the create-only pin — the obligation on the wave that makes the copy real', () => {
+    /**
+     * A file that copies without naming the exclusive flag. Deliberately crude
+     * and file-scoped, like clause 4's detectors: `copyFile`/`copyFileSync`
+     * however they are imported or spelled off a namespace, and
+     * `COPYFILE_EXCL` anywhere in the same file. It cannot prove the flag is
+     * passed to THAT call — only that whoever wrote the copy knew the word.
+     * That is the honest limit of a source-text law, and it is the same limit
+     * clauses 1–4 carry.
+     */
+    function copiesWithoutExcl(code: string): boolean {
+      return /\bcopyFile(?:Sync)?\s*\(/.test(code) && !/\bCOPYFILE_EXCL\b/.test(code)
+    }
+
+    it('any copyFile under concierge/ names COPYFILE_EXCL', () => {
+      const offenders = conciergeSourceFiles()
+        .filter((file) => copiesWithoutExcl(codeOf(readFileSync(file, 'utf8'))))
+        .map(relative)
+      expect(offenders).toEqual([])
+    })
+
+    it('and there is at most ONE of them — one power, one write', () => {
+      // ADR-0020 grants a single copy, not a copying facility. Today this is
+      // zero; wave 6 makes it one. Two would mean a second write nobody argued
+      // for, which is what the amendment's friction exists to price.
+      const copiers = conciergeSourceFiles().filter((file) =>
+        /\bcopyFile(?:Sync)?\s*\(/.test(codeOf(readFileSync(file, 'utf8'))),
+      )
+      expect(copiers.map(relative).length).toBeLessThanOrEqual(1)
+    })
+
+    it('that detector bites on the unguarded forms', () => {
+      for (const violation of [
+        `await copyFile(source, destination)`,
+        `copyFileSync(source, destination)`,
+        `import { copyFile } from 'node:fs/promises'\nawait copyFile(a, b)\n`,
+        `await fs.copyFile(source, destination, 0)`,
+      ]) {
+        expect(copiesWithoutExcl(violation), `missed: ${violation}`).toBe(true)
+      }
+    })
+
+    it('and does not fire on the guarded form, or on prose describing the danger', () => {
+      for (const legitimate of [
+        `await copyFile(source, destination, constants.COPYFILE_EXCL)`,
+        `import { constants } from 'node:fs'\nawait copyFile(a, b, constants.COPYFILE_EXCL)\n`,
+        `copyFileSync(source, destination, COPYFILE_EXCL)`,
+        codeOf('// a bare copyFile(a, b) would clobber the operator\'s transcript\n'),
+        'export const migrate = 1\n',
+      ]) {
+        expect(copiesWithoutExcl(legitimate), `false positive on: ${legitimate}`).toBe(false)
+      }
+    })
+
+    it('and the module it will land in is the one this law walks', () => {
+      // Guards the pin against the sweep going vacuous by looking in the wrong
+      // place: `conciergeSourceFiles()` is what clauses 3, 4 and this one all
+      // read, so an empty result here would silently empty three clauses.
+      expect(conciergeSourceFiles().map(relative)).toContain(
+        path.join('packages', 'server', 'src', 'concierge', 'paths.ts'),
+      )
+    })
+  })
+})
