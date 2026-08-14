@@ -188,4 +188,40 @@ export const claudeAdapter: HarnessAdapter = {
         'relaunch-with-continuity; docs/telemetry.md records the attach-at-launch physics it is a response to',
     }
   },
+
+  /**
+   * `claude --resume <sessionId>` — proven, not merely plausible:
+   * `research/2026-08-14-cross-host-resume.md` ran this exact form, same-host
+   * and cross-host (Windows-origin transcripts resumed on Linux, 2 KB and
+   * 23 MB), and recorded that it appends in place, preserves the sessionId
+   * verbatim, and that OTLP telemetry books under that preserved id. Pinned to
+   * **Claude Code 2.1.232** — the note's own caveats section is explicit that
+   * this behaviour is undocumented and unversioned upstream, so a claude
+   * upgrade is the thing that would unsettle this claim, not a re-reading of
+   * the note.
+   *
+   * What is lost is the same honest half `continueArgv` states, because the
+   * physics are identical: instrumentation attaches at launch and is never
+   * back-filled, so the resumed process's telemetry starts at THIS relaunch —
+   * nothing the prior process already did arrives here — and that prior
+   * process is not attached to or replaced; it keeps running until the
+   * operator ends it.
+   */
+  resumeArgv(_context: HarnessLaunchContext, sessionId: string): ContinuityPlan {
+    return {
+      kind: 'proven',
+      argv: ['--resume', sessionId],
+      whatContinues:
+        'the transcript for this exact sessionId — its history and context resume in the new process, under the ' +
+        'SAME sessionId, appended in place',
+      whatIsLost:
+        'everything the old process already did. Instrumentation attaches at launch, so telemetry begins at this ' +
+        'relaunch and the prior turns are never back-filled; the old process is not attached to and keeps running ' +
+        'until the operator ends it, and anything it was mid-way through is not carried over',
+      evidence:
+        'research/2026-08-14-cross-host-resume.md (VERDICT: GO) ran `claude --resume <id>` same-host and ' +
+        'cross-host and confirmed in-place append, a preserved sessionId, and telemetry booked under that id; ' +
+        'pinned to Claude Code 2.1.232 per the note’s caveats section',
+    }
+  },
 }

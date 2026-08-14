@@ -109,12 +109,41 @@ describe('the registry lists every harness it knows the name of', () => {
     expect(harnessById('nope' as HarnessId)).toBeUndefined()
   })
 
-  it('every adapter answers all four members of the seam', () => {
+  it('every adapter answers all five members of the seam', () => {
     for (const adapter of HARNESS_ADAPTERS) {
-      for (const member of ['detect', 'envRecipe', 'launchArgv', 'continueArgv'] as const) {
+      for (const member of ['detect', 'envRecipe', 'launchArgv', 'continueArgv', 'resumeArgv'] as const) {
         expect(typeof adapter[member], `${adapter.id}.${member}`).toBe('function')
       }
     }
+  })
+})
+
+describe('resumeArgv — resume-by-id, distinct from continueArgv\'s "most recent"', () => {
+  it('claude’s resume is PROVEN, citing the cross-host resume spike', () => {
+    const claude = harnessById('claude')
+    if (claude === undefined) throw new Error('expected claude')
+
+    const plan = claude.resumeArgv({ lane: 'lane-a', role: 'worker', port: 7317, instance: 'abc' }, 'a-session-id')
+    expect(plan.kind).toBe('proven')
+    if (plan.kind !== 'proven') throw new Error('expected proven')
+    expect(plan.argv).toEqual(['--resume', 'a-session-id'])
+    expect(plan.evidence).toMatch(/cross-host-resume/)
+  })
+
+  it('resume for an id-shaped nothing still carries a reason', () => {
+    // codex has no captured resume-by-id form at all — "a-session-id" here is
+    // a perfectly id-shaped string, and codex still has nothing to do with it.
+    // ADR-0010: a `kind: 'none'` answer is compiler-required to say why, and
+    // this is the case that proves it is not just claude's proven path that
+    // gets a reason.
+    const codex = harnessById('codex')
+    if (codex === undefined) throw new Error('expected codex')
+
+    const plan = codex.resumeArgv({ lane: 'lane-a', role: 'worker', port: 7317, instance: 'abc' }, 'a-session-id')
+    expect(plan.kind).toBe('none')
+    if (plan.kind !== 'none') throw new Error('expected none')
+    expect(plan.reason.length).toBeGreaterThan(20)
+    expect(plan.reason).toMatch(/resume --last|no session id|ADR-0010/)
   })
 })
 
@@ -134,12 +163,13 @@ describe('declared-not-implemented harnesses are listed with their reason, never
     }
   })
 
-  it.each(['envRecipe', 'launchArgv', 'continueArgv'] as const)(
+  it.each(['envRecipe', 'launchArgv', 'continueArgv', 'resumeArgv'] as const)(
     'refuses to answer %s, rather than returning something plausible',
     (member) => {
       const context = { lane: 'lane-a', role: 'worker' as const, port: 7317, instance: 'abc' }
       for (const adapter of declaredAdaptersOf()) {
-        expect(() => adapter[member](context), `${adapter.id}.${member}`).toThrow(HarnessNotImplementedError)
+        const call = adapter[member] as (launchContext: typeof context, sessionId?: string) => unknown
+        expect(() => call(context, 'fake-session-id'), `${adapter.id}.${member}`).toThrow(HarnessNotImplementedError)
       }
     },
   )

@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process'
 import type { AgentRole, CapabilityDetail } from '@rhizomorph/core'
+import { isSafeSessionId } from '../log/transcript-attribution.js'
 import { harnessById } from './harness/registry.js'
 import type {
   ContinuityPlan,
   HarnessAdapter,
+  HarnessEnvRecipe,
   HarnessId,
   HarnessLaunchContext,
   HarnessPresence,
@@ -53,24 +55,59 @@ export class ConciergeLaunchValidationError extends Error {}
  */
 export class HarnessNotAvailableError extends Error {}
 
-/** `mode: 'continue'` was requested for a harness whose continuity plan is `kind: 'none'`. */
+/**
+ * `mode: 'continue'` or `mode: 'resume'` was requested for a harness whose
+ * continuity plan (respectively `continueArgv`'s or `resumeArgv`'s) is
+ * `kind: 'none'`.
+ */
 export class LaunchContinuityUnavailableError extends Error {}
 
-export type LaunchMode = 'launch' | 'continue'
+/**
+ * `'resume'` is distinct from `'continue'`: `continue` means "the most recent
+ * session, whichever that is" and carries no id; `resume` means "this exact
+ * prior session", named by the caller, and requires a `sessionId` — prd-20 w6.
+ */
+export type LaunchMode = 'launch' | 'continue' | 'resume'
 
-/** `POST /api/concierge/launch`'s body: which harness, and fresh or relaunch-with-continuity. */
-export function parseConciergeLaunchRequestBody(body: unknown): { harness: string; mode: LaunchMode } {
+/**
+ * `POST /api/concierge/launch`'s body: which harness, and fresh,
+ * relaunch-with-continuity, or resume-by-id.
+ *
+ * `sessionId` is required and non-empty exactly when `mode: 'resume'` — never
+ * present on any other mode, and never trusted unchecked: it is validated
+ * with {@link isSafeSessionId} here, at parse time, so a malformed id can
+ * never reach a spawned argv or a filesystem path. `isSafeSessionId` lives in
+ * `log/transcript-attribution.ts`; the concierge is free to import outward
+ * from its own namespace, the namespace law only fences who may import IN.
+ */
+export function parseConciergeLaunchRequestBody(
+  body: unknown,
+): { harness: string; mode: LaunchMode; sessionId?: string } {
   if (typeof body !== 'object' || body === null) {
     throw new ConciergeLaunchValidationError('request body must be a JSON object')
   }
-  const { harness, mode } = body as Record<string, unknown>
+  const { harness, mode, sessionId } = body as Record<string, unknown>
   if (typeof harness !== 'string' || harness.length === 0) {
     throw new ConciergeLaunchValidationError('"harness" must be a non-empty string')
   }
-  if (mode !== 'launch' && mode !== 'continue') {
-    throw new ConciergeLaunchValidationError('"mode" must be "launch" or "continue"')
+  if (mode !== 'launch' && mode !== 'continue' && mode !== 'resume') {
+    throw new ConciergeLaunchValidationError('"mode" must be "launch", "continue" or "resume"')
   }
-  return { harness, mode }
+
+  if (mode !== 'resume') {
+    if (sessionId !== undefined) {
+      throw new ConciergeLaunchValidationError(`"sessionId" may only be supplied when mode is "resume", not "${mode}"`)
+    }
+    return { harness, mode }
+  }
+
+  if (typeof sessionId !== 'string' || sessionId.length === 0) {
+    throw new ConciergeLaunchValidationError('"sessionId" must be a non-empty string when mode is "resume"')
+  }
+  if (!isSafeSessionId(sessionId)) {
+    throw new ConciergeLaunchValidationError(`"sessionId" is not a safe session id: ${JSON.stringify(sessionId)}`)
+  }
+  return { harness, mode, sessionId }
 }
 
 /**
@@ -102,7 +139,7 @@ export interface LaunchPlan {
   readonly cwd: string
   /** {@link HarnessAdapter.envRecipe}'s own honest claim about whether telemetry actually arrives — passed through, never upgraded. */
   readonly telemetry: CapabilityDetail
-  /** Present only for `mode: 'continue'` — what continuity means for this harness, and what it costs (ruling 3). */
+  /** Present only for `mode: 'continue'` or `mode: 'resume'` — what continuity means for this harness, and what it costs (ruling 3). */
   readonly continuity?: ContinuityPlan
 }
 
@@ -113,21 +150,62 @@ function unavailableReason(presence: Exclude<HarnessPresence, { state: 'present'
 }
 
 /**
+ * `ContinuityPlan.argv`'s own doc: "arguments appended to launchArgv's
+ * COMMAND" — argv[0] only, not the whole fresh-launch array. codex's own
+ * `continueArgv` comment says the same thing from the other side ("argv[0]
+ * is settled there and not restated here"): its `argv` already carries its
+ * OWN copy of the config after `resume --last`/`resume`, so appending it
+ * after the FULL `fresh` array would run the config twice and put the resume
+ * verb in the wrong position. Taking only `fresh[0]` (the resolved
+ * executable) is what keeps this correct for both `continueArgv` and
+ * `resumeArgv` alike — the same seam, the same trap, the same fix.
+ *
+ * `kind: 'none'` refuses with {@link LaunchContinuityUnavailableError} rather
+ * than returning a plan with no argv: a caller with nothing to continue or
+ * resume gets a typed, precise failure before a process exists.
+ */
+function planFromContinuity(
+  adapter: HarnessAdapter,
+  fresh: readonly string[],
+  continuity: ContinuityPlan,
+  envRecipe: HarnessEnvRecipe,
+  cwd: string,
+  storyName: string,
+): LaunchPlan {
+  if (continuity.kind === 'none') {
+    throw new LaunchContinuityUnavailableError(`${adapter.displayName} has no ${storyName}: ${continuity.reason}`)
+  }
+  return {
+    argv: [fresh[0] as string, ...continuity.argv],
+    env: envRecipe.env,
+    cwd,
+    telemetry: envRecipe.telemetry,
+    continuity,
+  }
+}
+
+/**
  * Every check that can be answered before a process exists: is `harnessId`
  * one {@link harnessById} knows, is it `implemented` (not merely `declared` —
  * ADR-0010), does `detect()` find a launchable one on this machine, and — for
- * `mode: 'continue'` — does the adapter have a continuity story at all.
- * Throws {@link ConciergeLaunchValidationError}, {@link HarnessNotAvailableError} or
- * {@link LaunchContinuityUnavailableError} — three distinct failures
- * `api/concierge.ts` maps to three distinct HTTP statuses, so a caller can
- * tell "you asked for something that isn't real" from "that's real, but not
- * on this machine" from "that's real and present, but has nothing to
- * continue".
+ * `mode: 'continue'`/`mode: 'resume'` — does the adapter have a continuity
+ * story at all. Throws {@link ConciergeLaunchValidationError},
+ * {@link HarnessNotAvailableError} or {@link LaunchContinuityUnavailableError}
+ * — three distinct failures `api/concierge.ts` maps to three distinct HTTP
+ * statuses, so a caller can tell "you asked for something that isn't real"
+ * from "that's real, but not on this machine" from "that's real and present,
+ * but has nothing to continue/resume".
+ *
+ * `sessionId` is required exactly when `mode === 'resume'` —
+ * {@link parseConciergeLaunchRequestBody} already enforces this on the wire,
+ * but this function is called directly by tests and is not willing to trust
+ * a caller that skipped parsing, so it is checked again here.
  */
 export async function planLaunch(
   harnessId: string,
   mode: LaunchMode,
   context: PlanLaunchContext,
+  sessionId?: string,
 ): Promise<LaunchPlan> {
   const lookup = context.harnessLookup ?? ((id: string) => harnessById(id as HarnessId))
   const adapter = lookup(harnessId)
@@ -136,6 +214,9 @@ export async function planLaunch(
   }
   if (adapter.implementation.status === 'declared') {
     throw new HarnessNotAvailableError(`${adapter.displayName} is not implemented: ${adapter.implementation.reason}`)
+  }
+  if (mode === 'resume' && (sessionId === undefined || sessionId.length === 0)) {
+    throw new ConciergeLaunchValidationError('"sessionId" is required for mode: "resume"')
   }
 
   const detection = await adapter.detect()
@@ -165,29 +246,26 @@ export async function planLaunch(
     return { argv: fresh, env: envRecipe.env, cwd: context.watchedRepoPath, telemetry: envRecipe.telemetry }
   }
 
-  const continuity = adapter.continueArgv(launchContext)
-  if (continuity.kind === 'none') {
-    throw new LaunchContinuityUnavailableError(
-      `${adapter.displayName} has no relaunch-with-continuity story: ${continuity.reason}`,
+  if (mode === 'resume') {
+    return planFromContinuity(
+      adapter,
+      fresh,
+      adapter.resumeArgv(launchContext, sessionId as string),
+      envRecipe,
+      context.watchedRepoPath,
+      'resume-by-id story',
     )
   }
-  // `ContinuityPlan.argv`'s own doc: "arguments appended to launchArgv's
-  // COMMAND" — argv[0] only, not the whole fresh-launch array. codex's own
-  // `continueArgv` comment says the same thing from the other side ("argv[0]
-  // is settled there and not restated here"): its `argv` already carries
-  // `resume --last` plus its OWN copy of the config, so appending it after
-  // the FULL `fresh` array would run `codex <config…> resume --last <config…>`
-  // — the config twice, and `resume` in the wrong position. Taking only
-  // `fresh[0]` (the resolved executable) is what keeps this correct for both
-  // adapters: claude's `fresh` is `[command]` alone, so the two readings
-  // coincide there, which is why this seam has never been exercised before.
-  return {
-    argv: [fresh[0] as string, ...continuity.argv],
-    env: envRecipe.env,
-    cwd: context.watchedRepoPath,
-    telemetry: envRecipe.telemetry,
-    continuity,
-  }
+
+  // mode === 'continue'
+  return planFromContinuity(
+    adapter,
+    fresh,
+    adapter.continueArgv(launchContext),
+    envRecipe,
+    context.watchedRepoPath,
+    'relaunch-with-continuity story',
+  )
 }
 
 export type LaunchOutcome = { kind: 'launched'; pid: number } | { kind: 'error'; message: string }

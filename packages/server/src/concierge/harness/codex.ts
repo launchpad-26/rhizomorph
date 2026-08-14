@@ -196,4 +196,29 @@ export const codexAdapter: HarnessAdapter = {
         'telemetry half cannot be proven at all until the bare-path route exists (see the recipe above)',
     }
   },
+
+  /**
+   * **`kind: 'none'`** — deliberately, not merely `unproven`.
+   *
+   * `codex resume --last` is the one resume form this repo has any capture
+   * for at all ({@link continueArgv}, itself only `unproven`), and it takes no
+   * id — "the most recent session, whichever that is". codex offering a
+   * resume-by-id verb the way `claude --resume <id>` does is not established
+   * anywhere in this repo's record: no capture shows codex accepting a
+   * session id, and ADR-0010 forbids exactly this move — a plausible argv
+   * array for a capability nobody has verified is a guess dressed as support,
+   * not a lesser-confidence proven one. Inventing `codex resume <id>` here
+   * would be that guess.
+   */
+  resumeArgv(): ContinuityPlan {
+    return {
+      kind: 'none',
+      reason:
+        'codex has no captured resume-by-id form. The only resume verb this repo has any capture for is ' +
+        '`codex resume --last` (itself only `unproven` — see continueArgv), which takes no session id at all; ' +
+        'inventing a by-id form here would be a guessed capability, which ADR-0010 forbids. A capture showing ' +
+        'codex accepting a specific session id — e.g. `codex resume <id>` in its own --help, or a resumed session ' +
+        'under a chosen id — would be what settles this',
+    }
+  },
 }

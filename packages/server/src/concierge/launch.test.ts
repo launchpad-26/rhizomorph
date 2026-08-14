@@ -40,8 +40,58 @@ describe('parseConciergeLaunchRequestBody', () => {
 
   it('refuses a missing or invalid mode', () => {
     expect(() => parseConciergeLaunchRequestBody({ harness: 'claude' })).toThrow(ConciergeLaunchValidationError)
-    expect(() => parseConciergeLaunchRequestBody({ harness: 'claude', mode: 'resume' })).toThrow(ConciergeLaunchValidationError)
+    expect(() => parseConciergeLaunchRequestBody({ harness: 'claude', mode: 'nonsense' })).toThrow(
+      ConciergeLaunchValidationError,
+    )
   })
+
+  it('accepts mode: resume carrying a safe sessionId', () => {
+    expect(parseConciergeLaunchRequestBody({ harness: 'claude', mode: 'resume', sessionId: 'abc-123' })).toEqual({
+      harness: 'claude',
+      mode: 'resume',
+      sessionId: 'abc-123',
+    })
+  })
+
+  it('refuses mode: resume with a missing sessionId', () => {
+    expect(() => parseConciergeLaunchRequestBody({ harness: 'claude', mode: 'resume' })).toThrow(
+      ConciergeLaunchValidationError,
+    )
+    expect(() => parseConciergeLaunchRequestBody({ harness: 'claude', mode: 'resume' })).toThrow(/sessionId/)
+  })
+
+  it('refuses mode: resume with an empty sessionId', () => {
+    expect(() =>
+      parseConciergeLaunchRequestBody({ harness: 'claude', mode: 'resume', sessionId: '' }),
+    ).toThrow(ConciergeLaunchValidationError)
+  })
+
+  it('refuses mode: resume with a non-string sessionId', () => {
+    expect(() =>
+      parseConciergeLaunchRequestBody({ harness: 'claude', mode: 'resume', sessionId: 42 }),
+    ).toThrow(ConciergeLaunchValidationError)
+  })
+
+  it.each(['/etc/passwd', '../escape', 'a/b', 'trailing\0null'])(
+    'refuses a malformed sessionId %j before it ever reaches a path or an argv',
+    (sessionId) => {
+      expect(() =>
+        parseConciergeLaunchRequestBody({ harness: 'claude', mode: 'resume', sessionId }),
+      ).toThrow(ConciergeLaunchValidationError)
+    },
+  )
+
+  it.each(['launch', 'continue'] as const)(
+    'refuses a sessionId supplied on mode: %s — resume is the only mode that takes one',
+    (mode) => {
+      expect(() =>
+        parseConciergeLaunchRequestBody({ harness: 'claude', mode, sessionId: 'abc-123' }),
+      ).toThrow(ConciergeLaunchValidationError)
+      expect(() => parseConciergeLaunchRequestBody({ harness: 'claude', mode, sessionId: 'abc-123' })).toThrow(
+        /sessionId/,
+      )
+    },
+  )
 })
 
 /** A minimal, complete `HarnessAdapter` double — no real machine, no real registry. */
@@ -71,6 +121,15 @@ function fakeAdapter(overrides: Partial<HarnessAdapter> = {}): HarnessAdapter {
         kind: 'proven',
         argv: ['--continue'],
         whatContinues: 'the conversation',
+        whatIsLost: 'nothing in this fixture',
+        evidence: 'fixture',
+      }),
+    ),
+    resumeArgv: vi.fn(
+      (_context: HarnessLaunchContext, sessionId: string): ContinuityPlan => ({
+        kind: 'proven',
+        argv: ['--resume', sessionId],
+        whatContinues: 'the named session',
         whatIsLost: 'nothing in this fixture',
         evidence: 'fixture',
       }),
@@ -261,6 +320,78 @@ describe('planLaunch', () => {
     const plan = await planLaunch('claude', 'continue', { ...CONTEXT, harnessLookup: () => adapter })
     expect(plan.argv).toEqual(['/usr/local/bin/fake', 'resume', '--last'])
     expect(plan.continuity).toMatchObject({ kind: 'unproven' })
+  })
+
+  it('refuses mode: resume with no sessionId, before detect() is ever called', async () => {
+    const detect = vi.fn()
+    const adapter = fakeAdapter({ detect })
+
+    await expect(planLaunch('claude', 'resume', { ...CONTEXT, harnessLookup: () => adapter })).rejects.toThrow(
+      ConciergeLaunchValidationError,
+    )
+    expect(detect).not.toHaveBeenCalled()
+  })
+
+  it('refuses mode: resume with an empty-string sessionId', async () => {
+    const adapter = fakeAdapter()
+
+    await expect(
+      planLaunch('claude', 'resume', { ...CONTEXT, harnessLookup: () => adapter }, ''),
+    ).rejects.toThrow(ConciergeLaunchValidationError)
+  })
+
+  it('mode: resume calls adapter.resumeArgv with the launch context and the sessionId, never continueArgv', async () => {
+    const adapter = fakeAdapter()
+    const plan = await planLaunch('claude', 'resume', { ...CONTEXT, harnessLookup: () => adapter }, 'session-xyz')
+
+    expect(adapter.resumeArgv).toHaveBeenCalledWith(
+      {
+        lane: 'conductor',
+        role: 'conductor',
+        port: 4321,
+        instance: 'instance-1',
+        executablePath: '/usr/local/bin/fake',
+      },
+      'session-xyz',
+    )
+    expect(adapter.continueArgv).not.toHaveBeenCalled()
+    expect(plan.argv).toEqual(['/usr/local/bin/fake', '--resume', 'session-xyz'])
+    expect(plan.continuity).toMatchObject({ kind: 'proven', argv: ['--resume', 'session-xyz'] })
+  })
+
+  it('mode: resume takes ONLY argv[0] from launchArgv, then appends resumeArgv verbatim — the same composition rule as continue', async () => {
+    const adapter = fakeAdapter({
+      launchArgv: vi.fn(() => ['/usr/local/bin/fake', '-c', 'fresh.only=1']),
+      resumeArgv: vi.fn(
+        (): ContinuityPlan => ({
+          kind: 'proven',
+          argv: ['--resume', 'session-xyz', '-c', 'resume.only=1'],
+          whatContinues: 'x',
+          whatIsLost: 'y',
+          evidence: 'z',
+        }),
+      ),
+    })
+
+    const plan = await planLaunch('claude', 'resume', { ...CONTEXT, harnessLookup: () => adapter }, 'session-xyz')
+
+    expect(plan.argv).toEqual(['/usr/local/bin/fake', '--resume', 'session-xyz', '-c', 'resume.only=1'])
+    expect(plan.argv).not.toContain('fresh.only=1')
+  })
+
+  it('refuses mode: resume when the adapter has no resume-by-id story (kind: none)', async () => {
+    const adapter = fakeAdapter({
+      resumeArgv: vi.fn((): ContinuityPlan => ({ kind: 'none', reason: 'no captured resume-by-id form' })),
+    })
+
+    const err = await planLaunch(
+      'claude',
+      'resume',
+      { ...CONTEXT, harnessLookup: () => adapter },
+      'session-xyz',
+    ).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(LaunchContinuityUnavailableError)
+    expect((err as Error).message).toContain('no captured resume-by-id form')
   })
 })
 

@@ -4,7 +4,7 @@ import type { AgentRole, CapabilityDetail } from '@rhizomorph/core'
  * The `HarnessAdapter` seam — prd-20 ruling 4, "the harness registry is built
  * for N, claude first-class".
  *
- * Four members, and what varies per harness is only ever *how* each is
+ * Five members, and what varies per harness is only ever *how* each is
  * answered, never whether the harness is any good:
  *
  * - {@link HarnessAdapter.detect} — is this harness on PATH, and is one
@@ -16,6 +16,9 @@ import type { AgentRole, CapabilityDetail } from '@rhizomorph/core'
  * - {@link HarnessAdapter.launchArgv} — the argv array to start it fresh.
  * - {@link HarnessAdapter.continueArgv} — the argv array to relaunch it with
  *   continuity, and what that continuity does and does not preserve.
+ * - {@link HarnessAdapter.resumeArgv} — the argv array to relaunch it against
+ *   a SPECIFIC prior session id (not merely "the most recent one"), and what
+ *   that resume does and does not preserve. prd-20 w6.
  *
  * ## This module was built before it was wired
  *
@@ -245,7 +248,7 @@ export interface DetectOptions {
   readonly procRoot?: string
 }
 
-/** The seam itself. Four members; everything above is what they return. */
+/** The seam itself. Five members; everything above is what they return. */
 export interface HarnessAdapter {
   readonly id: HarnessId
   /** How the picker spells it. Presentation only — carries no ordering. */
@@ -273,4 +276,19 @@ export interface HarnessAdapter {
 
   /** @throws {HarnessNotImplementedError} when {@link implementation} is `declared`. */
   continueArgv(context: HarnessLaunchContext): ContinuityPlan
+
+  /**
+   * The argv array to relaunch this harness against a SPECIFIC prior session
+   * id — distinct from {@link continueArgv}, which means "the most recent
+   * session, whichever that is" and takes no id at all. `sessionId` has
+   * already passed `isSafeSessionId` by the time this is called (the concierge
+   * validates at parse time, per prd-20 w6), but this method still returns a
+   * {@link ContinuityPlan} rather than a bare array, for the same reason
+   * `continueArgv` does: a `kind: 'none'` harness has no id-shaped relaunch to
+   * offer, and that has to be sayable without a caller reaching for a thrown
+   * error.
+   *
+   * @throws {HarnessNotImplementedError} when {@link implementation} is `declared`.
+   */
+  resumeArgv(context: HarnessLaunchContext, sessionId: string): ContinuityPlan
 }
