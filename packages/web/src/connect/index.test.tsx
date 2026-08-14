@@ -494,6 +494,57 @@ describe('the uninstrumented sessions, enumerated (#520)', () => {
   })
 
   /**
+   * **THE GAP THAT LET #532's CORPSE READ AS A WIN** (ledger #1 + #12). The
+   * parser assigns `kind: 'instrumented'` to the server's `'died'` and
+   * `'error'` answers as well — it has to, because the migration copy may
+   * already have run — so a status line that branches on the kind alone tells
+   * an operator telemetry is flowing out of a process that exited a second
+   * after it started. No test here ever rendered a died spawn, which is why
+   * that shipped green; this is that test, and it asserts the ABSENCE of the
+   * success sentence rather than only the presence of a new one, because a
+   * line that says both would still be a lie.
+   */
+  it('does not claim telemetry flows when the spawn died a moment after it started', async () => {
+    await instrument(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        migration: 'migrated',
+        kind: 'died',
+        message: 'the process exited 40ms after it started — an interactive harness with no terminal attached',
+      }),
+    }))
+
+    const status = screen.getByTestId('connect-instrument-status-sess-gabe').textContent ?? ''
+    expect(status).not.toContain('telemetry now flows')
+    expect(status).not.toContain('clears itself as evidence arrives')
+    expect(status).toContain('nothing is running')
+    expect(status).toContain('the process exited 40ms after it started')
+    expect(status).toContain('the command below is the way in')
+    // The success colour is half the message to anyone who scans before they
+    // read, so it carries the same branch the sentence does.
+    expect(screen.getByTestId('connect-instrument-status-sess-gabe').className).not.toContain('text-notice')
+    // …and the command block it points at is the one that was there all along.
+    expect(screen.getByTestId('connect-command-resume-sess-gabe').textContent).toBe(
+      'eval "$(rhizomorph env conductor --role conductor --port 4317)" && claude --resume sess-gabe',
+    )
+  })
+
+  /** The sibling of the same shape: a spawn that never happened at all reads the same way, off the same field. */
+  it('does not claim telemetry flows when the spawn errored and no process was ever made', async () => {
+    await instrument(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ migration: 'already-present', kind: 'error', message: 'spawn claude ENOENT' }),
+    }))
+
+    const status = screen.getByTestId('connect-instrument-status-sess-gabe').textContent ?? ''
+    expect(status).not.toContain('telemetry now flows')
+    expect(status).toContain('nothing is running')
+    expect(status).toContain('spawn claude ENOENT')
+  })
+
+  /**
    * THE OUTCOME THAT IS A VALUE, NOT AN ERROR (#518's typed
    * `'no-transcript-reachable'`). The instrument cannot see a transcript for
    * this session — an ordinary case for a conversation that happened somewhere

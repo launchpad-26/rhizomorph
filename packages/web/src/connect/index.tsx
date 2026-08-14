@@ -581,7 +581,7 @@ function UninstrumentedSessions({
               <p
                 role="status"
                 data-testid={`connect-instrument-status-${current.sessionId}`}
-                className={`text-[11px] leading-snug ${outcome.kind === 'instrumented' ? 'text-notice' : 'text-waiting-benign'}`}
+                className={`text-[11px] leading-snug ${statusTone(outcome)}`}
               >
                 {statusLine(outcome)}
               </p>
@@ -646,12 +646,40 @@ function previewLine(preview: SessionPreview | null | undefined): string {
  * resume.md`) makes unavoidable: a resume PRESERVES the session id, so
  * telemetry books under the SAME session and this row clears itself as
  * evidence arrives. Nobody should be waiting for a new row to appear.
+ *
+ * **`kind: 'instrumented'` IS NOT A SUCCESS FLAG, and reading it as one is the
+ * whole of this line's history.** `concierge/instrument.ts`'s parser gives that
+ * kind to the server's `'error'` and `'died'` answers too — deliberately, so a
+ * failed spawn still carries the migration fact that DID happen — and the fact
+ * that separates them is `spawn.launched`. Branching on the kind alone made
+ * this line tell an operator telemetry was flowing out of a process that had
+ * already exited, and send them to watch a row that would never clear. Its
+ * sibling `concierge/InstrumentButton.tsx` had the branch right from #532;
+ * this page-level line did not, and no test rendered a died spawn here, which
+ * is the second half of why it shipped green.
  */
 function statusLine(outcome: InstrumentOutcome): string {
   if (outcome.kind === 'instrumented') {
+    // No process to watch, so nothing here promises telemetry and nothing
+    // points at this row: the server's own sentence says whether it never
+    // started or started and died, and the way in is the command block below,
+    // which needed nothing from this instrument in the first place.
+    if (!outcome.spawn.launched) {
+      return `nothing is running — ${outcome.spawn.message}. No telemetry flows from this act and this row will not clear itself; the command below is the way in, and it needs nothing from this instrument.`
+    }
     return 'instrumented — telemetry now flows under this same session; this row clears itself as evidence arrives (the old process keeps running until you end it)'
   }
   return `nothing was started, and nothing was copied — ${outcome.reason}. The command below is the way in: it needs nothing from this instrument.`
+}
+
+/**
+ * The colour carries the same fact the sentence does, on the same branch. A
+ * died spawn rendered in the success colour is the finding again in a second
+ * register — a reader who scans for green before reading the words would have
+ * read a corpse as a win.
+ */
+function statusTone(outcome: InstrumentOutcome): string {
+  return outcome.kind === 'instrumented' && outcome.spawn.launched ? 'text-notice' : 'text-waiting-benign'
 }
 
 /**
