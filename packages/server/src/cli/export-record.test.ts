@@ -166,6 +166,38 @@ describe('runExportRecord', () => {
     )
   })
 
+  /**
+   * #292, end to end through the real command. A log written before `preview`
+   * was dropped holds the last non-empty line of a terminal capture verbatim.
+   * Exporting that session today must strip the field — and must NOT drop the
+   * line, because a record with a hole in it is a different kind of breakage.
+   * Written as raw text rather than via `eventsToJsonl`, because the sentinel
+   * has to reach the file the way a genuinely old log holds it: the current
+   * factory could not put it there.
+   */
+  it('strips a pre-change `preview` out of the exported record, keeping the line', async () => {
+    const sessionDir = sessionDirFor(repoPath, dataRoot)
+    await mkdir(sessionDir, { recursive: true })
+    const legacyLine = JSON.stringify({
+      v: 1,
+      id: 'e1',
+      ts: 1000,
+      source: 'tmux',
+      type: 'pane.activity',
+      payload: { paneId: '%1', contentHash: 'h1', lines: 42, preview: 'sk-live-SENTINEL-9f2a' },
+    })
+    await writeFile(path.join(sessionDir, sessionFileName(1000)), `${legacyLine}\n`, 'utf8')
+
+    const { outPath, record } = await runExportRecord({ repoPath, dataRoot })
+
+    expect(await readFile(outPath, 'utf8')).not.toContain('sk-live-SENTINEL-9f2a')
+    expect(await readFile(outPath, 'utf8')).not.toContain('preview')
+    // Stripped, not dropped: the event is still there and the chain still closes.
+    expect(record.manifest.eventCount).toBe(1)
+    expect(verifyRecord(record)).toEqual({ ok: true })
+    expect(record.body[0]?.line).toContain('"contentHash":"h1"')
+  })
+
   it('--force overwrites an existing --out file', async () => {
     const sessionDir = sessionDirFor(repoPath, dataRoot)
     await writeSessionFile(sessionDir, 1000, sessionEvents(1000, '1000'))

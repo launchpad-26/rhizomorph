@@ -4,6 +4,7 @@ import path from 'node:path'
 import { buildRecord, type Actor, type SessionRecord } from '@rhizomorph/core/src/record/index.js'
 import { defaultDataRoot, repoSlug, sessionDirFor } from '../log/paths.js'
 import { listSessions, readSessionEvents, sessionFilePath } from '../log/session-log.js'
+import { canonicalize, isInside } from '../paths/containment.js'
 import { parseFlags, type FlagSpec } from './args.js'
 import type { RunCliOptions } from './types.js'
 
@@ -156,11 +157,12 @@ export async function runExportRecord(options: ExportRecordOptions): Promise<Exp
   )
 
   const repoPathResolved = path.resolve(options.repoPath)
-  const relativeToRepo = path.relative(repoPathResolved, outPath)
-  const isInsideRepo = relativeToRepo === '' || (!relativeToRepo.startsWith('..') && !path.isAbsolute(relativeToRepo))
-  if (isInsideRepo) {
+  // Canonicalise both sides before comparing: `path.resolve` alone leaves a
+  // symlinked --out looking like it's outside the repo when it textually is,
+  // even though writeFile follows the link back inside it.
+  if (isInside(repoPathResolved, outPath)) {
     throw new Error(
-      `refusing to write the record inside the watched repo (${outPath}) — pass --out with a path outside ${repoPathResolved}`,
+      `refusing to write the record inside the watched repo (${canonicalize(outPath)}) — pass --out with a path outside ${canonicalize(repoPathResolved)}`,
     )
   }
 

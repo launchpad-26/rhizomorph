@@ -6,7 +6,7 @@ import { defaultDataRoot } from '../log/paths.js'
 import { assertCloneTarget, defaultClonesRoot } from './paths.js'
 
 /**
- * prd-20 ruling 1 / ADR-0014's second power, wired for real: `git clone` a
+ * prd-20 ruling 1 / ADR-0019's second power, wired for real: `git clone` a
  * URL the operator typed, into the concierge's own namespace, with progress
  * surfaced as it happens. `assertCloneTarget` (`paths.ts`) already existed as
  * an unwired obligation — its own doc says so explicitly — and this module is
@@ -165,7 +165,7 @@ export interface ClonePlan {
 }
 
 export interface PlanCloneOptions {
-  /** The repo this server is watching — absolutely off-limits (ADR-0014 grant 4). */
+  /** The repo this server is watching — absolutely off-limits (ADR-0019 grant 4). */
   watchedRepoPath: string
   /** Defaults to {@link defaultClonesRoot} — the answer proposed on issue #262. */
   clonesRoot?: string

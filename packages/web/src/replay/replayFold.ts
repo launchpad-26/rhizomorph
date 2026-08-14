@@ -28,7 +28,7 @@ export function isSorted(events: readonly RhizomorphEvent[]): boolean {
  * law pins why it matters: a real log can be non-monotonic in `ts` (a tailed
  * line can be older than the line above it, exactly what era-1's own capture
  * does), the reducer is order-sensitive (last-write-wins `agent.status`,
- * create-vs-delete on `branches`, first-sighting `commitOrder`), so re-sorting
+ * create-vs-delete on `branches`, first-sighting `commits.order`), so re-sorting
  * a log before folding it does not just re-address time — it silently picks a
  * *different* answer to "what is the state at this point," diverging from the
  * live dashboard's own arrival-order fold of the very same log.

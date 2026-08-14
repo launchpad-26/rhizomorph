@@ -68,7 +68,7 @@ describe('codex is configured by argv, so this hand writes nothing', () => {
 
   it('passes each override as two argv entries, never one shell word', () => {
     const argv = codexEnvRecipe(CONTEXT).configArgv
-    // `-c`, `key=value`, `-c`, `key=value`… — ADR-0014 clause 4 means these are
+    // `-c`, `key=value`, `-c`, `key=value`… — ADR-0019 clause 4 means these are
     // never assembled into a command line, so no quoting can escape them.
     expect(argv.filter((entry) => entry === '-c')).toHaveLength(VERIFIED_KEYS.length)
     expect(argv).toHaveLength(VERIFIED_KEYS.length * 2)

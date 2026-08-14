@@ -1,6 +1,7 @@
 import { readFile, readdir, readlink } from 'node:fs/promises'
 import path from 'node:path'
 import type { CapabilityDetail } from '@rhizomorph/core'
+import { canonicalize } from '../../paths/containment.js'
 
 /**
  * Process aliveness — input (c) of the transcript-tail state machine
@@ -155,10 +156,32 @@ export interface ProcProcessProbeOptions {
   commands?: readonly string[]
 }
 
-/** True when `candidate` is `root` itself or lives underneath it. */
+/**
+ * True when `candidate` is `root` itself or lives underneath it.
+ *
+ * Only `root` is canonicalized here — `candidate` never is. `candidate` is
+ * always `readlink(/proc/<pid>/cwd)`'s return value, and the kernel hands
+ * that back already fully resolved; there is no symlink left in it to chase.
+ * `root` is the caller-supplied worktree path, which can reach its target
+ * through a symlink (macOS's `/var` -> `/private/var` is the standing
+ * example, #217) — comparing it raw against an already-canonical candidate
+ * sees a mismatch where there is none. Canonicalizing `candidate` too would
+ * be redundant work at best; at worst it would silently start trusting a
+ * `readlink` result as something that still needs resolving, which it never
+ * does.
+ *
+ * Fails closed: a root that cannot be canonicalized (ELOOP, EACCES) is
+ * refused — never matched — rather than throwing out of the probe loop.
+ */
 function isWithin(candidate: string, root: string): boolean {
-  if (candidate === root) return true
-  const relative = path.relative(root, candidate)
+  let canonicalRoot: string
+  try {
+    canonicalRoot = canonicalize(root)
+  } catch {
+    return false
+  }
+  if (candidate === canonicalRoot) return true
+  const relative = path.relative(canonicalRoot, candidate)
   return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
 }
 

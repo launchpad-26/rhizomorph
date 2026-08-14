@@ -40,9 +40,16 @@ function tsRange(events: readonly RhizomorphEvent[]): { startTs: number; endTs: 
 
 /**
  * Folds an event log into a portable, integrity-checked session record. The
- * body holds the log's own lines verbatim (via {@link eventToLine} — the same
- * serialization the session log itself uses), so a record is byte-identical
- * to what was recorded, not a re-derivation of it.
+ * body is RE-SERIALIZED from the parsed events via {@link eventToLine} — the
+ * same serialization the session log itself uses — rather than copied from the
+ * log's bytes. For a line the current schema wrote, the two are identical; for
+ * an older line carrying a field the schema has since dropped, they are not,
+ * and the re-serialized one is the one that lands.
+ *
+ * That is the point, not an accident: parsing strips unknown keys, so the
+ * event schema acts as an allowlist on the way into a record. A field removed
+ * from a payload (e.g. `pane.activity.preview`, #292) cannot ride an old log
+ * line into a new record. `record/reserialization-law.test.ts` holds this.
  */
 export function buildRecord(events: readonly RhizomorphEvent[], meta: BuildRecordMeta): SessionRecord {
   const schemaVersion = meta.schemaVersion ?? RECORD_SCHEMA_VERSION

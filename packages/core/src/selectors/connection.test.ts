@@ -180,16 +180,21 @@ describe('selectConnection — flow derived from entity state can regress (prd-1
     const log = [
       f.worktreeDiscovered({ path: '/repo/wt/a', branch: 'a', head: 'sha-1' }, { ts: 1_000 }),
       f.paneDiscovered({ paneId: '%1', windowName: 'a', currentPath: '/repo/wt/a' }, { ts: 2_000 }),
+      f.agentStatus({ handle: 'a', status: 'working' }, { ts: 2_500 }),
     ]
     const gone = selectConnection(
       reduceAll([
         ...log,
         f.worktreeRemoved({ path: '/repo/wt/a' }, { ts: 3_000 }),
         f.paneClosed({ paneId: '%1' }, { ts: 4_000 }),
+        f.agentRemoved({ handle: 'a' }, { ts: 4_500 }),
       ]),
     )
     expect(gone.git).toMatchObject({ firstEventTs: 1_000, lastEventTs: 3_000 })
     expect(gone.tmux).toMatchObject({ firstEventTs: 2_000, lastEventTs: 4_000 })
+    // `agent.removed` widens workmux's window the same way `worktree.removed`
+    // and `pane.closed` widen theirs — the sibling connection.ts:209 missed.
+    expect(gone.workmux).toMatchObject({ firstEventTs: 2_500, lastEventTs: 4_500 })
     expect(gone.git.count).toBeGreaterThan(0)
   })
 

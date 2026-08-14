@@ -705,7 +705,9 @@ describe('reduce — additivity', () => {
   it('folds the v0 half of a telemetry log to exactly the same state', () => {
     const withTelemetry = reduceAll(fixtureTelemetrySession())
     const v0Only = reduceAll(fixtureSession())
-    for (const key of ['worktrees', 'branches', 'commits', 'commitOrder', 'panes', 'agents', 'collectors', 'errors'] as const) {
+    // `commits` covers what `commitOrder` used to pin: the slice's `order`
+    // projection is part of its `toEqual` shape (#342).
+    for (const key of ['worktrees', 'branches', 'commits', 'panes', 'agents', 'collectors', 'errors'] as const) {
       expect(withTelemetry[key], key).toEqual(v0Only[key])
     }
   })

@@ -66,7 +66,7 @@ Replaced:
 |---|---|
 | `payload.path` · `worktreePath` · `repoPath` · `currentPath` · `filePath` · `files[].path` (absolute ones) | host home → `/repo`, then the watched repo's basename → `rhizomorph`, so `/home/<user>/worktrees-challenge__worktrees/191` → `/repo/rhizomorph__worktrees/191`. Applies to the **relative** worktree paths workmux reports too (`../rhizomorph__worktrees/190`). |
 | `payload.author` | `{ name: "Era Author", email: "author@example.com" }` |
-| `payload.preview` (pane content) | `"<pane content elided>"` |
+| `payload.preview` (pane content) — **era-1 only**; `preview` was removed from the `pane.activity` schema in #292, so nothing captured after it can carry the field | `"<pane content elided>"` |
 | `payload.detail` (agent status line) | `"<agent detail elided>"` |
 | `payload.title` (tmux pane title — a hostname) | `"host"` |
 | `payload.sessionId` (agent CLI session UUIDs) | `00000000-0000-4000-8000-0000000000NN` |

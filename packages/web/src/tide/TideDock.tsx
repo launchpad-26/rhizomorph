@@ -12,6 +12,7 @@ import type { RhizomorphEvent } from '@rhizomorph/core'
 import { Scrubber } from '../replay/Scrubber.js'
 import { ChapterMarks } from './ChapterMarks.js'
 import { chapterLabel, chaptersFor } from './chapters.js'
+import { Loupe } from './Loupe.js'
 import { formatClock } from './duration.js'
 import { medianEventSpacingMs } from './eventSpacing.js'
 import { coalesceMarks } from './markCoalesce.js'
@@ -44,8 +45,12 @@ import { canShiftWindow, shiftWindow, usefulMaxZoomLevel, windowForLevel, zoomFr
  *   a taller mark lane and row height for replay because replay's per-lane
  *   rows were the dock's primary control and earned the room; with the rows
  *   gone there is nothing left to earn it for, so `ChapterMarks` renders at
- *   its one default height in both modes and the axis appears whenever
- *   zoomed, in either mode — not gated to replay.
+ *   its one default height in both modes and the axis is not gated to replay.
+ * - **The axis is always on (#272).** It used to appear only when zoomed,
+ *   which meant the default view — fully zoomed out — said nothing about when
+ *   the playhead was. Together with the readout beside the thumb (`Scrubber`'s
+ *   `facts`) that is this dock's answer to "where am I": the axis orients, the
+ *   readout carries the instant.
  *
  * **One draggable body, not two (issue #186 restating ruling 1).** The
  * `Scrubber` beneath is the *overview* — full range, the only element with a
@@ -75,11 +80,22 @@ export interface TideDockProps {
   /** The full mapped range: session-to-now in live (ruling 2), the whole session in replay. */
   start: number
   end: number
-  /** The scrub position — `playback.currentTs`. Ignored for the playhead in live (see module note). */
+  /**
+   * The scrub position — `playback.currentTs`. Ignored for the whole dock in
+   * live, where "now" (the mapped range's right edge) is the only position
+   * that carries meaning: the playhead, the readout and the loupe all read
+   * `playheadTs` instead. See the module note.
+   */
   value: number
   onSeek(ts: number): void
   /** Mirrors the transport's own enable rule: off outside an active replay. */
   seekEnabled: boolean
+  /**
+   * The scrub instant's headline facts, passed straight through to
+   * {@link Scrubber}'s readout (#272). Formatted by the caller, which is the
+   * surface that owns the vocabulary; `null` in live mode.
+   */
+  scrubFacts?: string | null
 }
 
 const BUTTON_CLASS =
@@ -115,7 +131,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return target.tagName === 'INPUT' && target.getAttribute('type') !== 'range'
 }
 
-export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled }: TideDockProps): ReactElement {
+export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled, scrubFacts = null }: TideDockProps): ReactElement {
   const [trackRef, width] = useElementWidth()
 
   const [zoomLevel, setZoomLevel] = useState(0)
@@ -135,9 +151,50 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
     [end, start, width, medianSpacing],
   )
 
+  /**
+   * THE LOUPE'S THRESHOLD (prd21 ruling 2, #273; trigger ruled 2026-08-13).
+   *
+   * `maxZoomLevel` is where mark-thinning stops being useful — the log's own
+   * median event spacing, below which there are no further marks to separate.
+   * It used to be where zooming stopped altogether. It is now a *threshold*:
+   * one level past it opens the loupe, which reads events rather than marks.
+   *
+   * One level and not several, because the loupe's neighbourhood is a fixed
+   * event count and so does not narrow with further zoom — there would be
+   * nothing for a second loupe level to do. The cap's own value is untouched,
+   * and so is everything the mark lane does at or below it.
+   */
+  const loupeZoomLevel = maxZoomLevel + 1
+  const loupeOpen = zoomLevel > maxZoomLevel
+  /**
+   * The loupe level is a threshold, not a narrower window (#273, corrected by
+   * the verify pass on PR #430). Past the cap the window stops narrowing, so
+   * the mark lane keeps the exact coalescing and layout it had at the cap —
+   * which is what ruling 2 and #273's Done-when require — and the axis, the
+   * playhead, click-to-seek and the bracket all keep sharing that one scale,
+   * which is ruling 1.
+   *
+   * Clamping only `ChapterMarks`' own props would have been the smaller diff
+   * and the wrong one: it would put the marks on the cap's scale while every
+   * other consumer of `window_` stayed on the halved one, breaking ruling 1 to
+   * satisfy ruling 2.
+   *
+   * This was breached in the first cut of #273 and the suite did not see it,
+   * because `windowForLevel`'s own `clampLevel` already absorbs the extra
+   * level whenever `usefulMaxZoomLevel` returns `MAX_ZOOM_LEVEL` — so the
+   * breach only appears when the cap is lower than the ceiling.
+   */
+  const windowLevel = Math.min(zoomLevel, maxZoomLevel)
+
+  // Clamped at the cap: "past it, marks stop thinning" is the ruling's own
+  // sentence, so the lane keeps the cap's window while the loupe is open.
+  // Unclamped, the loupe level took one more ZOOM_FRACTIONS step whenever
+  // `usefulMaxZoomLevel < MAX_ZOOM_LEVEL` — a sparse recording's normal case —
+  // and every visible mark re-laid at the narrower window (review of #430,
+  // proven with marks in view at the threshold).
   const window_ = useMemo(
-    () => windowForLevel(zoomLevel, windowCenter, start, end),
-    [zoomLevel, windowCenter, start, end],
+    () => windowForLevel(windowLevel, windowCenter, start, end),
+    [windowLevel, windowCenter, start, end],
   )
 
   const scale = useMemo(() => timeScale(window_.start, window_.end, width), [window_, width])
@@ -149,20 +206,20 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
 
   const zoomIn = useCallback(() => {
     setWindowCenter(value)
-    setZoomLevel((level) => Math.min(maxZoomLevel, level + 1))
-  }, [value, maxZoomLevel])
+    setZoomLevel((level) => Math.min(loupeZoomLevel, level + 1))
+  }, [value, loupeZoomLevel])
 
   const zoomOut = useCallback(() => setZoomLevel((level) => Math.max(0, level - 1)), [])
 
   const shift = useCallback(
     (direction: -1 | 1) => {
       setWindowCenter((center) => {
-        const current = windowForLevel(zoomLevel, center, start, end)
+        const current = windowForLevel(windowLevel, center, start, end)
         const next = shiftWindow(current, start, end, direction)
         return (next.start + next.end) / 2
       })
     },
-    [zoomLevel, start, end],
+    [windowLevel, start, end],
   )
 
   const canShiftEarlier = canShiftWindow(window_, start, end, -1)
@@ -241,9 +298,9 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
       const cursorTs = scale.tsOf(event.clientX - rect.left)
       const direction = event.deltaY < 0 ? 1 : -1
       setWindowCenter(cursorTs)
-      setZoomLevel((level) => Math.min(maxZoomLevel, Math.max(0, level + direction)))
+      setZoomLevel((level) => Math.min(loupeZoomLevel, Math.max(0, level + direction)))
     },
-    [width, scale, maxZoomLevel, trackRef],
+    [width, scale, loupeZoomLevel, trackRef],
   )
 
   useEffect(() => {
@@ -296,8 +353,11 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
 
   const zoomed = zoomLevel > 0
   // Ruling 13: no mode-dependent height left to gate this on — the axis
-  // shows whenever zoomed, in either mode.
-  const showAxis = zoomed
+  // shows in either mode. #272: and at every zoom level, not only when zoomed.
+  // Fully zoomed out is the *default* view, so gating on `zoomed` meant the
+  // dock said nothing about when the playhead was until the operator went
+  // looking. The axis is the orientation half of that fix; the readout beside
+  // the thumb (`Scrubber`, `facts` below) is the instant half.
 
   const bracketLeft = zoomed ? fullScale.xOf(window_.start) : 0
   const bracketWidth = zoomed ? Math.max(1, fullScale.xOf(window_.end) - bracketLeft) : 0
@@ -337,19 +397,16 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
       </div>
       <div aria-hidden="true" />
 
-      {showAxis && (
-        <>
-          <div aria-hidden="true" />
-          <div
-            data-testid="tide-axis"
-            className="figures flex items-center justify-between text-[8px] leading-none text-ice-400"
-          >
-            <span>{formatClock(window_.start)}</span>
-            <span>{formatClock(window_.end)}</span>
-          </div>
-          <div aria-hidden="true" />
-        </>
-      )}
+      {/* The axis is unconditional (#272) — see the module note. */}
+      <div aria-hidden="true" />
+      <div
+        data-testid="tide-axis"
+        className="figures flex items-center justify-between text-[8px] leading-none text-ice-400"
+      >
+        <span>{formatClock(window_.start)}</span>
+        <span>{formatClock(window_.end)}</span>
+      </div>
+      <div aria-hidden="true" />
 
       <button
         type="button"
@@ -366,10 +423,18 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
         <Scrubber
           start={start}
           end={end}
-          value={value}
+          // `playheadTs`, not `value` (#272, corrected by the verify pass on
+          // PR #430). In replay the two are equal, so replay is untouched. In
+          // live `value` is the dormant transport's `currentTs`, frozen at the
+          // range start — so the readout printed one instant while the playhead
+          // painted another, and #272's own deliverable was readable and wrong.
+          // The same string is the input's `aria-valuetext`, so this reaches
+          // assistive tech too.
+          value={playheadTs}
           onChange={onSeek}
           disabled={!seekEnabled}
           chapterMarkers={chapterMarkers}
+          facts={scrubFacts}
         />
         {zoomed && width > 0 && (
           <div
@@ -387,7 +452,14 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
             className="figures min-w-0 max-w-[180px] overflow-hidden text-ellipsis whitespace-nowrap text-[10px] leading-none text-ice-400"
             data-testid="window-indicator"
           >
-            window {zoomFractionLabel(zoomLevel)} · {formatClock(window_.start)}–{formatClock(window_.end)}
+            {/*
+              `windowLevel`, not `zoomLevel`: past the cap the window stops
+              narrowing, so the label must stop narrowing with it. Reading
+              `zoomLevel` here made the indicator say `window 1/16` while the
+              window was 1/8 — the fix to the lane would otherwise have moved
+              the lie into the label.
+            */}
+            window {zoomFractionLabel(windowLevel)} · {formatClock(window_.start)}–{formatClock(window_.end)}
           </span>
         )}
         <button
@@ -395,7 +467,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
           aria-label="Zoom in"
           title="Zoom in on the playhead"
           onClick={zoomIn}
-          disabled={zoomLevel >= maxZoomLevel}
+          disabled={zoomLevel >= loupeZoomLevel}
           className={BUTTON_CLASS}
         >
           +
@@ -421,6 +493,19 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled 
           »
         </button>
       </div>
+
+      {/*
+        THE LOUPE (#273), inside the dock's own grid rather than portaled or
+        panelled. prd13 ruling 1 holds — the dock is the replay bar's body, and
+        a read-out that spans its columns is still the bar, where a panel would
+        be a surface competing with the scene. It is transient in the sense that
+        matters: it exists only past the mark lane's cap and closes the moment
+        the operator zooms back out.
+
+        `value`, not `window_`'s centre: the loupe reads around the playhead,
+        which is the instant the operator navigated to.
+      */}
+      {loupeOpen && <Loupe events={events} ts={playheadTs} />}
     </div>
   )
 }

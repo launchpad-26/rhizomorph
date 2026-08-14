@@ -1,6 +1,8 @@
-import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { canonicalize, isInside, type Realpath } from '../paths/containment.js'
+
+export { isInside, type Realpath }
 
 /**
  * prd-20 ruling 1's fence for the fourth hand's second power — "clone a repo to
@@ -19,14 +21,16 @@ import path from 'node:path'
  * hard-coding one. Answering the open question later sets that argument; it
  * does not reopen this law.
  *
- * `canonicalize`/`isInside` below are a deliberate duplicate of `lab/paths.ts`,
- * not an oversight. The laboratory's own namespace law forbids any server file
- * outside `lab/` from importing it (prd12 ruling 1 — the second hand is
- * explicitly-invoked only), so the fourth hand borrowing the second hand's
- * helper would breach the second hand's fence to build its own. That is the
- * constitution working as intended, and the cost is this comment plus ~30
- * duplicated lines. The `#228`/`#217` reasoning those lines encode is recorded
- * once, in `lab/paths.ts`; the summary here is deliberately short.
+ * `canonicalize`/`isInside` are imported from `../paths/containment.ts`, not
+ * redefined here. This file used to carry its own copy, because borrowing
+ * `lab/paths.ts`'s would have breached the second hand's fence (prd12 ruling 1
+ * — the laboratory is explicitly-invoked only) to build the fourth hand's. #401
+ * removed the dilemma rather than paying it: the containment primitive now
+ * lives in a neutral `paths/` module that belongs to no hand, and `lab/paths.ts`
+ * imports it from there too. `isInside` and `Realpath` are re-exported so a
+ * caller reasoning about the clone fence reads one module, and so #217/#228's
+ * hardening lands in one place instead of in whichever copy the next author
+ * happened to be looking at.
  */
 
 /**
@@ -56,76 +60,15 @@ export function conciergeRoot(dataRoot: string): string {
  * `~/AndroidStudioProjects`) rather than hiding it in an XDG data directory.
  * `assertCloneTarget`'s own fence is unaffected either way — this only sets
  * the argument its `clonesRoot` parameter defaults to when a caller doesn't
- * override it, per ADR-0014's Consequences: "answering the question later
+ * override it, per ADR-0019's Consequences: "answering the question later
  * sets that argument; it does not reopen this law."
  */
 export function defaultClonesRoot(): string {
   return path.join(homedir(), 'rhizomorph', 'repos')
 }
 
-/** A `realpath`-shaped function: resolves an existing path to its canonical form. */
-export type Realpath = (existingPath: string) => string
-
-/**
- * `fs.realpathSync.native` — the OS's own `realpath(3)`, not Node's pure-JS
- * reimplementation, because #228 caught the two disagreeing with each other on
- * one macOS host across two Node versions. Same choice, same reason, as
- * `lab/paths.ts`; the full account lives there.
- */
-const defaultRealpath: Realpath = realpathSync.native ?? realpathSync
-
-/**
- * `path.resolve`, but symlink-free: walks up to the nearest ancestor that
- * exists, `realpath`s that, then re-appends the not-yet-existing tail
- * unresolved — a path that has not been created cannot itself be a symlink.
- *
- * Needed on BOTH sides of every containment check, for two symmetric reasons
- * (#217). Benign: macOS's `/var/folders/…` is a symlink to
- * `/private/var/folders/…`, so a raw prefix comparison reports an escape that
- * never happened. Hostile, and the reason this is a fence and not a
- * convenience: a symlink placed *inside* the permitted directory, pointing
- * out of it, passes a raw prefix check on its own un-followed spelling while
- * every byte written through it lands wherever the link points.
- *
- * On a case-insensitive filesystem (macOS's default) this also normalises
- * case for the part of the path that exists, so `…/CLONES/x` and `…/clones/x`
- * cannot be made to disagree — see `paths.test.ts`.
- */
-function canonicalize(candidate: string, realpath: Realpath): string {
-  const resolved = path.resolve(candidate)
-  let current = resolved
-  const pendingTail: string[] = []
-  while (true) {
-    try {
-      const real = realpath(current)
-      return pendingTail.length === 0 ? real : path.join(real, ...pendingTail.reverse())
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
-      const parent = path.dirname(current)
-      if (parent === current) return resolved // hit the filesystem root without finding anything real
-      pendingTail.push(path.basename(current))
-      current = parent
-    }
-  }
-}
-
-/**
- * True when `candidate` is `parent` itself or lies beneath it, both
- * canonicalized first through the SAME `realpath` so a symlinked ancestor
- * cannot make the two sides disagree.
- *
- * `realpath` is overridable so tests can simulate a canonicalizer that
- * disagrees with itself; production always takes the default.
- */
-export function isInside(parent: string, candidate: string, realpath: Realpath = defaultRealpath): boolean {
-  const from = canonicalize(parent, realpath)
-  const to = canonicalize(candidate, realpath)
-  if (to === from) return true
-  return to.startsWith(from.endsWith(path.sep) ? from : from + path.sep)
-}
-
 /** Strictly beneath `parent` — the directory itself does not count. */
-function isStrictlyInside(parent: string, candidate: string, realpath: Realpath): boolean {
+function isStrictlyInside(parent: string, candidate: string, realpath?: Realpath): boolean {
   return isInside(parent, candidate, realpath) && canonicalize(candidate, realpath) !== canonicalize(parent, realpath)
 }
 
@@ -148,7 +91,7 @@ export interface CloneFence {
 /** Thrown when a clone target fails the fence. Carries the clause it failed. */
 export class CloneFenceError extends Error {
   constructor(message: string) {
-    super(`${message} (prd-20 ruling 1 / ADR-0014 — the concierge clones only into its own namespace)`)
+    super(`${message} (prd-20 ruling 1 / ADR-0019 — the concierge clones only into its own namespace)`)
     this.name = 'CloneFenceError'
   }
 }
@@ -189,7 +132,7 @@ export class CloneFenceError extends Error {
  *    already imply this; it is asserted independently because it is the one
  *    clause whose violation is unrecoverable, and defence in depth is cheap.
  */
-export function assertCloneTarget(fence: CloneFence, candidate: string, realpath: Realpath = defaultRealpath): void {
+export function assertCloneTarget(fence: CloneFence, candidate: string, realpath?: Realpath): void {
   const { clonesRoot, watchedRepoPath, dataRoot } = fence
 
   if (isInside(watchedRepoPath, clonesRoot, realpath) || isInside(clonesRoot, watchedRepoPath, realpath)) {

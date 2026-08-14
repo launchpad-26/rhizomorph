@@ -388,7 +388,7 @@ describe('replay folds append order, never a ts-sorted copy (prd17 ruling 3.4, #
    * exercising all three ways the reducer is order-sensitive: last-write-wins
    * on a keyed record (`agent.status`), create-vs-delete on a key
    * (`branch.updated`/`branch.removed`), and first-sighting sequence
-   * (`commitOrder`).
+   * (`commits.order`).
    */
   function interleaved(): RhizomorphEvent[] {
     const f = createEventFactory()

@@ -3,6 +3,7 @@ import { RESUME_WINDOW_MS } from '../log/session-log.js'
 import { rotateSession } from '../recorder/index.js'
 import type { ServerContext } from '../server/context.js'
 import { recordSessionBootMeta, sessionBootMetaFor } from './meta.js'
+import { requireCapabilityToken } from './security.js'
 
 /**
  * `POST /api/rotate` — THE ONE MUTATING ROUTE (prd16 ruling 2).
@@ -20,9 +21,23 @@ import { recordSessionBootMeta, sessionBootMetaFor } from './meta.js'
  * writes only inside this repo's own session directory. What changes here is
  * who decides when a recording ends, which is an existing authority made
  * operable rather than a new one.
+ *
+ * **Token-gated since #234.** The app-wide guard (`server/mutation-guard.ts`)
+ * refuses a cross-origin `Origin` but deliberately permits a request carrying
+ * none at all, which is every non-browser caller — so before #234 a bare
+ * `curl` from any local process could end the operator's recording. This route
+ * now carries the same `preHandler` `/api/label` has carried since the
+ * 2026-08-06 audit: the per-process capability token (`api/security.ts`),
+ * delivered in-band through the served page (ADR-0012). Both of its callers
+ * were widened in the same commit rather than left to a follow-up — the
+ * dashboard's button reads the token off the page it was served from
+ * (`packages/web/src/replay/rotate.ts`) and `rhizomorph rotate`, a separate
+ * process, reads it from the same page over its own loopback `GET /`
+ * (`cli/rotate.ts`). Gating the route without them is exactly how #249
+ * happened.
  */
 export function registerRotateRoute(app: FastifyInstance, ctx: ServerContext): void {
-  app.post('/api/rotate', async (_request, reply) => {
+  app.post('/api/rotate', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async (_request, reply) => {
     if (ctx.readOnly === true) {
       return reply.code(409).send({
         error:

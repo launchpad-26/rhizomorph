@@ -64,6 +64,7 @@ export interface EventFactory {
   paneClosed(payload?: Partial<PayloadOf<'pane.closed'>>, init?: Init<'pane.closed'>): EventOf<'pane.closed'>
   paneActivity(payload?: Partial<PayloadOf<'pane.activity'>>, init?: Init<'pane.activity'>): EventOf<'pane.activity'>
   agentStatus(payload?: Partial<PayloadOf<'agent.status'>>, init?: Init<'agent.status'>): EventOf<'agent.status'>
+  agentRemoved(payload?: Partial<PayloadOf<'agent.removed'>>, init?: Init<'agent.removed'>): EventOf<'agent.removed'>
 
   /**
    * prd1 telemetry. `source` defaults to each type's primary collector, so pass
@@ -152,6 +153,7 @@ const defaults = {
   'pane.closed': { paneId: '%1' },
   'pane.activity': { paneId: '%1', contentHash: 'hash-1' },
   'agent.status': { handle: 'feature', status: 'working' },
+  'agent.removed': { handle: 'feature' },
   // Token proportions are the real ones from the build day's keystone lane
   // (research §S2): cache reads dwarf everything, output is the next biggest.
   'llm.usage': {
@@ -319,6 +321,7 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
     paneClosed: sugar('pane.closed'),
     paneActivity: sugar('pane.activity'),
     agentStatus: sugar('agent.status'),
+    agentRemoved: sugar('agent.removed'),
     llmUsage: sugar('llm.usage'),
     llmCost: sugar('llm.cost'),
     toolActivity: sugar('tool.activity'),
@@ -464,7 +467,7 @@ export function fixtureSession(): RhizomorphEvent[] {
   f.at(FIXTURE_START_TS + minute)
   f.paneActivity({ paneId: '%1', contentHash: 'h1-a', previousHash: 'h1-0' })
   f.paneActivity({ paneId: '%2', contentHash: 'h2-a', previousHash: 'h2-0' })
-  f.paneActivity({ paneId: '%3', contentHash: 'h3-a', previousHash: 'h3-0', preview: 'running tests' })
+  f.paneActivity({ paneId: '%3', contentHash: 'h3-a', previousHash: 'h3-0' })
 
   // t+2m — first commit lands on 2-core.
   f.at(FIXTURE_START_TS + 2 * minute)

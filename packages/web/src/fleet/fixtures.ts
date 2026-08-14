@@ -591,7 +591,6 @@ export class SyntheticFleet {
             paneId: lane.paneId,
             contentHash: `hash-${Math.floor(now / 1000)}`,
             lines: 51,
-            preview: 'Do you want to proceed? ❯ 1. Yes  2. No',
           }, now),
         )
         continue

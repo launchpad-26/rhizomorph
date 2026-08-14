@@ -159,20 +159,20 @@ export const claudeAdapter: HarnessAdapter = {
     // the name against its own PATH at spawn time with none of that filtering.
     // So the verified path wins when the caller has one.
     //
-    // An array, never a command string — ADR-0014 clause 4.
+    // An array, never a command string — ADR-0019 clause 4.
     return [claudeCommand(context)]
   },
 
   /**
    * `claude --continue` — the one proven continuity story in this registry, and
-   * the evidence prd-20 ruling 3 and ADR-0014's option D both rest on.
+   * the evidence prd-20 ruling 3 and ADR-0019's option D both rest on.
    *
    * What is lost is stated because the ruling requires it, and because it is
    * the honest half of the offer: instrumentation attaches at launch and never
    * retroactively (`docs/telemetry.md`), so the *conversation* continues but
    * the previous process's work is not back-filled. Nothing it did before this
    * relaunch will ever appear in this instrument. A front door that quietly
-   * implied otherwise would be the lie ADR-0014 refused to tell.
+   * implied otherwise would be the lie ADR-0019 refused to tell.
    */
   continueArgv(): ContinuityPlan {
     return {
@@ -184,7 +184,7 @@ export const claudeAdapter: HarnessAdapter = {
         'relaunch and the prior turns are never back-filled; the old process must be ended by the operator, and ' +
         'anything it was mid-way through is not carried over',
       evidence:
-        'prd-20 evidence and ADR-0014 option D both name `claude --continue` as the reachable form of ' +
+        'prd-20 evidence and ADR-0019 option D both name `claude --continue` as the reachable form of ' +
         'relaunch-with-continuity; docs/telemetry.md records the attach-at-launch physics it is a response to',
     }
   },

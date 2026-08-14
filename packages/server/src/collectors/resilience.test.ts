@@ -180,14 +180,14 @@ describe('withResilience — shared across real collectors', () => {
       failed: true,
       errorMessage: 'spawn workmux ENOENT (transient)',
     }
-    const ok: ExecResult = { stdout: 'No active agents\n', stderr: '', code: 0, failed: false }
+    const ok: ExecResult = { stdout: '[]', stderr: '', code: 0, failed: false }
     let statusCalls = 0
     const exec: Exec = async (command, args) => {
       if (command === 'workmux' && args[0] === 'status') {
         statusCalls += 1
         return statusCalls <= 1 ? fail : ok
       }
-      return { stdout: 'BRANCH  AGE  AGENT  MUX  UNMERGED  PATH\n', stderr: '', code: 0, failed: false }
+      return { stdout: '[]', stderr: '', code: 0, failed: false }
     }
 
     const wrapped = withResilience(createWorkmuxCollector(), { failureThreshold: 2 })

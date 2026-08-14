@@ -33,19 +33,20 @@ const ConnectPage = lazy(() => import('./connect/index.js'))
  * ruling 4, prd14 and prd19 ruling 1): `/` renders the balcony unchanged,
  * `/lane/:handle` renders the deep-linkable lane page, `/recordings` renders
  * the recordings library, `/lab` renders the experiment console, `/connect`
- * renders the connection surface (a fenced placeholder in this wave — the
- * handshake checklist itself is wave 3). The switch lives here, inside every
- * provider, so every page shares the exact same mode/stream/fleet/selection
- * state the balcony does — there is no second read of the log for any of
- * them to disagree with. The recordings library only ever reads
- * `ModeContext` (for "open in replay") and its own `GET /api/sessions`; the
- * lab reads only its own `GET /api/lab/checkpoints` and `GET
- * /api/lab/experiments` (prd12 ruling 1's read-only second hand) — both
- * render under the same providers as everything else, but touch neither
- * `FleetProvider`'s nor `StreamProvider`'s state (the lab's own
- * `no-live-fleet-law.test.ts` holds that structurally). The connect
- * placeholder reads nothing at all yet — wave 3 gives it `/api/meta` and
- * `/api/doctor` (prd19 ruling 5).
+ * renders the handshake checklist (prd19 rulings 3, 5 and 7, wave 3, #258).
+ * The switch lives here, inside every provider, so every page shares the
+ * exact same mode/stream/fleet/selection state the balcony does — there is
+ * no second read of the log for any of them to disagree with. The
+ * recordings library only ever reads `ModeContext` (for "open in replay")
+ * and its own `GET /api/sessions`; the lab reads only its own `GET
+ * /api/lab/checkpoints` and `GET /api/lab/experiments` (prd12 ruling 1's
+ * read-only second hand) — both render under the same providers as
+ * everything else, but touch neither `FleetProvider`'s nor
+ * `StreamProvider`'s state (the lab's own `no-live-fleet-law.test.ts` holds
+ * that structurally). Connect reads the same fold every other surface does
+ * (`useStream`, `selectConnection`), plus its own `GET /api/meta` and `GET
+ * /api/doctor` (prd19 ruling 5) for the facts the fold cannot know — and,
+ * ruling 7, mutates nothing but a clipboard.
  */
 
 /**

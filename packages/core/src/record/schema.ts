@@ -4,9 +4,11 @@ import { HEX_DIGEST_PATTERN } from './hash.js'
 
 /**
  * The portable session record — prd11 ruling 3's federation wire format. One
- * file: a manifest naming who recorded it and when, plus the event log's own
- * lines verbatim, each wrapped in a hash-chain link. Schema-versioned from the
- * first field so a future format change has somewhere honest to land.
+ * file: a manifest naming who recorded it and when, plus one line per event as
+ * the current event schema serializes it (`build.ts` re-serializes the parsed
+ * events rather than copying the log's bytes — see `recordLinkSchema` below),
+ * each wrapped in a hash-chain link. Schema-versioned from the first field so
+ * a future format change has somewhere honest to land.
  */
 
 export const RECORD_SCHEMA_VERSION = 1
@@ -49,9 +51,12 @@ export const manifestSchema = z.object({
 export type Manifest = z.infer<typeof manifestSchema>
 
 /**
- * One event-log line, wrapped in its hash-chain link. `line` is the exact
- * JSONL text the session log holds for this event — no re-serialization, so a
- * record contains exactly what the log contains (prd11 ruling 7).
+ * One event-log line, wrapped in its hash-chain link. `line` is the JSONL text
+ * for this event as the CURRENT event schema serializes it (`build.ts` re-runs
+ * `eventToLine` over the parsed events), not a copy of the log file's bytes.
+ * For anything this build wrote they are the same text; for an older line the
+ * difference is deliberate, because parsing drops keys the schema no longer
+ * declares and so keeps them out of the record (prd11 ruling 7 read honestly).
  */
 export const recordLinkSchema = z.object({
   line: z.string(),

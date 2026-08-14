@@ -153,8 +153,98 @@ describe('StatusBar', () => {
 
     // Errored already reads on the pill above, and escalates to the
     // attention strip separately (buildFleet's ladder) — this bar's gap
-    // voice is reserved for the dead (disabled), not the merely broken.
+    // voice is reserved for the dead (disabled) and the retrying
+    // (degraded), not the merely one-off broken.
     expect(queryAllByTestId('gap-voice')).toHaveLength(0)
+  })
+
+  it('does not speak the gap voice for a fully healthy collector', () => {
+    const { queryAllByTestId } = renderBar()
+    expect(queryAllByTestId('gap-voice')).toHaveLength(0)
+  })
+
+  it('surfaces a degraded-retrying collector with its retry reason on hover/focus (#304, ruling 2)', () => {
+    const { container, source } = renderBar()
+    const f = createEventFactory()
+
+    act(() => {
+      source()?.emit(
+        f.collectorDegraded({
+          collector: 'sessionlog',
+          reason: 'no Claude session logs found (attempt 1/3 — retrying)',
+          consecutiveFailures: 1,
+        }),
+      )
+    })
+
+    const sessionlog = pill(container, 'sessionlog')
+    expect(sessionlog.dataset.health).toBe('degraded')
+    expect(sessionlog.title).toBe('no Claude session logs found (attempt 1/3 — retrying)')
+
+    // Untouched sources have proved no flow either, so they still read waiting.
+    expect(pill(container, 'git').dataset.health).toBe('waiting')
+    expect(pill(container, 'tmux').dataset.health).toBe('waiting')
+    expect(pill(container, 'workmux').dataset.health).toBe('waiting')
+    expect(pill(container, 'otel').dataset.health).toBe('waiting')
+  })
+
+  it('speaks the gap voice — WHAT, WHY, and the command — for a degraded-but-retrying collector (#304, ruling 2)', () => {
+    const { source, queryAllByTestId } = renderBar()
+    const f = createEventFactory()
+
+    act(() => {
+      source()?.emit(
+        f.collectorDegraded({
+          collector: 'sessionlog',
+          reason: 'no Claude session logs found (attempt 1/3 — retrying)',
+          consecutiveFailures: 1,
+        }),
+      )
+    })
+
+    const lines = queryAllByTestId('gap-voice')
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toHaveTextContent('SESSIONLOG COLLECTOR DEGRADED')
+    expect(lines[0]).toHaveTextContent('no Claude session logs found (attempt 1/3 — retrying)')
+    expect(lines[0]).toHaveTextContent('rhizomorph doctor')
+  })
+
+  it('a collector that recovers reads live again, not stuck on errored (#304)', async () => {
+    const { container, source } = renderBar()
+    const f = createEventFactory()
+
+    await act(async () => {
+      source()?.emit(f.collectorError({ collector: 'tmux', message: 'capture-pane timed out' }))
+    })
+    expect(pill(container, 'tmux').dataset.health).toBe('errored')
+
+    await act(async () => {
+      source()?.emit(f.collectorRecovered({ collector: 'tmux' }))
+    })
+
+    const tmux = pill(container, 'tmux')
+    expect(tmux.dataset.health).toBe('live')
+    expect(tmux.title).toBe('')
+  })
+
+  it('a second consecutive degraded poll updates the same pill and gap line, never adds a second (#304)', async () => {
+    const { container, source, queryAllByTestId } = renderBar()
+    const f = createEventFactory()
+
+    await act(async () => {
+      source()?.emit(f.collectorDegraded({ collector: 'tmux', reason: 'capture-pane timed out', consecutiveFailures: 1 }))
+    })
+    await act(async () => {
+      source()?.emit(f.collectorDegraded({ collector: 'tmux', reason: 'tmux exited with code 1', consecutiveFailures: 2 }))
+    })
+
+    const tmux = pill(container, 'tmux')
+    expect(tmux.dataset.health).toBe('degraded')
+    expect(tmux.title).toBe('tmux exited with code 1')
+
+    const lines = queryAllByTestId('gap-voice')
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toHaveTextContent('tmux exited with code 1')
   })
 
   it('reflects the live SSE connection state', () => {

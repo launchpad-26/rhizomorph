@@ -219,7 +219,7 @@ describe('the module ships no route, and that is load-bearing', () => {
   })
 
   it('never reaches a shell, and never spawns anything at all in this lane', () => {
-    // ADR-0014 clause 4 forbids the shell; this lane goes further and spawns
+    // ADR-0019 clause 4 forbids the shell; this lane goes further and spawns
     // nothing, because it only ever *produces* an argv array for the launch
     // power #263 will hold.
     const offenders: string[] = []

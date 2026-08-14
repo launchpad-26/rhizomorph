@@ -22,7 +22,7 @@ import { requireCapabilityToken } from './security.js'
 /**
  * Re-exported so `concierge.test.ts` can assert on these without importing
  * `../concierge/*` directly — this file is the namespace law's one declared
- * importer (a TERMINUS, per ADR-0014's own Consequences: "chains stop there,
+ * importer (a TERMINUS, per ADR-0019's own Consequences: "chains stop there,
  * and what lies above it inherits its grant"), and a test file reaching
  * `concierge/clone.js` or `concierge/paths.js` on its own would be a second,
  * undeclared route in — exactly what `namespace-law.test.ts`'s clause 1 sweep
@@ -51,7 +51,7 @@ export type ConciergeReposResponse = ({ available: true } & DiscoverReposResult)
  *
  * `discoverRepos` reads the real machine by default; nothing here threads a
  * fixture through, because this route is the ONLY declared importer the
- * concierge namespace law allows (prd-20 ruling 1 / ADR-0014) and
+ * concierge namespace law allows (prd-20 ruling 1 / ADR-0019) and
  * `ServerContext` is not this fence's to extend with a test seam.
  *
  * A replay server (`ctx.readOnly`, `rhizomorph replay`) never runs the scan
@@ -87,7 +87,7 @@ export function registerConciergeReposRoute(app: FastifyInstance, ctx: ServerCon
 }
 
 /**
- * `POST /api/concierge/clone` — prd-20 ruling 1 / ADR-0014's second power,
+ * `POST /api/concierge/clone` — prd-20 ruling 1 / ADR-0019's second power,
  * wired for real (#262): `git clone` a URL the operator typed, into the
  * concierge's own namespace (`concierge/paths.ts#defaultClonesRoot`), never
  * inside the currently watched repo. Token-gated per ruling 2 — the ONE
@@ -156,7 +156,7 @@ export function registerConciergeCloneRoute(app: FastifyInstance, ctx: ServerCon
 }
 
 /**
- * `POST /api/concierge/launch` — prd-20 ruling 1 / ADR-0014's SECOND power,
+ * `POST /api/concierge/launch` — prd-20 ruling 1 / ADR-0019's SECOND power,
  * wired for real (#264): spawn (or relaunch-with-continuity) the conductor
  * watching this server's repo, instrumented. Token-gated per ruling 2, the
  * same posture as `/api/concierge/clone`.

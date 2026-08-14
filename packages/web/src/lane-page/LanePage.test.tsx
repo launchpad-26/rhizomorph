@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createEventFactory, fixtureTraceSpans, type RhizomorphEvent } from '@rhizomorph/core'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ReactNode } from 'react'
@@ -451,6 +451,18 @@ describe('LanePage — replay-safe by construction', () => {
     // Scrub past both events.
     await act(async () => {
       session?.playback.seek(NOW)
+    })
+
+    // #269: the fold is animation-frame coalesced now. The seek above is this
+    // frame's second, so it lands on the next one — waited for rather than
+    // assumed, because the alternative is a test that passes on a box slow
+    // enough for jsdom's ~16 ms frame timer to slip in between two `act`s and
+    // fails on one that isn't.
+    await waitFor(() => {
+      const cell = [...screen.getByTestId('lane-page-spend').querySelectorAll('div')].find(
+        (candidate) => candidate.querySelector('dt')?.textContent === 'output',
+      )
+      expect(cell?.querySelector('dd')?.textContent).toBe('10K')
     })
 
     outputCell = [...screen.getByTestId('lane-page-spend').querySelectorAll('div')].find(

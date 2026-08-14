@@ -12,7 +12,7 @@ import { assertCloneTarget, conciergeRoot } from './paths.js'
  * BEFORE the hand's code exists so the fence is never retrofitted around
  * whatever got built.
  *
- * The constitution (ADR-0001) grants three hands. ADR-0014 adds a fourth, the
+ * The constitution (ADR-0001) grants three hands. ADR-0019 adds a fourth, the
  * concierge, with two powers no earlier hand has: it may **launch or relaunch a
  * conductor process**, and it may **clone a repo to disk**. Each is token-gated,
  * each is invoked only by an explicit human act in the UI, never from a
@@ -119,7 +119,7 @@ const CONCIERGE_DIR = path.join(SERVER_SRC, 'concierge')
  *
  * What that deliberately does NOT relax: {@link NEVER_AN_IMPORTER} is checked
  * against the RAW graph, unbounded. A collector or a poll loop reaching the hand
- * THROUGH the gate is still a violation, because ADR-0014's condition is "never
+ * THROUGH the gate is still a violation, because ADR-0019's condition is "never
  * from a collector, never from a poll" and a gate does not make a poll a human.
  */
 const ALLOWED_IMPORTERS: ReadonlySet<string> = new Set<string>([path.join(SERVER_SRC, 'api', 'concierge.ts')])
@@ -140,7 +140,7 @@ const NEVER_AN_IMPORTER = [
  * The four files judged against the RAW graph — no gate bound, no exemption.
  *
  * For a collector or a poll loop ANY route into the hand is a violation, gate or
- * no gate (ADR-0014 grant 3, "never from a collector, never from a poll"). They
+ * no gate (ADR-0019 grant 3, "never from a collector, never from a poll"). They
  * are named rather than left to the bounded sweep because the bound is exactly
  * what would hide them: once a route is declared, the sweep stops before it and
  * a poll loop importing that route reads as clean.
@@ -410,7 +410,7 @@ function conciergeSourceFiles(): string[] {
   return walkSourceFiles(CONCIERGE_DIR).filter((file) => !isTest(file))
 }
 
-describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
+describe('the concierge namespace law (prd-20 ruling 1 / ADR-0019)', () => {
   describe('the module the law is about actually exists — an empty directory proves nothing', () => {
     it('has non-test source files to check', () => {
       const files = conciergeSourceFiles().map(relative)
@@ -473,7 +473,7 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
     it('no collector and no poll loop reaches it, on the RAW graph — a gate does not make a poll a human', () => {
       // NOT bounded by the declared-importer set, unlike the sweep above. For
       // these four, reaching the hand THROUGH the gate is as forbidden as
-      // reaching it around the gate (ADR-0014 grant 3). Naming them is also what
+      // reaching it around the gate (ADR-0019 grant 3). Naming them is also what
       // survives a future refactor of the sweep.
       for (const file of RAW_GRAPH_FILES) {
         const canonical = realCanonical(file)
@@ -730,7 +730,7 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
     })
 
     it('and a POLL LOOP importing the declared route is still a violation — the raw graph, no gate credit', () => {
-      // The half the bound must not swallow: ADR-0014 grant 3 is "never from a
+      // The half the bound must not swallow: ADR-0019 grant 3 is "never from a
       // collector, never from a poll", and a token gate does not make a poll a
       // human. Same tree, same declared route, opposite answer.
       const tree = {
@@ -1010,7 +1010,7 @@ describe('the concierge namespace law (prd-20 ruling 1 / ADR-0014)', () => {
  *
  * Hermetic under 4x concurrency: one `mkdtemp` root per test, no ambient `~`.
  */
-describe('the concierge namespace law, live (prd-20 ruling 1 / ADR-0014)', () => {
+describe('the concierge namespace law, live (prd-20 ruling 1 / ADR-0019)', () => {
   let root: string
   let clonesRoot: string
   let watchedRepoPath: string

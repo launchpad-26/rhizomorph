@@ -6,13 +6,14 @@ import path from 'node:path'
 import type { Exec, ExecResult } from '@rhizomorph/core'
 import { createEvent } from '@rhizomorph/core'
 import { describe, expect, it, vi } from 'vitest'
-import { runDoctor, type DoctorCheck } from '../cli/doctor.js'
+import { checkClaudeProjects, runDoctor, type DoctorCheck } from '../cli/doctor.js'
 import { sessionDirFor } from '../log/paths.js'
 import { readResumedCount, sessionFilePath } from '../log/session-log.js'
 import { SessionLogWriter } from '../recorder/index.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { createRouteDoctorProbe, PROBE_CACHE_TTL_MS, ROUTE_EXEC_TIMEOUT_MS, runServerDoctor } from './doctor.js'
+import type * as ExecModule from '../server/exec.js'
 
 function okResult(stdout = ''): ExecResult {
   return { stdout, stderr: '', code: 0, failed: false }
@@ -40,14 +41,18 @@ const healthyExec: Exec = async (command, args) => {
  * every test that calls `runServerDoctor` directly still passes its own
  * `exec` fixture and is unaffected by this mock.
  */
-vi.mock('../server/exec.js', () => ({
-  exec: (async (command: string, args: readonly string[]) => {
-    if (command === 'tmux' && args[0] === '-V') return okResult('tmux 3.3a\n')
-    if (command === 'workmux' && args[0] === 'status') return okResult('handle  status\n')
-    if (command === 'claude' && args[0] === '--version') return okResult('2.1.220 (Claude Code)\n')
-    return { stdout: '', stderr: 'not stubbed', code: 1, failed: true, errorMessage: 'not stubbed' }
-  }) satisfies Exec,
-}))
+vi.mock('../server/exec.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof ExecModule>()
+  return {
+    ...actual,
+    exec: (async (command: string, args: readonly string[]) => {
+      if (command === 'tmux' && args[0] === '-V') return okResult('tmux 3.3a\n')
+      if (command === 'workmux' && args[0] === 'status') return okResult('handle  status\n')
+      if (command === 'claude' && args[0] === '--version') return okResult('2.1.220 (Claude Code)\n')
+      return { stdout: '', stderr: 'not stubbed', code: 1, failed: true, errorMessage: 'not stubbed' }
+    }) satisfies Exec,
+  }
+})
 
 function checkFor(checks: readonly DoctorCheck[], id: string): DoctorCheck {
   const check = checks.find((c) => c.id === id)
@@ -294,11 +299,51 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
   })
 
   describe('law: for the same fixture dir, the session-logs message equals the CLI\'s, character for character', () => {
-    it('when Claude Code session logs are present', async () => {
+    /**
+     * #288 deepened `checkClaudeProjects` (`cli/doctor.ts`) to answer for the
+     * watched repo's own slug dir, not just the global root, and both call
+     * sites pass `repoPath` through: `runDoctor`'s and — after this issue's
+     * fence was widened by one file, recorded on #288 — `runServerDoctor`'s
+     * here in `api/doctor.ts`.
+     *
+     * That widening is what these assertions guard. The route and the CLI
+     * share one function, so the only way they can disagree is a call site
+     * dropping the argument; comparing the route's message to the same
+     * function called the same way catches exactly that, character for
+     * character, which is this issue's own Done-when.
+     */
+    it("the route's deepened call agrees with `checkClaudeProjects` called the same way", async () => {
       await setup()
       try {
         const serverChecks = await runServerDoctor(repoPath, { exec: healthyExec, claudeProjectsRoot, dataRoot })
+        expect(checkFor(serverChecks, 'session-logs').message).toBe(checkClaudeProjects(claudeProjectsRoot, repoPath).message)
+      } finally {
+        await teardown()
+      }
+    })
 
+    it("the route's deepened warn branch agrees with `checkClaudeProjects` called the same way", async () => {
+      await setup()
+      try {
+        const missingClaudeProjectsRoot = path.join(claudeProjectsRoot, 'does-not-exist')
+
+        const serverChecks = await runServerDoctor(repoPath, {
+          exec: healthyExec,
+          claudeProjectsRoot: missingClaudeProjectsRoot,
+          dataRoot,
+        })
+
+        const serverCheck = checkFor(serverChecks, 'session-logs')
+        expect(serverCheck.status).toBe('warn')
+        expect(serverCheck.message).toBe(checkClaudeProjects(missingClaudeProjectsRoot, repoPath).message)
+      } finally {
+        await teardown()
+      }
+    })
+
+    it('the shared function agrees with the CLI on the deepened answer, given the same repoPath', async () => {
+      await setup()
+      try {
         const webDistDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-api-doctor-web2-'))
         try {
           const cliReport = await runDoctor({
@@ -310,7 +355,13 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
             dataRoot,
           })
 
-          expect(checkFor(serverChecks, 'session-logs').message).toBe(checkFor(cliReport.checks, 'session-logs').message)
+          // The answer both call sites must land on. `api/doctor.ts` threads
+          // `repoPath` through as well, since #288 (`api/doctor.ts:97`), so
+          // this is the route's message too and not merely a prospective one —
+          // the two tests above drive the route itself; this one drives the
+          // CLI leg.
+          const sharedMessage = checkClaudeProjects(claudeProjectsRoot, repoPath).message
+          expect(sharedMessage).toBe(checkFor(cliReport.checks, 'session-logs').message)
         } finally {
           await rm(webDistDir, { recursive: true, force: true })
         }
@@ -319,17 +370,10 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
       }
     })
 
-    it('when Claude Code session logs are absent (the warn branch)', async () => {
+    it('the CLI call site passes repoPath on the named-miss warn branch too', async () => {
       await setup()
       try {
         const missingClaudeProjectsRoot = path.join(claudeProjectsRoot, 'does-not-exist')
-
-        const serverChecks = await runServerDoctor(repoPath, {
-          exec: healthyExec,
-          claudeProjectsRoot: missingClaudeProjectsRoot,
-          dataRoot,
-        })
-
         const webDistDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-api-doctor-web3-'))
         try {
           const cliReport = await runDoctor({
@@ -341,10 +385,9 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
             dataRoot,
           })
 
-          const serverCheck = checkFor(serverChecks, 'session-logs')
           const cliCheck = checkFor(cliReport.checks, 'session-logs')
-          expect(serverCheck.status).toBe('warn')
-          expect(serverCheck.message).toBe(cliCheck.message)
+          expect(cliCheck.status).toBe('warn')
+          expect(checkClaudeProjects(missingClaudeProjectsRoot, repoPath).message).toBe(cliCheck.message)
         } finally {
           await rm(webDistDir, { recursive: true, force: true })
         }
@@ -580,6 +623,39 @@ describe('createRouteDoctorProbe (adversarial review item 2)', () => {
       await teardown()
     }
   })
+
+  /**
+   * #344 — THE BOUNDARY ITSELF, WHICH THE TWO TESTS ABOVE STEP OVER. They
+   * probe at `TTL - 1` and `TTL + 1` and leave exactly `TTL` untested, so
+   * relaxing the comparison to `<=` keeps both of them green — and moves the
+   * poll sequence `connect/index.tsx` and this file both document in words
+   * from miss/hit/hit/miss (one probe in three, the claim) to
+   * miss/hit/hit/hit/miss (one in four). A poll lands on the boundary exactly
+   * because the interval divides the TTL, so this is the ordinary case here,
+   * not a corner.
+   */
+  it('(#344) treats exactly the TTL as expired, since the connect page polls onto that boundary', async () => {
+    await setup()
+    try {
+      let callCount = 0
+      const countingExec: Exec = async (command, args, options) => {
+        callCount++
+        return healthyExec(command, args, options)
+      }
+
+      let now = 3_000_000
+      const probe = createRouteDoctorProbe(repoPath, { exec: countingExec, claudeProjectsRoot, dataRoot, now: () => now })
+
+      await probe()
+      expect(callCount).toBe(3)
+
+      now += PROBE_CACHE_TTL_MS // exactly the window, not one tick either side
+      await probe()
+      expect(callCount).toBe(6) // expired: the third poll pays for a fresh probe
+    } finally {
+      await teardown()
+    }
+  })
 })
 
 describe('GET /api/doctor', () => {
@@ -650,7 +726,7 @@ describe('GET /api/doctor', () => {
     }
   })
 
-  describe('law: the Host/loopback guard (adversarial review item 1)', () => {
+  describe('law: the Host/loopback guard (adversarial review item 1, now the app-wide mutation guard)', () => {
     it('a loopback Host succeeds', async () => {
       await setup()
       try {
@@ -661,12 +737,19 @@ describe('GET /api/doctor', () => {
       }
     })
 
+    // Pinned to the exact GLOBAL refusal, not `stringContaining('not loopback')`
+    // — this route's own (now-deleted) route-local message contained that same
+    // phrase, so a substring match would stay green even if the app-wide guard
+    // stopped running before this route (prd-23 #307: the route-local
+    // `preHandler` is gone; this is the sentence that survives it).
     it('a non-loopback Host is refused, before any check runs', async () => {
       await setup()
       try {
         const response = await makeApp().inject({ method: 'GET', url: '/api/doctor', headers: { host: 'evil.example' } })
         expect(response.statusCode).toBe(400)
-        expect(response.json()).toMatchObject({ error: expect.stringContaining('not loopback') })
+        expect(response.json()).toEqual({
+          error: 'refused: Host "evil.example" is not loopback — this instrument only accepts requests addressed to 127.0.0.1/localhost',
+        })
       } finally {
         await teardown()
       }

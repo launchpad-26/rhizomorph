@@ -1,7 +1,7 @@
 # prd-20 — the concierge: a one-stop front door
 
 > **Status:** proposed · wave 1 in progress — ruling 1's amendment is on the record as
-> [ADR-0014](../adr/0014-the-fourth-hand.md) (#260), with the concierge's namespace law
+> [ADR-0019](../adr/0019-the-fourth-hand.md) (#260), with the concierge's namespace law
 > landing ahead of its code. Every route still gated on #234 landing first (ruling 2).
 
 ## Problem
@@ -49,7 +49,7 @@ concierge route accepts a request without the capability token.
 - **No simultaneous multi-repo.** One repo, one rhizomorph — switching
   retargets, never multiplies.
 - No npm publish — prd-15's last wave, still gated on #177.
-- No building codex/pi/OpenClaw adapters — prd-15 ruling 3 owns the adapter
+- No building codex/pi/OpenClaw adapters — prd-15 ruling 4 owns the adapter
   contract; the picker lists them honestly as not-yet-implemented.
 - No autostart of anything not explicitly clicked; never a write inside the
   watched repo's working tree.

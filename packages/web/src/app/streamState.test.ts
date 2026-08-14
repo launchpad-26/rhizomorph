@@ -534,8 +534,11 @@ describe('the repo boundary resets the fold (#390)', () => {
     expect(folded.session.session?.repoPath).toBe('/repos/beta')
     expect(Object.keys(folded.session.worktrees)).toEqual(['/repos/beta/beta-lane'])
     expect(Object.keys(folded.session.branches)).toEqual(['beta-lane'])
-    expect(Object.keys(folded.session.commits)).toEqual(['sha-beta'])
-    expect(folded.session.commitOrder).toEqual(['sha-beta'])
+    // The commit slice is nested now (#342): `bySha` and `order` are what the
+    // flat `commits` Record and `commitOrder` array used to be, so the reset
+    // has to be read through both projections rather than the old flat keys.
+    expect(Object.keys(folded.session.commits.bySha)).toEqual(['sha-beta'])
+    expect(folded.session.commits.order).toEqual(['sha-beta'])
 
     // The totality claim the three assertions above sample: not one trace of
     // alpha is left anywhere in the fold, under any key.

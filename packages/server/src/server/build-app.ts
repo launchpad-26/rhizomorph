@@ -28,7 +28,24 @@ declare module 'fastify' {
      * never sent anywhere by this app itself.
      */
     capabilityToken: string
+
+    /**
+     * Every route registered on this instance, present and future — method
+     * plus URL, collected via an `onRoute` hook added before any route is
+     * registered below, so it captures routes from encapsulated child
+     * contexts too (`api/otel.ts`'s `app.register(...)` block included).
+     * Exists so `api/route-class-law.test.ts` can walk the REAL Fastify
+     * routing table (prd-23 ruling 5) rather than trust a hand-maintained
+     * inventory that could drift from what is actually registered.
+     */
+    registeredRoutes: RegisteredRoute[]
   }
+}
+
+/** One entry per HTTP method a registered route answers to (Fastify fans a single `route()` call with an array `method` out into one `onRoute` event per method). */
+export interface RegisteredRoute {
+  method: string
+  url: string
 }
 
 function missingBuildHtml(webDistDir: string | undefined): string {
@@ -61,6 +78,17 @@ ${where}
  */
 export function buildApp(ctx: ServerContext): FastifyInstance {
   const app = Fastify({ bodyLimit: BODY_LIMIT_BYTES })
+
+  // Added before any route below is registered, so it sees every one of
+  // them — including `api/otel.ts`'s routes, which live inside their own
+  // `app.register(...)` plugin and only actually register once `app.ready()`
+  // resolves the plugin queue (see `registeredRoutes`'s own doc).
+  const registeredRoutes: RegisteredRoute[] = []
+  app.addHook('onRoute', (routeOptions) => {
+    const methods = Array.isArray(routeOptions.method) ? routeOptions.method : [routeOptions.method]
+    for (const method of methods) registeredRoutes.push({ method, url: routeOptions.url })
+  })
+  app.decorate('registeredRoutes', registeredRoutes)
 
   const capabilityToken = ctx.capabilityToken ?? generateCapabilityToken()
   app.decorate('capabilityToken', capabilityToken)
