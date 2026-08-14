@@ -151,6 +151,25 @@ export interface HarnessLaunchContext {
    * absolute path detection returned, not a name.
    */
   readonly executablePath?: string
+  /**
+   * The version string the installed harness reported, when the caller probed
+   * for one — `null` when it was probed and could not be read, `undefined` when
+   * nothing probed at all (ledger #7).
+   *
+   * It exists because a continuity claim is a claim about a VERSION, not about
+   * a harness. `claude.ts`'s resume plan is `kind: 'proven'` on the strength of
+   * `research/2026-08-14-cross-host-resume.md`, whose own caveats section says
+   * the behaviour it proved is undocumented and unversioned upstream and pins
+   * the evidence to Claude Code 2.1.232 — so "proven" asserted over an
+   * arbitrary installed CLI is an evidence claim about a machine nobody looked
+   * at. With this, the adapter can degrade to `unproven` off-pin and name the
+   * re-run instead.
+   *
+   * The two nothings are kept apart deliberately, as everywhere else in this
+   * module: "we asked and could not tell" and "nobody asked" are different
+   * facts, and neither may read as the pin matching.
+   */
+  readonly harnessVersion?: string | null
 }
 
 /**

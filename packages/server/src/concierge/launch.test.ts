@@ -141,7 +141,15 @@ function fakeAdapter(overrides: Partial<HarnessAdapter> = {}): HarnessAdapter {
   }
 }
 
-const CONTEXT = { watchedRepoPath: '/repo', port: 4321, instance: 'instance-1' }
+/**
+ * A version probe that finds nothing, so no test in this file shells out to a
+ * `/usr/local/bin/fake` that does not exist (ledger #7). `harnessVersion: null`
+ * is what planning then carries — "we asked and could not tell" — and the tests
+ * that care about a REAL version inject their own exec.
+ */
+const NO_VERSION = (async () => ({ stdout: '', stderr: 'not here', code: 127, failed: true })) as unknown as Exec
+
+const CONTEXT = { watchedRepoPath: '/repo', port: 4321, instance: 'instance-1', exec: NO_VERSION }
 
 describe('planLaunch', () => {
   it('refuses an unknown harness id', async () => {
@@ -173,6 +181,67 @@ describe('planLaunch', () => {
     await planLaunch('claude', 'launch', { ...CONTEXT, harnessLookup: () => adapter })
 
     expect(adapter.detect).toHaveBeenCalledWith({ watchedRepoPath: '/repo' })
+  })
+
+  /**
+   * The other half of ledger #7, and the half a `claude.ts`-only fix would have
+   * left dead: `resumeArgv` can only degrade off-pin if something actually
+   * probed this machine, and planning is the phase already allowed to read it.
+   */
+  describe('the harness version reaches the continuity plan (ledger #7)', () => {
+    const versionSaying = (stdout: string) =>
+      vi.fn((async () => ({ stdout, stderr: '', code: 0, failed: false })) as unknown as Exec)
+
+    it('probes the DETECTED executable with --version, not a bare name a spawner would re-resolve', async () => {
+      const adapter = fakeAdapter()
+      const exec = versionSaying('2.1.232 (Claude Code)\n')
+
+      await planLaunch('claude', 'launch', { ...CONTEXT, harnessLookup: () => adapter, exec })
+
+      expect(exec).toHaveBeenCalledWith('/usr/local/bin/fake', ['--version'], expect.anything())
+    })
+
+    it('hands the parsed version to the adapter, so a continuity plan can judge the machine', async () => {
+      const adapter = fakeAdapter()
+      const exec = versionSaying('2.1.232 (Claude Code)\n')
+
+      await planLaunch('claude', 'resume', { ...CONTEXT, harnessLookup: () => adapter, exec }, 'sess-1')
+
+      expect(adapter.resumeArgv).toHaveBeenCalledWith(
+        expect.objectContaining({ harnessVersion: '2.1.232' }),
+        'sess-1',
+      )
+    })
+
+    it.each([
+      ['a failed probe', vi.fn((async () => ({ stdout: '', stderr: 'boom', code: 1, failed: true })) as unknown as Exec)],
+      ['output with no version in it', versionSaying('claude code, the good one\n')],
+      ['a probe that throws', vi.fn((async () => { throw new Error('ENOENT') }) as unknown as Exec)],
+    ])('answers null for %s — never a guess, and never a throw out of planning', async (_case, exec) => {
+      const adapter = fakeAdapter()
+
+      await planLaunch('claude', 'resume', { ...CONTEXT, harnessLookup: () => adapter, exec }, 'sess-1')
+
+      expect(adapter.resumeArgv).toHaveBeenCalledWith(expect.objectContaining({ harnessVersion: null }), 'sess-1')
+    })
+
+    it('answers null when detection found no path to probe', async () => {
+      const adapter = fakeAdapter({
+        detect: vi.fn(
+          async (): Promise<HarnessDetection> => ({
+            harness: 'claude',
+            onPath: { state: 'present', evidence: 'found, path unrecorded' },
+            running: { state: 'unknown', reason: 'not checked' },
+          }),
+        ),
+      })
+      const exec = versionSaying('2.1.232\n')
+
+      await planLaunch('claude', 'resume', { ...CONTEXT, harnessLookup: () => adapter, exec }, 'sess-1')
+
+      expect(exec).not.toHaveBeenCalled()
+      expect(adapter.resumeArgv).toHaveBeenCalledWith(expect.objectContaining({ harnessVersion: null }), 'sess-1')
+    })
   })
 
   it('refuses a declared-not-implemented harness, naming its reason — never calls detect', async () => {
@@ -251,6 +320,7 @@ describe('planLaunch', () => {
       port: 4321,
       instance: 'instance-1',
       executablePath: '/usr/local/bin/fake',
+      harnessVersion: null,
     })
   })
 
@@ -369,6 +439,7 @@ describe('planLaunch', () => {
         port: 4321,
         instance: 'instance-1',
         executablePath: '/usr/local/bin/fake',
+        harnessVersion: null,
       },
       'session-xyz',
     )

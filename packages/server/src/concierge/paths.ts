@@ -203,12 +203,24 @@ export interface MigrationFence {
    */
   watchedRepoPath: string
   /**
-   * Where the ORIGIN's transcripts live, when that is not this machine's own
-   * projects root — a mounted host's `~/.claude/projects`, which is the
-   * cross-host case `research/2026-08-14-cross-host-resume.md` Q2 proves.
-   * Defaults to {@link claudeProjectsRoot}. It is a ROOT, never a file: the
-   * directory beneath it and the filename are still derived from the
-   * attribution, so widening this does not widen what may be read.
+   * Where the transcript is READ FROM, when that is not this machine's own
+   * projects root — the mirror of {@link claudeProjectsRoot}, which is where it
+   * is written TO. The pair is source-and-destination, and the names are worth
+   * reading as that pair (ledger #13): `claudeProjectsRoot` is the older field
+   * and kept its name because every caller and every test spells it, but it is
+   * the DESTINATION root, and a reader meeting `sourceProjectsRoot` beside it
+   * should not have to infer that from the two clauses that use them.
+   *
+   * The case it exists for is a mounted host's `~/.claude/projects` — the
+   * cross-host migration `research/2026-08-14-cross-host-resume.md` Q2 proves,
+   * where a Windows-origin transcript is resumed on Linux. Defaults to
+   * {@link claudeProjectsRoot}, which is the same-machine case and the common
+   * one.
+   *
+   * It is a ROOT, never a file. The directory beneath it and the filename are
+   * still derived from the attribution (clause 4), so widening this widens
+   * WHERE the derivation is anchored and never WHAT a caller may name — which
+   * is the whole reason the signature takes no `source` at all.
    */
   sourceProjectsRoot?: string
 }
@@ -354,6 +366,32 @@ function somethingExistsAt(candidate: string): boolean {
  *    obligation on the wave that writes it. This clause exists to give the
  *    operator a legible refusal, not to be the thing standing between them
  *    and a lost transcript.
+ *
+ * ## The residual this fence does NOT close, named (ledger #9)
+ *
+ * Every clause above canonicalizes, and canonicalizing is a READ that happens
+ * before the write. A **parent directory swapped between the two** — the slug
+ * directory replaced with a symlink after clause 2 has resolved it and before
+ * `copyFile` opens the path — lands the copy wherever the new link points, and
+ * no amount of resolving at check time can prevent it. The same is true of the
+ * clone fence's clauses one file up, and it is the *class* clause 6's own
+ * sentence already admits, stated once for the whole module rather than only
+ * for the destination-exists case.
+ *
+ * It is recorded rather than closed because of who the actor would have to be.
+ * Winning that race means write access to the parent of a directory under
+ * `~/.claude` at the moment of the copy — an attacker who already owns the
+ * operator's harness state directory, which the threat model names and accepts
+ * as out of scope (they need no race to read or replace transcripts; they
+ * already have them). What would close it structurally is opening the parent
+ * directory once and writing relative to that descriptor (`openat`-style), so
+ * the check and the write name the same inode rather than the same string —
+ * real, and a different shape of change from this fence.
+ *
+ * So the posture here is deliberate and matches clause 6's: **advisory, and
+ * legible.** A reader must not come away thinking canonicalization makes these
+ * paths race-free. It makes them honestly resolved at the moment they were
+ * read, which is a smaller and true claim.
  */
 export function assertMigrationPaths(fence: MigrationFence, attribution: Attribution): MigrationPaths {
   const { claudeProjectsRoot, watchedRepoPath } = fence

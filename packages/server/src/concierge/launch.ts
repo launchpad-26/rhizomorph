@@ -218,6 +218,12 @@ export interface PlanLaunchContext {
   readonly instance: string
   /** Defaults to the real registry's {@link harnessById}; overridable so a test needs no real machine. */
   readonly harnessLookup?: (id: string) => HarnessAdapter | undefined
+  /**
+   * ADR-0004's argv seam, for the one read planning makes on the machine: the
+   * detected executable's own `--version` (ledger #7). Defaults to the real
+   * `server/exec.ts`; a test injects one and needs no harness installed.
+   */
+  readonly exec?: Exec
 }
 
 export interface LaunchPlan {
@@ -268,6 +274,31 @@ function planFromContinuity(
     cwd,
     telemetry: envRecipe.telemetry,
     continuity,
+  }
+}
+
+/**
+ * What version the detected executable reports — `null` for every way of not
+ * knowing, and never a guess (ledger #7).
+ *
+ * ADR-0004's argv seam, `--version` and nothing else, on the file `detect()`
+ * verified rather than on a name a spawner would re-resolve. It answers `null`
+ * on a missing path, a failed exec, and output with no dotted triple in it,
+ * because a continuity plan reading `null` degrades to `unproven` — the safe
+ * direction, and the reason none of these needs to throw.
+ *
+ * {@link TMUX_PROBE_TIMEOUT_MS} is reused for the same reason it exists: this
+ * reads no large output and should never hang, and the timeout belongs to
+ * `server/exec.ts` rather than to this module (clause 3).
+ */
+async function probeHarnessVersion(executablePath: string | undefined, exec: Exec): Promise<string | null> {
+  if (executablePath === undefined) return null
+  try {
+    const result = await exec(executablePath, ['--version'], { timeoutMs: TMUX_PROBE_TIMEOUT_MS })
+    if (result.failed) return null
+    return /(\d+\.\d+\.\d+)/.exec(result.stdout)?.[1] ?? null
+  } catch {
+    return null
   }
 }
 
@@ -323,6 +354,12 @@ export async function planLaunch(
     port: context.port,
     instance: context.instance,
     executablePath: detection.onPath.executablePath,
+    // What is actually installed, so a continuity plan can be honest about
+    // whether its evidence covers THIS machine (ledger #7). Probed here rather
+    // than inside the adapter because this is the phase that is already allowed
+    // to read the machine, and because the answer is a fact about the launch
+    // rather than about the harness in the abstract.
+    harnessVersion: await probeHarnessVersion(detection.onPath.executablePath, context.exec ?? realExec),
   }
 
   const envRecipe = adapter.envRecipe(launchContext)
