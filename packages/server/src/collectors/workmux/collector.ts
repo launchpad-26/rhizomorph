@@ -9,7 +9,7 @@ import {
   type PollResult,
 } from '@rhizomorph/core'
 import { truncateForVoice, voiceSkips, type ParseSkip } from '../parse-skip.js'
-import { resolveWorktreePath } from '../tmux/worktree.js'
+import { resolveWorktreePath } from '../worktree.js'
 
 /**
  * prd15 ruling 5's L4 rung: the full rig. `agent.status` is the ladder's

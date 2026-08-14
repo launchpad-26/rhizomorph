@@ -1,7 +1,7 @@
 import type { AdapterCapabilities, Collector, CollectorContext, RhizomorphEvent, PollResult } from '@rhizomorph/core'
 import { countLines, hashPaneContent } from './capture.js'
 import { LIST_PANES_FORMAT, parseListPanes } from './list-panes.js'
-import { resolveWorktreePath } from './worktree.js'
+import { resolveWorktreePath } from '../worktree.js'
 import { voiceSkips } from '../parse-skip.js'
 
 const COLLECTOR_NAME = 'tmux'
