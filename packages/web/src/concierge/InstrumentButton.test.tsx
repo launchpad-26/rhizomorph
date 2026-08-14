@@ -84,6 +84,9 @@ describe('InstrumentButton', () => {
       kind: 'instrumented',
       sessionId: SESSION_ID,
       migration: 'migrated',
+      // This fixture's answer says nothing about telemetry, and `null` is that
+      // said as itself rather than as a claim either way (ledger #4).
+      telemetry: null,
       spawn: { launched: true, via: 'detached', pid: 4242 },
     })
   })

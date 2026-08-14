@@ -187,6 +187,29 @@ export type SpawnResult =
   | { launched: false; message: string }
 
 /**
+ * **WHETHER TELEMETRY ACTUALLY ARRIVES FROM THIS HARNESS, in the adapter's own
+ * words** — `HarnessEnvRecipe.telemetry`, which the route has sent on every
+ * answer since #264 and this module used to drop on the floor at the
+ * destructure.
+ *
+ * That drop was not cosmetic. codex's adapter declares telemetry ABSENT with
+ * two named blockers, and a page that cannot see the field has no way to know
+ * it: the launch was framed as instrumenting for every harness, which for codex
+ * is a promise the registry itself refuses to make. The honest shape is the
+ * one core already has (`CapabilityDetail`) — `provided` needs nothing else,
+ * and anything less is compiler-required to carry its reason.
+ *
+ * `remedy` is `null` rather than absent when the adapter gave none, for the
+ * same reason {@link MigrationOutcome} distinguishes `null` from a missing key:
+ * a UI reading an absent field as "no remedy" and an unreadable one as the same
+ * thing cannot tell "there is nothing to do" from "this answer was not
+ * understood".
+ */
+export type TelemetryFact =
+  | { level: 'provided' }
+  | { level: 'partial' | 'absent'; reason: string; remedy: string | null }
+
+/**
  * The launch happened, as far as this module can honestly say — and for
  * `mode: 'resume'`, on the same conversation under the same id, with a fork
  * left behind.
@@ -202,6 +225,12 @@ export interface InstrumentStarted {
   sessionId: string | null
   migration: MigrationOutcome
   spawn: SpawnResult
+  /**
+   * What the launched harness's own adapter says about telemetry arriving here
+   * — or `null` when this answer did not state it, which is a different fact
+   * from "absent" and is never rendered as one. See {@link TelemetryFact}.
+   */
+  telemetry: TelemetryFact | null
 }
 
 /**
@@ -253,6 +282,31 @@ function isMigrationOutcome(value: unknown, present: boolean): value is Migratio
 }
 
 /**
+ * The adapter's telemetry claim, `null` for an answer that did not make one,
+ * and `undefined` for one this module could not read.
+ *
+ * Three values rather than two, and the third is the point. An ABSENT key is
+ * `null`: an answer from a server older than this field, and the honest thing
+ * to render is that nothing was said. A key that is PRESENT and malformed is
+ * `undefined`, which refuses the whole body — the same posture
+ * {@link parseStarted} takes everywhere else, because a half-read capability
+ * claim is exactly the kind of thing that would come out as a reassuring
+ * default. What must never happen is the two collapsing into "provided".
+ */
+function readTelemetry(value: unknown, present: boolean): TelemetryFact | null | undefined {
+  if (!present) return null
+  if (!isRecord(value)) return undefined
+  const { level, reason, remedy } = value
+  if (level === 'provided') return { level: 'provided' }
+  if (level !== 'partial' && level !== 'absent') return undefined
+  // `reason` is compiler-required on these two levels in core's own
+  // `CapabilityDetail`, so an answer without one is not this shape.
+  if (typeof reason !== 'string' || reason.length === 0) return undefined
+  if (remedy !== undefined && typeof remedy !== 'string') return undefined
+  return { level, reason, remedy: typeof remedy === 'string' && remedy.length > 0 ? remedy : null }
+}
+
+/**
  * The instrument's answer, or null when it is not one this module recognises.
  *
  * Reads only what the operator is shown: the migration fact, and whether the
@@ -269,6 +323,11 @@ function parseStarted(answer: unknown, sessionId: string | null): InstrumentStar
   const { migration, kind, pid, message, via } = answer
   const tmuxWindow = answer.window
   if (!isMigrationOutcome(migration, 'migration' in answer)) return null
+  // The field this destructure used to leave behind (ledger #4). It rides on
+  // every outcome, launched and dead alike: what the harness's own adapter says
+  // about telemetry arriving here is true of the request, not of its result.
+  const telemetry = readTelemetry(answer.telemetry, 'telemetry' in answer)
+  if (telemetry === undefined) return null
 
   if (kind === 'launched') {
     if (typeof pid !== 'number' || !Number.isFinite(pid)) return null
@@ -282,10 +341,11 @@ function parseStarted(answer: unknown, sessionId: string | null): InstrumentStar
         kind: 'instrumented',
         sessionId,
         migration,
+        telemetry,
         spawn: { launched: true, via: 'tmux', pid, window: tmuxWindow },
       }
     }
-    return { kind: 'instrumented', sessionId, migration, spawn: { launched: true, via: 'detached', pid } }
+    return { kind: 'instrumented', sessionId, migration, telemetry, spawn: { launched: true, via: 'detached', pid } }
   }
   // Two ways the process is not there, and both are reported rather than
   // discarded: the migration copy may already have run.
@@ -303,7 +363,7 @@ function parseStarted(answer: unknown, sessionId: string | null): InstrumentStar
   // relaunch half-believed is the one answer this parser exists to refuse.
   if (kind === 'error' || kind === 'died') {
     if (typeof message !== 'string' || message.length === 0) return null
-    return { kind: 'instrumented', sessionId, migration, spawn: { launched: false, message } }
+    return { kind: 'instrumented', sessionId, migration, telemetry, spawn: { launched: false, message } }
   }
   return null
 }

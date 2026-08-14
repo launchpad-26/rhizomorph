@@ -53,6 +53,7 @@ describe('requestInstrument', () => {
       kind: 'instrumented',
       sessionId: SESSION_ID,
       migration: 'migrated',
+      telemetry: null,
       spawn: { launched: true, via: 'detached', pid: 4242 },
     })
   })
@@ -69,6 +70,7 @@ describe('requestInstrument', () => {
         kind: 'instrumented',
         sessionId: SESSION_ID,
         migration,
+        telemetry: null,
         spawn: { launched: true, via: 'detached', pid: 4242 },
       })
     },
@@ -89,6 +91,7 @@ describe('requestInstrument', () => {
       kind: 'instrumented',
       sessionId: SESSION_ID,
       migration: 'already-present',
+      telemetry: null,
       spawn: { launched: false, message: 'ENOENT claude' },
     })
   })
@@ -117,6 +120,7 @@ describe('requestInstrument', () => {
       kind: 'instrumented',
       sessionId: SESSION_ID,
       migration: 'migrated',
+      telemetry: null,
       spawn: {
         launched: false,
         message: 'the process started and then exited with code 1 straight away — nothing survived the launch',
@@ -199,6 +203,7 @@ describe('requestInstrument', () => {
         kind: 'instrumented',
         sessionId: null,
         migration: null,
+        telemetry: null,
         spawn: { launched: true, via: 'detached', pid: 4242 },
       })
     })
@@ -248,6 +253,79 @@ describe('requestInstrument', () => {
       const outcome = await requestInstrument({ sessionId: SESSION_ID }, answering(LAUNCHED))
 
       expect(outcome).toMatchObject({ spawn: { launched: true, via: 'detached' } })
+    })
+  })
+
+  /**
+   * **THE FIELD THIS PARSER USED TO DROP AT THE DESTRUCTURE** (ledger #4).
+   *
+   * `api/concierge.ts` has sent `telemetry` — the launched harness's own
+   * adapter claim about whether telemetry reaches this instrument — on every
+   * answer since #264, and this module read every other key and threw that one
+   * away. The cost was not abstract: with the field invisible, the wizard had
+   * no way to know codex declares telemetry ABSENT, so a codex launch was
+   * offered and reported as instrumenting.
+   *
+   * Three values, and the third is why this is not two booleans: an absent key
+   * (`null` — an older server said nothing) is a different fact from `absent`
+   * (an adapter said no), and a present-but-malformed one refuses the whole
+   * body rather than defaulting to something reassuring.
+   */
+  describe('the telemetry claim (ledger #4)', () => {
+    it('carries a provided claim through', async () => {
+      await expect(
+        requestInstrument({ sessionId: SESSION_ID }, answering({ ...LAUNCHED, telemetry: { level: 'provided' } })),
+      ).resolves.toMatchObject({ telemetry: { level: 'provided' } })
+    })
+
+    it('carries an absent claim through with the adapter’s own reason and remedy', async () => {
+      const outcome = await requestInstrument(
+        { sessionId: SESSION_ID },
+        answering({
+          ...LAUNCHED,
+          telemetry: { level: 'absent', reason: 'codex exports into a 404', remedy: 'a bare-path OTLP route' },
+        }),
+      )
+
+      expect(outcome).toMatchObject({
+        telemetry: { level: 'absent', reason: 'codex exports into a 404', remedy: 'a bare-path OTLP route' },
+      })
+    })
+
+    it('carries the claim on a DEAD launch too — it is a fact about the harness, not about the outcome', async () => {
+      await expect(
+        requestInstrument(
+          { sessionId: SESSION_ID },
+          answering({ ...LAUNCHED, kind: 'died', pid: undefined, message: 'gone at once', telemetry: { level: 'provided' } }),
+        ),
+      ).resolves.toMatchObject({ spawn: { launched: false }, telemetry: { level: 'provided' } })
+    })
+
+    it('reads a remedy-less refusal as one, rather than as a body it cannot understand', async () => {
+      await expect(
+        requestInstrument(
+          { sessionId: SESSION_ID },
+          answering({ ...LAUNCHED, telemetry: { level: 'partial', reason: 'tokens yes, dollars no' } }),
+        ),
+      ).resolves.toMatchObject({ telemetry: { level: 'partial', reason: 'tokens yes, dollars no', remedy: null } })
+    })
+
+    it('answers null for a body that said nothing — never read as a claim either way', async () => {
+      await expect(requestInstrument({ sessionId: SESSION_ID }, answering(LAUNCHED))).resolves.toMatchObject({
+        telemetry: null,
+      })
+    })
+
+    it.each([
+      ['a level the union does not have', { level: 'excellent' }],
+      ['a refusal with no reason — core makes it compiler-required', { level: 'absent' }],
+      ['a refusal with an empty reason', { level: 'absent', reason: '' }],
+      ['a remedy that is not a sentence', { level: 'absent', reason: 'no', remedy: 7 }],
+      ['a claim that is not an object at all', 'provided'],
+    ])('refuses the whole answer for %s — a half-read capability claim is not a relaunch result', async (_label, telemetry) => {
+      await expect(
+        requestInstrument({ sessionId: SESSION_ID }, answering({ ...LAUNCHED, telemetry })),
+      ).rejects.toThrow('the instrument answered something other than a relaunch result')
     })
   })
 

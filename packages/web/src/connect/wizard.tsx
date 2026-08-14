@@ -67,6 +67,17 @@ import { fetchRepos, UNAVAILABLE, type FetchLike, type MetaFacts, type ReposRead
  * below is alphabetical by id, which is the registry's own order and carries no
  * judgement, and a declared harness is LISTED with its reason and what it would
  * take — never omitted, never guessed at, and never "coming soon".
+ *
+ * ## Implemented is not instrumented (ledger #4)
+ *
+ * The catalogue used to carry one claim per harness — is it implemented — and
+ * the conductor step framed every launch as instrumenting on the strength of
+ * it. codex is fully implemented AND its adapter declares telemetry absent with
+ * two named blockers, so a codex row offered "start it instrumented" over a
+ * process that cannot report here at all. `telemetry` is now a second fact on
+ * every implemented entry, carried under the same honesty law as the first, and
+ * the button, the confirmation and the result each say what is true of the
+ * harness in front of the operator rather than what is true of claude.
  */
 
 /** Where the operator is. Three steps, and the wizard never skips one on their behalf. */
@@ -92,6 +103,32 @@ export interface HarnessFacts {
   status: 'implemented' | 'declared'
   /** `declared` only, and never optional in practice: what it would take, named. */
   whatItWouldTake?: string
+  /**
+   * **WHETHER A LAUNCH OF THIS HARNESS IS INSTRUMENTED AT ALL** — the adapter's
+   * own `envRecipe().telemetry`, restated here under the same honesty law as
+   * everything else on this interface (ledger #4).
+   *
+   * `implemented` and `instrumented` are two different claims and this picker
+   * used to make only the first. codex is fully implemented — it detects, it
+   * launches, it has a continuity story — and its adapter declares telemetry
+   * ABSENT with two named blockers, so "start it instrumented" over a codex row
+   * was a promise the registry itself refuses to make. Declared harnesses carry
+   * no level: nothing launches them, so there is no launch to be honest about.
+   */
+  telemetry?: TelemetryClaim
+}
+
+/**
+ * The adapter's telemetry claim, in `CapabilityDetail`'s own three levels —
+ * `reason` and `remedy` VERBATIM from the adapter source, for the identical
+ * reason {@link HarnessFacts.whatItWouldTake} is verbatim: a page that
+ * paraphrases a refusal has invented a softer version of it, and the honesty
+ * law compares these character for character.
+ */
+export interface TelemetryClaim {
+  level: 'provided' | 'partial' | 'absent'
+  reason?: string
+  remedy?: string
 }
 
 /**
@@ -103,8 +140,28 @@ export interface HarnessFacts {
  * softer version of a refusal the registry stated plainly.
  */
 export const HARNESSES: readonly HarnessFacts[] = [
-  { id: 'claude', displayName: 'Claude Code', status: 'implemented' },
-  { id: 'codex', displayName: 'Codex CLI', status: 'implemented' },
+  { id: 'claude', displayName: 'Claude Code', status: 'implemented', telemetry: { level: 'provided' } },
+  {
+    id: 'codex',
+    displayName: 'Codex CLI',
+    status: 'implemented',
+    telemetry: {
+      level: 'absent',
+      reason:
+        'TWO independent blockers, and either alone is enough. (1) the keys are verified against codex-cli 0.145.0, ' +
+        'but codex posts OTLP to the BARE endpoint path with no /v1/<signal> suffix [Ran — repo capture, ' +
+        'docs/research/2026-08-05-agnostic-adapters-spike.md], and api/otel.ts serves /v1/metrics, /v1/logs and ' +
+        '/v1/traces only — so a correctly configured codex exports into a 404. (2) even once a bare-path route ' +
+        'existed, api/otel.ts’s blockInstance reads the instance id from resource.attributes ONLY, while this ' +
+        'recipe declares identity in otel.span_attributes — span attributes never reach that check, so the export ' +
+        'would then be REFUSED as declaring no instance rather than received',
+      remedy:
+        'both halves: a bare-path OTLP route with body-shape routing, AND identity that reaches blockInstance — ' +
+        'either a codex resource-attribute setting (prd-26:42 records codex resource-attribute support as untested) ' +
+        'or an instance check that also reads span attributes. Plus a pricing table for codex cost (prd-26). ' +
+        'Fixing only the route would turn a 404 into a refusal, which is not an improvement — not this lane',
+    },
+  },
   {
     id: 'openclaw',
     displayName: 'OpenClaw',
@@ -561,6 +618,12 @@ function ConductorStep({
   const chosenMode = LAUNCH_MODES.find((entry) => entry.mode === mode) ?? LAUNCH_MODES[0]
   const uninstrumented = links.find((link) => link.id === 'uninstrumented-conductor')
   const canAct = live && isWatched && facts?.status === 'implemented'
+  // IMPLEMENTED IS NOT INSTRUMENTED (ledger #4). Two separate claims, and this
+  // step used to make only the first: codex detects, launches and has a
+  // continuity story, and its adapter declares telemetry absent with two named
+  // blockers. Everything the affordance says is chosen off this line rather
+  // than assuming the verb.
+  const instrumented = facts?.telemetry?.level === 'provided'
 
   return (
     <div data-testid="wizard-conductor" className="mt-3 flex flex-col gap-2">
@@ -585,6 +648,34 @@ function ConductorStep({
         <p data-testid="wizard-harness-declared" className="text-[11px] leading-snug text-waiting-benign">
           this instrument knows {facts.displayName} by name and cannot start it. What it would take:{' '}
           {facts.whatItWouldTake}
+        </p>
+      )}
+
+      {/* WHETHER A LAUNCH OF THIS ONE IS INSTRUMENTED AT ALL, said where the
+          harness is chosen rather than discovered after the money is spent
+          (ledger #4). The registry's own reason and remedy, verbatim — a page
+          that paraphrased a refusal would have invented a softer version of
+          it. Declared harnesses are skipped: nothing launches them, so there
+          is no launch to be honest about, and their own line above already
+          says what it would take. */}
+      {facts !== undefined && facts.status === 'implemented' && facts.telemetry !== undefined && (
+        <p
+          data-testid="wizard-harness-telemetry"
+          className={`text-[11px] leading-snug ${facts.telemetry.level === 'provided' ? 'text-ice-300' : 'text-waiting-benign'}`}
+        >
+          {facts.telemetry.level === 'provided' ? (
+            <>
+              telemetry: proven for {facts.displayName} — a conductor started here is instrumented from its first turn,
+              and the rows in step 3 are what confirm it.
+            </>
+          ) : (
+            <>
+              telemetry: {facts.telemetry.level} for {facts.displayName}. This hand can start it, and what it starts
+              will not report to this instrument — the rows in step 3 will not flip for it. The registry’s own reason:{' '}
+              {facts.telemetry.reason}
+              {facts.telemetry.remedy !== undefined && <> — what it would take: {facts.telemetry.remedy}</>}
+            </>
+          )}
         </p>
       )}
 
@@ -649,7 +740,10 @@ function ConductorStep({
               onClick={onArm}
               className={PRIMARY_CLASS}
             >
-              start it instrumented
+              {/* The verb the harness has actually earned. "start it
+                  instrumented" over a codex row was a promise the registry
+                  refuses to make, so the button says what IS true instead. */}
+              {instrumented ? 'start it instrumented' : `start it — ${facts?.displayName ?? 'this harness'} launches uninstrumented`}
             </button>
           )}
 
@@ -663,6 +757,16 @@ function ConductorStep({
                 it starts. Nothing here stops a process you already have running, and nothing spent before this point
                 ever reaches this instrument’s record.
               </p>
+              {/* Said again HERE, in the panel that spends, and not only beside
+                  the picker: an operator who chose the harness a minute ago is
+                  reading this sentence at the moment the money goes. */}
+              {!instrumented && (
+                <p data-testid="wizard-launch-uninstrumented" className="text-[11px] leading-snug text-waiting-benign">
+                  It will not be instrumented. {facts?.displayName ?? 'This harness'}’s adapter declares telemetry{' '}
+                  {facts?.telemetry?.level ?? 'unstated'}, so what this starts spends money this instrument cannot see
+                  and the rows in step 3 will not flip for it.
+                </p>
+              )}
               <div className="flex gap-2">
                 <button type="button" data-testid="wizard-launch-cancel" onClick={onCancelLaunch} className={BUTTON_CLASS}>
                   cancel
@@ -758,10 +862,30 @@ function LaunchResult({ outcome }: { outcome: InstrumentOutcome }) {
           {spawn.message}
         </p>
       )}
-      <p className="text-[10px] leading-snug text-ice-400">
-        A started process is not flowing telemetry. That is what step 3 is for: watch the rows change, and believe those
-        rather than this sentence.
-      </p>
+      {/* THE SERVER'S OWN TELEMETRY CLAIM, not the catalogue's (ledger #4).
+          The route has sent `telemetry` on every answer since #264 and the
+          browser used to drop it at the destructure; it is the authoritative
+          statement about the launch that actually happened, so it outranks the
+          picker's restatement of the same adapter fact and is shown instead of
+          it when it arrives. `null` means this answer did not say, which is
+          reported as itself rather than assumed either way. */}
+      {outcome.telemetry === null ? (
+        <p data-testid="wizard-launch-telemetry" className="text-[10px] leading-snug text-ice-400">
+          This answer said nothing about whether telemetry reaches this instrument, so nothing here claims it does.
+          Step 3 is what settles it: watch the rows change, and believe those rather than this sentence.
+        </p>
+      ) : outcome.telemetry.level === 'provided' ? (
+        <p data-testid="wizard-launch-telemetry" className="text-[10px] leading-snug text-ice-400">
+          A started process is not yet a flowing one. That is what step 3 is for: watch the rows change, and believe
+          those rather than this sentence.
+        </p>
+      ) : (
+        <p data-testid="wizard-launch-telemetry" className="text-[10px] leading-snug text-waiting-benign">
+          This harness reports no telemetry to this instrument ({outcome.telemetry.level}), so the rows in step 3 will
+          not flip for what was just started, however well it runs. {outcome.telemetry.reason}
+          {outcome.telemetry.remedy !== null && <> — what it would take: {outcome.telemetry.remedy}</>}
+        </p>
+      )}
     </div>
   )
 }

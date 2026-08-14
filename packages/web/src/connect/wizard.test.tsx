@@ -422,6 +422,95 @@ describe('step 2 — the conductor', () => {
     expect(screen.getByTestId<HTMLButtonElement>('wizard-launch').disabled).toBe(true)
   })
 
+  /**
+   * **IMPLEMENTED IS NOT INSTRUMENTED** (ledger #4), per harness, through the
+   * real picker rather than by reading the catalogue back.
+   *
+   * codex detects, launches and has a continuity story — and its adapter
+   * declares telemetry ABSENT with two named blockers, so every affordance
+   * that framed a launch as instrumenting was making a promise the registry
+   * itself refuses. What is asserted here is what an operator standing in front
+   * of the step actually reads: the button's own verb, the confirmation's, and
+   * the reason in the registry's own words.
+   */
+  it('frames a claude launch as instrumented, because its adapter proves telemetry', async () => {
+    await renderWizard()
+    step('conductor')
+
+    expect(screen.getByTestId('wizard-harness-telemetry').textContent).toContain('telemetry: proven for Claude Code')
+    expect(screen.getByTestId('wizard-launch').textContent).toBe('start it instrumented')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-launch'))
+    })
+    expect(screen.queryByTestId('wizard-launch-uninstrumented')).toBeNull()
+  })
+
+  it('refuses to frame a codex launch as instrumenting, and says the registry’s own reason', async () => {
+    await renderWizard()
+    step('conductor')
+    fireEvent.change(screen.getByTestId('wizard-harness-select'), { target: { value: 'codex' } })
+
+    const telemetry = screen.getByTestId('wizard-harness-telemetry').textContent ?? ''
+    expect(telemetry).toContain('telemetry: absent for Codex CLI')
+    expect(telemetry).toContain('the rows in step 3 will not flip for it')
+    // The registry's own words, not a softer version this page invented.
+    expect(telemetry).toContain('exports into a 404')
+    expect(telemetry).toContain('what it would take: both halves')
+    // The verb the harness has actually earned — the finding itself.
+    expect(screen.getByTestId('wizard-launch').textContent).not.toContain('start it instrumented')
+    expect(screen.getByTestId('wizard-launch').textContent).toContain('launches uninstrumented')
+
+    // …and said AGAIN in the panel that spends, where the operator is at the
+    // moment the money goes rather than a minute earlier at the picker.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-launch'))
+    })
+    const armed = screen.getByTestId('wizard-launch-uninstrumented').textContent ?? ''
+    expect(armed).toContain('It will not be instrumented')
+    expect(armed).toContain('spends money this instrument cannot see')
+  })
+
+  /**
+   * The SERVER's own claim about the launch that actually happened, which the
+   * browser used to drop at `instrument.ts`'s destructure. It outranks the
+   * catalogue's restatement of the same adapter fact, so a launch whose answer
+   * says telemetry is absent must not close with "watch the rows change".
+   */
+  it('reports the answer’s own telemetry fact after the launch, not step 3’s promise', async () => {
+    await renderWizard({
+      instrumentFetchImpl: answering({
+        ...LAUNCHED_IN_TMUX,
+        telemetry: { level: 'absent', reason: 'codex exports into a 404', remedy: 'a bare-path OTLP route' },
+      }),
+    })
+    step('conductor')
+    await launch()
+
+    const said = screen.getByTestId('wizard-launch-telemetry').textContent ?? ''
+    expect(said).toContain('will not flip for what was just started')
+    expect(said).toContain('codex exports into a 404')
+    expect(said).toContain('a bare-path OTLP route')
+    expect(said).not.toContain('watch the rows change')
+  })
+
+  it('says step 3 settles it when the answer proves telemetry', async () => {
+    await renderWizard({ instrumentFetchImpl: answering({ ...LAUNCHED_IN_TMUX, telemetry: { level: 'provided' } }) })
+    step('conductor')
+    await launch()
+
+    expect(screen.getByTestId('wizard-launch-telemetry').textContent).toContain('watch the rows change')
+  })
+
+  /** An answer that said nothing is reported as itself — never read as proof either way. */
+  it('says the answer was silent about telemetry rather than assuming it', async () => {
+    await renderWizard({ instrumentFetchImpl: answering(LAUNCHED_IN_TMUX) })
+    step('conductor')
+    await launch()
+
+    expect(screen.getByTestId('wizard-launch-telemetry').textContent).toContain('said nothing about whether telemetry')
+  })
+
   it("reads the conductor's status off the fold's own rows, and says whose fact it is", async () => {
     await renderWizard()
     step('conductor')
@@ -672,9 +761,25 @@ describe('step 3 — verify', () => {
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const HARNESS_DIR = path.resolve(HERE, '..', '..', '..', 'server', 'src', 'concierge', 'harness')
 
-/** The concatenated single-quoted segments of one field's value, joined as the source would. */
+/**
+ * The concatenated single-quoted segments of one field's value, joined as the
+ * source would.
+ *
+ * `\uXXXX` is unescaped as well as `\'`, and that is not hypothetical tidiness:
+ * codex's telemetry reason writes its apostrophe as `’` in the adapter
+ * source, so a comparison that left the escape as literal text would have
+ * demanded the PAGE carry a backslash-u sequence into the operator's browser to
+ * satisfy this law. The law reads TypeScript source, so it has to decode the
+ * escapes TypeScript would.
+ */
 function joinedString(block: string): string {
-  return [...block.matchAll(/'((?:[^'\\]|\\.)*)'/g)].map((match) => (match[1] ?? '').replace(/\\'/g, "'")).join('')
+  return [...block.matchAll(/'((?:[^'\\]|\\.)*)'/g)]
+    .map((match) =>
+      (match[1] ?? '')
+        .replace(/\\u([0-9a-fA-F]{4})/g, (_whole, code: string) => String.fromCodePoint(Number.parseInt(code, 16)))
+        .replace(/\\'/g, "'"),
+    )
+    .join('')
 }
 
 /** Every declared harness in `not-implemented.ts`'s own DECLARED table: id → what it would take. */
@@ -702,6 +807,38 @@ function implementedInRegistry(): Map<string, { displayName: string; status: str
     const status = /implementation: \{ status: '([a-z]+)'/.exec(source)?.[1]
     if (id === undefined || displayName === undefined || status === undefined) continue
     out.set(id, { displayName, status })
+  }
+  return out
+}
+
+/**
+ * Each implemented adapter's `envRecipe().telemetry` — the SECOND claim the
+ * picker makes about a harness (ledger #4), parsed out of the adapter source
+ * the same grep-style way the first one is.
+ *
+ * Both shapes the field takes in the tree are handled: claude's one-liner
+ * (`telemetry: { level: 'provided' },`) and codex's multi-line block with its
+ * `reason` and `remedy`. A parser that only knew one would return nothing for
+ * the other and make the comparison vacuous, which is what the floors below
+ * are for.
+ */
+function telemetryInRegistry(): Map<string, { level: string; reason: string; remedy: string }> {
+  const out = new Map<string, { level: string; reason: string; remedy: string }>()
+  for (const file of ['claude.ts', 'codex.ts']) {
+    const source = readFileSync(path.join(HARNESS_DIR, file), 'utf8')
+    const id = /\bid: '([a-z]+)'/.exec(source)?.[1]
+    if (id === undefined) continue
+    const block = /\n {4}telemetry: \{\n([\s\S]*?)\n {4}\},/.exec(source)?.[1] ?? /\n {4}telemetry: \{([^\n]*)\},/.exec(source)?.[1]
+    if (block === undefined) continue
+    const level = /level: '([a-z]+)'/.exec(block)?.[1]
+    if (level === undefined) continue
+    const reason = /\breason:([\s\S]*?),\n {6}remedy:/.exec(block)?.[1]
+    const remedy = /\bremedy:([\s\S]*)$/.exec(block)?.[1]
+    out.set(id, {
+      level,
+      reason: reason === undefined ? '' : joinedString(reason),
+      remedy: remedy === undefined ? '' : joinedString(remedy),
+    })
   }
   return out
 }
@@ -754,11 +891,54 @@ describe('the harness picker states the registry’s own facts, never a softer v
     }
   })
 
+  /**
+   * **IMPLEMENTED IS NOT INSTRUMENTED** (ledger #4). The picker made one claim
+   * per harness and the conductor step framed every launch as instrumenting on
+   * the strength of it — so codex, fully implemented and declaring telemetry
+   * ABSENT with two named blockers, was offered under "start it instrumented".
+   * The level is now a second fact under the same law as the first, and its
+   * reason and remedy are held verbatim for the same reason
+   * `whatItWouldTake` is: a page that paraphrases a refusal has invented a
+   * softer version of it.
+   */
+  it('carries each implemented harness’s telemetry level, and its reason VERBATIM', () => {
+    const registry = telemetryInRegistry()
+    expect(registry.size).toBe(2)
+    // Not one level for both — a law that passed with the two agreeing would
+    // prove nothing about the distinction it exists to hold.
+    expect(new Set([...registry.values()].map((entry) => entry.level)).size).toBe(2)
+
+    for (const [id, fromRegistry] of registry) {
+      const inPicker = HARNESSES.find((harness) => harness.id === id)
+      expect(inPicker?.telemetry?.level, `${id}'s telemetry level`).toBe(fromRegistry.level)
+      if (fromRegistry.level === 'provided') {
+        expect(inPicker?.telemetry?.reason).toBeUndefined()
+        continue
+      }
+      expect(fromRegistry.reason.length).toBeGreaterThan(40)
+      expect(fromRegistry.remedy.length).toBeGreaterThan(40)
+      expect(inPicker?.telemetry?.reason).toBe(fromRegistry.reason)
+      expect(inPicker?.telemetry?.remedy).toBe(fromRegistry.remedy)
+    }
+
+    // A declared harness carries no level: nothing launches it, so there is no
+    // launch to be honest about.
+    for (const harness of HARNESSES.filter((entry) => entry.status === 'declared')) {
+      expect(harness.telemetry).toBeUndefined()
+    }
+  })
+
   it('the parsers actually parse — pinned against the shapes they run on', () => {
     expect(
       joinedString("whatItWouldTake:\n      'a capture: the name, ' +\n      'and the rest',"),
     ).toBe('a capture: the name, and the rest')
     expect(declaredInRegistry().get('shell')?.displayName).toBe('a bare shell')
     expect(implementedInRegistry().get('claude')?.status).toBe('implemented')
+    // Both telemetry shapes, and the escape decoding that a literal comparison
+    // would otherwise have pushed into the page.
+    expect(telemetryInRegistry().get('claude')?.level).toBe('provided')
+    expect(telemetryInRegistry().get('codex')?.level).toBe('absent')
+    expect(telemetryInRegistry().get('codex')?.reason).toContain('api/otel.ts’s blockInstance')
+    expect(joinedString("reason: 'it\\u2019s here',")).toBe('it’s here')
   })
 })
