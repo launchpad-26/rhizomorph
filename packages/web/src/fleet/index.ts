@@ -12,6 +12,13 @@
  * imports a panel, and nothing outside it re-derives a lane's state.
  */
 
+// Wholesale, not "the moved surface" (review of #499, item 1): this line
+// re-exports ALL of @rhizomorph/core, so `import { reduceAll } from '../fleet'`
+// resolves anywhere in web. Not a defect today -- any genuine name collision
+// with the local exports below is a TS2308 typecheck error, not a silent
+// shadow -- but the width is deliberate-by-simplicity, not an accident, and
+// this comment exists so the next reader trusts the line over any prose
+// claiming otherwise. Narrowing to an explicit list is fine if it ever bites.
 export * from '@rhizomorph/core'
 export * from './FleetContext.js'
 export * from './manifest.js'

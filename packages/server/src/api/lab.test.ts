@@ -229,6 +229,11 @@ describe('estimateLaunchSpend unit shape', () => {
   it('reads the launch estimate off buildFleet, never re-folding with its own selectSpendRateByLane call', () => {
     const source = readFileSync(fileURLToPath(new URL('./lab.ts', import.meta.url)), 'utf8')
     expect(source).toMatch(/\bbuildFleet\(/)
+    // Source-text grep, comments included (review of #499, item 4): a doc
+    // comment merely NAMING the old selector reds this pin — deliberate, the
+    // cheap spelling of "the re-fold stays gone", priced against the false
+    // red being a one-word rewording. lab.ts's own comments already say
+    // "its own spend-rate selector call" for exactly this reason.
     expect(source).not.toMatch(/\bselectSpendRateByLane\b/)
   })
 })

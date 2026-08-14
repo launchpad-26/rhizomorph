@@ -372,10 +372,15 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
   // print the fork command's help, exit 0, and surface as "unexpected CLI
   // output" rather than as anything an operator could act on. Refused here
   // instead, in the operator's own vocabulary. Deliberately narrow — a lane
-  // is a worktree handle and may legitimately contain `/`, `.` and `_`, so
-  // this constrains the first character only, which is the whole of what
-  // argv parsing can misread.
-  refuseFlagShaped(lane, '"lane"', 'a lane is a worktree handle')
+  // name may legitimately contain `/`, `.` and `_`, so this constrains the
+  // first character only, which is the whole of what argv parsing can
+  // misread. Since #246 the estimate resolves this name against fleet rows
+  // by handle, id, or branch (review of #499: the `.find` ORs all three
+  // predicates per row in `byAttentionThenSize` order, so an ambiguous name
+  // — one lane's branch spelling another lane's handle — is answered by
+  // attention rank; acceptable while names are unique per worktree, worth a
+  // tiebreak if that ever stops holding).
+  refuseFlagShaped(lane, '"lane"', 'a lane names a worktree — its handle, id, or branch')
   if (typeof checkpointId !== 'string' || checkpointId.trim().length === 0) {
     throw new LaunchValidationError(
       '"checkpointId" must be a non-empty string — the lab never launches from an interpolated moment (prd12 ruling 2)',
