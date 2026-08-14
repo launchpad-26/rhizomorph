@@ -1,4 +1,6 @@
-import { createEvent, createEventFactory, createIdFactory, reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
+import { createEvent, createIdFactory, type RhizomorphEvent } from '../events/index.js'
+import { createEventFactory } from '../fixtures.js'
+import { reduceAll } from '../reduce.js'
 import { describe, expect, it } from 'vitest'
 import {
   buildFleet,
@@ -1262,6 +1264,76 @@ describe('findCycle', () => {
 
   it('needs three repeats: twice is a coincidence', () => {
     expect(findCycle(['Read', 'Edit', 'Read', 'Edit'])).toBeNull()
+  })
+})
+
+/**
+ * #246 surfaced `Lane.costUsdPerHour` / `Lane.costRateIsAuthoritative` so
+ * `api/lab.ts` could stop re-folding the log for one lane's spend rate. The
+ * estimate route's own test only ever exercises a lane with a *single* handle,
+ * so it cannot see the part that is actually new: a lane resolves every handle
+ * sharing its branch or worktree (`plumbing.ts`'s `resolveLaneId`), and the
+ * rate is the sum across all of them. Replacing that sum with
+ * `costRates[handles[0]]` left all 262 files green — these pin it.
+ */
+describe('Lane.costUsdPerHour and Lane.costRateIsAuthoritative (#246)', () => {
+  const BRANCH = 'feature-foo'
+  const WORKTREE = '/repo-wt/foo'
+  const WINDOW = 60 * 60_000
+
+  function baseLog(startedAt: number): RhizomorphEvent[] {
+    return [
+      event('session.started', { sessionId: 'cost', repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' }, startedAt),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, startedAt),
+      event('worktree.discovered', { path: WORKTREE, branch: BRANCH, head: 'sha-foo', isMain: false }, startedAt),
+    ]
+  }
+
+  function cost(lane: string, costUsd: number, authoritative: boolean, ts: number): RhizomorphEvent {
+    return event(
+      'llm.cost',
+      { lane, role: 'worker', model: 'claude-opus-5', branch: BRANCH, worktreePath: WORKTREE, costUsd, authoritative },
+      ts,
+    )
+  }
+
+  it('sums the rate across every collector handle the lane resolved, not just the first', () => {
+    const log = [
+      ...baseLog(NOW - 30 * 60_000),
+      cost('foo', 3.6, true, NOW - 10 * 60_000),
+      cost('foo-otel', 2.4, true, NOW - 5 * 60_000),
+    ]
+    const lane = laneIn(buildFleet(reduceAll(log), { now: NOW, windowMs: WINDOW }), BRANCH)
+
+    // Both handles resolved into one lane — the premise the sum exists for.
+    expect(lane.handles).toEqual(['foo', 'foo-otel'])
+    // $6.00 inside a one-hour window is $6.00/hr. Either handle alone would
+    // give 3.6 or 2.4, so this fails for a first-handle-only derivation.
+    expect(lane.costUsdPerHour).toBeCloseTo(6, 5)
+    expect(lane.costRateIsAuthoritative).toBe(true)
+  })
+
+  it('reports `null` — never a $0.00 that reads as a real answer — when no dollars landed in the window', () => {
+    const log = [
+      ...baseLog(NOW - 3 * 60 * 60_000),
+      cost('foo', 9.9, true, NOW - 2 * 60 * 60_000), // outside the trailing hour
+    ]
+    const lane = laneIn(buildFleet(reduceAll(log), { now: NOW, windowMs: WINDOW }), BRANCH)
+
+    expect(lane.costRateIsAuthoritative).toBeNull()
+    expect(lane.costUsdPerHour).toBe(0)
+  })
+
+  it('goes non-authoritative when any one handle in the lane only estimated its dollars', () => {
+    const log = [
+      ...baseLog(NOW - 30 * 60_000),
+      cost('foo', 3.6, true, NOW - 10 * 60_000),
+      cost('foo-otel', 2.4, false, NOW - 5 * 60_000),
+    ]
+    const lane = laneIn(buildFleet(reduceAll(log), { now: NOW, windowMs: WINDOW }), BRANCH)
+
+    expect(lane.costRateIsAuthoritative).toBe(false)
+    expect(lane.costUsdPerHour).toBeCloseTo(6, 5)
   })
 })
 
