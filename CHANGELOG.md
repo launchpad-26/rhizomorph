@@ -243,6 +243,15 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **The judge collector's two remaining throw/merge catches no longer re-voice
+  every poll, forever (#526).** `extractLaneSymbols` failing for a lane, and
+  `speculativeMergeTree` failing for a lane pair, both emitted a fresh
+  `collector.error` on every single poll for as long as the same lane or pair
+  kept failing (`#506`'s already-fixed heartbeat shape, applied to the two
+  sites that were out of that issue's fence). Each now voices once when the
+  incident opens and stays silent through repeats of the identical failure,
+  re-arming silently on recovery so a later, genuinely new incident still
+  voices.
 - **A persistently-malformed row no longer re-voices every poll, forever (#506).**
   Four sites — workmux's status-row and list-row skip quarantines, its
   unrecognised-`agent.status`-value branch, and tmux's list-panes skip quarantine —
