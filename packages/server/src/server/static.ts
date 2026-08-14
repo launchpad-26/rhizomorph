@@ -85,7 +85,11 @@ export function registerStaticRoute(app: FastifyInstance, distDir: string, capab
 
   app.get<{ Params: { '*': string } }>('/*', async (request, reply) => {
     const requested = path.resolve(root, request.params['*'] || 'index.html')
-    if (!requested.startsWith(root)) {
+    // A bare `startsWith(root)` passes a sibling directory that merely shares
+    // `root` as a literal string prefix (`/a/dist2/x` starts with `/a/dist`)
+    // — the separator makes this a path-segment check, not a string one, the
+    // same guard `log/transcript-attribution.ts`'s containment check applies.
+    if (requested !== root && !requested.startsWith(root + path.sep)) {
       return reply.code(403).send({ error: 'forbidden' })
     }
 
