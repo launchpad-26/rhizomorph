@@ -490,4 +490,29 @@ describe('the poll loop, rebuildable (prd20 ruling 5, retarget spike Q1/gap a+b)
       .map((e) => (e.type === 'collector.error' ? e.payload.message : undefined))
     expect(messages).toEqual(['saw 0', 'saw 0'])
   })
+
+  it('reset() never re-hydrates even when it lands BEFORE the first tick — the sibling of the case above, where the hydration memo has not been set yet', async () => {
+    const { recorder, events } = createFakeRecorder()
+    const seededStore = createFakeStore({ counter: { polls: 99 } })
+    const pollLoop = createPollLoop({
+      repoPath: '/repo/watched',
+      collectors: [countingCollector()],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+
+    // No tick first, unlike the test above. `hydrate()` runs at most once and
+    // memoizes on its FIRST call, so a reset before any tick used to leave
+    // that memo unset — and the tick after it hydrated from the very store
+    // the boundary was supposed to make irrelevant.
+    await pollLoop.reset({ snapshotStore: seededStore })
+    await pollLoop.tick()
+
+    expect(seededStore.loads).toEqual([])
+    const messages = events
+      .filter((e) => e.type === 'collector.error' && 'message' in e.payload)
+      .map((e) => (e.type === 'collector.error' ? e.payload.message : undefined))
+    expect(messages).toEqual(['saw 0'])
+  })
 })

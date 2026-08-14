@@ -194,6 +194,12 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
     // mutations below safe without touching the timer at all.
     await inFlightTick
     snapshots = new Map<string, unknown>(collectors.map((c) => [c.name, c.initialSnapshot()]))
+    // Settle the hydration memo, so this function's own no-re-hydration
+    // promise holds for a reset that lands BEFORE the first tick as well as
+    // after one. `hydrate()` runs at most once and memoizes on its FIRST
+    // call, so leaving `hydration` null here meant the next tick would still
+    // run it — against whichever store this reset had just installed.
+    hydration = Promise.resolve()
     saveErrors.clear()
     repoPath = resetOptions.repoPath ?? repoPath
     snapshotStore = resetOptions.snapshotStore ?? snapshotStore
