@@ -1,13 +1,5 @@
-import type {
-  AgentRole,
-  AgentStatus,
-  AgentThread,
-  CollisionEntry,
-  LaneSubagentActivity,
-  SpanDecision,
-  TokenTotals,
-  WaitingOnHumanSummary,
-} from '@rhizomorph/core'
+import type { CollisionEntry, LaneSubagentActivity, TokenTotals, WaitingOnHumanSummary } from '../selectors/index.js'
+import type { AgentRole, AgentStatus, AgentThread, SpanDecision } from '../events/index.js'
 import type { LaneManifest, Trespass } from './fences.js'
 import type { LadderRank, Pathology, PathologyKind } from './pathology.js'
 
@@ -88,6 +80,24 @@ export interface Lane {
   toolCallCount: number
   /** Output tokens per minute over the trailing window — the outlier test's unit. */
   outputPerMin: number
+  /**
+   * #246 — this lane's own trailing-window `$/hour`, the same rate
+   * `Burn.costUsdPerHour` sums across every lane. Exposed so a caller that
+   * needs one lane's rate (the launch-cost estimate, `api/lab.ts`) reads it
+   * off the fleet object instead of re-folding the log with its own
+   * `reduceAll` + `selectSpendRateByLane` to ask buildFleet's own question a
+   * second time. Zero whenever {@link costRateIsAuthoritative} is `null` —
+   * never a real reading on its own.
+   */
+  costUsdPerHour: number
+  /**
+   * Whether {@link costUsdPerHour} means anything: `null` when no cost event
+   * landed for this lane inside the trailing window (the rate cannot be
+   * established, never a fabricated `$0.00`), `true`/`false` otherwise — same
+   * vocabulary as {@link Lane.costIsAuthoritative}, just windowed instead of
+   * whole-session.
+   */
+  costRateIsAuthoritative: boolean | null
   /**
    * #159 — output tokens over the trailing {@link SPARK_WINDOW_MS}, bucketed
    * for the fleet table's own sparkline cell. Oldest first, trimmed to the

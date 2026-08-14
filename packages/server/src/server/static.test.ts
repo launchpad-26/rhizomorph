@@ -148,6 +148,30 @@ describe('registerStaticRoute — the SPA fallback', () => {
     expect(response.statusCode).toBe(200)
     expect(response.body).toContain('rhizomorph')
   })
+
+  it('refuses a sibling directory that merely shares the root as a literal string prefix', async () => {
+    // A bare `requested.startsWith(root)` would pass this: `dir + '-sibling'`
+    // starts with `dir` as a string even though it is a different directory
+    // one level up. The separator-aware check must reject it.
+    const siblingDir = `${dir}-sibling`
+    await mkdir(siblingDir, { recursive: true })
+    await writeFile(path.join(siblingDir, 'secret.txt'), 'top secret')
+    try {
+      const app = makeApp()
+      // A literal `/../` is normalised away before routing even sees it (as
+      // the test above already shows) — `%2f` survives that normalisation
+      // and still decodes to a `..` segment in `request.params['*']`.
+      const response = await app.inject({
+        method: 'GET',
+        url: `/..%2f${path.basename(dir)}-sibling/secret.txt`,
+      })
+
+      expect(response.statusCode).toBe(403)
+      expect(response.body).not.toContain('top secret')
+    } finally {
+      await rm(siblingDir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('buildApp — the SPA fallback never shadows a real route', () => {
