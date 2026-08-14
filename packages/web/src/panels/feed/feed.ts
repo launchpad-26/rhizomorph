@@ -3,10 +3,10 @@ import {
   selectRecentCommits,
   type AgentStatus,
   type CommitRecord,
+  type Lane,
   type RhizomorphEvent,
   type SessionState,
 } from '@rhizomorph/core'
-import type { Lane } from '../../fleet/buildFleet.js'
 
 /**
  * THE ACTIVITY FEED's fold (ruling 15) — the commit ticker's one kind grows
