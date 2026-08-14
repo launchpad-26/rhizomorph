@@ -53,7 +53,7 @@ describe('requestInstrument', () => {
       kind: 'instrumented',
       sessionId: SESSION_ID,
       migration: 'migrated',
-      spawn: { launched: true, pid: 4242 },
+      spawn: { launched: true, via: 'detached', pid: 4242 },
     })
   })
 
@@ -69,7 +69,7 @@ describe('requestInstrument', () => {
         kind: 'instrumented',
         sessionId: SESSION_ID,
         migration,
-        spawn: { launched: true, pid: 4242 },
+        spawn: { launched: true, via: 'detached', pid: 4242 },
       })
     },
   )
@@ -136,7 +136,7 @@ describe('requestInstrument', () => {
       answering({ ...LAUNCHED, via: 'tmux', pid: 9911, window: 'main:3' }),
     )
 
-    expect(outcome).toMatchObject({ spawn: { launched: true, pid: 9911 } })
+    expect(outcome).toMatchObject({ spawn: { launched: true, via: 'tmux', pid: 9911, window: 'main:3' } })
   })
 
   /**
@@ -144,6 +144,113 @@ describe('requestInstrument', () => {
    * copied, so there is nothing to warn about — only a next step to hand over,
    * which is why the instrument's own sentence rides along.
    */
+  /**
+   * #266's widening. Three properties, and the third is the one a route would
+   * otherwise 400 over: `sessionId` belongs to `resume` and to no other mode,
+   * so the key is OMITTED rather than sent as `undefined` or as an empty
+   * string.
+   */
+  describe('the three modes (#266)', () => {
+    it('defaults to a claude resume — the request this module has always sent', async () => {
+      const fetchImpl = vi.fn(answering(LAUNCHED))
+
+      await requestInstrument({ sessionId: SESSION_ID }, fetchImpl)
+
+      expect(fetchImpl.mock.calls[0]?.[1].body).toBe(
+        JSON.stringify({ harness: 'claude', mode: 'resume', sessionId: SESSION_ID }),
+      )
+    })
+
+    it.each(['launch', 'continue'] as const)('sends %s with no session id at all — not undefined, not empty', async (mode) => {
+      const fetchImpl = vi.fn(answering({ ...LAUNCHED, mode, migration: null }))
+
+      await requestInstrument({ harness: 'codex', mode }, fetchImpl)
+
+      const body = fetchImpl.mock.calls[0]?.[1].body as string
+      expect(body).toBe(JSON.stringify({ harness: 'codex', mode }))
+      expect(body).not.toContain('sessionId')
+    })
+
+    it('refuses a resume with no session, before the wire — the page has a bug, not the machine', async () => {
+      const fetchImpl = vi.fn(answering(LAUNCHED))
+
+      await expect(requestInstrument({ mode: 'resume' }, fetchImpl)).rejects.toThrow(
+        'cannot resume without a session id — mode "resume" names one exact prior conversation',
+      )
+      expect(fetchImpl).not.toHaveBeenCalled()
+    })
+
+    it('refuses a launch that names a session, before the wire — the route would 400 over exactly this', async () => {
+      const fetchImpl = vi.fn(answering(LAUNCHED))
+
+      await expect(requestInstrument({ mode: 'launch', sessionId: SESSION_ID }, fetchImpl)).rejects.toThrow(
+        'a session id means mode "resume" — it has no meaning for mode "launch"',
+      )
+      expect(fetchImpl).not.toHaveBeenCalled()
+    })
+
+    it('answers with a null session id on the modes that name none — never an invented one', async () => {
+      const outcome = await requestInstrument(
+        { mode: 'launch' },
+        answering({ ...LAUNCHED, mode: 'launch', migration: null }),
+      )
+
+      expect(outcome).toEqual({
+        kind: 'instrumented',
+        sessionId: null,
+        migration: null,
+        spawn: { launched: true, via: 'detached', pid: 4242 },
+      })
+    })
+
+    /**
+     * `null` is the route's own "nothing to migrate" (`api/concierge.ts` is
+     * deliberate that it is a value and not an omitted key). An ABSENT key is
+     * something else entirely — a body this module cannot read — and reading
+     * the second as the first would let any malformed answer through.
+     */
+    it('accepts an explicit null migration and still refuses an absent one', async () => {
+      await expect(
+        requestInstrument({ mode: 'launch' }, answering({ kind: 'launched', pid: 1, migration: null })),
+      ).resolves.toMatchObject({ migration: null })
+
+      await expect(requestInstrument({ mode: 'launch' }, answering({ kind: 'launched', pid: 1 }))).rejects.toThrow(
+        'the instrument answered something other than a relaunch result',
+      )
+    })
+  })
+
+  /**
+   * #532's `via`, which the client used to discard. "There is a pid" and
+   * "there is a window you can attach to and type into" are different facts,
+   * and a UI can only send an operator somewhere if this carries the second.
+   */
+  describe('where the process went (#532)', () => {
+    it('reads a tmux launch as one, carrying the window to attach to', async () => {
+      const outcome = await requestInstrument(
+        { sessionId: SESSION_ID },
+        answering({ ...LAUNCHED, via: 'tmux', pid: 9911, window: 'main:3' }),
+      )
+
+      expect(outcome).toMatchObject({ spawn: { launched: true, via: 'tmux', pid: 9911, window: 'main:3' } })
+    })
+
+    it.each([
+      ['a tmux launch with no window named', { via: 'tmux' }],
+      ['a tmux launch with an empty window', { via: 'tmux', window: '' }],
+    ])('falls back to detached for %s — the weaker claim, never the stronger', async (_label, extra) => {
+      const outcome = await requestInstrument({ sessionId: SESSION_ID }, answering({ ...LAUNCHED, ...extra }))
+
+      expect(outcome).toMatchObject({ spawn: { launched: true, via: 'detached', pid: 4242 } })
+    })
+
+    it('reads an unnamed via as detached — a server that says nothing is not a server that says tmux', async () => {
+      const outcome = await requestInstrument({ sessionId: SESSION_ID }, answering(LAUNCHED))
+
+      expect(outcome).toMatchObject({ spawn: { launched: true, via: 'detached' } })
+    })
+  })
+
   it('turns a 404 into a no-transcript-reachable outcome, carrying the instrument’s own reason', async () => {
     const outcome = await requestInstrument(
       { sessionId: SESSION_ID },

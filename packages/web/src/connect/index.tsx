@@ -3,11 +3,22 @@ import { selectConnection } from '@rhizomorph/core'
 import { useMode } from '../app/ModeContext.js'
 import { navigate } from '../app/router.js'
 import { useStream } from '../app/StreamContext.js'
+import type { CloneFetchLike } from '../concierge/clone.js'
 import type { InstrumentFetchLike, InstrumentOutcome } from '../concierge/instrument.js'
 import { InstrumentButton } from '../concierge/InstrumentButton.js'
 import { copyToClipboard, type CopyText } from '../drawer/AttachButton.js'
 import { formatWallClock } from '../replay/format.js'
-import { buildLinks, portFrom, SAME_PROCESS_WARNING, tally, type ChainLink, type InstrumentableSession, type LinkState } from './links.js'
+import {
+  buildLinks,
+  portFrom,
+  SAME_PROCESS_WARNING,
+  STATE_GLYPH,
+  STATE_WORD,
+  tally,
+  type ChainLink,
+  type InstrumentableSession,
+  type LinkState,
+} from './links.js'
 import {
   fetchDoctor,
   fetchMeta,
@@ -21,6 +32,7 @@ import {
   type SessionPreview,
 } from './meta.js'
 import { SampleFleetControl, sampleUninstrumented } from './sample.js'
+import { SetupWizard } from './wizard.js'
 
 /**
  * THE CONNECT PAGE — THE HANDSHAKE CHECKLIST (prd19 rulings 3, 5 and 7, wave
@@ -58,15 +70,22 @@ import { SampleFleetControl, sampleUninstrumented } from './sample.js'
  * that across all of `packages/web/src`, and `index.test.tsx` restates it
  * for this directory.
  *
- * **The one act on this page is a component, not a request** (prd-20 w7,
- * #520). `../concierge/InstrumentButton.js` relaunches a conductor on a
- * session it names, and the whole of that act — the confirmation, the wire,
- * the write — lives in `concierge/` behind its own two laws. Nothing changes
- * here: this file still builds no request of its own, and the copyable command
- * stays visible beside the button rather than behind it, because prd-20
- * ruling 3 is explicit that the page never claims to attach to a running
- * process. The button is a convenience over the command, never a replacement
- * for it.
+ * **The acts on this page are components, not requests** (prd-20 w7 #520, w4
+ * #266). `../concierge/InstrumentButton.js` relaunches a conductor on a
+ * session it names, and `./wizard.js` clones a repo and starts a conductor;
+ * the whole of both acts — the confirmation, the wire, the write — lives in
+ * `concierge/` behind its own laws. Nothing changes here: this file still
+ * builds no request of its own, and the copyable command stays visible beside
+ * the button rather than behind it, because prd-20 ruling 3 is explicit that
+ * the page never claims to attach to a running process. The button is a
+ * convenience over the command, never a replacement for it.
+ *
+ * **The wizard is mounted above the rows, and hands them straight back**
+ * (prd-20 w4, #266). Its third step IS this checklist — the same `ChainLink[]`
+ * built once below and passed in, so a row it shows flips live for exactly the
+ * reason the row itself does. A wizard that re-derived a connection fact would
+ * be a second opinion about the one subject this page exists to be the single
+ * source of.
  *
  * **The hue laws (`theme/theme.css`) decide the palette, and the design is
  * otherwise the implementer's** (this issue's own DoD). Verified wears the
@@ -89,6 +108,14 @@ export interface ConnectPageProps {
    * mutate.
    */
   instrumentFetchImpl?: InstrumentFetchLike
+  /**
+   * Test seam for the wizard's OTHER act, the clone — a THIRD seam, and for the
+   * same reason there is already a second: `CloneFetchLike` and
+   * `InstrumentFetchLike` are different types naming different bodies, and a
+   * page whose two writes could be served down one injected function is a page
+   * where a test for one of them can drive the other.
+   */
+  cloneFetchImpl?: CloneFetchLike
   /** Test seam for the clipboard — the same shape the drawer's `AttachButton` uses. */
   onCopy?: CopyText
   /** Test clock, for the uninstrumented row's first-export grace window. */
@@ -124,26 +151,15 @@ export interface ConnectPageProps {
 }
 
 /**
- * Exported for the three-states law (#367): the law needs the exact set of
- * readings a state cell may hold, and a set typed out beside this map is a set
- * that can drift from it — the same reason `sample.tsx`'s `keyDoc()` derives
- * its copy from `STREAM_SOURCE_KEYS` instead of restating it.
+ * Re-exported for the three-states law (#367), which reads them from this
+ * module: the law needs the exact set of readings a state cell may hold, and a
+ * set typed out beside the map is a set that can drift from it — the same
+ * reason `sample.tsx`'s `keyDoc()` derives its copy from `STREAM_SOURCE_KEYS`
+ * instead of restating it. They now live in `links.ts`, beside `LinkState`
+ * itself; see that module for why (#266's wizard renders the same readings, and
+ * reaching back into the page module for them would be a cycle).
  */
-export const STATE_WORD: Record<LinkState, string> = {
-  verified: 'VERIFIED',
-  broken: 'BROKEN',
-  unproven: 'UNPROVEN',
-}
-
-/**
- * Colour is never the sole carrier (law 9a's own condition): every state has
- * a glyph and a word as well as a hue, so the checklist survives greyscale,
- * colour-blindness and a photographed screen.
- *
- * Exported with `STATE_WORD`, and for the same reason: the cell renders the
- * pair, so the law can only be exact if it knows both.
- */
-export const STATE_GLYPH: Record<LinkState, string> = { verified: '✓', broken: '✕', unproven: '·' }
+export { STATE_GLYPH, STATE_WORD } from './links.js'
 
 const STATE_CLASS: Record<LinkState, string> = {
   verified: 'text-working',
@@ -180,6 +196,7 @@ export const DEFAULT_REFRESH_MS = 5000
 export function ConnectPage({
   fetchImpl,
   instrumentFetchImpl,
+  cloneFetchImpl,
   onCopy = copyToClipboard,
   now,
   refreshMs = DEFAULT_REFRESH_MS,
@@ -269,6 +286,24 @@ export function ConnectPage({
 
       <div className="min-h-0 flex-1 overflow-auto p-4">
         <Provenance meta={meta} provenance={provenance} isLive={isLive} port={port} />
+
+        {/* THE WIZARD, ABOVE THE ROWS IT ENDS IN (prd-20 w4, #266). The
+            checklist is unchanged and is still the page; this is the path a
+            stranger takes to reach it, and its third step is these very rows —
+            `links` is handed straight in rather than rebuilt, so nothing here
+            has a second opinion about a connection fact. */}
+        <div className="mt-4">
+          <SetupWizard
+            links={links}
+            meta={meta}
+            live={isLive}
+            port={port}
+            fetchImpl={fetchImpl}
+            instrumentFetchImpl={instrumentFetchImpl}
+            cloneFetchImpl={cloneFetchImpl}
+            onCopy={onCopy}
+          />
+        </div>
 
         <ul data-testid="connect-links" className="mt-4 flex flex-col gap-2">
           {links.map((link) => (

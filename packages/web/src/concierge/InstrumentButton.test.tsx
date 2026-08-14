@@ -84,8 +84,41 @@ describe('InstrumentButton', () => {
       kind: 'instrumented',
       sessionId: SESSION_ID,
       migration: 'migrated',
-      spawn: { launched: true, pid: 4242 },
+      spawn: { launched: true, via: 'detached', pid: 4242 },
     })
+  })
+
+  /**
+   * #532's `via`, rendered. "There is a pid" and "there is a window you can
+   * attach to and type into" are different facts about an interactive harness,
+   * and this is the difference between telling an operator where to go and
+   * telling them to watch and see.
+   */
+  it('names the tmux window to attach to when there is one', async () => {
+    render(
+      <InstrumentButton
+        sessionId={SESSION_ID}
+        fetchImpl={answering({ ...LAUNCHED, via: 'tmux', window: 'main:3' })}
+      />,
+    )
+
+    await click(screen.getByTestId('instrument-button-start'))
+    await click(screen.getByTestId('instrument-button-confirm'))
+
+    const where = screen.getByTestId('instrument-button-where').textContent ?? ''
+    expect(where).toContain('main:3')
+    expect(where).toContain('tmux attach -t main:3')
+  })
+
+  it('names the no-TTY gap when the process was started detached, rather than calling it a place', async () => {
+    render(<InstrumentButton sessionId={SESSION_ID} fetchImpl={answering(LAUNCHED)} />)
+
+    await click(screen.getByTestId('instrument-button-start'))
+    await click(screen.getByTestId('instrument-button-confirm'))
+
+    const where = screen.getByTestId('instrument-button-where').textContent ?? ''
+    expect(where).toContain('no terminal attached')
+    expect(where).toContain('may exit on its own')
   })
 
   it.each([

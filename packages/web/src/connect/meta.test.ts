@@ -10,7 +10,10 @@ import {
   isRenderableTs,
   parseDoctor,
   parseMeta,
+  parseRepos,
   parseSessionPreview,
+  fetchRepos,
+  REPOS_URL,
   type FetchLike,
 } from './meta.js'
 
@@ -451,5 +454,137 @@ describe('the session preview', () => {
     expect(await fetchSessionPreview('sess-1', rejected)).toBeNull()
     expect(await fetchSessionPreview('.', refused)).toBeNull()
     expect(await fetchSessionPreview('sess-1', notJson)).toBeNull()
+  })
+})
+
+/**
+ * THE REPO DISCOVERY READ (prd-20 ruling 5, wave 4, #266).
+ *
+ * The route answers with two INDEPENDENT lists and its own doc leaves the
+ * merge to the caller. This parse is where that call is made, so these cases
+ * are about the merge and about the LIMITS the route reports — a picker that
+ * dropped either would be saying "these are your repos" while meaning
+ * "these are some of them".
+ */
+describe('parseRepos', () => {
+  const FULL = {
+    available: true,
+    known: {
+      available: true,
+      projects: [
+        { slug: '-home-x-repo', path: '/home/x/repo', resolved: true },
+        { slug: '-home-x-lost', path: null, resolved: false, reason: 'ambiguous slug' },
+      ],
+    },
+    scanned: { repos: [{ path: '/home/x/repo' }, { path: '/home/x/code/other' }], truncated: true, unreadable: ['/home/x/Desktop'] },
+  }
+
+  it('merges the two lists by path — history first, then whatever the scan added', () => {
+    const reading = parseRepos(FULL)
+
+    expect(reading).toMatchObject({
+      kind: 'repos',
+      repos: [
+        { path: '/home/x/repo', origin: 'claude-history' },
+        { path: '/home/x/code/other', origin: 'scan' },
+      ],
+    })
+  })
+
+  it('keeps the honest reading of a repo known twice: one entry, and the STRONGER origin wins', () => {
+    // `/home/x/repo` is in both lists. "A conversation happened here" is a
+    // better fact about a repo than "a directory walk found a .git", so the
+    // scan's weaker claim must not overwrite it.
+    const reading = parseRepos(FULL)
+    const merged = reading?.kind === 'repos' ? reading.repos.filter((repo) => repo.path === '/home/x/repo') : []
+
+    expect(merged).toEqual([{ path: '/home/x/repo', origin: 'claude-history' }])
+  })
+
+  it('carries every limit the route reported, rather than a short list with no note', () => {
+    expect(parseRepos(FULL)).toMatchObject({
+      truncated: true,
+      unreadable: ['/home/x/Desktop'],
+      unresolved: [{ slug: '-home-x-lost', reason: 'ambiguous slug' }],
+      historyUnavailable: null,
+    })
+  })
+
+  it("keeps the scan's answer when the ~/.claude half could not be enumerated at all", () => {
+    const reading = parseRepos({
+      available: true,
+      known: { available: false, reason: 'no Claude Code project history at /home/x/.claude/projects' },
+      scanned: { repos: [{ path: '/home/x/code/other' }], truncated: false, unreadable: [] },
+    })
+
+    expect(reading).toMatchObject({
+      kind: 'repos',
+      repos: [{ path: '/home/x/code/other', origin: 'scan' }],
+      historyUnavailable: 'no Claude Code project history at /home/x/.claude/projects',
+    })
+  })
+
+  it("reads a replay server's own refusal as a sentence, never as an empty list", () => {
+    expect(parseRepos({ available: false, reason: 'not applicable — this server is replaying' })).toEqual({
+      kind: 'unavailable',
+      reason: 'not applicable — this server is replaying',
+    })
+  })
+
+  it.each([
+    ['a body that is not an object', 'repos, surely'],
+    ['an unavailable answer with no reason to show', { available: false }],
+  ])('refuses to read %s', (_label, body) => {
+    expect(parseRepos(body)).toBeNull()
+  })
+
+  it('drops an entry with no path and no slug — there is no fact in it to show', () => {
+    const reading = parseRepos({
+      available: true,
+      known: { available: true, projects: [{ resolved: false }, 'not an object'] },
+      scanned: { repos: ['not an object', { path: 5 }], truncated: false, unreadable: [] },
+    })
+
+    expect(reading).toMatchObject({ kind: 'repos', repos: [], unresolved: [] })
+  })
+
+  it('names a reason for an unresolved slug even when the server gave none', () => {
+    const reading = parseRepos({
+      available: true,
+      known: { available: true, projects: [{ slug: '-home-x-lost', resolved: false }] },
+      scanned: { repos: [], truncated: false, unreadable: [] },
+    })
+
+    expect(reading).toMatchObject({ unresolved: [{ slug: '-home-x-lost', reason: 'the server gave no reason' }] })
+  })
+
+  it('reads a body with no lists at all as an empty, honest answer rather than a failure', () => {
+    expect(parseRepos({ available: true })).toEqual({
+      kind: 'repos',
+      repos: [],
+      unresolved: [],
+      truncated: false,
+      unreadable: [],
+      historyUnavailable: null,
+    })
+  })
+})
+
+describe('fetchRepos', () => {
+  it('reads the one route, and lands every failure on the reading the wizard degrades to', async () => {
+    const urls: string[] = []
+    const answering: FetchLike = async (input) => {
+      urls.push(input)
+      return { ok: true, json: async () => ({ available: true }) }
+    }
+    const rejected: FetchLike = async () => {
+      throw new Error('offline')
+    }
+    const refused: FetchLike = async () => ({ ok: false, json: async () => ({}) })
+
+    expect(await fetchRepos(answering)).toMatchObject({ kind: 'repos' })
+    expect(urls).toEqual([REPOS_URL])
+    expect(await fetchRepos(rejected)).toEqual({ kind: 'absent' })
+    expect(await fetchRepos(refused)).toEqual({ kind: 'absent' })
   })
 })

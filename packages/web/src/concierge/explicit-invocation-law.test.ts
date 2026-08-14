@@ -19,6 +19,16 @@ import { extractImportSpecifiers } from '../test/import-specifiers.js'
  * for the structural half of that argument, so what is asserted below is what
  * that enumeration is standing on.
  *
+ * **AMENDED for #266, in two directions.** This directory gained the app's
+ * FIFTH mutating call — `clone.ts`, ADR-0019's other power — so the same
+ * structural proof now covers it. And the caller enumeration, which used to
+ * sweep this directory alone, now sweeps all of `packages/web/src`: the wizard
+ * (`connect/wizard.tsx`) is a legitimate second caller of the relaunch and the
+ * only caller of the clone, and a rule reading "exactly one call site" that can
+ * only see one directory stops being a rule the moment a call site lands
+ * outside it. The clocks-and-effects bans stay scoped here, because those are
+ * rules about what may live in this directory rather than about who may ask.
+ *
  * **The walk is the sibling law's recursive shape, defined here rather than
  * imported** — vitest re-executes a test module's top-level code, `describe`
  * blocks included, every time another test file imports it, so importing the
@@ -30,13 +40,15 @@ import { extractImportSpecifiers } from '../test/import-specifiers.js'
  */
 
 const CONCIERGE_DIR = path.dirname(fileURLToPath(import.meta.url))
+/** `packages/web/src` — the sweep the caller enumeration needs, since #266 put a caller outside this directory. */
+const WEB_SRC = path.resolve(CONCIERGE_DIR, '..')
 
 interface ConciergeSourceFile {
   readonly name: string
   readonly text: string
 }
 
-function sourceFiles(): ConciergeSourceFile[] {
+function walk(root: string): ConciergeSourceFile[] {
   const out: ConciergeSourceFile[] = []
   const visit = (dir: string) => {
     for (const entry of readdirSync(dir)) {
@@ -48,15 +60,37 @@ function sourceFiles(): ConciergeSourceFile[] {
       }
       if (!/\.(ts|tsx)$/.test(entry)) continue
       if (/\.test\.tsx?$/.test(entry)) continue
-      out.push({ name: path.relative(CONCIERGE_DIR, full), text: readFileSync(full, 'utf8') })
+      out.push({ name: path.relative(root, full), text: readFileSync(full, 'utf8') })
     }
   }
-  visit(CONCIERGE_DIR)
+  visit(root)
   return out
+}
+
+function sourceFiles(): ConciergeSourceFile[] {
+  return walk(CONCIERGE_DIR)
+}
+
+/**
+ * EVERY source file in the web app, for the one check that cannot be scoped to
+ * this directory (#266).
+ *
+ * The caller enumeration used to sweep `concierge/` alone, which was exact
+ * while `InstrumentButton.tsx` was the only caller and became VACUOUS the
+ * moment `connect/wizard.tsx` reached for the same act: a second, unreviewed
+ * call site added in `panels/` tomorrow would have passed a `concierge/`-only
+ * sweep without being seen at all. The ban on clocks and effects stays scoped
+ * to this directory — that is a rule about what may live HERE — but "who may
+ * ask for this act" is a claim about the whole app, so it is now checked
+ * against the whole app.
+ */
+function appSourceFiles(): ConciergeSourceFile[] {
+  return walk(WEB_SRC)
 }
 
 const SCHEDULING_RE = /\b(setInterval|setTimeout|setImmediate)\s*\(/
 const CALLS_REQUEST_INSTRUMENT_RE = /\brequestInstrument\s*\(/
+const CALLS_REQUEST_CLONE_RE = /\brequestClone\s*\(/
 const USE_EFFECT_RE = /\buseEffect\s*\(/
 
 const FORBIDDEN_IDENTIFIERS: readonly RegExp[] = [
@@ -104,11 +138,20 @@ function computedImportsIn(text: string): string[] {
 describe('the concierge instrument path is reachable only from an explicit request (prd-20 ruling 6; ADR-0020 grant 4)', () => {
   it('has source files to check at all — an empty walk proves nothing', () => {
     const names = sourceFiles().map((file) => file.name)
-    // Today's two, named rather than counted loosely: a silently dropped file
+    // Today's three, named rather than counted loosely: a silently dropped file
     // fails here as loudly as an empty directory would.
     expect(names).toContain('instrument.ts')
     expect(names).toContain('InstrumentButton.tsx')
-    expect(names.length).toBeGreaterThanOrEqual(2)
+    expect(names).toContain('clone.ts')
+    expect(names.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('the app-wide walk really reaches the far corners — an enumeration over three files would prove nothing about a fourth caller', () => {
+    const names = appSourceFiles().map((file) => file.name)
+    expect(names.length).toBeGreaterThan(80)
+    expect(names).toContain(path.join('connect', 'wizard.tsx'))
+    expect(names).toContain(path.join('panels', 'fleet', 'index.tsx'))
+    expect(names).toContain(path.join('concierge', 'instrument.ts'))
   })
 
   it('nothing under concierge/ has a clock of its own — a relaunch never fires without an incoming click', () => {
@@ -121,17 +164,75 @@ describe('the concierge instrument path is reachable only from an explicit reque
     expect(SCHEDULING_RE.test('setInterval(() => requestInstrument(x), 1000)')).toBe(true)
   })
 
-  it('requestInstrument is invoked from exactly one file — InstrumentButton.tsx — never a second, unreviewed call site', () => {
-    const callers = sourceFiles()
-      .filter((file) => file.name !== 'instrument.ts')
+  /**
+   * AMENDED for #266, and WIDENED to the whole app in the same breath — see
+   * {@link appSourceFiles} for why a `concierge/`-scoped enumeration stopped
+   * being exact the moment a caller landed outside this directory.
+   *
+   * Two callers now, each named. `InstrumentButton.tsx` asks for a resume of
+   * one named session, behind its own confirmation; `connect/wizard.tsx`'s
+   * conductor step asks for a fresh launch or a continue, from a repo the
+   * operator has just picked. A THIRD, anywhere in the app, fails here.
+   */
+  it('requestInstrument is invoked from exactly two files, app-wide — never a third, unreviewed call site', () => {
+    const callers = appSourceFiles()
+      .filter((file) => file.name !== path.join('concierge', 'instrument.ts'))
       .filter((file) => CALLS_REQUEST_INSTRUMENT_RE.test(file.text))
       .map((file) => file.name)
-    expect(callers).toEqual(['InstrumentButton.tsx'])
+      .sort()
+    expect(callers).toEqual([path.join('concierge', 'InstrumentButton.tsx'), path.join('connect', 'wizard.tsx')])
+  })
+
+  /**
+   * The fifth mutating call's own enumeration (#266). The clone is a write to
+   * the operator's disk, and prd-20 ruling 1's "invoked only by an explicit
+   * human act in the UI" is exactly as binding on it as on the relaunch — so
+   * it gets the same structural proof rather than the same promise.
+   */
+  it('requestClone is invoked from exactly one file, app-wide — connect/wizard.tsx', () => {
+    const callers = appSourceFiles()
+      .filter((file) => file.name !== path.join('concierge', 'clone.ts'))
+      .filter((file) => CALLS_REQUEST_CLONE_RE.test(file.text))
+      .map((file) => file.name)
+    expect(callers).toEqual([path.join('connect', 'wizard.tsx')])
   })
 
   it("the one call site is wired to the confirm button's onClick, not left implicit", () => {
     const button = readFileSync(path.join(CONCIERGE_DIR, 'InstrumentButton.tsx'), 'utf8')
     expect(button).toMatch(/onClick=\{\(\)\s*=>\s*void confirmInstrument\(\)\}/)
+  })
+
+  /**
+   * The wizard's two acts, pinned across BOTH hops of their wiring — the
+   * handler the step component receives, and the `onClick` that is the only
+   * thing which fires it. Pinning one hop alone would leave the other free to
+   * become a `useEffect` or an `onChange` without this law noticing, which is
+   * the whole failure mode it exists for.
+   */
+  it("the wizard's clone and launch are each wired to one button's onClick, both hops named", () => {
+    const wizard = readFileSync(path.join(WEB_SRC, 'connect', 'wizard.tsx'), 'utf8')
+    expect(wizard).toMatch(/onClone=\{\(\)\s*=>\s*void confirmClone\(\)\}/)
+    expect(wizard).toMatch(/onLaunch=\{\(\)\s*=>\s*void confirmLaunch\(\)\}/)
+    expect(wizard).toMatch(/onClick=\{onClone\}/)
+    expect(wizard).toMatch(/onClick=\{onLaunch\}/)
+  })
+
+  /**
+   * The wizard is the one caller allowed a `useEffect` at all — the repo step
+   * genuinely reads on mount (`GET /api/concierge/repos`), which is why the
+   * total ban below stays scoped to `concierge/` and this narrower rule is
+   * what covers the wizard. It is `LaunchPanel.tsx`'s own shape and its own
+   * reason: an effect that READS is ordinary; an effect that ACTS is the
+   * ruling's "never a collector, never a poll, never a timer".
+   */
+  it('no useEffect in connect/wizard.tsx ever reaches either act — reads happen there, writes never do', () => {
+    const wizard = readFileSync(path.join(WEB_SRC, 'connect', 'wizard.tsx'), 'utf8')
+    const effectBodies = [...wizard.matchAll(/useEffect\(([\s\S]*?), \[/g)].map((match) => match[1] ?? '')
+    expect(effectBodies.length).toBeGreaterThan(0) // the check below would pass vacuously on an empty sweep
+    for (const body of effectBodies) {
+      expect(body).not.toMatch(/requestClone|requestInstrument|confirmClone|confirmLaunch/)
+    }
+    expect(wizard).not.toMatch(SCHEDULING_RE)
   })
 
   /**

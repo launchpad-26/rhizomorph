@@ -11,7 +11,7 @@ import type { EventSourceLike } from '../hooks/useEventStream.js'
 import { CAPABILITY_META_NAME } from '../recordings/capability.js'
 import type { FetchLike as ReplayFetchLike } from '../replay/api.js'
 import { ConnectPage, type ConnectPageProps, DEFAULT_REFRESH_MS, STATE_GLYPH, STATE_WORD } from './index.js'
-import { DOCTOR_URL, META_URL, type FetchLike } from './meta.js'
+import { DOCTOR_URL, META_URL, REPOS_URL, type FetchLike } from './meta.js'
 
 /**
  * THE HANDSHAKE CHECKLIST, AS A PAGE.
@@ -94,10 +94,25 @@ const DOCTOR_BODY = [
 /** The third GET's own prefix (#516), spelled here rather than imported: this file is the law that pins it. */
 const PREVIEW_PREFIX = '/api/session-preview/'
 
+/**
+ * The wizard's own read (#266), answered here so the page's fetch seam stays
+ * ONE seam: `stubFetch` throws on anything it does not recognise, and a wizard
+ * mounted above the rows would otherwise make every test in this file exercise
+ * that throw. The body is the route's real shape, deliberately minimal — this
+ * file is the checklist's law, and `wizard.test.tsx` is where the repo step's
+ * own behaviour is pinned.
+ */
+const REPOS_BODY = {
+  available: true,
+  known: { available: true, projects: [{ slug: '-home-x-repo', path: '/home/x/repo', resolved: true }] },
+  scanned: { repos: [], truncated: false, unreadable: [] },
+}
+
 function stubFetch(meta: unknown = META_BODY, doctor: unknown = DOCTOR_BODY, previews: 'answer' | 'refuse' = 'answer'): FetchLike {
   return async (input) => {
     if (input === META_URL) return { ok: meta !== null, json: async () => meta }
     if (input === DOCTOR_URL) return { ok: doctor !== null, json: async () => doctor }
+    if (input === REPOS_URL) return { ok: true, json: async () => REPOS_BODY }
     if (input.startsWith(PREVIEW_PREFIX)) {
       if (previews === 'refuse') return { ok: false, json: async () => ({ error: 'no preview for you' }) }
       const sessionId = decodeURIComponent(input.slice(PREVIEW_PREFIX.length))
@@ -707,14 +722,42 @@ describe('ruling 7 — this page mutates nothing', () => {
       .map((name) => ({ name, text: readFileSync(path.join(CONNECT_DIR, name), 'utf8') }))
   }
 
+  /**
+   * AMENDED for #266: **five names, not four.** The list is an anti-drift
+   * device rather than a size limit — its claim is that every source file in
+   * this directory is one a reviewer has looked at and found to mutate nothing
+   * — and `wizard.tsx` is exactly that: it names no verb, builds no request
+   * init, reaches for no execution channel, and its two acts go out through
+   * `concierge/clone.ts` and `concierge/instrument.ts`, the app's fifth and
+   * fourth mutating calls, each behind its own module doc and its own law.
+   * That is the same arrangement `index.tsx` already had with
+   * `InstrumentButton` and is why the checks below did not need loosening for
+   * it — only this one line did.
+   *
+   * The alternative was a fifth section of an already 900-line `index.tsx`,
+   * which would have kept the number four and lost the thing the number is for.
+   */
   it('walks a directory that actually has sources in it', () => {
-    expect(sourceFiles().map((file) => file.name).sort()).toEqual(['index.tsx', 'links.ts', 'meta.ts', 'sample.tsx'])
+    expect(sourceFiles().map((file) => file.name).sort()).toEqual([
+      'index.tsx',
+      'links.ts',
+      'meta.ts',
+      'sample.tsx',
+      'wizard.tsx',
+    ])
   })
 
   /**
    * AMENDED for #520: a third GET, of doctor's own class — the page still
    * mutates nothing; its one button's mutation lives outside this directory
    * behind its own law, the RotateButton pattern.
+   *
+   * AMENDED for #266: a FOURTH GET, of the same class —
+   * `/api/concierge/repos`, the read-only half of the fourth hand (no body, no
+   * token, no write, and the route itself declines to run at all on a replay
+   * server). The wizard's repo step reads it; the two POSTs the wizard drives
+   * are outside this directory, in `concierge/`, so the no-mutating-verb clause
+   * below is untouched.
    *
    * `/api/session-preview/` carries its trailing slash because that is what
    * the sweep actually matches: the path is only ever written as a template
@@ -727,10 +770,13 @@ describe('ruling 7 — this page mutates nothing', () => {
     const paths = sourceFiles().flatMap((file) => [...file.text.matchAll(/\/api\/[a-z/-]+/gi)].map((match) => match[0]))
 
     expect(paths.length).toBeGreaterThan(0)
-    for (const found of paths) expect(['/api/meta', '/api/doctor', '/api/session-preview/']).toContain(found)
-    // The third one is genuinely reached, not merely permitted: an allowlist
+    for (const found of paths) {
+      expect(['/api/meta', '/api/doctor', '/api/session-preview/', '/api/concierge/repos']).toContain(found)
+    }
+    // The last two are genuinely reached, not merely permitted: an allowlist
     // entry nothing matches is an entry that proves nothing.
     expect(paths).toContain('/api/session-preview/')
+    expect(paths).toContain('/api/concierge/repos')
   })
 
   it('names no mutating verb and builds no request init', () => {

@@ -5,8 +5,21 @@
  * first three; `replay/mutating-calls-law.test.ts` enumerates the app's whole
  * mutating surface and this module is the fourth entry in it — deliberately in
  * the enumeration, never an exception to it. What it asks for is the fourth
- * hand's own act: relaunch the conductor watching this repo, instrumented, on
- * the SAME conversation the operator already has (`mode: 'resume'`).
+ * hand's own act: start the conductor watching this repo, instrumented — on the
+ * SAME conversation the operator already has (`mode: 'resume'`), on the most
+ * recent one (`'continue'`), or fresh (`'launch'`).
+ *
+ * **The two extra modes are #266's widening, and they widen the REQUEST, not
+ * the grant.** `POST /api/concierge/launch` has answered all three since #264;
+ * this module only ever sent `'resume'` because `InstrumentButton.tsx` was its
+ * only caller, and a button on a row about an uninstrumented session has
+ * exactly one thing to ask for. The wizard's conductor step is the caller that
+ * does not: a stranger who has just chosen a repo has no conversation to
+ * resume. Nothing about what the hand may DO changes here — same file, same
+ * route, the same single row in the mutating law's file→route enumeration — and
+ * the harness travels as a parameter now for the same reason, because the route
+ * has taken one since it was written and pinning `'claude'` into this file's
+ * own body was a fact about its one caller rather than about the hand.
  *
  * **Why a fourth mutating call is allowed to exist at all**, argued here in
  * its own diff rather than inherited from the three that came before, at the
@@ -58,9 +71,60 @@ import { CAPABILITY_TOKEN_HEADER, readCapabilityToken } from '../recordings/capa
 
 export const INSTRUMENT_URL = '/api/concierge/launch'
 
-/** What the operator is asking to resume — a session id the log already recorded, never a path. */
+/**
+ * The three things a launch can mean, spelled exactly as
+ * `server/src/concierge/launch.ts`'s own `LaunchMode` spells them.
+ *
+ * `resume` is the one this module was born for (#518) and the only one that
+ * names a session; `launch` starts a conductor fresh, and `continue` relaunches
+ * on the most recent conversation, whichever that is. The wizard's conductor
+ * step (#266) is what needed the other two: an operator who has just chosen a
+ * repo has no session id to resume, and offering them only the one verb this
+ * module already had would have meant "you can relaunch a conversation you are
+ * already having" on the page whose whole subject is the machine that has none.
+ */
+export type InstrumentMode = 'launch' | 'continue' | 'resume'
+
+/**
+ * What the operator is asking for — which harness, which of the three verbs,
+ * and (for `resume` alone) a session id the log already recorded. **Never a
+ * path**: prd-20 ruling 6 / ADR-0020 make the migration's source DERIVED from
+ * the event log's own attribution rather than supplied, so there is deliberately
+ * nowhere here for a caller to name a location on disk.
+ *
+ * `harness` and `mode` are optional, and default to `'claude'` and `'resume'` —
+ * which is the request this module has always sent. That is not politeness
+ * toward existing callers: it keeps `InstrumentButton.tsx`'s meaning stated in
+ * one place (it asks for a resume of a named session and nothing else) and it
+ * keeps every widening of this request visible at the call site that wanted it.
+ */
 export interface InstrumentRequest {
-  sessionId: string
+  /** A harness id the server's registry knows. Defaults to `claude`, the one harness proven end to end. */
+  harness?: string
+  /** Defaults to `resume` — see {@link InstrumentMode}. */
+  mode?: InstrumentMode
+  /** Required exactly when {@link mode} is `resume`, and refused on the other two. */
+  sessionId?: string
+}
+
+/**
+ * The mismatch this module refuses BEFORE the wire, rather than letting the
+ * route answer 400 for it: `parseConciergeLaunchRequestBody` requires a
+ * `sessionId` on `resume` and forbids one on the other two modes, and a caller
+ * that gets that wrong has a bug in the page, not a machine that said no. A
+ * thrown sentence naming the mismatch is what a developer can act on; a 400
+ * naming a body field is what an operator would have had to read instead.
+ */
+function assertModeAndSessionAgree(mode: InstrumentMode, sessionId: string | undefined): void {
+  if (mode === 'resume') {
+    if (sessionId === undefined || sessionId.length === 0) {
+      throw new Error('cannot resume without a session id — mode "resume" names one exact prior conversation')
+    }
+    return
+  }
+  if (sessionId !== undefined) {
+    throw new Error(`a session id means mode "resume" — it has no meaning for mode "${mode}"`)
+  }
 }
 
 /**
@@ -74,23 +138,59 @@ export interface InstrumentRequest {
 export type MigrationFact = 'migrated' | 'already-present' | 'not-needed'
 
 /**
- * Whether the OS actually made the process AND it was still there a moment
- * later. prd-20 ruling 3 is explicit that a spawn's success is not a claim
- * that telemetry is flowing — the operator watches the connection facts flip —
- * so this says only what it knows.
+ * The fourth answer, and it is a `null` on the wire rather than a word: **there
+ * was nothing to migrate.** Only `mode: 'resume'` ever copies a transcript, so
+ * `launch` and `continue` come back with `migration: null` — an explicit key
+ * with an explicit value, which `api/concierge.ts` is deliberate about ("a fact
+ * worth a value rather than a key a caller has to remember to check for").
  *
- * `launched: false` covers both "no process was ever made" and #532's
- * "it exited immediately"; the server's own sentence says which, and see
- * {@link parseStarted} for why the two are one value here.
+ * The distinction this module holds is therefore `null` versus ABSENT, and it
+ * is load-bearing: `null` is the route saying "no copy was called for", while a
+ * missing key is a body this module cannot read, and reading the second as the
+ * first would let any malformed answer through as a launch.
  */
-export type SpawnResult = { launched: true; pid: number } | { launched: false; message: string }
+export type MigrationOutcome = MigrationFact | null
 
-/** The relaunch happened: same conversation, same id, and a fork left behind. */
+/**
+ * Whether the OS actually made the process AND it was still there a moment
+ * later — and, when it was, WHERE it went. prd-20 ruling 3 is explicit that a
+ * spawn's success is not a claim that telemetry is flowing — the operator
+ * watches the connection facts flip — so this says only what it knows.
+ *
+ * `via` is not decoration, and #532 is the bill for treating it as though it
+ * were: "there is a pid" and "there is a window you can attach to and type
+ * into" are different facts about an interactive harness, and the UI can only
+ * tell an operator where to go if this carries the difference.
+ *
+ * - `launched: true, via: 'tmux'` — a real window, named by `window`
+ *   (`<session>:<index>`, what `tmux attach -t` takes). The one outcome where
+ *   there is a surface to type into.
+ * - `launched: true, via: 'detached'` — alive when the settle window closed,
+ *   and with nothing attached to it.
+ * - `launched: false` — no process was ever made, or #532's "it exited
+ *   immediately"; the server's own sentence says which, and see
+ *   {@link parseStarted} for why the two are one value here.
+ */
+export type SpawnResult =
+  | { launched: true; via: 'tmux'; pid: number; window: string }
+  | { launched: true; via: 'detached'; pid: number }
+  | { launched: false; message: string }
+
+/**
+ * The launch happened, as far as this module can honestly say — and for
+ * `mode: 'resume'`, on the same conversation under the same id, with a fork
+ * left behind.
+ */
 export interface InstrumentStarted {
   kind: 'instrumented'
-  /** The SAME id, never a new one — the resume appends in place (ADR-0020, Q3/Q4). */
-  sessionId: string
-  migration: MigrationFact
+  /**
+   * The SAME id the caller named, never a new one — the resume appends in place
+   * (ADR-0020, Q3/Q4). `null` on `launch` and `continue`, which name no id: a
+   * fresh conductor's session id is minted by the harness and reaches this
+   * instrument through the event log, never through this response.
+   */
+  sessionId: string | null
+  migration: MigrationOutcome
   spawn: SpawnResult
 }
 
@@ -134,6 +234,15 @@ function isMigrationFact(value: unknown): value is MigrationFact {
 }
 
 /**
+ * `null` passes; an ABSENT key does not. See {@link MigrationOutcome} — reading
+ * a missing field as "nothing to migrate" would turn every unreadable body into
+ * a believable launch, which is the one thing this parser exists to refuse.
+ */
+function isMigrationOutcome(value: unknown, present: boolean): value is MigrationOutcome {
+  return value === null ? present : isMigrationFact(value)
+}
+
+/**
  * The instrument's answer, or null when it is not one this module recognises.
  *
  * Reads only what the operator is shown: the migration fact, and whether the
@@ -142,14 +251,31 @@ function isMigrationFact(value: unknown): value is MigrationFact {
  * make, and for the same reason: an operator told a conversation resumed, when
  * it did not, goes looking for a process nothing started.
  */
-function parseStarted(answer: unknown, sessionId: string): InstrumentStarted | null {
+function parseStarted(answer: unknown, sessionId: string | null): InstrumentStarted | null {
   if (!isRecord(answer)) return null
-  const { migration, kind, pid, message } = answer
-  if (!isMigrationFact(migration)) return null
+  // `window` is read off the record rather than destructured: a local binding
+  // of that name shadows the global one for the whole function, in a module
+  // that runs in a browser.
+  const { migration, kind, pid, message, via } = answer
+  const tmuxWindow = answer.window
+  if (!isMigrationOutcome(migration, 'migration' in answer)) return null
 
   if (kind === 'launched') {
     if (typeof pid !== 'number' || !Number.isFinite(pid)) return null
-    return { kind: 'instrumented', sessionId, migration, spawn: { launched: true, pid } }
+    // WHERE it went, and only where the server actually said so (#532). A
+    // `via: 'tmux'` with no window to name is not read as a tmux launch:
+    // "attach to the window" with no window in the sentence is worse than
+    // saying only that a process exists, so it falls through to `detached` —
+    // which is the weaker of the two claims, never the stronger.
+    if (via === 'tmux' && typeof tmuxWindow === 'string' && tmuxWindow.length > 0) {
+      return {
+        kind: 'instrumented',
+        sessionId,
+        migration,
+        spawn: { launched: true, via: 'tmux', pid, window: tmuxWindow },
+      }
+    }
+    return { kind: 'instrumented', sessionId, migration, spawn: { launched: true, via: 'detached', pid } }
   }
   // Two ways the process is not there, and both are reported rather than
   // discarded: the migration copy may already have run.
@@ -185,9 +311,11 @@ async function refusalDetail(response: { status: number; json: () => Promise<unk
 }
 
 /**
- * Asks the fourth hand to relaunch this repo's conductor, instrumented, on the
- * conversation `sessionId` names — the ONE act `InstrumentButton.tsx`'s single
- * confirmation gates.
+ * Asks the fourth hand to start this repo's conductor, instrumented — fresh
+ * (`launch`), on the most recent conversation (`continue`), or on the exact one
+ * `sessionId` names (`resume`, the default). The ONE act
+ * `InstrumentButton.tsx`'s single confirmation gates, and the same act the
+ * wizard's conductor step performs behind its own.
  *
  * Returns a `'no-transcript-reachable'` outcome when the instrument cannot see
  * a transcript to resume from: nothing was spawned, nothing was copied, and
@@ -202,11 +330,15 @@ export async function requestInstrument(
   const impl = fetchImpl ?? (globalThis.fetch as unknown as InstrumentFetchLike | undefined)
   if (impl === undefined) throw new Error('this browser has no fetch — cannot instrument this session from here')
 
+  const harness = request.harness ?? 'claude'
+  const mode = request.mode ?? 'resume'
+  const { sessionId } = request
+  assertModeAndSessionAgree(mode, sessionId)
+
   // Refused here rather than sent bare, so the operator reads what is missing
   // instead of a 401 naming a header they cannot supply. ADR-0012's known
   // dev-mode gap made honest, not closed: under `npm run dev:web` vite serves
   // index.html itself, so the server's injection never runs.
-  const { sessionId } = request
   const capabilityToken = readCapabilityToken()
   if (capabilityToken === null) {
     throw new Error(missingTokenMessage('instrument this session'))
@@ -217,7 +349,12 @@ export async function requestInstrument(
     response = await impl(INSTRUMENT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', [CAPABILITY_TOKEN_HEADER]: capabilityToken },
-      body: JSON.stringify({ harness: 'claude', mode: 'resume', sessionId }),
+      // The key is OMITTED on the two modes that have no session, never sent as
+      // `undefined` and never as an empty string: the route refuses a
+      // `sessionId` present on anything but `resume`, and `JSON.stringify`
+      // drops an undefined value rather than sending `null` — a difference this
+      // spells out explicitly rather than relying on.
+      body: mode === 'resume' ? JSON.stringify({ harness, mode, sessionId }) : JSON.stringify({ harness, mode }),
     })
   } catch (err) {
     throw new Error(`could not reach the instrument: ${err instanceof Error ? err.message : String(err)}`)
@@ -248,7 +385,7 @@ export async function requestInstrument(
     throw new Error('the instrument answered something other than a relaunch result')
   }
 
-  const started = parseStarted(answer, sessionId)
+  const started = parseStarted(answer, sessionId ?? null)
   if (started === null) throw new Error('the instrument answered something other than a relaunch result')
   return started
 }

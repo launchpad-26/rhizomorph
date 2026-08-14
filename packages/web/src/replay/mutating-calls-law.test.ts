@@ -13,12 +13,26 @@ import { CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'
  * exactly as it was, and stays green. Rotation gave the dashboard its first
  * mutating call ever; the recordings library's rename-in-place gave it its
  * second; the lab's launch gives it its third; the concierge's
- * relaunch-with-continuity gives it its fourth. So this law enumerates
- * instead of forbidding: across every source file in `packages/web/src`, the
- * mutating calls are EXACTLY FOUR, each in exactly one file, each to
- * exactly one route — and every verb any one names is the same single verb,
- * `POST`. A FIFTH one added tomorrow — anywhere, in any panel, in a branch
- * nothing renders — fails here and has to say so in a diff a reviewer reads.
+ * relaunch-with-continuity gives it its fourth; the concierge's clone-by-URL
+ * gives it its fifth. So this law enumerates instead of forbidding: across
+ * every source file in `packages/web/src`, the mutating calls are EXACTLY
+ * FIVE, each in exactly one file, each to exactly one route — and every verb
+ * any one names is the same single verb, `POST`. A SIXTH one added tomorrow —
+ * anywhere, in any panel, in a branch nothing renders — fails here and has to
+ * say so in a diff a reviewer reads.
+ *
+ * **The fifth (#266).** `concierge/clone.ts` is prd-20 ruling 1 / ADR-0019's
+ * OTHER power — the one the fourth row's own module doc names and does not
+ * use: `git clone` a URL the operator typed, into the concierge's own fenced
+ * namespace (`server/src/concierge/paths.ts`'s `defaultClonesRoot`), never
+ * inside the watched repo's working tree. It clears the same three-reason bar
+ * as its four siblings and argues it in its own diff, in its own module
+ * header, rather than inheriting it: the write is outside the watched repo and
+ * inside a named fence, the DESTINATION IS DERIVED server-side so nothing in
+ * the request body is a path, it is reached only from `connect/wizard.tsx`'s
+ * one form (`concierge/explicit-invocation-law.test.ts` now proves that
+ * app-wide, not merely within `concierge/`), and it appends nothing to the
+ * event log at all — so there is no past for it to revise.
  *
  * **Why a fourth mutating call is allowed to exist at all, not just why it is
  * caught.** Rotation (`replay/rotate.ts`), the rename (`recordings/label.ts`),
@@ -64,8 +78,8 @@ const REPLAY_DIR = path.dirname(fileURLToPath(import.meta.url))
 const WEB_SRC = path.resolve(REPLAY_DIR, '..')
 
 /**
- * The four files allowed to mutate, the one route each may reach, and the
- * exact header set each may send — every verb across all four is `POST`.
+ * The five files allowed to mutate, the one route each may reach, and the
+ * exact header set each may send — every verb across all five is `POST`.
  *
  * AMENDED for #234: all these routes are token-gated now, not just
  * `/api/label`, so every call names {@link CAPABILITY_TOKEN_HEADER}.
@@ -78,6 +92,10 @@ const WEB_SRC = path.resolve(REPLAY_DIR, '..')
  * harness, which mode, which session — so it needs `Content-Type` as the
  * launch does, and the route it reaches spawns a real process and copies a
  * transcript, so it needs the token at least as much as the launch does.
+ *
+ * AMENDED for #266: the concierge's clone (`concierge/clone.ts`) is the fifth
+ * row, with the identical header set for the identical reasons — a JSON
+ * payload (one URL) and a route that writes to the operator's disk.
  */
 const MUTATING_MODULES: ReadonlyArray<{ file: string; route: string; headers: readonly string[] }> = [
   { file: path.join(WEB_SRC, 'replay', 'rotate.ts'), route: '/api/rotate', headers: [CAPABILITY_TOKEN_HEADER] },
@@ -94,6 +112,11 @@ const MUTATING_MODULES: ReadonlyArray<{ file: string; route: string; headers: re
   {
     file: path.join(WEB_SRC, 'concierge', 'instrument.ts'),
     route: '/api/concierge/launch',
+    headers: ['Content-Type', CAPABILITY_TOKEN_HEADER],
+  },
+  {
+    file: path.join(WEB_SRC, 'concierge', 'clone.ts'),
+    route: '/api/concierge/clone',
     headers: ['Content-Type', CAPABILITY_TOKEN_HEADER],
   },
 ]
@@ -306,7 +329,7 @@ function assertHeaderBlocksExact(text: string, allowed: readonly string[], fromD
   }
 }
 
-describe('the web app names exactly four mutating calls (prd16 rulings 2 and 4; prd12/prd14 for the launch; prd-20 ruling 6 / ADR-0020 for the instrument button)', () => {
+describe('the web app names exactly five mutating calls (prd16 rulings 2 and 4; prd12/prd14 for the launch; prd-20 ruling 6 / ADR-0020 for the instrument button; prd-20 ruling 1 / ADR-0019 for the clone)', () => {
   it('has the whole app to check, not one directory — an empty grep proves nothing', () => {
     const files = sourceFiles()
     expect(files.length).toBeGreaterThan(80)
@@ -315,7 +338,7 @@ describe('the web app names exactly four mutating calls (prd16 rulings 2 and 4; 
     expect(files.map((file) => file.name)).toContain(path.join('drawer', 'useTranscript.ts'))
   })
 
-  it('are the ONLY four files in the app that name a mutating verb or build a request init', () => {
+  it('are the ONLY five files in the app that name a mutating verb or build a request init', () => {
     expect(mutatingFiles()).toEqual(
       MUTATING_MODULES.map((module) => path.relative(WEB_SRC, module.file)).sort(),
     )
@@ -460,12 +483,56 @@ describe('the web app names exactly four mutating calls (prd16 rulings 2 and 4; 
       'the header law must hold on the real instrument.ts',
     ).not.toThrow()
 
-    expect(text).toMatch(
-      /body\s*:\s*JSON\.stringify\(\{\s*harness:\s*'claude',\s*mode:\s*'resume',\s*sessionId\s*\}\)/,
-    )
+    // AMENDED for #266, which widened the REQUEST and not the grant: the
+    // harness and the mode are the caller's now (the wizard's conductor step
+    // has no session to resume), so the body has two shapes rather than one.
+    // Both are pinned literally, and the pin is deliberately stricter than "a
+    // body, somehow": `sessionId` appears in the resume shape and in NEITHER
+    // other one, which is the route's own rule
+    // (`parseConciergeLaunchRequestBody` refuses a session id on any mode but
+    // `resume`) held at the call site instead of discovered as a 400.
+    expect(text).toMatch(/JSON\.stringify\(\{\s*harness,\s*mode,\s*sessionId\s*\}\)/)
+    expect(text).toMatch(/JSON\.stringify\(\{\s*harness,\s*mode\s*\}\)/)
+    // Exactly two bodies, so a third shape cannot slip in beside them.
+    expect([...text.matchAll(/JSON\.stringify\(/g)]).toHaveLength(2)
     // The derived-source guarantee, restated where a widening would land: no
     // key in this module names a location on the operator's disk.
     expect(text).not.toMatch(/\b(?:path|filePath|dir|root|transcriptPath)\s*:/)
+  })
+
+  /**
+   * The clone's own row (#266). Its payload is the smallest of the five — one
+   * URL — and, as with the instrument button, that smallness is the point:
+   * `server/src/concierge/clone.ts` DERIVES the destination directory from the
+   * URL and fences it against `defaultClonesRoot()`, so there is deliberately
+   * no path, no root, no destination and no filename anywhere in this body for
+   * a caller to name. A `path`/`dir`/`destination` key appearing in the REQUEST
+   * here would be the grant ADR-0019 did not give.
+   *
+   * The ban is on the request, not on the module: the `cloned` OUTCOME carries
+   * the path the server chose, which is a fact coming back rather than an
+   * instruction going out — so the assertion is scoped to the `JSON.stringify`
+   * body, exactly where a widening would have to land.
+   */
+  it("clone.ts's payload is one URL and never a destination, behind exactly the two headers the gated call needs, no credential", () => {
+    const dir = path.join(WEB_SRC, 'concierge')
+    const text = readFileSync(path.join(dir, 'clone.ts'), 'utf8')
+    expect(text).not.toMatch(/FormData|URLSearchParams|new Request\(/)
+    expect(text).not.toMatch(/apiKey|api_key|ANTHROPIC_API_KEY|Authorization|Bearer\s/i)
+    expect(text).not.toMatch(/credentials\s*:/)
+
+    expect(
+      () => assertHeaderBlocksExact(text, ['Content-Type', CAPABILITY_TOKEN_HEADER], dir),
+      'the header law must hold on the real clone.ts',
+    ).not.toThrow()
+
+    const bodies = [...text.matchAll(/JSON\.stringify\(([^)]*)\)/g)].map((match) => match[1] ?? '')
+    expect(bodies).toEqual(['{ url }'])
+    for (const body of bodies) {
+      expect(body, 'the clone request may not name a place on disk').not.toMatch(
+        /\b(?:path|filePath|dir|root|destination|into)\b/,
+      )
+    }
   })
 
   /**
@@ -651,6 +718,26 @@ describe('the web app names exactly four mutating calls (prd16 rulings 2 and 4; 
     expect(instrumentButton).toContain("from './instrument.js'")
     expect(instrumentButton).not.toMatch(/\bfetch\s*\(/)
     expect(instrumentButton).not.toContain('/api/')
+
+    // The wizard (#266) is the one surface that drives TWO of the five, so it
+    // is held to the same rule twice over: both acts come in as modules, and
+    // nothing in the file names a route, builds a request, or calls `fetch`.
+    // The one path it may name is the READ its repo step makes, which lives in
+    // `connect/meta.ts` with the page's other GETs — `connect/index.test.tsx`'s
+    // ruling-7 law is what allows that one and no other.
+    const wizard = readFileSync(path.join(WEB_SRC, 'connect', 'wizard.tsx'), 'utf8')
+    expect(wizard).toContain("from '../concierge/clone.js'")
+    expect(wizard).toContain("from '../concierge/instrument.js'")
+    expect(wizard).not.toMatch(/\bfetch\s*\(/)
+    // Not "no `/api/` at all", as the three buttons above are held to: the
+    // wizard's repo step legitimately NAMES the read route it reads (through
+    // `connect/meta.ts`, with the page's other GETs), and `connect/index.test.
+    // ts`'s ruling-7 allowlist is the law that permits exactly that one. What
+    // it may never name is a route in THIS enumeration — a mutating path
+    // written here would be the first half of a sixth call.
+    for (const { route } of MUTATING_MODULES) {
+      expect(wizard, `wizard.tsx names the mutating route ${route}`).not.toContain(route)
+    }
   })
 
   it('the detectors bite — a POST added anywhere else would be caught', () => {
