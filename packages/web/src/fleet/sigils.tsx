@@ -1,6 +1,5 @@
 import type { ReactElement } from 'react'
-import type { LadderRank, LaneActivity, PathologyKind } from './buildFleet.js'
-import { PATHOLOGY_RANK } from './buildFleet.js'
+import { PATHOLOGY_RANK, type LadderRank, type LaneActivity, type PathologyKind } from '@rhizomorph/core'
 import { arcPath, line, polar, segment, spiral, taper, thorn } from './strokes.js'
 
 /**

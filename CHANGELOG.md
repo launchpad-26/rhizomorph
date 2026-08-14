@@ -215,6 +215,31 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **A pane parked in a worktree subdirectory on its very first poll now shows
+  the right worktree path (#463).** `worktreePath` resolved only by joining
+  `status`'s `workdir` against `list`'s `path` exactly; a pane whose workdir
+  was already a subdirectory of its worktree (e.g. a pane that `cd`s into
+  `packages/server`) never matched that join, and with no prior poll to carry
+  a good value forward, `worktreePath` stayed `null` for the whole session.
+  When `list` is otherwise healthy but the exact-path join misses,
+  `worktreePath` is now resolved directly via `git rev-parse
+  --show-toplevel`, memoised per workdir so a pane parked in the same
+  subdirectory across polls only pays the extra `exec` once.
+- **`withBranchReconciliation`'s "did this poll observe reality" signal is
+  still inferred from allocation identity, but the snapshot shape it can be
+  inferred from is now compiler-checked (#454).** The wrapper decided "not
+  observed" from `branches`' reference identity — correct for `gitCollector`
+  today (verified exhaustively, #449), but invisible to the compiler: the
+  wrapper was generic over any snapshot with a `branches` field, so an
+  unrelated future collector reusing it would get no warning if its own
+  "nothing changed" fast path never allocated fresh. The wrapper's signature
+  now names `GitSnapshot` concretely instead of a generic bound, so only a
+  structurally-matching snapshot type-checks; an explicit "observed" marker
+  the collector sets itself — the shape that would make the signal explicit
+  rather than inferred — is deferred to a future migration. A poll that
+  defies the identity contract without one of the two known failure events
+  now surfaces a loud `collector.error` instead of silently skipping
+  reconciliation forever.
 - **A resumed session with a stale fold now retires ghost branches too
   (#449).** `withBranchReconciliation` (#139) diffed a resume's folded
   branches against reality correctly since #132-134, but was never wired into

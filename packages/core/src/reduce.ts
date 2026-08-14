@@ -1308,7 +1308,7 @@ function forkCheckpoint(state: SessionState, event: EventOf<'fork.checkpoint'>):
     ...state,
     checkpoints: {
       records: [...checkpoints.records, record],
-      byLane: { ...checkpoints.byLane, [p.lane]: [...(checkpoints.byLane[p.lane] ?? []), at] },
+      byLane: appendIndexed(checkpoints.byLane, p.lane, at),
     },
   }
 }
@@ -1347,8 +1347,8 @@ function forkDispatched(state: SessionState, event: EventOf<'fork.dispatched'>):
     ...state,
     forks: {
       dispatches: [...forks.dispatches, record],
-      byFork: { ...forks.byFork, [p.forkId]: [...(forks.byFork[p.forkId] ?? []), at] },
-      byLane: { ...forks.byLane, [p.laneHandle]: [...(forks.byLane[p.laneHandle] ?? []), at] },
+      byFork: appendIndexed(forks.byFork, p.forkId, at),
+      byLane: appendIndexed(forks.byLane, p.laneHandle, at),
     },
   }
 
@@ -1371,9 +1371,18 @@ function markLaneSynthetic(state: SessionState, laneHandle: string): SessionStat
   }
 }
 
-/** True once a `fork.dispatched` has named this handle. The forward half of {@link markLaneSynthetic}. */
+/**
+ * True once a `fork.dispatched` has named this handle. The forward half of
+ * {@link markLaneSynthetic}.
+ *
+ * `Object.hasOwn`, not `!== undefined`: `byLane['__proto__']` is the
+ * INHERITED `Object.prototype`, never `undefined`, so a lane literally
+ * handled `__proto__` would read as already-synthetic without any
+ * `fork.dispatched` having named it — the same read half {@link
+ * appendIndexed} closes on the write side of this exact index.
+ */
 function isSyntheticLane(state: SessionState, laneHandle: string): boolean {
-  return state.forks.byLane[laneHandle] !== undefined
+  return Object.hasOwn(state.forks.byLane, laneHandle)
 }
 
 // --- judge (prd11 ruling 6b) --------------------------------------------------
@@ -1399,13 +1408,34 @@ function judgeFinding(state: SessionState, event: EventOf<'judge.finding'>): Ses
   const at = judge.findings.length
   let byLane = judge.byLane
   for (const lane of p.lanes) {
-    byLane = { ...byLane, [lane]: [...(byLane[lane] ?? []), at] }
+    byLane = appendIndexed(byLane, lane, at)
   }
 
   return { ...state, judge: { findings: [...judge.findings, record], byLane } }
 }
 
 // --- helpers ----------------------------------------------------------------
+
+/**
+ * Appends `at` under `key` in a per-lane/per-id position index (`byLane`,
+ * `byFork`), the same shape `state.ts`'s `indexRefusalUnder` hardens for
+ * `RefusalState.byInstance` (PR #283, `50d85af`) — mirrored here rather than
+ * imported because `state.ts` is outside this fix's fence.
+ *
+ * `key` is a lane handle or fork id: strings this repo generates today
+ * (`checkpoints.byLane`, `forks.byFork`, `forks.byLane`, `judge.byLane`), but
+ * nothing types-enforces that, and one poisoned event in a recording would
+ * otherwise break every future replay of it. `Object.hasOwn`, never `?? []`:
+ * `index['__proto__']` returns the INHERITED `Object.prototype`, not
+ * `undefined`, so `??` never fires and spreading it throws. The write stays a
+ * computed-key spread, which already DEFINES an own property rather than
+ * invoking a setter — the incremental half of #283's fix needed no change on
+ * write, only on read, and neither does this one.
+ */
+function appendIndexed(index: Record<string, number[]>, key: string, at: number): Record<string, number[]> {
+  const held = Object.hasOwn(index, key) ? (index[key] ?? []) : []
+  return { ...index, [key]: [...held, at] }
+}
 
 function upsertBranch(
   state: SessionState,
