@@ -340,6 +340,55 @@ describe('the predecessor/successor pointer', () => {
   })
 })
 
+/**
+ * #472: `telemetry.refused`'s throttle coalesces repeated faults into one
+ * event carrying a count instead of flooding the log; `collector.error`
+ * needed the same field to do it for malformed-body faults. The round-trip
+ * assertion below is also the regression guard the issue's own review named
+ * as the mutation that matters most — remove `count` from the schema again
+ * and this goes red because the field silently strips instead of surviving.
+ */
+describe('collector.error', () => {
+  it('carries a count when the emitter coalesces repeated occurrences of the same fault', () => {
+    const event = createEvent(
+      'collector.error',
+      { collector: 'otel', message: 'malformed OTLP request body', count: 47 },
+      { id: 'e', ts: 1 },
+    )
+    expect(event).toEqual({
+      id: 'e',
+      ts: 1,
+      source: 'system',
+      type: 'collector.error',
+      payload: { collector: 'otel', message: 'malformed OTLP request body', count: 47 },
+    })
+  })
+
+  it('parses without a count — an emitter that never coalesces still records honestly', () => {
+    expect(
+      parseEvent({
+        id: 'e',
+        ts: 1,
+        source: 'system',
+        type: 'collector.error',
+        payload: { collector: 'git', message: 'boom' },
+      }).ok,
+    ).toBe(true)
+  })
+
+  it('refuses a non-positive count — a coalesced event always stands for at least one occurrence', () => {
+    expect(
+      parseEvent({
+        id: 'e',
+        ts: 1,
+        source: 'system',
+        type: 'collector.error',
+        payload: { collector: 'otel', message: 'm', count: 0 },
+      }).ok,
+    ).toBe(false)
+  })
+})
+
 describe('createIdFactory', () => {
   it('produces padded, ordered, unique ids', () => {
     const next = createIdFactory()
