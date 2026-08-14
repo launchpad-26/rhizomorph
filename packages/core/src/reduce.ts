@@ -90,6 +90,10 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       return worktreeRemoved(state, event)
     case 'worktree.dirty':
       return worktreeDirty(state, event)
+    case 'worktree.dirtyStatusFailed':
+      return worktreeDirtyStatusFailed(state, event)
+    case 'worktree.dirtyStatusRecovered':
+      return worktreeDirtyStatusRecovered(state, event)
     case 'branch.updated':
       return branchUpdated(state, event)
     case 'branch.removed':
@@ -258,6 +262,7 @@ function worktreeDiscovered(
     // Re-discovery must not forget what we knew was dirty.
     dirtyFiles: prev?.dirtyFiles ?? [],
     dirtyUpdatedAt: prev?.dirtyUpdatedAt ?? null,
+    dirtyStatusFailedSince: prev?.dirtyStatusFailedSince ?? null,
   }
 
   let next: SessionState = { ...state, worktrees: { ...state.worktrees, [p.path]: worktree } }
@@ -285,6 +290,8 @@ function worktreeRemoved(state: SessionState, event: EventOf<'worktree.removed'>
     // A worktree that is gone cannot be colliding with anyone.
     dirtyFiles: [],
     dirtyUpdatedAt: event.ts,
+    // A removed worktree cannot have an open git-status incident.
+    dirtyStatusFailedSince: null,
   }
   return { ...state, worktrees: { ...state.worktrees, [prev.path]: worktree } }
 }
@@ -299,6 +306,37 @@ function worktreeDirty(state: SessionState, event: EventOf<'worktree.dirty'>): S
     dirtyUpdatedAt: event.ts,
   }
   return { ...state, worktrees: { ...state.worktrees, [p.path]: worktree } }
+}
+
+/**
+ * A per-worktree fact, voiced as a fact about the worktree — never routed
+ * through `CollectorState`, so one worktree's recovery can never mask a
+ * sibling's still-open incident (#429).
+ */
+function worktreeDirtyStatusFailed(
+  state: SessionState,
+  event: EventOf<'worktree.dirtyStatusFailed'>,
+): SessionState {
+  const { worktreePath } = event.payload
+  const prev = state.worktrees[worktreePath]
+  const worktree: WorktreeState = {
+    ...(prev ?? stubWorktree(worktreePath, event.ts)),
+    dirtyStatusFailedSince: event.ts,
+  }
+  return { ...state, worktrees: { ...state.worktrees, [worktreePath]: worktree } }
+}
+
+function worktreeDirtyStatusRecovered(
+  state: SessionState,
+  event: EventOf<'worktree.dirtyStatusRecovered'>,
+): SessionState {
+  const { worktreePath } = event.payload
+  const prev = state.worktrees[worktreePath]
+  if (prev === undefined) return state
+  return {
+    ...state,
+    worktrees: { ...state.worktrees, [worktreePath]: { ...prev, dirtyStatusFailedSince: null } },
+  }
 }
 
 function branchUpdated(state: SessionState, event: EventOf<'branch.updated'>): SessionState {
@@ -1476,6 +1514,7 @@ function stubWorktree(path: string, ts: number): WorktreeState {
     removedAt: null,
     dirtyFiles: [],
     dirtyUpdatedAt: null,
+    dirtyStatusFailedSince: null,
   }
 }
 

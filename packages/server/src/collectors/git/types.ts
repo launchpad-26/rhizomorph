@@ -42,4 +42,13 @@ export interface GitSnapshot {
    * all).
    */
   dirtyFailures: Record<string, number>
+  /**
+   * Consecutive `git for-each-ref` failures — the collector-wide sibling of
+   * `dirtyFailures`. One counter, not a per-path record: a single
+   * `for-each-ref` call reads every branch at once, so there is exactly one
+   * entity to key it against (#429's for-each-ref fix — the exact #415
+   * threshold-and-latch pattern, applied to the one call site it was missing
+   * from).
+   */
+  refsFailures: number
 }

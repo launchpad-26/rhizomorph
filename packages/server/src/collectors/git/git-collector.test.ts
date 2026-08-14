@@ -320,7 +320,7 @@ prunable gitdir file points to non-existent location
       expect(poll3.events).toEqual([])
     })
 
-    it('carries the last dirty set forward silently for up to MAX_DIRTY_STATUS_FAILURES consecutive git status failures, then voices collector.error exactly once, stays silent through further failures, voices nothing on recovery, and re-arms for a second incident', async () => {
+    it('carries the last dirty set forward silently for up to MAX_DIRTY_STATUS_FAILURES consecutive git status failures, then voices worktree.dirtyStatusFailed exactly once, stays silent through further failures, voices worktree.dirtyStatusRecovered on recovery, and re-arms for a second incident', async () => {
       const exec1 = scriptedExec({
         'git worktree list --porcelain::/repo': ONE_WORKTREE,
         'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo': ONE_REF,
@@ -346,16 +346,17 @@ prunable gitdir file points to non-existent location
       }
 
       // Failure 4: past the bound. Stale data stops being asserted as
-      // current; the gap becomes visible instead.
+      // current; the gap becomes visible instead — as a fact about the
+      // worktree (#429), not squeezed through the shared collector slot.
       const poll4 = await gitCollector.poll(snapshot, makeContext(exec2, 5000))
       expect(poll4.events).toEqual([
         expect.objectContaining({
-          type: 'collector.error',
-          payload: expect.objectContaining({
-            collector: 'git',
-            message: 'git status --porcelain failed 4 times in a row for /repo',
-            detail: 'error: could not read index',
-          }),
+          type: 'worktree.dirtyStatusFailed',
+          payload: {
+            worktreePath: '/repo',
+            consecutiveFailures: 4,
+            message: 'error: could not read index',
+          },
         }),
       ])
       expect(poll4.nextSnapshot.dirty['/repo']).toBeUndefined()
@@ -380,13 +381,12 @@ prunable gitdir file points to non-existent location
 
       // Recovery: the very next successful `git status` resets the failure
       // count silently and records the fresh set — not the stale one that
-      // was already dropped. No close event (#415 ruling: a per-worktree
-      // recovery voiced through the per-collector `lastErrorMessage` slot
-      // can mask a sibling worktree's still-open incident — see #429). This
-      // asserts the events array is exactly the dirty-set change with
-      // nothing ahead of it — if a close were reintroduced it would prepend
-      // a `collector.error` here, same as the reverted commit did, and this
-      // assertion would go red.
+      // was already dropped. Now safe to voice a close (#429): it names its
+      // own worktree, so a sibling worktree's still-open incident can never
+      // be masked by it, unlike the reverted #415 attempt that routed the
+      // close through the shared per-collector slot. The recovered-fact
+      // precedes the dirty-fact — state signal ahead of data, same ordering
+      // the skip-voicing code elsewhere in this file already follows.
       const exec5 = scriptedExec({
         'git worktree list --porcelain::/repo': ONE_WORKTREE,
         'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo': ONE_REF,
@@ -396,6 +396,10 @@ prunable gitdir file points to non-existent location
       expect(poll5.nextSnapshot.dirtyFailures['/repo']).toBeUndefined()
       expect(poll5.nextSnapshot.dirty['/repo']).toEqual([{ path: 'fresh.txt', status: 'untracked', staged: false }])
       expect(poll5.events).toEqual([
+        expect.objectContaining({
+          type: 'worktree.dirtyStatusRecovered',
+          payload: { worktreePath: '/repo' },
+        }),
         expect.objectContaining({
           type: 'worktree.dirty',
           payload: { path: '/repo', branch: 'main', files: [{ path: 'fresh.txt', status: 'untracked', staged: false }] },
@@ -415,10 +419,10 @@ prunable gitdir file points to non-existent location
       const poll6 = await gitCollector.poll(secondIncidentSnapshot, makeContext(exec2, 13000))
       expect(poll6.events).toEqual([
         expect.objectContaining({
-          type: 'collector.error',
+          type: 'worktree.dirtyStatusFailed',
           payload: expect.objectContaining({
-            collector: 'git',
-            message: 'git status --porcelain failed 4 times in a row for /repo',
+            worktreePath: '/repo',
+            consecutiveFailures: 4,
           }),
         }),
       ])
@@ -477,7 +481,22 @@ prunable gitdir file points to non-existent location
         return { stdout, stderr: '', code: 0, failed: false }
       }
 
-      let snapshot = gitCollector.initialSnapshot()
+      // Discover /repo on a healthy poll first, so the failure loop below
+      // starts from a known worktree and voices only what this test is
+      // about — no worktree.discovered noise mixed into the assertions.
+      let snapshot = (
+        await gitCollector.poll(
+          gitCollector.initialSnapshot(),
+          makeContext(
+            scriptedExec({
+              'git worktree list --porcelain::/repo': ONE_WORKTREE,
+              'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo': ONE_REF,
+              'git status --porcelain::/repo': '',
+            }),
+            500,
+          ),
+        )
+      ).nextSnapshot
       for (let failure = 1; failure <= MAX_DIRTY_STATUS_FAILURES; failure += 1) {
         snapshot = (await gitCollector.poll(snapshot, makeContext(execTimeout, 1000 + failure * 1000))).nextSnapshot
       }
@@ -485,10 +504,10 @@ prunable gitdir file points to non-existent location
 
       expect(voiced.events).toEqual([
         expect.objectContaining({
-          type: 'collector.error',
+          type: 'worktree.dirtyStatusFailed',
           payload: expect.objectContaining({
-            collector: 'git',
-            detail: 'killed with no exit code — the exec timeout',
+            worktreePath: '/repo',
+            message: 'killed with no exit code — the exec timeout',
           }),
         }),
       ])
@@ -496,9 +515,11 @@ prunable gitdir file points to non-existent location
 
     it('a killed for-each-ref names the exec timeout too — the branches read is the status read’s structural sibling, and was the unpinned arm', async () => {
       // The status-timeout test above pins one of the two call sites that
-      // voice describeGitFailure's third arm; this pins the other. Unlike
-      // status, a failed for-each-ref voices immediately (no carry-forward
-      // bound), so one poll suffices.
+      // voice describeGitFailure's third arm; this pins the other. Since
+      // #429, a failed for-each-ref follows the identical threshold-and-latch
+      // shape as the status path (git-collector.ts §6d) — silent through
+      // MAX_DIRTY_STATUS_FAILURES polls, voiced once on the poll that
+      // crosses it.
       const execTimeout: Exec = async (command, args, options) => {
         if (args[0] === 'for-each-ref') {
           return { stdout: '', stderr: '', code: null, failed: true }
@@ -513,19 +534,110 @@ prunable gitdir file points to non-existent location
         return { stdout, stderr: '', code: 0, failed: false }
       }
 
-      const poll = await gitCollector.poll(gitCollector.initialSnapshot(), makeContext(execTimeout, 1000))
-      expect(poll.events).toEqual(
+      let snapshot = (
+        await gitCollector.poll(
+          gitCollector.initialSnapshot(),
+          makeContext(
+            scriptedExec({
+              'git worktree list --porcelain::/repo': ONE_WORKTREE,
+              'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo': ONE_REF,
+              'git status --porcelain::/repo': '',
+            }),
+            500,
+          ),
+        )
+      ).nextSnapshot
+      for (let failure = 1; failure <= MAX_DIRTY_STATUS_FAILURES; failure += 1) {
+        const poll = await gitCollector.poll(snapshot, makeContext(execTimeout, 1000 + failure * 1000))
+        expect(poll.events).toEqual([])
+        snapshot = poll.nextSnapshot
+      }
+      const voiced = await gitCollector.poll(snapshot, makeContext(execTimeout, 9000))
+
+      expect(voiced.events).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             type: 'collector.error',
             payload: expect.objectContaining({
               collector: 'git',
-              message: 'git for-each-ref failed',
+              message: `git for-each-ref failed ${MAX_DIRTY_STATUS_FAILURES + 1} times in a row`,
               detail: 'killed with no exit code — the exec timeout',
             }),
           }),
         ]),
       )
+    })
+
+    it('for-each-ref: silent through the bound, voiced once on crossing it, silent again after, resets silently on recovery — the same #415/#429 latch as the dirty-status path', async () => {
+      const execWithFailingRefs: Exec = async (command, args, options) => {
+        if (args[0] === 'for-each-ref') {
+          return { stdout: '', stderr: 'error: bad ref', code: 1, failed: true }
+        }
+        const key = `${command} ${args.join(' ')}::${options?.cwd ?? ''}`
+        const script: Record<string, string> = {
+          'git worktree list --porcelain::/repo': ONE_WORKTREE,
+          'git status --porcelain::/repo': '',
+        }
+        const stdout = script[key]
+        if (stdout === undefined) throw new Error(`no scripted output for "${key}"`)
+        return { stdout, stderr: '', code: 0, failed: false }
+      }
+
+      let snapshot = (
+        await gitCollector.poll(
+          gitCollector.initialSnapshot(),
+          makeContext(
+            scriptedExec({
+              'git worktree list --porcelain::/repo': ONE_WORKTREE,
+              'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo': ONE_REF,
+              'git status --porcelain::/repo': '',
+            }),
+            500,
+          ),
+        )
+      ).nextSnapshot
+
+      // Failures 1..MAX_DIRTY_STATUS_FAILURES: silent, refsFailures climbs.
+      for (let failure = 1; failure <= MAX_DIRTY_STATUS_FAILURES; failure += 1) {
+        const poll = await gitCollector.poll(snapshot, makeContext(execWithFailingRefs, 1000 + failure * 1000))
+        expect(poll.events).toEqual([])
+        expect(poll.nextSnapshot.refsFailures).toBe(failure)
+        snapshot = poll.nextSnapshot
+      }
+
+      // Crossing the bound: voiced exactly once.
+      const crossing = await gitCollector.poll(snapshot, makeContext(execWithFailingRefs, 5000))
+      expect(crossing.events).toEqual([
+        expect.objectContaining({
+          type: 'collector.error',
+          payload: expect.objectContaining({
+            collector: 'git',
+            message: `git for-each-ref failed ${MAX_DIRTY_STATUS_FAILURES + 1} times in a row`,
+            detail: 'error: bad ref',
+          }),
+        }),
+      ])
+      snapshot = crossing.nextSnapshot
+
+      // Failures 5, 6: heartbeat suppressed — the actual bug this issue fixes.
+      for (const failure of [5, 6]) {
+        const poll = await gitCollector.poll(snapshot, makeContext(execWithFailingRefs, 5000 + failure * 1000))
+        expect(poll.events).toEqual([])
+        expect(poll.nextSnapshot.refsFailures).toBe(failure)
+        snapshot = poll.nextSnapshot
+      }
+
+      // Recovery: resets to 0 silently — no `collector.recovered`, no new
+      // event type, per the #415 pattern (a single for-each-ref call has
+      // exactly one entity, so there is nothing to mask).
+      const execRecovered = scriptedExec({
+        'git worktree list --porcelain::/repo': ONE_WORKTREE,
+        'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo': ONE_REF,
+        'git status --porcelain::/repo': '',
+      })
+      const recovered = await gitCollector.poll(snapshot, makeContext(execRecovered, 9000))
+      expect(recovered.nextSnapshot.refsFailures).toBe(0)
+      expect(recovered.events.some((event) => event.type === 'collector.recovered')).toBe(false)
     })
 
     it('a locked worktree whose directory is gone stays on the bounded-transient path, never worktree.removed — git itself refuses to mark a locked worktree prunable', async () => {
@@ -588,6 +700,109 @@ locked removable media
       expect(poll2.nextSnapshot.dirtyFailures['/repo']).toBe(1)
       expect(poll2.nextSnapshot.dirty['/repo']).toEqual([{ path: 'scratch.txt', status: 'untracked', staged: false }])
       expect(poll2.events).toEqual([])
+    })
+
+    it('resumes from a persisted snapshot with no refsFailures key at all, treating it as starting from zero', async () => {
+      const exec1 = scriptedExec({
+        'git worktree list --porcelain::/repo': ONE_WORKTREE,
+        'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo': ONE_REF,
+        'git status --porcelain::/repo': '?? scratch.txt\n',
+      })
+      const { nextSnapshot } = await gitCollector.poll(gitCollector.initialSnapshot(), makeContext(exec1, 1000))
+
+      // Simulate a snapshot written by the pre-#429 build: no `refsFailures`
+      // field survives the round trip through the opaque JSON snapshot store.
+      const preFixSnapshot = { ...nextSnapshot } as Record<string, unknown>
+      delete preFixSnapshot.refsFailures
+      const resumed = preFixSnapshot as unknown as typeof nextSnapshot
+
+      const execFailingRefs: Exec = async (command, args, options) => {
+        if (args[0] === 'for-each-ref') {
+          return { stdout: '', stderr: 'error: bad ref', code: 1, failed: true }
+        }
+        const key = `${command} ${args.join(' ')}::${options?.cwd ?? ''}`
+        const script: Record<string, string> = {
+          'git worktree list --porcelain::/repo': ONE_WORKTREE,
+          'git status --porcelain::/repo': '?? scratch.txt\n',
+        }
+        const stdout = script[key]
+        if (stdout === undefined) throw new Error(`no scripted output for "${key}"`)
+        return { stdout, stderr: '', code: 0, failed: false }
+      }
+      const poll2 = await gitCollector.poll(resumed, makeContext(execFailingRefs, 2000))
+
+      expect(() => poll2).not.toThrow()
+      expect(poll2.nextSnapshot.refsFailures).toBe(1)
+      expect(poll2.events).toEqual([])
+    })
+
+    it("the #429 scenario: two worktrees past the bound, one recovers, the other's still-open incident is never touched", async () => {
+      const twoWorktrees = `${ONE_WORKTREE}
+worktree /repo-worktrees/lane-a
+HEAD 2222222222222222222222222222222222222222
+branch refs/heads/lane-a
+
+worktree /repo-worktrees/lane-b
+HEAD 3333333333333333333333333333333333333333
+branch refs/heads/lane-b
+`
+      const refsForTwo = `${ONE_REF}lane-a 2222222222222222222222222222222222222222\nlane-b 3333333333333333333333333333333333333333\n`
+
+      // Seed a resumed snapshot where both lanes already crossed the bound
+      // and voiced their incident — as if reconstructed from a persisted
+      // snapshot after MAX_DIRTY_STATUS_FAILURES + 1 prior failing polls
+      // for each.
+      const seeded = {
+        ...gitCollector.initialSnapshot(),
+        worktrees: {},
+        dirty: {},
+        dirtyFailures: {
+          '/repo-worktrees/lane-a': MAX_DIRTY_STATUS_FAILURES + 1,
+          '/repo-worktrees/lane-b': MAX_DIRTY_STATUS_FAILURES + 1,
+        },
+      }
+
+      const execMixed: Exec = async (command, args, options) => {
+        const key = `${command} ${args.join(' ')}::${options?.cwd ?? ''}`
+        if (key === 'git status --porcelain::/repo-worktrees/lane-a') {
+          return { stdout: '', stderr: '', code: 0, failed: false }
+        }
+        if (key === 'git status --porcelain::/repo-worktrees/lane-b') {
+          return { stdout: '', stderr: 'error: could not read index', code: 1, failed: true }
+        }
+        const script: Record<string, string> = {
+          'git worktree list --porcelain::/repo': twoWorktrees,
+          'git for-each-ref --format=%(refname:short) %(objectname) refs/heads/::/repo': refsForTwo,
+          'git rev-list --left-right --count main...lane-a::/repo': '0\t0',
+          'git rev-list --left-right --count main...lane-b::/repo': '0\t0',
+          'git status --porcelain::/repo': '',
+        }
+        const stdout = script[key]
+        if (stdout === undefined) throw new Error(`no scripted output for "${key}"`)
+        return { stdout, stderr: '', code: 0, failed: false }
+      }
+
+      const poll = await gitCollector.poll(seeded, makeContext(execMixed, 10_000))
+
+      // A recovers: a voiced worktree.dirtyStatusRecovered naming lane-a only.
+      expect(poll.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'worktree.dirtyStatusRecovered',
+            payload: { worktreePath: '/repo-worktrees/lane-a' },
+          }),
+        ]),
+      )
+      // B's incident was already voiced before the resume seed and stays
+      // silent — the heartbeat-suppression rule, not a second bug — and
+      // neither event is a collector.error or collector.recovered: the fact
+      // never reaches CollectorState.
+      expect(poll.events.filter((event) => event.type === 'worktree.dirtyStatusRecovered')).toHaveLength(1)
+      expect(poll.events.some((event) => event.type === 'worktree.dirtyStatusFailed')).toBe(false)
+      expect(poll.events.some((event) => event.type === 'collector.error')).toBe(false)
+      expect(poll.events.some((event) => event.type === 'collector.recovered')).toBe(false)
+      expect(poll.nextSnapshot.dirtyFailures['/repo-worktrees/lane-b']).toBe(MAX_DIRTY_STATUS_FAILURES + 2)
+      expect(poll.nextSnapshot.dirtyFailures['/repo-worktrees/lane-a']).toBeUndefined()
     })
   })
 

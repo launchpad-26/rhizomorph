@@ -264,6 +264,12 @@ function oneOfEach() {
       branch: 'feat',
       files: [{ path: 'src/a.ts', status: 'modified' }],
     }, { id: id(), ts: 8 }),
+    createEvent('worktree.dirtyStatusFailed', {
+      worktreePath: '/repo/wt',
+      consecutiveFailures: 4,
+      message: 'error: could not read index',
+    }, { id: id(), ts: 8 }),
+    createEvent('worktree.dirtyStatusRecovered', { worktreePath: '/repo/wt' }, { id: id(), ts: 8 }),
     createEvent('pane.discovered', {
       paneId: '%1',
       windowName: 'feat',

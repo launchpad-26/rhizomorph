@@ -28,7 +28,8 @@ const COLLECTOR_NAME = 'git'
  * recovery: the counter resets silently so a later incident re-arms and
  * voices again (#415). A voiced close was tried and reverted — per-worktree
  * recovery routed through per-collector `CollectorState` can mask a sibling
- * worktree's still-open incident (#429).
+ * worktree's still-open incident — the close is now voiced safely via
+ * `worktree.dirtyStatusRecovered`, which names its own worktree (#429).
  */
 export const MAX_DIRTY_STATUS_FAILURES = 3
 
@@ -92,6 +93,7 @@ export const gitCollector: Collector<GitSnapshot> = {
       branches: {},
       dirty: {},
       dirtyFailures: {},
+      refsFailures: 0,
     }
   },
 
@@ -129,7 +131,7 @@ export const gitCollector: Collector<GitSnapshot> = {
 
     const nextWorktrees = diffWorktrees(worktrees, prevSnapshot, context, events)
 
-    const nextBranches = await diffBranches(context, worktrees, mainBranch, prevSnapshot, events)
+    const branchResult = await diffBranches(context, worktrees, mainBranch, prevSnapshot, events)
 
     const { dirty: nextDirty, dirtyFailures: nextDirtyFailures } = await diffDirty(
       context,
@@ -144,7 +146,8 @@ export const gitCollector: Collector<GitSnapshot> = {
         mainBranch,
         mainBranchGapVoiced: mainWorktreeDetached,
         worktrees: nextWorktrees,
-        branches: nextBranches,
+        branches: branchResult.branches,
+        refsFailures: branchResult.refsFailures,
         dirty: nextDirty,
         dirtyFailures: nextDirtyFailures,
       },
@@ -211,21 +214,29 @@ async function diffBranches(
   mainBranch: string | null,
   prevSnapshot: GitSnapshot,
   events: RhizomorphEvent[],
-): Promise<Record<string, GitBranchState>> {
+): Promise<{ branches: Record<string, GitBranchState>; refsFailures: number }> {
   const refsResult = await runGit(
     context,
     ['for-each-ref', '--format=%(refname:short) %(objectname)', 'refs/heads/'],
     context.repoPath,
   )
   if (refsResult.failed) {
-    events.push(
-      context.emit('collector.error', {
-        collector: COLLECTOR_NAME,
-        message: 'git for-each-ref failed',
-        detail: describeGitFailure(refsResult),
-      }),
-    )
-    return prevSnapshot.branches
+    const failures = (prevSnapshot.refsFailures ?? 0) + 1
+    if (failures === MAX_DIRTY_STATUS_FAILURES + 1) {
+      // #429: the exact #415 pattern — silent through the bound, voiced once
+      // on crossing it, silent again after. Stays `collector.error` (not a
+      // new `worktree.*` event): a single `for-each-ref` call is
+      // collector-wide, not per-worktree, so there is only one entity and
+      // the masking defect this issue fixes cannot occur here.
+      events.push(
+        context.emit('collector.error', {
+          collector: COLLECTOR_NAME,
+          message: `git for-each-ref failed ${failures} times in a row`,
+          detail: describeGitFailure(refsResult),
+        }),
+      )
+    }
+    return { branches: prevSnapshot.branches, refsFailures: failures }
   }
 
   const nextBranches: Record<string, GitBranchState> = {}
@@ -294,7 +305,7 @@ async function diffBranches(
     }
   }
 
-  return nextBranches
+  return { branches: nextBranches, refsFailures: 0 }
 }
 
 async function computeAheadBehind(
@@ -361,11 +372,13 @@ async function diffDirty(
         // old data as current is the thing being fixed, so stop carrying and
         // say so, once (#415). The count is fixed at this single moment, so
         // the message text is stable for the rest of the incident too.
+        // #429: a per-worktree fact, voiced as a fact about the worktree —
+        // not squeezed through the shared per-collector `collector.error` slot.
         events.push(
-          context.emit('collector.error', {
-            collector: COLLECTOR_NAME,
-            message: `git status --porcelain failed ${failures} times in a row for ${worktree.path}`,
-            detail: describeGitFailure(statusResult),
+          context.emit('worktree.dirtyStatusFailed', {
+            worktreePath: worktree.path,
+            consecutiveFailures: failures,
+            message: describeGitFailure(statusResult),
           }),
         )
       }
@@ -378,9 +391,15 @@ async function diffDirty(
     nextDirty[worktree.path] = files
     // nextFailures[worktree.path] intentionally left unset: a success resets
     // the count to 0, silently, so a later incident re-arms and voices again
-    // (#415 ruling — no voiced close: per-worktree recovery routed through
-    // per-collector CollectorState can mask a sibling worktree's still-open
-    // incident; see #429).
+    // (#415 ruling).
+
+    // #429: safe to voice a close here, because it names its own worktree —
+    // a sibling worktree's still-open incident cannot be masked by it, which
+    // is exactly what routing this through `collector.recovered` could do
+    // (and is why #415 refused to voice one at all).
+    if ((prevSnapshot.dirtyFailures?.[worktree.path] ?? 0) > MAX_DIRTY_STATUS_FAILURES) {
+      events.push(context.emit('worktree.dirtyStatusRecovered', { worktreePath: worktree.path }))
+    }
 
     if (!sameDirtySet(prevSnapshot.dirty[worktree.path], files)) {
       events.push(

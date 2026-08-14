@@ -184,6 +184,7 @@ have carried no information.
 | [0016](0016-prunable-not-enoent-proves-a-worktree-gone.md) | A worktree is proven gone by git's own `prunable` flag, not by probing for ENOENT | 2026-08-12 | accepted |
 | [0017](0017-one-turngrammar-seams-shape-and-extraction.md) | One `TurnGrammar` seams turn shape and extraction, not two | 2026-08-13 | accepted |
 | [0018](0018-bare-path-body-shape-routing.md) | The OTLP receiver adds one bare-path route, dispatched by body shape | 2026-08-13 | proposed |
+| [0019](0019-per-worktree-incidents-are-worktree-facts.md) | Per-worktree incidents are recorded on the worktree, not the collector | 2026-08-14 | accepted |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the

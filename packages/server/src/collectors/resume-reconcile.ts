@@ -218,9 +218,21 @@ export function withBranchReconciliation(
 
       const observedBranches = result.nextSnapshot.branches !== prevSnapshot.branches
       if (!observedBranches) {
-        const explainedByKnownFailure = result.events.some(
-          (event) => event.type === 'collector.disabled' || event.type === 'collector.error',
-        )
+        // #429: for-each-ref's own threshold-and-latch now stays silent
+        // through the bound (git-collector.ts §6d), so "emitted a known
+        // failure event" and "for-each-ref failed this poll" are no longer
+        // the same question — a silent-window poll fails `for-each-ref`,
+        // returns `prevSnapshot.branches` unchanged, and voices nothing.
+        // `refsFailures > 0` is true on exactly that poll, whether or not
+        // this poll's own latch chose to voice it, so it is the honest test
+        // of "not observed, and here is why" the identity gate needs;
+        // `result.nextSnapshot` is already typed as the concrete
+        // `GitSnapshot` (#454), so `.refsFailures` is available with no
+        // widening.
+        const explainedByKnownFailure =
+          result.events.some(
+            (event) => event.type === 'collector.disabled' || event.type === 'collector.error',
+          ) || result.nextSnapshot.refsFailures > 0
         if (explainedByKnownFailure) return result
 
         // #454: identity says nothing was observed, but neither known

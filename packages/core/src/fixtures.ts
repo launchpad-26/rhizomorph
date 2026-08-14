@@ -57,6 +57,14 @@ export interface EventFactory {
   worktreeDiscovered(payload?: Partial<PayloadOf<'worktree.discovered'>>, init?: Init<'worktree.discovered'>): EventOf<'worktree.discovered'>
   worktreeRemoved(payload?: Partial<PayloadOf<'worktree.removed'>>, init?: Init<'worktree.removed'>): EventOf<'worktree.removed'>
   worktreeDirty(payload?: Partial<PayloadOf<'worktree.dirty'>>, init?: Init<'worktree.dirty'>): EventOf<'worktree.dirty'>
+  worktreeDirtyStatusFailed(
+    payload?: Partial<PayloadOf<'worktree.dirtyStatusFailed'>>,
+    init?: Init<'worktree.dirtyStatusFailed'>,
+  ): EventOf<'worktree.dirtyStatusFailed'>
+  worktreeDirtyStatusRecovered(
+    payload?: Partial<PayloadOf<'worktree.dirtyStatusRecovered'>>,
+    init?: Init<'worktree.dirtyStatusRecovered'>,
+  ): EventOf<'worktree.dirtyStatusRecovered'>
   branchUpdated(payload?: Partial<PayloadOf<'branch.updated'>>, init?: Init<'branch.updated'>): EventOf<'branch.updated'>
   branchRemoved(payload?: Partial<PayloadOf<'branch.removed'>>, init?: Init<'branch.removed'>): EventOf<'branch.removed'>
   commitLanded(payload?: Partial<PayloadOf<'commit.landed'>>, init?: Init<'commit.landed'>): EventOf<'commit.landed'>
@@ -131,6 +139,14 @@ const defaults = {
     path: `${FIXTURE_REPO_PATH}-wt/feature`,
     branch: 'feature',
     files: [{ path: 'src/a.ts', status: 'modified' }],
+  },
+  'worktree.dirtyStatusFailed': {
+    worktreePath: `${FIXTURE_REPO_PATH}-wt/feature`,
+    consecutiveFailures: 4,
+    message: 'error: could not read index',
+  },
+  'worktree.dirtyStatusRecovered': {
+    worktreePath: `${FIXTURE_REPO_PATH}-wt/feature`,
   },
   'branch.updated': { branch: 'feature', head: 'sha-feature-1' },
   'branch.removed': { branch: 'feature' },
@@ -314,6 +330,8 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
     worktreeDiscovered: sugar('worktree.discovered'),
     worktreeRemoved: sugar('worktree.removed'),
     worktreeDirty: sugar('worktree.dirty'),
+    worktreeDirtyStatusFailed: sugar('worktree.dirtyStatusFailed'),
+    worktreeDirtyStatusRecovered: sugar('worktree.dirtyStatusRecovered'),
     branchUpdated: sugar('branch.updated'),
     branchRemoved: sugar('branch.removed'),
     commitLanded: sugar('commit.landed'),

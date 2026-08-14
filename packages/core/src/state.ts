@@ -44,6 +44,14 @@ export interface WorktreeState {
   /** Full current uncommitted set, replaced wholesale by each `worktree.dirty`. */
   dirtyFiles: DirtyFile[]
   dirtyUpdatedAt: number | null
+  /**
+   * Set to the failed event's `ts` when `worktree.dirtyStatusFailed` crosses
+   * the bound; cleared to `null` by `worktree.dirtyStatusRecovered`. Lives
+   * here, not on `CollectorState`, so one worktree's recovery can never mask
+   * a sibling's still-open incident (#429). `null` forever for a pre-#429
+   * recording — no upcast needed, additive events refold cleanly.
+   */
+  dirtyStatusFailedSince: number | null
 }
 
 export interface BranchState {
