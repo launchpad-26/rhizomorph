@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { PI_JSONL_GRAMMAR } from '../pi/grammar.js'
 import { CLAUDE_JSONL_GRAMMAR } from './turn-grammar-claude.js'
 import { grammarFor, TURN_GRAMMARS } from './turn-grammar.js'
 
@@ -16,11 +17,15 @@ describe('the grammar registry (the pluggable seam)', () => {
     expect(grammarFor('claude')).toBe(CLAUDE_JSONL_GRAMMAR)
   })
 
+  it('answers for pi (#324 — the seam\'s first real second dialect)', () => {
+    expect(grammarFor('pi')).toBe(PI_JSONL_GRAMMAR)
+  })
+
   it('answers null for a dialect nobody has captured — never claude\'s eyes on another CLI', () => {
-    // prd15 sequences codex and pi behind captures. Falling back to claude
-    // would read a codex rollout through the wrong grammar and produce
-    // confident nonsense; a null is the honest gap the caller must voice.
-    for (const cli of ['codex', 'pi', 'gemini', 'openclaw', '', 'toString', 'constructor']) {
+    // codex (#322) captured real evidence and declined rather than guess; a
+    // null is the honest gap the caller must voice for it and for every CLI
+    // this build has never captured.
+    for (const cli of ['codex', 'gemini', 'openclaw', '', 'toString', 'constructor']) {
       expect(grammarFor(cli)).toBeNull()
     }
   })
