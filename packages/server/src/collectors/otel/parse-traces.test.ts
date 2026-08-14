@@ -325,6 +325,122 @@ describe('parseTracesExport', () => {
     expect(result.events[0]?.payload).toMatchObject({ lane: 'unattributed', role: 'worker' })
   })
 
+  it('treats an explicit parentSpanId: "" as a root span (null), not a malformed one (#510)', () => {
+    const body = {
+      resourceSpans: [
+        {
+          scopeSpans: [
+            {
+              spans: [
+                {
+                  traceId: 't',
+                  spanId: 's',
+                  parentSpanId: '',
+                  name: 'auth',
+                  startTimeUnixNano: '1000000000',
+                  endTimeUnixNano: '2000000000',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    expect(() => parseTracesExport(body, testEmitter())).not.toThrow()
+    const result = parseTracesExport(body, testEmitter())
+    expect(result.malformed).toBe(false)
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0]?.type).toBe('trace.span')
+    expect(result.events[0]?.payload).toMatchObject({ parentSpanId: null })
+  })
+
+  it('treats an empty-string attribute value as absent (null), across every nonEmptyString-schema field, not just parentSpanId (#510 sibling)', () => {
+    const body = {
+      resourceSpans: [
+        {
+          scopeSpans: [
+            {
+              spans: [
+                {
+                  traceId: 't',
+                  spanId: 's',
+                  name: 'claude_code.llm_request',
+                  startTimeUnixNano: '1000000000',
+                  endTimeUnixNano: '2000000000',
+                  attributes: [
+                    { key: 'session.id', value: { stringValue: '' } },
+                    { key: 'model', value: { stringValue: '' } },
+                    { key: 'request_id', value: { stringValue: '' } },
+                    { key: 'agent_id', value: { stringValue: '' } },
+                    { key: 'parent_agent_id', value: { stringValue: '' } },
+                    { key: 'tool_name', value: { stringValue: '' } },
+                    { key: 'tool_use_id', value: { stringValue: '' } },
+                    { key: 'subagent_type', value: { stringValue: '' } },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    expect(() => parseTracesExport(body, testEmitter())).not.toThrow()
+    const result = parseTracesExport(body, testEmitter())
+    expect(result.malformed).toBe(false)
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0]?.payload).toMatchObject({
+      sessionId: null,
+      model: null,
+      requestId: null,
+      agentId: null,
+      parentAgentId: null,
+      toolName: null,
+      toolUseId: null,
+      subagentType: null,
+    })
+  })
+
+  it('degrades one span to a collector.error, rather than losing the rest of the request, when building it throws for an unforeseen reason', () => {
+    const body = {
+      resourceSpans: [
+        {
+          scopeSpans: [
+            {
+              spans: [
+                { traceId: 't1', spanId: 's1', name: 'claude_code.tool', startTimeUnixNano: '1000000000', endTimeUnixNano: '2000000000' },
+                { traceId: 't2', spanId: 's2', name: 'claude_code.tool', startTimeUnixNano: '1000000000', endTimeUnixNano: '2000000000' },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    const nextId = createIdFactory('evt')
+    let traceSpanCalls = 0
+    const throwingEmitter: OtelEmitter = {
+      emit: <T extends EventType>(type: T, payload: PayloadOf<T>, source?: SourceOf<T>): EventOf<T> => {
+        if (type === 'trace.span') {
+          traceSpanCalls += 1
+          if (traceSpanCalls === 1) throw new Error('simulated unforeseen failure')
+        }
+        return createEvent(type, payload, { id: nextId(), ts: 1_000, source })
+      },
+    }
+
+    const result = parseTracesExport(body, throwingEmitter)
+    expect(result.malformed).toBe(false)
+    const errors = result.events.filter((e) => e.type === 'collector.error')
+    const spans = result.events.filter((e) => e.type === 'trace.span')
+    expect(errors).toHaveLength(1)
+    expect(spans).toHaveLength(1)
+    // The diagnostic naming the failing span is the point of the guard — an
+    // operator with a 400 and no span name is back where they started.
+    expect(errors[0]?.payload).toMatchObject({ collector: 'otel' })
+    expect((errors[0]?.payload as { message: string }).message).toBe(
+      'span "claude_code.tool" failed to parse: simulated unforeseen failure',
+    )
+  })
+
   it('falls back to toolUseId from gen_ai.tool.call.id when tool_use_id is absent', () => {
     const body = {
       resourceSpans: [

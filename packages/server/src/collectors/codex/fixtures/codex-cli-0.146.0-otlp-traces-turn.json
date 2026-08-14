@@ -4484,6 +4484,230 @@
             }
           ],
           "schemaUrl": ""
+        },
+        {
+          "scope": {
+            "name": "codex_otel::trace_context",
+            "version": ""
+          },
+          "spans": [
+            {
+              "traceId": "4fb1873113f5cd08b705d5d3b7094567",
+              "spanId": "6e68dce975645302",
+              "traceState": "",
+              "parentSpanId": "",
+              "flags": 257,
+              "name": "auth",
+              "kind": 1,
+              "startTimeUnixNano": "1786669021673686208",
+              "endTimeUnixNano": "1786669021673710068",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "login/src/auth/manager.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_login::auth::manager"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "2028"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "13"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_login::auth::manager"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "15450"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "13410"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "cc7844902e88c4e89b52d66f6ddcac0b",
+              "spanId": "735e8619281a7d7d",
+              "traceState": "",
+              "parentSpanId": "",
+              "flags": 257,
+              "name": "auth",
+              "kind": 1,
+              "startTimeUnixNano": "1786669021674079025",
+              "endTimeUnixNano": "1786669021674098385",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "login/src/auth/manager.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_login::auth::manager"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "2028"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "11"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_login::auth::manager"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "8460"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "12040"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "3ec24d5fa0f79d9ffbb73dd565049cb1",
+              "spanId": "a46fa2cc3029d2f9",
+              "traceState": "",
+              "parentSpanId": "",
+              "flags": 257,
+              "name": "session_loop",
+              "kind": 1,
+              "startTimeUnixNano": "1786669022171416493",
+              "endTimeUnixNano": "1786669027777924393",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "771"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "8"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "thread_id",
+                  "value": {
+                    "stringValue": "019ffdc5-bb8c-79b0-ae0c-acf457246328"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "4088760"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "5602421100"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            }
+          ]
         }
       ],
       "schemaUrl": ""
