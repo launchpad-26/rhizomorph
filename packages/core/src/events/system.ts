@@ -43,6 +43,14 @@ export const collectorErrorPayloadSchema = z.object({
   collector: nonEmptyString,
   message: z.string(),
   detail: z.string().optional(),
+  /**
+   * Occurrences of this same fault since the last one recorded, this one
+   * included, for a collector that coalesces repeats rather than recording
+   * one event per occurrence (see `telemetry.refused`'s `count` for the
+   * precedent). Optional: most `collector.error` emitters record one event
+   * per fault and never coalesce, so they carry no count at all.
+   */
+  count: z.number().int().positive().optional(),
 })
 export type CollectorErrorPayload = z.infer<typeof collectorErrorPayloadSchema>
 
