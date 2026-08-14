@@ -1,6 +1,6 @@
 import { createEvent, type RhizomorphEvent } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
-import { REFUSAL_THROTTLE_MS } from '../api/otel.js'
+import { FAULT_THROTTLE_MS } from '../api/otel.js'
 import { describeTelemetryCost, lanesAtBoundary } from './retarget-cost.js'
 
 /**
@@ -95,7 +95,7 @@ describe('describeTelemetryCost', () => {
     expect(cost.note).toContain('one telemetry.refused per minute')
     expect(cost.note).toContain('not one per lane')
     // The claim above is about a real constant, not a remembered one.
-    expect(REFUSAL_THROTTLE_MS).toBe(60_000)
+    expect(FAULT_THROTTLE_MS).toBe(60_000)
   })
 
   it('the note counts the lanes and agrees with itself about the number', () => {

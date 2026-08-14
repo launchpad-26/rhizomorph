@@ -19,7 +19,7 @@ import { reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
  * entire by design (prd2's no-silent-merge). And the noise is roughly one
  * event per throttle window rather than one per lane: `createRefusalThrottle`
  * keys by *declared* instance, and every stale lane declares the same old id,
- * so an eight-lane swarm is one key and `REFUSAL_THROTTLE_MS` is 60 s. A
+ * so an eight-lane swarm is one key and `FAULT_THROTTLE_MS` is 60 s. A
  * standing fault, and a quiet one — which is precisely why it has to be said
  * out loud here.
  *
