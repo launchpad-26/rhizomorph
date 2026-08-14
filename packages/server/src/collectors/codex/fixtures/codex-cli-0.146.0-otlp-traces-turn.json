@@ -1,0 +1,4492 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "telemetry.sdk.name",
+            "value": {
+              "stringValue": "opentelemetry"
+            }
+          },
+          {
+            "key": "lane",
+            "value": {
+              "stringValue": "lane-capture-322"
+            }
+          },
+          {
+            "key": "instance",
+            "value": {
+              "stringValue": "rhizomorph-capture-322-instance"
+            }
+          },
+          {
+            "key": "service.version",
+            "value": {
+              "stringValue": "0.146.0"
+            }
+          },
+          {
+            "key": "telemetry.sdk.language",
+            "value": {
+              "stringValue": "rust"
+            }
+          },
+          {
+            "key": "role",
+            "value": {
+              "stringValue": "worker"
+            }
+          },
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "codex_exec"
+            }
+          },
+          {
+            "key": "telemetry.sdk.version",
+            "value": {
+              "stringValue": "0.31.0"
+            }
+          },
+          {
+            "key": "env",
+            "value": {
+              "stringValue": "codex-capture-322"
+            }
+          }
+        ],
+        "droppedAttributesCount": 0,
+        "entityRefs": []
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "codex_exec",
+            "version": "",
+            "attributes": [],
+            "droppedAttributesCount": 0
+          },
+          "spans": [
+            {
+              "traceId": "de8e483ae42dfc301683393a30bbe35f",
+              "spanId": "922f800351d639ec",
+              "traceState": "",
+              "parentSpanId": "9da5eff7bd6e9b8e",
+              "flags": 257,
+              "name": "auth",
+              "kind": 1,
+              "startTimeUnixNano": "1786665290060419126",
+              "endTimeUnixNano": "1786665290060441766",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "login/src/auth/manager.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_login::auth::manager"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "2028"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "12"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_login::auth::manager"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "20330"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "2870"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "de8e483ae42dfc301683393a30bbe35f",
+              "spanId": "3d1523f6decf8351",
+              "traceState": "",
+              "parentSpanId": "9da5eff7bd6e9b8e",
+              "flags": 257,
+              "name": "auth",
+              "kind": 1,
+              "startTimeUnixNano": "1786665290060572795",
+              "endTimeUnixNano": "1786665290060625694",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "login/src/auth/manager.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_login::auth::manager"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "2028"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "12"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_login::auth::manager"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "47089"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "6670"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "4381d3e2760a0032",
+              "traceState": "",
+              "parentSpanId": "860aad18be19baed",
+              "flags": 769,
+              "name": "initialize",
+              "kind": 2,
+              "startTimeUnixNano": "1786665290061069730",
+              "endTimeUnixNano": "1786665290120211256",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "app-server/src/app_server_tracing.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_app_server::app_server_tracing"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "100"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "13"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_app_server::app_server_tracing"
+                  }
+                },
+                {
+                  "key": "rpc.system",
+                  "value": {
+                    "stringValue": "jsonrpc"
+                  }
+                },
+                {
+                  "key": "rpc.method",
+                  "value": {
+                    "stringValue": "initialize"
+                  }
+                },
+                {
+                  "key": "rpc.transport",
+                  "value": {
+                    "stringValue": "in-process"
+                  }
+                },
+                {
+                  "key": "rpc.request_id",
+                  "value": {
+                    "stringValue": "0"
+                  }
+                },
+                {
+                  "key": "app_server.connection_id",
+                  "value": {
+                    "stringValue": "0"
+                  }
+                },
+                {
+                  "key": "app_server.api_version",
+                  "value": {
+                    "stringValue": "v2"
+                  }
+                },
+                {
+                  "key": "app_server.client_name",
+                  "value": {
+                    "stringValue": "codex_exec"
+                  }
+                },
+                {
+                  "key": "app_server.client_version",
+                  "value": {
+                    "stringValue": "0.146.0"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "59032486"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "110070"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "4ea804606a51da9d",
+              "traceState": "",
+              "parentSpanId": "1261139840b143d1",
+              "flags": 257,
+              "name": "load_with_cli_overrides",
+              "kind": 1,
+              "startTimeUnixNano": "1786665290121720998",
+              "endTimeUnixNano": "1786665290140677620",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "app-server/src/config_manager.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_app_server::config_manager"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "221"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "7"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_app_server::config_manager"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "16590979"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "2367183"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "6286f7bc05b463d9",
+              "traceState": "",
+              "parentSpanId": "7f7d3c651cb908a3",
+              "flags": 257,
+              "name": "load",
+              "kind": 1,
+              "startTimeUnixNano": "1786665290143532285",
+              "endTimeUnixNano": "1786665290144655437",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/exec_policy.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::exec_policy"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "299"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "13"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::exec_policy"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "828735"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "296287"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "ee606c1c8b8a96b3",
+              "traceState": "",
+              "parentSpanId": "e019058080f9659f",
+              "flags": 257,
+              "name": "auth",
+              "kind": 1,
+              "startTimeUnixNano": "1786665290144800805",
+              "endTimeUnixNano": "1786665290144907694",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "login/src/auth/manager.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_login::auth::manager"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "2028"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "13"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_login::auth::manager"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "64189"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "43950"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "e019058080f9659f",
+              "traceState": "",
+              "parentSpanId": "7f7d3c651cb908a3",
+              "flags": 257,
+              "name": "list_models",
+              "kind": 1,
+              "startTimeUnixNano": "1786665290144760955",
+              "endTimeUnixNano": "1786665290150868266",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "models-manager/src/manager.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_models_manager::manager"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "97"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "13"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_models_manager::manager"
+                  }
+                },
+                {
+                  "key": "refresh_strategy",
+                  "value": {
+                    "stringValue": "online_if_uncached"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "5790528"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "333152"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "5771156737f131a2",
+              "traceState": "",
+              "parentSpanId": "7f7d3c651cb908a3",
+              "flags": 257,
+              "name": "get_default_model",
+              "kind": 1,
+              "startTimeUnixNano": "1786665290150938086",
+              "endTimeUnixNano": "1786665290150953405",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "models-manager/src/manager.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_models_manager::manager"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "173"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "13"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_models_manager::manager"
+                  }
+                },
+                {
+                  "key": "model.provided",
+                  "value": {
+                    "boolValue": true
+                  }
+                },
+                {
+                  "key": "allow_provider_model_fallback",
+                  "value": {
+                    "boolValue": false
+                  }
+                },
+                {
+                  "key": "refresh_strategy",
+                  "value": {
+                    "stringValue": "online_if_uncached"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "2570"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "13919"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "e25a158f3974b030",
+              "traceState": "",
+              "parentSpanId": "7f7d3c651cb908a3",
+              "flags": 257,
+              "name": "get_model_info",
+              "kind": 1,
+              "startTimeUnixNano": "1786665290150966715",
+              "endTimeUnixNano": "1786665290151542841",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "models-manager/src/manager.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_models_manager::manager"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "194"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "13"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_models_manager::manager"
+                  }
+                },
+                {
+                  "key": "model",
+                  "value": {
+                    "stringValue": "gpt-5.6-terra"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "568056"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "8620"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "7f16ee9faea096ab",
+              "traceState": "",
+              "parentSpanId": "0814cf2ba195b1f6",
+              "flags": 257,
+              "name": "session_init.state_db",
+              "kind": 1,
+              "startTimeUnixNano": "1786665290151813889",
+              "endTimeUnixNano": "1786665290152572872",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/session.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "711"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "13"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session::session"
+                  }
+                },
+                {
+                  "key": "session_init.ephemeral",
+                  "value": {
+                    "boolValue": false
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "1880"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "758863"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "7ebbe75fd8ab8c7a",
+              "traceState": "",
+              "parentSpanId": "7006d6252fbff488",
+              "flags": 257,
+              "name": "auth",
+              "kind": 1,
+              "startTimeUnixNano": "1786665290152595862",
+              "endTimeUnixNano": "1786665290152649572",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "login/src/auth/manager.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_login::auth::manager"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "2028"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "13"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_login::auth::manager"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "22690"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "31900"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "f8d28c6d146b8e24",
+              "traceState": "",
+              "parentSpanId": "791aed939fd8c60d",
+              "flags": 257,
+              "name": "load_plugins_from_layer_stack",
+              "kind": 1,
+              "startTimeUnixNano": "1786665290153214077",
+              "endTimeUnixNano": "1786665290153728713",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core-plugins/src/loader.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core_plugins::loader"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "121"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "13"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core_plugins::loader"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "500776"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "14780"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "791aed939fd8c60d",
+              "traceState": "",
+              "parentSpanId": "07e2519a22c90b42",
+              "flags": 257,
+              "name": "plugins_for_config",
+              "kind": 1,
+              "startTimeUnixNano": "1786665290152881090",
+              "endTimeUnixNano": "1786665290153743253",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core-plugins/src/manager.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core_plugins::manager"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "610"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "13"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core_plugins::manager"
+                  }
+                },
+                {
+                  "key": "plugins_enabled",
+                  "value": {
+                    "boolValue": true
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "831154"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "33709"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "1ee708ddaa5db049",
+              "traceState": "",
+              "parentSpanId": "0814cf2ba195b1f6",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665290227575140",
+              "endTimeUnixNano": "1786665290227666309",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "3"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "84609"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "7020"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "2db891d0ebbecd3a",
+              "traceState": "",
+              "parentSpanId": "20fc9ca063ce4b49",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665290370592049",
+              "endTimeUnixNano": "1786665290378612227",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "10"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "1435227"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "6585201"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "69f3e5aad3e70a28",
+              "traceState": "",
+              "parentSpanId": "1363dbe432ecbc2a",
+              "flags": 257,
+              "name": "build_prompt",
+              "kind": 1,
+              "startTimeUnixNano": "1786665291039907130",
+              "endTimeUnixNano": "1786665291039961079",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/turn.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "1142"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "10"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "52829"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "1390"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "2b9c572b24574f66",
+              "traceState": "",
+              "parentSpanId": "1363dbe432ecbc2a",
+              "flags": 257,
+              "name": "model_client.stream_responses_websocket",
+              "kind": 1,
+              "startTimeUnixNano": "1786665291040017749",
+              "endTimeUnixNano": "1786665291468152365",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/client.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::client"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "1509"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "10"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::client"
+                  }
+                },
+                {
+                  "key": "model",
+                  "value": {
+                    "stringValue": "gpt-5.6-terra"
+                  }
+                },
+                {
+                  "key": "wire_api",
+                  "value": {
+                    "stringValue": "responses"
+                  }
+                },
+                {
+                  "key": "transport",
+                  "value": {
+                    "stringValue": "responses_websocket"
+                  }
+                },
+                {
+                  "key": "api.path",
+                  "value": {
+                    "stringValue": "responses"
+                  }
+                },
+                {
+                  "key": "turn.has_metadata_header",
+                  "value": {
+                    "boolValue": true
+                  }
+                },
+                {
+                  "key": "websocket.warmup",
+                  "value": {
+                    "boolValue": true
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "23374897"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "404759889"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "d64aa35968cbc330",
+              "traceState": "",
+              "parentSpanId": "a99b440ac890e9d9",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292565437026",
+              "endTimeUnixNano": "1786665292566281758",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "11"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "4"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "320587"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "524335"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "72c79a00ac3b84e3",
+              "traceState": "",
+              "parentSpanId": "c1f579ddf4641ed5",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292566303058",
+              "endTimeUnixNano": "1786665292566314908",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "9"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "10580"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "1480"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "f29cafb6c6629abd",
+              "traceState": "",
+              "parentSpanId": "c1f579ddf4641ed5",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292566348808",
+              "endTimeUnixNano": "1786665292566362187",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "9"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "10859"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "2710"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "de2b288c07091a83",
+              "traceState": "",
+              "parentSpanId": "c1f579ddf4641ed5",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292566369977",
+              "endTimeUnixNano": "1786665292566377067",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "9"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "6020"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "1160"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "6079dd55a167d478",
+              "traceState": "",
+              "parentSpanId": "c1f579ddf4641ed5",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292566439237",
+              "endTimeUnixNano": "1786665292566494836",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "9"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "52979"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "2810"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "efe21896484736d7",
+              "traceState": "",
+              "parentSpanId": "171c5a15529a9d7e",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292566531336",
+              "endTimeUnixNano": "1786665292566744614",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "9"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "72400"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "141038"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "1f3c2ed098f9bdf7",
+              "traceState": "",
+              "parentSpanId": "171c5a15529a9d7e",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292566751324",
+              "endTimeUnixNano": "1786665292570349990",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "9"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "1405796"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "2193050"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "80a9b62b0f19b055",
+              "traceState": "",
+              "parentSpanId": "da643781fc0cc90d",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292576139706",
+              "endTimeUnixNano": "1786665292576181536",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "10"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "38830"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "3270"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "299c2ed06b165df3",
+              "traceState": "",
+              "parentSpanId": "da643781fc0cc90d",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292614488180",
+              "endTimeUnixNano": "1786665292614529230",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "14"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "32770"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "9070"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "edfdf7d2e3514d24",
+              "traceState": "",
+              "parentSpanId": "e0e6ebb4b9ed35b6",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292614630429",
+              "endTimeUnixNano": "1786665292614791888",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "14"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "55149"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "106640"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "c2eed0d93c75ef22",
+              "traceState": "",
+              "parentSpanId": "7305b3d1689e1a6e",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292614803177",
+              "endTimeUnixNano": "1786665292614827607",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "10"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "22730"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "2090"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "7aa3543ad8a04a30",
+              "traceState": "",
+              "parentSpanId": "da643781fc0cc90d",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292614844067",
+              "endTimeUnixNano": "1786665292614855137",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "10"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "9110"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "2360"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "70e52a4bfb66f3c1",
+              "traceState": "",
+              "parentSpanId": "da643781fc0cc90d",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292614861017",
+              "endTimeUnixNano": "1786665292614871077",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "10"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "8860"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "1420"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "b60f9d6d5c4a671d",
+              "traceState": "",
+              "parentSpanId": "da643781fc0cc90d",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292614880527",
+              "endTimeUnixNano": "1786665292618829074",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "10"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "1546530"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "2402117"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "84767d5a70bb7df2",
+              "traceState": "",
+              "parentSpanId": "61622802fe798a0d",
+              "flags": 257,
+              "name": "build_prompt",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292620458991",
+              "endTimeUnixNano": "1786665292620528870",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/turn.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "1142"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "14"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "68349"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "1970"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "78f67a19514e50dd",
+              "traceState": "",
+              "parentSpanId": "f8dca07ff7df2e69",
+              "flags": 257,
+              "name": "handle_responses",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292621180025",
+              "endTimeUnixNano": "1786665292622994809",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/turn.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "2069"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "14"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "codex.request.reasoning_effort",
+                  "value": {
+                    "stringValue": "xhigh"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "0"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "0"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "c9e2263e57f7d14e",
+              "traceState": "",
+              "parentSpanId": "f8dca07ff7df2e69",
+              "flags": 257,
+              "name": "handle_responses",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292622998899",
+              "endTimeUnixNano": "1786665293022176760",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/turn.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "2069"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "14"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "codex.request.reasoning_effort",
+                  "value": {
+                    "stringValue": "xhigh"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "0"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "0"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "8e369f245fc3f817",
+              "traceState": "",
+              "parentSpanId": "f8dca07ff7df2e69",
+              "flags": 257,
+              "name": "handle_responses",
+              "kind": 1,
+              "startTimeUnixNano": "1786665293022181510",
+              "endTimeUnixNano": "1786665293092181810",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/turn.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "2069"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "9"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "codex.request.reasoning_effort",
+                  "value": {
+                    "stringValue": "xhigh"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "0"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "0"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "ebad3462a3aa4b10",
+              "traceState": "",
+              "parentSpanId": "71659e1cd60f74ab",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665293823420786",
+              "endTimeUnixNano": "1786665293823476545",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "14"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "47519"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "8970"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "91f39f7fed0c44be",
+              "traceState": "",
+              "parentSpanId": "f8dca07ff7df2e69",
+              "flags": 257,
+              "name": "handle_responses",
+              "kind": 1,
+              "startTimeUnixNano": "1786665293092185370",
+              "endTimeUnixNano": "1786665293823487735",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/turn.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "2069"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "9"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "codex.request.reasoning_effort",
+                  "value": {
+                    "stringValue": "xhigh"
+                  }
+                },
+                {
+                  "key": "from",
+                  "value": {
+                    "stringValue": "output_item_added"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "0"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "0"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "857e94556d672a69",
+              "traceState": "",
+              "parentSpanId": "71659e1cd60f74ab",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665293832239104",
+              "endTimeUnixNano": "1786665293832301403",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "9"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "54409"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "9050"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "c71d1de62c20adef",
+              "traceState": "",
+              "parentSpanId": "f8dca07ff7df2e69",
+              "flags": 257,
+              "name": "handle_responses",
+              "kind": 1,
+              "startTimeUnixNano": "1786665293823489905",
+              "endTimeUnixNano": "1786665293832314083",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/turn.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "2069"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "14"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "codex.request.reasoning_effort",
+                  "value": {
+                    "stringValue": "xhigh"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "0"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "0"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "32dc696d6fcc74e4",
+              "traceState": "",
+              "parentSpanId": "f755d956bd98244a",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665294741819003",
+              "endTimeUnixNano": "1786665294741889532",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "11"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "63559"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "7170"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "da40bc250ceba616",
+              "traceState": "",
+              "parentSpanId": "f755d956bd98244a",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665294741901102",
+              "endTimeUnixNano": "1786665294742066960",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "11"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "26390"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "139648"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "fd5c576e8271001e",
+              "traceState": "",
+              "parentSpanId": "e14c6684e2a8bd8e",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665294742105829",
+              "endTimeUnixNano": "1786665294742270758",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "14"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "23060"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "142439"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "e745c2c70132aba4",
+              "traceState": "",
+              "parentSpanId": "4a29b6ece16551e8",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665294742280618",
+              "endTimeUnixNano": "1786665294742308698",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "14"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "26240"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "1940"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "f4da34163cc21a0a",
+              "traceState": "",
+              "parentSpanId": "f8dca07ff7df2e69",
+              "flags": 257,
+              "name": "handle_responses",
+              "kind": 1,
+              "startTimeUnixNano": "1786665293832316423",
+              "endTimeUnixNano": "1786665294742435608",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/turn.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "2069"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "9"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "codex.request.reasoning_effort",
+                  "value": {
+                    "stringValue": "xhigh"
+                  }
+                },
+                {
+                  "key": "from",
+                  "value": {
+                    "stringValue": "output_item_done"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "435647"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "909684498"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "a2c30de9fbb44d2b",
+              "traceState": "",
+              "parentSpanId": "e149aaddc7711ae9",
+              "flags": 257,
+              "name": "model_client.stream_responses_websocket",
+              "kind": 1,
+              "startTimeUnixNano": "1786665292620593290",
+              "endTimeUnixNano": "1786665292621171495",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/client.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::client"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "1509"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "14"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::client"
+                  }
+                },
+                {
+                  "key": "model",
+                  "value": {
+                    "stringValue": "gpt-5.6-terra"
+                  }
+                },
+                {
+                  "key": "wire_api",
+                  "value": {
+                    "stringValue": "responses"
+                  }
+                },
+                {
+                  "key": "transport",
+                  "value": {
+                    "stringValue": "responses_websocket"
+                  }
+                },
+                {
+                  "key": "api.path",
+                  "value": {
+                    "stringValue": "responses"
+                  }
+                },
+                {
+                  "key": "turn.has_metadata_header",
+                  "value": {
+                    "boolValue": true
+                  }
+                },
+                {
+                  "key": "websocket.warmup",
+                  "value": {
+                    "boolValue": false
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "569475"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "8950"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "ddadf9187b4b5fe5",
+              "traceState": "",
+              "parentSpanId": "71659e1cd60f74ab",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665294777524577",
+              "endTimeUnixNano": "1786665294777552227",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "14"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "21180"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "7070"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "92b85448134b66f7",
+              "traceState": "",
+              "parentSpanId": "f8dca07ff7df2e69",
+              "flags": 257,
+              "name": "handle_responses",
+              "kind": 1,
+              "startTimeUnixNano": "1786665294742441208",
+              "endTimeUnixNano": "1786665294777601117",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/turn.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "2069"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "14"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session::turn"
+                  }
+                },
+                {
+                  "key": "codex.request.reasoning_effort",
+                  "value": {
+                    "stringValue": "xhigh"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.input_tokens",
+                  "value": {
+                    "intValue": "19151"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.cache_read.input_tokens",
+                  "value": {
+                    "intValue": "11008"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.cache_write.input_tokens",
+                  "value": {
+                    "intValue": "0"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.output_tokens",
+                  "value": {
+                    "intValue": "5"
+                  }
+                },
+                {
+                  "key": "codex.usage.reasoning_output_tokens",
+                  "value": {
+                    "intValue": "0"
+                  }
+                },
+                {
+                  "key": "codex.usage.total_tokens",
+                  "value": {
+                    "intValue": "19156"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "0"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "0"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "edf0960bfe4ccae6",
+              "traceState": "",
+              "parentSpanId": "71659e1cd60f74ab",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665294777619977",
+              "endTimeUnixNano": "1786665294781198520",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "14"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "1514089"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "2064814"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "d8d2917806006015",
+              "traceState": "",
+              "parentSpanId": "3a30666c0e747d34",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665294781738920",
+              "endTimeUnixNano": "1786665294781778030",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "11"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "35200"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "4300"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "bf643292586e8f3f",
+              "traceState": "",
+              "parentSpanId": "3a30666c0e747d34",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665294828152937",
+              "endTimeUnixNano": "1786665294828185407",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "14"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "25520"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "7690"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "4a020a3477c8cbb9",
+              "traceState": "",
+              "parentSpanId": "95943da925a5cdfb",
+              "flags": 257,
+              "name": "run_turn",
+              "kind": 1,
+              "startTimeUnixNano": "1786665290370576439",
+              "endTimeUnixNano": "1786665294839112256",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/tasks/regular.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::tasks::regular"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "47"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "10"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::tasks::regular"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "118648907"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "4349887150"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "06583411b7516774",
+              "traceState": "",
+              "parentSpanId": "d83636dd32d01135",
+              "flags": 257,
+              "name": "session.flush_rollout",
+              "kind": 1,
+              "startTimeUnixNano": "1786665294839137696",
+              "endTimeUnixNano": "1786665294839557642",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "1164"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "14"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "237178"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "183428"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "4e24f5cf085a0a68",
+              "traceState": "",
+              "parentSpanId": "d83636dd32d01135",
+              "flags": 257,
+              "name": "persist_rollout_items",
+              "kind": 1,
+              "startTimeUnixNano": "1786665294839835400",
+              "endTimeUnixNano": "1786665294840073508",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "3567"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "10"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "item_count",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "119119"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "119589"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "50878980064498d0",
+              "traceState": "",
+              "parentSpanId": "d83636dd32d01135",
+              "flags": 257,
+              "name": "session.flush_rollout",
+              "kind": 1,
+              "startTimeUnixNano": "1786665294840683143",
+              "endTimeUnixNano": "1786665294843627453",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/session/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "1164"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "10"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::session"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "1850328"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "1094432"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "d83636dd32d01135",
+              "traceState": "",
+              "parentSpanId": "ff8bef4478b3d9df",
+              "flags": 257,
+              "name": "session_task.turn",
+              "kind": 1,
+              "startTimeUnixNano": "1786665290370464730",
+              "endTimeUnixNano": "1786665294843969230",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "core/src/tasks/mod.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_core::tasks"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "387"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "10"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "tokio-rt-worker"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_core::tasks"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "stringValue": "019ffd8c-c9a7-7e73-a793-dd01d14970ee"
+                  }
+                },
+                {
+                  "key": "turn.id",
+                  "value": {
+                    "stringValue": "019ffd8c-ca45-7780-8305-33a59057cb46"
+                  }
+                },
+                {
+                  "key": "model",
+                  "value": {
+                    "stringValue": "gpt-5.6-terra"
+                  }
+                },
+                {
+                  "key": "codex.turn.reasoning_effort",
+                  "value": {
+                    "stringValue": "xhigh"
+                  }
+                },
+                {
+                  "key": "codex.turn.token_usage.input_tokens",
+                  "value": {
+                    "intValue": "19151"
+                  }
+                },
+                {
+                  "key": "codex.turn.token_usage.cached_input_tokens",
+                  "value": {
+                    "intValue": "11008"
+                  }
+                },
+                {
+                  "key": "codex.turn.token_usage.cache_write_input_tokens",
+                  "value": {
+                    "intValue": "0"
+                  }
+                },
+                {
+                  "key": "codex.turn.token_usage.non_cached_input_tokens",
+                  "value": {
+                    "intValue": "8143"
+                  }
+                },
+                {
+                  "key": "codex.turn.token_usage.output_tokens",
+                  "value": {
+                    "intValue": "5"
+                  }
+                },
+                {
+                  "key": "codex.turn.token_usage.reasoning_output_tokens",
+                  "value": {
+                    "intValue": "0"
+                  }
+                },
+                {
+                  "key": "codex.turn.token_usage.total_tokens",
+                  "value": {
+                    "intValue": "19156"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "123512432"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "4349993078"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            },
+            {
+              "traceId": "2f27e37a261a16c4b6f363d5bcd73a7d",
+              "spanId": "027d42ca62484da7",
+              "traceState": "",
+              "parentSpanId": "860aad18be19baed",
+              "flags": 769,
+              "name": "codex.exec",
+              "kind": 1,
+              "startTimeUnixNano": "1786665289619460342",
+              "endTimeUnixNano": "1786665295178910644",
+              "attributes": [
+                {
+                  "key": "code.file.path",
+                  "value": {
+                    "stringValue": "exec/src/lib.rs"
+                  }
+                },
+                {
+                  "key": "code.module.name",
+                  "value": {
+                    "stringValue": "codex_exec"
+                  }
+                },
+                {
+                  "key": "code.line.number",
+                  "value": {
+                    "intValue": "224"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "intValue": "2"
+                  }
+                },
+                {
+                  "key": "thread.name",
+                  "value": {
+                    "stringValue": "codex-main"
+                  }
+                },
+                {
+                  "key": "target",
+                  "value": {
+                    "stringValue": "codex_exec"
+                  }
+                },
+                {
+                  "key": "thread.id",
+                  "value": {
+                    "stringValue": "019ffd8c-c9a7-7e73-a793-dd01d14970ee"
+                  }
+                },
+                {
+                  "key": "turn.id",
+                  "value": {
+                    "stringValue": "019ffd8c-ca45-7780-8305-33a59057cb46"
+                  }
+                },
+                {
+                  "key": "busy_ns",
+                  "value": {
+                    "intValue": "52915299"
+                  }
+                },
+                {
+                  "key": "idle_ns",
+                  "value": {
+                    "intValue": "5506536713"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "links": [],
+              "droppedLinksCount": 0,
+              "status": {
+                "message": "",
+                "code": 0
+              }
+            }
+          ],
+          "schemaUrl": ""
+        }
+      ],
+      "schemaUrl": ""
+    }
+  ]
+}
