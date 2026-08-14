@@ -247,7 +247,7 @@ function emit(f: EventFactory, type: EventType, lane: string, i: number): void {
 
   switch (type) {
     case 'pane.activity':
-      f.paneActivity({ paneId, contentHash: `hash-${i}`, preview: `activity line ${i}` })
+      f.paneActivity({ paneId, contentHash: `hash-${i}` })
       return
     case 'llm.usage':
       // A fresh `requestId` every call: the worst case for `dedupedUsage`'s

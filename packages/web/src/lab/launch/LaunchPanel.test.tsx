@@ -1,10 +1,26 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { FetchLike } from '../../replay/api.js'
+import { CAPABILITY_META_NAME } from '../../recordings/capability.js'
 import type { LaunchFetchLike, LaunchOutcome } from './launch.js'
 import { LaunchPanel } from './LaunchPanel.js'
 
 afterEach(cleanup)
+
+/**
+ * Stands in for what `server/static.ts` stamps into `index.html` on a real
+ * boot (ADR-0012). Needed since #234 gated `POST /api/lab/launch`:
+ * `launch.ts` reads the token off the page and refuses before the wire if
+ * there is none, so without this the panel below would be exercising that
+ * refusal rather than the confirmation flow it exists to test.
+ * `launch.test.ts` is where the missing-token path is asserted on purpose.
+ */
+beforeAll(() => {
+  const meta = document.createElement('meta')
+  meta.setAttribute('name', CAPABILITY_META_NAME)
+  meta.setAttribute('content', 'test-capability-token')
+  document.head.appendChild(meta)
+})
 
 const CHECKPOINT = {
   eventId: 'evt-1',

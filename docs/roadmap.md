@@ -74,9 +74,10 @@
   what a colour, shape, or motion class means.
 - **prd11 — the causal record** (`docs/prds/done/prd-11-causal-record.md`, shipped): provenance at
   file granularity (`tool.activity`'s optional `filePath`/`toolUseId`) and
-  the portable session record — a manifest, the event log's own lines
-  verbatim, and a hash chain closing in the manifest's digest, specified in
-  full in [docs/record-format.md](record-format.md). Built toward a future
+  the portable session record — a manifest, the event log's own events
+  re-serialized one line each, and a hash chain closing in the manifest's
+  digest, specified in full in
+  [docs/record-format.md](record-format.md). Built toward a future
   "forest" (a multiplayer instrument with persistent cross-coworker
   knowledge) as a merge later, not a rewrite, but the forest itself is not
   built here.
@@ -159,7 +160,22 @@
   running process is physically impossible and never claimed), clones by URL
   with the machine's own credentials, discovers local repos, and retargets the
   watched repo in place. Harness picker built for N with claude first-class;
-  adapter contract stays prd15 ruling 3's.
+  adapter contract stays prd15 ruling 4's.
+- **prd21 — the scrub bar** (`docs/prds/prd-21-scrub-bar.md`, proposed
+  2026-08-07, never blessed, ruling 1 shipped anyway): replay that moves
+  smoothly, says where it is, and opens to the full record at a point. Profiling
+  overturned the obvious diagnosis — #160's incremental fold is sub-millisecond
+  at every size, and the cost is `buildFleet`, which is O(telemetry records) and
+  over the frame budget even on a four-lane session. **Ruling 1 landed in full**
+  (#267's incremental spend cursor in core, then #269's seek coalescing, #270's
+  1000-notch step, #271's 10 fps tick); the two defects verify passes found
+  afterwards closed 2026-08-13 (#364 the frame-bounded exemption, #395 the
+  resume-after-pause pin). **Ruling 2 — the loupe, reading raw events past the
+  mark lane's cap — shipped 2026-08-13** (#273, trigger ruled on the issue:
+  zooming past the cap opens it), alongside the readability half (#272: an
+  always-on axis and a readout at the thumb, both ruled).
+  Numbered 21 at the operator's direction: prd18 stays reserved for prd17's
+  richer-UI thread.
 
 ## Unclaimed candidates (cohort-facing)
 
@@ -172,8 +188,8 @@ project rather than this week's work:
   lane.
 - **LiteLLM/OpenRouter/pi capture** — CLIs without native OTel; prd9 ruling 9
   scoped these as cohort issues rather than building them now. Narrower
-  since prd15: ruling 3 (`docs/prds/prd-15-anywhere-instrument.md`) already rules the adapter contract
-  and names pi-on-OpenRouter/Gemini explicitly, ruled but not yet landed —
+  since prd15: ruling 4 (`docs/prds/prd-15-anywhere-instrument.md`) already rules the adapter contract,
+  and ruling 3 names pi-on-OpenRouter/Gemini explicitly, both ruled but not yet landed —
   what remains cohort-inheritable is building the adapters against it, not
   designing the contract.
 - **A Langfuse forwarder** — an opt-in outbound relay, filed as a future

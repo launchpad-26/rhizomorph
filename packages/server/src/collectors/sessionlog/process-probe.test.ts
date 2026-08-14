@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -34,7 +34,16 @@ describe('the /proc process probe', () => {
   let procRoot: string
 
   beforeEach(async () => {
-    root = await mkdtemp(path.join(tmpdir(), 'sessionlog-probe-'))
+    // CANONICALIZED at creation, and that is a fidelity fix, not a workaround.
+    // Every `cwd` this fixture fabricates stands in for `readlink(/proc/<pid>/cwd)`,
+    // which the kernel returns ALREADY FULLY RESOLVED — a raw, symlink-bearing
+    // cwd is a shape the real probe can never receive. `os.tmpdir()` is itself
+    // a symlink on macOS (`/var` -> `/private/var`) and not on Linux, so a raw
+    // root here fabricates exactly that impossible shape, and only on macOS:
+    // the probe canonicalizes its root (#422) and then correctly fails to match
+    // a candidate no kernel would have produced. Nine tests, green on ubuntu,
+    // red on macOS — caught by CI on #427.
+    root = realpathSync.native(await mkdtemp(path.join(tmpdir(), 'sessionlog-probe-')))
     procRoot = path.join(root, 'proc')
     await mkdir(procRoot, { recursive: true })
   })
@@ -303,6 +312,74 @@ describe('a platform that answers null says WHY (ADR-0010, additive)', () => {
     expect(capability.level).toBe('absent')
     if (capability.level === 'provided') throw new Error('expected absent')
     expect(capability.reason).toContain('sunos')
+  })
+})
+
+/**
+ * #422: `isWithin` compared `root` (the caller-supplied worktree path) raw
+ * against `candidate` (the kernel-canonical `readlink(/proc/<pid>/cwd)`
+ * result) — the #217 false-mismatch shape one level further out. A worktree
+ * reached through a symlink read as absent even while its agent was live.
+ */
+describe('isWithin canonicalizes the root, never the kernel-supplied candidate (#422)', () => {
+  let root: string
+  let procRoot: string
+
+  beforeEach(async () => {
+    // Canonicalized at creation, deliberately — same trap as
+    // paths/containment.test.ts's bounded-chase fixture: os.tmpdir() is a
+    // symlink on macOS and not on Linux, so leaving `root` raw would let a
+    // raw-vs-canonical comparison inside THIS test (the one thing it
+    // exercises) pass vacuously on ubuntu and red only the macOS leg.
+    root = realpathSync.native(await mkdtemp(path.join(tmpdir(), 'sessionlog-probe-symlink-root-')))
+    procRoot = path.join(root, 'proc')
+    await mkdir(procRoot, { recursive: true })
+  })
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it(
+    'matches a worktree root reached through a symlink against the already-canonical cwd — ' +
+      'mismatch before this fix, match after (mutation: dropping the root canonicalize call turns this red)',
+    async () => {
+      const real = path.join(root, 'real-lane')
+      await mkdir(real, { recursive: true })
+      const viaLink = path.join(root, 'lane-link') // stands in for the caller's worktreePath
+      await symlink(real, viaLink)
+
+      // readlink(/proc/<pid>/cwd) is kernel-canonical, so the fabricated
+      // cwd points straight at `real` — the candidate side is never a
+      // symlink spelling in production, and this fixture must not pretend
+      // otherwise.
+      const dir = path.join(procRoot, '4100')
+      await mkdir(dir, { recursive: true })
+      await symlink(real, path.join(dir, 'cwd'))
+      await writeFile(path.join(dir, 'cmdline'), `claude${NUL}`)
+
+      const result = await createProcProcessProbe({ procRoot }).probe([viaLink])
+      expect(result.get(viaLink)).toBe(true)
+    },
+  )
+
+  it('fails closed — refuses, never throws — when the worktree root cannot be canonicalized', async () => {
+    const dir = path.join(root, 'x')
+    await mkdir(dir, { recursive: true })
+    const cyclicLink = path.join(dir, 'link')
+    // Traverses a MISSING directory back to itself — realpath(3) reports
+    // this as ENOENT, not ELOOP, so paths/containment.ts's bounded chase is
+    // what turns it into ELOOP rather than an infinite, synchronous spin.
+    await symlink(path.join('.', 'missing', '..', 'link'), cyclicLink)
+
+    const pidDir = path.join(procRoot, '4101')
+    await mkdir(pidDir, { recursive: true })
+    await symlink(root, path.join(pidDir, 'cwd'))
+    await writeFile(path.join(pidDir, 'cmdline'), `claude${NUL}`)
+
+    const probe = createProcProcessProbe({ procRoot })
+    await expect(probe.probe([cyclicLink])).resolves.not.toThrow()
+    expect((await probe.probe([cyclicLink])).get(cyclicLink)).toBe(false)
   })
 })
 

@@ -9,14 +9,20 @@ import { writeSessionLabel } from '../log/label.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { buildApp } from '../server/build-app.js'
 import { recordSessionBootMeta } from './meta.js'
+import { CAPABILITY_TOKEN_HEADER } from './security.js'
 
 /**
- * `POST /api/rotate` — the one mutating route (prd16 ruling 2), end to end
- * through the app the dashboard button and `rhizomorph rotate` both talk to.
- * The rotation's own laws live in `recorder/rotate.test.ts`; what is asserted
- * here is the wiring the operator actually experiences: the boundary happens,
+ * `POST /api/rotate` — a mutating route (prd16 ruling 2), end to end through
+ * the app the dashboard button and `rhizomorph rotate` both talk to. The
+ * rotation's own laws live in `recorder/rotate.test.ts`; what is asserted here
+ * is the wiring the operator actually experiences: the boundary happens,
  * `/api/meta` explains it, and the freshly-closed session is in the picker's
  * listing immediately, with its label machinery intact.
+ *
+ * Every happy-path injection below carries the capability token, because since
+ * #234 the route requires it — the gate's own tests are the first `describe`
+ * block, and the rest of the file proves the route still does everything it
+ * did once a caller is authorised.
  */
 
 const FIRST = '1000'
@@ -59,9 +65,65 @@ describe('POST /api/rotate', () => {
     })
   }
 
+  /** The header a caller who was actually served the page would carry (ADR-0012). */
+  function authorised(app: ReturnType<typeof makeApp>): Record<string, string> {
+    return { [CAPABILITY_TOKEN_HEADER]: app.capabilityToken }
+  }
+
+  /**
+   * #234's first defect. `POST /api/rotate` forks nothing, but it ends the
+   * operator's recording — and the app-wide guard deliberately admits a
+   * request with no `Origin` (`server/mutation-guard.ts`), which is every
+   * non-browser caller. So before this issue, a bare `curl` from any local
+   * process could close the session out from under the dashboard.
+   *
+   * These assert the refusal AND that nothing happened behind it: the session
+   * is untouched, the lock is still held, and no `session.closed` was written.
+   * A 401 that still rotated would be worse than no gate at all.
+   */
+  describe('requires the capability token (#234)', () => {
+    it('refuses a tokenless request — the bare curl this issue is about — and rotates nothing', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({ method: 'POST', url: '/api/rotate' })
+
+      expect(response.statusCode).toBe(401)
+      expect((response.json() as { error: string }).error).toContain(CAPABILITY_TOKEN_HEADER)
+
+      expect(recorder.sessionId).toBe(FIRST)
+      expect(await readSessionLock(sessionDir, FIRST)).not.toBeNull()
+      expect((await readSessionEvents(sessionFilePath(sessionDir, FIRST))).map((e) => e.type)).toEqual([
+        'session.started',
+      ])
+      expect(await readSessionLock(sessionDir, String(ROTATE_AT))).toBeNull()
+    })
+
+    it('refuses a wrong token just as flatly — a guess is not a capability', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/rotate',
+        headers: { [CAPABILITY_TOKEN_HEADER]: 'not-the-real-token' },
+      })
+
+      expect(response.statusCode).toBe(401)
+      expect(recorder.sessionId).toBe(FIRST)
+    })
+
+    it('lets the correctly-tokened request through — the gate is a gate, not a wall', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({ method: 'POST', url: '/api/rotate', headers: authorised(app) })
+
+      expect(response.statusCode).toBe(200)
+      expect(recorder.sessionId).toBe(String(ROTATE_AT))
+    })
+  })
+
   it('closes the running session, opens a fresh one, and reports both', async () => {
     const app = makeApp()
-    const response = await app.inject({ method: 'POST', url: '/api/rotate' })
+    const response = await app.inject({ method: 'POST', url: '/api/rotate', headers: authorised(app) })
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual({
@@ -107,7 +169,7 @@ describe('POST /api/rotate', () => {
     const before = (await app.inject({ method: 'GET', url: '/api/meta' })).json() as Record<string, unknown>
     expect(before).toMatchObject({ sessionId: FIRST, lastBootReason: 'resumed', resumedCount: 3 })
 
-    await app.inject({ method: 'POST', url: '/api/rotate' })
+    await app.inject({ method: 'POST', url: '/api/rotate', headers: authorised(app) })
 
     const after = (await app.inject({ method: 'GET', url: '/api/meta' })).json() as Record<string, unknown>
     expect(after).toMatchObject({
@@ -124,7 +186,7 @@ describe('POST /api/rotate', () => {
 
   it('falls back to the stock resume window when the boot never recorded one', async () => {
     const app = makeApp()
-    await app.inject({ method: 'POST', url: '/api/rotate' })
+    await app.inject({ method: 'POST', url: '/api/rotate', headers: authorised(app) })
 
     const meta = (await app.inject({ method: 'GET', url: '/api/meta' })).json() as Record<string, unknown>
     expect(meta).toMatchObject({ lastBootReason: 'rotated', resumeWindowMs: RESUME_WINDOW_MS })
@@ -134,7 +196,7 @@ describe('POST /api/rotate', () => {
     await writeSessionLabel(sessionDir, FIRST, 'the morning run', ROTATE_AT - 1)
     const app = makeApp()
 
-    await app.inject({ method: 'POST', url: '/api/rotate' })
+    await app.inject({ method: 'POST', url: '/api/rotate', headers: authorised(app) })
 
     const listing = (await app.inject({ method: 'GET', url: '/api/sessions' })).json() as {
       sessions: Array<Record<string, unknown>>
@@ -155,7 +217,7 @@ describe('POST /api/rotate', () => {
 
   it('refuses to rotate a replayed record — a finished recording is not ours to end', async () => {
     const app = makeApp({ readOnly: true })
-    const response = await app.inject({ method: 'POST', url: '/api/rotate' })
+    const response = await app.inject({ method: 'POST', url: '/api/rotate', headers: authorised(app) })
 
     expect(response.statusCode).toBe(409)
     expect((response.json() as { error: string }).error).toContain('replaying a session record')

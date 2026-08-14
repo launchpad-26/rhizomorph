@@ -256,7 +256,7 @@ function emit(f: EventFactory, type: EventType, lane: string, i: number): void {
       // An uncovered lane spends its cost slot on pane noise instead, so the
       // event mix stays fixed while the coverage split changes.
       if (!COVERED.has(lane)) {
-        f.paneActivity({ paneId: paneFor(lane, 0), contentHash: `h-${i}`, preview: `line ${i}` })
+        f.paneActivity({ paneId: paneFor(lane, 0), contentHash: `h-${i}` })
         return
       }
       f.llmCost({
@@ -283,7 +283,7 @@ function emit(f: EventFactory, type: EventType, lane: string, i: number): void {
       })
       return
     case 'pane.activity':
-      f.paneActivity({ paneId: paneFor(lane, i % 3), contentHash: `h-${i}`, preview: `line ${i}` })
+      f.paneActivity({ paneId: paneFor(lane, i % 3), contentHash: `h-${i}` })
       return
     case 'worktree.dirty':
       f.worktreeDirty({

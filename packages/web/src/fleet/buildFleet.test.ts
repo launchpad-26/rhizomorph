@@ -1,4 +1,4 @@
-import { createEvent, createIdFactory, reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
+import { createEvent, createEventFactory, createIdFactory, reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import {
   buildFleet,
@@ -358,6 +358,71 @@ describe('the ladder floor', () => {
   })
 })
 
+// ── the honest middle — degraded-retrying gap voice (#304, ruling 2) ───────
+
+describe('the honest middle — degraded-retrying gap voice (#304, ruling 2)', () => {
+  it('speaks the gap voice for a degraded-but-retrying collector', () => {
+    const f = createEventFactory()
+    const state = reduceAll([
+      f.collectorDegraded({ collector: 'tmux', reason: 'capture-pane timed out', consecutiveFailures: 1 }),
+    ])
+    const fleet = buildFleet(state, { now: NOW })
+
+    const degraded = fleet.gaps.filter((gap) => gap.id === 'collector-degraded:tmux')
+    expect(degraded).toHaveLength(1)
+    expect(degraded[0]?.what).toBe('TMUX COLLECTOR DEGRADED')
+    expect(degraded[0]?.why).toContain('capture-pane timed out')
+    expect(degraded[0]?.command).toBe('rhizomorph doctor')
+  })
+
+  it('a healed collector is silent, not a stale gap', () => {
+    const f = createEventFactory()
+    const state = reduceAll([
+      f.collectorDegraded({ collector: 'tmux', reason: 'capture-pane timed out', consecutiveFailures: 1 }),
+      f.collectorRecovered({ collector: 'tmux' }),
+    ])
+    const fleet = buildFleet(state, { now: NOW })
+
+    expect(fleet.gaps.some((gap) => gap.id.startsWith('collector-degraded:') || gap.id.startsWith('collector-disabled:'))).toBe(false)
+  })
+
+  it('a second degraded poll updates the same gap, never adds a second', () => {
+    const f = createEventFactory()
+    const state = reduceAll([
+      f.collectorDegraded({ collector: 'tmux', reason: 'capture-pane timed out', consecutiveFailures: 1 }),
+      f.collectorDegraded({ collector: 'tmux', reason: 'tmux exited with code 1', consecutiveFailures: 2 }),
+    ])
+    const fleet = buildFleet(state, { now: NOW })
+
+    const degraded = fleet.gaps.filter((gap) => gap.id === 'collector-degraded:tmux')
+    expect(degraded).toHaveLength(1)
+    expect(degraded[0]?.why).toContain('tmux exited with code 1')
+  })
+
+  it('the stronger, terminal fact replaces the weaker one once the threshold is crossed', () => {
+    const f = createEventFactory()
+    const state = reduceAll([
+      f.collectorDegraded({ collector: 'tmux', reason: 'capture-pane timed out', consecutiveFailures: 1 }),
+      f.collectorDisabled({ collector: 'tmux', reason: 'tmux exited with code 1', consecutiveFailures: 3 }),
+    ])
+    const fleet = buildFleet(state, { now: NOW })
+
+    expect(fleet.gaps.some((gap) => gap.id === 'collector-disabled:tmux')).toBe(true)
+    expect(fleet.gaps.some((gap) => gap.id === 'collector-degraded:tmux')).toBe(false)
+  })
+
+  it('stays ambient-only: a degraded collector never climbs the attention strip', () => {
+    const f = createEventFactory()
+    const state = reduceAll([
+      f.collectorDegraded({ collector: 'tmux', reason: 'capture-pane timed out', consecutiveFailures: 1 }),
+    ])
+    const fleet = buildFleet(state, { now: NOW })
+
+    expect(fleet.ladder.rank).toBe('calm')
+    expect(fleet.ladder.items).toEqual([])
+  })
+})
+
 // ── detection honesty (ruling 18) ───────────────────────────────────────────
 
 describe('detection honesty', () => {
@@ -376,7 +441,7 @@ describe('detection honesty', () => {
       event('worktree.discovered', { path: '/repo-wt/q', branch: 'q', head: 'sha-q', isMain: false }, NOW - 600_000),
       event('pane.discovered', { paneId: '%9', windowName: 'q', currentPath: '/repo-wt/q', worktreePath: '/repo-wt/q' }, NOW - 600_000),
       event('worktree.dirty', { path: '/repo-wt/q', branch: 'q', files: [{ path: 'a.ts', status: 'modified' }] }, NOW - 130_000),
-      event('pane.activity', { paneId: '%9', contentHash: 'h1', preview: 'Do you want to proceed?' }, NOW - 5_000),
+      event('pane.activity', { paneId: '%9', contentHash: 'h1' }, NOW - 5_000),
     ]
 
     const fleet = buildFleet(reduceAll(log), { now: NOW })
@@ -415,6 +480,35 @@ describe('detection honesty', () => {
     expect(lane.rank).toBe('calm')
     expect(lane.activity).toBe('done')
     expect(fleet.ladder.rank).toBe('calm')
+  })
+
+  it('lets a declared WAITING lapse once its own agent is removed, even though the worktree stands', () => {
+    // The direct sibling of the worktree-removal test above: this time the
+    // git worktree never goes anywhere (workmux's handle and a git worktree
+    // are different identities per ADR-0015 — one can depart without the
+    // other), only the workmux agent departs. Without findAgent() filtering
+    // on presence, WorktreeView.agent keeps returning the stale 'waiting'
+    // record forever, since lane.present here (the worktree's own presence)
+    // never flips false.
+    const log = [
+      event('session.started', {
+        sessionId: 'agent-removed',
+        repoPath: '/repo',
+        repoName: 'rhizomorph',
+        mainBranch: 'main',
+      }, NOW - 600_000),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 600_000),
+      event('worktree.discovered', { path: '/repo-wt/s', branch: 's', head: 'sha-s', isMain: false }, NOW - 600_000),
+      event('agent.status', { handle: 's', status: 'waiting', worktreePath: '/repo-wt/s', branch: 's' }, NOW - 500_000),
+      event('agent.removed', { handle: 's' }, NOW - 300_000),
+    ]
+
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    const lane = laneIn(fleet, 's')
+
+    expect(lane.present).toBe(true)
+    expect(lane.agentStatus).toBeNull()
+    expect(lane.pathologies.map((pathology) => pathology.kind)).not.toContain('waiting')
   })
 
   it('never infers off-fence without a manifest, and names the gap instead', () => {
@@ -481,7 +575,7 @@ describe('the second witness: telemetry recency alongside pane stillness', () =>
       event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 20 * 60_000),
       event('worktree.discovered', { path: '/repo-wt/f', branch: HANDLE, head: 'sha-f', isMain: false }, NOW - 20 * 60_000),
       event('pane.discovered', { paneId: '%40', windowName: HANDLE, currentPath: '/repo-wt/f', worktreePath: '/repo-wt/f' }, NOW - 20 * 60_000),
-      event('pane.activity', { paneId: '%40', contentHash: 'h0', preview: 'delegating to Explore…' }, NOW - 12 * 60_000),
+      event('pane.activity', { paneId: '%40', contentHash: 'h0' }, NOW - 12 * 60_000),
       event('agent.status', { handle: HANDLE, status: 'working', worktreePath: '/repo-wt/f', branch: HANDLE }, NOW - 12 * 60_000),
       span(HANDLE, '/repo-wt/f', NOW - 4_000),
     ]
@@ -506,7 +600,7 @@ describe('the second witness: telemetry recency alongside pane stillness', () =>
       event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 20 * 60_000),
       event('worktree.discovered', { path: '/repo-wt/g', branch: HANDLE, head: 'sha-g', isMain: false }, NOW - 20 * 60_000),
       event('pane.discovered', { paneId: '%41', windowName: HANDLE, currentPath: '/repo-wt/g', worktreePath: '/repo-wt/g' }, NOW - 20 * 60_000),
-      event('pane.activity', { paneId: '%41', contentHash: 'h0', preview: 'delegating to Explore…' }, NOW - 15 * 60_000),
+      event('pane.activity', { paneId: '%41', contentHash: 'h0' }, NOW - 15 * 60_000),
       event('agent.status', { handle: HANDLE, status: 'working', worktreePath: '/repo-wt/g', branch: HANDLE }, NOW - 15 * 60_000),
       // Older than `SPAN_WITNESS_WINDOW_MS`: too old to speak for the lane
       // now, so it must not rescue it either.
@@ -533,7 +627,7 @@ describe('the second witness: telemetry recency alongside pane stillness', () =>
       event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, NOW - 20 * 60_000),
       event('worktree.discovered', { path: '/repo-wt/j', branch: HANDLE, head: 'sha-j', isMain: false }, NOW - 20 * 60_000),
       event('pane.discovered', { paneId: '%42', windowName: HANDLE, currentPath: '/repo-wt/j', worktreePath: '/repo-wt/j' }, NOW - 20 * 60_000),
-      event('pane.activity', { paneId: '%42', contentHash: 'h0', preview: '$ ' }, NOW - 15 * 60_000),
+      event('pane.activity', { paneId: '%42', contentHash: 'h0' }, NOW - 15 * 60_000),
     ]
 
     const fleet = buildFleet(reduceAll(log), { now: NOW })

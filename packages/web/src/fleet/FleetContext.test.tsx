@@ -6,7 +6,9 @@ import { StreamProvider } from '../app/StreamContext.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
 import type { FetchLike as ReplayFetchLike } from '../replay/api.js'
 import { FLEET_TICK_MS, FleetProvider, useFleet } from './FleetContext.js'
+import Scene from '../scene/index.js'
 import { fixtureHistory, fleet20Spec, pathologySpec } from './fixtures.js'
+import { SelectionProvider } from './selection.js'
 import { LANES_URL, type FetchLike } from './manifest.js'
 
 afterEach(cleanup)
@@ -435,5 +437,230 @@ describe('the lane manifest across a repo boundary (#390 review)', () => {
 
     expect(lanes.calls).toHaveLength(afterFirstRepo)
     expect(screen.getByTestId('manifest').textContent).toBe('true')
+  })
+})
+
+// ── seek coalescing (#269) ──────────────────────────────────────────────────
+
+/**
+ * The one number the fix is judged on, end to end: how many times a pointer
+ * drag rebuilds the fleet. Still nothing mocked — `buildFleet` returns a fresh
+ * object every call, so a rebuild IS a `fleet` identity change, and the probe
+ * below counts exactly those.
+ *
+ * Two deps of this memo move under a drag (`FleetContext`'s `[state.session,
+ * clock, manifest]`), and coalescing only one of them buys nothing: the fold's
+ * identity settling once per frame while `now` went on changing once per seek
+ * would only split what used to be one recompute per seek into two. Measured
+ * with a throwaway harness while building this, over an 80-seek drag across 10
+ * frames: 79 rebuilds before, 90 with the fold alone coalesced, 11 with both.
+ * The assertion below is the part that ships and can be re-run.
+ *
+ * 2,000 events rather than the 25,000 the issue names because the count
+ * asserted here does not depend on the recording's size — only on frames and
+ * seeks. `useReplaySession.test.ts` carries the 25,000-event proof of the same
+ * ceiling one layer down, where a session that size is affordable.
+ */
+const DRAG_FRAME_MS = 16
+
+function dragEvents() {
+  const f = createEventFactory({ startTs: T0, stepMs: 100, idPrefix: 'drag' })
+  const paths = ['/repo-wt/drag-a', '/repo-wt/drag-b', '/repo-wt/drag-c']
+  f.sessionStarted()
+  for (const path of paths) {
+    f.worktreeDiscovered({
+      path,
+      branch: path.split('/').pop()!,
+      head: 'sha-0',
+      isMain: path.endsWith('drag-a'),
+    })
+  }
+  for (let i = 0; i < 2_000; i++) {
+    const path = paths[i % paths.length]!
+    const branch = path.split('/').pop()!
+    if (i % 5 === 0) {
+      f.commitLanded({ sha: `sha-${i}`, branch, message: `commit ${i}` })
+    } else {
+      f.worktreeDirty({ path, branch, files: [{ path: `file-${i}.ts`, status: 'modified' }] })
+    }
+  }
+  return f.all()
+}
+
+function dragFetch(): ReplayFetchLike {
+  const events = dragEvents()
+  return (async (url: string | URL | Request) => {
+    const href = String(url)
+    if (href === '/api/sessions') {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          sessions: [{ id: 'drag', fileName: 'drag.jsonl', startedAt: T0, sizeBytes: 100 }],
+        }),
+      } as unknown as Response
+    }
+    if (href === '/api/sessions/drag/events') {
+      return { ok: true, status: 200, json: async () => ({ events }) } as unknown as Response
+    }
+    throw new Error(`unexpected fetch: ${href}`)
+  }) as unknown as ReplayFetchLike
+}
+
+describe('seek coalescing (#269)', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('rebuilds the fleet at most once per animation frame across a drag, not once per seek', async () => {
+    // Installed before mount so the coalescer's `requestAnimationFrame` is a
+    // faked one from the moment it exists — a frame here is an advance this
+    // test made, never one jsdom's own ~16 ms timer happened to slip in.
+    vi.useFakeTimers()
+
+    let replay: ReturnType<typeof useReplay> | null = null
+    let lastFleet: unknown = null
+    let rebuilds = 0
+
+    function DragProbe() {
+      replay = useReplay()
+      const fleet = useFleet()
+      if (fleet !== lastFleet) {
+        lastFleet = fleet
+        rebuilds++
+      }
+      return <span data-testid="drag-lanes">{fleet.lanes.length}</span>
+    }
+
+    await act(async () => {
+      render(
+        <ModeProvider fetchImpl={dragFetch()}>
+          <StreamProvider url="/api/stream" createSource={() => new SilentReplayEventSource()}>
+            {/* No pinned `now`: the fleet's clock is the scrub position, which
+                is the half of this memo the drag actually moves. */}
+            <FleetProvider fetchLanes={noLaneManifest}>
+              <DragProbe />
+            </FleetProvider>
+          </StreamProvider>
+        </ModeProvider>,
+      )
+    })
+    await act(async () => {
+      replay?.selectSession('drag')
+    })
+
+    const range = replay!.range
+    expect(range.end).toBeGreaterThan(range.start)
+
+    const FRAMES = 8
+    const SEEKS_PER_FRAME = 10
+    rebuilds = 0
+
+    for (let frame = 0; frame < FRAMES; frame++) {
+      for (let i = 0; i < SEEKS_PER_FRAME; i++) {
+        const progress = (frame * SEEKS_PER_FRAME + i + 1) / (FRAMES * SEEKS_PER_FRAME)
+        act(() => {
+          replay?.playback.seek(range.start + progress * (range.end - range.start))
+        })
+      }
+      act(() => {
+        vi.advanceTimersByTime(DRAG_FRAME_MS)
+      })
+    }
+
+    // 80 seeks, 8 frames: one rebuild per frame, plus the drag's single
+    // leading edge (the first seek of a burst folds on the spot so a lone
+    // click or arrow key never waits for a frame). Uncoalesced, this is 79.
+    expect(rebuilds).toBe(FRAMES + 1)
+    // And the drag ends where the finger left it, fully folded.
+    expect(replay!.derivedTs).toBe(range.end)
+    expect(replay!.playback.currentTs).toBe(range.end)
+  })
+})
+
+// ── the scene reads the fleet's own clock (#269) ────────────────────────────
+
+/**
+ * `layout.ts` and `marks/frame.ts` both age a lane by `asOf - fleet.now` — the
+ * timeline distance between the snapshot and the moment it is read at. That
+ * difference was exactly zero in replay while both numbers came from the raw
+ * scrub position. Coalescing `buildFleet`'s clock without coalescing the
+ * scene's would open it to a whole frame of *timeline* under a forward drag,
+ * which on a long recording is minutes — past `RECENCY_SPAN_MS` — so every
+ * lane would grey out as stale mid-drag and the summons pulses would inflate
+ * to match. The two clocks have to be one clock; this pins that they are, on
+ * every frame of a drag rather than only at rest.
+ *
+ * It lives here rather than beside the scene because the property under test
+ * is `FleetContext`'s clock agreeing with its consumer, and because #269's
+ * fence reaches this file.
+ */
+const sceneFrames = vi.hoisted(() => ({ seen: [] as { asOf?: number; fleetNow: number }[] }))
+
+vi.mock('../scene/SceneView.js', () => ({
+  SceneView: ({ asOf, fleet }: { asOf?: number; fleet: { now: number } }) => {
+    sceneFrames.seen.push({ asOf, fleetNow: fleet.now })
+    return <span data-testid="scene-stub" />
+  },
+}))
+
+describe('the scene and the fleet share one state clock (#269)', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('hands the scene the exact instant the fleet was built at, on every frame of a drag', async () => {
+    vi.useFakeTimers()
+    sceneFrames.seen.length = 0
+
+    let replay: ReturnType<typeof useReplay> | null = null
+
+    function Driver() {
+      replay = useReplay()
+      return null
+    }
+
+    await act(async () => {
+      render(
+        <ModeProvider fetchImpl={dragFetch()}>
+          <StreamProvider url="/api/stream" createSource={() => new SilentReplayEventSource()}>
+            <FleetProvider fetchLanes={noLaneManifest}>
+              <SelectionProvider>
+                <Driver />
+                <Scene />
+              </SelectionProvider>
+            </FleetProvider>
+          </StreamProvider>
+        </ModeProvider>,
+      )
+    })
+    await act(async () => {
+      replay?.selectSession('drag')
+    })
+
+    const range = replay!.range
+    // Live renders (before a session is selected) legitimately pass no `asOf`
+    // at all — `SceneView` falls back to its own real clock there. The drag is
+    // what is under test.
+    sceneFrames.seen.length = 0
+
+    for (let frame = 0; frame < 6; frame++) {
+      for (let i = 0; i < 10; i++) {
+        const progress = (frame * 10 + i + 1) / 60
+        act(() => {
+          replay?.playback.seek(range.start + progress * (range.end - range.start))
+        })
+      }
+      act(() => {
+        vi.advanceTimersByTime(DRAG_FRAME_MS)
+      })
+    }
+
+    // Every render the scene made, not just the last: a single frame reading
+    // `asOf` ahead of `fleet.now` is one frame of every lane greying out.
+    expect(sceneFrames.seen.length).toBeGreaterThan(6)
+    const disagreements = sceneFrames.seen.filter((seen) => seen.asOf !== seen.fleetNow)
+    expect(disagreements).toEqual([])
+    // …and the clock they agree on is a real scrub position rather than
+    // `undefined` on both sides, which would satisfy the line above while
+    // meaning the replay branch never ran at all.
+    expect(sceneFrames.seen.filter((seen) => seen.asOf === undefined)).toEqual([])
+    expect(sceneFrames.seen.at(-1)?.asOf).toBe(range.end)
   })
 })

@@ -19,6 +19,7 @@
  * body at all" rule for a call that structurally cannot follow it.
  */
 
+import { missingTokenMessage, staleTokenMessage } from './capability-guidance.js'
 import { CAPABILITY_TOKEN_HEADER, readCapabilityToken } from './capability.js'
 
 export const LABEL_URL = '/api/label'
@@ -84,9 +85,13 @@ export async function requestLabel(
   const impl = fetchImpl ?? (globalThis.fetch as unknown as LabelFetchLike | undefined)
   if (impl === undefined) throw new Error('this browser has no fetch — cannot save the label from here')
 
+  // Refused here rather than sent bare, so the operator reads what is missing
+  // instead of a 401 about a header they never knew existed. Until #406 this
+  // said only "no capability token found on this page", which named the
+  // problem and no remedy — see `./capability-guidance.ts`.
   const capabilityToken = readCapabilityToken()
   if (capabilityToken === null) {
-    throw new Error('no capability token found on this page — cannot save the label')
+    throw new Error(missingTokenMessage('save the label'))
   }
 
   let response: Awaited<ReturnType<LabelFetchLike>>
@@ -98,6 +103,14 @@ export async function requestLabel(
     })
   } catch (err) {
     throw new Error(`could not reach the instrument: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  // A 401 means the token WAS sent and the instrument rejected it, which in
+  // practice means the tab outlived the server process that minted it. Same
+  // reasoning as `replay/rotate.ts` and `lab/launch/launch.ts`, which got this
+  // branch in #234 while this caller — the oldest of the three — did not.
+  if (response.status === 401) {
+    throw new Error(staleTokenMessage('save the label', await refusalDetail(response)))
   }
 
   if (!response.ok) throw new Error(`could not save the label — ${await refusalDetail(response)}`)

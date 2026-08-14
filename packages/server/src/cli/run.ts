@@ -1,7 +1,6 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createEvent, createIdFactory, reduceAll, selectBranches, selectWorktreeViews } from '@rhizomorph/core'
-import { createSessionlogCollector } from '../collectors/sessionlog/index.js'
 import { recordSessionBootMeta } from '../api/meta.js'
 import { defaultDataRoot, sessionDirFor, sessionFileName, snapshotDirFor } from '../log/paths.js'
 import {
@@ -124,18 +123,11 @@ export async function runServerCommand(
 
   const collectors =
     options.collectors ??
-    [
-      ...(await loadCollectors(log, resumed?.events)),
-      createSessionlogCollector({
-        claudeProjectsRoot: options.claudeProjectsRoot,
-        extraSessionDirs: args.extraSessionDirs,
-        // `backfill` is #57's field on SessionlogCollectorConfig. Spread rather
-        // than named so this plumbing compiles both before and after that lands
-        // (TypeScript excess-property-checks object literals, not spreads) and
-        // starts taking effect the moment the field exists.
-        ...(args.backfill ? { backfill: true } : {}),
-      }),
-    ]
+    (await loadCollectors(log, resumed?.events, {
+      claudeProjectsRoot: options.claudeProjectsRoot,
+      extraSessionDirs: args.extraSessionDirs,
+      backfill: args.backfill,
+    }))
   const pollLoop = createPollLoop({
     repoPath,
     collectors,

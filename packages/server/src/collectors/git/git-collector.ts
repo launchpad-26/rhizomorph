@@ -12,8 +12,25 @@ import { parseForEachRef } from './parse-refs.js'
 import { parseStatusPorcelain } from './parse-status.js'
 import { parseWorktreeList, type ParsedWorktree } from './parse-worktrees.js'
 import type { GitBranchState, GitSnapshot, GitWorktreeState } from './types.js'
+import { voiceSkips } from '../parse-skip.js'
+import { describeExecFailure } from '../../server/exec.js'
 
 const COLLECTOR_NAME = 'git'
+
+/**
+ * How many consecutive `git status --porcelain` failures a worktree may
+ * carry its last-known dirty set through before the gap becomes a voiced
+ * `collector.error` instead of silent stale data. Matches
+ * `resilience.ts`'s `DEFAULT_FAILURE_THRESHOLD` — no reason to invent a
+ * second convention for "how many failures before something becomes
+ * visible". Voicing happens exactly once per incident — on the poll that
+ * crosses this bound — never on every poll in between, and never again on
+ * recovery: the counter resets silently so a later incident re-arms and
+ * voices again (#415). A voiced close was tried and reverted — per-worktree
+ * recovery routed through per-collector `CollectorState` can mask a sibling
+ * worktree's still-open incident (#429).
+ */
+export const MAX_DIRTY_STATUS_FAILURES = 3
 
 /**
  * prd15 ruling 5's L0 floor: git alone is fully CLI-agnostic and structural
@@ -54,12 +71,28 @@ function runGit(context: CollectorContext, args: readonly string[], cwd: string)
   return context.exec('git', args, { cwd })
 }
 
+/**
+ * The three-arm failure describer lives in `server/exec.ts`, beside the
+ * `errorMessage` contract that creates its third case — one home (#425
+ * review), because the two-arm `errorMessage ?? stderr` bug reappeared in
+ * the judge readers after being fixed here.
+ */
+const describeGitFailure = describeExecFailure
+
 export const gitCollector: Collector<GitSnapshot> = {
   name: COLLECTOR_NAME,
   capabilities: GIT_CAPABILITIES,
 
   initialSnapshot(): GitSnapshot {
-    return { disabled: false, mainBranch: null, worktrees: {}, branches: {}, dirty: {} }
+    return {
+      disabled: false,
+      mainBranch: null,
+      mainBranchGapVoiced: false,
+      worktrees: {},
+      branches: {},
+      dirty: {},
+      dirtyFailures: {},
+    }
   },
 
   async poll(prevSnapshot, context): Promise<PollResult<GitSnapshot>> {
@@ -82,14 +115,39 @@ export const gitCollector: Collector<GitSnapshot> = {
 
     const worktrees = parseWorktreeList(worktreeListResult.stdout)
     const mainBranch = worktrees[0]?.branch ?? null
+    const mainWorktreeDetached = mainBranch === null
+
+    if (mainWorktreeDetached && !prevSnapshot.mainBranchGapVoiced) {
+      events.push(
+        context.emit('collector.error', {
+          collector: COLLECTOR_NAME,
+          message: 'main worktree HEAD is detached — aheadOfMain/behindMain cannot be computed for any branch',
+          detail: `no branch checked out at ${worktrees[0]?.path ?? context.repoPath}`,
+        }),
+      )
+    }
+
     const nextWorktrees = diffWorktrees(worktrees, prevSnapshot, context, events)
 
     const nextBranches = await diffBranches(context, worktrees, mainBranch, prevSnapshot, events)
 
-    const nextDirty = await diffDirty(context, worktrees, prevSnapshot, events)
+    const { dirty: nextDirty, dirtyFailures: nextDirtyFailures } = await diffDirty(
+      context,
+      worktrees,
+      prevSnapshot,
+      events,
+    )
 
     return {
-      nextSnapshot: { disabled: false, mainBranch, worktrees: nextWorktrees, branches: nextBranches, dirty: nextDirty },
+      nextSnapshot: {
+        disabled: false,
+        mainBranch,
+        mainBranchGapVoiced: mainWorktreeDetached,
+        worktrees: nextWorktrees,
+        branches: nextBranches,
+        dirty: nextDirty,
+        dirtyFailures: nextDirtyFailures,
+      },
       events,
     }
   },
@@ -104,6 +162,14 @@ function diffWorktrees(
   const nextWorktrees: Record<string, GitWorktreeState> = {}
 
   worktrees.forEach((worktree, index) => {
+    // Proven gone: git's own `list --porcelain` already checked the path and
+    // will keep listing this record forever (there is no `prune` call in
+    // this app), so it must never enter `nextWorktrees` even though it's
+    // right here in `worktrees`. Falls into the removal loop below exactly
+    // like a worktree that vanished from the list outright — same event,
+    // same reducer, no new branch of logic (ADR-0016).
+    if (worktree.prunable) return
+
     const state: GitWorktreeState = {
       path: worktree.path,
       branch: worktree.branch,
@@ -156,7 +222,7 @@ async function diffBranches(
       context.emit('collector.error', {
         collector: COLLECTOR_NAME,
         message: 'git for-each-ref failed',
-        detail: refsResult.errorMessage ?? refsResult.stderr,
+        detail: describeGitFailure(refsResult),
       }),
     )
     return prevSnapshot.branches
@@ -175,6 +241,23 @@ async function diffBranches(
 
     if (headMoved || countsChanged) {
       const worktreePath = worktrees.find((worktree) => worktree.branch === ref.branch)?.path ?? null
+
+      const loaded =
+        prevBranch && headMoved ? await loadNewCommits(context, prevBranch.head, ref.head) : { commits: [], skipped: [] }
+
+      // The skip, when present, is voiced ahead of this tick's own
+      // branch.updated/commit.landed — same "error surfaces first" ordering
+      // the tmux collector's list-panes skip already follows.
+      if (loaded.skipped.length > 0) {
+        events.push(
+          context.emit('collector.error', {
+            collector: COLLECTOR_NAME,
+            message: `skipped ${loaded.skipped.length} unparseable git raw diff line${loaded.skipped.length === 1 ? '' : 's'} on ${ref.branch}`,
+            detail: voiceSkips(loaded.skipped),
+          }),
+        )
+      }
+
       events.push(
         context.emit('branch.updated', {
           branch: ref.branch,
@@ -186,24 +269,21 @@ async function diffBranches(
         }),
       )
 
-      if (prevBranch && headMoved) {
-        const commits = await loadNewCommits(context, prevBranch.head, ref.head)
-        for (const commit of commits) {
-          events.push(
-            context.emit('commit.landed', {
-              sha: commit.sha,
-              branch: ref.branch,
-              message: commit.subject,
-              author: commit.author,
-              authoredAt: commit.authoredAt,
-              parents: commit.parents,
-              files: commit.files,
-              insertions: commit.insertions,
-              deletions: commit.deletions,
-              worktreePath,
-            }),
-          )
-        }
+      for (const commit of loaded.commits) {
+        events.push(
+          context.emit('commit.landed', {
+            sha: commit.sha,
+            branch: ref.branch,
+            message: commit.subject,
+            author: commit.author,
+            authoredAt: commit.authoredAt,
+            parents: commit.parents,
+            files: commit.files,
+            insertions: commit.insertions,
+            deletions: commit.deletions,
+            worktreePath,
+          }),
+        )
       }
     }
   }
@@ -245,7 +325,7 @@ async function loadNewCommits(context: CollectorContext, fromHead: string, toHea
     ['log', '--raw', '--numstat', '-M', '--reverse', `--pretty=format:${LOG_PRETTY}`, `${fromHead}..${toHead}`],
     context.repoPath,
   )
-  if (result.failed) return []
+  if (result.failed) return { commits: [], skipped: [] }
   return parseGitLog(result.stdout)
 }
 
@@ -254,20 +334,53 @@ async function diffDirty(
   worktrees: ParsedWorktree[],
   prevSnapshot: GitSnapshot,
   events: RhizomorphEvent[],
-): Promise<Record<string, DirtyFile[]>> {
+): Promise<{ dirty: Record<string, DirtyFile[]>; dirtyFailures: Record<string, number> }> {
   const nextDirty: Record<string, DirtyFile[]> = {}
+  const nextFailures: Record<string, number> = {}
 
   for (const worktree of worktrees) {
+    // Dropped by diffWorktrees already — no exec, no carry-forward, and no
+    // ENOENT to misread as "git is gone" (ADR-0016).
+    if (worktree.prunable) continue
+
     const statusResult = await runGit(context, ['status', '--porcelain'], worktree.path)
     if (statusResult.failed) {
-      // Transient (e.g. a worktree mid-removal); keep last known state.
-      const carried = prevSnapshot.dirty[worktree.path]
-      if (carried) nextDirty[worktree.path] = carried
+      const failures = (prevSnapshot.dirtyFailures?.[worktree.path] ?? 0) + 1
+      nextFailures[worktree.path] = failures
+
+      if (failures <= MAX_DIRTY_STATUS_FAILURES) {
+        // Genuine transient (index lock, a locked-and-momentarily-
+        // unreachable worktree, a permission blip): carry the last known
+        // set forward, same as before, but only for a bounded number of
+        // polls — a real removal proves itself via `prunable` above, so
+        // this branch is never how "gone" is detected.
+        const carried = prevSnapshot.dirty[worktree.path]
+        if (carried) nextDirty[worktree.path] = carried
+      } else if (failures === MAX_DIRTY_STATUS_FAILURES + 1) {
+        // Past the bound, and only on the one poll that crosses it: asserting
+        // old data as current is the thing being fixed, so stop carrying and
+        // say so, once (#415). The count is fixed at this single moment, so
+        // the message text is stable for the rest of the incident too.
+        events.push(
+          context.emit('collector.error', {
+            collector: COLLECTOR_NAME,
+            message: `git status --porcelain failed ${failures} times in a row for ${worktree.path}`,
+            detail: describeGitFailure(statusResult),
+          }),
+        )
+      }
+      // Every failure after that stays silent — the incident was already
+      // voiced once; repeating it every poll is the heartbeat #415 removes.
       continue
     }
 
     const files = parseStatusPorcelain(statusResult.stdout)
     nextDirty[worktree.path] = files
+    // nextFailures[worktree.path] intentionally left unset: a success resets
+    // the count to 0, silently, so a later incident re-arms and voices again
+    // (#415 ruling — no voiced close: per-worktree recovery routed through
+    // per-collector CollectorState can mask a sibling worktree's still-open
+    // incident; see #429).
 
     if (!sameDirtySet(prevSnapshot.dirty[worktree.path], files)) {
       events.push(
@@ -280,7 +393,7 @@ async function diffDirty(
     }
   }
 
-  return nextDirty
+  return { dirty: nextDirty, dirtyFailures: nextFailures }
 }
 
 function sameDirtySet(previous: DirtyFile[] | undefined, current: DirtyFile[]): boolean {

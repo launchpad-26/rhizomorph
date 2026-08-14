@@ -83,6 +83,25 @@ function tokensMatch(expected: string, provided: string): boolean {
  */
 export function requireCapabilityToken(expectedToken: string) {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    // An EMPTY expected token refuses everything, instead of matching an empty
+    // header and opening the route.
+    //
+    // `tokensMatch('', '')` is true — 0 === 0, and '' === ''. Every call site
+    // spells `requireCapabilityToken(ctx.capabilityToken ?? '')`, so any path
+    // leaving the token unset turns this gate into a no-op for a request
+    // carrying an empty `x-rhizomorph-capability` header. Unreachable through
+    // today's single production entry point, but #234 widens that fallback
+    // from one route to three, and the fourth is where "unreachable" stops
+    // being true.
+    //
+    // Enforced here rather than at each call site, for the reason this module
+    // exists at all: a guarantee a caller can decline is not a guarantee.
+    if (expectedToken === '') {
+      await reply.code(401).send({
+        error: `${CAPABILITY_TOKEN_HEADER} is not configured on this server — this route refuses rather than opening`,
+      })
+      return
+    }
     const provided = request.headers[CAPABILITY_TOKEN_HEADER]
     if (typeof provided !== 'string' || !tokensMatch(expectedToken, provided)) {
       await reply.code(401).send({

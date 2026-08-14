@@ -187,7 +187,7 @@ describe('the claude adapter\'s four members', () => {
     const argv = claudeAdapter.launchArgv(CONTEXT)
 
     expect(argv).toEqual(['claude'])
-    // ADR-0014 clause 4: an argv array is what removes the injection path.
+    // ADR-0019 clause 4: an argv array is what removes the injection path.
     expect(Array.isArray(argv)).toBe(true)
   })
 

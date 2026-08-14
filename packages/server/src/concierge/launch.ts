@@ -10,7 +10,7 @@ import type {
 } from './harness/types.js'
 
 /**
- * prd-20 ruling 1 / ADR-0014's first power, wired for real (#264):
+ * prd-20 ruling 1 / ADR-0019's first power, wired for real (#264):
  * "spawn a conductor in the watched repo with the env envelope" —
  * generalizing `scripts/lane-agent.sh`'s trick (resolve the env, THEN exec,
  * in one process) server-side, via `node:child_process`'s `spawn` with an

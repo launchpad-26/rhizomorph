@@ -109,6 +109,80 @@ describe('selectWorktreeViews', () => {
     expect(selectWorktreeIndex(byName)[wt('a')]?.agent?.status).toBe('done')
   })
 
+  describe('a removed agent', () => {
+    it('stops matching a departed agent, the way removed worktrees and closed panes already do', () => {
+      const state = reduceAll([
+        f.worktreeDiscovered({ path: wt('a'), branch: 'a', isMain: false }, { ts: 10 }),
+        f.agentStatus({ handle: 'a', status: 'waiting', worktreePath: wt('a') }, { ts: 20 }),
+        f.agentRemoved({ handle: 'a' }, { ts: 30 }),
+      ])
+      expect(selectWorktreeIndex(state)[wt('a')]?.agent).toBeNull()
+    })
+
+    it('still finds an agent that came back after being removed', () => {
+      // reduce.ts's agentStatus() fold re-sets present: true on any fresh
+      // sighting, even for a handle agent.removed had previously marked
+      // gone. A filter written as "exclude this handle once ever removed"
+      // (stateful) rather than "exclude by current .present" (read-time)
+      // would pass the test above and fail this one.
+      const state = reduceAll([
+        f.worktreeDiscovered({ path: wt('a'), branch: 'a', isMain: false }, { ts: 10 }),
+        f.agentStatus({ handle: 'a', status: 'waiting', worktreePath: wt('a') }, { ts: 20 }),
+        f.agentRemoved({ handle: 'a' }, { ts: 30 }),
+        f.agentStatus({ handle: 'a', status: 'working', worktreePath: wt('a') }, { ts: 40 }),
+      ])
+      const view = selectWorktreeIndex(state)[wt('a')]
+      expect(view?.agent?.status).toBe('working')
+      expect(view?.agent?.present).toBe(true)
+    })
+
+    it('reads null consistently across repeated lookups after removal', () => {
+      const state = reduceAll([
+        f.worktreeDiscovered({ path: wt('a'), branch: 'a', isMain: false }, { ts: 10 }),
+        f.agentStatus({ handle: 'a', status: 'waiting', worktreePath: wt('a') }, { ts: 20 }),
+        f.agentRemoved({ handle: 'a' }, { ts: 30 }),
+      ])
+      expect(selectWorktreeIndex(state)[wt('a')]?.agent).toBeNull()
+      expect(
+        selectWorktreeViews(state, { includeRemoved: true }).find((v) => v.path === wt('a'))?.agent,
+      ).toBeNull()
+    })
+
+    it('stops matching by branch or by name too, once the matched agent is removed', () => {
+      const byBranch = reduceAll([
+        f.worktreeDiscovered({ path: wt('a'), branch: 'feature/a', isMain: false }, { ts: 10 }),
+        f.agentStatus({ handle: 'whatever', status: 'waiting', branch: 'feature/a' }, { ts: 20 }),
+        f.agentRemoved({ handle: 'whatever' }, { ts: 30 }),
+      ])
+      expect(selectWorktreeIndex(byBranch)[wt('a')]?.agent).toBeNull()
+
+      const byName = reduceAll([
+        f.worktreeDiscovered({ path: wt('a'), branch: 'feature/a', isMain: false }, { ts: 10 }),
+        f.agentStatus({ handle: 'a', status: 'done' }, { ts: 20 }),
+        f.agentRemoved({ handle: 'a' }, { ts: 30 }),
+      ])
+      expect(selectWorktreeIndex(byName)[wt('a')]?.agent).toBeNull()
+    })
+
+    it('does not let a departed agent shadow a live one that only matches by name', () => {
+      // 'ghost' wins the path tier — the highest-priority match — but is gone.
+      // 'a' only matches by handle, the lowest-priority tier. Filtering by
+      // .present before the three-way match lets the search fall through to
+      // 'a'; filtering after the match would let ghost's path-tier win stand
+      // and shadow it, since the match never gets a second attempt on the
+      // remaining agents.
+      const state = reduceAll([
+        f.worktreeDiscovered({ path: wt('a'), branch: 'feature/a', isMain: false }, { ts: 10 }),
+        f.agentStatus({ handle: 'ghost', status: 'waiting', worktreePath: wt('a') }, { ts: 20 }),
+        f.agentRemoved({ handle: 'ghost' }, { ts: 30 }),
+        f.agentStatus({ handle: 'a', status: 'working' }, { ts: 40 }),
+      ])
+      const view = selectWorktreeIndex(state)[wt('a')]
+      expect(view?.agent?.handle).toBe('a')
+      expect(view?.agent?.present).toBe(true)
+    })
+  })
+
   it('reads the fixture swarm the way a panel would', () => {
     const state = reduceAll(fixtureSession())
     const views = selectWorktreeViews(state)

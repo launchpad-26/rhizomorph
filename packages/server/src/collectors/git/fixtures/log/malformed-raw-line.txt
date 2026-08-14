@@ -1,0 +1,7 @@
+deadbeef00000000000000000000000000000001deadbeeAda Devdev@example.com1785360900fix: two good files around one bad raw line
+:100644 100644 aaaaaaa bbbbbbb M	src/good-before.js
+:this-is-not-a-raw-diff-line
+:100644 100644 ccccccc ddddddd M	src/good-after.js
+1	0	src/good-before.js
+9	9	src/whatever-this-numstat-is-discarded.js
+2	1	src/good-after.js

@@ -73,7 +73,7 @@ export function selectBranchView(
 
   let lastCommitTs: number | null = null
   for (const sha of branch.commits) {
-    const commit = state.commits[sha]
+    const commit = state.commits.bySha[sha]
     if (commit === undefined) continue
     if (lastCommitTs === null || commit.landedAt > lastCommitTs) lastCommitTs = commit.landedAt
   }

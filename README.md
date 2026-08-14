@@ -186,6 +186,20 @@ never silently dropped either — it's counted and preserved byte-for-byte,
 and replay says so in words (`"N events from a newer era were preserved but
 not understood (...)"`) rather than pretending nothing happened.
 
+**What's in it, before you hand it to anyone:** no captured tmux pane
+content enters an event — the collector derives a content hash and a line
+count from a `capture-pane` and discards the text, so `pane.activity` says
+*that* a pane changed and when, never *what* it said. A log recorded before
+that was true (#292) may hold a `preview` line; it's stripped on the way
+into any record built now, and the record still verifies. But a record is
+not a redacted artefact: it still carries pane and window titles, absolute
+paths including your home directory and username, commit subjects with the
+author's name and email, branch and lane names, stderr from failed git or
+tmux commands, and symbol names from your own diff. Nothing scans it for
+secrets, and a hash-chained body can't be cleaned up afterwards. Read one
+before you share it — [SECURITY.md](SECURITY.md#what-a-shared-record-contains)
+has the full list.
+
 **Where it writes it:** the exact path is printed at boot —
 `watching <repo> — N worktrees, M branches · recording to <path>` — so you
 never have to go looking for it.
@@ -216,14 +230,16 @@ format](docs/record-format.md)).
 ### The laboratory — opt-in, explicitly-invoked, and separate (prd12 ruling 1)
 
 Everything above runs the moment you start the server. The laboratory does
-not: it's a second actor, reachable only from your own command line —
-`rhizomorph lab checkpoint <lane>`, `rhizomorph lab fork <lane>
-[--at <checkpoint>] [--launch]`, `rhizomorph lab compare <forkId>` — never
-from a server route, a background poll, or a UI button. `checkpoint`
-snapshots a lane's live workspace and session position; `fork` restores as
-many arms of one checkpoint as you ask for, each into its own worktree, and
-runs `npm install` in each one; `compare` reports what happened across
-them.
+not: it's a second actor, reachable only by an explicit human action, never
+a background poll — either your own command line (`rhizomorph lab
+checkpoint <lane>`, `rhizomorph lab fork <lane> [--at <checkpoint>]
+[--launch]`, `rhizomorph lab compare <forkId>`), or the dashboard's launch
+button, which sends `POST /api/lab/launch` to a server route that runs that
+same `fork --launch` in-process (see [SECURITY.md](SECURITY.md) for what
+guards that route today). `checkpoint` snapshots a lane's live workspace
+and session position; `fork` restores as many arms of one checkpoint as you
+ask for, each into its own worktree, and runs `npm install` in each one;
+`compare` reports what happened across them.
 
 What it's allowed to write, exactly: refs under `refs/rhizomorph/`, the git
 objects those refs require, worktrees it creates itself under
@@ -232,12 +248,13 @@ directory above, never inside the repo you're watching), and the
 checkpoint/synthesized-session artifacts that live beside it. It never
 pushes, never merges, and never checks out or rewrites a branch that
 already exists. The one write that lands outside those namespaces is never
-silent or automatic: pass `lab fork --launch` and it hands the dispatch off
-to `workmux add`, the same command that starts every other worker lane in a
+silent or automatic: pass `lab fork --launch` (or click the dashboard's
+launch button, which always sets it) and it hands the dispatch off to
+`workmux add`, the same command that starts every other worker lane in a
 workmux-driven fleet — that call is what creates an actual branch and tmux
-pane, and it only runs because you typed the flag. Without `--launch`,
-`fork` says so plainly: *"No tmux window was opened and no branch was
-created... Pass --launch to authorise that yourself."*
+pane, and it only runs because you typed the flag or clicked the button.
+Without `--launch`, `fork` says so plainly: *"No tmux window was opened and
+no branch was created... Pass --launch to authorise that yourself."*
 
 Enforced twice over. At runtime,
 [`assertInsideLabWorktrees`](packages/server/src/lab/paths.ts) refuses —
@@ -246,11 +263,15 @@ create outside its own directory. And
 [`packages/server/src/lab/namespace-law.test.ts`](packages/server/src/lab/namespace-law.test.ts)
 is the test that watches everything else: no source file outside
 `server/src/lab/` may even import it, except the one declared CLI wiring
-point; no ref literal in its source names anything but `refs/rhizomorph/`;
+point — a per-file check on which files name the lab *directly*, blind to a
+reach that goes through that wiring point instead, which is exactly what
+`api/lab.ts` does today (#245); no ref literal in
+its source names anything but `refs/rhizomorph/`;
 no lab file shells out to `push`, `merge`, `checkout`, `branch`, `reset`,
 `rebase`, or any other verb that rewrites something that already exists;
-nothing under `lab/` sets a timer of its own, so "never runs without your
-command" holds structurally, not just by convention; and a live run of
+nothing under `lab/` sets a timer of its own, so it never starts itself —
+every run traces back to a deliberate act of yours, the command you typed or
+the button you clicked, never a schedule; and a live run of
 `lab fork` against a real fixture repo proves the whole write surface by
 walking the filesystem and the ref namespace before and after, rather than
 trusting the source to say so.
@@ -261,9 +282,11 @@ collectors that read git/tmux/workmux live under
 `packages/server/src/collectors/`, the one that tails your session logs is
 `packages/server/src/collectors/sessionlog/`, the server that binds the
 port is `packages/server/src/index.ts`, and the laboratory's entire write
-surface is `packages/server/src/lab/`, reachable only from the CLI wiring
-in `packages/server/src/cli/index.ts`. Grep for `fetch(`, `http.request`,
-or any outbound socket; there isn't one.
+surface is `packages/server/src/lab/`, importable only from the CLI wiring
+in `packages/server/src/cli/index.ts` — the dashboard's launch button
+reaches it through that same wiring (`packages/server/src/api/lab.ts`
+calling `runCli(['lab', ...])`), not a separate import. Grep for `fetch(`,
+`http.request`, or any outbound socket; there isn't one.
 
 ## Support matrix
 
@@ -273,8 +296,10 @@ or any outbound socket; there isn't one.
 | WSL | The daily development platform — exercised constantly, just not by CI |
 | macOS | **Unverified.** No platform-specific code exists (paths go through `node:path`, collectors degrade loudly rather than fail silently), but nobody has run it on macOS and confirmed that. Treat it as untested, not as "should work." If you try it, [an issue](https://github.com/KelliherL/rhizomorph/issues) saying what happened is genuinely useful. |
 
-**Node >= 22** — enforced via `engines` in `package.json`; older Node warns
-on install and may not run at all.
+**Node >= 22.22.2** — `engines` in `package.json` is the source of truth, and
+CI pins that exact minimum. Older Node warns on install and may not run at all;
+on Node 20 the `web` suite reports green counts with a non-zero exit, which
+[CONTRIBUTING.md](CONTRIBUTING.md#running-it) explains.
 
 ## What the observer does not do
 
@@ -301,14 +326,19 @@ life, not a supported product with an SLA. If something's broken, file an
 issue with what you ran and what happened; if you'd like to fix it
 yourself, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-3,158 tests across 202 files (`npm test`), plus `npm run typecheck`, gate
-every change — [Ran] as of commit `24dcaa5`. Two scripts encode the landing
-discipline that keeps that green: `scripts/fence-lint.sh` checks a wave's
-declared issue fences *before* dispatch (vague fences, overlapping claims,
-gaps against a known coupling point); `scripts/gate.sh` is what a lane runs
-to land — fence compliance, a clean rebase, no NUL bytes, `npm test` +
-`npm run typecheck` green (optionally repeated under concurrent load to
-catch race-condition flakiness), then the actual merge to `main`.
+The full suite (`npm test`), plus `npm run typecheck`, gates every change —
+run `npm test` yourself for the current count rather than trust a number
+pinned here: nothing in this file enforces one staying current, and a
+literal count written here has already gone stale once (#238) and drifted
+again since. Two scripts encode the landing discipline that keeps the suite
+green: `scripts/fence-lint.sh` checks a wave's declared issue fences *before*
+dispatch (vague fences, overlapping claims, gaps against a known coupling
+point); `scripts/gate.sh` is the **operator's** landing step, not a lane's —
+fence compliance, a clean rebase, no NUL bytes, `npm test` + `npm run
+typecheck` green (optionally repeated under concurrent load to catch
+race-condition flakiness), then the actual merge to `main` and push. A
+lane's own job ends at a verified, gate-clean commit handed back for that
+landing step — see `AGENTS.md` for the working agreement this repo runs on.
 
 ---
 

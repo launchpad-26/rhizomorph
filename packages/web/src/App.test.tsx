@@ -383,7 +383,7 @@ describe('App', () => {
     })
   })
 
-  describe('the connect placeholder (prd19 ruling 1, #252)', () => {
+  describe('the connect page (prd19 ruling 1, #252; the page itself, #258)', () => {
     afterEach(() => {
       window.history.replaceState(null, '', '/')
     })
@@ -394,7 +394,7 @@ describe('App', () => {
       act(() => source()?.open())
 
       expect(await screen.findByTestId('connect-page')).toBeInTheDocument()
-      expect(screen.getByText('connect — the handshake checklist lands in wave 3')).toBeInTheDocument()
+      expect(screen.getByTestId('connect-links')).toBeInTheDocument()
       expect(screen.queryByText('THE OBSERVATORY')).not.toBeInTheDocument()
     })
 

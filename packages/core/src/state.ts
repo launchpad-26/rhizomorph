@@ -77,6 +77,102 @@ export interface CommitRecord {
   worktreePath: string | null
 }
 
+/**
+ * The commit slice (#342), reshaped the way #184 reshaped prd9's traces and
+ * for the same measured reason. As a flat `Record` accumulated by spread —
+ * `{ ...state.commits, [sha]: commit }` — every `commit.landed` copied every
+ * key the session had gathered, and a commit-dense working session (25k
+ * events, 5k commits — a real day's shape here, not an adversarial one) paid
+ * 3.8 s where the same events with the growth capped paid 25 ms. The isolation
+ * runs are on #342: the per-branch list the issue suspected measured as no
+ * term at all (6× fewer entries per branch moved nothing), and per-event work
+ * was 0.7% of the cost. The growth was everything, and all of it was these
+ * two lines' copying.
+ *
+ * So the truth is now an append-only {@link log} — one *folded* record per
+ * `commit.landed`, each already merged with what was previously known of its
+ * sha, later entries superseding earlier ones — and the two shapes every
+ * reader actually wants are projections of it, materialised on first read and
+ * memoized against the log's identity (same `WeakMap` discipline as
+ * `traceStateOf`, same reason it is unobservable: a projection is a pure
+ * function of the log, so a remembered one and a fresh one are the same
+ * value). The fold appends; whoever reads, pays one pass, once.
+ *
+ * The nesting is load-bearing, not cosmetic: reducers copy states with
+ * `{ ...state }`, which *evaluates* getters it finds — one level down, the
+ * spread copies this slice as a single reference and the getters stay lazy.
+ * A flat lazy `state.commits` would be re-materialised by the next reducer's
+ * spread, which is the copy-per-event this exists to remove, wearing a
+ * different hat.
+ */
+export interface CommitsState {
+  /**
+   * The record's own arrival order, append-only. A sha that re-lands (a
+   * second branch, files learned late) appends its merged record here rather
+   * than rewriting history; {@link bySha} resolves to the latest.
+   */
+  log: CommitRecord[]
+  /**
+   * sha → the latest folded record for it. Key order is first-sighting order,
+   * exactly what the accumulated Record's spread used to preserve.
+   * Materialised on demand; `readonly` because it is derived — the only way
+   * to change it is to fold another `commit.landed`.
+   */
+  readonly bySha: Record<string, CommitRecord>
+  /** Distinct shas in first-sighting order — the commit ticker reads this. Materialised on demand, same as {@link bySha}. */
+  readonly order: readonly string[]
+}
+
+/**
+ * The slice for a given commit log: the log itself plus its two projections,
+ * computed on first read and remembered against the array they describe.
+ * Mirrors `traceStateOf` below, ownership rules and all.
+ */
+export function commitsStateOf(log: CommitRecord[]): CommitsState {
+  return {
+    log,
+    get bySha() {
+      return commitProjections(log).bySha
+    },
+    get order() {
+      return commitProjections(log).order
+    },
+  }
+}
+
+const commitProjectionMemo = new WeakMap<
+  readonly CommitRecord[],
+  { bySha: Record<string, CommitRecord>; order: readonly string[] }
+>()
+
+/** Both projections in one pass — last record per sha wins, keys in first-sighting order. */
+function commitProjections(log: readonly CommitRecord[]): {
+  bySha: Record<string, CommitRecord>
+  order: readonly string[]
+} {
+  const held = commitProjectionMemo.get(log)
+  if (held !== undefined) return held
+  const bySha: Record<string, CommitRecord> = {}
+  const order: string[] = []
+  for (const record of log) {
+    if (!Object.hasOwn(bySha, record.sha)) order.push(record.sha)
+    bySha[record.sha] = record
+  }
+  const built = { bySha, order }
+  commitProjectionMemo.set(log, built)
+  return built
+}
+
+/**
+ * A fresh slice with a fresh log array on every call — the identity-keyed
+ * memo above and the fold's own carried-forward sha table are both keyed by
+ * the array, so a shared `[]` would hand one fold's answers to another
+ * (`state.test.ts` holds the trace slice to the same rule).
+ */
+export function initialCommitsState(): CommitsState {
+  return commitsStateOf([])
+}
+
 export interface PaneState {
   paneId: string
   sessionName: string | null
@@ -97,7 +193,6 @@ export interface PaneState {
   lastContentChangeTs: number | null
   contentHash: string | null
   activityCount: number
-  preview: string | null
 }
 
 export interface AgentState {
@@ -108,8 +203,11 @@ export interface AgentState {
   branch: string | null
   elapsedSeconds: number | null
   detail: string | null
+  /** False once `agent.removed` has been seen; the record is kept for replay. */
+  present: boolean
   firstSeenAt: number
   updatedAt: number
+  removedAt: number | null
   /**
    * prd12 ruling 3: present and `true` exactly when this handle is a fork arm
    * — set by the existence of a `fork.dispatched` naming it, and never unset.
@@ -809,9 +907,12 @@ export interface SessionState {
   mainBranch: string | null
   worktrees: Record<string, WorktreeState>
   branches: Record<string, BranchState>
-  commits: Record<string, CommitRecord>
-  /** Shas in first-sighting order — the commit ticker reads this. */
-  commitOrder: string[]
+  /**
+   * The commit slice, nested (#342): `commits.bySha` and `commits.order` are
+   * what the flat `commits` Record and `commitOrder` array used to be, as
+   * projections of an append-only log — see {@link CommitsState}.
+   */
+  commits: CommitsState
   panes: Record<string, PaneState>
   agents: Record<string, AgentState>
   collectors: Record<string, CollectorState>
@@ -847,8 +948,7 @@ export function initialSessionState(): SessionState {
     mainBranch: null,
     worktrees: {},
     branches: {},
-    commits: {},
-    commitOrder: [],
+    commits: initialCommitsState(),
     panes: {},
     agents: {},
     collectors: {},

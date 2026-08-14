@@ -11,7 +11,7 @@ import { sessionDirFor } from '../log/paths.js'
 import { listSessions, readSessionEvents } from '../log/session-log.js'
 import { exec as realExec } from '../server/exec.js'
 import { captureCheckpoint } from './checkpoint.js'
-import { armLaneHandle, dispatchFork, findCheckpoint, workmuxAddArgv } from './fork.js'
+import { armLaneHandle, dispatchFork, findCheckpoint, MODEL_GRAMMAR, workmuxAddArgv } from './fork.js'
 import { labWorktreesRoot } from './paths.js'
 
 /** Hermetic under 4x concurrency: per-test `mkdtemp` root, pid+uuid ids, no shared state. */
@@ -101,6 +101,147 @@ describe('workmuxAddArgv', () => {
   it('passes a prompt file straight through', () => {
     expect(workmuxAddArgv('h', { promptFile: '/tmp/p.md' })).toContain('-P')
     expect(workmuxAddArgv('h', { promptFile: '/tmp/p.md' })).toContain('/tmp/p.md')
+  })
+
+  /**
+   * #234's second defect, at the exact line where it lands.
+   *
+   * `-a` is the ONE place in this repo where a caller-supplied value goes into
+   * a string rather than an argv element, because `workmux add -a` takes the
+   * agent's whole command line as one string and runs it through a shell in a
+   * tmux pane. So `model` was, in effect, `eval`'d one hop downstream — which
+   * is why auditing this repo's own `execFile` sites cleared the code.
+   *
+   * Two assertions per payload, deliberately: that the call is refused, AND
+   * that the argv which would have carried it does not exist. The second is
+   * the one that matters — a refusal that still returned a poisoned array for
+   * some caller to use would be no fix at all.
+   */
+  describe('refuses a model no shell may safely be handed (#234)', () => {
+    const PAYLOADS: ReadonlyArray<{ model: string; names: string }> = [
+      { model: 'opus; touch /tmp/pwned', names: '";"' },
+      { model: 'opus$(touch /tmp/pwned)', names: '"$"' },
+      { model: 'opus`touch /tmp/pwned`', names: '"`"' },
+      { model: 'opus && touch /tmp/pwned', names: 'a space' },
+      { model: 'opus | sh', names: 'a space' },
+      { model: 'opus\ntouch /tmp/pwned', names: '"\\n"' },
+      { model: 'opus --dangerously-skip-permissions', names: 'a space' },
+      { model: '$(id)', names: '"$"' },
+      { model: 'opus\t; sh', names: '"\\t"' },
+    ]
+
+    it('throws, naming the offending character an operator can act on, and builds no argv at all', () => {
+      for (const { model, names } of PAYLOADS) {
+        let built: readonly string[] | undefined
+        expect(
+          () => {
+            built = workmuxAddArgv('fork-1-arm-1', { model })
+          },
+          `${JSON.stringify(model)} was not refused, or was refused without naming ${names}`,
+        ).toThrow(names)
+        // Nothing came back — so no array anywhere carries the payload, which
+        // is the property that actually matters. A refusal that still handed a
+        // poisoned argv to some other caller would be no fix.
+        expect(built, `${JSON.stringify(model)} produced an argv`).toBeUndefined()
+      }
+    })
+
+    it('a legitimate model still produces exactly the documented argv, payload-free', () => {
+      // The healthy shape, restated here so the refusals above are proven to
+      // be discriminating rather than blanket.
+      for (const model of ['sonnet', 'opus', 'haiku', 'claude-opus-5', 'claude-3-5-sonnet-20241022']) {
+        const argv = workmuxAddArgv('fork-1-arm-1', { model })
+        expect(argv).toEqual(['add', 'fork-1-arm-1', '-b', '-a', `bash scripts/lane-agent.sh ${model}`])
+        expect(argv.join(' ')).not.toMatch(/[;$`|&\n]/)
+      }
+    })
+
+    it('a bedrock-style id with dots and a colon is a legitimate model, not a payload', () => {
+      const model = 'us.anthropic.claude-3-5-sonnet-20241022-v1:0'
+      expect(workmuxAddArgv('h', { model })).toEqual(['add', 'h', '-b', '-a', `bash scripts/lane-agent.sh ${model}`])
+    })
+
+    /**
+     * #405: this file pinned `MODEL_GRAMMAR` nowhere, so widening the
+     * `fork.ts` copy alone — exactly what #234's open item contemplates for
+     * Bedrock ARNs, which carry slashes — left every test here green while
+     * the two copies drifted. The grammar is asserted against directly, not
+     * only through `workmuxAddArgv`, so a change to the constant fails on the
+     * constant rather than somewhere downstream of it.
+     */
+    it('is the exact grammar api/lab.ts declares, and it admits no slash', () => {
+      expect(MODEL_GRAMMAR.source).toBe('^[A-Za-z0-9._:-]+$')
+
+      // The Bedrock ARN shape the open item is about. It is refused today;
+      // admitting it is a decision to be taken in both copies at once, and
+      // `model-grammar-law.test.ts` is what makes that simultaneous.
+      expect(MODEL_GRAMMAR.test('anthropic.claude-v2')).toBe(true)
+      expect(MODEL_GRAMMAR.test('arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2')).toBe(false)
+      expect(() => workmuxAddArgv('h', { model: 'anthropic/claude-v2' })).toThrow('"/"')
+    })
+  })
+})
+
+/**
+ * The guard makes two separate ordering claims, and they need two separate
+ * tests — #405 found the single test that existed proving only the first.
+ *
+ * 1. It runs before `findCheckpoint`. Proved WITHOUT a seeded checkpoint: if
+ *    the guard moved below the lookup, `findCheckpoint` would throw its own
+ *    "no fork.checkpoint recorded" first and the `/refusing to launch/`
+ *    assertion goes red.
+ * 2. It runs before anything is RESTORED. That needs a seeded checkpoint, and
+ *    is why the second test exists. With no checkpoint on disk, execution
+ *    cannot reach the restore on either path, so `labWorktreesRoot` is absent
+ *    whether the guard ran or not — the assertion that used to live in test 1
+ *    could not tell the two apart and proved nothing (#405).
+ */
+describe('dispatchFork refuses a poisoned model before anything is restored (#234)', () => {
+  const neverRuns: Exec = async (command, argv) => {
+    throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
+  }
+
+  const poisoned = {
+    parentLane: 'parent-lane',
+    arms: 1,
+    model: 'opus; touch /tmp/pwned',
+    launch: true,
+  } as const
+
+  it('throws before the checkpoint is even looked up — nothing forked, nothing executed', async () => {
+    // Deliberately no `capture()`: the refusal must beat the checkpoint
+    // lookup, so the lookup must be capable of failing on its own.
+    await expect(
+      dispatchFork({ ...poisoned, parentWorktreePath: repoDir, exec: neverRuns, dataRoot, claudeProjectsRoot }),
+    ).rejects.toThrow(/refusing to launch/)
+  })
+
+  it('restores nothing even when the checkpoint it would have used does exist', async () => {
+    // The checkpoint is seeded, so `findCheckpoint` succeeds and the only
+    // thing between the poisoned model and a restored worktree is the guard.
+    //
+    // The exec here RECORDS rather than throws, which is the whole point: a
+    // throwing stub aborts the restore at its first git call, so the refusal
+    // still arrives and every containment assertion passes vacuously — the
+    // stub, not the guard, did the work. Letting git actually run means a
+    // guard that fired too late leaves real evidence behind, and these
+    // assertions are what fail.
+    await capture()
+    const calls: string[][] = []
+
+    await expect(
+      dispatchFork({
+        ...poisoned,
+        parentWorktreePath: repoDir,
+        dataRoot,
+        claudeProjectsRoot,
+        install: false,
+        exec: execWithStubs(calls, (command) => (command === 'workmux' ? OK : null)),
+      }),
+    ).rejects.toThrow(/refusing to launch/)
+
+    expect(calls, 'the refusal came after something had already been run').toEqual([])
+    await expect(readdir(labWorktreesRoot(dataRoot))).rejects.toThrow(/ENOENT/)
   })
 })
 

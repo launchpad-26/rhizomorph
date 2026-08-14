@@ -419,6 +419,7 @@ function oneOfEach() {
       ts: 11,
     }),
     createEvent('agent.status', { handle: 'feat', status: 'working' }, { id: id(), ts: 12 }),
+    createEvent('agent.removed', { handle: 'feat' }, { id: id(), ts: 12 }),
     createEvent('llm.usage', {
       lane: 'feat',
       role: 'worker',

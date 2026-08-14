@@ -75,7 +75,7 @@ export function selectTouchesByBranch(
     if (branch.name === main) continue
     for (const sha of branch.commits) {
       if (mainShas.has(sha)) continue
-      const commit = state.commits[sha]
+      const commit = state.commits.bySha[sha]
       if (commit === undefined) continue
       for (const file of commit.files) touch(branch.name, file.path, 'committed')
     }

@@ -51,13 +51,33 @@ import { CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'
 const REPLAY_DIR = path.dirname(fileURLToPath(import.meta.url))
 const WEB_SRC = path.resolve(REPLAY_DIR, '..')
 
-/** The three files allowed to mutate, and the one route each may reach — every verb across all three is `POST`. */
-const MUTATING_MODULES: ReadonlyArray<{ file: string; route: string }> = [
-  { file: path.join(WEB_SRC, 'replay', 'rotate.ts'), route: '/api/rotate' },
-  { file: path.join(WEB_SRC, 'recordings', 'label.ts'), route: '/api/label' },
-  { file: path.join(WEB_SRC, 'lab', 'launch', 'launch.ts'), route: '/api/lab/launch' },
+/**
+ * The three files allowed to mutate, the one route each may reach, and the
+ * exact header set each may send — every verb across all three is `POST`.
+ *
+ * AMENDED for #234: all three routes are token-gated now, not just
+ * `/api/label`, so all three calls name {@link CAPABILITY_TOKEN_HEADER}.
+ * Rotation still sends no `Content-Type`, because it still sends no payload —
+ * the sets are per-module rather than shared precisely so that difference has
+ * to stay true instead of being absorbed into one permissive union.
+ */
+const MUTATING_MODULES: ReadonlyArray<{ file: string; route: string; headers: readonly string[] }> = [
+  { file: path.join(WEB_SRC, 'replay', 'rotate.ts'), route: '/api/rotate', headers: [CAPABILITY_TOKEN_HEADER] },
+  {
+    file: path.join(WEB_SRC, 'recordings', 'label.ts'),
+    route: '/api/label',
+    headers: ['Content-Type', CAPABILITY_TOKEN_HEADER],
+  },
+  {
+    file: path.join(WEB_SRC, 'lab', 'launch', 'launch.ts'),
+    route: '/api/lab/launch',
+    headers: ['Content-Type', CAPABILITY_TOKEN_HEADER],
+  },
 ]
 const THE_ONLY_VERB = 'POST'
+
+/** The one module in the app that may read the capability token off the page — resolved, never matched by basename. */
+const CAPABILITY_MODULE = path.join(WEB_SRC, 'recordings', 'capability.ts')
 
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx'])
 
@@ -119,10 +139,24 @@ const HEADER_KEY_RE = /(?:'([^']+)'|"([^"]+)"|\[([A-Za-z_$][\w$]*)\])\s*:/g
  */
 const HEADERS_NOT_INLINE_RE = /headers\s*:\s*(?!\{)\S/
 
-/** Every name imported from `'./capability.js'` in `text` — the one source a computed capability-header key is ever trusted to come from. */
-function importedFromCapabilityModule(text: string): Set<string> {
+/**
+ * Every name imported from the capability module in `text` — the one source a
+ * computed capability-header key is ever trusted to come from.
+ *
+ * AMENDED for #234: the three mutating modules now live at three different
+ * depths (`replay/`, `recordings/`, `lab/launch/`), so a literal
+ * `'./capability.js'` match would silently vouch for nothing in two of them.
+ * The specifier is RESOLVED against the importing file's own directory and
+ * compared to the real module path instead — strictly more rigorous than the
+ * text match it replaces, not less: a same-named `capability.js` sitting in
+ * some other directory no longer satisfies the check just by spelling.
+ */
+function importedFromCapabilityModule(text: string, fromDir: string): Set<string> {
   const names = new Set<string>()
-  for (const match of text.matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\/capability\.js'/g)) {
+  for (const match of text.matchAll(/import\s*\{([^}]*)\}\s*from\s*'([^']+)'/g)) {
+    const specifier = match[2] ?? ''
+    if (!specifier.startsWith('.')) continue
+    if (path.resolve(fromDir, specifier).replace(/\.js$/, '.ts') !== CAPABILITY_MODULE) continue
     for (const part of match[1]?.split(',') ?? []) {
       const name = part.trim().split(/\s+as\s+/)[0]?.trim()
       if (name) names.add(name)
@@ -130,9 +164,6 @@ function importedFromCapabilityModule(text: string): Set<string> {
   }
   return names
 }
-
-/** The two headers `label.ts` may send, and no third — the JSON body's own `Content-Type`, and the capability token #249 delivered a channel for. */
-const ALLOWED_HEADER_NAMES: readonly string[] = ['Content-Type', CAPABILITY_TOKEN_HEADER]
 
 /**
  * THE HEADER LAW ITSELF, as one function both the law and its self-test call
@@ -143,21 +174,72 @@ const ALLOWED_HEADER_NAMES: readonly string[] = ['Content-Type', CAPABILITY_TOKE
  * stayed green when the real per-block loop was reverted to the aggregate.)
  *
  * Every `headers:` block must be an inline object literal naming exactly
- * {@link ALLOWED_HEADER_NAMES} — per block, deliberately: an aggregate union
- * across blocks would stay green when the type declares both headers but the
- * call site sends only `Content-Type`, the pre-#249 defect hiding behind its
- * own declaration. A spread is refused outright: `...extra` names nothing
- * {@link HEADER_KEY_RE} can see and can smuggle any header at runtime.
- * Throws with a sentence naming the violation; returns silently when the law
- * holds.
+ * `allowed` — per block, deliberately: an aggregate union across blocks would
+ * stay green when the type declares both headers but the call site sends only
+ * `Content-Type`, the pre-#249 defect hiding behind its own declaration. A
+ * spread is refused outright: `...extra` names nothing {@link HEADER_KEY_RE}
+ * can see and can smuggle any header at runtime. Throws with a sentence
+ * naming the violation; returns silently when the law holds.
+ *
+ * AMENDED for #234 to take the allowed set and the importing directory as
+ * arguments rather than closing over one module's constants — three call
+ * sites at three depths with two different header sets now run through this
+ * one function, which is the point: the mechanism the law asserts on the real
+ * files is the same mechanism its self-test proves able to fail.
  */
-function assertHeaderBlocksExact(text: string): void {
+/**
+ * TypeScript primitive type names — the only values a `headers:` block can
+ * hold and still be a type annotation rather than a request. A real call's
+ * values are quoted literals or identifiers naming a runtime value.
+ */
+const BARE_TYPE_TOKEN_RE = /^(?:string|number|boolean|unknown|any|never|null|undefined)(?:\s*\|\s*\w+)*$/
+
+/**
+ * True when EVERY value in a `headers:` block body is a bare TypeScript type
+ * token — i.e. the block is `headers: { 'x-…': string }`, a declaration, and
+ * not a request that puts a value on the wire.
+ *
+ * Conservative by construction: a block it cannot parse is treated as a real
+ * request, so an unfamiliar shape makes the law stricter rather than blinder.
+ */
+function isTypeAnnotationShaped(body: string): boolean {
+  const values = body
+    .split(/[,;]/)
+    .map((pair) => pair.trim())
+    .filter((pair) => pair.length > 0)
+    .map((pair) => pair.slice(pair.indexOf(':') + 1).trim())
+  if (values.length === 0) return false
+  return values.every((value) => BARE_TYPE_TOKEN_RE.test(value))
+}
+
+function assertHeaderBlocksExact(text: string, allowed: readonly string[], fromDir: string): void {
   if (HEADERS_NOT_INLINE_RE.test(text)) {
     throw new Error('headers must stay an inline object literal, never a variable reference')
   }
-  const importedFromCapability = importedFromCapabilityModule(text)
+  const importedFromCapability = importedFromCapabilityModule(text, fromDir)
   const headerBlocks = [...text.matchAll(/headers\s*:\s*\{([^}]*)\}/g)]
   if (headerBlocks.length === 0) throw new Error('no headers: blocks found — an empty sweep proves nothing')
+
+  // At least one block must be a REQUEST, not a type annotation.
+  //
+  // Each gated module carries two `headers:` blocks — the `init` TYPE
+  // (`headers: { 'x-rhizomorph-capability': string }`) and the actual call.
+  // A text sweep cannot tell them apart, so deleting the call's `headers`
+  // property left `headerBlocks.length` at 1, the keys were read out of the
+  // *type*, `seen` equalled `expected`, and every check below passed over a
+  // module that had stopped sending the header. That is this function's own
+  // stated failure mode — "the type declares both headers but the call site
+  // sends only Content-Type" — surviving one level up.
+  //
+  // A type block's values are bare type tokens; a request's values are real
+  // expressions (a quoted literal, or an identifier holding a value). So a
+  // file whose header blocks are ALL type-shaped never reaches the wire.
+  if (headerBlocks.every((block) => isTypeAnnotationShaped(block[1] ?? ''))) {
+    throw new Error(
+      'every headers: block is a type annotation — no actual request sends these headers, ' +
+        'so the file declares the contract without honouring it',
+    )
+  }
 
   for (const block of headerBlocks) {
     const body = block[1] ?? ''
@@ -171,8 +253,8 @@ function assertHeaderBlocksExact(text: string): void {
       const literalName = match[1] ?? match[2]
       const computedIdentifier = match[3]
       if (literalName !== undefined) {
-        if (!ALLOWED_HEADER_NAMES.includes(literalName)) {
-          throw new Error(`${literalName} is not one of the two headers this call is allowed to send`)
+        if (!allowed.includes(literalName)) {
+          throw new Error(`${literalName} is not one of the headers this call is allowed to send`)
         }
         namesSeen.add(literalName)
         continue
@@ -185,15 +267,17 @@ function assertHeaderBlocksExact(text: string): void {
         throw new Error('a computed header key must name CAPABILITY_TOKEN_HEADER, nothing else')
       }
       if (!importedFromCapability.has('CAPABILITY_TOKEN_HEADER')) {
-        throw new Error('CAPABILITY_TOKEN_HEADER must be imported from ./capability.js, the one trusted source')
+        throw new Error(
+          'CAPABILITY_TOKEN_HEADER must be imported from recordings/capability.js, the one trusted source',
+        )
       }
       namesSeen.add(CAPABILITY_TOKEN_HEADER)
     }
     const seen = [...namesSeen].sort()
-    const allowed = [...ALLOWED_HEADER_NAMES].sort()
-    if (seen.length !== allowed.length || seen.some((name, i) => name !== allowed[i])) {
+    const expected = [...allowed].sort()
+    if (seen.length !== expected.length || seen.some((name, i) => name !== expected[i])) {
       throw new Error(
-        `every headers: block must name exactly the two allowed headers — no more, no fewer (this block names: ${seen.join(', ') || 'none'})`,
+        `every headers: block must name exactly the allowed headers — no more, no fewer (expected: ${expected.join(', ')}; this block names: ${seen.join(', ') || 'none'})`,
       )
     }
   }
@@ -244,11 +328,91 @@ describe('the web app names exactly three mutating calls (prd16 rulings 2 and 4;
     expect([...new Set(allVerbs)]).toEqual([THE_ONLY_VERB])
   })
 
-  it('rotate.ts mutates nothing but the recording boundary: no body, no headers, no credential', () => {
-    const text = readFileSync(path.join(WEB_SRC, 'replay', 'rotate.ts'), 'utf8')
-    expect(text).not.toMatch(/\b(?:headers|credentials|body)\s*:/)
+  /**
+   * AMENDED for #234, alongside `rotate.ts`'s own widening and in the same
+   * commit — this comment says so rather than claiming otherwise, for the
+   * identical reason the `label.ts` note below does: a law requiring the
+   * capability header to be present cannot go green before `rotate.ts`
+   * actually emits it.
+   *
+   * The old rule here was "no headers at all", and dropping it wholesale
+   * would be the weakening this file exists to prevent. It is replaced by a
+   * strictly narrower one instead: rotation may name EXACTLY the capability
+   * header and nothing else — not even the `Content-Type` its two siblings
+   * send, because rotation still has no payload to declare a type for. So a
+   * `Content-Type` appearing here fails, where it passes in `label.ts`.
+   */
+  it('rotate.ts mutates nothing but the recording boundary: no payload, one header, no credential of any other kind', () => {
+    const dir = path.join(WEB_SRC, 'replay')
+    const text = readFileSync(path.join(dir, 'rotate.ts'), 'utf8')
+    expect(text).not.toMatch(/\b(?:credentials|body)\s*:/)
     expect(text).not.toMatch(/FormData|URLSearchParams|new Request\(/)
     expect(text).not.toMatch(/apiKey|api_key|ANTHROPIC_API_KEY|Authorization|Bearer\s/i)
+
+    expect(
+      () => assertHeaderBlocksExact(text, [CAPABILITY_TOKEN_HEADER], dir),
+      'the header law must hold on the real rotate.ts',
+    ).not.toThrow()
+    // …and it really is the narrower set: the sibling modules' second header
+    // is refused here, so this is not label.ts's rule wearing rotate's name.
+    expect(() =>
+      assertHeaderBlocksExact(
+        `import { CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'\n` +
+          `headers: { 'Content-Type': 'application/json', [CAPABILITY_TOKEN_HEADER]: capabilityToken },\n`,
+        [CAPABILITY_TOKEN_HEADER],
+        dir,
+      ),
+    ).toThrow(/not one of the headers/)
+
+    // …and a file whose ONLY headers block is the `init` TYPE is refused,
+    // even though that type names exactly the right header.
+    //
+    // This is the hole the type/request distinction closes, and it was real:
+    // with the call's `headers` property deleted from rotate.ts, the
+    // unamended law reported `Tests 10 passed` — the sweep found the type
+    // block, read the right key out of it, and never noticed that nothing
+    // reached the wire.
+    expect(() =>
+      assertHeaderBlocksExact(
+        `import { CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'\n` +
+          `init: { method: 'POST'; headers: { 'x-rhizomorph-capability': string } },\n`,
+        [CAPABILITY_TOKEN_HEADER],
+        dir,
+      ),
+    ).toThrow(/type annotation/)
+
+    // Not vacuously strict: a real call sitting BESIDE that same type is
+    // still accepted, which is the actual shape of both gated modules.
+    expect(() =>
+      assertHeaderBlocksExact(
+        `import { CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'\n` +
+          `init: { method: 'POST'; headers: { 'x-rhizomorph-capability': string } },\n` +
+          `await impl(URL, { method: 'POST', headers: { [CAPABILITY_TOKEN_HEADER]: token } })\n`,
+        [CAPABILITY_TOKEN_HEADER],
+        dir,
+      ),
+    ).not.toThrow()
+  })
+
+  /**
+   * The launch's own widening (#234). It has a payload, so unlike rotation it
+   * structurally needs `Content-Type` — and unlike the pre-#234 shape it now
+   * also needs the token, because the route it reaches forks a worktree and
+   * dispatches a live agent that spends real money.
+   */
+  it("launch.ts's payload is the launch request, behind exactly the two headers the gated call needs, no credential", () => {
+    const dir = path.join(WEB_SRC, 'lab', 'launch')
+    const text = readFileSync(path.join(dir, 'launch.ts'), 'utf8')
+    expect(text).not.toMatch(/FormData|URLSearchParams|new Request\(/)
+    expect(text).not.toMatch(/apiKey|api_key|ANTHROPIC_API_KEY|Authorization|Bearer\s/i)
+    expect(text).not.toMatch(/credentials\s*:/)
+
+    expect(
+      () => assertHeaderBlocksExact(text, ['Content-Type', CAPABILITY_TOKEN_HEADER], dir),
+      'the header law must hold on the real launch.ts',
+    ).not.toThrow()
+
+    expect(text).toMatch(/body\s*:\s*JSON\.stringify\(request\)/)
   })
 
   /**
@@ -276,7 +440,8 @@ describe('the web app names exactly three mutating calls (prd16 rulings 2 and 4;
    * escape would hide a smuggled header from every check below).
    */
   it("label.ts's body carries only sessionId and label, behind exactly the two headers the mutating call needs, no credential", () => {
-    const text = readFileSync(path.join(WEB_SRC, 'recordings', 'label.ts'), 'utf8')
+    const dir = path.join(WEB_SRC, 'recordings')
+    const text = readFileSync(path.join(dir, 'label.ts'), 'utf8')
     expect(text).not.toMatch(/FormData|URLSearchParams|new Request\(/)
     expect(text).not.toMatch(/apiKey|api_key|ANTHROPIC_API_KEY|Authorization|Bearer\s/i)
     expect(text).not.toMatch(/credentials\s*:/)
@@ -285,7 +450,10 @@ describe('the web app names exactly three mutating calls (prd16 rulings 2 and 4;
     // real call site — and {@link assertHeaderBlocksExact} holds each to
     // exactly the fixed header set. The self-test below proves that same
     // function able to fail; this line proves it holds on the real file.
-    expect(() => assertHeaderBlocksExact(text), 'the header law must hold on the real label.ts').not.toThrow()
+    expect(
+      () => assertHeaderBlocksExact(text, ['Content-Type', CAPABILITY_TOKEN_HEADER], dir),
+      'the header law must hold on the real label.ts',
+    ).not.toThrow()
 
     expect(text).toMatch(/body\s*:\s*JSON\.stringify\(\{\s*sessionId,\s*label\s*\}\)/)
   })
@@ -300,18 +468,44 @@ describe('the web app names exactly three mutating calls (prd16 rulings 2 and 4;
     expect(smuggled).toContain('AUTH_HEADER')
     expect(smuggled).not.toContain('CAPABILITY_TOKEN_HEADER')
 
-    // A same-named identifier imported from anywhere other than
-    // `./capability.js` does not satisfy the trusted-import check.
+    // A same-named identifier imported from anywhere other than the real
+    // capability module does not satisfy the trusted-import check.
+    const RECORDINGS = path.join(WEB_SRC, 'recordings')
     expect(
-      importedFromCapabilityModule("import { CAPABILITY_TOKEN_HEADER } from './somewhere-else.js'").has(
+      importedFromCapabilityModule("import { CAPABILITY_TOKEN_HEADER } from './somewhere-else.js'", RECORDINGS).has(
         'CAPABILITY_TOKEN_HEADER',
       ),
     ).toBe(false)
     expect(
-      importedFromCapabilityModule("import { CAPABILITY_TOKEN_HEADER } from './capability.js'").has(
+      importedFromCapabilityModule("import { CAPABILITY_TOKEN_HEADER } from './capability.js'", RECORDINGS).has(
         'CAPABILITY_TOKEN_HEADER',
       ),
     ).toBe(true)
+
+    // Resolution, not spelling: the SAME specifier text written from a
+    // different directory names a different file, and is not trusted. (The
+    // pre-#234 text match would have vouched for both — which is what made
+    // widening this law to three modules at three depths a real change and
+    // not a rename.)
+    expect(
+      importedFromCapabilityModule(
+        "import { CAPABILITY_TOKEN_HEADER } from './capability.js'",
+        path.join(WEB_SRC, 'replay'),
+      ).has('CAPABILITY_TOKEN_HEADER'),
+    ).toBe(false)
+    // …and the real modules' own deeper specifiers DO resolve, so the check
+    // is not simply refusing everything that isn't a sibling import.
+    for (const [dir, specifier] of [
+      [path.join(WEB_SRC, 'replay'), '../recordings/capability.js'],
+      [path.join(WEB_SRC, 'lab', 'launch'), '../../recordings/capability.js'],
+    ] as const) {
+      expect(
+        importedFromCapabilityModule(`import { CAPABILITY_TOKEN_HEADER } from '${specifier}'`, dir).has(
+          'CAPABILITY_TOKEN_HEADER',
+        ),
+        `${specifier} from ${dir} must resolve to the capability module`,
+      ).toBe(true)
+    }
 
     // `headers:` assigned from a bare variable hides its contents from
     // HEADER_KEY_RE entirely — the law must refuse that shape outright.
@@ -325,7 +519,11 @@ describe('the web app names exactly three mutating calls (prd16 rulings 2 and 4;
     // 2026-08-09 verify pass showed the previous, re-implemented probe
     // stayed green when the real per-block loop was reverted to the
     // aggregate; a probe that doesn't run the mechanism pins nothing.)
+    const RECORDINGS = path.join(WEB_SRC, 'recordings')
+    const LABEL_HEADERS = ['Content-Type', CAPABILITY_TOKEN_HEADER]
     const trustedImport = "import { CAPABILITY_TOKEN_HEADER, readCapabilityToken } from './capability.js'\n"
+    const check = (text: string, allowed: readonly string[] = LABEL_HEADERS) =>
+      assertHeaderBlocksExact(text, allowed, RECORDINGS)
 
     // The defect that shipped #249: the type declares both headers, the call
     // site drops back to Content-Type alone. The union across blocks equals
@@ -335,7 +533,7 @@ describe('the web app names exactly three mutating calls (prd16 rulings 2 and 4;
       trustedImport +
       "headers: { 'Content-Type': 'application/json'; 'x-rhizomorph-capability': string }\n" +
       "headers: { 'Content-Type': 'application/json' },\n"
-    expect(() => assertHeaderBlocksExact(dropBackLiteral)).toThrow(/no more, no fewer/)
+    expect(() => check(dropBackLiteral)).toThrow(/no more, no fewer/)
 
     // The same drop-back in the spelling the real call site actually uses —
     // a computed [CAPABILITY_TOKEN_HEADER] key in the surviving block.
@@ -343,7 +541,15 @@ describe('the web app names exactly three mutating calls (prd16 rulings 2 and 4;
       trustedImport +
       "headers: { 'Content-Type': 'application/json', [CAPABILITY_TOKEN_HEADER]: capabilityToken }\n" +
       "headers: { 'Content-Type': 'application/json' },\n"
-    expect(() => assertHeaderBlocksExact(dropBackComputed)).toThrow(/no more, no fewer/)
+    expect(() => check(dropBackComputed)).toThrow(/no more, no fewer/)
+
+    // #234's own version of that drop-back, on the module with the narrower
+    // set: rotation sending Content-Type alone and no token — the exact shape
+    // `rotate.ts` had before this commit — is refused twice over, once for the
+    // name and once for the count.
+    expect(() => check(trustedImport + "headers: { 'Content-Type': 'application/json' },\n", [
+      CAPABILITY_TOKEN_HEADER,
+    ])).toThrow(/not one of the headers/)
 
     // A spread can smuggle any header past every name check at runtime —
     // refused outright, not silently unseen (the verify pass executed this
@@ -351,13 +557,13 @@ describe('the web app names exactly three mutating calls (prd16 rulings 2 and 4;
     const spread =
       trustedImport +
       "headers: { 'Content-Type': 'application/json', [CAPABILITY_TOKEN_HEADER]: capabilityToken, ...extra },\n"
-    expect(() => assertHeaderBlocksExact(spread)).toThrow(/spread/)
+    expect(() => check(spread)).toThrow(/spread/)
 
     // A third named header is refused for its name.
     const smuggled =
       trustedImport +
       "headers: { 'Content-Type': 'application/json', [CAPABILITY_TOKEN_HEADER]: capabilityToken, 'x-api-key': key },\n"
-    expect(() => assertHeaderBlocksExact(smuggled)).toThrow(/not one of the two headers/)
+    expect(() => check(smuggled)).toThrow(/not one of the headers/)
 
     // And the healthy two-block shape — type declaration plus real call site,
     // exactly as label.ts spells them — passes, so the probes above are
@@ -366,7 +572,14 @@ describe('the web app names exactly three mutating calls (prd16 rulings 2 and 4;
       trustedImport +
       "headers: { 'Content-Type': 'application/json'; 'x-rhizomorph-capability': string }\n" +
       "headers: { 'Content-Type': 'application/json', [CAPABILITY_TOKEN_HEADER]: capabilityToken },\n"
-    expect(() => assertHeaderBlocksExact(healthy)).not.toThrow()
+    expect(() => check(healthy)).not.toThrow()
+
+    // The single-header shape rotate.ts uses is healthy too, under its own set.
+    const healthyRotate =
+      trustedImport +
+      "headers: { 'x-rhizomorph-capability': string }\n" +
+      'headers: { [CAPABILITY_TOKEN_HEADER]: capabilityToken },\n'
+    expect(() => check(healthyRotate, [CAPABILITY_TOKEN_HEADER])).not.toThrow()
   })
 
   it('the buttons reach their routes only through their own module — never their own fetch', () => {

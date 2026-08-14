@@ -5,13 +5,13 @@
 // programmatic API so `.workmux.yaml` and friends keep working unbuilt.
 import { existsSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const distEntry = path.resolve(here, '../dist/cli/index.js')
 
 const { runCli } = existsSync(distEntry)
-  ? await import(distEntry)
+  ? await import(pathToFileURL(distEntry).href)
   : await (await import('tsx/esm/api')).tsImport('../src/cli/index.ts', import.meta.url)
 
 const handle = await runCli(process.argv.slice(2))

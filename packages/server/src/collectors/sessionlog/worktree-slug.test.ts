@@ -25,4 +25,18 @@ describe('worktreePathToProjectSlug', () => {
   it('replaces every slash and underscore, nothing else', () => {
     expect(worktreePathToProjectSlug('/a/b_c/d')).toBe('-a-b-c-d')
   })
+
+  it('maps a dot the same way as slash and underscore, so a dotted path still resolves', () => {
+    expect(worktreePathToProjectSlug('/home/operator/work/v2.0/wt')).toBe(
+      '-home-operator-work-v2-0-wt',
+    )
+  })
+
+  it('maps a dotted directory name (e.g. a dotted username)', () => {
+    expect(worktreePathToProjectSlug('/home/jane.doe/project')).toBe('-home-jane-doe-project')
+  })
+
+  it('replaces every slash, underscore and dot, nothing else', () => {
+    expect(worktreePathToProjectSlug('/a/b_c.d/e')).toBe('-a-b-c-d-e')
+  })
 })
