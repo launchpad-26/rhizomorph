@@ -13,7 +13,7 @@ import {
   type LaneSpend,
 } from '../selectors/index.js'
 import type { SessionState } from '../state.js'
-import { bucketizeSeries } from './bucketize.js'
+import { bucketizeSeries } from '../spark/index.js'
 import {
   EXPENSIVE_FLOOR_PER_MIN,
   EXPENSIVE_MULTIPLE,
