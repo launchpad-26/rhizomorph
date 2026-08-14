@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { sessionDirFor } from '../log/paths.js'
 import { readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import { writeSessionLock } from '../log/session-lock.js'
-import { rotateSession } from './rotate.js'
+import { retargetSession, rotateSession } from './rotate.js'
 import { SessionRecorder } from './session-recorder.js'
 
 /**
@@ -147,8 +147,13 @@ function firstArguments(code: string, callee: RegExp): string[] {
 const WRITE_CALL_RE =
   /\b(?:writeFile|appendFile|mkdir|mkdtemp|rmdir|unlink|rename|truncate|createWriteStream|copyFile|open|chmod|utimes)\s*\(/g
 
-/** Reaching rotation, by the name of one of its entry points. */
-const ROTATION_ENTRY_RE = /\b(?:rotateSession|closeCurrentSession|openNextSession)\b/
+/**
+ * Reaching rotation, by the name of one of its entry points —
+ * `retargetSession` (prd20 ruling 5) included: it is a third door into the
+ * same two halves, and the law that only the declared route may knock is the
+ * same law either way.
+ */
+const ROTATION_ENTRY_RE = /\b(?:rotateSession|retargetSession|closeCurrentSession|openNextSession)\b/
 
 describe('the recorder namespace law (prd16 ruling 2)', () => {
   describe('the module writes through exactly one file, and names nothing outside the data dir', () => {
@@ -272,6 +277,58 @@ describe('the recorder namespace law (prd16 ruling 2)', () => {
   })
 })
 
+/** Shared by every "live" describe below (a plain rotation's one dir, a retarget's two). */
+function git(args: string[], cwd: string): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf8' })
+}
+
+/** Every path under `dir`: directories by name, files by content hash. */
+function fingerprint(dir: string): Map<string, string> {
+  const out = new Map<string, string>()
+  const visit = (current: string) => {
+    let entries: string[]
+    try {
+      entries = readdirSync(current)
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry)
+      const relative = path.relative(dir, full)
+      const info = statSync(full)
+      if (info.isDirectory()) {
+        out.set(relative, 'dir')
+        visit(full)
+      } else {
+        out.set(relative, createHash('sha1').update(readFileSync(full)).digest('hex'))
+      }
+    }
+  }
+  visit(dir)
+  return out
+}
+
+interface TreeDiff {
+  added: string[]
+  changed: string[]
+  removed: string[]
+}
+
+function diff(before: Map<string, string>, after: Map<string, string>): TreeDiff {
+  const added: string[] = []
+  const changed: string[] = []
+  const removed: string[] = []
+  for (const [key, value] of after) {
+    const previous = before.get(key)
+    if (previous === undefined) added.push(key)
+    else if (previous !== value) changed.push(key)
+  }
+  for (const key of before.keys()) {
+    if (!after.has(key)) removed.push(key)
+  }
+  return { added: added.sort(), changed: changed.sort(), removed: removed.sort() }
+}
+
 /**
  * The live half. Everything above reads source text; this rotates for real and
  * asserts, by hashing every file in a temp root before and after, that ruling
@@ -290,57 +347,6 @@ describe('the recorder namespace law, live (prd16 ruling 2)', () => {
 
   const FIRST_SESSION = '1000'
   const ROTATE_AT = 2000
-
-  function git(args: string[], cwd = repoDir): string {
-    return execFileSync('git', args, { cwd, encoding: 'utf8' })
-  }
-
-  /** Every path under `dir`: directories by name, files by content hash. */
-  function fingerprint(dir: string): Map<string, string> {
-    const out = new Map<string, string>()
-    const visit = (current: string) => {
-      let entries: string[]
-      try {
-        entries = readdirSync(current)
-      } catch {
-        return
-      }
-      for (const entry of entries) {
-        const full = path.join(current, entry)
-        const relative = path.relative(dir, full)
-        const info = statSync(full)
-        if (info.isDirectory()) {
-          out.set(relative, 'dir')
-          visit(full)
-        } else {
-          out.set(relative, createHash('sha1').update(readFileSync(full)).digest('hex'))
-        }
-      }
-    }
-    visit(dir)
-    return out
-  }
-
-  interface TreeDiff {
-    added: string[]
-    changed: string[]
-    removed: string[]
-  }
-
-  function diff(before: Map<string, string>, after: Map<string, string>): TreeDiff {
-    const added: string[] = []
-    const changed: string[] = []
-    const removed: string[] = []
-    for (const [key, value] of after) {
-      const previous = before.get(key)
-      if (previous === undefined) added.push(key)
-      else if (previous !== value) changed.push(key)
-    }
-    for (const key of before.keys()) {
-      if (!after.has(key)) removed.push(key)
-    }
-    return { added: added.sort(), changed: changed.sort(), removed: removed.sort() }
-  }
 
   /**
    * prd16 ruling 2's namespace, as a path predicate over the whole temp root:
@@ -362,12 +368,12 @@ describe('the recorder namespace law, live (prd16 ruling 2)', () => {
     sessionDir = sessionDirFor(repoDir, dataRoot)
 
     await mkdir(repoDir, { recursive: true })
-    git(['init', '-b', 'main'])
-    git(['config', 'user.email', 'test@example.com'])
-    git(['config', 'user.name', 'Test'])
+    git(['init', '-b', 'main'], repoDir)
+    git(['config', 'user.email', 'test@example.com'], repoDir)
+    git(['config', 'user.name', 'Test'], repoDir)
     await writeFile(path.join(repoDir, 'tracked.txt'), 'v1\n')
-    git(['add', '.'])
-    git(['commit', '-m', 'initial commit'])
+    git(['add', '.'], repoDir)
+    git(['commit', '-m', 'initial commit'], repoDir)
     // A dirty tree and an untracked file: what the observer is watching when an
     // operator hits "end session · start fresh" mid-run.
     await writeFile(path.join(repoDir, 'tracked.txt'), 'v2 dirty\n')
@@ -434,14 +440,14 @@ describe('the recorder namespace law, live (prd16 ruling 2)', () => {
   })
 
   it("leaves the watched repo's working tree and every ref byte-for-byte as it found them", async () => {
-    const statusBefore = git(['status', '--porcelain'])
-    const refsBefore = git(['for-each-ref', '--format=%(refname) %(objectname)'])
+    const statusBefore = git(['status', '--porcelain'], repoDir)
+    const refsBefore = git(['for-each-ref', '--format=%(refname) %(objectname)'], repoDir)
     const treeBefore = fingerprint(repoDir)
 
     await rotate()
 
-    expect(git(['status', '--porcelain'])).toBe(statusBefore)
-    expect(git(['for-each-ref', '--format=%(refname) %(objectname)'])).toBe(refsBefore)
+    expect(git(['status', '--porcelain'], repoDir)).toBe(statusBefore)
+    expect(git(['for-each-ref', '--format=%(refname) %(objectname)'], repoDir)).toBe(refsBefore)
     expect(diff(treeBefore, fingerprint(repoDir))).toEqual({ added: [], changed: [], removed: [] })
   })
 
@@ -474,5 +480,136 @@ describe('the recorder namespace law, live (prd16 ruling 2)', () => {
       pid: number
     }
     expect(lock.pid).toBe(process.pid)
+  })
+})
+
+/**
+ * THE RETARGET EXTENSION (prd20 ruling 5). Everything above reasons about ONE
+ * session directory, because a plain rotation never touches a second one. A
+ * retarget does — `retargetSession` closes against the OLD repo's directory
+ * and opens against the NEW repo's — so the fence this file asserts has to
+ * widen to "the union of exactly two session directories, and nothing else,"
+ * not "one directory, wherever it happens to be."
+ */
+describe('the recorder namespace law, live — retargeting crosses two session dirs (prd20 ruling 5)', () => {
+  let root: string
+  let oldRepoDir: string
+  let newRepoDir: string
+  let dataRoot: string
+  let oldSessionDir: string
+  let newSessionDir: string
+  let recorder: SessionRecorder
+
+  const FIRST_SESSION = '1000'
+  const RETARGET_AT = 2000
+
+  /** The union of BOTH session directories — a retarget's namespace, never a third. */
+  function isAllowedWrite(relative: string): boolean {
+    const allowedDirs = [path.relative(root, oldSessionDir), path.relative(root, newSessionDir)]
+    return allowedDirs.some((allowed) => relative === allowed || relative.startsWith(`${allowed}${path.sep}`))
+  }
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'rhizomorph-retarget-law-test-'))
+    oldRepoDir = path.join(root, 'old-repo')
+    newRepoDir = path.join(root, 'new-repo')
+    dataRoot = path.join(root, 'data')
+    oldSessionDir = sessionDirFor(oldRepoDir, dataRoot)
+    newSessionDir = sessionDirFor(newRepoDir, dataRoot)
+
+    for (const [dir, name] of [
+      [oldRepoDir, 'old'],
+      [newRepoDir, 'new'],
+    ] as const) {
+      await mkdir(dir, { recursive: true })
+      git(['init', '-b', 'main'], dir)
+      git(['config', 'user.email', 'test@example.com'], dir)
+      git(['config', 'user.name', 'Test'], dir)
+      await writeFile(path.join(dir, 'tracked.txt'), `${name} v1\n`)
+      git(['add', '.'], dir)
+      git(['commit', '-m', 'initial commit'], dir)
+    }
+
+    recorder = new SessionRecorder(FIRST_SESSION, sessionFilePath(oldSessionDir, FIRST_SESSION))
+    await recorder.record(
+      createEvent(
+        'session.started',
+        { sessionId: FIRST_SESSION, repoPath: oldRepoDir, repoName: 'old-repo' },
+        { id: 'evt-000001', ts: Number(FIRST_SESSION) },
+      ),
+    )
+    await writeSessionLock(oldSessionDir, FIRST_SESSION, process.pid, Number(FIRST_SESSION))
+  })
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  async function retarget() {
+    return retargetSession({
+      oldSessionDir,
+      oldRepoPath: oldRepoDir,
+      newSessionDir,
+      newRepoPath: newRepoDir,
+      newRepoName: 'new-repo',
+      recorder,
+      now: () => RETARGET_AT,
+      pid: process.pid,
+    })
+  }
+
+  it('writes ONLY inside the old and new session directories — nothing else in the tree moves, and no third directory appears', async () => {
+    const before = fingerprint(root)
+
+    await retarget()
+
+    const { added, changed, removed } = diff(before, fingerprint(root))
+    expect(added.length).toBeGreaterThan(0)
+    // Otherwise the assertion below would pass vacuously.
+    expect([...added, ...changed, ...removed].filter((entry) => !isAllowedWrite(entry))).toEqual([])
+  })
+
+  it("leaves BOTH watched repos' working trees and refs byte-for-byte as it found them", async () => {
+    const oldTreeBefore = fingerprint(oldRepoDir)
+    const newTreeBefore = fingerprint(newRepoDir)
+    const oldRefsBefore = git(['for-each-ref', '--format=%(refname) %(objectname)'], oldRepoDir)
+    const newRefsBefore = git(['for-each-ref', '--format=%(refname) %(objectname)'], newRepoDir)
+
+    await retarget()
+
+    expect(diff(oldTreeBefore, fingerprint(oldRepoDir))).toEqual({ added: [], changed: [], removed: [] })
+    expect(diff(newTreeBefore, fingerprint(newRepoDir))).toEqual({ added: [], changed: [], removed: [] })
+    expect(git(['for-each-ref', '--format=%(refname) %(objectname)'], oldRepoDir)).toBe(oldRefsBefore)
+    expect(git(['for-each-ref', '--format=%(refname) %(objectname)'], newRepoDir)).toBe(newRefsBefore)
+  })
+
+  it('closes the old session in its own directory and opens the new one in a directory of its own — never the same directory for both', async () => {
+    const rotation = await retarget()
+
+    expect(oldSessionDir).not.toBe(newSessionDir)
+    expect(readdirSync(oldSessionDir).sort()).toEqual([`session-${FIRST_SESSION}.jsonl`])
+    expect(readdirSync(newSessionDir).sort()).toEqual([
+      `session-${RETARGET_AT}.jsonl`,
+      `session-${RETARGET_AT}.lock.json`,
+    ])
+
+    const closed = await readSessionEvents(rotation.closed.filePath)
+    expect(closed.map((event) => event.type)).toEqual(['session.started', 'session.closed'])
+    expect(closed.at(-1)).toMatchObject({
+      payload: { reason: 'retargeted', successor: { repoSlug: path.basename(newSessionDir) } },
+    })
+
+    const opened = await readSessionEvents(rotation.opened.filePath)
+    expect(opened.map((event) => event.type)).toEqual(['session.started'])
+    expect(opened[0]).toMatchObject({
+      payload: {
+        repoPath: newRepoDir,
+        predecessor: { repoSlug: path.basename(oldSessionDir), sessionId: FIRST_SESSION },
+      },
+    })
+
+    // No lock left behind in the old repo's directory — the close half releases
+    // it before the open half ever claims one, in the new directory only.
+    expect(readdirSync(oldSessionDir).some((name) => name.endsWith('.lock.json'))).toBe(false)
   })
 })
