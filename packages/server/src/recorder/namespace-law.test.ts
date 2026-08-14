@@ -54,13 +54,22 @@ const WEB_SRC = path.join(REPO_ROOT, 'packages', 'web', 'src')
 const RECORDER_DIR = path.join(SERVER_SRC, 'recorder')
 
 /**
- * The one file allowed to reach rotation: the mutating API route the CLI verb
- * and the dashboard button both go through. `cli/index.ts` is deliberately NOT
- * here — `rhizomorph rotate` asks the running server over HTTP rather than
- * closing a log another process is writing (see `cli/rotate.ts`), so the CLI
- * never holds a reference to this hand at all.
+ * The files allowed to reach the session boundary: the two mutating API routes
+ * the CLI verb, the dashboard button and prd20 ruling 5's repo switch go
+ * through. `cli/index.ts` is deliberately NOT here — `rhizomorph rotate` asks
+ * the running server over HTTP rather than closing a log another process is
+ * writing (see `cli/rotate.ts`), so the CLI never holds a reference to this
+ * hand at all.
+ *
+ * `api/retarget.ts` joined in #389, which is what widened this from one file
+ * to two. Whatever is added here later may never be a collector or a poll loop
+ * — stated by name below, and judged again against the raw import graph in
+ * `api/retarget-law.test.ts`.
  */
-const ALLOWED_ROTATION_CALLERS = new Set([path.join(SERVER_SRC, 'api', 'rotate.ts')])
+const ALLOWED_ROTATION_CALLERS = new Set([
+  path.join(SERVER_SRC, 'api', 'rotate.ts'),
+  path.join(SERVER_SRC, 'api', 'retarget.ts'),
+])
 
 /** The only file inside the module that may touch the filesystem directly. */
 const THE_WRITER = path.join(RECORDER_DIR, 'session-log-writer.ts')

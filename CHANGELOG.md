@@ -45,6 +45,23 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   what/why/`rhizomorph doctor` gap voice a disabled collector already does. It stays
   ambient: unlike `error`, it never escalates to the attention strip, since it may
   self-heal on the very next poll.
+- **`POST /api/retarget` — the watched repo can change without a restart
+  (prd-20 ruling 5, #389).** One explicit human act switches the instrument
+  from one repo to another in place: it validates the candidate first (it
+  exists, it is a git work tree, no other rhizomorph is recording it), and
+  only then closes the session in the old repo's directory and opens one in
+  the new repo's, re-points every route's context, and rebuilds the poll loop
+  against the adopted repo. It never spawns a second instance. A failed
+  validation is a `409` with the old target completely untouched — the
+  recording still open, its lock still held — which is the whole reason the
+  spike (#265) chose rotate-and-reinit over supervised respawn, whose
+  equivalent failure is an uncatchable `SIGABRT`. Token-gated like every other
+  mutating route (#234), and `retarget-law.test.ts` holds ADR-0014 grant 3
+  over it against the raw import graph: no collector, no poll and no timer
+  reaches it, gate or no gate. `/api/meta` now reports `lastBootReason:
+  'retargeted'`, so the provenance bar says the predecessor is under another
+  repo's slug rather than implying it is the previous log in this repo's
+  picker.
 - **A session's end can say it was a retarget, and the two logs can find
   each other (#384).** `session.closed` accepts `reason: 'retargeted'`
   alongside `'rotated'` — prd20 ruling 5's repo switch ends a session too,
