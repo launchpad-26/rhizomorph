@@ -637,6 +637,10 @@ export interface UninstrumentedWitness {
    * for why that case is not granted the grace window.
    */
   firstEventTs: number | null
+  /** `UninstrumentedSession.worktreePath` / `UninstrumentedFacts.worktreePath` — not rendered by this wave (#515). */
+  worktreePath: string | null
+  /** See {@link worktreePath}. */
+  branch: string | null
 }
 
 /** A served role string is only a role if it is one of the four the schema has — anything else is dropped rather than passed to `--role`. */
@@ -664,13 +668,24 @@ function knownRoles(roles: readonly string[]): AgentRole[] {
  */
 export function mergeUninstrumented(
   folded: readonly UninstrumentedSession[],
-  served: readonly { sessionId: string; lanes: string[]; roles: string[]; firstEventTs: number | null }[] | undefined,
+  served:
+    | readonly {
+        sessionId: string
+        lanes: string[]
+        roles: string[]
+        firstEventTs: number | null
+        worktreePath?: string | null
+        branch?: string | null
+      }[]
+    | undefined,
 ): UninstrumentedWitness[] {
   const witnesses: UninstrumentedWitness[] = folded.map((session) => ({
     sessionId: session.sessionId,
     lanes: [...session.lanes],
     roles: [...session.roles],
     firstEventTs: session.firstEventTs,
+    worktreePath: session.worktreePath,
+    branch: session.branch,
   }))
   const seen = new Set(witnesses.map((witness) => witness.sessionId))
 
@@ -682,6 +697,8 @@ export function mergeUninstrumented(
       lanes: [...session.lanes],
       roles: knownRoles(session.roles),
       firstEventTs: session.firstEventTs,
+      worktreePath: session.worktreePath ?? null,
+      branch: session.branch ?? null,
     })
   }
   return witnesses

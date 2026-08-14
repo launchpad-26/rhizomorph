@@ -63,6 +63,10 @@ export interface UninstrumentedFacts {
   roles: string[]
   firstEventTs: number | null
   lastEventTs: number | null
+  /** `UninstrumentedSession.worktreePath` — nullable on the wire the same way every other unproven fact here is. */
+  worktreePath: string | null
+  /** `UninstrumentedSession.branch` — same rule as {@link worktreePath}. */
+  branch: string | null
 }
 
 /** `/api/meta`'s `connection.refusals` — the standing-fault summary (#255's `RefusalsSummary`). */
@@ -230,6 +234,8 @@ function parseUninstrumented(value: unknown): UninstrumentedFacts[] {
       roles: strings(entry.roles),
       firstEventTs: ts(entry.firstEventTs),
       lastEventTs: ts(entry.lastEventTs),
+      worktreePath: str(entry.worktreePath),
+      branch: str(entry.branch),
     })
   }
   return sessions

@@ -382,7 +382,7 @@ describe('selectConnection — the uninstrumented conductor (the PRD\'s evidence
       { ts: 1_000 },
     ),
     f.toolActivity(
-      { lane: 'conductor', tool: 'Bash', role: 'conductor', sessionId: 'sess-conductor' },
+      { lane: 'conductor', tool: 'Bash', role: 'conductor', sessionId: 'sess-conductor', worktreePath: null, branch: null },
       { ts: 2_000 },
     ),
     // A worker lane whose OTel side is exporting perfectly well.
@@ -398,6 +398,8 @@ describe('selectConnection — the uninstrumented conductor (the PRD\'s evidence
         roles: ['conductor'],
         firstEventTs: 1_000,
         lastEventTs: 2_000,
+        worktreePath: null,
+        branch: null,
       },
     ])
   })
@@ -442,13 +444,13 @@ describe('selectConnection — the uninstrumented conductor (the PRD\'s evidence
     const state = reduceAll([
       // Two collectors' names for one session — the case a lane-keyed answer
       // cannot see, which is why this is keyed by session id.
-      f.llmUsage({ lane: 'zeta', requestId: 'req_1', sessionId: 'sess-shared' }, { ts: 1_000 }),
+      f.llmUsage({ lane: 'zeta', requestId: 'req_1', sessionId: 'sess-shared', worktreePath: null, branch: null }, { ts: 1_000 }),
       f.llmUsage(
-        { lane: 'alpha', role: 'auxiliary', requestId: 'req_2', sessionId: 'sess-shared' },
+        { lane: 'alpha', role: 'auxiliary', requestId: 'req_2', sessionId: 'sess-shared', worktreePath: null, branch: null },
         { ts: 2_000 },
       ),
       // A tool call whose lane the collector saw without knowing the role.
-      f.toolActivity({ lane: 'alpha', tool: 'Read', role: null, sessionId: 'sess-shared' }, { ts: 3_000 }),
+      f.toolActivity({ lane: 'alpha', tool: 'Read', role: null, sessionId: 'sess-shared', worktreePath: null, branch: null }, { ts: 3_000 }),
     ])
     expect(selectConnection(state).uninstrumentedSessions).toEqual([
       {
@@ -457,6 +459,8 @@ describe('selectConnection — the uninstrumented conductor (the PRD\'s evidence
         roles: ['auxiliary', 'worker'],
         firstEventTs: 1_000,
         lastEventTs: 3_000,
+        worktreePath: null,
+        branch: null,
       },
     ])
   })
@@ -484,5 +488,57 @@ describe('selectConnection — the uninstrumented conductor (the PRD\'s evidence
     ).uninstrumentedSessions
     expect(resumed).toEqual(whole)
     expect(whole).toHaveLength(1)
+  })
+
+  /**
+   * #515: `worktreePath`/`branch`, joined from `state.telemetry.sessions` by
+   * `sessionId` — never by lane. Two uninstrumented sessions reported under
+   * the SAME lane handle, each with its own place: a lane-keyed join would
+   * hand one of them the other's worktree, and `SessionPlace`'s own doc names
+   * exactly this as the case a lane-keyed index cannot tell apart.
+   */
+  it('joins place by sessionId — a shared lane handle proves a lane join would be wrong', () => {
+    const state = reduceAll([
+      f.toolActivity(
+        { lane: 'shared-lane', tool: 'Bash', role: 'worker', sessionId: 'sess-a', worktreePath: '/wt-a', branch: 'branch-a' },
+        { ts: 1_000 },
+      ),
+      f.toolActivity(
+        { lane: 'shared-lane', tool: 'Bash', role: 'worker', sessionId: 'sess-b', worktreePath: '/wt-b', branch: 'branch-b' },
+        { ts: 2_000 },
+      ),
+    ])
+    const sessions = selectConnection(state).uninstrumentedSessions
+
+    expect(sessions.find((session) => session.sessionId === 'sess-a')).toMatchObject({
+      worktreePath: '/wt-a',
+      branch: 'branch-a',
+    })
+    expect(sessions.find((session) => session.sessionId === 'sess-b')).toMatchObject({
+      worktreePath: '/wt-b',
+      branch: 'branch-b',
+    })
+  })
+
+  /**
+   * A session the fold names as uninstrumented but has no `SessionPlace` for —
+   * defensive coverage for a join whose other side is an index the fold
+   * happens to keep in step today. Nulls, never a guess.
+   */
+  it('answers null, not a guess, for a session with no SessionPlace', () => {
+    const state = reduceAll(gabesLog())
+    const noPlaces = { ...state, telemetry: { ...state.telemetry, sessions: {} } }
+
+    expect(selectConnection(noPlaces).uninstrumentedSessions).toEqual([
+      {
+        sessionId: 'sess-conductor',
+        lanes: ['conductor'],
+        roles: ['conductor'],
+        firstEventTs: 1_000,
+        lastEventTs: 2_000,
+        worktreePath: null,
+        branch: null,
+      },
+    ])
   })
 })

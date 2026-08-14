@@ -5,6 +5,7 @@ import {
   buildLinks,
   envCommand,
   FIRST_EXPORT_GRACE_MS,
+  mergeUninstrumented,
   portFrom,
   SAME_PROCESS_WARNING,
   tally,
@@ -393,7 +394,15 @@ describe('the uninstrumented conductor — the PRD\'s evidence case', () => {
     const meta = metaWith({
       sources: { sessionlog: { firstEventTs: 1_000, lastEventTs: NOW - 20 * 60_000, count: 40 } },
       uninstrumentedSessions: [
-        { sessionId: 'sess-gabe', lanes: ['conductor'], roles: ['conductor'], firstEventTs: NOW - 20 * 60_000, lastEventTs: NOW - 19 * 60_000 },
+        {
+          sessionId: 'sess-gabe',
+          lanes: ['conductor'],
+          roles: ['conductor'],
+          firstEventTs: NOW - 20 * 60_000,
+          lastEventTs: NOW - 19 * 60_000,
+          worktreePath: null,
+          branch: null,
+        },
       ],
     })
     const link = row(build(reduceAll([]), { meta }), 'uninstrumented-conductor')
@@ -407,8 +416,24 @@ describe('the uninstrumented conductor — the PRD\'s evidence case', () => {
     const state = uninstrumentedConductorLog()
     const meta = metaWith({
       uninstrumentedSessions: [
-        { sessionId: 'sess-gabe', lanes: ['conductor'], roles: ['conductor'], firstEventTs: NOW - 10 * 60_000, lastEventTs: NOW - 9 * 60_000 },
-        { sessionId: 'sess-other', lanes: ['lane-b'], roles: ['worker'], firstEventTs: NOW - 10 * 60_000, lastEventTs: NOW - 9 * 60_000 },
+        {
+          sessionId: 'sess-gabe',
+          lanes: ['conductor'],
+          roles: ['conductor'],
+          firstEventTs: NOW - 10 * 60_000,
+          lastEventTs: NOW - 9 * 60_000,
+          worktreePath: null,
+          branch: null,
+        },
+        {
+          sessionId: 'sess-other',
+          lanes: ['lane-b'],
+          roles: ['worker'],
+          firstEventTs: NOW - 10 * 60_000,
+          lastEventTs: NOW - 9 * 60_000,
+          worktreePath: null,
+          branch: null,
+        },
       ],
     })
     const link = row(build(state, { meta }), 'uninstrumented-conductor')
@@ -420,7 +445,9 @@ describe('the uninstrumented conductor — the PRD\'s evidence case', () => {
   /** A witness that carried no usable date cannot claim the window's exemption — a malformed timestamp must not buy a permanently silent row. */
   it('refuses the grace window to a session it cannot date', () => {
     const meta = metaWith({
-      uninstrumentedSessions: [{ sessionId: 'sess-undated', lanes: ['lane-a'], roles: ['worker'], firstEventTs: null, lastEventTs: null }],
+      uninstrumentedSessions: [
+        { sessionId: 'sess-undated', lanes: ['lane-a'], roles: ['worker'], firstEventTs: null, lastEventTs: null, worktreePath: null, branch: null },
+      ],
     })
     expect(row(build(reduceAll([]), { meta }), 'uninstrumented-conductor').state).toBe('broken')
   })
@@ -428,10 +455,51 @@ describe('the uninstrumented conductor — the PRD\'s evidence case', () => {
   it('drops a served role the schema has never heard of, rather than passing it to --role', () => {
     const meta = metaWith({
       uninstrumentedSessions: [
-        { sessionId: 'sess-x', lanes: ['lane-a'], roles: ['overlord'], firstEventTs: NOW - 10 * 60_000, lastEventTs: NOW - 9 * 60_000 },
+        {
+          sessionId: 'sess-x',
+          lanes: ['lane-a'],
+          roles: ['overlord'],
+          firstEventTs: NOW - 10 * 60_000,
+          lastEventTs: NOW - 9 * 60_000,
+          worktreePath: null,
+          branch: null,
+        },
       ],
     })
     expect(row(build(reduceAll([]), { meta }), 'uninstrumented-conductor').command).toBe('rhizomorph env lane-a --port 4317')
+  })
+
+  /**
+   * #515: `worktreePath`/`branch` carried through `mergeUninstrumented` — not
+   * rendered by this wave, but the merge must not drop them. Fold wins over
+   * served on a session both witnesses name, same as `lanes`/`roles` today.
+   */
+  describe('mergeUninstrumented carries place through, fold wins over served', () => {
+    it('takes the fold\'s own place on a session both witnesses name', () => {
+      const folded = [
+        { sessionId: 'sess-a', lanes: ['a'], roles: ['worker' as const], firstEventTs: 1_000, lastEventTs: 2_000, worktreePath: '/fold', branch: 'fold-branch' },
+      ]
+      const served = [
+        { sessionId: 'sess-a', lanes: ['a'], roles: ['worker'], firstEventTs: 1_000, worktreePath: '/served', branch: 'served-branch' },
+      ]
+      expect(mergeUninstrumented(folded, served)).toEqual([
+        { sessionId: 'sess-a', lanes: ['a'], roles: ['worker'], firstEventTs: 1_000, worktreePath: '/fold', branch: 'fold-branch' },
+      ])
+    })
+
+    it('appends a served-only session\'s place whole', () => {
+      const served = [{ sessionId: 'sess-b', lanes: ['b'], roles: ['worker'], firstEventTs: 3_000, worktreePath: '/served', branch: 'served-branch' }]
+      expect(mergeUninstrumented([], served)).toEqual([
+        { sessionId: 'sess-b', lanes: ['b'], roles: ['worker'], firstEventTs: 3_000, worktreePath: '/served', branch: 'served-branch' },
+      ])
+    })
+
+    it('reads an older server\'s served session with no place at all as null, never undefined', () => {
+      const served = [{ sessionId: 'sess-c', lanes: ['c'], roles: ['worker'], firstEventTs: 4_000 }]
+      expect(mergeUninstrumented([], served)).toEqual([
+        { sessionId: 'sess-c', lanes: ['c'], roles: ['worker'], firstEventTs: 4_000, worktreePath: null, branch: null },
+      ])
+    })
   })
 })
 

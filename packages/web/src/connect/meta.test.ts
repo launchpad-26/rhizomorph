@@ -47,7 +47,17 @@ const FULL_META = {
     workmux: { source: 'workmux', firstEventTs: null, lastEventTs: null, count: 0 },
     sessionlog: { source: 'sessionlog', firstEventTs: null, lastEventTs: null, count: 0 },
     otel: { source: 'otel', firstEventTs: null, lastEventTs: null, count: 0 },
-    uninstrumentedSessions: [{ sessionId: 'sess-gabe', lanes: ['conductor'], roles: ['conductor'], firstEventTs: 5_000, lastEventTs: 6_000 }],
+    uninstrumentedSessions: [
+      {
+        sessionId: 'sess-gabe',
+        lanes: ['conductor'],
+        roles: ['conductor'],
+        firstEventTs: 5_000,
+        lastEventTs: 6_000,
+        worktreePath: '/home/x/repo-gabe',
+        branch: 'conductor',
+      },
+    ],
     refusals: { count: 3, instance: 'sess-other', expectedInstance: 'sess-1' },
   },
 }
@@ -155,10 +165,58 @@ describe('parseMeta', () => {
       ...FULL_META,
       connection: {
         ...FULL_META.connection,
-        uninstrumentedSessions: [{ sessionId: 'sess-x', lanes: ['a'], roles: ['worker'], firstEventTs: 1e300, lastEventTs: -1 }],
+        uninstrumentedSessions: [
+          { sessionId: 'sess-x', lanes: ['a'], roles: ['worker'], firstEventTs: 1e300, lastEventTs: -1, worktreePath: '/repo', branch: 'main' },
+        ],
       },
     })
-    expect(facts?.connection?.uninstrumentedSessions[0]).toEqual({ sessionId: 'sess-x', lanes: ['a'], roles: ['worker'], firstEventTs: null, lastEventTs: null })
+    expect(facts?.connection?.uninstrumentedSessions[0]).toEqual({
+      sessionId: 'sess-x',
+      lanes: ['a'],
+      roles: ['worker'],
+      firstEventTs: null,
+      lastEventTs: null,
+      worktreePath: '/repo',
+      branch: 'main',
+    })
+  })
+
+  /**
+   * #515: `worktreePath`/`branch` follow the same `str` idiom every other
+   * optional string on this page does — a garbage shape nulls the two new
+   * fields without dropping the witness the rest of the row still needs.
+   */
+  it('nulls worktreePath/branch on a garbage shape, without dropping the session', () => {
+    const facts = parseMeta({
+      ...FULL_META,
+      connection: {
+        ...FULL_META.connection,
+        uninstrumentedSessions: [
+          { sessionId: 'sess-x', lanes: ['a'], roles: ['worker'], firstEventTs: 1_000, lastEventTs: 2_000, worktreePath: 42, branch: '' },
+        ],
+      },
+    })
+    expect(facts?.connection?.uninstrumentedSessions[0]).toEqual({
+      sessionId: 'sess-x',
+      lanes: ['a'],
+      roles: ['worker'],
+      firstEventTs: 1_000,
+      lastEventTs: 2_000,
+      worktreePath: null,
+      branch: null,
+    })
+  })
+
+  it('reads an older server\'s uninstrumented sessions with no place at all as null, not absent', () => {
+    const facts = parseMeta({
+      ...FULL_META,
+      connection: {
+        ...FULL_META.connection,
+        uninstrumentedSessions: [{ sessionId: 'sess-x', lanes: ['a'], roles: ['worker'], firstEventTs: 1_000, lastEventTs: 2_000 }],
+      },
+    })
+    expect(facts?.connection?.uninstrumentedSessions[0]?.worktreePath).toBeNull()
+    expect(facts?.connection?.uninstrumentedSessions[0]?.branch).toBeNull()
   })
 
   /** "0.5 folded records" is not a fact any log can hold, and it must not be able to buy the strongest word this page has. */
