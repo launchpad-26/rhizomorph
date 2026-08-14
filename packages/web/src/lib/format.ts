@@ -40,6 +40,28 @@ export function formatUsdPerHour(rate: number): string {
   return `${formatUsd(rate)}/hr`
 }
 
+/**
+ * `mm:ss` since a reference point — the one clock replay's chrome shares, so
+ * the scrubber, the mode badge and the banner never print a different shape
+ * for the same duration (law 11: mono, and one formatter per kind of figure).
+ */
+export function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
+/** Duration, `h:mm:ss` for anything over an hour — a long recording's mm:ss would misread as under sixty minutes. */
+export function formatDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  if (hours === 0) return formatElapsed(durationMs)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
 /** Tier order for every breakdown display: output first (the headline), cache tiers last. */
 export const TOKEN_TIERS = [
   { key: 'output', label: 'output' },

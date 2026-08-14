@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { formatBytes, formatTokens } from '../lib/format.js'
 import { listSessionListings, type SessionListing } from '../log/listing.js'
 import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
 import { parseFlags } from './args.js'
@@ -137,33 +138,9 @@ function formatDuration(ms: number): string {
   return `${seconds}s`
 }
 
-const TOKEN_UNITS: readonly [threshold: number, suffix: string][] = [
-  [1_000_000_000, 'B'],
-  [1_000_000, 'M'],
-  [1_000, 'K'],
-]
-
-function formatTokens(count: number): string {
-  for (const [threshold, suffix] of TOKEN_UNITS) {
-    if (count >= threshold) return `${trimTrailingZero((count / threshold).toFixed(1))}${suffix}`
-  }
-  return String(count)
-}
-
 /** `null` (no cost telemetry at all) reads as "—", never a fabricated `$0.00`; a mix of authoritative and estimated dollars is flagged "(est.)" — the same honesty rule `formatSpend` enforces on the web side, restated here since server code cannot import from `packages/web`. */
 function formatCost(listing: Pick<SessionListing, 'costUsd' | 'costIsAuthoritative'>): string {
   if (listing.costIsAuthoritative === null) return '—'
   const amount = listing.costUsd > 0 && listing.costUsd < 0.01 ? '<$0.01' : `$${listing.costUsd.toFixed(2)}`
   return listing.costIsAuthoritative ? amount : `${amount} (est.)`
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`
-  const kb = bytes / 1024
-  if (kb < 1024) return `${trimTrailingZero(kb.toFixed(1))}KB`
-  return `${trimTrailingZero((kb / 1024).toFixed(1))}MB`
-}
-
-function trimTrailingZero(value: string): string {
-  return value.endsWith('.0') ? value.slice(0, -2) : value
 }
