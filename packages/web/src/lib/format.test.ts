@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatTokenBreakdown, formatTokens, formatUsd, formatUsdPerHour } from './format.js'
+import { formatDuration, formatElapsed, formatTokenBreakdown, formatTokens, formatUsd, formatUsdPerHour } from './format.js'
 
 describe('formatTokens', () => {
   it('prints small counts exactly', () => {
@@ -37,6 +37,26 @@ describe('formatUsd', () => {
 describe('formatUsdPerHour', () => {
   it('appends the rate suffix', () => {
     expect(formatUsdPerHour(12.5)).toBe('$12.50/hr')
+  })
+})
+
+describe('formatElapsed', () => {
+  it('renders mm:ss', () => {
+    expect(formatElapsed(65_000)).toBe('1:05')
+  })
+
+  it('keeps counting past an hour rather than wrapping', () => {
+    expect(formatElapsed(3_725_000)).toBe('62:05')
+  })
+})
+
+describe('formatDuration', () => {
+  it('renders mm:ss under an hour', () => {
+    expect(formatDuration(65_000)).toBe('1:05')
+  })
+
+  it('renders h:mm:ss at or past an hour', () => {
+    expect(formatDuration(3_725_000)).toBe('1:02:05')
   })
 })
 
