@@ -53,6 +53,7 @@ const EXPECTED: ReadonlyArray<{ route: string; contractTest: string }> = [
   { route: '/api/label', contractTest: 'label.contract.test.ts' },
   { route: '/api/rotate', contractTest: 'rotate.contract.test.ts' },
   { route: '/api/lab/launch', contractTest: 'launch.contract.test.ts' },
+  { route: '/api/concierge/launch', contractTest: 'instrument.contract.test.ts' },
 ]
 
 describe('every mutating module has a contract test (prd-24 ruling 2)', () => {
