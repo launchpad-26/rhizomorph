@@ -135,11 +135,16 @@ To ruling 3's bar — what continuity means, and what is lost:
 questions, four GO, with raw output reproduced: the copy-and-resume works
 same-host and cross-host (a Windows-authored transcript resumed on Linux, `cwd`
 fields untouched), the resume appends in place preserving the sessionId, and
-OTLP books under that preserved id. Two caveats travel with the ruling and are
-not footnotes: it is verified on Claude Code **`2.1.232`**, whose session-log
-format is explicitly free to change between releases, and only tiny transcripts
-were exercised — large ones, and tool *results* carrying absolute Windows
-paths, were not.
+OTLP books under that preserved id. Size and dead paths in tool results are
+settled too, by the note's own Q2b: a 23 MB / 6133-line Windows transcript, 1294
+tool-use blocks and 542 absolute Windows paths across its tool results, resumed
+cleanly with full context and left the source byte-identical.
+
+One caveat travels with the ruling and is not a footnote: it is verified on
+Claude Code **`2.1.232`**, whose session-log format is explicitly free to change
+between releases. Two narrower limits stay open and are named rather than
+implied — a transcript past ~24 MB, and one whose dead Windows paths the
+*resumed* agent is asked to act on rather than summarize.
 
 The amendment is on the record as
 [ADR-0020](../adr/0020-transcript-migration-is-a-create-only-copy.md), and the
