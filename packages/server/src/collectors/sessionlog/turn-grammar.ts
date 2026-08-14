@@ -17,13 +17,14 @@
  * and claude implements it, but nothing calls it yet. Rewiring that call
  * site is real, required work for landing a second dialect, left to prd26
  * wave 4 (recorded as a Bad consequence in ADR-0017, which also names why
- * this issue's fence left `collector.ts` alone). Until then, a codex or pi
- * dialect needs more than "one new file implementing {@link TurnGrammar}":
- * it also widens {@link TranscriptCli}, registers in {@link TURN_GRAMMARS},
- * and needs `collector.ts`'s extraction call site rewired to call
- * `turnGrammar.extractFacts()` instead of the free-standing import — no
- * change to the turn-shape reducer or the UI, but a real change beyond the
- * new file.
+ * this issue's fence left `collector.ts` alone). #324's fence left it alone
+ * too, for pi — `collector.ts` is claude-specific (it watches
+ * `~/.claude/projects/`, not `~/.pi/agent/sessions/`), so registering a
+ * second grammar here does not by itself give pi a live reader. Both
+ * dialects' `extractFacts()` remain reachable only by calling them directly
+ * (as `../pi/grammar.test.ts` and `turn-grammar-claude.test.ts` do), which is
+ * exactly what proves the seam without needing a multi-dialect collector to
+ * exist yet.
  *
  * **Why one interface and not two.** `classify` and `extractFacts` are read
  * from the *same* raw line, for the *same* dialect, pinned to the *same*
@@ -33,18 +34,22 @@
  * requires a dialect to land whole, in one issue, so nothing is ever gained
  * by letting one half of a dialect exist without the other.
  *
- * **Claude first, and only claude.** prd15's sequencing puts codex and pi in
- * later waves *behind captures*: "Per-CLI turn-shape grammars are adapter
- * facts pinned by dialect-verification captures." A grammar written from
- * documentation validates our reading of the docs, not the tool. So the
- * registry ships exactly one entry and {@link grammarFor} answers `null` for
- * every other CLI rather than guessing at a dialect nobody has captured.
+ * **Claude first, capture behind capture.** prd15's sequencing puts codex and
+ * pi behind captures: "Per-CLI turn-shape grammars are adapter facts pinned
+ * by dialect-verification captures. A grammar written from documentation
+ * validates our reading of the docs, not the tool." codex (#322) captured
+ * real evidence and declined — its rollout never showed a tool call written
+ * before its result, and split usage/model across lines this interface's
+ * one-line contract cannot join. pi (#324) is the first dialect whose real
+ * captures support both halves honestly; see `../pi/grammar.ts`. Every other
+ * CLI still gets a `null` from {@link grammarFor} rather than a guess.
  */
 
+import { PI_JSONL_GRAMMAR } from '../pi/grammar.js'
 import { CLAUDE_JSONL_GRAMMAR } from './turn-grammar-claude.js'
 
 /** Which CLI dialect a transcript is written in. Extended per adapter wave. */
-export type TranscriptCli = 'claude'
+export type TranscriptCli = 'claude' | 'pi'
 
 /**
  * One conversational entry, reduced to the four facts turn shape depends on.
@@ -152,9 +157,17 @@ export interface TurnGrammar {
   extractFacts(rawLine: string): AssistantLineFacts | null
 }
 
-/** Every dialect this build can read. One entry today, on purpose. */
+/**
+ * Every dialect this build can read. `pi` is the second entry, and the first
+ * time this seam has taken a real second dialect (prd26 wave 4, #324) — codex
+ * (#322) captured real evidence and declined, because its rollout never
+ * showed a tool call written before its result and split usage/model across
+ * lines this interface's one-line contract cannot join. Neither problem holds
+ * for pi; see `../pi/grammar.ts`'s header comment for the capture that proves it.
+ */
 export const TURN_GRAMMARS: Readonly<Record<TranscriptCli, TurnGrammar>> = Object.freeze({
   claude: CLAUDE_JSONL_GRAMMAR,
+  pi: PI_JSONL_GRAMMAR,
 })
 
 /**
