@@ -5,6 +5,7 @@ import { RESUME_WINDOW_MS } from '../log/session-log.js'
 import { retargetSession, type Rotation } from '../recorder/index.js'
 import type { ServerContext } from '../server/context.js'
 import { exec as realExec, withTimeout } from '../server/exec.js'
+import { describeTelemetryCost, lanesAtBoundary } from '../server/retarget-cost.js'
 import { validateRetargetTarget } from '../server/retarget-validation.js'
 import { createFileSnapshotStore } from '../server/snapshot-store.js'
 import { recordSessionBootMeta, sessionBootMetaFor } from './meta.js'
@@ -41,6 +42,14 @@ import { requireCapabilityToken } from './security.js'
  *    new session owes a full round of discovery events), re-points the one
  *    thing the loop itself closes over, and lands persistence in the NEW
  *    session's own snapshot dir. Then the timer comes back.
+ *
+ * …and then it says what that cost (#391, `server/retarget-cost.ts`): the
+ * telemetry instance id is the session id, so every lane launched before the
+ * boundary is now refused whole, and the answer names them and the
+ * `rhizomorph env` re-issue that fixes them — before the first
+ * `telemetry.refused` arrives ~60 s later. The lane list is read at the top of
+ * the handler, BEFORE the boundary, because afterwards the recorder's buffer
+ * is the new session's and holds none of them.
  *
  * Steps 2 and 5 are `stop()`/`start()` around the seal rather than `reset()`
  * alone the way `/api/rotate` does it. A rotation stays in one repo, so a tick
@@ -177,6 +186,13 @@ export function registerRetargetRoute(app: FastifyInstance, ctx: ServerContext):
         })
       }
 
+      // Read BEFORE the boundary, and this ordering is the whole of #391 being
+      // possible: after the close the recorder's buffer is the NEW session's
+      // and holds none of the lanes whose telemetry is about to be refused.
+      // Answering with an empty list would be the instrument reporting a cost
+      // of zero for a cost it had just imposed.
+      const lanes = lanesAtBoundary(ctx.recorder.eventsSoFar())
+
       // (2) SUSPEND. See this module's own doc for why a retarget stops the
       // timer where a rotation does not.
       await ctx.pollLoop?.stop()
@@ -232,7 +248,19 @@ export function registerRetargetRoute(app: FastifyInstance, ctx: ServerContext):
         lastBootReason: 'retargeted',
       })
 
-      return { closed: retarget.closed, opened: retarget.opened, from, to }
+      // What it cost, in the answer to the act that caused it (#391). The
+      // instance id is the session id, so a retarget changes it under any
+      // design — the spike measured that respawn pays it identically. What is
+      // available is saying so before the first `telemetry.refused` says it,
+      // ~60 s later and once for the whole swarm rather than once per lane.
+      const telemetry = describeTelemetryCost({
+        lanes,
+        previousInstance: retarget.closed.sessionId,
+        instance: retarget.opened.sessionId,
+        ...(ctx.port === undefined ? {} : { port: ctx.port }),
+      })
+
+      return { closed: retarget.closed, opened: retarget.opened, from, to, telemetry }
     },
   )
 }
