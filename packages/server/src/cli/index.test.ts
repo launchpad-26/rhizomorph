@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
 import { sessionDirFor } from '../log/paths.js'
 import { listSessions, readSessionEvents, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
+import { readSessionLock, writeSessionLock } from '../log/session-lock.js'
 import type { SessionRecorder } from '../server/recorder.js'
 import { runCli, type CliHandle } from './index.js'
 
@@ -1765,3 +1766,70 @@ describe('runCli rotate subcommand', () => {
     expect(server?.recorder.sessionId).toBe(sessionId)
   })
 })
+
+describe(
+  "runCli: the live ServerContext (prd20 ruling 5) — boot's sessionDir stops being a constant",
+  () => {
+    let dataRoot: string
+    let handle: CliHandle | undefined
+
+    beforeEach(async () => {
+      dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-cli-ctx-test-'))
+    })
+
+    afterEach(async () => {
+      await handle?.stop()
+      handle = undefined
+      await rm(dataRoot, { recursive: true, force: true })
+    })
+
+    it("exposes the live ServerContext on the handle, matching this boot's own values", async () => {
+      const repoPath = path.join(tmpdir(), 'ctx-repo')
+      handle = await runCli([repoPath, '--port', '0'], { dataRoot, collectors: [], log: silentLog })
+
+      expect(handle.ctx).toBeDefined()
+      expect(handle.ctx?.repoPath).toBe(repoPath)
+      expect(handle.ctx?.repoName).toBe('ctx-repo')
+      expect(handle.ctx?.sessionDir).toBe(sessionDirFor(repoPath, dataRoot))
+      expect(handle.ctx?.recorder).toBe(handle.recorder)
+      expect(handle.ctx?.pollLoop).toBe(handle.pollLoop)
+    })
+
+    it(
+      "stop() releases the lock at ctx.sessionDir's CURRENT value, never the boot-time constant — the verified bug: " +
+        "after a retarget, the old fixed local would write the NEW session's lock into the OLD repo's directory",
+      async () => {
+        const repoPath = path.join(tmpdir(), 'ctx-retarget-repo')
+        handle = await runCli([repoPath, '--port', '0'], { dataRoot, collectors: [], log: silentLog })
+        const ctx = handle.ctx
+        expect(ctx).toBeDefined()
+        const bootSessionDir = ctx!.sessionDir
+        const sessionId = handle.recorder.sessionId
+        expect(await readSessionLock(bootSessionDir, sessionId)).not.toBeNull()
+
+        // Simulate a retarget's own mutation (#389, not built in this bundle):
+        // repoint `ctx.sessionDir` at a different repo's directory, mid-run —
+        // exactly what `retargetSession`'s open half does to the SAME object
+        // every route (and, with this fix, this boot's own lock bookkeeping)
+        // already holds.
+        const retargetedSessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-cli-ctx-retargeted-'))
+        await writeSessionLock(retargetedSessionDir, sessionId, process.pid, Date.now())
+        ctx!.sessionDir = retargetedSessionDir
+
+        await handle.stop()
+        handle = undefined
+
+        // stop() looked in `ctx.sessionDir` — its CURRENT value — and released
+        // THAT lock, not the one this process originally claimed at boot.
+        expect(await readSessionLock(retargetedSessionDir, sessionId)).toBeNull()
+        // And it never reached back into the boot-time directory: a fixed
+        // local would have released (or worse, re-created) a lock THERE
+        // instead, leaving a stale claim behind that names a pid `isPidAlive`
+        // still reports as running — the exact bug the spike verified.
+        expect(await readSessionLock(bootSessionDir, sessionId)).not.toBeNull()
+
+        await rm(retargetedSessionDir, { recursive: true, force: true })
+      },
+    )
+  },
+)

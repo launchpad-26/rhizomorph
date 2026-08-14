@@ -3,11 +3,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createEvent, createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { sessionFileName, transcriptCaptureDir, transcriptCaptureFileName } from '../log/paths.js'
+import { repoSlug, sessionFileName, transcriptCaptureDir, transcriptCaptureFileName } from '../log/paths.js'
 import { decideSessionBoot, readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import { LOCK_STALE_MS, readSessionLock, sessionLockFileName, writeSessionLock } from '../log/session-lock.js'
 import { readTranscriptCaptureManifest } from '../log/transcript-capture.js'
-import { closeCurrentSession, nextSessionStart, openNextSession, rotateSession } from './rotate.js'
+import { closeCurrentSession, nextSessionStart, openNextSession, retargetSession, rotateSession } from './rotate.js'
 import { SessionRecorder } from './session-recorder.js'
 
 /**
@@ -279,6 +279,147 @@ describe('rotateSession', () => {
 
     expect(second.closed.sessionId).toBe('5000')
     expect(second.opened.sessionId).toBe('6000')
+  })
+})
+
+describe('retargetSession (prd20 ruling 5)', () => {
+  const OLD_REPO_PATH = '/repo/old-watched'
+  const NEW_REPO_PATH = '/repo/new-watched'
+
+  let oldDir: string
+  let newDir: string
+  let recorder: SessionRecorder
+  let clock: number
+
+  beforeEach(async () => {
+    oldDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-retarget-old-test-'))
+    newDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-retarget-new-test-'))
+    clock = Number(FIRST)
+    recorder = new SessionRecorder(FIRST, sessionFilePath(oldDir, FIRST))
+    await recorder.record(
+      createEvent(
+        'session.started',
+        { sessionId: FIRST, repoPath: OLD_REPO_PATH, repoName: 'old-watched' },
+        { id: 'evt-000001', ts: clock },
+      ),
+    )
+    await writeSessionLock(oldDir, FIRST, process.pid, clock)
+  })
+
+  afterEach(async () => {
+    await Promise.all([rm(oldDir, { recursive: true, force: true }), rm(newDir, { recursive: true, force: true })])
+  })
+
+  function options() {
+    return {
+      oldSessionDir: oldDir,
+      oldRepoPath: OLD_REPO_PATH,
+      newSessionDir: newDir,
+      newRepoPath: NEW_REPO_PATH,
+      newRepoName: 'new-watched',
+      recorder,
+      now: () => clock,
+      pid: process.pid,
+    }
+  }
+
+  it('closes the old log with reason "retargeted" and a successor pointer at the new slug', async () => {
+    clock = 5000
+    await retargetSession(options())
+
+    const closed = await readSessionEvents(sessionFilePath(oldDir, FIRST))
+    expect(closed.at(-1)).toMatchObject({
+      type: 'session.closed',
+      payload: {
+        sessionId: FIRST,
+        reason: 'retargeted',
+        successor: { repoSlug: repoSlug(NEW_REPO_PATH) },
+      },
+    })
+  })
+
+  it('opens the new log naming the new repo, with a predecessor pointer at the old slug and exact session id', async () => {
+    clock = 5000
+    const rotation = await retargetSession(options())
+
+    const opened = await readSessionEvents(rotation.opened.filePath)
+    expect(opened).toHaveLength(1)
+    expect(opened[0]).toMatchObject({
+      type: 'session.started',
+      payload: {
+        sessionId: rotation.opened.sessionId,
+        repoPath: NEW_REPO_PATH,
+        repoName: 'new-watched',
+        predecessor: { repoSlug: repoSlug(OLD_REPO_PATH), sessionId: FIRST },
+      },
+    })
+  })
+
+  it('moves the lock to the NEW directory only — nothing left behind in the old one', async () => {
+    clock = 5000
+    const rotation = await retargetSession(options())
+
+    expect(await readSessionLock(oldDir, FIRST)).toBeNull()
+    expect(await readSessionLock(newDir, rotation.opened.sessionId)).toEqual({
+      pid: process.pid,
+      heartbeatMs: 5000,
+    })
+  })
+
+  it('closes first, then opens — a retarget observes the same crash ordering as a rotation', async () => {
+    clock = 5000
+    const closed = await closeCurrentSession({
+      sessionDir: oldDir,
+      recorder,
+      now: () => clock,
+      reason: 'retargeted',
+      successor: { repoSlug: repoSlug(NEW_REPO_PATH) },
+    })
+
+    // Exactly the state a crash between the two halves leaves behind: no live
+    // lock anywhere, and the old log already ended.
+    expect(await readSessionLock(oldDir, FIRST)).toBeNull()
+    expect((await readSessionEvents(closed.filePath)).at(-1)?.type).toBe('session.closed')
+
+    await openNextSession(
+      {
+        sessionDir: newDir,
+        repoPath: NEW_REPO_PATH,
+        repoName: 'new-watched',
+        recorder,
+        now: () => clock,
+        predecessor: { repoSlug: repoSlug(OLD_REPO_PATH), sessionId: closed.sessionId },
+      },
+      closed,
+    )
+    expect(await readSessionLock(newDir, recorder.sessionId)).not.toBeNull()
+  })
+
+  /**
+   * The sibling case: `closeCurrentSession`/`openNextSession` grew optional
+   * overrides so `retargetSession` could reuse them — `rotateSession`'s own
+   * calls pass none, and must therefore see exactly the behaviour they saw
+   * before this issue touched the module. A `toMatchObject` alone would not
+   * catch a leaked `successor`/`predecessor` (it ignores extra keys), so this
+   * asserts their absence directly.
+   */
+  it("rotateSession is unaffected by the new overrides — still 'rotated', no successor/predecessor", async () => {
+    clock = 5000
+    const rotation = await rotateSession({
+      sessionDir: oldDir,
+      repoPath: OLD_REPO_PATH,
+      repoName: 'old-watched',
+      recorder,
+      now: () => clock,
+      pid: process.pid,
+    })
+
+    const closed = await readSessionEvents(sessionFilePath(oldDir, FIRST))
+    expect(closed.at(-1)?.payload).toMatchObject({ reason: 'rotated' })
+    expect(closed.at(-1)?.payload).not.toHaveProperty('successor')
+
+    const opened = await readSessionEvents(rotation.opened.filePath)
+    expect(opened[0]?.payload).not.toHaveProperty('predecessor')
   })
 })
 
