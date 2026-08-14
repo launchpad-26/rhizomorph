@@ -1,6 +1,18 @@
 import type { SessionRecorder } from './recorder.js'
 
-/** Everything the API routes need, threaded through from the CLI bootstrap so routes stay unit-testable. */
+/**
+ * Everything the API routes need, threaded through from the CLI bootstrap so
+ * routes stay unit-testable.
+ *
+ * RE-POINTABLE (prd20 ruling 5, retarget spike Q1/Q4): `repoPath`, `repoName`
+ * and `sessionDir` are read live by every route that needs them — none of
+ * them is captured into a closure at registration, `registerDoctorRoute`'s
+ * memoized probe (`api/doctor.ts`) excepted, which carries its own
+ * invalidation for exactly this reason. A retarget mutates these three
+ * fields directly on the object every route already holds; `buildApp` never
+ * copies this context (`build-app.ts`'s own doc explains why that copy used
+ * to be the trap), so the mutation is visible everywhere at once.
+ */
 export interface ServerContext {
   repoPath: string
   repoName: string

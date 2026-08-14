@@ -221,8 +221,29 @@ function requireLoopbackHost() {
  * slug dir, version drift, the lane manifest) without needing a terminal at
  * all — honestly labeled as not applicable when this server is a replay
  * (`ctx.readOnly`, item 5) rather than a live repo.
+ *
+ * THE ONE ROUTE THAT BINDS `repoPath` AT REGISTRATION (prd20 retarget spike
+ * Q1, gap d): every other route reads `ctx.repoPath` live inside its handler,
+ * but the prober above is built once, closing over the string it was handed,
+ * and memoizes its answer for `PROBE_CACHE_TTL_MS`. Left alone, a retarget
+ * would leave this route probing the OLD repo — worse, silently, for up to
+ * 3s after the switch, and forever if a request never lands outside that
+ * window to notice the drift. The invalidation hook is deliberately reactive
+ * rather than requiring a retarget route to remember to call something here:
+ * every request compares `ctx.repoPath` against what the current prober was
+ * built for, and rebuilds (a fresh prober, a cold cache) the instant they
+ * disagree — so this route self-heals on its very next request, with no
+ * dependency on #389 (or anything else) calling back into it.
  */
 export function registerDoctorRoute(app: FastifyInstance, ctx: ServerContext): void {
-  const probe = createRouteDoctorProbe(ctx.repoPath, { replay: ctx.readOnly === true })
-  app.get('/api/doctor', { preHandler: requireLoopbackHost() }, async () => probe())
+  let proberRepoPath = ctx.repoPath
+  let probe = createRouteDoctorProbe(proberRepoPath, { replay: ctx.readOnly === true })
+
+  app.get('/api/doctor', { preHandler: requireLoopbackHost() }, async () => {
+    if (ctx.repoPath !== proberRepoPath) {
+      proberRepoPath = ctx.repoPath
+      probe = createRouteDoctorProbe(proberRepoPath, { replay: ctx.readOnly === true })
+    }
+    return probe()
+  })
 }

@@ -223,3 +223,71 @@ describe('buildApp integration', () => {
     await app.close()
   })
 })
+
+/**
+ * RE-POINTABILITY (prd20 ruling 5, retarget spike Q1/gap e). `buildApp` used
+ * to spread its context into a copy (`{ ...ctx, capabilityToken }`), so any
+ * "just mutate the context after boot" approach failed silently — the routes
+ * kept reading the object as it looked at registration. This is the test
+ * that would have caught that: it mutates the SAME object handed to
+ * `buildApp`, after the app is already built and serving, and shows the next
+ * request sees it.
+ */
+describe('buildApp: the context is never copied, so a later mutation is visible to every route', () => {
+  let dir: string
+  let recorder: SessionRecorder
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-app-repoint-test-'))
+    recorder = new SessionRecorder('1000', sessionFilePath(dir, '1000'))
+  })
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('mutating repoPath/repoName/sessionDir on the context object updates what /api/meta reports, with no app rebuild', async () => {
+    const ctx = { repoPath: '/repo/old', repoName: 'old', sessionDir: dir, recorder }
+    const app = buildApp(ctx)
+
+    const before = await app.inject({ method: 'GET', url: '/api/meta' })
+    expect(before.json()).toMatchObject({ repoPath: '/repo/old', repoName: 'old' })
+
+    // The retarget mutation itself — no re-registration, no new buildApp call.
+    ctx.repoPath = '/repo/new'
+    ctx.repoName = 'new'
+
+    const after = await app.inject({ method: 'GET', url: '/api/meta' })
+    expect(after.json()).toMatchObject({ repoPath: '/repo/new', repoName: 'new' })
+  })
+
+  it('mutating sessionDir on the context object re-points /api/sessions at the new directory, with no app rebuild', async () => {
+    const oldSessionDir = dir
+    const newSessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-app-repoint-new-'))
+    try {
+      await recorder.record(
+        createEvent('session.started', { sessionId: '1000', repoPath: '/repo/old', repoName: 'old' }, {
+          id: 'evt-1',
+          ts: 1000,
+        }),
+      )
+      const ctx = { repoPath: '/repo/old', repoName: 'old', sessionDir: oldSessionDir, recorder }
+      const app = buildApp(ctx)
+
+      const before = (await app.inject({ method: 'GET', url: '/api/sessions' })).json() as {
+        sessions: unknown[]
+      }
+      expect(before.sessions).toHaveLength(1)
+
+      // The retarget mutation: a new repo's session dir, with nothing recorded in it yet.
+      ctx.sessionDir = newSessionDir
+
+      const after = (await app.inject({ method: 'GET', url: '/api/sessions' })).json() as {
+        sessions: unknown[]
+      }
+      expect(after.sessions).toHaveLength(0)
+    } finally {
+      await rm(newSessionDir, { recursive: true, force: true })
+    }
+  })
+})

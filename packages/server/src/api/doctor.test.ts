@@ -673,6 +673,53 @@ describe('GET /api/doctor', () => {
     })
   })
 
+  describe('the invalidation hook (prd20 retarget spike Q1, gap d)', () => {
+    it("re-points at the NEW repo on the very next request — a mutated ctx.repoPath is never served the OLD repo's cached (or stale-closed-over) answer", async () => {
+      await setup()
+      const otherRepoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-api-doctor-route-repo-b-'))
+      try {
+        const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+        const ctx = { repoPath, repoName: 'repo', sessionDir, recorder }
+        const app = buildApp(ctx)
+
+        const before = (await app.inject({ method: 'GET', url: '/api/doctor' })).json()
+        expect(checkFor(before, 'session-boundary').message).toContain(repoPath)
+
+        // The retarget mutation — no re-registration, no new buildApp call, and
+        // well inside `PROBE_CACHE_TTL_MS`: without the hook this would still
+        // be serving the single-flight cache built for the OLD repo.
+        ctx.repoPath = otherRepoPath
+
+        const after = (await app.inject({ method: 'GET', url: '/api/doctor' })).json()
+        expect(checkFor(after, 'session-boundary').message).toContain(otherRepoPath)
+        expect(checkFor(after, 'session-boundary').message).not.toContain(repoPath)
+      } finally {
+        await rm(otherRepoPath, { recursive: true, force: true })
+        await teardown()
+      }
+    })
+
+    it('still single-flights concurrent requests for the SAME repoPath — the hook only rebuilds on an actual change', async () => {
+      await setup()
+      try {
+        const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+        const ctx = { repoPath, repoName: 'repo', sessionDir, recorder }
+        const app = buildApp(ctx)
+
+        const [a, b] = await Promise.all([
+          app.inject({ method: 'GET', url: '/api/doctor' }),
+          app.inject({ method: 'GET', url: '/api/doctor' }),
+        ])
+
+        expect(a.statusCode).toBe(200)
+        expect(b.statusCode).toBe(200)
+        expect(a.json()).toEqual(b.json())
+      } finally {
+        await teardown()
+      }
+    })
+  })
+
   describe('the response labels replay honestly (adversarial review item 5, wired end to end)', () => {
     it('a readOnly (replay-shaped) context gets the not-applicable labels, not live-repo probes against its own sessionDir', async () => {
       await setup()
