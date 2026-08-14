@@ -53,8 +53,16 @@ export interface TmuxSnapshot {
   /** Set once tmux is missing or no server is running. Every later poll is a no-op. */
   disabled: boolean
   panes: Record<string, TmuxPaneSnapshot>
-  /** Cache of pane_current_path → worktree root, since a path's toplevel never changes mid-session. */
+  /**
+   * Cache of pane_current_path → worktree root, since a path's toplevel never
+   * changes mid-session once resolved. Only a successful resolution is
+   * memoised here — a failed resolve is not cached and is retried on every
+   * later poll (#505).
+   */
   worktreeByPath: Record<string, string | null>
+  /** Per-pane-id (or `~unattributed:<reason>`) latch for a malformed
+   * list-panes line — same shape as workmux's skip latches (#506). */
+  listPanesSkipVoiced: Record<string, boolean>
 }
 
 /**
@@ -69,7 +77,7 @@ export const tmuxCollector: Collector<TmuxSnapshot> = {
   capabilities: TMUX_CAPABILITIES,
 
   initialSnapshot(): TmuxSnapshot {
-    return { disabled: false, panes: {}, worktreeByPath: {} }
+    return { disabled: false, panes: {}, worktreeByPath: {}, listPanesSkipVoiced: {} }
   },
 
   async poll(prevSnapshot, context: CollectorContext): Promise<PollResult<TmuxSnapshot>> {
@@ -94,23 +102,61 @@ export const tmuxCollector: Collector<TmuxSnapshot> = {
     const events: RhizomorphEvent[] = []
     const nextPanes: Record<string, TmuxPaneSnapshot> = {}
     const worktreeByPath = { ...prevSnapshot.worktreeByPath }
+    // Resume-safety: a snapshot persisted by a pre-#506 build has no
+    // `listPanesSkipVoiced` field at all, so it reads as `undefined`, not
+    // `{}` — never read it without this default.
+    const listPanesSkipVoiced = prevSnapshot.listPanesSkipVoiced ?? {}
+    const nextListPanesSkipVoiced: Record<string, boolean> = {}
 
     const { panes, skipped } = parseListPanes(listResult.stdout)
+
+    // A pane absent from `nextPanes` has not necessarily closed: its
+    // list-panes line may have been skipped this tick, when a tab in a title
+    // or path splits the line into the wrong field count. Recover each
+    // skipped line's pane id (the tab-free first field, present whenever the
+    // line survived enough to skip at all) — used both to hold such panes as
+    // still present (below) and as this skip's per-incident latch key
+    // (#506): a skip so garbled its own pane id is gone falls back to
+    // `~unattributed:<reason>`, same shape as workmux's unattributable skips.
+    const skippedPaneIds = new Set<string>()
+    let allSkipsAttributed = true
+    const skipKeys: string[] = []
+    for (const skip of skipped) {
+      const candidate = skip.line.split('\t')[0] ?? ''
+      if (PANE_ID.test(candidate)) {
+        skippedPaneIds.add(candidate)
+        skipKeys.push(candidate)
+      } else {
+        allSkipsAttributed = false
+        skipKeys.push(`~unattributed:${skip.reason}`)
+      }
+    }
+
     if (skipped.length > 0) {
-      events.push(
-        context.emit('collector.error', {
-          collector: COLLECTOR_NAME,
-          message: `skipped ${skipped.length} unparseable list-panes line${skipped.length === 1 ? '' : 's'}`,
-          detail: voiceSkips(skipped),
-        }),
-      )
+      // Per-identity latch (#506, #415's shape generalized): voice only when
+      // at least one of this batch's keys wasn't already latched;
+      // `nextListPanesSkipVoiced` is built fresh from just this poll's keys,
+      // so any key absent from a later poll silently re-arms.
+      const hasNewIncident = skipKeys.some((key) => !listPanesSkipVoiced[key])
+      if (hasNewIncident) {
+        events.push(
+          context.emit('collector.error', {
+            collector: COLLECTOR_NAME,
+            message: `skipped ${skipped.length} unparseable list-panes line${skipped.length === 1 ? '' : 's'}`,
+            detail: voiceSkips(skipped),
+          }),
+        )
+      }
+      for (const key of skipKeys) nextListPanesSkipVoiced[key] = true
     }
 
     for (const entry of panes) {
       let worktreePath = worktreeByPath[entry.currentPath]
-      if (worktreePath === undefined) {
+      if (worktreePath === undefined || worktreePath === null) {
         worktreePath = await resolveWorktreePath(entry.currentPath, context.exec)
-        worktreeByPath[entry.currentPath] = worktreePath
+        if (worktreePath !== null) {
+          worktreeByPath[entry.currentPath] = worktreePath
+        }
       }
 
       const prevPane = prevSnapshot.panes[entry.paneId]
@@ -159,23 +205,12 @@ export const tmuxCollector: Collector<TmuxSnapshot> = {
     }
 
     // A pane absent from `nextPanes` has not necessarily closed: its
-    // list-panes line may have been skipped this tick, when a tab in a title
-    // or path splits the line into the wrong field count. Announcing a
-    // closure for such a pane reports a live agent's pane as dead — and #242's
-    // whole point is that one bad line costs that line, not the collector's
-    // truth. So recover each skipped line's pane id (the tab-free first field,
-    // present whenever the line survived enough to skip at all) and hold those
-    // panes as still present. If a skip is so garbled its own pane id is gone,
-    // no absent pane can be proven closed this tick, so every closure waits
-    // for a tick we can fully account for.
-    const skippedPaneIds = new Set<string>()
-    let allSkipsAttributed = true
-    for (const skip of skipped) {
-      const candidate = skip.line.split('\t')[0] ?? ''
-      if (PANE_ID.test(candidate)) skippedPaneIds.add(candidate)
-      else allSkipsAttributed = false
-    }
-
+    // list-panes line may have been skipped this tick (`skippedPaneIds`,
+    // computed above). Announcing a closure for such a pane reports a live
+    // agent's pane as dead — and #242's whole point is that one bad line
+    // costs that line, not the collector's truth. If a skip is so garbled
+    // its own pane id is gone, no absent pane can be proven closed this tick,
+    // so every closure waits for a tick we can fully account for.
     for (const [paneId, prevPane] of Object.entries(prevSnapshot.panes)) {
       if (paneId in nextPanes) continue
       if (skippedPaneIds.has(paneId) || !allSkipsAttributed) {
@@ -191,7 +226,12 @@ export const tmuxCollector: Collector<TmuxSnapshot> = {
     }
 
     return {
-      nextSnapshot: { disabled: false, panes: nextPanes, worktreeByPath },
+      nextSnapshot: {
+        disabled: false,
+        panes: nextPanes,
+        worktreeByPath,
+        listPanesSkipVoiced: nextListPanesSkipVoiced,
+      },
       events,
     }
   },

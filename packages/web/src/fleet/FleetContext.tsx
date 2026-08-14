@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { buildFleet, type Fleet } from '@rhizomorph/core'
 import { useMode, useModeClock } from '../app/ModeContext.js'
 import { useStream } from '../app/StreamContext.js'
-import { buildFleet, type Fleet } from './buildFleet.js'
 import { useLaneManifest, type FetchLike } from './manifest.js'
 
 /**

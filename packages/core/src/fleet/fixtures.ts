@@ -6,7 +6,7 @@ import {
   type RhizomorphEvent,
   type PayloadOf,
   type SourceOf,
-} from '@rhizomorph/core'
+} from '../events/index.js'
 import type { LaneManifest } from './fences.js'
 
 /**

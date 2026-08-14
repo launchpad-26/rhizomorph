@@ -182,6 +182,8 @@ have carried no information.
 | [0014](0014-exhaustive-route-classification.md) | Every route is declared into one of three classes, checked by walking the running app | 2026-08-12 | accepted |
 | [0015](0015-agent-removed-is-an-event.md) | Agent removed is an event, not a silent gap | 2026-08-12 | proposed |
 | [0016](0016-prunable-not-enoent-proves-a-worktree-gone.md) | A worktree is proven gone by git's own `prunable` flag, not by probing for ENOENT | 2026-08-12 | accepted |
+| [0017](0017-one-turngrammar-seams-shape-and-extraction.md) | One `TurnGrammar` seams turn shape and extraction, not two | 2026-08-13 | accepted |
+| [0018](0018-bare-path-body-shape-routing.md) | The OTLP receiver adds one bare-path route, dispatched by body shape | 2026-08-13 | proposed |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the

@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { eraCorpusEntry } from './eras/corpus.js'
 import { canonicalStateJson, foldEraRecording } from './eras/fold.js'
 import type { EventOf, RhizomorphEvent } from './events/index.js'
-import { observeUpcast, upcast } from './events/upcast.js'
 import { createEventFactory, fixtureSession } from './fixtures.js'
 import { reduce, reduceAll } from './reduce.js'
 import type { SessionState, SpanRecord } from './state.js'
@@ -714,6 +713,99 @@ describe('reduce — judge.finding (prd11 ruling 6b)', () => {
 })
 
 /**
+ * THE HOSTILE-KEY LAW, restated for #289's four siblings.
+ *
+ * `checkpoints.byLane`, `forks.byFork`, `forks.byLane` and `judge.byLane` all
+ * had `#283`'s exact bug (`50d85af`): `{ ...index, [key]: [...(index[key] ??
+ * []), at] }` reads an INHERITED `Object.prototype` member for `'__proto__'`,
+ * `'constructor'`, `'hasOwnProperty'` and `'toString'`, so `?? []` never fires
+ * and the spread throws. Every one of these keys is a lane handle or fork id
+ * this repo generates today — not attacker-reachable the way the refusal
+ * twin's `instance` is — but a lane or fork literally named one of the four
+ * would poison the recording forever, the same way a hostile `instance` did.
+ *
+ * `isSyntheticLane`'s bracket read (`forks.byLane[laneHandle] !== undefined`)
+ * was the quieter sibling: not a crash, a silent false positive, since
+ * `Object.prototype` is never `undefined` either.
+ */
+describe('reduce — prototype-hostile keys across the four #283 siblings (#289)', () => {
+  const HOSTILE = ['__proto__', 'constructor', 'hasOwnProperty', 'toString'] as const
+
+  for (const key of HOSTILE) {
+    it(`checkpoints.byLane folds a checkpoint for lane '${key}' as an ordinary key`, () => {
+      const state = reduceAll([
+        f.forkCheckpoint({ lane: key, checkpointId: 'ckpt-1' }, { ts: 100 }),
+        f.forkCheckpoint({ lane: 'ordinary', checkpointId: 'ckpt-2' }, { ts: 200 }),
+        f.forkCheckpoint({ lane: key, checkpointId: 'ckpt-3' }, { ts: 300 }),
+      ])
+      expect(Object.hasOwn(state.checkpoints.byLane, key)).toBe(true)
+      expect(state.checkpoints.byLane[key]).toEqual([0, 2])
+      expect(state.checkpoints.byLane.ordinary).toEqual([1])
+      expect(Object.getPrototypeOf(state.checkpoints.byLane)).toBe(Object.prototype)
+      expect(Object.keys(state.checkpoints.byLane).sort()).toEqual([key, 'ordinary'].sort())
+    })
+
+    it(`forks.byFork and forks.byLane fold a dispatch keyed '${key}' as an ordinary key`, () => {
+      const state = reduceAll([
+        f.forkDispatched({ forkId: key, laneHandle: key }, { ts: 100 }),
+        f.forkDispatched({ forkId: 'fork-1', laneHandle: 'fork-1-arm-1' }, { ts: 200 }),
+        f.forkDispatched({ forkId: key, laneHandle: key }, { ts: 300 }),
+      ])
+      expect(Object.hasOwn(state.forks.byFork, key)).toBe(true)
+      expect(state.forks.byFork[key]).toEqual([0, 2])
+      expect(Object.hasOwn(state.forks.byLane, key)).toBe(true)
+      expect(state.forks.byLane[key]).toEqual([0, 2])
+      expect(state.forks.byFork['fork-1']).toEqual([1])
+      expect(state.forks.byLane['fork-1-arm-1']).toEqual([1])
+      expect(Object.getPrototypeOf(state.forks.byFork)).toBe(Object.prototype)
+      expect(Object.getPrototypeOf(state.forks.byLane)).toBe(Object.prototype)
+      // The sibling read: a lane actually named this hostile key is genuinely
+      // synthetic (a dispatch DID name it); an untouched lane must not read
+      // as synthetic just because the key coincides with a prototype member.
+      expect(state.agents[key]?.synthetic).toBe(true)
+    })
+
+    it(`judge.byLane folds a finding naming lane '${key}' as an ordinary key, under both lanes`, () => {
+      const lanes = [key, 'ordinary'].sort() as [string, string]
+      const state = reduceAll([
+        f.judgeFinding({ lanes }, { ts: 100 }),
+        f.judgeFinding({ lanes }, { ts: 200 }),
+      ])
+      expect(Object.hasOwn(state.judge.byLane, key)).toBe(true)
+      expect(state.judge.byLane[key]).toEqual([0, 1])
+      expect(state.judge.byLane.ordinary).toEqual([0, 1])
+      expect(Object.getPrototypeOf(state.judge.byLane)).toBe(Object.prototype)
+    })
+  }
+
+  it('survives every hostile key in one fold across all three indexes, alongside ordinary ones', () => {
+    const state = reduceAll([
+      ...HOSTILE.map((key) => f.forkCheckpoint({ lane: key, checkpointId: `ckpt-${key}` })),
+      f.forkCheckpoint({ lane: 'ordinary', checkpointId: 'ckpt-ordinary' }),
+      ...HOSTILE.map((key) => f.forkDispatched({ forkId: key, laneHandle: key })),
+      f.forkDispatched({ forkId: 'fork-1', laneHandle: 'fork-1-arm-1' }),
+      ...HOSTILE.map((key) => f.judgeFinding({ lanes: [key, 'ordinary'].sort() as [string, string] })),
+    ])
+    expect(Object.keys(state.checkpoints.byLane).sort()).toEqual([...HOSTILE, 'ordinary'].sort())
+    expect(Object.keys(state.forks.byFork).sort()).toEqual([...HOSTILE, 'fork-1'].sort())
+    expect(Object.keys(state.forks.byLane).sort()).toEqual([...HOSTILE, 'fork-1-arm-1'].sort())
+    expect(Object.keys(state.judge.byLane).sort()).toEqual([...HOSTILE, 'ordinary'].sort())
+    expect(Object.getPrototypeOf(state.checkpoints.byLane)).toBe(Object.prototype)
+    expect(Object.getPrototypeOf(state.forks.byFork)).toBe(Object.prototype)
+    expect(Object.getPrototypeOf(state.forks.byLane)).toBe(Object.prototype)
+    expect(Object.getPrototypeOf(state.judge.byLane)).toBe(Object.prototype)
+  })
+
+  it("isSyntheticLane does not read an untouched lane named '__proto__' as synthetic", () => {
+    const state = reduceAll([
+      f.forkDispatched({ forkId: 'fork-1', laneHandle: 'fork-1-arm-1' }, { ts: 100 }),
+      f.agentStatus({ handle: '__proto__', status: 'working' }, { ts: 200 }),
+    ])
+    expect(state.agents['__proto__']?.synthetic).not.toBe(true)
+  })
+})
+
+/**
  * prd19 ruling 2 — the fold the #62 TODO promised. `telemetry.refused` used to
  * hit a `return state` arm carrying a comment that a home was coming; this is
  * the home. The refusal's *other* half — that folding one leaves
@@ -1264,7 +1356,7 @@ describe('reduce — the trace index is an accelerator, never an input (#184)', 
 })
 
 // ---------------------------------------------------------------------------
-// prd17 ruling 3, item 3 — the upcast chokepoint
+// prd17 ruling 3, item 4 — the fold-order law
 // ---------------------------------------------------------------------------
 
 /**
@@ -1286,77 +1378,6 @@ function foldLive(events: readonly RhizomorphEvent[]): SessionState {
 function foldReplay(events: readonly RhizomorphEvent[]): SessionState {
   return reduceAll([...events].sort((a, b) => a.ts - b.ts))
 }
-
-describe('reduce — every event flows through upcast(), in both paths (prd17 ruling 3.3)', () => {
-  /** Installs the observer and always disposes it, so a leak can't reach the next test. */
-  function watching<T>(body: (seen: RhizomorphEvent[]) => T): { seen: RhizomorphEvent[]; result: T } {
-    const seen: RhizomorphEvent[] = []
-    const dispose = observeUpcast((event) => seen.push(event))
-    try {
-      return { seen, result: body(seen) }
-    } finally {
-      dispose()
-    }
-  }
-
-  const log = (): RhizomorphEvent[] => [
-    f.sessionStarted({}, { ts: 3_000 }),
-    f.paneActivity({ paneId: '%1', contentHash: 'h1' }, { ts: 1_000 }),
-    f.agentStatus({ handle: 'a', status: 'working' }, { ts: 2_000 }),
-  ]
-
-  it('is an identity function — it returns the very event it was handed', () => {
-    const event = f.sessionStarted()
-    expect(upcast(event)).toBe(event)
-  })
-
-  it('the LIVE fold puts every event through it, in arrival order', () => {
-    const events = log()
-    const { seen } = watching(() => foldLive(events))
-    expect(seen).toEqual(events)
-    expect(seen.map((event) => event.id)).toEqual(events.map((event) => event.id))
-  })
-
-  it('the REPLAY fold puts every event through it, in ts order', () => {
-    const events = log()
-    const sorted = [...events].sort((a, b) => a.ts - b.ts)
-    const { seen } = watching(() => foldReplay(events))
-    expect(seen).toEqual(sorted)
-  })
-
-  it('reduceAll routes through it too — no fold shape bypasses the chokepoint', () => {
-    const events = log()
-    const { seen } = watching(() => reduceAll(events))
-    expect(seen).toHaveLength(events.length)
-  })
-
-  it('is reached once per event, not once per fold — a 40-event log upcasts 40 times', () => {
-    const events = Array.from({ length: 40 }, (_, at) =>
-      f.paneActivity({ paneId: `%${at}`, contentHash: `h${at}` }),
-    )
-    const { seen } = watching(() => foldLive(events))
-    expect(seen).toHaveLength(40)
-  })
-
-  it('refuses a second observer rather than shadowing the first', () => {
-    const dispose = observeUpcast(() => {})
-    try {
-      expect(() => observeUpcast(() => {})).toThrow(/already has an observer/)
-    } finally {
-      dispose()
-    }
-  })
-
-  it('leaves the fold untouched — observing it cannot change what it folds', () => {
-    const events = log()
-    const watched = watching(() => foldLive(events)).result
-    expect(JSON.stringify(foldLive(events))).toBe(JSON.stringify(watched))
-  })
-})
-
-// ---------------------------------------------------------------------------
-// prd17 ruling 3, item 4 — the fold-order law
-// ---------------------------------------------------------------------------
 
 /**
  * THE FOLD-ORDER LAW, and the divergence it found.

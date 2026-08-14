@@ -9,9 +9,15 @@
  * {@link BucketizeOptions.sinceTs} trims the series to the window's
  * intersection with the subject's own lifetime, so a young lane draws a short,
  * honest spark rather than a long one padded with fabricated silence.
- * {@link Sparkline} then refuses to draw anything shorter than three points —
+ * `web`'s `Sparkline` then refuses to draw anything shorter than three points —
  * this file's only job is to hand it a series that is honest, not to decide
  * whether it is long enough.
+ *
+ * Lives in `core`, not beside that component, because two callers need it and
+ * they are in different packages: `fleet/buildFleet.ts`'s `recentOutputTokens`
+ * here, and `web`'s ledger sparkline. #246 could not reach across to it and
+ * copied it instead; #509 gave the two copies this one home. Nothing in it is
+ * browser-specific — it is arithmetic over timestamps.
  */
 export interface BucketizeOptions {
   /** The instant the window ends at — the mode clock, never `Date.now()` directly. */

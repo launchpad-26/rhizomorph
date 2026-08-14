@@ -1,4 +1,4 @@
-import type { LaneActivity } from '../fleet/buildFleet.js'
+import type { LaneActivity } from '@rhizomorph/core'
 
 /**
  * The scene's ink — the ice-neon register (prd4 ruling 3) as canvas numbers.
