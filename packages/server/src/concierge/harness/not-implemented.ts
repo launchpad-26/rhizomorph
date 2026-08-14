@@ -21,8 +21,8 @@ import {
  * 2. **It carries its reason**, compiler-required by
  *    {@link HarnessImplementation}, plus what it would take to change — never
  *    "coming soon", which is a promise rather than a fact.
- * 3. **It cannot produce a launch line.** `envRecipe`, `launchArgv` and
- *    `continueArgv` throw {@link HarnessNotImplementedError}. A plausible-looking
+ * 3. **It cannot produce a launch line.** `envRecipe`, `launchArgv`,
+ *    `continueArgv` and `resumeArgv` throw {@link HarnessNotImplementedError}. A plausible-looking
  *    argv array for a harness nobody has captured is a guess dressed as
  *    support, and this seam makes writing one impossible rather than
  *    discouraged.
@@ -131,6 +131,7 @@ function declaredAdapter(harness: DeclaredHarness): HarnessAdapter {
     envRecipe: refuse,
     launchArgv: refuse,
     continueArgv: refuse,
+    resumeArgv: refuse,
   }
 }
 

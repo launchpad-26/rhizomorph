@@ -34,6 +34,26 @@ is homework.
   and get a radar screen at localhost."* prd-9 ruling 1: a total junior,
   running within a minute, no author in the room.
 
+- **The wave-8 live proof (2026-08-14, #521; conductor-run against the wave-7
+  tree serving on :4321).** A real unwired Windows one-shot session
+  (`544321a7…`, marker `RHIZO-PROOF-84117`) was enumerated by the fold with
+  its place fields, previewed verbatim by `GET /api/session-preview/…`, and
+  instrumented through the token-gated route the CLI's own scrape pattern:
+  `POST /api/concierge/launch {mode:'resume'}` answered 200 with the proven
+  continuity plan, `migration: {kind:'migrated'}` landed the 23,100-byte
+  transcript in the watched repo's slug dir **cross-host**, and the Windows
+  source hashed byte-identical before and after (create-only held live). The
+  migrated copy then resumed wired with one `-p` turn and answered the marker;
+  otel rose 14→18 booked under the **preserved** sessionId, and the
+  uninstrumented row **cleared itself** — ruling 6's whole story, witnessed
+  end to end.
+- **The proof's real finding (#532):** the endpoint's detached no-TTY spawn
+  (#264's design, tested only with injected spawns) dies immediately —
+  `claude --resume` without a prompt or TTY errors with *"Provide a prompt to
+  continue the conversation"* — so `{kind:'launched', pid}` is reported and
+  nothing survives, in every mode. The copyable command (ruling 3's no-trust
+  path) is unaffected. Filed with captures and candidate directions.
+
 ## Success
 
 A stranger with node, git, and a supported agent CLI on a fresh machine reaches

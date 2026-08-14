@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { RESUME_EVIDENCE_VERSION } from './claude.js'
 import { HARNESS_ADAPTERS, detectAll, harnessById } from './registry.js'
 import { HarnessNotImplementedError, type HarnessAdapter, type HarnessId } from './types.js'
 
@@ -109,12 +110,96 @@ describe('the registry lists every harness it knows the name of', () => {
     expect(harnessById('nope' as HarnessId)).toBeUndefined()
   })
 
-  it('every adapter answers all four members of the seam', () => {
+  it('every adapter answers all five members of the seam', () => {
     for (const adapter of HARNESS_ADAPTERS) {
-      for (const member of ['detect', 'envRecipe', 'launchArgv', 'continueArgv'] as const) {
+      for (const member of ['detect', 'envRecipe', 'launchArgv', 'continueArgv', 'resumeArgv'] as const) {
         expect(typeof adapter[member], `${adapter.id}.${member}`).toBe('function')
       }
     }
+  })
+})
+
+describe('resumeArgv — resume-by-id, distinct from continueArgv\'s "most recent"', () => {
+  it('claude’s resume is PROVEN on the pinned line, citing the cross-host resume spike', () => {
+    const claude = harnessById('claude')
+    if (claude === undefined) throw new Error('expected claude')
+
+    const plan = claude.resumeArgv(
+      { lane: 'lane-a', role: 'worker', port: 7317, instance: 'abc', harnessVersion: RESUME_EVIDENCE_VERSION },
+      'a-session-id',
+    )
+    expect(plan.kind).toBe('proven')
+    if (plan.kind !== 'proven') throw new Error('expected proven')
+    expect(plan.argv).toEqual(['--resume', 'a-session-id'])
+    expect(plan.evidence).toMatch(/cross-host-resume/)
+    expect(plan.evidence).toContain(RESUME_EVIDENCE_VERSION)
+  })
+
+  /**
+   * **A CONTINUITY CLAIM IS A CLAIM ABOUT A VERSION** (ledger #7).
+   *
+   * `research/2026-08-14-cross-host-resume.md` pins its evidence to Claude
+   * Code 2.1.232 and its own caveats section says the behaviour it proved is
+   * undocumented and unversioned upstream — so `kind: 'proven'` answered for
+   * whatever `claude` happens to be installed was an evidence claim about a
+   * machine nobody had looked at. The policy is the pinned MINOR line, argued
+   * in `claude.ts`: a minor bump is where upstream's shape has room to move,
+   * and holding out for the exact patch would mark every ordinary upgrade
+   * unproven and train an operator to ignore the word.
+   *
+   * The argv is never withheld on any of these — the flag is right, and hiding
+   * it helps nobody. What degrades is the CLAIM.
+   */
+  it.each([
+    ['a different minor line', '2.2.0'],
+    ['an older minor line', '2.0.9'],
+    ['a different major', '3.1.232'],
+    ['probed and unreadable', null],
+    ['never probed at all', undefined],
+  ])('degrades to UNPROVEN for %s, naming the re-run', (_case, harnessVersion) => {
+    const claude = harnessById('claude')
+    if (claude === undefined) throw new Error('expected claude')
+
+    const plan = claude.resumeArgv(
+      { lane: 'lane-a', role: 'worker', port: 7317, instance: 'abc', harnessVersion },
+      'a-session-id',
+    )
+    expect(plan.kind).toBe('unproven')
+    if (plan.kind !== 'unproven') throw new Error('expected unproven')
+    expect(plan.argv).toEqual(['--resume', 'a-session-id'])
+    expect(plan.reason).toContain(RESUME_EVIDENCE_VERSION)
+    // `toProve` names the RE-RUN, not merely the gap — the thing someone could
+    // actually go and do.
+    expect(plan.toProve).toMatch(/appended in place/)
+    expect(plan.toProve).toMatch(/sessionId comes back verbatim/)
+  })
+
+  /** A patch inside the pinned line stays proven — the policy is the line, not the exact build. */
+  it('stays proven across a patch bump inside the pinned minor line', () => {
+    const claude = harnessById('claude')
+    if (claude === undefined) throw new Error('expected claude')
+
+    const plan = claude.resumeArgv(
+      { lane: 'lane-a', role: 'worker', port: 7317, instance: 'abc', harnessVersion: '2.1.999' },
+      'a-session-id',
+    )
+    expect(plan.kind).toBe('proven')
+  })
+
+  it('resume for an id-shaped nothing still carries a reason', () => {
+    // codex has no captured resume-by-id form at all — "a-session-id" here is
+    // a perfectly id-shaped string, and codex still has nothing to do with it.
+    // ADR-0010: a `kind: 'none'` answer is compiler-required to say why, and
+    // this is the case that proves it is not just claude's proven path that
+    // gets a reason.
+    const codex = harnessById('codex')
+    if (codex === undefined) throw new Error('expected codex')
+
+    const plan = codex.resumeArgv({ lane: 'lane-a', role: 'worker', port: 7317, instance: 'abc' }, 'a-session-id')
+    expect(plan.kind).toBe('none')
+    if (plan.kind !== 'none') throw new Error('expected none')
+    expect(plan.reason.length).toBeGreaterThan(20)
+    expect(plan.reason).toMatch(/resume --last|no session id|ADR-0010/)
   })
 })
 
@@ -134,12 +219,13 @@ describe('declared-not-implemented harnesses are listed with their reason, never
     }
   })
 
-  it.each(['envRecipe', 'launchArgv', 'continueArgv'] as const)(
+  it.each(['envRecipe', 'launchArgv', 'continueArgv', 'resumeArgv'] as const)(
     'refuses to answer %s, rather than returning something plausible',
     (member) => {
       const context = { lane: 'lane-a', role: 'worker' as const, port: 7317, instance: 'abc' }
       for (const adapter of declaredAdaptersOf()) {
-        expect(() => adapter[member](context), `${adapter.id}.${member}`).toThrow(HarnessNotImplementedError)
+        const call = adapter[member] as (launchContext: typeof context, sessionId?: string) => unknown
+        expect(() => call(context, 'fake-session-id'), `${adapter.id}.${member}`).toThrow(HarnessNotImplementedError)
       }
     },
   )

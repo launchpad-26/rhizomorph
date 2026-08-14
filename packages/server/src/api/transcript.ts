@@ -264,7 +264,7 @@ interface RawChunk {
  * `offset=0` against a 40MB log. Both stop at the last newline for the same
  * reason — the bytes after it may be a line the agent is still writing.
  */
-async function readBoundedLines(
+export async function readBoundedLines(
   filePath: string,
   requestedOffset: number,
   chunkBytes: number,

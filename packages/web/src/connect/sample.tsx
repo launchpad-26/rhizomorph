@@ -1,5 +1,7 @@
 import { useMode } from '../app/ModeContext.js'
 import { STREAM_SOURCE_KEYS, type StreamSource, useStream } from '../app/StreamContext.js'
+import { envCommand, resumeCommand, type InstrumentableSession } from './links.js'
+import type { SessionPreview } from './meta.js'
 
 /**
  * THE SAMPLE-FLEET AFFORDANCE (prd-19 ruling 6, wave 3, #259).
@@ -70,6 +72,84 @@ export function SampleFleetControl() {
       </span>
     </div>
   )
+}
+
+/**
+ * THE SAMPLE FLEET'S OWN UNINSTRUMENTED SESSIONS (prd-20 w7, #520).
+ *
+ * The 20-lane fixture is deliberately ALL CLEAR (`fleet/fixtures.ts`: "nothing
+ * is staged in it"), and the uninstrumented row is further cleared outright by
+ * `links.ts`'s own fixture law — `unproven()` drops the enumeration, because a
+ * button and a `claude --resume` for a synthetic session id would be ruling 6's
+ * forbidden costume in its worst form. So the sample page would otherwise show
+ * this surface as an empty space, which is the one thing a demonstration must
+ * not do: the enumeration is exactly what a stranger came to `/connect` to
+ * understand.
+ *
+ * These sessions are therefore the fixture's own, declared here beside the
+ * control that summons the fixture, and they are the SAME SHAPE a real witness
+ * takes — commands included — so the page renders them through one component
+ * with no fixture-only branch in its data. What the fixture never gets is the
+ * ACT: `index.tsx` renders these without the instrument button and without a
+ * copy block, and says why in the panel itself. A fixture may show what the
+ * surface looks like; it may never hand anyone something to run.
+ */
+export interface SampleUninstrumented {
+  sessions: InstrumentableSession[]
+  /** Seeded, never fetched — a request for a session id that exists only in a fixture is a request with no honest answer. */
+  previews: Record<string, SessionPreview>
+}
+
+/**
+ * The two shapes the PRD is actually about: the conductor nobody instrumented
+ * (the operator report of 2026-08-07), and one ordinary lane beside it so the
+ * `<select>` has something to select between.
+ *
+ * `port` is the live one, as every other command on this page interpolates it
+ * — the fixture is synthetic in its lanes and its ids, not in the recipe.
+ */
+export function sampleUninstrumented(port: string): SampleUninstrumented {
+  const conductorEnv = envCommand('conductor', 'conductor', port)
+  const laneEnv = envCommand('lane-07', 'worker', port)
+  return {
+    sessions: [
+      {
+        sessionId: 'sample-conductor-0f21',
+        lane: 'conductor',
+        role: 'conductor',
+        ageLabel: '41m00s ago',
+        place: { branch: 'main', worktreeTail: 'rhizomorph' },
+        resumeCommand: resumeCommand(conductorEnv, 'sample-conductor-0f21'),
+        envCommand: conductorEnv,
+      },
+      {
+        sessionId: 'sample-lane-07-b3c8',
+        lane: 'lane-07',
+        role: 'worker',
+        ageLabel: '6m30s ago',
+        place: { branch: '412-drawer-vitals', worktreeTail: '412-drawer-vitals' },
+        resumeCommand: resumeCommand(laneEnv, 'sample-lane-07-b3c8'),
+        envCommand: laneEnv,
+      },
+    ],
+    previews: {
+      'sample-conductor-0f21': {
+        sessionId: 'sample-conductor-0f21',
+        text: 'dispatch wave 4 across the three ready issues, and gate each landing yourself',
+        dropped: 0,
+        reason: null,
+      },
+      'sample-lane-07-b3c8': {
+        sessionId: 'sample-lane-07-b3c8',
+        text: 'the vitals strip should read the same numbers the drawer header does',
+        // `0`, not a flourish: the route only ever reports a cut alongside a
+        // text it actually capped, so a short preview claiming dropped
+        // characters is a shape the real route cannot produce.
+        dropped: 0,
+        reason: null,
+      },
+    },
+  }
 }
 
 /**

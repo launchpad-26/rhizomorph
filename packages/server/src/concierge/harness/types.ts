@@ -4,7 +4,7 @@ import type { AgentRole, CapabilityDetail } from '@rhizomorph/core'
  * The `HarnessAdapter` seam — prd-20 ruling 4, "the harness registry is built
  * for N, claude first-class".
  *
- * Four members, and what varies per harness is only ever *how* each is
+ * Five members, and what varies per harness is only ever *how* each is
  * answered, never whether the harness is any good:
  *
  * - {@link HarnessAdapter.detect} — is this harness on PATH, and is one
@@ -16,6 +16,9 @@ import type { AgentRole, CapabilityDetail } from '@rhizomorph/core'
  * - {@link HarnessAdapter.launchArgv} — the argv array to start it fresh.
  * - {@link HarnessAdapter.continueArgv} — the argv array to relaunch it with
  *   continuity, and what that continuity does and does not preserve.
+ * - {@link HarnessAdapter.resumeArgv} — the argv array to relaunch it against
+ *   a SPECIFIC prior session id (not merely "the most recent one"), and what
+ *   that resume does and does not preserve. prd-20 w6.
  *
  * ## This module was built before it was wired
  *
@@ -148,6 +151,25 @@ export interface HarnessLaunchContext {
    * absolute path detection returned, not a name.
    */
   readonly executablePath?: string
+  /**
+   * The version string the installed harness reported, when the caller probed
+   * for one — `null` when it was probed and could not be read, `undefined` when
+   * nothing probed at all (ledger #7).
+   *
+   * It exists because a continuity claim is a claim about a VERSION, not about
+   * a harness. `claude.ts`'s resume plan is `kind: 'proven'` on the strength of
+   * `research/2026-08-14-cross-host-resume.md`, whose own caveats section says
+   * the behaviour it proved is undocumented and unversioned upstream and pins
+   * the evidence to Claude Code 2.1.232 — so "proven" asserted over an
+   * arbitrary installed CLI is an evidence claim about a machine nobody looked
+   * at. With this, the adapter can degrade to `unproven` off-pin and name the
+   * re-run instead.
+   *
+   * The two nothings are kept apart deliberately, as everywhere else in this
+   * module: "we asked and could not tell" and "nobody asked" are different
+   * facts, and neither may read as the pin matching.
+   */
+  readonly harnessVersion?: string | null
 }
 
 /**
@@ -243,9 +265,28 @@ export interface DetectOptions {
   readonly env?: NodeJS.ProcessEnv
   /** Where the process table lives. Overridable so tests can point at a fabricated procfs. */
   readonly procRoot?: string
+  /**
+   * The repo this server is watching, so PATH search can REFUSE to resolve an
+   * executable out of it (ledger #6).
+   *
+   * `detect.ts` has always said a file inside somebody's working tree must
+   * never become the thing the concierge launches, and it enforced that only
+   * for empty and relative PATH entries. An operator whose PATH carries
+   * `/home/me/repo/node_modules/.bin` — an ordinary, absolute, entirely normal
+   * entry — had a launch-power hole the comments claimed was closed. Detection
+   * cannot make that judgement without knowing which repo is watched, so the
+   * fact travels here.
+   *
+   * Optional because the two callers that legitimately have no watched repo
+   * (`api/doctor.ts`'s capability probe, a test asking only "is claude
+   * installed") are asking a different question. Omitting it is the wide
+   * answer, and `launch.ts` — the one caller that can actually spawn something
+   * — always supplies it.
+   */
+  readonly watchedRepoPath?: string
 }
 
-/** The seam itself. Four members; everything above is what they return. */
+/** The seam itself. Five members; everything above is what they return. */
 export interface HarnessAdapter {
   readonly id: HarnessId
   /** How the picker spells it. Presentation only — carries no ordering. */
@@ -273,4 +314,19 @@ export interface HarnessAdapter {
 
   /** @throws {HarnessNotImplementedError} when {@link implementation} is `declared`. */
   continueArgv(context: HarnessLaunchContext): ContinuityPlan
+
+  /**
+   * The argv array to relaunch this harness against a SPECIFIC prior session
+   * id — distinct from {@link continueArgv}, which means "the most recent
+   * session, whichever that is" and takes no id at all. `sessionId` has
+   * already passed `isSafeSessionId` by the time this is called (the concierge
+   * validates at parse time, per prd-20 w6), but this method still returns a
+   * {@link ContinuityPlan} rather than a bare array, for the same reason
+   * `continueArgv` does: a `kind: 'none'` harness has no id-shaped relaunch to
+   * offer, and that has to be sayable without a caller reaching for a thrown
+   * error.
+   *
+   * @throws {HarnessNotImplementedError} when {@link implementation} is `declared`.
+   */
+  resumeArgv(context: HarnessLaunchContext, sessionId: string): ContinuityPlan
 }

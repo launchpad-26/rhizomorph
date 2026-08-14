@@ -14,8 +14,17 @@ import {
   planLaunch,
   runLaunch,
 } from '../concierge/launch.js'
-import { CloneFenceError } from '../concierge/paths.js'
+import {
+  type MigrationOutcome,
+  MigrationSourceNotFoundError,
+  MigrationSourceNotResumableError,
+  planMigration,
+  runMigration,
+  SessionUnknownError,
+} from '../concierge/migrate.js'
+import { CloneFenceError, MigrationFenceError } from '../concierge/paths.js'
 import { type DiscoverReposResult, discoverRepos } from '../concierge/repos.js'
+import { defaultClaudeProjectsRoot } from '../log/paths.js'
 import type { ServerContext } from '../server/context.js'
 import { requireCapabilityToken } from './security.js'
 
@@ -31,6 +40,7 @@ import { requireCapabilityToken } from './security.js'
  */
 export { CloneDestinationExistsError, CloneValidationError, CloneFenceError }
 export { HarnessNotAvailableError, LaunchContinuityUnavailableError, ConciergeLaunchValidationError }
+export { MigrationFenceError, MigrationSourceNotFoundError, MigrationSourceNotResumableError, SessionUnknownError }
 
 /**
  * The one thing this route can answer with when it should not run
@@ -172,17 +182,107 @@ export function registerConciergeCloneRoute(app: FastifyInstance, ctx: ServerCon
  * or for a replay server (nothing live to launch into, same posture as
  * `/api/concierge/clone`/`/api/lab/launch`).
  *
- * `runLaunch`'s outcome — launched, or the spawn itself failed — rides in the
- * 200 body rather than the status line, the same split clone.ts makes for
- * `runClone`'s own terminal event: planning failures are HTTP-shaped, runtime
- * ones are IN the response. Ruling 3 means a 200 here is never a claim that
- * telemetry is flowing — only that planning succeeded and the OS was asked to
- * start the process. `ctx.port` is required for this one route: it is what
+ * `runLaunch`'s outcome rides in the 200 body rather than the status line, the
+ * same split clone.ts makes for `runClone`'s own terminal event: planning
+ * failures are HTTP-shaped, runtime ones are IN the response. Ruling 3 means a
+ * 200 here is never a claim that telemetry is flowing — only that planning
+ * succeeded and the OS was asked to start the process.
+ *
+ * **Four outcomes since #532, not two, and one of them is the point.** The
+ * live wave-8 proof caught this route answering `{kind:'launched', pid}` for a
+ * conductor that had already exited — a detached, TTY-less `claude --resume`
+ * exits immediately, and the spawn's own success said nothing about it. So the
+ * body now carries WHERE the process went (`via: 'tmux'` with the window to
+ * attach to, or `via: 'detached'`) and, when the detached child was gone again
+ * within `runLaunch`'s settle window, `kind: 'died'` with the reason — never
+ * `launched` over a corpse. This route's contribution to that is the clock
+ * itself ({@link waitForMs}), which the concierge may not own.
+ *
+ * `ctx.port` is required for this one route: it is what
  * tells the harness where to export TO, and a server booted without it (never
  * true for `cli/run.ts`/`cli/replay.ts`, only possible for a test ctx built by
  * hand) gets an honest 500 rather than a harness launched pointed at nowhere.
+ *
+ * **`mode: 'resume'` runs a migration first** — prd-20 ruling 6 / ADR-0020,
+ * wired for real (#519). `claude --resume <id>` reads only the slug directory
+ * of its own cwd, so a conversation that began in another checkout or on
+ * another machine has to be brought home before the resume can mean anything
+ * (`research/2026-08-14-cross-host-resume.md`, Q1's control). The order is
+ * plan-migrate → run-migrate → `planLaunch` → `runLaunch`, and the split is the
+ * same one clone and launch already make: `planMigration`'s failures are
+ * HTTP-shaped, its runtime failure rides the 200 body as
+ * `migration: {kind: 'copy-failed'}`.
+ *
+ * Four statuses `planMigration` adds, each distinguishable because the module
+ * gives each its own class rather than one error with different prose:
+ *
+ * - **400** — {@link MigrationSourceNotResumableError}: the transcript is
+ *   there and holds no conversation turn. Named as itself rather than folded
+ *   into the 404s, because the spike found `--resume` gives a metadata-only
+ *   stub the same "No conversation found" a MISSING file gets, so this is the
+ *   one failure the operator could not otherwise tell apart.
+ * - **403** — `MigrationFenceError`: the copy would breach ADR-0020's grant.
+ *   The same status the clone fence gets, for the same kind of refusal.
+ * - **404** — {@link SessionUnknownError} or
+ *   {@link MigrationSourceNotFoundError}: the id is not one this event log
+ *   knows, or its transcript is not on disk. Both are "what you named is not
+ *   here", which is the cue a client needs to fall back to offering a command
+ *   line instead of a button.
+ * - **200 with `migration.kind === 'copy-failed'`** — the copy itself failed on
+ *   the operator's own filesystem. The launch is then deliberately NOT
+ *   attempted: `--resume` against a transcript that never arrived exits
+ *   immediately with the same "No conversation found" error, so spawning it
+ *   would be this instrument claiming an act it already knows cannot work. The
+ *   body says so in `kind: 'error'`, and `migration` carries the reason.
+ *
+ * The response gains `migration` for every mode — `null` on `launch` and
+ * `continue`, where there is nothing to migrate, for the same reason
+ * `continuity` is an explicit `null` there: a fact worth a value rather than a
+ * key the client has to remember to check for.
+ *
+ * `claudeProjectsRoot` is an option, not a `ServerContext` field, exactly as
+ * `api/session-preview.ts` treats the same root: production always reads the
+ * real `~/.claude/projects` and only a test ever names another, so the seam
+ * lives in this route's own signature rather than widening the context every
+ * other route shares.
  */
-export function registerConciergeLaunchRoute(app: FastifyInstance, ctx: ServerContext): void {
+export interface ConciergeLaunchOptions {
+  /** Defaults to the real `~/.claude/projects`. A test names a temp dir here so no suite ever touches the operator's own. */
+  claudeProjectsRoot?: string
+}
+
+/**
+ * THE LAUNCH'S CLOCK, and the reason it lives in this file rather than in the
+ * module that uses it (#532).
+ *
+ * `runLaunch` holds its answer open for a moment after a detached spawn to see
+ * whether the child is still there, because a `claude` with no TTY exits at
+ * once and the route used to report `launched` over the corpse. That needs a
+ * timer, and the concierge namespace law's clause 3 says nothing under
+ * `concierge/` may schedule work — a law worth keeping exactly as absolute as
+ * it is, since it is what makes "never launches without a human's explicit
+ * command" structural rather than a promise.
+ *
+ * `concierge/clone.ts`'s own header already named this file as where the
+ * exception belongs: "a caller wanting a hard wall-clock cap on top of that
+ * can add one in `api/concierge.ts`, which this law does not fence." This is
+ * that caller. It is not unref'd: the request it belongs to is in flight for
+ * the duration either way, and a server that exited mid-request would abandon
+ * the response, not just the timer.
+ */
+function waitForMs(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
+export function registerConciergeLaunchRoute(
+  app: FastifyInstance,
+  ctx: ServerContext,
+  options: ConciergeLaunchOptions = {},
+): void {
+  const claudeProjectsRoot = options.claudeProjectsRoot ?? defaultClaudeProjectsRoot()
+
   app.post(
     '/api/concierge/launch',
     { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') },
@@ -204,24 +304,63 @@ export function registerConciergeLaunchRoute(app: FastifyInstance, ctx: ServerCo
         })
       }
 
-      let body: { harness: string; mode: 'launch' | 'continue' }
+      let body: ReturnType<typeof parseConciergeLaunchRequestBody>
       let plan: Awaited<ReturnType<typeof planLaunch>>
+      // `null` means "nothing to migrate" — every mode but `resume`.
+      //
+      // The migration runs BEFORE `planLaunch`, which has one visible cost
+      // worth naming rather than discovering: a launch refused at 409 (a
+      // harness with no resume-by-id story) leaves the copy behind, and the
+      // error body has no `migration` field to mention it in. That is one
+      // duplicate transcript under `~/.claude` — create-only, never a
+      // clobber, and retryable: the next attempt reports `already-present`
+      // and proceeds. ADR-0020's Consequences already accept a duplicate as
+      // the price of the rollback, and nothing prunes it because a delete is
+      // not in this grant.
+      let migration: MigrationOutcome | null = null
       try {
         body = parseConciergeLaunchRequestBody(request.body)
-        plan = await planLaunch(body.harness, body.mode, {
-          watchedRepoPath: ctx.repoPath,
-          port: ctx.port,
-          instance: ctx.recorder.sessionId,
-        })
+        if (body.mode === 'resume') {
+          migration = await runMigration(
+            await planMigration(body.sessionId as string, {
+              events: ctx.recorder.eventsSoFar(),
+              claudeProjectsRoot,
+              watchedRepoPath: ctx.repoPath,
+            }),
+          )
+        }
+        plan = await planLaunch(
+          body.harness,
+          body.mode,
+          { watchedRepoPath: ctx.repoPath, port: ctx.port, instance: ctx.recorder.sessionId },
+          body.sessionId,
+        )
       } catch (err) {
         if (err instanceof ConciergeLaunchValidationError) return reply.code(400).send({ error: err.message })
+        if (err instanceof MigrationSourceNotResumableError) return reply.code(400).send({ error: err.message })
+        if (err instanceof MigrationFenceError) return reply.code(403).send({ error: err.message })
+        if (err instanceof SessionUnknownError || err instanceof MigrationSourceNotFoundError) {
+          return reply.code(404).send({ error: err.message })
+        }
         if (err instanceof HarnessNotAvailableError || err instanceof LaunchContinuityUnavailableError) {
           return reply.code(409).send({ error: err.message })
         }
         throw err
       }
 
-      const outcome = await runLaunch(plan)
+      // The transcript never arrived, so there is nothing for `--resume` to
+      // find — see this route's own doc for why that is reported rather than
+      // spawned. `runLaunch` is not called at all: no process, no pid.
+      const outcome =
+        migration?.kind === 'copy-failed'
+          ? {
+              kind: 'error' as const,
+              message:
+                `not launched: the transcript for session ${JSON.stringify(body.sessionId)} did not reach this ` +
+                `repo's harness state directory, so \`resume\` would find nothing — ${migration.message}`,
+            }
+          : await runLaunch(plan, { wait: waitForMs })
+
       return reply.code(200).send({
         harness: body.harness,
         mode: body.mode,
@@ -230,6 +369,9 @@ export function registerConciergeLaunchRoute(app: FastifyInstance, ctx: ServerCo
         // continuity to report, and that is a fact worth a value rather than
         // a key a caller has to remember to check for.
         continuity: plan.continuity ?? null,
+        // The same posture for the migration: `null` on every mode but
+        // `resume`, never an absent key.
+        migration,
         ...outcome,
       })
     },

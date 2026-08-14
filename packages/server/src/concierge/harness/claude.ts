@@ -128,6 +128,33 @@ export function claudeEnvRecipe(context: HarnessLaunchContext): HarnessEnvRecipe
 }
 
 /**
+ * The Claude Code the resume evidence was actually captured against —
+ * `research/2026-08-14-cross-host-resume.md`, whose caveats section pins it and
+ * says in as many words that the behaviour is undocumented and unversioned
+ * upstream (ledger #7).
+ */
+export const RESUME_EVIDENCE_VERSION = '2.1.232'
+
+/**
+ * **THE POLICY, IN ONE SENTENCE:** the resume claim stays `proven` across the
+ * pinned MINOR line (`2.1.x`) and degrades everywhere else, because what the
+ * note proved is a transcript-format and CLI-flag property and upstream's minor
+ * bump is where that shape has room to move, while holding out for the exact
+ * patch would mark every ordinary `claude` upgrade as unproven and train an
+ * operator to ignore the word.
+ *
+ * The residual is named rather than hidden: a PATCH inside `2.1.x` could break
+ * this too, since the behaviour is undocumented, so `proven` within the line is
+ * an argued inference and not a re-run. What it is not is the previous state —
+ * `proven` asserted over an arbitrary installed CLI nobody looked at.
+ */
+function onTheProvenLine(version: string): boolean {
+  const pinned = RESUME_EVIDENCE_VERSION.split('.')
+  const installed = version.split('.')
+  return installed[0] === pinned[0] && installed[1] === pinned[1]
+}
+
+/**
  * argv[0] for a claude launch: the executable detection verified, or the bare
  * name when the caller detected nothing.
  *
@@ -186,6 +213,76 @@ export const claudeAdapter: HarnessAdapter = {
       evidence:
         'prd-20 evidence and ADR-0019 option D both name `claude --continue` as the reachable form of ' +
         'relaunch-with-continuity; docs/telemetry.md records the attach-at-launch physics it is a response to',
+    }
+  },
+
+  /**
+   * `claude --resume <sessionId>` — proven, not merely plausible:
+   * `research/2026-08-14-cross-host-resume.md` ran this exact form, same-host
+   * and cross-host (Windows-origin transcripts resumed on Linux, 2 KB and
+   * 23 MB), and recorded that it appends in place, preserves the sessionId
+   * verbatim, and that OTLP telemetry books under that preserved id. Pinned to
+   * **Claude Code 2.1.232** — the note's own caveats section is explicit that
+   * this behaviour is undocumented and unversioned upstream, so a claude
+   * upgrade is the thing that would unsettle this claim, not a re-reading of
+   * the note.
+   *
+   * What is lost is the same honest half `continueArgv` states, because the
+   * physics are identical: instrumentation attaches at launch and is never
+   * back-filled, so the resumed process's telemetry starts at THIS relaunch —
+   * nothing the prior process already did arrives here — and that prior
+   * process is not attached to or replaced; it keeps running until the
+   * operator ends it.
+   *
+   * **`proven` is now conditional on the machine, not just on the note**
+   * (ledger #7). The note pins its evidence to 2.1.232 and says the behaviour
+   * is undocumented and unversioned upstream — so this used to answer `proven`
+   * for whatever `claude` happened to be installed, which is an evidence claim
+   * about a CLI nobody looked at. {@link HarnessLaunchContext.harnessVersion}
+   * is what the caller probed; off the pinned minor line, or with nothing
+   * probed at all, the same argv comes back as `unproven` with `toProve` naming
+   * the re-run. The argv is never withheld: the flag is right, and hiding it
+   * would help nobody — what it will not do is let a caller reach it without
+   * reading the word.
+   */
+  resumeArgv(context: HarnessLaunchContext, sessionId: string): ContinuityPlan {
+    const { harnessVersion } = context
+    if (harnessVersion === undefined || harnessVersion === null || !onTheProvenLine(harnessVersion)) {
+      const installed =
+        harnessVersion === undefined
+          ? 'nothing probed this machine for a claude version'
+          : harnessVersion === null
+            ? 'this machine was probed and would not report a claude version'
+            : `this machine has claude ${harnessVersion}`
+      return {
+        kind: 'unproven',
+        argv: ['--resume', sessionId],
+        reason:
+          `the resume evidence is pinned to Claude Code ${RESUME_EVIDENCE_VERSION} ` +
+          '(research/2026-08-14-cross-host-resume.md, whose caveats section records the behaviour as undocumented ' +
+          `and unversioned upstream), and ${installed} — so in-place append, a preserved sessionId and telemetry ` +
+          'booked under it are not established here the way they are on the pinned line',
+        toProve:
+          'run the cross-host-resume note’s own procedure against the installed CLI — resume a transcript by id, ' +
+          'confirm the file is appended in place rather than forked, confirm the sessionId comes back verbatim, and ' +
+          'confirm OTLP books under that same id — then move the pin in `harness/claude.ts`',
+      }
+    }
+    return {
+      kind: 'proven',
+      argv: ['--resume', sessionId],
+      whatContinues:
+        'the transcript for this exact sessionId — its history and context resume in the new process, under the ' +
+        'SAME sessionId, appended in place',
+      whatIsLost:
+        'everything the old process already did. Instrumentation attaches at launch, so telemetry begins at this ' +
+        'relaunch and the prior turns are never back-filled; the old process is not attached to and keeps running ' +
+        'until the operator ends it, and anything it was mid-way through is not carried over',
+      evidence:
+        'research/2026-08-14-cross-host-resume.md (VERDICT: GO) ran `claude --resume <id>` same-host and ' +
+        'cross-host and confirmed in-place append, a preserved sessionId, and telemetry booked under that id; ' +
+        `pinned to Claude Code ${RESUME_EVIDENCE_VERSION} per the note’s caveats section, and the installed CLI ` +
+        'was probed and found on that minor line (a patch inside the line is an argued inference, not a re-run)',
     }
   },
 }

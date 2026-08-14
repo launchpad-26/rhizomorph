@@ -11,6 +11,7 @@ import {
   capturedTranscriptPath,
   findConductorAttribution,
   findLaneAttribution,
+  findSessionAttribution,
   isPathContained,
 } from './transcript-attribution.js'
 
@@ -153,6 +154,77 @@ describe('findConductorAttribution (prd6 ruling 5)', () => {
     ]
 
     expect(findConductorAttribution(events)).toEqual({ sessionId: 'sess-conductor', worktreePath: CONDUCTOR_DIR })
+  })
+})
+
+describe('findSessionAttribution', () => {
+  it('finds the newest attribution matched on sessionId alone, with no lane to look up by', () => {
+    const f = createEventFactory()
+    const events = [
+      f.llmUsage({ lane: LANE, branch: LANE, sessionId: SESSION_ID, worktreePath: WORKTREE }),
+      f.toolActivity({ lane: 'other', branch: 'other', sessionId: 'sess-other', worktreePath: '/elsewhere' }),
+    ]
+
+    expect(findSessionAttribution(events, SESSION_ID)).toEqual({
+      sessionId: SESSION_ID,
+      worktreePath: WORKTREE,
+      branch: LANE,
+    })
+  })
+
+  it('is null for a session id nothing ever attributed', () => {
+    expect(findSessionAttribution(laneEvents(), 'no-such-session')).toBeNull()
+  })
+
+  it('#208-shaped: keeps the worktree path already resolved when a later, same-session cost row carries none', () => {
+    const f = createEventFactory()
+    const events = [
+      f.toolActivity({ lane: LANE, branch: LANE, sessionId: SESSION_ID, worktreePath: WORKTREE }),
+      f.llmCost({ lane: LANE, branch: LANE, sessionId: SESSION_ID, worktreePath: null }, { source: 'otel' }),
+    ]
+
+    expect(findSessionAttribution(events, SESSION_ID)).toEqual({
+      sessionId: SESSION_ID,
+      worktreePath: WORKTREE,
+      branch: LANE,
+    })
+  })
+
+  it('finds a session that only ever carried conductor telemetry, by session id rather than role', () => {
+    const f = createEventFactory()
+    const events = [
+      f.llmUsage({
+        lane: 'orchestrator',
+        role: 'conductor',
+        sessionId: 'sess-conductor',
+        worktreePath: CONDUCTOR_DIR,
+        branch: null,
+      }),
+    ]
+
+    expect(findSessionAttribution(events, 'sess-conductor')).toEqual({
+      sessionId: 'sess-conductor',
+      worktreePath: CONDUCTOR_DIR,
+      branch: null,
+    })
+  })
+
+  it('branch stays null when nothing under this session id ever named one', () => {
+    const f = createEventFactory()
+    const events = [f.llmCost({ lane: LANE, branch: null, sessionId: SESSION_ID, worktreePath: WORKTREE }, { source: 'otel' })]
+
+    expect(findSessionAttribution(events, SESSION_ID)).toEqual({
+      sessionId: SESSION_ID,
+      worktreePath: WORKTREE,
+      branch: null,
+    })
+  })
+
+  it('ignores telemetry that carries no session id at all', () => {
+    const f = createEventFactory()
+    const events = [f.llmCost({ lane: LANE, sessionId: null, worktreePath: null }, { source: 'otel' })]
+
+    expect(findSessionAttribution(events, SESSION_ID)).toBeNull()
   })
 })
 

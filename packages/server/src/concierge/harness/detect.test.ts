@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -276,6 +276,111 @@ describe('a directory is not an executable', () => {
     const presence = await detectOnPath('claude', { platform: 'linux', env: { PATH: `${bin}:${path.join(root, 'real')}` } })
 
     expect(presence).toMatchObject({ state: 'present', executablePath: real })
+  })
+})
+
+/**
+ * **THE COMMENT'S OWN CLAIM, FINALLY CHECKED** (ledger #6).
+ *
+ * `detect.ts` has always said a file inside the watched repo may never become
+ * the thing this hand launches — and enforced it only for the spellings that
+ * RESOLVE against the cwd, empty and relative. An absolute entry inside the
+ * repo is the same file reached by its full name, and
+ * `/home/me/repo/node_modules/.bin` is not an exotic PATH entry: it is what an
+ * ordinary toolchain puts there. Code and comment disagreed, and the comment
+ * was the one telling the truth about the intent.
+ */
+describe('an absolute PATH entry inside the watched repo is not searched', () => {
+  it('yields no executable from an entry inside the watched repo, however real the file is', async () => {
+    const watched = path.join(root, 'watched-repo')
+    const inside = path.join(watched, 'node_modules', '.bin')
+    await givenExecutable(inside, 'claude')
+
+    const presence = await detectOnPath('claude', {
+      platform: 'linux',
+      env: { PATH: inside },
+      watchedRepoPath: watched,
+    })
+
+    expect(presence.state).not.toBe('present')
+    // Nothing left to search, so the honest answer is UNKNOWN rather than
+    // "not installed" — this build looked nowhere.
+    expect(presence.state).toBe('unknown')
+    expect((presence as { remedy: string }).remedy).toContain('inside the watched repo')
+  })
+
+  /**
+   * The half that keeps the refusal from being a blanket one: an entry OUTSIDE
+   * the repo is still searched, and it wins even when a repo-internal entry
+   * comes first on PATH. Without this, a rule that refused everything would
+   * pass the test above.
+   */
+  it('still finds the real executable outside the repo, even with the repo entry first on PATH', async () => {
+    const watched = path.join(root, 'watched-repo')
+    const inside = path.join(watched, 'node_modules', '.bin')
+    await givenExecutable(inside, 'claude')
+    const real = await givenExecutable(path.join(root, 'usr-bin'), 'claude')
+
+    const presence = await detectOnPath('claude', {
+      platform: 'linux',
+      env: { PATH: `${inside}:${path.join(root, 'usr-bin')}` },
+      watchedRepoPath: watched,
+    })
+
+    expect(presence).toMatchObject({ state: 'present', executablePath: real })
+  })
+
+  /** The repo directory itself, not only something under it — `isInside` counts the parent as inside. */
+  it('refuses the watched repo root itself', async () => {
+    const watched = path.join(root, 'watched-repo')
+    await givenExecutable(watched, 'claude')
+    const real = await givenExecutable(path.join(root, 'usr-bin'), 'claude')
+
+    const presence = await detectOnPath('claude', {
+      platform: 'linux',
+      env: { PATH: `${watched}:${path.join(root, 'usr-bin')}` },
+      watchedRepoPath: watched,
+    })
+
+    expect(presence).toMatchObject({ state: 'present', executablePath: real })
+  })
+
+  /**
+   * A SPELLING check would pass this and a CONTAINMENT check does not, which is
+   * the whole reason the concierge's own `isInside` is used rather than a
+   * prefix test: the entry's own path is nowhere near the repo, and every file
+   * reached through it is in the working tree.
+   */
+  it('refuses an entry that only points into the repo through a symlink', async () => {
+    const watched = path.join(root, 'watched-repo')
+    const inside = path.join(watched, 'node_modules', '.bin')
+    await givenExecutable(inside, 'claude')
+    const decoy = path.join(root, 'looks-innocent')
+    await symlink(inside, decoy)
+
+    const presence = await detectOnPath('claude', {
+      platform: 'linux',
+      env: { PATH: decoy },
+      watchedRepoPath: watched,
+    })
+
+    expect(presence.state).not.toBe('present')
+  })
+
+  /**
+   * A caller with no repo to fence against asks a wider question and gets a
+   * wider answer — `api/doctor.ts`'s "is claude installed on this machine".
+   * Narrowing that silently would be its own lie, and this is what keeps the
+   * option from being decorative.
+   */
+  it('refuses nothing when no watched repo is named', async () => {
+    const watched = path.join(root, 'watched-repo')
+    const inside = path.join(watched, 'node_modules', '.bin')
+    const file = await givenExecutable(inside, 'claude')
+
+    const presence = await detectOnPath('claude', { platform: 'linux', env: { PATH: inside } })
+
+    expect(presence).toMatchObject({ state: 'present', executablePath: file })
   })
 })
 

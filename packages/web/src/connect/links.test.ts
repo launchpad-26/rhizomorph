@@ -5,7 +5,9 @@ import {
   buildLinks,
   envCommand,
   FIRST_EXPORT_GRACE_MS,
+  mergeUninstrumented,
   portFrom,
+  resumeCommand,
   SAME_PROCESS_WARNING,
   tally,
   type ChainLink,
@@ -393,7 +395,15 @@ describe('the uninstrumented conductor — the PRD\'s evidence case', () => {
     const meta = metaWith({
       sources: { sessionlog: { firstEventTs: 1_000, lastEventTs: NOW - 20 * 60_000, count: 40 } },
       uninstrumentedSessions: [
-        { sessionId: 'sess-gabe', lanes: ['conductor'], roles: ['conductor'], firstEventTs: NOW - 20 * 60_000, lastEventTs: NOW - 19 * 60_000 },
+        {
+          sessionId: 'sess-gabe',
+          lanes: ['conductor'],
+          roles: ['conductor'],
+          firstEventTs: NOW - 20 * 60_000,
+          lastEventTs: NOW - 19 * 60_000,
+          worktreePath: null,
+          branch: null,
+        },
       ],
     })
     const link = row(build(reduceAll([]), { meta }), 'uninstrumented-conductor')
@@ -407,8 +417,24 @@ describe('the uninstrumented conductor — the PRD\'s evidence case', () => {
     const state = uninstrumentedConductorLog()
     const meta = metaWith({
       uninstrumentedSessions: [
-        { sessionId: 'sess-gabe', lanes: ['conductor'], roles: ['conductor'], firstEventTs: NOW - 10 * 60_000, lastEventTs: NOW - 9 * 60_000 },
-        { sessionId: 'sess-other', lanes: ['lane-b'], roles: ['worker'], firstEventTs: NOW - 10 * 60_000, lastEventTs: NOW - 9 * 60_000 },
+        {
+          sessionId: 'sess-gabe',
+          lanes: ['conductor'],
+          roles: ['conductor'],
+          firstEventTs: NOW - 10 * 60_000,
+          lastEventTs: NOW - 9 * 60_000,
+          worktreePath: null,
+          branch: null,
+        },
+        {
+          sessionId: 'sess-other',
+          lanes: ['lane-b'],
+          roles: ['worker'],
+          firstEventTs: NOW - 10 * 60_000,
+          lastEventTs: NOW - 9 * 60_000,
+          worktreePath: null,
+          branch: null,
+        },
       ],
     })
     const link = row(build(state, { meta }), 'uninstrumented-conductor')
@@ -420,7 +446,9 @@ describe('the uninstrumented conductor — the PRD\'s evidence case', () => {
   /** A witness that carried no usable date cannot claim the window's exemption — a malformed timestamp must not buy a permanently silent row. */
   it('refuses the grace window to a session it cannot date', () => {
     const meta = metaWith({
-      uninstrumentedSessions: [{ sessionId: 'sess-undated', lanes: ['lane-a'], roles: ['worker'], firstEventTs: null, lastEventTs: null }],
+      uninstrumentedSessions: [
+        { sessionId: 'sess-undated', lanes: ['lane-a'], roles: ['worker'], firstEventTs: null, lastEventTs: null, worktreePath: null, branch: null },
+      ],
     })
     expect(row(build(reduceAll([]), { meta }), 'uninstrumented-conductor').state).toBe('broken')
   })
@@ -428,10 +456,176 @@ describe('the uninstrumented conductor — the PRD\'s evidence case', () => {
   it('drops a served role the schema has never heard of, rather than passing it to --role', () => {
     const meta = metaWith({
       uninstrumentedSessions: [
-        { sessionId: 'sess-x', lanes: ['lane-a'], roles: ['overlord'], firstEventTs: NOW - 10 * 60_000, lastEventTs: NOW - 9 * 60_000 },
+        {
+          sessionId: 'sess-x',
+          lanes: ['lane-a'],
+          roles: ['overlord'],
+          firstEventTs: NOW - 10 * 60_000,
+          lastEventTs: NOW - 9 * 60_000,
+          worktreePath: null,
+          branch: null,
+        },
       ],
     })
     expect(row(build(reduceAll([]), { meta }), 'uninstrumented-conductor').command).toBe('rhizomorph env lane-a --port 4317')
+  })
+
+  /**
+   * #515: `worktreePath`/`branch` carried through `mergeUninstrumented` — not
+   * rendered by this wave, but the merge must not drop them. Fold wins over
+   * served on a session both witnesses name, same as `lanes`/`roles` today.
+   */
+  describe('mergeUninstrumented carries place through, fold wins over served', () => {
+    it('takes the fold\'s own place on a session both witnesses name', () => {
+      const folded = [
+        { sessionId: 'sess-a', lanes: ['a'], roles: ['worker' as const], firstEventTs: 1_000, lastEventTs: 2_000, worktreePath: '/fold', branch: 'fold-branch' },
+      ]
+      const served = [
+        { sessionId: 'sess-a', lanes: ['a'], roles: ['worker'], firstEventTs: 1_000, worktreePath: '/served', branch: 'served-branch' },
+      ]
+      expect(mergeUninstrumented(folded, served)).toEqual([
+        { sessionId: 'sess-a', lanes: ['a'], roles: ['worker'], firstEventTs: 1_000, worktreePath: '/fold', branch: 'fold-branch' },
+      ])
+    })
+
+    it('appends a served-only session\'s place whole', () => {
+      const served = [{ sessionId: 'sess-b', lanes: ['b'], roles: ['worker'], firstEventTs: 3_000, worktreePath: '/served', branch: 'served-branch' }]
+      expect(mergeUninstrumented([], served)).toEqual([
+        { sessionId: 'sess-b', lanes: ['b'], roles: ['worker'], firstEventTs: 3_000, worktreePath: '/served', branch: 'served-branch' },
+      ])
+    })
+
+    it('reads an older server\'s served session with no place at all as null, never undefined', () => {
+      const served = [{ sessionId: 'sess-c', lanes: ['c'], roles: ['worker'], firstEventTs: 4_000 }]
+      expect(mergeUninstrumented([], served)).toEqual([
+        { sessionId: 'sess-c', lanes: ['c'], roles: ['worker'], firstEventTs: 4_000, worktreePath: null, branch: null },
+      ])
+    })
+  })
+
+  /**
+   * THE ENUMERATION UNDER THE ROW (#520). The row's own sentence names one
+   * session — the worst offender — because a headline that named twenty would
+   * be no headline at all. `sessions` is where the other nineteen live, each
+   * carrying what an operator needs to pick between them and the two paths out.
+   */
+  describe('sessions — every ripe witness, in the form the page can act on', () => {
+    it('carries one entry per RIPE witness, and none for a session still inside the grace window', () => {
+      const state = reduceAll([
+        f.toolActivity({ lane: 'conductor', role: 'conductor', sessionId: 'sess-gabe', tool: 'Bash' }, { ts: NOW - 10 * 60_000, source: 'sessionlog' }),
+        f.toolActivity({ lane: 'lane-b', role: 'worker', sessionId: 'sess-late', tool: 'Bash' }, { ts: NOW - 5 * 60_000, source: 'sessionlog' }),
+        // Inside the window: still possibly an instrumented agent whose first
+        // export is in flight, so offering to relaunch it would be an alarm
+        // about waiting.
+        f.toolActivity({ lane: 'lane-c', role: 'worker', sessionId: 'sess-fresh', tool: 'Bash' }, { ts: NOW - 1_000, source: 'sessionlog' }),
+      ])
+      const link = row(build(state), 'uninstrumented-conductor')
+
+      expect(link.state).toBe('broken')
+      expect(link.sessions?.map((session) => session.sessionId)).toEqual(['sess-gabe', 'sess-late'])
+    })
+
+    it('composes each entry from the same env block the row\'s own command is built from', () => {
+      const link = row(build(uninstrumentedConductorLog()), 'uninstrumented-conductor')
+      const session = link.sessions?.[0]
+
+      expect(session?.lane).toBe('conductor')
+      expect(session?.role).toBe('conductor')
+      expect(session?.envCommand).toBe('rhizomorph env conductor --role conductor --port 4317')
+      // The row's headline command and this entry's env block are the same
+      // string for the same session — a page showing two different recipes
+      // for one fault is a page nobody can act on.
+      expect(session?.envCommand).toBe(link.command)
+      expect(session?.resumeCommand).toBe(
+        'eval "$(rhizomorph env conductor --role conductor --port 4317)" && claude --resume sess-gabe',
+      )
+    })
+
+    it('ages a session from its first sighting, and says `undated` rather than guessing for one it cannot date', () => {
+      const dated = row(build(uninstrumentedConductorLog()), 'uninstrumented-conductor')
+      expect(dated.sessions?.[0]?.ageLabel).toBe('10m00s ago')
+
+      const meta = metaWith({
+        uninstrumentedSessions: [
+          { sessionId: 'sess-undated', lanes: ['lane-a'], roles: ['worker'], firstEventTs: null, lastEventTs: null, worktreePath: null, branch: null },
+        ],
+      })
+      expect(row(build(reduceAll([]), { meta }), 'uninstrumented-conductor').sessions?.[0]?.ageLabel).toBe('undated')
+    })
+
+    /** #515's place fields, rendered at last — the tail identifies a worktree, the whole path only fills the option. */
+    it('carries the branch whole and the worktree by its last segment', () => {
+      const meta = metaWith({
+        uninstrumentedSessions: [
+          {
+            sessionId: 'sess-placed',
+            lanes: ['lane-a'],
+            roles: ['worker'],
+            firstEventTs: NOW - 10 * 60_000,
+            lastEventTs: NOW - 9 * 60_000,
+            worktreePath: '/home/x/rhizomorph__worktrees/520-connect-surface',
+            branch: '520-connect-surface',
+          },
+        ],
+      })
+      expect(row(build(reduceAll([]), { meta }), 'uninstrumented-conductor').sessions?.[0]?.place).toEqual({
+        branch: '520-connect-surface',
+        worktreeTail: '520-connect-surface',
+      })
+
+      // The fold's own join carries place too (#515), and reaches the entry
+      // by the same path — this is not a meta-only field.
+      const folded = row(build(uninstrumentedConductorLog()), 'uninstrumented-conductor')
+      expect(folded.sessions?.[0]?.place).toEqual({ branch: 'feature', worktreeTail: 'feature' })
+
+      // And a witness that recorded no place says so, rather than inventing
+      // one out of the lane handle.
+      const placeless = metaWith({
+        uninstrumentedSessions: [
+          {
+            sessionId: 'sess-placeless',
+            lanes: ['lane-a'],
+            roles: ['worker'],
+            firstEventTs: NOW - 10 * 60_000,
+            lastEventTs: NOW - 9 * 60_000,
+            worktreePath: null,
+            branch: null,
+          },
+        ],
+      })
+      expect(row(build(reduceAll([]), { meta: placeless }), 'uninstrumented-conductor').sessions?.[0]?.place).toEqual({
+        branch: null,
+        worktreeTail: null,
+      })
+    })
+
+    /**
+     * **A FIXTURE'S SESSIONS ARE NOT INSTRUMENTABLE**, and this is the field
+     * that would have leaked. `fromFixture` rebuilds the row through
+     * `unproven()`, which is handed the whole link — so an enumeration it
+     * forgot to clear would survive as a button and a copyable `claude
+     * --resume` for a session that exists only inside a synthetic fleet.
+     */
+    it('hands out no enumeration at all off a fixture fold', () => {
+      const state = reduceAll([
+        f.toolActivity({ lane: 'lane-17', role: 'conductor', sessionId: 'sess-synthetic', tool: 'Bash' }, { ts: NOW - 10 * 60_000, source: 'sessionlog' }),
+      ])
+      expect(row(build(state), 'uninstrumented-conductor').sessions).toHaveLength(1)
+
+      const fixture = build(state, { stream: FIXTURE })
+      expect(row(fixture, 'uninstrumented-conductor').sessions).toBeUndefined()
+      expect(JSON.stringify(fixture)).not.toContain('claude --resume')
+      expect(JSON.stringify(fixture)).not.toContain('sess-synthetic')
+    })
+
+    /** Nothing to enumerate is the absence of a list, never an empty one that reads as "checked, and found none". */
+    it('leaves it unset on every row that is not this one, and on this one when it has nothing to say', () => {
+      const state = reduceAll([
+        f.toolActivity({ lane: 'lane-a', role: 'worker', sessionId: 'sess-a', tool: 'Bash' }, { ts: 1_000, source: 'sessionlog' }),
+        f.llmUsage({ lane: 'lane-a', role: 'worker', sessionId: 'sess-a' }, { ts: 2_000, source: 'otel' }),
+      ])
+      for (const link of build(state)) expect(link.sessions, link.id).toBeUndefined()
+    })
   })
 })
 
@@ -902,5 +1096,22 @@ describe('the command builders', () => {
 
   it('states the same-process SCAR verbatim', () => {
     expect(SAME_PROCESS_WARNING).toBe('the env block must be exported in the process that execs the agent')
+  })
+
+  /**
+   * ONE LINE, `&&`-joined, and quoted where a shell would otherwise split it.
+   * The `eval` half is `envApplyNote`'s own sentence made runnable; the join is
+   * the SCAR itself, since a two-line recipe is exactly the two processes the
+   * warning is about.
+   */
+  it('composes the resume path out of the env block, in one line, quoting what a shell would break on', () => {
+    expect(resumeCommand('rhizomorph env lane-a --role worker --port 4317', 'sess-a')).toBe(
+      'eval "$(rhizomorph env lane-a --role worker --port 4317)" && claude --resume sess-a',
+    )
+    // A bare word stays bare — an operator has to be able to read what they
+    // are about to run — and anything else is quoted rather than pasted raw.
+    expect(resumeCommand('rhizomorph env <lane> --port 4317', "sess a'b")).toBe(
+      `eval "$(rhizomorph env <lane> --port 4317)" && claude --resume 'sess a'\\''b'`,
+    )
   })
 })
