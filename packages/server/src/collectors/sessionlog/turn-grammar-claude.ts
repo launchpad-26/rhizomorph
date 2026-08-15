@@ -1,3 +1,4 @@
+import { asRecord, asString, asTimestamp, parseAssistantLine } from './parse-session-line.js'
 import type { TurnEntry, TurnGrammar } from './turn-grammar.js'
 
 /**
@@ -79,20 +80,6 @@ export const CONVERSATIONAL_TYPES = ['assistant', 'user'] as const
  */
 export const COMPLETING_STOP_REASONS = ['end_turn', 'stop_sequence'] as const
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null
-}
-
-function asString(value: unknown): string | null {
-  return typeof value === 'string' ? value : null
-}
-
-function asTimestamp(value: unknown): number | null {
-  if (typeof value !== 'string') return null
-  const parsed = Date.parse(value)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
 function contentBlocks(message: Record<string, unknown>): Record<string, unknown>[] {
   const content = message.content
   if (!Array.isArray(content)) return []
@@ -164,4 +151,9 @@ export const CLAUDE_JSONL_GRAMMAR: TurnGrammar = {
   cli: 'claude',
   capture: 'claude-code-2.1.222 (corpus 2.1.220–2.1.222; 253 transcripts, 64,979 lines, 2026-08-05)',
   classify: classifyClaudeLine,
+  // Same capture, same corpus, the extraction half of this dialect (prd26
+  // ruling 5 / ADR-0017). `parseAssistantLine` is `parse-session-line.ts`'s
+  // own export — `collector.ts` still calls it directly today, unchanged by
+  // this split; this is the same function reached through the seam.
+  extractFacts: parseAssistantLine,
 }

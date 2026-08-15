@@ -6,9 +6,14 @@ import {
   doctorCheck,
   fetchDoctor,
   fetchMeta,
+  fetchSessionPreview,
   isRenderableTs,
   parseDoctor,
   parseMeta,
+  parseRepos,
+  parseSessionPreview,
+  fetchRepos,
+  REPOS_URL,
   type FetchLike,
 } from './meta.js'
 
@@ -47,7 +52,17 @@ const FULL_META = {
     workmux: { source: 'workmux', firstEventTs: null, lastEventTs: null, count: 0 },
     sessionlog: { source: 'sessionlog', firstEventTs: null, lastEventTs: null, count: 0 },
     otel: { source: 'otel', firstEventTs: null, lastEventTs: null, count: 0 },
-    uninstrumentedSessions: [{ sessionId: 'sess-gabe', lanes: ['conductor'], roles: ['conductor'], firstEventTs: 5_000, lastEventTs: 6_000 }],
+    uninstrumentedSessions: [
+      {
+        sessionId: 'sess-gabe',
+        lanes: ['conductor'],
+        roles: ['conductor'],
+        firstEventTs: 5_000,
+        lastEventTs: 6_000,
+        worktreePath: '/home/x/repo-gabe',
+        branch: 'conductor',
+      },
+    ],
     refusals: { count: 3, instance: 'sess-other', expectedInstance: 'sess-1' },
   },
 }
@@ -155,10 +170,58 @@ describe('parseMeta', () => {
       ...FULL_META,
       connection: {
         ...FULL_META.connection,
-        uninstrumentedSessions: [{ sessionId: 'sess-x', lanes: ['a'], roles: ['worker'], firstEventTs: 1e300, lastEventTs: -1 }],
+        uninstrumentedSessions: [
+          { sessionId: 'sess-x', lanes: ['a'], roles: ['worker'], firstEventTs: 1e300, lastEventTs: -1, worktreePath: '/repo', branch: 'main' },
+        ],
       },
     })
-    expect(facts?.connection?.uninstrumentedSessions[0]).toEqual({ sessionId: 'sess-x', lanes: ['a'], roles: ['worker'], firstEventTs: null, lastEventTs: null })
+    expect(facts?.connection?.uninstrumentedSessions[0]).toEqual({
+      sessionId: 'sess-x',
+      lanes: ['a'],
+      roles: ['worker'],
+      firstEventTs: null,
+      lastEventTs: null,
+      worktreePath: '/repo',
+      branch: 'main',
+    })
+  })
+
+  /**
+   * #515: `worktreePath`/`branch` follow the same `str` idiom every other
+   * optional string on this page does — a garbage shape nulls the two new
+   * fields without dropping the witness the rest of the row still needs.
+   */
+  it('nulls worktreePath/branch on a garbage shape, without dropping the session', () => {
+    const facts = parseMeta({
+      ...FULL_META,
+      connection: {
+        ...FULL_META.connection,
+        uninstrumentedSessions: [
+          { sessionId: 'sess-x', lanes: ['a'], roles: ['worker'], firstEventTs: 1_000, lastEventTs: 2_000, worktreePath: 42, branch: '' },
+        ],
+      },
+    })
+    expect(facts?.connection?.uninstrumentedSessions[0]).toEqual({
+      sessionId: 'sess-x',
+      lanes: ['a'],
+      roles: ['worker'],
+      firstEventTs: 1_000,
+      lastEventTs: 2_000,
+      worktreePath: null,
+      branch: null,
+    })
+  })
+
+  it('reads an older server\'s uninstrumented sessions with no place at all as null, not absent', () => {
+    const facts = parseMeta({
+      ...FULL_META,
+      connection: {
+        ...FULL_META.connection,
+        uninstrumentedSessions: [{ sessionId: 'sess-x', lanes: ['a'], roles: ['worker'], firstEventTs: 1_000, lastEventTs: 2_000 }],
+      },
+    })
+    expect(facts?.connection?.uninstrumentedSessions[0]?.worktreePath).toBeNull()
+    expect(facts?.connection?.uninstrumentedSessions[0]?.branch).toBeNull()
   })
 
   /** "0.5 folded records" is not a fact any log can hold, and it must not be able to buy the strongest word this page has. */
@@ -305,5 +368,223 @@ describe('the two reads', () => {
 
   it('has one word for a fact it could not read', () => {
     expect(UNAVAILABLE).toBe('unavailable')
+  })
+})
+
+/**
+ * THE THIRD GET (#516's route, read by #520's enumeration). Same defensive
+ * rule as the other two, with one distinction kept deliberately: the route's
+ * two honest answers — a preview it read, and a named absence it can explain —
+ * are different values, because the panel says something different for each.
+ */
+describe('the session preview', () => {
+  const AVAILABLE = {
+    available: true,
+    sessionId: 'sess-1',
+    place: { worktreePath: '/home/x/repo', branch: 'main' },
+    firstUserMessage: { text: 'dispatch wave 4', dropped: 12, ts: '2026-08-14T00:00:00.000Z' },
+  }
+
+  it('reads the first user message and how much of it the route cut', () => {
+    expect(parseSessionPreview(AVAILABLE)).toEqual({ sessionId: 'sess-1', text: 'dispatch wave 4', dropped: 12, reason: null })
+  })
+
+  /** An honest 200 with nothing to show: the route's own law-12 sentence survives, and no text is invented. */
+  it('keeps the route\'s own reason when there is no preview to give', () => {
+    expect(parseSessionPreview({ available: false, sessionId: 'sess-1', reason: 'NO TRANSCRIPT for session "sess-1" — …' })).toEqual({
+      sessionId: 'sess-1',
+      text: null,
+      dropped: 0,
+      reason: 'NO TRANSCRIPT for session "sess-1" — …',
+    })
+  })
+
+  /**
+   * `available: true` with no readable first message is the head-chunk case —
+   * the transcript is there, the first user turn is not in the part that was
+   * read. It is a no-preview answer, never an empty-string preview.
+   */
+  it('reads an available session with no first user message as no preview, not as empty text', () => {
+    expect(parseSessionPreview({ ...AVAILABLE, firstUserMessage: null })).toEqual({ sessionId: 'sess-1', text: null, dropped: 0, reason: null })
+    expect(parseSessionPreview({ ...AVAILABLE, firstUserMessage: { text: '', dropped: 0 } })?.text).toBeNull()
+  })
+
+  /** A count that is not a count is dropped rather than rendered — the `num` rule, one route further on. */
+  it('refuses a fractional or negative dropped count instead of showing it', () => {
+    expect(parseSessionPreview({ ...AVAILABLE, firstUserMessage: { text: 'hi', dropped: -4 } })?.dropped).toBe(0)
+    expect(parseSessionPreview({ ...AVAILABLE, firstUserMessage: { text: 'hi', dropped: 0.5 } })?.dropped).toBe(0)
+  })
+
+  it('reads a body with no session id in it as nothing at all', () => {
+    expect(parseSessionPreview({ available: true, firstUserMessage: { text: 'hi', dropped: 0 } })).toBeNull()
+    expect(parseSessionPreview('a preview')).toBeNull()
+    expect(parseSessionPreview(null)).toBeNull()
+  })
+
+  it('asks the route for exactly this session, with the id encoded rather than pasted into the path', async () => {
+    const urls: string[] = []
+    const impl: FetchLike = async (input) => {
+      urls.push(input)
+      return { ok: true, json: async () => AVAILABLE }
+    }
+
+    expect((await fetchSessionPreview('sess-1', impl))?.text).toBe('dispatch wave 4')
+    expect(await fetchSessionPreview('../../etc/passwd', impl)).not.toBeNull()
+    expect(urls).toEqual(['/api/session-preview/sess-1', '/api/session-preview/..%2F..%2Fetc%2Fpasswd'])
+  })
+
+  /**
+   * **A FAILED PREVIEW MUST NEVER BLOCK THE ENUMERATION.** Every transport
+   * failure and every unreadable body lands on the same `null` — the panel
+   * renders a no-preview label and the commands beside it are unaffected,
+   * which is the whole reason this read is not part of the page's poll.
+   */
+  it('lands every failure on null, the reading the panel degrades to', async () => {
+    const rejected: FetchLike = async () => {
+      throw new Error('offline')
+    }
+    const refused: FetchLike = async () => ({ ok: false, json: async () => ({ error: 'not a valid identifier' }) })
+    const notJson: FetchLike = async () => ({
+      ok: true,
+      json: async () => {
+        throw new Error('not json')
+      },
+    })
+
+    expect(await fetchSessionPreview('sess-1', rejected)).toBeNull()
+    expect(await fetchSessionPreview('.', refused)).toBeNull()
+    expect(await fetchSessionPreview('sess-1', notJson)).toBeNull()
+  })
+})
+
+/**
+ * THE REPO DISCOVERY READ (prd-20 ruling 5, wave 4, #266).
+ *
+ * The route answers with two INDEPENDENT lists and its own doc leaves the
+ * merge to the caller. This parse is where that call is made, so these cases
+ * are about the merge and about the LIMITS the route reports — a picker that
+ * dropped either would be saying "these are your repos" while meaning
+ * "these are some of them".
+ */
+describe('parseRepos', () => {
+  const FULL = {
+    available: true,
+    known: {
+      available: true,
+      projects: [
+        { slug: '-home-x-repo', path: '/home/x/repo', resolved: true },
+        { slug: '-home-x-lost', path: null, resolved: false, reason: 'ambiguous slug' },
+      ],
+    },
+    scanned: { repos: [{ path: '/home/x/repo' }, { path: '/home/x/code/other' }], truncated: true, unreadable: ['/home/x/Desktop'] },
+  }
+
+  it('merges the two lists by path — history first, then whatever the scan added', () => {
+    const reading = parseRepos(FULL)
+
+    expect(reading).toMatchObject({
+      kind: 'repos',
+      repos: [
+        { path: '/home/x/repo', origin: 'claude-history' },
+        { path: '/home/x/code/other', origin: 'scan' },
+      ],
+    })
+  })
+
+  it('keeps the honest reading of a repo known twice: one entry, and the STRONGER origin wins', () => {
+    // `/home/x/repo` is in both lists. "A conversation happened here" is a
+    // better fact about a repo than "a directory walk found a .git", so the
+    // scan's weaker claim must not overwrite it.
+    const reading = parseRepos(FULL)
+    const merged = reading?.kind === 'repos' ? reading.repos.filter((repo) => repo.path === '/home/x/repo') : []
+
+    expect(merged).toEqual([{ path: '/home/x/repo', origin: 'claude-history' }])
+  })
+
+  it('carries every limit the route reported, rather than a short list with no note', () => {
+    expect(parseRepos(FULL)).toMatchObject({
+      truncated: true,
+      unreadable: ['/home/x/Desktop'],
+      unresolved: [{ slug: '-home-x-lost', reason: 'ambiguous slug' }],
+      historyUnavailable: null,
+    })
+  })
+
+  it("keeps the scan's answer when the ~/.claude half could not be enumerated at all", () => {
+    const reading = parseRepos({
+      available: true,
+      known: { available: false, reason: 'no Claude Code project history at /home/x/.claude/projects' },
+      scanned: { repos: [{ path: '/home/x/code/other' }], truncated: false, unreadable: [] },
+    })
+
+    expect(reading).toMatchObject({
+      kind: 'repos',
+      repos: [{ path: '/home/x/code/other', origin: 'scan' }],
+      historyUnavailable: 'no Claude Code project history at /home/x/.claude/projects',
+    })
+  })
+
+  it("reads a replay server's own refusal as a sentence, never as an empty list", () => {
+    expect(parseRepos({ available: false, reason: 'not applicable — this server is replaying' })).toEqual({
+      kind: 'unavailable',
+      reason: 'not applicable — this server is replaying',
+    })
+  })
+
+  it.each([
+    ['a body that is not an object', 'repos, surely'],
+    ['an unavailable answer with no reason to show', { available: false }],
+  ])('refuses to read %s', (_label, body) => {
+    expect(parseRepos(body)).toBeNull()
+  })
+
+  it('drops an entry with no path and no slug — there is no fact in it to show', () => {
+    const reading = parseRepos({
+      available: true,
+      known: { available: true, projects: [{ resolved: false }, 'not an object'] },
+      scanned: { repos: ['not an object', { path: 5 }], truncated: false, unreadable: [] },
+    })
+
+    expect(reading).toMatchObject({ kind: 'repos', repos: [], unresolved: [] })
+  })
+
+  it('names a reason for an unresolved slug even when the server gave none', () => {
+    const reading = parseRepos({
+      available: true,
+      known: { available: true, projects: [{ slug: '-home-x-lost', resolved: false }] },
+      scanned: { repos: [], truncated: false, unreadable: [] },
+    })
+
+    expect(reading).toMatchObject({ unresolved: [{ slug: '-home-x-lost', reason: 'the server gave no reason' }] })
+  })
+
+  it('reads a body with no lists at all as an empty, honest answer rather than a failure', () => {
+    expect(parseRepos({ available: true })).toEqual({
+      kind: 'repos',
+      repos: [],
+      unresolved: [],
+      truncated: false,
+      unreadable: [],
+      historyUnavailable: null,
+    })
+  })
+})
+
+describe('fetchRepos', () => {
+  it('reads the one route, and lands every failure on the reading the wizard degrades to', async () => {
+    const urls: string[] = []
+    const answering: FetchLike = async (input) => {
+      urls.push(input)
+      return { ok: true, json: async () => ({ available: true }) }
+    }
+    const rejected: FetchLike = async () => {
+      throw new Error('offline')
+    }
+    const refused: FetchLike = async () => ({ ok: false, json: async () => ({}) })
+
+    expect(await fetchRepos(answering)).toMatchObject({ kind: 'repos' })
+    expect(urls).toEqual([REPOS_URL])
+    expect(await fetchRepos(rejected)).toEqual({ kind: 'absent' })
+    expect(await fetchRepos(refused)).toEqual({ kind: 'absent' })
   })
 })

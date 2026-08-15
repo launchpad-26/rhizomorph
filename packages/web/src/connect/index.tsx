@@ -1,13 +1,38 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { selectConnection } from '@rhizomorph/core'
 import { useMode } from '../app/ModeContext.js'
 import { navigate } from '../app/router.js'
 import { useStream } from '../app/StreamContext.js'
+import type { CloneFetchLike } from '../concierge/clone.js'
+import type { InstrumentFetchLike, InstrumentOutcome } from '../concierge/instrument.js'
+import { InstrumentButton } from '../concierge/InstrumentButton.js'
 import { copyToClipboard, type CopyText } from '../drawer/AttachButton.js'
 import { formatWallClock } from '../replay/format.js'
-import { buildLinks, portFrom, tally, type ChainLink, type LinkState } from './links.js'
-import { fetchDoctor, fetchMeta, isRenderableTs, UNAVAILABLE, type DoctorFact, type DoctorReading, type FetchLike, type MetaFacts } from './meta.js'
-import { SampleFleetControl } from './sample.js'
+import {
+  buildLinks,
+  portFrom,
+  SAME_PROCESS_WARNING,
+  STATE_GLYPH,
+  STATE_WORD,
+  tally,
+  type ChainLink,
+  type InstrumentableSession,
+  type LinkState,
+} from './links.js'
+import {
+  fetchDoctor,
+  fetchMeta,
+  fetchSessionPreview,
+  isRenderableTs,
+  UNAVAILABLE,
+  type DoctorFact,
+  type DoctorReading,
+  type FetchLike,
+  type MetaFacts,
+  type SessionPreview,
+} from './meta.js'
+import { SampleFleetControl, sampleUninstrumented } from './sample.js'
+import { SetupWizard } from './wizard.js'
 
 /**
  * THE CONNECT PAGE — THE HANDSHAKE CHECKLIST (prd19 rulings 3, 5 and 7, wave
@@ -20,7 +45,8 @@ import { SampleFleetControl } from './sample.js'
  *
  * One row per link in the chain, each rendering exactly one of VERIFIED /
  * BROKEN / UNPROVEN. The derivation is all in `links.ts` — this file is the
- * page: three inputs wired in, seven rows rendered out, and one action.
+ * page: three inputs wired in, seven rows rendered out, and — under the last
+ * of them — the enumeration wave 7 added (#520).
  *
  * **The three inputs, and why each is here.**
  *
@@ -35,13 +61,31 @@ import { SampleFleetControl } from './sample.js'
  * 3. **`GET /api/doctor`** (#253) — the filesystem facts state cannot know:
  *    the slug directory, version drift, the lane manifest.
  *
- * **Ruling 7: this page mutates nothing.** Two GETs and a clipboard write.
+ * **Ruling 7: this page mutates nothing.** Three GETs and a clipboard write —
+ * `/api/meta`, `/api/doctor`, and one preview per enumerated session (#516).
  * Every remedy is a string you copy and run yourself, with the port taken
  * from `location` and the same-process SCAR warning verbatim beside it —
  * confirmation comes only from watching a row change, never from this page
  * having done something. `replay/mutating-calls-law.test.ts` already polices
  * that across all of `packages/web/src`, and `index.test.tsx` restates it
  * for this directory.
+ *
+ * **The acts on this page are components, not requests** (prd-20 w7 #520, w4
+ * #266). `../concierge/InstrumentButton.js` relaunches a conductor on a
+ * session it names, and `./wizard.js` clones a repo and starts a conductor;
+ * the whole of both acts — the confirmation, the wire, the write — lives in
+ * `concierge/` behind its own laws. Nothing changes here: this file still
+ * builds no request of its own, and the copyable command stays visible beside
+ * the button rather than behind it, because prd-20 ruling 3 is explicit that
+ * the page never claims to attach to a running process. The button is a
+ * convenience over the command, never a replacement for it.
+ *
+ * **The wizard is mounted above the rows, and hands them straight back**
+ * (prd-20 w4, #266). Its third step IS this checklist — the same `ChainLink[]`
+ * built once below and passed in, so a row it shows flips live for exactly the
+ * reason the row itself does. A wizard that re-derived a connection fact would
+ * be a second opinion about the one subject this page exists to be the single
+ * source of.
  *
  * **The hue laws (`theme/theme.css`) decide the palette, and the design is
  * otherwise the implementer's** (this issue's own DoD). Verified wears the
@@ -52,8 +96,26 @@ import { SampleFleetControl } from './sample.js'
  */
 
 export interface ConnectPageProps {
-  /** Test seam for the two GETs. */
+  /** Test seam for the GETs this page reads. */
   fetchImpl?: FetchLike
+  /**
+   * Test seam for the one act on this page, handed straight to
+   * `InstrumentButton` — deliberately a SECOND seam rather than a widening of
+   * {@link fetchImpl}. The two have different types on purpose
+   * (`InstrumentFetchLike` has nowhere to put a header beyond the two it
+   * names), and a page that could serve its reads and its one write down the
+   * same injected function is a page whose read seam can be handed a way to
+   * mutate.
+   */
+  instrumentFetchImpl?: InstrumentFetchLike
+  /**
+   * Test seam for the wizard's OTHER act, the clone — a THIRD seam, and for the
+   * same reason there is already a second: `CloneFetchLike` and
+   * `InstrumentFetchLike` are different types naming different bodies, and a
+   * page whose two writes could be served down one injected function is a page
+   * where a test for one of them can drive the other.
+   */
+  cloneFetchImpl?: CloneFetchLike
   /** Test seam for the clipboard — the same shape the drawer's `AttachButton` uses. */
   onCopy?: CopyText
   /** Test clock, for the uninstrumented row's first-export grace window. */
@@ -89,26 +151,15 @@ export interface ConnectPageProps {
 }
 
 /**
- * Exported for the three-states law (#367): the law needs the exact set of
- * readings a state cell may hold, and a set typed out beside this map is a set
- * that can drift from it — the same reason `sample.tsx`'s `keyDoc()` derives
- * its copy from `STREAM_SOURCE_KEYS` instead of restating it.
+ * Re-exported for the three-states law (#367), which reads them from this
+ * module: the law needs the exact set of readings a state cell may hold, and a
+ * set typed out beside the map is a set that can drift from it — the same
+ * reason `sample.tsx`'s `keyDoc()` derives its copy from `STREAM_SOURCE_KEYS`
+ * instead of restating it. They now live in `links.ts`, beside `LinkState`
+ * itself; see that module for why (#266's wizard renders the same readings, and
+ * reaching back into the page module for them would be a cycle).
  */
-export const STATE_WORD: Record<LinkState, string> = {
-  verified: 'VERIFIED',
-  broken: 'BROKEN',
-  unproven: 'UNPROVEN',
-}
-
-/**
- * Colour is never the sole carrier (law 9a's own condition): every state has
- * a glyph and a word as well as a hue, so the checklist survives greyscale,
- * colour-blindness and a photographed screen.
- *
- * Exported with `STATE_WORD`, and for the same reason: the cell renders the
- * pair, so the law can only be exact if it knows both.
- */
-export const STATE_GLYPH: Record<LinkState, string> = { verified: '✓', broken: '✕', unproven: '·' }
+export { STATE_GLYPH, STATE_WORD } from './links.js'
 
 const STATE_CLASS: Record<LinkState, string> = {
   verified: 'text-working',
@@ -142,7 +193,15 @@ const DOCTOR_CLASS: Record<DoctorFact['status'], string> = {
  */
 export const DEFAULT_REFRESH_MS = 5000
 
-export function ConnectPage({ fetchImpl, onCopy = copyToClipboard, now, refreshMs = DEFAULT_REFRESH_MS, location }: ConnectPageProps = {}) {
+export function ConnectPage({
+  fetchImpl,
+  instrumentFetchImpl,
+  cloneFetchImpl,
+  onCopy = copyToClipboard,
+  now,
+  refreshMs = DEFAULT_REFRESH_MS,
+  location,
+}: ConnectPageProps = {}) {
   const { state, status, provenance, source } = useStream()
   const mode = useMode()
   const [meta, setMeta] = useState<MetaFacts | null>(null)
@@ -192,6 +251,14 @@ export function ConnectPage({ fetchImpl, onCopy = copyToClipboard, now, refreshM
   })
   const counts = tally(links)
 
+  // A FIXTURE SHOWS THE SURFACE; IT NEVER HANDS OVER THE ACT (#520). The
+  // synthetic fleet is all-clear and `links.ts` clears the enumeration off a
+  // fixture fold outright, so without this the sample page would render this
+  // whole surface as empty space — the one thing a demonstration must not do.
+  // `sample.tsx` supplies the sessions, and `live={false}` is what withholds
+  // the button and the copyable command from them.
+  const fixture = mode !== 'replay' && source !== 'live' ? sampleUninstrumented(port) : null
+
   return (
     <div data-testid="connect-page" className="flex h-screen flex-col bg-ice-1000 font-sans text-ice-300">
       <header className="flex shrink-0 items-center gap-4 border-b border-ice-850 bg-ice-950 px-4 py-3">
@@ -220,9 +287,37 @@ export function ConnectPage({ fetchImpl, onCopy = copyToClipboard, now, refreshM
       <div className="min-h-0 flex-1 overflow-auto p-4">
         <Provenance meta={meta} provenance={provenance} isLive={isLive} port={port} />
 
+        {/* THE WIZARD, ABOVE THE ROWS IT ENDS IN (prd-20 w4, #266). The
+            checklist is unchanged and is still the page; this is the path a
+            stranger takes to reach it, and its third step is these very rows —
+            `links` is handed straight in rather than rebuilt, so nothing here
+            has a second opinion about a connection fact. */}
+        <div className="mt-4">
+          <SetupWizard
+            links={links}
+            meta={meta}
+            live={isLive}
+            port={port}
+            fetchImpl={fetchImpl}
+            instrumentFetchImpl={instrumentFetchImpl}
+            cloneFetchImpl={cloneFetchImpl}
+            onCopy={onCopy}
+          />
+        </div>
+
         <ul data-testid="connect-links" className="mt-4 flex flex-col gap-2">
           {links.map((link) => (
-            <LinkRow key={link.id} link={link} onCopy={onCopy} />
+            <LinkRow key={link.id} link={link} onCopy={onCopy}>
+              {link.id === 'uninstrumented-conductor' ? (
+                <Instrumentable
+                  sessions={link.sessions ?? []}
+                  fixture={fixture}
+                  fetchImpl={fetchImpl}
+                  instrumentFetchImpl={instrumentFetchImpl}
+                  onCopy={onCopy}
+                />
+              ) : null}
+            </LinkRow>
           ))}
         </ul>
 
@@ -277,7 +372,7 @@ function Fact({ label, value, testId }: { label: string; value: string | null; t
   )
 }
 
-function LinkRow({ link, onCopy }: { link: ChainLink; onCopy: CopyText }) {
+function LinkRow({ link, onCopy, children }: { link: ChainLink; onCopy: CopyText; children?: ReactNode }) {
   return (
     <li
       data-testid={`connect-link-${link.id}`}
@@ -316,8 +411,275 @@ function LinkRow({ link, onCopy }: { link: ChainLink; onCopy: CopyText }) {
           ))}
         </ul>
       )}
+
+      {children}
     </li>
   )
+}
+
+/**
+ * WHICH ENUMERATION, IF ANY — the one place the fixture/live choice is made
+ * (#520), so the panel below never has to ask what is driving the fold.
+ *
+ * A fixture wins whenever one is driving, and it is deliberately not merged
+ * with the live list: `links.ts` guarantees the live list is EMPTY under a
+ * fixture, so there is nothing to merge, and a component that could show both
+ * at once is a component that could show a synthetic session as a real one.
+ */
+function Instrumentable({
+  sessions,
+  fixture,
+  fetchImpl,
+  instrumentFetchImpl,
+  onCopy,
+}: {
+  sessions: readonly InstrumentableSession[]
+  fixture: { sessions: InstrumentableSession[]; previews: Record<string, SessionPreview> } | null
+  fetchImpl?: FetchLike
+  instrumentFetchImpl?: InstrumentFetchLike
+  onCopy: CopyText
+}) {
+  if (fixture !== null) {
+    return <UninstrumentedSessions key="fixture" sessions={fixture.sessions} seeded={fixture.previews} live={false} onCopy={onCopy} />
+  }
+  if (sessions.length === 0) return null
+  return (
+    <UninstrumentedSessions
+      key="live"
+      sessions={sessions}
+      live={true}
+      fetchImpl={fetchImpl}
+      instrumentFetchImpl={instrumentFetchImpl}
+      onCopy={onCopy}
+    />
+  )
+}
+
+/** In an option label, and quoted: enough of a first message to recognise a conversation by. */
+const PREVIEW_IN_OPTION = 48
+
+/**
+ * THE UNINSTRUMENTED SESSIONS, ENUMERATED (prd-20 w7, #520).
+ *
+ * The row above is unchanged and still carries the whole finding in one line.
+ * This is what an operator does with it: pick the session that is theirs, read
+ * enough of it to be sure, and then take one of the two paths — the button, or
+ * the command.
+ *
+ * **Why a `<select>` and not a list of rows.** The fold can name a lot of
+ * sessions at once (a 20-lane fleet with a broken dispatch names twenty), and
+ * this row sits inside a checklist whose whole value is that seven rows fit on
+ * one screen. A list would push the rows below it off the page in exactly the
+ * incident where somebody is reading them. `replay/index.tsx` has the one
+ * `<select>` precedent in this app and this follows it.
+ *
+ * **Previews are read lazily, per enumerated session** — never on the page's
+ * poll. A session id is opaque; the first user message is the only thing that
+ * answers "is this the conversation I am in?", and #516 built the route for
+ * exactly this. A preview that fails to arrive costs nothing: the option keeps
+ * its lane, role and age, and the panel says there is no preview rather than
+ * blocking on one.
+ *
+ * **`live={false}` withholds the act, not the surface.** A fixture session may
+ * be shown — that is what the sample fleet is for — but it must never be
+ * handed to the instrument button (a real relaunch request for a session id
+ * that exists only in a fixture) or to a copy button (`links.ts`'s own fixture
+ * law: a synthetic lane's command must never be copyable).
+ */
+function UninstrumentedSessions({
+  sessions,
+  live,
+  seeded,
+  fetchImpl,
+  instrumentFetchImpl,
+  onCopy,
+}: {
+  sessions: readonly InstrumentableSession[]
+  live: boolean
+  seeded?: Record<string, SessionPreview>
+  fetchImpl?: FetchLike
+  instrumentFetchImpl?: InstrumentFetchLike
+  onCopy: CopyText
+}) {
+  const [chosen, setChosen] = useState<string | null>(null)
+  // `null` is a preview this page could not read; `undefined` is one that has
+  // not answered yet, and the two say different things to a reader.
+  const [previews, setPreviews] = useState<Record<string, SessionPreview | null>>({})
+  const [outcomes, setOutcomes] = useState<Record<string, InstrumentOutcome>>({})
+
+  // The dependency is the ids as a STRING, not the array: `buildLinks` returns
+  // a fresh list every render, so an array dependency would re-read every
+  // preview on every fold event — a poll by accident, over a route the page
+  // deliberately does not poll. (A newline separator because a session id is a
+  // filename-safe token wherever the server touches one; and if a malformed id
+  // ever split in two, both halves would simply fail to read and show as no
+  // preview, which is a label, not a fault.)
+  const ids = sessions.map((session) => session.sessionId).join('\n')
+  useEffect(() => {
+    let alive = true
+    if (live) {
+      for (const sessionId of ids.split('\n').filter((id) => id.length > 0)) {
+        void fetchSessionPreview(sessionId, fetchImpl).then((preview) => {
+          if (alive) setPreviews((known) => ({ ...known, [sessionId]: preview }))
+        })
+      }
+    }
+    return () => {
+      alive = false
+    }
+  }, [ids, live, fetchImpl])
+
+  const current = sessions.find((session) => session.sessionId === chosen) ?? sessions[0]
+  if (current === undefined) return null
+
+  const previewOf = (sessionId: string): SessionPreview | null | undefined =>
+    live ? previews[sessionId] : (seeded?.[sessionId] ?? null)
+  const outcome = outcomes[current.sessionId]
+
+  return (
+    <div className="mt-2 rounded border border-ice-850 bg-ice-1000 px-2 py-2">
+      <label className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wider text-ice-400">
+        <span>{sessions.length === 1 ? 'the session' : `${sessions.length} sessions`}</span>
+        <select
+          data-testid="connect-uninstrumented-select"
+          value={current.sessionId}
+          onChange={(event) => setChosen(event.target.value)}
+          className="max-w-full rounded border border-ice-850 bg-ice-1000 px-2 py-1 font-sans text-[11px] normal-case tracking-normal text-ice-200"
+        >
+          {sessions.map((session) => (
+            <option key={session.sessionId} value={session.sessionId}>
+              {optionLabel(session, previewOf(session.sessionId))}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div data-testid="connect-uninstrumented-detail" className="mt-2 flex flex-col gap-1.5">
+        <p data-testid={`connect-preview-${current.sessionId}`} className="text-[11px] leading-snug text-ice-200">
+          {previewLine(previewOf(current.sessionId))}
+        </p>
+        <p className="figures text-[10px] text-ice-400">
+          session {current.sessionId} · branch {current.place.branch ?? UNAVAILABLE} · worktree{' '}
+          {current.place.worktreeTail ?? UNAVAILABLE} · {current.ageLabel}
+        </p>
+
+        {live ? (
+          <>
+            {/* Keyed by session so a result never outlives the selection that
+                produced it: without it, instrumenting A and then choosing B
+                would show B under A's outcome. */}
+            <InstrumentButton
+              key={current.sessionId}
+              sessionId={current.sessionId}
+              manualCommand={current.resumeCommand}
+              onInstrumented={(result) => setOutcomes((seen) => ({ ...seen, [current.sessionId]: result }))}
+              fetchImpl={instrumentFetchImpl}
+              onCopy={onCopy}
+              data-testid={`connect-instrument-${current.sessionId}`}
+            />
+            {outcome !== undefined && (
+              <p
+                role="status"
+                data-testid={`connect-instrument-status-${current.sessionId}`}
+                className={`text-[11px] leading-snug ${statusTone(outcome)}`}
+              >
+                {statusLine(outcome)}
+              </p>
+            )}
+            {/* ALWAYS, EVEN BESIDE THE BUTTON (prd-20 ruling 3). This page
+                never claims to attach to a running process, and this line is
+                the path that needs nothing from this instrument at all — the
+                one that still works when it cannot reach the transcript. */}
+            <CommandBlock
+              id={`resume-${current.sessionId}`}
+              command={current.resumeCommand}
+              warning={SAME_PROCESS_WARNING}
+              onCopy={onCopy}
+            />
+            <p className="text-[10px] leading-snug text-ice-400">
+              the env block on its own: <span className="font-mono text-ice-300">{current.envCommand}</span>
+            </p>
+          </>
+        ) : (
+          <p data-testid="connect-uninstrumented-fixture" className="text-[10px] leading-snug text-notice">
+            these sessions are part of the sample fleet — they do not exist, so there is nothing here to instrument and
+            no command worth copying. Return to live to act on a real one.
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** `<lane> · <role> · <age> · "<first words…>"` — everything needed to recognise one's own conversation in a list of opaque ids. */
+function optionLabel(session: InstrumentableSession, preview: SessionPreview | null | undefined): string {
+  const head = `${session.lane ?? '<lane>'} · ${session.role ?? 'unattributed'} · ${session.ageLabel}`
+  if (preview === undefined) return `${head} · reading its first words…`
+  const text = preview?.text ?? null
+  return text === null ? `${head} · no preview` : `${head} · "${clip(text, PREVIEW_IN_OPTION)}"`
+}
+
+/** One line, whitespace flattened, cut to a length an option can actually show — the ellipsis is part of the budget, never added past it. */
+function clip(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`
+}
+
+/**
+ * The preview, or WHICH nothing it is — the same three-way distinction the
+ * doctor panel makes, for the same reason: "still reading", "the route says
+ * there is nothing to read, and here is its own sentence", and "this page
+ * could not read the route" send a reader to three different places.
+ */
+function previewLine(preview: SessionPreview | null | undefined): string {
+  if (preview === undefined) return 'reading this session’s first words…'
+  if (preview === null) return `${UNAVAILABLE} — no preview could be read for this session; nothing below depends on it`
+  if (preview.text === null) {
+    return preview.reason ?? 'the head of this transcript holds no user turn yet, so there are no first words to show'
+  }
+  return preview.dropped > 0 ? `“${preview.text}…” (+${preview.dropped} more characters)` : `“${preview.text}”`
+}
+
+/**
+ * WHAT THE ACT ACTUALLY DID, in the operator's terms — and on success, the one
+ * sentence the cross-host-resume spike (`research/2026-08-14-cross-host-
+ * resume.md`) makes unavoidable: a resume PRESERVES the session id, so
+ * telemetry books under the SAME session and this row clears itself as
+ * evidence arrives. Nobody should be waiting for a new row to appear.
+ *
+ * **`kind: 'instrumented'` IS NOT A SUCCESS FLAG, and reading it as one is the
+ * whole of this line's history.** `concierge/instrument.ts`'s parser gives that
+ * kind to the server's `'error'` and `'died'` answers too — deliberately, so a
+ * failed spawn still carries the migration fact that DID happen — and the fact
+ * that separates them is `spawn.launched`. Branching on the kind alone made
+ * this line tell an operator telemetry was flowing out of a process that had
+ * already exited, and send them to watch a row that would never clear. Its
+ * sibling `concierge/InstrumentButton.tsx` had the branch right from #532;
+ * this page-level line did not, and no test rendered a died spawn here, which
+ * is the second half of why it shipped green.
+ */
+function statusLine(outcome: InstrumentOutcome): string {
+  if (outcome.kind === 'instrumented') {
+    // No process to watch, so nothing here promises telemetry and nothing
+    // points at this row: the server's own sentence says whether it never
+    // started or started and died, and the way in is the command block below,
+    // which needed nothing from this instrument in the first place.
+    if (!outcome.spawn.launched) {
+      return `nothing is running — ${outcome.spawn.message}. No telemetry flows from this act and this row will not clear itself; the command below is the way in, and it needs nothing from this instrument.`
+    }
+    return 'instrumented — telemetry now flows under this same session; this row clears itself as evidence arrives (the old process keeps running until you end it)'
+  }
+  return `nothing was started, and nothing was copied — ${outcome.reason}. The command below is the way in: it needs nothing from this instrument.`
+}
+
+/**
+ * The colour carries the same fact the sentence does, on the same branch. A
+ * died spawn rendered in the success colour is the finding again in a second
+ * register — a reader who scans for green before reading the words would have
+ * read a corpse as a win.
+ */
+function statusTone(outcome: InstrumentOutcome): string {
+  return outcome.kind === 'instrumented' && outcome.spawn.launched ? 'text-notice' : 'text-waiting-benign'
 }
 
 /**

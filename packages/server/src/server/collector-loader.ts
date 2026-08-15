@@ -4,7 +4,11 @@ import { gitCollector } from '../collectors/git/index.js'
 import { createJudgeCollector, DEFAULT_JUDGE_CADENCE_MS } from '../collectors/judge/index.js'
 import type { DisableableSnapshot } from '../collectors/resilience.js'
 import { withResilience } from '../collectors/resilience.js'
-import { withResumeReconciliation } from '../collectors/resume-reconcile.js'
+import {
+  withAgentReconciliation,
+  withBranchReconciliation,
+  withResumeReconciliation,
+} from '../collectors/resume-reconcile.js'
 import { createSessionlogCollector, type SessionlogCollectorConfig } from '../collectors/sessionlog/index.js'
 import { tmuxCollector } from '../collectors/tmux/index.js'
 import { createWorkmuxCollector } from '../collectors/workmux/index.js'
@@ -66,10 +70,40 @@ export async function loadCollectors(
     return withResumeReconciliation(withResilience(collector), folded.collectors[collector.name])
   }
 
+  // #418: withAgentReconciliation must sit inside withResilience — it reads
+  // the raw WorkmuxSnapshot's `agents`, not the ResilientSnapshot envelope —
+  // so workmux can't go through the generic wrap() alone. foldedHandles is
+  // the resumed session's still-`present` agent handles (an agent record is
+  // a soft delete, see resume-reconcile.ts's withAgentReconciliation).
+  //
+  // This placement used to carry a second, unwritten dependency: on a failed
+  // first poll, withAgentReconciliation would still compute "every folded
+  // handle is a ghost" against the carried-forward (possibly empty) snapshot
+  // and emit agent.removed for each — invisible only because withResilience,
+  // sitting outside it, discards an inner result's events wholesale on
+  // failure (resilience.ts's collector.disabled handling). Had withResilience
+  // ever forwarded inner events alongside a degraded/disabled report, every
+  // folded agent would have been retired on one workmux hiccup after a
+  // resume. Fixed at the source instead (#418, verify findings): withAgentReconciliation now
+  // bails without latching whenever the poll it just ran reports
+  // collector.disabled, so this placement is a pure snapshot-shape necessity
+  // again, not a correctness dependency on the outer wrapper's behaviour.
+  const foldedPresentAgentHandles = new Set(
+    Object.entries(folded.agents)
+      .filter(([, agent]) => agent.present)
+      .map(([handle]) => handle),
+  )
+
+  // #449: branches are a hard delete from the fold (`reduce.ts`'s
+  // `branchRemoved`), unlike agents' soft `present: false` — so the ghost
+  // set is every folded branch name, not a filtered subset. Object.keys is
+  // deliberate here; do not copy the agent wrapper's `.present` filter.
+  const foldedBranchNames = new Set(Object.keys(folded.branches))
+
   return [
-    wrap(gitCollector),
+    wrap(withBranchReconciliation(gitCollector, foldedBranchNames)),
     wrap(tmuxCollector),
-    wrap(createWorkmuxCollector()),
+    wrap(withAgentReconciliation(createWorkmuxCollector(), foldedPresentAgentHandles)),
     wrap(createJudgeCollector({ cadenceMs: judgeCadenceMs() })),
     wrap(createSessionlogCollector(sessionlogConfig)),
   ]

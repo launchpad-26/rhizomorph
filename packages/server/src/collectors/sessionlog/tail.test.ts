@@ -64,6 +64,9 @@ describe('readNewLines', () => {
     const second = await readNewLines(filePath, first.nextOffset, first.identity)
     expect(second.lines).toEqual(['a', 'b'])
     expect(second.nextOffset).toBe(Buffer.byteLength('a\nb\n'))
+    // Same inode, shrunk content — the exact case `isRotated` must NOT treat as
+    // a rotation, since collector.ts gates the fold reset on that predicate (#413).
+    expect(second.identity).toEqual(first.identity)
 
     await appendFile(filePath, 'c\n', 'utf8')
     const third = await readNewLines(filePath, second.nextOffset, second.identity)

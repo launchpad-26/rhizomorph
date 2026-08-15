@@ -2,6 +2,7 @@ import { createEvent, createIdFactory, createStubExec, SIGNALS } from '@rhizomor
 import type { CollectorContext, Exec, StubExec, StubExecRoute } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { createJudgeCollector, JUDGE_CAPABILITIES } from './collector.js'
+import type { JudgeSnapshot } from './collector.js'
 
 /**
  * Driven purely through a scripted {@link Exec} — no real git process ever
@@ -144,6 +145,23 @@ index 000..555 100644
 +++ b/e.ts
 @@ -0,0 +1,1 @@
 +export const onlyInC = 3
+`
+
+const THREE_LANES_V2_MOVED_C = `worktree /repo
+HEAD 1111111111111111111111111111111111111111
+branch refs/heads/main
+
+worktree /repo-worktrees/lane-a
+HEAD aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+branch refs/heads/lane-a
+
+worktree /repo-worktrees/lane-b
+HEAD bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+branch refs/heads/lane-b
+
+worktree /repo-worktrees/lane-c
+HEAD cccccccccccccccccccccccccccccccccccccccc2
+branch refs/heads/lane-c
 `
 
 /** Every `git diff`/`git merge-tree` call the stub actually saw — the two subcommand kinds the audit named as the O(lanes) / O(lanes²) cost. */
@@ -374,6 +392,203 @@ describe('judge collector — head-movement gate (2026-08-05 adversarial audit #
       ]),
     )
     expect(mergeTreePairs).toHaveLength(2) // lane-b/lane-c pair untouched — neither of its heads moved
+  })
+})
+
+describe('judge collector — error heartbeat (#526)', () => {
+  /**
+   * Both catches are exercised through a lane (`lane-a`) whose symbol
+   * extraction keeps failing: since a throw never writes `nextLaneSymbols`,
+   * `lane-a` stays a permanent cache-miss and therefore permanently `moved`,
+   * which is what forces the `lane-a`/`lane-b` pair through the merge-tree
+   * check on every poll even though the pair's heads never change — the same
+   * coupling `git-collector.ts`'s dedup fixtures rely on. `lane-b` always
+   * extracts a stable, unrelated symbol so neither the symbol-overlap path
+   * nor lane-b's own moved-ness adds noise.
+   */
+  function heartbeatRoutes(diffAFails: boolean, mergeCode: 0 | 1): StubExecRoute[] {
+    return [
+      { match: 'git worktree list --porcelain', result: { stdout: TWO_LANES_V1 } },
+      diffAFails
+        ? { match: 'git diff --unified=0 main...lane-a', result: { failed: true, code: 128 } }
+        : { match: 'git diff --unified=0 main...lane-a', result: { stdout: DIFF_UNRELATED_A } },
+      { match: 'git diff --unified=0 main...lane-b', result: { stdout: DIFF_UNRELATED_B } },
+      // code: 1 with empty stdout is merge-tree's "couldn't even attempt this"
+      // plumbing-error shape (mergetree.ts:78-89) — the one that throws, as
+      // opposed to code: 1 with non-empty stdout (a real conflict report).
+      mergeCode === 0
+        ? { match: 'git merge-tree --write-tree -z lane-a lane-b', result: { stdout: MERGE_TREE_CLEAN, code: 0 } }
+        : { match: 'git merge-tree --write-tree -z lane-a lane-b', result: { code: 1, stdout: '' } },
+    ]
+  }
+
+  const EXTRACTION_MSG = 'symbol extraction failed for lane "lane-a"'
+  const MERGE_MSG = 'speculative merge failed for "lane-a" vs "lane-b"'
+
+  function messagesOf(events: readonly { payload: unknown }[]): string[] {
+    return events.map((event) => (event.payload as { message: string }).message)
+  }
+
+  it('A — repetition: the same failing input across 3 polls voices exactly once per site', async () => {
+    const collector = createJudgeCollector({ cadenceMs: 0 })
+
+    const p1 = await collector.poll(collector.initialSnapshot(), makeContext(scriptedExec(heartbeatRoutes(true, 1)), 1_000))
+    const p2 = await collector.poll(p1.nextSnapshot, makeContext(scriptedExec(heartbeatRoutes(true, 1)), 2_000))
+    const p3 = await collector.poll(p2.nextSnapshot, makeContext(scriptedExec(heartbeatRoutes(true, 1)), 3_000))
+
+    const allMessages = [...messagesOf(p1.events), ...messagesOf(p2.events), ...messagesOf(p3.events)]
+    expect(allMessages.filter((message) => message === EXTRACTION_MSG)).toHaveLength(1)
+    expect(allMessages.filter((message) => message === MERGE_MSG)).toHaveLength(1)
+  })
+
+  it('B — site 2 recovery re-arm: an unchanged merge-tree pair voices, recovers silently, then re-voices on a fresh repeat', async () => {
+    const collector = createJudgeCollector({ cadenceMs: 0 })
+
+    // Poll 1: both catches fire.
+    const p1 = await collector.poll(collector.initialSnapshot(), makeContext(scriptedExec(heartbeatRoutes(true, 1)), 1_000))
+    expect(messagesOf(p1.events)).toEqual(expect.arrayContaining([EXTRACTION_MSG, MERGE_MSG]))
+
+    // Poll 2: merge-tree recovers at the SAME head pair (lane-a's own
+    // extraction keeps failing throughout, which is exactly what keeps this
+    // pair — and lane-b's cache — irrelevant to whether it gets re-checked;
+    // lane-a's permanent cache-miss alone forces the pair through every poll).
+    const p2 = await collector.poll(p1.nextSnapshot, makeContext(scriptedExec(heartbeatRoutes(true, 0)), 2_000))
+    expect(messagesOf(p2.events)).not.toContain(MERGE_MSG)
+
+    // Poll 3: merge-tree fails again at the identical, still-unchanged head
+    // pair. If the latch had failed to re-arm on poll 2's recovery (or, worse,
+    // never latched at all and just always suppressed), this would go
+    // silent-forever or noisy-forever respectively; a real latch voices once.
+    const p3 = await collector.poll(p2.nextSnapshot, makeContext(scriptedExec(heartbeatRoutes(true, 1)), 3_000))
+    expect(messagesOf(p3.events).filter((message) => message === MERGE_MSG)).toHaveLength(1)
+
+    // lane-a's own extraction never recovered in this fixture, so it stays
+    // latched silent throughout poll 2 and poll 3 (site 1's Test A shape,
+    // extended) — asserted here as a sanity check that the shared `moved`
+    // coupling isn't accidentally re-voicing it too.
+    expect(messagesOf(p2.events)).not.toContain(EXTRACTION_MSG)
+    expect(messagesOf(p3.events)).not.toContain(EXTRACTION_MSG)
+  })
+
+  it('B2 — site 1 recovery re-arm: a lane\'s extraction voices, recovers silently, then re-voices once a later commit reintroduces a failure', async () => {
+    // Site 1's own latch (`extractionErrorVoiced`) keys on branch, not head —
+    // unlike site 2's `reported`, it has no head component (see the plan:
+    // "recovery is a successful extraction, not a head change"). But
+    // demonstrating recovery-then-refail for a lane whose OWN extraction is
+    // the failing thing requires the lane to actually get re-swept, and the
+    // `moved` cache-gate (out of this issue's fence) only re-sweeps a lane
+    // whose head changed or whose symbols were never cached — so unlike test
+    // A/B, this scenario needs lane-a's head to move once, between the
+    // recovery poll and the re-failure poll, to force that re-sweep. Verified
+    // via scratch test: a fixture that keeps lane-a's head static after
+    // recovery cannot re-exercise this catch at all (the collector skips the
+    // extraction attempt entirely, 0 exec calls beyond `worktree list`) — so
+    // this is a deliberate, minimal deviation from the plan's literal "heads
+    // still unchanged" framing for this one case; see the build report on
+    // #526 for the full trace.
+    const collector = createJudgeCollector({ cadenceMs: 0 })
+
+    const p1 = await collector.poll(collector.initialSnapshot(), makeContext(scriptedExec(heartbeatRoutes(true, 0)), 1_000))
+    expect(messagesOf(p1.events)).toContain(EXTRACTION_MSG)
+
+    const p2 = await collector.poll(p1.nextSnapshot, makeContext(scriptedExec(heartbeatRoutes(false, 0)), 2_000))
+    expect(messagesOf(p2.events)).not.toContain(EXTRACTION_MSG)
+
+    const exec3 = scriptedExec([
+      { match: 'git worktree list --porcelain', result: { stdout: TWO_LANES_V2_MOVED_A } },
+      { match: 'git diff --unified=0 main...lane-a', result: { failed: true, code: 128 } },
+      { match: 'git diff --unified=0 main...lane-b', result: { stdout: DIFF_UNRELATED_B } },
+      { match: 'git merge-tree --write-tree -z lane-a lane-b', result: { stdout: MERGE_TREE_CLEAN, code: 0 } },
+    ])
+    const p3 = await collector.poll(p2.nextSnapshot, makeContext(exec3, 3_000))
+    expect(messagesOf(p3.events).filter((message) => message === EXTRACTION_MSG)).toHaveLength(1)
+  })
+
+  it('C — distinct identity: lane-c\'s first failure still voices while lane-a\'s already-latched failure stays silent, proving the latch is keyed per branch, not one collector-wide boolean', async () => {
+    const collector = createJudgeCollector({ cadenceMs: 0 })
+
+    // Poll 1: lane-a's extraction fails and latches. lane-b and lane-c are
+    // both still healthy — in particular lane-c has NOT failed yet, so a
+    // collector-wide boolean and a per-branch latch agree here.
+    const p1 = await collector.poll(
+      collector.initialSnapshot(),
+      makeContext(
+        scriptedExec([
+          { match: 'git worktree list --porcelain', result: { stdout: THREE_LANES_V1 } },
+          { match: 'git diff --unified=0 main...lane-a', result: { failed: true, code: 128 } },
+          { match: 'git diff --unified=0 main...lane-b', result: { stdout: DIFF_UNRELATED_B } },
+          { match: 'git diff --unified=0 main...lane-c', result: { stdout: DIFF_UNRELATED_C } },
+          { match: 'git merge-tree --write-tree -z lane-a lane-b', result: { stdout: MERGE_TREE_CLEAN, code: 0 } },
+          { match: 'git merge-tree --write-tree -z lane-a lane-c', result: { stdout: MERGE_TREE_CLEAN, code: 0 } },
+          { match: 'git merge-tree --write-tree -z lane-b lane-c', result: { stdout: MERGE_TREE_CLEAN, code: 0 } },
+        ]),
+        1_000,
+      ),
+    )
+    const p1Messages = p1.events
+      .filter((event) => event.type === 'collector.error')
+      .map((event) => (event.payload as { message: string }).message)
+    expect(p1Messages).toEqual(['symbol extraction failed for lane "lane-a"'])
+
+    // Poll 2: lane-a's extraction keeps failing — its permanent cache-miss on
+    // throw keeps it permanently `moved`, no head change needed — and it must
+    // stay silent (already latched on poll 1). lane-c commits: the head move
+    // is what forces the `moved` gate to re-sweep it at all, and its
+    // extraction fails for the honest first time. lane-b's head is unchanged
+    // and its symbols are still cached, so it is not re-swept — no route for
+    // its diff below; an unwanted sweep would surface as an unmatched-stub
+    // failure and a third message, breaking the exact-equality assertion.
+    const p2 = await collector.poll(
+      p1.nextSnapshot,
+      makeContext(
+        scriptedExec([
+          { match: 'git worktree list --porcelain', result: { stdout: THREE_LANES_V2_MOVED_C } },
+          { match: 'git diff --unified=0 main...lane-a', result: { failed: true, code: 128 } },
+          { match: 'git diff --unified=0 main...lane-c', result: { failed: true, code: 128 } },
+          { match: 'git merge-tree --write-tree -z lane-a lane-b', result: { stdout: MERGE_TREE_CLEAN, code: 0 } },
+          { match: 'git merge-tree --write-tree -z lane-a lane-c', result: { stdout: MERGE_TREE_CLEAN, code: 0 } },
+          { match: 'git merge-tree --write-tree -z lane-b lane-c', result: { stdout: MERGE_TREE_CLEAN, code: 0 } },
+        ]),
+        2_000,
+      ),
+    )
+    const p2Messages = p2.events
+      .filter((event) => event.type === 'collector.error')
+      .map((event) => (event.payload as { message: string }).message)
+
+    // The discriminating assertion: against the real per-branch latch,
+    // lane-c's honest first failure voices exactly once while lane-a stays
+    // silent. Against a collector-wide boolean latch, poll 2 sees the
+    // boolean already set from lane-a's poll-1 failure, so lane-c's first
+    // failure is swallowed too and this list would be empty instead.
+    expect(p2Messages).toEqual(['symbol extraction failed for lane "lane-c"'])
+  })
+
+  it('resume: a snapshot persisted before extractionErrorVoiced existed latches instead of throwing', async () => {
+    // Collector snapshots survive a restart through `snapshotStore`, and
+    // `poll-loop.ts`'s `hydrate()` feeds whatever it loaded straight back into
+    // `poll` — so the first poll after upgrading past #526 is handed a
+    // JudgeSnapshot that has no `extractionErrorVoiced` key at all. Without
+    // the `?? {}` default this reads a property of `undefined` inside the
+    // catch, and the TypeError escapes `poll` rather than voicing the failure
+    // it was called to report. Guards the default itself: with the `?? {}`
+    // removed, every other test in this file still passes and only this one
+    // goes red.
+    const collector = createJudgeCollector({ cadenceMs: 0 })
+    const preFieldSnapshot = {
+      disabled: false,
+      lastRunAt: null,
+      reported: {},
+      laneSymbols: {},
+    } as unknown as JudgeSnapshot
+
+    const p1 = await collector.poll(preFieldSnapshot, makeContext(scriptedExec(heartbeatRoutes(true, 0)), 1_000))
+    expect(messagesOf(p1.events)).toContain(EXTRACTION_MSG)
+
+    // And the latch it rebuilt from that field-less snapshot is a real one:
+    // the identical failure on the next poll stays silent.
+    const p2 = await collector.poll(p1.nextSnapshot, makeContext(scriptedExec(heartbeatRoutes(true, 0)), 2_000))
+    expect(messagesOf(p2.events)).not.toContain(EXTRACTION_MSG)
   })
 })
 

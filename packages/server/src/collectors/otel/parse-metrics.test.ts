@@ -355,6 +355,99 @@ describe('parseMetricsExport', () => {
     expect(laneBefore).toBe(laneAfter)
   })
 
+  it('treats an empty-string session.id as absent (null), not a thrown ZodError, across all three metric builders (#510 sibling)', () => {
+    const bodyFor = (metricName: string, extraAttrs: OtlpKeyValue[] = []) => ({
+      resourceMetrics: [
+        {
+          scopeMetrics: [
+            {
+              metrics: [
+                {
+                  name: metricName,
+                  sum: {
+                    dataPoints: [
+                      {
+                        attributes: [{ key: 'session.id', value: { stringValue: '' } }, ...extraAttrs],
+                        asDouble: 1,
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+    const modelAttrs: OtlpKeyValue[] = [{ key: 'model', value: { stringValue: 'claude-opus-5' } }]
+
+    for (const metricName of ['claude_code.token.usage', 'claude_code.cost.usage', 'claude_code.active_time.total']) {
+      const body =
+        metricName === 'claude_code.token.usage'
+          ? bodyFor(metricName, [...modelAttrs, { key: 'type', value: { stringValue: 'input' } }])
+          : bodyFor(metricName, modelAttrs)
+      expect(() => parseMetricsExport(body, testEmitter())).not.toThrow()
+      const result = parseMetricsExport(body, testEmitter())
+      expect(result.malformed).toBe(false)
+      expect(result.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
+      expect((result.events[0]?.payload as { sessionId: unknown }).sessionId).toBeNull()
+    }
+  })
+
+  it('degrades a claude_code.token.usage datapoint whose asInt overflows Number.MAX_SAFE_INTEGER to a collector.error instead of throwing, and still processes the sibling datapoint (#510 loop resilience)', () => {
+    // Number("9007199254740993") rounds to 9007199254740992 — finite and
+    // >=0, so it passes dataPointValue's own guards — but tokenUsageSchema's
+    // z.number().int() rejects anything past Number.MAX_SAFE_INTEGER,
+    // throwing uncaught from inside buildUsageEvent. A real (if pathological)
+    // exporter value, not a synthetic one.
+    const body = {
+      resourceMetrics: [
+        {
+          resource: { attributes: [{ key: 'lane', value: { stringValue: '2-core' } }] },
+          scopeMetrics: [
+            {
+              metrics: [
+                {
+                  name: 'claude_code.token.usage',
+                  sum: {
+                    dataPoints: [
+                      {
+                        attributes: [
+                          { key: 'model', value: { stringValue: 'claude-opus-5' } },
+                          { key: 'type', value: { stringValue: 'input' } },
+                        ],
+                        asInt: '9007199254740993',
+                      },
+                      {
+                        attributes: [
+                          { key: 'model', value: { stringValue: 'claude-opus-5' } },
+                          { key: 'type', value: { stringValue: 'output' } },
+                        ],
+                        asInt: '20',
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+
+    expect(() => parseMetricsExport(body, testEmitter())).not.toThrow()
+    const result = parseMetricsExport(body, testEmitter())
+    expect(result.malformed).toBe(false)
+
+    const errors = result.events.filter((e) => e.type === 'collector.error')
+    const usage = result.events.filter((e) => e.type === 'llm.usage')
+    expect(errors).toHaveLength(1)
+    expect(errors[0]?.payload).toMatchObject({ collector: 'otel' })
+    expect((errors[0]?.payload as { message: string }).message).toMatch(/^claude_code\.token\.usage datapoint failed to parse:/)
+    expect(usage).toHaveLength(1)
+    expect(usage[0]?.payload).toMatchObject({ tokens: { output: 20 } })
+  })
+
   it('falls back to the unattributed lane when neither a lane attribute nor a session id is present', () => {
     const body = {
       resourceMetrics: [

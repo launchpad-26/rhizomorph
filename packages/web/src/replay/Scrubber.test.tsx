@@ -370,4 +370,88 @@ describe('Scrubber — one notch is one pixel of track, at any session length (#
     expect(input.max).toBe('5000')
     expect(input.value).toBe('3000')
   })
+
+  /**
+   * #272. The defect was not that these facts were unavailable — the clock was
+   * derivable off a zoomed axis, and the counts sat on a prose row at the foot
+   * of the bar. It was that neither was where the operator's eye already is,
+   * and neither was there *at rest*. So every assertion here is about presence
+   * without a gesture: the existing drag label is the thing that requires a
+   * pointer, and it is deliberately not what these test.
+   */
+  describe('the readout beside the thumb', () => {
+    const NOON = 12 * 60 * 60 * 1_000
+
+    it('reads the absolute clock at the playhead with no drag and no zoom', () => {
+      render(<Scrubber start={NOON} end={NOON + 60_000} value={NOON + 7_000} onChange={() => {}} />)
+
+      // 12:00:07 — not an elapsed figure, and not conditional on a pointer
+      // being down. Gating this render on `dragging` is the mutation that
+      // returns the component to the behaviour the issue reported.
+      expect(screen.getByTestId('scrubber-readout').textContent).toBe('12:00:07')
+      expect(screen.queryByTestId('scrubber-drag-label')).not.toBeInTheDocument()
+    })
+
+    it('carries the scrub instant\'s facts beside the clock when it is given them', () => {
+      render(
+        <Scrubber
+          start={NOON}
+          end={NOON + 60_000}
+          value={NOON + 7_000}
+          onChange={() => {}}
+          facts="4 worktrees · 8 commits · $2.14"
+        />,
+      )
+      expect(screen.getByTestId('scrubber-readout').textContent).toBe(
+        '12:00:07 · 4 worktrees · 8 commits · $2.14',
+      )
+    })
+
+    it('tracks the value it is handed, so the clock follows the thumb', () => {
+      const { rerender } = render(
+        <Scrubber start={NOON} end={NOON + 60_000} value={NOON} onChange={() => {}} />,
+      )
+      expect(screen.getByTestId('scrubber-readout').textContent).toBe('12:00:00')
+
+      rerender(<Scrubber start={NOON} end={NOON + 60_000} value={NOON + 42_000} onChange={() => {}} />)
+      expect(screen.getByTestId('scrubber-readout').textContent).toBe('12:00:42')
+    })
+
+    it('is positioned on the thumb rather than at a fixed place on the track', () => {
+      render(<Scrubber start={0} end={100_000} value={25_000} onChange={() => {}} />)
+      expect(screen.getByTestId('scrubber-readout').style.left).toBe('25%')
+    })
+
+    /**
+     * The painted readout is `aria-hidden`, because a live region rewritten on
+     * every frame of a drag would be hostile to a screen reader. That is only
+     * defensible while the same text reaches assistive tech some other way, and
+     * `aria-valuetext` is that way — without it a range input announces the raw
+     * epoch millisecond, which is not a time anyone can hear.
+     */
+    it('hands the same text to assistive tech as aria-valuetext, not as a live region', () => {
+      render(
+        <Scrubber
+          start={NOON}
+          end={NOON + 60_000}
+          value={NOON + 7_000}
+          onChange={() => {}}
+          facts="4 worktrees · 8 commits · $2.14"
+        />,
+      )
+      const readout = screen.getByTestId('scrubber-readout')
+      const input = screen.getByLabelText('Replay scrubber')
+
+      expect(readout.getAttribute('aria-hidden')).toBe('true')
+      expect(input.getAttribute('aria-valuetext')).toBe(readout.textContent)
+      expect(input.getAttribute('aria-valuetext')).toBe(
+        '12:00:07 · 4 worktrees · 8 commits · $2.14',
+      )
+    })
+
+    it('does not block the track it sits over', () => {
+      render(<Scrubber start={0} end={100_000} value={25_000} onChange={() => {}} />)
+      expect(screen.getByTestId('scrubber-readout').className).toContain('pointer-events-none')
+    })
+  })
 })
