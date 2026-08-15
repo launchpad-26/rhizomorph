@@ -1,15 +1,24 @@
 # 0021. WebGL2 for the living scene, superseding canvas 2D
 
-- **Status:** proposed — supersedes ADR-0006 *if accepted*
+- **Status:** accepted — supersedes ADR-0006
 - **Date:** 2026-08-15
 
-> **Draft, and gated.** This record is written by the spike prd-33 ruling 11
-> required (#566), and it is deliberately not `accepted`. Every number below was
-> measured under WSL2 through ANGLE onto D3D12 — real for this operator,
-> unrepresentative of a native install, and the likeliest way this is wrong.
-> **The gate is one confirmation run on a native (non-WSL) machine** — see
-> Confirmation. ADR-0006's status line is untouched until then; a proposed record
-> supersedes nothing.
+> **Accepted by operator ruling, on the multiplayer case.** The spike wrote this
+> record `proposed` and gated it on a native (non-WSL) confirmation run, because
+> every number below was measured through ANGLE onto D3D12. That gate was
+> **overruled deliberately, and the reasoning is on the record**: the native
+> caveat bears on whether canvas is adequate *today*, not on whether canvas can
+> carry **several colonies in one frame** — and several colonies is the product
+> (prd-37; "the team layer is the whole point"). On ordinary integrated
+> graphics canvas needs **127.8 ms** at 30 × 3. A native install would have to be
+> better than **seven times** faster to reach 60 fps, and better than four times
+> to reach even 30. No plausible ANGLE correction is that large. **The verdict is
+> robust to its own caveat for the case that decides it**, so the confirmation run
+> is a courtesy, not a gate.
+>
+> The falsification line stands as a **revisit trigger** rather than a
+> precondition: if anyone later measures native canvas under ~17 ms at 30 × 3,
+> reopen this record. See Confirmation.
 
 ## Context and Problem Statement
 
