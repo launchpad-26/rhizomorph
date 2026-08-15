@@ -428,6 +428,130 @@ describe('the thread dimension', () => {
   })
 })
 
+describe('the harness dimension (#538)', () => {
+  it('is undefined by default — sessionlog with no harness still means Claude Code', () => {
+    const event = createEvent('llm.usage', usage, { id: 'evt-1', ts: 1 })
+    expect(event.source).toBe('sessionlog')
+    expect(event.payload.harness).toBeUndefined()
+  })
+
+  it('lets a non-claude dialect name itself on a sessionlog-sourced event', () => {
+    const event = createEvent(
+      'llm.usage',
+      { ...usage, harness: 'pi' },
+      { id: 'evt-1', ts: 1, source: 'sessionlog' },
+    )
+    expect(event.source).toBe('sessionlog')
+    expect(event.payload.harness).toBe('pi')
+  })
+
+  it('rides on all three sessionlog-eligible telemetry payloads', () => {
+    expect(
+      createEvent('llm.usage', { ...usage, harness: 'pi' }, { id: 'evt-1', ts: 1 }).payload.harness,
+    ).toBe('pi')
+    expect(
+      createEvent(
+        'llm.cost',
+        { lane: '33-core', role: 'worker' as const, model: 'pi-model', costUsd: 1, authoritative: true, harness: 'pi' },
+        { id: 'evt-2', ts: 1, source: 'sessionlog' },
+      ).payload.harness,
+    ).toBe('pi')
+    expect(
+      createEvent(
+        'tool.activity',
+        { lane: 'l', tool: 'bash', harness: 'pi' },
+        { id: 'evt-3', ts: 1 },
+      ).payload.harness,
+    ).toBe('pi')
+  })
+
+  it('is not a closed vocabulary — any non-empty string names a dialect, no core PR per harness', () => {
+    // A canary generated at run time, not a literal any hand-written enum
+    // could happen to enumerate — a mutation that closes the vocabulary to a
+    // fixed list (even one seeded with the other names in this loop) must
+    // still fail this specific assertion.
+    const canary = `mutation-canary-${Math.random().toString(36).slice(2)}`
+    for (const harness of ['pi', 'codex', 'aider', 'some-future-cli', canary]) {
+      const event = createEvent('llm.usage', { ...usage, harness }, { id: 'evt-1', ts: 1 })
+      expect(event.payload.harness).toBe(harness)
+    }
+  })
+
+  it('rejects an empty-string harness — nonEmptyString, same discipline as lane', () => {
+    expect(
+      llmUsageEventSchema.safeParse({
+        id: 'evt-1',
+        ts: 1,
+        source: 'sessionlog',
+        type: 'llm.usage',
+        payload: { ...usage, harness: '' },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a whitespace-only harness — as absent a name as the empty string', () => {
+    expect(
+      llmUsageEventSchema.safeParse({
+        id: 'evt-1',
+        ts: 1,
+        source: 'sessionlog',
+        type: 'llm.usage',
+        payload: { ...usage, harness: '   ' },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('accepts an explicit null harness — declared Claude explicitly, not just omitted', () => {
+    const event = createEvent('llm.usage', { ...usage, harness: null }, { id: 'evt-1', ts: 1 })
+    expect(event.payload.harness).toBeNull()
+  })
+
+  it('parses a pre-#538 event with no harness key at all — the additive law', () => {
+    // Exactly the shape every sessionlog llm.usage ever logged before #538 has:
+    // no `harness` key present, not even `null`.
+    const result = llmUsageEventSchema.safeParse({
+      id: 'evt-1',
+      ts: 1,
+      source: 'sessionlog',
+      type: 'llm.usage',
+      payload: usage,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('is accepted, though meaningless, on an otel-sourced record too', () => {
+    // otel has only ever had one dialect, so a harness here names nothing —
+    // but the schema does not know that and must not reject it either.
+    const event = createEvent(
+      'llm.cost',
+      {
+        lane: '33-core',
+        role: 'worker' as const,
+        model: 'claude-sonnet-5',
+        costUsd: 1,
+        authoritative: true,
+        harness: 'pi',
+      },
+      { id: 'evt-1', ts: 1, source: 'otel' },
+    )
+    expect(event.source).toBe('otel')
+    expect(event.payload.harness).toBe('pi')
+  })
+
+  it('rides on agent.activeTime too, though the field means nothing there', () => {
+    // activeTimePayloadSchema spreads the same shared `attribution` object,
+    // so harness is accepted here as well rather than stripped or rejected —
+    // pinned so that claim in telemetry.ts's doc comment can't go stale silently.
+    const event = createEvent(
+      'agent.activeTime',
+      { lane: 'l', role: 'worker' as const, activeSeconds: 1, harness: 'pi' },
+      { id: 'evt-1', ts: 1 },
+    )
+    expect(event.source).toBe('otel')
+    expect(event.payload.harness).toBe('pi')
+  })
+})
+
 describe('token arithmetic', () => {
   it('totals all four tiers', () => {
     expect(totalTokens(TOKENS)).toBe(2 + 1700 + 99_700 + 1900)
