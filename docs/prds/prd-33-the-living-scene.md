@@ -5,7 +5,9 @@
 > each entering only through its named device; records the operator's coexist-by-surface ruling
 > on the prd-14 ruling 1 tension — this PRD rules the observatory scene only. Gate: **wave 0 is
 > #158's glance re-run, an operator act.** Milestone 19. Sequenced after prd-32 wave 1; forms
-> iterate with hchristina on the charter companion at blessing. Citations verified at
+> are decided here and reviewed by the team. **Kind: specifying**
+> (`docs/prds/README.md`); rulings 6–12 and the specification added 2026-08-15 from
+> `docs/design/ui-2.0-decisions.md` (D24, D29–D36, D40). Citations verified at
 > origin/main `e8fed56`.
 
 ## Problem
@@ -92,7 +94,7 @@ Threads grow organically — ease, bud, extend, never spawn-and-stretch. Whether
 fifth motion class or lives inside structural's critically-damped envelope, it opens the set
 exactly one way: a typed cause (so a sixth cannot be smuggled in), hard caps stated as numbers,
 every older cap untouched. The ruling is written in roles, not forms (prd-07 ruling 2's
-device), so the law tests survive whatever the growth actually looks like when hchristina and
+device), so the law tests survive whatever the growth actually looks like when the design and
 the implementer find it.
 
 ## Ruling 2 — the ambient layer enters through the variation table, and ambient never means
@@ -126,6 +128,191 @@ PRD's requirements list: a FAIL's remedy may be a redraw here, a CUT (the protoc
 or an explanation that lands in prd-30's vocabulary instead — a mark that fails GLANCE may need
 telling, not repainting.
 
+## Ruling 6 — status owns the living thread; category owns its material
+
+The scene now carries two claims, and they never share a channel. **Status is the living thread
+itself** — its hue and its brightness, exactly as law 9a and 9b already rule, entirely untouched
+by this PRD. **Category (prd-32 ruling 8's tissue-derived family) rides the thread's material** —
+the sheath around it, its nodes, its segment banding — never its living hue.
+
+The reason is the glance protocol. A mark that is violet-because-planning *and* green-because-
+working makes two claims in one channel, and a reader cannot know which one the colour is
+answering. Splitting them by role rather than by shape is exactly what prd-07 ruling 2's
+role/form split exists to permit: the law is written about *what a role may carry*, so the
+material can be redrawn freely without touching the status vocabulary.
+
+**The hard clause:** at every quality level and in the still composition, **status must remain
+readable with the category material removed entirely.** If a person cannot tell working from
+broken with the sheath switched off, the material has become load-bearing and the ruling has been
+violated.
+
+## Ruling 7 — the composition is colonies, and it is built for many from the first line
+
+Threads grow from a central mass, as today — but the scene is composed as **a world that holds
+several colonies**, because an organism is a person (`docs/design/ui-2.0-decisions.md`, the
+reframe): the repo is the landscape, and a team is several colonies working it.
+
+We ship watching one swarm, which renders as **one colony that looks complete on its own** — no
+empty slots, no "waiting for teammates" scaffolding, nothing that reads as a missing feature. What
+the ruling buys is that when the team layer lands (prd-37), **no redesign is required**: the
+camera already frames a world rather than an object, spacing and depth already separate one colony
+from another, and identity already has somewhere to attach.
+
+## Ruling 8 — the material is living tissue, and the atmosphere is unmeaning by law
+
+Threads are **translucent organic matter, lit from within**: a dense core with a soft edge,
+overlaps that blend rather than stack, and a faint internal glow that is a property of the
+material rather than a signal about state.
+
+The atmosphere lands as four channels in the variation permission table, each **granted only
+because it carries nothing** (ruling 2's device), each with a stated bound: **depth haze** ·
+**ambient drift** (motes, spores) · **directional light** · **reactive ground** that breathes with
+overall activity without encoding any particular fact.
+
+The accompanying law, stated once and tested: **ambient never means.** No ambient property may
+correlate with status, cost, attention, age, or any folded fact. The test is not "does it look
+like it means something" but the stronger structural one — a rigged correlation between an
+ambient channel and a lane's state must turn the suite red.
+
+The reactive ground is the closest thing to a violation and therefore carries the tightest bound:
+it may respond to *aggregate* liveliness only, never to any individual lane, and never to any
+severity — a ground that darkened when something broke would be the alarm grammar leaking into
+the substrate.
+
+## Ruling 9 — growth is bud, reach, thicken; it gets its own class and its own budget
+
+A lane appears as a **bud** at its colony's mass, **reaches** outward with a leading tip, and
+**thickens** behind itself as work accumulates — growing continuously while it lives, so an
+active fleet is always subtly in motion and a busy colony visibly swells over a session.
+
+Growth becomes **the fifth motion class** with its own budget rather than borrowing structural's,
+because its character is opposite to structural's: structural motion is a settling, discrete and
+capped at two; growth is continuous, gentle, and correct across many threads at once. It opens
+the set exactly the way prd-10 ruling 10 opened it for dissolution — **a typed cause** so a sixth
+cannot be smuggled in, **hard caps stated as numbers**, and **every older cap untouched.**
+
+## Ruling 10 — the motion caps rise, derived from measurement, and alarms are exempt
+
+The event cap of five came from multiple-object-tracking research, and it is real: above roughly
+five simultaneously-moving targets a viewer tracks none of them. But the cap was set against an
+assumed event density that the instrument's own recordings can now falsify — **lanes run from
+five minutes to two hours, so genuinely simultaneous events are rare**, and the cap is rarely the
+thing limiting liveliness.
+
+So the caps rise, under two conditions that keep the research honoured:
+
+1. **The new numbers are derived, not guessed.** Before the amendment lands, the actual
+   distribution of concurrent events is computed from recorded sessions — how often 2, 3, 5, 10
+   events genuinely coincide — and the caps are set from that distribution with the reasoning
+   written down. A cap chosen by measurement can be defended; one chosen by appetite cannot.
+2. **Alarms are exempt and always win.** When more motion coincides than the budget allows, the
+   alarm class is never the motion that gets dropped. A death is visible at any density — which
+   is precisely the property the original cap was protecting, achieved by priority rather than by
+   scarcity.
+
+Ambient motion remains uncapped, as it always was: it carries nothing and demands no tracking,
+and it is where the spectacle actually lives.
+
+## Ruling 11 — the renderer is decided by measurement, not by appetite
+
+ADR-0006 chose canvas 2D over WebGL, and the record is explicit that measurement killed the WebGL
+option before it cost anything. That decision was taken against a flat-marks workload. The
+workload this PRD creates — translucency, subsurface light, depth haze, drifting particles,
+directional shading, continuous growth across many colonies — is precisely the class where the
+trade changes.
+
+**A spike decides it, before any texture work lands:** one honest implementation of the target
+scene in both renderers, measured at 30 lanes with the full material load on the operator's own
+machine and on the weakest machine we can find. Only measurement overturns measurement. If canvas
+holds, the ambition is unchanged and the ADR stands; if it does not, a new ADR supersedes 0006
+with the numbers in it.
+
+**Nothing in waves 2 and 3 dispatches before the spike reports.**
+
+## Ruling 12 — the still composition is designed, and idle is at rest rather than empty
+
+**Reduced motion is not this scene with the animation removed.** It is a designed still
+composition that carries every meaning through colour, position, form and density — reviewed and
+glance-tested as its own artifact, because for some people it is the only version they will ever
+see. It is also the version that renders when quality is dialled to its lowest (prd-35), so it
+carries the instrument's whole job on a weak machine.
+
+**Idle is a state with a picture.** A watched repo with nothing running shows its own past alive:
+landed work as accumulated mass, past lanes as scars and residue, the substrate breathing. Idle
+reads as *at rest*, never as broken and never as empty — and the list representation (prd-36) is
+always there to say, in words, exactly what is and is not running.
+
+## The specification
+
+Six answers per surface, per `docs/prds/README.md`. The scene is one surface; its regions are
+specified as channels because that is the shape its laws take.
+
+### S1 — the scene surface
+
+**What and why.** The hero: a living picture of who is working, readable in three seconds without
+a legend (the glance protocol's standing bar).
+
+**States.**
+- *live, one colony* — the ordinary case: one person's swarm, complete on its own.
+- *live, many colonies* — several people (prd-37); depth and spacing separate them, each labelled
+  by its owner's declared identity.
+- *idle* — ruling 12's at-rest composition.
+- *empty, nothing configured* — the demo fleet renders instead (prd-34 ruling 5), marked.
+- *loading* — the fold is still building: the scene waits rather than animating an arriving fleet
+  (a scene that grew as history loaded would be a lie about when things happened).
+- *canvas unavailable* — the surface falls to the list representation and says so once
+  (prd-36 S1); this is the floor the whole ambition rests on.
+- *degraded* — a collector is down: threads render from what is known, and the honest gap is
+  carried by the list and the status bar rather than by inventing a thread's state.
+- *reduced motion / lowest quality* — ruling 12's still composition.
+- *replay* — the scene folds to the scrub position; growth is positional rather than animated
+  when scrubbing (a thread does not re-grow every time you drag).
+- *demo* — permanent simulated chrome frames the surface.
+
+**Channels and what may carry meaning.**
+
+| channel | carries | permission |
+|---|---|---|
+| thread hue | status (law 9a) | **locked** |
+| thread brightness | status salience (law 9b band) | **locked** — four numbers immovable |
+| radial position | lifecycle (prd-6 r4) | **locked** |
+| encoded width | work size (prd-6 r1) | **locked** |
+| **sheath / nodes / banding** | **category** (ruling 6) | bounded by prd-32 ruling 8's caps |
+| translucency, core density | nothing | material, bounded |
+| depth haze | nothing | bounded by distance only |
+| ambient drift | nothing | count and speed bounded |
+| directional light | nothing | one direction, fixed |
+| reactive ground | aggregate liveliness only | bounded; never per-lane, never severity |
+| width jitter, wander, curl | nothing | existing table rows, unchanged |
+
+**Data source.** The derived fleet (`buildFleet` in core) for every meaning-bearing channel; the
+lane's own identity hash for variation seeds (never the clock); nothing else. **No ambient channel
+reads the fold at all** — that is what makes "ambient never means" testable rather than aspirational.
+
+**Interactions and keyboard path.** Camera pan, zoom-at-cursor and fit, as today. Selection shared
+with the list (prd-36). Hovering or focusing a thread opens prd-30's disclosure card. The scene is
+a canvas with a text equivalent — the list is that equivalent, and it is the accessible path
+rather than an ARIA fiction over pixels.
+
+**What would make it wrong.** Status unreadable with the category material removed · any ambient
+channel correlating with a fact · a band number moved · growth that appears rather than grows ·
+the reactive ground responding to severity · a frame budget claim that was asserted rather than
+measured · a colony arrangement that only works for one.
+
+**Acceptance criteria.**
+- A rigged correlation between each ambient channel and lane state turns the suite red (one test
+  per channel).
+- Rendering with the category material disabled still yields correct status readings for every
+  activity (a display-list assertion, not a screenshot).
+- The four band numbers are asserted unchanged.
+- Growth motion is typed by cause; a sixth motion class fails to compile.
+- Frame time is **measured and reported** before and after each texture pass at 30 lanes, per
+  #157's discipline — reported, never asserted, with the comparison made on one machine.
+- The still composition is rendered and glance-tested as its own artifact.
+- Two colonies render with correct per-colony attribution in a fixture.
+
+## Sequencing (waves, each gated as ever)
+
 ## Sequencing (waves, each gated as ever)
 
 Sequenced after prd-32 wave 1 (the tokens and mirrors this PRD reads). `scene/palette.ts`
@@ -146,7 +333,7 @@ law; the dials turn; the texture passes; the canvas harness.
 
 - **Fifth class or inside structural** — the growth envelope's home is decided with numbers in
   hand at the amendment, not here. Open, not ruled.
-- **Which channels get ambient rows first** — hchristina and the table decide; the grant
+- **Which channels get ambient rows first** — decided at the amendment; the grant
   mechanism is ruled, the grants are not.
 - **How ambient material behaves on light ground** — coordinated with prd-32's per-theme
   tables; whoever lands second rebases. Open, not ruled.
