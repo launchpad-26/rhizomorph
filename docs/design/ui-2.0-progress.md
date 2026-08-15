@@ -15,9 +15,9 @@
       anti-pattern (D49)
 - [x] `docs/prds/prd-32-the-readable-instrument.md` — expand to spec depth
 - [x] `docs/prds/prd-35-the-operators-hand.md` — NEW (settings)
-- [ ] `docs/prds/prd-30-the-open-hand.md` — expand
-- [ ] `docs/prds/prd-31-the-bracketed-voice.md` — expand; **rewrite ruling 1**
-- [ ] `docs/prds/prd-36-the-fleet-surface.md` — NEW (organism ⇄ list)
+- [x] `docs/prds/prd-30-the-open-hand.md` — expand
+- [x] `docs/prds/prd-31-the-bracketed-voice.md` — expand; **rewrite ruling 1**
+- [x] `docs/prds/prd-36-the-fleet-surface.md` — NEW (organism ⇄ list)
 - [ ] `docs/prds/prd-34-the-doorstep.md` — expand
 - [ ] `docs/prds/prd-33-the-living-scene.md` — expand
 - [ ] `docs/prds/prd-37-the-shared-world.md` — NEW (team layer)
