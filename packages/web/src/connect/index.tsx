@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { selectConnection } from '@rhizomorph/core'
 import { useMode } from '../app/ModeContext.js'
+import { Nav } from '../app/Nav.js'
 import { navigate } from '../app/router.js'
 import { useStream } from '../app/StreamContext.js'
 import type { CloneFetchLike } from '../concierge/clone.js'
@@ -261,6 +262,7 @@ export function ConnectPage({
 
   return (
     <div data-testid="connect-page" className="flex h-screen flex-col bg-ice-1000 font-sans text-ice-300">
+      <Nav />
       <header className="flex shrink-0 items-center gap-4 border-b border-ice-850 bg-ice-950 px-4 py-3">
         <button
           type="button"

@@ -192,7 +192,7 @@ describe('the type ramp, in rem, in two registers (S1)', () => {
  * THE PIXEL CENSUS — a ratchet, not a ban.
  *
  * S1's acceptance asks for a law that "fails on a raw `text-[Npx]` outside the
- * allowlist". Landing that today would need a 227-entry allowlist, because
+ * allowlist". Landing that today would need a 226-entry allowlist, because
  * migrating those sites is wave 4's work and explicitly not this one's ("a sweep
  * that runs earlier re-lays ground the other PRDs are about to dig"). So the law
  * lands in the form the fence allows: the number is pinned, and it may only go
@@ -203,7 +203,7 @@ describe('the type ramp, in rem, in two registers (S1)', () => {
  * literal after the tokens exist". A wave-4 sweep lowering this number is the
  * sweep's own progress made visible, one commit at a time.
  */
-const RAW_PIXEL_SIZES = 227
+const RAW_PIXEL_SIZES = 226
 
 describe('no new pixel literal after the ramp exists (S1)', () => {
   /** Everything the sweeps own: the app, less `lab/` (prd-28's territory). */

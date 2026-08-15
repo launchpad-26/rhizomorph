@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useReplay } from '../app/ModeContext.js'
+import { Nav } from '../app/Nav.js'
 import { navigate } from '../app/router.js'
 import type { FetchLike } from '../replay/api.js'
 import { fetchRecordings, type RecordingListing } from './api.js'
@@ -96,6 +97,7 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
 
   return (
     <div data-testid="recordings-page" className="flex h-screen flex-col bg-ice-1000 font-sans text-ice-300">
+      <Nav />
       <header className="flex shrink-0 items-center gap-4 border-b border-ice-850 bg-ice-950 px-4 py-3">
         <button
           type="button"
