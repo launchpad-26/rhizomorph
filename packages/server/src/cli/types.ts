@@ -1,5 +1,6 @@
 import type { AnyCollector, Exec } from '@rhizomorph/core'
 import type { FastifyInstance } from 'fastify'
+import type { ServerContext } from '../server/context.js'
 import type { PollLoop } from '../server/poll-loop.js'
 import type { SessionRecorder } from '../server/recorder.js'
 
@@ -30,4 +31,14 @@ export interface CliHandle {
   /** The address the server ended up listening on, e.g. "http://127.0.0.1:4321". */
   url: string
   stop: () => Promise<void>
+  /**
+   * The live, re-pointable `ServerContext` this boot's routes read from
+   * (prd20 ruling 5) — present only for a watching server
+   * (`runServerCommand`), absent for a replay (`cli/replay.ts`), which serves
+   * a finished record nothing ever retargets. A caller wanting to repoint
+   * `repoPath`/`repoName`/`sessionDir` mutates this object directly; every
+   * route already holds the identical reference (`build-app.ts` never
+   * copies it).
+   */
+  ctx?: ServerContext
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { parseLaneManifest, type LaneManifest } from './fences.js'
+import { parseLaneManifest, type LaneManifest } from '@rhizomorph/core'
 
 /**
  * Fetching the lane manifest the conductor wrote at dispatch (ruling 19),
@@ -56,8 +56,36 @@ export async function loadLaneManifest(fetchImpl?: FetchLike): Promise<LaneManif
  * The manifest for the current source. `enabled: false` (a synthetic fixture is
  * driving, and brings its own manifest) skips the request entirely rather than
  * racing a fetch whose answer would be discarded.
+ *
+ * `repoPath` is the repo the fold currently describes
+ * (`app/streamState.ts`'s `foldedRepoPath`), and it is a **dependency, not
+ * decoration**: it is what makes the manifest re-asked when the dashboard is
+ * retargeted at another repository (#390 review).
+ *
+ * Without it the manifest was fetched once and never again, because the only
+ * things that could re-run this effect were `enabled` (`source === 'live'`,
+ * unchanged by a retarget) and `fetchImpl` (a stable prop). The fold beneath
+ * it reset correctly while this did not, so repo B's freshly-reset lanes were
+ * judged against repo A's fences — and lane ids, branches and handles
+ * (`dev-1`, `main`) recur across unrelated repos, so that is not a
+ * hypothetical mismatch: either a handle collides and repo A's fence silently
+ * attaches to repo B's lane, or it doesn't and repo B's lanes are measured
+ * against a fence file describing somewhere else. Same class as #370 — state
+ * that never went through the fold cannot be fixed by resetting the fold, so
+ * it has to be invalidated on the same key the fold resets on.
+ *
+ * A boot therefore asks twice: once at mount with no repo named yet, once when
+ * `session.started` names one. That is one extra local request per page load,
+ * and it is the whole cost of the invalidation being keyed rather than
+ * inferred. Gating the first request on a known repo instead would leave
+ * `status` at `loading` forever for any source that never names one, which is
+ * a worse answer than asking twice.
  */
-export function useLaneManifest(enabled: boolean, fetchImpl?: FetchLike): LaneManifestState {
+export function useLaneManifest(
+  enabled: boolean,
+  fetchImpl: FetchLike | undefined,
+  repoPath: string | null,
+): LaneManifestState {
   const [state, setState] = useState<LaneManifestState>(() =>
     enabled ? { manifest: null, status: 'loading' } : ABSENT,
   )
@@ -77,7 +105,7 @@ export function useLaneManifest(enabled: boolean, fetchImpl?: FetchLike): LaneMa
     return () => {
       live = false
     }
-  }, [enabled, fetchImpl])
+  }, [enabled, fetchImpl, repoPath])
 
   return state
 }

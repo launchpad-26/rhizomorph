@@ -1,6 +1,7 @@
-import { formatElapsed } from '../replay/format.js'
 import { formatTokens, formatUsd } from '../lib/format.js'
 import type { RecordingListing, TranscriptCaptureManifest } from './api.js'
+
+export { formatDuration } from '../lib/format.js'
 
 /**
  * THE HONEST-GAP VOICES (prd16 ruling 4) — `SessionListing` already carries
@@ -9,16 +10,6 @@ import type { RecordingListing, TranscriptCaptureManifest } from './api.js'
  * This module only speaks those three states; it never turns a `null` into a
  * `0` or a missing capture into a quiet blank.
  */
-
-/** Duration, `h:mm:ss` for anything over an hour — a long recording's mm:ss would misread as under sixty minutes. */
-export function formatDuration(durationMs: number): string {
-  const totalSeconds = Math.max(0, Math.round(durationMs / 1000))
-  const hours = Math.floor(totalSeconds / 3600)
-  if (hours === 0) return formatElapsed(durationMs)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
-  return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-}
 
 /**
  * The cost cell's headline: dollars whenever any cost event exists —

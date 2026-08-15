@@ -79,15 +79,15 @@ export function parseMetricsExport(body: unknown, emitter: OtelEmitter): ParseMe
       for (const metric of scopeMetrics.metrics ?? []) {
         if (metric.name === TOKEN_USAGE_METRIC) {
           for (const dp of metricDataPoints(metric)) {
-            events.push(buildUsageEvent(emitter, resourceAttrs, dp))
+            pushBuiltEvent(events, emitter, metric.name, () => buildUsageEvent(emitter, resourceAttrs, dp))
           }
         } else if (metric.name === COST_USAGE_METRIC) {
           for (const dp of metricDataPoints(metric)) {
-            events.push(buildCostEvent(emitter, resourceAttrs, dp))
+            pushBuiltEvent(events, emitter, metric.name, () => buildCostEvent(emitter, resourceAttrs, dp))
           }
         } else if (metric.name === ACTIVE_TIME_METRIC) {
           for (const dp of metricDataPoints(metric)) {
-            events.push(buildActiveTimeEvent(emitter, resourceAttrs, dp))
+            pushBuiltEvent(events, emitter, metric.name, () => buildActiveTimeEvent(emitter, resourceAttrs, dp))
           }
         }
       }
@@ -95,6 +95,28 @@ export function parseMetricsExport(body: unknown, emitter: OtelEmitter): ParseMe
   }
 
   return { events, malformed: false }
+}
+
+/**
+ * #510: a datapoint builder throwing for an unforeseen reason (a future
+ * attribute shape, a schema change — e.g. an `asInt` string wide enough that
+ * `Number(...)` rounds it past `Number.MAX_SAFE_INTEGER`, which
+ * `tokenUsageSchema`'s `z.number().int()` then rejects) must not cost every
+ * other datapoint in the same request, exactly the hazard `parse-traces.ts`'s
+ * per-span loop guards against. One bad datapoint degrades to its own
+ * `collector.error` instead.
+ */
+function pushBuiltEvent(events: RhizomorphEvent[], emitter: OtelEmitter, metricName: string, build: () => RhizomorphEvent): void {
+  try {
+    events.push(build())
+  } catch (err) {
+    events.push(
+      emitter.emit('collector.error', {
+        collector: 'otel',
+        message: `${metricName} datapoint failed to parse: ${err instanceof Error ? err.message : String(err)}`,
+      }),
+    )
+  }
 }
 
 /**

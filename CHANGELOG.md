@@ -45,6 +45,34 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   what/why/`rhizomorph doctor` gap voice a disabled collector already does. It stays
   ambient: unlike `error`, it never escalates to the attention strip, since it may
   self-heal on the very next poll.
+- **`POST /api/retarget` — the watched repo can change without a restart
+  (prd-20 ruling 5, #389).** One explicit human act switches the instrument
+  from one repo to another in place: it validates the candidate first (it
+  exists, it is a git work tree, no other rhizomorph is recording it), and
+  only then closes the session in the old repo's directory and opens one in
+  the new repo's, re-points every route's context, and rebuilds the poll loop
+  against the adopted repo. It never spawns a second instance. A failed
+  validation is a `409` with the old target completely untouched — the
+  recording still open, its lock still held — which is the whole reason the
+  spike (#265) chose rotate-and-reinit over supervised respawn, whose
+  equivalent failure is an uncatchable `SIGABRT`. Token-gated like every other
+  mutating route (#234), and `retarget-law.test.ts` holds ADR-0014 grant 3
+  over it against the raw import graph: no collector, no poll and no timer
+  reaches it, gate or no gate. `/api/meta` now reports `lastBootReason:
+  'retargeted'`, so the provenance bar says the predecessor is under another
+  repo's slug rather than implying it is the previous log in this repo's
+  picker.
+- **A session's end can say it was a retarget, and the two logs can find
+  each other (#384).** `session.closed` accepts `reason: 'retargeted'`
+  alongside `'rotated'` — prd20 ruling 5's repo switch ends a session too,
+  and recording it as a rotation would be a lie, because a rotation's
+  successor is the next log in the same directory while a retarget's is
+  under a different repo slug entirely. So both events also gained an
+  optional pointer: `session.closed.successor` names the slug dir the run
+  continued in, and `session.started.predecessor` names the slug dir and
+  session id it came from. Additive — every recording written before this
+  parses unchanged, and an ordinary boot or rotation carries no pointer at
+  all. Nothing emits the new reason yet; the machinery is #385–#391.
 - **`export-record --force` (#298).** An explicit `--out` that already
   exists is now refused with an error naming `--force`, which overwrites;
   the flagless default artifact is regenerable and always refreshes.
@@ -215,6 +243,58 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **The judge collector's two remaining throw/merge catches no longer re-voice
+  every poll, forever (#526).** `extractLaneSymbols` failing for a lane, and
+  `speculativeMergeTree` failing for a lane pair, both emitted a fresh
+  `collector.error` on every single poll for as long as the same lane or pair
+  kept failing (`#506`'s already-fixed heartbeat shape, applied to the two
+  sites that were out of that issue's fence). Each now voices once when the
+  incident opens and stays silent through repeats of the identical failure,
+  re-arming silently on recovery so a later, genuinely new incident still
+  voices.
+- **A persistently-malformed row no longer re-voices every poll, forever (#506).**
+  Four sites — workmux's status-row and list-row skip quarantines, its
+  unrecognised-`agent.status`-value branch, and tmux's list-panes skip quarantine —
+  emitted a fresh `collector.error` on every single poll for as long as the same bad
+  row or line kept recurring (`#415`'s already-fixed heartbeat shape, not yet applied
+  here). Each now voices once when the incident opens and stays silent through
+  repeats of the identical row, re-arming silently on recovery so a later, genuinely
+  new incident still voices. Also: a skip's rendered detail is now capped at 200
+  characters instead of embedding an unbounded field (e.g. a very long agent title)
+  verbatim into every occurrence of the message.
+- **A worktree-root resolve that fails once no longer stays broken for the rest of
+  the session (#505).** The subdirectory-join fallback added by #463 memoised
+  `workdir → worktreePath` per pane/agent, but memoised a *failed* resolve
+  (`null`) exactly the same as a successful one — a transient `git` failure, or a
+  worktree removed and recreated under a parked pane, left `worktreePath: null`
+  for the rest of the session with no way to recover short of a restart. Only a
+  successful resolution is memoised now; a failure is retried on every later
+  poll, in both the workmux and tmux collectors.
+- **A pane parked in a worktree subdirectory on its very first poll now shows
+  the right worktree path (#463).** `worktreePath` resolved only by joining
+  `status`'s `workdir` against `list`'s `path` exactly; a pane whose workdir
+  was already a subdirectory of its worktree (e.g. a pane that `cd`s into
+  `packages/server`) never matched that join, and with no prior poll to carry
+  a good value forward, `worktreePath` stayed `null` for the whole session.
+  When `list` is otherwise healthy but the exact-path join misses,
+  `worktreePath` is now resolved directly via `git rev-parse
+  --show-toplevel`, memoised per workdir so a pane parked in the same
+  subdirectory across polls only pays the extra `exec` once.
+- **`withBranchReconciliation`'s "did this poll observe reality" signal is
+  still inferred from allocation identity, but the snapshot shape it can be
+  inferred from is now compiler-checked (#454).** The wrapper decided "not
+  observed" from `branches`' reference identity — correct for `gitCollector`
+  today (verified exhaustively, #449), but invisible to the compiler: the
+  wrapper was generic over any snapshot with a `branches` field, so an
+  unrelated future collector reusing it would get no warning if its own
+  "nothing changed" fast path never allocated fresh. The wrapper's signature
+  now names `GitSnapshot` concretely instead of a generic bound, so only a
+  structurally-matching snapshot type-checks; an explicit "observed" marker
+  the collector sets itself — the shape that would make the signal explicit
+  rather than inferred — is deferred to a future migration. A poll that
+  defies the identity contract without one of the two known failure events
+  now surfaces a loud `collector.error` instead of silently skipping
+  reconciliation forever.
 - **A resumed session with a stale fold now retires ghost branches too
   (#449).** `withBranchReconciliation` (#139) diffed a resume's folded
   branches against reality correctly since #132-134, but was never wired into
@@ -349,6 +429,32 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   shortest decimal can carry and the last notch would otherwise be
   unreachable. Native keyboard behaviour is untouched: this configures the
   range input, it does not reimplement it.
+- **The provenance bar explains a boot another live instance forced,
+  instead of going blank (#384).** `GET /api/meta` has reported
+  `lastBootReason: 'writer-alive'` since #187 — a boot that started a fresh
+  session because another rhizomorph still held the previous one — but the
+  dashboard's own list of reasons it can explain never learned the word, so
+  it discarded the whole response and rendered the session line as
+  unavailable: the instrument saying "I don't know" about something it did
+  know. It now says so, and points at `rhizomorph doctor` for the pid it
+  cannot name itself. Nothing upstream could have caught this (the two
+  lists are on opposite sides of a layering boundary neither can import
+  across), so a seam test now reads both at runtime and fails on the next
+  one.
+
+- **Retargeting no longer shows the new repo's name over the old repo's
+  fleet (#390).** The dashboard's live fold was never reset, so pointing it
+  at another repository kept every worktree, branch, commit and spend fact
+  of the previous one — under a heading that had already updated, which
+  made the result a lie rather than a lag. The fold now drops what it has
+  accumulated when a `session.started` names a different `repoPath`. An
+  ordinary session rotation, and a reconnect that replays the same session
+  from the top, both leave it alone. The lane manifest is re-asked at the
+  same boundary: `/api/lanes` was previously fetched once for the life of
+  the page, so the new repo's lanes were fenced, labelled and judged
+  against the old repo's `.swarm/lanes.json`. The selected lane drops at
+  the boundary too — a lane id belongs to the repo it was selected in, and
+  names like `dev-1` and `main` recur across unrelated repositories.
 - **Rename-in-place actually works (#249).** `POST /api/label` required a
   per-process capability token nothing ever delivered to the browser, so
   every rename in `/recordings` 401ed, on every boot. The server now

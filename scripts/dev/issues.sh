@@ -341,9 +341,43 @@ else:
 }
 
 cmd_show() {
-  gh issue view "$1" --repo "$REPO"
+  # `gh issue view` with no --json runs gh's default query, which still asks
+  # for repository.issue.projectCards (Projects classic) — an API the server
+  # now refuses outright instead of returning empty. An explicit field list
+  # builds the query from only what is requested, same as line ~270's
+  # `--json id` a few functions up, so it never mentions Projects classic.
+  local raw
+  raw="$(gh issue view "$1" --repo "$REPO" \
+    --json number,title,state,url,labels,body,comments)" \
+    || die "could not read issue #$1 (gh issue view failed)"
+  printf '%s' "$raw" | python3 -c '
+import sys, json
+d = json.load(sys.stdin)
+print("#%d  %s" % (d["number"], d["title"]))
+print("state: %s" % d["state"])
+labels = ", ".join(l["name"] for l in d.get("labels", []))
+if labels:
+    print("labels: %s" % labels)
+print("url: %s" % d["url"])
+print()
+print(d.get("body") or "(no description)")
+comments = d.get("comments") or []
+if comments:
+    print()
+    print("--- comments (%d) ---" % len(comments))
+    for c in comments:
+        author = (c.get("author") or {}).get("login") or "?"
+        print()
+        print("@%s:" % author)
+        print(c.get("body") or "")
+'
   echo "--- board ---"
-  cmd_list | awk -v n="#$1" 'NR==1 || $3==n'
+  # Match on the ISSUE token itself, not a fixed column: Status values include
+  # "In progress" and "In review", which contain a space and shift every field
+  # after STATUS by one when awk splits on whitespace. The old `$3==n` checked
+  # the TYPE column and could never match; this checks for "#<n>" as a whole
+  # whitespace-delimited token wherever the row happens to put it.
+  cmd_list | awk -v n="#$1" 'NR==1 || $0 ~ ("[[:space:]]" n "[[:space:]]")'
 }
 
 cmd_close() {

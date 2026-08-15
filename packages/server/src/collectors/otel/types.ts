@@ -150,10 +150,16 @@ export const exportTraceRequestSchema = z
   .passthrough()
 export type ExportTraceRequest = z.infer<typeof exportTraceRequestSchema>
 
-/** Extracts the one populated field of an `AnyValue`, stringified. */
+/**
+ * Extracts the one populated field of an `AnyValue`, stringified. An empty
+ * `stringValue` is treated as absent, not as an empty string: exporters that
+ * write `""` rather than omitting the key (codex's `parentSpanId` on a root
+ * span, #510) would otherwise ride straight through into
+ * `nonEmptyString.nullable()` core schemas and throw a `ZodError`.
+ */
 export function anyValueToString(value: OtlpAnyValue | undefined): string | undefined {
   if (!value) return undefined
-  if (value.stringValue !== undefined) return value.stringValue
+  if (value.stringValue !== undefined) return value.stringValue || undefined
   if (value.intValue !== undefined) return String(value.intValue)
   if (value.doubleValue !== undefined) return String(value.doubleValue)
   if (value.boolValue !== undefined) return String(value.boolValue)

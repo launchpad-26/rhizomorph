@@ -2,8 +2,9 @@ import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { grammarFor, type TurnEntry } from './turn-grammar.js'
+import { type TurnEntry } from './turn-grammar.js'
 import { CLAUDE_JSONL_GRAMMAR, COMPLETING_STOP_REASONS, CONVERSATIONAL_TYPES } from './turn-grammar-claude.js'
+import { parseAssistantLine } from './parse-session-line.js'
 import { scanTurnShape } from './turn-shape.js'
 
 /**
@@ -145,18 +146,23 @@ describe('the claude JSONL turn grammar', () => {
   })
 })
 
-describe('the grammar registry (the pluggable seam)', () => {
-  it('answers for claude', () => {
-    expect(grammarFor('claude')).toBe(CLAUDE_JSONL_GRAMMAR)
+describe('the claude JSONL grammar bundles extraction too (prd26 ruling 5 / ADR-0017)', () => {
+  it('reaches the exact same tested extraction through the seam as the direct export', () => {
+    // Not a re-implementation that could drift from `parseAssistantLine` —
+    // the same function reference, so `parse-session-line.test.ts`'s own
+    // coverage of tokens/model/tool facts is coverage of this wiring too.
+    expect(CLAUDE_JSONL_GRAMMAR.extractFacts).toBe(parseAssistantLine)
   })
 
-  it('answers null for a dialect nobody has captured — never claude\'s eyes on another CLI', () => {
-    // prd15 sequences codex and pi behind captures. Falling back to claude
-    // would read a codex rollout through the wrong grammar and produce
-    // confident nonsense; a null is the honest gap the caller must voice.
-    for (const cli of ['codex', 'pi', 'gemini', 'openclaw', '', 'toString', 'constructor']) {
-      expect(grammarFor(cli)).toBeNull()
-    }
+  it('extracts real usage/model/tool facts through the grammar object, from a real capture', () => {
+    const lines = fixtureLines('worker-2-core.jsonl')
+    const facts = CLAUDE_JSONL_GRAMMAR.extractFacts(lines[0] as string)
+    expect(facts).toMatchObject({ model: 'claude-opus-5', toolUses: [] })
+    expect(facts?.tokens).toEqual({ input: 2, output: 250, cacheRead: 21093, cacheCreation: 7612 })
+  })
+
+  it('extracts null for a line that carries no conversation, same as classify', () => {
+    expect(CLAUDE_JSONL_GRAMMAR.extractFacts('{"type":"ai-title","aiTitle":"x"}')).toBeNull()
   })
 })
 

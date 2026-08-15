@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
-import { INSTANCE_ATTRIBUTE, REFUSAL_THROTTLE_MS, registerOtelRoutes } from './otel.js'
+import { FAULT_THROTTLE_MS, INSTANCE_ATTRIBUTE, registerOtelRoutes } from './otel.js'
 
 /**
  * Injected-request integration test for the OTLP/HTTP receiver: real Fastify
@@ -341,6 +341,195 @@ describe('OTLP/HTTP receiver routes', () => {
     })
   })
 
+  describe('the bare-path fallback route (ADR-0018)', () => {
+    it('routes a bare POST carrying resourceMetrics to the same handling as /v1/metrics', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: declaring(fixture('metrics-token-and-cost.json'), OUR_INSTANCE),
+      })
+
+      expect(response.statusCode).toBe(200)
+      const costs = recorder.eventsSoFar().filter((e) => e.type === 'llm.cost')
+      expect(costs.length).toBeGreaterThan(0)
+      expect(refusals()).toHaveLength(0)
+    })
+
+    it('routes a bare POST carrying resourceLogs to the same handling as /v1/logs', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: declaring(fixture('logs-basic.json'), OUR_INSTANCE),
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(refusals()).toHaveLength(0)
+    })
+
+    it('routes a bare POST carrying resourceSpans to the same handling as /v1/traces', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: declaring(fixture('claude-code-2.1.220-traces-llm-request.json'), OUR_INSTANCE),
+      })
+
+      expect(response.statusCode).toBe(200)
+      const spans = recorder.eventsSoFar().filter((e) => e.type === 'trace.span')
+      expect(spans).toHaveLength(1)
+      expect(spans[0]?.source).toBe('otel')
+      expect(refusals()).toHaveLength(0)
+    })
+
+    it('refuses a bare POST from a foreign instance exactly as loudly as the native routes', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: declaring(fixture('metrics-token-and-cost.json'), 'factory-rhizomorph-77'),
+      })
+
+      expect(response.statusCode).toBe(403)
+      expect(refusals()[0]?.payload).toMatchObject({ instance: 'factory-rhizomorph-77' })
+      expect(recorder.eventsSoFar().filter((e) => e.type === 'llm.cost')).toHaveLength(0)
+    })
+
+    it('refuses a bare POST naming none of resourceMetrics/resourceLogs/resourceSpans, by name, without crashing', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: { someOtherShape: [] },
+      })
+
+      expect(response.statusCode).toBe(400)
+      expect(response.json()).toMatchObject({
+        error: expect.stringContaining('expected exactly one of resourceMetrics, resourceLogs, resourceSpans'),
+      })
+      const errors = recorder.eventsSoFar().filter((e) => e.type === 'collector.error')
+      expect(errors).toHaveLength(1)
+      expect(errors[0]?.payload).toMatchObject({ collector: 'otel' })
+      expect(refusals()).toHaveLength(0)
+    })
+
+    it('refuses a bare POST naming more than one shape at once, rather than guessing which to parse, and names both in the detail', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: {
+          ...declaring(fixture('metrics-token-and-cost.json'), OUR_INSTANCE),
+          ...declaring(fixture('logs-basic.json'), OUR_INSTANCE),
+        },
+      })
+
+      expect(response.statusCode).toBe(400)
+      const body = response.json() as { error: string }
+      expect(body.error).toContain('ambiguous OTLP body')
+      expect(body.error).toContain('resourceMetrics')
+      expect(body.error).toContain('resourceLogs')
+      const errors = recorder.eventsSoFar().filter((e) => e.type === 'collector.error')
+      expect(errors).toHaveLength(1)
+      expect(recorder.eventsSoFar().filter((e) => e.type === 'llm.cost')).toHaveLength(0)
+    })
+
+    /**
+     * The gate fix this issue's review found (#321): `classifyBareBody` used
+     * to filter on `Array.isArray(body[key])`, so a *named* key with the
+     * wrong-shaped value was invisible to it — a body carrying a valid,
+     * instance-tagged metrics export **and** a bogus, non-array `resourceLogs`
+     * routed straight past the second key as if it were never there, landing
+     * as an ordinary 200 with the metrics events recorded and the malformed
+     * `resourceLogs` silently dropped (the metrics schema's `.passthrough()`
+     * lets an unrelated key ride along unexamined). Presence (`!==
+     * undefined`) sees both named keys and refuses the body as ambiguous
+     * instead — the same all-or-nothing posture `foreignInstance` already
+     * takes for a body naming two instances.
+     */
+    it('refuses a bare POST naming a valid metrics shape alongside a wrongly-shaped resourceLogs key, rather than routing past the second key unseen', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: {
+          ...declaring(fixture('metrics-token-and-cost.json'), OUR_INSTANCE),
+          resourceLogs: 'not-an-array',
+        },
+      })
+
+      expect(response.statusCode).toBe(400)
+      const body = response.json() as { error: string }
+      expect(body.error).toContain('ambiguous OTLP body')
+      const errors = recorder.eventsSoFar().filter((e) => e.type === 'collector.error')
+      expect(errors).toHaveLength(1)
+      expect(recorder.eventsSoFar().filter((e) => e.type === 'llm.usage' || e.type === 'llm.cost')).toHaveLength(0)
+    })
+
+    it('refuses a bare foreign-instance POST carrying resourceLogs, not only resourceMetrics', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: declaring(fixture('logs-basic.json'), 'factory-rhizomorph-77'),
+      })
+
+      expect(response.statusCode).toBe(403)
+      expect(refusals()[0]?.payload).toMatchObject({ instance: 'factory-rhizomorph-77' })
+    })
+
+    it('refuses a bare POST with an empty resourceMetrics array exactly like the native route — no identity is not our identity', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        payload: { resourceMetrics: [] },
+      })
+
+      expect(response.statusCode).toBe(403)
+      expect(refusals()[0]?.payload).toMatchObject({ instance: null, count: 1 })
+    })
+
+    it('refuses a bare POST whose body is a scalar JSON value, naming that it is not a JSON object', async () => {
+      const app = makeApp()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        payload: '42',
+      })
+
+      expect(response.statusCode).toBe(400)
+      expect(response.json()).toMatchObject({ error: 'unrecognized OTLP body: not a JSON object' })
+      const errors = recorder.eventsSoFar().filter((e) => e.type === 'collector.error')
+      expect(errors).toHaveLength(1)
+    })
+  })
+
+  describe('FAULT_THROTTLE_MS', () => {
+    /**
+     * Every throttle assertion in this file is written relative to the
+     * constant (`+ FAULT_THROTTLE_MS - 1`, `+ FAULT_THROTTLE_MS`), so none of
+     * them would notice the window shrinking — a test suite that can't fail
+     * for the reason it claims (AGENTS.md's "what mutation would this test
+     * survive?"). This pins the actual value both throttles below share.
+     */
+    it('is exactly one minute', () => {
+      expect(FAULT_THROTTLE_MS).toBe(60_000)
+    })
+  })
+
   describe('the refusal throttle', () => {
     /**
      * A misconfigured fleet exports every few seconds; the log must show one
@@ -380,20 +569,20 @@ describe('OTLP/HTTP receiver routes', () => {
       expect(refusals()[0]?.payload).toMatchObject({ instance: 'factory-rhizomorph-77', count: 1 })
 
       // One millisecond inside the window: refused, still silent in the log.
-      clock.ms = start + REFUSAL_THROTTLE_MS - 1
+      clock.ms = start + FAULT_THROTTLE_MS - 1
       expect((await post(app, 'factory-rhizomorph-77')).statusCode).toBe(403)
       expect(refusals()).toHaveLength(1)
 
       // The moment the window closes: one more event, counting every post
       // swallowed since the last one (four) plus this one.
-      clock.ms = start + REFUSAL_THROTTLE_MS
+      clock.ms = start + FAULT_THROTTLE_MS
       expect((await post(app, 'factory-rhizomorph-77')).statusCode).toBe(403)
       expect(refusals()).toHaveLength(2)
       expect(refusals()[1]?.payload).toMatchObject({
         instance: 'factory-rhizomorph-77',
         count: 5,
       })
-      expect(refusals()[1]?.ts).toBe(start + REFUSAL_THROTTLE_MS)
+      expect(refusals()[1]?.ts).toBe(start + FAULT_THROTTLE_MS)
     })
 
     it('throttles per offender, so a second misconfigured instance is still heard immediately', async () => {
@@ -430,6 +619,202 @@ describe('OTLP/HTTP receiver routes', () => {
 
       expect(refusals()).toHaveLength(0)
       expect(recorder.eventsSoFar().filter((e) => e.type === 'llm.cost')).toHaveLength(perPost * 3)
+    })
+  })
+
+  describe('the collector.error fault throttle (#472)', () => {
+    /**
+     * A misconfigured exporter posts the identical malformed body every few
+     * seconds; the log must show one standing fault carrying a count, not
+     * one event per POST — the same discipline the refusal throttle above
+     * already has, generalised to route-level malformed-body faults. Own
+     * Fastify instance so the throttle's clock is injected.
+     */
+    function appWithClock(clock: { ms: number }) {
+      const app = Fastify()
+      registerOtelRoutes(
+        app,
+        { repoPath: '/repo', repoName: 'repo', sessionDir: dir, recorder },
+        { now: () => clock.ms },
+      )
+      return app
+    }
+
+    function collectorErrors(): Array<EventOf<'collector.error'>> {
+      return recorder
+        .eventsSoFar()
+        .filter((event): event is EventOf<'collector.error'> => event.type === 'collector.error')
+    }
+
+    async function postMalformedMetrics(app: ReturnType<typeof Fastify>) {
+      return await app.inject({ method: 'POST', url: '/v1/metrics', payload: fixture('metrics-malformed.json') })
+    }
+
+    async function postMalformedLogs(app: ReturnType<typeof Fastify>) {
+      return await app.inject({ method: 'POST', url: '/v1/logs', payload: fixture('logs-malformed.json') })
+    }
+
+    async function postMalformedTraces(app: ReturnType<typeof Fastify>) {
+      return await app.inject({ method: 'POST', url: '/v1/traces', payload: { notResourceSpans: [] } })
+    }
+
+    it('coalesces repeated posts of the identical fault into one event carrying a count, exactly like telemetry.refused', async () => {
+      const start = 5_000
+      const clock = { ms: start }
+      const app = appWithClock(clock)
+
+      for (let i = 0; i < 4; i += 1) {
+        clock.ms = start + i * 1_000
+        expect((await postMalformedMetrics(app)).statusCode).toBe(400)
+      }
+
+      // Four malformed posts, one event: the first, standing alone.
+      expect(collectorErrors()).toHaveLength(1)
+      expect(collectorErrors()[0]?.payload).toMatchObject({
+        collector: 'otel',
+        message: 'malformed OTLP metrics export request',
+        count: 1,
+      })
+
+      // One millisecond inside the window: still 400, still silent in the log.
+      clock.ms = start + FAULT_THROTTLE_MS - 1
+      expect((await postMalformedMetrics(app)).statusCode).toBe(400)
+      expect(collectorErrors()).toHaveLength(1)
+
+      // The moment the window closes: one more event, counting every post
+      // swallowed since the last one (four) plus this one.
+      clock.ms = start + FAULT_THROTTLE_MS
+      expect((await postMalformedMetrics(app)).statusCode).toBe(400)
+      expect(collectorErrors()).toHaveLength(2)
+      expect(collectorErrors()[1]?.payload).toMatchObject({
+        message: 'malformed OTLP metrics export request',
+        count: 5,
+      })
+      expect(collectorErrors()[1]?.ts).toBe(start + FAULT_THROTTLE_MS)
+    })
+
+    it('throttles per fault signature, so a different fault on the same route is still heard immediately', async () => {
+      const clock = { ms: 5_000 }
+      const app = appWithClock(clock)
+
+      await postMalformedMetrics(app)
+      await postMalformedMetrics(app)
+      const invalidJson = await app.inject({
+        method: 'POST',
+        url: '/v1/metrics',
+        headers: { 'content-type': 'application/json' },
+        payload: '{ this is not valid json',
+      })
+
+      expect(invalidJson.statusCode).toBe(400)
+      expect(collectorErrors().map((event) => event.payload.message)).toEqual([
+        'malformed OTLP metrics export request',
+        'malformed OTLP request body',
+      ])
+      for (const event of collectorErrors()) {
+        expect(event.payload.count).toBe(1)
+      }
+    })
+
+    it('never throttles a valid post: acceptance keeps recording normally after repeated malformed posts of the same fault', async () => {
+      const clock = { ms: 5_000 }
+      const app = appWithClock(clock)
+
+      await postMalformedMetrics(app)
+      clock.ms += 1_000
+      await postMalformedMetrics(app)
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/metrics',
+        payload: declaring(fixture('metrics-token-and-cost.json'), OUR_INSTANCE),
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(collectorErrors()).toHaveLength(1)
+      expect(recorder.eventsSoFar().filter((e) => e.type === 'llm.cost').length).toBeGreaterThan(0)
+    })
+
+    /**
+     * The metrics case above proves coalescing over a clock; this and the
+     * traces test below prove the two sites whose collector.error event
+     * arrives pre-built from the parser (`result.events`, intercepted by
+     * `event.type === 'collector.error'` in otel.ts) are wired into the same
+     * throttle, not just forwarded verbatim. Without this test, reverting
+     * that interception to a plain `ctx.recorder.record(event)` loop leaves
+     * every other otel.test.ts case green.
+     */
+    it('coalesces repeated malformed logs posts across a throttle window, the second recorded event carrying the count', async () => {
+      const start = 5_000
+      const clock = { ms: start }
+      const app = appWithClock(clock)
+
+      // First post of this fault: recorded immediately, standing alone.
+      expect((await postMalformedLogs(app)).statusCode).toBe(400)
+      expect(collectorErrors()).toHaveLength(1)
+      expect(collectorErrors()[0]?.payload).toMatchObject({
+        collector: 'otel',
+        message: 'malformed OTLP logs export request',
+        count: 1,
+      })
+
+      // Second post, still inside the window: suppressed, not a new event.
+      clock.ms = start + 1_000
+      expect((await postMalformedLogs(app)).statusCode).toBe(400)
+      expect(collectorErrors()).toHaveLength(1)
+
+      // The window closes: one more event, carrying the one post it swallowed
+      // plus this one.
+      clock.ms = start + FAULT_THROTTLE_MS
+      expect((await postMalformedLogs(app)).statusCode).toBe(400)
+      expect(collectorErrors()).toHaveLength(2)
+      expect(collectorErrors()[1]?.payload).toMatchObject({
+        message: 'malformed OTLP logs export request',
+        count: 2,
+      })
+    })
+
+    it('coalesces repeated malformed traces posts across a throttle window, the second recorded event carrying the count', async () => {
+      const start = 5_000
+      const clock = { ms: start }
+      const app = appWithClock(clock)
+
+      expect((await postMalformedTraces(app)).statusCode).toBe(400)
+      expect(collectorErrors()).toHaveLength(1)
+      expect(collectorErrors()[0]?.payload).toMatchObject({
+        collector: 'otel',
+        message: 'malformed OTLP traces export request',
+        count: 1,
+      })
+
+      clock.ms = start + 1_000
+      expect((await postMalformedTraces(app)).statusCode).toBe(400)
+      expect(collectorErrors()).toHaveLength(1)
+
+      clock.ms = start + FAULT_THROTTLE_MS
+      expect((await postMalformedTraces(app)).statusCode).toBe(400)
+      expect(collectorErrors()).toHaveLength(2)
+      expect(collectorErrors()[1]?.payload).toMatchObject({
+        message: 'malformed OTLP traces export request',
+        count: 2,
+      })
+    })
+
+    it('keys the bare route\'s unrecognized-body fault separately from a native route\'s malformed-body fault', async () => {
+      const clock = { ms: 5_000 }
+      const app = appWithClock(clock)
+
+      await postMalformedMetrics(app)
+      const bare = await app.inject({ method: 'POST', url: '/', payload: { someOtherShape: [] } })
+
+      expect(bare.statusCode).toBe(400)
+      expect(collectorErrors().map((event) => event.payload.message)).toEqual([
+        'malformed OTLP metrics export request',
+        'unrecognized OTLP body at the bare endpoint',
+      ])
+      for (const event of collectorErrors()) {
+        expect(event.payload.count).toBe(1)
+      }
     })
   })
 })

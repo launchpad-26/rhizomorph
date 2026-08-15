@@ -6,6 +6,7 @@ import type { CollectorContext, Exec, ExecResult } from '@rhizomorph/core'
 import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createSessionlogCollector } from './collector.js'
+import type { AssistantLineFacts, TurnGrammar } from './turn-grammar.js'
 import { worktreePathToProjectSlug } from './worktree-slug.js'
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -923,5 +924,91 @@ describe('createSessionlogCollector', () => {
     const usage = result.events.filter((e) => e.type === 'llm.usage')
     expect(usage).toHaveLength(1)
     expect(usage[0]?.payload).toMatchObject({ role: 'conductor', lane: 'conductor', worktreePath: rootPath })
+  })
+
+  it('reads classification and extraction through the injected turnGrammar, not the claude parser (#508)', async () => {
+    const worktreePath = '/fake/worktrees/alpha'
+    const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
+    await mkdir(projectDir, { recursive: true })
+    // Deliberately not valid Claude Code JSONL: CLAUDE_JSONL_GRAMMAR fails to
+    // JSON.parse this and classifies/extracts nothing from it (both return
+    // null on an unparsable line, same as an empty one). Any lane reading or
+    // event below can only have come from the injected fake grammar below —
+    // proof the collector's call sites read through `config.turnGrammar`
+    // rather than the claude dialect directly, for both classify and extractFacts.
+    await writeFile(path.join(projectDir, 'fake-session.jsonl'), 'not real jsonl\n', 'utf8')
+
+    const fakeFacts: AssistantLineFacts = {
+      sessionId: 'fake-session-id',
+      cwd: null,
+      gitBranch: 'fake-branch',
+      requestId: 'fake-req-1',
+      model: 'fake-model',
+      tokens: { input: 1, output: 2, cacheRead: 3, cacheCreation: 4 },
+      toolUses: [{ tool: 'FakeTool', toolUseId: 'fake-tool-1', filePath: null }],
+      timestamp: 555,
+      isSidechain: false,
+    }
+    // Recorded, not just returned: proves not only that the injected grammar
+    // is READ but WHAT it is handed. An isolated call-site bug that still
+    // reads *some* raw line through the injected grammar (e.g. an off-by-one
+    // passing the previous line) would sail through a fake that ignores its
+    // argument; it cannot sail through an assertion on the argument itself.
+    const seenLines: { classify: string[]; extractFacts: string[] } = { classify: [], extractFacts: [] }
+    const fakeGrammar: TurnGrammar = {
+      cli: 'claude',
+      capture: 'fake-test-grammar (#508, not a real capture)',
+      classify: (rawLine) => {
+        seenLines.classify.push(rawLine)
+        return {
+          role: 'assistant',
+          turnComplete: true,
+          opensToolUseIds: [],
+          sidechain: false,
+          ts: 555,
+        }
+      },
+      extractFacts: (rawLine) => {
+        seenLines.extractFacts.push(rawLine)
+        return fakeFacts
+      },
+    }
+
+    const collector = createSessionlogCollector({
+      claudeProjectsRoot: root,
+      backfill: true,
+      turnGrammar: fakeGrammar,
+    })
+    const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+
+    // Both halves are read off the SAME raw line, the exact line the fixture
+    // wrote (the trailing newline is a line terminator, not part of the
+    // line) — the reason ADR-0017 gives for one interface over two.
+    expect(seenLines.classify).toEqual(['not real jsonl'])
+    expect(seenLines.extractFacts).toEqual(['not real jsonl'])
+
+    // extractFacts half: the emitted events reflect the fake facts, not
+    // anything the real claude parser could have read off this garbage line.
+    const usage = result.events.filter((e) => e.type === 'llm.usage')
+    const tools = result.events.filter((e) => e.type === 'tool.activity')
+    expect(usage).toHaveLength(1)
+    expect(usage[0]?.payload).toMatchObject({
+      requestId: 'fake-req-1',
+      model: 'fake-model',
+      tokens: { input: 1, output: 2, cacheRead: 3, cacheCreation: 4 },
+      branch: 'fake-branch',
+    })
+    expect(tools).toHaveLength(1)
+    expect(tools[0]?.payload).toMatchObject({ tool: 'FakeTool', toolUseId: 'fake-tool-1' })
+
+    // classify half: the fake grammar's turn-complete entry drove the fold —
+    // the real grammar classifies this line as null (unparsable), which would
+    // leave the shape 'empty' and the lane unreadable (deriveLaneState returns
+    // null for 'empty'). A 'working' reading here can only have come from the
+    // injected classify.
+    const lanes = result.nextSnapshot.lanes ?? {}
+    const laneStates = Object.values(lanes).map((lane) => lane.state)
+    expect(laneStates).toEqual(['working'])
   })
 })

@@ -110,7 +110,22 @@ export function parseTracesExport(body: unknown, emitter: OtelEmitter): ParseTra
     const resourceAttrs = resourceSpans.resource?.attributes
     for (const scopeSpans of resourceSpans.scopeSpans ?? []) {
       for (const span of scopeSpans.spans ?? []) {
-        events.push(buildSpanEvent(emitter, resourceAttrs, span))
+        // #510: the known "" coercions are fixed above, but this loop must
+        // not let an *unforeseen* throw (a future attribute shape, a schema
+        // change) take down every other span in the request the way one
+        // parentSpanId did — that would repeat the exact defect this issue
+        // fixes, just for a different field. One bad span degrades to its
+        // own collector.error, same as the other malformed-span cases below.
+        try {
+          events.push(buildSpanEvent(emitter, resourceAttrs, span))
+        } catch (err) {
+          events.push(
+            emitter.emit('collector.error', {
+              collector: 'otel',
+              message: `span "${span.name ?? 'unknown'}" failed to parse: ${err instanceof Error ? err.message : String(err)}`,
+            }),
+          )
+        }
       }
     }
   }
@@ -153,7 +168,10 @@ function buildSpanEvent(emitter: OtelEmitter, resourceAttrs: OtlpKeyValue[] | un
 
     traceId,
     spanId,
-    parentSpanId: span.parentSpanId ?? null,
+    // codex writes an explicit "" for a root span rather than omitting the
+    // key (#510) — that's a real root span, not a malformed one, so an empty
+    // string means the same thing as absent here.
+    parentSpanId: span.parentSpanId || null,
 
     name,
     kind: classify(name),

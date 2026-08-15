@@ -1,13 +1,12 @@
-import { createEvent, type RhizomorphEvent } from '@rhizomorph/core'
+import { createEvent, specFor, type RhizomorphEvent } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ModeProvider, useReplay } from '../app/ModeContext.js'
 import { STREAM_SOURCE_KEYS, StreamProvider, useStream } from '../app/StreamContext.js'
-import { specFor } from '../fleet/fixtures.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
 import type { FetchLike as ReplayFetchLike } from '../replay/api.js'
-import { SampleFleetControl } from './sample.js'
+import { SampleFleetControl, sampleUninstrumented } from './sample.js'
 
 /**
  * THE SAMPLE-FLEET AFFORDANCE'S OWN LAW (#259, prd-19 ruling 6): activating
@@ -134,6 +133,39 @@ describe('the sample-fleet affordance', () => {
     expect(screen.getByTestId('connect-sample-return')).toBeInTheDocument()
   })
 
+  /**
+   * #411: from `pathology`, the only *offered* route was "return to live" —
+   * reaching `fleet20` meant going live first and clicking activate again.
+   * The keyboard shortcut already worked from any state (`useFixtureKeys`
+   * never gates on `source`); the bug was that the banner branch didn't say
+   * so. This drives the fix by the same route the key-doc line now documents
+   * — pressing `2` — and never touches `connect-sample-return`.
+   */
+  it('reaches fleet20 straight from pathology, key-doc line and all, without returning to live first', async () => {
+    await renderControl(<SourceDriver />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('drive-pathology'))
+    })
+
+    const bannerWhilePathology = screen.getByTestId('connect-sample-banner').textContent ?? ''
+    expect(bannerWhilePathology).toContain(specFor('pathology').provenance)
+
+    // The key-doc line is the whole point of #411: it must be visible from
+    // the state it was missing from, naming the very key pressed next.
+    const keysWhilePathology = screen.getByTestId('connect-sample-keys').textContent ?? ''
+    expect(keysWhilePathology).toContain('2 sample fleet')
+    expect(screen.queryByTestId('connect-sample-return')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: '2' })
+    })
+
+    const bannerWhileFleet20 = screen.getByTestId('connect-sample-banner').textContent ?? ''
+    expect(bannerWhileFleet20).toContain(specFor('fleet20').provenance)
+    expect(bannerWhileFleet20).not.toContain(specFor('pathology').provenance)
+  })
+
   /** THE LAW, SECOND HALF: returning to live restores `source === 'live'` without a reload. */
   it('restores the live source, with no reload, the instant "return to live" is clicked', async () => {
     await renderControl()
@@ -218,5 +250,48 @@ describe('the sample-fleet affordance, while replaying', () => {
     expect(screen.queryByTestId('connect-sample-activate')).not.toBeInTheDocument()
     expect(screen.queryByTestId('connect-sample-return')).not.toBeInTheDocument()
     expect(screen.queryByTestId('connect-sample-keys')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * THE SAMPLE FLEET'S OWN UNINSTRUMENTED SESSIONS (#520).
+ *
+ * The 20-lane fixture is all-clear and `links.ts` clears the enumeration off a
+ * fixture fold outright, so without these the sample page would render the
+ * whole enumeration as empty space — the one thing a demonstration must not
+ * do. What is asserted here is that they are the SAME SHAPE a real witness
+ * takes (one renderer, no fixture-only branch in the data) and that every one
+ * of them is visibly synthetic.
+ */
+describe('the sample fleet\'s uninstrumented sessions (#520)', () => {
+  it('names the PRD\'s own two shapes, each with a preview to recognise it by', () => {
+    const { sessions, previews } = sampleUninstrumented('4317')
+
+    expect(sessions.map((session) => session.role)).toEqual(['conductor', 'worker'])
+    for (const session of sessions) {
+      // Every id says what it is: nobody reading this page — or a screenshot
+      // of it — should have to work out which fleet they are looking at.
+      expect(session.sessionId, session.sessionId).toMatch(/^sample-/)
+      expect(previews[session.sessionId]?.text, session.sessionId).toBeTruthy()
+      expect(session.place.branch, session.sessionId).not.toBeNull()
+    }
+    // A preview for each session and no orphans — the panel reads this map by
+    // session id, so an entry keyed by anything else is an invisible one.
+    expect(Object.keys(previews).sort()).toEqual(sessions.map((session) => session.sessionId).sort())
+  })
+
+  /**
+   * Synthetic in its lanes and its ids, never in its recipe: the commands are
+   * built by the same builders a real witness's are, from the live port. They
+   * are not rendered under a fixture (`index.tsx` withholds the act), and this
+   * is what makes that a decision about the UI rather than about the data.
+   */
+  it('builds its commands with the real builders, from the port it is given', () => {
+    const [conductor] = sampleUninstrumented('9999').sessions
+
+    expect(conductor?.envCommand).toBe('rhizomorph env conductor --role conductor --port 9999')
+    expect(conductor?.resumeCommand).toBe(
+      `eval "$(rhizomorph env conductor --role conductor --port 9999)" && claude --resume ${conductor?.sessionId}`,
+    )
   })
 })

@@ -40,6 +40,8 @@
     "./recordings/capability": "./src/recordings/capability.ts",
     "./recordings/capability-guidance": "./src/recordings/capability-guidance.ts",
     "./replay/rotate": "./src/replay/rotate.ts",
-    "./lab/launch": "./src/lab/launch/launch.ts"
+    "./lab/launch": "./src/lab/launch/launch.ts",
+    "./concierge/instrument": "./src/concierge/instrument.ts",
+    "./concierge/clone": "./src/concierge/clone.ts"
   }
 }

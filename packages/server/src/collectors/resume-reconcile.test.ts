@@ -1,6 +1,15 @@
-import type { Collector, CollectorContext, CollectorState, EventType, Exec, PayloadOf } from '@rhizomorph/core'
+import type {
+  Collector,
+  CollectorContext,
+  CollectorState,
+  EventType,
+  Exec,
+  PayloadOf,
+  PollResult,
+} from '@rhizomorph/core'
 import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
+import type { GitSnapshot } from './git/types.js'
 import { withResilience, type ResilientSnapshot } from './resilience.js'
 import { withAgentReconciliation, withBranchReconciliation, withResumeReconciliation } from './resume-reconcile.js'
 
@@ -146,28 +155,43 @@ describe('withResumeReconciliation — fold and memory already agree', () => {
   })
 })
 
-interface FakeBranchSnapshot {
-  branches: Record<string, { head: string }>
+// #454: withBranchReconciliation's signature now names GitSnapshot
+// concretely rather than a generic bound, so every fake collector here has
+// to be a real (if minimal) GitSnapshot, not just "something with branches."
+function branchState(head: string): GitSnapshot['branches'][string] {
+  return { head, aheadOfMain: null, behindMain: null }
 }
 
-function fakeBranchCollector(
+function fakeGitSnapshot(branches: GitSnapshot['branches']): GitSnapshot {
+  return {
+    disabled: false,
+    mainBranch: 'main',
+    mainBranchGapVoiced: false,
+    worktrees: {},
+    branches,
+    dirty: {},
+    dirtyFailures: {},
+  }
+}
+
+function fakeGitCollector(
   name: string,
-  responses: readonly Record<string, { head: string }>[],
-): Collector<FakeBranchSnapshot> {
+  responses: readonly GitSnapshot['branches'][],
+): Collector<GitSnapshot> {
   const branchQueue = [...responses]
   return {
     name,
-    initialSnapshot: (): FakeBranchSnapshot => ({ branches: {} }),
-    poll: (_prev: FakeBranchSnapshot, _ctx: CollectorContext) => {
+    initialSnapshot: (): GitSnapshot => fakeGitSnapshot({}),
+    poll: (_prev: GitSnapshot, _ctx: CollectorContext) => {
       const branches = branchQueue.shift() ?? {}
-      return { nextSnapshot: { branches }, events: [] }
+      return { nextSnapshot: fakeGitSnapshot(branches), events: [] }
     },
   }
 }
 
 describe('withBranchReconciliation — fold holds ghost branches, reality has moved on', () => {
   it('emits one branch.removed per ghost the fold believes live but for-each-ref lacks', async () => {
-    const inner = fakeBranchCollector('git', [{ main: { head: 'aaa' } }])
+    const inner = fakeGitCollector('git', [{ main: branchState('aaa') }])
     const reconciled = withBranchReconciliation(inner, new Set(['132-old-feature', '134-something', 'main']))
 
     const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
@@ -180,7 +204,7 @@ describe('withBranchReconciliation — fold holds ghost branches, reality has mo
   })
 
   it('reconciles only once — a later poll does not re-emit for the same ghosts', async () => {
-    const inner = fakeBranchCollector('git', [{ main: { head: 'aaa' } }, { main: { head: 'aaa' } }])
+    const inner = fakeGitCollector('git', [{ main: branchState('aaa') }, { main: branchState('aaa') }])
     const reconciled = withBranchReconciliation(inner, new Set(['132-old-feature']))
 
     const first = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
@@ -194,11 +218,11 @@ describe('withBranchReconciliation — fold holds ghost branches, reality has mo
     // The inner collector's own diff (e.g. #137's snapshot-diff) got to
     // '132-old-feature' independently, in the same poll — reconciliation
     // must not pile a second branch.removed on top of it.
-    const inner: Collector<FakeBranchSnapshot> = {
+    const inner: Collector<GitSnapshot> = {
       name: 'git',
-      initialSnapshot: (): FakeBranchSnapshot => ({ branches: {} }),
+      initialSnapshot: (): GitSnapshot => fakeGitSnapshot({}),
       poll: (_prev, ctx) => ({
-        nextSnapshot: { branches: {} },
+        nextSnapshot: fakeGitSnapshot({}),
         events: [ctx.emit('branch.removed', { branch: '132-old-feature' })],
       }),
     }
@@ -221,9 +245,9 @@ describe('withBranchReconciliation — the first poll after a resume fails trans
   // retired there.
   it('does not latch on a failed poll, and retires the ghost on the next healthy poll', async () => {
     let call = 0
-    const inner: Collector<FakeBranchSnapshot> = {
+    const inner: Collector<GitSnapshot> = {
       name: 'git',
-      initialSnapshot: (): FakeBranchSnapshot => ({ branches: {} }),
+      initialSnapshot: (): GitSnapshot => fakeGitSnapshot({}),
       poll: (prev, ctx) => {
         call += 1
         if (call === 1) {
@@ -237,7 +261,7 @@ describe('withBranchReconciliation — the first poll after a resume fails trans
             ],
           }
         }
-        return { nextSnapshot: { branches: {} }, events: [] }
+        return { nextSnapshot: fakeGitSnapshot({}), events: [] }
       },
     }
     const reconciled = withBranchReconciliation(inner, new Set(['132-old-feature']))
@@ -263,9 +287,9 @@ describe('withBranchReconciliation — the first poll after a resume hits a for-
   // poll, and only then should it be retired.
   it('does not latch on a collector.error-only poll, and retires only the real ghost on the next healthy poll', async () => {
     let call = 0
-    const inner: Collector<FakeBranchSnapshot> = {
+    const inner: Collector<GitSnapshot> = {
       name: 'git',
-      initialSnapshot: (): FakeBranchSnapshot => ({ branches: {} }),
+      initialSnapshot: (): GitSnapshot => fakeGitSnapshot({}),
       poll: (prev, ctx) => {
         call += 1
         if (call === 1) {
@@ -279,7 +303,7 @@ describe('withBranchReconciliation — the first poll after a resume hits a for-
             ],
           }
         }
-        return { nextSnapshot: { branches: { main: { head: 'aaa' } } }, events: [] }
+        return { nextSnapshot: fakeGitSnapshot({ main: branchState('aaa') }), events: [] }
       },
     }
     const reconciled = withBranchReconciliation(inner, new Set(['main', '132-old-feature']))
@@ -299,7 +323,7 @@ describe('withBranchReconciliation — the first poll after a resume hits a for-
 
 describe('withBranchReconciliation — fold and reality already agree', () => {
   it('passes through untouched when there is no folded branch history', async () => {
-    const inner = fakeBranchCollector('git', [{ main: { head: 'aaa' } }])
+    const inner = fakeGitCollector('git', [{ main: branchState('aaa') }])
     const reconciled = withBranchReconciliation(inner, undefined)
 
     const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
@@ -308,12 +332,66 @@ describe('withBranchReconciliation — fold and reality already agree', () => {
   })
 
   it('passes through untouched when every folded branch is still present in reality', async () => {
-    const inner = fakeBranchCollector('git', [{ main: { head: 'aaa' } }])
+    const inner = fakeGitCollector('git', [{ main: branchState('aaa') }])
     const reconciled = withBranchReconciliation(inner, new Set(['main']))
 
     const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
 
     expect(result.events).toHaveLength(0)
+  })
+})
+
+describe('withBranchReconciliation — #454, the observation contract is explicit', () => {
+  it('rejects a collector whose snapshot is not a GitSnapshot at compile time', () => {
+    interface NotAGitSnapshot {
+      branches: Record<string, unknown>
+    }
+    const notGit: Collector<NotAGitSnapshot> = {
+      name: 'not-git',
+      initialSnapshot: () => ({ branches: {} }),
+      poll: (prev) => ({ nextSnapshot: prev, events: [] }),
+    }
+
+    // @ts-expect-error — withBranchReconciliation is no longer generic over
+    // any `{ branches }` shape; only a real GitSnapshot type-checks. Before
+    // #454 this line compiled fine even though `notGit` never satisfied the
+    // identity-allocation contract the wrapper depends on.
+    withBranchReconciliation(notGit, new Set(['ghost']))
+  })
+
+  it('reports a loud collector.error instead of silently disabling reconciliation forever, when a poll returns unchanged branches with no explaining event', async () => {
+    // Models the exact hypothetical #449's re-verify finding warned about: a
+    // "nothing changed → return prevSnapshot" fast path that emits neither
+    // collector.disabled nor collector.error. Before #454's runtime backstop
+    // this poll would silently look like "not observed yet" forever — no
+    // event, no log line, and the ghost would never be retired.
+    let call = 0
+    const inner: Collector<GitSnapshot> = {
+      name: 'git',
+      initialSnapshot: (): GitSnapshot => fakeGitSnapshot({}),
+      poll: (prev, _ctx) => {
+        call += 1
+        if (call <= 2) return { nextSnapshot: prev, events: [] }
+        return { nextSnapshot: fakeGitSnapshot({}), events: [] }
+      },
+    }
+    const reconciled = withBranchReconciliation(inner, new Set(['132-old-feature']))
+
+    const first = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+    expect(first.events.map((event) => event.type)).toEqual(['collector.error'])
+    expect(first.events[0]?.payload).toMatchObject({ collector: 'git' })
+
+    // The violation recurs on the next poll too — it is not a one-shot
+    // report, since the contract is broken every tick until whatever
+    // regressed it is fixed.
+    const second = await reconciled.poll(first.nextSnapshot, makeContext(nullExec, 2000))
+    expect(second.events.map((event) => event.type)).toEqual(['collector.error'])
+
+    // The latch was never spent on either broken poll, so a poll that
+    // finally does allocate fresh branches still gets to reconcile.
+    const third = await reconciled.poll(second.nextSnapshot, makeContext(nullExec, 3000))
+    expect(third.events.map((event) => event.type)).toEqual(['branch.removed'])
+    expect(third.events[0]?.payload).toEqual({ branch: '132-old-feature' })
   })
 })
 
@@ -424,6 +502,39 @@ describe('withAgentReconciliation — the first poll after a resume fails transi
     const second = await reconciled.poll(first.nextSnapshot, makeContext(nullExec, 2000))
     expect(second.events.map((event) => event.type)).toEqual(['agent.removed'])
     expect(second.events[0]?.payload).toEqual({ handle: 'lane-alpha' })
+  })
+})
+
+describe('withAgentReconciliation — the gate asymmetry is not portable', () => {
+  // workmux/collector.ts:154 — the missing-binary path returns a *fresh*
+  // `agents: {}` alongside collector.disabled, not a carry-forward. Porting
+  // withBranchReconciliation's identity gate here would read that as "observed
+  // an empty roster" and retire every folded handle. The transient-failure test
+  // above cannot catch that: its fake returns `prev`, where both gates agree.
+  it('does not latch when a failed poll hands back a fresh empty roster', async () => {
+    let call = 0
+    const inner: Collector<FakeAgentSnapshot> = {
+      name: 'workmux',
+      initialSnapshot: (): FakeAgentSnapshot => ({ agents: {} }),
+      poll: (_prev: FakeAgentSnapshot, ctx: CollectorContext): PollResult<FakeAgentSnapshot> => {
+        call += 1
+        if (call === 1) {
+          return {
+            nextSnapshot: { agents: {} },
+            events: [ctx.emit('collector.disabled', { collector: 'workmux', reason: 'workmux binary not found' })],
+          }
+        }
+        return { nextSnapshot: { agents: { 'lane-alpha': { status: 'working' } } }, events: [] }
+      },
+    }
+    const reconciled = withAgentReconciliation(inner, new Set(['lane-alpha']))
+
+    const first = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+    expect(first.events.map((event) => event.type)).toEqual(['collector.disabled'])
+
+    // The handle is alive — a poll that never observed must not have retired it.
+    const second = await reconciled.poll(first.nextSnapshot, makeContext(nullExec, 2000))
+    expect(second.events).toEqual([])
   })
 })
 

@@ -39,4 +39,30 @@ describe('worktreePathToProjectSlug', () => {
   it('replaces every slash, underscore and dot, nothing else', () => {
     expect(worktreePathToProjectSlug('/a/b_c.d/e')).toBe('-a-b-c-d-e')
   })
+
+  /**
+   * **THE WINDOWS SLUG, AGAINST A REAL ONE** (ledger #11).
+   * `research/2026-08-14-cross-host-resume.md` reads
+   * `~/.claude/projects/C--Users-operator-agenticlaunchpad/` on a machine whose
+   * cwd was `C:\Users\operator\agenticlaunchpad` — so the drive colon and the
+   * backslashes take the same substitution `/`, `_` and `.` already take. This
+   * is the exact pair from the note, not a constructed example: before the
+   * mapping, this function returned the Windows path unchanged and would have
+   * looked for a transcript in a directory Claude Code never writes.
+   */
+  it('matches the real Windows slug from the cross-host-resume capture', () => {
+    expect(worktreePathToProjectSlug('C:\\Users\\lachl\\agenticlaunchpad')).toBe(
+      'C--Users-operator-agenticlaunchpad',
+    )
+  })
+
+  it('maps a backslash and a colon on their own, so neither rides on the other', () => {
+    expect(worktreePathToProjectSlug('a\\b')).toBe('a-b')
+    expect(worktreePathToProjectSlug('D:')).toBe('D-')
+  })
+
+  /** Still nothing else: the class is five characters, not "punctuation". */
+  it('leaves a dash, a space and a tilde exactly as they were', () => {
+    expect(worktreePathToProjectSlug('/home/j~ane/my project-1')).toBe('-home-j~ane-my project-1')
+  })
 })

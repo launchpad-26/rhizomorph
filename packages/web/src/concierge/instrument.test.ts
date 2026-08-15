@@ -1,0 +1,499 @@
+import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { CAPABILITY_META_NAME } from '../recordings/capability.js'
+import { INSTRUMENT_URL, type InstrumentFetchLike, requestInstrument } from './instrument.js'
+
+/**
+ * The app's fourth mutating call. Two things it must never do, both of which
+ * cost the operator a real process:
+ *
+ * - **Believe an answer it doesn't recognise.** An operator told their
+ *   conversation resumed, when it did not, goes looking for a process nothing
+ *   started — and, worse here than for rotation, may end the origin process on
+ *   the strength of it.
+ * - **Confuse "nothing to resume from" with "the request failed".** A 404 is
+ *   the ordinary case for a conversation that happened somewhere this
+ *   instrument was never told about; it comes back as a VALUE the UI can point
+ *   at a command with, not an exception a `catch` paints red.
+ */
+
+const SESSION_ID = 'sess-4210'
+const TEST_TOKEN = 'test-capability-token'
+
+/** Stands in for what `server/static.ts` stamps into `index.html` on a real boot (#249, ADR-0012). */
+beforeAll(() => {
+  const meta = document.createElement('meta')
+  meta.setAttribute('name', CAPABILITY_META_NAME)
+  meta.setAttribute('content', TEST_TOKEN)
+  document.head.appendChild(meta)
+})
+
+function answering(payload: unknown, status = 200): InstrumentFetchLike {
+  return async () => ({ ok: status >= 200 && status < 300, status, json: async () => payload })
+}
+
+const LAUNCHED = { harness: 'claude', mode: 'resume', migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'launched', pid: 4242 }
+
+describe('requestInstrument', () => {
+  it('asks the one route, with the one verb, carrying both headers and the resume body', async () => {
+    const fetchImpl = vi.fn(answering(LAUNCHED))
+
+    await requestInstrument({ sessionId: SESSION_ID }, fetchImpl)
+
+    expect(fetchImpl).toHaveBeenCalledWith(INSTRUMENT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-rhizomorph-capability': TEST_TOKEN },
+      body: JSON.stringify({ harness: 'claude', mode: 'resume', sessionId: SESSION_ID }),
+    })
+  })
+
+  it('returns the migration fact and the pid, under the SAME session id the caller asked for', async () => {
+    const outcome = await requestInstrument({ sessionId: SESSION_ID }, answering(LAUNCHED))
+
+    expect(outcome).toEqual({
+      kind: 'instrumented',
+      sessionId: SESSION_ID,
+      migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl', message: null },
+      telemetry: null,
+      spawn: { launched: true, via: 'detached', pid: 4242 },
+    })
+  })
+
+  it.each(['migrated', 'already-present', 'not-needed'] as const)(
+    'carries the migration fact through verbatim: %s',
+    async (kind) => {
+      const outcome = await requestInstrument(
+        { sessionId: SESSION_ID },
+        answering({ ...LAUNCHED, migration: { kind, at: '/home/u/.claude/projects/-repo/s.jsonl' } }),
+      )
+
+      expect(outcome).toEqual({
+        kind: 'instrumented',
+        sessionId: SESSION_ID,
+        migration: { kind, at: '/home/u/.claude/projects/-repo/s.jsonl', message: null },
+        telemetry: null,
+        spawn: { launched: true, via: 'detached', pid: 4242 },
+      })
+    },
+  )
+
+  /**
+   * The spawn failing is not the REQUEST failing — `api/concierge.ts` puts it
+   * in the 200 body deliberately, because by then the migration copy may
+   * already have run and that is a fact the operator has to be told.
+   */
+  it('reports a spawn that failed as an outcome, not a throw — the copy may already have happened', async () => {
+    const outcome = await requestInstrument(
+      { sessionId: SESSION_ID },
+      answering({ ...LAUNCHED, migration: { kind: 'already-present', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'error', pid: undefined, message: 'ENOENT claude' }),
+    )
+
+    expect(outcome).toEqual({
+      kind: 'instrumented',
+      sessionId: SESSION_ID,
+      migration: { kind: 'already-present', at: '/home/u/.claude/projects/-repo/s.jsonl', message: null },
+      telemetry: null,
+      spawn: { launched: false, message: 'ENOENT claude' },
+    })
+  })
+
+  /**
+   * #532: the answer this client did not know how to read, and the one it will
+   * meet most often on a machine with no tmux. `kind: 'died'` means the
+   * process WAS made and was gone again a moment later — which for a detached,
+   * TTY-less `claude` is what always happened, while the server called it
+   * `launched` and this parser dutifully reported a pid nothing was running
+   * under. Read as a non-launch carrying the server's own account.
+   */
+  it('reports a process that started and died as a non-launch, not as an unreadable answer', async () => {
+    const outcome = await requestInstrument(
+      { sessionId: SESSION_ID },
+      answering({
+        ...LAUNCHED,
+        kind: 'died',
+        via: 'detached',
+        pid: undefined,
+        message: 'the process started and then exited with code 1 straight away — nothing survived the launch',
+      }),
+    )
+
+    expect(outcome).toEqual({
+      kind: 'instrumented',
+      sessionId: SESSION_ID,
+      migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl', message: null },
+      telemetry: null,
+      spawn: {
+        launched: false,
+        message: 'the process started and then exited with code 1 straight away — nothing survived the launch',
+      },
+    })
+  })
+
+  it('refuses a died answer that explains nothing — a corpse with no sentence is not a relaunch result', async () => {
+    await expect(
+      requestInstrument({ sessionId: SESSION_ID }, answering({ ...LAUNCHED, kind: 'died', pid: undefined, message: '' })),
+    ).rejects.toThrow('the instrument answered something other than a relaunch result')
+  })
+
+  it('carries a tmux launch’s pid through — the extra facts it rides with change nothing this parser reads', async () => {
+    const outcome = await requestInstrument(
+      { sessionId: SESSION_ID },
+      answering({ ...LAUNCHED, via: 'tmux', pid: 9911, window: 'main:3' }),
+    )
+
+    expect(outcome).toMatchObject({ spawn: { launched: true, via: 'tmux', pid: 9911, window: 'main:3' } })
+  })
+
+  /**
+   * The one refusal that is a value. Nothing was spawned and nothing was
+   * copied, so there is nothing to warn about — only a next step to hand over,
+   * which is why the instrument's own sentence rides along.
+   */
+  /**
+   * #266's widening. Three properties, and the third is the one a route would
+   * otherwise 400 over: `sessionId` belongs to `resume` and to no other mode,
+   * so the key is OMITTED rather than sent as `undefined` or as an empty
+   * string.
+   */
+  describe('the three modes (#266)', () => {
+    it('defaults to a claude resume — the request this module has always sent', async () => {
+      const fetchImpl = vi.fn(answering(LAUNCHED))
+
+      await requestInstrument({ sessionId: SESSION_ID }, fetchImpl)
+
+      expect(fetchImpl.mock.calls[0]?.[1].body).toBe(
+        JSON.stringify({ harness: 'claude', mode: 'resume', sessionId: SESSION_ID }),
+      )
+    })
+
+    it.each(['launch', 'continue'] as const)('sends %s with no session id at all — not undefined, not empty', async (mode) => {
+      const fetchImpl = vi.fn(answering({ ...LAUNCHED, mode, migration: null }))
+
+      await requestInstrument({ harness: 'codex', mode }, fetchImpl)
+
+      const body = fetchImpl.mock.calls[0]?.[1].body as string
+      expect(body).toBe(JSON.stringify({ harness: 'codex', mode }))
+      expect(body).not.toContain('sessionId')
+    })
+
+    it('refuses a resume with no session, before the wire — the page has a bug, not the machine', async () => {
+      const fetchImpl = vi.fn(answering(LAUNCHED))
+
+      await expect(requestInstrument({ mode: 'resume' }, fetchImpl)).rejects.toThrow(
+        'cannot resume without a session id — mode "resume" names one exact prior conversation',
+      )
+      expect(fetchImpl).not.toHaveBeenCalled()
+    })
+
+    it('refuses a launch that names a session, before the wire — the route would 400 over exactly this', async () => {
+      const fetchImpl = vi.fn(answering(LAUNCHED))
+
+      await expect(requestInstrument({ mode: 'launch', sessionId: SESSION_ID }, fetchImpl)).rejects.toThrow(
+        'a session id means mode "resume" — it has no meaning for mode "launch"',
+      )
+      expect(fetchImpl).not.toHaveBeenCalled()
+    })
+
+    it('answers with a null session id on the modes that name none — never an invented one', async () => {
+      const outcome = await requestInstrument(
+        { mode: 'launch' },
+        answering({ ...LAUNCHED, mode: 'launch', migration: null }),
+      )
+
+      expect(outcome).toEqual({
+        kind: 'instrumented',
+        sessionId: null,
+        migration: null,
+        telemetry: null,
+        spawn: { launched: true, via: 'detached', pid: 4242 },
+      })
+    })
+
+    /**
+     * `null` is the route's own "nothing to migrate" (`api/concierge.ts` is
+     * deliberate that it is a value and not an omitted key). An ABSENT key is
+     * something else entirely — a body this module cannot read — and reading
+     * the second as the first would let any malformed answer through.
+     */
+    it('accepts an explicit null migration and still refuses an absent one', async () => {
+      await expect(
+        requestInstrument({ mode: 'launch' }, answering({ kind: 'launched', pid: 1, migration: null })),
+      ).resolves.toMatchObject({ migration: null })
+
+      await expect(requestInstrument({ mode: 'launch' }, answering({ kind: 'launched', pid: 1 }))).rejects.toThrow(
+        'the instrument answered something other than a relaunch result',
+      )
+    })
+  })
+
+  /**
+   * #532's `via`, which the client used to discard. "There is a pid" and
+   * "there is a window you can attach to and type into" are different facts,
+   * and a UI can only send an operator somewhere if this carries the second.
+   */
+  describe('where the process went (#532)', () => {
+    it('reads a tmux launch as one, carrying the window to attach to', async () => {
+      const outcome = await requestInstrument(
+        { sessionId: SESSION_ID },
+        answering({ ...LAUNCHED, via: 'tmux', pid: 9911, window: 'main:3' }),
+      )
+
+      expect(outcome).toMatchObject({ spawn: { launched: true, via: 'tmux', pid: 9911, window: 'main:3' } })
+    })
+
+    it.each([
+      ['a tmux launch with no window named', { via: 'tmux' }],
+      ['a tmux launch with an empty window', { via: 'tmux', window: '' }],
+    ])('falls back to detached for %s — the weaker claim, never the stronger', async (_label, extra) => {
+      const outcome = await requestInstrument({ sessionId: SESSION_ID }, answering({ ...LAUNCHED, ...extra }))
+
+      expect(outcome).toMatchObject({ spawn: { launched: true, via: 'detached', pid: 4242 } })
+    })
+
+    it('reads an unnamed via as detached — a server that says nothing is not a server that says tmux', async () => {
+      const outcome = await requestInstrument({ sessionId: SESSION_ID }, answering(LAUNCHED))
+
+      expect(outcome).toMatchObject({ spawn: { launched: true, via: 'detached' } })
+    })
+  })
+
+  /**
+   * **THE FIELD THIS PARSER USED TO DROP AT THE DESTRUCTURE** (ledger #4).
+   *
+   * `api/concierge.ts` has sent `telemetry` — the launched harness's own
+   * adapter claim about whether telemetry reaches this instrument — on every
+   * answer since #264, and this module read every other key and threw that one
+   * away. The cost was not abstract: with the field invisible, the wizard had
+   * no way to know codex declares telemetry ABSENT, so a codex launch was
+   * offered and reported as instrumenting.
+   *
+   * Three values, and the third is why this is not two booleans: an absent key
+   * (`null` — an older server said nothing) is a different fact from `absent`
+   * (an adapter said no), and a present-but-malformed one refuses the whole
+   * body rather than defaulting to something reassuring.
+   */
+  describe('the telemetry claim (ledger #4)', () => {
+    it('carries a provided claim through', async () => {
+      await expect(
+        requestInstrument({ sessionId: SESSION_ID }, answering({ ...LAUNCHED, telemetry: { level: 'provided' } })),
+      ).resolves.toMatchObject({ telemetry: { level: 'provided' } })
+    })
+
+    it('carries an absent claim through with the adapter’s own reason and remedy', async () => {
+      const outcome = await requestInstrument(
+        { sessionId: SESSION_ID },
+        answering({
+          ...LAUNCHED,
+          telemetry: { level: 'absent', reason: 'codex exports into a 404', remedy: 'a bare-path OTLP route' },
+        }),
+      )
+
+      expect(outcome).toMatchObject({
+        telemetry: { level: 'absent', reason: 'codex exports into a 404', remedy: 'a bare-path OTLP route' },
+      })
+    })
+
+    it('carries the claim on a DEAD launch too — it is a fact about the harness, not about the outcome', async () => {
+      await expect(
+        requestInstrument(
+          { sessionId: SESSION_ID },
+          answering({ ...LAUNCHED, kind: 'died', pid: undefined, message: 'gone at once', telemetry: { level: 'provided' } }),
+        ),
+      ).resolves.toMatchObject({ spawn: { launched: false }, telemetry: { level: 'provided' } })
+    })
+
+    it('reads a remedy-less refusal as one, rather than as a body it cannot understand', async () => {
+      await expect(
+        requestInstrument(
+          { sessionId: SESSION_ID },
+          answering({ ...LAUNCHED, telemetry: { level: 'partial', reason: 'tokens yes, dollars no' } }),
+        ),
+      ).resolves.toMatchObject({ telemetry: { level: 'partial', reason: 'tokens yes, dollars no', remedy: null } })
+    })
+
+    it('answers null for a body that said nothing — never read as a claim either way', async () => {
+      await expect(requestInstrument({ sessionId: SESSION_ID }, answering(LAUNCHED))).resolves.toMatchObject({
+        telemetry: null,
+      })
+    })
+
+    it.each([
+      ['a level the union does not have', { level: 'excellent' }],
+      ['a refusal with no reason — core makes it compiler-required', { level: 'absent' }],
+      ['a refusal with an empty reason', { level: 'absent', reason: '' }],
+      ['a remedy that is not a sentence', { level: 'absent', reason: 'no', remedy: 7 }],
+      ['a claim that is not an object at all', 'provided'],
+    ])('refuses the whole answer for %s — a half-read capability claim is not a relaunch result', async (_label, telemetry) => {
+      await expect(
+        requestInstrument({ sessionId: SESSION_ID }, answering({ ...LAUNCHED, telemetry })),
+      ).rejects.toThrow('the instrument answered something other than a relaunch result')
+    })
+  })
+
+  it('turns a 404 into a no-transcript-reachable outcome, carrying the instrument’s own reason', async () => {
+    const outcome = await requestInstrument(
+      { sessionId: SESSION_ID },
+      answering({ error: 'no transcript for sess-4210 under any projects root this instrument knows' }, 404),
+    )
+
+    expect(outcome).toEqual({
+      kind: 'no-transcript-reachable',
+      reason: 'no transcript for sess-4210 under any projects root this instrument knows',
+    })
+  })
+
+  it('falls back to the status when a 404 carries no sentence of its own', async () => {
+    const outcome = await requestInstrument({ sessionId: SESSION_ID }, answering(null, 404))
+
+    expect(outcome).toEqual({ kind: 'no-transcript-reachable', reason: 'the server answered 404' })
+  })
+
+  /**
+   * ADR-0012's known dev-mode gap, made honest rather than closed: under `npm
+   * run dev:web` vite serves `index.html` itself, so the server's injection
+   * never runs and this page has no token. A bare 401 about a header the
+   * operator cannot supply is the failure mode that hid #249 for weeks.
+   */
+  it('refuses before the wire when the page carries no token, naming what is missing and what to run', async () => {
+    const meta = document.querySelector(`meta[name="${CAPABILITY_META_NAME}"]`)
+    const content = meta?.getAttribute('content') ?? null
+    meta?.remove()
+    const fetchImpl = vi.fn(answering(LAUNCHED))
+
+    try {
+      const failure = await requestInstrument({ sessionId: SESSION_ID }, fetchImpl).catch((err: unknown) => err)
+
+      expect(failure).toBeInstanceOf(Error)
+      const message = (failure as Error).message
+      expect(message).toContain('could not instrument this session')
+      expect(message).toContain('this page carries no capability token')
+      expect(message).toContain('dev:web')
+      expect(message).toContain('npm run build')
+      // Nothing was sent — a request that cannot be authorised is not made,
+      // and no process was spawned on the strength of a header it never had.
+      expect(fetchImpl).not.toHaveBeenCalled()
+    } finally {
+      const restored = document.createElement('meta')
+      restored.setAttribute('name', CAPABILITY_META_NAME)
+      restored.setAttribute('content', content ?? TEST_TOKEN)
+      document.head.appendChild(restored)
+    }
+  })
+
+  it('says what to DO about a 401, keeping the instrument’s own sentence first', async () => {
+    const failure = await requestInstrument(
+      { sessionId: SESSION_ID },
+      answering({ error: 'missing or invalid x-rhizomorph-capability header' }, 401),
+    ).catch((err: unknown) => err)
+
+    expect(failure).toBeInstanceOf(Error)
+    const message = (failure as Error).message
+    expect(message).toContain('missing or invalid x-rhizomorph-capability header')
+    expect(message).toContain('Reload this page')
+  })
+
+  it('reports a network failure as one — the instrument was never reached, so nothing was started', async () => {
+    const failure = await requestInstrument({ sessionId: SESSION_ID }, async () => {
+      throw new Error('connection refused')
+    }).catch((err: unknown) => err)
+
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).toBe('could not reach the instrument: connection refused')
+  })
+
+  it('reports any other refusal in one plain sentence, with the server’s own account in it', async () => {
+    const failure = await requestInstrument(
+      { sessionId: SESSION_ID },
+      answering({ error: 'this server is replaying a session record, not watching a repo' }, 409),
+    ).catch((err: unknown) => err)
+
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).toBe(
+      'could not instrument this session — this server is replaying a session record, not watching a repo',
+    )
+  })
+
+  it.each([
+    ['a body that is not an object', 'a relaunch, surely'],
+    ['no migration fact at all', { kind: 'launched', pid: 1 }],
+    ['a migration fact this module does not know', { migration: { kind: 'moved', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'launched', pid: 1 }],
+    ['a spawn result it cannot read', { migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'started', pid: 1 }],
+    ['a launched spawn with no pid', { migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'launched' }],
+    ['a failed spawn with no message', { migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'error' }],
+  ])('refuses to believe %s', async (_label, payload) => {
+    const failure = await requestInstrument({ sessionId: SESSION_ID }, answering(payload)).catch(
+      (err: unknown) => err,
+    )
+
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).toBe('the instrument answered something other than a relaunch result')
+  })
+
+  it('refuses a 200 whose body is not JSON at all', async () => {
+    const failure = await requestInstrument({ sessionId: SESSION_ID }, async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new Error('unexpected end of JSON input')
+      },
+    })).catch((err: unknown) => err)
+
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).toBe('the instrument answered something other than a relaunch result')
+  })
+
+  /**
+   * #543 — THE BODY THE ROUTE ACTUALLY SENDS, CAPTURED OFF THE WIRE.
+   *
+   * Every fixture above is hand-written, and hand-written fixtures agreed with
+   * each other while disagreeing with the server for a whole stack: this module
+   * read `migration` as a bare word, `concierge/migrate.ts` had always answered
+   * an object, and both sides' suites were green. A live browser click found it
+   * — the act succeeded, the transcript was copied, a wired conductor came up
+   * in tmux, and the page said "the instrument answered something other than a
+   * relaunch result". This body is pasted verbatim from that capture, so the
+   * next shape change on either side breaks HERE rather than in a browser.
+   */
+  it('reads the route’s own captured body — the success that used to read as a refusal (#543)', async () => {
+    const captured = {
+      harness: 'claude',
+      mode: 'resume',
+      telemetry: { level: 'provided' },
+      continuity: {
+        kind: 'proven',
+        argv: ['--resume', SESSION_ID],
+        whatContinues: 'the transcript for this exact sessionId',
+        whatIsLost: 'everything the old process already did',
+        evidence: 'research/2026-08-14-cross-host-resume.md (VERDICT: GO)',
+      },
+      migration: { kind: 'migrated', at: '/home/u/.claude/projects/-home-u-repo/' + SESSION_ID + '.jsonl' },
+      kind: 'launched',
+      via: 'tmux',
+      pid: 3243092,
+      window: 'swarm:21',
+    }
+
+    const outcome = await requestInstrument({ sessionId: SESSION_ID }, answering(captured))
+
+    expect(outcome.kind).toBe('instrumented')
+    if (outcome.kind !== 'instrumented') return
+    expect(outcome.migration).toEqual({
+      kind: 'migrated',
+      at: '/home/u/.claude/projects/-home-u-repo/' + SESSION_ID + '.jsonl',
+      message: null,
+    })
+    expect(outcome.spawn).toEqual({ launched: true, via: 'tmux', pid: 3243092, window: 'swarm:21' })
+  })
+
+  /** The fourth outcome, which rides a 200 body: the launch went ahead, the copy did not. */
+  it('carries copy-failed through with the reason the copy did not happen (#543)', async () => {
+    const outcome = await requestInstrument(
+      { sessionId: SESSION_ID },
+      answering({ ...LAUNCHED, migration: { kind: 'copy-failed', message: 'could not copy /a to /b: EACCES' } }),
+    )
+
+    expect(outcome.kind).toBe('instrumented')
+    if (outcome.kind !== 'instrumented') return
+    expect(outcome.migration).toEqual({ kind: 'copy-failed', at: null, message: 'could not copy /a to /b: EACCES' })
+  })
+
+})

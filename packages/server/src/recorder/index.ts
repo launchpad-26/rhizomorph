@@ -22,9 +22,11 @@ export {
   closeCurrentSession,
   nextSessionStart,
   openNextSession,
+  retargetSession,
   rotateSession,
   type ClosedSession,
   type OpenedSession,
+  type RetargetSessionOptions,
   type Rotation,
   type RotateSessionOptions,
 } from './rotate.js'

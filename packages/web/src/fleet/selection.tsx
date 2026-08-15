@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { Fleet } from './buildFleet.js'
+import type { Fleet } from '@rhizomorph/core'
 
 /**
  * The one lane selection, shared by every surface that can point at a lane: the
@@ -142,10 +142,45 @@ export interface SelectionProviderProps {
   children: ReactNode
   /** Test-only seed, so a selected-state render needs no click to set up. */
   initialSelectedId?: string | null
+  /**
+   * The repo the fold currently describes (`app/streamState.ts`'s
+   * `foldedRepoPath`). Supplying it makes the selection **repo-scoped**: it
+   * drops when the dashboard is retargeted at a different repository, because
+   * a lane id belongs to the repo it was selected in (#390 review).
+   *
+   * Optional because this provider is deliberately mountable on its own — most
+   * panel tests render it with no stream in the tree at all — and a selection
+   * with no repo behind it is simply never scoped. `App.tsx` is what wires the
+   * real one.
+   */
+  repoPath?: string | null
 }
 
-export function SelectionProvider({ children, initialSelectedId = null }: SelectionProviderProps) {
+export function SelectionProvider({
+  children,
+  initialSelectedId = null,
+  repoPath,
+}: SelectionProviderProps) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId)
+
+  // Adjusted during render rather than in an effect, which is React's own
+  // pattern for "reset state when a prop changes" and the only version with no
+  // wrong frame: an effect would commit one paint in which the NEW repo's
+  // fleet wears the OLD repo's spotlight. This codebase has fixed that exact
+  // shape of one-frame lie before (prd-19 ruling 6, the provenance bar pairing
+  // `source='fleet20'` with a string beginning "live"), so it is not worth
+  // reintroducing for a selection.
+  const [scopedTo, setScopedTo] = useState<string | null | undefined>(repoPath)
+  if (repoPath !== scopedTo) {
+    setScopedTo(repoPath)
+    // Only a move BETWEEN two named repos drops the selection. Learning the
+    // first repo (`undefined`/`null` → a path) is a boot, not a retarget —
+    // clearing there would wipe a seed the caller deliberately set, and there
+    // is nothing stale to drop anyway.
+    if (scopedTo !== null && scopedTo !== undefined && repoPath !== null && repoPath !== undefined) {
+      setSelectedId(null)
+    }
+  }
 
   const select = useCallback((laneId: string | null) => setSelectedId(laneId), [])
   const clear = useCallback(() => setSelectedId(null), [])

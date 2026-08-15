@@ -62,7 +62,10 @@ export interface JudgeSnapshot {
    * head pair. Rebuilt fresh every run from only the pairs and kinds that were
    * actually true THIS run, so it never grows unbounded and a stale entry for
    * a branch that moved or disappeared falls away on its own — nothing here
-   * needs an explicit eviction policy.
+   * needs an explicit eviction policy. Latches both `judge.finding` occurrences
+   * (`symbol-overlap:`, `speculative-conflict:`) and, since #526,
+   * `speculativeMergeTree` throw incidents (`speculative-merge-error:`) — same
+   * record, wider use.
    */
   reported: Record<string, true>
   /**
@@ -77,6 +80,15 @@ export interface JudgeSnapshot {
    * own, same discipline as `reported`.
    */
   laneSymbols: Record<string, { head: string; symbols: string[] }>
+  /**
+   * branch → this lane's symbol-extraction failure has already been voiced
+   * this incident. Rebuilt fresh every run from only the branches that threw
+   * THIS run, so a branch that extracts successfully simply never re-enters
+   * it — silent re-arm on recovery — and a lane that drops out of
+   * `discoverLanes` falls away on its own, same discipline as `reported` and
+   * `laneSymbols` (#526).
+   */
+  extractionErrorVoiced: Record<string, boolean>
 }
 
 export function createJudgeCollector(options: JudgeCollectorOptions = {}): Collector<JudgeSnapshot> {
@@ -87,7 +99,7 @@ export function createJudgeCollector(options: JudgeCollectorOptions = {}): Colle
     capabilities: JUDGE_CAPABILITIES,
 
     initialSnapshot(): JudgeSnapshot {
-      return { disabled: false, lastRunAt: null, reported: {}, laneSymbols: {} }
+      return { disabled: false, lastRunAt: null, reported: {}, laneSymbols: {}, extractionErrorVoiced: {} }
     },
 
     async poll(prevSnapshot, context: CollectorContext): Promise<PollResult<JudgeSnapshot>> {
@@ -120,7 +132,13 @@ export function createJudgeCollector(options: JudgeCollectorOptions = {}): Colle
         // "binary missing" latch but without disabling: this is a normal,
         // expected shape of a session that hasn't forked into lanes yet.
         return {
-          nextSnapshot: { disabled: false, lastRunAt: context.now, reported: {}, laneSymbols: {} },
+          nextSnapshot: {
+            disabled: false,
+            lastRunAt: context.now,
+            reported: {},
+            laneSymbols: {},
+            extractionErrorVoiced: {},
+          },
           events: [],
         }
       }
@@ -128,6 +146,10 @@ export function createJudgeCollector(options: JudgeCollectorOptions = {}): Colle
       const events: RhizomorphEvent[] = []
       const symbolsByBranch = new Map<string, string[]>()
       const nextLaneSymbols: Record<string, { head: string; symbols: string[] }> = {}
+      // Resume-safety: a snapshot persisted before this field existed has no such
+      // key at all — never read it without this default (#526).
+      const extractionErrorVoiced = prevSnapshot.extractionErrorVoiced ?? {}
+      const nextExtractionErrorVoiced: Record<string, boolean> = {}
 
       // A lane whose head still matches its cached head hasn't changed since
       // the last sweep — re-diffing it can only repeat the answer already on
@@ -157,14 +179,19 @@ export function createJudgeCollector(options: JudgeCollectorOptions = {}): Colle
           })
           symbolsByBranch.set(lane.branch, extracted.symbols)
           nextLaneSymbols[lane.branch] = { head: lane.head, symbols: extracted.symbols }
+          // nextExtractionErrorVoiced intentionally left unset for this branch: a
+          // successful extraction re-arms silently, so a later failure voices again.
         } catch (error) {
-          events.push(
-            context.emit('collector.error', {
-              collector: COLLECTOR_NAME,
-              message: `symbol extraction failed for lane "${lane.branch}"`,
-              detail: error instanceof Error ? error.message : String(error),
-            }),
-          )
+          if (!extractionErrorVoiced[lane.branch]) {
+            events.push(
+              context.emit('collector.error', {
+                collector: COLLECTOR_NAME,
+                message: `symbol extraction failed for lane "${lane.branch}"`,
+                detail: error instanceof Error ? error.message : String(error),
+              }),
+            )
+          }
+          nextExtractionErrorVoiced[lane.branch] = true
         }
       }
 
@@ -228,19 +255,35 @@ export function createJudgeCollector(options: JudgeCollectorOptions = {}): Colle
               }
             }
           } catch (error) {
-            events.push(
-              context.emit('collector.error', {
-                collector: COLLECTOR_NAME,
-                message: `speculative merge failed for "${first.branch}" vs "${second.branch}"`,
-                detail: error instanceof Error ? error.message : String(error),
-              }),
-            )
+            // Same latch the success path above uses, keyed by this exact head pair
+            // under its own kind prefix. `nextReported` is rebuilt every run from only
+            // the pairs actually true THIS run (see the field doc above `reported`),
+            // so an unchanged pair that keeps failing voices once, a later successful
+            // merge or either head moving on re-arms it silently, and a genuinely new
+            // head pair still voices fresh (#526).
+            const key = `speculative-merge-error:${first.branch}@${first.head}:${second.branch}@${second.head}`
+            nextReported[key] = true
+            if (!prevSnapshot.reported[key]) {
+              events.push(
+                context.emit('collector.error', {
+                  collector: COLLECTOR_NAME,
+                  message: `speculative merge failed for "${first.branch}" vs "${second.branch}"`,
+                  detail: error instanceof Error ? error.message : String(error),
+                }),
+              )
+            }
           }
         }
       }
 
       return {
-        nextSnapshot: { disabled: false, lastRunAt: context.now, reported: nextReported, laneSymbols: nextLaneSymbols },
+        nextSnapshot: {
+          disabled: false,
+          lastRunAt: context.now,
+          reported: nextReported,
+          laneSymbols: nextLaneSymbols,
+          extractionErrorVoiced: nextExtractionErrorVoiced,
+        },
         events,
       }
     },
