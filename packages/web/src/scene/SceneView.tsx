@@ -69,6 +69,14 @@ export function SceneView({
 }: SceneViewProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  /**
+   * THE TYPE LAYER (ADR-0021) — a transparent 2D canvas over the WebGL2 one,
+   * where `text`, `path` and `chip` are drawn because they have no cheap GPU
+   * form. It is inert to the pointer: every gesture belongs to the canvas
+   * underneath, which is the one d3-zoom is bound to and the one the hit test
+   * measures against.
+   */
+  const overlayRef = useRef<HTMLCanvasElement | null>(null)
   const geometryRef = useRef<SceneGeometry | null>(null)
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [reducedMotion, setReducedMotion] = useState(false)
@@ -121,6 +129,7 @@ export function SceneView({
   const { lost, panning, redraw } = useFrameLoop(
     hostRef,
     canvasRef,
+    overlayRef,
     geometryRef,
     latest,
     camera,
@@ -165,6 +174,7 @@ export function SceneView({
           )
         }
       />
+      <canvas ref={overlayRef} aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" />
       <MotionControl paused={paused} onToggle={() => setPaused((held) => !held)} />
       <FinishedControl
         hidden={hideFinished}

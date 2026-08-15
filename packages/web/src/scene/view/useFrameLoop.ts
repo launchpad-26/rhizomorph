@@ -5,6 +5,7 @@ import { MAIN_SELECTION, type Fleet } from '../../fleet/index.js'
 import {
   CLICK_DISTANCE,
   SCALE_EXTENT,
+  type Camera,
   contentBounds,
   gestureFilter,
   isContentVisible,
@@ -12,6 +13,7 @@ import {
   wheelDelta,
 } from '../camera.js'
 import { layoutScene, type SceneGeometry } from '../geometry.js'
+import { createScenePainter } from '../gl/index.js'
 import {
   breathOf,
   motionMode,
@@ -20,7 +22,6 @@ import {
   type Mark,
   type SceneFrame,
 } from '../marks/index.js'
-import { paint } from '../paint.js'
 import { ICE_200, ink } from '../palette.js'
 import type { PulseField } from '../pulses.js'
 import type { RetireRegistry } from '../retire.js'
@@ -84,9 +85,44 @@ export interface FrameLoopResult {
  * of a topology that does not exist, so grow-in keeps its real clock and
  * settles.
  */
+/**
+ * THE LAST DISPLAY LIST HANDED TO THE PAINTER, and the one instrumentation seam
+ * in the scene.
+ *
+ * It exists because of what ADR-0021 spent. The 2D painter made the picture
+ * observable for free: a fake `CanvasRenderingContext2D` recorded every `arc`,
+ * `fill` and `fillText`, and the mounted-scene suite asked its questions of that
+ * journal — "two hairline rings on the mass's rim", "the same light in the same
+ * places a second later". A GPU has no such journal, and a vertex buffer is not
+ * one: nobody can read "a spotlight ring" back out of forty thousand floats.
+ *
+ * So the observable moves one layer up, to the thing those tests were really
+ * asking about — the marks, at the instant they were painted. Strictly more
+ * faithful than the canvas journal was (it is the picture's own vocabulary rather
+ * than a transcript of one renderer's calls), and it costs one assignment a
+ * frame. One loop runs per page, so one slot is enough.
+ */
+let painted: PaintedFrame | null = null
+
+export interface PaintedFrame {
+  marks: readonly Mark[]
+  camera: Camera
+  dpr: number
+  width: number
+  height: number
+}
+
+export function lastPaintedFrame(): PaintedFrame | null {
+  return painted
+}
+
+/** What the operator is told while the GPU is handing the context back. */
+export const CONTEXT_LOST_MESSAGE = 'the graphics context was lost — recovering'
+
 export function useFrameLoop(
   hostRef: RefObject<HTMLDivElement | null>,
   canvasRef: RefObject<HTMLCanvasElement | null>,
+  overlayRef: RefObject<HTMLCanvasElement | null>,
   geometryRef: RefObject<SceneGeometry | null>,
   latestRef: RefObject<SceneLatestState>,
   rig: CameraRig,
@@ -108,8 +144,9 @@ export function useFrameLoop(
 
   useEffect(() => {
     const canvas = canvasRef.current
+    const overlay = overlayRef.current
     const host = hostRef.current
-    if (canvas === null || host === null) return
+    if (canvas === null || overlay === null || host === null) return
 
     let frame = 0
     let width = 0
@@ -156,6 +193,18 @@ export function useFrameLoop(
       .wheelDelta((event: WheelEvent) => wheelDelta(event))
       .filter((event: Event) => gestureFilter(event))
 
+    /**
+     * The painter, for the life of this effect. It owns the GL context, the
+     * shader programs and the overlay's 2D context; a context loss is handled
+     * inside it, and the two callbacks are the only part of it the operator ever
+     * sees — law 12 applies to the scene's own failures, and a black rectangle
+     * with nothing to say is the failure this instrument can least afford.
+     */
+    const painter = createScenePainter(canvas, overlay, {
+      onLost: () => setFailure(CONTEXT_LOST_MESSAGE),
+      onRestored: () => setFailure(null),
+    })
+
     const resize = () => {
       const rect = host.getBoundingClientRect()
       dpr = Math.min(2, window.devicePixelRatio || 1)
@@ -171,8 +220,11 @@ export function useFrameLoop(
       // that column wider than the viewport, one resize at a time.
       canvas.width = Math.floor(width * dpr)
       canvas.height = Math.floor(height * dpr)
-      const ctx = canvas.getContext('2d')
-      if (ctx !== null) ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      // The type layer tracks it exactly: two surfaces at one size, or the labels
+      // sit somewhere the picture is not.
+      overlay.width = canvas.width
+      overlay.height = canvas.height
+      painter.resize()
     }
 
     const observer =
@@ -201,10 +253,6 @@ export function useFrameLoop(
        * recording was made.
        */
       const asOfReal = current.asOf ?? real
-      const ctx = canvas.getContext('2d')
-      // jsdom has no 2D context. The scene is then simply not drawn — the DOM
-      // it lives in still renders, and so does everything around it.
-      if (ctx === null) return
 
       // The pause, in three lines. BOTH of the scene's clocks stop at the instant
       // the control was pressed — every ambient and event animation stops with the
@@ -260,10 +308,13 @@ export function useFrameLoop(
       const marks = sceneMarks(sceneFrame)
       if (current.selectedId === MAIN_SELECTION) marks.push(...rootSpotlight(sceneFrame))
 
-      // `paint` owns the transform now, camera and device scale together — the
-      // one set at resize is only what a frame that never runs would leave
-      // behind.
-      paint({ ctx, marks, width, height, camera: rig.cameraRef.current, dpr })
+      // The painter owns the transform, camera and device scale together: the GL
+      // half as a uniform, the type layer as a `setTransform`. Recorded first, so
+      // the display list is observable even where neither surface exists (jsdom
+      // answers `null` for both) — see {@link lastPaintedFrame}.
+      const camera = rig.cameraRef.current
+      painted = { marks, camera, dpr, width, height }
+      painter.paint({ marks, width, height, camera, dpr })
     }
 
     /** One frame of a zoom-to-fit, driven by the loop that is already running. */
@@ -326,6 +377,7 @@ export function useFrameLoop(
         host.removeEventListener('mousedown', onPress, true)
         select(canvas).on('.zoom', null)
         observer?.disconnect()
+        painter.dispose()
       }
     }
 
@@ -340,6 +392,7 @@ export function useFrameLoop(
       host.removeEventListener('mousedown', onPress, true)
       select(canvas).on('.zoom', null)
       observer?.disconnect()
+      painter.dispose()
     }
   // Mirrors the original's `[now, moveTo]`: every other value read inside is a
   // ref (stable identity forever) or `setFailure` (a state setter, which React

@@ -10,7 +10,7 @@ import { labelMarks, nodeMarks } from './marks/node.js'
 import { rootMarks } from './marks/root.js'
 import { loopingMarks, offFenceMarks, threadMarks } from './marks/thread.js'
 import { DISSOLUTION } from './motion.js'
-import { paint } from './paint.js'
+import { Batch, buildFrame } from './gl/index.js'
 import { ICE_050, ink, type Ink } from './palette.js'
 import { PulseField } from './pulses.js'
 import { RETURN, returnAt, type RetireState } from './retire.js'
@@ -440,7 +440,7 @@ describe('the whole frame, before and after', () => {
     const fleet = fleet30()
     const retire = midCut()
 
-    const draw = stub()
+    const vertices = new Batch()
     /**
      * One frame, in its three stages. They are timed separately because "the scene
      * is over budget" is not an actionable sentence: the fix for a slow
@@ -456,7 +456,7 @@ describe('the whole frame, before and after', () => {
       const t1 = at()
       const marks = sceneMarks(frameFor(fleet, geometry, now))
       const t2 = at()
-      paint({ ctx: draw.ctx, marks, ...SIZE, dpr: 2 })
+      buildFrame(marks, SIZE, vertices)
       const t3 = at()
 
       if (into !== undefined) {
@@ -591,7 +591,7 @@ describe('thirty lanes where most have finished, before and after', () => {
   it('reports all three interleaved, and draws fewer marks than the living field', () => {
     const fleet = fleet30()
     const retire = mostlyFinished(fleet)
-    const draw = stub()
+    const vertices = new Batch()
 
     /** One whole frame — layout, marks, paint — for one configuration. */
     const frame = (
@@ -601,7 +601,7 @@ describe('thirty lanes where most have finished, before and after', () => {
     ): number => {
       const geometry = layoutScene(fleet, { ...SIZE, now, retire: of, hideFinished })
       const marks = sceneMarks(frameFor(fleet, geometry, now))
-      paint({ ctx: draw.ctx, marks, ...SIZE, dpr: 2 })
+      buildFrame(marks, SIZE, vertices)
       return marks.length
     }
 
@@ -867,7 +867,7 @@ describe('a long field of retired strands (#175, prd10 rulings 13-16)', () => {
     const fleet = fleetSized(LIVING_COUNT + retiredCount)
     const livingFleet = fleetSized(LIVING_COUNT)
     const retire = retiredBeyond(fleet, LIVING_COUNT)
-    const draw = stub()
+    const vertices = new Batch()
 
     const frame = (
       now: number,
@@ -882,7 +882,7 @@ describe('a long field of retired strands (#175, prd10 rulings 13-16)', () => {
       const t1 = at()
       const marks = sceneMarks(frameFor(of, geometry, now))
       const t2 = at()
-      paint({ ctx: draw.ctx, marks, ...SIZE, dpr: 2 })
+      buildFrame(marks, SIZE, vertices)
       const t3 = at()
       if (into !== undefined) {
         into.layout.push(t1 - t0)
