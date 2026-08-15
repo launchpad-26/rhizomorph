@@ -5,9 +5,11 @@
 > whatever hover discloses, focus discloses. It owns no charter §8 pending ruling — its authority
 > is §6, binding on the charter's merge; the build rides here. **#192 is absorbed**: its fence
 > (`core/src/selectors/` + `panels/fleet/`) moves to this PRD, prd-27 ruling 5 supersedes its
-> text, and prd-27's server waves are untouched. Milestone 16. The card's visual form iterates
-> with hchristina on the charter companion at blessing; the vocabulary and its laws are decided
-> here. Citations verified at origin/main `e8fed56`.
+> text, and prd-27's server waves are untouched. Milestone 16. The card's visual form is decided here and reviewed by
+> the team; the vocabulary and its laws are decided
+> here, and reviewed by the team. **Kind: specifying** (`docs/prds/README.md`).
+> Citations verified at origin/main `e8fed56`; ruling 4 and the specification added
+> 2026-08-15 from `docs/design/ui-2.0-decisions.md` (D10, D11).
 
 ## Problem
 
@@ -80,7 +82,7 @@ upgrade the table, they do not unlock it.
 ## What already exists (do not rebuild)
 
 prd-27 ruling 5 is the design — this PRD builds it and does not re-argue it; "visual form is the
-implementer's" (prd-27:151) is amended only in that the implementer iterates with hchristina.
+implementer's" (prd-27:151) stands: the implementer decides the form, and the team reviews it.
 `Gap` already carries `{what, why, command}` for feeds — the triple at feed altitude, proof the
 shape renders. The `rungInfo` `_never` switch is the exhaustiveness pattern to copy.
 `MarkHoverCard` and the loupe are working positioning and read-out code to re-seat on the one
@@ -119,6 +121,99 @@ same triple with its evidence — the first hover is the tutorial, so there is n
 tutorial to rot. Nothing teaches what the selector does not know; a condition the table lacks is
 the `unknown` card, which names what is missing rather than improvising warmth.
 
+## Ruling 4 — teaching is just-in-time only; there is no tour and no manual to rot
+
+Ruling 3 established that the beginner layer is progressive disclosure on the same triples. This
+settles the shape: **the first hover is the tutorial, and there is no other one.** No first-run
+walkthrough, no annotated overlay mode, no "learn the interface" document that drifts from the
+interface.
+
+The reason is not economy. A tour is a second description of the product, written once and
+maintained never — it rots the moment a mark changes, and it teaches in the wrong place, hours
+before the confusion it answers. Disclosure teaches at the moment of contact, and it cannot rot,
+because it renders from the same selector that renders the mark. The bet this makes explicit:
+**a stranger explores rather than gets stuck**, and every mark being explicable is what makes
+that bet safe.
+
+What follows from it: the teach affordance (wave 2) expands the same triple with its evidence
+rather than introducing a second voice; the first-run path (prd-34) walks a person to a working
+instrument and then gets out of the way, teaching nothing the surface cannot teach; and any
+future request for a tour is answered by making the marks explain themselves better.
+
+## The specification
+
+Six answers per surface, per `docs/prds/README.md`.
+
+### S1 — the disclosure card
+
+**What and why.** One component, one vocabulary, everywhere a mark can be interrogated. It
+replaces `MarkHoverCard`, the loupe read-out and every `title=` — so that the same condition
+gets the same answer whichever pixel is under the pointer.
+
+**Anatomy**, in fixed order, from prd-27 ruling 5's triple:
+
+1. **Label** — the condition's name, in the instrument register. The same word the mark shows.
+2. **Why** — one sentence, carrying **the evidence and the elapsed time**: not "waiting" but
+   "no output for 6 minutes; last tool call was a file read".
+3. **Remedy** — the exact next action, and a command where one exists, copyable by the existing
+   `AttachButton` idiom (which always shows what it copied and never toasts).
+
+**States.**
+- *known* — all three strings, from the selector.
+- *unknown* — the condition is not in the table: the card **names what is missing and which rung
+  would prove it** (prd-27 ruling 5's clause, unchanged), and never improvises warmth.
+- *loading* — none. The card renders from the fold, synchronously; a card that could be pending
+  would be a card that could lie by omission.
+- *error* — the selector throwing is a bug, not a state; the `_never` exhaustiveness switch means
+  an unhandled condition fails typecheck before it renders.
+- *degraded* — a condition whose evidence comes from a dead collector says so in the why line,
+  in law 12's voice, rather than reporting a stale fact confidently.
+- *replay* — identical; the card reads the folded state at the scrub position, and elapsed times
+  are relative to that position rather than to now.
+- *demo* — identical; the frame's simulated chrome carries the distinction (prd-34), not the card.
+
+**Data source.** The condition selector in `@rhizomorph/core` (ruling 2), a pure total function
+over folded evidence. **The card never fetches and never invents**: it renders what the selector
+returns or it renders the honest unknown.
+
+**Interactions and keyboard path.** Hover opens it; **focus opens exactly what hover opens**
+(charter §6, binding); `Escape` closes it; touch taps open it. It is positioned within the
+viewport by the loupe's existing positioning code rather than a new implementation. No disclosure
+in the instrument is pointer-only.
+
+**What would make it wrong.** Two surfaces phrasing one condition differently · a card whose why
+has no evidence in it · a remedy that names no action · a `title=` surviving on a mark this card
+covers · a pointer-only disclosure · a card that renders a guess when the selector said unknown.
+
+**Acceptance criteria.**
+- One component, in `web/src/disclosure/`; a law test asserts no other directory renders card
+  chrome.
+- Every condition in the table renders all three strings; a rigged missing string fails the suite.
+- A keyboard-only pass reaches every disclosure the pointer can (test asserts focus parity for
+  each adopting surface).
+- `ACTIVITY_TITLE.waiting` no longer reads `'stopped'` anywhere.
+- A condition removed from the table fails typecheck rather than rendering bare.
+
+### S2 — the teach affordance
+
+**What and why.** The beginner's depth on the same triple: the card, expanded, showing the
+evidence behind the why rather than a second explanation.
+
+**States.** *collapsed* (the ordinary card) · *expanded* (the same three strings plus the
+evidence: the events, counts and timestamps the condition was derived from) · *unknown* (expands
+to what is missing and which rung would prove it — the same honest gap, at more length).
+
+**Data source.** The same selector; the evidence is the folded facts it used, not a new query.
+
+**Interactions.** One affordance on the card, keyboard-reachable, its expanded state **not**
+remembered per condition by default (see open questions).
+
+**What would make it wrong.** A teach layer that says something the card does not · content
+written for a beginner that contradicts the instrument register elsewhere · any generated prose.
+
+**Acceptance.** Every condition's expanded view is derived from evidence present in the fold; a
+test asserts no string in the teach layer exists outside the condition table.
+
 ## Sequencing (waves, each gated as ever)
 
 `packages/web/src/lab/` is prd-28's territory; no wave of this PRD enters it.
@@ -137,7 +232,7 @@ its table; the STATE surface re-seat; the per-directory `title=` sweeps.
 
 ## Open questions
 
-- **The card's visual form** — hchristina's, on the companion. Open, not ruled.
+- ~~The card's visual form~~ — **decided here** (S1's anatomy), reviewed by the team.
 - **The first edition of the condition table** — which conditions ship in wave 2's hand-authored
   list is decided at grooming with the fold's evidence open, not here.
 - **Whether the teach affordance remembers** — a seen-state per condition, quieter each time, or
