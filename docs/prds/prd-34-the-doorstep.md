@@ -1,6 +1,6 @@
 # prd-34 — the doorstep: from npx to software
 
-> **Status:** proposed — stage 1 of the staged ship, deliberately outside the metamorphosis:
+> **Status:** proposed · **Kind: specifying** (`docs/prds/README.md`) — stage 1 of the staged ship, deliberately outside the metamorphosis:
 > zero constitutional change, packaging only. Sources:
 > `docs/research/2026-08-13-from-localhost-to-true-software.md` (lands with PR #432) and
 > `docs/metamorphosis/system-design.md` (PR #462). Completes prd-15's delivery thread — npm
@@ -119,6 +119,137 @@ URL; no OAuth, no accounts, no stored credentials). If a seam needs a small affo
 wizard-drivable, that change lands as an ordinary web PR under the ordinary laws — the shell
 never grows a private fork of a surface.
 
+## Ruling 5 — the first thing a stranger sees is the instrument working, not a form
+
+First launch opens **the demonstration fleet** — the twenty-lane simulation that already exists
+for testing — loudly labelled as simulated, with one standing invitation to watch a real repo.
+
+The reason is arithmetic about the empty case. This instrument is only impressive when agents are
+running; a correctly-installed, correctly-configured app watching a quiet repo renders an empty
+organism, an empty roster and a zero ledger. A stranger who does everything right sees nothing and
+concludes the software is broken. Meanwhile the fixtures are not mockups — they are real event
+data through the real reducer and the real renderer, so what a newcomer sees on launch is *the
+actual product*, honestly framed.
+
+**The simulated fleets therefore become a first-class feature** (ruling 6), not a hidden developer
+shortcut behind undocumented keys.
+
+## Ruling 6 — demo mode is permanent, reachable, and unmistakable
+
+The fixture fleets — the twenty-lane fleet and the staged-pathology fleet — are promoted to a
+shipped capability: reachable from the menu at any time, on any surface, with chrome that cannot
+be themed away, dismissed or hidden (prd-35 ruling 2's non-negotiable list carries the
+distinction). They serve three jobs: onboarding, showing a colleague what the tool does without
+waiting for a fleet, and seeing failure modes you hope never to see live.
+
+The one hard rule: **a screenshot of demo mode must never be mistakable for telemetry.** That is
+what the permanent chrome buys, and why it is on the never-configurable list rather than in
+settings.
+
+## Ruling 7 — the wizard is a path through connect and settings, and owns no controls
+
+prd-35 ruling 1 divides the ground: settings changes things, `/connect` proves things. The
+first-run wizard **drives both and reimplements neither** — it walks a person from launch to a
+watched, wired repo by rendering the concierge's repo picker, settings' own fields and connect's
+own verification rows, in a guided order, and then gets out of the way.
+
+If a seam needs a small affordance to be wizard-drivable, that affordance lands in the surface
+that owns it, under the ordinary laws, and the wizard consumes it. **The shell never grows a
+private fork of a surface** — ruling 4's clause, restated for the wizard's own controls.
+
+## Ruling 8 — notifications are the tray's reason to exist, and every one is a preference
+
+The daemon (ruling 2) earns its keep by telling you something you would otherwise miss: a lane
+**needs a human**, a lane **died**, work **landed**, or **spend crossed a threshold you set**.
+Each is individually toggleable in settings (prd-35 S1), each may be muted, and the threshold is
+a value a person owns.
+
+The tray badge carries the fleet's own attention state at OS level — the attention ladder,
+promoted to the desktop. **The badge and the notifications never disagree with the instrument**:
+both read the same derived fleet, so a quiet tray means a quiet fleet rather than a muted one.
+A muted notification still moves the badge; muting is about interruption, never about hiding.
+
+## Ruling 9 — signing is a switch the pipeline already has, and the money is spent at a release
+
+Ruling 3 stated the costs so the decision could be made with them on the table. The decision:
+**defer.** The packaging pipeline is built so that signing is configuration rather than
+rework — certificates, notarisation and the update feed's signature checks are wired and
+switched off — and builds ship unsigned with install instructions that say plainly what the
+operating system will warn and why.
+
+The reasoning, on the record so it can be revisited honestly: this instrument's users today are
+developers who clone repositories and run `npm install`, and who run unsigned binaries daily.
+Signing buys trust from people who do not already have it — a portfolio visitor, a stranger, a
+non-technical colleague — and that audience arrives at a release, not at a merge. The money
+(~$120/yr Windows, ~$99/yr Apple) is spent when there is something to sign for someone.
+
+## The specification
+
+Six answers per surface, per `docs/prds/README.md`.
+
+### S1 — first run
+
+**What and why.** A stranger goes from installer to watching their own repo without reading
+anything.
+
+**The path.** launch → **demo fleet, labelled** (ruling 5) → *watch my own repo* → repo picker
+(the concierge's, reused) → conductor launch or the copyable command → verification rows live
+(connect's, reused) → done, watching.
+
+**States.** *first launch ever* (the path above) · *launched, never configured* (same path,
+resumable at the step reached) · *configured* (the wizard does not appear; it is reachable from
+settings) · *step failed* (the wizard stops on the failing verification row and shows that row's
+own remedy — never its own copy of it) · *demo declined* (a person who goes straight to
+configuration skips the demo without argument).
+
+**Data source.** `GET /api/concierge/repos`, `GET /api/doctor`, `GET /api/meta` — all existing.
+The wizard adds no server route (prd-34's existing non-goal, restated).
+
+**Interactions.** Keyboard-completable end to end; every step skippable; nothing modal that
+cannot be escaped.
+
+**What would make it wrong.** A control here that also exists in settings · a verification claim
+the doctor does not make · a wizard that cannot be exited · a demo that is not marked.
+
+**Acceptance.** A test drives the whole path with injected fetches; a test asserts every control
+the wizard renders is imported from settings or connect rather than defined locally.
+
+### S2 — the tray daemon
+
+**What and why.** The fleet is a background fact with a window, not a window with a process.
+
+**States.** *watching, calm* · *watching, something needs a human* (badge) · *watching, something
+died* (badge, distinct) · *not watching* (no repo configured) · *server unreachable* (the shell
+survives and says so; it does not exit) · *quitting* (explicit, from the tray only).
+
+**Data source.** The derived fleet, via the same stream the window uses.
+
+**Interactions.** Closing the window leaves the watcher running · the tray menu offers open,
+settings, demo mode, and quit · launch-on-login is offered during setup and toggled in settings ·
+notifications per ruling 8.
+
+**What would make it wrong.** Quitting on window close · a badge that disagrees with the
+instrument · a notification a person cannot turn off · launch-on-login enabled without being
+asked.
+
+**Acceptance.** Closing the window and reopening shows an uninterrupted session; every
+notification condition is individually mutable; a muted condition still moves the badge.
+
+### S3 — updates
+
+**What and why.** An app that runs unattended must not restart under a running fleet.
+
+**States.** *up to date* · *downloading* (silent) · *ready, will apply on restart* (a quiet,
+dismissible note; never a modal) · *failed* (silent retry, surfaced only in settings) ·
+*unsigned build* (the note says so, once).
+
+**Interactions.** No mid-session restart, ever. A person may restart to apply immediately.
+
+**What would make it wrong.** An update that interrupts a watched fleet · a modal · a silent
+failure that never surfaces anywhere.
+
+**Acceptance.** A test asserts no update path can trigger a relaunch while the fleet is live.
+
 ## Sequencing (waves, each gated as ever)
 
 No lockfile freeze exists today — zero open code PRs — but the Electron dependencies are a
@@ -137,7 +268,8 @@ tray lifecycle; the signing pipeline and its two accounts; the wizard.
 - **N** — the minutes number in success 1 is measured at a stranger-run (prd-15's own device),
   not guessed here. Open, not ruled.
 - **Platform order** — Windows first is implied by the cohort's machines; whether macOS ships
-  in stage 1 or waits on the $99 account decision is the operator's. Open, not ruled.
+  in stage 1 or waits is still the operator's — but the money question itself is settled by
+  ruling 9 (defer, pipeline ready). Open, not ruled.
 - **Update channel shape** — a single stable channel is proposed; anything richer waits for a
   reason. Open, not ruled.
 - **Where the shell's own settings live** (run-on-login, update cadence) — tray menu or a
