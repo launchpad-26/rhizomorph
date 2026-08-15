@@ -252,6 +252,8 @@ failure that never surfaces anywhere.
 
 ## Sequencing (waves, each gated as ever)
 
+`packages/web/src/lab/` is prd-28's territory; no wave of this PRD enters it.
+
 No lockfile freeze exists today — zero open code PRs — but the Electron dependencies are a
 serializing `package.json` change: coordinate the lockfile with any open code PR at dispatch.
 

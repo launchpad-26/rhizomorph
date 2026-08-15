@@ -111,7 +111,7 @@ line, and the class of bug dies with the test.
 conversation, tooltips and prose; the _instrument_ register (0.625rem legal on data-dense
 surfaces; 0.5625rem the absolute floor, `aria-hidden` ornament only). The heading idiom becomes
 one named utility. _figures_ and _code-voice_ get their names. Structure, units and floors are
-charter law; exact values are tuned with hchristina on the companion.
+charter law; exact values are settled by ruling 6 and reviewed by the team.
 
 ## Ruling 3 — colour becomes roles and arithmetic, and the dead names are deleted
 
