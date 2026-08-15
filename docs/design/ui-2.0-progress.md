@@ -18,9 +18,9 @@
 - [x] `docs/prds/prd-30-the-open-hand.md` — expand
 - [x] `docs/prds/prd-31-the-bracketed-voice.md` — expand; **rewrite ruling 1**
 - [x] `docs/prds/prd-36-the-fleet-surface.md` — NEW (organism ⇄ list)
-- [ ] `docs/prds/prd-34-the-doorstep.md` — expand
-- [ ] `docs/prds/prd-33-the-living-scene.md` — expand
-- [ ] `docs/prds/prd-37-the-shared-world.md` — NEW (team layer)
+- [x] `docs/prds/prd-34-the-doorstep.md` — expand
+- [x] `docs/prds/prd-33-the-living-scene.md` — expand
+- [x] `docs/prds/prd-37-the-shared-world.md` — NEW (team layer)
 - [ ] charter amendments (branch `design-charter`, PR #451): category tint,
       light band, raised caps, neutral form-authorship wording
 - [ ] cross-PRD consistency pass
