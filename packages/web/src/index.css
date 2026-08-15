@@ -12,9 +12,17 @@ body,
   height: 100%;
 }
 
+/*
+ * The page floor names ROLES, not rungs (prd-32 S2). It resolves to exactly the
+ * same two colours it did before — `--surface-floor` is `--color-ice-1000` and
+ * `--ink-body` is `--color-ice-300` — which is the point: the roles derive from
+ * the dark ramp rather than sitting beside it. It is also the one place in the
+ * app that *must* be a role rather than a rung, because it is the declaration
+ * that survives a second theme (#551) without an edit here.
+ */
 body {
-  background: var(--color-ice-1000);
-  color: var(--color-ice-300);
+  background: var(--surface-floor);
+  color: var(--ink-body);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }

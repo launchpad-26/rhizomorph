@@ -21,8 +21,14 @@ const ICON_SELECTOR = 'link[rel="icon"]'
  * A favicon is a rasterised data URI generated outside the CSS cascade, so it
  * cannot reference a custom property directly; `themeHue` below reads the
  * real computed value when one is available and only falls back to these.
+ *
+ * Exported for the mirror suite (prd-32 ruling 3): these were the last two
+ * hand-copied hexes in the instrument sitting outside `palette.test.ts`, which
+ * is exactly the shape of constant that drifts — a favicon is not something
+ * anybody looks at while retuning a hue. `palette.test.ts` now holds both to
+ * their tokens.
  */
-const FALLBACK_HUE: Record<'needs-you' | 'broken', string> = {
+export const FALLBACK_HUE: Record<'needs-you' | 'broken', string> = {
   'needs-you': '#ffc857',
   broken: '#ff3d68',
 }
