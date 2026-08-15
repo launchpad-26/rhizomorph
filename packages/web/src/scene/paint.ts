@@ -577,10 +577,20 @@ function glyph(ctx: CanvasRenderingContext2D, mark: PathMark): void {
  * `font-variant-numeric`, so the law's "tabular numerals" clause is carried by
  * the choice of a monospaced face — in which every figure is the same width by
  * construction rather than by an opt-in feature the canvas cannot request.
+ *
+ * THE MIRROR (prd-32 ruling 1). These two strings are `--font-sans` and
+ * `--font-mono` from `theme/theme.css`, character for character, because
+ * `ctx.font` takes a string and canvas cannot read a custom property. Before
+ * wave 1 they had already drifted: the sans stack did not name Inter at all,
+ * and the mono stack listed JetBrains Mono *fourth*, behind `ui-monospace` —
+ * so the scene would have gone on painting in the system faces even after the
+ * DOM started using the real ones, and no test would have said so.
+ * `palette.test.ts` now holds this record to the tokens, which is the only
+ * thing that keeps the scene and the panels around it one typeface.
  */
-const FONT: Record<TextMark['font'], string> = {
-  sans: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
-  mono: "ui-monospace, SFMono-Regular, Menlo, 'JetBrains Mono', monospace",
+export const FONT: Record<TextMark['font'], string> = {
+  sans: "'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
+  mono: "'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
 }
 
 const ALIGN: Record<TextMark['align'], CanvasTextAlign> = {

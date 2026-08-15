@@ -9,10 +9,17 @@ import { describe, expect, it } from 'vitest'
  * prd9's operator ruling (2026-08-03, after reviewing the live UI: "blue text
  * on dark blue is hard to read") re-roles the ice ramp's dim end rather than
  * re-tinting it: every hex in `theme.css` stays exactly as it was, but text
- * may not wear anything dimmer than `ice-400` (5.1:1 against the `ice-1000`
- * page floor). `ice-500` (3.3:1), `ice-600` (2.4:1) and every step dimmer than
- * that measure below WCAG's 4.5:1 body-text threshold, so they are
+ * may not wear anything dimmer than `ice-400` (5.13:1 against the `ice-1000`
+ * page floor). `ice-500` (3.30:1), `ice-600` (2.18:1) and every step dimmer
+ * than that measure below WCAG's 4.5:1 body-text threshold, so they are
  * structure-and-disabled-marks tokens now, never text.
+ *
+ * Those three ratios are computed rather than quoted as of prd-32 wave 1 —
+ * `contrast.test.ts` derives them from the same hexes this file greps for, and
+ * deriving them is how `ice-600` turned out to be 2.18:1 rather than the 2.4:1
+ * the record carried. This file and that one are the two halves of one law:
+ * *which token* text may wear is a property of the source and is checked here;
+ * *what that token measures* is a property of the hexes and is checked there.
  *
  * That is not a property a rendered-output test can hold onto — a component
  * added tomorrow that reaches for `text-ice-600` on a label would pass every

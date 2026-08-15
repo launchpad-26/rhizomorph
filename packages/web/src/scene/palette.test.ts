@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { FALLBACK_HUE } from '../panels/attention/useTabSignal.js'
+import { SETTLE_MS } from './geometry/scale.js'
+import { BREATH_PERIOD_MS } from './marks/frame.js'
 import { AMBIENT } from './motion.js'
+import { FONT } from './paint.js'
 import { CHANNELS, SHIMMER_MAX, SHIMMER_PERIOD_MS, variationFor } from './variation.js'
 import {
   ACTIVITY_HUE,
@@ -81,6 +85,17 @@ function token(name: string): Rgb {
     Number.parseInt(hex.slice(2, 4), 16),
     Number.parseInt(hex.slice(4, 6), 16),
   ]
+}
+
+/**
+ * A token's raw value, whatever shape it takes — a font stack, a duration, a
+ * hex. `token()` above insists on a colour because the ramp assertions want
+ * bytes; the mirrors added by prd-32 wave 1 are strings.
+ */
+function raw(name: string): string {
+  const match = new RegExp(`${name}:\\s*([^;]+);`).exec(THEME.replace(/\/\*[\s\S]*?\*\//g, ' '))
+  expect(match, `theme.css has no ${name}`).not.toBeNull()
+  return ((match as RegExpExecArray)[1] as string).trim()
 }
 
 /** The ice ramp, mirrored here in the order the register climbs. */
@@ -165,6 +180,68 @@ describe('the ice-neon register, mirrored for canvas', () => {
     for (const [name, hue] of STATUS_HUES) {
       expect(RAMP, `${name} is a member of the ice ramp`).not.toContainEqual(hue)
     }
+  })
+})
+
+/**
+ * THE MIRROR'S OTHER THREE CONSTANTS (prd-32 wave 1).
+ *
+ * The colour half of this file has existed since prd4. Everything below is the
+ * same argument applied to the three places a theme value is repeated as a
+ * literal *outside* the palette — each one a constant whose comment already
+ * claimed to match a token, with nothing checking that it did:
+ *
+ *   - `paint.ts`'s FONT record. Canvas takes a string, not a custom property.
+ *   - `BREATH_PERIOD_MS` and `SETTLE_MS`, whose doc comments say "Matches
+ *     `--duration-breath` / `--duration-settle` in the theme" in so many words.
+ *   - `FALLBACK_HUE`, the two hexes a favicon needs because a rasterised data
+ *     URI is generated outside the CSS cascade.
+ *
+ * Two of the four were *already wrong* when the mirror was written, which is
+ * the argument for the mirror rather than a coincidence: the canvas sans stack
+ * did not name Inter at all, and its mono stack listed JetBrains Mono fourth,
+ * behind `ui-monospace`. The DOM would have started rendering in the real faces
+ * this week and the scene would have gone on painting in the system ones.
+ */
+describe('the type stacks, mirrored for canvas (prd-32 ruling 1)', () => {
+  it.each([
+    ['sans', '--font-sans'],
+    ['mono', '--font-mono'],
+  ])('paints %s in exactly the stack the theme names', (face, token) => {
+    expect(FONT[face as keyof typeof FONT]).toBe(raw(token))
+  })
+
+  it('leads both stacks with a face the app actually ships', () => {
+    // The half a string comparison alone would not catch: two identical stacks
+    // that both name a font nobody installed. `tokens.test.ts` holds the theme
+    // side to the installed packages' own family names; this holds the canvas
+    // to the theme, so the chain reaches from the woff2 on disk to `ctx.font`.
+    expect(FONT.sans.startsWith("'Inter Variable'")).toBe(true)
+    expect(FONT.mono.startsWith("'JetBrains Mono Variable'")).toBe(true)
+  })
+})
+
+describe('the durations, mirrored for the scene (prd-32 ruling 1)', () => {
+  it.each([
+    ['BREATH_PERIOD_MS', BREATH_PERIOD_MS, '--duration-breath'],
+    ['SETTLE_MS', SETTLE_MS, '--duration-settle'],
+  ])('%s is still its token', (_name, value, token) => {
+    expect(`${value}ms`).toBe(raw(token as string))
+  })
+})
+
+describe('the favicon hues, mirrored out of the cascade (prd-32 ruling 3)', () => {
+  it.each([
+    ['needs-you', 'needs-you'],
+    ['broken', 'broken'],
+  ])('%s still equals its theme token', (key) => {
+    // The last two unpinned hexes in the instrument. A favicon is not something
+    // anybody looks at while retuning a hue, so this is exactly the constant
+    // that drifts — and drifts invisibly, because the fallback only shows on a
+    // surface where `getComputedStyle` returned nothing.
+    expect(FALLBACK_HUE[key as keyof typeof FALLBACK_HUE].toLowerCase()).toBe(
+      raw(`--color-${key}`).toLowerCase(),
+    )
   })
 })
 

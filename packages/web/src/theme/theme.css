@@ -36,11 +36,22 @@
    * calm surface is allowed to distinguish itself from another calm surface.
    *
    * The legibility floor (prd9 operator ruling, 2026-08-03): text may not wear
-   * anything dimmer than `ice-400` (5.1:1 against the `ice-1000` floor).
-   * `ice-500` and `ice-600` measure 3.3:1 and 2.4:1 — under WCAG's 4.5:1 body
+   * anything dimmer than `ice-400` (5.13:1 against the `ice-1000` floor).
+   * `ice-500` and `ice-600` measure 3.30:1 and 2.18:1 — under WCAG's 4.5:1 body
    * threshold — so they are structure-and-disabled-marks tokens only, never
    * text. A de-emphasis that used to reach for one of them now reaches for
    * size, weight or the spacing around it instead.
+   *
+   * Those three numbers are no longer prose: `contrast.test.ts` computes them
+   * from these very hexes (prd-32 ruling 3), and computing them is how the
+   * third one got fixed. The record carried `2.4:1` for `ice-600` from the day
+   * the ruling was written; WCAG's own formula against `ice-1000` gives 2.18:1,
+   * and no other ground in the ramp yields 2.4 either (`ice-950` 2.11,
+   * `ice-900` 2.01, `ice-850` 1.87). The ruling is unharmed — 2.18 is further
+   * below the 4.5 threshold than 2.4 was, so "structure, never text" holds
+   * harder — but the figure was wrong, and a law that computes is why anyone
+   * knows. `docs/design/charter.md` §4 and `docs/prds/prd-32` still quote 2.4;
+   * both are outside this wave's fence and are corrected where they live.
    */
   --color-ice-1000: #04060c; /* the void — the page's floor */
   --color-ice-950: #080b14; /* raised: panels, docks, the strips */
@@ -48,9 +59,9 @@
   --color-ice-850: #131a2b; /* hairlines and panel borders */
   --color-ice-800: #1b2438; /* stronger dividers, table rules */
   --color-ice-700: #26334d; /* absent/disabled marks — never text */
-  --color-ice-600: #364768; /* decorative structure, disabled marks — never text (prd9 legibility: 2.4:1, below floor) */
-  --color-ice-500: #4c6289; /* decorative structure, disabled marks — never text (prd9 legibility: 3.3:1, below floor) */
-  --color-ice-400: #6a81a8; /* secondary labels — the legibility floor: no text goes dimmer than this */
+  --color-ice-600: #364768; /* decorative structure, disabled marks — never text (prd9 legibility: 2.18:1, below floor) */
+  --color-ice-500: #4c6289; /* decorative structure, disabled marks — never text (prd9 legibility: 3.30:1, below floor) */
+  --color-ice-400: #6a81a8; /* secondary labels — the legibility floor: no text goes dimmer than this (5.13:1) */
   --color-ice-300: #8ea3c4; /* body copy */
   --color-ice-200: #b3c6de; /* primary data ink — the calm neon */
   --color-ice-100: #d6e2f2; /* emphasis: the headline number */
@@ -140,10 +151,55 @@
    * numbers, branches, shas, ids, timestamps, durations. The rule is
    * mechanical — if a reader could compare two of them down a column, it is
    * data and it is mono. A display face is reserved for the wordmark alone.
+   *
+   * THE FACES NOW LOAD (prd-32 ruling 1). Until wave 1 these names were a
+   * comment: nothing shipped Inter or JetBrains Mono, so every session ran in
+   * Segoe UI and Consolas. `main.tsx` imports `@fontsource-variable/inter` and
+   * `@fontsource-variable/jetbrains-mono`, which are bundled from disk — no
+   * CDN, because a localhost-only instrument never reaches one.
+   *
+   * The `… Variable` names lead each stack and are NOT optional: that is the
+   * family name the `@font-face` blocks in those packages actually declare, so
+   * a stack that led with plain `'Inter'` would match nothing and fall through
+   * to `ui-sans-serif` exactly as it did before the packages were installed.
+   * The static names are kept behind them for a machine with the face already
+   * installed system-wide. `scene/paint.ts`'s canvas FONT record repeats these
+   * two strings verbatim — canvas cannot read a token — and `palette.test.ts`
+   * holds it to them.
    */
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-display: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  /* ── the type ramp: two registers, every value in rem (prd-32 S1) ───────
+   * Before wave 1 there was no ramp at all — 239 sizing sites spelled in
+   * pixel literals, mode `text-[10px]`, zero rem. Pixels are the half that
+   * matters for accessibility: a person who has set their OS or browser text
+   * larger got *no change at all*, because a pixel literal overrides the
+   * preference it is supposed to honour. Every value here is rem (ruling 9),
+   * so the root font size reaches the instrument.
+   *
+   * Two registers, because the instrument does two different jobs:
+   *
+   *   READING — conversation turns, disclosure cards, explanations, prose,
+   *   empty states. Anything a human is meant to *read* rather than compare.
+   *   It rises to 14 px-equivalent, a ~40% jump on today's dominant 10 px,
+   *   which will visibly reflow layouts. That is wave 4's work and it is the
+   *   point rather than a side effect (ruling 6).
+   *
+   *   INSTRUMENT — tables, trace rows, figures in columns, chips. Data a
+   *   reader *compares*, where density is the service.
+   *
+   * The floor is the one value with a rule attached rather than a use: 9
+   * px-equivalent is `aria-hidden` ornament ONLY. A screen reader never
+   * reaches it and what it marks is already said in words beside it.
+   */
+  --text-read-body: 0.875rem; /* 14 px-eq — reading: conversation, cards, prose */
+  --text-read-floor: 0.8125rem; /* 13 px-eq — reading: secondary prose, sentence captions */
+  --text-inst: 0.6875rem; /* 11 px-eq — instrument: panel bodies, list rows, chips */
+  --text-inst-dense: 0.625rem; /* 10 px-eq — instrument: tables, trace rows, columned figures */
+  --text-inst-floor: 0.5625rem; /* 9 px-eq — ABSOLUTE floor, `aria-hidden` ornament only */
+  --text-heading: 0.625rem; /* 10 px-eq — the one heading utility, below */
 
   /* ── motion (law 10) ────────────────────────────────────────────────────
    * Events move, states glow. These are the only durations in the app, so
@@ -152,24 +208,119 @@
   --duration-flare: 620ms; /* an event landing: one pulse, then steady */
   --duration-settle: 900ms; /* a thread growing in on worktree.discovered */
   --duration-breath: 5400ms; /* the scene's ambient breathing — the only loop */
-
-  /* ── legacy aliases (DEPRECATED — wave 2 removes them) ──────────────────
-   * The pre-prd3 surfaces (StatusBar, replay, the panels wave 2 dissolves)
-   * still name `void`/`neon-*`. Deleting the tokens here would leave those
-   * files un-styled while they sit outside this issue's fence, so they are
-   * kept alive pointed at the new register — the same "keep it alive,
-   * deprecated, until the files that depend on it are replaced by their own
-   * issues" rule architecture.md records for core's placeholder export.
+  /*
+   * The age pulse (prd5 ruling 5): a needs-you chip old enough for the PULSE
+   * band breathes, slowly and deliberately — insistence without panic, so the
+   * period is long rather than quickening.
    *
-   * Three of them map onto status hues, so those surfaces are *temporarily*
-   * in breach of law 9a; #77–#83 retire each caller and then these lines go.
+   * This token exists because of the bug that motivated the mirror test rather
+   * than beside it. `attention.css` has referenced `var(--duration-age-pulse-seam,
+   * 6800ms)` since prd5 and nothing ever defined it, so the shipped period has
+   * always been the fallback — a duration living in a CSS default argument, in a
+   * panel, outside "these are the only durations in the app". `tokens.test.ts`
+   * now fails on any referenced-but-undefined token, and this line is the first
+   * thing it caught.
+   *
+   * DEFINED RATHER THAN DELETED, deliberately. Deleting the reference is an edit
+   * to `panels/attention/attention.css`, which is outside this wave's fence, and
+   * it would silently change a shipped animation's period as a side effect of a
+   * token-plumbing commit. 6800ms is what the app has actually been doing for
+   * every session since prd5; declaring it here changes nothing a user sees and
+   * moves the number to where the other three live. Retuning it against #101's
+   * motion budget is a separate, visible decision — which is exactly what it
+   * could not be while it hid in a fallback.
    */
-  --color-void: var(--color-ice-1000);
-  --color-void-raised: var(--color-ice-950);
-  --color-void-line: var(--color-ice-850);
-  --color-neon-cyan: var(--color-notice);
-  --color-neon-amber: var(--color-needs-you);
-  --color-neon-magenta: var(--color-broken);
+  --duration-age-pulse-seam: 6800ms;
+}
+
+/* ── ROLE TOKENS (prd-32 S2) ────────────────────────────────────────────────
+ * Roles rather than steps, so two themes are possible and no consumer names a
+ * luminance directly. `bg-ice-950` says *which rung*; `--surface-panel` says
+ * *what the thing is*, and only the second survives a ground that is warm
+ * off-white instead of the void.
+ *
+ * **Dark is the source of truth and these derive from it** (prd-32 non-goals):
+ * every role below is a `var()` onto the ice ramp, never a hex beside it, so a
+ * ramp edit cannot leave the roles behind. Light (#551) redefines the same ten
+ * names in a `[data-theme='light']` block — re-derived, never arithmetically
+ * inverted, because "brighter than the calm world" cannot mean the same thing
+ * on white.
+ *
+ * They live in a plain `:root` rather than in `@theme` for that reason: these
+ * are not Tailwind namespaces (no `bg-surface-panel` is generated and none is
+ * wanted — a role is reached as `bg-(--surface-panel)` or `var(--surface-panel)`),
+ * and a per-theme override of an `@theme` variable is the awkward case. The
+ * contrast law discovers theme blocks by parsing this file, so the theme that
+ * arrives in #551 is covered by the same suite the moment it lands, without an
+ * edit to the law.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces, floor upward. */
+  --surface-floor: var(--color-ice-1000); /* the page's own ground */
+  --surface-panel: var(--color-ice-950); /* panels, docks, strips */
+  --surface-raised: var(--color-ice-900); /* rows on hover, inset wells */
+  --surface-line: var(--color-ice-850); /* a surface's own edge */
+
+  /* Ink. Nothing dimmer than `--ink-dim` may carry text — that is the prd9
+   * legibility floor, and `contrast.test.ts` computes it rather than trusting
+   * it. `--ink-inverse` is the reversal: ink for a bright plate (a filled chip,
+   * a cartouche), so it is measured against `--ink-primary` as its ground. */
+  --ink-primary: var(--color-ice-100); /* emphasis: the headline number */
+  --ink-body: var(--color-ice-300); /* body copy — the page default */
+  --ink-dim: var(--color-ice-400); /* secondary labels — the floor */
+  --ink-inverse: var(--color-ice-1000); /* ink on a bright plate */
+
+  /* Rules. Never text, on either side of the floor. */
+  --line-hair: var(--color-ice-850); /* hairlines and panel borders */
+  --line-strong: var(--color-ice-800); /* stronger dividers, table rules */
+
+  /* ── focus: ONE token, and never a status hue (charter §6) ──────────────
+   * Focus was hand-rolled at 18 sites in three idioms — `ring-ice-600`,
+   * `ring-ice-700` inset, `ring-notice` — and `panels/collisions` wore
+   * `ring-needs-you`, a summons hue as focus chrome. A status hue as focus is
+   * the one that has to go first: it makes "a human must act here" and "your
+   * keyboard is here" the same colour, so the amber stops meaning anything.
+   *
+   * `ice-200` rather than the old `ice-600`, because the old ring was not
+   * merely inconsistent, it was under the bar: `ice-600` measures 2.18:1
+   * against the floor, below WCAG's 3:1 for non-text indicators. `ice-200`
+   * measures 11.62:1 and is structure, not status.
+   */
+  --focus-ring: var(--color-ice-200);
+
+  /* ── the category family (prd-32 ruling 8) ──────────────────────────────
+   * A deliberate, bounded amendment to the most-repeated constraint in the
+   * record. "No new semantic hue" stands: the six status hues above remain the
+   * entire vocabulary of *state*. What lands here is a family for *kind of
+   * work* — extended from the organism's own material hue (OKLCH H ≈ 295.5) at
+   * a fraction of its chroma, so a category reads as the organism's own
+   * substance rather than as UI decoration. One organism, many tissues.
+   *
+   * Five caps keep status dominant, and every one of them is a number
+   * `category.test.ts` holds — with a rigged family per cap proving the cap
+   * bites rather than decorating:
+   *
+   *   1. chroma at most 0.6× the *least* chromatic status hue — a tint, never
+   *      a signal (measured: 0.056 against `done` at 0.117);
+   *   2. no glow, ever — glow is alarm grammar, and a category gets no halo;
+   *   3. never above `CALM_CEILING` (0.78) — structurally incapable of
+   *      entering the band the alarms own (measured ceiling: 0.661);
+   *   4. at least 60° of OKLCH clearance from `--color-notice`, so the violet
+   *      family cannot drift into the accent prompts already carry (measured:
+   *      86.8°);
+   *   5. greyscale survival — the four are separated by lightness alone, so
+   *      the distinction reads with colour removed (law 9 restated).
+   *
+   * They are `--category-*` rather than `--color-category-*` on purpose: no
+   * `bg-category-1` utility is generated, so the family cannot be reached by a
+   * name shaped like a status colour. `bg-(--category-1)` is the spelling.
+   */
+  --category-1: #453c5d;
+  --category-2: #655d80;
+  --category-3: #8880a4;
+  --category-4: #ada4ca;
 }
 
 /* ── glow: how a state reads as lit rather than filled ─────────────────────
@@ -226,26 +377,49 @@
   font-feature-settings: 'tnum' 1;
 }
 
-/* ── deprecated glow aliases — same removal schedule as the colour aliases ── */
-
-@utility glow-cyan {
-  box-shadow:
-    0 0 0 1px color-mix(in oklab, var(--color-notice) 45%, transparent),
-    0 0 16px color-mix(in oklab, var(--color-notice) 35%, transparent);
+/*
+ * THE HEADING UTILITY (prd-32 S1) — the instrument has exactly one heading
+ * idiom, and until now it was a string: `text-xs font-semibold uppercase
+ * tracking-widest text-ice-400`, copy-pasted across the Conversation, Trace and
+ * Activity headers. Copy-paste is how two of them end up at a different size
+ * and tracking without anybody deciding that. This is that exact string,
+ * named — its size comes from the ramp, so a heading cannot be re-sized one
+ * surface at a time.
+ *
+ * Ink is deliberately NOT set here. A heading over a panel and a heading over
+ * a summons want different ink, and a utility that decided that would be back
+ * to being un-overridable chrome. Size, case and tracking are the idiom.
+ */
+@utility heading {
+  font-size: var(--text-heading);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  line-height: 1.2;
 }
 
-@utility glow-magenta {
-  box-shadow:
-    0 0 0 1px color-mix(in oklab, var(--color-broken) 50%, transparent),
-    0 0 18px color-mix(in oklab, var(--color-broken) 40%, transparent);
-}
+/*
+ * THE FOCUS FLOOR (charter §6, prd-32 ruling 9) — one token, one utility, on
+ * every interactive element in the app.
+ *
+ * `outline` rather than `ring`: an outline is drawn outside the box and is
+ * never clipped by an ancestor's `overflow-hidden`, which is how a focus ring
+ * on a row inside a scroll container silently disappears. `:focus` clears the
+ * UA outline and `:focus-visible` draws ours, so a mouse click does not light
+ * up but a Tab key does.
+ *
+ * The three hand-rolled idioms this replaces are retired by wave 4's sweeps —
+ * `panels/collisions` first and in this commit, because its ring wore a status
+ * hue. `tokens.test.ts` holds the rest to the allowlist so the count can only
+ * go down.
+ */
+@utility focus-ring {
+  &:focus {
+    outline: none;
+  }
 
-@utility glow-amber {
-  box-shadow:
-    0 0 0 1px color-mix(in oklab, var(--color-needs-you) 50%, transparent),
-    0 0 18px color-mix(in oklab, var(--color-needs-you) 40%, transparent);
-}
-
-@utility text-glow-cyan {
-  text-shadow: 0 0 10px color-mix(in oklab, var(--color-notice) 60%, transparent);
+  &:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 1px;
+  }
 }
