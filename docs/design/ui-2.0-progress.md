@@ -11,10 +11,10 @@
 
 - [x] `docs/design/ui-2.0-decisions.md` — the decision record (D1–D52)
 - [x] `docs/design/ui-2.0-progress.md` — this file
-- [ ] `docs/prds/README.md` — amend the length rule, rewrite the PRD-as-spec
+- [x] `docs/prds/README.md` — amend the length rule, rewrite the PRD-as-spec
       anti-pattern (D49)
-- [ ] `docs/prds/prd-32-the-readable-instrument.md` — expand to spec depth
-- [ ] `docs/prds/prd-35-the-operators-hand.md` — NEW (settings)
+- [x] `docs/prds/prd-32-the-readable-instrument.md` — expand to spec depth
+- [x] `docs/prds/prd-35-the-operators-hand.md` — NEW (settings)
 - [ ] `docs/prds/prd-30-the-open-hand.md` — expand
 - [ ] `docs/prds/prd-31-the-bracketed-voice.md` — expand; **rewrite ruling 1**
 - [ ] `docs/prds/prd-36-the-fleet-surface.md` — NEW (organism ⇄ list)
