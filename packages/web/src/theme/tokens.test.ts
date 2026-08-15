@@ -203,7 +203,14 @@ describe('the type ramp, in rem, in two registers (S1)', () => {
  * literal after the tokens exist". A wave-4 sweep lowering this number is the
  * sweep's own progress made visible, one commit at a time.
  */
-const RAW_PIXEL_SIZES = 226
+// 227 -> 225, by two independent retirements landing in the same wave. #549
+// retired one as the nav and the window floor replaced hand-spelled sizes; #553
+// retired another when `theme/kind.ts` gave the trace's kind tag and the
+// activity ledger one spelling instead of two (`text-[10px]` among six
+// utilities). Both branches wrote 226 independently, so git merged the number
+// with no conflict at all — agreement is not correctness, and taking it would
+// have pinned the ratchet one slot above the truth. Recomputed from the tree.
+const RAW_PIXEL_SIZES = 225
 
 describe('no new pixel literal after the ramp exists (S1)', () => {
   /** Everything the sweeps own: the app, less `lab/` (prd-28's territory). */
