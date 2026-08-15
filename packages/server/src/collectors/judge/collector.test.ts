@@ -2,6 +2,7 @@ import { createEvent, createIdFactory, createStubExec, SIGNALS } from '@rhizomor
 import type { CollectorContext, Exec, StubExec, StubExecRoute } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { createJudgeCollector, JUDGE_CAPABILITIES } from './collector.js'
+import type { JudgeSnapshot } from './collector.js'
 
 /**
  * Driven purely through a scripted {@link Exec} — no real git process ever
@@ -561,6 +562,33 @@ describe('judge collector — error heartbeat (#526)', () => {
     // boolean already set from lane-a's poll-1 failure, so lane-c's first
     // failure is swallowed too and this list would be empty instead.
     expect(p2Messages).toEqual(['symbol extraction failed for lane "lane-c"'])
+  })
+
+  it('resume: a snapshot persisted before extractionErrorVoiced existed latches instead of throwing', async () => {
+    // Collector snapshots survive a restart through `snapshotStore`, and
+    // `poll-loop.ts`'s `hydrate()` feeds whatever it loaded straight back into
+    // `poll` — so the first poll after upgrading past #526 is handed a
+    // JudgeSnapshot that has no `extractionErrorVoiced` key at all. Without
+    // the `?? {}` default this reads a property of `undefined` inside the
+    // catch, and the TypeError escapes `poll` rather than voicing the failure
+    // it was called to report. Guards the default itself: with the `?? {}`
+    // removed, every other test in this file still passes and only this one
+    // goes red.
+    const collector = createJudgeCollector({ cadenceMs: 0 })
+    const preFieldSnapshot = {
+      disabled: false,
+      lastRunAt: null,
+      reported: {},
+      laneSymbols: {},
+    } as unknown as JudgeSnapshot
+
+    const p1 = await collector.poll(preFieldSnapshot, makeContext(scriptedExec(heartbeatRoutes(true, 0)), 1_000))
+    expect(messagesOf(p1.events)).toContain(EXTRACTION_MSG)
+
+    // And the latch it rebuilt from that field-less snapshot is a real one:
+    // the identical failure on the next poll stays silent.
+    const p2 = await collector.poll(p1.nextSnapshot, makeContext(scriptedExec(heartbeatRoutes(true, 0)), 2_000))
+    expect(messagesOf(p2.events)).not.toContain(EXTRACTION_MSG)
   })
 })
 
