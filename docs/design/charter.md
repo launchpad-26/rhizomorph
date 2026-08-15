@@ -195,6 +195,26 @@ Normative on merge — additive, amending nothing:
 > a theme-aware palette path (`scene/palette.ts` becomes per-theme tables; the colour
 > mirror test doubles). The user switch itself is chrome, not status: a persisted
 > preference defaulting to `prefers-color-scheme`.
+>
+> **Ruled 2026-08-15 (prd-32 ruling 7):** the light ground is **warm off-white, not
+> clinical white**, with deep plum-grey inks and low-contrast hairlines — an eye that
+> reads an instrument for hours is not served by maximum contrast, and the warm ground
+> is what gives the category family below a material to sit against. BROKEN gains a
+> cartouche and weight where on the void it gained luminance.
+
+> **Pending ruling — owned by the legibility PRD.** _A bounded category family._
+> Proposed 2026-08-15 and **ruled the same day (prd-32 ruling 8)**, recorded here
+> because it amends §2's most-repeated constraint. Beside the six status hues — which
+> remain the entire vocabulary of *state* — a small, low-chroma **category** family
+> lands for *kind of work*, extended from the tissue accent (OKLCH H ≈ 295.5) so it
+> reads as the organism's own material rather than as decoration. **"No new semantic
+> hue" is preserved exactly**: category carries kind, never state.
+>
+> Five caps, each a number a law test holds: chroma ceiling well below every status
+> hue · **no glow, ever** · **never above `CALM_CEILING`** · measured angular clearance
+> from `--color-notice` · **greyscale survival** (law 9 restated for the family). On
+> the scene it may ride only the thread's *material* — sheath, nodes, banding — never
+> its living hue (prd-33 ruling 6).
 
 ## 5 · the motion through-line
 
@@ -220,6 +240,20 @@ would show a topology that does not exist.
 > fifth class — and the set opens only the way prd-10 ruling 10 opened it for
 > dissolution: a typed cause so a sixth cannot be smuggled in, hard caps stated as
 > numbers, every older cap untouched.
+>
+> **Ruled 2026-08-15 (prd-33 ruling 9): growth is the fifth class**, with its own
+> budget rather than borrowing structural's — its character is opposite (continuous
+> and gentle across many threads, where structural is discrete and settling), and it
+> opens the set through prd-10 ruling 10's template exactly.
+
+> **Pending ruling — owned by the scene PRD.** _The event and structural caps._
+> **Ruled 2026-08-15 (prd-33 ruling 10):** the caps rise, under two conditions that
+> keep the multiple-object-tracking research honoured. **The new numbers are derived
+> from measurement** — the actual distribution of concurrent events in recorded
+> sessions — rather than chosen by appetite; and **the alarm class is exempt**, so a
+> death is visible at any density. The original cap protected a viewer's ability to
+> see the one thing that mattered; priority achieves that where scarcity did.
+> Ambient motion remains uncapped, as it always was.
 
 ## 6 · the interaction through-line
 
@@ -308,9 +342,9 @@ skipped, and not dispatchable to an agent.
 
 - **The artifact restates, never rules.** Where the artifact and this charter
   disagree, the charter is right and the artifact is a rendering bug.
-- **hchristina iterates the artifact.** The design back-and-forth happens on the
-  visual companion; charter PRs record what survives the conversation. The charter
-  changes by pull request, or it does not change.
+- **Forms are decided in the owning PRD, and reviewed by the team.** The visual
+  companion renders what the charter and the PRDs decide; charter PRs record what
+  survives review. The charter changes by pull request, or it does not change.
 - **Blessing happens at design sync.** A pending ruling stays pending until its
   owning PRD's ruling is blessed there.
 - **Future amendments follow §2.4**: a ruling that names what it amends with numbers,
