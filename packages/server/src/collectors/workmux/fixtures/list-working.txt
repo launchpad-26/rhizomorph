@@ -1,0 +1,8 @@
+BRANCH               AGE  AGENT    MUX  UNMERGED  PATH                      
+main                 -    -        -    -         ../../worktrees-challenge 
+2-core               12m  working  ✓    ●         ../2-core                 
+3-git-collector      6m   working  ✓    ●         ../3-git-collector        
+4-tmux-collector     5m   working  ✓    ●         ../4-tmux-collector       
+5-workmux-collector  5m   working  ✓    ●         (here)                    
+6-server             5m   working  ✓    ●         ../6-server               
+7-web-shell          5m   working  ✓    ●         ../7-web-shell            
