@@ -1,3 +1,4 @@
+import { Nav } from '../app/Nav.js'
 import {
   RANK_GLOW_CLASS,
   Sigil,
@@ -36,41 +37,44 @@ export interface PageHeaderProps {
 
 export function PageHeader({ subject, onClose }: PageHeaderProps) {
   return (
-    <header
-      data-testid="lane-page-header"
-      className="flex shrink-0 items-center gap-4 border-b border-ice-850 bg-ice-950 px-4 py-3"
-    >
-      <button
-        type="button"
-        data-testid="lane-page-back"
-        onClick={onClose}
-        className="shrink-0 rounded border border-ice-800 px-2 py-1 text-[10px] uppercase tracking-wider text-ice-400 transition-[color,border-color] duration-150 ease-out hover:border-ice-600 hover:text-ice-100"
+    <>
+      <Nav />
+      <header
+        data-testid="lane-page-header"
+        className="flex shrink-0 items-center gap-4 border-b border-ice-850 bg-ice-950 px-4 py-3"
       >
-        ← balcony
-      </button>
+        <button
+          type="button"
+          data-testid="lane-page-back"
+          onClick={onClose}
+          className="shrink-0 rounded border border-ice-800 px-2 py-1 text-[10px] uppercase tracking-wider text-ice-400 transition-[color,border-color] duration-150 ease-out hover:border-ice-600 hover:text-ice-100"
+        >
+          ← balcony
+        </button>
 
-      {subject.kind === 'conductor' ? <ConductorIdentity /> : <LaneIdentity lane={subject.lane} />}
+        {subject.kind === 'conductor' ? <ConductorIdentity /> : <LaneIdentity lane={subject.lane} />}
 
-      <span
-        data-testid="lane-page-role"
-        className="shrink-0 text-[11px] uppercase tracking-wider text-ice-400"
-        title="declared role"
-      >
-        {subject.kind === 'conductor' ? 'conductor' : subject.lane.role}
-      </span>
+        <span
+          data-testid="lane-page-role"
+          className="shrink-0 text-[11px] uppercase tracking-wider text-ice-400"
+          title="declared role"
+        >
+          {subject.kind === 'conductor' ? 'conductor' : subject.lane.role}
+        </span>
 
-      <span
-        data-testid="lane-page-branch"
-        className="min-w-0 truncate font-mono text-[11px] text-ice-400"
-        title={
-          subject.kind === 'conductor'
-            ? 'no branch — the conductor runs the fleet, not a worktree of its own'
-            : (subject.lane.branch ?? 'no branch — git never saw a worktree for this lane')
-        }
-      >
-        {subject.kind === 'conductor' ? '—' : (subject.lane.branch ?? '—')}
-      </span>
-    </header>
+        <span
+          data-testid="lane-page-branch"
+          className="min-w-0 truncate font-mono text-[11px] text-ice-400"
+          title={
+            subject.kind === 'conductor'
+              ? 'no branch — the conductor runs the fleet, not a worktree of its own'
+              : (subject.lane.branch ?? 'no branch — git never saw a worktree for this lane')
+          }
+        >
+          {subject.kind === 'conductor' ? '—' : (subject.lane.branch ?? '—')}
+        </span>
+      </header>
+    </>
   )
 }
 

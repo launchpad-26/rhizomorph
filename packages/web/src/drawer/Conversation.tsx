@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FetchLike } from '../fleet/manifest.js'
 import { formatTokens } from '../lib/format.js'
+import { KIND_APPEARANCE, kindEdgeClass, kindInkClass, type WorkKind } from '../theme/kind.js'
 import type { TranscriptBlock, TranscriptEntry, TranscriptRole } from './useTranscript.js'
 import { useTranscript } from './useTranscript.js'
 
@@ -196,18 +197,32 @@ function Turn({ entry }: { entry: TranscriptEntry }) {
   )
 }
 
+/**
+ * Which of the app's kinds a transcript block is. Only the two tool blocks are
+ * kinds at all: a `text` block's look is decided by *role*, and kind dispatches
+ * before role (that order is the deliberate one — a session log records tool
+ * results on `user` lines, so styling purely by role would dress every result
+ * up as something a human typed).
+ *
+ * The look itself is `theme/kind.ts`'s (prd-31 ruling 1), which is where the
+ * sentence this file used to spell inline now lives: a kind is not a status. A
+ * call and its answer share the `tool` category, so their tints are the same
+ * one and the rule runs unbroken down both — the band *is* the pairing.
+ */
+const BLOCK_KIND = { tool_use: 'tool', tool_result: 'result' } as const satisfies Record<string, WorkKind>
+
 function Block({ block, role }: { block: TranscriptBlock; role: TranscriptRole }) {
   if (block.kind === 'tool_use') {
     return (
       <p
         data-testid="tool-call"
-        className="flex items-baseline gap-1.5 py-0.5 font-mono text-[10px] leading-snug text-ice-400"
+        className={`flex items-baseline gap-1.5 py-0.5 font-mono text-[10px] leading-snug text-ice-400 ${kindEdgeClass(BLOCK_KIND.tool_use)}`}
       >
         {/* aria-hidden bullet: decorative line-start mark, no information of its own — legibility.test.ts allowlist */}
         <span aria-hidden className="text-ice-600">
           ●
         </span>
-        <span className="shrink-0 text-ice-300">{block.name}</span>
+        <span className={`shrink-0 ${kindInkClass(BLOCK_KIND.tool_use)}`}>{block.name}</span>
         {block.hint === '' ? null : (
           <span className="truncate">
             <span aria-hidden>— </span>
@@ -222,7 +237,7 @@ function Block({ block, role }: { block: TranscriptBlock; role: TranscriptRole }
     return (
       <p
         data-testid="tool-result"
-        className="whitespace-pre-wrap break-words pl-3.5 font-mono text-[10px] leading-snug text-ice-400"
+        className={`whitespace-pre-wrap break-words border-l-2 pl-3.5 font-mono text-[10px] leading-snug ${kindInkClass(BLOCK_KIND.tool_result)} ${KIND_APPEARANCE[BLOCK_KIND.tool_result].edge}`}
       >
         {/* aria-hidden glyph: decorative line-start mark, no information of its own — legibility.test.ts allowlist */}
         <span aria-hidden className="text-ice-700">

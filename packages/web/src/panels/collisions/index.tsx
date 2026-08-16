@@ -73,7 +73,13 @@ export default function CollisionsPanel() {
                   <button
                     type="button"
                     onClick={() => focusPair(pair)}
-                    className="figures flex w-full items-center gap-2 truncate rounded px-2 py-1 text-left text-needs-you hover:bg-ice-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-needs-you"
+                    // prd-32 ruling 9: `focus-ring`, the one token, replacing
+                    // `focus-visible:ring-needs-you`. A status hue as focus
+                    // chrome made "a human must act on this collision" and
+                    // "your keyboard is here" the same amber — so the summons
+                    // hue meant two things on the one surface that shows
+                    // nothing but summonses. It goes first for that reason.
+                    className="focus-ring figures flex w-full items-center gap-2 truncate rounded px-2 py-1 text-left text-needs-you hover:bg-ice-900"
                   >
                     <span aria-hidden>●</span>
                     <span className="truncate">{formatPairEvidence(pair)}</span>
@@ -180,7 +186,7 @@ function OpenBranchLink({ branch }: { branch: string }) {
       href={laneUrl(branch)}
       onClick={onClick}
       data-testid="collisions-open-lane"
-      className="rounded text-inherit hover:text-ice-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600"
+      className="focus-ring rounded text-inherit hover:text-ice-100"
     >
       {shortenBranch(branch)}
     </a>

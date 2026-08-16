@@ -99,6 +99,14 @@ async function click(element: HTMLElement) {
 }
 
 describe('RecordingsPage', () => {
+  it('renders the persistent nav (#549, prd-32 ruling 10) — this surface was reachable by URL only before', async () => {
+    window.history.replaceState(null, '', '/recordings')
+    renderPage()
+
+    expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    expect(screen.getByTestId('nav-recordings').getAttribute('aria-current')).toBe('page')
+  })
+
   it('lists every recording with what GET /api/sessions already computed — nothing recomputed', async () => {
     renderPage()
 

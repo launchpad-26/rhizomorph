@@ -21,6 +21,8 @@ import { PulseField } from './pulses.js'
 import { laneIndex } from './resolve.js'
 import { RetireRegistry } from './retire.js'
 import { SettleRegistry } from './settle.js'
+import { recordingGl } from './gl/recorder.js'
+import { lastPaintedFrame } from './view/useFrameLoop.js'
 import Scene, { SceneView } from './index.js'
 
 // @gate-timing — load-sensitive under `--maxWorkers` (#124, #130, #144,
@@ -238,15 +240,16 @@ describe('the canvas host', () => {
   })
 
   it('paints the whole picture when a context exists', async () => {
-    // The real executor, against a real-shaped context: proof that the display
-    // list survives the trip to canvas calls, in an environment that has one.
-    // jsdom implements neither `Path2D` nor a 2D context; a browser has both.
+    // The real executor, against real-shaped contexts — both of them, because
+    // the picture now lands on two surfaces (ADR-0021): the WebGL2 canvas takes
+    // the geometry and the transparent 2D canvas over it takes the type. jsdom
+    // implements neither `Path2D` nor either context; a browser has all three.
     vi.stubGlobal('Path2D', PATH2D)
     const calls: string[] = []
     const context = fakeContext(calls)
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
-      context as unknown as CanvasRenderingContext2D,
-    )
+    const gl = recordingGl()
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((type: string) =>
+      type === 'webgl2' ? gl.gl : context) as unknown as HTMLCanvasElement['getContext'])
 
     await mountWithCanvas()
     await pressKey('3')
@@ -262,10 +265,12 @@ describe('the canvas host', () => {
       fireEvent.click(screen.getByTestId('scene-hide-finished'))
     })
 
-    // The whole vocabulary reached the canvas: filled ribbons and glyphs,
-    // stroked cuts and fences, and the names over the top of them.
-    expect(calls).toContain('fill')
-    expect(calls).toContain('stroke')
+    // The whole vocabulary reached both surfaces: triangles submitted for the
+    // ribbons and the light, a stencil pass for the mass's even-odd surface, and
+    // the names on the layer over the top of them.
+    expect(gl.of('drawArrays').length).toBeGreaterThan(0)
+    expect(gl.names()).toContain('stencilOp')
+    expect(gl.of('bufferData').length).toBeGreaterThan(0)
     expect(calls).toContain('fillText')
     expect(screen.queryByRole('status')).toBeNull()
   })
@@ -610,11 +615,11 @@ describe('the camera', () => {
       // The affordance, as a query over what actually reached the canvas: two
       // concentric hairlines on the mass's rim, drawn only when it is picked.
       const unselected = mountCamera()
-      const before = ringsAround(unselected, unselected.geometry.centre)
+      const before = ringsAround(unselected.geometry.centre)
       cleanup()
 
       const selected = mountCamera({ selectedId: MAIN_SELECTION })
-      const after = ringsAround(selected, selected.geometry.centre)
+      const after = ringsAround(selected.geometry.centre)
 
       expect(before).toHaveLength(0)
       expect(after).toHaveLength(2)
@@ -625,39 +630,27 @@ describe('the camera', () => {
     })
 
     /**
-     * The distinct radii of the full circles the mount **stroked** about `at`.
+     * The distinct radii of the full circles the last painted frame **stroked**
+     * about `at`.
      *
-     * Stroked, not merely drawn: the root-mass's halo and core are filled
-     * circles about the same point, so a test that counted every `ctx.arc`
-     * would be counting the glow it is not about. The two are told apart the
-     * way the canvas tells them apart — by what was called next.
+     * Read off the display list rather than off a canvas journal, which is what
+     * ADR-0021 cost and bought back: the 2D painter made this observable for
+     * free by recording `ctx.arc`, and a GPU keeps no such transcript — by the
+     * time a spotlight ring reaches a buffer it is several hundred floats.
+     * `lastPaintedFrame` restores the observable one layer up, in the picture's
+     * own vocabulary, which is strictly closer to what this test is about.
      *
-     * Distinct, because a pinned mount paints its still image more than once
-     * (the hide-finished preference asks for a redraw as it settles). How many
-     * *rings* there are is the question; how many times an unchanged frame was
-     * repainted is not.
+     * Stroked, not merely drawn: the root-mass's halo and core are soft radial
+     * blobs about the same point, and an `arc` mark is the only thing in the
+     * scene that is a stroked circle.
      */
-    function ringsAround(
-      frame: { calls: string[]; journal: unknown[][] },
-      at: { x: number; y: number },
-    ): number[] {
-      const arcs = frame.journal.filter((entry) => entry[0] === 'arc')
-      const radii: number[] = []
-      let index = -1
-
-      frame.calls.forEach((name, i) => {
-        if (name !== 'arc') return
-        index += 1
-        const arc = arcs[index] as [string, number, number, number, number, number] | undefined
-        if (arc === undefined) return
-        const [, x, y, radius, from, to] = arc
-        const painted = frame.calls.slice(i + 1).find((later) => later === 'stroke' || later === 'fill')
-        if (painted !== 'stroke') return
-        if (Math.hypot(x - at.x, y - at.y) > 0.001) return
-        if (from !== 0 || Math.abs(to - Math.PI * 2) > 0.001) return
-        radii.push(radius)
-      })
-
+    function ringsAround(at: { x: number; y: number }): number[] {
+      const marks = lastPaintedFrame()?.marks ?? []
+      const radii = marks
+        .filter((mark) => mark.kind === 'arc')
+        .filter((mark) => Math.hypot(mark.at.x - at.x, mark.at.y - at.y) <= 0.001)
+        .filter((mark) => mark.from === 0 && Math.abs(mark.to - Math.PI * 2) <= 0.001)
+        .map((mark) => mark.radius)
       return [...new Set(radii)]
     }
   })
@@ -881,9 +874,8 @@ function mountMotion(
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
 
-  const journal: unknown[][] = []
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
-    fakeContext([], [], journal) as unknown as CanvasRenderingContext2D,
+    fakeContext([]) as unknown as CanvasRenderingContext2D,
   )
 
   const fleet = options.fleet ?? stagedFleet()
@@ -915,12 +907,21 @@ function mountMotion(
 
   const utils = render(view(options.asOf))
 
-  /** One frame, and what it drew. */
+  /**
+   * One frame, and what it drew — the display list at the instant it was
+   * painted, serialised.
+   *
+   * This used to be the canvas journal, and it is the same question asked of a
+   * renderer that keeps no journal (see `lastPaintedFrame`). It is also a
+   * *stronger* comparison than the one it replaces: the journal only recorded
+   * the arguments of `arc`, `moveTo`, `lineTo`, `drawImage` and `fillText`, so a
+   * colour that changed under a held clock was invisible to it. Every field of
+   * every mark is compared here.
+   */
   const frame = (): string => {
-    journal.length = 0
     const next = frames.shift()
     act(() => next?.(0))
-    return JSON.stringify(journal)
+    return JSON.stringify(lastPaintedFrame()?.marks ?? [])
   }
 
   return {
@@ -1270,6 +1271,9 @@ function fakeContext(calls: string[], transforms: number[][] = [], journal: unkn
     stroke: noop('stroke'),
     fillRect: noop('fillRect'),
     strokeRect: noop('strokeRect'),
+    // The type layer is transparent and is wiped before each frame; the GL
+    // canvas underneath is cleared by `glClear`. See `gl/overlay.ts`.
+    clearRect: noop('clearRect'),
     fillText: record('fillText'),
     translate: noop('translate'),
     rotate: noop('rotate'),

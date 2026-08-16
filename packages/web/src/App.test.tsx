@@ -98,6 +98,7 @@ async function renderApp() {
     import('./recordings/index.js'),
     import('./lab/index.js'),
     import('./connect/index.js'),
+    import('./settings/index.js'),
   ])
 
   let source: FakeEventSource | undefined
@@ -414,6 +415,184 @@ describe('App', () => {
       })
 
       expect(window.location.pathname).toBe('/')
+      expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
+    })
+  })
+
+  describe('the settings placeholder (#549, ahead of prd-35/#550)', () => {
+    afterEach(() => {
+      window.history.replaceState(null, '', '/')
+    })
+
+    it('deep-links cold to /settings — a route switch, not an overlay', async () => {
+      window.history.replaceState(null, '', '/settings')
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      expect(await screen.findByTestId('settings-page')).toBeInTheDocument()
+      expect(screen.queryByText('THE OBSERVATORY')).not.toBeInTheDocument()
+    })
+
+    it('the browser back button returns from settings to the balcony', async () => {
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      act(() => navigate('/settings'))
+      expect(await screen.findByTestId('settings-page')).toBeInTheDocument()
+
+      await act(async () => {
+        const popped = new Promise<void>((resolve) =>
+          window.addEventListener('popstate', () => resolve(), { once: true }),
+        )
+        window.history.back()
+        await popped
+      })
+
+      expect(window.location.pathname).toBe('/')
+      expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
+    })
+  })
+
+  /**
+   * S4'S DONE-WHEN: "a test asserts nav renders on all routes, named
+   * individually" (#549) — before this wave, `Shell.tsx`'s nav mounted only
+   * on the balcony (App's route switch rendered the other four surfaces with
+   * no nav of their own at all, per the honesty note two describe blocks
+   * up). One `it` per route, so a regression that drops the nav from any one
+   * surface fails by name rather than folding into a shared assertion.
+   */
+  describe('the persistent nav renders on every surface, named individually (#549, prd-32 ruling 10)', () => {
+    afterEach(() => {
+      window.history.replaceState(null, '', '/')
+      vi.unstubAllGlobals()
+    })
+
+    function stubEmptyRecordings() {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ sessions: [] }) })),
+      )
+    }
+
+    function stubEmptyLab() {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string | URL | Request) => {
+          const href = String(input)
+          if (href === '/api/lab/checkpoints') return { ok: true, status: 200, json: async () => ({ checkpoints: [] }) }
+          if (href === '/api/lab/experiments') return { ok: true, status: 200, json: async () => ({ experiments: [] }) }
+          throw new Error(`unexpected fetch: ${href}`)
+        }),
+      )
+    }
+
+    it('renders on the balcony (/)', async () => {
+      await renderApp()
+      expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    })
+
+    it('renders on the lane page (/lane/:handle)', async () => {
+      const handle = '42-otel-receiver'
+      window.history.replaceState(null, '', laneUrl(handle))
+      const { source } = await renderApp()
+      act(() => source()?.open())
+      for (const event of fixtureEvents()) act(() => source()?.emit(event))
+      act(() =>
+        source()?.emit(
+          createEvent(
+            'worktree.discovered',
+            { path: `/repo-wt/${handle}`, branch: handle, head: 'sha-1', isMain: false },
+            { id: nextId(), ts: 3 },
+          ),
+        ),
+      )
+
+      await screen.findByTestId('lane-page-header')
+      expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    })
+
+    it('renders on the lane page even for a handle no lane in this session carries', async () => {
+      window.history.replaceState(null, '', laneUrl('never-existed'))
+      const { source } = await renderApp()
+      act(() => source()?.open())
+      for (const event of fixtureEvents()) act(() => source()?.emit(event))
+
+      await screen.findByTestId('lane-page-unknown')
+      expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    })
+
+    it('renders on recordings (/recordings)', async () => {
+      stubEmptyRecordings()
+      window.history.replaceState(null, '', '/recordings')
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      await screen.findByTestId('recordings-page')
+      expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    })
+
+    it('renders on the lab (/lab)', async () => {
+      stubEmptyLab()
+      window.history.replaceState(null, '', '/lab')
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      await screen.findByTestId('lab-page')
+      expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    })
+
+    it('renders on connect (/connect)', async () => {
+      window.history.replaceState(null, '', '/connect')
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      await screen.findByTestId('connect-page')
+      expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    })
+
+    it('renders on the settings placeholder (/settings)', async () => {
+      window.history.replaceState(null, '', '/settings')
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      await screen.findByTestId('settings-page')
+      expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    })
+  })
+
+  describe('the window floor (S5, prd-32 ruling 10)', () => {
+    afterEach(() => {
+      window.history.replaceState(null, '', '/')
+      window.innerWidth = 1440
+      window.innerHeight = 900
+    })
+
+    it('replaces the whole app frame with the honest panel below the floor, on any route', async () => {
+      window.innerWidth = 900
+      window.innerHeight = 600
+      window.history.replaceState(null, '', '/lab')
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      expect(await screen.findByTestId('window-floor')).toBeInTheDocument()
+      expect(screen.queryByTestId('lab-page')).not.toBeInTheDocument()
+      expect(screen.queryByText('THE OBSERVATORY')).not.toBeInTheDocument()
+    })
+
+    it('resumes the instrument once the window grows back past the floor', async () => {
+      window.innerWidth = 900
+      window.innerHeight = 600
+      const { source } = await renderApp()
+      act(() => source()?.open())
+      expect(await screen.findByTestId('window-floor')).toBeInTheDocument()
+
+      await act(async () => {
+        window.innerWidth = 1440
+        window.innerHeight = 900
+        fireEvent(window, new Event('resize'))
+      })
+
+      expect(screen.queryByTestId('window-floor')).not.toBeInTheDocument()
       expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
     })
   })

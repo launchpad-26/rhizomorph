@@ -89,6 +89,14 @@ function fetchImplFor(checkpoints: unknown[], experiments: unknown[], ok = true,
 }
 
 describe('LabPage', () => {
+  it('renders the persistent nav (#549, prd-32 ruling 10) — this surface was reachable by URL only before', async () => {
+    window.history.replaceState(null, '', '/lab')
+    render(<LabPage fetchImpl={fetchImplFor([], [])} />)
+
+    expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    expect(screen.getByTestId('nav-lab').getAttribute('aria-current')).toBe('page')
+  })
+
   it('shows the honest "no experiments yet" and "no checkpoints yet" states — never a bare blank page', async () => {
     render(<LabPage fetchImpl={fetchImplFor([], [])} />)
 

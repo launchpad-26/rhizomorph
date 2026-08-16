@@ -71,6 +71,14 @@ describe('parseRoute', () => {
   it('tolerates a trailing slash on /connect', () => {
     expect(parseRoute('/connect/')).toEqual({ name: 'connect' })
   })
+
+  it('reads /settings as the settings placeholder (#549, ahead of prd-35/#550)', () => {
+    expect(parseRoute('/settings')).toEqual({ name: 'settings' })
+  })
+
+  it('tolerates a trailing slash on /settings', () => {
+    expect(parseRoute('/settings/')).toEqual({ name: 'settings' })
+  })
 })
 
 describe('laneUrl', () => {
@@ -164,6 +172,16 @@ describe('useRoute', () => {
 
     act(() => navigate('/connect'))
     expect(result.current).toEqual({ name: 'connect' })
+
+    act(() => navigate('/'))
+    expect(result.current).toEqual({ name: 'balcony' })
+  })
+
+  it('navigates to settings and back (#549)', () => {
+    const { result } = renderHook(() => useRoute())
+
+    act(() => navigate('/settings'))
+    expect(result.current).toEqual({ name: 'settings' })
 
     act(() => navigate('/'))
     expect(result.current).toEqual({ name: 'balcony' })
