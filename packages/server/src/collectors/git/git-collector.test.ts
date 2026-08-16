@@ -696,7 +696,6 @@ locked removable media
       })
       const poll2 = await gitCollector.poll(resumed, makeContext(exec2, 2000))
 
-      expect(() => poll2).not.toThrow()
       expect(poll2.nextSnapshot.dirtyFailures['/repo']).toBe(1)
       expect(poll2.nextSnapshot.dirty['/repo']).toEqual([{ path: 'scratch.txt', status: 'untracked', staged: false }])
       expect(poll2.events).toEqual([])
@@ -731,7 +730,6 @@ locked removable media
       }
       const poll2 = await gitCollector.poll(resumed, makeContext(execFailingRefs, 2000))
 
-      expect(() => poll2).not.toThrow()
       expect(poll2.nextSnapshot.refsFailures).toBe(1)
       expect(poll2.events).toEqual([])
     })
