@@ -58,8 +58,10 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     // that silently matched zero real routes, or a classification table
     // quietly emptied, must not both agree and pass anyway. This repo has
     // had two laws walk vacuously before.
-    expect(routes.length).toBe(23)
-    expect(ROUTE_CLASSES.length).toBe(23)
+    // 23 -> 25: the lane index's two reads (prd-31 ruling 5, #556) —
+    // `/api/lane-index` and `/api/lane-index/:handle`.
+    expect(routes.length).toBe(25)
+    expect(ROUTE_CLASSES.length).toBe(25)
 
     await app.close()
   })
