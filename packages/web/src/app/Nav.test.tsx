@@ -20,7 +20,7 @@ afterEach(() => {
  * `connect/index.test.tsx` each still prove it renders on their own page) —
  * this file is where its own behaviour, once, is pinned.
  */
-describe('Nav — the four hands, real anchors', () => {
+describe('Nav — the four hands and the settings entry, real anchors', () => {
   it('links to all four hands with real <a href> anchors', () => {
     render(<Nav />)
 
@@ -38,10 +38,25 @@ describe('Nav — the four hands, real anchors', () => {
     expect(connect.getAttribute('href')).toBe('/connect')
   })
 
+  /**
+   * The fifth entry (#550, prd-35 ruling 1 / S1). Not a constitutional hand —
+   * it is where a person changes what the instrument does for them — but it is
+   * reachable from the SAME strip on every surface, which is the requirement:
+   * a settings link that lived in a per-page corner would spend exactly what
+   * #549 bought.
+   */
+  it('reaches the settings surface from the persistent strip, as one more real anchor', () => {
+    render(<Nav />)
+
+    const settings = screen.getByTestId('nav-settings')
+    expect(settings.tagName).toBe('A')
+    expect(settings.getAttribute('href')).toBe('/settings')
+  })
+
   it('carries the one keyboard-reachable focus token (#548) on every hand', () => {
     render(<Nav />)
 
-    for (const testId of ['nav-observatory', 'nav-recordings', 'nav-lab', 'nav-connect']) {
+    for (const testId of ['nav-observatory', 'nav-recordings', 'nav-lab', 'nav-connect', 'nav-settings']) {
       expect(screen.getByTestId(testId).className).toContain('focus-ring')
     }
   })
@@ -54,15 +69,19 @@ describe('Nav — the four hands, real anchors', () => {
     expect(screen.getByTestId('nav-observatory').getAttribute('aria-current')).toBeNull()
     expect(screen.getByTestId('nav-recordings').getAttribute('aria-current')).toBeNull()
     expect(screen.getByTestId('nav-lab').getAttribute('aria-current')).toBeNull()
+    expect(screen.getByTestId('nav-settings').getAttribute('aria-current')).toBeNull()
   })
 
-  it('falls back to Observatory for a route with no matching hand (lane, settings)', () => {
-    window.history.replaceState(null, '', '/lane/some-handle')
-    render(<Nav />)
-    expect(screen.getByTestId('nav-observatory').getAttribute('aria-current')).toBe('page')
-
-    cleanup()
+  it('marks settings itself active on its own route — it has an entry of its own now (#550)', () => {
     window.history.replaceState(null, '', '/settings')
+    render(<Nav />)
+
+    expect(screen.getByTestId('nav-settings').getAttribute('aria-current')).toBe('page')
+    expect(screen.getByTestId('nav-observatory').getAttribute('aria-current')).toBeNull()
+  })
+
+  it('falls back to Observatory for a route with no entry of its own (lane)', () => {
+    window.history.replaceState(null, '', '/lane/some-handle')
     render(<Nav />)
     expect(screen.getByTestId('nav-observatory').getAttribute('aria-current')).toBe('page')
   })
@@ -96,6 +115,7 @@ describe('Nav — the four hands, real anchors', () => {
       'nav-recordings',
       'nav-lab',
       'nav-connect',
+      'nav-settings',
     ])
     for (const anchor of anchors) {
       anchor.focus()

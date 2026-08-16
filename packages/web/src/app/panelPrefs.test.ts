@@ -1,6 +1,7 @@
 import { cleanup, render } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { UNADOPTED_REPO } from '../settings/registry.js'
 import {
   escapeShouldExitFocus,
   isPanelCollapsed,
@@ -38,14 +39,41 @@ describe('panelPrefs', () => {
     expect(isPanelCollapsed('scene')).toBe(false)
   })
 
-  it('round-trips a collapsed state through localStorage', () => {
+  /**
+   * AMENDED for #550: the collapse map lives in the preference registry now
+   * (`appearance.panelsCollapsed`, repo-scoped per prd-35 ruling 3), so the key
+   * it lands under is the registry's repo bag rather than this file's own. What
+   * is deliberately unchanged is the SHAPE stored — only the panels a person
+   * actually touched, never the defaults merged in, so a later change to a
+   * declared default still reaches an operator who has collapsed something.
+   */
+  it('round-trips a collapsed state through the registry, storing the overlay and not the defaults', () => {
     setPanelCollapsed('fleet', true)
 
     expect(isPanelCollapsed('fleet')).toBe(true)
     expect(isPanelCollapsed('collisions')).toBe(false)
 
-    const stored = JSON.parse(localStorage.getItem('rhizomorph.panelCollapsed.v1') ?? '{}')
-    expect(stored).toEqual({ fleet: true })
+    const stored = JSON.parse(localStorage.getItem('rhizomorph.prefs.repo.v1') ?? '{}')
+    expect(stored).toEqual({ [UNADOPTED_REPO]: { 'appearance.panelsCollapsed': { fleet: true } } })
+  })
+
+  /**
+   * The migration, proven rather than asserted (#550). An operator who collapsed
+   * a panel before the registry existed has a `rhizomorph.panelCollapsed.v1` and
+   * nothing else; the registry declares that key as this entry's legacy fallback,
+   * so the state answers until the first write supersedes it — and the write
+   * really does supersede it, rather than the two disagreeing forever.
+   */
+  it('still reads the pre-registry key, and supersedes it on the first write', () => {
+    localStorage.setItem('rhizomorph.panelCollapsed.v1', JSON.stringify({ fleet: true, feed: false }))
+
+    expect(isPanelCollapsed('fleet')).toBe(true)
+    expect(isPanelCollapsed('feed')).toBe(false)
+
+    setPanelCollapsed('fleet', false)
+    expect(isPanelCollapsed('fleet')).toBe(false)
+    // …and the panel the write never named keeps the value the legacy key gave it.
+    expect(isPanelCollapsed('feed')).toBe(false)
   })
 
   it('round-trips back to expanded', () => {
@@ -88,21 +116,27 @@ describe('the scene prefs — hide-finished (prd5 ruling 3)', () => {
     expect(isScenePref('hideFinished')).toBe(false)
   })
 
-  it('keeps its own key, so a scene pref is never mistaken for a collapsed panel', () => {
+  it('keeps its own key AND its own scope, so a scene pref is never mistaken for a collapsed panel', () => {
     // A key called `panelCollapsed` holding a scene preference is the kind of
-    // small lie that makes the next person delete the wrong thing.
+    // small lie that makes the next person delete the wrong thing. Since #550
+    // the two are further apart than that: different registry ids, and
+    // different scopes — how you like to read a picture is yours (machine),
+    // which panels you folded belongs to the repo whose panels they are.
     setScenePref('hideFinished', true)
     setPanelCollapsed('fleet', true)
 
-    expect(JSON.parse(localStorage.getItem('rhizomorph.scenePrefs.v1') ?? '{}')).toEqual({
-      hideFinished: true,
+    expect(JSON.parse(localStorage.getItem('rhizomorph.prefs.machine.v1') ?? '{}')).toEqual({
+      'appearance.hideFinished': true,
     })
-    expect(JSON.parse(localStorage.getItem('rhizomorph.panelCollapsed.v1') ?? '{}')).toEqual({
-      fleet: true,
+    expect(JSON.parse(localStorage.getItem('rhizomorph.prefs.repo.v1') ?? '{}')).toEqual({
+      [UNADOPTED_REPO]: { 'appearance.panelsCollapsed': { fleet: true } },
     })
   })
 
-  it('falls back to visible when the stored JSON is malformed', () => {
+  it('still reads the pre-registry scene key (#550 migration), and falls back to visible when it is malformed', () => {
+    localStorage.setItem('rhizomorph.scenePrefs.v1', JSON.stringify({ hideFinished: true }))
+    expect(isScenePref('hideFinished')).toBe(true)
+
     localStorage.setItem('rhizomorph.scenePrefs.v1', 'not json at all')
     expect(isScenePref('hideFinished')).toBe(false)
   })
