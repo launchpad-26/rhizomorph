@@ -90,12 +90,24 @@ describe('the theme switch (prd-32 ruling 4, given its home by prd-35 ruling 1)'
     }
   })
 
-  it('says out loud that the light palette does not exist yet, rather than implying it drew one', () => {
+  it('says out loud which surface the choice does not reach, rather than implying it reached all of them', () => {
     render(<SettingsPage />)
     // Law 12's voice: WHAT is missing, WHY it matters, what fixes it.
+    //
+    // The note was rewritten when #551 landed the light block, and the rewrite
+    // is the point rather than housekeeping. It used to read "there is one
+    // palette … the colours stay dark, because `theme.css` declares no
+    // `[data-theme='light']` block yet" — true when #550 shipped and false the
+    // moment #551 merged. A gap that describes a gap which has since closed is
+    // worse than no gap at all: it teaches a reader that the honest-gap voice
+    // is out of date, and after that they stop reading any of them.
+    //
+    // So this asserts the *shape* of the surviving gap — the scene, which is
+    // genuinely still dark — and not merely that some sentence is present.
     const gap = screen.getByTestId('pref-appearance.theme-gap').textContent ?? ''
-    expect(gap).toContain('one palette')
+    expect(gap).toContain('scene')
     expect(gap).toContain('#551')
+    expect(gap).not.toContain('one palette')
   })
 })
 
