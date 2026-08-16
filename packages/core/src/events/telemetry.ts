@@ -7,9 +7,15 @@ import { envelope, envelopeWithSources, nonEmptyString } from './common.js'
  *
  * Two collectors produce these, and the envelope's `source` says which:
  *
- * - `sessionlog` — depth. `~/.claude/projects/<worktree>/*.jsonl`: per-message
- *   tokens by cache tier, model, `requestId`, `durationMs`, tool calls.
- *   Attribution is structural (`cwd`/`gitBranch` on every line). No dollars.
+ * - `sessionlog` — depth. Tails an agent CLI's own transcript file for
+ *   per-message tokens by cache tier, model, `requestId`, `durationMs`, tool
+ *   calls. Claude Code's `~/.claude/projects/<worktree>/*.jsonl` was the only
+ *   dialect until #538; `harness` on the shared attribution (below) names any
+ *   other one, absent meaning Claude's. Attribution is structural
+ *   (`cwd`/`gitBranch` on every line). Claude's own dialect carries no
+ *   dollars; another dialect's `llm.cost` may (pi's session JSONL reports an
+ *   authoritative per-turn cost — see `collectors/pi/capabilities.ts`), and
+ *   says so with `harness` and `authoritative: true`, same as otel does.
  * - `otel` — authority. An OTLP/HTTP receiver in our own server: real
  *   `cost_usd` computed client-side by the agent CLI, no pricing table needed.
  *   No cwd/branch, so lane attribution comes from a `session.id` join or from
@@ -19,7 +25,19 @@ import { envelope, envelopeWithSources, nonEmptyString } from './common.js'
  * `research/2026-07-30-telemetry-capture-routes.md` §S1/§S2.
  */
 
-/** Where a telemetry fact came from. A subset of `EventSource`. */
+/**
+ * Where a telemetry fact came from. A subset of `EventSource`.
+ *
+ * `sessionlog` names a *kind* of collector — one that tails an agent CLI's own
+ * transcript file — not one specific CLI. Claude Code's collector was the only
+ * one that existed when this enum was written, which is why the literal reads
+ * claude-ish; #538 keeps it generic rather than adding a second spelling
+ * (`'transcript'`) for the same concept, since ADR-0011 forbids migrating the
+ * recordings that already carry `source: 'sessionlog'`. A dialect other than
+ * Claude's names itself with `harness` on the attribution shared by every
+ * telemetry payload (see below) — absent `harness` means Claude Code's own
+ * collector, the only meaning `sessionlog` has ever had before this.
+ */
 export const telemetryOriginSchema = z.enum(['sessionlog', 'otel'])
 export type TelemetryOrigin = z.infer<typeof telemetryOriginSchema>
 
@@ -115,6 +133,26 @@ const attribution = {
   branch: nonEmptyString.nullable().optional(),
   /** Which thread of the session spent it; null when the source didn't say. */
   thread: agentThreadSchema.nullable().optional(),
+  /**
+   * Which agent CLI's transcript this `sessionlog`-sourced fact was tailed
+   * from — `'pi'`, `'codex'`, and so on. A free string, not a closed enum: the
+   * whole point of #538 is that a new dialect names itself here, entirely
+   * inside its own collector, instead of widening `EventSource` and costing a
+   * core PR per harness (prd-26 ruling 4).
+   *
+   * Absent or null means Claude Code's own collector — the one dialect
+   * `sessionlog` named before this field existed, and still what every event
+   * logged before #538 means by omitting it (see the additive-law test in
+   * `telemetry.test.ts`). Meaningless on an `otel`-sourced record, since otel
+   * has only ever had the one dialect; left here rather than duplicated per
+   * payload so every telemetry fact shares one attribution shape.
+   *
+   * Trims before checking length, unlike the shared `nonEmptyString` (whose
+   * behaviour this deliberately does not change for every other attribution
+   * field): a whitespace-only string is exactly as absent a harness name as
+   * `''`, and `nonEmptyString`'s bare `.min(1)` would have let it through.
+   */
+  harness: z.string().trim().min(1).nullable().optional(),
 }
 
 /** One model request's token cost. The densest fact prd1 has. */
@@ -132,9 +170,13 @@ export type LlmUsagePayload = z.infer<typeof llmUsagePayloadSchema>
 
 /**
  * Dollars. `authoritative: true` means the number came from the agent CLI's own
- * `cost_usd` (OTel) — no pricing table, no arithmetic of ours. `false` means we
- * estimated it from tokens, and the UI must say so; sessionlog-only data carries
- * no dollars at all rather than inventing them.
+ * cost figure — OTel's `cost_usd`, or (since #538) a sessionlog dialect whose
+ * transcript reports its own authoritative cost per turn, named by `harness`
+ * — no pricing table, no arithmetic of ours either way. `false` means we
+ * estimated it from tokens, and the UI must say so. Claude's own sessionlog
+ * dialect still carries no dollars at all (its transcript has none to
+ * report), which is a fact about that one dialect, not about `sessionlog` as
+ * a source.
  */
 export const llmCostPayloadSchema = z.object({
   ...attribution,
