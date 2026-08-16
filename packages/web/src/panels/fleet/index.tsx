@@ -244,7 +244,7 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
         {lane.issue === null ? null : <span className="ml-1 text-[10px] text-ice-400">#{lane.issue}</span>}
         <OpenLaneLink handle={lane.id} label={lane.label} />
       </td>
-      <td className="py-1.5 pr-2" title={stateTitle(lane)}>
+      <td className="py-1.5 pr-2" title={stateTitle(lane, fleet.now)}>
         <span className={`inline-flex items-center gap-1 ${stateClass}`}>
           {lane.parked ? null : (
             <Sigil

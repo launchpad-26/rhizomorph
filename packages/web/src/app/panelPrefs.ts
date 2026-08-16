@@ -1,7 +1,35 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSelection } from '../fleet/index.js'
+import {
+  fallbackRecord,
+  readFlag,
+  readRecordOverlay,
+  subscribeToPreferences,
+  writePreference,
+} from '../settings/registry.js'
 
-const STORAGE_KEY = 'rhizomorph.panelCollapsed.v1'
+/**
+ * MIGRATED ONTO THE PREFERENCE REGISTRY (prd-35, #550).
+ *
+ * This file used to own two `localStorage` keys and the read/write mechanism
+ * under them, and it was the whole of prd-35's evidence that the instrument had
+ * preferences nobody could see: two keys, no surface, no enumeration. The keys
+ * are now declared in `settings/registry.ts` — `appearance.panelsCollapsed`
+ * (repo-scoped, ruling 3) and `appearance.hideFinished` (machine) — and every
+ * read and write below goes through it, so a preference cannot exist without
+ * being surveyed on the settings page.
+ *
+ * **Nothing an operator had is lost.** The registry keeps the old keys as a
+ * declared legacy fallback rather than as a one-shot migration, so a stored
+ * `rhizomorph.panelCollapsed.v1` still answers until the first write supersedes
+ * it (see `registry.ts`'s `Legacy`).
+ *
+ * The defaults, and the rulings they carry, stay stated where they always were
+ * — one paragraph down — because the registry declares the *fallback* and this
+ * file is where the panels themselves are named.
+ */
+const PANELS_COLLAPSED = 'appearance.panelsCollapsed'
+const HIDE_FINISHED = 'appearance.hideFinished'
 
 /**
  * Deliberate product ruling (prd1 UI section, unchanged by prd3): collisions
@@ -9,7 +37,11 @@ const STORAGE_KEY = 'rhizomorph.panelCollapsed.v1'
  * own failure mode, made visible before merge pain, and must not be hideable by
  * default. Every other panel also defaults expanded (see the `?? false`
  * fallback below); this entry exists so the ruling survives a panel-density
- * pass instead of being silently flipped.
+ * pass instead of being silently flipped. Since #550 the two values themselves
+ * live in `settings/registry.ts`'s `appearance.panelsCollapsed` fallback (one
+ * place for every default, so the settings page can show a person what they
+ * have changed *from*), and this paragraph stays here, where the panels are
+ * named, because the ruling is about these panels rather than about storage.
  *
  * prd3 note: the ids here are the *panel* ids registered in `PanelGrid`
  * (`fleet`, `ledger`, `collisions`, `feed`, and — since prd4 ruling 2 —
@@ -28,28 +60,28 @@ const STORAGE_KEY = 'rhizomorph.panelCollapsed.v1'
  * see `PanelFrame`'s controlled-collapse mode and `panels/feed/index.tsx`'s
  * own peek render.
  */
-const DEFAULT_COLLAPSED: Readonly<Record<string, boolean>> = {
-  collisions: false,
-  feed: true,
+function defaultCollapsed(id: string): boolean {
+  return fallbackRecord(PANELS_COLLAPSED)[id] ?? false
 }
 
 export function isPanelCollapsed(id: string): boolean {
-  const stored = readAt(STORAGE_KEY)[id]
-  return typeof stored === 'boolean' ? stored : (DEFAULT_COLLAPSED[id] ?? false)
+  const stored = readRecordOverlay(PANELS_COLLAPSED)[id]
+  return typeof stored === 'boolean' ? stored : defaultCollapsed(id)
 }
 
 export function setPanelCollapsed(id: string, collapsed: boolean): void {
-  writeAt(STORAGE_KEY, { ...readAt(STORAGE_KEY), [id]: collapsed })
+  writePreference(PANELS_COLLAPSED, { ...readRecordOverlay(PANELS_COLLAPSED), [id]: collapsed })
 }
 
-/** Collapse state for one panel, persisted to localStorage under a shared key. */
+/** Collapse state for one panel, persisted under the registry's repo-scoped `appearance.panelsCollapsed`. */
 export function usePanelCollapsed(id: string): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
-  return usePersistedFlag(STORAGE_KEY, id, DEFAULT_COLLAPSED[id] ?? false)
+  return usePersistedFlag(
+    () => isPanelCollapsed(id),
+    (resolved) => setPanelCollapsed(id, resolved),
+  )
 }
 
 // ── the scene's own prefs ────────────────────────────────────────────────────
-
-const SCENE_KEY = 'rhizomorph.scenePrefs.v1'
 
 /** The scene's persisted booleans. One key, so a new one is one line here. */
 export type ScenePref = 'hideFinished'
@@ -66,79 +98,69 @@ export type ScenePref = 'hideFinished'
  * scarred lane exactly as they always did, and a cut in progress is shown either
  * way — see `scene/retire.ts`.
  *
- * Deliberately a separate store from the panel-collapse one above: a scar is not
+ * Deliberately a separate key from the panel-collapse one above: a scar is not
  * a panel, and a key called `panelCollapsed` holding a scene preference is the
- * kind of small lie that makes the next person delete the wrong thing.
+ * kind of small lie that makes the next person delete the wrong thing. Since
+ * #550 they are separate registry entries in different SCOPES as well as under
+ * different names — hiding scars is a preference about how you like to read a
+ * picture (machine), and which panels you have folded belongs to the repo whose
+ * panels they are (ruling 3).
  */
-const SCENE_DEFAULTS: Readonly<Record<ScenePref, boolean>> = {
-  hideFinished: false,
-}
+const SCENE_PREF_IDS: Readonly<Record<ScenePref, string>> = { hideFinished: HIDE_FINISHED }
 
 export function isScenePref(pref: ScenePref): boolean {
-  const stored = readAt(SCENE_KEY)[pref]
-  return typeof stored === 'boolean' ? stored : SCENE_DEFAULTS[pref]
+  return readFlag(SCENE_PREF_IDS[pref])
 }
 
 export function setScenePref(pref: ScenePref, value: boolean): void {
-  writeAt(SCENE_KEY, { ...readAt(SCENE_KEY), [pref]: value })
+  writePreference(SCENE_PREF_IDS[pref], value)
 }
 
 /** One scene preference, persisted. Same mechanism as the panel prefs above. */
 export function useScenePref(
   pref: ScenePref,
 ): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
-  return usePersistedFlag(SCENE_KEY, pref, SCENE_DEFAULTS[pref])
+  return usePersistedFlag(
+    () => isScenePref(pref),
+    (resolved) => setScenePref(pref, resolved),
+  )
 }
 
 // ── the shared mechanism ────────────────────────────────────────────────────
 
-function readAt(key: string): Record<string, boolean> {
-  try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return {}
-    const parsed: unknown = JSON.parse(raw)
-    return parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, boolean>) : {}
-  } catch {
-    return {}
-  }
-}
-
-function writeAt(key: string, store: Record<string, boolean>): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(store))
-  } catch {
-    // Storage unavailable or full — the preference just won't persist this session.
-  }
-}
-
 /**
- * A boolean in one of the stores above, as React state that writes through.
+ * One registry-backed boolean, as React state that writes through.
  *
  * The initial read is lazy so a component that never mounts never touches
  * storage, and the write happens inside the updater so a functional set (the
- * toggle case) persists the value it actually resolved to rather than the one the
- * caller last rendered with.
+ * toggle case) persists the value it actually resolved to rather than the one
+ * the caller last rendered with.
+ *
+ * It also SUBSCRIBES now, which it did not need to before: the settings page can
+ * restore a group's defaults (prd-35 ruling 4) or the watched repo can be
+ * adopted into a different bucket (ruling 3) while a panel is mounted, and a
+ * component holding a copy of a value the store has since thrown away would show
+ * a person a collapse state nothing persists.
  */
 function usePersistedFlag(
-  key: string,
-  field: string,
-  fallback: boolean,
+  read: () => boolean,
+  write: (resolved: boolean) => void,
 ): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
-  const [value, setValue] = useState(() => {
-    const stored = readAt(key)[field]
-    return typeof stored === 'boolean' ? stored : fallback
-  })
+  const [value, setValue] = useState(read)
+  const readRef = useRef(read)
+  readRef.current = read
+  const writeRef = useRef(write)
+  writeRef.current = write
 
-  const set = useCallback(
-    (next: boolean | ((prev: boolean) => boolean)) => {
-      setValue((prev) => {
-        const resolved = typeof next === 'function' ? next(prev) : next
-        writeAt(key, { ...readAt(key), [field]: resolved })
-        return resolved
-      })
-    },
-    [key, field],
-  )
+  useEffect(() => subscribeToPreferences(() => setValue(readRef.current())), [])
+
+  const set = useCallback((next: boolean | ((prev: boolean) => boolean)) => {
+    setValue((previous) => {
+      const resolved = typeof next === 'function' ? next(previous) : next
+      writeRef.current(resolved)
+      return resolved
+    })
+  }, [])
 
   return [value, set]
 }

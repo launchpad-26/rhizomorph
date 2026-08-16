@@ -10,22 +10,32 @@ import { navigate, useRoute, type Route } from './router.js'
  *
  * Extracted out of `Shell.tsx` so it is the same component on every surface —
  * before #549 it rendered only on the balcony (`Shell`'s own `TopDock`);
- * `/lane/:handle`, `/recordings`, `/lab`, `/connect` and the settings stub each
+ * `/lane/:handle`, `/recordings`, `/lab`, `/connect` and `/settings` each
  * mount this directly in their own header now, rather than growing a second
  * copy. Real `<a href>`s, modifier-aware like the drawer's own open-page link
  * (`drawer/index.tsx`'s `OpenPageLink`), routed through the hand-rolled
  * router's `pushState` on a plain click rather than a full reload.
  */
-type NavHandKey = 'balcony' | 'recordings' | 'lab' | 'connect'
+/**
+ * SETTINGS IS THE FIFTH ENTRY, AND IT IS NOT A HAND (#550, prd-35 S1). The four
+ * above are constitutional hands — what the instrument is allowed to do. This
+ * one is where a person changes what it does for them, which prd-35 ruling 1
+ * requires be reachable from the persistent nav and requires appear exactly
+ * once anywhere. It rides at the end of the same strip rather than in a corner
+ * of its own, because "the same place, always" is what #549 bought and a
+ * settings link that moved per surface would spend it.
+ */
+type NavHandKey = 'balcony' | 'recordings' | 'lab' | 'connect' | 'settings'
 
 const HANDS: ReadonlyArray<{ href: string; label: string; key: NavHandKey }> = [
   { href: '/', label: 'Observatory', key: 'balcony' },
   { href: '/recordings', label: 'Recordings', key: 'recordings' },
   { href: '/lab', label: 'Lab', key: 'lab' },
   { href: '/connect', label: 'Connect', key: 'connect' },
+  { href: '/settings', label: 'Settings', key: 'settings' },
 ]
 
-/** The one nav hand's href the current route names — `lane` and `settings` have no hand of their own, so they default to the balcony's. */
+/** The one nav entry's href the current route names — `lane` has none of its own, so it defaults to the balcony's. */
 function activeHref(route: Route): string {
   switch (route.name) {
     case 'recordings':
@@ -34,6 +44,8 @@ function activeHref(route: Route): string {
       return '/lab'
     case 'connect':
       return '/connect'
+    case 'settings':
+      return '/settings'
     default:
       return '/'
   }

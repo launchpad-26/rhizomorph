@@ -9,6 +9,7 @@ import { FleetProvider } from './fleet/FleetContext.js'
 import type { FetchLike } from './fleet/manifest.js'
 import { SelectionProvider } from './fleet/selection.js'
 import type { EventSourceFactory } from './hooks/useEventStream.js'
+import { usePreferenceApplication } from './settings/apply.js'
 
 const LanePage = lazy(() => import('./lane-page/index.js'))
 const RecordingsPage = lazy(() => import('./recordings/index.js'))
@@ -36,8 +37,8 @@ const SettingsPage = lazy(() => import('./settings/index.js'))
  * unchanged, `/lane/:handle` renders the deep-linkable lane page,
  * `/recordings` renders the recordings library, `/lab` renders the
  * experiment console, `/connect` renders the handshake checklist (prd19
- * rulings 3, 5 and 7, wave 3, #258), and `/settings` renders a fenced
- * placeholder ahead of prd-35/#550's actual surface. The switch lives here,
+ * rulings 3, 5 and 7, wave 3, #258), and `/settings` renders the
+ * configuration surface (prd-35 S1, #550). The switch lives here,
  * inside every provider, so every page shares the exact same
  * mode/stream/fleet/selection state the balcony does — there is no second
  * read of the log for any of them to disagree with. The recordings library
@@ -56,6 +57,13 @@ const SettingsPage = lazy(() => import('./settings/index.js'))
  * the window's hard minimum, nothing above renders at all — one honest panel
  * takes the frame's place instead, on every route alike, and the app resumes
  * exactly where it was the moment the window grows back past the floor.
+ *
+ * `usePreferenceApplication` (prd-35 S1, #550) sits at the same level and for
+ * the same reason `WindowFloor` does: the theme, density and motion a person
+ * chose are properties of the whole document, not of the settings page they
+ * chose them on, so they are applied HERE — once, at boot, on every route
+ * alike. Applying them only where they are set is how a preference comes to
+ * survive a reload in one place and not in another.
  */
 
 /**
@@ -93,6 +101,7 @@ export interface AppProps {
 
 export function App({ streamUrl = '/api/stream', createSource, now, fetchLanes }: AppProps = {}) {
   const route = useRoute()
+  usePreferenceApplication()
 
   return (
     <ModeProvider>
