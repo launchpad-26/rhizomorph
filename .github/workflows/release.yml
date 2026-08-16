@@ -14,6 +14,14 @@ permissions:
   contents: read
   id-token: write # required for `npm publish --provenance`
 
+# The npm package ships the server and the SPA, never the desktop shell (the
+# root `files` allowlist, and the packaging guard below that enforces it), so
+# this job has no use for electron's ~110 MB platform binary. Same reasoning as
+# `ci.yml`'s, stated again rather than cross-referenced, because a reader here
+# is asking why a publish job mentions electron at all.
+env:
+  ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
 jobs:
   publish:
     runs-on: ubuntu-latest
