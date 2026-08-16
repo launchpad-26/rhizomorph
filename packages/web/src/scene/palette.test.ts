@@ -6,7 +6,11 @@ import { FALLBACK_HUE } from '../panels/attention/useTabSignal.js'
 import { SETTLE_MS } from './geometry/scale.js'
 import { BREATH_PERIOD_MS } from './marks/frame.js'
 import { AMBIENT } from './motion.js'
-import { FONT } from './paint.js'
+// The scene's type stacks. They moved from `paint.ts` to the WebGL2 painter's 2D
+// type layer with #578 — type is the one thing the GPU painter still draws
+// through a canvas context, so it is still the one place the stack is a string.
+// The assertions below are unchanged; only the address is.
+import { FONT } from './gl/overlay.js'
 import { CHANNELS, SHIMMER_MAX, SHIMMER_PERIOD_MS, variationFor } from './variation.js'
 import {
   ACTIVITY_HUE,

@@ -41,7 +41,7 @@ import {
 import { ribbonMark } from './marks/index.js'
 import { arrivalSwell } from './marks/root.js'
 import { RIM_VEIL } from './marks/ambient.js'
-import { paint } from './paint.js'
+import { buildFrame } from './gl/index.js'
 import {
   RETURN,
   RetireRegistry,
@@ -1947,143 +1947,94 @@ function corpus(): Mark[] {
 /**
  * THE PAINTER ACTUALLY RUNS.
  *
- * A gap this change had to close rather than inherit: nothing in the suite had
- * ever executed `paint.ts`. jsdom returns `null` for a 2D context, so
- * `SceneView` correctly declines to draw under test and the executor was
- * literally never called — which was survivable while a ribbon was a loop over
- * `path` that could not really fail, and is not survivable now that the geometry
- * it fills is built somewhere else. An outline that came out empty, or a fill
- * per ribbon instead of per polygon, would have reached a browser before it
- * reached a test.
+ * A gap the ribbon round had to close rather than inherit: nothing in the suite
+ * had ever executed the painter. jsdom returns `null` for a 2D context, so
+ * `SceneView` correctly declined to draw under test and the executor was
+ * literally never called — survivable while a ribbon was a loop over `path` that
+ * could not really fail, and not survivable once the geometry it fills is built
+ * somewhere else. An outline that came out empty, or a fill per ribbon instead
+ * of per polygon, would have reached a browser before it reached a test.
  *
- * So the context is recorded rather than rasterised. That is the right depth for
- * this seam: `paint.ts` is defined as the file with no opinion about the
- * picture, so what is worth asserting is that it issues the calls the display
- * list implies and none of its own.
+ * These three tests are the same three, against the WebGL2 painter (#578,
+ * ADR-0021). They got **stronger** in the move, and the reason is the shape of
+ * the new seam. Against canvas 2D the strongest available assertion was that a
+ * `fill()` had been issued; the picture that came out of it lived in a
+ * rasteriser nothing here could reach. `buildFrame` is pure arithmetic over
+ * plain arrays — the display list in, triangles and draw ranges out — so what is
+ * asserted below is the geometry itself, not a transcript of calls about it.
  */
-describe('paint executes the display list (prd7 ruling 3)', () => {
-  interface Recorder {
-    calls: string[]
-    fills: number
-    closes: number
-  }
+describe('the painter executes the display list (prd7 ruling 3)', () => {
+  const PANEL = { width: 900, height: 260 }
 
-  function recorder(): { ctx: CanvasRenderingContext2D; log: Recorder } {
-    const log: Recorder = { calls: [], fills: 0, closes: 0 }
-    const note =
-      (name: string) =>
-      (...args: unknown[]): unknown => {
-        log.calls.push(name)
-        if (name === 'fill') log.fills += 1
-        if (name === 'closePath') log.closes += 1
-        if (name === 'createRadialGradient' || name === 'createLinearGradient') {
-          return { addColorStop: () => {} }
-        }
-        return args.length
-      }
+  it('tessellates one strip per outline polygon, and never one per ribbon', () => {
+    // The rule the winding order forced in canvas, restated in the vocabulary
+    // that replaced it. Two lobes of a severed thread zipped as *one* loop would
+    // stitch the cut back together — and the vertex count is what tells them
+    // apart: n polygons of kᵢ vertices are Σ(kᵢ − 2) triangles, where the merged
+    // loop would be Σkᵢ − 2. They differ by 2(n − 1), i.e. by exactly the number
+    // of severings and dash gaps in the frame.
+    const ribbons = marksFor().filter((mark) => mark.kind === 'ribbon')
+    const polygons = ribbons.flatMap((mark) => (mark.kind === 'ribbon' ? mark.outline : []))
+    expect(polygons.length).toBeGreaterThan(ribbons.length)
 
-    const ctx = {
-      save: note('save'),
-      restore: note('restore'),
-      setTransform: note('setTransform'),
-      translate: note('translate'),
-      rotate: note('rotate'),
-      scale: note('scale'),
-      beginPath: note('beginPath'),
-      closePath: note('closePath'),
-      moveTo: note('moveTo'),
-      lineTo: note('lineTo'),
-      arc: note('arc'),
-      fill: note('fill'),
-      stroke: note('stroke'),
-      fillRect: note('fillRect'),
-      strokeRect: note('strokeRect'),
-      fillText: note('fillText'),
-      setLineDash: note('setLineDash'),
-      createRadialGradient: note('createRadialGradient'),
-      createLinearGradient: note('createLinearGradient'),
-      // prd10's sprite blit and grain tile — the two calls the mote drift and the
-      // texture wash reach for. `createPattern` answering null is the honest
-      // jsdom reading (no tile can be rasterised), and the painter skips.
-      drawImage: note('drawImage'),
-      createPattern: () => null,
-      createImageData: (w: number, h: number) => ({
-        width: w,
-        height: h,
-        data: new Uint8ClampedArray(w * h * 4),
-      }),
-      putImageData: note('putImageData'),
-      globalAlpha: 1,
-      globalCompositeOperation: 'source-over',
-      fillStyle: '',
-      strokeStyle: '',
-      lineWidth: 1,
-      lineCap: 'butt',
-      lineJoin: 'miter',
-      font: '',
-      textAlign: 'left',
-      textBaseline: 'alphabetic',
-    }
-    return { ctx: ctx as unknown as CanvasRenderingContext2D, log }
-  }
+    // A closed region carries no spine, so it is stencilled like a contour rather
+    // than zipped, and pays two more triangles for its cover box.
+    const regions = ribbons.filter(
+      (mark) => mark.kind === 'ribbon' && mark.widthRoot === 0 && mark.widthTip === 0,
+    ).length
+    const triangles =
+      polygons.reduce((total, polygon) => total + polygon.length - 2, 0) + regions * 2
 
-  /** jsdom has no `Path2D`; the glyph painter constructs one per sigil. */
-  function withPath2D<T>(work: () => T): T {
-    const had = 'Path2D' in globalThis
-    if (!had) {
-      // A *shape*, not an empty class: the painter builds the heart's baked ring
-      // geometry imperatively (prd10 ruling 3) as well as stamping glyphs from SVG
-      // data, so a stub with no methods would fail on a call a browser answers.
-      ;(globalThis as { Path2D?: unknown }).Path2D = class {
-        constructor(public d?: string) {}
-        moveTo(): void {}
-        lineTo(): void {}
-        closePath(): void {}
-      }
-    }
-    try {
-      return work()
-    } finally {
-      if (!had) delete (globalThis as { Path2D?: unknown }).Path2D
-    }
-  }
-
-  it('fills one closed path per outline polygon, and never per ribbon', () => {
-    // The rule the winding order forces: two lobes of a severed thread in one
-    // path would interact, and the inner one would punch a hole in the outer.
-    const marks = marksFor()
-    const ribbons = marks.filter((mark) => mark.kind === 'ribbon')
-    const polygons = ribbons.reduce(
-      (total, mark) => total + (mark.kind === 'ribbon' ? mark.outline.length : 0),
-      0,
-    )
-    expect(polygons).toBeGreaterThan(ribbons.length)
-
-    const { ctx, log } = recorder()
-    withPath2D(() => paint({ ctx, marks: ribbons, width: 900, height: 260 }))
-
-    // Exactly one `fill()` per polygon — the backdrop is a `fillRect`, so it
-    // does not enter the count.
-    expect(log.fills).toBe(polygons)
-    expect(log.closes).toBe(polygons)
+    const frame = buildFrame(ribbons, PANEL)
+    expect(frame.vertices.n).toBe(triangles * 3)
+    // …and all of it in the ink pass, through the camera: a thread is pigment.
+    expect(frame.runs.every((run) => run.kind !== 'tris' || (!run.additive && run.world))).toBe(true)
   })
 
-  it('draws the whole picture without throwing, every kind of it', () => {
+  it('draws the whole picture, every kind of it, and knows what it costs', () => {
     const marks = corpus()
-    const { ctx, log } = recorder()
-    withPath2D(() => paint({ ctx, marks, width: 900, height: 260, dpr: 2 }))
+    const frame = buildFrame(marks, { ...PANEL, camera: { k: 1, x: 0, y: 0 } })
 
-    expect(log.calls).toContain('fill')
-    expect(log.calls).toContain('stroke')
-    expect(log.calls).toContain('fillText')
-    expect(log.calls).toContain('createRadialGradient')
-    expect(log.calls).toContain('createLinearGradient')
+    // All twelve kinds are present in the corpus, and each lands somewhere: the
+    // seven vertex kinds in the triangle stream, the two panel kinds as their own
+    // uniform-driven runs, the three type kinds on the layered 2D canvas.
+    const kinds = new Set(marks.map((mark) => mark.kind))
+    expect(kinds.size).toBe(12)
+
+    expect(frame.vertices.n).toBeGreaterThan(0)
+    expect(frame.runs.some((run) => run.kind === 'tris' && !run.additive)).toBe(true)
+    expect(frame.runs.some((run) => run.kind === 'tris' && run.additive)).toBe(true)
+    // Even-odd, which the platform used to hand the painter as `fill('evenodd')`.
+    expect(frame.runs.some((run) => run.kind === 'stencil')).toBe(true)
+    // The corpus stacks several frames' worth of marks, so the count is a ratio
+    // rather than a number: the fog and the vignette against the one grain tile.
+    const grains = frame.runs.filter((run) => run.kind === 'grain').length
+    expect(grains).toBeGreaterThan(0)
+    expect(frame.runs.filter((run) => run.kind === 'wash')).toHaveLength(grains * 2)
+    expect(new Set(frame.overlay.map((item) => item.mark.kind))).toEqual(
+      new Set(['text', 'path', 'chip']),
+    )
+
+    // The chrome is the last thing on the GL canvas and is not moved by the
+    // camera; the world in front of it is.
+    const chrome = frame.runs.findIndex((run) => run.kind === 'wash')
+    expect(chrome).toBeGreaterThan(0)
+    expect(
+      frame.runs.slice(0, chrome).every((run) => run.kind !== 'wash' && run.kind !== 'grain'),
+    ).toBe(true)
+
+    // Reported, not asserted — the count that decides whether the frame is two
+    // draw calls or four hundred.
+    console.info(
+      `[paint] ${marks.length} marks → ${frame.vertices.n} vertices, ` +
+        `${frame.runs.length} runs, ${frame.drawCalls} draw calls, ` +
+        `${frame.overlay.length} overlay marks`,
+    )
   })
 
   it('draws nothing at all for a mark with no geometry', () => {
     // A ribbon whose width closed everywhere is absent, not a hairline — and the
-    // painter must not invent a path for it.
-    const { ctx, log } = recorder()
+    // painter must not invent geometry for it.
     const empty = ribbonMark({
       role: 'thread',
       laneId: 'nobody',
@@ -2096,10 +2047,12 @@ describe('paint executes the display list (prd7 ruling 3)', () => {
       widthTip: 0,
       paint: { rgb: [255, 255, 255], alpha: 1 },
     })
-    withPath2D(() => paint({ ctx, marks: [empty], width: 100, height: 100 }))
+
+    const frame = buildFrame([empty], { width: 100, height: 100 })
     expect(empty.outline).toEqual([])
-    expect(log.fills).toBe(0)
-    expect(log.calls).not.toContain('beginPath')
+    expect(frame.vertices.n).toBe(0)
+    expect(frame.runs).toEqual([])
+    expect(frame.drawCalls).toBe(0)
   })
 })
 

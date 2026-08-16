@@ -1,0 +1,44 @@
+{
+  "ref": "d385a693cda1f99a0fb54c92f29966d87fd17b49",
+  "marks": 155,
+  "panel": {
+    "width": 1100,
+    "height": 620
+  },
+  "dpr": 2,
+  "adapter": {
+    "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+    "vendor": "Google Inc. (Microsoft Corporation)",
+    "stencilBits": 8,
+    "attributes": {
+      "alpha": false,
+      "antialias": true,
+      "depth": false,
+      "desynchronized": false,
+      "failIfMajorPerformanceCaveat": false,
+      "powerPreference": "default",
+      "premultipliedAlpha": true,
+      "preserveDrawingBuffer": true,
+      "stencil": true,
+      "xrCompatible": false
+    }
+  },
+  "difference": {
+    "pixels": 2728000,
+    "meanDelta": 1.302,
+    "over8": 0.36,
+    "over32": 0.04,
+    "worst": 222
+  },
+  "cost": {
+    "canvas": {
+      "cpuMs": 0.8,
+      "wallMs": 1.142
+    },
+    "webgl": {
+      "cpuMs": 3,
+      "wallMs": 3.483
+    },
+    "frames": 120
+  }
+}
