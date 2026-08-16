@@ -59,11 +59,11 @@ export default function CollisionsPanel() {
     focusedPair !== null && row.branches.includes(focusedPair[0]) && row.branches.includes(focusedPair[1])
 
   return (
-    <section className="flex h-full flex-col rounded-lg border border-ice-850 bg-ice-950 p-4">
-      <h2 className="text-xs font-semibold uppercase tracking-widest text-ice-400">Collisions</h2>
+    <section className="flex h-full flex-col rounded-lg border border-(--line-hair) bg-(--surface-panel) p-4">
+      <h2 className="heading text-(--ink-dim)">Collisions</h2>
 
       {!connected ? (
-        <p className="mt-2 text-sm text-ice-400">Waiting for the stream…</p>
+        <p className="mt-2 text-read-body text-(--ink-dim)">Waiting for the stream…</p>
       ) : (
         <>
           {hasCollisions ? (
@@ -79,7 +79,7 @@ export default function CollisionsPanel() {
                     // "your keyboard is here" the same amber — so the summons
                     // hue meant two things on the one surface that shows
                     // nothing but summonses. It goes first for that reason.
-                    className="focus-ring figures flex w-full items-center gap-2 truncate rounded px-2 py-1 text-left text-needs-you hover:bg-ice-900"
+                    className="focus-ring figures flex w-full items-center gap-2 truncate rounded px-2 py-1 text-left text-needs-you hover:bg-(--surface-raised)"
                   >
                     <span aria-hidden>●</span>
                     <span className="truncate">{formatPairEvidence(pair)}</span>
@@ -88,17 +88,17 @@ export default function CollisionsPanel() {
               ))}
             </ul>
           ) : (
-            <p className="figures mt-2 text-sm text-ice-400" role="status">
+            <p className="figures mt-2 text-read-body text-(--ink-dim)" role="status">
               {checkedLine}
             </p>
           )}
 
           {hasData ? (
             <div className="mt-2 flex-1 overflow-auto [scrollbar-gutter:stable]">
-              <table className="w-full min-w-max border-collapse text-left text-xs">
+              <table className="w-full min-w-max border-collapse text-left text-inst">
                 <thead>
                   <tr>
-                    <th className="sticky top-0 z-10 min-w-[14rem] bg-ice-950 px-2 py-1.5 font-medium text-ice-400">
+                    <th className="sticky top-0 z-10 min-w-[14rem] bg-(--surface-panel) px-2 py-1.5 font-medium text-(--ink-dim)">
                       File
                     </th>
                     {columns.map((branch) => (
@@ -106,7 +106,7 @@ export default function CollisionsPanel() {
                         key={branch}
                         scope="col"
                         title={branch}
-                        className="sticky top-0 z-10 min-w-14 truncate bg-ice-950 px-2 py-1.5 text-center font-medium text-ice-400"
+                        className="sticky top-0 z-10 min-w-14 truncate bg-(--surface-panel) px-2 py-1.5 text-center font-medium text-(--ink-dim)"
                       >
                         <OpenBranchLink branch={branch} />
                       </th>
@@ -123,12 +123,12 @@ export default function CollisionsPanel() {
                       }}
                       data-collided={row.collided}
                       data-focused={isFocused(row)}
-                      className={isFocused(row) ? 'bg-ice-900' : undefined}
+                      className={isFocused(row) ? 'bg-(--surface-raised)' : undefined}
                     >
                       <td
                         title={row.path}
                         className={`figures min-w-[14rem] truncate px-2 py-1.5 leading-relaxed ${
-                          row.collided ? 'glow-needs-you text-needs-you' : 'text-ice-300'
+                          row.collided ? 'glow-needs-you text-needs-you' : 'text-(--ink-body)'
                         }`}
                       >
                         {elidePathMiddle(row.path)}
@@ -141,7 +141,7 @@ export default function CollisionsPanel() {
                           {row.branches.includes(branch) ? (
                             <span
                               aria-label={`${branch} touches ${row.path}`}
-                              className={row.collided ? 'text-needs-you' : 'text-ice-400'}
+                              className={row.collided ? 'text-needs-you' : 'text-(--ink-dim)'}
                             >
                               ●
                             </span>
@@ -154,7 +154,7 @@ export default function CollisionsPanel() {
               </table>
 
               {hiddenCount > 0 ? (
-                <p className="mt-1 text-[10px] text-ice-400">
+                <p className="mt-1 text-read-floor text-(--ink-dim)">
                   +{hiddenCount} more file{hiddenCount === 1 ? '' : 's'} touched, not shown
                 </p>
               ) : null}
@@ -186,7 +186,7 @@ function OpenBranchLink({ branch }: { branch: string }) {
       href={laneUrl(branch)}
       onClick={onClick}
       data-testid="collisions-open-lane"
-      className="focus-ring rounded text-inherit hover:text-ice-100"
+      className="focus-ring rounded text-inherit hover:text-(--ink-primary)"
     >
       {shortenBranch(branch)}
     </a>

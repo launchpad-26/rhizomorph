@@ -89,19 +89,19 @@ export function WhySurface({
 
   const header = (
     <>
-      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-ice-400">Why</h3>
-      <p className="text-[10px] text-ice-400">FILE granularity — hunk attribution is future work</p>
+      <h3 className="heading text-(--ink-dim)">Why</h3>
+      <p className="text-read-floor text-(--ink-dim)">FILE granularity — hunk attribution is future work</p>
     </>
   )
 
   const gapOrEmpty =
     laneHandle === null ? (
-      <p role="status" data-testid="why-multi-handle" className="text-[11px] leading-snug text-ice-400">
+      <p role="status" data-testid="why-multi-handle" className="text-read-body leading-snug text-(--ink-dim)">
         WHY UNAVAILABLE — {laneLabel} spans more than one telemetry handle, so there is no single
         causal chain that is provably its own.
       </p>
     ) : touches.length === 0 ? (
-      <p role="status" data-testid="why-empty" className="text-[11px] leading-snug text-ice-400">
+      <p role="status" data-testid="why-empty" className="text-read-body leading-snug text-(--ink-dim)">
         NO FILES TOUCHED YET — no tool call carrying a file path, and no landed commit, has been
         recorded for {laneLabel} so far.
       </p>
@@ -117,13 +117,13 @@ export function WhySurface({
       <>
         {onJumpToActivity === undefined || activePath === null ? null : (
           <div className="flex items-center justify-between gap-2">
-            <p className="min-w-0 truncate font-mono text-[10px] text-ice-400">{activePath}</p>
+            <p className="min-w-0 truncate font-mono text-inst-dense text-(--ink-dim)">{activePath}</p>
             <button
               type="button"
               data-testid="why-open-in-activity"
               onClick={() => onJumpToActivity(activePath)}
               title="jumps to ACTIVITY, scrolled to and marking this file's own entries"
-              className="shrink-0 rounded border border-ice-850 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-ice-400 hover:border-ice-600 hover:text-ice-200"
+              className="shrink-0 rounded border border-(--line-hair) px-1.5 py-0.5 text-inst uppercase tracking-wide text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
             >
               activity ↗
             </button>
@@ -154,7 +154,7 @@ export function WhySurface({
   return (
     <section
       data-testid="why-surface"
-      className="flex max-h-72 shrink-0 flex-col gap-2 overflow-auto border-t border-ice-850 px-4 py-3 [scrollbar-gutter:stable]"
+      className="flex max-h-72 shrink-0 flex-col gap-2 overflow-auto border-t border-(--line-hair) px-4 py-3 [scrollbar-gutter:stable]"
     >
       <header className="flex items-baseline justify-between">{header}</header>
       {gapOrEmpty ?? (
@@ -185,14 +185,14 @@ function FileList({ touches, activePath, onSelect, now }: FileListProps) {
             data-active={touch.path === activePath}
             title={`${touch.toolCallCount} tool call${touch.toolCallCount === 1 ? '' : 's'} · ${touch.commitCount} commit${touch.commitCount === 1 ? '' : 's'} · last touched ${formatSpan(Math.max(0, now - touch.lastTouchedAt))} ago`}
             onClick={() => onSelect(touch.path)}
-            className={`rounded border px-2 py-1 font-mono text-[10px] leading-tight ${
+            className={`rounded border px-2 py-1 font-mono text-inst-dense leading-tight ${
               touch.path === activePath
-                ? 'border-ice-600 text-ice-100'
-                : 'border-ice-850 text-ice-400 hover:border-ice-700 hover:text-ice-200'
+                ? 'border-(--ink-dim) text-(--ink-primary)'
+                : 'border-(--line-hair) text-(--ink-dim) hover:border-(--line-strong) hover:text-(--ink-primary)'
             }`}
           >
             <span className="truncate">{touch.path}</span>
-            <span className="figures ml-1.5 text-ice-400">
+            <span className="figures ml-1.5 text-(--ink-dim)">
               {touch.toolCallCount}t·{touch.commitCount}c
             </span>
           </button>
@@ -222,7 +222,7 @@ function FileChain({ chain, now, fetchTranscript }: FileChainProps) {
       )}
 
       {chain.commits.length === 0 ? null : (
-        <ol className="space-y-1 border-t border-ice-850/60 pt-1">
+        <ol className="space-y-1 border-t border-(--line-hair)/60 pt-1">
           {chain.commits.map((commit) => (
             <CommitRow key={commit.sha} commit={commit} now={now} />
           ))}
@@ -230,7 +230,7 @@ function FileChain({ chain, now, fetchTranscript }: FileChainProps) {
       )}
 
       {chain.toolCalls.length === 0 && chain.commits.length === 0 && chain.gap === null ? (
-        <p role="status" className="text-[11px] leading-snug text-ice-400">
+        <p role="status" className="text-read-body leading-snug text-(--ink-dim)">
           NOTHING RECORDED for this file yet.
         </p>
       ) : null}
@@ -242,7 +242,7 @@ function GapNotice({ gap }: { gap: NonNullable<FileProvenanceChain['gap']> }) {
   const since =
     gap.detailAvailableFromTs === null ? null : new Date(gap.detailAvailableFromTs).toISOString().slice(0, 10)
   return (
-    <p role="status" data-testid="why-gap" className="text-[11px] leading-snug text-ice-400">
+    <p role="status" data-testid="why-gap" className="text-read-body leading-snug text-(--ink-dim)">
       TOOL DETAIL UNAVAILABLE — a commit shows this file landed, but no tool call carries a matching
       file path for it —{' '}
       {since === null
@@ -264,28 +264,28 @@ function ToolCallRow({ call, now, fetchTranscript }: ToolCallRowProps) {
   const [expanded, setExpanded] = useState(false)
 
   return (
-    <li data-testid="why-tool-call" className="border-t border-ice-850/60 pt-1 first:border-t-0 first:pt-0">
+    <li data-testid="why-tool-call" className="border-t border-(--line-hair)/60 pt-1 first:border-t-0 first:pt-0">
       <div className="flex items-baseline gap-2">
         {call.span === null ? (
           <span
             title="no trace span carries this toolUseId — either none exported, or the call has none"
-            className="w-14 shrink-0 text-[10px] uppercase tracking-wider text-ice-400"
+            className="w-14 shrink-0 text-inst-dense uppercase tracking-wider text-(--ink-dim)"
           >
             tool
           </span>
         ) : (
           <KindTag kind={call.span.kind} />
         )}
-        <span className="figures w-10 shrink-0 text-right text-[10px] text-ice-400">
+        <span className="figures w-10 shrink-0 text-right text-inst-dense text-(--ink-dim)">
           {formatSpan(Math.max(0, now - call.ts))}
         </span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ice-200">{call.tool}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-inst text-(--ink-primary)">{call.tool}</span>
         <button
           type="button"
           data-testid="why-tool-call-jump"
           onClick={() => setExpanded((value) => !value)}
           title="jumps to the transcript entry nearest this tool call's timestamp — jump-to-nearest, not exact alignment (future work)"
-          className="shrink-0 rounded border border-ice-850 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-ice-400 hover:border-ice-600 hover:text-ice-200"
+          className="shrink-0 rounded border border-(--line-hair) px-1.5 py-0.5 text-inst uppercase tracking-wide text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
         >
           {expanded ? 'hide ▴' : 'conversation ↗'}
         </button>
@@ -297,14 +297,14 @@ function ToolCallRow({ call, now, fetchTranscript }: ToolCallRowProps) {
 
 function CommitRow({ commit, now }: { commit: FileProvenanceCommit; now: number }) {
   return (
-    <li data-testid="why-commit" className="flex items-baseline gap-2 border-t border-ice-850/60 pt-1 first:border-t-0 first:pt-0">
-      <span className="w-14 shrink-0 text-[10px] uppercase tracking-wider text-ice-200">commit</span>
-      <span className="figures w-10 shrink-0 text-right text-[10px] text-ice-400">
+    <li data-testid="why-commit" className="flex items-baseline gap-2 border-t border-(--line-hair)/60 pt-1 first:border-t-0 first:pt-0">
+      <span className="w-14 shrink-0 text-inst-dense uppercase tracking-wider text-(--ink-primary)">commit</span>
+      <span className="figures w-10 shrink-0 text-right text-inst-dense text-(--ink-dim)">
         {formatSpan(Math.max(0, now - commit.landedAt))}
       </span>
-      <span className="min-w-0 flex-1 truncate font-mono text-[11px] leading-snug text-ice-300">
-        <span className="text-ice-400">{commit.sha.slice(0, 7)}</span> {commit.message.split('\n')[0]}
-        <span className="ml-1 text-ice-400">{commit.branches.join(', ')}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-inst leading-snug text-(--ink-body)">
+        <span className="text-(--ink-dim)">{commit.sha.slice(0, 7)}</span> {commit.message.split('\n')[0]}
+        <span className="ml-1 text-(--ink-dim)">{commit.branches.join(', ')}</span>
       </span>
     </li>
   )

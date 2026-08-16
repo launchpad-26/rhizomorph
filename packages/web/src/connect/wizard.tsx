@@ -215,11 +215,11 @@ const LAUNCH_MODES: ReadonlyArray<{ mode: Exclude<InstrumentMode, 'resume'>; lab
 ]
 
 const BUTTON_CLASS =
-  'rounded border px-2 py-1 text-[11px] normal-case tracking-normal disabled:opacity-50 border-ice-700 text-ice-200 hover:border-ice-400 hover:text-ice-050'
+  'rounded border px-2 py-1 text-inst normal-case tracking-normal disabled:opacity-50 border-(--line-strong) text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary)'
 const PRIMARY_CLASS =
-  'rounded border px-2 py-1 text-[11px] normal-case tracking-normal disabled:opacity-50 border-ice-400 text-ice-050'
+  'rounded border px-2 py-1 text-inst normal-case tracking-normal disabled:opacity-50 border-(--ink-dim) text-(--ink-primary)'
 const FIELD_CLASS =
-  'max-w-full rounded border border-ice-850 bg-ice-1000 px-2 py-1 font-sans text-[11px] normal-case tracking-normal text-ice-200'
+  'max-w-full rounded border border-(--line-hair) bg-(--surface-floor) px-2 py-1 font-sans text-inst normal-case tracking-normal text-(--ink-primary)'
 
 export interface SetupWizardProps {
   /**
@@ -330,10 +330,10 @@ export function SetupWizard({
   }
 
   return (
-    <section data-testid="connect-wizard" className="rounded border border-ice-850 bg-ice-950 px-3 py-3">
+    <section data-testid="connect-wizard" className="rounded border border-(--line-hair) bg-(--surface-panel) px-3 py-3">
       <header className="flex flex-wrap items-baseline gap-3">
-        <h2 className="text-[10px] uppercase tracking-[0.18em] text-ice-400">set up</h2>
-        <span className="text-[11px] text-ice-400">
+        <h2 className="heading text-(--ink-dim)">set up</h2>
+        <span className="text-read-floor text-(--ink-dim)">
           repo → conductor → verify. Every step is one explicit click, and the last one is the checklist below, live.
         </span>
       </header>
@@ -435,34 +435,34 @@ function RepoStep({
 
   return (
     <div data-testid="wizard-repo" className="mt-3 flex flex-col gap-2">
-      <p className="text-[11px] text-ice-300">
+      <p className="text-read-body text-(--ink-body)">
         this instrument is watching{' '}
-        <span data-testid="wizard-watched" className="figures text-ice-100">
+        <span data-testid="wizard-watched" className="figures text-(--ink-primary)">
           {watched ?? UNAVAILABLE}
         </span>
       </p>
 
       {repos === null && (
-        <p data-testid="wizard-repos-reading" className="text-[11px] italic text-ice-400">
+        <p data-testid="wizard-repos-reading" className="text-read-floor italic text-(--ink-dim)">
           reading the repos this machine already has…
         </p>
       )}
 
       {repos?.kind === 'absent' && (
-        <p data-testid="wizard-repos-absent" className="text-[11px] italic text-ice-400">
+        <p data-testid="wizard-repos-absent" className="text-read-floor italic text-(--ink-dim)">
           {UNAVAILABLE} — no usable answer from the repo discovery route; the repo this instrument is already watching
           is still a choice you can make below
         </p>
       )}
 
       {repos?.kind === 'unavailable' && (
-        <p data-testid="wizard-repos-unavailable" className="text-[11px] text-ice-400">
+        <p data-testid="wizard-repos-unavailable" className="text-read-floor text-(--ink-dim)">
           {repos.reason}
         </p>
       )}
 
       {options.length > 0 && (
-        <label className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wider text-ice-400">
+        <label className="flex flex-wrap items-center gap-2 text-inst uppercase tracking-wider text-(--ink-dim)">
           <span>{options.length === 1 ? 'the repo' : `${options.length} repos`}</span>
           <select
             data-testid="wizard-repo-select"
@@ -488,7 +488,7 @@ function RepoStep({
       )}
 
       {repos?.kind === 'repos' && (
-        <ul data-testid="wizard-repos-limits" className="flex flex-col gap-0.5 text-[10px] leading-snug text-ice-400">
+        <ul data-testid="wizard-repos-limits" className="flex flex-col gap-0.5 text-read-floor leading-snug text-(--ink-dim)">
           {repos.historyUnavailable !== null && <li>{repos.historyUnavailable}</li>}
           {repos.truncated && (
             <li>
@@ -507,8 +507,8 @@ function RepoStep({
         </ul>
       )}
 
-      <div className="mt-1 border-t border-ice-850 pt-2">
-        <label className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wider text-ice-400">
+      <div className="mt-1 border-t border-(--line-hair) pt-2">
+        <label className="flex flex-wrap items-center gap-2 text-inst uppercase tracking-wider text-(--ink-dim)">
           <span>or clone one</span>
           <input
             type="text"
@@ -528,30 +528,30 @@ function RepoStep({
             clone
           </button>
         </label>
-        <p className="mt-1 text-[10px] leading-snug text-ice-400">
+        <p className="mt-1 text-read-floor leading-snug text-(--ink-dim)">
           It clones with this machine’s own git credentials — no account, no token, and a URL carrying one is refused
           before it reaches the wire. The repository lands in this instrument’s own clones directory, never inside the
           repo it is watching, and the answer arrives when git finishes rather than as it runs.
         </p>
         {!live && (
-          <p data-testid="wizard-clone-fixture" className="mt-1 text-[10px] leading-snug text-notice">
+          <p data-testid="wizard-clone-fixture" className="mt-1 text-read-floor leading-snug text-notice">
             this page is reading a fixture, not the live log — nothing here will clone anything. Return to live to act.
           </p>
         )}
 
         {clone.status === 'working' && (
-          <p data-testid="wizard-clone-working" className="mt-1 text-[11px] text-ice-400">
+          <p data-testid="wizard-clone-working" className="mt-1 text-read-body text-(--ink-dim)">
             cloning… this waits for git to finish
           </p>
         )}
         {clone.status === 'failed' && (
-          <p role="status" data-testid="wizard-clone-error" className="mt-1 text-[11px] text-broken">
+          <p role="status" data-testid="wizard-clone-error" className="mt-1 text-read-body text-broken">
             {clone.message}
           </p>
         )}
         {clone.status === 'done' && (
           <div data-testid="wizard-clone-result" className="mt-1 flex flex-col gap-1">
-            <p role="status" className={`text-[11px] ${clone.outcome.kind === 'cloned' ? 'text-notice' : 'text-broken'}`}>
+            <p role="status" className={`text-read-body ${clone.outcome.kind === 'cloned' ? 'text-notice' : 'text-broken'}`}>
               {clone.outcome.kind === 'cloned'
                 ? `cloned to ${clone.outcome.path} — chosen below. This instrument is still watching ${watched ?? UNAVAILABLE}.`
                 : clone.outcome.message}
@@ -559,7 +559,7 @@ function RepoStep({
             {clone.outcome.progress.length > 0 && (
               <pre
                 data-testid="wizard-clone-progress"
-                className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-ice-1000 px-2 py-1 font-mono text-[10px] text-ice-300"
+                className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-(--surface-floor) px-2 py-1 font-mono text-inst-dense text-(--ink-body)"
               >
                 {clone.outcome.progress.join('\n')}
               </pre>
@@ -627,7 +627,7 @@ function ConductorStep({
 
   return (
     <div data-testid="wizard-conductor" className="mt-3 flex flex-col gap-2">
-      <label className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wider text-ice-400">
+      <label className="flex flex-wrap items-center gap-2 text-inst uppercase tracking-wider text-(--ink-dim)">
         <span>conductor</span>
         <select
           data-testid="wizard-harness-select"
@@ -645,7 +645,7 @@ function ConductorStep({
       </label>
 
       {facts !== undefined && facts.status === 'declared' && (
-        <p data-testid="wizard-harness-declared" className="text-[11px] leading-snug text-waiting-benign">
+        <p data-testid="wizard-harness-declared" className="text-read-body leading-snug text-waiting-benign">
           this instrument knows {facts.displayName} by name and cannot start it. What it would take:{' '}
           {facts.whatItWouldTake}
         </p>
@@ -661,7 +661,7 @@ function ConductorStep({
       {facts !== undefined && facts.status === 'implemented' && facts.telemetry !== undefined && (
         <p
           data-testid="wizard-harness-telemetry"
-          className={`text-[11px] leading-snug ${facts.telemetry.level === 'provided' ? 'text-ice-300' : 'text-waiting-benign'}`}
+          className={`text-read-body leading-snug ${facts.telemetry.level === 'provided' ? 'text-(--ink-body)' : 'text-waiting-benign'}`}
         >
           {facts.telemetry.level === 'provided' ? (
             <>
@@ -684,17 +684,17 @@ function ConductorStep({
           uninstrumented row is the whole of what the event log knows about
           conductors running unwired, so this states it and says exactly whose
           fact it is. */}
-      <p data-testid="wizard-conductor-status" className="text-[11px] leading-snug text-ice-300">
+      <p data-testid="wizard-conductor-status" className="text-read-body leading-snug text-(--ink-body)">
         {conductorStatus(uninstrumented)}{' '}
-        <span className="text-ice-400">
+        <span className="text-(--ink-dim)">
           (the event log attributes a session to a lane and a worktree, never to a harness, so this is a fact about this
           repo rather than about {facts?.displayName ?? 'this harness'})
         </span>
       </p>
 
       {!isWatched ? (
-        <div data-testid="wizard-not-watched" className="flex flex-col gap-1 rounded border border-ice-850 px-2 py-2">
-          <p className="text-[11px] leading-snug text-waiting-benign">
+        <div data-testid="wizard-not-watched" className="flex flex-col gap-1 rounded border border-(--line-hair) px-2 py-2">
+          <p className="text-read-body leading-snug text-waiting-benign">
             {target ?? UNAVAILABLE} is not the repo this instrument is watching, and this hand cannot retarget one —
             switching the watched repo is prd-20’s own open question and is not built. Nothing below will start a
             conductor there. Run a rhizomorph in that repo instead, and its own wizard picks up from here:
@@ -708,9 +708,9 @@ function ConductorStep({
       ) : (
         <>
           <fieldset className="flex flex-col gap-1">
-            <legend className="text-[10px] uppercase tracking-wider text-ice-400">what to start</legend>
+            <legend className="text-inst uppercase tracking-wider text-(--ink-dim)">what to start</legend>
             {LAUNCH_MODES.map((entry) => (
-              <label key={entry.mode} className="flex items-baseline gap-2 text-[11px] text-ice-200">
+              <label key={entry.mode} className="flex items-baseline gap-2 text-read-body text-(--ink-primary)">
                 <input
                   type="radio"
                   name="wizard-mode"
@@ -722,7 +722,7 @@ function ConductorStep({
               </label>
             ))}
           </fieldset>
-          <p data-testid="wizard-mode-means" className="text-[11px] leading-snug text-ice-400">
+          <p data-testid="wizard-mode-means" className="text-read-body leading-snug text-(--ink-dim)">
             {chosenMode?.means}
           </p>
 
@@ -748,11 +748,11 @@ function ConductorStep({
           )}
 
           {launch.status === 'confirming' && (
-            <div data-testid="wizard-launch-confirm-dialog" className="flex flex-col gap-2 rounded border border-ice-700 p-3">
-              <p className="text-[12px] text-ice-100">
+            <div data-testid="wizard-launch-confirm-dialog" className="flex flex-col gap-2 rounded border border-(--line-strong) p-3">
+              <p className="text-read-body text-(--ink-primary)">
                 Start a {facts?.displayName ?? harness} conductor in {target ?? UNAVAILABLE}, {chosenMode?.label}?
               </p>
-              <p className="text-[11px] leading-snug text-ice-400">
+              <p className="text-read-body leading-snug text-(--ink-dim)">
                 {chosenMode?.means} This spawns a real process on this machine and it spends real money from the moment
                 it starts. Nothing here stops a process you already have running, and nothing spent before this point
                 ever reaches this instrument’s record.
@@ -761,7 +761,7 @@ function ConductorStep({
                   the picker: an operator who chose the harness a minute ago is
                   reading this sentence at the moment the money goes. */}
               {!instrumented && (
-                <p data-testid="wizard-launch-uninstrumented" className="text-[11px] leading-snug text-waiting-benign">
+                <p data-testid="wizard-launch-uninstrumented" className="text-read-body leading-snug text-waiting-benign">
                   It will not be instrumented. {facts?.displayName ?? 'This harness'}’s adapter declares telemetry{' '}
                   {facts?.telemetry?.level ?? 'unstated'}, so what this starts spends money this instrument cannot see
                   and the rows in step 3 will not flip for it.
@@ -778,19 +778,19 @@ function ConductorStep({
             </div>
           )}
           {!live && (
-            <p data-testid="wizard-launch-fixture" className="text-[10px] leading-snug text-notice">
+            <p data-testid="wizard-launch-fixture" className="text-read-floor leading-snug text-notice">
               this page is reading a fixture, not the live log — nothing here will start a process. Return to live to
               act.
             </p>
           )}
 
           {launch.status === 'working' && (
-            <p data-testid="wizard-launch-working" className="text-[11px] text-ice-400">
+            <p data-testid="wizard-launch-working" className="text-read-body text-(--ink-dim)">
               starting…
             </p>
           )}
           {launch.status === 'failed' && (
-            <p role="status" data-testid="wizard-launch-error" className="text-[11px] text-broken">
+            <p role="status" data-testid="wizard-launch-error" className="text-read-body text-broken">
               {launch.message}
             </p>
           )}
@@ -835,7 +835,7 @@ export function conductorStatus(link: ChainLink | undefined): string {
 function LaunchResult({ outcome }: { outcome: InstrumentOutcome }) {
   if (outcome.kind === 'no-transcript-reachable') {
     return (
-      <p role="status" data-testid="wizard-launch-result" className="text-[11px] leading-snug text-waiting-benign">
+      <p role="status" data-testid="wizard-launch-result" className="text-read-body leading-snug text-waiting-benign">
         nothing was started and nothing was copied — {outcome.reason}
       </p>
     )
@@ -843,22 +843,22 @@ function LaunchResult({ outcome }: { outcome: InstrumentOutcome }) {
 
   const { spawn } = outcome
   return (
-    <div data-testid="wizard-launch-result" className="flex flex-col gap-1 rounded border border-ice-850 px-2 py-2">
+    <div data-testid="wizard-launch-result" className="flex flex-col gap-1 rounded border border-(--line-hair) px-2 py-2">
       {spawn.launched && spawn.via === 'tmux' && (
-        <p role="status" className="text-[11px] leading-snug text-notice">
+        <p role="status" className="text-read-body leading-snug text-notice">
           started in the tmux window {spawn.window} (pid {spawn.pid}) — attach with{' '}
           <span className="font-mono">tmux attach -t {spawn.window}</span> and it is yours to type in.
         </p>
       )}
       {spawn.launched && spawn.via === 'detached' && (
-        <p role="status" className="text-[11px] leading-snug text-waiting-benign">
+        <p role="status" className="text-read-body leading-snug text-waiting-benign">
           started detached (pid {spawn.pid}) — there was no tmux window to put it in, so nothing is attached to it. An
           interactive harness with no terminal may exit on its own (#532); watch the rows below rather than trusting
           this line, and run the harness yourself in a terminal if nothing arrives.
         </p>
       )}
       {!spawn.launched && (
-        <p role="status" className="text-[11px] leading-snug text-broken">
+        <p role="status" className="text-read-body leading-snug text-broken">
           {spawn.message}
         </p>
       )}
@@ -870,17 +870,17 @@ function LaunchResult({ outcome }: { outcome: InstrumentOutcome }) {
           it when it arrives. `null` means this answer did not say, which is
           reported as itself rather than assumed either way. */}
       {outcome.telemetry === null ? (
-        <p data-testid="wizard-launch-telemetry" className="text-[10px] leading-snug text-ice-400">
+        <p data-testid="wizard-launch-telemetry" className="text-read-floor leading-snug text-(--ink-dim)">
           This answer said nothing about whether telemetry reaches this instrument, so nothing here claims it does.
           Step 3 is what settles it: watch the rows change, and believe those rather than this sentence.
         </p>
       ) : outcome.telemetry.level === 'provided' ? (
-        <p data-testid="wizard-launch-telemetry" className="text-[10px] leading-snug text-ice-400">
+        <p data-testid="wizard-launch-telemetry" className="text-read-floor leading-snug text-(--ink-dim)">
           A started process is not yet a flowing one. That is what step 3 is for: watch the rows change, and believe
           those rather than this sentence.
         </p>
       ) : (
-        <p data-testid="wizard-launch-telemetry" className="text-[10px] leading-snug text-waiting-benign">
+        <p data-testid="wizard-launch-telemetry" className="text-read-floor leading-snug text-waiting-benign">
           This harness reports no telemetry to this instrument ({outcome.telemetry.level}), so the rows in step 3 will
           not flip for what was just started, however well it runs. {outcome.telemetry.reason}
           {outcome.telemetry.remedy !== null && <> — what it would take: {outcome.telemetry.remedy}</>}
@@ -903,21 +903,21 @@ function LaunchResult({ outcome }: { outcome: InstrumentOutcome }) {
 function VerifyStep({ links }: { links: readonly ChainLink[] }) {
   return (
     <div data-testid="wizard-verify" className="mt-3 flex flex-col gap-1">
-      <p className="text-[11px] leading-snug text-ice-400">
+      <p className="text-read-body leading-snug text-(--ink-dim)">
         these are the checklist rows below, live — not a copy of them. Each says what would prove it; the full row
         carries the reason and the command.
       </p>
       <ul className="flex flex-col gap-0.5">
         {links.map((link) => (
-          <li key={link.id} data-testid={`wizard-verify-${link.id}`} className="flex flex-wrap items-baseline gap-2 text-[11px]">
+          <li key={link.id} data-testid={`wizard-verify-${link.id}`} className="flex flex-wrap items-baseline gap-2 text-inst">
             <span
-              className={`figures shrink-0 text-[10px] font-semibold uppercase tracking-[0.18em] ${
-                link.state === 'verified' ? 'text-working' : link.state === 'broken' ? 'text-broken' : 'text-ice-400'
+              className={`figures shrink-0 text-inst font-semibold uppercase tracking-[0.18em] ${
+                link.state === 'verified' ? 'text-working' : link.state === 'broken' ? 'text-broken' : 'text-(--ink-dim)'
               }`}
             >
               <span aria-hidden="true">{STATE_GLYPH[link.state]}</span> {STATE_WORD[link.state]}
             </span>
-            <span className="text-ice-100">{link.label}</span>
+            <span className="text-(--ink-primary)">{link.label}</span>
           </li>
         ))}
       </ul>
@@ -952,14 +952,14 @@ function CopyableCommand({ id, command, onCopy }: { id: string; command: string;
           copy
         </button>
         {copied !== 'idle' && (
-          <span role="status" className="figures text-[10px] text-ice-400">
+          <span role="status" className="figures text-inst-dense text-(--ink-dim)">
             {copied === 'copied' ? 'copied to clipboard' : 'clipboard unavailable — copy it by hand'}
           </span>
         )}
       </div>
       <code
         data-testid={`connect-command-${id}`}
-        className="block overflow-x-auto whitespace-pre rounded bg-ice-1000 px-2 py-1 font-mono text-[11px] text-ice-200"
+        className="block overflow-x-auto whitespace-pre rounded bg-(--surface-floor) px-2 py-1 font-mono text-inst text-(--ink-primary)"
       >
         {command}
       </code>

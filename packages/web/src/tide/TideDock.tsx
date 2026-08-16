@@ -99,7 +99,7 @@ export interface TideDockProps {
 }
 
 const BUTTON_CLASS =
-  'rounded border border-ice-850 px-1.5 py-0.5 text-[10px] leading-none text-ice-300 hover:border-ice-400 hover:text-ice-050 disabled:opacity-40 disabled:hover:border-ice-850 disabled:hover:text-ice-300'
+  'rounded border border-(--line-hair) px-1.5 py-0.5 text-inst-dense leading-none text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-40 disabled:hover:border-(--line-hair) disabled:hover:text-(--ink-body)'
 
 function useElementWidth(): [RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement | null>(null)
@@ -390,7 +390,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
           <div
             aria-hidden="true"
             data-testid="tide-playhead"
-            className="pointer-events-none absolute top-0 bottom-0 w-px bg-ice-200"
+            className="pointer-events-none absolute top-0 bottom-0 w-px bg-(--ink-primary)"
             style={{ left: playheadX }}
           />
         )}
@@ -401,7 +401,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
       <div aria-hidden="true" />
       <div
         data-testid="tide-axis"
-        className="figures flex items-center justify-between text-[8px] leading-none text-ice-400"
+        className="figures flex items-center justify-between text-inst-dense leading-none text-(--ink-dim)"
       >
         <span>{formatClock(window_.start)}</span>
         <span>{formatClock(window_.end)}</span>
@@ -440,7 +440,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
           <div
             aria-hidden="true"
             data-testid="tide-window-bracket"
-            className="pointer-events-none absolute -top-1 h-1.5 border-l border-r border-t border-ice-400"
+            className="pointer-events-none absolute -top-1 h-1.5 border-l border-r border-t border-(--ink-dim)"
             style={{ left: bracketLeft, width: bracketWidth }}
           />
         )}
@@ -449,7 +449,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
       <div className="flex flex-wrap items-center justify-end gap-1">
         {zoomed && (
           <span
-            className="figures min-w-0 max-w-[180px] overflow-hidden text-ellipsis whitespace-nowrap text-[10px] leading-none text-ice-400"
+            className="figures min-w-0 max-w-[180px] overflow-hidden text-ellipsis whitespace-nowrap text-inst-dense leading-none text-(--ink-dim)"
             data-testid="window-indicator"
           >
             {/*

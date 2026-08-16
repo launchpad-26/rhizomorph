@@ -66,9 +66,9 @@ type Phase =
   | { status: 'failed'; message: string }
 
 const BUTTON_CLASS =
-  'rounded border px-2 py-1 normal-case tracking-normal disabled:opacity-50 border-ice-700 text-ice-200 hover:border-ice-400 hover:text-ice-050'
+  'rounded border px-2 py-1 normal-case tracking-normal disabled:opacity-50 border-(--line-strong) text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary)'
 const ARMED_CLASS =
-  'rounded border px-2 py-1 normal-case tracking-normal disabled:opacity-50 border-ice-400 text-ice-050'
+  'rounded border px-2 py-1 normal-case tracking-normal disabled:opacity-50 border-(--ink-dim) text-(--ink-primary)'
 
 export function RotateButton({ onRotated, fetchImpl }: RotateButtonProps = {}) {
   const [phase, setPhase] = useState<Phase>({ status: 'idle' })
@@ -111,7 +111,7 @@ export function RotateButton({ onRotated, fetchImpl }: RotateButtonProps = {}) {
         <button
           type="button"
           onClick={() => setPhase({ status: 'idle' })}
-          className="normal-case tracking-normal text-ice-400 underline decoration-dotted hover:text-ice-200"
+          className="normal-case tracking-normal text-(--ink-dim) underline decoration-dotted hover:text-(--ink-primary)"
         >
           cancel
         </button>
@@ -119,14 +119,15 @@ export function RotateButton({ onRotated, fetchImpl }: RotateButtonProps = {}) {
 
       {phase.status === 'done' && (
         <span role="status" className="inline-flex flex-col gap-0.5 normal-case tracking-normal">
-          <span data-testid="rotate-result" className="text-ice-400">
+          <span data-testid="rotate-result" className="text-(--ink-dim)">
             closed session {phase.rotation.closed.sessionId} ({phase.rotation.closed.eventCount.toLocaleString()}{' '}
             events) · now recording {phase.rotation.opened.sessionId}
           </span>
-          {/* `ice-400` is the dimmest step text may legally wear — prd9's
-              legibility floor (`theme/contrast.ts`); anything below it is for
-              structure, never a sentence. */}
-          <span data-testid="rotate-acknowledgement" className="text-ice-400">
+          {/* `--ink-dim` is the dimmest ink text may legally wear — prd9's
+              legibility floor (`theme/contrast.ts`), and the role is what
+              carries it into light, where the floor is a different hex
+              entirely; anything below it is structure, never a sentence. */}
+          <span data-testid="rotate-acknowledgement" className="text-(--ink-dim)">
             {rotatedVoice()}
           </span>
         </span>

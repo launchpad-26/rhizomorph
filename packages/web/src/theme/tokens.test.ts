@@ -210,7 +210,15 @@ describe('the type ramp, in rem, in two registers (S1)', () => {
 // utilities). Both branches wrote 226 independently, so git merged the number
 // with no conflict at all — agreement is not correctness, and taking it would
 // have pinned the ratchet one slot above the truth. Recomputed from the tree.
-const RAW_PIXEL_SIZES = 225
+//
+// 225 -> 85: the orphan half of the wave-4 sweep (#575), 140 literals retired
+// across the nineteen files no other cluster claims — `connect/`, `why/`,
+// `panels/{ledger,burn,collisions}/`, `concierge/`, `recordings/`, `replay/`,
+// `tide/`, `index.css`. The 85 that survive are the contested files, and they
+// fall in the second half of the sweep. Recomputed from the tree, not
+// subtracted from the diff: the number this line pins has to be the number the
+// walk finds.
+const RAW_PIXEL_SIZES = 85
 
 describe('no new pixel literal after the ramp exists (S1)', () => {
   /** Everything the sweeps own: the app, less `lab/` (prd-28's territory). */
