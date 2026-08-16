@@ -9,6 +9,7 @@ import type {
 } from '@rhizomorph/core'
 import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
+import { gitCollector, MAX_DIRTY_STATUS_FAILURES } from './git/git-collector.js'
 import type { GitSnapshot } from './git/types.js'
 import { withResilience, type ResilientSnapshot } from './resilience.js'
 import { withAgentReconciliation, withBranchReconciliation, withResumeReconciliation } from './resume-reconcile.js'
@@ -171,6 +172,7 @@ function fakeGitSnapshot(branches: GitSnapshot['branches']): GitSnapshot {
     branches,
     dirty: {},
     dirtyFailures: {},
+    refsFailures: 0,
   }
 }
 
@@ -318,6 +320,67 @@ describe('withBranchReconciliation — the first poll after a resume hits a for-
     const second = await reconciled.poll(first.nextSnapshot, makeContext(nullExec, 2000))
     expect(second.events.map((event) => event.type)).toEqual(['branch.removed'])
     expect(second.events[0]?.payload).toEqual({ branch: '132-old-feature' })
+  })
+})
+
+describe("withBranchReconciliation — the real git collector's for-each-ref latch stays quiet through §7's fix", () => {
+  // #429 §7: `diffBranches`' own threshold-and-latch (§6d) means a
+  // for-each-ref failure below MAX_DIRTY_STATUS_FAILURES now returns
+  // `prevSnapshot.branches` unchanged AND voices nothing — the exact
+  // "not observed, no explaining event" shape #454's gate used to read as a
+  // broken observation contract. Without `result.nextSnapshot.refsFailures > 0`
+  // in the fix, every one of these silent polls would emit a spurious
+  // contract-violation `collector.error`.
+  const ONE_WORKTREE = `worktree /repo
+HEAD 1111111111111111111111111111111111111111
+branch refs/heads/main
+`
+  const ONE_REF = 'main 1111111111111111111111111111111111111111\n'
+
+  it('emits no synthetic contract-violation collector.error on any silent poll, and reconciles a real ghost once for-each-ref finally succeeds', async () => {
+    let call = 0
+    const exec: Exec = async (command, args, options) => {
+      if (args[0] === 'for-each-ref') {
+        call += 1
+        if (call <= MAX_DIRTY_STATUS_FAILURES) {
+          return { stdout: '', stderr: 'error: bad ref', code: 1, failed: true }
+        }
+        return { stdout: ONE_REF, stderr: '', code: 0, failed: false }
+      }
+      const key = `${command} ${args.join(' ')}::${options?.cwd ?? ''}`
+      const script: Record<string, string> = {
+        'git worktree list --porcelain::/repo': ONE_WORKTREE,
+        'git status --porcelain::/repo': '',
+      }
+      const stdout = script[key]
+      if (stdout === undefined) throw new Error(`no scripted output for "${key}"`)
+      return { stdout, stderr: '', code: 0, failed: false }
+    }
+
+    // The fold believes '132-old-feature' is still live; it never appears in
+    // any for-each-ref output below, so it is a real ghost.
+    const reconciled = withBranchReconciliation(gitCollector, new Set(['main', '132-old-feature']))
+
+    let snapshot = reconciled.initialSnapshot()
+    for (let poll = 1; poll <= MAX_DIRTY_STATUS_FAILURES; poll += 1) {
+      const result = await reconciled.poll(snapshot, makeContext(exec, 1000 + poll * 1000))
+      expect(result.events.some((event) => event.type === 'collector.error')).toBe(false)
+      snapshot = result.nextSnapshot
+    }
+
+    // for-each-ref finally succeeds: reality has only 'main', so
+    // '132-old-feature' is the one real ghost, retired exactly once.
+    const recovered = await reconciled.poll(snapshot, makeContext(exec, 9000))
+    expect(recovered.events.some((event) => event.type === 'collector.error')).toBe(false)
+    expect(recovered.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'branch.removed', payload: { branch: '132-old-feature' } }),
+      ]),
+    )
+
+    // Idempotent: the next poll has nothing left to reconcile.
+    const again = await reconciled.poll(recovered.nextSnapshot, makeContext(exec, 10_000))
+    expect(again.events.some((event) => event.type === 'branch.removed')).toBe(false)
   })
 })
 

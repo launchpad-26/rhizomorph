@@ -90,7 +90,10 @@ describe('the golden era corpus', () => {
     // `fork.*`/`judge.finding` need the lab and the judge to have run.
     // `agent.removed` (#306) is newer than era-1's 2026-08-06 capture and
     // needs a workmux handle to actually depart mid-recording — neither
-    // happened in it.
+    // happened in it. `worktree.dirtyStatusFailed`/`.dirtyStatusRecovered`
+    // (#429) are newer still and need a worktree's `git status --porcelain`
+    // to actually cross the failure bound and recover mid-recording, which
+    // era-1's capture never hit.
     expect(EVENT_TYPES.filter((type) => !covered.has(type)).sort()).toEqual([
       'agent.removed',
       'collector.degraded',
@@ -103,6 +106,8 @@ describe('the golden era corpus', () => {
       'session.closed',
       'session.started',
       'telemetry.refused',
+      'worktree.dirtyStatusFailed',
+      'worktree.dirtyStatusRecovered',
     ])
   })
 })
