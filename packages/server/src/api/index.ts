@@ -4,6 +4,7 @@ import { registerConciergeCloneRoute, registerConciergeLaunchRoute, registerConc
 import { registerDoctorRoute } from './doctor.js'
 import { registerLabelRoute } from './label.js'
 import { registerLabRoutes } from './lab.js'
+import { registerLaneIndexRoutes } from './lane-index.js'
 import { registerLanesRoute } from './lanes.js'
 import { registerMetaRoute } from './meta.js'
 import { registerOtelRoutes } from './otel.js'
@@ -20,6 +21,14 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   registerStreamRoute(app, ctx)
   registerOtelRoutes(app, ctx)
   registerLanesRoute(app, ctx)
+  // The lane index (prd-31 ruling 5, #556) — what makes `/lane/:handle`
+  // readable after the worktree is gone. Registered beside `/api/lanes`
+  // because it answers the neighbouring question ("what has this lane ever
+  // done", against the manifest's "what is this lane allowed to touch"), and
+  // never merged into it: the manifest is dispatch's live declaration, this is
+  // the log's own history, and one route returning both would tie a durable
+  // read to a file that only exists mid-wave.
+  registerLaneIndexRoutes(app, ctx)
   registerTranscriptRoute(app, ctx)
   // A session's first words (prd20 w6) — the read-only companion to the
   // transcript tail, sharing its attribution and its bounded-read shape.
@@ -98,12 +107,15 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   { method: 'POST', url: '/v1/traces', routeClass: 'ungated-mutation' },
   { method: 'POST', url: '/', routeClass: 'ungated-mutation' },
 
-  // Reads (12, plus the static catch-all below).
+  // Reads (14, plus the static catch-all below).
   { method: 'GET', url: '/api/meta', routeClass: 'read' },
   { method: 'GET', url: '/api/sessions', routeClass: 'read' },
   { method: 'GET', url: '/api/sessions/:id/events', routeClass: 'read' },
   { method: 'GET', url: '/api/stream', routeClass: 'read' },
   { method: 'GET', url: '/api/lanes', routeClass: 'read' },
+  // prd-31 ruling 5's durability read — the log's own history, never a worktree's.
+  { method: 'GET', url: '/api/lane-index', routeClass: 'read' },
+  { method: 'GET', url: '/api/lane-index/:handle', routeClass: 'read' },
   { method: 'GET', url: '/api/transcript/:lane', routeClass: 'read' },
   { method: 'GET', url: '/api/session-preview/:sessionId', routeClass: 'read' },
   { method: 'GET', url: '/api/lab/checkpoints', routeClass: 'read' },
