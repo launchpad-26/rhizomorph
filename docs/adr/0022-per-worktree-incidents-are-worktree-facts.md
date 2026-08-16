@@ -1,4 +1,4 @@
-# 0019. Per-worktree incidents are recorded on the worktree, not the collector
+# 0022. Per-worktree incidents are recorded on the worktree, not the collector
 
 - **Status:** accepted
 - **Date:** 2026-08-14

@@ -14,6 +14,14 @@ Node is not a machine this suite has ever been green on:
 node --version        # must be >= 22.22.2
 ```
 
+**You will not get far on the wrong one** (#403). `.npmrc` sets
+`engine-strict=true`, so `npm install` *refuses* rather than warning, naming the
+required range and the version you are on. `.nvmrc` holds the same floor, so
+`nvm use` / `fnm use` switches to it without your having to read this section at
+all. The rest of this section describes what used to happen, and what still
+happens if you get past the install some other way — it is kept because the
+failure shape is the one this repo cares most about.
+
 On Node 20 every test file in the `web` workspace fails to start its worker with
 `TypeError: webidl.util.markAsUncloneable is not a function`, thrown from
 `undici` by way of `jsdom` — one function that only exists in Node 22.

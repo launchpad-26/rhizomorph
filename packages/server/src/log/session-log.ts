@@ -199,15 +199,39 @@ export async function findResumableSession(
  *   `decideSessionBoot` never returns it (a boot is not a rotation) — the
  *   recorder's own hand reports it through `/api/meta` (`api/rotate.ts`), so
  *   the provenance line can say why the session it names is seconds old.
+ * - `retargeted`: the same, for prd20 ruling 5's repo switch (#389,
+ *   `api/retarget.ts`). A separate word from `rotated` for the reason
+ *   `SESSION_CLOSE_REASONS` gained one (#384): a rotation's predecessor is the
+ *   previous log in this same directory, a retarget's is under another repo's
+ *   slug entirely — so the closed recording this session succeeds is NOT in
+ *   this repo's replay picker, which is exactly what the provenance bar says
+ *   when it reads this word.
+ *
+ * An ARRAY rather than a bare union (#384), for one reason only: the web's
+ * provenance bar keeps its own list of the reasons it can explain
+ * (`web/src/app/StatusBar.tsx`'s `KNOWN_BOOT_REASONS`) and cannot import this
+ * one: no non-test file under `packages/web/src` imports server source. And
+ * moving the union into browser-safe `core` would trade away that bar's
+ * deliberate "an unknown reason reads as unavailable" posture.
+ * Nothing else catches the drift between the two lists, so a seam test reads
+ * this array at runtime and pins the bar's against it
+ * (`web/src/app/boot-reason-seam.test.ts`). The drift is not hypothetical:
+ * `writer-alive` shipped in #187 and the bar never learned it, so every boot
+ * blocked by a live writer since then has rendered the session voice as
+ * *unavailable* instead of saying so. The type below is derived, so this
+ * array is the single declaration.
  */
-export type SessionBootReason =
-  | 'fresh-flag'
-  | 'resumed'
-  | 'stale'
-  | 'first-run'
-  | 'writer-alive'
-  | 'closed'
-  | 'rotated'
+export const SESSION_BOOT_REASONS = [
+  'fresh-flag',
+  'resumed',
+  'stale',
+  'first-run',
+  'writer-alive',
+  'closed',
+  'rotated',
+  'retargeted',
+] as const
+export type SessionBootReason = (typeof SESSION_BOOT_REASONS)[number]
 
 export interface SessionBootDecision {
   reason: SessionBootReason

@@ -29,10 +29,16 @@ function missingBinary(): ExecResult {
 /**
  * Routes `workmux status --json` / `workmux list --json` to canned results, in
  * call order per command. The full argv is asserted, not just the subcommand:
- * every canned response here is JSON, so a collector that stopped passing
- * `--json` would still be fed JSON by this fake and every test in the file
- * would stay green — while against a real workmux it would receive the table
- * form, fail to parse it, and disable itself on every poll (#383).
+ * the JSON queues answer only the `--json` argv, so a collector that stopped
+ * passing `--json` would drop to the text queues (empty by default, i.e. no
+ * rows) rather than being handed JSON anyway and staying green — the shape
+ * #383 required, kept intact now that a text form exists at all.
+ *
+ * `statusText` / `listText` answer the bare `workmux status` / `workmux list`
+ * the #587 fallback shells to. They default to empty stdout, so every test
+ * written before that fallback existed sees a fallback that finds nothing and
+ * therefore behaves exactly as it did — a test that wants the fallback to
+ * succeed has to say so.
  *
  * An optional `git` queue answers `resolveWorktreePath`'s
  * `git -C <path> rev-parse --show-toplevel` (#463). It is separate from the
@@ -40,9 +46,17 @@ function missingBinary(): ExecResult {
  * never call git (or should call it only once, per the memoisation ruling)
  * fails loudly on an unexpected/extra call instead of silently degrading.
  */
-function fakeExec(responses: { status: ExecResult[]; list?: ExecResult[]; git?: ExecResult[] }): Exec {
+function fakeExec(responses: {
+  status: ExecResult[]
+  list?: ExecResult[]
+  statusText?: ExecResult[]
+  listText?: ExecResult[]
+  git?: ExecResult[]
+}): Exec {
   const status = [...responses.status]
   const list = [...(responses.list ?? [])]
+  const statusText = [...(responses.statusText ?? [])]
+  const listText = [...(responses.listText ?? [])]
   const git = [...(responses.git ?? [])]
   return async (command, args) => {
     if (command === 'git') {
@@ -53,10 +67,12 @@ function fakeExec(responses: { status: ExecResult[]; list?: ExecResult[]; git?: 
     expect(command).toBe('workmux')
     const subcommand = args[0]
     if (subcommand === 'status') {
+      if (args.length === 1) return statusText.shift() ?? ok('')
       expect(args).toEqual(['status', '--json'])
       return status.shift() ?? ok('[]')
     }
     if (subcommand === 'list') {
+      if (args.length === 1) return listText.shift() ?? ok('')
       expect(args).toEqual(['list', '--json'])
       return list.shift() ?? ok('[]')
     }
@@ -204,24 +220,262 @@ describe('createWorkmuxCollector', () => {
     expect(result.events[0]?.payload).toMatchObject({ branch: '2-core', worktreePath: null })
   })
 
-  it('rides the disabled ladder, not a table-parse fallback, when status --json is unparseable (e.g. an older workmux)', async () => {
+  // --- #587: JSON first, text as the safety net, and an honest voice for each failure ---
+
+  it('reads the text table and stays alive when status --json is not JSON at all (e.g. an older workmux) (#587)', async () => {
+    const collector = createWorkmuxCollector()
+    const table = 'WORKTREE             STATUS   ELAPSED  TITLE\nfeat-foo             working  1m       fixing bug\n'
+    const context = makeContext(
+      fakeExec({
+        // The pre-#587 shape: `--json` is unsupported, so workmux prints its
+        // table on stdout regardless of the flag.
+        status: [ok(table)],
+        statusText: [ok(table)],
+        list: [ok('[]')],
+        listText: [ok('BRANCH    AGE  AGENT    MUX  UNMERGED  PATH\nfeat-foo  1m   working  ✓    ●         ../feat-foo\n')],
+      }),
+    )
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    expect(result.nextSnapshot.disabled).toBe(false)
+    expect(result.events.some((event) => event.type === 'collector.disabled')).toBe(false)
+    expect(result.events.find((event) => event.type === 'agent.status')?.payload).toEqual({
+      handle: 'feat-foo',
+      status: 'working',
+      // The text table carries no `branch` column at all — null is the honest
+      // answer, not the handle wearing a branch's name.
+      branch: null,
+      worktreePath: '../feat-foo',
+      elapsedSeconds: 60,
+      detail: 'fixing bug',
+    })
+    const voiced = result.events.find((event) => event.type === 'collector.error')
+    expect(voiced?.payload).toMatchObject({
+      collector: 'workmux',
+      message: expect.stringContaining('no JSON at all'),
+    })
+    // Condition 1 must not borrow condition 2's diagnosis: nothing here says a
+    // field is missing, because no field was ever read.
+    expect((voiced?.payload as { message: string }).message).not.toContain('required field')
+  })
+
+  it('disables only when the text table fails too, and says so in one message (#587)', async () => {
     const collector = createWorkmuxCollector()
     const context = makeContext(
       fakeExec({
-        status: [ok('WORKTREE             STATUS   ELAPSED  TITLE\nfeat-foo             working  1m       fixing bug\n')],
+        status: [ok('workmux: unknown flag --json\n')],
+        statusText: [ok('workmux: command not found\n')],
         list: [ok('[]')],
       }),
     )
 
     const result = await collector.poll(collector.initialSnapshot(), context)
 
-    expect(result.events).toEqual([
-      expect.objectContaining({
-        type: 'collector.disabled',
-        payload: expect.objectContaining({ collector: 'workmux' }),
-      }),
-    ])
     expect(result.nextSnapshot.disabled).toBe(true)
+    expect(result.events).toHaveLength(1)
+    const reason = (result.events[0]?.payload as { reason: string }).reason
+    expect(result.events[0]?.type).toBe('collector.disabled')
+    // Both halves of the truth, so neither can be mistaken for the whole.
+    expect(reason).toContain('no JSON at all')
+    expect(reason).toContain('text table could not be read either')
+  })
+
+  it("reads a 0.1.231-shaped status --json (valid JSON, no `workdir`) through the text fallback and stays alive (#587)", async () => {
+    const collector = createWorkmuxCollector()
+    // The exact 2026-08-15 incident: workmux 0.1.231 emits every other field
+    // and simply has no `workdir`. This parses as JSON perfectly — the shape
+    // check is what rejects it — and for 477 polls the collector called that
+    // "did not return parseable JSON" and sat disabled.
+    const v231Status = JSON.stringify(
+      [
+        { worktree: '2-core', branch: '2-core', status: 'working', elapsed_secs: 720, title: '⠐ Implement core event schema and reducer', pane_id: '%10' },
+        { worktree: '3-git-collector', branch: '3-git-collector', status: 'waiting', elapsed_secs: 360, title: '⠂ Needs input: which diff format for renames?', pane_id: '%11' },
+      ],
+    )
+    const context = makeContext(
+      fakeExec({
+        status: [ok(v231Status)],
+        statusText: [ok(fixture('status-mixed.txt'))],
+        list: [ok('[]')],
+        listText: [ok(fixture('list-working.txt'))],
+      }),
+    )
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    // The whole point of #587: alive, with a roster, not disabled.
+    expect(result.nextSnapshot.disabled).toBe(false)
+    expect(result.events.some((event) => event.type === 'collector.disabled')).toBe(false)
+    const statusEvents = result.events.filter((event) => event.type === 'agent.status')
+    expect(statusEvents.map((event) => (event.payload as { handle: string; status: string }))).toEqual([
+      { handle: '2-core', status: 'working' },
+      { handle: '3-git-collector', status: 'waiting' },
+      { handle: '4-tmux-collector', status: 'done' },
+      { handle: '5-workmux-collector', status: 'working' },
+    ].map((expected) => expect.objectContaining(expected)))
+    expect(Object.keys(result.nextSnapshot.agents)).toEqual([
+      '2-core',
+      '3-git-collector',
+      '4-tmux-collector',
+      '5-workmux-collector',
+    ])
+    // `(here)` is workmux's "the worktree this ran in" sentinel — nulled, not guessed.
+    expect(
+      statusEvents.find((event) => (event.payload as { handle: string }).handle === '5-workmux-collector')?.payload,
+    ).toMatchObject({ worktreePath: null })
+    expect(statusEvents[0]?.payload).toMatchObject({ worktreePath: '../2-core' })
+  })
+
+  it('names the missing field and blames the version, rather than reporting a parse failure (#587)', async () => {
+    const collector = createWorkmuxCollector()
+    const v231Status = JSON.stringify([
+      { worktree: '2-core', branch: '2-core', status: 'working', elapsed_secs: 720, title: 'x' },
+    ])
+    const context = makeContext(
+      fakeExec({ status: [ok(v231Status)], statusText: [ok(fixture('status-working.txt'))], list: [ok('[]')] }),
+    )
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    const voiced = result.events.find((event) => event.type === 'collector.error')
+    const message = (voiced?.payload as { message: string }).message
+    // Names the field — the sentence the incident needed and did not get.
+    expect(message).toContain('`workdir`')
+    expect(message).toContain('too old')
+    expect(message).toContain('0.1.236')
+    // And is not the sentence that misdiagnosed it.
+    expect(message).not.toContain('parseable JSON')
+    expect(message).not.toContain('no JSON at all')
+    expect(message).toContain("Read `workmux status`'s text table")
+  })
+
+  it('says the text fallback failed too, rather than only naming the missing field (#587)', async () => {
+    const collector = createWorkmuxCollector()
+    const v231Status = JSON.stringify([
+      { worktree: '2-core', branch: '2-core', status: 'working', elapsed_secs: 720, title: 'x' },
+    ])
+    // No `statusText` queued — the bare `workmux status` returns nothing usable.
+    const context = makeContext(fakeExec({ status: [ok(v231Status)], list: [ok('[]')] }))
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    const message = (result.events.find((e) => e.type === 'collector.error')?.payload as { message: string }).message
+    expect(message).toContain('`workdir`')
+    expect(message).toContain('could not be read either')
+    // Still not a collector-wide disable: the JSON path's own quarantine
+    // (#456) governs here, and the roster carries forward.
+    expect(result.nextSnapshot.disabled).toBe(false)
+  })
+
+  it('voices the missing-field diagnosis once per incident, not once per poll, and re-arms after recovery (#587)', async () => {
+    const collector = createWorkmuxCollector()
+    // 0.1.231's shape, poll after poll — the actual incident ran 477 of these.
+    const v231 = JSON.stringify([
+      { worktree: '2-core', branch: '2-core', status: 'working', elapsed_secs: 720, title: 'x' },
+    ])
+    const healthy = JSON.stringify([
+      { worktree: '2-core', branch: '2-core', status: 'working', elapsed_secs: 720, title: 'x', workdir: '/repo/2-core' },
+    ])
+    const table = 'WORKTREE  STATUS   ELAPSED  TITLE\n2-core    working  12m      x\n'
+    const context = makeContext(
+      fakeExec({
+        status: [ok(v231), ok(v231), ok(healthy), ok(v231)],
+        statusText: [ok(table), ok(table), ok(table)],
+        list: [ok('[]'), ok('[]'), ok('[]'), ok('[]')],
+        listText: [ok(''), ok(''), ok('')],
+      }),
+    )
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    expect(first.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+
+    const second = await collector.poll(first.nextSnapshot, context)
+    expect(second.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
+    // Silent, but still alive and still reporting the lane.
+    expect(second.nextSnapshot.disabled).toBe(false)
+    expect(second.nextSnapshot.agents['2-core']).toBeDefined()
+
+    // workmux upgraded — the latch clears silently.
+    const third = await collector.poll(second.nextSnapshot, context)
+    expect(third.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
+
+    // Downgraded again: a new incident, so it speaks again.
+    const fourth = await collector.poll(third.nextSnapshot, context)
+    expect(fourth.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+  })
+
+  it('voices the not-JSON fallback once per incident, not once per poll, and re-arms after recovery (#587)', async () => {
+    const collector = createWorkmuxCollector()
+    const table = fixture('status-working.txt')
+    const goodJson = fixture('status-working.json')
+    const context = makeContext(
+      fakeExec({
+        status: [ok(table), ok(table), ok(goodJson), ok(table)],
+        statusText: [ok(table), ok(table), ok(table)],
+        list: [ok('[]'), ok('[]'), ok(fixture('list-working.json')), ok('[]')],
+        listText: [ok(fixture('list-working.txt')), ok(fixture('list-working.txt')), ok(fixture('list-working.txt'))],
+      }),
+    )
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    expect(first.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+
+    // 477 polls of this is the incident. One voice, then silence.
+    const second = await collector.poll(first.nextSnapshot, context)
+    expect(second.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
+
+    // Binary upgraded mid-session — the latch must clear, silently.
+    const third = await collector.poll(second.nextSnapshot, context)
+    expect(third.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
+    expect(third.nextSnapshot.textFallbackVoiced).toBe(false)
+
+    // Downgraded again: a genuinely new incident, so it must speak again.
+    const fourth = await collector.poll(third.nextSnapshot, context)
+    expect(fourth.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+  })
+
+  it('never consults the text table while `status --json` is healthy — JSON stays the contract (#587)', async () => {
+    const collector = createWorkmuxCollector()
+    const argvs: string[][] = []
+    const inner = fakeExec({
+      status: [ok(fixture('status-working.json'))],
+      list: [ok(fixture('list-working.json'))],
+    })
+    const exec: Exec = async (command, args, options) => {
+      argvs.push([command, ...args])
+      return inner(command, args, options)
+    }
+
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(exec))
+
+    expect(result.events).toHaveLength(6)
+    expect(argvs).toEqual([
+      ['workmux', 'status', '--json'],
+      ['workmux', 'list', '--json'],
+    ])
+  })
+
+  it('an empty `[]` roster is a real answer, not a reason to reach for the text table (#587)', async () => {
+    const collector = createWorkmuxCollector()
+    const argvs: string[][] = []
+    const inner = fakeExec({
+      status: [ok('[]')],
+      list: [ok('[]')],
+      // Queued deliberately: if the collector wrongly treated "no agents" as
+      // drift, it would find six lanes here and invent a whole roster.
+      statusText: [ok(fixture('status-working.txt'))],
+    })
+    const exec: Exec = async (command, args, options) => {
+      argvs.push([command, ...args])
+      return inner(command, args, options)
+    }
+
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(exec))
+
+    expect(result.events).toEqual([])
+    expect(result.nextSnapshot.agents).toEqual({})
+    expect(argvs.some((argv) => argv.length === 2)).toBe(false)
   })
 
   it('joins on absolute path, not the branch, so a slashed branch still resolves', async () => {
@@ -798,7 +1052,13 @@ describe('createWorkmuxCollector', () => {
     expect(second.events).toEqual([
       expect.objectContaining({
         type: 'collector.error',
-        payload: expect.objectContaining({ message: 'skipped 2 malformed status rows' }),
+        // Every row failing the same shape check is #587's version-drift
+        // condition, not "some rows were bad": the voice names the field and
+        // the remedy. Still one event, still latched per identity (#506).
+        payload: expect.objectContaining({
+          message: expect.stringContaining('`worktree`'),
+          detail: expect.stringContaining('missing required worktree/status/workdir'),
+        }),
       }),
     ])
     expect(second.events.some((event) => event.type === 'agent.removed')).toBe(false)

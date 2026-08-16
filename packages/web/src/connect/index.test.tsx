@@ -2,14 +2,16 @@ import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ModeProvider } from '../app/ModeContext.js'
 import { StreamProvider } from '../app/StreamContext.js'
+import type { InstrumentFetchLike } from '../concierge/instrument.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
+import { CAPABILITY_META_NAME } from '../recordings/capability.js'
 import type { FetchLike as ReplayFetchLike } from '../replay/api.js'
 import { ConnectPage, type ConnectPageProps, DEFAULT_REFRESH_MS, STATE_GLYPH, STATE_WORD } from './index.js'
-import { DOCTOR_URL, META_URL, type FetchLike } from './meta.js'
+import { DOCTOR_URL, META_URL, REPOS_URL, type FetchLike } from './meta.js'
 
 /**
  * THE HANDSHAKE CHECKLIST, AS A PAGE.
@@ -22,6 +24,14 @@ import { DOCTOR_URL, META_URL, type FetchLike } from './meta.js'
  */
 
 afterEach(cleanup)
+
+/** Stands in for what `server/static.ts` stamps into `index.html` on a real boot (ADR-0012) — the instrument path refuses before the wire without it. */
+beforeAll(() => {
+  const meta = document.createElement('meta')
+  meta.setAttribute('name', CAPABILITY_META_NAME)
+  meta.setAttribute('content', 'test-capability-token')
+  document.head.appendChild(meta)
+})
 
 let f = createEventFactory()
 beforeEach(() => {
@@ -81,10 +91,41 @@ const DOCTOR_BODY = [
   { id: 'cli-version-drift', status: 'warn', message: 'claude 2.1.300 does not match the pinned trace fixture version 2.1.220' },
 ]
 
-function stubFetch(meta: unknown = META_BODY, doctor: unknown = DOCTOR_BODY): FetchLike {
+/** The third GET's own prefix (#516), spelled here rather than imported: this file is the law that pins it. */
+const PREVIEW_PREFIX = '/api/session-preview/'
+
+/**
+ * The wizard's own read (#266), answered here so the page's fetch seam stays
+ * ONE seam: `stubFetch` throws on anything it does not recognise, and a wizard
+ * mounted above the rows would otherwise make every test in this file exercise
+ * that throw. The body is the route's real shape, deliberately minimal — this
+ * file is the checklist's law, and `wizard.test.tsx` is where the repo step's
+ * own behaviour is pinned.
+ */
+const REPOS_BODY = {
+  available: true,
+  known: { available: true, projects: [{ slug: '-home-x-repo', path: '/home/x/repo', resolved: true }] },
+  scanned: { repos: [], truncated: false, unreadable: [] },
+}
+
+function stubFetch(meta: unknown = META_BODY, doctor: unknown = DOCTOR_BODY, previews: 'answer' | 'refuse' = 'answer'): FetchLike {
   return async (input) => {
     if (input === META_URL) return { ok: meta !== null, json: async () => meta }
     if (input === DOCTOR_URL) return { ok: doctor !== null, json: async () => doctor }
+    if (input === REPOS_URL) return { ok: true, json: async () => REPOS_BODY }
+    if (input.startsWith(PREVIEW_PREFIX)) {
+      if (previews === 'refuse') return { ok: false, json: async () => ({ error: 'no preview for you' }) }
+      const sessionId = decodeURIComponent(input.slice(PREVIEW_PREFIX.length))
+      return {
+        ok: true,
+        json: async () => ({
+          available: true,
+          sessionId,
+          place: { worktreePath: '/home/x/repo', branch: 'main' },
+          firstUserMessage: { text: `the first words of ${sessionId}`, dropped: 0 },
+        }),
+      }
+    }
     throw new Error(`unexpected fetch: ${input}`)
   }
 }
@@ -136,6 +177,18 @@ const LEGAL_STATE_READINGS = Object.keys(STATE_WORD).map(
 )
 
 describe('the connect page', () => {
+  afterEach(() => {
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('renders the persistent nav (#549, prd-32 ruling 10)', async () => {
+    window.history.replaceState(null, '', '/connect')
+    await renderConnect()
+
+    expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    expect(screen.getByTestId('nav-connect').getAttribute('aria-current')).toBe('page')
+  })
+
   it('renders one row per link in the chain, each in exactly one of the three states', async () => {
     await renderConnect()
 
@@ -303,6 +356,252 @@ describe('the page\'s only action', () => {
 
     expect(screen.getByRole('status').textContent).toContain('clipboard unavailable')
     expect(screen.getByTestId('connect-command-otel').textContent).toBe('rhizomorph env <lane> --port 4317')
+  })
+})
+
+/**
+ * THE ENUMERATION UNDER THE ROW (prd-20 w7, #520).
+ *
+ * The row itself is untouched — it still says the whole finding in one BROKEN
+ * line. This is what an operator does with it: pick their session out of the
+ * ones named, read enough of it to be sure it is theirs, and take one of the
+ * two paths. **Both paths, always**: prd-20 ruling 3 forbids this page from
+ * claiming to attach to a running process, so the copyable command stays
+ * visible even where the button exists.
+ */
+describe('the uninstrumented sessions, enumerated (#520)', () => {
+  /** Two ripe sessions and one still inside the grace window — the third must not be offered. */
+  async function withSessions(props: Partial<ConnectPageProps> = {}) {
+    const { source } = await renderConnect(props)
+    await act(async () => {
+      source.emit(
+        f.toolActivity({ lane: 'conductor', role: 'conductor', sessionId: 'sess-gabe', tool: 'Bash' }, { ts: NOW - 10 * 60_000, source: 'sessionlog' }),
+      )
+      source.emit(
+        f.toolActivity({ lane: 'lane-b', role: 'worker', sessionId: 'sess-lane-b', tool: 'Bash' }, { ts: NOW - 5 * 60_000, source: 'sessionlog' }),
+      )
+      source.emit(
+        f.toolActivity({ lane: 'lane-c', role: 'worker', sessionId: 'sess-fresh', tool: 'Bash' }, { ts: NOW - 1_000, source: 'sessionlog' }),
+      )
+    })
+    return source
+  }
+
+  function optionLabels(): string[] {
+    const select = screen.getByTestId('connect-uninstrumented-select') as HTMLSelectElement
+    return [...select.options].map((option) => option.textContent ?? '')
+  }
+
+  it('offers one option per RIPE witness, labelled by lane, role, age and its own first words', async () => {
+    await withSessions()
+
+    await waitFor(() => expect(optionLabels()[0]).toContain('first words'))
+    expect(optionLabels()).toEqual([
+      'conductor · conductor · 10m00s ago · "the first words of sess-gabe"',
+      'lane-b · worker · 5m00s ago · "the first words of sess-lane-b"',
+    ])
+    // The session inside the grace window is not on offer: it may be an
+    // instrumented agent whose first export is still in flight, and this page
+    // does not sound an alarm about waiting.
+    expect(optionLabels().join(' ')).not.toContain('lane-c')
+  })
+
+  it('drives the whole detail panel from the selection, and nothing else', async () => {
+    await withSessions()
+
+    expect(screen.getByTestId('connect-uninstrumented-detail')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('connect-preview-sess-gabe').textContent).toContain('sess-gabe'))
+    expect(screen.getByTestId('connect-command-resume-sess-gabe').textContent).toBe(
+      'eval "$(rhizomorph env conductor --role conductor --port 4317)" && claude --resume sess-gabe',
+    )
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('connect-uninstrumented-select'), { target: { value: 'sess-lane-b' } })
+    })
+
+    expect(screen.queryByTestId('connect-preview-sess-gabe')).not.toBeInTheDocument()
+    expect(screen.getByTestId('connect-preview-sess-lane-b').textContent).toContain('sess-lane-b')
+    expect(screen.getByTestId('connect-command-resume-sess-lane-b').textContent).toBe(
+      'eval "$(rhizomorph env lane-b --role worker --port 4317)" && claude --resume sess-lane-b',
+    )
+    expect(screen.getByTestId('connect-instrument-sess-lane-b')).toBeInTheDocument()
+  })
+
+  /**
+   * **A PREVIEW IS A CONVENIENCE; THE ENUMERATION IS THE FACT.** The route can
+   * be down, the transcript can be gone, the id can be one this server never
+   * attributed — and none of that says anything about whether these sessions
+   * are uninstrumented. So a failed preview costs a label and nothing else:
+   * the options, the commands and the button are all still there.
+   */
+  it('degrades to a no-preview label when the preview route answers nothing usable', async () => {
+    await withSessions({ fetchImpl: stubFetch(META_BODY, DOCTOR_BODY, 'refuse') })
+
+    await waitFor(() => expect(optionLabels()[0]).toContain('no preview'))
+    expect(optionLabels()).toEqual(['conductor · conductor · 10m00s ago · no preview', 'lane-b · worker · 5m00s ago · no preview'])
+    expect(screen.getByTestId('connect-preview-sess-gabe').textContent).toContain('unavailable')
+    expect(screen.getByTestId('connect-command-resume-sess-gabe').textContent).toContain('claude --resume sess-gabe')
+    expect(screen.getByTestId('connect-instrument-sess-gabe-start')).toBeInTheDocument()
+  })
+
+  /** A capped preview says it was capped — the route's `dropped` count, not a silent truncation the reader takes for the whole message. */
+  it('says how much of a first message the route cut, rather than passing a capped one off as whole', async () => {
+    const capped: FetchLike = async (input) => {
+      if (input === META_URL) return { ok: true, json: async () => META_BODY }
+      if (input === DOCTOR_URL) return { ok: true, json: async () => DOCTOR_BODY }
+      return {
+        ok: true,
+        json: async () => ({
+          available: true,
+          sessionId: decodeURIComponent(input.slice(PREVIEW_PREFIX.length)),
+          place: { worktreePath: '/home/x/repo', branch: 'main' },
+          firstUserMessage: { text: 'dispatch wave 4 across the three ready issues', dropped: 96 },
+        }),
+      }
+    }
+    await withSessions({ fetchImpl: capped })
+
+    await waitFor(() => expect(screen.getByTestId('connect-preview-sess-gabe').textContent).toContain('+96 more characters'))
+  })
+
+  /** The SCAR rides beside the resume command exactly as it rides beside the row's own, verbatim. */
+  it('copies the exact resume command it shows, with the same-process warning beside it', async () => {
+    const copied: string[] = []
+    await withSessions({ onCopy: async (text) => void copied.push(text) })
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('connect-copy-resume-sess-gabe'))
+    })
+
+    expect(copied).toEqual(['eval "$(rhizomorph env conductor --role conductor --port 4317)" && claude --resume sess-gabe'])
+    expect(screen.getByTestId('connect-warning-resume-sess-gabe').textContent).toBe(
+      'the env block must be exported in the process that execs the agent',
+    )
+  })
+
+  async function instrument(answer: InstrumentFetchLike) {
+    await withSessions({ instrumentFetchImpl: answer })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('connect-instrument-sess-gabe-start'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('connect-instrument-sess-gabe-confirm'))
+    })
+  }
+
+  /**
+   * The spike's own finding (`research/2026-08-14-cross-host-resume.md`): a
+   * resume PRESERVES the session id, so telemetry books under the SAME session
+   * and this row clears itself as evidence arrives. Nobody should be waiting
+   * for a new row to appear — and the old process is still running, which the
+   * page says in the same breath.
+   */
+  it('says what a successful relaunch actually did — same session, and this row clears itself', async () => {
+    await instrument(async () => ({ ok: true, status: 200, json: async () => ({ migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'launched', pid: 4242 }) }))
+
+    const status = screen.getByTestId('connect-instrument-status-sess-gabe').textContent ?? ''
+    expect(status).toContain('telemetry now flows under this same session')
+    expect(status).toContain('clears itself as evidence arrives')
+    expect(status).toContain('the old process keeps running until you end it')
+  })
+
+  /**
+   * **THE GAP THAT LET #532's CORPSE READ AS A WIN** (ledger #1 + #12). The
+   * parser assigns `kind: 'instrumented'` to the server's `'died'` and
+   * `'error'` answers as well — it has to, because the migration copy may
+   * already have run — so a status line that branches on the kind alone tells
+   * an operator telemetry is flowing out of a process that exited a second
+   * after it started. No test here ever rendered a died spawn, which is why
+   * that shipped green; this is that test, and it asserts the ABSENCE of the
+   * success sentence rather than only the presence of a new one, because a
+   * line that says both would still be a lie.
+   */
+  it('does not claim telemetry flows when the spawn died a moment after it started', async () => {
+    await instrument(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        migration: { kind: 'migrated', at: '/home/u/.claude/projects/-repo/s.jsonl' },
+        kind: 'died',
+        message: 'the process exited 40ms after it started — an interactive harness with no terminal attached',
+      }),
+    }))
+
+    const status = screen.getByTestId('connect-instrument-status-sess-gabe').textContent ?? ''
+    expect(status).not.toContain('telemetry now flows')
+    expect(status).not.toContain('clears itself as evidence arrives')
+    expect(status).toContain('nothing is running')
+    expect(status).toContain('the process exited 40ms after it started')
+    expect(status).toContain('the command below is the way in')
+    // The success colour is half the message to anyone who scans before they
+    // read, so it carries the same branch the sentence does.
+    expect(screen.getByTestId('connect-instrument-status-sess-gabe').className).not.toContain('text-notice')
+    // …and the command block it points at is the one that was there all along.
+    expect(screen.getByTestId('connect-command-resume-sess-gabe').textContent).toBe(
+      'eval "$(rhizomorph env conductor --role conductor --port 4317)" && claude --resume sess-gabe',
+    )
+  })
+
+  /** The sibling of the same shape: a spawn that never happened at all reads the same way, off the same field. */
+  it('does not claim telemetry flows when the spawn errored and no process was ever made', async () => {
+    await instrument(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ migration: { kind: 'already-present', at: '/home/u/.claude/projects/-repo/s.jsonl' }, kind: 'error', message: 'spawn claude ENOENT' }),
+    }))
+
+    const status = screen.getByTestId('connect-instrument-status-sess-gabe').textContent ?? ''
+    expect(status).not.toContain('telemetry now flows')
+    expect(status).toContain('nothing is running')
+    expect(status).toContain('spawn claude ENOENT')
+  })
+
+  /**
+   * THE OUTCOME THAT IS A VALUE, NOT AN ERROR (#518's typed
+   * `'no-transcript-reachable'`). The instrument cannot see a transcript for
+   * this session — an ordinary case for a conversation that happened somewhere
+   * it was never told about — so the page names the gap in the instrument's
+   * own words and points at the path that needs nothing from it.
+   */
+  it('names the gap, and points at the command, when no transcript is reachable', async () => {
+    await instrument(async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: 'NO TRANSCRIPT for session "sess-gabe" — the file is not on disk where the collector tails it' }),
+    }))
+
+    const status = screen.getByTestId('connect-instrument-status-sess-gabe').textContent ?? ''
+    expect(status).toContain('nothing was started, and nothing was copied')
+    expect(status).toContain('the file is not on disk where the collector tails it')
+    expect(status).toContain('The command below')
+    // …and the command below is exactly the one that was there before the
+    // button was ever clicked: the no-trust path never depended on the act.
+    expect(screen.getByTestId('connect-command-resume-sess-gabe').textContent).toBe(
+      'eval "$(rhizomorph env conductor --role conductor --port 4317)" && claude --resume sess-gabe',
+    )
+  })
+
+  /**
+   * **A FIXTURE SHOWS THE SURFACE AND WITHHOLDS THE ACT** (ruling 6, and
+   * `links.ts`'s own fixture law). The sample fleet's sessions are rendered so
+   * a stranger can see what the enumeration is; they carry no button, because
+   * that would be a real relaunch request for a session that does not exist,
+   * and no copy block, because a synthetic command is an instruction to do
+   * something pointless.
+   */
+  it('renders the sample fleet\'s own sessions, and hands out no act for them', async () => {
+    await renderConnect()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('connect-sample-activate'))
+    })
+
+    expect(optionLabels().length).toBeGreaterThan(0)
+    expect(optionLabels()[0]).toContain('conductor · conductor')
+    expect(screen.getByTestId('connect-uninstrumented-fixture').textContent).toContain('part of the sample fleet')
+    expect(screen.queryByText(/instrument this session/)).not.toBeInTheDocument()
+    expect(document.querySelectorAll('[data-testid^="connect-copy-resume-"]')).toHaveLength(0)
+    expect(document.body.textContent).not.toContain('claude --resume')
   })
 })
 
@@ -486,15 +785,61 @@ describe('ruling 7 — this page mutates nothing', () => {
       .map((name) => ({ name, text: readFileSync(path.join(CONNECT_DIR, name), 'utf8') }))
   }
 
+  /**
+   * AMENDED for #266: **five names, not four.** The list is an anti-drift
+   * device rather than a size limit — its claim is that every source file in
+   * this directory is one a reviewer has looked at and found to mutate nothing
+   * — and `wizard.tsx` is exactly that: it names no verb, builds no request
+   * init, reaches for no execution channel, and its two acts go out through
+   * `concierge/clone.ts` and `concierge/instrument.ts`, the app's fifth and
+   * fourth mutating calls, each behind its own module doc and its own law.
+   * That is the same arrangement `index.tsx` already had with
+   * `InstrumentButton` and is why the checks below did not need loosening for
+   * it — only this one line did.
+   *
+   * The alternative was a fifth section of an already 900-line `index.tsx`,
+   * which would have kept the number four and lost the thing the number is for.
+   */
   it('walks a directory that actually has sources in it', () => {
-    expect(sourceFiles().map((file) => file.name).sort()).toEqual(['index.tsx', 'links.ts', 'meta.ts', 'sample.tsx'])
+    expect(sourceFiles().map((file) => file.name).sort()).toEqual([
+      'index.tsx',
+      'links.ts',
+      'meta.ts',
+      'sample.tsx',
+      'wizard.tsx',
+    ])
   })
 
-  it('reaches for no request path but the two GETs ruling 5 names', () => {
+  /**
+   * AMENDED for #520: a third GET, of doctor's own class — the page still
+   * mutates nothing; its one button's mutation lives outside this directory
+   * behind its own law, the RotateButton pattern.
+   *
+   * AMENDED for #266: a FOURTH GET, of the same class —
+   * `/api/concierge/repos`, the read-only half of the fourth hand (no body, no
+   * token, no write, and the route itself declines to run at all on a replay
+   * server). The wizard's repo step reads it; the two POSTs the wizard drives
+   * are outside this directory, in `concierge/`, so the no-mutating-verb clause
+   * below is untouched.
+   *
+   * `/api/session-preview/` carries its trailing slash because that is what
+   * the sweep actually matches: the path is only ever written as a template
+   * (`` `/api/session-preview/${encodeURIComponent(sessionId)}` ``), and the
+   * character class stops at the `$`. Pinning the exact matched text is the
+   * point of the law — an allowlist entry that did not match what the regex
+   * finds would vacuously allow everything it was written to constrain.
+   */
+  it('reaches for no request path but the GETs ruling 5 names', () => {
     const paths = sourceFiles().flatMap((file) => [...file.text.matchAll(/\/api\/[a-z/-]+/gi)].map((match) => match[0]))
 
     expect(paths.length).toBeGreaterThan(0)
-    for (const found of paths) expect(['/api/meta', '/api/doctor']).toContain(found)
+    for (const found of paths) {
+      expect(['/api/meta', '/api/doctor', '/api/session-preview/', '/api/concierge/repos']).toContain(found)
+    }
+    // The last two are genuinely reached, not merely permitted: an allowlist
+    // entry nothing matches is an entry that proves nothing.
+    expect(paths).toContain('/api/session-preview/')
+    expect(paths).toContain('/api/concierge/repos')
   })
 
   it('names no mutating verb and builds no request init', () => {

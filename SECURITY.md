@@ -113,9 +113,16 @@ exactly as the browser does. A value handed to a page over unauthenticated
 loopback HTTP cannot be hidden from something that can already reach that
 page.
 
-This server answers **six** mutating routes in total, not three — the other
-three are the OTLP telemetry inbox (`POST /v1/metrics`, `/v1/logs`,
-`/v1/traces`), and they are **deliberately ungated**, not an oversight
+This server answers **nine** mutating routes in total, not three. Two more
+are gated exactly as the three above are: the concierge's granted powers,
+`POST /api/concierge/clone` and `POST /api/concierge/launch` (prd-20
+ruling 1 / `docs/adr/0019-the-fourth-hand.md`) — for the fourth hand the
+gate *is* the grant, so neither may ever be reached from a collector or a
+poll. The remaining four are the OTLP telemetry inbox (`POST /v1/metrics`,
+`/v1/logs`, `/v1/traces`, and the bare-path fallback `POST /` that
+`docs/adr/0018-bare-path-body-shape-routing.md` adds for an exporter which
+never appends `/v1/<signal>`), and they are **deliberately ungated**, not an
+oversight
 (prd-23 ruling 6). Threading a per-process capability token into every
 lane's environment block would fail worse than not gating it at all: the
 token dies with the server on every restart while a lane's env block does
@@ -125,7 +132,7 @@ token, the inbox checks the resource attributes every accepted export must
 carry (the session id of the Rhizomorph instance it targets,
 `packages/server/src/api/otel.ts`) and refuses — recording a throttled
 `telemetry.refused` event, not merely dropping the request — anything
-declaring a different instance or none at all. All six mutating routes, and
+declaring a different instance or none at all. All nine mutating routes, and
 which of these two classes each falls into, are declared in one place —
 `packages/server/src/api/index.ts`'s `ROUTE_CLASSES` — walked by a test that
 fails the build if a new mutating route lands in neither class (prd-23

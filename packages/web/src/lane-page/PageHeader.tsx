@@ -1,3 +1,4 @@
+import { Nav } from '../app/Nav.js'
 import {
   RANK_GLOW_CLASS,
   Sigil,
@@ -26,7 +27,21 @@ import { PARKED_TEXT_CLASS, stateSigilKind, stateTitle } from '../panels/fleet/f
  * rather than reaching for the repo's own main branch, which is not a branch
  * the conductor itself runs on.
  */
-export type PageHeaderSubject = { kind: 'lane'; lane: Lane } | { kind: 'conductor' }
+/**
+ * **The third arm is the durability case (prd-31 ruling 5, #556).** A lane
+ * whose worktree is gone *and* whose events are in an earlier recording is not
+ * in `buildFleet`'s output at all — there is no `Lane` to hand this header,
+ * because the fold in front of the page never saw it. It still has an identity,
+ * and it is exactly the identity a reader deep-linked to: a handle, an issue
+ * number and a branch, out of the lane index. Fabricating a `Lane` to reuse the
+ * first arm would mean inventing a rank, an activity and a state sigil for a
+ * lane that has no live state to glyph — the same refusal `buildFleet` already
+ * makes for the conductor.
+ */
+export type PageHeaderSubject =
+  | { kind: 'lane'; lane: Lane }
+  | { kind: 'conductor' }
+  | { kind: 'run'; handle: string; issue: string | null; branch: string | null; outcome: string }
 
 export interface PageHeaderProps {
   subject: PageHeaderSubject
@@ -36,41 +51,56 @@ export interface PageHeaderProps {
 
 export function PageHeader({ subject, onClose }: PageHeaderProps) {
   return (
-    <header
-      data-testid="lane-page-header"
-      className="flex shrink-0 items-center gap-4 border-b border-ice-850 bg-ice-950 px-4 py-3"
-    >
-      <button
-        type="button"
-        data-testid="lane-page-back"
-        onClick={onClose}
-        className="shrink-0 rounded border border-ice-800 px-2 py-1 text-[10px] uppercase tracking-wider text-ice-400 transition-[color,border-color] duration-150 ease-out hover:border-ice-600 hover:text-ice-100"
+    <>
+      <Nav />
+      <header
+        data-testid="lane-page-header"
+        className="flex shrink-0 items-center gap-4 border-b border-ice-850 bg-ice-950 px-4 py-3"
       >
-        ← balcony
-      </button>
+        <button
+          type="button"
+          data-testid="lane-page-back"
+          onClick={onClose}
+          className="shrink-0 rounded border border-ice-800 px-2 py-1 text-[10px] uppercase tracking-wider text-ice-400 transition-[color,border-color] duration-150 ease-out hover:border-ice-600 hover:text-ice-100"
+        >
+          ← balcony
+        </button>
 
-      {subject.kind === 'conductor' ? <ConductorIdentity /> : <LaneIdentity lane={subject.lane} />}
+        {subject.kind === 'conductor' ? (
+          <ConductorIdentity />
+        ) : subject.kind === 'run' ? (
+          <RunIdentity handle={subject.handle} issue={subject.issue} outcome={subject.outcome} />
+        ) : (
+          <LaneIdentity lane={subject.lane} />
+        )}
 
-      <span
-        data-testid="lane-page-role"
-        className="shrink-0 text-[11px] uppercase tracking-wider text-ice-400"
-        title="declared role"
-      >
-        {subject.kind === 'conductor' ? 'conductor' : subject.lane.role}
-      </span>
+        <span
+          data-testid="lane-page-role"
+          className="shrink-0 text-[11px] uppercase tracking-wider text-ice-400"
+          title="declared role"
+        >
+          {subject.kind === 'conductor' ? 'conductor' : subject.kind === 'run' ? 'worker' : subject.lane.role}
+        </span>
 
-      <span
-        data-testid="lane-page-branch"
-        className="min-w-0 truncate font-mono text-[11px] text-ice-400"
-        title={
-          subject.kind === 'conductor'
-            ? 'no branch — the conductor runs the fleet, not a worktree of its own'
-            : (subject.lane.branch ?? 'no branch — git never saw a worktree for this lane')
-        }
-      >
-        {subject.kind === 'conductor' ? '—' : (subject.lane.branch ?? '—')}
-      </span>
-    </header>
+        <span
+          data-testid="lane-page-branch"
+          className="min-w-0 truncate font-mono text-[11px] text-ice-400"
+          title={
+            subject.kind === 'conductor'
+              ? 'no branch — the conductor runs the fleet, not a worktree of its own'
+              : subject.kind === 'run'
+                ? (subject.branch ?? 'no branch — no recording of this lane names one')
+                : (subject.lane.branch ?? 'no branch — git never saw a worktree for this lane')
+          }
+        >
+          {subject.kind === 'conductor'
+            ? '—'
+            : subject.kind === 'run'
+              ? (subject.branch ?? '—')
+              : (subject.lane.branch ?? '—')}
+        </span>
+      </header>
+    </>
   )
 }
 
@@ -103,6 +133,24 @@ function LaneIdentity({ lane }: { lane: Lane }) {
         </span>
       </span>
     </>
+  )
+}
+
+/**
+ * A lane read out of the index rather than out of the fold. No sigil, for the
+ * conductor's own reason: it carries no live state, so drawing a state glyph
+ * would be reporting a rank nothing measured. The outcome word carries the
+ * reading instead, and `RunOutcomeRegion` below it carries the evidence.
+ */
+function RunIdentity({ handle, issue, outcome }: { handle: string; issue: string | null; outcome: string }) {
+  return (
+    <h1 className="min-w-0 truncate font-mono text-sm text-ice-100">
+      {handle}
+      {issue === null ? null : <span className="ml-1 text-inst text-ice-400">#{issue}</span>}
+      <span data-testid="lane-page-run-outcome" className="ml-2 text-inst uppercase tracking-wider text-ice-400">
+        {outcome}
+      </span>
+    </h1>
   )
 }
 

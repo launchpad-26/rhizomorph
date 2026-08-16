@@ -1,0 +1,7095 @@
+{
+  "hardware": {
+    "platform": "linux",
+    "cpu": "13th Gen Intel(R) Core(TM) i9-13900H",
+    "cores": 20,
+    "memGiB": 31.2,
+    "release": "6.6.87.2-microsoft-standard-WSL2"
+  },
+  "bundle": {
+    "model": {
+      "minified": 561133,
+      "gzipped": 124273
+    },
+    "canvas": {
+      "minified": 566937,
+      "gzipped": 126326
+    },
+    "webgl": {
+      "minified": 570157,
+      "gzipped": 127791
+    }
+  },
+  "seconds": 30,
+  "runs": 3,
+  "results": [
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 1.7999999970197678,
+        "min": 1.0999999940395355,
+        "max": 2.4000000059604645,
+        "mean": 1.5069999998807908
+      },
+      "streamFrameMs": 40.1754010695227,
+      "frames": 748,
+      "streamPerFrameMs": {
+        "n": 748,
+        "median": 12.599999994039536,
+        "p95": 19.299999997019768,
+        "min": 10.200000002980232,
+        "max": 50.400000005960464,
+        "mean": 13.36229946536017
+      },
+      "modelMs": {
+        "n": 748,
+        "median": 9.099999994039536,
+        "p95": 13,
+        "min": 7.200000002980232,
+        "max": 36.900000005960464,
+        "mean": 9.631283422583405
+      },
+      "submitMs": {
+        "n": 748,
+        "median": 3.5,
+        "p95": 5.299999997019768,
+        "min": 2.8999999910593033,
+        "max": 13.400000005960464,
+        "mean": 3.7241978609864725
+      },
+      "overlayMs": {
+        "n": 748,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 114.40000000596046,
+        "p95": 148.09999999403954,
+        "min": 92.90000000596046,
+        "max": 189.20000000298023,
+        "mean": 119.43714285790921
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 1.7999999970197678,
+        "min": 1.2000000029802322,
+        "max": 2.4000000059604645,
+        "mean": 1.5110000002384185
+      },
+      "streamFrameMs": 39.65290237465839,
+      "frames": 758,
+      "streamPerFrameMs": {
+        "n": 758,
+        "median": 12.699999988079071,
+        "p95": 19.400000005960464,
+        "min": 10.400000005960464,
+        "max": 51.70000000298023,
+        "mean": 13.548680738813802
+      },
+      "modelMs": {
+        "n": 758,
+        "median": 9.099999994039536,
+        "p95": 13.200000002980232,
+        "min": 7.200000002980232,
+        "max": 46.900000005960464,
+        "mean": 9.649076517052103
+      },
+      "submitMs": {
+        "n": 758,
+        "median": 3.5,
+        "p95": 5.799999997019768,
+        "min": 3,
+        "max": 19.799999997019768,
+        "mean": 3.8949868075136775
+      },
+      "overlayMs": {
+        "n": 758,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 105.29999999701977,
+        "p95": 132.29999999701977,
+        "min": 79.5,
+        "max": 174.20000000298023,
+        "mean": 108.82571428588459
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.4000000059604645,
+        "p95": 1.7000000029802322,
+        "min": 1.0999999940395355,
+        "max": 2.6000000089406967,
+        "mean": 1.4450000001490115
+      },
+      "streamFrameMs": 38.99261658030702,
+      "frames": 772,
+      "streamPerFrameMs": {
+        "n": 772,
+        "median": 12.599999994039536,
+        "p95": 19.30000001192093,
+        "min": 10.5,
+        "max": 33.70000000298023,
+        "mean": 13.269689119116938
+      },
+      "modelMs": {
+        "n": 772,
+        "median": 9.100000008940697,
+        "p95": 13.700000002980232,
+        "min": 7.399999991059303,
+        "max": 26.5,
+        "mean": 9.584844559778512
+      },
+      "submitMs": {
+        "n": 772,
+        "median": 3.4000000059604645,
+        "p95": 5,
+        "min": 2.8999999910593033,
+        "max": 13.300000011920929,
+        "mean": 3.6783678753233944
+      },
+      "overlayMs": {
+        "n": 772,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 98.70000000298023,
+        "p95": 118.59999999403954,
+        "min": 76.29999999701977,
+        "max": 142.5,
+        "mean": 101.32285714490074
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 2.2000000029802322,
+        "p95": 2.7000000029802322,
+        "min": 1.7999999970197678,
+        "max": 2.9000000059604645,
+        "mean": 2.2510000002384185
+      },
+      "streamFrameMs": 14.975499001991546,
+      "frames": 2004,
+      "streamPerFrameMs": {
+        "n": 2004,
+        "median": 12,
+        "p95": 15.700000002980232,
+        "min": 10.200000002980232,
+        "max": 39.900000005960464,
+        "mean": 12.43607784445563
+      },
+      "modelMs": {
+        "n": 2004,
+        "median": 8.800000011920929,
+        "p95": 11.299999997019768,
+        "min": 7.0999999940395355,
+        "max": 34.6000000089407,
+        "mean": 9.132534930173925
+      },
+      "submitMs": {
+        "n": 2004,
+        "median": 2.7000000029802322,
+        "p95": 3.7999999970197678,
+        "min": 2.2999999970197678,
+        "max": 13.5,
+        "mean": 2.880339321351337
+      },
+      "overlayMs": {
+        "n": 2004,
+        "median": 0.4000000059604645,
+        "p95": 0.5999999940395355,
+        "min": 0.19999998807907104,
+        "max": 3.8999999910593033,
+        "mean": 0.41761477062564173
+      },
+      "gpuMs": {
+        "n": 2004,
+        "median": 4.373504,
+        "p95": 4.867072,
+        "min": 0.94208,
+        "max": 112.04608,
+        "mean": 4.529015473053872
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 11.900000005960464,
+        "p95": 13.200000002980232,
+        "min": 10.700000002980232,
+        "max": 22.899999991059303,
+        "mean": 12.348571427805084
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 2.1000000089406967,
+        "p95": 2.5999999940395355,
+        "min": 1.7999999970197678,
+        "max": 2.8999999910593033,
+        "mean": 2.1569999995827676
+      },
+      "streamFrameMs": 15.045263157900711,
+      "frames": 1995,
+      "streamPerFrameMs": {
+        "n": 1995,
+        "median": 12.100000008940697,
+        "p95": 16.19999998807907,
+        "min": 10.199999988079071,
+        "max": 31.5,
+        "mean": 12.528220551362013
+      },
+      "modelMs": {
+        "n": 1995,
+        "median": 8.900000005960464,
+        "p95": 11.099999994039536,
+        "min": 7.399999991059303,
+        "max": 24.900000005960464,
+        "mean": 9.087719298253083
+      },
+      "submitMs": {
+        "n": 1995,
+        "median": 2.7000000029802322,
+        "p95": 4,
+        "min": 2.2999999970197678,
+        "max": 18.799999997019768,
+        "mean": 3.0116791978963935
+      },
+      "overlayMs": {
+        "n": 1995,
+        "median": 0.4000000059604645,
+        "p95": 0.5999999940395355,
+        "min": 0.20000000298023224,
+        "max": 3.3999999910593033,
+        "mean": 0.4221553885025488
+      },
+      "gpuMs": {
+        "n": 1995,
+        "median": 4.391936,
+        "p95": 4.854784,
+        "min": 0.93696,
+        "max": 142.061568,
+        "mean": 4.56404136741854
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 12,
+        "p95": 13.5,
+        "min": 10.799999997019768,
+        "max": 20.099999994039536,
+        "mean": 12.268571427890233
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 2,
+        "p95": 2.6000000089406967,
+        "min": 1.7000000029802322,
+        "max": 3.0999999940395355,
+        "mean": 2.1090000003576277
+      },
+      "streamFrameMs": 14.78448275862069,
+      "frames": 2030,
+      "streamPerFrameMs": {
+        "n": 2030,
+        "median": 11.900000005960464,
+        "p95": 15.200000002980232,
+        "min": 10.099999994039536,
+        "max": 39,
+        "mean": 12.334137931311952
+      },
+      "modelMs": {
+        "n": 2030,
+        "median": 8.799999997019768,
+        "p95": 10.799999997019768,
+        "min": 7.299999997019768,
+        "max": 32.29999999701977,
+        "mean": 8.965172413916424
+      },
+      "submitMs": {
+        "n": 2030,
+        "median": 2.6000000089406967,
+        "p95": 3.9000000059604645,
+        "min": 2.2999999970197678,
+        "max": 21.5,
+        "mean": 2.9495073892066044
+      },
+      "overlayMs": {
+        "n": 2030,
+        "median": 0.4000000059604645,
+        "p95": 0.5999999940395355,
+        "min": 0.19999998807907104,
+        "max": 1.7000000029802322,
+        "mean": 0.4124137932443854
+      },
+      "gpuMs": {
+        "n": 2030,
+        "median": 4.365312,
+        "p95": 4.81792,
+        "min": 0.939008,
+        "max": 140.53888,
+        "mean": 4.5335451113300484
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 12.099999994039536,
+        "p95": 13.400000005960464,
+        "min": 11,
+        "max": 21.5,
+        "mean": 12.277142856802259
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 60,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 2148,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 1327,
+        "glow": 354,
+        "path": 442,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.4000000059604645,
+        "p95": 1.7000000029802322,
+        "min": 0.8999999910593033,
+        "max": 2.3999999910593033,
+        "mean": 1.4129999999701977
+      },
+      "streamFrameMs": 62.367842323676186,
+      "frames": 482,
+      "streamPerFrameMs": {
+        "n": 482,
+        "median": 21.200000002980232,
+        "p95": 33.400000005960464,
+        "min": 18.19999998807907,
+        "max": 93.40000000596046,
+        "mean": 22.753319502185985
+      },
+      "modelMs": {
+        "n": 482,
+        "median": 15.299999997019768,
+        "p95": 26.299999997019768,
+        "min": 12.599999994039536,
+        "max": 79.90000000596046,
+        "mean": 16.502697096078723
+      },
+      "submitMs": {
+        "n": 482,
+        "median": 5.899999991059303,
+        "p95": 7.799999997019768,
+        "min": 5.199999988079071,
+        "max": 20,
+        "mean": 6.244605808491776
+      },
+      "overlayMs": {
+        "n": 482,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 138.70000000298023,
+        "p95": 166.40000000596046,
+        "min": 120,
+        "max": 226.20000000298023,
+        "mean": 142.73142857210976
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 60,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 2148,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 1327,
+        "glow": 354,
+        "path": 442,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.4000000059604645,
+        "p95": 2,
+        "min": 1,
+        "max": 2.4000000059604645,
+        "mean": 1.49399999961257
+      },
+      "streamFrameMs": 60.47735470942481,
+      "frames": 499,
+      "streamPerFrameMs": {
+        "n": 499,
+        "median": 20.299999997019768,
+        "p95": 29.400000005960464,
+        "min": 17.599999994039536,
+        "max": 43.69999998807907,
+        "mean": 21.35511022053644
+      },
+      "modelMs": {
+        "n": 499,
+        "median": 14.400000005960464,
+        "p95": 18.80000001192093,
+        "min": 12.299999997019768,
+        "max": 38,
+        "mean": 15.28196392810058
+      },
+      "submitMs": {
+        "n": 499,
+        "median": 5.700000002980232,
+        "p95": 7.100000008940697,
+        "min": 5.0999999940395355,
+        "max": 24.299999997019768,
+        "mean": 6.0663326652291305
+      },
+      "overlayMs": {
+        "n": 499,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 140.79999999701977,
+        "p95": 164,
+        "min": 109.29999999701977,
+        "max": 173,
+        "mean": 139.14857142737932
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 60,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 2148,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 1327,
+        "glow": 354,
+        "path": 442,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.3999999910593033,
+        "p95": 1.7000000029802322,
+        "min": 1,
+        "max": 2.0999999940395355,
+        "mean": 1.3979999996721744
+      },
+      "streamFrameMs": 61.55857142857751,
+      "frames": 490,
+      "streamPerFrameMs": {
+        "n": 490,
+        "median": 20.600000008940697,
+        "p95": 30.700000002980232,
+        "min": 17.599999994039536,
+        "max": 46,
+        "mean": 21.6546938771496
+      },
+      "modelMs": {
+        "n": 490,
+        "median": 14.600000008940697,
+        "p95": 20.399999991059303,
+        "min": 12.199999988079071,
+        "max": 40,
+        "mean": 15.410204081206906
+      },
+      "submitMs": {
+        "n": 490,
+        "median": 5.9000000059604645,
+        "p95": 7.5999999940395355,
+        "min": 5.0999999940395355,
+        "max": 19.400000005960464,
+        "mean": 6.23857142840113
+      },
+      "overlayMs": {
+        "n": 490,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 136.6000000089407,
+        "p95": 163.5,
+        "min": 110,
+        "max": 168.20000000298023,
+        "mean": 135.8000000008515
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 60,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 2148,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 1327,
+        "glow": 354,
+        "path": 442,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 12.800000011920929,
+        "p95": 37.900000005960464,
+        "min": 7.700000002980232,
+        "max": 1249.0999999940395,
+        "mean": 30.773999999761582
+      },
+      "streamFrameMs": 34.819257540606706,
+      "frames": 862,
+      "streamPerFrameMs": {
+        "n": 862,
+        "median": 18.099999994039536,
+        "p95": 120.29999999701977,
+        "min": 12.800000011920929,
+        "max": 360.70000000298023,
+        "mean": 30.634222737857055
+      },
+      "modelMs": {
+        "n": 862,
+        "median": 12.600000008940697,
+        "p95": 83.1000000089407,
+        "min": 8.5,
+        "max": 177.79999999701977,
+        "mean": 21.434570765723485
+      },
+      "submitMs": {
+        "n": 862,
+        "median": 4.299999997019768,
+        "p95": 30.399999991059303,
+        "min": 2.8999999910593033,
+        "max": 320.79999999701977,
+        "mean": 8.012529002455022
+      },
+      "overlayMs": {
+        "n": 862,
+        "median": 0.6000000089406967,
+        "p95": 2.4000000059604645,
+        "min": 0.29999999701976776,
+        "max": 36,
+        "mean": 1.1757540601346719
+      },
+      "gpuMs": {
+        "n": 862,
+        "median": 1.234944,
+        "p95": 12.055552,
+        "min": 1.18272,
+        "max": 699.083776,
+        "mean": 7.146161447795823
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 14.199999988079071,
+        "p95": 16.399999991059303,
+        "min": 13,
+        "max": 25.400000005960464,
+        "mean": 14.694285714626313
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 60,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 2148,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 1327,
+        "glow": 354,
+        "path": 442,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 2.2000000029802322,
+        "min": 1.2000000029802322,
+        "max": 16.799999997019768,
+        "mean": 1.8549999997019768
+      },
+      "streamFrameMs": 17.742933175633954,
+      "frames": 1691,
+      "streamPerFrameMs": {
+        "n": 1691,
+        "median": 14.599999994039536,
+        "p95": 20.399999991059303,
+        "min": 12.400000005960464,
+        "max": 39,
+        "mean": 15.18829095212931
+      },
+      "modelMs": {
+        "n": 1691,
+        "median": 10.5,
+        "p95": 13.700000002980232,
+        "min": 8.400000005960464,
+        "max": 34.599999994039536,
+        "mean": 10.929154346436526
+      },
+      "submitMs": {
+        "n": 1691,
+        "median": 3.4000000059604645,
+        "p95": 4.5999999940395355,
+        "min": 2.7000000029802322,
+        "max": 19.599999994039536,
+        "mean": 3.69414547590692
+      },
+      "overlayMs": {
+        "n": 1691,
+        "median": 0.5,
+        "p95": 0.7000000029802322,
+        "min": 0.29999999701976776,
+        "max": 11.200000002980232,
+        "mean": 0.5580721468103489
+      },
+      "gpuMs": {
+        "n": 1691,
+        "median": 5.075968,
+        "p95": 5.680128,
+        "min": 1.188864,
+        "max": 112.207872,
+        "mean": 5.121360009461869
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 14.299999997019768,
+        "p95": 16.200000002980232,
+        "min": 13.200000002980232,
+        "max": 30.200000002980232,
+        "mean": 15.171428572705814
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 60,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 2148,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 1327,
+        "glow": 354,
+        "path": 442,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 5,
+        "min": 1.199999988079071,
+        "max": 17.200000002980232,
+        "mean": 1.895
+      },
+      "streamFrameMs": 17.076209447925986,
+      "frames": 1757,
+      "streamPerFrameMs": {
+        "n": 1757,
+        "median": 14,
+        "p95": 19,
+        "min": 12.5,
+        "max": 36.20000000298023,
+        "mean": 14.59852020478106
+      },
+      "modelMs": {
+        "n": 1757,
+        "median": 10.100000008940697,
+        "p95": 12.399999991059303,
+        "min": 8.299999997019768,
+        "max": 28.200000002980232,
+        "mean": 10.521855435497935
+      },
+      "submitMs": {
+        "n": 1757,
+        "median": 3.2999999970197678,
+        "p95": 4.299999997019768,
+        "min": 2.7000000029802322,
+        "max": 17.599999994039536,
+        "mean": 3.5377347751832784
+      },
+      "overlayMs": {
+        "n": 1757,
+        "median": 0.5,
+        "p95": 0.7000000029802322,
+        "min": 0.29999999701976776,
+        "max": 8.299999997019768,
+        "mean": 0.5314741033973787
+      },
+      "gpuMs": {
+        "n": 1757,
+        "median": 5.041152,
+        "p95": 5.608448,
+        "min": 1.181696,
+        "max": 104.32512,
+        "mean": 5.133965222538388
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 13.899999991059303,
+        "p95": 15.700000002980232,
+        "min": 13.099999994039536,
+        "max": 25.200000002980232,
+        "mean": 14.399999998722757
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 1,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 352,
+      "markKinds": {
+        "motes": 4,
+        "baked": 2,
+        "ribbon": 212,
+        "glow": 58,
+        "path": 71,
+        "contour": 1,
+        "text": 1,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.4000000059604645,
+        "p95": 2.2000000029802322,
+        "min": 0.8999999910593033,
+        "max": 2.5,
+        "mean": 1.478999999910593
+      },
+      "streamFrameMs": 10.684393885527223,
+      "frames": 2813,
+      "streamPerFrameMs": {
+        "n": 2813,
+        "median": 4.200000002980232,
+        "p95": 6.299999997019768,
+        "min": 2.5999999940395355,
+        "max": 20.899999991059303,
+        "mean": 4.413366512497083
+      },
+      "modelMs": {
+        "n": 2813,
+        "median": 2.7999999970197678,
+        "p95": 4.5999999940395355,
+        "min": 1.6000000089406967,
+        "max": 13.899999991059303,
+        "mean": 3.0084962672105346
+      },
+      "submitMs": {
+        "n": 2813,
+        "median": 1.3999999910593033,
+        "p95": 1.9000000059604645,
+        "min": 0.7999999970197678,
+        "max": 16.599999994039536,
+        "mean": 1.40039104156506
+      },
+      "overlayMs": {
+        "n": 2813,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 73.29999999701977,
+        "p95": 87.59999999403954,
+        "min": 62.8999999910593,
+        "max": 160.29999999701977,
+        "mean": 77.84285714115416
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 1,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 352,
+      "markKinds": {
+        "motes": 4,
+        "baked": 2,
+        "ribbon": 212,
+        "glow": 58,
+        "path": 71,
+        "contour": 1,
+        "text": 1,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 2.0999999940395355,
+        "min": 1,
+        "max": 2.3999999910593033,
+        "mean": 1.5499999998509884
+      },
+      "streamFrameMs": 11.809115913551308,
+      "frames": 2545,
+      "streamPerFrameMs": {
+        "n": 2545,
+        "median": 4.4000000059604645,
+        "p95": 6.9000000059604645,
+        "min": 3.699999988079071,
+        "max": 25,
+        "mean": 4.948133595238032
+      },
+      "modelMs": {
+        "n": 2545,
+        "median": 2.9000000059604645,
+        "p95": 5,
+        "min": 2.4000000059604645,
+        "max": 17.19999998807907,
+        "mean": 3.3817288801220404
+      },
+      "submitMs": {
+        "n": 2545,
+        "median": 1.4000000059604645,
+        "p95": 2.2000000029802322,
+        "min": 1.0999999940395355,
+        "max": 8,
+        "mean": 1.5617288801431188
+      },
+      "overlayMs": {
+        "n": 2545,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 73,
+        "p95": 81.59999999403954,
+        "min": 61.400000005960464,
+        "max": 88.79999999701977,
+        "mean": 73.53428571394511
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 1,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 352,
+      "markKinds": {
+        "motes": 4,
+        "baked": 2,
+        "ribbon": 212,
+        "glow": 58,
+        "path": 71,
+        "contour": 1,
+        "text": 1,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.6000000089406967,
+        "p95": 1.8999999910593033,
+        "min": 1.1000000089406967,
+        "max": 2.1000000089406967,
+        "mean": 1.6169999998807907
+      },
+      "streamFrameMs": 11.45713196033335,
+      "frames": 2622,
+      "streamPerFrameMs": {
+        "n": 2622,
+        "median": 4.4000000059604645,
+        "p95": 6.300000011920929,
+        "min": 3.7000000029802322,
+        "max": 19.099999994039536,
+        "mean": 4.789588100577383
+      },
+      "modelMs": {
+        "n": 2622,
+        "median": 2.9000000059604645,
+        "p95": 4.700000002980232,
+        "min": 2.5,
+        "max": 17,
+        "mean": 3.275705568384433
+      },
+      "submitMs": {
+        "n": 2622,
+        "median": 1.4000000059604645,
+        "p95": 1.9000000059604645,
+        "min": 1.0999999940395355,
+        "max": 8.799999997019768,
+        "mean": 1.5081998472116904
+      },
+      "overlayMs": {
+        "n": 2622,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 73.6000000089407,
+        "p95": 99.29999999701977,
+        "min": 61.599999994039536,
+        "max": 108.29999999701977,
+        "mean": 77.1628571412393
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 1,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 352,
+      "markKinds": {
+        "motes": 4,
+        "baked": 2,
+        "ribbon": 212,
+        "glow": 58,
+        "path": 71,
+        "contour": 1,
+        "text": 1,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 2.0999999940395355,
+        "p95": 2.5,
+        "min": 1.7000000029802322,
+        "max": 3.1000000089406967,
+        "mean": 2.113000000119209
+      },
+      "streamFrameMs": 6.050211736237144,
+      "frames": 4959,
+      "streamPerFrameMs": {
+        "n": 4959,
+        "median": 4.100000008940697,
+        "p95": 6.0999999940395355,
+        "min": 3.3999999910593033,
+        "max": 25,
+        "mean": 4.491833030756839
+      },
+      "modelMs": {
+        "n": 4959,
+        "median": 2.9000000059604645,
+        "p95": 4.5999999940395355,
+        "min": 2.3999999910593033,
+        "max": 20.399999991059303,
+        "mean": 3.2532970355652733
+      },
+      "submitMs": {
+        "n": 4959,
+        "median": 0.9000000059604645,
+        "p95": 1.699999988079071,
+        "min": 0.699999988079071,
+        "max": 13,
+        "mean": 1.0290179473753056
+      },
+      "overlayMs": {
+        "n": 4959,
+        "median": 0.20000000298023224,
+        "p95": 0.30000001192092896,
+        "min": 0,
+        "max": 1.8999999910593033,
+        "mean": 0.20415406316717105
+      },
+      "gpuMs": {
+        "n": 4959,
+        "median": 1.614848,
+        "p95": 1.695744,
+        "min": 0.817152,
+        "max": 137.868128,
+        "mean": 1.7599528421052704
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 4.299999997019768,
+        "p95": 6.4000000059604645,
+        "min": 4,
+        "max": 8,
+        "mean": 4.880000000340598
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 1,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 352,
+      "markKinds": {
+        "motes": 4,
+        "baked": 2,
+        "ribbon": 212,
+        "glow": 58,
+        "path": 71,
+        "contour": 1,
+        "text": 1,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 2.2999999970197678,
+        "p95": 2.5999999940395355,
+        "min": 2,
+        "max": 4.200000002980232,
+        "mean": 2.2859999999403953
+      },
+      "streamFrameMs": 6.070578713074043,
+      "frames": 4942,
+      "streamPerFrameMs": {
+        "n": 4942,
+        "median": 4.100000008940697,
+        "p95": 6.0999999940395355,
+        "min": 3.4000000059604645,
+        "max": 17.700000002980232,
+        "mean": 4.500647511150807
+      },
+      "modelMs": {
+        "n": 4942,
+        "median": 2.9000000059604645,
+        "p95": 4.699999988079071,
+        "min": 2.3999999910593033,
+        "max": 16.099999994039536,
+        "mean": 3.2792189397680667
+      },
+      "submitMs": {
+        "n": 4942,
+        "median": 0.9000000059604645,
+        "p95": 1.5999999940395355,
+        "min": 0.699999988079071,
+        "max": 7.200000002980232,
+        "mean": 1.0202954269309412
+      },
+      "overlayMs": {
+        "n": 4942,
+        "median": 0.20000000298023224,
+        "p95": 0.30000001192092896,
+        "min": 0,
+        "max": 1.7000000029802322,
+        "mean": 0.19585188180630336
+      },
+      "gpuMs": {
+        "n": 4942,
+        "median": 1.631232,
+        "p95": 1.688576,
+        "min": 0.820224,
+        "max": 137.967616,
+        "mean": 1.7657906013759797
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 4.299999997019768,
+        "p95": 6.5,
+        "min": 3.7999999970197678,
+        "max": 7.700000002980232,
+        "mean": 4.759999999403954
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 1,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 352,
+      "markKinds": {
+        "motes": 4,
+        "baked": 2,
+        "ribbon": 212,
+        "glow": 58,
+        "path": 71,
+        "contour": 1,
+        "text": 1,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 2.300000011920929,
+        "p95": 2.9000000059604645,
+        "min": 2,
+        "max": 3.5,
+        "mean": 2.411999999880791
+      },
+      "streamFrameMs": 6.079169199595335,
+      "frames": 4935,
+      "streamPerFrameMs": {
+        "n": 4935,
+        "median": 4.200000002980232,
+        "p95": 6.199999988079071,
+        "min": 3.3999999910593033,
+        "max": 18.799999997019768,
+        "mean": 4.518034447755253
+      },
+      "modelMs": {
+        "n": 4935,
+        "median": 3,
+        "p95": 4.600000008940697,
+        "min": 2.3999999910593033,
+        "max": 17.299999997019768,
+        "mean": 3.2913069907655106
+      },
+      "submitMs": {
+        "n": 4935,
+        "median": 0.9000000059604645,
+        "p95": 1.5999999940395355,
+        "min": 0.699999988079071,
+        "max": 12.599999994039536,
+        "mean": 1.0240932118204227
+      },
+      "overlayMs": {
+        "n": 4935,
+        "median": 0.20000000298023224,
+        "p95": 0.30000001192092896,
+        "min": 0,
+        "max": 1.3999999910593033,
+        "mean": 0.1973657547763295
+      },
+      "gpuMs": {
+        "n": 4935,
+        "median": 1.631232,
+        "p95": 1.700864,
+        "min": 0.815104,
+        "max": 111.847424,
+        "mean": 1.8595014160081023
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 4.200000002980232,
+        "p95": 6,
+        "min": 3.8999999910593033,
+        "max": 6.5999999940395355,
+        "mean": 4.611428572024618
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 1,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 0.20000000298023224,
+        "p95": 0.3999999910593033,
+        "min": 0.09999999403953552,
+        "max": 0.9000000059604645,
+        "mean": 0.23500000014901162
+      },
+      "streamFrameMs": 26.56298586572175,
+      "frames": 1132,
+      "streamPerFrameMs": {
+        "n": 1132,
+        "median": 13.200000002980232,
+        "p95": 18.5,
+        "min": 10.900000005960464,
+        "max": 42.79999999701977,
+        "mean": 13.815194346418755
+      },
+      "modelMs": {
+        "n": 1132,
+        "median": 9.599999994039536,
+        "p95": 13,
+        "min": 7.799999997019768,
+        "max": 35,
+        "mean": 10.008480565247288
+      },
+      "submitMs": {
+        "n": 1132,
+        "median": 3.5999999940395355,
+        "p95": 4.9000000059604645,
+        "min": 3,
+        "max": 12.100000008940697,
+        "mean": 3.800353357153731
+      },
+      "overlayMs": {
+        "n": 1132,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 64,
+        "p95": 86.19999998807907,
+        "min": 58.19999998807907,
+        "max": 157.29999999701977,
+        "mean": 69.87714285637651
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 1,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 0.20000000298023224,
+        "p95": 0.5,
+        "min": 0.09999999403953552,
+        "max": 1,
+        "mean": 0.27200000032782556
+      },
+      "streamFrameMs": 26.852636282402987,
+      "frames": 1119,
+      "streamPerFrameMs": {
+        "n": 1119,
+        "median": 13.5,
+        "p95": 17.700000002980232,
+        "min": 11.099999994039536,
+        "max": 34.5,
+        "mean": 13.955317247475866
+      },
+      "modelMs": {
+        "n": 1119,
+        "median": 9.799999997019768,
+        "p95": 12.799999997019768,
+        "min": 7.899999991059303,
+        "max": 29.5,
+        "mean": 10.087935656708623
+      },
+      "submitMs": {
+        "n": 1119,
+        "median": 3.6000000089406967,
+        "p95": 5,
+        "min": 3.0999999940395355,
+        "max": 15.200000002980232,
+        "mean": 3.8607685432916674
+      },
+      "overlayMs": {
+        "n": 1119,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 64.90000000596046,
+        "p95": 87.3999999910593,
+        "min": 53.80000001192093,
+        "max": 107.8999999910593,
+        "mean": 68.67714285680226
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 1,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 0.29999999701976776,
+        "p95": 0.4000000059604645,
+        "min": 0.09999999403953552,
+        "max": 0.699999988079071,
+        "mean": 0.26200000002980234
+      },
+      "streamFrameMs": 26.747729296529812,
+      "frames": 1123,
+      "streamPerFrameMs": {
+        "n": 1123,
+        "median": 13.399999991059303,
+        "p95": 18,
+        "min": 11.100000008940697,
+        "max": 38.8999999910593,
+        "mean": 13.88210151403585
+      },
+      "modelMs": {
+        "n": 1123,
+        "median": 9.700000002980232,
+        "p95": 12.5,
+        "min": 7.799999997019768,
+        "max": 31.400000005960464,
+        "mean": 9.942208370855633
+      },
+      "submitMs": {
+        "n": 1123,
+        "median": 3.6000000089406967,
+        "p95": 5.200000002980232,
+        "min": 3.0999999940395355,
+        "max": 24.799999997019768,
+        "mean": 3.9348174530485327
+      },
+      "overlayMs": {
+        "n": 1123,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 60.80000001192093,
+        "p95": 96.40000000596046,
+        "min": 56.599999994039536,
+        "max": 105.59999999403954,
+        "mean": 65.66000000025545
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 1,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 2.7000000029802322,
+        "p95": 3.7999999970197678,
+        "min": 1.9000000059604645,
+        "max": 4.299999997019768,
+        "mean": 2.8209999999403954
+      },
+      "streamFrameMs": 16.153982777184574,
+      "frames": 1858,
+      "streamPerFrameMs": {
+        "n": 1858,
+        "median": 13.200000002980232,
+        "p95": 17.799999997019768,
+        "min": 10.899999991059303,
+        "max": 39.20000000298023,
+        "mean": 13.644133477176032
+      },
+      "modelMs": {
+        "n": 1858,
+        "median": 9.700000002980232,
+        "p95": 12.400000005960464,
+        "min": 7.799999997019768,
+        "max": 33.900000005960464,
+        "mean": 9.951130247724006
+      },
+      "submitMs": {
+        "n": 1858,
+        "median": 2.9000000059604645,
+        "p95": 4.4000000059604645,
+        "min": 2.5,
+        "max": 17.099999994039536,
+        "mean": 3.241065662029421
+      },
+      "overlayMs": {
+        "n": 1858,
+        "median": 0.4000000059604645,
+        "p95": 0.6000000089406967,
+        "min": 0.20000000298023224,
+        "max": 3.4000000059604645,
+        "mean": 0.44402583436669524
+      },
+      "gpuMs": {
+        "n": 1858,
+        "median": 3.808256,
+        "p95": 3.867648,
+        "min": 0.458752,
+        "max": 120.780736,
+        "mean": 3.7951252185145212
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 13.299999997019768,
+        "p95": 15.299999997019768,
+        "min": 11.599999994039536,
+        "max": 28.700000002980232,
+        "mean": 13.771428571002824
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 1,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 2.300000011920929,
+        "p95": 3.3999999910593033,
+        "min": 1.7999999970197678,
+        "max": 4.799999997019768,
+        "mean": 2.445
+      },
+      "streamFrameMs": 16.718050139279086,
+      "frames": 1795,
+      "streamPerFrameMs": {
+        "n": 1795,
+        "median": 13.300000011920929,
+        "p95": 18.899999991059303,
+        "min": 11.200000002980232,
+        "max": 45.79999999701977,
+        "mean": 14.036378830032096
+      },
+      "modelMs": {
+        "n": 1795,
+        "median": 9.899999991059303,
+        "p95": 13.899999991059303,
+        "min": 8,
+        "max": 40.099999994039536,
+        "mean": 10.403955431718348
+      },
+      "submitMs": {
+        "n": 1795,
+        "median": 2.9000000059604645,
+        "p95": 4.300000011920929,
+        "min": 2.5,
+        "max": 17.600000008940697,
+        "mean": 3.1689136491678553
+      },
+      "overlayMs": {
+        "n": 1795,
+        "median": 0.4000000059604645,
+        "p95": 0.6000000089406967,
+        "min": 0.19999998807907104,
+        "max": 4,
+        "mean": 0.4554874649535979
+      },
+      "gpuMs": {
+        "n": 1795,
+        "median": 3.807232,
+        "p95": 3.878912,
+        "min": 0.459776,
+        "max": 107.839424,
+        "mean": 3.8132829058495847
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 12.900000005960464,
+        "p95": 18.099999994039536,
+        "min": 11.600000008940697,
+        "max": 22.200000002980232,
+        "mean": 13.434285715648107
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 1,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 2.3999999910593033,
+        "p95": 3.2999999970197678,
+        "min": 1.7999999970197678,
+        "max": 3.7000000029802322,
+        "mean": 2.4350000001490115
+      },
+      "streamFrameMs": 16.175040431268453,
+      "frames": 1855,
+      "streamPerFrameMs": {
+        "n": 1855,
+        "median": 13.099999994039536,
+        "p95": 16.900000005960464,
+        "min": 11,
+        "max": 42.400000005960464,
+        "mean": 13.582695417672475
+      },
+      "modelMs": {
+        "n": 1855,
+        "median": 9.599999994039536,
+        "p95": 12.699999988079071,
+        "min": 7.799999997019768,
+        "max": 34.5,
+        "mean": 10.008463611885544
+      },
+      "submitMs": {
+        "n": 1855,
+        "median": 2.8999999910593033,
+        "p95": 4.199999988079071,
+        "min": 2.5,
+        "max": 17.5,
+        "mean": 3.1215094339253127
+      },
+      "overlayMs": {
+        "n": 1855,
+        "median": 0.4000000059604645,
+        "p95": 0.6000000089406967,
+        "min": 0.20000000298023224,
+        "max": 3.2999999970197678,
+        "mean": 0.4448517519026754
+      },
+      "gpuMs": {
+        "n": 1855,
+        "median": 3.803136,
+        "p95": 3.869696,
+        "min": 0.461824,
+        "max": 109.211648,
+        "mean": 3.7483594522910937
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 13,
+        "p95": 19.799999997019768,
+        "min": 11.5,
+        "max": 45.70000000298023,
+        "mean": 14.525714285458838
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "flat",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 975,
+      "markKinds": {
+        "motes": 9,
+        "baked": 6,
+        "ribbon": 646,
+        "path": 215,
+        "glow": 90,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.6000000089406967,
+        "p95": 2.0999999940395355,
+        "min": 0.8999999910593033,
+        "max": 3.2000000029802322,
+        "mean": 1.595
+      },
+      "streamFrameMs": 40.33239625166937,
+      "frames": 747,
+      "streamPerFrameMs": {
+        "n": 747,
+        "median": 12.700000002980232,
+        "p95": 21,
+        "min": 10.599999994039536,
+        "max": 39,
+        "mean": 13.56800535448903
+      },
+      "modelMs": {
+        "n": 747,
+        "median": 9.5,
+        "p95": 16.299999997019768,
+        "min": 7.699999988079071,
+        "max": 34.8999999910593,
+        "mean": 10.181392235429572
+      },
+      "submitMs": {
+        "n": 747,
+        "median": 3.1000000089406967,
+        "p95": 4.799999997019768,
+        "min": 2.699999988079071,
+        "max": 14.400000005960464,
+        "mean": 3.3820615795402325
+      },
+      "overlayMs": {
+        "n": 747,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 108.1000000089407,
+        "p95": 146.5,
+        "min": 93.3999999910593,
+        "max": 170,
+        "mean": 110.90285714353834
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "flat",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 975,
+      "markKinds": {
+        "motes": 9,
+        "baked": 6,
+        "ribbon": 646,
+        "path": 215,
+        "glow": 90,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 1.800000011920929,
+        "min": 1,
+        "max": 2.2000000029802322,
+        "mean": 1.498999999910593
+      },
+      "streamFrameMs": 38.69523809524193,
+      "frames": 777,
+      "streamPerFrameMs": {
+        "n": 777,
+        "median": 12.599999994039536,
+        "p95": 20.599999994039536,
+        "min": 10.599999994039536,
+        "max": 35.80000001192093,
+        "mean": 13.536422136264878
+      },
+      "modelMs": {
+        "n": 777,
+        "median": 9.5,
+        "p95": 14.900000005960464,
+        "min": 7.799999997019768,
+        "max": 32,
+        "mean": 10.156628056727781
+      },
+      "submitMs": {
+        "n": 777,
+        "median": 3.0999999940395355,
+        "p95": 4.5,
+        "min": 2.5999999940395355,
+        "max": 17.5,
+        "mean": 3.373487773261475
+      },
+      "overlayMs": {
+        "n": 777,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 105.69999998807907,
+        "p95": 124.6000000089407,
+        "min": 81.29999999701977,
+        "max": 165.59999999403954,
+        "mean": 107.85142857091768
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "flat",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 975,
+      "markKinds": {
+        "motes": 9,
+        "baked": 6,
+        "ribbon": 646,
+        "path": 215,
+        "glow": 90,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5999999940395355,
+        "p95": 1.9000000059604645,
+        "min": 0.9000000059604645,
+        "max": 2.7999999970197678,
+        "mean": 1.5589999997615813
+      },
+      "streamFrameMs": 39.01722797927075,
+      "frames": 772,
+      "streamPerFrameMs": {
+        "n": 772,
+        "median": 12.700000002980232,
+        "p95": 20.600000008940697,
+        "min": 10.400000005960464,
+        "max": 40.900000005960464,
+        "mean": 13.462046632224723
+      },
+      "modelMs": {
+        "n": 772,
+        "median": 9.599999994039536,
+        "p95": 14.200000002980232,
+        "min": 7.799999997019768,
+        "max": 37.400000005960464,
+        "mean": 10.125518134684143
+      },
+      "submitMs": {
+        "n": 772,
+        "median": 3.0999999940395355,
+        "p95": 4.5,
+        "min": 2.5999999940395355,
+        "max": 14.699999988079071,
+        "mean": 3.330958549319308
+      },
+      "overlayMs": {
+        "n": 772,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 102.29999999701977,
+        "p95": 129.40000000596046,
+        "min": 75,
+        "max": 135.90000000596046,
+        "mean": 105.92285714362349
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "flat",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 975,
+      "markKinds": {
+        "motes": 9,
+        "baked": 6,
+        "ribbon": 646,
+        "path": 215,
+        "glow": 90,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 2.4000000059604645,
+        "p95": 3.199999988079071,
+        "min": 2,
+        "max": 3.4000000059604645,
+        "mean": 2.526000000089407
+      },
+      "streamFrameMs": 16.233315305565743,
+      "frames": 1849,
+      "streamPerFrameMs": {
+        "n": 1849,
+        "median": 12.900000005960464,
+        "p95": 18.799999997019768,
+        "min": 10.799999997019768,
+        "max": 43.400000005960464,
+        "mean": 13.571389940564796
+      },
+      "modelMs": {
+        "n": 1849,
+        "median": 9.600000008940697,
+        "p95": 12.599999994039536,
+        "min": 7.700000002980232,
+        "max": 32,
+        "mean": 9.871930773271748
+      },
+      "submitMs": {
+        "n": 1849,
+        "median": 2.7999999970197678,
+        "p95": 4.5,
+        "min": 2.1000000089406967,
+        "max": 22.399999991059303,
+        "mean": 3.232449973174338
+      },
+      "overlayMs": {
+        "n": 1849,
+        "median": 0.4000000059604645,
+        "p95": 0.6000000089406967,
+        "min": 0.20000000298023224,
+        "max": 3.2000000029802322,
+        "mean": 0.45878853431709915
+      },
+      "gpuMs": {
+        "n": 1849,
+        "median": 4.364288,
+        "p95": 4.819968,
+        "min": 0.914432,
+        "max": 147.222528,
+        "mean": 4.5211693412655585
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 13.799999997019768,
+        "p95": 16.200000002980232,
+        "min": 11.099999994039536,
+        "max": 25.899999991059303,
+        "mean": 14.234285713945116
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "flat",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 975,
+      "markKinds": {
+        "motes": 9,
+        "baked": 6,
+        "ribbon": 646,
+        "path": 215,
+        "glow": 90,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 2.2000000029802322,
+        "p95": 2.7999999970197678,
+        "min": 1.699999988079071,
+        "max": 2.7999999970197678,
+        "mean": 2.1979999999701976
+      },
+      "streamFrameMs": 16.3574931880109,
+      "frames": 1835,
+      "streamPerFrameMs": {
+        "n": 1835,
+        "median": 13,
+        "p95": 19.099999994039536,
+        "min": 10.600000008940697,
+        "max": 38.70000000298023,
+        "mean": 13.644250681070606
+      },
+      "modelMs": {
+        "n": 1835,
+        "median": 9.699999988079071,
+        "p95": 12.899999991059303,
+        "min": 7.700000002980232,
+        "max": 32.79999999701977,
+        "mean": 9.962234332191198
+      },
+      "submitMs": {
+        "n": 1835,
+        "median": 2.7999999970197678,
+        "p95": 4.600000008940697,
+        "min": 2.3999999910593033,
+        "max": 20.5,
+        "mean": 3.2155858311568686
+      },
+      "overlayMs": {
+        "n": 1835,
+        "median": 0.4000000059604645,
+        "p95": 0.6000000089406967,
+        "min": 0.19999998807907104,
+        "max": 2,
+        "mean": 0.4586376021765883
+      },
+      "gpuMs": {
+        "n": 1835,
+        "median": 4.430848,
+        "p95": 4.890624,
+        "min": 0.90624,
+        "max": 155.099136,
+        "mean": 4.604496636512285
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 13.099999994039536,
+        "p95": 14.400000005960464,
+        "min": 11.699999988079071,
+        "max": 42.6000000089407,
+        "mean": 14.02571428503309
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "flat",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 975,
+      "markKinds": {
+        "motes": 9,
+        "baked": 6,
+        "ribbon": 646,
+        "path": 215,
+        "glow": 90,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 2.9000000059604645,
+        "p95": 3.699999988079071,
+        "min": 1.9000000059604645,
+        "max": 4.0999999940395355,
+        "mean": 2.8559999999403956
+      },
+      "streamFrameMs": 16.1467707212072,
+      "frames": 1858,
+      "streamPerFrameMs": {
+        "n": 1858,
+        "median": 12.799999997019768,
+        "p95": 17.900000005960464,
+        "min": 10.699999988079071,
+        "max": 29.099999994039536,
+        "mean": 13.340419806443773
+      },
+      "modelMs": {
+        "n": 1858,
+        "median": 9.5,
+        "p95": 12.399999991059303,
+        "min": 7.700000002980232,
+        "max": 21.600000008940697,
+        "mean": 9.70043057063745
+      },
+      "submitMs": {
+        "n": 1858,
+        "median": 2.7999999970197678,
+        "p95": 4.299999997019768,
+        "min": 2.4000000059604645,
+        "max": 15.600000008940697,
+        "mean": 3.18019375666992
+      },
+      "overlayMs": {
+        "n": 1858,
+        "median": 0.4000000059604645,
+        "p95": 0.699999988079071,
+        "min": 0.20000000298023224,
+        "max": 3.4000000059604645,
+        "mean": 0.45150699686214923
+      },
+      "gpuMs": {
+        "n": 1858,
+        "median": 4.447232,
+        "p95": 4.900864,
+        "min": 0.92672,
+        "max": 144.387072,
+        "mean": 4.59743483315394
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 13.100000008940697,
+        "p95": 16,
+        "min": 11.400000005960464,
+        "max": 19.900000005960464,
+        "mean": 13.382857144304685
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": true,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1059,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 1.7999999970197678,
+        "min": 0.9000000059604645,
+        "max": 2.2999999970197678,
+        "mean": 1.5249999998509884
+      },
+      "streamFrameMs": 41.8317107093185,
+      "frames": 719,
+      "streamPerFrameMs": {
+        "n": 719,
+        "median": 13.400000005960464,
+        "p95": 20.600000008940697,
+        "min": 11.200000002980232,
+        "max": 37.099999994039536,
+        "mean": 14.186369958399732
+      },
+      "modelMs": {
+        "n": 719,
+        "median": 9.700000002980232,
+        "p95": 14,
+        "min": 7.700000002980232,
+        "max": 31.099999994039536,
+        "mean": 10.217802503655285
+      },
+      "submitMs": {
+        "n": 719,
+        "median": 3.699999988079071,
+        "p95": 5.200000002980232,
+        "min": 3.0999999940395355,
+        "max": 18.400000005960464,
+        "mean": 3.962447844083021
+      },
+      "overlayMs": {
+        "n": 719,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 113.5,
+        "p95": 126.29999999701977,
+        "min": 82.29999999701977,
+        "max": 136.09999999403954,
+        "mean": 109.96285714336804
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": true,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1059,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5999999940395355,
+        "p95": 2.1000000089406967,
+        "min": 1,
+        "max": 2.5,
+        "mean": 1.615
+      },
+      "streamFrameMs": 41.274074074069986,
+      "frames": 729,
+      "streamPerFrameMs": {
+        "n": 729,
+        "median": 13.599999994039536,
+        "p95": 19,
+        "min": 11.299999997019768,
+        "max": 37.3999999910593,
+        "mean": 14.068587105685465
+      },
+      "modelMs": {
+        "n": 729,
+        "median": 9.799999997019768,
+        "p95": 12.600000008940697,
+        "min": 7.799999997019768,
+        "max": 33.5,
+        "mean": 10.10507544582845
+      },
+      "submitMs": {
+        "n": 729,
+        "median": 3.7000000029802322,
+        "p95": 5.299999997019768,
+        "min": 3.199999988079071,
+        "max": 15.899999991059303,
+        "mean": 3.9525377230389127
+      },
+      "overlayMs": {
+        "n": 729,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 110.5,
+        "p95": 121.59999999403954,
+        "min": 98,
+        "max": 130.3999999910593,
+        "mean": 111.09714285475867
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": true,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1059,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 1.7999999970197678,
+        "min": 1.0999999940395355,
+        "max": 2.4000000059604645,
+        "mean": 1.536000000089407
+      },
+      "streamFrameMs": 41.82541666666253,
+      "frames": 720,
+      "streamPerFrameMs": {
+        "n": 720,
+        "median": 13.5,
+        "p95": 19.30000001192093,
+        "min": 11.100000008940697,
+        "max": 43.70000000298023,
+        "mean": 14.124305555555555
+      },
+      "modelMs": {
+        "n": 720,
+        "median": 9.799999997019768,
+        "p95": 13.5,
+        "min": 7.799999997019768,
+        "max": 38.30000001192093,
+        "mean": 10.202083333105676
+      },
+      "submitMs": {
+        "n": 720,
+        "median": 3.699999988079071,
+        "p95": 5.200000002980232,
+        "min": 3.199999988079071,
+        "max": 10.700000002980232,
+        "mean": 3.916527778096497
+      },
+      "overlayMs": {
+        "n": 720,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 109.5,
+        "p95": 131.90000000596046,
+        "min": 92,
+        "max": 137.70000000298023,
+        "mean": 110.64571428511825
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": true,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.699999988079071,
+        "p95": 2.2999999970197678,
+        "min": 1,
+        "max": 4.0999999940395355,
+        "mean": 1.6760000002384186
+      },
+      "streamFrameMs": 40.29101876676802,
+      "frames": 746,
+      "streamPerFrameMs": {
+        "n": 746,
+        "median": 13,
+        "p95": 20,
+        "min": 10.799999997019768,
+        "max": 36,
+        "mean": 13.783780160742054
+      },
+      "modelMs": {
+        "n": 746,
+        "median": 9.700000002980232,
+        "p95": 13.400000005960464,
+        "min": 7.899999991059303,
+        "max": 29.299999997019768,
+        "mean": 10.15067024111508
+      },
+      "submitMs": {
+        "n": 746,
+        "median": 3.2999999970197678,
+        "p95": 5.200000002980232,
+        "min": 2.7999999970197678,
+        "max": 12.599999994039536,
+        "mean": 3.6257372655513778
+      },
+      "overlayMs": {
+        "n": 746,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 106.8999999910593,
+        "p95": 115.80000001192093,
+        "min": 92.8999999910593,
+        "max": 124.09999999403954,
+        "mean": 106.28857142754964
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": true,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 1.7999999970197678,
+        "min": 1.0999999940395355,
+        "max": 2,
+        "mean": 1.4890000000596046
+      },
+      "streamFrameMs": 40.31729222518509,
+      "frames": 746,
+      "streamPerFrameMs": {
+        "n": 746,
+        "median": 13.200000002980232,
+        "p95": 18.399999991059303,
+        "min": 10.799999997019768,
+        "max": 51.19999998807907,
+        "mean": 13.820509382990506
+      },
+      "modelMs": {
+        "n": 746,
+        "median": 9.799999997019768,
+        "p95": 13.200000002980232,
+        "min": 7.899999991059303,
+        "max": 46.599999994039536,
+        "mean": 10.197184986427386
+      },
+      "submitMs": {
+        "n": 746,
+        "median": 3.3999999910593033,
+        "p95": 4.700000002980232,
+        "min": 2.8999999910593033,
+        "max": 14.700000002980232,
+        "mean": 3.616487935465079
+      },
+      "overlayMs": {
+        "n": 746,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 80.90000000596046,
+        "p95": 88.1000000089407,
+        "min": 61.1000000089407,
+        "max": 95,
+        "mean": 80.85714285884585
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": true,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5999999940395355,
+        "p95": 2.2000000029802322,
+        "min": 1.2000000029802322,
+        "max": 3,
+        "mean": 1.6749999997019769
+      },
+      "streamFrameMs": 38.58487179487562,
+      "frames": 780,
+      "streamPerFrameMs": {
+        "n": 780,
+        "median": 12.800000011920929,
+        "p95": 18.799999997019768,
+        "min": 7.4000000059604645,
+        "max": 39.70000000298023,
+        "mean": 13.185128205002119
+      },
+      "modelMs": {
+        "n": 780,
+        "median": 9.399999991059303,
+        "p95": 13,
+        "min": 5.4000000059604645,
+        "max": 34.1000000089407,
+        "mean": 9.667692307726695
+      },
+      "submitMs": {
+        "n": 780,
+        "median": 3.300000011920929,
+        "p95": 4.9000000059604645,
+        "min": 1.9000000059604645,
+        "max": 16.5,
+        "mean": 3.510256410103578
+      },
+      "overlayMs": {
+        "n": 780,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 110.1000000089407,
+        "p95": 172.30000001192093,
+        "min": 80,
+        "max": 190.70000000298023,
+        "mean": 117.4171428582498
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": true,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 2.4000000059604645,
+        "p95": 2.800000011920929,
+        "min": 1.7999999970197678,
+        "max": 3.5,
+        "mean": 2.4659999999403954
+      },
+      "streamFrameMs": 15.89115466101695,
+      "frames": 1888,
+      "streamPerFrameMs": {
+        "n": 1888,
+        "median": 12.600000008940697,
+        "p95": 18.200000002980232,
+        "min": 10.400000005960464,
+        "max": 36.900000005960464,
+        "mean": 13.211228813502496
+      },
+      "modelMs": {
+        "n": 1888,
+        "median": 9.700000002980232,
+        "p95": 13.700000002980232,
+        "min": 7.799999997019768,
+        "max": 31.5,
+        "mean": 10.140307203408772
+      },
+      "submitMs": {
+        "n": 1888,
+        "median": 2.2999999970197678,
+        "p95": 3.7000000029802322,
+        "min": 2,
+        "max": 13.099999994039536,
+        "mean": 2.5980402542262384
+      },
+      "overlayMs": {
+        "n": 1888,
+        "median": 0.4000000059604645,
+        "p95": 0.699999988079071,
+        "min": 0.20000000298023224,
+        "max": 7.899999991059303,
+        "mean": 0.46435381351354516
+      },
+      "gpuMs": {
+        "n": 1888,
+        "median": 3.699712,
+        "p95": 4.160512,
+        "min": 0.73728,
+        "max": 154.517504,
+        "mean": 3.908285288135586
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 12.599999994039536,
+        "p95": 19.299999997019768,
+        "min": 11.299999997019768,
+        "max": 26.200000002980232,
+        "mean": 13.891428571513721
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": true,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 2.7000000029802322,
+        "p95": 3.300000011920929,
+        "min": 2.2000000029802322,
+        "max": 3.6000000089406967,
+        "mean": 2.727999999970198
+      },
+      "streamFrameMs": 15.923779193209109,
+      "frames": 1884,
+      "streamPerFrameMs": {
+        "n": 1884,
+        "median": 12.600000008940697,
+        "p95": 17.5,
+        "min": 10.5,
+        "max": 37.900000005960464,
+        "mean": 13.26204883243944
+      },
+      "modelMs": {
+        "n": 1884,
+        "median": 9.700000002980232,
+        "p95": 13.600000008940697,
+        "min": 7.899999991059303,
+        "max": 34.80000001192093,
+        "mean": 10.210456475623412
+      },
+      "submitMs": {
+        "n": 1884,
+        "median": 2.2999999970197678,
+        "p95": 3.7000000029802322,
+        "min": 2,
+        "max": 20.900000005960464,
+        "mean": 2.589490445999077
+      },
+      "overlayMs": {
+        "n": 1884,
+        "median": 0.4000000059604645,
+        "p95": 0.6000000089406967,
+        "min": 0.20000000298023224,
+        "max": 3.1000000089406967,
+        "mean": 0.4548301486389399
+      },
+      "gpuMs": {
+        "n": 1884,
+        "median": 3.728384,
+        "p95": 4.252672,
+        "min": 0.77312,
+        "max": 151.361536,
+        "mean": 4.085327354564778
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 12.399999991059303,
+        "p95": 13.700000002980232,
+        "min": 10.799999997019768,
+        "max": 29.5,
+        "mean": 12.617142857398306
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": true,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 Laptop GPU), OpenGL 4.6)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 2.300000011920929,
+        "p95": 3,
+        "min": 1.7000000029802322,
+        "max": 3.1000000089406967,
+        "mean": 2.3829999996721742
+      },
+      "streamFrameMs": 15.858985200847242,
+      "frames": 1892,
+      "streamPerFrameMs": {
+        "n": 1892,
+        "median": 12.599999994039536,
+        "p95": 17.599999994039536,
+        "min": 10.400000005960464,
+        "max": 36.79999999701977,
+        "mean": 13.158456659854151
+      },
+      "modelMs": {
+        "n": 1892,
+        "median": 9.700000002980232,
+        "p95": 13.299999997019768,
+        "min": 7.799999997019768,
+        "max": 33.70000000298023,
+        "mean": 10.116490486324086
+      },
+      "submitMs": {
+        "n": 1892,
+        "median": 2.2999999970197678,
+        "p95": 3.699999988079071,
+        "min": 2,
+        "max": 14.400000005960464,
+        "mean": 2.5706659620962484
+      },
+      "overlayMs": {
+        "n": 1892,
+        "median": 0.4000000059604645,
+        "p95": 0.699999988079071,
+        "min": 0.20000000298023224,
+        "max": 5.5,
+        "mean": 0.4634778012322699
+      },
+      "gpuMs": {
+        "n": 1892,
+        "median": 3.744768,
+        "p95": 4.261888,
+        "min": 0.749568,
+        "max": 111.130624,
+        "mean": 3.9272043298097117
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 12.5,
+        "p95": 14,
+        "min": 10.900000005960464,
+        "max": 20.799999997019768,
+        "mean": 12.674285714541163
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "discrete"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 2.0999999940395355,
+        "min": 0.9000000059604645,
+        "max": 3.7999999970197678,
+        "mean": 1.5599999995529652
+      },
+      "streamFrameMs": 125.82833333332091,
+      "frames": 240,
+      "streamPerFrameMs": {
+        "n": 240,
+        "median": 13.5,
+        "p95": 17.299999997019768,
+        "min": 11.200000002980232,
+        "max": 31.30000001192093,
+        "mean": 13.932500000670553
+      },
+      "modelMs": {
+        "n": 240,
+        "median": 9.700000002980232,
+        "p95": 12,
+        "min": 8,
+        "max": 26.900000005960464,
+        "mean": 10.13291666706403
+      },
+      "submitMs": {
+        "n": 240,
+        "median": 3.6000000089406967,
+        "p95": 4.600000008940697,
+        "min": 3.199999988079071,
+        "max": 9.699999988079071,
+        "mean": 3.7962500002235173
+      },
+      "overlayMs": {
+        "n": 240,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 185.20000000298023,
+        "p95": 228.40000000596046,
+        "min": 143.59999999403954,
+        "max": 237.40000000596046,
+        "mean": 185.30285714268683
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.6000000089406967,
+        "p95": 2.2000000029802322,
+        "min": 0.8999999910593033,
+        "max": 2.7000000029802322,
+        "mean": 1.5800000001490115
+      },
+      "streamFrameMs": 127.83797468351915,
+      "frames": 237,
+      "streamPerFrameMs": {
+        "n": 237,
+        "median": 13.899999991059303,
+        "p95": 19.80000001192093,
+        "min": 11.599999994039536,
+        "max": 34.5,
+        "mean": 14.409704641199314
+      },
+      "modelMs": {
+        "n": 237,
+        "median": 9.900000005960464,
+        "p95": 12.700000002980232,
+        "min": 8.299999997019768,
+        "max": 29.899999991059303,
+        "mean": 10.391561181359151
+      },
+      "submitMs": {
+        "n": 237,
+        "median": 3.7999999970197678,
+        "p95": 5.5,
+        "min": 3.199999988079071,
+        "max": 10.699999988079071,
+        "mean": 4.011392404887244
+      },
+      "overlayMs": {
+        "n": 237,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 181.29999999701977,
+        "p95": 211.1000000089407,
+        "min": 147.79999999701977,
+        "max": 250.3999999910593,
+        "mean": 179.94857142993382
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 2,
+        "min": 0.8999999910593033,
+        "max": 2.5999999940395355,
+        "mean": 1.556000000089407
+      },
+      "streamFrameMs": 126.73640167364017,
+      "frames": 239,
+      "streamPerFrameMs": {
+        "n": 239,
+        "median": 13.600000008940697,
+        "p95": 19,
+        "min": 11.400000005960464,
+        "max": 36.099999994039536,
+        "mean": 14.194560669830155
+      },
+      "modelMs": {
+        "n": 239,
+        "median": 10,
+        "p95": 12.299999997019768,
+        "min": 8.200000002980232,
+        "max": 29.599999994039536,
+        "mean": 10.202092050196736
+      },
+      "submitMs": {
+        "n": 239,
+        "median": 3.7000000029802322,
+        "p95": 5.0999999940395355,
+        "min": 3.2000000029802322,
+        "max": 16.200000002980232,
+        "mean": 3.9857740589889024
+      },
+      "overlayMs": {
+        "n": 239,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 178.79999999701977,
+        "p95": 230.69999998807907,
+        "min": 139.70000000298023,
+        "max": 252.90000000596046,
+        "mean": 183.96857142831598
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 4,
+        "p95": 4.899999991059303,
+        "min": 3.4000000059604645,
+        "max": 6.699999988079071,
+        "mean": 4.088999999761581
+      },
+      "streamFrameMs": 17.97245508982036,
+      "frames": 1670,
+      "streamPerFrameMs": {
+        "n": 1670,
+        "median": 14,
+        "p95": 19.799999997019768,
+        "min": 11.400000005960464,
+        "max": 41.79999999701977,
+        "mean": 14.660958083705632
+      },
+      "modelMs": {
+        "n": 1670,
+        "median": 10.299999997019768,
+        "p95": 14.599999994039536,
+        "min": 8.099999994039536,
+        "max": 37.099999994039536,
+        "mean": 10.825508982014513
+      },
+      "submitMs": {
+        "n": 1670,
+        "median": 3,
+        "p95": 4.5999999940395355,
+        "min": 2.5999999940395355,
+        "max": 28.100000008940697,
+        "mean": 3.328862275415195
+      },
+      "overlayMs": {
+        "n": 1670,
+        "median": 0.5,
+        "p95": 0.7000000029802322,
+        "min": 0.29999999701976776,
+        "max": 4.9000000059604645,
+        "mean": 0.49748502984018383
+      },
+      "gpuMs": {
+        "n": 1670,
+        "median": 8.049583,
+        "p95": 9.606354,
+        "min": 4.663958,
+        "max": 281.042583,
+        "mean": 8.546428682634776
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 14,
+        "p95": 16.30000001192093,
+        "min": 12,
+        "max": 37.19999998807907,
+        "mean": 14.714285714285714
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 4,
+        "p95": 4.700000002980232,
+        "min": 3.4000000059604645,
+        "max": 5.200000002980232,
+        "mean": 4.017000000178814
+      },
+      "streamFrameMs": 17.062706083000013,
+      "frames": 1759,
+      "streamPerFrameMs": {
+        "n": 1759,
+        "median": 13.799999997019768,
+        "p95": 19.299999997019768,
+        "min": 11.199999988079071,
+        "max": 42.900000005960464,
+        "mean": 14.42689027890114
+      },
+      "modelMs": {
+        "n": 1759,
+        "median": 10.200000002980232,
+        "p95": 13.699999988079071,
+        "min": 8.099999994039536,
+        "max": 31.200000002980232,
+        "mean": 10.538885730676112
+      },
+      "submitMs": {
+        "n": 1759,
+        "median": 3,
+        "p95": 4.5999999940395355,
+        "min": 2.5999999940395355,
+        "max": 28.099999994039536,
+        "mean": 3.3989766913425385
+      },
+      "overlayMs": {
+        "n": 1759,
+        "median": 0.5,
+        "p95": 0.699999988079071,
+        "min": 0.29999999701976776,
+        "max": 2.8999999910593033,
+        "mean": 0.4793632746742421
+      },
+      "gpuMs": {
+        "n": 1759,
+        "median": 5.690416,
+        "p95": 8.913646,
+        "min": 3.606406,
+        "max": 300.192749,
+        "mean": 7.682295196702707
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 13.599999994039536,
+        "p95": 16.5,
+        "min": 11.599999994039536,
+        "max": 38.400000005960464,
+        "mean": 14.325714285458837
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 4.700000002980232,
+        "p95": 8,
+        "min": 4.0999999940395355,
+        "max": 9,
+        "mean": 5.393999999910593
+      },
+      "streamFrameMs": 17.01928530913216,
+      "frames": 1763,
+      "streamPerFrameMs": {
+        "n": 1763,
+        "median": 13.899999991059303,
+        "p95": 20.599999994039536,
+        "min": 11.099999994039536,
+        "max": 39.099999994039536,
+        "mean": 14.631026658934758
+      },
+      "modelMs": {
+        "n": 1763,
+        "median": 10.200000002980232,
+        "p95": 14.799999997019768,
+        "min": 8.099999994039536,
+        "max": 34.29999999701977,
+        "mean": 10.751503119457531
+      },
+      "submitMs": {
+        "n": 1763,
+        "median": 3,
+        "p95": 4.799999997019768,
+        "min": 2.5999999940395355,
+        "max": 15.200000002980232,
+        "mean": 3.380714690903338
+      },
+      "overlayMs": {
+        "n": 1763,
+        "median": 0.5,
+        "p95": 0.7000000029802322,
+        "min": 0.29999999701976776,
+        "max": 4.5,
+        "mean": 0.4895065230229194
+      },
+      "gpuMs": {
+        "n": 1763,
+        "median": 4.187187,
+        "p95": 9.079583,
+        "min": 3.476041,
+        "max": 334.160342,
+        "mean": 6.119858094724872
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 13.300000011920929,
+        "p95": 16.100000008940697,
+        "min": 11.299999997019768,
+        "max": 29.299999997019768,
+        "mean": 13.91142857330186
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 60,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 2148,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 1327,
+        "glow": 354,
+        "path": 442,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5999999940395355,
+        "p95": 2.2999999970197678,
+        "min": 0.9000000059604645,
+        "max": 3.3999999910593033,
+        "mean": 1.578999999910593
+      },
+      "streamFrameMs": 154.2312820512515,
+      "frames": 195,
+      "streamPerFrameMs": {
+        "n": 195,
+        "median": 22.799999997019768,
+        "p95": 34.19999998807907,
+        "min": 19.5,
+        "max": 47,
+        "mean": 24.23692307716761
+      },
+      "modelMs": {
+        "n": 195,
+        "median": 16.200000002980232,
+        "p95": 27.299999997019768,
+        "min": 13.5,
+        "max": 40.70000000298023,
+        "mean": 17.40358974398711
+      },
+      "submitMs": {
+        "n": 195,
+        "median": 6.399999991059303,
+        "p95": 8.200000002980232,
+        "min": 5.600000008940697,
+        "max": 18.700000002980232,
+        "mean": 6.827179487087788
+      },
+      "overlayMs": {
+        "n": 195,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 190.29999999701977,
+        "p95": 222.59999999403954,
+        "min": 150.20000000298023,
+        "max": 308.79999999701977,
+        "mean": 189.20285714268684
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 60,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 2148,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 1327,
+        "glow": 354,
+        "path": 442,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.6000000089406967,
+        "p95": 1.9000000059604645,
+        "min": 0.8999999910593033,
+        "max": 2.8999999910593033,
+        "mean": 1.633999999910593
+      },
+      "streamFrameMs": 153.65279187821798,
+      "frames": 197,
+      "streamPerFrameMs": {
+        "n": 197,
+        "median": 22.600000008940697,
+        "p95": 33.29999999701977,
+        "min": 19.399999991059303,
+        "max": 87.79999999701977,
+        "mean": 24.32030456811946
+      },
+      "modelMs": {
+        "n": 197,
+        "median": 16.200000002980232,
+        "p95": 24.099999994039536,
+        "min": 13.299999997019768,
+        "max": 66.79999999701977,
+        "mean": 17.44010152278213
+      },
+      "submitMs": {
+        "n": 197,
+        "median": 6.299999997019768,
+        "p95": 8.699999988079071,
+        "min": 5.5,
+        "max": 21,
+        "mean": 6.87411167483947
+      },
+      "overlayMs": {
+        "n": 197,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 203.79999999701977,
+        "p95": 267.5,
+        "min": 162,
+        "max": 286.09999999403954,
+        "mean": 209.47142857228008
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 60,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 2148,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 1327,
+        "glow": 354,
+        "path": 442,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5999999940395355,
+        "p95": 2,
+        "min": 1,
+        "max": 3.300000011920929,
+        "mean": 1.5799999998509884
+      },
+      "streamFrameMs": 154.54132653058184,
+      "frames": 196,
+      "streamPerFrameMs": {
+        "n": 196,
+        "median": 22.700000002980232,
+        "p95": 34.29999999701977,
+        "min": 19.400000005960464,
+        "max": 48.3999999910593,
+        "mean": 24.06224489751823
+      },
+      "modelMs": {
+        "n": 196,
+        "median": 16.299999997019768,
+        "p95": 27.299999997019768,
+        "min": 13.700000002980232,
+        "max": 41.900000005960464,
+        "mean": 17.359693876866782
+      },
+      "submitMs": {
+        "n": 196,
+        "median": 6.399999991059303,
+        "p95": 8.299999997019768,
+        "min": 5.5,
+        "max": 20.900000005960464,
+        "mean": 6.69591836737735
+      },
+      "overlayMs": {
+        "n": 196,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 222.09999999403954,
+        "p95": 276.3999999910593,
+        "min": 186.3999999910593,
+        "max": 279,
+        "mean": 224.96571428392613
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 60,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 2148,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 1327,
+        "glow": 354,
+        "path": 442,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 4.0999999940395355,
+        "p95": 5.799999997019768,
+        "min": 3.199999988079071,
+        "max": 8.799999997019768,
+        "mean": 4.306000000238418
+      },
+      "streamFrameMs": 27.630018416209005,
+      "frames": 1086,
+      "streamPerFrameMs": {
+        "n": 1086,
+        "median": 22.799999997019768,
+        "p95": 33.80000001192093,
+        "min": 19.69999998807907,
+        "max": 67.09999999403954,
+        "mean": 24.05423572739075
+      },
+      "modelMs": {
+        "n": 1086,
+        "median": 16.5,
+        "p95": 24.5,
+        "min": 13.299999997019768,
+        "max": 60.400000005960464,
+        "mean": 17.554235727473078
+      },
+      "submitMs": {
+        "n": 1086,
+        "median": 5.199999988079071,
+        "p95": 7.299999997019768,
+        "min": 4.5,
+        "max": 30.799999997019768,
+        "mean": 5.685082872914456
+      },
+      "overlayMs": {
+        "n": 1086,
+        "median": 0.7999999970197678,
+        "p95": 1,
+        "min": 0.5999999940395355,
+        "max": 2.7000000029802322,
+        "mean": 0.8045119705230931
+      },
+      "gpuMs": {
+        "n": 1086,
+        "median": 7.977968,
+        "p95": 14.827135,
+        "min": 5.045156,
+        "max": 353.536877,
+        "mean": 10.56753055524863
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 23.299999997019768,
+        "p95": 29.200000002980232,
+        "min": 20.200000002980232,
+        "max": 43.099999994039536,
+        "mean": 24.19714285518442
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 60,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 2148,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 1327,
+        "glow": 354,
+        "path": 442,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 5.799999997019768,
+        "p95": 8.5,
+        "min": 3.1000000089406967,
+        "max": 13,
+        "mean": 5.716999999433756
+      },
+      "streamFrameMs": 30.405572441739636,
+      "frames": 987,
+      "streamPerFrameMs": {
+        "n": 987,
+        "median": 25.200000002980232,
+        "p95": 37.80000001192093,
+        "min": 15,
+        "max": 61,
+        "mean": 26.39665653477324
+      },
+      "modelMs": {
+        "n": 987,
+        "median": 18.400000005960464,
+        "p95": 30.200000002980232,
+        "min": 10.5,
+        "max": 54.400000005960464,
+        "mean": 19.719148935804856
+      },
+      "submitMs": {
+        "n": 987,
+        "median": 5.0999999940395355,
+        "p95": 9,
+        "min": 3,
+        "max": 19.400000005960464,
+        "mean": 5.862310030585364
+      },
+      "overlayMs": {
+        "n": 987,
+        "median": 0.7000000029802322,
+        "p95": 1.0999999940395355,
+        "min": 0.3999999910593033,
+        "max": 4.5999999940395355,
+        "mean": 0.8023302937653047
+      },
+      "gpuMs": {
+        "n": 987,
+        "median": 11.392968,
+        "p95": 16.539791,
+        "min": 5.168906,
+        "max": 363.5218,
+        "mean": 13.506686479230048
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 26.100000008940697,
+        "p95": 33.900000005960464,
+        "min": 21.5,
+        "max": 55.400000005960464,
+        "mean": 27.591428572790964
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 60,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 2148,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 1327,
+        "glow": 354,
+        "path": 442,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 3.4000000059604645,
+        "p95": 3.800000011920929,
+        "min": 3,
+        "max": 4.899999991059303,
+        "mean": 3.435
+      },
+      "streamFrameMs": 28.089616463982246,
+      "frames": 1069,
+      "streamPerFrameMs": {
+        "n": 1069,
+        "median": 22.799999997019768,
+        "p95": 33.79999999701977,
+        "min": 20,
+        "max": 58.79999999701977,
+        "mean": 24.15201122529101
+      },
+      "modelMs": {
+        "n": 1069,
+        "median": 16.5,
+        "p95": 23.400000005960464,
+        "min": 13.400000005960464,
+        "max": 51.70000000298023,
+        "mean": 17.578203928844186
+      },
+      "submitMs": {
+        "n": 1069,
+        "median": 5.200000002980232,
+        "p95": 7.4000000059604645,
+        "min": 4.399999991059303,
+        "max": 26.799999997019768,
+        "mean": 5.728344246982078
+      },
+      "overlayMs": {
+        "n": 1069,
+        "median": 0.7999999970197678,
+        "p95": 1.0999999940395355,
+        "min": 0.5999999940395355,
+        "max": 17.799999997019768,
+        "mean": 0.8352666040716938
+      },
+      "gpuMs": {
+        "n": 1069,
+        "median": 8.622031,
+        "p95": 14.59427,
+        "min": 5.22401,
+        "max": 367.123478,
+        "mean": 11.153538502338694
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 22.69999998807907,
+        "p95": 24.5,
+        "min": 20.900000005960464,
+        "max": 39.3999999910593,
+        "mean": 23.082857142601693
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 1,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 352,
+      "markKinds": {
+        "motes": 4,
+        "baked": 2,
+        "ribbon": 212,
+        "glow": 58,
+        "path": 71,
+        "contour": 1,
+        "text": 1,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 2.1000000089406967,
+        "min": 0.9000000059604645,
+        "max": 3.5,
+        "mean": 1.5700000001490115
+      },
+      "streamFrameMs": 14.893913904004968,
+      "frames": 2021,
+      "streamPerFrameMs": {
+        "n": 2021,
+        "median": 5.4000000059604645,
+        "p95": 9.299999997019768,
+        "min": 4,
+        "max": 29.200000002980232,
+        "mean": 5.928352300761538
+      },
+      "modelMs": {
+        "n": 2021,
+        "median": 3.5,
+        "p95": 6.799999997019768,
+        "min": 2.5999999940395355,
+        "max": 24.899999991059303,
+        "mean": 4.064275111319227
+      },
+      "submitMs": {
+        "n": 2021,
+        "median": 1.699999988079071,
+        "p95": 2.9000000059604645,
+        "min": 1.199999988079071,
+        "max": 8.200000002980232,
+        "mean": 1.8566056406627722
+      },
+      "overlayMs": {
+        "n": 2021,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 86.5,
+        "p95": 96.8999999910593,
+        "min": 72.29999999701977,
+        "max": 104.29999999701977,
+        "mean": 86.81714285654681
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 1,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 352,
+      "markKinds": {
+        "motes": 4,
+        "baked": 2,
+        "ribbon": 212,
+        "glow": 58,
+        "path": 71,
+        "contour": 1,
+        "text": 1,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5999999940395355,
+        "p95": 2.0999999940395355,
+        "min": 1,
+        "max": 2.7999999970197678,
+        "mean": 1.5790000003576279
+      },
+      "streamFrameMs": 15.560610766042464,
+      "frames": 1932,
+      "streamPerFrameMs": {
+        "n": 1932,
+        "median": 5.4000000059604645,
+        "p95": 9.400000005960464,
+        "min": 3.9000000059604645,
+        "max": 25.400000005960464,
+        "mean": 5.986283643923191
+      },
+      "modelMs": {
+        "n": 1932,
+        "median": 3.5999999940395355,
+        "p95": 6.700000002980232,
+        "min": 2.5999999940395355,
+        "max": 20.399999991059303,
+        "mean": 4.122412008428117
+      },
+      "submitMs": {
+        "n": 1932,
+        "median": 1.6000000089406967,
+        "p95": 3,
+        "min": 1.199999988079071,
+        "max": 13.5,
+        "mean": 1.8568840578321837
+      },
+      "overlayMs": {
+        "n": 1932,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 86.70000000298023,
+        "p95": 105.20000000298023,
+        "min": 73.90000000596046,
+        "max": 122.79999999701977,
+        "mean": 88.22857142942293
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 1,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 352,
+      "markKinds": {
+        "motes": 4,
+        "baked": 2,
+        "ribbon": 212,
+        "glow": 58,
+        "path": 71,
+        "contour": 1,
+        "text": 1,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 1.8999999910593033,
+        "min": 1,
+        "max": 2.7000000029802322,
+        "mean": 1.5040000002086162
+      },
+      "streamFrameMs": 19.999334221038616,
+      "frames": 1502,
+      "streamPerFrameMs": {
+        "n": 1502,
+        "median": 5.5,
+        "p95": 11.799999997019768,
+        "min": 3.8999999910593033,
+        "max": 39.5,
+        "mean": 6.388082556426525
+      },
+      "modelMs": {
+        "n": 1502,
+        "median": 3.7000000029802322,
+        "p95": 8.099999994039536,
+        "min": 2.5999999940395355,
+        "max": 31.899999991059303,
+        "mean": 4.407589880102246
+      },
+      "submitMs": {
+        "n": 1502,
+        "median": 1.699999988079071,
+        "p95": 3.6000000089406967,
+        "min": 1.0999999940395355,
+        "max": 16.799999997019768,
+        "mean": 1.9729027961704448
+      },
+      "overlayMs": {
+        "n": 1502,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 77.29999999701977,
+        "p95": 92.70000000298023,
+        "min": 66.5,
+        "max": 101,
+        "mean": 79.34857142865658
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 1,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 352,
+      "markKinds": {
+        "motes": 4,
+        "baked": 2,
+        "ribbon": 212,
+        "glow": 58,
+        "path": 71,
+        "contour": 1,
+        "text": 1,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 3.6000000089406967,
+        "p95": 4,
+        "min": 3.0999999940395355,
+        "max": 4.300000011920929,
+        "mean": 3.649000000059605
+      },
+      "streamFrameMs": 10.636795462598744,
+      "frames": 2821,
+      "streamPerFrameMs": {
+        "n": 2821,
+        "median": 5,
+        "p95": 9.599999994039536,
+        "min": 3.8999999910593033,
+        "max": 30.200000002980232,
+        "mean": 5.755547678331161
+      },
+      "modelMs": {
+        "n": 2821,
+        "median": 3.5,
+        "p95": 7.100000008940697,
+        "min": 2.5999999940395355,
+        "max": 23.69999998807907,
+        "mean": 4.191882311415689
+      },
+      "submitMs": {
+        "n": 2821,
+        "median": 1.1000000089406967,
+        "p95": 2.2999999970197678,
+        "min": 0.7999999970197678,
+        "max": 17.19999998807907,
+        "mean": 1.2974477135429396
+      },
+      "overlayMs": {
+        "n": 2821,
+        "median": 0.20000000298023224,
+        "p95": 0.4000000059604645,
+        "min": 0,
+        "max": 1.5,
+        "mean": 0.25632754348030923
+      },
+      "gpuMs": {
+        "n": 2821,
+        "median": 5.341875,
+        "p95": 6.169635,
+        "min": 3.597343,
+        "max": 372.51869,
+        "mean": 8.159811160935751
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 4.899999991059303,
+        "p95": 6.699999988079071,
+        "min": 4.200000002980232,
+        "max": 7.100000008940697,
+        "mean": 5.277142858079501
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 1,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 352,
+      "markKinds": {
+        "motes": 4,
+        "baked": 2,
+        "ribbon": 212,
+        "glow": 58,
+        "path": 71,
+        "contour": 1,
+        "text": 1,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 4.200000002980232,
+        "p95": 9.700000002980232,
+        "min": 3.4000000059604645,
+        "max": 11,
+        "mean": 5.034000000208616
+      },
+      "streamFrameMs": 9.781329423266849,
+      "frames": 3069,
+      "streamPerFrameMs": {
+        "n": 3069,
+        "median": 4.899999991059303,
+        "p95": 9,
+        "min": 3.8999999910593033,
+        "max": 23.100000008940697,
+        "mean": 5.542065819677448
+      },
+      "modelMs": {
+        "n": 3069,
+        "median": 3.5,
+        "p95": 6.799999997019768,
+        "min": 2.7000000029802322,
+        "max": 17.299999997019768,
+        "mean": 4.0441511892833475
+      },
+      "submitMs": {
+        "n": 3069,
+        "median": 1.0999999940395355,
+        "p95": 2.0999999940395355,
+        "min": 0.7999999970197678,
+        "max": 7,
+        "mean": 1.2411860540174202
+      },
+      "overlayMs": {
+        "n": 3069,
+        "median": 0.20000000298023224,
+        "p95": 0.4000000059604645,
+        "min": 0,
+        "max": 1.7999999970197678,
+        "mean": 0.24855001651432818
+      },
+      "gpuMs": {
+        "n": 3069,
+        "median": 4.298489,
+        "p95": 6.013385,
+        "min": 3.638958,
+        "max": 333.472765,
+        "mean": 4.90675578168787
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 4.5,
+        "p95": 6.199999988079071,
+        "min": 4.0999999940395355,
+        "max": 6.799999997019768,
+        "mean": 4.87714285509927
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 1,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 352,
+      "markKinds": {
+        "motes": 4,
+        "baked": 2,
+        "ribbon": 212,
+        "glow": 58,
+        "path": 71,
+        "contour": 1,
+        "text": 1,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 4,
+        "p95": 5.200000002980232,
+        "min": 3,
+        "max": 16.799999997019768,
+        "mean": 4.199000000059605
+      },
+      "streamFrameMs": 9.222932677529352,
+      "frames": 3253,
+      "streamPerFrameMs": {
+        "n": 3253,
+        "median": 4.799999997019768,
+        "p95": 8.5,
+        "min": 3.8999999910593033,
+        "max": 34.900000005960464,
+        "mean": 5.39200737787473
+      },
+      "modelMs": {
+        "n": 3253,
+        "median": 3.300000011920929,
+        "p95": 6.299999997019768,
+        "min": 2.699999988079071,
+        "max": 30.200000002980232,
+        "mean": 3.9142022746784884
+      },
+      "submitMs": {
+        "n": 3253,
+        "median": 1.0999999940395355,
+        "p95": 2.0999999940395355,
+        "min": 0.7999999970197678,
+        "max": 12.399999991059303,
+        "mean": 1.2197048879846073
+      },
+      "overlayMs": {
+        "n": 3253,
+        "median": 0.20000000298023224,
+        "p95": 0.4000000059604645,
+        "min": 0.09999999403953552,
+        "max": 2.1000000089406967,
+        "mean": 0.24887795879168031
+      },
+      "gpuMs": {
+        "n": 3253,
+        "median": 4.071302,
+        "p95": 4.723333,
+        "min": 3.658593,
+        "max": 297.840245,
+        "mean": 4.460891428220111
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 4.799999997019768,
+        "p95": 7.399999991059303,
+        "min": 4.100000008940697,
+        "max": 9.400000005960464,
+        "mean": 5.302857141835349
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 1,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 0.20000000298023224,
+        "p95": 0.29999999701976776,
+        "min": 0.09999999403953552,
+        "max": 0.4000000059604645,
+        "mean": 0.19899999991059303
+      },
+      "streamFrameMs": 26.37425307556332,
+      "frames": 1138,
+      "streamPerFrameMs": {
+        "n": 1138,
+        "median": 13.700000002980232,
+        "p95": 20.399999991059303,
+        "min": 11.200000002980232,
+        "max": 37.400000005960464,
+        "mean": 14.421265377861126
+      },
+      "modelMs": {
+        "n": 1138,
+        "median": 9.899999991059303,
+        "p95": 13.799999997019768,
+        "min": 7.9000000059604645,
+        "max": 30.100000008940697,
+        "mean": 10.28734622145422
+      },
+      "submitMs": {
+        "n": 1138,
+        "median": 3.7999999970197678,
+        "p95": 5.799999997019768,
+        "min": 3.199999988079071,
+        "max": 17.400000005960464,
+        "mean": 4.127768014012615
+      },
+      "overlayMs": {
+        "n": 1138,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 52.29999999701977,
+        "p95": 65,
+        "min": 46.79999999701977,
+        "max": 70.5,
+        "mean": 53.69999999829701
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 1,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 0.20000000298023224,
+        "p95": 0.30000001192092896,
+        "min": 0.09999999403953552,
+        "max": 0.4000000059604645,
+        "mean": 0.20400000005960464
+      },
+      "streamFrameMs": 24.61801801802534,
+      "frames": 1221,
+      "streamPerFrameMs": {
+        "n": 1221,
+        "median": 13.300000011920929,
+        "p95": 17,
+        "min": 7.399999991059303,
+        "max": 34.3999999910593,
+        "mean": 13.057985258190286
+      },
+      "modelMs": {
+        "n": 1221,
+        "median": 9.299999997019768,
+        "p95": 11.900000005960464,
+        "min": 5.100000008940697,
+        "max": 30,
+        "mean": 9.254545454604035
+      },
+      "submitMs": {
+        "n": 1221,
+        "median": 3.7000000029802322,
+        "p95": 5.5,
+        "min": 2,
+        "max": 20.200000002980232,
+        "mean": 3.7972153973667275
+      },
+      "overlayMs": {
+        "n": 1221,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 53,
+        "p95": 58.29999999701977,
+        "min": 49.79999999701977,
+        "max": 64.8999999910593,
+        "mean": 53.71999999923366
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 1,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 0.20000000298023224,
+        "p95": 0.4000000059604645,
+        "min": 0.09999999403953552,
+        "max": 1.2000000029802322,
+        "mean": 0.2330000001192093
+      },
+      "streamFrameMs": 26.499294532630493,
+      "frames": 1134,
+      "streamPerFrameMs": {
+        "n": 1134,
+        "median": 14,
+        "p95": 19.600000008940697,
+        "min": 7.5,
+        "max": 34.400000005960464,
+        "mean": 14.164373898093558
+      },
+      "modelMs": {
+        "n": 1134,
+        "median": 10,
+        "p95": 14,
+        "min": 5.399999991059303,
+        "max": 29.700000002980232,
+        "mean": 10.219488536396986
+      },
+      "submitMs": {
+        "n": 1134,
+        "median": 3.7999999970197678,
+        "p95": 5.5,
+        "min": 1.9000000059604645,
+        "max": 14.400000005960464,
+        "mean": 3.937301587319984
+      },
+      "overlayMs": {
+        "n": 1134,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 57.79999999701977,
+        "p95": 91.59999999403954,
+        "min": 41.1000000089407,
+        "max": 133,
+        "mean": 64.4171428573983
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 1,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 3.0999999940395355,
+        "p95": 3.9000000059604645,
+        "min": 2.5,
+        "max": 4.399999991059303,
+        "mean": 3.133000000119209
+      },
+      "streamFrameMs": 17.19323782235128,
+      "frames": 1745,
+      "streamPerFrameMs": {
+        "n": 1745,
+        "median": 14.200000002980232,
+        "p95": 23.400000005960464,
+        "min": 7.9000000059604645,
+        "max": 54.20000000298023,
+        "mean": 15.084183381203253
+      },
+      "modelMs": {
+        "n": 1745,
+        "median": 10.5,
+        "p95": 17.700000002980232,
+        "min": 5.600000008940697,
+        "max": 48.5,
+        "mean": 11.114727793800455
+      },
+      "submitMs": {
+        "n": 1745,
+        "median": 3.1000000089406967,
+        "p95": 5.200000002980232,
+        "min": 1.7000000029802322,
+        "max": 19,
+        "mean": 3.4565616047484826
+      },
+      "overlayMs": {
+        "n": 1745,
+        "median": 0.5,
+        "p95": 0.7999999970197678,
+        "min": 0.19999998807907104,
+        "max": 2.5,
+        "mean": 0.5014326647222896
+      },
+      "gpuMs": {
+        "n": 1745,
+        "median": 3.566614,
+        "p95": 5.53552,
+        "min": 1.12151,
+        "max": 304.314478,
+        "mean": 4.55874662578799
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 10.799999997019768,
+        "p95": 16.30000001192093,
+        "min": 9.299999997019768,
+        "max": 16.80000001192093,
+        "mean": 11.559999998978206
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 1,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 3.7000000029802322,
+        "p95": 5,
+        "min": 2.5,
+        "max": 6.5,
+        "mean": 3.8270000003278257
+      },
+      "streamFrameMs": 17.96802395209224,
+      "frames": 1670,
+      "streamPerFrameMs": {
+        "n": 1670,
+        "median": 14.599999994039536,
+        "p95": 22.200000002980232,
+        "min": 11.599999994039536,
+        "max": 56.099999994039536,
+        "mean": 15.619940119571314
+      },
+      "modelMs": {
+        "n": 1670,
+        "median": 10.699999988079071,
+        "p95": 15.700000002980232,
+        "min": 8.299999997019768,
+        "max": 41.80000001192093,
+        "mean": 11.358802395184597
+      },
+      "submitMs": {
+        "n": 1670,
+        "median": 3.2000000029802322,
+        "p95": 5.600000008940697,
+        "min": 2.699999988079071,
+        "max": 17.799999997019768,
+        "mean": 3.7188023952399187
+      },
+      "overlayMs": {
+        "n": 1670,
+        "median": 0.5,
+        "p95": 0.800000011920929,
+        "min": 0.29999999701976776,
+        "max": 2.5,
+        "mean": 0.529820359136887
+      },
+      "gpuMs": {
+        "n": 1670,
+        "median": 3.67651,
+        "p95": 7.044687,
+        "min": 1.118593,
+        "max": 431.002898,
+        "mean": 5.312392832335295
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 14,
+        "p95": 15.799999997019768,
+        "min": 12.399999991059303,
+        "max": 32.80000001192093,
+        "mean": 14.522857144049235
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 1,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 3.4000000059604645,
+        "p95": 4,
+        "min": 2.7999999970197678,
+        "max": 4.5,
+        "mean": 3.455
+      },
+      "streamFrameMs": 16.95776397514855,
+      "frames": 1771,
+      "streamPerFrameMs": {
+        "n": 1771,
+        "median": 14,
+        "p95": 20.80000001192093,
+        "min": 11.200000002980232,
+        "max": 39.70000000298023,
+        "mean": 14.807058159541707
+      },
+      "modelMs": {
+        "n": 1771,
+        "median": 10.299999997019768,
+        "p95": 14.899999991059303,
+        "min": 8.099999994039536,
+        "max": 36,
+        "mean": 10.823094297185717
+      },
+      "submitMs": {
+        "n": 1771,
+        "median": 3,
+        "p95": 5.299999997019768,
+        "min": 2.5999999940395355,
+        "max": 17.80000001192093,
+        "mean": 3.4877470356808216
+      },
+      "overlayMs": {
+        "n": 1771,
+        "median": 0.5,
+        "p95": 0.7000000029802322,
+        "min": 0.20000000298023224,
+        "max": 3.7000000029802322,
+        "mean": 0.4876905702841208
+      },
+      "gpuMs": {
+        "n": 1771,
+        "median": 5.422656,
+        "p95": 5.573958,
+        "min": 1.220104,
+        "max": 246.826761,
+        "mean": 5.894207128740767
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 13.5,
+        "p95": 14.900000005960464,
+        "min": 11.700000002980232,
+        "max": 18.400000005960464,
+        "mean": 13.380000000340598
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "flat",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 975,
+      "markKinds": {
+        "motes": 9,
+        "baked": 6,
+        "ribbon": 646,
+        "path": 215,
+        "glow": 90,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 2,
+        "min": 1,
+        "max": 2.7999999970197678,
+        "mean": 1.493999999910593
+      },
+      "streamFrameMs": 124.24504132230173,
+      "frames": 242,
+      "streamPerFrameMs": {
+        "n": 242,
+        "median": 13.100000008940697,
+        "p95": 20.700000002980232,
+        "min": 11.100000008940697,
+        "max": 29.700000002980232,
+        "mean": 13.78305785099337
+      },
+      "modelMs": {
+        "n": 242,
+        "median": 9.799999997019768,
+        "p95": 17.099999994039536,
+        "min": 8.199999988079071,
+        "max": 26.400000005960464,
+        "mean": 10.421074379758894
+      },
+      "submitMs": {
+        "n": 242,
+        "median": 3.2000000029802322,
+        "p95": 4.199999988079071,
+        "min": 2.7999999970197678,
+        "max": 10,
+        "mean": 3.357024793474635
+      },
+      "overlayMs": {
+        "n": 242,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 167.8999999910593,
+        "p95": 231.3999999910593,
+        "min": 130.5,
+        "max": 265.40000000596046,
+        "mean": 172.59142857151372
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "flat",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 975,
+      "markKinds": {
+        "motes": 9,
+        "baked": 6,
+        "ribbon": 646,
+        "path": 215,
+        "glow": 90,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 1.7999999970197678,
+        "min": 0.8999999910593033,
+        "max": 2.7000000029802322,
+        "mean": 1.496999999731779
+      },
+      "streamFrameMs": 123.31434426224622,
+      "frames": 244,
+      "streamPerFrameMs": {
+        "n": 244,
+        "median": 12.800000011920929,
+        "p95": 15.399999991059303,
+        "min": 10.700000002980232,
+        "max": 26.700000002980232,
+        "mean": 13.237704918338139
+      },
+      "modelMs": {
+        "n": 244,
+        "median": 9.700000002980232,
+        "p95": 12.100000008940697,
+        "min": 7.899999991059303,
+        "max": 21.700000002980232,
+        "mean": 9.98729508174736
+      },
+      "submitMs": {
+        "n": 244,
+        "median": 3.1000000089406967,
+        "p95": 4,
+        "min": 2.7000000029802322,
+        "max": 8.900000005960464,
+        "mean": 3.2463114758739704
+      },
+      "overlayMs": {
+        "n": 244,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 175.19999998807907,
+        "p95": 198.79999999701977,
+        "min": 145.29999999701977,
+        "max": 211,
+        "mean": 171.5171428556953
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "flat",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 975,
+      "markKinds": {
+        "motes": 9,
+        "baked": 6,
+        "ribbon": 646,
+        "path": 215,
+        "glow": 90,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 2.1000000089406967,
+        "min": 1,
+        "max": 2.7000000029802322,
+        "mean": 1.5270000003278255
+      },
+      "streamFrameMs": 126.32541666664183,
+      "frames": 240,
+      "streamPerFrameMs": {
+        "n": 240,
+        "median": 13,
+        "p95": 17.200000002980232,
+        "min": 11,
+        "max": 26.799999997019768,
+        "mean": 13.432916667188207
+      },
+      "modelMs": {
+        "n": 240,
+        "median": 9.700000002980232,
+        "p95": 11.900000005960464,
+        "min": 8,
+        "max": 23.700000002980232,
+        "mean": 10.102500000347694
+      },
+      "submitMs": {
+        "n": 240,
+        "median": 3.2000000029802322,
+        "p95": 4.0999999940395355,
+        "min": 2.699999988079071,
+        "max": 10.5,
+        "mean": 3.3262500002980233
+      },
+      "overlayMs": {
+        "n": 240,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 181.79999999701977,
+        "p95": 207.29999999701977,
+        "min": 144.70000000298023,
+        "max": 221,
+        "mean": 179.12285714447498
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "flat",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 975,
+      "markKinds": {
+        "motes": 9,
+        "baked": 6,
+        "ribbon": 646,
+        "path": 215,
+        "glow": 90,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 5.700000002980232,
+        "p95": 10.700000002980232,
+        "min": 4.9000000059604645,
+        "max": 13.5,
+        "mean": 6.406000000089407
+      },
+      "streamFrameMs": 18.68237858031822,
+      "frames": 1606,
+      "streamPerFrameMs": {
+        "n": 1606,
+        "median": 14.699999988079071,
+        "p95": 22,
+        "min": 11.700000002980232,
+        "max": 59.29999999701977,
+        "mean": 15.569489414375717
+      },
+      "modelMs": {
+        "n": 1606,
+        "median": 10.900000005960464,
+        "p95": 16.200000002980232,
+        "min": 8.599999994039536,
+        "max": 55.5,
+        "mean": 11.626836861510428
+      },
+      "submitMs": {
+        "n": 1606,
+        "median": 3.0999999940395355,
+        "p95": 4.799999997019768,
+        "min": 2.5999999940395355,
+        "max": 18.299999997019768,
+        "mean": 3.4048567871988786
+      },
+      "overlayMs": {
+        "n": 1606,
+        "median": 0.5,
+        "p95": 0.7999999970197678,
+        "min": 0.29999999701976776,
+        "max": 2.5999999940395355,
+        "mean": 0.5285803236410597
+      },
+      "gpuMs": {
+        "n": 1606,
+        "median": 6.863541,
+        "p95": 9.274062,
+        "min": 3.46802,
+        "max": 296.881613,
+        "mean": 8.211351346824403
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 14.5,
+        "p95": 18.5,
+        "min": 12.5,
+        "max": 24,
+        "mean": 15.16285714166505
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "flat",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 975,
+      "markKinds": {
+        "motes": 9,
+        "baked": 6,
+        "ribbon": 646,
+        "path": 215,
+        "glow": 90,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 5.5999999940395355,
+        "p95": 16.80000001192093,
+        "min": 3.5,
+        "max": 22.30000001192093,
+        "mean": 7.26
+      },
+      "streamFrameMs": 18.981467425681835,
+      "frames": 1581,
+      "streamPerFrameMs": {
+        "n": 1581,
+        "median": 14.600000008940697,
+        "p95": 22.200000002980232,
+        "min": 11.600000008940697,
+        "max": 46.8999999910593,
+        "mean": 15.625806451305642
+      },
+      "modelMs": {
+        "n": 1581,
+        "median": 10.900000005960464,
+        "p95": 16.600000008940697,
+        "min": 8.299999997019768,
+        "max": 40.099999994039536,
+        "mean": 11.639468690570135
+      },
+      "submitMs": {
+        "n": 1581,
+        "median": 3.0999999940395355,
+        "p95": 4.9000000059604645,
+        "min": 2.5999999940395355,
+        "max": 22.600000008940697,
+        "mean": 3.4473118277892216
+      },
+      "overlayMs": {
+        "n": 1581,
+        "median": 0.5,
+        "p95": 0.7999999970197678,
+        "min": 0.29999999701976776,
+        "max": 4.700000002980232,
+        "mean": 0.5301075269062259
+      },
+      "gpuMs": {
+        "n": 1581,
+        "median": 8.260156,
+        "p95": 10.31901,
+        "min": 3.40776,
+        "max": 370.48051,
+        "mean": 9.103385371283988
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 14.200000002980232,
+        "p95": 19.700000002980232,
+        "min": 12.300000011920929,
+        "max": 30.299999997019768,
+        "mean": 15.231428571258272
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "flat",
+        "noGrain": false,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 975,
+      "markKinds": {
+        "motes": 9,
+        "baked": 6,
+        "ribbon": 646,
+        "path": 215,
+        "glow": 90,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 4.0999999940395355,
+        "p95": 5.5,
+        "min": 3.6000000089406967,
+        "max": 8.700000002980232,
+        "mean": 4.321000000089407
+      },
+      "streamFrameMs": 18.218214936251343,
+      "frames": 1647,
+      "streamPerFrameMs": {
+        "n": 1647,
+        "median": 13.799999997019768,
+        "p95": 21.400000005960464,
+        "min": 11.299999997019768,
+        "max": 48.29999999701977,
+        "mean": 14.666605950297553
+      },
+      "modelMs": {
+        "n": 1647,
+        "median": 10.299999997019768,
+        "p95": 14.200000002980232,
+        "min": 8,
+        "max": 31.900000005960464,
+        "mean": 10.70218579237687
+      },
+      "submitMs": {
+        "n": 1647,
+        "median": 3,
+        "p95": 4.700000002980232,
+        "min": 2.5999999940395355,
+        "max": 37.599999994039536,
+        "mean": 3.4525804493234746
+      },
+      "overlayMs": {
+        "n": 1647,
+        "median": 0.5,
+        "p95": 0.7000000029802322,
+        "min": 0.29999999701976776,
+        "max": 3,
+        "mean": 0.50212507592271
+      },
+      "gpuMs": {
+        "n": 1647,
+        "median": 8.332395,
+        "p95": 10.063646,
+        "min": 3.34125,
+        "max": 310.220412,
+        "mean": 8.981445993321163
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 13.899999991059303,
+        "p95": 16.799999997019768,
+        "min": 11.400000005960464,
+        "max": 22,
+        "mean": 14.037142856206213
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": true,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1059,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 1.7000000029802322,
+        "min": 1,
+        "max": 2.2000000029802322,
+        "mean": 1.4579999996721744
+      },
+      "streamFrameMs": 135.54598214284383,
+      "frames": 224,
+      "streamPerFrameMs": {
+        "n": 224,
+        "median": 13.900000005960464,
+        "p95": 22.200000002980232,
+        "min": 11.599999994039536,
+        "max": 29.100000008940697,
+        "mean": 14.437499999800432
+      },
+      "modelMs": {
+        "n": 224,
+        "median": 10.099999994039536,
+        "p95": 13.200000002980232,
+        "min": 8.299999997019768,
+        "max": 25.400000005960464,
+        "mean": 10.436160713500742
+      },
+      "submitMs": {
+        "n": 224,
+        "median": 3.7000000029802322,
+        "p95": 5,
+        "min": 3.199999988079071,
+        "max": 13.700000002980232,
+        "mean": 3.995982143429241
+      },
+      "overlayMs": {
+        "n": 224,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 184.40000000596046,
+        "p95": 217.20000000298023,
+        "min": 150.3999999910593,
+        "max": 247,
+        "mean": 185.3457142863955
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": true,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1059,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 1.8999999910593033,
+        "min": 0.8999999910593033,
+        "max": 2.3999999910593033,
+        "mean": 1.5470000000298023
+      },
+      "streamFrameMs": 134.76888888888888,
+      "frames": 225,
+      "streamPerFrameMs": {
+        "n": 225,
+        "median": 13.5,
+        "p95": 20.700000002980232,
+        "min": 11.599999994039536,
+        "max": 29.5,
+        "mean": 14.251555555926428
+      },
+      "modelMs": {
+        "n": 225,
+        "median": 9.700000002980232,
+        "p95": 14.5,
+        "min": 8.099999994039536,
+        "max": 24.700000002980232,
+        "mean": 10.264888889524672
+      },
+      "submitMs": {
+        "n": 225,
+        "median": 3.7000000029802322,
+        "p95": 4.799999997019768,
+        "min": 3.2000000029802322,
+        "max": 17.900000005960464,
+        "mean": 3.9804444442192715
+      },
+      "overlayMs": {
+        "n": 225,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 182.09999999403954,
+        "p95": 211.1000000089407,
+        "min": 147.90000000596046,
+        "max": 233,
+        "mean": 181.1428571432829
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": true,
+        "noShells": false,
+        "shot": false
+      },
+      "marks": 1059,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.4000000059604645,
+        "p95": 1.9000000059604645,
+        "min": 1,
+        "max": 2.2999999970197678,
+        "mean": 1.451000000089407
+      },
+      "streamFrameMs": 135.8448430493541,
+      "frames": 223,
+      "streamPerFrameMs": {
+        "n": 223,
+        "median": 13.799999997019768,
+        "p95": 17,
+        "min": 11.400000005960464,
+        "max": 31.899999991059303,
+        "mean": 14.179820627775962
+      },
+      "modelMs": {
+        "n": 223,
+        "median": 10,
+        "p95": 12.299999997019768,
+        "min": 8.099999994039536,
+        "max": 28.200000002980232,
+        "mean": 10.299103138692711
+      },
+      "submitMs": {
+        "n": 223,
+        "median": 3.7000000029802322,
+        "p95": 4.700000002980232,
+        "min": 3.199999988079071,
+        "max": 10.900000005960464,
+        "mean": 3.873542601150782
+      },
+      "overlayMs": {
+        "n": 223,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 185.5,
+        "p95": 227.09999999403954,
+        "min": 146.80000001192093,
+        "max": 231.79999999701977,
+        "mean": 183.26857142916748
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": true,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.6000000089406967,
+        "p95": 2.2000000029802322,
+        "min": 0.8999999910593033,
+        "max": 2.7999999970197678,
+        "mean": 1.6309999999403955
+      },
+      "streamFrameMs": 128.07191489364237,
+      "frames": 235,
+      "streamPerFrameMs": {
+        "n": 235,
+        "median": 13.400000005960464,
+        "p95": 16.899999991059303,
+        "min": 11.099999994039536,
+        "max": 31.69999998807907,
+        "mean": 13.859148936195577
+      },
+      "modelMs": {
+        "n": 235,
+        "median": 9.899999991059303,
+        "p95": 12.399999991059303,
+        "min": 7.899999991059303,
+        "max": 26.299999997019768,
+        "mean": 10.154893616919821
+      },
+      "submitMs": {
+        "n": 235,
+        "median": 3.3999999910593033,
+        "p95": 4.800000011920929,
+        "min": 2.8999999910593033,
+        "max": 10.199999988079071,
+        "mean": 3.6991489361575307
+      },
+      "overlayMs": {
+        "n": 235,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 164.59999999403954,
+        "p95": 206.59999999403954,
+        "min": 93.5,
+        "max": 244.90000000596046,
+        "mean": 167.7600000006812
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": true,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5999999940395355,
+        "p95": 2.4000000059604645,
+        "min": 1.0999999940395355,
+        "max": 3.7000000029802322,
+        "mean": 1.663999999910593
+      },
+      "streamFrameMs": 128.56837606837607,
+      "frames": 234,
+      "streamPerFrameMs": {
+        "n": 234,
+        "median": 13.5,
+        "p95": 17.900000005960464,
+        "min": 11.200000002980232,
+        "max": 30.700000002980232,
+        "mean": 13.95641025658856
+      },
+      "modelMs": {
+        "n": 234,
+        "median": 9.900000005960464,
+        "p95": 13,
+        "min": 7.799999997019768,
+        "max": 26.400000005960464,
+        "mean": 10.325213674742441
+      },
+      "submitMs": {
+        "n": 234,
+        "median": 3.4000000059604645,
+        "p95": 4.5999999940395355,
+        "min": 2.8999999910593033,
+        "max": 9.899999991059303,
+        "mean": 3.623076923764669
+      },
+      "overlayMs": {
+        "n": 234,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 171.90000000596046,
+        "p95": 213.8999999910593,
+        "min": 98.29999999701977,
+        "max": 258.80000001192093,
+        "mean": 172.80285714268683
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "canvas",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": true,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": null,
+      "info": {
+        "backend": "2d"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 1.5,
+        "p95": 2,
+        "min": 1,
+        "max": 2.5999999940395355,
+        "mean": 1.5350000001490116
+      },
+      "streamFrameMs": 127.32076271187704,
+      "frames": 236,
+      "streamPerFrameMs": {
+        "n": 236,
+        "median": 13.5,
+        "p95": 17.399999991059303,
+        "min": 11.400000005960464,
+        "max": 29.700000002980232,
+        "mean": 13.935593220642058
+      },
+      "modelMs": {
+        "n": 236,
+        "median": 10,
+        "p95": 12.900000005960464,
+        "min": 8.199999988079071,
+        "max": 25.799999997019768,
+        "mean": 10.370762711990688
+      },
+      "submitMs": {
+        "n": 236,
+        "median": 3.4000000059604645,
+        "p95": 4.5999999940395355,
+        "min": 2.8999999910593033,
+        "max": 9.200000002980232,
+        "mean": 3.559322034024586
+      },
+      "overlayMs": {
+        "n": 236,
+        "median": 0,
+        "p95": 0,
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "gpuMs": null,
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 176.3999999910593,
+        "p95": 209.90000000596046,
+        "min": 107.1000000089407,
+        "max": 219.20000000298023,
+        "mean": 172.46285714421953
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 1,
+        "material": "living",
+        "noGrain": false,
+        "noShells": true,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 4.700000002980232,
+        "p95": 5.4000000059604645,
+        "min": 4,
+        "max": 6.4000000059604645,
+        "mean": 4.726999999731779
+      },
+      "streamFrameMs": 16.46226001097256,
+      "frames": 1823,
+      "streamPerFrameMs": {
+        "n": 1823,
+        "median": 13.200000002980232,
+        "p95": 17.5,
+        "min": 10.600000008940697,
+        "max": 38.29999999701977,
+        "mean": 13.681733406593821
+      },
+      "modelMs": {
+        "n": 1823,
+        "median": 10.100000008940697,
+        "p95": 13.600000008940697,
+        "min": 8.099999994039536,
+        "max": 35.599999994039536,
+        "mean": 10.529237520846769
+      },
+      "submitMs": {
+        "n": 1823,
+        "median": 2.4000000059604645,
+        "p95": 3.7000000029802322,
+        "min": 2,
+        "max": 14.799999997019768,
+        "mean": 2.660175534898085
+      },
+      "overlayMs": {
+        "n": 1823,
+        "median": 0.5,
+        "p95": 0.6000000089406967,
+        "min": 0.20000000298023224,
+        "max": 5.700000002980232,
+        "mean": 0.4829402082710559
+      },
+      "gpuMs": {
+        "n": 1823,
+        "median": 6.146562,
+        "p95": 8.218593,
+        "min": 2.580468,
+        "max": 345.690707,
+        "mean": 7.2412993176083775
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 13.399999991059303,
+        "p95": 14.700000002980232,
+        "min": 11.600000008940697,
+        "max": 24.5,
+        "mean": 13.600000000851495
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 2,
+        "material": "living",
+        "noGrain": false,
+        "noShells": true,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 6.299999997019768,
+        "p95": 11.400000005960464,
+        "min": 4.399999991059303,
+        "max": 15.900000005960464,
+        "mean": 6.6780000001192095
+      },
+      "streamFrameMs": 16.923857868020306,
+      "frames": 1773,
+      "streamPerFrameMs": {
+        "n": 1773,
+        "median": 13.299999997019768,
+        "p95": 18.700000002980232,
+        "min": 10.899999991059303,
+        "max": 45.599999994039536,
+        "mean": 13.945685279164284
+      },
+      "modelMs": {
+        "n": 1773,
+        "median": 10.299999997019768,
+        "p95": 14.399999991059303,
+        "min": 8.200000002980232,
+        "max": 42.6000000089407,
+        "mean": 10.765313028768167
+      },
+      "submitMs": {
+        "n": 1773,
+        "median": 2.4000000059604645,
+        "p95": 3.7999999970197678,
+        "min": 2,
+        "max": 14.200000002980232,
+        "mean": 2.690468133143026
+      },
+      "overlayMs": {
+        "n": 1773,
+        "median": 0.5,
+        "p95": 0.699999988079071,
+        "min": 0.29999999701976776,
+        "max": 5.5,
+        "mean": 0.4805414550598906
+      },
+      "gpuMs": {
+        "n": 1773,
+        "median": 6.686406,
+        "p95": 8.29927,
+        "min": 2.535312,
+        "max": 286.80066,
+        "mean": 7.458437548787319
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 12.599999994039536,
+        "p95": 14.200000002980232,
+        "min": 11.5,
+        "max": 20.799999997019768,
+        "mean": 12.977142855525017
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    },
+    {
+      "config": {
+        "renderer": "webgl",
+        "lanes": 30,
+        "colonies": 3,
+        "width": 1440,
+        "height": 900,
+        "dpr": 2,
+        "seconds": 30,
+        "run": 3,
+        "material": "living",
+        "noGrain": false,
+        "noShells": true,
+        "shot": false
+      },
+      "marks": 1060,
+      "markKinds": {
+        "motes": 10,
+        "baked": 6,
+        "ribbon": 646,
+        "glow": 174,
+        "path": 215,
+        "contour": 3,
+        "text": 3,
+        "wash": 2,
+        "grain": 1
+      },
+      "ambientMotes": 200,
+      "drawCalls": 2,
+      "info": {
+        "renderer": "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)",
+        "vendor": "Google Inc. (Microsoft Corporation)"
+      },
+      "controlEmptyFrameMs": {
+        "n": 100,
+        "median": 5.200000002980232,
+        "p95": 6,
+        "min": 4.799999997019768,
+        "max": 6.5999999940395355,
+        "mean": 5.313000000417232
+      },
+      "streamFrameMs": 17.37175925926271,
+      "frames": 1728,
+      "streamPerFrameMs": {
+        "n": 1728,
+        "median": 13.699999988079071,
+        "p95": 21.399999991059303,
+        "min": 10.800000011920929,
+        "max": 46.599999994039536,
+        "mean": 14.554456018377095
+      },
+      "modelMs": {
+        "n": 1728,
+        "median": 10.5,
+        "p95": 16.700000002980232,
+        "min": 8.200000002980232,
+        "max": 43.099999994039536,
+        "mean": 11.208969907447075
+      },
+      "submitMs": {
+        "n": 1728,
+        "median": 2.5,
+        "p95": 4.0999999940395355,
+        "min": 2.0999999940395355,
+        "max": 20.400000005960464,
+        "mean": 2.8307291664165892
+      },
+      "overlayMs": {
+        "n": 1728,
+        "median": 0.5,
+        "p95": 0.7000000029802322,
+        "min": 0.29999999701976776,
+        "max": 4.5999999940395355,
+        "mean": 0.5041087963790806
+      },
+      "gpuMs": {
+        "n": 1728,
+        "median": 5.618385,
+        "p95": 9.409479,
+        "min": 2.542239,
+        "max": 351.329212,
+        "mean": 7.773395194444428
+      },
+      "pacedFrameMs": {
+        "n": 35,
+        "median": 13.200000002980232,
+        "p95": 14.599999994039536,
+        "min": 11.800000011920929,
+        "max": 34.19999998807907,
+        "mean": 13.834285713945116
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "adapter": "integrated"
+    }
+  ]
+}

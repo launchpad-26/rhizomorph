@@ -119,6 +119,12 @@ describe('LanePage — cold deep link', () => {
     expect(screen.queryByTestId('lane-page-unknown')).toBeNull()
   })
 
+  it('renders the persistent nav (#549, prd-32 ruling 10)', async () => {
+    await renderLanePage()
+
+    expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+  })
+
   it('says the honest gap for a handle no lane in this session carries', async () => {
     await renderLanePage({ handle: 'never-existed' })
 
@@ -127,6 +133,12 @@ describe('LanePage — cold deep link', () => {
     expect(gap.textContent).toContain('never-existed')
     expect(gap.textContent).toContain('this session')
     expect(screen.queryByTestId('lane-page-header')).toBeNull()
+  })
+
+  it('renders the persistent nav even on the unknown-lane honest gap — never a bare blank page with no way out but Esc', async () => {
+    await renderLanePage({ handle: 'never-existed' })
+
+    expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
   })
 
   it("the header names the handle, role, state glyph and branch — the fleet table's own object", async () => {

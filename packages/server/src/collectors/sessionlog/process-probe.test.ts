@@ -8,6 +8,7 @@ import {
   AGENT_COMMANDS,
   createProcProcessProbe,
   defaultProcessProbe,
+  processProbeCapability,
   UNKNOWN_PROCESS_PROBE,
 } from './process-probe.js'
 
@@ -113,6 +114,60 @@ describe('the /proc process probe', () => {
     expect((await createProcProcessProbe({ procRoot }).probe([laneA()])).get(laneA())).toBe(true)
   })
 
+  describe('an interpreter-launched agent is alive, and must never read as dead', () => {
+    /**
+     * The bug this covers, and why it is the worst kind this probe can have.
+     *
+     * An agent CLI is frequently a JS entry point started as
+     * `node /path/to/claude`, whose argv[0] basename is `node`. Matching argv[0]
+     * alone therefore returns **`false`** — not `null` — for a lane that is
+     * plainly alive. `false` is the one answer `lane-state.ts` may escalate to
+     * GONE on (rule 3: "unknown is never death"), so this does not degrade a
+     * reading, it *invents a death*: the probe reports the lane dead while its
+     * agent is mid-turn.
+     *
+     * The safe direction for THIS probe is the weaker claim. A miss here is a
+     * fabricated death; a spurious match only leaves a stalled lane reading
+     * FROZEN, which rule 3 already calls the honest, weaker answer. So the
+     * interpreter arm is deliberately permissive — and still bounded by the cwd
+     * half of rule 2, which no amount of argv confusion can satisfy on its own.
+     */
+    it('finds an agent launched as `node /path/to/claude`', async () => {
+      await fabricate([{ pid: 4101, cwd: laneA(), argv: ['/usr/bin/node', '/opt/claude/bin/claude'] }])
+      expect((await createProcProcessProbe({ procRoot }).probe([laneA()])).get(laneA())).toBe(true)
+    })
+
+    it('finds one behind interpreter flags — `node --enable-source-maps … claude`', async () => {
+      await fabricate([
+        { pid: 4102, cwd: laneA(), argv: ['node', '--enable-source-maps', '/opt/claude/bin/claude', '--continue'] },
+      ])
+      expect((await createProcProcessProbe({ procRoot }).probe([laneA()])).get(laneA())).toBe(true)
+    })
+
+    it.each(['bun', 'deno', 'python3'])('finds one behind %s too', async (interpreter) => {
+      await fabricate([{ pid: 4103, cwd: laneA(), argv: [`/usr/bin/${interpreter}`, '/opt/bin/codex'] }])
+      expect((await createProcProcessProbe({ procRoot }).probe([laneA()])).get(laneA())).toBe(true)
+    })
+
+    it('still refuses an editor holding the name — the interpreter guard is what stops it', async () => {
+      // `vim claude` names an agent in argv, and must not read as one running.
+      // Only a known interpreter at argv[0] opens the rest of argv to matching.
+      await fabricate([{ pid: 4104, cwd: laneA(), argv: ['vim', 'claude'] }])
+      expect((await createProcProcessProbe({ procRoot }).probe([laneA()])).get(laneA())).toBe(false)
+    })
+
+    it('still refuses an interpreter running something that is not an agent', async () => {
+      await fabricate([{ pid: 4105, cwd: laneA(), argv: ['node', '/srv/app/server.js'] }])
+      expect((await createProcProcessProbe({ procRoot }).probe([laneA()])).get(laneA())).toBe(false)
+    })
+
+    it('still refuses an interpreter-launched agent in the WRONG place', async () => {
+      // The cwd half of rule 2 is untouched by any of this.
+      await fabricate([{ pid: 4106, cwd: path.join(root, 'repo'), argv: ['node', '/opt/claude/bin/claude'] }])
+      expect((await createProcProcessProbe({ procRoot }).probe([laneA()])).get(laneA())).toBe(false)
+    })
+  })
+
   it('sees the other agent CLIs a lane may be running', async () => {
     // Their transcript *grammars* are later waves; their processes are alive
     // now, and refusing to see one would fabricate a death.
@@ -198,6 +253,65 @@ describe('unknown is never death', () => {
     for (const platform of ['darwin', 'win32', 'freebsd'] as const) {
       expect(defaultProcessProbe(platform), platform).toBe(UNKNOWN_PROCESS_PROBE)
     }
+  })
+})
+
+describe('a platform that answers null says WHY (ADR-0010, additive)', () => {
+  /**
+   * The behaviour was already honest — `null` everywhere this build cannot
+   * look. What was missing was the reason, so a caller could not tell "no
+   * reader is built for macOS" from "the reader ran and the table was
+   * unreadable". Both are unknown; only one is a missing platform leg.
+   *
+   * Additive on purpose, in ADR-0010's own shape: nothing below changes what
+   * `defaultProcessProbe` returns, and the identity of `UNKNOWN_PROCESS_PROBE`
+   * is deliberately left alone (the test above still asserts it).
+   */
+  it('declares linux provided — the one leg verified on a real machine', () => {
+    expect(processProbeCapability('linux')).toEqual({ level: 'provided' })
+  })
+
+  it.each(['darwin', 'win32', 'freebsd'] as const)('declares %s absent WITH a reason, never silently', (platform) => {
+    const capability = processProbeCapability(platform)
+
+    expect(capability.level).toBe('absent')
+    if (capability.level === 'provided') throw new Error('expected a reason-carrying level')
+    expect(capability.reason.length).toBeGreaterThan(0)
+  })
+
+  it('names the read-only strategy each unbuilt leg would use, rather than shrugging', () => {
+    // prd15 ruling 7: a platform leg lands behind a capture. Naming the strategy
+    // is what keeps "not built" from decaying into "not possible".
+    const macos = processProbeCapability('darwin')
+    const windows = processProbeCapability('win32')
+    if (macos.level === 'provided' || windows.level === 'provided') throw new Error('expected absent')
+
+    expect(macos.remedy).toMatch(/lsof/)
+    expect(macos.remedy).toMatch(/ps -axo/)
+    expect(windows.remedy).toMatch(/Win32_Process/)
+  })
+
+  it('records that Windows could match argv but not cwd — the gap, not a promise', () => {
+    const windows = processProbeCapability('win32')
+    if (windows.level === 'provided') throw new Error('expected absent')
+
+    expect(windows.reason).toMatch(/working directory/)
+  })
+
+  it('"absent" here means this build cannot SEE, which is why a reading of it is unknown', () => {
+    // The distinction the harness detector depends on: a capability of `absent`
+    // must map onto a *reading* of unknown, never onto a reading of absent.
+    // `defaultProcessProbe` already encodes that — it answers null, not false.
+    expect(processProbeCapability('darwin').level).toBe('absent')
+    expect(defaultProcessProbe('darwin')).toBe(UNKNOWN_PROCESS_PROBE)
+  })
+
+  it('has an answer for a platform nobody has thought about yet', () => {
+    const capability = processProbeCapability('sunos')
+
+    expect(capability.level).toBe('absent')
+    if (capability.level === 'provided') throw new Error('expected absent')
+    expect(capability.reason).toContain('sunos')
   })
 })
 

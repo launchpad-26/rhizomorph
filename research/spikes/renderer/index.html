@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>renderer spike</title>
+<style>
+  html,
+  body {
+    margin: 0;
+    background: #04060c;
+    overflow: hidden;
+  }
+  .stack {
+    position: relative;
+  }
+  #scene,
+  #overlay {
+    position: absolute;
+    inset: 0;
+    width: 1440px;
+    height: 900px;
+  }
+</style>
+<div class="stack"><canvas id="scene"></canvas><canvas id="overlay"></canvas></div>
+<script type="module" src="/bench.js"></script>

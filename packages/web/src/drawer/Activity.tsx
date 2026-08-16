@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { formatSpan } from '../fleet/index.js'
-import { activityCounts, type ActivityEntry } from './foldActivity.js'
+import { KIND_APPEARANCE, kindTagClass, type WorkKind } from '../theme/kind.js'
+import { activityCounts, type ActivityEntry, type ActivityKind } from './foldActivity.js'
 
 /**
  * THE ACTIVITY VIEW — the lane's audit trail (ruling 17).
@@ -87,8 +88,8 @@ export function ActivityView({ entries, now, fill = false, highlightPath = null 
               <span className="figures w-10 shrink-0 text-right text-[10px] text-ice-400">
                 {relative(entry.ts, now)}
               </span>
-              <span className={`w-14 shrink-0 text-[10px] uppercase tracking-wider ${KIND_CLASS[entry.kind]}`}>
-                {KIND_WORD[entry.kind]}
+              <span className={kindTagClass(ACTIVITY_KIND[entry.kind])}>
+                {KIND_APPEARANCE[ACTIVITY_KIND[entry.kind]].word}
               </span>
               <span className="min-w-0 flex-1 font-mono text-[11px] leading-relaxed text-ice-300">
                 <EntryBody entry={entry} />
@@ -119,18 +120,19 @@ export function ActivityView({ entries, now, fill = false, highlightPath = null 
   )
 }
 
-const KIND_WORD = { tool: 'tool', file: 'file', commit: 'commit' } as const
-
 /**
- * Kinds differ by lightness, never by a ladder hue (law 9): a commit is not a
- * status, and an amber commit line in a calm lane would be a lie told in
- * colour.
+ * Which of the app's kinds a ledger entry is. Vocabulary, not appearance: what
+ * the tag *looks like* is `theme/kind.ts`'s single table (prd-31 ruling 1), and
+ * the law it states is the one this file used to state for itself — a commit is
+ * not a status, and an amber commit line in a calm lane would be a lie told in
+ * colour. The ledger and the trace disagreed about `tool` for as long as they
+ * each kept their own copy; they cannot now.
  */
-const KIND_CLASS = {
-  tool: 'text-ice-300',
-  file: 'text-ice-400',
-  commit: 'text-ice-200',
-} as const
+const ACTIVITY_KIND: Record<ActivityKind, WorkKind> = {
+  tool: 'tool',
+  file: 'file',
+  commit: 'commit',
+}
 
 function EntryBody({ entry }: { entry: ActivityEntry }) {
   if (entry.kind === 'tool') {

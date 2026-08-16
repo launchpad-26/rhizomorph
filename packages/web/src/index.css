@@ -12,22 +12,40 @@ body,
   height: 100%;
 }
 
+/*
+ * The page floor names ROLES, not rungs (prd-32 S2). In dark it resolves to
+ * exactly the two colours it always did — `--surface-floor` is
+ * `--color-ice-1000` and `--ink-body` is `--color-ice-300` — which is the
+ * point: the roles derive from the dark ramp rather than sitting beside it,
+ * and light re-derives the same two names against warm paper.
+ *
+ * This was the first declaration in the app to name a role and, until #597,
+ * the only one that mattered: the app's own root painted `bg-ice-1000` straight
+ * back over it, so choosing Light turned the body warm and then buried it. The
+ * sweep is what makes this line visible.
+ */
 body {
-  background: var(--color-ice-1000);
-  color: var(--color-ice-300);
+  background: var(--surface-floor);
+  color: var(--ink-body);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
 /*
  * prd9 legibility round: a scrollbar is chrome, not a status, so it is thin
- * and ice-toned rather than the browser default's wide, undyed slab — the
- * same "structure, not status" reasoning theme.css gives the ice ramp itself.
- * Set globally, once, so a scroll container added later never has to ask.
+ * and drawn out of the structure roles rather than the browser default's wide,
+ * undyed slab — the same "structure, not status" reasoning theme.css gives the
+ * ice ramp itself. Set globally, once, so a scroll container added later never
+ * has to ask.
+ *
+ * The thumb is `--line-strong` (a rule, which is what a track-bound thumb is)
+ * and its hover is `--ink-dim`, so the affordance travels by *presence* rather
+ * than by luminance — on paper the hover is darker than the rest, on the void
+ * brighter, and the reading is the same in both (prd-32 ruling 7).
  */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-ice-700) transparent;
+  scrollbar-color: var(--line-strong) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -40,12 +58,12 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  background-color: var(--color-ice-700);
+  background-color: var(--line-strong);
   border-radius: 4px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background-color: var(--color-ice-600);
+  background-color: var(--ink-dim);
 }
 
 /*

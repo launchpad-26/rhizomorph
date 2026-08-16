@@ -1,9 +1,9 @@
-import { lazy, Suspense, type MouseEvent } from 'react'
+import { lazy, Suspense } from 'react'
 import { ConnectionBadge } from './ConnectionBadge.js'
 import { useIdleWorkerJump } from './keyboard.js'
 import { useMode } from './ModeContext.js'
+import { Nav } from './Nav.js'
 import { PanelGrid } from './PanelGrid.js'
-import { navigate, useRoute, type Route } from './router.js'
 import { ReplayBar } from './ReplayBar.js'
 import { StatusBar } from './StatusBar.js'
 import { useStream } from './StreamContext.js'
@@ -13,24 +13,25 @@ const BurnStrip = lazy(() => import('../panels/burn/index.js'))
 const LaneDrawer = lazy(() => import('../drawer/index.js'))
 
 /**
- * The curated order — prd3 ruling 6, amended by prd4 ruling 2. One
- * conductor-curated hierarchy, no drag and no custom layouts — the sequence
- * itself is the ruling:
+ * The curated order — prd3 ruling 6, amended by prd4 ruling 2 and again by
+ * prd-36 ruling 1. One conductor-curated hierarchy, no drag and no custom
+ * layouts — the sequence itself is the ruling:
  *
  *   attention strip + burn strip (docked top)
- *     → scene (the hero — ruling 2's centerpiece)
- *       → fleet table (legend/detail beneath it)
- *         → the rest (ledger, collisions, feed)
- *           → provenance bar (docked bottom)
+ *     → fleet surface (the hero — organism or list, one keystroke apart)
+ *       → the rest (ledger, collisions, feed)
+ *         → provenance bar (docked bottom)
  *
- * prd4 ruling 2 answers "what is the fleet doing?" before anything else: the
- * scene is big, bright and self-explanatory on the #92 palette, so it now
- * outranks the table it used to sit beneath — the table and the detail panels
- * are reference instruments once that first question is answered. It reads
- * top-to-bottom as that question and its answers: *does anything need me*
- * (attention), *what is it costing* (burn), *what does it look like* (scene),
- * *who is doing what* (fleet, the legend), *what happened* (the rest),
- * *where did this come from* (provenance).
+ * prd4 ruling 2 answered "what is the fleet doing?" before anything else by
+ * promoting the scene above the table it used to sit beneath. prd-36 ruling 1
+ * finishes that: the scene and the table were one thing pretending to be two —
+ * the table's STATE column is the scene's own legend — and they now share one
+ * frame rather than two rows, which is also how the ledger comes back onto a
+ * 900px-tall laptop's screen. It reads top-to-bottom as that question and its
+ * answers: *does anything need me* (attention), *what is it costing* (burn),
+ * *who is alive* (the fleet surface, in whichever representation suits the
+ * moment), *what happened* (the rest), *where did this come from*
+ * (provenance).
  *
  * Whitespace lives between panels, never inside them (ruling 7).
  *
@@ -73,7 +74,7 @@ function TopDock() {
 
   return (
     <header className="border-b border-ice-850 bg-ice-950">
-      <NavStrip />
+      <Nav />
       <div className="flex items-stretch gap-4 border-b border-ice-850">
         <div className="flex shrink-0 items-center gap-3 px-4">
           <h1 className="font-display text-sm font-semibold tracking-[0.25em] text-ice-100 text-glow-calm">
@@ -95,85 +96,6 @@ function TopDock() {
         <BurnStrip />
       </Suspense>
     </header>
-  )
-}
-
-/**
- * THE PRIMARY NAV (#229, fourth hand added by #252/prd19 ruling 1) — one
- * link per constitutional hand (observer / recorder / laboratory / connect,
- * prd12+prd16 ruling 2+prd14+prd19), so the trust model is visible rather
- * than a documentation claim. `/lab`, `/recordings` and now `/connect` were
- * routable but had no anchor anywhere in the UI — a stranger could not find
- * them without being told the URL. This is that anchor: real `<a href>`s,
- * modifier-aware like the drawer's own open-page link (`drawer/index.tsx`'s
- * `OpenPageLink`), routed through the hand-rolled router's `pushState` on a
- * plain click rather than a full reload.
- *
- * `active` used to be hardcoded to `hand.href === '/'` on the reasoning that
- * the balcony only ever mounts for the `balcony` route (see `App.tsx`'s
- * route switch), so "Observatory" was always the one true active link here.
- * That reasoning breaks the moment the mapping is asked about any other
- * route by name rather than by "is this rendering right now" — evaluated
- * against `/recordings` or `/lab`, the hardcoded boolean answers "Observatory"
- * for both, which is wrong for both and correct for neither. `useRoute()`
- * derives the active hand from the actual parsed route instead, so the
- * mapping is honest for all five routes even though only the balcony one
- * renders this nav today.
- */
-const HANDS: ReadonlyArray<{ href: string; label: string }> = [
-  { href: '/', label: 'Observatory' },
-  { href: '/recordings', label: 'Recordings' },
-  { href: '/lab', label: 'Lab' },
-  { href: '/connect', label: 'Connect' },
-]
-
-/** The one nav hand's href the current route names — `lane` has no hand of its own, so it defaults to the balcony's. */
-function activeHref(route: Route): string {
-  switch (route.name) {
-    case 'recordings':
-      return '/recordings'
-    case 'lab':
-      return '/lab'
-    case 'connect':
-      return '/connect'
-    default:
-      return '/'
-  }
-}
-
-function NavStrip() {
-  const route = useRoute()
-  const current = activeHref(route)
-
-  return (
-    <nav aria-label="Primary" className="flex shrink-0 gap-1 border-b border-ice-850 px-4">
-      {HANDS.map((hand) => (
-        <NavLink key={hand.href} href={hand.href} label={hand.label} active={hand.href === current} />
-      ))}
-    </nav>
-  )
-}
-
-function NavLink({ href, label, active }: { href: string; label: string; active: boolean }) {
-  const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
-    if (event.defaultPrevented || event.button !== 0) return
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-    event.preventDefault()
-    navigate(href)
-  }
-
-  return (
-    <a
-      href={href}
-      onClick={onClick}
-      aria-current={active ? 'page' : undefined}
-      data-testid={`nav-${label.toLowerCase()}`}
-      className={`border-b-2 px-2.5 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] transition-colors duration-150 ease-out ${
-        active ? 'border-ice-200 text-ice-100' : 'border-transparent text-ice-400 hover:text-ice-200'
-      }`}
-    >
-      {label}
-    </a>
   )
 }
 

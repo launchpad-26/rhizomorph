@@ -458,3 +458,84 @@ describe('replay folds append order, never a ts-sorted copy (prd17 ruling 3.4, #
     })
   })
 })
+
+/**
+ * ADR-0002's half of #592: **one reducer serves both live and replay**, so the
+ * session boundary the live fold now honours (`opensNewSession` in
+ * `core/src/reduce.ts`) has to be exactly as true of a replayed log — where a
+ * `session.started` is simply the line at that position — as it is of the SSE
+ * stream. It is not special-cased for "live" anywhere, and this is what proves
+ * it: replay's navigation machinery (keyframes, forward ticks, backward
+ * scrubs) reaches the boundary by several different routes, and every one of
+ * them has to land on the same state.
+ *
+ * The shape is a real one. A rotation writes a NEW file, so an ordinary replay
+ * of one recording never carries two sessions — but an exported record, a
+ * concatenation, or a log a rotation appended to can, and #205's own ruling
+ * says a record's append order is the truth, so the fold must answer for it.
+ */
+describe('a replayed log crosses a session boundary the same way live does (#592, ADR-0002)', () => {
+  /** Two recordings of the same repo, back to back — the rotation's own shape. */
+  function twoSessions(): { events: RhizomorphEvent[]; boundaryAt: number; second: RhizomorphEvent[] } {
+    const first = buildLargeSession(120)
+    const g = createEventFactory({ idPrefix: 'after', startTs: first[first.length - 1]!.ts + 1_000, stepMs: 1000 })
+    g.sessionStarted({ sessionId: 'session-after', repoPath: '/repo', repoName: 'repo', mainBranch: 'main' })
+    g.worktreeDiscovered({ path: '/repo/wt-z', branch: 'wt-z', head: 'sha-z', isMain: false })
+    g.commitLanded({ sha: 'sha-z', branch: 'wt-z', message: 'after the rotation' })
+    const second = g.all()
+    return { events: [...first, ...second], boundaryAt: first.length, second }
+  }
+
+  const { events, boundaryAt, second } = twoSessions()
+  const index = buildSessionIndex(events, 25)
+  const endTs = events[events.length - 1]!.ts
+
+  it('the fixture really does put a boundary mid-log, with keyframes either side of it', () => {
+    expect(events[boundaryAt]!.type).toBe('session.started')
+    expect(index.keyframes.some((k) => k.index < boundaryAt)).toBe(true)
+    expect(index.keyframes.some((k) => k.index > boundaryAt)).toBe(true)
+  })
+
+  it('the state at the end is the second recording alone — cleared, not merged', () => {
+    const whole = foldUpTo(events, endTs)
+
+    expect(whole.session?.sessionId).toBe('session-after')
+    expect(Object.keys(whole.worktrees)).toEqual(['/repo/wt-z'])
+    expect(whole.commits.order).toEqual(['sha-z'])
+    expect(whole.eventCount).toBe(second.length)
+    expect(whole.firstEventTs).toBe(second[0]!.ts)
+    // …and that really is the whole of it: none of the first recording's
+    // worktrees survive anywhere in the fold.
+    expect(JSON.stringify(whole)).not.toContain('wt-a')
+  })
+
+  it('a forward scrub across the boundary lands where a fold from scratch lands', () => {
+    let cursor = initialFoldCursor()
+    for (const event of index.sortedEvents) {
+      cursor = foldFrom(index, event.ts, cursor)
+      expect(canonicalStateJson(cursor.state)).toBe(canonicalStateJson(foldUpTo(events, event.ts)))
+    }
+    expect(cursor.index).toBe(events.length)
+  })
+
+  it('a backward scrub back over the boundary restores the FIRST recording, keyframes and all', () => {
+    const atEnd = foldFrom(index, endTs, initialFoldCursor())
+    const beforeBoundaryTs = events[boundaryAt - 1]!.ts
+    const back = foldFrom(index, beforeBoundaryTs, atEnd)
+
+    // Scrubbing back is not a reset that sticks: the ended recording is right
+    // there again, exactly as folding to that point from zero gives it.
+    expect(canonicalStateJson(back.state)).toBe(canonicalStateJson(foldUpTo(events, beforeBoundaryTs)))
+    expect(back.state.session?.sessionId).toBe('session-fixture')
+    expect(Object.keys(back.state.worktrees)).toContain('/repo/wt-a')
+  })
+
+  it('replay and live fold the same two-session log to the same state', () => {
+    // `foldUpTo` is replay's reference fold; `reduce` one event at a time is
+    // what the live stream does. ADR-0002 says these are the same function,
+    // and across a boundary that has to stay true.
+    const live = events.reduce(reduce, initialSessionState())
+    expect(canonicalStateJson(foldUpTo(events, endTs))).toBe(canonicalStateJson(live))
+    expect(canonicalStateJson(reduceAll(events))).toBe(canonicalStateJson(live))
+  })
+})

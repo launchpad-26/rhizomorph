@@ -47,6 +47,10 @@ import { clamp01 } from './palette.js'
  * one walk, and the alternative — a radial gradient sprite sized by hand — is
  * two objects pretending to be one, which is exactly what #117 found at the
  * centre of the picture.
+ *
+ * **5. The walk is baked in unit space and PLACED by the frame's own transform**
+ * (#579, prd-33 wave 2). See {@link bakeOf} — it is the reason the sampling in
+ * (4) is paid once for a shape rather than once for a frame.
  */
 
 /**
@@ -239,6 +243,10 @@ export interface Level {
  *
  * Order is preserved: `layers[n]` is `levels[n]`, empty when that level encloses
  * nothing (a depth deeper than the field's own minimum has no interior left).
+ *
+ * **The sampling and the walk happen in unit space and are cached there** — see
+ * {@link BAKE_PLACES}. Everything above is a statement about the shape and none
+ * of it changes; what changes is how often a frame has to compute it.
  */
 export function contourLayers(spec: ContourSpec, levels: readonly Level[]): Point[][][] {
   const ordered = orderFalloffs(spec.falloffs)
@@ -248,14 +256,193 @@ export function contourLayers(spec: ContourSpec, levels: readonly Level[]): Poin
   const cell = pitch(ordered, spec.origin, melt, spec.cell)
   if (!(cell > 0)) return levels.map(() => [])
 
+  const unit = unitSpec(ordered, spec.origin, melt, cell, levels, spec.smoothing)
+  return place(bakeOf(unit), spec.origin, cell)
+}
+
+/**
+ * THE BAKE (#579, prd-33 wave 2) — the sampling is paid once per *shape*, not
+ * once per frame.
+ *
+ * `research/2026-08-15-renderer-spike.md` measured `layoutScene` + `sceneMarks`
+ * alone, in Chromium, identically in both renderer arms: 14.6–16.5 ms at 60
+ * lanes × 3 colonies, against a 16.67 ms frame. The model stage, not the
+ * painter, is the ceiling on how many people can share one screen — a renderer
+ * swap does not touch it — and `perf.test.ts` had already recorded where inside
+ * it the avoidable work was: this file re-samples the mass's scalar field and
+ * re-walks eighteen levels **every frame**, for a shape that differs by the
+ * breath's ±1.6%.
+ *
+ * The fix is the one `BakedMark` already makes for the rim flora and `heart.ts`
+ * already makes for the anatomy *inside* this very surface — unit-space
+ * polylines, built once and placed by a transform, with a bounded cache in front
+ * of them. That the mass's rings were baked and the mass's own skin was not is
+ * the whole of what #579 found. What makes it available here is a property
+ * `contour.test.ts` has pinned since #118: the
+ * whole lattice — pitch, origin, extent, every falloff and every level — is a
+ * **similarity transform** of the mass (`marks/root.ts` states `CELL`, `MELT`,
+ * the `BODY` table and every depth in units of `geometry.rootRadius`). So the
+ * contour of a mass that has only breathed, or only grown, is the contour
+ * already walked, at a different scale.
+ *
+ * **What is cached is the shape in unit space; what is computed every frame is
+ * the placement.** The unit space is the grid pitch itself: divide every
+ * distance by `cell` and the lattice becomes the integer grid about the origin,
+ * whatever size the mass is on this frame. A frame therefore costs one pass over
+ * the finished vertices (a multiply and an add each) instead of ~20,000 square
+ * roots, eighteen grid walks and the corner-cutting on top.
+ *
+ * Three things this is careful about, each of which would have been a defect:
+ *
+ * - **The key is quantised and the geometry is built from the quantised
+ *   numbers, not merely looked up by them.** `(centre.x + r·d·cos θ − centre.x) / (r·CELL)`
+ *   is `d·cos θ / CELL` in real arithmetic and differs from it in the last bits
+ *   of a double, differently at every radius — so a key rounded off a value the
+ *   walk did *not* use would hand back a shape half a ULP away from the one
+ *   asked for, and a key not rounded at all would miss on every frame the breath
+ *   moved. Rounding to {@link BAKE_PLACES} of the pitch and walking *that* field
+ *   makes the answer an exact function of the key: same key, same rings, to the
+ *   last bit. The rounding is 1e-6 of a ~8 px cell — 8 nanometres of picture.
+ * - **It never pretends a changed shape is unchanged.** A cord actually arriving
+ *   moves `arrivalSwell` every frame, so its falloff's unit radius moves, so the
+ *   key moves and the field is walked in full — exactly what it cost before.
+ *   `perf.test.ts` reports that cell beside the calm one rather than leaving the
+ *   saving to be read as universal.
+ * - **Nothing cached is ever handed out.** {@link place} allocates the `Point`s
+ *   fresh every frame, so a caller that sorts, scales or trims the rings it was
+ *   given cannot reach into next frame's picture.
+ */
+const BAKE_PLACES = 1e6
+
+/**
+ * How many baked shapes to keep. Three colonies is three masses (prd-33 ruling
+ * 7), and a mass alternates between at most a couple of shapes at a time, so
+ * this is several times the working set with room for the transient one a cut
+ * introduces. Least-recently-*used* rather than least-recently-inserted: a cut
+ * inserts a new shape every frame for about a second, and an insertion-ordered
+ * cache would let that churn evict the calm shape the other colonies are still
+ * asking for on the very same frame.
+ *
+ * A bound is what makes this a cache rather than a leak, and the number is what
+ * it costs: a full eighteen-level stack is about three thousand vertices, so
+ * twelve of them is roughly 600 kB of `Float64Array` at the ceiling — a
+ * fraction of what one uncached frame allocates and discards.
+ */
+const BAKE_CAPACITY = 12
+
+/** The mass in units of the grid pitch: what is walked, and what is cached. */
+interface UnitSpec {
+  key: string
+  /** `x, y, radius` per falloff, in fold order — {@link orderFalloffs}'s order. */
+  field: Float64Array
+  melt: number
+  /** `at, smoothing` per level, in the order the caller asked for them. */
+  levels: Float64Array
+}
+
+/** Each level's rings, flattened to `x, y, x, y, …` — one array per ring. */
+type Bake = Float64Array[][]
+
+const bakes = new Map<string, Bake>()
+
+/** Rounded to {@link BAKE_PLACES}. See {@link BAKE_PLACES} for why this is the walked value. */
+function quantise(value: number): number {
+  return Math.round(value * BAKE_PLACES) / BAKE_PLACES
+}
+
+/**
+ * The spec in unit space, and the key that names it.
+ *
+ * The ids are deliberately **not** in the key. They are the sort key the fold
+ * order comes from ({@link orderFalloffs}), and that order is already carried by
+ * the sequence below — so two masses that happen to be the same shape share one
+ * bake however they were named, which is what lets three colonies of the same
+ * fleet size pay for their surface once.
+ */
+function unitSpec(
+  ordered: readonly Falloff[],
+  origin: Point,
+  melt: number,
+  cell: number,
+  levels: readonly Level[],
+  smoothing: number | undefined,
+): UnitSpec {
+  const field = new Float64Array(ordered.length * 3)
+  let key = ''
+  for (let i = 0; i < ordered.length; i += 1) {
+    const falloff = ordered[i] as Falloff
+    const x = quantise((falloff.at.x - origin.x) / cell)
+    const y = quantise((falloff.at.y - origin.y) / cell)
+    const radius = quantise(falloff.radius / cell)
+    field[i * 3] = x
+    field[i * 3 + 1] = y
+    field[i * 3 + 2] = radius
+    key += `${x},${y},${radius};`
+  }
+
+  const passes = smoothing ?? MAX_SMOOTHING
+  const walked = new Float64Array(levels.length * 2)
+  key += '|'
+  for (let i = 0; i < levels.length; i += 1) {
+    const level = levels[i] as Level
+    const at = quantise(level.at / cell)
+    const own = level.smoothing ?? passes
+    walked[i * 2] = at
+    walked[i * 2 + 1] = own
+    key += `${at}:${own};`
+  }
+
+  const unitMelt = quantise(melt / cell)
+  return { key: `${key}|${unitMelt}`, field, melt: unitMelt, levels: walked }
+}
+
+function bakeOf(unit: UnitSpec): Bake {
+  const known = bakes.get(unit.key)
+  if (known !== undefined) {
+    // Touch, so a shape asked for every frame outlives a cut's own churn.
+    bakes.delete(unit.key)
+    bakes.set(unit.key, known)
+    return known
+  }
+
+  const built = bakeUnit(unit)
+  bakes.set(unit.key, built)
+  if (bakes.size > BAKE_CAPACITY) {
+    const oldest = bakes.keys().next().value
+    if (oldest !== undefined) bakes.delete(oldest)
+  }
+  return built
+}
+
+/** The lattice walk itself, on the integer grid about the origin. */
+function bakeUnit(unit: UnitSpec): Bake {
+  const count = unit.field.length / 3
+  const ordered: Falloff[] = new Array(count)
+  for (let i = 0; i < count; i += 1) {
+    ordered[i] = {
+      id: '',
+      at: { x: unit.field[i * 3] as number, y: unit.field[i * 3 + 1] as number },
+      radius: unit.field[i * 3 + 2] as number,
+    }
+  }
+
+  const melt = unit.melt
+  const origin: Point = { x: 0, y: 0 }
   // The lattice has to reach past the *outermost* level asked for, not just past
   // the surface: a ring that ran off the edge of the grid would be an open chain
   // and a hole in the fill. Levels inside the surface need nothing extra.
-  const outer = Math.max(0, ...levels.map((level) => level.at))
-  const half = Math.ceil((extent(ordered, spec.origin, melt, cell) + outer) / cell)
+  let outer = 0
+  for (let i = 0; i < unit.levels.length; i += 2) {
+    const at = unit.levels[i] as number
+    if (at > outer) outer = at
+  }
+  // The pitch is 1 here by construction — the caller already ran `pitch`, and
+  // {@link unitSpec} divided the field by whatever it returned — so `MAX_HALF`
+  // has already been honoured and must not be applied a second time.
+  const half = Math.ceil(extent(ordered, origin, melt, 1) + outer)
   const size = 2 * half + 1
-  const x0 = spec.origin.x - half * cell
-  const y0 = spec.origin.y - half * cell
+  const x0 = -half
+  const y0 = -half
 
   const values = new Float64Array(size * size)
   // Each row's own range, kept as it is sampled. A row of the lattice whose
@@ -268,7 +455,7 @@ export function contourLayers(spec: ContourSpec, levels: readonly Level[]): Poin
     let low = Number.POSITIVE_INFINITY
     let high = Number.NEGATIVE_INFINITY
     for (let i = 0; i < size; i += 1) {
-      const value = fieldXY(x0 + i * cell, y0 + j * cell, ordered, melt)
+      const value = fieldXY(x0 + i, y0 + j, ordered, melt)
       values[j * size + i] = value
       if (value < low) low = value
       if (value > high) high = value
@@ -277,12 +464,55 @@ export function contourLayers(spec: ContourSpec, levels: readonly Level[]): Poin
     rowMax[j] = high
   }
 
-  const passes = spec.smoothing ?? MAX_SMOOTHING
   const scratch: Scratch = { vertices: new Map(), next: new Map(), spent: new Set() }
-  const grid: Lattice = { values, size, x0, y0, cell, ordered, melt, scratch, rowMin, rowMax }
-  return levels.map((level) =>
-    walk(grid, level.at).map((ring) => chaikin(ring, level.smoothing ?? passes)),
-  )
+  const grid: Lattice = { values, size, x0, y0, cell: 1, ordered, melt, scratch, rowMin, rowMax }
+
+  const bake: Bake = []
+  for (let i = 0; i < unit.levels.length; i += 2) {
+    const at = unit.levels[i] as number
+    const passes = unit.levels[i + 1] as number
+    bake.push(walk(grid, at).map((ring) => flatten(chaikin(ring, passes))))
+  }
+  return bake
+}
+
+function flatten(ring: readonly Point[]): Float64Array {
+  const out = new Float64Array(ring.length * 2)
+  for (let i = 0; i < ring.length; i += 1) {
+    const point = ring[i] as Point
+    out[i * 2] = point.x
+    out[i * 2 + 1] = point.y
+  }
+  return out
+}
+
+/**
+ * The baked shape, back in world coordinates — the only per-frame cost of a
+ * mass whose shape has not changed.
+ *
+ * Fresh `Point`s every call, never a view onto the cache: the rings become a
+ * `contour` mark's `rings`, and a painter or a test that reversed one in place
+ * would otherwise be editing every future frame.
+ */
+function place(bake: Bake, origin: Point, cell: number): Point[][][] {
+  const layers: Point[][][] = new Array(bake.length)
+  for (let level = 0; level < bake.length; level += 1) {
+    const rings = bake[level] as Float64Array[]
+    const out: Point[][] = new Array(rings.length)
+    for (let r = 0; r < rings.length; r += 1) {
+      const flat = rings[r] as Float64Array
+      const ring: Point[] = new Array(flat.length / 2)
+      for (let i = 0; i < flat.length; i += 2) {
+        ring[i / 2] = {
+          x: origin.x + (flat[i] as number) * cell,
+          y: origin.y + (flat[i + 1] as number) * cell,
+        }
+      }
+      out[r] = ring
+    }
+    layers[level] = out
+  }
+  return layers
 }
 
 /**

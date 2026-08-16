@@ -499,3 +499,16 @@ ledger read `64-cost-joins-branch  COST $0.4242` against 990,616 tokens —
 dollars, not a token count in a money column. A second export naming a
 session nobody had seen stayed on its own lane with `branch: null`, counted
 in the session total and absent from every branch row.
+
+## The front door can relaunch a session wired (prd-20 waves 5–8, 2026-08-14)
+
+The /connect page now enumerates uninstrumented sessions and can instrument
+one: the server migrates the transcript home when it lives elsewhere (a
+create-only copy, fenced — ADR-0020) and relaunches under the env envelope,
+and because resume preserves the sessionId, telemetry books under the same
+identity and the uninstrumented row clears itself as evidence arrives. The
+copyable command remains the no-trust path and stays visible beside the
+button. Physics unchanged: instrumentation attaches at launch, never
+retroactively — proven, not assumed (research/2026-08-14-cross-host-resume.md,
+CLI-version-pinned). Known gap on the record: the detached spawn needs a
+prompt or TTY to survive (#532).

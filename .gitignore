@@ -1,5 +1,11 @@
 node_modules/
 dist/
+# The desktop installers electron-builder writes (#565). Built on demand by
+# `.github/workflows/desktop.yml`, never committed — they are ~100 MB each.
+dist-desktop/
+# The server's runtime dependency closure, resolved at packaging time by
+# `packages/app/scripts/vendor-runtime.mjs` (#565).
+dist-vendor/
 coverage/
 scratchpad/
 .swarm/lanes.json
@@ -22,6 +28,18 @@ scratchpad/
 # runbook at all: #379's `.workmux.yaml` copy spent that whole period copying
 # files that did not exist anywhere on disk. If you are about to re-add either
 # one here, read #399 first.
+CLAUDE.local.md
+
+# Personal scratch notes — machine paths, shortcuts, whatever one contributor
+# keeps to hand. Unlike the two above it is personal by definition, so it must
+# never become tracked. It was missing from this list rather than deliberately
+# left out: it is ignored on main, and this branch predates that.
+CLAUDE.local.md
+
+# Personal scratch notes — machine paths, shortcuts, whatever one contributor
+# keeps to hand. Unlike the two above it is personal by definition, so it must
+# never become tracked. It was missing from this list rather than deliberately
+# left out: it is ignored on main, and this branch predates that.
 CLAUDE.local.md
 
 # Agent CLI working state. Both of these run inside this repo — codex under

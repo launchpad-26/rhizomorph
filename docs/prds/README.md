@@ -88,9 +88,23 @@ keep resolving.
   section.
 - **Non-goals carry equal weight to goals.** Standard in Shape Up ("no-gos") and
   Google's design docs ("Goals and Non-Goals").
-- **Length is a feature.** Intercom caps a PRD at one printed page — *"if you
-  can't fit the problem on a page, you don't understand it well enough."* This
-  repo's median is 82 lines, which is already good; don't lose that.
+- **Length is a feature — for the problem.** Intercom caps a PRD at one printed
+  page — *"if you can't fit the problem on a page, you don't understand it well
+  enough."* That still binds: **Problem, Evidence, Success and Non-goals stay
+  short enough to read standing up.** The repo's median was 82 lines when every
+  PRD was rulings-only, and for a PRD that is only rulings, 82 lines is still
+  the target.
+- **Specifying PRDs are the exception, and they say so** *(amended 2026-08-15,
+  the UI era)*. A PRD whose work is **a surface a stranger will build without
+  the author in the room** may carry the specification too, and will be long.
+  When it does, it owes the reader a per-surface answer to six questions —
+  what it shows and why · every state (live, empty, loading, error, degraded,
+  replay, demo) · the data source per field and the honest gap where there is
+  none · interactions and the keyboard path · what would make it wrong ·
+  acceptance criteria. **A specifying PRD marks itself `Kind: specifying` in its
+  status block**, so nobody mistakes the length for drift. Everything else in
+  this document — problem before solution, rulings as the decision form, never
+  renumbering — is unchanged.
 - **Close it out.** The most common failure is a PRD frozen at kickoff while
   reality diverges, with nobody reconciling it. `docs/roadmap.md` is currently
   the only record of what shipped — the `Status` line above exists so a PRD is

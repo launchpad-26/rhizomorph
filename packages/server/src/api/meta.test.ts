@@ -30,7 +30,6 @@ describe('GET /api/meta', () => {
       const recorder = new SessionRecorder('1785739192605', sessionFilePath(sessionDir, '1785739192605'))
       recordSessionBootMeta(recorder, {
         resumedCount: 7,
-        eventCount: 55_049,
         resumeWindowMs: RESUME_WINDOW_MS,
         lastBootReason: 'resumed',
       })
@@ -46,7 +45,10 @@ describe('GET /api/meta', () => {
         sessionId: '1785739192605',
         startedAt: 1785739192605,
         resumedCount: 7,
-        eventCount: 55_049,
+        // The LIVE count now (#592), not a boot snapshot: this recorder has
+        // recorded nothing, so the honest answer is 0 — and the fact that a
+        // boot snapshot can no longer be injected here at all is the point.
+        eventCount: 0,
         resumeWindowMs: RESUME_WINDOW_MS,
         lastBootReason: 'resumed',
       })
@@ -61,7 +63,6 @@ describe('GET /api/meta', () => {
       const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
       recordSessionBootMeta(recorder, {
         resumedCount: 0,
-        eventCount: 0,
         resumeWindowMs: RESUME_WINDOW_MS,
         lastBootReason: 'writer-alive',
       })
@@ -81,14 +82,12 @@ describe('GET /api/meta', () => {
       const resumedRecorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
       recordSessionBootMeta(resumedRecorder, {
         resumedCount: 3,
-        eventCount: 42,
         resumeWindowMs: 60_000,
         lastBootReason: 'resumed',
       })
       const freshRecorder = new SessionRecorder('2000', sessionFilePath(sessionDir, '2000'))
       recordSessionBootMeta(freshRecorder, {
         resumedCount: 0,
-        eventCount: 0,
         resumeWindowMs: RESUME_WINDOW_MS,
         lastBootReason: 'first-run',
       })
@@ -105,8 +104,8 @@ describe('GET /api/meta', () => {
         unknown
       >
 
-      expect(resumedBody).toMatchObject({ sessionId: '1000', resumedCount: 3, eventCount: 42, resumeWindowMs: 60_000 })
-      expect(freshBody).toMatchObject({ sessionId: '2000', resumedCount: 0, eventCount: 0, lastBootReason: 'first-run' })
+      expect(resumedBody).toMatchObject({ sessionId: '1000', resumedCount: 3, resumeWindowMs: 60_000 })
+      expect(freshBody).toMatchObject({ sessionId: '2000', resumedCount: 0, lastBootReason: 'first-run' })
     } finally {
       await teardown()
     }
@@ -146,6 +145,59 @@ describe('GET /api/meta', () => {
       const response = await app.inject({ method: 'GET', url: '/api/meta' })
       const body = response.json() as Record<string, unknown>
       expect(body.eventCount).toBe(1)
+    } finally {
+      await teardown()
+    }
+  })
+
+  /**
+   * #592. `eventCount` was `decision.eventCountAtBoot` — recorded once at boot
+   * and never updated, so the field's live-sounding name sat over a frozen
+   * number. It hid because on a *resumed* session the snapshot is large and
+   * plausible; a rotation is what made it legible, pinning /api/meta at 0
+   * while the session log grew 434 → 470 → 504 lines.
+   *
+   * This is the test that would have caught it, and it is written to be unable
+   * to pass by accident: the count is read BEFORE and AFTER appending, and the
+   * assertion is that it MOVED — by exactly the number of events appended, so
+   * a route serving any constant (0, or a boot snapshot, or the wrong fold)
+   * fails on the second reading. The recorder here has boot meta recorded for
+   * it, which is precisely the shape the old defect lived in: a
+   * `recordSessionBootMeta` call is on the stack and cannot supply this number
+   * any more.
+   */
+  it('eventCount tracks the LIVE session — events appended after boot move it (#592)', async () => {
+    await setup()
+    try {
+      const recorder = new SessionRecorder('4100', sessionFilePath(sessionDir, '4100'))
+      recordSessionBootMeta(recorder, {
+        resumedCount: 0,
+        resumeWindowMs: RESUME_WINDOW_MS,
+        lastBootReason: 'rotated',
+      })
+      await recorder.record(
+        createEvent('session.started', { sessionId: '4100', repoPath, repoName: 'repo' }, { id: 'evt-1', ts: 4100 }),
+      )
+      const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+      const countNow = async () => {
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as Record<string, unknown>
+        return body.eventCount
+      }
+
+      expect(await countNow()).toBe(1)
+
+      for (let i = 0; i < 5; i++) {
+        await recorder.record(
+          createEvent(
+            'pane.activity',
+            { paneId: '%1', contentHash: `hash-${i}` },
+            { id: `evt-live-${i}`, ts: 4200 + i },
+          ),
+        )
+      }
+
+      expect(await countNow()).toBe(6)
     } finally {
       await teardown()
     }
@@ -239,7 +291,6 @@ describe('GET /api/meta', () => {
         const recorder = new SessionRecorder('8000', sessionFilePath(sessionDir, '8000'))
         recordSessionBootMeta(recorder, {
           resumedCount: 0,
-          eventCount: 0,
           resumeWindowMs: RESUME_WINDOW_MS,
           lastBootReason: 'first-run',
         })
