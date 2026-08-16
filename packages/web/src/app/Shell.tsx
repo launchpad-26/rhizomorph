@@ -13,24 +13,25 @@ const BurnStrip = lazy(() => import('../panels/burn/index.js'))
 const LaneDrawer = lazy(() => import('../drawer/index.js'))
 
 /**
- * The curated order — prd3 ruling 6, amended by prd4 ruling 2. One
- * conductor-curated hierarchy, no drag and no custom layouts — the sequence
- * itself is the ruling:
+ * The curated order — prd3 ruling 6, amended by prd4 ruling 2 and again by
+ * prd-36 ruling 1. One conductor-curated hierarchy, no drag and no custom
+ * layouts — the sequence itself is the ruling:
  *
  *   attention strip + burn strip (docked top)
- *     → scene (the hero — ruling 2's centerpiece)
- *       → fleet table (legend/detail beneath it)
- *         → the rest (ledger, collisions, feed)
- *           → provenance bar (docked bottom)
+ *     → fleet surface (the hero — organism or list, one keystroke apart)
+ *       → the rest (ledger, collisions, feed)
+ *         → provenance bar (docked bottom)
  *
- * prd4 ruling 2 answers "what is the fleet doing?" before anything else: the
- * scene is big, bright and self-explanatory on the #92 palette, so it now
- * outranks the table it used to sit beneath — the table and the detail panels
- * are reference instruments once that first question is answered. It reads
- * top-to-bottom as that question and its answers: *does anything need me*
- * (attention), *what is it costing* (burn), *what does it look like* (scene),
- * *who is doing what* (fleet, the legend), *what happened* (the rest),
- * *where did this come from* (provenance).
+ * prd4 ruling 2 answered "what is the fleet doing?" before anything else by
+ * promoting the scene above the table it used to sit beneath. prd-36 ruling 1
+ * finishes that: the scene and the table were one thing pretending to be two —
+ * the table's STATE column is the scene's own legend — and they now share one
+ * frame rather than two rows, which is also how the ledger comes back onto a
+ * 900px-tall laptop's screen. It reads top-to-bottom as that question and its
+ * answers: *does anything need me* (attention), *what is it costing* (burn),
+ * *who is alive* (the fleet surface, in whichever representation suits the
+ * moment), *what happened* (the rest), *where did this come from*
+ * (provenance).
  *
  * Whitespace lives between panels, never inside them (ruling 7).
  *
