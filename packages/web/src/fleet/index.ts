@@ -8,8 +8,18 @@
  * `server` needed it too. Re-exported here so every existing `from
  * '../fleet'` import in this package keeps resolving unchanged.
  *
- * Every prd3 surface (#77–#84) imports from here. Nothing in this directory
- * imports a panel, and nothing outside it re-derives a lane's state.
+ * Every prd3 surface (#77–#84) imports from here, and nothing outside this
+ * directory re-derives a lane's state.
+ *
+ * One line of that paragraph used to read "nothing in this directory imports a
+ * panel", and prd-36 ruling 1 (#555) spent it deliberately: `FleetSurface.tsx`
+ * is the one surface that owns both representations of the fleet, so it mounts
+ * the scene and the fleet table as its two arms. It does so through `lazy()`,
+ * so the static graph still runs one way — a panel imports from here, and the
+ * surface reaches a panel only at the moment it renders it. Nothing else in
+ * this directory imports a panel, and `FleetSurface` is deliberately NOT
+ * re-exported below: `app/PanelGrid.tsx` imports it by path, so the barrel
+ * itself never sits on a cycle.
  */
 
 // Wholesale, not "the moved surface" (review of #499, item 1): this line

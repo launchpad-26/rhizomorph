@@ -276,7 +276,9 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
       // what must not have moved.
       .filter((mark) => mark !== LANE)
 
-    expect(closedMarks).toEqual(['THE OBSERVATORY', 'Scene', 'Fleet', 'Ledger', 'Collisions', 'Activity'])
+    // One row shorter since prd-36 ruling 1 merged the scene and the roster
+    // into one `Fleet` surface — see `Shell.tsx`'s curated-order note.
+    expect(closedMarks).toEqual(['THE OBSERVATORY', 'Fleet', 'Ledger', 'Collisions', 'Activity'])
     expect(openMarks).toEqual(closedMarks)
   })
 
