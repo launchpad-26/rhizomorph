@@ -277,7 +277,17 @@ describe('no new pixel literal after the ramp exists (S1)', () => {
 // the 777 the same walk finds with `theme.css` counted, less that file's own
 // 24. The 399 that remain are the contested files, and they fall in the second
 // half. Recomputed from the tree rather than subtracted from the diff.
-const ICE_RUNG_SITES = 399
+//
+// 399 -> 375: `settings/` swept whole (#574), so the directory leaves the
+// contested half entirely rather than being handed to it 13 sites larger.
+// Thirty-seven rung references went; 24 of them were on these books, and the
+// other 13 were this branch's own — wave 2's controls and its telemetry block,
+// written against the rung idiom of the file they extended, on a lane whose
+// brief pre-dated the ratchet and fenced it out of `theme/`. The law caught
+// them on the merge, which is the thing it was built to do; taking the
+// pre-existing 24 in the same commit is what makes light mode real on that
+// surface instead of pending. Recomputed from the tree.
+const ICE_RUNG_SITES = 375
 
 describe('no consumer names a luminance rung — the colour ratchet (S2)', () => {
   /** The sweep's own files, less the one that defines the ramp being counted. */
