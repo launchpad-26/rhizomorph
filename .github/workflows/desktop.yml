@@ -1,0 +1,134 @@
+name: Desktop installers
+
+# Never on a push and never on a pull request. Building three platforms'
+# installers costs three runners and ~10 minutes of macOS billing per run, and
+# nothing about a code change is verified by producing a `.dmg` that nobody
+# downloads — CI already compiles the shell's main bundle on ubuntu and macOS
+# (`ci.yml`'s `npm run build`), which is the part that can actually break.
+#
+# So: by hand, or on a `v*` tag beside the npm release.
+on:
+  workflow_dispatch:
+    inputs:
+      sign:
+        description: 'Sign the builds (requires the credentials below to be set as secrets)'
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+# electron-builder is NOT a dependency of this repo — a ~250-package tree for a
+# tool six other CI legs would install and never run. It is pinned here, which
+# makes this file the single place its version is stated.
+env:
+  ELECTRON_BUILDER_VERSION: '26.0.15'
+
+jobs:
+  installers:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node (from engines)
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+
+      # No ELECTRON_SKIP_BINARY_DOWNLOAD here, unlike `ci.yml`: this is the one
+      # workflow that genuinely needs the platform binary, because it packages
+      # it.
+      - name: Install (clean, lockfile-honest)
+        run: npm ci
+
+      - name: Build the server, the SPA and the shell
+        run: npm run build
+
+      # The server bundle is built `--external:fastify`, so the packaged app has
+      # to carry that closure beside it. Resolved from the root package.json's
+      # own declaration rather than hand-listed — see the script for the boot
+      # failure that taught us the difference.
+      - name: Vendor the server's runtime dependencies
+        run: npm run vendor --workspace packages/app
+
+      # ── SIGNING IS A SWITCH (prd-34 ruling 9) ──────────────────────────────
+      #
+      # Off by default and off on a tag: builds ship unsigned with the warnings
+      # documented in `packages/app/INSTALL.md`. Turning it on is this input
+      # plus the credentials as repo secrets — `packages/app/src/host/
+      # signing.ts` names which ones per platform, and the yearly cost of each.
+      #
+      # `CSC_IDENTITY_AUTO_DISCOVERY: false` when unsigned, so a runner that
+      # happens to hold a certificate cannot quietly sign a release nobody
+      # decided to sign.
+      - name: Package the installers
+        shell: bash
+        env:
+          RHIZOMORPH_SIGN: ${{ inputs.sign == true && '1' || '0' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ inputs.sign == true && 'true' || 'false' }}
+          # Present only when the switch is on; empty otherwise, which is what
+          # keeps an unsigned build unsigned rather than failing on a missing
+          # secret.
+          CSC_LINK: ${{ inputs.sign == true && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ inputs.sign == true && secrets.CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ inputs.sign == true && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ inputs.sign == true && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ inputs.sign == true && secrets.APPLE_TEAM_ID || '' }}
+          AZURE_TENANT_ID: ${{ inputs.sign == true && secrets.AZURE_TENANT_ID || '' }}
+          AZURE_CLIENT_ID: ${{ inputs.sign == true && secrets.AZURE_CLIENT_ID || '' }}
+          AZURE_CLIENT_SECRET: ${{ inputs.sign == true && secrets.AZURE_CLIENT_SECRET || '' }}
+        run: |
+          set -e
+          npx --yes "electron-builder@${ELECTRON_BUILDER_VERSION}" \
+            --${{ matrix.platform }} \
+            --projectDir packages/app \
+            --publish never
+
+      # Signing is deferred, so a checksum is the only integrity claim these
+      # builds can honestly make — and `INSTALL.md` tells a person to check it.
+      # Printing them here means the claim exists even for a hand-run build.
+      - name: Checksums
+        shell: bash
+        run: |
+          set -e
+          cd dist-desktop
+          FILES=$(find . -maxdepth 1 -type f \( -name '*.exe' -o -name '*.dmg' -o -name '*.zip' -o -name '*.AppImage' -o -name '*.deb' \) | sort)
+          if [ -z "$FILES" ]; then
+            echo "no installers were produced — the packaging step reported success without writing one"
+            ls -la
+            exit 1
+          fi
+          if command -v sha256sum > /dev/null; then
+            # shellcheck disable=SC2086
+            sha256sum $FILES | tee SHA256SUMS
+          else
+            # shellcheck disable=SC2086
+            shasum -a 256 $FILES | tee SHA256SUMS
+          fi
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: rhizomorph-${{ matrix.platform }}
+          if-no-files-found: error
+          path: |
+            dist-desktop/*.exe
+            dist-desktop/*.dmg
+            dist-desktop/*.zip
+            dist-desktop/*.AppImage
+            dist-desktop/*.deb
+            dist-desktop/SHA256SUMS
