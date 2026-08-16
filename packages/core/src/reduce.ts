@@ -265,13 +265,16 @@ function sessionStarted(state: SessionState, event: EventOf<'session.started'>):
 }
 
 function collectorError(state: SessionState, event: EventOf<'collector.error'>): SessionState {
-  const { collector, message, detail } = event.payload
+  const { collector, message, detail, count } = event.payload
   const prev = state.collectors[collector]
   const record: CollectorState = {
     name: collector,
     // A disabled collector that then errors stays disabled: it is the stronger fact.
     status: prev?.status === 'disabled' ? 'disabled' : 'error',
-    errorCount: (prev?.errorCount ?? 0) + 1,
+    // `count` is occurrences this one coalesced event stands for (#529); most
+    // emitters never coalesce and carry no count, so `?? 1` is what keeps them
+    // reading as the single occurrence they are, not zero.
+    errorCount: (prev?.errorCount ?? 0) + (count ?? 1),
     lastErrorTs: event.ts,
     lastErrorMessage: message,
     consecutiveFailures: prev?.consecutiveFailures ?? 0,

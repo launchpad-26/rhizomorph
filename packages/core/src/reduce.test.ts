@@ -126,6 +126,21 @@ describe('reduce — system events', () => {
     expect(state.errors[1]?.detail).toBeNull()
   })
 
+  it('folds a coalesced count into errorCount, not one per recorded event', () => {
+    const state = reduceAll([
+      f.collectorError({ collector: 'otel', message: 'malformed OTLP request body', count: 12 }, { ts: 10 }),
+      f.collectorError({ collector: 'otel', message: 'malformed OTLP request body', count: 5 }, { ts: 20 }),
+    ])
+    expect(state.collectors['otel']).toMatchObject({ errorCount: 17 })
+    // The event log still records one row per recorded event, not per occurrence.
+    expect(state.errors).toHaveLength(2)
+  })
+
+  it('keeps counting as one for an emitter that never coalesces and carries no count', () => {
+    const state = reduceAll([f.collectorError({ collector: 'git', message: 'boom' }, { ts: 10 })])
+    expect(state.collectors['git']?.errorCount).toBe(1)
+  })
+
   it('caps the error list and keeps the newest', () => {
     const events = Array.from({ length: MAX_ERRORS + 25 }, (_, i) =>
       f.collectorError({ collector: 'git', message: `boom ${i}` }, { ts: i }),
