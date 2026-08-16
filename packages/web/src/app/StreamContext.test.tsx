@@ -511,6 +511,11 @@ function RepoConsumer() {
         {Object.keys(state.session.worktrees).sort().join(',')}
       </span>
       <span data-testid="repo-events">{state.events.length}</span>
+      {/* The two facts every "elapsed" figure on the page is measured from,
+          and the session the panels believe they are showing (#592). */}
+      <span data-testid="repo-session">{state.session.session?.sessionId ?? ''}</span>
+      <span data-testid="repo-first-ts">{state.session.firstEventTs ?? ''}</span>
+      <span data-testid="repo-fold-count">{state.session.eventCount}</span>
     </div>
   )
 }
@@ -603,5 +608,88 @@ describe('the repo boundary through the provider (#390)', () => {
     await waitFor(() => expect(screen.getByTestId('repo-events').textContent).toBe('4'))
     expect(screen.getByTestId('repo-path').textContent).toBe('/repos/alpha')
     expect(screen.getByTestId('repo-worktrees').textContent).toBe('/repos/alpha/lane')
+  })
+})
+
+/**
+ * #592 — THE ROTATION, THROUGH THE PROVIDER.
+ *
+ * The unit laws live in `core/src/reduce.test.ts` (the fold) and
+ * `streamState.test.ts` (the raw window). This is the operator's own claim,
+ * through the real provider a panel reads: they pressed **end session · start
+ * fresh**, the server opened a new recording and began delivering it down the
+ * same connection, and the live view has to visibly become that recording
+ * instead of quietly folding it on top of the one they just ended.
+ *
+ * Same repo throughout — that is the whole difference from the retarget above,
+ * and the case #390's own reading explicitly excluded.
+ */
+function rotationEvents(sessionId: string, atTs: number) {
+  return [
+    createEvent(
+      'session.started',
+      { sessionId, repoPath: '/repos/alpha', repoName: 'alpha', mainBranch: 'main' },
+      { id: nextId(), ts: atTs },
+    ),
+    createEvent(
+      'worktree.discovered',
+      { path: `/repos/alpha/${sessionId}-lane`, branch: 'lane', head: 'sha-after', isMain: true },
+      { id: nextId(), ts: atTs + 1 },
+    ),
+  ]
+}
+
+describe('the rotation through the provider (#592)', () => {
+  it('visibly resets the live view, and restarts the elapsed figures from the new recording', async () => {
+    const { getSource } = await renderRepoApp()
+    act(() => getSource().open())
+
+    for (const event of repoEvents('alpha')) act(() => getSource().emit(event))
+    await waitFor(() =>
+      expect(screen.getByTestId('repo-worktrees').textContent).toBe('/repos/alpha/lane'),
+    )
+    // The recording the operator is about to end really did accumulate a past.
+    expect(screen.getByTestId('repo-fold-count').textContent).toBe('2')
+    expect(screen.getByTestId('repo-first-ts').textContent).toBe('10000')
+
+    // The rotation. Same repo, new session id — exactly what `/api/stream`
+    // delivers down the still-open connection after the button is pressed.
+    for (const event of rotationEvents('s-rotated', 20_000)) act(() => getSource().emit(event))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('repo-session').textContent).toBe('s-rotated'),
+    )
+    // The scene changed: the ended recording's worktree is gone, not sitting
+    // underneath the new session's name.
+    expect(screen.getByTestId('repo-worktrees').textContent).toBe('/repos/alpha/s-rotated-lane')
+    // The elapsed figures restart — this is the half a rotation-blind fold got
+    // wrong even when the panels happened to look plausible.
+    expect(screen.getByTestId('repo-first-ts').textContent).toBe('20000')
+    expect(screen.getByTestId('repo-fold-count').textContent).toBe('2')
+    // …and the raw window travels with the fold, so `events.length` and
+    // `session.eventCount` still describe one recording.
+    expect(screen.getByTestId('repo-events').textContent).toBe('2')
+    // The repo did NOT change, so this is genuinely the rotation case and not
+    // the retarget one wearing its clothes.
+    expect(screen.getByTestId('repo-path').textContent).toBe('/repos/alpha')
+  })
+
+  it('is not fooled by the stream re-stating the session it is already folding', async () => {
+    const { getSource } = await renderRepoApp()
+    act(() => getSource().open())
+
+    const alpha = repoEvents('alpha')
+    for (const event of alpha) act(() => getSource().emit(event))
+    await waitFor(() =>
+      expect(screen.getByTestId('repo-worktrees').textContent).toBe('/repos/alpha/lane'),
+    )
+
+    // Not a rotation: the SAME session id. A reconnect's replay, or a server
+    // re-announcing itself, must not wipe a live fold.
+    act(() => getSource().emit(alpha[0]))
+
+    await waitFor(() => expect(screen.getByTestId('repo-events').textContent).toBe('3'))
+    expect(screen.getByTestId('repo-worktrees').textContent).toBe('/repos/alpha/lane')
+    expect(screen.getByTestId('repo-first-ts').textContent).toBe('10000')
   })
 })

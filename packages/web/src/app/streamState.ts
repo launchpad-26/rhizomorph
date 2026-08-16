@@ -1,5 +1,6 @@
 import {
   initialSessionState,
+  opensNewSession,
   reduce,
   type RhizomorphEvent,
   type SessionState,
@@ -65,12 +66,13 @@ export interface StreamState {
    * (never capped) is the true total, so `events.length < session.eventCount`
    * is exactly how a reader detects eviction ({@link eventsWindowLabel}).
    *
-   * This window is the window *for the repo currently folded*: it empties
-   * alongside `session` when the fold crosses a repo boundary
-   * ({@link crossesRepoBoundary}, #390), which is what keeps
-   * `events.length <= session.eventCount` true across a retarget. Clearing
-   * one without the other would leave the pair describing two different
-   * repositories, and {@link eventsWindowLabel} reads exactly that pair.
+   * This window is the window *for the recording currently folded*: it
+   * empties alongside `session` when the fold crosses a session boundary
+   * (`opensNewSession` in `core/src/reduce.ts` — #390 for the retarget, #592
+   * for the rotation), which is what keeps
+   * `events.length <= session.eventCount` true across one. Clearing one
+   * without the other would leave the pair describing two different
+   * recordings, and {@link eventsWindowLabel} reads exactly that pair.
    */
   events: RhizomorphEvent[]
   /** The fold, kept incrementally so nothing re-reduces the log per render. */
@@ -119,73 +121,40 @@ export function initialStreamState(connectedAt: number): StreamState {
  *
  * Exported because it is the page's **repo identity**, not just this fold's
  * private business: anything that caches a per-repo answer beside the fold has
- * to invalidate on the same key the fold resets on, or the two drift apart.
- * `FleetContext` keys `/api/lanes` off this for exactly that reason (#390
- * review) — a lane manifest fetched for repo A must not fence repo B.
+ * to invalidate whenever the repo it was fetched for changes, or the two drift
+ * apart. `FleetContext` keys `/api/lanes` off this for exactly that reason
+ * (#390 review) — a lane manifest fetched for repo A must not fence repo B.
+ *
+ * Since #592 the fold resets on a strictly wider condition than this key
+ * changes: an ordinary rotation opens a new recording of the SAME repo, so the
+ * fold restarts while `foldedRepoPath` holds still. That is correct rather
+ * than a gap — `/api/lanes` describes the repo's workmux lanes, not the
+ * recording, so a rotation gives it nothing to re-read.
  */
 export function foldedRepoPath(session: SessionState): string | null {
   return session.session?.repoPath ?? null
 }
 
 /**
- * Whether `event` moves the fold to a **different repository** — a
- * `session.started` naming a `repoPath` other than the one already folded
- * (#390, from the retarget spike's Q5, #265).
+ * ## The session boundary, and this layer's half of it
  *
- * The concierge can retarget a running dashboard at another repo. Nothing in
- * `core`'s reducer drops the old repo when that happens: `session.started`
- * replaces `state.session` and *only* that, so every worktree, branch, lane,
- * commit and spend fact from the previous repo stays folded
- * (`core/src/reduce.ts`'s `sessionStarted`). Meanwhile `StatusBar` re-reads
- * `/api/meta` when the live session id changes, so the heading updates for
- * free — which is what makes the untouched fold a *lie* rather than merely
- * stale: the right repo name over the wrong repo's fleet. That is the failure
- * mode this codebase treats as unrecoverable (`docs/adr/0001-…`), so the
- * boundary gets an explicit, named rule rather than an inference.
+ * **Whether a `session.started` opens a different recording is `core`'s
+ * question, and `core` answers it** — `opensNewSession` in `core/src/reduce.ts`,
+ * where the rule, the two non-boundaries (a reconnect's replay; anything
+ * before the first `session.started`) and the case-sensitivity decision
+ * (`boundary-on-case-difference`) are all argued in full. It has to live there
+ * rather than here: ADR-0002 says one reducer serves live and replay, so a
+ * reset spelled in the web shell would be true of the live stream and false of
+ * a replayed log carrying the same boundary (#592).
  *
- * **`repoPath` is the whole trigger, deliberately.** It is a fact
- * `session.started` already carries, which is what lets this land without
- * #384's `'retargeted'` close reason — and keying on the repo rather than on a
- * close reason is also correct for the boundaries that are not retargets at
- * all (a conductor relaunched against a different checkout, say).
- *
- * Two things that look like a boundary and are not:
- *
- * - **A new session over the same repo.** An ordinary rotation (prd16 ruling
- *   2) changes `sessionId`, never `repoPath`. The fleet it describes is the
- *   same fleet; dropping it would be a self-inflicted amnesia.
- * - **A reconnect's full replay.** `EventSource` reconnects on its own with
- *   `Last-Event-ID`, and when the new process's buffer never held that id,
- *   `resumeBacklog` honestly falls back to replaying the whole session
- *   (`server/src/api/stream.ts`). That re-emits `session.started` for the
- *   *same* repo, and it must be a no-op here or every reconnect would wipe
- *   good state — the eager-reset regression this rule is most likely to grow.
- *
- * `null` before any `session.started` has named a repo, so the first one to
- * arrive never resets: there is nothing folded for it to contradict.
- *
- * ## Identity is the server's spelling, not the directory
- *
- * The comparison is an exact string match on a `repoPath` the server produced
- * with `path.resolve` (`server/src/cli/run.ts`), which normalises separators,
- * `.`/`..` and trailing slashes but **not case**. Two spellings of one
- * directory on a case-insensitive filesystem — macOS's default — therefore
- * read as two repos here, and a relaunch spelled differently from the original
- * (tab-completed once, typed the next time) resets a fold that did not need
- * resetting.
- *
- * That is deliberate, and it is the cheaper error of the two available
- * (#390 review). Case-folding would buy that narrow macOS case at the price of
- * a case-sensitive filesystem — Linux, which CI runs — where `/repos/Alpha`
- * and `/repos/alpha` genuinely *are* two repositories: there, folding case
- * means the boundary is missed and the dashboard goes back to showing one
- * repo's fleet under the other's name. The failure modes are not symmetric. A
- * spurious reset costs amnesia, which is visible and refills from the replay
- * that follows it; a missed boundary costs a lie, which is invisible and is
- * the thing `docs/adr/0001-…` treats as unrecoverable. The client cannot tell
- * which kind of filesystem the server is on, so it prefers the loud error.
- * `boundary-on-case-difference` pins this as a decision rather than an
- * oversight.
+ * What is left for this module is the state `core` does not own. `session` is
+ * reset by the reducer itself; the raw `events` window, the `news` flare queue
+ * and its counter are this layer's own, and they cross the boundary with it —
+ * `events` and `session.eventCount` are read as a PAIR by
+ * {@link eventsWindowLabel}, so clearing one without the other would leave the
+ * two describing different recordings. `connectedAt` is carried across
+ * untouched: the news/history boundary belongs to this *connection*, not to
+ * whichever recording it happens to be carrying.
  *
  * ## What it assumes about ordering
  *
@@ -194,24 +163,18 @@ export function foldedRepoPath(session: SessionState): string | null {
  * nothing carried over, fenced by that module's own `rotate.test.ts` (not
  * cited by path here: the recorder namespace law, prd16 ruling 2, keeps web
  * files clear of that module's paths entirely) — and `/api/stream` replays a
- * log in order. If that ever
- * stopped holding, a new repo's event arriving *before* its `session.started`
- * in the same flush would fold onto the old repo and then be dropped by the
- * reset: one event lost rather than two repos merged, which is the right way
- * round, but it is an assumption and not a guarantee this module can enforce.
+ * log in order. If that ever stopped holding, a new session's event arriving
+ * *before* its `session.started` in the same flush would fold onto the old one
+ * and then be dropped by the reset: one event lost rather than two recordings
+ * merged, which is the right way round, but it is an assumption and not a
+ * guarantee this module can enforce.
  * `drops-events-that-precede-the-boundary` pins the behaviour so a change here
  * is a decision.
  */
-export function crossesRepoBoundary(session: SessionState, event: RhizomorphEvent): boolean {
-  if (event.type !== 'session.started') return false
-  const folded = foldedRepoPath(session)
-  return folded !== null && folded !== event.payload.repoPath
-}
-
 export function foldStreamEvent(state: StreamState, event: RhizomorphEvent): StreamState {
   // The reset lands *before* the boundary event folds, so the `session.started`
-  // that named the new repo is itself the first event of the new fold.
-  const base = crossesRepoBoundary(state.session, event)
+  // that opened the new recording is itself the first event of the new fold.
+  const base = opensNewSession(state.session, event)
     ? initialStreamState(state.connectedAt)
     : state
   // `isNews` reads `connectedAt`, which a reset carries across untouched: the
@@ -238,10 +201,10 @@ export function foldStreamEvent(state: StreamState, event: RhizomorphEvent): Str
  * regardless — the cap never reaches the reducer, only the raw window kept
  * beside it.
  *
- * The repo boundary ({@link crossesRepoBoundary}) is checked **inside** the
- * loop, not once against the incoming state: a single flush can carry the
- * retarget and the new repo's first events together, and a check hoisted out
- * of the loop would fold the new repo's facts straight onto the old repo's.
+ * The session boundary (`opensNewSession`) is checked **inside** the loop, not
+ * once against the incoming state: a single flush can carry the rotation and
+ * the new recording's first events together, and a check hoisted out of the
+ * loop would fold the new session's facts straight onto the ended one's.
  * This is what keeps the batched path bit-for-bit identical to folding the
  * same events one at a time through {@link foldStreamEvent} — the #166/#183
  * identity law, which now has to hold across a boundary too.
@@ -258,7 +221,7 @@ export function foldStreamEvents(
   let newsCount = state.newsCount
 
   for (const event of events) {
-    if (crossesRepoBoundary(session, event)) {
+    if (opensNewSession(session, event)) {
       // Fresh arrays rather than `length = 0`: the accumulators start as
       // copies, but nothing here may assume that of a future caller.
       all = []

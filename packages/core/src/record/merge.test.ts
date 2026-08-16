@@ -57,7 +57,56 @@ describe('mergeRecords', () => {
     expect(state.agents['bob-lane']?.status).toBe('working')
     expect(state.telemetry.lanes['alice-lane']?.lane).toBe('alice-lane')
     expect(state.telemetry.lanes['bob-lane']?.lane).toBe('bob-lane')
-    expect(state.eventCount).toBe(alice.events.length + bob.events.length)
+    // The MERGE is lossless — every event of both actors is in the stream.
+    expect(result.merged.events).toHaveLength(alice.events.length + bob.events.length)
+  })
+
+  /**
+   * AMENDED BY #592, and the amendment is a REPORT, not a tidy-up.
+   *
+   * `reduce` now treats a `session.started` naming a session other than the
+   * one it is folding as SUCCESSION — the recording ended and another began —
+   * because that is what it means on the live stream and in every replayed
+   * log, and because ignoring it left the dashboard folding two recordings at
+   * once after every rotation (#592).
+   *
+   * A federated merge means the other thing. Alice's and Bob's `session.started`
+   * are two actors observing one repo side by side, not one replacing the
+   * other — so folding the merged stream through this reducer now resets at
+   * whichever actor's start comes second, and whatever the first actor
+   * recorded before that instant is dropped.
+   *
+   * **The merge itself is unharmed** (asserted above: every event of both
+   * actors is in `merged.events`, in per-actor append order). What cannot
+   * represent two concurrent actors is `SessionState`, which has exactly one
+   * `session` slot and one `mainBranch` — so even before #592 a merged fold
+   * silently picked a winner for both, and every per-lane fact survived only
+   * because these fixtures happen to interleave their starts ahead of their
+   * facts. #592 makes that pre-existing single-session assumption LOUD instead
+   * of leaving it as a coincidence of timestamps.
+   *
+   * The honest fix is not to weaken the succession rule — the live instrument
+   * needs it — but to fold a merged record PER ACTOR, which is what a
+   * multi-actor view needs regardless (prd11 ruling 3). Pinned here so the
+   * next lane to reach federation finds the limitation stated rather than
+   * discovers it as a mystery.
+   */
+  it('folding the merged stream collapses to the last actor to start — the single-session fold cannot hold two (#592)', () => {
+    const alice = actorRecord('inst-alice', 'alice', FIXTURE_START_TS, 'alice-lane')
+    const bob = actorRecord('inst-bob', 'bob', FIXTURE_START_TS + 500, 'bob-lane')
+    const result = mergeRecords(alice.record, bob.record)
+    if (!result.ok) throw new Error(result.reason)
+
+    const boundaryAt = result.merged.events.findIndex(
+      (event) => event.type === 'session.started' && event.payload.sessionId === 'sess-bob',
+    )
+    expect(boundaryAt).toBeGreaterThan(0)
+
+    const state = reduceAll(result.merged.events)
+    // The fold counts from the second actor's start, not from the stream's.
+    expect(state.session?.sessionId).toBe('sess-bob')
+    expect(state.eventCount).toBe(result.merged.events.length - boundaryAt)
+    expect(state.eventCount).toBeLessThan(result.merged.events.length)
   })
 
   it('dedupes a record merged against itself instead of doubling it', () => {

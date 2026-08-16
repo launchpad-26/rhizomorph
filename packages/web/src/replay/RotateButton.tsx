@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { bootExplanation } from '../app/StatusBar.js'
 import { requestRotation, type RotateFetchLike, type RotationSummary } from './rotate.js'
 
 /**
@@ -16,7 +17,39 @@ import { requestRotation, type RotateFetchLike, type RotationSummary } from './r
  * The provenance line names the new session on its own (`app/StatusBar.tsx`
  * re-reads the meta route when the live session's identity changes), and
  * `onRotated` is how the picker learns to list the freshly-closed one.
+ *
+ * **The acknowledgement reaches the surface the operator is looking at
+ * (#592).** The `rotated` boot-reason voice already existed and is well
+ * written — but it renders in the provenance bar at the foot of the page, and
+ * only as the session line's `title`, so the operator who pressed this button
+ * never encountered it. {@link rotatedVoice} is that same sentence,
+ * `bootExplanation`'s own, rendered beside the button. It is IMPORTED rather
+ * than restated on purpose: prd-30's whole point is that two surfaces must not
+ * phrase one condition differently, so there is exactly one place the wording
+ * lives and both surfaces read it.
  */
+
+/**
+ * The `rotated` sentence, from the one voice that owns it.
+ *
+ * The two numbers are placeholders for a switch arm that reads neither: the
+ * `rotated` case of `bootExplanation` names no window and no resume count.
+ * `resumedCount: 0` is true of a rotation regardless (the rotate route records
+ * exactly that as the new session's boot facts — spelled without its path, so
+ * this file keeps naming no route at all, which is the mutating-calls law's
+ * own rule for the buttons), and `resumeWindowMs` is a fact this surface has
+ * not fetched and the arm never asks for. Anything else would be inventing a
+ * figure to satisfy a shape, which is what `bootExplanation`'s own header
+ * refuses to do.
+ *
+ * Called at render rather than evaluated at module scope, so this module's
+ * import of a sibling *page* module can never be an initialisation-order
+ * hazard — the string is one `switch` over a literal, so there is nothing to
+ * save.
+ */
+function rotatedVoice(): string {
+  return bootExplanation({ lastBootReason: 'rotated', resumedCount: 0, resumeWindowMs: 0 })
+}
 
 export interface RotateButtonProps {
   /** Called after a successful rotation — the replay picker refreshes its listing. */
@@ -85,9 +118,17 @@ export function RotateButton({ onRotated, fetchImpl }: RotateButtonProps = {}) {
       )}
 
       {phase.status === 'done' && (
-        <span data-testid="rotate-result" role="status" className="normal-case tracking-normal text-ice-400">
-          closed session {phase.rotation.closed.sessionId} ({phase.rotation.closed.eventCount.toLocaleString()}{' '}
-          events) · now recording {phase.rotation.opened.sessionId}
+        <span role="status" className="inline-flex flex-col gap-0.5 normal-case tracking-normal">
+          <span data-testid="rotate-result" className="text-ice-400">
+            closed session {phase.rotation.closed.sessionId} ({phase.rotation.closed.eventCount.toLocaleString()}{' '}
+            events) · now recording {phase.rotation.opened.sessionId}
+          </span>
+          {/* `ice-400` is the dimmest step text may legally wear — prd9's
+              legibility floor (`theme/contrast.ts`); anything below it is for
+              structure, never a sentence. */}
+          <span data-testid="rotate-acknowledgement" className="text-ice-400">
+            {rotatedVoice()}
+          </span>
         </span>
       )}
 

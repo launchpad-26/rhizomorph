@@ -243,7 +243,6 @@ export function registerRetargetRoute(app: FastifyInstance, ctx: ServerContext):
       // the old repo's slug, which is precisely what `retargeted` says instead.
       recordSessionBootMeta(ctx.recorder, {
         resumedCount: 0,
-        eventCount: 0,
         resumeWindowMs: sessionBootMetaFor(ctx.recorder)?.resumeWindowMs ?? RESUME_WINDOW_MS,
         lastBootReason: 'retargeted',
       })
