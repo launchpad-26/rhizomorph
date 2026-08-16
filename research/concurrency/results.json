@@ -1,0 +1,310 @@
+{
+  "currentCaps": {
+    "eventMaxConcurrent": 5,
+    "structuralMaxConcurrent": 2
+  },
+  "perFile": [
+    {
+      "label": "main, 2026-08-15/16 [session-1786665720450.jsonl]",
+      "events": 27517,
+      "spanHours": 49.297471944444446,
+      "pulseCount": 6477,
+      "maxConcurrency": 11,
+      "maxDistinctLaneConcurrency": 5,
+      "fractionAtLeast": {
+        "1": 0.014261335834779546,
+        "2": 0.007113754950194076,
+        "3": 0.004264846340284839,
+        "5": 0.00040279417332156494,
+        "10": 0.000002751686209657468
+      },
+      "structuralMax": 2
+    },
+    {
+      "label": "main, 2026-08-14/15 (the 7-lane wave) [session-1786602585014.jsonl]",
+      "events": 13451,
+      "spanHours": 17.44989111111111,
+      "pulseCount": 3678,
+      "maxConcurrency": 33,
+      "maxDistinctLaneConcurrency": 6,
+      "fractionAtLeast": {
+        "1": 0.030588691923777236,
+        "2": 0.02665682931398016,
+        "3": 0.024681485010928223,
+        "5": 0.018002749696603974,
+        "10": 0.006091080063570061
+      },
+      "structuralMax": 1
+    },
+    {
+      "label": "main, 2026-08-11/13 [session-1786321490492.jsonl]",
+      "events": 10401,
+      "spanHours": 53.46258777777778,
+      "pulseCount": 1773,
+      "maxConcurrency": 9,
+      "maxDistinctLaneConcurrency": 4,
+      "fractionAtLeast": {
+        "1": 0.011165894270341077,
+        "2": 0.005134789114027032,
+        "3": 0.0026094046098660032,
+        "5": 0.0004185400275309155,
+        "10": 0
+      },
+      "structuralMax": 2
+    },
+    {
+      "label": "main, short reconnect [session-1786665406591.jsonl]",
+      "events": 382,
+      "spanHours": 0.08715944444444444,
+      "pulseCount": 0,
+      "maxConcurrency": 0,
+      "maxDistinctLaneConcurrency": 0,
+      "fractionAtLeast": {
+        "1": 0,
+        "2": 0,
+        "3": 0,
+        "5": 0,
+        "10": 0
+      },
+      "structuralMax": 0
+    },
+    {
+      "label": "early era, ~issue 100s [session-1785739192605.jsonl]",
+      "events": 63653,
+      "spanHours": 43.463815,
+      "pulseCount": 19812,
+      "maxConcurrency": 31,
+      "maxDistinctLaneConcurrency": 7,
+      "fractionAtLeast": {
+        "1": 0.09726912243196047,
+        "2": 0.06409892633336574,
+        "3": 0.0509630008252862,
+        "5": 0.02715610225080274,
+        "10": 0.004605738169271799
+      },
+      "structuralMax": 1
+    },
+    {
+      "label": "early era [session-1785929533332.jsonl]",
+      "events": 56618,
+      "spanHours": 13.59021361111111,
+      "pulseCount": 18515,
+      "maxConcurrency": 32,
+      "maxDistinctLaneConcurrency": 7,
+      "fractionAtLeast": {
+        "1": 0.21732409170260134,
+        "2": 0.18066744117810643,
+        "3": 0.1651721452618309,
+        "5": 0.10692379393144033,
+        "10": 0.021363321273585353
+      },
+      "structuralMax": 1
+    },
+    {
+      "label": "early era [session-1785895666938.jsonl]",
+      "events": 41120,
+      "spanHours": 10.478425555555555,
+      "pulseCount": 13252,
+      "maxConcurrency": 28,
+      "maxDistinctLaneConcurrency": 6,
+      "fractionAtLeast": {
+        "1": 0.17071483199500934,
+        "2": 0.1425445346201693,
+        "3": 0.12859041974218605,
+        "5": 0.083734733105656,
+        "10": 0.021355912994014452
+      },
+      "structuralMax": 1
+    },
+    {
+      "label": "early era [session-1785978475040.jsonl]",
+      "events": 15334,
+      "spanHours": 30.357166111111113,
+      "pulseCount": 3835,
+      "maxConcurrency": 45,
+      "maxDistinctLaneConcurrency": 7,
+      "fractionAtLeast": {
+        "1": 0.09506025235714222,
+        "2": 0.07107424499316142,
+        "3": 0.06382470921483788,
+        "5": 0.03510090715004055,
+        "10": 0.001484580725131458
+      },
+      "structuralMax": 1
+    },
+    {
+      "label": "early era, short [session-1785677492476.jsonl]",
+      "events": 856,
+      "spanHours": 0.22990611111111112,
+      "pulseCount": 247,
+      "maxConcurrency": 7,
+      "maxDistinctLaneConcurrency": 2,
+      "fractionAtLeast": {
+        "1": 0.35536615629253954,
+        "2": 0.14867909072291624,
+        "3": 0.05776342894315211,
+        "5": 0.00728457674284131,
+        "10": 0
+      },
+      "structuralMax": 1
+    },
+    {
+      "label": "early era, short [session-1785935062975.jsonl]",
+      "events": 157,
+      "spanHours": 0.05126027777777778,
+      "pulseCount": 37,
+      "maxConcurrency": 4,
+      "maxDistinctLaneConcurrency": 1,
+      "fractionAtLeast": {
+        "1": 0.29070893148563054,
+        "2": 0.1179985063480209,
+        "3": 0.04071584654108926,
+        "5": 0,
+        "10": 0
+      },
+      "structuralMax": 0
+    }
+  ],
+  "pooled": {
+    "totalPulses": 67626,
+    "totalMs": 1047563307,
+    "maxConcurrency": 45,
+    "maxDistinctLaneConcurrency": 7,
+    "fractionAtLeast": {
+      "1": 0.045774675076510674,
+      "2": 0.03217064379289108,
+      "3": 0.02662171518766264,
+      "4": 0.021545178080583535,
+      "5": 0.014882061920101216,
+      "6": 0.009674693579163327,
+      "7": 0.006638360616042463,
+      "8": 0.005194241687963208,
+      "10": 0.0029593562310597427
+    },
+    "distinctLaneFractionAtLeast": {
+      "1": 0.045774675076510674,
+      "2": 0.009298822262013421,
+      "3": 0.00248355777890949,
+      "4": 0.000642202715105217,
+      "5": 0.00018479646882095307,
+      "6": 0.00007692995684508068,
+      "7": 0.000027569694172191923,
+      "8": 0,
+      "10": 0
+    },
+    "episodesAtLeast": {
+      "2": 12240,
+      "3": 8799,
+      "5": 6435,
+      "7": 3483,
+      "10": 1831
+    },
+    "activeTimeFraction": 0.045774675076510674,
+    "activeTimeNormalized": {
+      "2": {
+        "raw": 0.7028044161781386,
+        "distinctLanes": 0.20314338106105143
+      },
+      "3": {
+        "raw": 0.581581740190737,
+        "distinctLanes": 0.05425615309684482
+      },
+      "4": {
+        "raw": 0.470678995417697,
+        "distinctLanes": 0.014029650981286028
+      },
+      "5": {
+        "raw": 0.32511562114261655,
+        "distinctLanes": 0.004037089690141386
+      },
+      "6": {
+        "raw": 0.21135471880450127,
+        "distinctLanes": 0.0016806226743607705
+      },
+      "7": {
+        "raw": 0.14502256116393375,
+        "distinctLanes": 0.0006022914226285649
+      },
+      "8": {
+        "raw": 0.11347413562807875,
+        "distinctLanes": 0
+      },
+      "10": {
+        "raw": 0.06465051310824792,
+        "distinctLanes": 0
+      }
+    },
+    "structural": {
+      "maxConcurrency": 2,
+      "fractionAtLeast": {
+        "1": 0.00038252944460629633,
+        "2": 0.000006250481121017913,
+        "3": 0,
+        "4": 0
+      }
+    }
+  },
+  "sensitivity": {
+    "lifeScale": [
+      {
+        "factor": 0.5,
+        "max": 41,
+        "fractionAtLeast5": 0.006169463270832199
+      },
+      {
+        "factor": 1,
+        "max": 45,
+        "fractionAtLeast5": 0.014882061920101216
+      },
+      {
+        "factor": 2,
+        "max": 53,
+        "fractionAtLeast5": 0.030079728174906756
+      },
+      {
+        "factor": 4,
+        "max": 84,
+        "fractionAtLeast5": 0.04726437167703278
+      }
+    ],
+    "fixedWindow": [
+      {
+        "windowMs": 100,
+        "max": 18,
+        "fractionAtLeast5": 0.00005311374912930524
+      },
+      {
+        "windowMs": 250,
+        "max": 18,
+        "fractionAtLeast5": 0.00025939110640279715
+      },
+      {
+        "windowMs": 500,
+        "max": 20,
+        "fractionAtLeast5": 0.0008172066205937143
+      },
+      {
+        "windowMs": 1000,
+        "max": 36,
+        "fractionAtLeast5": 0.0024735060889842747
+      },
+      {
+        "windowMs": 2000,
+        "max": 38,
+        "fractionAtLeast5": 0.006922549524531263
+      },
+      {
+        "windowMs": 4000,
+        "max": 42,
+        "fractionAtLeast5": 0.018383085600155277
+      }
+    ]
+  },
+  "laneLifetimeMinutes": {
+    "n": 168,
+    "min": 0.10006666666666666,
+    "p50": 60.707433333333334,
+    "p90": 1969.4169,
+    "max": 2139.727033333333
+  }
+}
