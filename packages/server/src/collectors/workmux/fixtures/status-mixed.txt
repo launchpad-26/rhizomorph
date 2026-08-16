@@ -1,0 +1,5 @@
+WORKTREE             STATUS   ELAPSED  TITLE
+2-core               working  12m      ⠂ Implement core event schema and reducer
+3-git-collector      waiting  6m       ⠂ Needs input: which diff format for renames?
+4-tmux-collector     done     9m       ✓ tmux collector complete
+5-workmux-collector  working  5m       ⠐ Implement workmux collector with status parsing
