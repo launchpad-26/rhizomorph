@@ -177,6 +177,18 @@ const LEGAL_STATE_READINGS = Object.keys(STATE_WORD).map(
 )
 
 describe('the connect page', () => {
+  afterEach(() => {
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('renders the persistent nav (#549, prd-32 ruling 10)', async () => {
+    window.history.replaceState(null, '', '/connect')
+    await renderConnect()
+
+    expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    expect(screen.getByTestId('nav-connect').getAttribute('aria-current')).toBe('page')
+  })
+
   it('renders one row per link in the chain, each in exactly one of the three states', async () => {
     await renderConnect()
 

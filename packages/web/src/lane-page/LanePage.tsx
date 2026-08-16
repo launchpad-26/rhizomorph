@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react'
+import { Nav } from '../app/Nav.js'
 import { laneUrl, navigate } from '../app/router.js'
 import { ReplayBar } from '../app/ReplayBar.js'
 import { useStream } from '../app/StreamContext.js'
@@ -128,20 +129,23 @@ export function LanePage({ handle, fetchTranscript, transcriptPollMs }: LanePage
     return (
       <div
         data-testid="lane-page"
-        className="flex h-screen flex-col items-center justify-center gap-4 bg-ice-1000 px-4 text-center font-sans text-ice-300"
+        className="flex h-screen flex-col bg-ice-1000 font-sans text-ice-300"
       >
-        <p role="status" data-testid="lane-page-unknown" className="max-w-lg font-mono text-[12px] leading-snug text-ice-400">
-          NO LANE “{handle}” IN THIS SESSION — it may have landed, been renamed, or never existed
-          in this session's log.
-        </p>
-        <button
-          type="button"
-          data-testid="lane-page-back"
-          onClick={goBalcony}
-          className="shrink-0 rounded border border-ice-800 px-3 py-1 text-[10px] uppercase tracking-wider text-ice-400 hover:border-ice-600 hover:text-ice-100"
-        >
-          ← balcony
-        </button>
+        <Nav />
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
+          <p role="status" data-testid="lane-page-unknown" className="max-w-lg font-mono text-[12px] leading-snug text-ice-400">
+            NO LANE “{handle}” IN THIS SESSION — it may have landed, been renamed, or never existed
+            in this session's log.
+          </p>
+          <button
+            type="button"
+            data-testid="lane-page-back"
+            onClick={goBalcony}
+            className="shrink-0 rounded border border-ice-800 px-3 py-1 text-[10px] uppercase tracking-wider text-ice-400 hover:border-ice-600 hover:text-ice-100"
+          >
+            ← balcony
+          </button>
+        </div>
       </div>
     )
   }
