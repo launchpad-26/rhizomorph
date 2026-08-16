@@ -242,6 +242,42 @@ landed work as accumulated mass, past lanes as scars and residue, the substrate 
 reads as *at rest*, never as broken and never as empty — and the list representation (prd-36) is
 always there to say, in words, exactly what is and is not running.
 
+## Ruling 13 — the supported size is a stated number, and the number is 90 threads
+
+Added 2026-08-16 (#579). Ruling 11's spike reported, and it found a ceiling that has nothing to do
+with the renderer it was run to decide: `layoutScene` + `sceneMarks` — the model stage, CPU,
+**identical in both renderer arms and measured before any painter draws a pixel** — cost
+14.6–16.5 ms of a 16.67 ms frame at 60 lanes × 3 colonies. ADR-0021's whole advantage is on the
+other side of that line, so a renderer that cost literally nothing would still leave 180 threads
+with no margin at all (`research/2026-08-15-renderer-spike.md`, §"The model floor").
+
+**So this PRD states its size rather than discovering it in the field:**
+
+| configuration | threads | supported |
+|---|---|---|
+| 1 colony × 30 lanes | 30 | **60 fps, comfortably** |
+| 3 colonies × 30 lanes | 90 | **60 fps** — the shipped ceiling for ruling 7's several colonies |
+| 3 colonies × 60 lanes | 180 | **30 fps.** Renders correctly; does not hold 60 |
+
+Three things this ruling binds, so that the number is a commitment rather than an observation:
+
+1. **The ceiling is a model-stage number, and the model stage is what a regression will show up
+   in first.** A frame that got slower will *present* as a renderer problem and will not be one.
+   `packages/web/src/scene/perf.test.ts`'s model-floor suite reports the three cells above every
+   run — reported, never asserted, per #157's discipline.
+2. **90 threads has headroom now, and did not before.** #579 baked the mass's contour in unit
+   space and placed it by transform (`contour.ts`), which took the model stage to **0.67–0.79× of
+   what ruling 11's spike measured** — on this repo's own rig, the three cells went 5.49 → 3.87,
+   15.84 → 10.59 and 25.77 → 20.24 ms, with the mass's own builder falling from 1.47 ms to
+   0.25 ms per colony. Ninety threads therefore sits at about two thirds of the frame with the
+   painter still to run, where it previously sat at the edge of it.
+3. **Raising the ceiling is a measurement, not a decision.** 180 threads is not a bug to be
+   closed by relaxing this table; it is 30 fps until somebody moves the model stage again. The
+   next candidate is already located and is *not* the mass: at 60 lanes the thread builder is the
+   dominant term, and `research/2026-08-15-renderer-spike.md`'s response 2 — memoising a growing
+   thread's full spine and re-truncating it per frame, so ruling 9's continuous growth and the
+   spine cache can coexist — is the untaken one.
+
 ## The specification
 
 Six answers per surface, per `docs/prds/README.md`. The scene is one surface; its regions are

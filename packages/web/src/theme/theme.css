@@ -241,18 +241,18 @@
  *
  * **Dark is the source of truth and these derive from it** (prd-32 non-goals):
  * every role below is a `var()` onto the ice ramp, never a hex beside it, so a
- * ramp edit cannot leave the roles behind. Light (#551) redefines the same ten
- * names in a `[data-theme='light']` block — re-derived, never arithmetically
- * inverted, because "brighter than the calm world" cannot mean the same thing
- * on white.
+ * ramp edit cannot leave the roles behind. Light redefines the same ten names
+ * in the `[data-theme='light']` block below — re-derived against its own paper
+ * register, never arithmetically inverted, because "brighter than the calm
+ * world" cannot mean the same thing on white (#551).
  *
  * They live in a plain `:root` rather than in `@theme` for that reason: these
  * are not Tailwind namespaces (no `bg-surface-panel` is generated and none is
  * wanted — a role is reached as `bg-(--surface-panel)` or `var(--surface-panel)`),
  * and a per-theme override of an `@theme` variable is the awkward case. The
- * contrast law discovers theme blocks by parsing this file, so the theme that
- * arrives in #551 is covered by the same suite the moment it lands, without an
- * edit to the law.
+ * contrast law discovers theme blocks by parsing this file, so light was
+ * covered by the same suite the moment it landed, without an edit to the law —
+ * and a third theme would be too.
  */
 :root {
   color-scheme: dark;
@@ -321,6 +321,135 @@
   --category-2: #655d80;
   --category-3: #8880a4;
   --category-4: #ada4ca;
+}
+
+/* ── WARM PAPER (prd-32 rulings 4 and 7, charter §4) ────────────────────────
+ * The second theme, and the one rule that governs every number in it: **it is
+ * not dark inverted.** An inverted palette is the failure this ruling exists to
+ * prevent, so nothing below is computed from the ice ramp. The register is
+ * chosen beside it, against a different ground, and the laws are re-derived in
+ * the units that ground actually has.
+ *
+ * **The trap, stated once.** On the void, severity climbs by *luminance*: a
+ * lane in trouble gets brighter, and the band above `CALM_CEILING` is what the
+ * alarms own. On paper, brighter means *closer to the page* — so the identical
+ * encoding inverts its meaning and a dying lane would recede. Severity here is
+ * therefore re-carried by **weight, enclosure and saturation**, and the band is
+ * re-derived in **presence** (a mark's departure from its ground) rather than in
+ * luminance. `scene/palette.ts` holds the arithmetic; `palette.test.ts` holds
+ * the ladder to it with luminance flattened, which is the only way to show that
+ * severity survived the move rather than being re-lit.
+ *
+ * **Dark's four numbers do not move** — `RECEDE 0.30`, `CALM_CEILING 0.78`,
+ * `ALARM_FLOOR 0.84`, `CALM_FLOOR 0.15` are the void's and stay exactly as they
+ * are (charter §2.2). Light gets its own three beside them, and only `RECEDE`
+ * is shared, because a ratio is the one part of the budget that is not
+ * denominated in light at all.
+ *
+ * ── the paper register ──
+ * Thirteen steps, slot-for-slot with the ice ramp so `scene/palette.ts` can
+ * mirror one onto the other, and **numbered by ink rather than by luminance**:
+ * `paper-000` is the page with no ink on it and `paper-950` is the deepest mark
+ * the instrument makes. That is the naming the ruling forces — on the void the
+ * register climbs as light is *added*, on paper as ink is. The two registers
+ * therefore run in opposite physical directions through the same slots, which
+ * is the whole reason severity could not simply come along.
+ *
+ * The register is warm at the paper end (OKLCH H ≈ 82) and **deep plum-grey**
+ * at the ink end (H ≈ 332), drifting through a rosy middle. Ruling 7 in three
+ * facts: warm off-white rather than clinical white, plum-grey rather than
+ * black, and hairlines that measure 1.4:1 rather than 4:1 — an eye that reads
+ * an instrument for hours is not served by maximum contrast.
+ *
+ * H 332 rather than the tissue accent's own 295.5, and the gap is load-bearing:
+ * `palette.test.ts` holds the accent 30° clear of the register in *both*
+ * themes, exactly as prd10 ruling 11 requires, and a plum ink at 300 would have
+ * quietly collapsed that law on paper while leaving dark's copy of it green.
+ */
+[data-theme='light'] {
+  color-scheme: light;
+
+  --color-paper-000: #faf6ef; /* the page — the ground the network hangs on */
+  --color-paper-050: #f3eee4; /* raised: panels, docks, the strips */
+  --color-paper-100: #ebe3d6; /* raised-2: rows on hover, inset wells */
+  --color-paper-150: #dfd1c6; /* hairlines and panel borders */
+  --color-paper-200: #d0bbb4; /* stronger dividers, table rules */
+  --color-paper-300: #b59b9e; /* absent/disabled marks — never text */
+  --color-paper-400: #977d89; /* decorative structure — never text (1.9:1) */
+  --color-paper-500: #7f6576; /* decorative structure — never text (3.0:1) */
+  --color-paper-600: #674c61; /* secondary labels — the legibility floor (7.00:1) */
+  --color-paper-700: #52384e; /* body copy */
+  --color-paper-800: #40273c; /* primary data ink */
+  --color-paper-900: #301b2d; /* emphasis: the headline number */
+  --color-paper-950: #22101f; /* the deepest mark the instrument makes */
+
+  /* Roles, slot-for-slot with dark's. Every one is a `var()` onto the register
+   * above for the same reason dark's is onto the ice ramp: a role written as
+   * its own hex drifts the first time the register is retuned. */
+  --surface-floor: var(--color-paper-000);
+  --surface-panel: var(--color-paper-050);
+  --surface-raised: var(--color-paper-100);
+  --surface-line: var(--color-paper-150);
+
+  --ink-primary: var(--color-paper-900);
+  --ink-body: var(--color-paper-700);
+  --ink-dim: var(--color-paper-600);
+  --ink-inverse: var(--color-paper-000);
+
+  --line-hair: var(--color-paper-150);
+  --line-strong: var(--color-paper-200);
+
+  --focus-ring: var(--color-paper-800);
+
+  /* ── the six status hues, re-inked (law 9a survives the move) ─────────────
+   * Each one keeps its dark counterpart's OKLCH **hue angle** and gets a new
+   * lightness and chroma: green still means productive, amber still means
+   * blocked, red still means dead. What changes is that on paper a status is
+   * *ink laid down* rather than *light emitted*, so every one of them is
+   * darker than the page instead of brighter than the void.
+   *
+   * The family relation survives with it, on the channel that still exists. On
+   * the void `needs-you` is the incandescent end of the amber family and
+   * `waiting-benign` its muted one; here `needs-you` is the deeper ink (7.3:1
+   * against the page) and `waiting-benign` the lighter (4.7:1). Same ladder,
+   * same hue, opposite direction of travel.
+   */
+  --color-calm: var(--color-paper-800);
+
+  --color-working: #007039;
+  --color-done: #3b8566;
+
+  --color-waiting-benign: #8d6926;
+  --color-needs-you: #714a00;
+
+  --color-broken: #a70036;
+  --color-notice: #006f7e;
+
+  /* Dead tissue drains rather than greys: on the void a corpse is a mid grey
+   * against black, and here it is a pale one against the page — the same fact,
+   * which is that the matter has stopped carrying anything. Both measure ~2.3:1
+   * against their own ground, and neither is a seventh status hue. */
+  --color-necrotic: #a9a2a8;
+
+  /* The tissue ramp, at **the organism's own hue in both worlds** (H 295.5).
+   * The angle is a fact about the material, not about the theme, so it does not
+   * move; what moves is the direction the ramp travels. Read as a gradient from
+   * `tissue-900` — nearly the ground — to `tissue-200` at its most present, the
+   * names keep meaning what they meant while the values run the other way. */
+  --color-tissue-900: #edeaf9;
+  --color-tissue-700: #d6cfef;
+  --color-tissue-500: #b9addf;
+  --color-tissue-400: #9b8acd; /* THE ACCENT, on paper */
+  --color-tissue-200: #8671bd;
+
+  /* The category family (ruling 8), drained from the same hue and re-derived
+   * against the page. `category.test.ts` runs all five caps over this theme's
+   * own world — its own status hues, its own quietest chroma — so a light
+   * family that crept past a cap fails the suite a dark one would. */
+  --category-1: #5a546c;
+  --category-2: #7c778d;
+  --category-3: #9f9bae;
+  --category-4: #c2bece;
 }
 
 /* ── glow: how a state reads as lit rather than filled ─────────────────────
