@@ -92,9 +92,14 @@ export async function runServerCommand(
     )
   }
   log.log(renderBootLine(decision, sessionId, resumedCount))
+  // `decision.eventCountAtBoot` is deliberately NOT passed on (#592): it is a
+  // boot snapshot, and `/api/meta` used to serve it under the live-sounding
+  // name `eventCount` — frozen forever, most visibly at 0 on a session the
+  // operator had just rotated into. The route reports the live count off its
+  // own fold now. The snapshot still has its honest readers: the boot line
+  // below, and `rhizomorph doctor`.
   recordSessionBootMeta(recorder, {
     resumedCount,
-    eventCount: decision.eventCountAtBoot,
     resumeWindowMs: decision.windowMs,
     lastBootReason: decision.reason,
   })

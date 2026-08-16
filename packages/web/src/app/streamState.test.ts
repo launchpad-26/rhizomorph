@@ -1,6 +1,7 @@
 import {
   createEventFactory,
   initialSessionState,
+  opensNewSession,
   reduceAll,
   type RhizomorphEvent,
 } from '@rhizomorph/core'
@@ -9,7 +10,6 @@ import { boundaryIndex, eventsUpTo, foldUpTo, sortEvents } from '../replay/repla
 import {
   MAX_EVENTS,
   NEWS_GRACE_MS,
-  crossesRepoBoundary,
   eventsWindowLabel,
   foldStreamEvent,
   foldStreamEvents,
@@ -472,7 +472,7 @@ describe('eventsWindowLabel — the boundary voice (#221)', () => {
  * the reset itself — a reconnect that wipes good state would be a worse
  * instrument than the bug being fixed.
  */
-describe('the repo boundary resets the fold (#390)', () => {
+describe('the session boundary resets the fold (#390 for the repo, #592 for the rotation)', () => {
   const connectedAt = Date.UTC(2026, 7, 10, 12, 0, 0)
 
   /**
@@ -506,24 +506,24 @@ describe('the repo boundary resets the fold (#390)', () => {
   const foldAll = (events: readonly RhizomorphEvent[]) =>
     foldStreamEvents(initialStreamState(connectedAt), events)
 
-  describe('crossesRepoBoundary', () => {
+  describe('opensNewSession', () => {
     const foldedOnAlpha = foldAll(alpha).session
 
     it('is true for a session.started naming a different repoPath', () => {
-      expect(crossesRepoBoundary(foldedOnAlpha, beta[0]!)).toBe(true)
+      expect(opensNewSession(foldedOnAlpha, beta[0]!)).toBe(true)
     })
 
-    it('is false for a session.started naming the same repoPath', () => {
-      expect(crossesRepoBoundary(foldedOnAlpha, alpha[0]!)).toBe(false)
+    it('is false for a session.started re-stating the session already folded', () => {
+      expect(opensNewSession(foldedOnAlpha, alpha[0]!)).toBe(false)
     })
 
-    it('is false before any repo has been folded — nothing to contradict', () => {
-      expect(crossesRepoBoundary(initialSessionState(), alpha[0]!)).toBe(false)
+    it('is false before any session has been folded — nothing to contradict', () => {
+      expect(opensNewSession(initialSessionState(), alpha[0]!)).toBe(false)
     })
 
     it('is false for every event that is not a session.started', () => {
       for (const event of alpha.slice(1)) {
-        expect(crossesRepoBoundary(foldedOnAlpha, event)).toBe(false)
+        expect(opensNewSession(foldedOnAlpha, event)).toBe(false)
       }
     })
   })
@@ -607,7 +607,23 @@ describe('the repo boundary resets the fold (#390)', () => {
     expect(replayed.session.eventCount).toBe(alpha.length * 2)
   })
 
-  it('does NOT reset for an ordinary rotation — new session id, same repo', () => {
+  /**
+   * REVERSED BY #592, deliberately and with the reasoning replaced rather than
+   * deleted. #390 pinned the opposite — *"an ordinary rotation changes
+   * `sessionId`, never `repoPath`. The fleet it describes is the same fleet;
+   * dropping it would be a self-inflicted amnesia."* On 2026-08-16 the
+   * operator pressed **end session · start fresh** and the instrument carried
+   * on exactly as before: the scene did not change, the elapsed figures did
+   * not reset, and a refresh changed nothing. What #390 read as amnesia to be
+   * avoided is the only thing that makes the operator's own act visible, and
+   * it is brief: rotation resets every collector's warm snapshot
+   * (`server/api/rotate.ts`) precisely so the new log opens self-contained, so
+   * the fleet refills from the new session's own discovery pass.
+   *
+   * The reasoning now lives on `opensNewSession` in `core/src/reduce.ts`,
+   * where it has to be for replay to inherit it (ADR-0002).
+   */
+  it('DOES reset for an ordinary rotation — a new session id is a new recording (#592)', () => {
     const before = foldAll(alpha)
     const f = createEventFactory({ idPrefix: 'rotation', startTs: connectedAt + 60_000 })
     const rotated = f.sessionStarted({
@@ -618,8 +634,24 @@ describe('the repo boundary resets the fold (#390)', () => {
     const after = foldStreamEvent(before, rotated)
 
     expect(after.session.session?.sessionId).toBe('s-alpha-2')
-    expect(Object.keys(after.session.worktrees)).toEqual(Object.keys(before.session.worktrees))
-    expect(Object.keys(after.session.commits)).toEqual(Object.keys(before.session.commits))
+    // Cleared, not merged — the whole point of the issue.
+    expect(Object.keys(after.session.worktrees)).toEqual([])
+    expect(Object.keys(after.session.branches)).toEqual([])
+    expect(after.session.commits.order).toEqual([])
+    // …and the elapsed figures restart from the new recording rather than the
+    // one the operator ended. `before` really did hold a longer span, so this
+    // is not vacuously true.
+    expect(before.session.eventCount).toBeGreaterThan(1)
+    expect(after.session.eventCount).toBe(1)
+    expect(after.session.firstEventTs).toBe(rotated.ts)
+    // The raw window and the flare queue cross with it, so the pair
+    // `eventsWindowLabel` reads still describes one recording.
+    expect(after.events).toEqual([rotated])
+    expect(after.news).toEqual([rotated])
+    expect(after.newsCount).toBe(1)
+    expect(eventsWindowLabel(after)).toBeNull()
+    // The news/history boundary belongs to the connection, not the recording.
+    expect(after.connectedAt).toBe(connectedAt)
   })
 
   it('does NOT reset on the first session.started of a fresh fold', () => {
@@ -633,10 +665,13 @@ describe('the repo boundary resets the fold (#390)', () => {
 /**
  * Two behaviours the #390 review asked to be settled one way or the other.
  * Both are *decisions*, and both are pinned here so that changing them is a
- * deliberate act rather than a silent side effect — the reasoning for each
- * lives on `crossesRepoBoundary` in `streamState.ts`.
+ * deliberate act rather than a silent side effect — the reasoning for
+ * `boundary-on-case-difference` lives on `opensNewSession` in
+ * `core/src/reduce.ts` (where #592 moved it, so replay inherits it), and the
+ * reasoning for `drops-events-that-precede-the-boundary` on
+ * `foldStreamEvent` here, since the events it is about are this layer's.
  */
-describe('decisions the repo boundary pins deliberately (#390 review)', () => {
+describe('decisions the session boundary pins deliberately (#390 review)', () => {
   const connectedAt = Date.UTC(2026, 7, 10, 12, 0, 0)
 
   it('boundary-on-case-difference: a case-only spelling resets, by choice', () => {
@@ -668,7 +703,7 @@ describe('decisions the repo boundary pins deliberately (#390 review)', () => {
     })
 
     const folded = foldStreamEvents(initialStreamState(connectedAt), [upper, worktree])
-    expect(crossesRepoBoundary(folded.session, lower)).toBe(true)
+    expect(opensNewSession(folded.session, lower)).toBe(true)
 
     const after = foldStreamEvent(folded, lower)
     expect(after.session.session?.repoPath).toBe('/repos/alpha')
