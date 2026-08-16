@@ -54,7 +54,7 @@ export function NearestEntry({ lane, targetTs, fetchImpl }: NearestEntryProps) {
 
   if (tail.status === 'absent' || tail.status === 'error') {
     return (
-      <p role="status" data-testid="why-nearest-entry-gap" className="mt-1 pl-4 text-[10px] leading-snug text-ice-400">
+      <p role="status" data-testid="why-nearest-entry-gap" className="mt-1 pl-4 text-read-floor leading-snug text-(--ink-dim)">
         {tail.reason}
       </p>
     )
@@ -62,7 +62,7 @@ export function NearestEntry({ lane, targetTs, fetchImpl }: NearestEntryProps) {
 
   if (tail.status !== 'ready' || tail.entries.length === 0) {
     return (
-      <p role="status" className="mt-1 pl-4 text-[10px] text-ice-400">
+      <p role="status" className="mt-1 pl-4 text-read-floor text-(--ink-dim)">
         reading the session log…
       </p>
     )
@@ -78,7 +78,7 @@ export function NearestEntry({ lane, targetTs, fetchImpl }: NearestEntryProps) {
 
   if (nearest === null) {
     return (
-      <p role="status" className="mt-1 pl-4 text-[10px] text-ice-400">
+      <p role="status" className="mt-1 pl-4 text-read-floor text-(--ink-dim)">
         {stillPaging ? 'paging earlier for a timestamped turn…' : 'no timestamped turn loaded near this call'}
       </p>
     )
@@ -88,13 +88,13 @@ export function NearestEntry({ lane, targetTs, fetchImpl }: NearestEntryProps) {
     <div
       data-testid="why-nearest-entry"
       title="the transcript entry nearest this tool call's timestamp — jump-to-nearest, not exact tool-call alignment (future work)"
-      className="mt-1 border-l border-ice-850 py-0.5 pl-3"
+      className="mt-1 border-l border-(--line-hair) py-0.5 pl-3"
     >
-      <p className="text-[9px] uppercase tracking-[0.18em] text-ice-400">
+      <p className="heading text-(--ink-dim)">
         {nearest.role}
         {stillPaging ? ' · paging earlier…' : ''}
       </p>
-      <p className="whitespace-pre-wrap break-words font-mono text-[11px] leading-snug text-ice-300">
+      <p className="whitespace-pre-wrap break-words font-mono text-read-floor leading-snug text-(--ink-body)">
         {entryPreview(nearest)}
       </p>
     </div>

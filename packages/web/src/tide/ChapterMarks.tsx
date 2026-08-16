@@ -25,8 +25,8 @@ import { hoverThresholdMs, timeScale } from './scale.js'
  *
  * **No new hue, no new motion (ruling 12's own words, restated by the
  * research note's non-recommendations).** Every mark, of every kind, still
- * renders in the same ink the playhead already uses (`text-ice-200`/
- * `bg-ice-200`) — colour-coding chapter kinds would grow an implicit
+ * renders in the same ink the playhead already uses (`text-(--ink-primary)`/
+ * `bg-(--ink-primary)`) — colour-coding chapter kinds would grow an implicit
  * legend, which ruling 7 already forbids for bands and this file does not
  * reopen for marks. The hover card's ~150ms delay is a *timing* choice
  * about when to reveal it, never an animated reveal of the card itself —
@@ -261,11 +261,11 @@ function MarkView({
         className="relative flex h-full items-center enabled:cursor-pointer disabled:cursor-default"
         style={{ padding: `0 ${MARK_HIT_PADDING_PX}px` }}
       >
-        <span aria-hidden="true" className="h-full w-0.5 bg-ice-200 disabled:opacity-70" />
+        <span aria-hidden="true" className="h-full w-0.5 bg-(--ink-primary) disabled:opacity-70" />
         {showLabel && (
           <span
             aria-hidden="true"
-            className="figures absolute left-full top-1/2 -translate-y-1/2 whitespace-nowrap pl-0.5 text-[9px] leading-none text-ice-200"
+            className="figures absolute left-full top-1/2 -translate-y-1/2 whitespace-nowrap pl-0.5 text-inst-floor leading-none text-(--ink-primary)"
           >
             {label}
           </span>
@@ -295,7 +295,7 @@ function MarkHoverCard({
     <div
       role="dialog"
       data-testid="chapter-mark-card"
-      className="pointer-events-none z-[9999] -translate-x-1/2 whitespace-nowrap rounded border border-ice-700 bg-ice-950 p-1"
+      className="pointer-events-none z-[9999] -translate-x-1/2 whitespace-nowrap rounded border border-(--line-strong) bg-(--surface-panel) p-1"
       style={{ position: 'fixed', left: anchor.left, top: anchor.top }}
     >
       {group.members.map((member, index) => (
@@ -308,7 +308,7 @@ function MarkHoverCard({
             event.stopPropagation()
             if (seekEnabled) onSeek(member.ts)
           }}
-          className="figures pointer-events-auto block w-full rounded px-1 py-0.5 text-left text-[10px] leading-tight text-ice-100 enabled:cursor-pointer enabled:hover:bg-ice-900 enabled:hover:text-ice-050 disabled:cursor-default"
+          className="figures pointer-events-auto block w-full rounded px-1 py-0.5 text-left text-inst-dense leading-tight text-(--ink-body) enabled:cursor-pointer enabled:hover:bg-(--surface-raised) enabled:hover:text-(--ink-primary) disabled:cursor-default"
         >
           {chapterLabel(member)}
         </button>
