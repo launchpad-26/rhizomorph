@@ -47,3 +47,56 @@ export const DEMO_LABEL: Record<DemoSource, string> = {
   fleet20: 'Twenty lanes, working',
   pathology: 'Staged pathologies',
 }
+
+/**
+ * ## Why the key is DISPATCHED rather than typed, and verified rather than assumed
+ *
+ * The first version sent a synthetic keypress with `webContents.sendInputEvent`
+ * — and on a real packaged build it silently did nothing: the DevTools protocol
+ * read the page back and it still said `live`, over an empty fleet, at the one
+ * moment a stranger is looking. Two races, neither visible: input goes to a
+ * *focused* window and the window is still being shown, and `useFixtureKeys`
+ * attaches its listener in an effect that has not necessarily run when
+ * `loadURL` resolves.
+ *
+ * So the shell dispatches the page's own event on the page's own `window`, and
+ * then **reads the page back to check it took**, retrying a few times. Both
+ * halves matter: dispatching is focus-independent and reaches exactly the
+ * listener `useFixtureKeys` registered, and checking turns "the demonstration
+ * fleet did not open" from an invisible failure into a line on stderr.
+ *
+ * This is still *pressing the page's key*. It defines no state, sets no source
+ * and knows nothing about fixtures — the chrome comes with it, because the page
+ * is what does the switching.
+ */
+
+/** The event the page is listening for, as the script that raises it. */
+export function demoDispatchScript(source: DemoSource): string {
+  return `window.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(
+    STREAM_SOURCE_KEY[source],
+  )}, bubbles: true }))`
+}
+
+/**
+ * The word the page shows once a fixture is driving: every simulated spec's
+ * `provenance` begins `synthetic ·` (core's `fleet/fixtures.ts`), and
+ * `ConnectionBadge` renders that string verbatim in the top dock on every
+ * route. `demo-mode.test.ts` holds this against core's own fixtures, so a
+ * reworded provenance fails there rather than leaving this check quietly
+ * passing on nothing.
+ */
+export const SIMULATED_MARK = 'synthetic'
+
+/** Reads the page back: is a simulated log driving right now? */
+export const DEMO_VERIFY_SCRIPT = `document.body.textContent.includes(${JSON.stringify(SIMULATED_MARK)})`
+
+/** What {@link DEMO_VERIFY_SCRIPT} should answer once `source` is driving. */
+export function expectSimulated(source: DemoSource): boolean {
+  return source !== 'live'
+}
+
+/** How many times to dispatch before giving up and saying so. */
+export const DEMO_ATTEMPTS = 8
+
+/** How long to wait between attempts. Eight of these is two seconds — longer than a mount, shorter than a person's patience. */
+export const DEMO_RETRY_MS = 250

@@ -1,5 +1,11 @@
 node_modules/
 dist/
+# The desktop installers electron-builder writes (#565). Built on demand by
+# `.github/workflows/desktop.yml`, never committed — they are ~100 MB each.
+dist-desktop/
+# The server's runtime dependency closure, resolved at packaging time by
+# `packages/app/scripts/vendor-runtime.mjs` (#565).
+dist-vendor/
 coverage/
 scratchpad/
 .swarm/lanes.json

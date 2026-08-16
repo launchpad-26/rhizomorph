@@ -3,20 +3,32 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import type { AppMenuId } from '../host/app-menu.js'
 import { badgeFor, unreachableBadge, type TrayBadge } from '../host/badge.js'
 import { BRIDGE_CHANNELS, HOST_CAPABILITIES, type HostDescription } from '../host/bridge-contract.js'
 import type { FleetDigest } from '../host/digest.js'
 import { failurePage } from '../host/failure-page.js'
 import { fetchChunks, fetchJson, FleetFeed } from '../host/fleet-feed.js'
 import { findRepoRoot, resolveLayout, type HostLayout } from '../host/layout.js'
+import { firstRunPlan, withDemoSeen, withInvitationTaken, withRepo, type FirstRunPlan, type RunState } from '../host/first-run.js'
 import { decideNotifications } from '../host/notify.js'
+import { loadRunState, saveRunState } from '../host/run-state-file.js'
+import { signingPlan, unsignedNote } from '../host/signing.js'
 import { loadPreferences, savePreferences } from '../host/prefs-file.js'
 import { withPreference, type HostPreferences } from '../host/prefs.js'
 import { serverSpawnRequest } from '../host/spawn-contract.js'
 import { ServerSupervisor, type ChildLike, type ServerStatus } from '../host/supervisor.js'
-import { STREAM_SOURCE_KEY, type DemoSource } from '../host/demo-mode.js'
+import {
+  DEMO_ATTEMPTS,
+  DEMO_RETRY_MS,
+  DEMO_VERIFY_SCRIPT,
+  demoDispatchScript,
+  expectSimulated,
+  type DemoSource,
+} from '../host/demo-mode.js'
 import { unavailableUpdates, type UpdateState } from '../host/update-gate.js'
 import { windowFrame } from '../host/window-frame.js'
+import { installAppMenu } from './menu.js'
 import { createTray, type TrayHandle } from './tray.js'
 import { Updater } from './updates.js'
 
@@ -78,6 +90,24 @@ let quitting = false
 const repoPath = chosenRepo()
 
 let preferences: HostPreferences = { ...loadPreferences(app.getPath('userData')).preferences }
+let runState: RunState = { ...loadRunState(app.getPath('userData')).state }
+
+/**
+ * #565: the shell's whole contribution to first run is a plan — which fixture
+ * to open on, and whether the standing invitation is being urged. The wizard
+ * itself is `packages/web/src/connect/wizard.tsx`'s, driven rather than forked
+ * (ruling 7), and the menu can only navigate to it.
+ */
+let plan: FirstRunPlan = firstRunPlan(runState, repoPath !== null)
+
+/** True while builds ship unsigned — ruling 9's deferral, read from the environment rather than assumed. */
+const signing = signingPlan(process.env, platformFamily())
+
+function platformFamily(): 'mac' | 'win' | 'linux' {
+  if (process.platform === 'darwin') return 'mac'
+  if (process.platform === 'win32') return 'win'
+  return 'linux'
+}
 
 // ── the window ──────────────────────────────────────────────────────────────
 
@@ -210,10 +240,105 @@ async function showStatus(window: BrowserWindow, status: ServerStatus): Promise<
 
   try {
     await window.loadURL(target)
+    if (status.phase === 'running') applyPlan(window)
   } catch (error) {
     renderedKey = null
     process.stderr.write(`rhizomorph: the window could not load ${status.phase} — ${String(error)}\n`)
   }
+}
+
+// ── first run (#565) ────────────────────────────────────────────────────────
+
+/**
+ * The plan, applied to a window that has just loaded the instrument.
+ *
+ * The demonstration fleet is summoned the one way this shell can summon one —
+ * by pressing the page's own key (`demo-mode.ts`) — so the SPA's own permanent
+ * chrome arrives with it. There is deliberately no other channel: a shell that
+ * folded the fixture itself would produce exactly the screenshot ruling 6
+ * forbids.
+ */
+function applyPlan(window: BrowserWindow): void {
+  if (plan.showDemo === null) return
+  const source = plan.showDemo
+  // Said BEFORE the plan is recomputed: this is the reason the demonstration
+  // fleet is on screen right now. Announcing the recomputed plan instead — the
+  // first version of this — reported the reason the NEXT launch would have, so
+  // a genuine first launch logged "…the demonstration fleet again".
+  process.stderr.write(`rhizomorph: ${plan.why}\n`)
+  // `openDemo` against this window rather than `driveDemo`, which would raise
+  // and focus a window that is already the one in front.
+  void openDemo(window, source)
+  runState = withDemoSeen(runState)
+  persistRunState()
+  plan = firstRunPlan(runState, repoPath !== null)
+  refreshMenu()
+}
+
+function persistRunState(): void {
+  const problem = saveRunState(app.getPath('userData'), runState)
+  if (problem !== null) process.stderr.write(`rhizomorph: ${problem}\n`)
+}
+
+function refreshMenu(): void {
+  installAppMenu(
+    { plan, serving: lastStatus.phase === 'running', unsigned: !signing.enabled },
+    onMenuAction,
+  )
+}
+
+function onMenuAction(id: AppMenuId): void {
+  switch (id) {
+    case 'open':
+      showWindow()
+      return
+    case 'watch-my-repo':
+      // The invitation is taken: the shell stops opening on the demonstration
+      // fleet and hands over to `/connect`, which owns repo choice. Nothing
+      // about the repo is decided here — the wizard's outcome is observed on
+      // the next launch, not assumed now.
+      runState = withInvitationTaken(runState)
+      persistRunState()
+      plan = firstRunPlan(runState, repoPath !== null)
+      showWindow('/connect')
+      refreshMenu()
+      return
+    case 'settings':
+      showWindow('/settings')
+      return
+    case 'demo-fleet20':
+      driveDemo('fleet20')
+      return
+    case 'demo-pathology':
+      driveDemo('pathology')
+      return
+    case 'demo-live':
+      driveDemo('live')
+      return
+    case 'about-unsigned':
+      // The honest instructions themselves, opened in whatever reads Markdown
+      // on this machine — the same file the installer ships beside the app.
+      void openInstallNotes()
+      return
+    case 'quit':
+      quit()
+      return
+    default:
+      return
+  }
+}
+
+async function openInstallNotes(): Promise<void> {
+  const layout = layoutFor()
+  const notes =
+    layout === null
+      ? null
+      : layout.packaged
+        ? path.join(layout.root, 'INSTALL.md')
+        : path.join(layout.root, 'packages', 'app', 'INSTALL.md')
+  if (notes === null) return
+  const problem = await shell.openPath(notes)
+  if (problem !== '') process.stderr.write(`rhizomorph: could not open ${notes} — ${problem}\n`)
 }
 
 // ── the tray ────────────────────────────────────────────────────────────────
@@ -239,12 +364,38 @@ function refreshTray(): void {
  */
 function driveDemo(source: DemoSource): void {
   showWindow()
-  const contents = mainWindow?.webContents
-  if (contents === undefined) return
-  const key = STREAM_SOURCE_KEY[source]
-  contents.sendInputEvent({ type: 'keyDown', keyCode: key })
-  contents.sendInputEvent({ type: 'char', keyCode: key })
-  contents.sendInputEvent({ type: 'keyUp', keyCode: key })
+  if (mainWindow !== null && !mainWindow.isDestroyed()) void openDemo(mainWindow, source)
+}
+
+/**
+ * Raises the page's own keydown, then reads the page back to check it took —
+ * `demo-mode.ts` has the whole argument, and the packaged-build failure that
+ * made a blind keypress unacceptable.
+ *
+ * Returns whether the page ended up where it was asked to go, and says so on
+ * stderr when it did not: on a first launch this is the only thing standing
+ * between a stranger and an empty instrument.
+ */
+async function openDemo(window: BrowserWindow, source: DemoSource): Promise<boolean> {
+  const wanted = expectSimulated(source)
+  for (let attempt = 0; attempt < DEMO_ATTEMPTS; attempt += 1) {
+    if (window.isDestroyed()) return false
+    try {
+      await window.webContents.executeJavaScript(demoDispatchScript(source), true)
+      const simulated = await window.webContents.executeJavaScript(DEMO_VERIFY_SCRIPT, true)
+      if (simulated === wanted) return true
+    } catch (error) {
+      // A navigation mid-dispatch destroys the execution context. That is a
+      // retry, not a failure.
+      if (window.isDestroyed()) return false
+      process.stderr.write(`rhizomorph: demonstration fleet, attempt ${attempt + 1}: ${String(error)}\n`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, DEMO_RETRY_MS))
+  }
+  process.stderr.write(
+    `rhizomorph: could not open the ${source} log — the page did not take the keypress after ${DEMO_ATTEMPTS} attempts\n`,
+  )
+  return false
 }
 
 function onTrayAction(id: string): void {
@@ -367,6 +518,10 @@ function startFeed(baseUrl: string): void {
 async function boot(): Promise<void> {
   mainWindow = createWindow()
   tray = createTray(trayInput(), onTrayAction)
+  refreshMenu()
+
+  const note = unsignedNote(signing)
+  if (note !== null) process.stderr.write(`rhizomorph: ${note}\n`)
 
   updater = new Updater({
     // Null until ruling 9's deferral ends: an unsigned build has no feed to
@@ -408,6 +563,7 @@ async function boot(): Promise<void> {
         badge = unreachableBadge(status.detail ?? 'the server is not running')
       }
       refreshTray()
+      refreshMenu()
       if (mainWindow !== null && !mainWindow.isDestroyed()) void showStatus(mainWindow, status)
     },
   })
@@ -424,6 +580,15 @@ async function boot(): Promise<void> {
   // rendering it a second time is the aborted-navigation race described on
   // `showStatus`.
   lastStatus = status
+
+  // What this launch ended up watching, remembered for the next one. Written
+  // from `repoPath` rather than inferred from the fold: the fold's repo is the
+  // server's answer, and a shell that recorded it would start claiming to be
+  // configured because a server defaulted to a cwd nobody chose.
+  if (runState.watchedRepo !== repoPath) {
+    runState = withRepo(runState, repoPath)
+    persistRunState()
+  }
 }
 
 // A second launch is a person looking for the window they already have, not a

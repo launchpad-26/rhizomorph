@@ -1,12 +1,19 @@
 {
   "name": "@rhizomorph/app",
+  "productName": "rhizomorph",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "description": "The desktop shell: spawns the existing server, embeds the existing SPA, and adds nothing to either (prd-34 ruling 1)",
+  "homepage": "https://github.com/KelliherL/rhizomorph#readme",
+  "author": {
+    "name": "Lachlan Kelliher",
+    "email": "lachlankelliher@gmail.com"
+  },
   "main": "dist/main.js",
   "scripts": {
     "build": "esbuild src/main/entry.ts --bundle --platform=node --format=esm --target=es2022 --outfile=dist/main.js --external:electron --external:electron-updater && esbuild src/main/preload.ts --bundle --platform=node --format=cjs --target=es2022 --outfile=dist/preload.cjs --external:electron",
+    "vendor": "node scripts/vendor-runtime.mjs",
     "start": "npm run build && electron dist/main.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
