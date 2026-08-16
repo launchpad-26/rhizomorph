@@ -229,7 +229,7 @@ export const PREFERENCES: readonly PrefEntry[] = [
     words: null,
     control: 'settings',
     unavailable: null,
-    gap: "there is one palette. Choosing light records the choice and sets `data-theme`, and the colours stay dark, because `theme/theme.css` declares no `[data-theme='light']` block yet — so the instrument is telling you what it stored, not what it drew. #551 authors that block, and this control needs no change when it lands.",
+    gap: 'the chrome wears light; the scene does not. Panels, ink, rules and focus follow the warm-paper block, but the network is drawn from a table `scene/marks/` and `scene/gl/` import directly, so it goes on hanging in the void under a paper page — the one surface the choice does not reach. #551 landed the light table and the laws that hold it (`scene/palette.ts`); pointing the marks at it is a later wave.',
     legacy: null,
   },
   {

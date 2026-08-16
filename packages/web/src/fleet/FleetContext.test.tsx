@@ -316,15 +316,19 @@ describe('the one clock rule (#155)', () => {
 // ── the repo boundary reaches the lane manifest (#390 review) ───────────────
 
 /**
- * The fold resets on a repo boundary (`app/streamState.ts`'s
- * `crossesRepoBoundary`), but the lane manifest never went *through* the fold,
- * so resetting the fold cannot reach it. `/api/lanes` used to be fetched once
- * for the life of the page — its effect could only re-run on `enabled`
+ * The fold resets on a session boundary (`core`'s `opensNewSession`, which a
+ * repo change is one case of), but the lane manifest never went *through* the
+ * fold, so resetting the fold cannot reach it. `/api/lanes` used to be fetched
+ * once for the life of the page — its effect could only re-run on `enabled`
  * (`source === 'live'`, unchanged by a retarget) or `fetchImpl` (a stable
  * prop) — which left repo B's freshly-reset lanes fenced by repo A's manifest.
  *
- * Same class as #370: state beside the fold has to be invalidated on the same
- * key the fold resets on, or the two drift apart while each looks correct.
+ * Same class as #370: state beside the fold has to be invalidated whenever the
+ * thing it describes changes, or the two drift apart while each looks correct.
+ * The key here is the REPO, deliberately narrower than the fold's own reset
+ * since #592 widened that to every rotation: `/api/lanes` describes the repo's
+ * workmux lanes, not the recording, so a rotation gives it nothing to re-read
+ * (`foldedRepoPath` in `app/streamState.ts` says the same from its end).
  */
 class EmittingEventSource implements EventSourceLike {
   onopen: ((event: Event) => void) | null = null

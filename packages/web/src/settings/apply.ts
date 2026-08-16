@@ -11,13 +11,18 @@ import { readChoice, subscribeToPreferences } from './registry.js'
  * scene's quality levels are prd-33's: each of those lands as a rule that reads
  * an attribute already being set, with no edit here and none in settings.
  *
- * **The seam is also the gap, and the gap is declared.** Today `theme.css`
- * carries no `[data-theme='light']` block and no surface reads `data-density`
- * or `data-motion`, so two of these three attributes are, right now, a
- * correctly-stored preference with nothing on the other end. Every one of those
- * says so in its own `gap` note in `registry.ts` (law 12's voice: WHAT is
- * missing → WHY it matters → what fixes it) rather than letting the surface
- * imply an effect it does not have.
+ * **The seam is also the gap, and the gap is declared.** No surface reads
+ * `data-density` or `data-motion` yet, so those two are a correctly-stored
+ * preference with nothing on the other end; `data-theme` is now read by
+ * `theme.css`'s `[data-theme='light']` block (#551) for all of the chrome, and
+ * by nothing in the scene, which still draws from a table `scene/marks/`
+ * imports directly. Every one of those says so in its own `gap` note in
+ * `registry.ts` (law 12's voice: WHAT is missing → WHY it matters → what fixes
+ * it) rather than letting the surface imply an effect it does not have.
+ *
+ * A gap note is not write-once. #551 closed half of the theme one and rewrote
+ * what was left; a note describing a gap that has since closed is worse than
+ * none, because it teaches a reader that this voice is stale.
  *
  * **Ruling 5's floor is arithmetic here, not a comment.** {@link resolveMotion}
  * takes the stronger of what the person asked for and what the system asked

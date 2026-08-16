@@ -69,14 +69,18 @@ export function registerRotateRoute(app: FastifyInstance, ctx: ServerContext): v
     })
 
     // The new session's boot facts, replacing the ones the boot recorded for
-    // the session that just closed: nothing resumed it, nothing was in its
-    // file when it opened, and the reason is the operator's own act — which is
-    // what lets the provenance line explain a session seconds old instead of
-    // implying the instrument restarted. The resume window is carried over,
-    // because rotating did not change the boundary this run measures against.
+    // the session that just closed: nothing resumed it, and the reason is the
+    // operator's own act — which is what lets the provenance line explain a
+    // session seconds old instead of implying the instrument restarted. The
+    // resume window is carried over, because rotating did not change the
+    // boundary this run measures against.
+    //
+    // No event count here any more (#592). It used to record a 0 that meant
+    // "nothing was in its file when it opened" and that `/api/meta` then served
+    // forever under a live-sounding name — this route's own rotation is what
+    // made that lie visible, so it is the one that stops telling it.
     recordSessionBootMeta(ctx.recorder, {
       resumedCount: 0,
-      eventCount: 0,
       resumeWindowMs: sessionBootMetaFor(ctx.recorder)?.resumeWindowMs ?? RESUME_WINDOW_MS,
       lastBootReason: 'rotated',
     })
