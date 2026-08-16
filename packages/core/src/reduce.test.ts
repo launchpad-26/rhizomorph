@@ -523,6 +523,97 @@ describe('reduce — worktrees', () => {
   })
 })
 
+describe('worktree.dirtyStatusFailed / worktree.dirtyStatusRecovered', () => {
+  const WT_A = `${REPO}-wt/lane-a`
+  const WT_B = `${REPO}-wt/lane-b`
+
+  it('opens an incident on a discovered worktree', () => {
+    const state = reduceAll([
+      f.worktreeDiscovered({ path: WT, branch: 'feature', isMain: false }, { ts: 100 }),
+      f.worktreeDirtyStatusFailed(
+        { worktreePath: WT, consecutiveFailures: 4, message: 'error: could not read index' },
+        { ts: 500 },
+      ),
+    ])
+    expect(state.worktrees[WT]?.dirtyStatusFailedSince).toBe(500)
+  })
+
+  it('closes an open incident', () => {
+    const state = reduceAll([
+      f.worktreeDiscovered({ path: WT, branch: 'feature', isMain: false }, { ts: 100 }),
+      f.worktreeDirtyStatusFailed({ worktreePath: WT }, { ts: 500 }),
+      f.worktreeDirtyStatusRecovered({ worktreePath: WT }, { ts: 700 }),
+    ])
+    expect(state.worktrees[WT]?.dirtyStatusFailedSince).toBeNull()
+  })
+
+  it('stubs an undiscovered worktree rather than throwing', () => {
+    const state = reduce(
+      initialSessionState(),
+      f.worktreeDirtyStatusFailed({ worktreePath: WT, consecutiveFailures: 4 }, { ts: 500 }),
+    )
+    expect(state.worktrees[WT]).toMatchObject({
+      path: WT,
+      present: true,
+      dirtyStatusFailedSince: 500,
+    })
+  })
+
+  it('is a no-op recovering a path never discovered', () => {
+    const before = initialSessionState()
+    const after = reduce(before, f.worktreeDirtyStatusRecovered({ worktreePath: '/nope' }))
+    expect(after.worktrees).toEqual({})
+  })
+
+  it('is idempotent: repeated recoveries stay null, repeated failures last-write-win', () => {
+    let state = reduceAll([
+      f.worktreeDiscovered({ path: WT, branch: 'feature', isMain: false }, { ts: 100 }),
+      f.worktreeDirtyStatusRecovered({ worktreePath: WT }, { ts: 200 }),
+      f.worktreeDirtyStatusRecovered({ worktreePath: WT }, { ts: 201 }),
+    ])
+    expect(state.worktrees[WT]?.dirtyStatusFailedSince).toBeNull()
+
+    state = reduceAll([
+      f.worktreeDiscovered({ path: WT, branch: 'feature', isMain: false }, { ts: 100 }),
+      f.worktreeDirtyStatusFailed({ worktreePath: WT }, { ts: 300 }),
+      f.worktreeDirtyStatusFailed({ worktreePath: WT }, { ts: 400 }),
+    ])
+    expect(state.worktrees[WT]?.dirtyStatusFailedSince).toBe(400)
+  })
+
+  it("the #429 law: one worktree's recovery cannot mask a sibling's still-open incident", () => {
+    const state = reduceAll([
+      f.worktreeDiscovered({ path: WT_A, branch: 'lane-a', isMain: false }, { ts: 100 }),
+      f.worktreeDiscovered({ path: WT_B, branch: 'lane-b', isMain: false }, { ts: 100 }),
+      f.worktreeDirtyStatusFailed({ worktreePath: WT_A, consecutiveFailures: 4 }, { ts: 500 }),
+      f.worktreeDirtyStatusFailed({ worktreePath: WT_B, consecutiveFailures: 4 }, { ts: 600 }),
+      f.worktreeDirtyStatusRecovered({ worktreePath: WT_A }, { ts: 700 }),
+    ])
+    expect(state.worktrees[WT_A]?.dirtyStatusFailedSince).toBeNull()
+    expect(state.worktrees[WT_B]?.dirtyStatusFailedSince).toBe(600)
+  })
+
+  it('never touches CollectorState', () => {
+    const state = reduceAll([
+      f.worktreeDiscovered({ path: WT_A, branch: 'lane-a', isMain: false }, { ts: 100 }),
+      f.worktreeDiscovered({ path: WT_B, branch: 'lane-b', isMain: false }, { ts: 100 }),
+      f.worktreeDirtyStatusFailed({ worktreePath: WT_A }, { ts: 500 }),
+      f.worktreeDirtyStatusFailed({ worktreePath: WT_B }, { ts: 600 }),
+      f.worktreeDirtyStatusRecovered({ worktreePath: WT_A }, { ts: 700 }),
+    ])
+    expect(state.collectors).toEqual({})
+  })
+
+  it('worktreeRemoved clears an open incident', () => {
+    const state = reduceAll([
+      f.worktreeDiscovered({ path: WT, branch: 'feature', isMain: false }, { ts: 100 }),
+      f.worktreeDirtyStatusFailed({ worktreePath: WT }, { ts: 500 }),
+      f.worktreeRemoved({ path: WT }, { ts: 900 }),
+    ])
+    expect(state.worktrees[WT]?.dirtyStatusFailedSince).toBeNull()
+  })
+})
+
 describe('reduce — branches and commits', () => {
   it('tracks head movement and remembers the previous head', () => {
     const state = reduceAll([

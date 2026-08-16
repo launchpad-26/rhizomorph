@@ -243,6 +243,16 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **A recovered worktree's git-status recovery no longer masks a sibling
+  worktree's still-failing git status, and a still-failing worktree's alarm
+  no longer gets misattributed to whichever worktree last reported one — both
+  now voice as `worktree.dirtyStatusFailed`/`.dirtyStatusRecovered`, facts
+  about the worktree, instead of being squeezed through the collector's
+  shared error slot. The attention strip no longer carries this class of
+  incident at all; it reflects true git-collector health only. (#429)
+- The `git for-each-ref` failure path no longer emits a `collector.error` on
+  every failing poll — it now follows the same threshold-and-latch shape as
+  the dirty-status path, voicing once per incident. (#429)
 - **The judge collector's two remaining throw/merge catches no longer re-voice
   every poll, forever (#526).** `extractLaneSymbols` failing for a lane, and
   `speculativeMergeTree` failing for a lane pair, both emitted a fresh
