@@ -167,6 +167,36 @@ export class ServerSupervisor {
     this.child = null
   }
 
+  /**
+   * The last synchronous chance to take the child with us — for
+   * `process.on('exit')`, where nothing may await.
+   *
+   * **This exists because a shell does not always get to run its own shutdown.**
+   * Measured on 2026-08-16 with Electron 43 under WSLg: a `SIGTERM` to the
+   * browser process runs **no** main-process JavaScript at all — not
+   * `process.on('SIGTERM')`, not `before-quit`, not a window's `close` — because
+   * Chromium installs its own POSIX handlers over libuv's. A probe confirmed
+   * both halves: `app.quit()` fires `before-quit` and `process.on('exit')`
+   * normally, and a `SIGTERM` fires neither.
+   *
+   * So the honest posture, stated rather than assumed:
+   *
+   * - every path where JS runs (the tray's Quit, `app.quit()`, a normal exit)
+   *   stops the server properly, releasing its session lock;
+   * - a path where JS does not run (`SIGKILL`, a Chromium fatal, that WSLg
+   *   `SIGTERM`) leaves the server running until its own next write to a closed
+   *   pipe ends it. It is not lost work — the session lock records a pid, and
+   *   `decideSessionBoot`'s `isPidAlive` reports a dead writer immediately — but
+   *   it is not instant either.
+   *
+   * Closing that last gap properly means the *server* watching its parent, which
+   * is a change inside `packages/server` and outside this lane's fence (#563).
+   * It is written down here rather than left for someone to rediscover.
+   */
+  killNow(): void {
+    this.child?.kill('SIGTERM')
+  }
+
   private absorb(chunk: string): void {
     this.buffer += chunk
     const lines = this.buffer.split(/\r?\n/)

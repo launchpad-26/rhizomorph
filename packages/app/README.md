@@ -24,11 +24,60 @@ none, and `boot-line.ts` refuses to load any URL that is not loopback.
 
 | path | what it is |
 |---|---|
-| `src/host/` | everything that could be wrong: paths, spawn arguments, output parsing, supervision, window frame. Pure, node-environment, no `electron` import anywhere. |
-| `src/main/` | the Electron wiring. The only place `electron` is imported. |
+| `src/host/` | everything that could be wrong: paths, spawn arguments, output parsing, supervision, window frame, the badge, the notifications, the tray menu, the update gate. Pure, node-environment, no `electron` import anywhere. |
+| `src/main/` | the Electron wiring. `entry.ts` is the only place `electron` is imported (plus `tray.ts` and `preload.ts`, which are translation). |
 
 The split is why this package is testable at all — a main process is not, so
 nothing that can be decided is decided there.
+
+## The daemon
+
+The fleet is a background fact with a window. Closing the window hides it and
+leaves the watcher running; quitting is explicit, from the tray.
+
+The tray reads **the same derived fleet the window reads** — `/api/stream`,
+folded with `@rhizomorph/core`'s own `parseEvent`/`reduce`, derived with its own
+`buildFleet`. `stream-fold.test.ts` asserts the shell's fleet object equals the
+one the window would build from the same events, because a badge that disagreed
+with the instrument would be worse than no badge.
+
+Four notifications — a lane needs a human · a lane died · work landed · spend
+crossed a threshold you set — each individually toggleable. **Muting stops the
+interruption and never the badge**: `badgeFor()` takes a rung and nothing else,
+so there is no argument through which a preference could reach it.
+
+## The bridge, for the settings surface
+
+The shell's own preferences (the four notifications, the threshold,
+launch-on-login, close-to-tray, automatic downloads) live in the host, because
+the process that draws the tray is the process that must know them. prd-35's
+Application and Notifications groups are where a person meets them, so the shell
+**exposes** and settings **reads**:
+
+```ts
+const host = (window as { rhizomorphHost?: HostBridge }).rhizomorphHost
+if (host === undefined) return null            // a browser tab: no tray, no login item
+const { capabilities } = await host.describe() // render only what this build can honour
+const preferences = await host.getPreferences()
+await host.setPreference('notifications.died', false)
+```
+
+`src/host/bridge-contract.ts` is the whole contract — the global's name, the
+three channels, the shapes — and `bridge-law.test.ts` holds the preload to it.
+The absence of the global is the feature: a browser tab has no tray to badge and
+no login item to set, and rendering those controls anyway would be four switches
+that do nothing.
+
+## Updates
+
+Built, gated, and currently reporting `unavailable` on purpose: ruling 9 defers
+signing, so there is no feed to check against and saying "up to date" would be a
+claim about a check that never ran. `electron-updater` is loaded by name at
+runtime if present rather than carried in the lockfile for a path that cannot
+act yet.
+
+**No update path relaunches the app** — refused for every automatic caller, on a
+quiet fleet as well as a live one. A person may restart to apply.
 
 ## Running it in development
 

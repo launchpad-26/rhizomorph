@@ -2,33 +2,42 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { badgeFor, unreachableBadge, type TrayBadge } from '../host/badge.js'
+import { BRIDGE_CHANNELS, HOST_CAPABILITIES, type HostDescription } from '../host/bridge-contract.js'
+import type { FleetDigest } from '../host/digest.js'
 import { failurePage } from '../host/failure-page.js'
+import { fetchChunks, fetchJson, FleetFeed } from '../host/fleet-feed.js'
 import { findRepoRoot, resolveLayout, type HostLayout } from '../host/layout.js'
+import { decideNotifications } from '../host/notify.js'
+import { loadPreferences, savePreferences } from '../host/prefs-file.js'
+import { withPreference, type HostPreferences } from '../host/prefs.js'
 import { serverSpawnRequest } from '../host/spawn-contract.js'
 import { ServerSupervisor, type ChildLike, type ServerStatus } from '../host/supervisor.js'
+import { STREAM_SOURCE_KEY, type DemoSource } from '../host/demo-mode.js'
+import { unavailableUpdates, type UpdateState } from '../host/update-gate.js'
 import { windowFrame } from '../host/window-frame.js'
+import { createTray, type TrayHandle } from './tray.js'
+import { Updater } from './updates.js'
 
 /**
- * THE SHELL (prd-34 ruling 1, #563) — the whole Electron surface of this
- * package, and deliberately the only file in it that imports `electron`.
+ * THE SHELL (prd-34 rulings 1 and 2; #563, #564) — the whole Electron surface
+ * of this package, and deliberately the only file in it that imports
+ * `electron`.
  *
- * Everything this file does that could be got wrong lives in `../host/`, pure
- * and tested: where the server is (`layout.ts`), how it is started
- * (`spawn-contract.ts`), what its output means (`boot-line.ts`), what to do
- * when it dies (`supervisor.ts`, `failure-page.ts`), how big the window is
- * (`window-frame.ts`). What is left here is wiring, which is what an
- * untestable file should be made of.
+ * Everything that could be got wrong lives in `../host/`, pure and tested:
+ * where the server is, how it is started, what its output means, what to do
+ * when it dies, how big the window is, what the badge says, which notifications
+ * fire, what the tray menu contains, whether an update may relaunch. What is
+ * left here is wiring, which is what an untestable file should be made of.
  *
- * The sequence is JupyterLab Desktop's, adopted rather than re-derived:
- * **spawn the server → read the URL it prints → load that URL in a window.**
- * No token is passed and none is minted — ADR-0012 delivers the capability
- * token in-band in the page, so the window performs the same handshake a
- * browser tab does (see `boot-line.ts` for the whole argument).
- *
- * Wave 1 quits with its window, exactly as a plain app does. **Wave 2 (#564)
- * is what makes the fleet a background fact** — close-to-tray, explicit quit —
- * and it changes this file rather than growing a second one.
+ * **#564 changed what this file is.** In wave 1 the window was the app: closing
+ * it quit. It is now the other way round — the fleet is a background fact with
+ * a window. Closing the window hides it, the watcher keeps running, the tray
+ * stays lit, and quitting is an explicit act from the tray. That inversion is
+ * the whole of ruling 2, and it shows up here as three things: a `quitting`
+ * flag that separates "the person asked to quit" from "a window closed", a
+ * `window-all-closed` that does nothing, and a `close` handler that hides.
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -57,8 +66,20 @@ function layoutFor(): HostLayout | null {
 
 let mainWindow: BrowserWindow | null = null
 let supervisor: ServerSupervisor | null = null
+let tray: TrayHandle | null = null
+let feed: FleetFeed | null = null
+let updater: Updater | null = null
 let lastStatus: ServerStatus = { phase: 'starting', url: null, detail: null, outputTail: [] }
+let digest: FleetDigest | null = null
+let badge: TrayBadge = unreachableBadge('the server has not started yet')
+let updates: UpdateState = unavailableUpdates()
+/** True only between a person choosing Quit and the process ending. Closing a window never sets it. */
+let quitting = false
 const repoPath = chosenRepo()
+
+let preferences: HostPreferences = { ...loadPreferences(app.getPath('userData')).preferences }
+
+// ── the window ──────────────────────────────────────────────────────────────
 
 function createWindow(): BrowserWindow {
   const frame = windowFrame()
@@ -74,11 +95,14 @@ function createWindow(): BrowserWindow {
       // The page is the instrument's own SPA over loopback, and it needs
       // nothing from Node. Everything below is the closed posture: no Node in
       // the renderer, an isolated context, and the sandbox on. prd-34 changes
-      // no trust boundary, and this is where that is either true or not.
+      // no trust boundary, and this is where that is either true or not. The
+      // preload adds exactly three IPC calls, all of them the shell's own
+      // preferences — see `preload.ts`.
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
+      preload: path.join(HERE, 'preload.cjs'),
     },
   })
 
@@ -95,11 +119,40 @@ function createWindow(): BrowserWindow {
     return { action: 'deny' }
   })
 
+  // Ruling 2, in one handler: closing the window leaves the watcher running and
+  // the tray lit. The window is hidden rather than destroyed so reopening is
+  // instant and the session is uninterrupted — S2's acceptance is exactly
+  // "closing and reopening shows an uninterrupted session", and a destroyed
+  // window would reload the SPA and lose its scroll, its selection and its
+  // panel state.
+  window.on('close', (event) => {
+    if (quitting || !preferences['application.closeToTray']) return
+    event.preventDefault()
+    window.hide()
+  })
+
   window.on('closed', () => {
     mainWindow = null
   })
 
   return window
+}
+
+/** Opens the window if it exists, creates it if it does not, and puts it in front either way. */
+function showWindow(route?: string): void {
+  if (mainWindow === null || mainWindow.isDestroyed()) {
+    mainWindow = createWindow()
+    void showStatus(mainWindow, lastStatus)
+  }
+  if (route !== undefined && lastStatus.phase === 'running' && lastStatus.url !== null) {
+    renderedKey = `route:${route}`
+    void mainWindow.loadURL(`${lastStatus.url}${route}`).catch((error: unknown) => {
+      process.stderr.write(`rhizomorph: could not open ${route} — ${String(error)}\n`)
+    })
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
 }
 
 /**
@@ -131,7 +184,7 @@ function renderKey(status: ServerStatus): string {
  * the same shape — a navigation is not a function call, and treating it as one
  * is what produced an `ERR_ABORTED (-3)` unhandled rejection on every boot:
  *
- * 1. *Render once per phase.* `boot()` used to render the status it awaited
+ * 1. *Render once per status.* `boot()` used to render the status it awaited
  *    AND `onStatus` rendered the same status a tick earlier, so two `loadURL`
  *    calls raced for one window; Electron aborts the older navigation and
  *    rejects its promise. Superseding a load is normal — the guard is here,
@@ -163,8 +216,169 @@ async function showStatus(window: BrowserWindow, status: ServerStatus): Promise<
   }
 }
 
+// ── the tray ────────────────────────────────────────────────────────────────
+
+function trayInput() {
+  return { badge, serverPhase: lastStatus.phase, preferences, updates }
+}
+
+function refreshTray(): void {
+  tray?.update(trayInput())
+}
+
+/**
+ * Demo mode, driven through the affordance the SPA already has.
+ *
+ * `StreamContext.tsx`'s `useFixtureKeys` switches the driving log on `1`/`2`/`3`
+ * and has since #411 documented the keys on screen. The tray therefore *presses
+ * the key* rather than growing its own channel into the page: no IPC, no new
+ * route, no second copy of the fixture list, and — the part that matters — the
+ * SPA's own permanent demo chrome comes with it, because the shell has not gone
+ * around it. Ruling 6's screenshot rule survives precisely because the shell
+ * has no way to switch a fixture on without the banner that says so.
+ */
+function driveDemo(source: DemoSource): void {
+  showWindow()
+  const contents = mainWindow?.webContents
+  if (contents === undefined) return
+  const key = STREAM_SOURCE_KEY[source]
+  contents.sendInputEvent({ type: 'keyDown', keyCode: key })
+  contents.sendInputEvent({ type: 'char', keyCode: key })
+  contents.sendInputEvent({ type: 'keyUp', keyCode: key })
+}
+
+function onTrayAction(id: string): void {
+  switch (id) {
+    case 'open':
+      showWindow()
+      return
+    case 'settings':
+      showWindow('/settings')
+      return
+    case 'demo-fleet':
+      driveDemo('fleet20')
+      return
+    case 'demo-pathology':
+      driveDemo('pathology')
+      return
+    case 'demo-live':
+      driveDemo('live')
+      return
+    case 'update': {
+      const decision = updater?.applyNow(fleetIsLive()) ?? { allowed: false, why: 'there is no updater in this build' }
+      process.stderr.write(`rhizomorph: ${decision.why}\n`)
+      if (decision.allowed) quit()
+      return
+    }
+    case 'launch-on-login':
+      applyPreference('application.launchOnLogin', !preferences['application.launchOnLogin'])
+      return
+    case 'close-to-tray':
+      applyPreference('application.closeToTray', !preferences['application.closeToTray'])
+      return
+    case 'quit':
+      quit()
+      return
+    default:
+      return
+  }
+}
+
+/** True while the instrument is watching something: a running server with lanes in the fold. */
+function fleetIsLive(): boolean {
+  return lastStatus.phase === 'running' && (digest?.laneCount ?? 0) > 0
+}
+
+// ── preferences ─────────────────────────────────────────────────────────────
+
+function applyPreference(id: string, value: unknown): { preferences: HostPreferences; refused: string | null } {
+  const result = withPreference(preferences, id, value)
+  if (result.refused !== null) return { preferences, refused: result.refused }
+  preferences = result.preferences
+
+  const problem = savePreferences(app.getPath('userData'), preferences)
+  if (problem !== null) process.stderr.write(`rhizomorph: ${problem}\n`)
+
+  // Launch-on-login is the one preference that lives outside this app: it is a
+  // login item the operating system owns, so the value is not "remembered", it
+  // is *applied*. Written on every change rather than only at boot, so turning
+  // it off takes effect without a restart.
+  if (id === 'application.launchOnLogin') {
+    app.setLoginItemSettings({ openAtLogin: preferences['application.launchOnLogin'] })
+  }
+
+  refreshTray()
+  return { preferences, refused: null }
+}
+
+function describeHost(): HostDescription {
+  return {
+    version: app.getVersion(),
+    platform: process.platform,
+    // Reported, never assumed. `setLoginItemSettings` is a no-op on a Linux
+    // build with no autostart directory, and updates are unavailable until
+    // there is a feed (ruling 9) — a settings surface that rendered a control
+    // for either would be offering a switch that does nothing.
+    capabilities: HOST_CAPABILITIES.filter((capability) => {
+      if (capability === 'updates') return updates.phase !== 'unavailable'
+      if (capability === 'launch-on-login') return app.isPackaged
+      return true
+    }),
+  }
+}
+
+// ── the fleet feed ──────────────────────────────────────────────────────────
+
+function startFeed(baseUrl: string): void {
+  feed?.stop()
+  feed = new FleetFeed({
+    baseUrl,
+    chunks: fetchChunks,
+    json: fetchJson,
+    now: Date.now,
+    onDigest: (next) => {
+      // Notifications are decided from the transition, the badge from the rung.
+      // They read the same digest and cannot disagree — and the badge is
+      // computed with no reference to a preference at all, which is what makes
+      // "a muted condition still moves the badge" structural rather than
+      // careful (ruling 8).
+      for (const notification of decideNotifications(digest, next, preferences)) {
+        tray?.notify(notification, () => showWindow())
+      }
+      digest = next
+      badge = badgeFor(next.rank)
+      refreshTray()
+    },
+    onConnection: (phase, detail) => {
+      if (phase !== 'lost') return
+      // S2's *server unreachable*: the shell survives and says so. Not calm —
+      // a quiet tray over an instrument that is not there is the one lie this
+      // badge must never tell.
+      digest = null
+      badge = unreachableBadge(detail ?? 'the stream closed')
+      refreshTray()
+    },
+  })
+  feed.start()
+}
+
+// ── boot ────────────────────────────────────────────────────────────────────
+
 async function boot(): Promise<void> {
   mainWindow = createWindow()
+  tray = createTray(trayInput(), onTrayAction)
+
+  updater = new Updater({
+    // Null until ruling 9's deferral ends: an unsigned build has no feed to
+    // check against, and `updates.ts` reports that rather than pretending.
+    feedUrl: null,
+    downloadAutomatically: preferences['updates.downloadAutomatically'],
+    onState: (state) => {
+      updates = state
+      refreshTray()
+    },
+  })
+  void updater.start()
 
   const layout = layoutFor()
   if (layout === null) {
@@ -187,6 +401,13 @@ async function boot(): Promise<void> {
     onStatus: (status) => {
       lastStatus = status
       announce(status)
+      if (status.phase === 'running' && status.url !== null) startFeed(status.url)
+      if (status.phase !== 'running') {
+        feed?.stop()
+        digest = null
+        badge = unreachableBadge(status.detail ?? 'the server is not running')
+      }
+      refreshTray()
       if (mainWindow !== null && !mainWindow.isDestroyed()) void showStatus(mainWindow, status)
     },
   })
@@ -211,30 +432,27 @@ async function boot(): Promise<void> {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
-    if (mainWindow === null) return
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
-  })
+  app.on('second-instance', () => showWindow())
+
+  ipcMain.handle(BRIDGE_CHANNELS.describe, () => describeHost())
+  ipcMain.handle(BRIDGE_CHANNELS.getPreferences, () => preferences)
+  ipcMain.handle(BRIDGE_CHANNELS.setPreference, (_event, id: string, value: unknown) => applyPreference(id, value))
 
   app.whenReady().then(boot, (error: unknown) => {
     process.stderr.write(`rhizomorph: the shell failed to start: ${String(error)}\n`)
   })
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length > 0) return
-    mainWindow = createWindow()
-    void showStatus(mainWindow, lastStatus)
-  })
+  app.on('activate', () => showWindow())
 
   app.on('window-all-closed', () => {
-    // Wave 1's behaviour, replaced by #564's tray: for now the window IS the
-    // app, on every platform including macOS — a shell that lingered with no
-    // window and no tray icon would be a process a person cannot see or quit.
-    app.quit()
+    // Ruling 2, and the reason this handler is empty on every platform rather
+    // than only on macOS: the fleet is a background fact with a window. The
+    // watcher keeps running, the tray stays lit, and the only way out is the
+    // tray's own Quit — which is what "quitting is explicit" means.
   })
 
   app.on('before-quit', (event) => {
+    quitting = true
     if (supervisor === null || supervisor.current().phase === 'stopped') return
     // The server holds a session lock and releases it on SIGTERM. Quitting
     // without waiting for that leaves a lock behind that the next boot has to
@@ -245,15 +463,34 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   // A quit from the desktop is not the only way this process ends. A terminal
-  // `SIGTERM` (how it is run in development, and how a session manager stops it
-  // at logout) does not raise `before-quit` on its own, and the child would
-  // then outlive the shell holding the port and the session lock. Both signals
-  // route through the same shutdown as the menu does.
+  // `SIGINT`/`SIGTERM` — how it is run in development, and how a session
+  // manager stops it at logout — would otherwise leave the child holding the
+  // port and the session lock, so both route through the same shutdown the
+  // menu does.
+  //
+  // **They are not reliable, and that is measured rather than assumed.** Under
+  // WSLg with Electron 43, Chromium's own POSIX handlers take `SIGTERM` and no
+  // main-process JavaScript runs at all — see `supervisor.ts`'s `killNow` for
+  // the probe and for what is left unclosed. These handlers are still correct
+  // where the platform does deliver the signal; `process.on('exit')` below is
+  // the backstop for every path that reaches a normal exit.
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
+      quitting = true
       void stopServerThen(() => app.exit(0))
     })
   }
+
+  // The last synchronous word. Nothing may await here, so this is a bare
+  // `SIGTERM` at the child rather than the graceful stop above — which has
+  // already run on every path that got the chance.
+  process.on('exit', () => supervisor?.killNow())
+}
+
+/** The explicit quit ruling 2 asks for: from the tray, and from nowhere else in this app. */
+function quit(): void {
+  quitting = true
+  app.quit()
 }
 
 /**
@@ -264,7 +501,11 @@ if (!app.requestSingleInstanceLock()) {
  */
 let stopping: Promise<void> | null = null
 function stopServerThen(after: () => void): Promise<void> {
-  stopping ??= (supervisor?.stop() ?? Promise.resolve()).catch((error: unknown) => {
+  stopping ??= (async () => {
+    feed?.stop()
+    tray?.destroy()
+    await supervisor?.stop()
+  })().catch((error: unknown) => {
     process.stderr.write(`rhizomorph: the server did not stop cleanly — ${String(error)}\n`)
   })
   return stopping.then(after)
