@@ -10,10 +10,10 @@ import { createPollLoop } from './poll-loop.js'
 import type { SessionRecorder } from './recorder.js'
 
 describe('loadCollectors', () => {
-  it('registers all five collectors', async () => {
+  it('registers all six collectors', async () => {
     const collectors = await loadCollectors({ warn: () => {} })
 
-    expect(collectors.map((c) => c.name).sort()).toEqual(['git', 'judge', 'sessionlog', 'tmux', 'workmux'])
+    expect(collectors.map((c) => c.name).sort()).toEqual(['git', 'judge', 'pi', 'sessionlog', 'tmux', 'workmux'])
   })
 
   it('never warns for the real collectors, which are always present', async () => {
@@ -321,5 +321,51 @@ describe('loadCollectors — sessionlog (#240)', () => {
     )
     expect(recovered.events.some((event) => event.type === 'collector.recovered')).toBe(true)
     expect(gitCalls).toBe(DEFAULT_FAILURE_THRESHOLD + 1)
+  })
+})
+
+describe('loadCollectors — pi (#546)', () => {
+  let piSessionsRoot: string
+
+  beforeEach(async () => {
+    piSessionsRoot = await mkdtemp(path.join(tmpdir(), 'collector-loader-pi-'))
+  })
+
+  afterEach(async () => {
+    await rm(piSessionsRoot, { recursive: true, force: true })
+  })
+
+  it('registers pi wrapped in resilience, so it also reconciles a stale collector.disabled on resume', async () => {
+    const nextId = createIdFactory('evt')
+    const priorEvents = [
+      createEvent(
+        'collector.disabled',
+        { collector: 'pi', reason: 'no pi session directory', consecutiveFailures: 3 },
+        { id: nextId(), ts: 1000 },
+      ),
+    ]
+    const foldedBefore = reduceAll(priorEvents)
+    expect(foldedBefore.collectors.pi?.status).toBe('disabled')
+
+    const collectors = await loadCollectors({ warn: () => {} }, priorEvents, {}, { piSessionsRoot })
+    const pi = collectors.find((c) => c.name === 'pi')
+    if (!pi) throw new Error('pi collector missing')
+
+    const ok: ExecResult = { stdout: 'worktree /repo\nHEAD abc123\nbranch refs/heads/main\n', stderr: '', code: 0, failed: false }
+    const exec: Exec = async () => ok
+    const context: CollectorContext = {
+      repoPath: '/repo',
+      now: 2000,
+      exec,
+      nextId,
+      emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: 2000 }),
+    }
+
+    const result = await pi.poll(pi.initialSnapshot(), context)
+
+    expect(result.events.some((event) => event.type === 'collector.recovered')).toBe(true)
+
+    const foldedAfter = reduceAll([...priorEvents, ...result.events])
+    expect(foldedAfter.collectors.pi?.status).toBe('healthy')
   })
 })

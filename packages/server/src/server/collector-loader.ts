@@ -2,6 +2,7 @@ import type { AnyCollector, Collector, RhizomorphEvent } from '@rhizomorph/core'
 import { reduceAll } from '@rhizomorph/core'
 import { gitCollector } from '../collectors/git/index.js'
 import { createJudgeCollector, DEFAULT_JUDGE_CADENCE_MS } from '../collectors/judge/index.js'
+import { createPiCollector, type PiCollectorConfig } from '../collectors/pi/index.js'
 import type { DisableableSnapshot } from '../collectors/resilience.js'
 import { withResilience } from '../collectors/resilience.js'
 import {
@@ -29,15 +30,16 @@ function judgeCadenceMs(): number {
 }
 
 /**
- * Registers the five collectors via static imports, so Vite/Rollup can
+ * Registers the six collectors via static imports, so Vite/Rollup can
  * bundle them (a variable dynamic import like `import(\`./${slug}\`)` cannot be
  * statically analysed and fails at runtime). A collector whose binary is
  * missing (no tmux, no workmux) still loads fine here — it degrades to
  * `collector.disabled` at poll time, which is the collector's job, not this
  * one's. The judge (prd11 ruling 6b) self-throttles its own cadence below the
- * poll loop's tick; sessionlog (#240) is the only one that takes its own
- * config (`claudeProjectsRoot`, `extraSessionDirs`, `backfill`), threaded
- * through by the caller instead of a zero-arg factory like its peers.
+ * poll loop's tick; sessionlog (#240) and pi (#546) are the two that take
+ * their own config (sessionlog: `claudeProjectsRoot`, `extraSessionDirs`,
+ * `backfill`; pi: `piSessionsRoot`, `backfill`), threaded through by the
+ * caller instead of a zero-arg factory like their peers.
  *
  * Every collector here is wrapped in `withResilience` (#110) — the shared
  * retry/backoff/self-heal policy, applied once at the seam where collectors
@@ -64,6 +66,7 @@ export async function loadCollectors(
   _log: { warn: (msg: string) => void } = console,
   priorEvents: readonly RhizomorphEvent[] = [],
   sessionlogConfig: SessionlogCollectorConfig = {},
+  piConfig: PiCollectorConfig = {},
 ): Promise<AnyCollector[]> {
   const folded = reduceAll(priorEvents)
   function wrap<S extends DisableableSnapshot>(collector: Collector<S>): AnyCollector {
@@ -106,5 +109,6 @@ export async function loadCollectors(
     wrap(withAgentReconciliation(createWorkmuxCollector(), foldedPresentAgentHandles)),
     wrap(createJudgeCollector({ cadenceMs: judgeCadenceMs() })),
     wrap(createSessionlogCollector(sessionlogConfig)),
+    wrap(createPiCollector(piConfig)),
   ]
 }
