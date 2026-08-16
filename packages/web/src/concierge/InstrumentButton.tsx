@@ -72,9 +72,9 @@ const MIGRATION_SENTENCE: Record<MigrationKind, string> = {
 }
 
 const BUTTON_CLASS =
-  'rounded border px-2 py-1 normal-case tracking-normal disabled:opacity-50 border-ice-700 text-ice-200 hover:border-ice-400 hover:text-ice-050'
+  'rounded border px-2 py-1 normal-case tracking-normal disabled:opacity-50 border-(--line-strong) text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary)'
 const CONFIRM_CLASS =
-  'rounded border px-2 py-1 normal-case tracking-normal disabled:opacity-50 border-ice-400 text-ice-050'
+  'rounded border px-2 py-1 normal-case tracking-normal disabled:opacity-50 border-(--ink-dim) text-(--ink-primary)'
 
 export function InstrumentButton({
   sessionId,
@@ -118,11 +118,11 @@ export function InstrumentButton({
       )}
 
       {phase.status === 'confirming' && (
-        <div data-testid={`${testId}-confirm-dialog`} className="flex flex-col gap-2 rounded border border-ice-700 p-3">
-          <p className="text-[12px] text-ice-100">
+        <div data-testid={`${testId}-confirm-dialog`} className="flex flex-col gap-2 rounded border border-(--line-strong) p-3">
+          <p className="text-read-body text-(--ink-primary)">
             Relaunch the conductor on session {sessionId}, instrumented?
           </p>
-          <p className="text-[11px] text-ice-400">
+          <p className="text-read-floor text-(--ink-dim)">
             The conversation resumes under this same id, and the transcript it resumes from is only ever copied —
             never moved, never edited. The process you are using now is not stopped: it keeps running until you end
             it, and anything typed there after this point belongs to a fork this instrument can see only through a
@@ -150,14 +150,14 @@ export function InstrumentButton({
       )}
 
       {phase.status === 'working' && (
-        <p data-testid={`${testId}-in-flight`} className="text-[12px] text-ice-400">
+        <p data-testid={`${testId}-in-flight`} className="text-read-body text-(--ink-dim)">
           relaunching…
         </p>
       )}
 
       {phase.status === 'done' && phase.outcome.kind === 'instrumented' && (
-        <div data-testid={`${testId}-result`} className="flex flex-col gap-1 rounded border border-ice-700 p-3">
-          <p className="text-[12px] text-ice-100">
+        <div data-testid={`${testId}-result`} className="flex flex-col gap-1 rounded border border-(--line-strong) p-3">
+          <p className="text-read-body text-(--ink-primary)">
             {phase.outcome.spawn.launched
               ? `the conductor was started (pid ${phase.outcome.spawn.pid}) on session ${sessionId} — the same id, not a new one`
               : `session ${sessionId} was prepared, but the process could not be started`}
@@ -168,7 +168,7 @@ export function InstrumentButton({
               exactly what #532 found exiting on its own. Saying which is the
               difference between "go here" and "watch and see". */}
           {phase.outcome.spawn.launched && (
-            <p data-testid={`${testId}-where`} className="text-[11px] text-ice-300">
+            <p data-testid={`${testId}-where`} className="text-read-floor text-(--ink-body)">
               {phase.outcome.spawn.via === 'tmux'
                 ? `it is running in the tmux window ${phase.outcome.spawn.window} — attach with \`tmux attach -t ${phase.outcome.spawn.window}\` to type in it`
                 : 'it was started detached, with no terminal attached — nothing here can type in it, and an interactive harness with nobody attached may exit on its own (#532). If it does, run the harness yourself in a terminal.'}
@@ -180,16 +180,16 @@ export function InstrumentButton({
               as a fabricated sentence: an answer this component did not ask
               for is not one it should narrate. */}
           {phase.outcome.migration !== null && (
-            <p data-testid={`${testId}-migration`} className="text-[12px] text-ice-300">
+            <p data-testid={`${testId}-migration`} className="text-read-body text-(--ink-body)">
               {MIGRATION_SENTENCE[phase.outcome.migration.kind]}
             </p>
           )}
           {phase.outcome.spawn.launched === false && (
-            <p role="status" data-testid={`${testId}-spawn-error`} className="text-[12px] text-broken">
+            <p role="status" data-testid={`${testId}-spawn-error`} className="text-read-body text-broken">
               {phase.outcome.spawn.message}
             </p>
           )}
-          <p className="text-[11px] text-ice-400">
+          <p className="text-read-floor text-(--ink-dim)">
             The process you were using is still running — this started a second one and stopped nothing. End the old
             one yourself, or the two conversations diverge from here with nothing in either file marking the fork.
             Nothing the old process already spent reaches this instrument’s record: measurement starts now.
@@ -198,18 +198,18 @@ export function InstrumentButton({
       )}
 
       {phase.status === 'done' && phase.outcome.kind === 'no-transcript-reachable' && (
-        <div data-testid={`${testId}-no-transcript`} className="flex flex-col gap-1 rounded border border-ice-700 p-3">
-          <p role="status" className="text-[12px] text-ice-100">
+        <div data-testid={`${testId}-no-transcript`} className="flex flex-col gap-1 rounded border border-(--line-strong) p-3">
+          <p role="status" className="text-read-body text-(--ink-primary)">
             there is no transcript this instrument can reach for session {sessionId}, so nothing was copied and
             nothing was started — {phase.outcome.reason}
           </p>
           {manualCommand === undefined ? (
-            <p className="text-[11px] text-ice-400">
+            <p className="text-read-floor text-(--ink-dim)">
               Start the harness yourself in this repo; this page has no command to hand you for it.
             </p>
           ) : (
             <>
-              <p className="text-[11px] text-ice-400">Run this yourself, in the repo, and the instrument will pick it up:</p>
+              <p className="text-read-floor text-(--ink-dim)">Run this yourself, in the repo, and the instrument will pick it up:</p>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -225,7 +225,7 @@ export function InstrumentButton({
                   copy
                 </button>
                 {copied !== 'idle' && (
-                  <span role="status" className="text-[10px] text-ice-400">
+                  <span role="status" className="text-read-floor text-(--ink-dim)">
                     {copied === 'copied' ? 'copied to clipboard' : 'clipboard unavailable — copy it by hand'}
                   </span>
                 )}
@@ -233,7 +233,7 @@ export function InstrumentButton({
               {/* Always visible, always the exact string — the fallback that works when the clipboard does not. */}
               <code
                 data-testid={`${testId}-command`}
-                className="mt-1 block overflow-x-auto whitespace-pre rounded bg-ice-1000 px-2 py-1 font-mono text-[11px] text-ice-200"
+                className="mt-1 block overflow-x-auto whitespace-pre rounded bg-(--surface-floor) px-2 py-1 font-mono text-inst text-(--ink-primary)"
               >
                 {manualCommand}
               </code>
@@ -244,7 +244,7 @@ export function InstrumentButton({
 
       {phase.status === 'failed' && (
         <div className="flex flex-col gap-2">
-          <p role="status" data-testid={`${testId}-error`} className="text-[12px] text-broken">
+          <p role="status" data-testid={`${testId}-error`} className="text-read-body text-broken">
             {phase.message}
           </p>
           <button

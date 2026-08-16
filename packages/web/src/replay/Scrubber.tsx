@@ -119,7 +119,7 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
         <div
           aria-hidden="true"
           data-testid="scrubber-drag-label"
-          className="pointer-events-none absolute -top-10 -translate-x-1/2 whitespace-nowrap rounded border border-ice-700 bg-ice-950 px-1 py-0.5 text-[10px] text-ice-100"
+          className="pointer-events-none absolute -top-10 -translate-x-1/2 whitespace-nowrap rounded border border-(--line-strong) bg-(--surface-panel) px-1 py-0.5 text-inst-dense text-(--ink-primary)"
           style={{ left: `${thumbPercent}%` }}
         >
           {nearest.label}
@@ -140,7 +140,7 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
       <div
         aria-hidden="true"
         data-testid="scrubber-readout"
-        className="figures pointer-events-none absolute -top-5 -translate-x-1/2 whitespace-nowrap rounded border border-ice-700 bg-ice-950 px-1 py-0.5 text-[10px] text-ice-100"
+        className="figures pointer-events-none absolute -top-5 -translate-x-1/2 whitespace-nowrap rounded border border-(--line-strong) bg-(--surface-panel) px-1 py-0.5 text-inst-dense text-(--ink-primary)"
         style={{ left: `${thumbPercent}%` }}
       >
         {readout}
@@ -159,9 +159,9 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
         onPointerDown={() => setDragging(true)}
         onPointerUp={() => setDragging(false)}
         onPointerCancel={() => setDragging(false)}
-        className="h-1 w-full accent-ice-200"
+        className="h-1 w-full accent-(--ink-primary)"
       />
-      <div className="flex items-center justify-between text-[10px] leading-none text-ice-400">
+      <div className="flex items-center justify-between text-inst-dense leading-none text-(--ink-dim)">
         <span className="figures">{formatElapsed(clamped - start)}</span>
         <span className="figures">{formatElapsed(end - start)}</span>
       </div>

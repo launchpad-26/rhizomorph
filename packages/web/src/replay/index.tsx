@@ -116,10 +116,10 @@ export default function ReplayControls() {
   }
 
   return (
-    <div className="flex flex-col gap-1 border-t border-ice-850 px-4 py-2 text-xs uppercase tracking-wide text-ice-400">
+    <div className="flex flex-col gap-1 border-t border-(--line-hair) px-4 py-2 text-inst uppercase tracking-wide text-(--ink-dim)">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="font-semibold tracking-widest text-ice-300">Replay</span>
-        <span className="font-semibold text-ice-100">
+        <span className="font-semibold tracking-widest text-(--ink-body)">Replay</span>
+        <span className="font-semibold text-(--ink-primary)">
           {isReplaying ? 'Replay mode' : 'Live mode'}
         </span>
 
@@ -128,17 +128,17 @@ export default function ReplayControls() {
           onClick={replayBirth}
           disabled={sessions.length === 0}
           title={sessions.length === 0 ? 'No recorded sessions yet' : "Replay this session's birth"}
-          className="rounded border border-ice-700 px-2 py-1 normal-case tracking-normal text-ice-200 hover:border-ice-400 hover:text-ice-050 disabled:opacity-50"
+          className="rounded border border-(--line-strong) px-2 py-1 normal-case tracking-normal text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-50"
         >
           {"Replay this session's birth"}
         </button>
 
         <label className="flex items-center gap-2 normal-case tracking-normal">
-          <span className="uppercase tracking-wide text-ice-400">session</span>
+          <span className="uppercase tracking-wide text-(--ink-dim)">session</span>
           <select
             value={selectedId ?? ''}
             onChange={(event) => selectSession(event.target.value === '' ? null : event.target.value)}
-            className="rounded border border-ice-850 bg-ice-1000 px-2 py-1 text-ice-200"
+            className="rounded border border-(--line-hair) bg-(--surface-floor) px-2 py-1 text-(--ink-primary)"
           >
             <option value="">Replay a recorded session…</option>
             {(sessions as SessionListing[]).map((session) => (
@@ -151,7 +151,7 @@ export default function ReplayControls() {
 
         {isReplaying && (
           <span
-            className="normal-case tracking-normal text-ice-400"
+            className="normal-case tracking-normal text-(--ink-dim)"
             title="total spend for this whole recorded session, not just up to the scrub time"
           >
             total {formatSpend(sessionTotal)}
@@ -163,7 +163,7 @@ export default function ReplayControls() {
           onClick={() => (playback.playing ? playback.pause() : playback.play())}
           disabled={!isReplaying}
           title={isReplaying ? undefined : 'Select a session first to enable playback'}
-          className="rounded border border-ice-850 px-2 py-1 hover:border-ice-400 hover:text-ice-050 disabled:opacity-50"
+          className="rounded border border-(--line-hair) px-2 py-1 hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-50"
         >
           {playback.playing ? 'Pause' : 'Play'}
         </button>
@@ -178,8 +178,8 @@ export default function ReplayControls() {
               aria-pressed={playback.speed === speed}
               className={`rounded border px-2 py-1 disabled:opacity-50 ${
                 playback.speed === speed
-                  ? 'border-ice-400 text-ice-050'
-                  : 'border-ice-850 hover:border-ice-400 hover:text-ice-050'
+                  ? 'border-(--ink-dim) text-(--ink-primary)'
+                  : 'border-(--line-hair) hover:border-(--ink-dim) hover:text-(--ink-primary)'
               }`}
             >
               {speed}x
@@ -191,7 +191,7 @@ export default function ReplayControls() {
           type="button"
           onClick={() => selectSession(null)}
           disabled={!isReplaying}
-          className="rounded border border-ice-850 px-2 py-1 hover:border-ice-400 hover:text-ice-050 disabled:opacity-50"
+          className="rounded border border-(--line-hair) px-2 py-1 hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-50"
         >
           Return to live
         </button>
@@ -204,7 +204,7 @@ export default function ReplayControls() {
         puts the session it just closed in the picker above, immediately.
       */}
       <div className="flex flex-wrap items-center gap-3">
-        <span className="font-semibold tracking-widest text-ice-300">Session</span>
+        <span className="font-semibold tracking-widest text-(--ink-body)">Session</span>
         <RotateButton onRotated={refreshSessions} />
       </div>
 
@@ -230,7 +230,7 @@ export default function ReplayControls() {
       {unknownVoice !== null && (
         <p
           data-testid="replay-listing-unknown-era"
-          className="normal-case tracking-normal text-ice-100"
+          className="normal-case tracking-normal text-(--ink-primary)"
           title="this recording came from a newer instrument; these events were kept in the log but this build cannot fold them"
         >
           {unknownVoice}
@@ -238,7 +238,7 @@ export default function ReplayControls() {
       )}
 
       {sessions.length === 0 && error === null && (
-        <p className="normal-case tracking-normal text-ice-400">no recorded sessions yet</p>
+        <p className="normal-case tracking-normal text-(--ink-dim)">no recorded sessions yet</p>
       )}
     </div>
   )
