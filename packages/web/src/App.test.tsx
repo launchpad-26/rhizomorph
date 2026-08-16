@@ -419,9 +419,33 @@ describe('App', () => {
     })
   })
 
-  describe('the settings placeholder (#549, ahead of prd-35/#550)', () => {
+  describe('the settings surface (prd-35 S1, #550 — the route #549 held open)', () => {
     afterEach(() => {
       window.history.replaceState(null, '', '/')
+      localStorage.clear()
+      document.documentElement.removeAttribute('data-theme')
+      document.documentElement.removeAttribute('data-motion')
+    })
+
+    /**
+     * The preferences a person chose are properties of the DOCUMENT, not of the
+     * page they were chosen on — so they are applied at the composition root and
+     * this proves it on the balcony, with the settings page nowhere in the tree.
+     * Applying them only where they are set is how a preference comes to survive
+     * a reload in one place and not in another (prd-35 S1, #550).
+     */
+    it('applies stored preferences on every route, not only on the settings page', async () => {
+      localStorage.setItem(
+        'rhizomorph.prefs.machine.v1',
+        JSON.stringify({ 'appearance.theme': 'light', 'motion.level': 'still' }),
+      )
+
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
+      expect(document.documentElement.dataset.theme).toBe('light')
+      expect(document.documentElement.dataset.motion).toBe('still')
     })
 
     it('deep-links cold to /settings — a route switch, not an overlay', async () => {
@@ -550,7 +574,7 @@ describe('App', () => {
       expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
     })
 
-    it('renders on the settings placeholder (/settings)', async () => {
+    it('renders on the settings surface (/settings)', async () => {
       window.history.replaceState(null, '', '/settings')
       const { source } = await renderApp()
       act(() => source()?.open())
