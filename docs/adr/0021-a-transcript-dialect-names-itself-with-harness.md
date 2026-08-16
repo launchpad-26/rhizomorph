@@ -44,7 +44,10 @@ is `sessionlog` itself made generic?**
 Chosen: **(b2)**. `telemetryOriginSchema` stays `z.enum(['sessionlog',
 'otel'])` — no enum change at all, in either `common.ts`'s `eventSourceSchema`
 or `telemetry.ts`'s narrower subset. What changes is additive: an optional,
-nullable `harness: nonEmptyString` field on the attribution shared by
+nullable `harness: z.string().trim().min(1)` field — deliberately *not* the
+shared `nonEmptyString`, whose bare `.min(1)` would admit a whitespace-only
+name; trimming is applied to `harness` alone rather than by widening that
+primitive for every other attribution field — on the attribution shared by
 `llm.usage`, `llm.cost` and `tool.activity`. Absent or null `harness` means
 Claude Code's own collector — the only meaning `sessionlog` has ever carried
 before this — and is pinned by a test (`telemetry.test.ts`, "the harness
