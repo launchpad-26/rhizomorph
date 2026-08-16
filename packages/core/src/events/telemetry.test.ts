@@ -489,6 +489,18 @@ describe('the harness dimension (#538)', () => {
     ).toBe(false)
   })
 
+  it('normalises a padded harness name — `.trim()` rewrites the value, not just its length check', () => {
+    // `.trim()` is a zod transform, so the parsed value differs from the input.
+    // `harness` is the only field in the core event schemas that does this —
+    // nothing else under `events/` uses `.trim()` or `.transform()` — and
+    // `eventToLine` re-serialises parsed events, so this is also the one place
+    // where parse → serialise is not byte-identity. Pinned because the
+    // non-transforming equivalent `.min(1).refine((s) => s.trim().length > 0)`
+    // validates identically and survives every other test in this block.
+    const event = createEvent('llm.usage', { ...usage, harness: '  pi  ' }, { id: 'evt-1', ts: 1 })
+    expect(event.payload.harness).toBe('pi')
+  })
+
   it('rejects a whitespace-only harness — as absent a name as the empty string', () => {
     expect(
       llmUsageEventSchema.safeParse({
