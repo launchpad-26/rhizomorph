@@ -287,6 +287,10 @@ function collectorError(state: SessionState, event: EventOf<'collector.error'>):
     collector,
     message,
     detail: detail ?? null,
+    // Same `?? 1` as `errorCount` above, and the same fact `RefusalRecord`
+    // already carries at this layer: most emitters never coalesce and carry
+    // no count, so this stays the single occurrence it is, not zero.
+    count: count ?? 1,
   }
   return {
     ...state,
