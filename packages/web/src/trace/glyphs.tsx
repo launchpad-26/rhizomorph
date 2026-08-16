@@ -1,21 +1,23 @@
 import type { SpanDecision, SpanKind } from '@rhizomorph/core'
+import { KIND_APPEARANCE, kindTagClass, type WorkKind } from '../theme/kind.js'
 
 /**
- * THE ROW KIND TAG — one word, fixed width, lightness only.
+ * THE ROW KIND TAG — one word, fixed width, lightness plus a capped tint.
  *
- * `drawer/Activity.tsx` already answers "how does this dashboard mark a row's
- * kind" for the git/file/commit ledger (`KIND_WORD`/`KIND_CLASS`): a short
- * word in a narrow column, differentiated from its neighbours by ice lightness
- * alone, never by a ladder hue — "a kind is not a status" is that file's own
- * reasoning, and it applies here without a single change, since a span's kind
- * is exactly the same sort of fact (what a row IS, not how alarmed anyone
- * should be about it). Reusing that convention rather than drawing seven new
- * SVG marks is the "no new icon language" the brief asks for: one register,
- * not two.
+ * What a kind looks like is no longer decided here. `theme/kind.ts` owns the
+ * one table (prd-31 ruling 1) and states the law — **a kind is not a status** —
+ * because this file, `drawer/Activity.tsx` and `drawer/Conversation.tsx` each
+ * used to encode that sentence separately and had already drifted apart on
+ * `tool`. What stays here is the *translation*: which of the app's kinds a
+ * `SpanKind` is. That is trace vocabulary, and it belongs to the trace.
+ *
+ * Reusing the ledger's tag convention rather than drawing seven new SVG marks
+ * is still the "no new icon language" the brief asks for: one register, not
+ * two — and now literally one function.
  */
-export const KIND_WORD: Record<SpanKind, string> = {
+const SPAN_KIND: Record<SpanKind, WorkKind> = {
   interaction: 'run',
-  llm_request: 'llm',
+  llm_request: 'model',
   tool: 'tool',
   tool_blocked: 'blocked',
   tool_execution: 'exec',
@@ -23,26 +25,25 @@ export const KIND_WORD: Record<SpanKind, string> = {
   other: 'other',
 }
 
-/** Accessible name for a row that has no other visible label (a bare kind tag). */
-export const KIND_LABEL: Record<SpanKind, string> = {
-  interaction: 'interaction',
-  llm_request: 'model request',
-  tool: 'tool call',
-  tool_blocked: 'blocked on a human',
-  tool_execution: 'tool execution',
-  hook: 'hook span',
-  other: 'unclassified span',
-}
+/**
+ * The tag word, per span kind. Kept exported and kept this exact shape — #439
+ * reads this furniture, so the module beneath it is additive and nothing here
+ * is renamed or re-signatured. Derived, so it cannot drift from the table.
+ */
+export const KIND_WORD: Record<SpanKind, string> = mapSpanKinds((look) => look.word)
 
-/** Lightness only — see the module note. Never a ladder class (law 9a). */
-export const KIND_CLASS: Record<SpanKind, string> = {
-  interaction: 'text-ice-300',
-  llm_request: 'text-ice-200',
-  tool: 'text-ice-400',
-  tool_blocked: 'text-ice-400',
-  tool_execution: 'text-ice-300',
-  hook: 'text-ice-400',
-  other: 'text-ice-400',
+/** Accessible name for a row that has no other visible label (a bare kind tag). */
+export const KIND_LABEL: Record<SpanKind, string> = mapSpanKinds((look) => look.label)
+
+/** Lightness — one ice step. Never a ladder class (law 9a); the tint rides `KindTag`'s edge. */
+export const KIND_CLASS: Record<SpanKind, string> = mapSpanKinds((look) => look.ink)
+
+function mapSpanKinds(pick: (look: (typeof KIND_APPEARANCE)[WorkKind]) => string): Record<SpanKind, string> {
+  const out = {} as Record<SpanKind, string>
+  for (const [span, kind] of Object.entries(SPAN_KIND) as [SpanKind, WorkKind][]) {
+    out[span] = pick(KIND_APPEARANCE[kind])
+  }
+  return out
 }
 
 export interface KindTagProps {
@@ -51,11 +52,7 @@ export interface KindTagProps {
 
 export function KindTag({ kind }: KindTagProps) {
   return (
-    <span
-      data-testid="trace-kind"
-      data-kind={kind}
-      className={`w-14 shrink-0 text-[10px] uppercase tracking-wider ${KIND_CLASS[kind]}`}
-    >
+    <span data-testid="trace-kind" data-kind={kind} className={kindTagClass(SPAN_KIND[kind])}>
       {KIND_WORD[kind]}
     </span>
   )
@@ -68,7 +65,9 @@ export function KindTag({ kind }: KindTagProps) {
  * reports, capture-confirmed) so it renders as its own word, exactly like
  * `accept`/`reject` rather than as a dash or a blank. None of the three
  * borrows a ladder hue: a decision already made is a fact, not a live alarm,
- * so it is told apart by lightness alone (the same law `KIND_CLASS` follows).
+ * so it is told apart by lightness alone (the same law `theme/kind.ts` states,
+ * minus the tint — a decision is an outcome, not a kind of work, so it has no
+ * category to be the material of).
  */
 export const DECISION_WORD: Record<SpanDecision, string> = {
   accept: 'accepted',
