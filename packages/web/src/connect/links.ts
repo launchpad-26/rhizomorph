@@ -44,7 +44,7 @@ import { doctorCheck, type CollectorFacts, type DoctorReading, type MetaFacts } 
  *
  * The three states are also the hue law's own three (`theme/theme.css`):
  * verified wears the green family, broken wears the one red the instrument
- * has, and unproven wears the ice ramp — **waiting is not an alarm**, so a
+ * has, and unproven wears the structural ink — **waiting is not an alarm**, so a
  * row that has nothing to say must never borrow amber's "a human is needed"
  * or red's "this is dead".
  */
@@ -224,7 +224,7 @@ export const SAME_PROCESS_WARNING = 'the env block must be exported in the proce
  * batch an instrumented agent can owe us — `rhizomorph env` sets the metrics
  * interval to 5s, logs to 2s and traces to 1s (`cli/telemetry-env.ts`), so a
  * correctly wired lane proves itself an order of magnitude inside this
- * window. Under it, the row reads UNPROVEN, in the ice register: an export
+ * window. Under it, the row reads UNPROVEN, in the structural register: an export
  * that may still be in flight is waiting, and waiting is not an alarm.
  */
 export const FIRST_EXPORT_GRACE_MS = 60_000

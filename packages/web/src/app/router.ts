@@ -8,10 +8,9 @@ import { useSyncExternalStore } from 'react'
  * forked), `/lab` (the experiment console, prd14 — the same reuse-not-fork
  * precedent), `/connect` (the connection surface, prd19 ruling 1 — "a
  * fifth route and a fourth nav hand", landing here as a fenced placeholder
- * ahead of the handshake checklist itself, wave 3), and `/settings` (a
- * fenced placeholder of the same kind, ahead of prd-35/#550's actual
- * configuration surface — #549's own fence permits the stub, not the
- * surface). The lean-dependency culture (prd5's implementation-vehicles
+ * ahead of the handshake checklist itself, wave 3), and `/settings` (the
+ * configuration surface — prd-35 S1, #550, which replaced the placeholder
+ * #549's fence had permitted in its place). The lean-dependency culture (prd5's implementation-vehicles
  * note) rules out react-router or any routing package for a job this small
  * — six routes, no nesting, no data loading, just "which page" and "keep
  * the URL and the back button honest".

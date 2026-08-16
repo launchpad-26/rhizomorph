@@ -116,6 +116,19 @@ async function renderGrid({ emitWorktree = true }: { emitWorktree?: boolean } = 
   return { ...utils, source: () => source }
 }
 
+/**
+ * The fleet surface opens on the organism (prd-36 ruling 1), so a test that
+ * wants the roster asks for it with the surface's own keystroke — awaited,
+ * because the list arm is behind `lazy()` and React insists on one
+ * suspend-then-resume tick the first time it mounts, exactly as the mocked
+ * panels above do.
+ */
+async function showFleetList() {
+  await act(async () => {
+    fireEvent.keyDown(window, { key: 'v' })
+  })
+}
+
 describe('PanelGrid', () => {
   it('renders every registered panel expanded by default, collisions included', async () => {
     await renderGrid()
@@ -135,14 +148,42 @@ describe('PanelGrid', () => {
     expect(screen.queryByRole('group', { name: 'Filter by kind' })).not.toBeInTheDocument()
   })
 
-  it('mounts the panels in the conductor-curated order, scene above the fleet table', async () => {
+  it('mounts the panels in the conductor-curated order, the fleet surface first', async () => {
     const { container } = await renderGrid()
 
-    // prd4 ruling 2: scene (the centerpiece) → fleet table (its legend) → the
-    // rest. The strips are docked in the Shell above this grid, and the
-    // provenance bar below it.
+    // prd-36 ruling 1: the scene and the roster are one surface now, so the
+    // hero is a single `Fleet` row rather than a scene above its legend. The
+    // strips are docked in the Shell above this grid, and the provenance bar
+    // below it.
     const headings = [...container.querySelectorAll('h2')].map((node) => node.textContent)
-    expect(headings).toEqual(['Scene', 'Fleet', 'Ledger', 'Collisions', 'Activity'])
+    expect(headings).toEqual(['Fleet', 'Ledger', 'Collisions', 'Activity'])
+    // …and the organism is what it opens on, inside that one frame.
+    expect(screen.getByText('Scene stub')).toBeInTheDocument()
+  })
+
+  it('registers the fleet surface once, with no scene panel beside it', async () => {
+    await renderGrid()
+
+    // The merge, read off the registry rather than off the screen: `scene` was
+    // a row here (its own collapse key, its own focus affordance) and is not
+    // one any more — it is a representation of `fleet`.
+    expect(PANEL_IDS as readonly string[]).not.toContain('scene')
+    expect(PANEL_IDS as readonly string[]).toContain('fleet')
+    expect(screen.queryByRole('button', { name: /focus scene/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /collapse scene/i })).not.toBeInTheDocument()
+  })
+
+  it('switches the hero’s representation on one keystroke, inside the same panel', async () => {
+    const { container } = await renderGrid()
+
+    await showFleetList()
+
+    // The stubbed fleet table brings an `<h2>Fleet</h2>` of its own until wave
+    // 2 drops it (see `FleetSurface.tsx`), so the heading list gains one — what
+    // matters here is that no row was added or removed from the curated order.
+    expect(screen.queryByText('Scene stub')).not.toBeInTheDocument()
+    const headings = [...container.querySelectorAll('h2')].map((node) => node.textContent)
+    expect(headings).toEqual(['Fleet', 'Fleet', 'Ledger', 'Collisions', 'Activity'])
   })
 
   it('no longer mounts the panels prd3 dissolved', async () => {
@@ -171,7 +212,7 @@ describe('PanelGrid', () => {
   })
 
   describe('focus (ruling 6 — one panel at a time)', () => {
-    it('focusing one panel fills the view and hides every sibling, including the scene', async () => {
+    it('focusing the fleet surface fills the view, carrying whichever representation is up', async () => {
       await renderGrid()
 
       fireEvent.click(screen.getByRole('button', { name: 'Focus Fleet' }))
@@ -181,8 +222,14 @@ describe('PanelGrid', () => {
       expect(screen.queryByText('Ledger')).not.toBeInTheDocument()
       expect(screen.queryByText('Collisions')).not.toBeInTheDocument()
       expect(screen.queryByText('Activity')).not.toBeInTheDocument()
+      // The scene comes WITH the focused surface now rather than being one of
+      // the siblings it displaces — one panel at a time, and the scene is not
+      // a panel any more.
+      expect(screen.getByText('Scene stub')).toBeInTheDocument()
+      // …and the toggle is still reachable while focused.
+      await showFleetList()
       expect(screen.queryByText('Scene stub')).not.toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: /focus scene/i })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Restore Fleet' })).toBeInTheDocument()
     })
 
     it('restoring (the explicit control) returns the curated order', async () => {
@@ -208,31 +255,19 @@ describe('PanelGrid', () => {
       }
     })
 
-    it('the scene focuses full-view, breaking out of the small slot chrome, and other panels hide', async () => {
+    it('restores the curated order from a focused fleet surface, scene and all', async () => {
       await renderGrid()
 
-      // The un-focused slot still carries `SceneSlot`'s own fixed-height chrome.
-      expect(screen.getByRole('button', { name: /collapse scene/i })).toBeInTheDocument()
-
-      fireEvent.click(screen.getByRole('button', { name: 'Focus Scene' }))
-      // The focused view mounts its own `lazy()` reference to `../scene/index.js`
-      // (see `FocusableScene`'s comment) — its own suspend-then-resume tick,
-      // flushed deterministically since the module is already preloaded above.
-      await act(async () => {})
-
-      expect(screen.getByText('Scene stub')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Restore Scene' })).toBeInTheDocument()
-      // `SceneSlot`'s own chrome (and its fixed h-64 host) is gone — the
-      // focused scene mounts directly instead of inside it.
-      expect(screen.queryByRole('button', { name: /collapse scene/i })).not.toBeInTheDocument()
-      expect(screen.queryByText('Fleet')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Focus Fleet' }))
       expect(screen.queryByText('Ledger')).not.toBeInTheDocument()
 
-      fireEvent.click(screen.getByRole('button', { name: 'Restore Scene' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Restore Fleet' }))
 
       expect(screen.getByText('Scene stub')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /collapse scene/i })).toBeInTheDocument()
-      expect(screen.getByText('Fleet')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Focus Fleet' })).toBeInTheDocument()
+      for (const title of ['Fleet', 'Ledger', 'Collisions', 'Activity']) {
+        expect(screen.getByText(title)).toBeInTheDocument()
+      }
     })
 
     it('FOCUS TRACE (prd9 B1a): drawn nowhere in the curated order, requested externally, and behaves exactly like every other focus', async () => {

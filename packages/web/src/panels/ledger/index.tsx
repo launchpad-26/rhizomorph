@@ -73,24 +73,24 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
   const connected = status === 'open' && state.events.length > 0
 
   return (
-    <section className="flex h-full flex-col rounded-lg border border-ice-850 bg-ice-950 p-4">
-      <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-ice-400">Ledger</h2>
+    <section className="flex h-full flex-col rounded-lg border border-(--line-hair) bg-(--surface-panel) p-4">
+      <h2 className="heading text-(--ink-dim)">Ledger</h2>
 
       {rows.length === 0 && !connected ? (
-        <p className="mt-2 text-sm text-ice-400">Waiting for the stream…</p>
+        <p className="mt-2 text-read-body text-(--ink-dim)">Waiting for the stream…</p>
       ) : rows.length === 0 ? (
-        <p className="mt-2 text-sm text-ice-300" role="status">
+        <p className="mt-2 text-read-body text-(--ink-body)" role="status">
           No branch spend recorded yet this session.
         </p>
       ) : (
         <div className="mt-2 flex min-h-0 flex-1 flex-col gap-2 overflow-auto [scrollbar-gutter:stable]">
-          <p className="text-[11px] text-ice-400" data-testid="ledger-honesty">
+          <p className="text-read-floor text-(--ink-dim)" data-testid="ledger-honesty">
             Dollars are notional on subscription plans — the real signal here is efficiency and
             rate-limit budget. Estimated dollars are flagged "est."; nothing here is invented.
           </p>
-          <table className="w-full border-collapse text-left text-sm">
+          <table className="w-full border-collapse text-left text-read-body">
             <thead>
-              <tr className="text-[10px] uppercase tracking-wider text-ice-400">
+              <tr className="text-inst-dense uppercase tracking-wider text-(--ink-dim)">
                 <th className="pb-1 pr-2 font-medium">Branch</th>
                 <th className="pb-1 pr-2 font-medium">Status</th>
                 <th className="pb-1 pr-2 font-medium">Cost</th>
@@ -118,9 +118,9 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
                   <Fragment key={row.branch}>
                     <tr
                       data-testid="ledger-row"
-                      className="border-t border-ice-850/60"
+                      className="border-t border-(--line-hair)/60"
                     >
-                      <td className="py-1.5 pr-2 font-mono text-ice-200">
+                      <td className="py-1.5 pr-2 font-mono text-(--ink-primary)">
                         {expandable ? (
                           <button
                             type="button"
@@ -128,14 +128,14 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
                             aria-expanded={expanded}
                             aria-label={`${expanded ? 'Collapse' : 'Expand'} threads for ${row.branch}`}
                             data-testid="ledger-thread-toggle"
-                            className="mr-1 inline-flex w-3 text-ice-400 hover:text-ice-200"
+                            className="mr-1 inline-flex w-3 text-(--ink-dim) hover:text-(--ink-primary)"
                           >
                             {expanded ? '▾' : '▸'}
                           </button>
                         ) : null}
                         {row.branch}
                         {row.issue === null ? null : (
-                          <span className="ml-1 text-[10px] text-ice-400">#{row.issue}</span>
+                          <span className="ml-1 text-inst-dense text-(--ink-dim)">#{row.issue}</span>
                         )}
                         <OpenLaneLink handle={laneId} label={row.branch} />
                       </td>
@@ -148,7 +148,7 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
                               ? 'worktree removed — this feature is finished'
                               : 'worktree still present'
                           }
-                          className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wide ${
+                          className={`inline-flex items-center gap-1 text-inst-dense uppercase tracking-wide ${
                             row.landed ? 'text-done' : 'text-working'
                           }`}
                         >
@@ -161,77 +161,77 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
                         </span>
                       </td>
                       <td
-                        className="figures py-1.5 pr-2 text-ice-200"
+                        className="figures py-1.5 pr-2 text-(--ink-primary)"
                         data-testid="ledger-cost"
                         title={costCellTitle(row)}
                       >
                         {costCellText(row)}
                         {row.costIsAuthoritative === false ? (
-                          <span className="ml-1 text-[10px] font-normal text-ice-400">est.</span>
+                          <span className="ml-1 text-inst-dense font-normal text-(--ink-dim)">est.</span>
                         ) : null}
                       </td>
                       <td
-                        className="figures py-1.5 pr-2 text-ice-400"
+                        className="figures py-1.5 pr-2 text-(--ink-dim)"
                         data-testid="ledger-tokens"
                         title={tokensCellTitle(row)}
                       >
                         <span className="inline-flex items-center gap-1.5">
-                          <Sparkline values={spark} className="shrink-0 text-ice-400" />
+                          <Sparkline values={spark} className="shrink-0 text-(--ink-dim)" />
                           {formatTokens(row.tokens.output)}
-                          <span className="text-[10px] text-ice-400">out</span>
+                          <span className="text-inst-dense text-(--ink-dim)">out</span>
                           {exemplar === null ? null : (
                             <ExemplarJumpButton laneId={laneId} exemplar={exemplar} select={select} />
                           )}
                         </span>
                       </td>
-                      <td className="py-1.5 pr-2 text-ice-400">
+                      <td className="py-1.5 pr-2 text-(--ink-dim)">
                         {row.models.length === 0 ? '—' : row.models.join(', ')}
                       </td>
-                      <td className="figures py-1.5 pr-2 text-ice-400">
+                      <td className="figures py-1.5 pr-2 text-(--ink-dim)">
                         {formatRelativeTime(row.firstTs, now)}
                       </td>
-                      <td className="figures py-1.5 pr-2 text-ice-400">
+                      <td className="figures py-1.5 pr-2 text-(--ink-dim)">
                         {formatRelativeTime(row.lastTs, now)}
                       </td>
-                      <td className="figures py-1.5 text-ice-400">{formatElapsed(row.elapsedMs)}</td>
+                      <td className="figures py-1.5 text-(--ink-dim)">{formatElapsed(row.elapsedMs)}</td>
                     </tr>
                     {expanded
                       ? threads.map((thread) => (
                           <tr
                             key={`${row.branch}::${thread.thread ?? 'unknown'}`}
                             data-testid="ledger-subrow"
-                            className="border-t border-ice-850/30 text-xs"
+                            className="border-t border-(--line-hair)/30 text-inst"
                           >
-                            <td className="py-1.5 pr-2 pl-6 font-mono text-ice-300">
+                            <td className="py-1.5 pr-2 pl-6 font-mono text-(--ink-body)">
                               {threadLabel(thread.thread)}
                             </td>
-                            <td className="py-1.5 pr-2 text-ice-400">—</td>
+                            <td className="py-1.5 pr-2 text-(--ink-dim)">—</td>
                             <td
-                              className="figures py-1.5 pr-2 text-ice-300"
+                              className="figures py-1.5 pr-2 text-(--ink-body)"
                               data-testid="ledger-subrow-cost"
                               title={costCellTitle(thread)}
                             >
                               {costCellText(thread)}
                               {thread.costIsAuthoritative === false ? (
-                                <span className="ml-1 text-[10px] font-normal text-ice-400">
+                                <span className="ml-1 text-inst-dense font-normal text-(--ink-dim)">
                                   est.
                                 </span>
                               ) : null}
                             </td>
                             <td
-                              className="figures py-1.5 pr-2 text-ice-400"
+                              className="figures py-1.5 pr-2 text-(--ink-dim)"
                               data-testid="ledger-subrow-tokens"
                               title={tokensCellTitle(thread)}
                             >
                               {formatTokens(thread.tokens.output)}
-                              <span className="ml-1 text-[10px] text-ice-400">out</span>
+                              <span className="ml-1 text-inst-dense text-(--ink-dim)">out</span>
                             </td>
-                            <td className="py-1.5 pr-2 text-ice-400">
+                            <td className="py-1.5 pr-2 text-(--ink-dim)">
                               {thread.models.length === 0 ? '—' : thread.models.join(', ')}
                             </td>
-                            <td className="py-1.5 pr-2 text-ice-400">—</td>
-                            <td className="py-1.5 pr-2 text-ice-400">—</td>
-                            <td className="py-1.5 text-ice-400">—</td>
+                            <td className="py-1.5 pr-2 text-(--ink-dim)">—</td>
+                            <td className="py-1.5 pr-2 text-(--ink-dim)">—</td>
+                            <td className="py-1.5 text-(--ink-dim)">—</td>
                           </tr>
                         ))
                       : null}
@@ -268,7 +268,7 @@ function OpenLaneLink({ handle, label }: { handle: string; label: string }) {
       onClick={onClick}
       data-testid="ledger-row-open"
       aria-label={`Open ${label}'s page`}
-      className="ml-1 rounded text-ice-400 hover:text-ice-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600"
+      className="focus-ring ml-1 rounded text-(--ink-dim) hover:text-(--ink-primary)"
     >
       ↗
     </a>
@@ -303,7 +303,7 @@ function ExemplarJumpButton({
         select(laneId)
         requestPanelFocus('trace')
       }}
-      className="rounded border border-ice-850 px-1 text-[10px] text-ice-400 hover:border-ice-600 hover:text-ice-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600"
+      className="focus-ring rounded border border-(--line-hair) px-1 text-inst-dense text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
     >
       ⇥ trace
     </button>

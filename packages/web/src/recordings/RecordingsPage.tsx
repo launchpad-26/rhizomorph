@@ -96,25 +96,25 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
   }
 
   return (
-    <div data-testid="recordings-page" className="flex h-screen flex-col bg-ice-1000 font-sans text-ice-300">
+    <div data-testid="recordings-page" className="flex h-screen flex-col bg-(--surface-floor) font-sans text-(--ink-body)">
       <Nav />
-      <header className="flex shrink-0 items-center gap-4 border-b border-ice-850 bg-ice-950 px-4 py-3">
+      <header className="flex shrink-0 items-center gap-4 border-b border-(--line-hair) bg-(--surface-panel) px-4 py-3">
         <button
           type="button"
           data-testid="recordings-back"
           onClick={goBalcony}
-          className="shrink-0 rounded border border-ice-800 px-2 py-1 text-[10px] uppercase tracking-wider text-ice-400 hover:border-ice-600 hover:text-ice-100"
+          className="shrink-0 rounded border border-(--line-strong) px-2 py-1 text-inst uppercase tracking-wider text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
         >
           ← balcony
         </button>
-        <h1 className="text-sm text-ice-100">Recordings</h1>
-        <span className="text-[11px] normal-case tracking-normal text-ice-400">
+        <h1 className="text-read-body text-(--ink-primary)">Recordings</h1>
+        <span className="text-read-floor normal-case tracking-normal text-(--ink-dim)">
           what this instrument recorded — rename it, open it in replay, or export the portable record
         </span>
       </header>
 
       <div className="min-h-0 flex-1 overflow-auto p-4">
-        {state.status === 'loading' && <p className="text-ice-400">loading recordings…</p>}
+        {state.status === 'loading' && <p className="text-(--ink-dim)">loading recordings…</p>}
 
         {state.status === 'error' && (
           <p role="status" data-testid="recordings-error" className="text-broken">
@@ -123,15 +123,15 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
         )}
 
         {state.status === 'ready' && state.recordings.length === 0 && (
-          <p data-testid="recordings-empty" className="text-ice-400">
+          <p data-testid="recordings-empty" className="text-(--ink-dim)">
             no recordings yet
           </p>
         )}
 
         {state.status === 'ready' && state.recordings.length > 0 && (
-          <table data-testid="recordings-table" className="w-full border-collapse text-left text-[12px]">
+          <table data-testid="recordings-table" className="w-full border-collapse text-left text-read-floor">
             <thead>
-              <tr className="border-b border-ice-850 text-ice-400">
+              <tr className="border-b border-(--line-hair) text-(--ink-dim)">
                 <th className="p-2 font-normal">title</th>
                 <th className="p-2 font-normal">lanes</th>
                 <th className="p-2 font-normal">landed</th>
@@ -146,7 +146,7 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
                 <tr
                   key={recording.id}
                   data-testid={`recording-row-${recording.id}`}
-                  className="border-b border-ice-850 align-top"
+                  className="border-b border-(--line-hair) align-top"
                 >
                   <td className="max-w-[16rem] p-2">
                     <RenameControl
@@ -162,10 +162,10 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
                   <td className="figures p-2" title={costHoverTitle(recording)}>
                     {formatCost(recording)}
                     {costSuffix(recording) !== null && (
-                      <span className="ml-1 text-ice-400">{costSuffix(recording)}</span>
+                      <span className="ml-1 text-(--ink-dim)">{costSuffix(recording)}</span>
                     )}
                     {isCostGap(recording) && (
-                      <span data-testid={`recording-cost-gap-${recording.id}`} className="ml-1 text-ice-400">
+                      <span data-testid={`recording-cost-gap-${recording.id}`} className="ml-1 text-(--ink-dim)">
                         (no cost feed)
                       </span>
                     )}
@@ -173,7 +173,7 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
                   <td className="p-2" title={captureHoverTitle(recording)}>
                     {formatCapture(recording)}
                     {isCaptureGap(recording) && (
-                      <span data-testid={`recording-capture-gap-${recording.id}`} className="ml-1 text-ice-400">
+                      <span data-testid={`recording-capture-gap-${recording.id}`} className="ml-1 text-(--ink-dim)">
                         ⚠
                       </span>
                     )}
@@ -184,7 +184,7 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
                         type="button"
                         data-testid={`recording-open-${recording.id}`}
                         onClick={() => openInReplay(recording.id)}
-                        className="rounded border border-ice-700 px-2 py-1 normal-case tracking-normal text-ice-200 hover:border-ice-400 hover:text-ice-050"
+                        className="rounded border border-(--line-strong) px-2 py-1 normal-case tracking-normal text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary)"
                       >
                         open in replay
                       </button>
@@ -194,7 +194,7 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
                         disabled={exportingId === recording.id}
                         onClick={() => void doExport(recording.id)}
                         title="download the portable record — manifest + hash-chained log, captured transcripts included when this recording has them"
-                        className="rounded border border-ice-700 px-2 py-1 normal-case tracking-normal text-ice-200 hover:border-ice-400 hover:text-ice-050 disabled:opacity-50"
+                        className="rounded border border-(--line-strong) px-2 py-1 normal-case tracking-normal text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-50"
                       >
                         {exportingId === recording.id ? 'exporting…' : 'export'}
                       </button>

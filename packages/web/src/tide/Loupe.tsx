@@ -148,9 +148,9 @@ export function Loupe({ events, ts, count = LOUPE_EVENT_COUNT }: LoupeProps): Re
   return (
     <div
       data-testid="tide-loupe"
-      className="col-span-3 mt-1 max-h-20 overflow-y-auto rounded border border-ice-800 bg-ice-950 p-1 normal-case tracking-normal"
+      className="col-span-3 mt-1 max-h-20 overflow-y-auto rounded border border-(--line-strong) bg-(--surface-panel) p-1 normal-case tracking-normal"
     >
-      <div className="figures mb-1 text-[10px] leading-none text-ice-400" data-testid="tide-loupe-header">
+      <div className="figures mb-1 text-inst-dense leading-none text-(--ink-dim)" data-testid="tide-loupe-header">
         {slice.length === 0
           ? `the record at ${formatClockSeconds(ts)} · no events`
           : `the record at ${formatClockSeconds(ts)} · ${slice.length} events · ${formatClockSeconds(span!.first)}–${formatClockSeconds(span!.last)}`}
@@ -162,12 +162,12 @@ export function Loupe({ events, ts, count = LOUPE_EVENT_COUNT }: LoupeProps): Re
           <li
             key={`${event.id}-${index}`}
             data-testid="tide-loupe-row"
-            className="figures flex gap-2 text-[10px] leading-tight text-ice-100"
+            className="figures flex gap-2 text-inst-dense leading-tight text-(--ink-primary)"
           >
-            <span className="shrink-0 text-ice-400">{formatClockSeconds(event.ts)}</span>
-            <span className="shrink-0 text-ice-300">{event.source}</span>
+            <span className="shrink-0 text-(--ink-dim)">{formatClockSeconds(event.ts)}</span>
+            <span className="shrink-0 text-(--ink-body)">{event.source}</span>
             <span className="shrink-0">{event.type}</span>
-            <span className="min-w-0 break-all text-ice-400">{payloadText(event.payload)}</span>
+            <span className="min-w-0 break-all text-(--ink-dim)">{payloadText(event.payload)}</span>
           </li>
         ))}
       </ol>

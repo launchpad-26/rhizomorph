@@ -326,6 +326,17 @@ describe('there is exactly one kind module', () => {
    * reason: the number may only go down. Naming the residue is what stops it
    * being rediscovered as a surprise, and stops a sixth copy landing quietly
    * beside it.
+   *
+   * **The pattern accepts both spellings of the size, and that is the fix to a
+   * defeat this pin actually suffered** (#575). It matched the exact string
+   * `text-[10px]`, so the moment the rem sweep re-spelled those same two tags
+   * as `text-inst-dense` the count fell to zero and the pin reported *credit*
+   * — two hand-spelled tags still sitting there, a law green, and the message
+   * inviting the next reader to lower the number to 0 and lose the residue
+   * entirely. A ratchet keyed to one spelling of the thing it counts is a
+   * ratchet any rename releases. `theme/kind.ts` still emits the literal (it is
+   * outside the orphan sweep's fence), so both spellings are live at once and
+   * both have to count.
    */
   const HAND_SPELLED_TAGS = 2
 
@@ -333,7 +344,10 @@ describe('there is exactly one kind module', () => {
     const sites = FILES.flatMap((file) => {
       const rel = path.relative(SRC, file)
       if (rel === 'theme/kind.ts' || /\.test\.tsx?$/.test(rel)) return []
-      const hits = readFileSync(file, 'utf8').match(/shrink-0 text-\[10px\] uppercase tracking-wider/g) ?? []
+      const hits =
+        readFileSync(file, 'utf8').match(
+          /shrink-0 text-(?:\[10px\]|inst-dense) uppercase tracking-wider/g,
+        ) ?? []
       return hits.map(() => rel)
     })
 

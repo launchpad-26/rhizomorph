@@ -201,6 +201,222 @@ describe('reduce — system events', () => {
   })
 })
 
+/**
+ * #592 — THE ROTATION BOUNDARY.
+ *
+ * The operator pressed **end session · start fresh**, the recorder closed one
+ * log and opened another, `/api/stream` duly began delivering the new
+ * session's events — and the instrument carried on exactly as before: the
+ * scene did not change, the elapsed figures did not reset, a refresh changed
+ * nothing. One cause: `session.started` for a DIFFERENT session was folded as
+ * nothing but a new value for `state.session`, so the whole of the ended
+ * recording stayed underneath it and every "elapsed" figure went on being
+ * measured from the session the operator had just ended.
+ *
+ * 5,200 passing tests did not catch it, because every one of them folds a
+ * single session. This block folds two.
+ *
+ * It lives here, on `reduce`, rather than in the web shell, because ADR-0002
+ * says one reducer serves both live and replay: a fix spelled in
+ * `StreamContext` would have been true of the live stream and false of a
+ * replayed log carrying the same boundary. `packages/web/src/replay/
+ * replayFold.test.ts` proves the replay half over this same shape.
+ */
+describe('reduce — a new session.started is a new recording (#592)', () => {
+  const FIRST = 'session-one'
+  const SECOND = 'session-two'
+
+  /**
+   * A session with a fact in every slice the fold carries, so a reset that
+   * missed one says which. Deliberately not `fixtureSession()`: this has to
+   * reach the telemetry, trace, lab, judge and refusal slices too, which are
+   * exactly the ones a partial reset would leave behind.
+   */
+  function busySession(sessionId: string): RhizomorphEvent[] {
+    const g = createEventFactory({ idPrefix: sessionId, startTs: 1_000, stepMs: 10 })
+    g.sessionStarted({ sessionId, repoPath: REPO, repoName: 'rhizomorph', mainBranch: 'trunk' })
+    g.worktreeDiscovered({ path: WT, branch: 'feature', head: 'sha-1', isMain: false })
+    g.worktreeDirty({ path: WT, branch: 'feature', files: [{ path: 'a.ts', status: 'modified' }] })
+    g.branchUpdated({ branch: 'feature', head: 'sha-1' })
+    g.commitLanded({ sha: 'sha-1', branch: 'feature', message: 'work' })
+    g.paneDiscovered({ paneId: '%1', windowName: 'feature', currentPath: WT })
+    g.paneActivity({ paneId: '%1', contentHash: 'hash-1' })
+    g.agentStatus({ handle: 'lane-a', status: 'working', worktreePath: WT })
+    g.collectorError({ collector: 'git', message: 'boom' })
+    g.llmUsage({ lane: 'lane-a', sessionId, requestId: 'req-1' })
+    g.llmCost({ lane: 'lane-a', sessionId, requestId: 'req-1' })
+    g.toolActivity({ lane: 'lane-a', tool: 'Bash', sessionId })
+    g.agentActiveTime({ lane: 'lane-a', sessionId, activeSeconds: 12 })
+    g.traceSpan({ lane: 'lane-a', traceId: 'trace-1', spanId: 'span-1', sessionId })
+    g.forkCheckpoint({ lane: 'lane-a', checkpointId: 'cp-1' })
+    g.forkDispatched({ forkId: 'fork-1', parentLane: 'lane-a', checkpointId: 'cp-1', laneHandle: 'arm-1' })
+    g.judgeFinding({ lanes: ['arm-1', 'lane-a'] })
+    g.make('telemetry.refused', { instance: 'somebody-else', expectedInstance: sessionId, count: 1 })
+    return g.all()
+  }
+
+  const first = busySession(FIRST)
+  const opensSecond = createEventFactory({ idPrefix: SECOND, startTs: 9_000 }).sessionStarted({
+    sessionId: SECOND,
+    repoPath: REPO,
+    repoName: 'rhizomorph',
+    mainBranch: 'trunk',
+  })
+
+  it('the fixture really does fill every slice — this block is vacuous otherwise', () => {
+    const folded = reduceAll(first)
+    expect(Object.keys(folded.worktrees).length).toBeGreaterThan(0)
+    expect(Object.keys(folded.branches).length).toBeGreaterThan(0)
+    expect(folded.commits.order.length).toBeGreaterThan(0)
+    expect(Object.keys(folded.panes).length).toBeGreaterThan(0)
+    expect(Object.keys(folded.agents).length).toBeGreaterThan(0)
+    expect(Object.keys(folded.collectors).length).toBeGreaterThan(0)
+    expect(folded.errors.length).toBeGreaterThan(0)
+    expect(folded.telemetry.usage.length).toBeGreaterThan(0)
+    expect(folded.telemetry.costs.length).toBeGreaterThan(0)
+    expect(folded.telemetry.tools.length).toBeGreaterThan(0)
+    expect(folded.telemetry.activeTime.length).toBeGreaterThan(0)
+    expect(folded.traces.spans.length).toBeGreaterThan(0)
+    expect(folded.checkpoints.records.length).toBeGreaterThan(0)
+    expect(folded.forks.dispatches.length).toBeGreaterThan(0)
+    expect(folded.judge.findings.length).toBeGreaterThan(0)
+    expect(folded.refusals.records.length).toBeGreaterThan(0)
+  })
+
+  /**
+   * THE TEST THIS ISSUE IS FOR: the state is CLEARED, not merged — stated as
+   * an identity against a fold of the boundary event alone, so there is no
+   * slice a future addition can quietly leave behind. A per-slice assertion
+   * list would only ever cover the slices that existed when it was written.
+   */
+  it('folding it over an existing session clears the state rather than merging into it', () => {
+    const after = reduce(reduceAll(first), opensSecond)
+
+    expect(after).toEqual(reduceAll([opensSecond]))
+    // …and said the same way round, so a reader does not have to unpack the
+    // identity to see what it means.
+    expect(after.session?.sessionId).toBe(SECOND)
+    expect(after.worktrees).toEqual({})
+    expect(after.branches).toEqual({})
+    expect(after.commits.order).toEqual([])
+    expect(after.panes).toEqual({})
+    expect(after.agents).toEqual({})
+    expect(after.collectors).toEqual({})
+    expect(after.errors).toEqual([])
+    expect(after.telemetry).toEqual(initialTelemetryState())
+    expect(after.traces.spans).toEqual([])
+    expect(after.checkpoints).toEqual(initialCheckpointState())
+    expect(after.forks).toEqual(initialForkState())
+    expect(after.judge).toEqual(initialJudgeState())
+    expect(after.refusals).toEqual(initialRefusalState())
+    // Not one trace of the ended recording is left anywhere, under any key.
+    expect(JSON.stringify(after)).not.toContain(FIRST)
+  })
+
+  it('restarts the elapsed figures from the new recording, counting its own first event', () => {
+    const before = reduceAll(first)
+    const after = reduce(before, opensSecond)
+
+    // The fixture really did accumulate a span, so this is not vacuous.
+    expect(before.eventCount).toBe(first.length)
+    expect(before.firstEventTs).toBe(1_000)
+
+    expect(after.eventCount).toBe(1)
+    expect(after.firstEventTs).toBe(opensSecond.ts)
+    expect(after.lastEventTs).toBe(opensSecond.ts)
+    expect(after.session?.startedAt).toBe(opensSecond.ts)
+  })
+
+  it('relearns the main branch from the new recording rather than inheriting it', () => {
+    const before = reduceAll([
+      ...busySession(FIRST),
+      // The main worktree is the authority on what "main" means (`sessionStarted`
+      // and `worktreeDiscovered` both write it).
+      createEventFactory({ idPrefix: 'main', startTs: 5_000 }).worktreeDiscovered({
+        path: REPO,
+        branch: 'ancient-main',
+        head: 'sha-0',
+        isMain: true,
+      }),
+    ])
+    expect(before.mainBranch).toBe('ancient-main')
+
+    const nameless = createEventFactory({ idPrefix: 'nameless', startTs: 9_000 }).sessionStarted({
+      sessionId: SECOND,
+      repoPath: REPO,
+      repoName: 'rhizomorph',
+      mainBranch: null,
+    })
+    expect(reduce(before, nameless).mainBranch).toBeNull()
+  })
+
+  /**
+   * The eager-reset direction is the dangerous one — a reconnect that wiped
+   * good state would be a worse instrument than the bug being fixed. The
+   * server honestly falls back to replaying a whole session when its buffer
+   * never held the client's `Last-Event-ID`, which re-emits `session.started`
+   * for the SAME session.
+   */
+  it('does NOT reset when the same session.started is folded again — a reconnect replay', () => {
+    const once = reduceAll(first)
+    const twice = reduce(once, first[0] as RhizomorphEvent)
+
+    expect(Object.keys(twice.worktrees)).toEqual(Object.keys(once.worktrees))
+    expect(twice.commits.order).toEqual(once.commits.order)
+    expect(twice.telemetry.usage.length).toBe(once.telemetry.usage.length)
+    // Absorbed the replay rather than restarting on it.
+    expect(twice.eventCount).toBe(once.eventCount + 1)
+  })
+
+  it('does NOT reset on the first session.started of a fresh fold — nothing to contradict', () => {
+    const folded = reduceAll(first)
+    expect(folded.eventCount).toBe(first.length)
+    expect(Object.keys(folded.worktrees)).toEqual([WT])
+  })
+
+  /**
+   * The sibling case the repo boundary already had (#390) and this predicate
+   * must keep: a `session.started` naming a different REPO is a boundary even
+   * if the session id somehow matched. Not reachable through today's server —
+   * every retarget mints a new session id — which is exactly why it is pinned
+   * rather than assumed.
+   */
+  it('is also a boundary when the repo changes, whatever the session id says', () => {
+    const before = reduceAll(first)
+    const elsewhere = createEventFactory({ idPrefix: 'elsewhere', startTs: 9_000 }).sessionStarted({
+      sessionId: FIRST,
+      repoPath: '/repos/somewhere-else',
+      repoName: 'somewhere-else',
+    })
+    const after = reduce(before, elsewhere)
+
+    expect(after.worktrees).toEqual({})
+    expect(after.session?.repoPath).toBe('/repos/somewhere-else')
+  })
+
+  it('a mid-log boundary folds the same whether reduceAll runs it or reduce one at a time', () => {
+    const log = [...first, opensSecond, ...busySession(SECOND).slice(1)]
+    expect(reduceAll(log)).toEqual(log.reduce(reduce, initialSessionState()))
+  })
+
+  /**
+   * The mutation this block would not survive without: with the reset removed,
+   * the fold of a two-session log is NOT the fold of its second session alone.
+   * Stated as a property rather than left implicit, because "cleared, not
+   * merged" is only meaningful against a log that genuinely carried a past.
+   */
+  it('a two-session log folds to exactly what its second session folds to alone', () => {
+    const second = busySession(SECOND)
+    const both = reduceAll([...first, ...second])
+    const alone = reduceAll(second)
+
+    // `firstEventTs`/`lastEventTs` come from the same events either way,
+    // because `busySession` stamps both sessions from the same clock — so the
+    // states are comparable whole, not field by field.
+    expect(canonicalStateJson(both)).toBe(canonicalStateJson(alone))
+  })
+})
+
 describe('reduce — worktrees', () => {
   it('records a discovered worktree and derives its display name', () => {
     const state = reduce(

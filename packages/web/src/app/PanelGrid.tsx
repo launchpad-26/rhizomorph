@@ -1,10 +1,10 @@
 import { lazy, Suspense, useState, type MouseEvent } from 'react'
+import { FleetSurface } from '../fleet/FleetSurface.js'
 import { useFleet } from '../fleet/index.js'
 import { ErrorBoundary } from './ErrorBoundary.js'
 import { PanelFrame } from './PanelFrame.js'
 import { useFocusRequest, usePanelCollapsed, usePanelFocus } from './panelPrefs.js'
 import { navigate } from './router.js'
-import { SceneSlot } from './SceneSlot.js'
 import { useStream } from './StreamContext.js'
 
 /**
@@ -23,38 +23,40 @@ import { useStream } from './StreamContext.js'
  * that the shell no longer mounts them. Deregistering is this issue's job, so
  * that wave 2 lands contents into slots already in the right place.
  *
- * prd3 ruling 6 also adds FOCUS: any one panel (or the scene) can expand to
- * fill the view, Esc or an explicit control restores the curated order. This
+ * prd3 ruling 6 also adds FOCUS: any one panel can expand to fill the view,
+ * Esc or an explicit control restores the curated order. This
  * grid is the one place that knows about every panel at once, so it is the
  * coordinator — it tracks which single id is focused and tells every other
  * panel to get out of the way while that one fills the screen. Each
- * `PanelFrame` (and `FocusableScene` below) still *decides* its own focused
+ * `PanelFrame` (and `FocusableTrace` below) still *decides* its own focused
  * state; this only listens and keeps the "one at a time" invariant.
  *
- * prd4 ruling 2 reorders this registry: the scene is the centerpiece now, so
- * it renders first — hero-sized, directly beneath the attention/burn dock —
- * with the fleet table right after it as the legend/detail surface, then the
- * rest (ledger, collisions, feed).
+ * prd4 ruling 2 reordered this registry so the scene rendered first, with the
+ * fleet table right after it as the legend/detail surface. prd-36 ruling 1
+ * (#555) finishes that thought by merging them: they are no longer two rows in
+ * this registry but ONE — `fleet`, the surface that owns both representations
+ * (`fleet/FleetSurface.tsx`) and the toggle between them. The scene therefore
+ * has no registry row of its own any more, no `FocusableScene` here and no
+ * `SceneSlot` mount; `app/SceneSlot.tsx` is left in place unmounted, since
+ * retiring it belongs to whoever owns this directory's chrome rather than to a
+ * commit fenced to the merge.
+ *
+ * The curated order is one row shorter and otherwise unchanged: fleet (the
+ * hero, either representation) → ledger, collisions, feed.
  */
 
-const FleetPanel = lazy(() => import('../panels/fleet/index.js'))
 const LedgerPanel = lazy(() => import('../panels/ledger/index.js'))
 const CollisionsPanel = lazy(() => import('../panels/collisions/index.js'))
 const FeedPanel = lazy(() => import('../panels/feed/index.js'))
-const Scene = lazy(() => import('../scene/index.js'))
 const TraceFocusPanel = lazy(() => import('../trace/FocusPanel.js'))
 
 /**
- * Panel ids, in curated order — what `panelPrefs` persists collapse state
- * for. `scene` persists through the same store as the rest (prd4 ruling 2's
- * reconciliation, `SceneSlot`'s own `usePanelCollapsed('scene')`) even though
- * it isn't wrapped in a `<PanelFrame>` — see `FocusableScene`'s comment above
- * for why.
+ * Panel ids, in curated order — what `panelPrefs` persists collapse state for.
+ * `scene` is gone from this list because the scene is no longer a panel: it is
+ * one of the fleet surface's two representations, and `fleet` is the row that
+ * collapses, focuses and persists for both of them.
  */
-export const PANEL_IDS = ['scene', 'fleet', 'ledger', 'collisions', 'feed'] as const
-
-/** The id `PanelGrid` uses to track the scene's own focus alongside the rest. */
-const SCENE_ID = 'scene'
+export const PANEL_IDS = ['fleet', 'ledger', 'collisions', 'feed'] as const
 
 /**
  * prd9 B1a's FOCUS TRACE (prd3 #85's mechanism, one more panel). Not in
@@ -92,21 +94,19 @@ export function PanelGrid() {
           worktree turns up. */}
       {foldIsEmpty ? <BalconyConnectPointer /> : null}
 
-      {/* The centerpiece (prd4 ruling 2): "what is the fleet doing?" answered
-          before anything else, hero-sized directly beneath the dock. */}
-      <FocusableScene hidden={hiddenFor(SCENE_ID)} onFocusChange={onFocusChangeFor(SCENE_ID)} />
-
-      {/* Who is doing what — the scene's own legend and the densest surface,
-          right beneath the picture it explains. */}
+      {/* The centerpiece (prd4 ruling 2, merged by prd-36 ruling 1): "what is
+          the fleet doing?" answered before anything else, hero-sized directly
+          beneath the dock — as the organism or as the list, one keystroke
+          apart. The frame's own collapse and focus chrome wraps the whole
+          surface, so focusing it fills the view with whichever representation
+          is up rather than with one of the two. */}
       <PanelFrame
         id="fleet"
         title="Fleet"
         hidden={hiddenFor('fleet')}
         onFocusChange={onFocusChangeFor('fleet')}
       >
-        <Suspense fallback={<PanelFallback />}>
-          <FleetPanel />
-        </Suspense>
+        <FleetSurface />
       </PanelFrame>
 
       {/*
@@ -235,89 +235,6 @@ function TraceErrorFallback() {
   return (
     <div className="flex h-full items-center justify-center px-4 text-center text-xs uppercase tracking-widest text-broken">
       trace unavailable — other panels are unaffected
-    </div>
-  )
-}
-
-/**
- * The scene's own focus affordance. It cannot simply be a `<PanelFrame>`
- * wrapping `<SceneSlot>`: `SceneSlot` carries its own header and collapse
- * chrome (a `<PanelFrame>` would double it up), and even hero-sized (prd4
- * ruling 2's `min-h-[55vh]`) it is still one embedded panel among others, not
- * the full viewport focus needs to break out to. So the focused view mounts
- * the scene directly (the same lazy `../scene/index.js` `SceneSlot` itself
- * loads) inside a full-viewport host instead of reusing that chrome. The
- * canvas already resizes to whatever host it is given (`SceneView`'s own
- * `ResizeObserver`) and lays out from the host's measured width/height rather
- * than a fixed aspect ratio, so handing it a taller box does not distort it —
- * it draws more network, not a stretched one.
- */
-function FocusableScene({
-  hidden,
-  onFocusChange,
-}: {
-  hidden: boolean
-  onFocusChange: (focused: boolean) => void
-}) {
-  const { focused, focus, restore } = usePanelFocus(onFocusChange)
-
-  if (hidden) return null
-
-  if (!focused) {
-    return (
-      <div className="flex flex-col gap-1">
-        <div className="flex justify-end px-1">
-          <button
-            type="button"
-            aria-pressed={false}
-            onClick={focus}
-            className="rounded border border-ice-850 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ice-400 hover:border-ice-600 hover:text-ice-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600"
-          >
-            Focus Scene
-          </button>
-        </div>
-        <SceneSlot />
-      </div>
-    )
-  }
-
-  return (
-    <div className="fixed inset-0 z-30 flex flex-col bg-ice-1000 p-4">
-      <div className="mb-1 flex items-center justify-between px-1">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-ice-400">Scene</h2>
-        <button
-          type="button"
-          aria-pressed={true}
-          onClick={restore}
-          className="rounded border border-ice-850 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ice-400 hover:border-ice-600 hover:text-ice-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600"
-        >
-          Restore Scene
-        </button>
-      </div>
-      <div className="min-h-0 flex-1">
-        <ErrorBoundary fallback={<SceneErrorFallback />}>
-          <Suspense fallback={<SceneFallback />}>
-            <Scene />
-          </Suspense>
-        </ErrorBoundary>
-      </div>
-    </div>
-  )
-}
-
-function SceneFallback() {
-  return (
-    <div className="flex h-full items-center justify-center text-xs uppercase tracking-widest text-ice-400">
-      loading scene…
-    </div>
-  )
-}
-
-/** Law 12's voice even here: what is missing, and what is unaffected by it. */
-function SceneErrorFallback() {
-  return (
-    <div className="flex h-full items-center justify-center px-4 text-center text-xs uppercase tracking-widest text-broken">
-      scene unavailable — panels are unaffected
     </div>
   )
 }

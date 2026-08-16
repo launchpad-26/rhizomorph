@@ -163,7 +163,6 @@ describe('POST /api/rotate', () => {
   it('/api/meta then names the NEW session, and says the operator rotated', async () => {
     recordSessionBootMeta(recorder, {
       resumedCount: 3,
-      eventCount: 41,
       resumeWindowMs: 90 * 60_000,
       lastBootReason: 'resumed',
     })
@@ -179,9 +178,13 @@ describe('POST /api/rotate', () => {
       sessionId: String(ROTATE_AT),
       startedAt: ROTATE_AT,
       lastBootReason: 'rotated',
-      // Nothing resumed this session, and nothing was in its file when it opened.
+      // Nothing resumed this session.
       resumedCount: 0,
-      eventCount: 0,
+      // …and the count is the LIVE one (#592), which after a rotation is the
+      // new log's own `session.started` and nothing else. The frozen 0 this
+      // used to assert is exactly the defect: it stayed 0 forever while the
+      // new session's log grew.
+      eventCount: 1,
       // …but the window this run measures against did not change.
       resumeWindowMs: 90 * 60_000,
     })

@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { bootExplanation } from '../app/StatusBar.js'
 import { CAPABILITY_META_NAME } from '../recordings/capability.js'
 import { RotateButton } from './RotateButton.js'
 import type { RotateFetchLike } from './rotate.js'
@@ -76,6 +77,34 @@ describe('RotateButton', () => {
       closed: { sessionId: '1000', eventCount: 4321 },
       opened: { sessionId: '5000' },
     })
+  })
+
+  /**
+   * #592. The `rotated` boot-reason voice already existed and was already well
+   * written — but it renders in the provenance bar at the foot of the page,
+   * and only as the session line's `title`, so the operator who pressed THIS
+   * button never encountered it. The acknowledgement now reaches the surface
+   * the act happened on.
+   *
+   * Asserted against `bootExplanation`'s own output rather than against a
+   * copy of the sentence, which is the whole point: prd-30 forbids two
+   * surfaces phrasing one condition differently, so a test holding a literal
+   * here would be the second phrasing. Change the wording in `StatusBar` and
+   * both surfaces move together, with this test following rather than
+   * blocking.
+   */
+  it('acknowledges the rotation in the one voice that already owns the word (#592)', async () => {
+    render(<RotateButton fetchImpl={answering(ROTATION)} />)
+
+    expect(screen.queryByTestId('rotate-acknowledgement')).toBeNull()
+
+    await click(theButton())
+    await click(theButton())
+
+    const voice = bootExplanation({ lastBootReason: 'rotated', resumedCount: 0, resumeWindowMs: 0 })
+    // Not vacuous: the sentence really does say something about the rotation.
+    expect(voice).toContain('you ended the previous session here')
+    expect(screen.getByTestId('rotate-acknowledgement')).toHaveTextContent(voice)
   })
 
   it('can be cancelled while armed, and then needs both clicks again', async () => {

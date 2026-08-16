@@ -13,7 +13,7 @@ import {
   type CategoryWorld,
 } from './category.js'
 import { hueGap, oklch, rgbFromHex, type Rgb } from './oklch.js'
-import { resolve, themesOf } from './tokens.js'
+import { resolve, themesOf, type Declarations } from './tokens.js'
 
 /**
  * THE CATEGORY FAMILY'S CAPS (prd-32 ruling 8), and the proof each one bites.
@@ -36,30 +36,35 @@ import { resolve, themesOf } from './tokens.js'
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const THEME = readFileSync(path.join(SRC, 'theme', 'theme.css'), 'utf8')
-const DARK = themesOf(THEME)[0]?.tokens ?? new Map<string, string>()
+const THEMES = themesOf(THEME)
+const DARK = THEMES[0]?.tokens ?? new Map<string, string>()
 
-function token(name: string): Rgb {
-  const literal = resolve(name, DARK)
+function token(name: string, tokens: Declarations = DARK): Rgb {
+  const literal = resolve(name, tokens)
   expect(literal, `theme.css has no ${name}`).toMatch(/^#[0-9a-f]{6}$/i)
   return rgbFromHex(literal as string)
 }
 
-/** The four, read off the real stylesheet rather than restated here. */
-const FAMILY: readonly Rgb[] = ['--category-1', '--category-2', '--category-3', '--category-4'].map(token)
+const FAMILY_TOKENS: readonly string[] = ['--category-1', '--category-2', '--category-3', '--category-4']
 
 /**
- * The six status hues, from the same sheet. Cap 1 is a fraction of whichever of
- * them is quietest, so this list has to be the real six — a short list would
- * make the cap generous by accident.
+ * The six status hues. Cap 1 is a fraction of whichever of them is quietest, so
+ * this list has to be the real six — a short list would make the cap generous
+ * by accident. Read per theme, because light re-inks all six and its quietest
+ * chroma is not dark's.
  */
-const STATUS_HUES: readonly Rgb[] = [
+const STATUS_TOKENS: readonly string[] = [
   '--color-working',
   '--color-done',
   '--color-waiting-benign',
   '--color-needs-you',
   '--color-broken',
   '--color-notice',
-].map(token)
+]
+
+/** The four, read off the real stylesheet rather than restated here. */
+const FAMILY: readonly Rgb[] = FAMILY_TOKENS.map((name) => token(name))
+const STATUS_HUES: readonly Rgb[] = STATUS_TOKENS.map((name) => token(name))
 
 const WORLD: CategoryWorld = {
   statusHues: STATUS_HUES,
@@ -67,6 +72,55 @@ const WORLD: CategoryWorld = {
   calmCeiling: CALM_CEILING,
   css: THEME,
 }
+
+/**
+ * EVERY THEME, AGAINST ITS OWN WORLD (prd-32 rulings 4 and 8).
+ *
+ * The caps are a function of the theme they are measured in: cap 1 is a
+ * fraction of the *quietest status hue*, and light re-inks all six, so a family
+ * that clears the cap on the void may not clear it on paper. Discovered rather
+ * than listed, exactly as the contrast law is — a third theme is covered the
+ * moment it lands.
+ *
+ * The dark-only laws below this block stay dark-only on purpose: they are
+ * claims about the ice register, and light re-derives its family beside them
+ * rather than inheriting them (ruling 7).
+ */
+describe.each(THEMES)('the five caps hold in $name', (theme) => {
+  const family = FAMILY_TOKENS.map((name) => token(name, theme.tokens))
+  const world: CategoryWorld = {
+    statusHues: STATUS_TOKENS.map((name) => token(name, theme.tokens)),
+    notice: token('--color-notice', theme.tokens),
+    calmCeiling: CALM_CEILING,
+    css: THEME,
+  }
+
+  it('breaks none of them', () => {
+    expect(capViolations(family, world)).toEqual([])
+  })
+
+  it('is the organism’s own material in this world too', () => {
+    // The hue is a fact about the organism rather than about the theme, so it
+    // does not move between them: light drains the same H 295.5 against a warm
+    // ground instead of picking a violet that looks nice on paper.
+    for (const [index, colour] of family.entries()) {
+      expect(Math.abs(oklch(colour).h - 295.5), `${theme.name} category-${index + 1} left the family`)
+        .toBeLessThan(12)
+    }
+  })
+
+  it('is a different family from the other theme’s, not the same one reused', () => {
+    // The failure ruling 7 names by name: "light derived by inverting dark". A
+    // light family that reused dark's tints would put `category-4` (#ada4ca) on
+    // warm paper, where it is a pale lilac on off-white — and cap 5 would go on
+    // passing, because greyscale separation is a property of the four together
+    // rather than of the ground under them.
+    const dark = FAMILY_TOKENS.map((name) => token(name, DARK))
+    if (theme.name === 'dark') return
+    expect(family).not.toEqual(dark)
+    expect(family.map((colour) => colour.join()).some((hex) => dark.map((c) => c.join()).includes(hex))).toBe(false)
+  })
+})
 
 describe('the category family, against its own five caps', () => {
   it('defines four and only four', () => {
