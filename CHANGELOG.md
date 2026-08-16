@@ -243,6 +243,15 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **A resumed session's open dirty-status incident now actually closes (#536).**
+  `worktree.dirtyStatusFailedSince` (#429) is rebuilt by the fold from the event log, but
+  its close was voiced only from the git collector's own in-memory failure counter — a
+  resumed process with no memory of a prior incident (no persisted snapshot, or one that
+  lags the log) could never observe a "recovery" to voice, so a healthy `git status`
+  after a resume left the flag latched forever. The first live poll after a resume now
+  reconciles the fold's still-open incidents against that poll's own dirty-status read,
+  the same way `withBranchReconciliation` (#139/#449) and `withAgentReconciliation` (#418)
+  already reconcile branches and agents.
 - **A recovered worktree's git-status recovery no longer masks a sibling
   worktree's still-failing git status, and a still-failing worktree's alarm
   no longer gets misattributed to whichever worktree last reported one — both
