@@ -1,4 +1,5 @@
 import type { FetchLike } from '../replay/api.js'
+import { capabilityRead } from './capabilityRead.js'
 
 export type { FetchLike }
 
@@ -66,7 +67,7 @@ function isRecordingListing(value: unknown): value is RecordingListing {
 }
 
 /** Every recording this repo has, oldest first — as the server returns them, never re-sorted or re-derived. */
-export async function fetchRecordings(fetchImpl: FetchLike = fetch): Promise<RecordingListing[]> {
+export async function fetchRecordings(fetchImpl: FetchLike = capabilityRead): Promise<RecordingListing[]> {
   const response = await fetchImpl('/api/sessions')
   if (!response.ok) throw new Error(`/api/sessions responded ${response.status}`)
   const data: unknown = await response.json()

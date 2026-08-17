@@ -22,6 +22,39 @@ function classify(route: RegisteredRoute, table: readonly RouteClassification[])
   return table.find((entry) => entry.method === route.method && entry.url === route.url)
 }
 
+/** Whether a classification is one of the two gated postures the presence law covers. */
+function isGated(entry: RouteClassification): boolean {
+  return entry.routeClass === 'gated-mutation' || entry.routeClass === 'gated-read'
+}
+
+/**
+ * THE GATE-PRESENCE LAW itself (prd-29 ruling 2 / ADR-0024), as one pure
+ * function both the real-app walk and the synthetic bite-test call — the
+ * mechanism that guards the routes is the same one proven able to fail.
+ *
+ * Returns every `gated-*` row whose actually-registered route does NOT carry
+ * the capability gate (`hasCapabilityGate`), plus every row the table calls a
+ * plain `read`/`ungated-mutation` that unexpectedly DOES — a stray gate on
+ * `GET /*` is as much a defect as a missing one on `/api/transcript/:lane`. A
+ * row with no registered route at all is left to the stale-row law above; this
+ * one speaks only about routes that exist.
+ */
+function gatePresenceViolations(
+  routes: readonly RegisteredRoute[],
+  table: readonly RouteClassification[],
+): { method: string; url: string; expectedGate: boolean; actualGate: boolean }[] {
+  const out: { method: string; url: string; expectedGate: boolean; actualGate: boolean }[] = []
+  for (const route of routes) {
+    const entry = classify(route, table)
+    if (entry === undefined) continue
+    const expectedGate = isGated(entry)
+    if (route.hasCapabilityGate !== expectedGate) {
+      out.push({ method: route.method, url: route.url, expectedGate, actualGate: route.hasCapabilityGate })
+    }
+  }
+  return out
+}
+
 describe('the route-class law (prd-23 ruling 5)', () => {
   let dir: string
 
@@ -77,7 +110,7 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     const routes = app.registeredRoutes.filter((route) => !isAutoHead(route))
     const unclassified = routes.filter((route) => classify(route, ROUTE_CLASSES) === undefined)
 
-    expect(unclassified).toEqual([{ method: 'POST', url: '/api/not-a-real-route' }])
+    expect(unclassified).toEqual([{ method: 'POST', url: '/api/not-a-real-route', hasCapabilityGate: false }])
 
     await app.close()
   })
@@ -94,5 +127,62 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     expect(stale).toEqual([])
 
     await app.close()
+  })
+
+  it('the gate-presence law holds: every gated row carries its gate, and no read carries one (prd-29 ruling 2)', async () => {
+    const app = buildApp(makeCtx())
+    await app.ready()
+
+    const routes = app.registeredRoutes.filter((route) => !isAutoHead(route))
+
+    // Every `gated-*` row's real route holds the capability gate, and every
+    // plain `read`/`ungated-mutation` holds none. Deleting a `preHandler` from
+    // any of the thirteen gated routes turns this red — that is the law biting.
+    expect(gatePresenceViolations(routes, ROUTE_CLASSES)).toEqual([])
+
+    // A count pinned independently, so the walk cannot pass vacuously by
+    // matching zero gated routes: six gated mutations + seven gated reads
+    // (prd-29 wave 1). If this number and the walk above disagree with the
+    // table, they cannot both pass.
+    const gatedFound = routes.filter((route) => {
+      const entry = classify(route, ROUTE_CLASSES)
+      return entry !== undefined && isGated(entry) && route.hasCapabilityGate
+    })
+    expect(gatedFound.length).toBe(13)
+
+    await app.close()
+  })
+
+  it('GET /* stays tokenless — the bootstrap keeps no gate (prd-29 ruling 1)', async () => {
+    const app = buildApp(makeCtx())
+    await app.ready()
+
+    const catchAll = app.registeredRoutes.find((route) => route.method === 'GET' && route.url === '/*')
+    expect(catchAll).toBeDefined()
+    expect(catchAll?.hasCapabilityGate).toBe(false)
+
+    await app.close()
+  })
+
+  it('bites: a gated-read row whose route lacks its gate is a violation, and a present gate is clean', () => {
+    // Runs the REAL predicate the walk above uses — not a re-implementation —
+    // against a hand-built routing table, so it proves the law can distinguish
+    // a missing gate from a present one rather than passing on everything.
+    const table: RouteClassification[] = [{ method: 'GET', url: '/api/sessions', routeClass: 'gated-read' }]
+
+    const missing: RegisteredRoute[] = [{ method: 'GET', url: '/api/sessions', hasCapabilityGate: false }]
+    expect(gatePresenceViolations(missing, table)).toEqual([
+      { method: 'GET', url: '/api/sessions', expectedGate: true, actualGate: false },
+    ])
+
+    const present: RegisteredRoute[] = [{ method: 'GET', url: '/api/sessions', hasCapabilityGate: true }]
+    expect(gatePresenceViolations(present, table)).toEqual([])
+
+    // …and a stray gate on a plain read is caught too, not only a missing one.
+    const strayTable: RouteClassification[] = [{ method: 'GET', url: '/*', routeClass: 'read' }]
+    const stray: RegisteredRoute[] = [{ method: 'GET', url: '/*', hasCapabilityGate: true }]
+    expect(gatePresenceViolations(stray, strayTable)).toEqual([
+      { method: 'GET', url: '/*', expectedGate: false, actualGate: true },
+    ])
   })
 })

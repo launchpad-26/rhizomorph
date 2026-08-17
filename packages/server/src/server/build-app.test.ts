@@ -9,6 +9,7 @@ import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
 import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
 import { readSessionEvents, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
+import { capabilityHeaders } from '../api/test-support.js'
 import { buildApp } from './build-app.js'
 import { SessionRecorder } from './recorder.js'
 
@@ -89,7 +90,7 @@ describe('buildApp integration', () => {
 
     const app = makeApp()
 
-    const sessionsResponse = await app.inject({ method: 'GET', url: '/api/sessions' })
+    const sessionsResponse = await app.inject({ method: 'GET', url: '/api/sessions', headers: capabilityHeaders(app) })
     expect(sessionsResponse.statusCode).toBe(200)
     // #156: GET /api/sessions now also carries a derived title/label and
     // lane/landing/spend counts (see packages/server/src/log/listing.ts) —
@@ -101,7 +102,7 @@ describe('buildApp integration', () => {
       ],
     })
 
-    const eventsResponse = await app.inject({ method: 'GET', url: '/api/sessions/1000/events' })
+    const eventsResponse = await app.inject({ method: 'GET', url: '/api/sessions/1000/events', headers: capabilityHeaders(app) })
     expect(eventsResponse.statusCode).toBe(200)
     expect(eventsResponse.json()).toEqual({ events: [started] })
 
@@ -111,7 +112,7 @@ describe('buildApp integration', () => {
 
   it('GET /api/sessions/:id/events 404s for an unknown session', async () => {
     const app = makeApp()
-    const response = await app.inject({ method: 'GET', url: '/api/sessions/does-not-exist/events' })
+    const response = await app.inject({ method: 'GET', url: '/api/sessions/does-not-exist/events', headers: capabilityHeaders(app) })
     expect(response.statusCode).toBe(404)
   })
 
@@ -274,7 +275,7 @@ describe('buildApp: the context is never copied, so a later mutation is visible 
       const ctx = { repoPath: '/repo/old', repoName: 'old', sessionDir: oldSessionDir, recorder }
       const app = buildApp(ctx)
 
-      const before = (await app.inject({ method: 'GET', url: '/api/sessions' })).json() as {
+      const before = (await app.inject({ method: 'GET', url: '/api/sessions', headers: capabilityHeaders(app) })).json() as {
         sessions: unknown[]
       }
       expect(before.sessions).toHaveLength(1)
@@ -282,7 +283,7 @@ describe('buildApp: the context is never copied, so a later mutation is visible 
       // The retarget mutation: a new repo's session dir, with nothing recorded in it yet.
       ctx.sessionDir = newSessionDir
 
-      const after = (await app.inject({ method: 'GET', url: '/api/sessions' })).json() as {
+      const after = (await app.inject({ method: 'GET', url: '/api/sessions', headers: capabilityHeaders(app) })).json() as {
         sessions: unknown[]
       }
       expect(after.sessions).toHaveLength(0)

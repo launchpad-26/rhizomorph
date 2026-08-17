@@ -23,6 +23,7 @@ import {
   parseSingleArmForkStdout,
 } from './lab.js'
 import { CAPABILITY_TOKEN_HEADER } from './security.js'
+import { capabilityHeaders } from './test-support.js'
 
 describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
   let repoPath: string
@@ -44,11 +45,11 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
     const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
     const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-    const checkpoints = await app.inject({ method: 'GET', url: '/api/lab/checkpoints' })
+    const checkpoints = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/checkpoints' })
     expect(checkpoints.statusCode).toBe(200)
     expect(checkpoints.json()).toEqual({ checkpoints: [] })
 
-    const experiments = await app.inject({ method: 'GET', url: '/api/lab/experiments' })
+    const experiments = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/experiments' })
     expect(experiments.statusCode).toBe(200)
     expect(experiments.json()).toEqual({ experiments: [] })
   })
@@ -62,7 +63,7 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
     const recorder = new SessionRecorder('2000', sessionFilePath(sessionDir, '2000'))
     const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-    const response = await app.inject({ method: 'GET', url: '/api/lab/checkpoints' })
+    const response = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/checkpoints' })
     expect(response.statusCode).toBe(200)
     const { checkpoints } = response.json() as { checkpoints: Array<Record<string, unknown>> }
     expect(checkpoints).toHaveLength(1)
@@ -79,7 +80,7 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
     await recorder.record(f.forkCheckpoint({ lane: 'feature', checkpointId: 'ckpt-live' }))
 
     const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
-    const response = await app.inject({ method: 'GET', url: '/api/lab/checkpoints' })
+    const response = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/checkpoints' })
 
     const { checkpoints } = response.json() as { checkpoints: Array<{ checkpointId: string }> }
     expect(checkpoints.map((c) => c.checkpointId)).toEqual(['ckpt-live'])
@@ -112,7 +113,7 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
     const recorder = new SessionRecorder('2000', sessionFilePath(sessionDir, '2000'))
     const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-    const response = await app.inject({ method: 'GET', url: '/api/lab/experiments' })
+    const response = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/experiments' })
     expect(response.statusCode).toBe(200)
     const { experiments } = response.json() as {
       experiments: Array<{
@@ -153,7 +154,7 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
     const recorder = new SessionRecorder('2000', sessionFilePath(sessionDir, '2000'))
     const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-    const response = await app.inject({ method: 'GET', url: '/api/lab/experiments' })
+    const response = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/experiments' })
     const { experiments } = response.json() as { experiments: Array<{ arms: Array<{ runs: unknown[] }> }> }
     expect(experiments[0]?.arms).toHaveLength(1)
     expect(experiments[0]?.arms[0]?.runs).toHaveLength(2)
@@ -180,7 +181,7 @@ describe('GET /api/lab/estimate (prd14 ruling 4 — an estimate never appears wi
     const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
     const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder, now: () => 5_000_000 })
 
-    const response = await app.inject({ method: 'GET', url: '/api/lab/estimate?lane=idle-lane&arms=3' })
+    const response = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/estimate?lane=idle-lane&arms=3' })
     expect(response.statusCode).toBe(200)
     const body = response.json() as Record<string, unknown>
     expect(body.available).toBe(false)
@@ -196,7 +197,7 @@ describe('GET /api/lab/estimate (prd14 ruling 4 — an estimate never appears wi
     await recorder.record(f.llmCost({ lane: 'hot-lane', costUsd: 3.6, authoritative: true }))
     const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder, now: () => 5_000_000 })
 
-    const response = await app.inject({ method: 'GET', url: '/api/lab/estimate?lane=hot-lane&arms=3' })
+    const response = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/estimate?lane=hot-lane&arms=3' })
     expect(response.statusCode).toBe(200)
     const body = response.json() as Record<string, number | boolean>
     expect(body.available).toBe(true)
@@ -209,9 +210,9 @@ describe('GET /api/lab/estimate (prd14 ruling 4 — an estimate never appears wi
     const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
     const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-    expect((await app.inject({ method: 'GET', url: '/api/lab/estimate?arms=3' })).statusCode).toBe(400)
-    expect((await app.inject({ method: 'GET', url: '/api/lab/estimate?lane=x&arms=0' })).statusCode).toBe(400)
-    expect((await app.inject({ method: 'GET', url: '/api/lab/estimate?lane=x&arms=abc' })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/estimate?arms=3' })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/estimate?lane=x&arms=0' })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/estimate?lane=x&arms=abc' })).statusCode).toBe(400)
   })
 })
 

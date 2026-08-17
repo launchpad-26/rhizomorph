@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FetchLike } from '../fleet/manifest.js'
+import { capabilityRead } from '../recordings/capabilityRead.js'
 
 /**
  * The transcript tail (ruling 17), client side.
@@ -177,10 +178,12 @@ export function parseEntries(value: unknown): TranscriptEntry[] {
   return entries
 }
 
+// `/api/transcript/:lane` is a `gated-read` (prd-29 ruling 1), so the default
+// routes through the shared `capabilityRead`, which carries the capability
+// token. The header literal lives in that one module, never here — the drawer
+// stays constitutionally read-only in its own text (`readonly.test.ts`).
 function defaultFetch(): FetchLike | null {
-  return typeof globalThis.fetch === 'function'
-    ? ((input: string) => globalThis.fetch(input)) as FetchLike
-    : null
+  return typeof globalThis.fetch === 'function' ? (capabilityRead as FetchLike) : null
 }
 
 /**

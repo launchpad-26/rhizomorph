@@ -350,8 +350,13 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
       expect(transcriptCalls(fetchSpy).map((call) => call[0])).toEqual([
         `/api/transcript/${LANE}?tail=1`,
       ])
-      // One argument: a URL. No init object means no verb but GET.
-      expect(transcriptCalls(fetchSpy)[0]).toHaveLength(1)
+      // Still only ever a GET. Since prd-29 ruling 6 the drawer's read rides
+      // through the shared capability-read module, so the call may now carry an
+      // init (the capability header) — but never a `method`, so it can be
+      // nothing but a GET. The header discipline itself is proven in
+      // `recordings/capabilityRead.test.ts` and the mutating-calls law.
+      const [, init] = transcriptCalls(fetchSpy)[0] as [string, RequestInit | undefined]
+      expect(init?.method).toBeUndefined()
     } finally {
       globalThis.fetch = original
     }

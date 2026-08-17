@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 
 /**
@@ -58,31 +58,47 @@ export function generateCapabilityToken(): string {
 }
 
 /**
- * A constant-time-ish equality check for two tokens of the same expected
- * shape. `===` on two hex strings of equal, fixed length does not exhibit
- * the length-revealing short-circuit that makes naive string comparison
- * unsafe for secrets of *varying* length — every token this module mints is
- * exactly {@link TOKEN_BYTES} bytes of hex — but a caller can still send a
- * shorter or longer string, so length is checked first rather than left to
- * fall out of the comparison.
+ * A constant-time equality check for two tokens (prd-29 ruling 5). The old
+ * `===` was priced (in this module's own doc) against three rare,
+ * human-initiated mutations; prd-29 puts the same token on ten reads the
+ * dashboard polls continuously, a different probe profile, so the comparison
+ * moves to {@link timingSafeEqual}. It throws on unequal-length buffers, so
+ * length is still checked first — that also refuses a shorter or longer
+ * string before any byte comparison runs.
  */
 function tokensMatch(expected: string, provided: string): boolean {
-  return expected.length === provided.length && expected === provided
+  const e = Buffer.from(expected)
+  const p = Buffer.from(provided)
+  return e.length === p.length && timingSafeEqual(e, p)
 }
 
 /**
- * Fastify `preHandler` for one mutating route: the request must carry
+ * Brands the `preHandler` {@link requireCapabilityToken} returns, so the
+ * route-class law (prd-29 ruling 2, ADR-0024) can prove a `gated-*` row's
+ * route actually carries THIS gate — by walking the real Fastify routing
+ * table and reading the brand off the `preHandler` chain — rather than
+ * matching on fragile function identity or trusting that any `preHandler` at
+ * all is the capability gate.
+ */
+export const CAPABILITY_GATE: unique symbol = Symbol('rhizomorph.capabilityGate')
+
+/**
+ * Fastify `preHandler` for one gated route: the request must carry
  * {@link CAPABILITY_TOKEN_HEADER} matching `expectedToken` exactly, or it
  * never reaches the handler. Applied per-route (not globally in
- * `build-app.ts`) because adoption is deliberately incremental — a route
- * that hasn't adopted it yet must keep working exactly as it did before this
- * module existed, per this issue's own fence.
+ * `build-app.ts`) because a `read` route (`GET /*`, the tokenless bootstrap)
+ * must keep working exactly as it did before this module existed — the
+ * gate-presence law (ADR-0024) is what turns "forgot to apply it" from a
+ * silent hole into a red build.
+ *
+ * The returned handler is branded with {@link CAPABILITY_GATE} so the law can
+ * see it on the route's `preHandler` chain.
  *
  * Fastify lower-cases incoming header names, so `request.headers[...]` here
  * reads the header regardless of the case a caller sent it in.
  */
 export function requireCapabilityToken(expectedToken: string) {
-  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+  const gate = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     // An EMPTY expected token refuses everything, instead of matching an empty
     // header and opening the route.
     //
@@ -109,4 +125,5 @@ export function requireCapabilityToken(expectedToken: string) {
       })
     }
   }
+  return Object.assign(gate, { [CAPABILITY_GATE]: true as const })
 }

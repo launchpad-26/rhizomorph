@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import type { ServerContext } from '../server/context.js'
+import { requireCapabilityToken } from './security.js'
 
 /**
  * The prd3 lane manifest (ruling 19) — written by the conductor's dispatch
@@ -107,5 +108,9 @@ function errorMessage(error: unknown): string {
 }
 
 export function registerLanesRoute(app: FastifyInstance, ctx: ServerContext): void {
-  app.get('/api/lanes', async () => readLanesManifest(ctx.repoPath))
+  app.get(
+    '/api/lanes',
+    { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') },
+    async () => readLanesManifest(ctx.repoPath),
+  )
 }

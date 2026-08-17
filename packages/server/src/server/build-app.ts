@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { registerApiRoutes } from '../api/index.js'
-import { generateCapabilityToken } from '../api/security.js'
+import { CAPABILITY_GATE, generateCapabilityToken } from '../api/security.js'
 import type { ServerContext } from './context.js'
 import { registerMutationGuard } from './mutation-guard.js'
 import { registerStaticRoute } from './static.js'
@@ -46,6 +46,16 @@ declare module 'fastify' {
 export interface RegisteredRoute {
   method: string
   url: string
+  /**
+   * Whether this route carries the capability gate on its `preHandler` chain
+   * (prd-29 ruling 2 / ADR-0024) — the presence half prd-23 ruling 5 declared
+   * but never built. Read by `api/route-class-law.test.ts` to fail any
+   * `gated-*` row whose route does not actually hold its gate, and to prove
+   * `GET /*` and the plain reads hold none. The mutation guard is a GLOBAL
+   * `onRequest` hook, so a route-local `preHandler` here is only ever
+   * `requireCapabilityToken`'s branded gate.
+   */
+  hasCapabilityGate: boolean
 }
 
 function missingBuildHtml(webDistDir: string | undefined): string {
@@ -86,7 +96,20 @@ export function buildApp(ctx: ServerContext): FastifyInstance {
   const registeredRoutes: RegisteredRoute[] = []
   app.addHook('onRoute', (routeOptions) => {
     const methods = Array.isArray(routeOptions.method) ? routeOptions.method : [routeOptions.method]
-    for (const method of methods) registeredRoutes.push({ method, url: routeOptions.url })
+    // The route-local `preHandler` chain, normalised to an array. A gated
+    // route carries `requireCapabilityToken`'s branded gate here; a `read`
+    // route carries nothing. (Global hooks — the mutation guard — are not in
+    // `routeOptions.preHandler`, so this reads exactly the per-route gates.)
+    const chain =
+      routeOptions.preHandler == null
+        ? []
+        : Array.isArray(routeOptions.preHandler)
+          ? routeOptions.preHandler
+          : [routeOptions.preHandler]
+    const hasCapabilityGate = chain.some(
+      (handler) => (handler as { [CAPABILITY_GATE]?: unknown })[CAPABILITY_GATE] === true,
+    )
+    for (const method of methods) registeredRoutes.push({ method, url: routeOptions.url, hasCapabilityGate })
   })
   app.decorate('registeredRoutes', registeredRoutes)
 

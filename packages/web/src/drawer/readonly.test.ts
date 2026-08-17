@@ -50,6 +50,16 @@ import { extractImportSpecifiers } from '../test/import-specifiers.js'
  * `panels/` included, so a POST reached through a CONSUMED dependency (or
  * one of those other files' own imports) would surface there even though
  * this file never walks that far.
+ *
+ * **AMENDED for prd-29 ruling 6.** The drawer's read now carries the
+ * capability token (`/api/transcript/:lane` became a `gated-read`, ruling 1),
+ * and the constitution this file asserts forbids MUTATIONS, not credentials —
+ * a header proving the reader may read mutates nothing. The amendment lands as
+ * a TIGHTENING, never a loosening: the header literal lives in one shared
+ * module (`recordings/capabilityRead.js`), the drawer routes its default fetch
+ * through it, and this file now also asserts the drawer names no capability
+ * header inline of its own. `replay/mutating-calls-law.test.ts`'s READ_MODULES
+ * is where that shared module's header is held to exactly the capability name.
  */
 
 const DRAWER_DIR = path.dirname(fileURLToPath(import.meta.url))
@@ -214,6 +224,22 @@ describe('the drawer sends only GETs', () => {
     for (const file of sourceFiles()) {
       expect(file.text, `${file.name} mentions a credential`).not.toMatch(
         /apiKey|api_key|ANTHROPIC_API_KEY|Authorization|Bearer\s/i,
+      )
+    }
+  })
+
+  it('carries the read credential only through the shared module, never inline (prd-29 ruling 6)', () => {
+    // prd-29 gates `/api/transcript/:lane` (ruling 1), so the drawer's read now
+    // sends the capability token — but the constitution forbids MUTATIONS, not
+    // credentials (ruling 6's argument): a header proving the reader may read
+    // mutates nothing. The header literal lives in ONE shared module
+    // (`recordings/capabilityRead.js`), which `drawer/useTranscript.ts` routes
+    // its default fetch through; the drawer's own text names no capability
+    // header at all. This is a tightening, not a loosening: an inline
+    // credential added to the drawer tomorrow fails here, loudly.
+    for (const file of sourceFiles()) {
+      expect(file.text, `${file.name} inlines the capability header — it must ride via the shared module`).not.toMatch(
+        /x-rhizomorph-capability|CAPABILITY_TOKEN_HEADER/,
       )
     }
   })

@@ -122,6 +122,21 @@ const MUTATING_MODULES: ReadonlyArray<{ file: string; route: string; headers: re
 ]
 const THE_ONLY_VERB = 'POST'
 
+/**
+ * THE READ AXIS (prd-29 ruling 6). Gating the seven SPA reads (ruling 1) means
+ * every read seam now sends the capability header — but through ONE shared
+ * module, not by each seam growing its own credential. This enumerates that
+ * one module, so the discipline extends to reads rather than being loosened:
+ * the read module may carry EXACTLY the capability header, inline, with the
+ * name imported from the one capability module — the same law
+ * {@link assertHeaderBlocksExact} holds over the mutating five — and the closed
+ * set below makes a SIXTH file growing any `headers:` block a red build, which
+ * is how an inline credential slipped into a read seam gets caught.
+ */
+const READ_MODULES: ReadonlyArray<{ file: string; headers: readonly string[] }> = [
+  { file: path.join(WEB_SRC, 'recordings', 'capabilityRead.ts'), headers: [CAPABILITY_TOKEN_HEADER] },
+]
+
 /** The one module in the app that may read the capability token off the page — resolved, never matched by basename. */
 const CAPABILITY_MODULE = path.join(WEB_SRC, 'recordings', 'capability.ts')
 
@@ -738,6 +753,36 @@ describe('the web app names exactly five mutating calls (prd16 rulings 2 and 4; 
     for (const { route } of MUTATING_MODULES) {
       expect(wizard, `wizard.tsx names the mutating route ${route}`).not.toContain(route)
     }
+  })
+
+  it('the shared read module carries exactly the capability header, inline, from the one trusted source (prd-29 ruling 6)', () => {
+    const dir = path.join(WEB_SRC, 'recordings')
+    const text = readFileSync(path.join(dir, 'capabilityRead.ts'), 'utf8')
+
+    // It is a READ: no verb, no `method:`, no payload, no other credential.
+    expect(text).not.toMatch(MUTATING_VERB_RE)
+    expect(text).not.toMatch(/\bmethod\s*:/)
+    expect(text).not.toMatch(/\b(?:credentials|body)\s*:/)
+    expect(text).not.toMatch(/FormData|URLSearchParams|new Request\(/)
+    expect(text).not.toMatch(/apiKey|api_key|ANTHROPIC_API_KEY|Authorization|Bearer\s/i)
+
+    // …and its one header block names exactly the capability header, computed
+    // from the import — the same mechanism the mutating five are held to.
+    expect(
+      () => assertHeaderBlocksExact(text, [CAPABILITY_TOKEN_HEADER], dir),
+      'the header law must hold on the real capabilityRead.ts',
+    ).not.toThrow()
+  })
+
+  it('only the enumerated mutating and read modules build a headers block — a sixth is a credential nobody reviewed (prd-29 ruling 6)', () => {
+    const withHeaders = sourceFiles()
+      .filter((file) => /headers\s*:\s*\{/.test(file.text))
+      .map((file) => file.name)
+      .sort()
+    const allowed = [...MUTATING_MODULES, ...READ_MODULES]
+      .map((module) => path.relative(WEB_SRC, module.file))
+      .sort()
+    expect(withHeaders).toEqual(allowed)
   })
 
   it('the detectors bite — a POST added anywhere else would be caught', () => {

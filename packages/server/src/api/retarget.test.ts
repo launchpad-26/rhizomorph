@@ -185,7 +185,7 @@ describe('POST /api/retarget', () => {
 
     // The replay picker really did move with it: only the adopted repo's own
     // recordings, never the closed one from over there.
-    const sessions = (await app.inject({ method: 'GET', url: '/api/sessions' })).json()
+    const sessions = (await app.inject({ method: 'GET', url: '/api/sessions', headers: { [CAPABILITY_TOKEN_HEADER]: TOKEN } })).json()
     expect(sessions.sessions.map((s: { id: string }) => s.id)).toEqual([String(CLOCK)])
 
     await app.close()

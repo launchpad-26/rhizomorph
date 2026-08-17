@@ -1,5 +1,6 @@
 import { buildRecord, type SessionRecord } from '@rhizomorph/core/src/record/index.js'
 import { fetchSessionEvents, type FetchLike } from '../replay/api.js'
+import { capabilityRead } from './capabilityRead.js'
 
 /**
  * THE PORTABLE RECORD, DOWNLOADED (prd16 ruling 4, item 4). `buildRecord`
@@ -79,7 +80,7 @@ function downloadJson(fileName: string, data: unknown, env: DownloadEnv): void {
  */
 export async function exportRecording(
   sessionId: string,
-  fetchImpl: FetchLike = fetch,
+  fetchImpl: FetchLike = capabilityRead,
   env: DownloadEnv = defaultDownloadEnv(),
 ): Promise<ExportOutcome> {
   const [repoName, { events }] = await Promise.all([

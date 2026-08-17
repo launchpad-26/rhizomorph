@@ -204,7 +204,7 @@ describe('POST /api/rotate', () => {
 
     await app.inject({ method: 'POST', url: '/api/rotate', headers: authorised(app) })
 
-    const listing = (await app.inject({ method: 'GET', url: '/api/sessions' })).json() as {
+    const listing = (await app.inject({ method: 'GET', url: '/api/sessions', headers: authorised(app) })).json() as {
       sessions: Array<Record<string, unknown>>
     }
     expect(listing.sessions.map((session) => session.id)).toEqual([FIRST, String(ROTATE_AT)])
@@ -215,7 +215,7 @@ describe('POST /api/rotate', () => {
     expect(typeof listing.sessions[1]?.title).toBe('string')
 
     // And it replays: the closed log is served from disk, close event included.
-    const events = (await app.inject({ method: 'GET', url: `/api/sessions/${FIRST}/events` })).json() as {
+    const events = (await app.inject({ method: 'GET', url: `/api/sessions/${FIRST}/events`, headers: authorised(app) })).json() as {
       events: Array<{ type: string }>
     }
     expect(events.events.map((event) => event.type)).toEqual(['session.started', 'session.closed'])
