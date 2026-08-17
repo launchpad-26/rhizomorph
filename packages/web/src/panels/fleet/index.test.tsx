@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { createEventFactory, initialSessionState, reduce } from '@rhizomorph/core'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { StreamProvider } from '../../app/StreamContext.js'
@@ -890,5 +890,208 @@ describe('FleetTable — prd5 ruling 1+6: single-key verbs (k9s idiom)', () => {
     } finally {
       input.remove()
     }
+  })
+})
+
+describe('FleetTable — git status incident mark (#606)', () => {
+  const FAILING_LANE = '42-failing-lane'
+  const HEALTHY_LANE = '43-healthy-lane'
+
+  /** Parks the failing lane and nothing else, so the mark is tested against a
+   *  row the operator has explicitly stood down. */
+  const parkedFailingManifest: FetchLike = async () => ({
+    ok: true,
+    json: async () => ({
+      available: true,
+      version: 1,
+      lanes: [
+        {
+          handle: FAILING_LANE,
+          branch: FAILING_LANE,
+          fence: ['packages/parked/**'],
+          parked: true,
+        },
+      ],
+    }),
+  })
+
+  async function renderTwoWorktreeScenario(
+    extra?: (fx: ReturnType<typeof createEventFactory>) => void,
+    manifest: FetchLike = noLaneManifest,
+  ) {
+    const fx = createEventFactory({ startTs: NOW - 5 * 60_000 })
+    const failingPath = `/repo/rhizomorph__worktrees/${FAILING_LANE}`
+    const healthyPath = `/repo/rhizomorph__worktrees/${HEALTHY_LANE}`
+
+    fx.sessionStarted({ repoPath: '/repo/rhizomorph', repoName: 'rhizomorph', mainBranch: 'main' })
+    fx.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true })
+    fx.worktreeDiscovered({ path: failingPath, branch: FAILING_LANE, isMain: false })
+    fx.worktreeDiscovered({ path: healthyPath, branch: HEALTHY_LANE, isMain: false })
+    fx.llmUsage({
+      lane: FAILING_LANE,
+      branch: FAILING_LANE,
+      worktreePath: failingPath,
+      tokens: { input: 5, output: 90, cacheRead: 0, cacheCreation: 0 },
+    })
+    fx.llmUsage({
+      lane: HEALTHY_LANE,
+      branch: HEALTHY_LANE,
+      worktreePath: healthyPath,
+      tokens: { input: 5, output: 90, cacheRead: 0, cacheCreation: 0 },
+    })
+
+    extra?.(fx)
+
+    let source: FakeEventSource | undefined
+    await act(async () => {
+      render(
+        <StreamProvider
+          url="/api/stream"
+          now={NOW}
+          createSource={() => {
+            source = new FakeEventSource()
+            return source
+          }}
+        >
+          <FleetProvider now={NOW} fetchLanes={manifest}>
+            <SelectionProvider>
+              <FleetTable />
+            </SelectionProvider>
+          </FleetProvider>
+        </StreamProvider>,
+      )
+    })
+    await act(async () => {
+      source?.open()
+      for (const event of fx.all()) source?.emit(event)
+    })
+    // `fetchLanes` resolves on a microtask of its own; give it a tick to land.
+    await act(async () => {})
+
+    return {
+      failingRow: rows().find((r) => r.getAttribute('data-lane') === FAILING_LANE) as HTMLElement,
+      healthyRow: rows().find((r) => r.getAttribute('data-lane') === HEALTHY_LANE) as HTMLElement,
+    }
+  }
+
+  it('names the failing worktree\'s own row', async () => {
+    const { failingRow } = await renderTwoWorktreeScenario((fx) => {
+      fx.worktreeDirtyStatusFailed({
+        worktreePath: `/repo/rhizomorph__worktrees/${FAILING_LANE}`,
+        consecutiveFailures: 4,
+        message: 'boom',
+      })
+    })
+    expect(
+      within(failingRow).getByRole('status', { name: `${FAILING_LANE}: git status failing` }),
+    ).toBeDefined()
+  })
+
+  it('a healthy worktree\'s row carries no mark', async () => {
+    const { healthyRow } = await renderTwoWorktreeScenario((fx) => {
+      fx.worktreeDirtyStatusFailed({
+        worktreePath: `/repo/rhizomorph__worktrees/${FAILING_LANE}`,
+        consecutiveFailures: 4,
+        message: 'boom',
+      })
+    })
+    expect(within(healthyRow).queryByRole('status', { name: /git status failing/ })).toBeNull()
+  })
+
+  it('only the failing worktree\'s row shows it — the sibling is untouched', async () => {
+    const { failingRow, healthyRow } = await renderTwoWorktreeScenario((fx) => {
+      fx.worktreeDirtyStatusFailed({
+        worktreePath: `/repo/rhizomorph__worktrees/${FAILING_LANE}`,
+        consecutiveFailures: 4,
+        message: 'boom',
+      })
+    })
+    expect(
+      within(failingRow).getByRole('status', { name: `${FAILING_LANE}: git status failing` }),
+    ).toBeDefined()
+    expect(within(healthyRow).queryByRole('status', { name: /git status failing/ })).toBeNull()
+  })
+
+  it('repeated failures still show exactly one mark, not one per event', async () => {
+    const { failingRow } = await renderTwoWorktreeScenario((fx) => {
+      const failingPath = `/repo/rhizomorph__worktrees/${FAILING_LANE}`
+      fx.worktreeDirtyStatusFailed({ worktreePath: failingPath, consecutiveFailures: 4, message: 'boom' })
+      fx.worktreeDirtyStatusFailed({ worktreePath: failingPath, consecutiveFailures: 5, message: 'boom again' })
+    })
+    expect(
+      within(failingRow).getAllByRole('status', { name: `${FAILING_LANE}: git status failing` }),
+    ).toHaveLength(1)
+  })
+
+  it('recovery removes the mark', async () => {
+    const { failingRow } = await renderTwoWorktreeScenario((fx) => {
+      const failingPath = `/repo/rhizomorph__worktrees/${FAILING_LANE}`
+      fx.worktreeDirtyStatusFailed({ worktreePath: failingPath, consecutiveFailures: 4, message: 'boom' })
+      fx.worktreeDirtyStatusRecovered({ worktreePath: failingPath })
+    })
+    expect(within(failingRow).queryByRole('status', { name: /git status failing/ })).toBeNull()
+  })
+
+  it('survives an unrelated worktree.dirty update', async () => {
+    const { failingRow } = await renderTwoWorktreeScenario((fx) => {
+      const failingPath = `/repo/rhizomorph__worktrees/${FAILING_LANE}`
+      fx.worktreeDirtyStatusFailed({ worktreePath: failingPath, consecutiveFailures: 4, message: 'boom' })
+      fx.worktreeDirty({
+        path: failingPath,
+        branch: FAILING_LANE,
+        files: [{ path: 'src/x.ts', status: 'modified' }],
+      })
+    })
+    expect(
+      within(failingRow).getByRole('status', { name: `${FAILING_LANE}: git status failing` }),
+    ).toBeDefined()
+  })
+
+  // The title is the only surface that voices `Lane.dirtyStatusFailedForMs` and
+  // the only place the "no message is retained" gap is stated. Asserting the
+  // whole string is deliberate: querying by role and accessible name alone left
+  // `gitStatusIncidentTitle` free to return '' with the suite still green.
+  it('titles the mark with the worktree, how long the incident has been open, and the gap it cannot fill', async () => {
+    const { failingRow } = await renderTwoWorktreeScenario((fx) => {
+      fx.worktreeDirtyStatusFailed(
+        {
+          worktreePath: `/repo/rhizomorph__worktrees/${FAILING_LANE}`,
+          consecutiveFailures: 4,
+          message: 'boom',
+        },
+        // Pinned rather than left on the factory clock, so the rendered span is
+        // an exact string and not a shape the assertion has to guess at.
+        { ts: NOW - 90_000 },
+      )
+    })
+    const mark = within(failingRow).getByRole('status', {
+      name: `${FAILING_LANE}: git status failing`,
+    })
+    expect(mark.getAttribute('title')).toBe(
+      `${FAILING_LANE}: git status --porcelain has failed repeatedly for 1m30s` +
+        ` — the underlying error is not retained in-app; check the server's own log`,
+    )
+  })
+
+  // ADR-0022's boundary, at the render layer: parking is the operator muting an
+  // *inference*, and this is a recorded fact about the worktree. Without this,
+  // gating the mark on `!lane.parked` — the exact regression the docstring on
+  // `showsGitStatusIncidentMark` forbids — passes the whole suite.
+  it('still marks a parked lane — parking mutes an inferred alarm, never a recorded fact', async () => {
+    const { failingRow } = await renderTwoWorktreeScenario(
+      (fx) => {
+        fx.worktreeDirtyStatusFailed({
+          worktreePath: `/repo/rhizomorph__worktrees/${FAILING_LANE}`,
+          consecutiveFailures: 4,
+          message: 'boom',
+        })
+      },
+      parkedFailingManifest,
+    )
+    // The row really is parked — otherwise the assertion below proves nothing.
+    expect((failingRow.querySelectorAll('td')[1] as HTMLElement).textContent).toContain('PARKED')
+    expect(
+      within(failingRow).getByRole('status', { name: `${FAILING_LANE}: git status failing` }),
+    ).toBeDefined()
   })
 })

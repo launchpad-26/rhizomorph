@@ -46,11 +46,13 @@ function baseLane(overrides: Partial<Lane> = {}): Lane {
     commitCount: 0,
     dirtyCount: 0,
     filesTouched: 0,
+    dirtyStatusFailedSince: null,
 
     lastEventTs: NOW - 10_000,
     ageMs: 10_000,
     lastWorkTs: NOW - 10_000,
     workAgeMs: 10_000,
+    dirtyStatusFailedForMs: null,
     firstSeenAt: NOW - 60_000,
     activeSeconds: null,
     waitedOnHuman: {
