@@ -30,6 +30,24 @@ import { formatSpan, nextRung, rungInfo, type Rung } from '@rhizomorph/core'
  * nothing you can do" and "nobody wrote this one yet" render identically —
  * S1's *"a remedy that names no action"* failure, arrived at by omission.
  *
+ * **The teach layer is assembled here too, and that is the whole of it**
+ * (prd-30 ruling 4 and S2 · #561). `Why.derivedFrom` carries the events, counts
+ * and timestamps the condition was derived from, and
+ * {@link DisclosureLines.derivation} is what a card renders. There is no second
+ * voice and no beginner register: the teach lines are the same facts the
+ * selector already used, at more length, in the same words. S2 asks for a test
+ * that "no string in the teach layer exists outside the condition table" — the
+ * teach layer having *no strings of its own to test* is the strongest way to
+ * pass it, and `teach-law.test.tsx` asserts exactly that against the rendered
+ * card.
+ *
+ * **A derivation is optional, and that is the anti-noise law.** Nothing here
+ * manufactures a teach layer for a condition that has no further facts: an
+ * empty `derivation` means the card offers no control at all. prd-30's problem
+ * statement is a person who cannot read a mark; #602 is the other failure — 282
+ * lines of individually-correct honest-gap prose burying a page. A card that
+ * always had one more thing to say would be walking into the second one.
+ *
  * **No clock is read here.** Elapsed time arrives as `elapsedMs`, computed by
  * the caller against its own reading position, which is what makes replay
  * identical to live (S1, *replay*): at a scrub position the elapsed times are
@@ -69,12 +87,49 @@ export interface Evidence {
   elapsedMs: number
 }
 
+/**
+ * One folded fact the condition was derived from — the events, counts and
+ * timestamps behind the why (prd-30 S2, the teach affordance's *states*).
+ *
+ * It is the same shape as {@link Evidence} with a count, and deliberately so:
+ * the teach layer expands the card's own why into the facts underneath it, in
+ * the same register. A derivation whose entries read differently from the why
+ * line above them would be S2's *"a teach layer that says something the card
+ * does not"*.
+ */
+export interface Derivation {
+  /** What was observed, in {@link Evidence.fact}'s register. */
+  fact: string
+  /**
+   * How many times it was observed, where a count is meaningful. Omitted rather
+   * than zero: "0 tool calls" is an absence, and an absence is a `fact` in its
+   * own words ("no tool call since the session opened"), not a count of nothing.
+   */
+  count?: number
+  /** Age of the observation at the reading position — the same clock rule as {@link Evidence.elapsedMs}. */
+  elapsedMs: number
+}
+
 /** The reason, with the evidence that supports it. Neither half stands alone. */
 export interface Why {
   /** The condition in one clause: "no data", "no output", "the fence is contended". */
   reason: string
   /** How the instrument knows, and how long ago it knew it. */
   evidence: Evidence
+  /**
+   * The folded facts the condition was derived from, for the teach affordance
+   * to expand into (prd-30 ruling 3, S2).
+   *
+   * **Optional, and its absence is what withholds the affordance.** A selector
+   * with nothing further to show hands back no derivation, and the card offers
+   * no control — because a control that expands to nothing is the noise prd-30
+   * is against, and #602 is the live example of what a surface looks like once
+   * every mark explains itself whether or not it has anything to add.
+   *
+   * It is never a second explanation. These are the same facts the selector
+   * already used, at more length.
+   */
+  derivedFrom?: readonly Derivation[]
 }
 
 /**
@@ -124,6 +179,19 @@ export interface DisclosureLines {
   remedy: string
   /** The remedy's command, or null. Never folded into `remedy`: a surface that can copy needs it apart. */
   command: string | null
+  /**
+   * The teach layer's lines — `<fact> ×<count> — <elapsed> ago`, one per
+   * derivation, in the order the selector listed them. **Empty when there is
+   * nothing further to show**, which is how the card knows not to offer a
+   * control.
+   *
+   * Assembled here rather than in the card for the reason the whole file
+   * exists: S2's acceptance is *"a test asserts no string in the teach layer
+   * exists outside the condition table"*, and the honest way to pass that is
+   * for the teach layer to have no strings of its own to test — it renders
+   * this array and composes nothing.
+   */
+  derivation: string[]
 }
 
 /**
@@ -146,6 +214,51 @@ function requireText(value: string, field: string, hint: string): string {
   const text = String(value ?? '').trim()
   if (text === '') throw new DisclosureError(`disclosure ${field} is empty — ${hint}`)
   return text
+}
+
+/**
+ * An age, or the refusal. Shared by the why's evidence and by every derivation
+ * line, because the teach layer relaxing a law the card enforces is precisely
+ * how the beginner's depth becomes the dishonest one.
+ */
+function requireAge(elapsedMs: number, field: string): number {
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
+    throw new DisclosureError(
+      `disclosure ${field} is not a measured age (${String(elapsedMs)}) — it is the reader's own position minus the observation, and a card cannot say how old a fact is without it`,
+    )
+  }
+  return elapsedMs
+}
+
+/**
+ * The teach lines, from the facts the selector already used. Nothing is
+ * generated, nothing is summarised, and each line carries its own age — a
+ * derivation that inherited the why's elapsed time would be asserting when it
+ * did not observe.
+ */
+function derivationLines(derivedFrom: readonly Derivation[] | undefined): string[] {
+  return (derivedFrom ?? []).map((row, index) => {
+    const at = `why.derivedFrom[${index}]`
+    // Same `??` idiom as the evidence guard above, for the same reason: a hole
+    // in a selector's array should read as this directory's refusal, not as a
+    // TypeError thrown from inside a card.
+    const entry = row ?? { fact: '', elapsedMs: Number.NaN }
+    const fact = requireText(
+      entry.fact,
+      `${at}.fact`,
+      'the teach layer expands the facts the condition was derived from — an unnamed one teaches nothing',
+    )
+    const elapsedMs = requireAge(entry.elapsedMs, `${at}.elapsedMs`)
+
+    const count = entry.count
+    if (count !== undefined && (!Number.isInteger(count) || count < 1)) {
+      throw new DisclosureError(
+        `disclosure ${at}.count is not a count of observations (${String(count)}) — omit it rather than render "×0", which reads as evidence and is an absence`,
+      )
+    }
+
+    return `${fact}${count === undefined ? '' : ` ×${count}`} — ${formatSpan(elapsedMs)} ago`
+  })
 }
 
 export function disclosureLines(disclosure: DisclosureContent): DisclosureLines {
@@ -172,14 +285,10 @@ export function disclosureLines(disclosure: DisclosureContent): DisclosureLines 
     `"${reason}" is a claim with nothing behind it — name what was observed ("the collector last answered"), never a bare gap`,
   )
 
-  const elapsedMs = evidence.elapsedMs
-  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
-    throw new DisclosureError(
-      `disclosure why.evidence.elapsedMs is not a measured age (${String(elapsedMs)}) — it is the reader's own position minus the observation, and a card cannot say how old a fact is without it`,
-    )
-  }
+  const elapsedMs = requireAge(evidence.elapsedMs, 'why.evidence.elapsedMs')
 
   const why = `${reason} — ${fact} ${formatSpan(elapsedMs)} ago`
+  const derivation = derivationLines(disclosure.why.derivedFrom)
 
   switch (disclosure.remedy.kind) {
     case 'action': {
@@ -194,6 +303,7 @@ export function disclosureLines(disclosure: DisclosureContent): DisclosureLines 
         why,
         remedy: action,
         command: command === undefined ? null : requireText(command, 'remedy.command', 'drop the field rather than offering an empty command'),
+        derivation,
       }
     }
     case 'none': {
@@ -202,7 +312,7 @@ export function disclosureLines(disclosure: DisclosureContent): DisclosureLines 
         'remedy.because',
         'a remedy of "none" states why there is nothing to do — otherwise it reads as an unwritten remedy',
       )
-      return { label, why, remedy: because, command: null }
+      return { label, why, remedy: because, command: null, derivation }
     }
     default: {
       const _never: never = disclosure.remedy
@@ -221,6 +331,15 @@ export interface UnknownDisclosureInput {
   elapsedMs: number
   /** The rung the instrument currently stands on. The rung above it is the one that would prove this. */
   at: Rung
+  /**
+   * The facts the instrument *does* hold about this mark, for the teach layer
+   * (S2's *unknown* state: "expands to what is missing and which rung would
+   * prove it — the same honest gap, at more length").
+   *
+   * Optional like every other derivation: an unknown with nothing folded behind
+   * it offers no teach control rather than a control that expands to nothing.
+   */
+  derivedFrom?: readonly Derivation[]
 }
 
 /**
@@ -254,6 +373,7 @@ export function unknownDisclosure(input: UnknownDisclosureInput): DisclosureCont
     why: {
       reason: `no row in the condition table for ${mark}`,
       evidence: { fact: `${missing}, last evidence`, elapsedMs: input.elapsedMs },
+      derivedFrom: input.derivedFrom,
     },
     remedy:
       above === null
