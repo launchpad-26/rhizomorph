@@ -115,6 +115,19 @@ export interface Lane {
   commitCount: number
   dirtyCount: number
   filesTouched: number
+  /**
+   * Non-null while this lane's worktree has an open `git status --porcelain`
+   * incident (#429/#537/ADR-0022, `WorktreeState.dirtyStatusFailedSince`).
+   * Deliberately NOT a `Pathology`: it must never climb `Fleet.ladder` or touch
+   * `Lane.rank` — ADR-0022 removed this exact class of fact from the attention
+   * strip, and #606 must not reopen that door through the ladder instead (see
+   * the plan on issue #606). It is a recorded fact and renders independent of
+   * `lane.parked` / `lane.pathologies` / `lane.activity`.
+   */
+  dirtyStatusFailedSince: number | null
+  /** `now - dirtyStatusFailedSince`, precomputed the same way `ageMs`/`workAgeMs`
+   * are — never re-subtracted in a component. Null exactly when the field above is. */
+  dirtyStatusFailedForMs: number | null
 
   // liveness
   /**

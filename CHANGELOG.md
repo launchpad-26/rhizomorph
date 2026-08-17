@@ -38,6 +38,11 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **A worktree's open git-status incident is visible again (#606).** The
+  fleet table's lane row now marks a lane whose worktree has failed `git
+  status --porcelain` four or more times in a row and not yet recovered — the
+  fact has been recorded since #537 (`WorktreeState.dirtyStatusFailedSince`,
+  ADR-0022) but had no reader on screen until now.
 - **The honest middle gets a voice (prd-22 ruling 2, #304).** A collector that is
   answering but degraded — retrying after consecutive failures, not yet disabled —
   now reads `degraded` in the provenance bar's per-source pill (distinct from a dead

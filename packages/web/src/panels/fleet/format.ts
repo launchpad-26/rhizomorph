@@ -88,6 +88,30 @@ export function showsTerminalDoneMark(lane: Lane): boolean {
   return !lane.parked && worstPathology(lane) !== null && isTerminalDone(lane)
 }
 
+/**
+ * The STATE cell's GIT STATUS mark (#606) — deliberately independent of
+ * `selectLaneCondition`: it renders beside any condition, parked or not,
+ * because `dirtyStatusFailedSince` is a recorded fact about the worktree, not
+ * an inferred alarm (`Lane.parked`'s own docstring: parking suppresses
+ * inferences, not facts). Never folded into `stateSigilKind`'s pathology, and
+ * must not be — see the ADR-0022 note on `Lane.dirtyStatusFailedSince`.
+ */
+export function showsGitStatusIncidentMark(lane: Lane): boolean {
+  return lane.dirtyStatusFailedSince !== null
+}
+
+/**
+ * No message is retained for this incident (`reduce.ts`'s
+ * `worktreeDirtyStatusFailed` keeps only the timestamp) — the title says so
+ * rather than inventing detail, the same gap-honesty rule the cost/fence
+ * cells above follow (law 12).
+ */
+export function gitStatusIncidentTitle(lane: Lane): string {
+  const forMs = lane.dirtyStatusFailedForMs
+  const forClause = forMs === null ? '' : ` for ${formatSpan(forMs)}`
+  return `${lane.label}: git status --porcelain has failed repeatedly${forClause} — the underlying error is not retained in-app; check the server's own log`
+}
+
 export function outputCellTitle(lane: Lane): string {
   return formatTokenBreakdown(lane.tokens)
 }

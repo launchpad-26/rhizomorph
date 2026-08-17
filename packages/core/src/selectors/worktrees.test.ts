@@ -38,6 +38,7 @@ describe('selectWorktreeViews', () => {
       filesTouched: ['src/a.ts', 'src/b.ts'],
       aheadOfMain: 1,
       lastActivityTs: 60,
+      dirtyStatusFailedSince: null,
     })
     expect(view?.panes.map((pane) => pane.paneId)).toEqual(['%1'])
     expect(view?.agent?.status).toBe('working')
@@ -196,5 +197,24 @@ describe('selectWorktreeViews', () => {
     const git = views.find((v) => v.name === '3-git')
     expect(git).toMatchObject({ aheadOfMain: 1, dirtyCount: 3 })
     expect(git?.agent?.status).toBe('waiting')
+  })
+
+  describe('dirtyStatusFailedSince (#606)', () => {
+    it('joins the failed timestamp straight off WorktreeState', () => {
+      const state = reduceAll([
+        f.worktreeDiscovered({ path: wt('a'), branch: 'a', isMain: false }, { ts: 10 }),
+        f.worktreeDirtyStatusFailed({ worktreePath: wt('a'), consecutiveFailures: 4, message: 'boom' }, { ts: 50 }),
+      ])
+      expect(selectWorktreeIndex(state)[wt('a')]?.dirtyStatusFailedSince).toBe(50)
+    })
+
+    it('clears back to null on recovery', () => {
+      const state = reduceAll([
+        f.worktreeDiscovered({ path: wt('a'), branch: 'a', isMain: false }, { ts: 10 }),
+        f.worktreeDirtyStatusFailed({ worktreePath: wt('a'), consecutiveFailures: 4, message: 'boom' }, { ts: 50 }),
+        f.worktreeDirtyStatusRecovered({ worktreePath: wt('a') }, { ts: 60 }),
+      ])
+      expect(selectWorktreeIndex(state)[wt('a')]?.dirtyStatusFailedSince).toBeNull()
+    })
   })
 })

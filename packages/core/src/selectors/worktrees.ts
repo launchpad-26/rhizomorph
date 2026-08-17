@@ -22,6 +22,10 @@ export interface WorktreeView {
   removedAt: number | null
   dirtyFiles: DirtyFile[]
   dirtyCount: number
+  /** Non-null while this worktree's `git status --porcelain` has failed past
+   * the bound and not yet recovered. Read straight off `WorktreeState`
+   * (#429/#537/ADR-0022) — never re-derived. */
+  dirtyStatusFailedSince: number | null
   /** Distinct files this worktree's branch has touched vs main, sorted. */
   filesTouched: string[]
   aheadOfMain: number
@@ -61,6 +65,7 @@ export function selectWorktreeViews(
         removedAt: worktree.removedAt,
         dirtyFiles: worktree.dirtyFiles,
         dirtyCount: worktree.dirtyFiles.length,
+        dirtyStatusFailedSince: worktree.dirtyStatusFailedSince,
         filesTouched:
           worktree.branch === null
             ? []
