@@ -23,15 +23,11 @@ import { TwoRepresentations } from './TwoRepresentations.js'
  * with the organism arm, so nothing the scene can do to itself can reach the
  * list.
  *
- * **What this wave is, and is not.** This is the container (prd-36 sequencing,
- * wave 1's keystone): the existing scene and the existing fleet table, mounted
- * inside one frame that owns the toggle, sharing the one `SelectionProvider`
- * they already shared. **No visual change to either representation.** Two
- * consequences of mounting them as they are, both wave 2's to tidy when the list
- * gets its own pass (`packages/web/src/panels/fleet/**`, fenced away from this
- * commit): the table brings its own `<h2>Fleet</h2>` and its own bordered
- * section, so in the list representation the heading and the frame are drawn
- * twice. Wave 2 drops the table's copies now that the surface carries them.
+ * **Wave 2 (#562) finished the container's two loose ends.** Wave 1 mounted the
+ * scene and the table as they were, which left the list representation drawing
+ * the heading and the frame twice; the table has dropped its copies now that
+ * this surface carries them (`panels/fleet/index.tsx`). And the organism's
+ * error state has become S1's *error* state proper — see {@link Organism}.
  *
  * **One derived fleet, two renderings.** Neither arm derives anything: the scene
  * and the table both call `useFleet()`, so a lane present in one and absent from
@@ -46,9 +42,7 @@ export function FleetSurface() {
   return (
     <TwoRepresentations
       surface="fleet"
-      heading={
-        <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-ice-400">Fleet</h2>
-      }
+      heading={<h2 className="heading text-(--ink-dim)">Fleet</h2>}
       views={[
         { id: 'organism', label: 'Organism', render: () => <Organism /> },
         { id: 'list', label: 'List', render: () => <List /> },
@@ -58,26 +52,62 @@ export function FleetSurface() {
 }
 
 /**
- * The scene, hero-sized (prd4 ruling 2's `min-h-[55vh]`, carried over from the
- * slot this replaces) and behind both a lazy boundary and an error boundary: if
- * three.js falls over, everything around it is unaffected (architecture.md).
+ * The organism, behind both a lazy boundary and an error boundary: if three.js
+ * falls over, everything around it is unaffected (architecture.md).
  *
- * The error line names the way to the list rather than taking it. prd-36's S1
- * *error* state — the surface falls to the list and says so once — is wave 2's,
- * and it has to be, because ruling 3's fourth guarantee forbids this component
- * from choosing a representation on the application's behalf. Telling a person
- * which key carries them to a complete fleet is the honest wave-1 half of that:
- * law 12's voice (what is missing, what is unaffected, what to do) with the act
- * left to the person.
+ * **THE CANVAS-FAILURE FLOOR (prd-36 S1's *error* state, #562).** When the
+ * canvas does not come up, the surface **falls to the list and says so once**.
+ * The list is the floor and this is the case it exists for — a blank frame
+ * where the fleet was is the one outcome S1 names as wrong.
+ *
+ * It is done *here*, inside the organism arm, and not by flipping the toggle,
+ * and the distinction is ruling 3's fourth guarantee rather than a detail of
+ * where the code sits: **no representation may be selected automatically by
+ * application state.** A canvas error that rewrote a person's remembered choice
+ * would be exactly the instrument that hides its own scene at the moment they
+ * most want to look at it — and worse, it would still be hiding it after the
+ * next reload, on a machine where the canvas had since recovered. So the choice
+ * is untouched and stays visible in the toggle; what changes is what the
+ * organism arm can honestly draw, which is the roster plus one line saying why.
+ *
+ * "Once" is structural: the line is a sibling of the list, rendered by the
+ * boundary's single fallback, so there is exactly one of it however many times
+ * the renderer retries beneath.
  */
 function Organism() {
   return (
-    <div className="min-h-[55vh] flex-1">
-      <ErrorBoundary fallback={<SceneErrorFallback />}>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <ErrorBoundary fallback={<CanvasFloor />}>
         <Suspense fallback={<SceneFallback />}>
           <Scene />
         </Suspense>
       </ErrorBoundary>
+    </div>
+  )
+}
+
+/**
+ * The floor, arrived at the hard way: one honest line, then the complete list.
+ *
+ * Law 12's three parts, in order — WHAT is missing (the organism), WHAT is
+ * unaffected (every lane is below, in full), and WHAT to do (nothing is
+ * required; the toggle is still a person's own). It does not offer to retry:
+ * S1 is explicit that a silent retry is the wrong answer, because a canvas that
+ * failed to initialise fails the same way on the next frame and an operator
+ * would be watching a spinner instead of their fleet.
+ */
+function CanvasFloor() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <p
+        role="status"
+        data-testid="fleet-organism-unavailable"
+        className="shrink-0 px-4 pb-2 text-read-floor leading-snug text-broken"
+      >
+        ORGANISM UNAVAILABLE — the canvas did not come up, so the picture cannot be drawn. The list
+        below carries every lane, complete; nothing else on the page is affected.
+      </p>
+      <List />
     </div>
   )
 }
@@ -101,24 +131,14 @@ function List() {
 
 function SceneFallback() {
   return (
-    <div className="flex h-full items-center justify-center text-xs uppercase tracking-widest text-ice-400">
+    <div className="flex h-full items-center justify-center heading tracking-widest text-(--ink-dim)">
       loading scene…
     </div>
   )
 }
 
 function ListFallback() {
-  return <div className="h-full min-h-32 animate-pulse rounded-lg border border-ice-850 bg-ice-950" />
-}
-
-function SceneErrorFallback() {
   return (
-    <div
-      role="status"
-      data-testid="fleet-organism-unavailable"
-      className="flex h-full items-center justify-center px-4 text-center text-xs uppercase tracking-widest text-broken"
-    >
-      scene unavailable — press V for the list, which carries every lane
-    </div>
+    <div className="h-full min-h-32 animate-pulse rounded-lg border border-(--line-hair) bg-(--surface-panel)" />
   )
 }

@@ -115,10 +115,29 @@ export default function ReplayControls() {
     selectAndPlay(richest.id)
   }
 
+  /*
+   * ONE DOCK, ONE CAPTION (walkthrough, 2026-08-17).
+   *
+   * A human read this as "two timeline bars" and it is not two components — it
+   * is three sibling flex rows in this one, each opening with its own uppercase
+   * caption ("REPLAY", "SESSION") above the TIDE's own axis. Three captions in a
+   * vertical stack read as three docks; the transport and the session boundary
+   * are one control surface for one thing, which prd-13 ruling 1 already
+   * named — "they share one x-axis and read as a single TIME dock".
+   *
+   * So: one caption for the whole dock, the rotate control folded onto the same
+   * row as the transport it belongs beside, and the row gap tightened from
+   * `gap-1` to `gap-y-1` on a single wrapping row. This is a caption-and-spacing
+   * fix and deliberately nothing more — no state moved, no control removed.
+   *
+   * It is also half of the fleet-clipping repair in the same walkthrough: this
+   * bar is an `auto` row in `Shell`'s grid, so every line it does not draw is a
+   * line the fleet's single `1fr` row gets back.
+   */
   return (
-    <div className="flex flex-col gap-1 border-t border-(--line-hair) px-4 py-2 text-inst uppercase tracking-wide text-(--ink-dim)">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="font-semibold tracking-widest text-(--ink-body)">Replay</span>
+    <div className="flex flex-col gap-1 border-t border-(--line-hair) px-4 py-1.5 text-inst uppercase tracking-wide text-(--ink-dim)">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="font-semibold tracking-widest text-(--ink-body)">Time</span>
         <span className="font-semibold text-(--ink-primary)">
           {isReplaying ? 'Replay mode' : 'Live mode'}
         </span>
@@ -195,16 +214,15 @@ export default function ReplayControls() {
         >
           Return to live
         </button>
-      </div>
 
-      {/*
-        THE OPERATOR'S SESSION BOUNDARY (prd16 ruling 2) — on its own row
-        beside the picker, because that is where "which recording am I looking
-        at" is already the question. Refreshing the listing on success is what
-        puts the session it just closed in the picker above, immediately.
-      */}
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="font-semibold tracking-widest text-(--ink-body)">Session</span>
+        {/*
+          THE OPERATOR'S SESSION BOUNDARY (prd16 ruling 2) — beside the picker,
+          because that is where "which recording am I looking at" is already the
+          question. It used to sit on a row of its own under a second caption;
+          the caption was what made the dock read as two. Refreshing the listing
+          on success is what puts the session it just closed in the picker,
+          immediately.
+        */}
         <RotateButton onRotated={refreshSessions} />
       </div>
 

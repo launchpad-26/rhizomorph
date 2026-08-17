@@ -14,7 +14,7 @@ import {
 /**
  * Fallback size for a host measured at zero (mid-mount, before layout has
  * run). Proportioned to the hero slot this now sits in (prd4 ruling 2's
- * `min-h-[55vh]`-ish `SceneSlot`) rather than the compact fixed box (`h-64`)
+ * hero share of `PanelGrid`'s two-track grid) rather than a compact fixed box (`h-64`)
  * it used to be the fallback for — a zero-rect mount should still read as the
  * centerpiece, not a leftover small panel.
  */

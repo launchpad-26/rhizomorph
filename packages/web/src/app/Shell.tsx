@@ -1,4 +1,5 @@
 import { lazy, Suspense } from 'react'
+import { ReplayBanner } from '../replay/Banner.js'
 import { ConnectionBadge } from './ConnectionBadge.js'
 import { useIdleWorkerJump } from './keyboard.js'
 import { useMode } from './ModeContext.js'
@@ -13,34 +14,57 @@ const BurnStrip = lazy(() => import('../panels/burn/index.js'))
 const LaneDrawer = lazy(() => import('../drawer/index.js'))
 
 /**
- * The curated order — prd3 ruling 6, amended by prd4 ruling 2 and again by
- * prd-36 ruling 1. One conductor-curated hierarchy, no drag and no custom
- * layouts — the sequence itself is the ruling:
+ * The curated order — prd3 ruling 6, amended by prd4 ruling 2, again by prd-36
+ * ruling 1 and prd-32 ruling 5, and **amended a fourth time on 2026-08-17 by
+ * the walkthrough** (`docs/prds/done/prd-04-human-facing.md`, ruling 2's own
+ * amendment). One conductor-curated hierarchy, no drag and no custom layouts —
+ * the sequence itself is the ruling:
  *
  *   attention strip + burn strip (docked top)
  *     → fleet surface (the hero — organism or list, one keystroke apart)
- *       → the rest (ledger, collisions, feed)
- *         → provenance bar (docked bottom)
+ *       → the dock (spend · collisions · feed · trace, one at a time)
+ *         → time dock + provenance bar (docked bottom)
  *
- * prd4 ruling 2 answered "what is the fleet doing?" before anything else by
- * promoting the scene above the table it used to sit beneath. prd-36 ruling 1
- * finishes that: the scene and the table were one thing pretending to be two —
- * the table's STATE column is the scene's own legend — and they now share one
- * frame rather than two rows, which is also how the ledger comes back onto a
- * 900px-tall laptop's screen. It reads top-to-bottom as that question and its
- * answers: *does anything need me* (attention), *what is it costing* (burn),
- * *who is alive* (the fleet surface, in whichever representation suits the
- * moment), *what happened* (the rest), *where did this come from*
- * (provenance).
+ * It reads top-to-bottom as the question and its answers: *does anything need
+ * me* (attention), *what is it costing* (burn), *who is alive* (the fleet
+ * surface, in whichever representation suits the moment), *what happened* (the
+ * dock), *when* (the time dock), *where did this come from* (provenance).
+ *
+ * ## THE ROW TRACK IS `minmax(0, 1fr)`, AND THAT IS A REPAIR
+ *
+ * A human walked the running instrument at 164 lanes and found the fleet
+ * showing three rows. The cause was here and in the scene's own slot: a grid row of
+ * `1fr` has an implicit `min-height: auto`, so it never shrinks below its
+ * content — but it also never *grows* to claim what the `auto` rows around it
+ * leave. The scene carried a `min-h-[55vh]` floor nothing else had; every
+ * sibling was freely shrinkable; and the two `auto` rows below (the time dock
+ * and the provenance bar) took as much as they liked. All the shrinkage landed
+ * on the roster, whose `overflow-auto` clipped it **silently** rather than
+ * pushing back.
+ *
+ * `minmax(0, 1fr)` makes the middle row a real share of the viewport rather
+ * than a floor: `PanelGrid` then divides that share between its two panels,
+ * each of which scrolls inside itself. Nothing below the fold is a surprise,
+ * because there is no fold — the page does not scroll, the panels do.
  *
  * Whitespace lives between panels, never inside them (ruling 7).
  *
- * The lane drawer (ruling 17, #84) sits outside that sequence on purpose: it is
+ * The lane peek (prd-36 ruling 2) sits outside that sequence on purpose: it is
  * not a rung of the hierarchy but a layer over it, opened by the one selection
  * and closed by Esc. It renders `null` whenever nothing is selected and is
  * `position: fixed` when it does render, so it is out of flow and adds no row
  * to the grid above — the curated order is unchanged whether it is open or not,
  * which is what "the fleet stays visible" means structurally.
+ *
+ * ## The replay banner is the real one now
+ *
+ * `replay/Banner.tsx` had existed, tested and fully token-lawful, since #83 —
+ * and nothing imported it, because this file defined a duplicate inline stub
+ * that said "#83" and offered no way out of replay. The walkthrough found the
+ * duplication; the resolution is to mount the component that was already
+ * finished and delete the stub, rather than the other way round. Deleting the
+ * real one would have kept a placeholder with no timestamp, no session
+ * identity, no unknown-era voice and no *exit to live* control.
  */
 export function Shell() {
   // prd5 ruling 1+6: the idle-worker jump is page-global (see `keyboard.ts`'s
@@ -49,7 +73,7 @@ export function Shell() {
   useIdleWorkerJump()
 
   return (
-    <div className="grid h-screen grid-rows-[auto_1fr_auto_auto] bg-ice-1000 font-sans text-ice-300">
+    <div className="grid h-screen grid-rows-[auto_minmax(0,1fr)_auto_auto] bg-(--surface-floor) font-sans text-(--ink-body)">
       <TopDock />
       <PanelGrid />
       <ReplayBar />
@@ -73,11 +97,11 @@ function TopDock() {
   const { status } = useStream()
 
   return (
-    <header className="border-b border-ice-850 bg-ice-950">
+    <header className="border-b border-(--line-hair) bg-(--surface-panel)">
       <Nav />
-      <div className="flex items-stretch gap-4 border-b border-ice-850">
+      <div className="flex items-stretch gap-4 border-b border-(--line-hair)">
         <div className="flex shrink-0 items-center gap-3 px-4">
-          <h1 className="font-display text-sm font-semibold tracking-[0.25em] text-ice-100 text-glow-calm">
+          <h1 className="font-display text-read-body font-semibold tracking-[0.25em] text-(--ink-primary) text-glow-calm">
             THE OBSERVATORY
           </h1>
           <ConnectionBadge status={status} />
@@ -96,33 +120,6 @@ function TopDock() {
         <BurnStrip />
       </Suspense>
     </header>
-  )
-}
-
-/**
- * The REPLAY banner slot (ruling 16). Stubbed here by the keystone so the mode
- * switch is structural from wave 1 — **#83 owns what it says, and the distinct
- * frame and tint around it.** The part that matters already holds: in replay
- * the attention strip is *replaced*, never decorated.
- *
- * Note for #83: a mode is not a status, so the banner may not reach for a
- * ladder hue (law 9). An amber REPLAY bar would make a recording of a calm
- * night read as a summons. The mode shift is carried by luminance, inversion
- * and frame instead — which is the whole point of the ice register.
- */
-function ReplayBanner() {
-  return (
-    <div
-      role="status"
-      data-panel="replay-banner"
-      className="flex h-9 items-center gap-3 bg-ice-900 px-4 text-xs uppercase tracking-[0.2em] text-ice-100"
-    >
-      <span className="font-semibold">Replay</span>
-      <span className="figures text-[11px] normal-case tracking-normal text-ice-400">#83</span>
-      <span className="normal-case tracking-normal text-ice-400">
-        this is the past — exit to live below
-      </span>
-    </div>
   )
 }
 

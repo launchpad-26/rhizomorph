@@ -82,6 +82,30 @@ export interface CollectorFeedEntry extends FeedEntryBase {
 export type FeedEntry = CommitFeedEntry | LandingFeedEntry | LaneFeedEntry | CollectorFeedEntry
 
 /**
+ * Everything about an entry a session search may match on (prd-31 ruling 4,
+ * #559) — every word the row actually renders, and nothing it does not.
+ *
+ * Written here beside the shapes rather than in the search module, for the
+ * reason the whole feature is client-side in the first place: a row that grows
+ * a field is a row whose search haystack has to grow with it, and the only
+ * place that stays true by construction is next to the type. Matching on a
+ * fact the reader cannot see would be worse than not matching at all — the
+ * hidden count would be unexplainable from the screen.
+ */
+export function feedEntryText(entry: FeedEntry): string {
+  switch (entry.kind) {
+    case 'commit':
+      return [entry.commit.message, ...entry.commit.branches].join(' ')
+    case 'landing':
+      return [entry.label, entry.branch ?? ''].join(' ')
+    case 'lane':
+      return [entry.handle, entry.status, entry.branch ?? '', entry.detail ?? ''].join(' ')
+    case 'collector':
+      return [entry.collector, entry.state, entry.message ?? ''].join(' ')
+  }
+}
+
+/**
  * branch / worktree path / handle → the `Lane.id` `buildFleet` resolved it to.
  * Built once from the one derived fleet object so the feed's lane filter
  * points at exactly the lane the fleet table and the scene would highlight —

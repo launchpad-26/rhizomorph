@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSelection } from '../fleet/index.js'
 import {
   fallbackRecord,
+  readChoice,
   readFlag,
   readRecordOverlay,
   subscribeToPreferences,
@@ -30,6 +31,7 @@ import {
  */
 const PANELS_COLLAPSED = 'appearance.panelsCollapsed'
 const HIDE_FINISHED = 'appearance.hideFinished'
+const DOCK_TAB = 'appearance.dockTab'
 
 /**
  * Deliberate product ruling (prd1 UI section, unchanged by prd3): collisions
@@ -43,22 +45,19 @@ const HIDE_FINISHED = 'appearance.hideFinished'
  * have changed *from*), and this paragraph stays here, where the panels are
  * named, because the ruling is about these panels rather than about storage.
  *
- * prd3 note: the ids here are the *panel* ids registered in `PanelGrid`
- * (`fleet`, `ledger`, `collisions`, `feed`, and — since prd4 ruling 2 —
- * `scene`, whose own collapse toggle in `SceneSlot` was reconciled onto this
- * same store rather than keeping its own unpersisted state). The attention
- * and burn strips are deliberately absent — ruling 5 makes the strip
- * always-present, so it has no collapse state to persist, and neither has the
- * burn strip docked with it.
+ * prd3 note: the ids here are the *panel* ids registered in `PanelGrid`, and
+ * since #552 there are exactly two of them — `fleet` and `dock`. `scene` left
+ * when the scene became a representation of the fleet surface rather than a
+ * panel (#555, which also retired `app/SceneSlot.tsx` and its own collapse
+ * toggle); `ledger`, `collisions` and `feed` left when they became tabs of the
+ * dock, and a tab is never hidden (prd-32 S3). The attention and burn strips
+ * are deliberately absent — ruling 5 makes the strip always-present, so it has
+ * no collapse state to persist, and neither has the burn strip docked with it.
  *
- * prd9 legibility round: `feed` defaults collapsed, the opposite of every
- * other panel's default. It is a stream of history, never the day's own
- * failure mode the way collisions is, so a header-and-latest-line peek costs
- * an operator nothing they need at a glance — and the row it used to take at
- * full height was some of the "crowded" the operator's ruling names. Unlike
- * every other panel here, `feed`'s own collapsed reading isn't just "gone":
- * see `PanelFrame`'s controlled-collapse mode and `panels/feed/index.tsx`'s
- * own peek render.
+ * prd9's `feed`-defaults-collapsed exception went with the feed's panelhood:
+ * see `panels/feed/index.tsx` for what answers the question its peek answered.
+ * `appearance.panelsCollapsed`'s declared default is empty as a result, so
+ * every panel that still HAS a collapse starts open.
  */
 function defaultCollapsed(id: string): boolean {
   return fallbackRecord(PANELS_COLLAPSED)[id] ?? false
@@ -79,6 +78,36 @@ export function usePanelCollapsed(id: string): [boolean, (next: boolean | ((prev
     () => isPanelCollapsed(id),
     (resolved) => setPanelCollapsed(id, resolved),
   )
+}
+
+// ── the dock's own tab (prd-32 ruling 5 / S3, #552) ─────────────────────────
+
+/**
+ * WHICH DOCK TAB IS SHOWING, remembered **per repo**.
+ *
+ * S3 is explicit that this is repo-scoped and not machine-scoped, and the
+ * "what would make it wrong" list names global storage by name. The reason is
+ * the same one ruling 3 gives panel collapse: which analytical surface you keep
+ * open is a fact about the work in front of you. A repo you are reviewing spend
+ * on is not the repo you are watching collisions on, and a tab that followed
+ * you between them would be an instrument quietly answering the wrong question.
+ *
+ * Read through `settings/registry.ts` like everything else — this module names
+ * no storage key of its own (`settings/coverage-law.test.tsx` sweeps the whole
+ * package to prove it), and an id the registry does not accept reads as unset
+ * rather than throwing, so a retired tab cannot make the dock unopenable.
+ */
+export function useDockTab(): [string, (next: string) => void] {
+  const [value, setValue] = useState(() => readChoice(DOCK_TAB))
+
+  useEffect(() => subscribeToPreferences(() => setValue(readChoice(DOCK_TAB))), [])
+
+  const set = useCallback((next: string) => {
+    setValue(next)
+    writePreference(DOCK_TAB, next)
+  }, [])
+
+  return [value, set]
 }
 
 // ── the scene's own prefs ────────────────────────────────────────────────────
@@ -198,14 +227,23 @@ export interface PanelFocusHandle {
  * one of these.
  */
 /**
- * FOCUS TRACE's own trigger (prd9 B1a): the drawer's `FOCUS ↗` affordance and
- * the panel it focuses are siblings under `Shell`, not parent/child, so there
- * is no prop path between "the button was clicked" and "this panel's own
- * `usePanelFocus` should flip on". This is that path — a request by panel id,
- * heard by whichever `usePanelFocus` owner is listening for it — rather than
- * a second, competing focus mechanism. Deliberately not persisted (unlike the
- * stores above): a reload must land back on the curated order, same as every
- * other focus, never mid-request.
+ * FOCUS BY PANEL ID: a request for a panel's frame to focus itself, made from
+ * somewhere that is its sibling rather than its parent.
+ *
+ * prd9 B1a introduced it for FOCUS TRACE — the drawer's `FOCUS ↗` and the panel
+ * it focused were siblings under `Shell`, so there was no prop path between "the
+ * button was clicked" and "that panel's own `usePanelFocus` should flip on".
+ * prd-36 ruling 2 cut FOCUS TRACE (#562) and the `'trace'` id with it; the
+ * mechanism stays because the same shape has a second, better-founded caller:
+ * the fleet table's `f` verb (prd5 ruling 1+6) lives *inside* the panel whose
+ * frame it wants to focus, and before #562 it answered by drawing a competing
+ * `fixed inset-0` of its own — a full-view table inside a frame that did not
+ * know it was focused, invisible to `PanelGrid`'s one-panel-at-a-time
+ * invariant. `PanelFrame` now hears the request for its own id, so there is one
+ * focus mechanism rather than two that agree by luck.
+ *
+ * Deliberately not persisted (unlike the stores above): a reload must land back
+ * on the curated order, same as every other focus, never mid-request.
  */
 const focusRequestListeners = new Map<string, Set<() => void>>()
 

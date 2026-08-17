@@ -8,7 +8,7 @@ import {
 } from '@rhizomorph/core'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ModeProvider, useReplay } from '../../app/ModeContext.js'
-import { useFocusRequest } from '../../app/panelPrefs.js'
+import { requestPanelFocus } from '../../app/panelPrefs.js'
 import { StreamProvider } from '../../app/StreamContext.js'
 import { FleetProvider } from '../../fleet/FleetContext.js'
 import type { FetchLike } from '../../fleet/manifest.js'
@@ -41,12 +41,6 @@ class FakeEventSource implements EventSourceLike {
 /** Matches the moment `core`'s own spend fixtures were authored against. */
 const NOW = FIXTURE_START_TS + 10 * 60_000
 
-/** Test-only witness for the exemplar jump's `requestPanelFocus` call — the same `useFocusRequest` `PanelGrid` uses. */
-function FocusListener({ id, onRequest }: { id: string; onRequest: () => void }) {
-  useFocusRequest(id, onRequest)
-  return null
-}
-
 /** Test-only witness for the exemplar jump's `select` call. */
 function SelectionProbe() {
   const { selectedId } = useSelection()
@@ -78,7 +72,7 @@ async function renderPanel(events: readonly unknown[] = [], open = true) {
 }
 
 describe('LedgerPanel', () => {
-  it('renders a header and a waiting state before any connection or data', () => {
+  it('renders a waiting state before any connection or data — and no heading of its own (#552)', () => {
     render(
       <StreamProvider url="/api/stream" createSource={() => new FakeEventSource()}>
         <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
@@ -88,7 +82,9 @@ describe('LedgerPanel', () => {
         </FleetProvider>
       </StreamProvider>,
     )
-    expect(screen.getByText('Ledger')).toBeInTheDocument()
+    // The dock's tab strip names this surface (SPEND); a second name inside it
+    // would be the duplication prd-32 ruling 5 removed.
+    expect(screen.queryByText('Ledger')).not.toBeInTheDocument()
     expect(screen.getByText('Waiting for the stream…')).toBeInTheDocument()
   })
 
@@ -458,7 +454,7 @@ describe('LedgerPanel — the exemplar jump (issue #159)', () => {
     expect(within(row).queryByTestId('ledger-exemplar-jump')).toBeNull()
   })
 
-  it('selects the lane and opens the trace focus request for a branch with spans behind it', async () => {
+  it('selects the lane and navigates to its run view, where the trace now lives (#562)', async () => {
     const branch = '82-exemplar'
     const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'exemplar' })
     f.sessionStarted()
@@ -468,7 +464,6 @@ describe('LedgerPanel — the exemplar jump (issue #159)', () => {
       tokens: { input: 5, output: 200, cacheRead: 0, cacheCreation: 0 },
     })
 
-    let requested = false
     let source: FakeEventSource | undefined
     render(
       <StreamProvider
@@ -480,7 +475,6 @@ describe('LedgerPanel — the exemplar jump (issue #159)', () => {
       >
         <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
           <SelectionProvider>
-            <FocusListener id="trace" onRequest={() => { requested = true }} />
             <SelectionProbe />
             <LedgerPanel now={NOW} />
           </SelectionProvider>
@@ -496,10 +490,22 @@ describe('LedgerPanel — the exemplar jump (issue #159)', () => {
     const jump = within(row).getByTestId('ledger-exemplar-jump')
     expect(jump.title).toContain(formatTokens(205))
 
-    fireEvent.click(jump)
+    // prd-36 ruling 2 cut FOCUS TRACE, so this jump follows the trace to the
+    // surface that kept it. The selection is still written first, so the fleet
+    // behind the navigation agrees about which lane was opened.
+    try {
+      fireEvent.click(jump)
 
-    expect(requested).toBe(true)
-    expect(screen.getByTestId('selection-probe').textContent).toBe(branch)
+      expect(window.location.pathname).toBe(`/lane/${branch}`)
+      expect(screen.getByTestId('selection-probe').textContent).toBe(branch)
+
+      // …and the channel it used to call has nothing listening for `trace`
+      // any more — a request for it reaches nobody rather than silently
+      // focusing something else.
+      expect(() => requestPanelFocus('trace')).not.toThrow()
+    } finally {
+      window.history.replaceState(null, '', '/')
+    }
   })
 })
 

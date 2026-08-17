@@ -341,7 +341,14 @@ describe('the registry is not optional', () => {
   })
 
   it('declares exactly the instances that exist, each with two representations', () => {
-    expect(REPRESENTATION_INSTANCES.map((instance) => instance.surface)).toEqual(['fleet'])
+    // prd-36 S3 names three — fleet, trace and history — and this registry is
+    // of what is IMPLEMENTED, so it grows one row per commit that builds one.
+    // `history` joined in #558 (prd-31 ruling 8's two axes); `trace` is still
+    // absent because the trace's tree⇄gantt toggle lives in
+    // `lane-page/TraceColumn.tsx` and has not been moved onto this component
+    // yet — listing it here before then would be an enumeration that cannot
+    // check anything about it.
+    expect(REPRESENTATION_INSTANCES.map((instance) => instance.surface)).toEqual(['fleet', 'history'])
     for (const instance of REPRESENTATION_INSTANCES) {
       expect(instance.representations).toHaveLength(2)
       expect(instance.keystroke).toMatch(/^[a-z]$/)

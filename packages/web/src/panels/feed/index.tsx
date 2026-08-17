@@ -3,12 +3,15 @@ import type { AgentStatus } from '@rhizomorph/core'
 import { useStream } from '../../app/StreamContext.js'
 import { NEWS_GRACE_MS } from '../../app/streamState.js'
 import { useFleet, useSelection } from '../../fleet/index.js'
+import { HiddenNotice } from '../search/HiddenNotice.js'
+import { filterByQuery, useSessionQuery } from '../search/session.js'
 import {
   FEED_KINDS,
   FEED_KIND_LABEL,
   FEED_LIMIT,
   buildFeedEntries,
   buildLaneIndex,
+  feedEntryText,
   filterFeedEntries,
   type CollectorFeedEntry,
   type CommitFeedEntry,
@@ -20,24 +23,28 @@ import {
 import { formatClock, formatDiffStat } from './format.js'
 import './feed.css'
 
-export interface ActivityFeedProps {
-  /**
-   * Header + latest line only, no list, no filters — `PanelFrame`'s
-   * controlled-collapse peek (prd9 legibility round: the feed defaults
-   * collapsed, unlike every other panel, so it still has to say *something*
-   * rather than vanish). Defaults open, so every stand-alone render (every
-   * test in this file among them) is unaffected.
-   */
-  collapsed?: boolean
-}
-
 /**
  * THE ACTIVITY FEED (ruling 15) — one quiet, filterable feed: commits,
  * landings, lane starts and stops, collector events. The commit ticker's one
  * kind grows into these four, filterable by kind and by the keystone's one
  * lane selection.
+ *
+ * **The collapsed peek is gone (#552).** It existed for one reason: prd9's
+ * legibility round made this the only panel that defaulted *collapsed*, and a
+ * panel that defaults collapsed still has to say something rather than vanish,
+ * so `PanelFrame`'s controlled-collapse mode kept it mounted to draw a
+ * header-and-latest-line reading. prd-32 ruling 5 removes the premise — the
+ * feed is a tab of the dock now, and **a tab is never hidden** (S3 forbids a
+ * hidden empty tab outright). There is no collapsed state left for a peek to
+ * be the reading of, and keeping the branch would have left a mode nothing can
+ * reach. What the peek was *for* — "what just happened, at a glance, without
+ * opening this" — is answered above the fold by the attention strip and the
+ * scene, which is where prd-13 ruling 3 already put it.
+ *
+ * No frame and no heading of its own either: the dock draws the border and its
+ * tab strip names this surface.
  */
-export default function ActivityFeed({ collapsed = false }: ActivityFeedProps = {}) {
+export default function ActivityFeed() {
   const { state, status } = useStream()
   const fleet = useFleet()
   const { selectedId, clear } = useSelection()
@@ -57,27 +64,22 @@ export default function ActivityFeed({ collapsed = false }: ActivityFeedProps = 
   /** Same signal StatusBar/ConnectionBadge read, plus proof at least one event has folded. */
   const connected = status === 'open' && state.events.length > 0
 
-  if (collapsed) {
-    // The true latest entry, unfiltered — a peek answers "what just
-    // happened", not "what does the current filter show".
-    const latest = allEntries[0] ?? null
-    return (
-      <section className="flex flex-col gap-1.5 rounded-lg border border-ice-850 bg-ice-950 p-4" data-panel="feed">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-ice-400">Activity</h2>
-        {latest === null ? (
-          <p className="text-sm text-ice-400">
-            {connected ? 'No activity yet this session.' : 'Waiting for the stream…'}
-          </p>
-        ) : (
-          <div className="figures text-xs" data-testid="feed-entry" data-kind={latest.kind}>
-            <FeedRow entry={latest} />
-          </div>
-        )}
-      </section>
-    )
-  }
-
-  const entries = filterFeedEntries(allEntries, activeKinds, selectedId).slice(0, FEED_LIMIT)
+  /**
+   * THE SESSION SEARCH (prd-31 ruling 4 / S3, #559), applied AFTER this panel's
+   * own kind and lane filters and BEFORE `FEED_LIMIT`.
+   *
+   * The order is the whole correctness of the count. Searching after the cap
+   * would search the first `FEED_LIMIT` rows and report a hidden count computed
+   * from a window the reader never chose — a filtered view lying about what it
+   * hid, which is the exact failure ruling 4's declaration exists to prevent.
+   */
+  const query = useSessionQuery()
+  const search = filterByQuery(
+    filterFeedEntries(allEntries, activeKinds, selectedId),
+    query,
+    feedEntryText,
+  )
+  const entries = search.shown.slice(0, FEED_LIMIT)
   const filtered = selectedId !== null || activeKinds.size < FEED_KINDS.length
 
   function toggleKind(kind: FeedKind): void {
@@ -92,12 +94,8 @@ export default function ActivityFeed({ collapsed = false }: ActivityFeedProps = 
   }
 
   return (
-    <section
-      className="flex h-full flex-col rounded-lg border border-ice-850 bg-ice-950 p-4"
-      data-panel="feed"
-    >
+    <section className="flex h-full min-h-0 flex-col" data-panel="feed">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-ice-400">Activity</h2>
         <div className="ml-auto flex items-center gap-1.5" role="group" aria-label="Filter by kind">
           {FEED_KINDS.map((kind) => (
             <button
@@ -106,10 +104,10 @@ export default function ActivityFeed({ collapsed = false }: ActivityFeedProps = 
               aria-pressed={activeKinds.has(kind)}
               data-testid={`feed-kind-${kind}`}
               onClick={() => toggleKind(kind)}
-              className={`rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
+              className={`focus-ring rounded border px-1.5 py-0.5 heading tracking-wide ${
                 activeKinds.has(kind)
-                  ? 'border-ice-600 text-ice-200'
-                  : 'border-ice-800 text-ice-400'
+                  ? 'border-(--ink-dim) text-(--ink-body)'
+                  : 'border-(--line-strong) text-(--ink-dim)'
               }`}
             >
               {FEED_KIND_LABEL[kind]}
@@ -119,14 +117,14 @@ export default function ActivityFeed({ collapsed = false }: ActivityFeedProps = 
       </div>
 
       {selectedId !== null ? (
-        <div className="mt-1.5 flex items-center gap-2 text-[11px] text-ice-400">
+        <div className="mt-1.5 flex items-center gap-2 text-inst text-(--ink-dim)">
           <span>
-            lane <span className="figures text-ice-300">{selectedId}</span>
+            lane <span className="figures text-(--ink-body)">{selectedId}</span>
           </span>
           <button
             type="button"
             data-testid="feed-clear-lane"
-            className="text-ice-400 hover:text-ice-300 hover:underline"
+            className="focus-ring rounded text-(--ink-dim) hover:text-(--ink-body) hover:underline"
             onClick={clear}
           >
             clear
@@ -134,14 +132,27 @@ export default function ActivityFeed({ collapsed = false }: ActivityFeedProps = 
         </div>
       ) : null}
 
+      <HiddenNotice
+        result={search}
+        noun="events"
+        query={query}
+        shown={search.shown.length}
+        surface="feed"
+      />
+
       {entries.length === 0 && !connected ? (
-        <p className="mt-2 text-sm text-ice-400">Waiting for the stream…</p>
+        <p className="mt-2 text-read-body text-(--ink-dim)">Waiting for the stream…</p>
+      ) : entries.length === 0 && search.filtering ? (
+        // The search's own *no matches* line is already above, and it says what
+        // was searched and where. A second empty state under it would be two
+        // sentences for one absence.
+        null
       ) : entries.length === 0 ? (
-        <p className="mt-2 text-sm text-ice-300" role="status">
+        <p className="mt-2 text-read-body text-(--ink-body)" role="status">
           {filtered ? 'Nothing matches this filter.' : 'No activity yet this session.'}
         </p>
       ) : (
-        <ol className="mt-2 flex-1 space-y-1.5 overflow-auto figures text-xs [scrollbar-gutter:stable]">
+        <ol className="mt-2 min-h-0 flex-1 space-y-1.5 overflow-auto figures text-inst [scrollbar-gutter:stable]">
           {entries.map((entry) => (
             <li
               key={entry.id}
@@ -172,12 +183,12 @@ function FeedRow({ entry }: { entry: FeedEntry }): ReactElement {
 }
 
 function Clock({ ts }: { ts: number }): ReactElement {
-  return <span className="shrink-0 text-ice-400">{formatClock(ts)}</span>
+  return <span className="shrink-0 text-(--ink-dim)">{formatClock(ts)}</span>
 }
 
 function KindTag({ children }: { children: ReactNode }): ReactElement {
   return (
-    <span className="shrink-0 rounded border border-ice-700 px-1 uppercase text-ice-400">
+    <span className="shrink-0 rounded border border-(--line-strong) px-1 uppercase text-(--ink-dim)">
       {children}
     </span>
   )
@@ -189,12 +200,12 @@ function CommitRow({ entry }: { entry: CommitFeedEntry }): ReactElement {
     <div className="flex items-start gap-2">
       <Clock ts={entry.ts} />
       {commit.branches.map((branch) => (
-        <span key={branch} className="shrink-0 rounded border border-ice-600 px-1 text-ice-200">
+        <span key={branch} className="shrink-0 rounded border border-(--ink-dim) px-1 text-(--ink-body)">
           {branch}
         </span>
       ))}
-      <span className="min-w-0 flex-1 truncate text-ice-300">{commit.message}</span>
-      <span className="shrink-0 text-ice-400">{formatDiffStat(commit)}</span>
+      <span className="min-w-0 flex-1 truncate text-(--ink-body)">{commit.message}</span>
+      <span className="shrink-0 text-(--ink-dim)">{formatDiffStat(commit)}</span>
     </div>
   )
 }
@@ -204,7 +215,7 @@ function LandingRow({ entry }: { entry: LandingFeedEntry }): ReactElement {
     <div className="flex items-start gap-2">
       <Clock ts={entry.ts} />
       <KindTag>landed</KindTag>
-      <span className="min-w-0 flex-1 truncate text-ice-300">{entry.label}</span>
+      <span className="min-w-0 flex-1 truncate text-(--ink-body)">{entry.label}</span>
     </div>
   )
 }
@@ -220,7 +231,7 @@ function LaneRow({ entry }: { entry: LaneFeedEntry }): ReactElement {
     <div className="flex items-start gap-2">
       <Clock ts={entry.ts} />
       <KindTag>{AGENT_STATUS_LABEL[entry.status]}</KindTag>
-      <span className="min-w-0 flex-1 truncate text-ice-300">
+      <span className="min-w-0 flex-1 truncate text-(--ink-body)">
         {entry.handle}
         {entry.branch !== null && entry.branch !== entry.handle ? ` · ${entry.branch}` : ''}
         {entry.detail !== null ? ` — ${entry.detail}` : ''}
@@ -234,7 +245,7 @@ function CollectorRow({ entry }: { entry: CollectorFeedEntry }): ReactElement {
     <div className="flex items-start gap-2">
       <Clock ts={entry.ts} />
       <KindTag>{entry.state}</KindTag>
-      <span className="min-w-0 flex-1 truncate text-ice-300">
+      <span className="min-w-0 flex-1 truncate text-(--ink-body)">
         {entry.collector}
         {entry.message !== null ? ` — ${entry.message}` : ''}
       </span>

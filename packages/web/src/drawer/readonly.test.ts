@@ -55,7 +55,18 @@ import { extractImportSpecifiers } from '../test/import-specifiers.js'
 const DRAWER_DIR = path.dirname(fileURLToPath(import.meta.url))
 const WEB_SRC = path.resolve(DRAWER_DIR, '..')
 
-/** Surfaces the drawer hosts and renders as its own tabs — governed exactly like drawer/ itself, not merely allowlisted. */
+/**
+ * Surfaces governed exactly like `drawer/` itself, not merely allowlisted.
+ *
+ * `why/` joined this list because `index.tsx` rendered it as the drawer's WHY
+ * tab. prd-36 ruling 2 cut the tabs (#562) and the WHY surface moved to the run
+ * view with them — and it stays here anyway, deliberately. The reason for
+ * walking it was never "the drawer imports it": it was that a POST added in
+ * `why/` would otherwise pass every check below in total silence, and that is
+ * exactly as true of a `why/` the run view renders. Dropping the entry would
+ * un-govern the directory as a side effect of a UI change, which is how a
+ * constitution quietly stops applying to somewhere.
+ */
 const DRAWER_SURFACES: readonly string[] = ['why/']
 
 /**
@@ -65,14 +76,7 @@ const DRAWER_SURFACES: readonly string[] = ['why/']
  * `../fleet/index.js` and a same-target `../fleet/index.ts` normalise the
  * same way when checked below.
  */
-const CONSUMED: readonly string[] = [
-  'app/panelPrefs',
-  'app/router',
-  'app/StreamContext',
-  'fleet/index',
-  'fleet/manifest',
-  'trace/model',
-]
+const CONSUMED: readonly string[] = ['app/router', 'app/StreamContext', 'fleet/index']
 
 /**
  * Recursive walk (the `visit()` shape `replay/mutating-calls-law.test.ts`
@@ -159,10 +163,11 @@ function leavingImportsIn(text: string): string[] {
 
 describe('the drawer sends only GETs', () => {
   it('has source files to check at all, drawer/ AND every declared surface — an empty grep proves nothing', () => {
-    // 13 real files as of the 2026-08-08 audit (10 in drawer/, 3 in why/) —
-    // pinned to today's count, not a loose lower bound, so a surface quietly
-    // dropping out of the walk fails loudly here too.
-    expect(sourceFiles().length).toBeGreaterThanOrEqual(13)
+    // 11 real files after #562 (8 in drawer/, 3 in why/): the peek retired
+    // `Tabs.tsx` and `Trace.tsx` outright, so this pin comes DOWN by two — with
+    // the count still exact-ish rather than a loose lower bound, so a surface
+    // quietly dropping out of the walk fails loudly here too.
+    expect(sourceFiles().length).toBeGreaterThanOrEqual(11)
   })
 
   it('the walk actually reaches the WHY surface, not just drawer/ itself', () => {

@@ -10,7 +10,7 @@ import { SettleRegistry } from './settle.js'
 
 /**
  * THE SCENE — a mycelium pulse-network in the ice-neon register, mounted by the
- * shell's lazy slot behind its error boundary (`app/SceneSlot.tsx`).
+ * fleet surface's lazy arm behind its error boundary (`fleet/FleetSurface.tsx`).
  *
  * This file is the wiring and nothing else. It reads the two things every prd3
  * surface reads — the derived fleet and the shared selection (which since prd6
