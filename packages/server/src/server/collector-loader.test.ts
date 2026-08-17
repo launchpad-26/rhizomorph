@@ -229,6 +229,216 @@ describe('loadCollectors — branch reconciliation (#449)', () => {
   })
 })
 
+describe('loadCollectors — dirty-status reconciliation (#536)', () => {
+  it('emits worktree.dirtyStatusRecovered for a folded open incident when the first live poll after resume is healthy', async () => {
+    const nextId = createIdFactory('evt')
+    const MAIN_HEAD = '1111111111111111111111111111111111111111'
+    const priorEvents = [
+      createEvent(
+        'worktree.discovered',
+        {
+          path: '/repo',
+          branch: 'main',
+          head: MAIN_HEAD,
+          isMain: true,
+          detached: false,
+          locked: false,
+          prunable: false,
+        },
+        { id: nextId(), ts: 1000 },
+      ),
+      createEvent(
+        'worktree.dirtyStatusFailed',
+        { worktreePath: '/repo', consecutiveFailures: 4, message: 'git status --porcelain failed' },
+        { id: nextId(), ts: 1500 },
+      ),
+    ]
+    const foldedBefore = reduceAll(priorEvents)
+    expect(foldedBefore.worktrees['/repo']?.dirtyStatusFailedSince).toBe(1500)
+
+    const collectors = await loadCollectors({ warn: () => {} }, priorEvents)
+    const git = collectors.find((c) => c.name === 'git')
+    if (!git) throw new Error('git collector missing')
+
+    const worktreeList: ExecResult = {
+      stdout: `worktree /repo\nHEAD ${MAIN_HEAD}\nbranch refs/heads/main\n`,
+      stderr: '',
+      code: 0,
+      failed: false,
+    }
+    const refs: ExecResult = { stdout: `main ${MAIN_HEAD}\n`, stderr: '', code: 0, failed: false }
+    const status: ExecResult = { stdout: '', stderr: '', code: 0, failed: false }
+    const exec: Exec = async (_command, args) => {
+      if (args[0] === 'worktree') return worktreeList
+      if (args[0] === 'for-each-ref') return refs
+      return status
+    }
+
+    function context(now: number): CollectorContext {
+      return {
+        repoPath: '/repo',
+        now,
+        exec,
+        nextId,
+        emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: now }),
+      }
+    }
+
+    const first = await git.poll(git.initialSnapshot(), context(2000))
+
+    expect(first.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'worktree.dirtyStatusRecovered', payload: { worktreePath: '/repo' } }),
+      ]),
+    )
+
+    const foldedAfter = reduceAll([...priorEvents, ...first.events])
+    expect(foldedAfter.worktrees['/repo']?.dirtyStatusFailedSince).toBeNull()
+
+    // Repetition: the wiring inherits the wrapper's one-shot latch.
+    const second = await git.poll(first.nextSnapshot, context(3000))
+    expect(second.events.filter((event) => event.type === 'worktree.dirtyStatusRecovered')).toHaveLength(0)
+  })
+
+  it('leaves a still-failing worktree open — not spuriously recovered', async () => {
+    const nextId = createIdFactory('evt')
+    const MAIN_HEAD = '1111111111111111111111111111111111111111'
+    const priorEvents = [
+      createEvent(
+        'worktree.discovered',
+        {
+          path: '/repo',
+          branch: 'main',
+          head: MAIN_HEAD,
+          isMain: true,
+          detached: false,
+          locked: false,
+          prunable: false,
+        },
+        { id: nextId(), ts: 1000 },
+      ),
+      createEvent(
+        'worktree.dirtyStatusFailed',
+        { worktreePath: '/repo', consecutiveFailures: 4, message: 'git status --porcelain failed' },
+        { id: nextId(), ts: 1500 },
+      ),
+    ]
+    const foldedBefore = reduceAll(priorEvents)
+    expect(foldedBefore.worktrees['/repo']?.dirtyStatusFailedSince).toBe(1500)
+
+    const collectors = await loadCollectors({ warn: () => {} }, priorEvents)
+    const git = collectors.find((c) => c.name === 'git')
+    if (!git) throw new Error('git collector missing')
+
+    const worktreeList: ExecResult = {
+      stdout: `worktree /repo\nHEAD ${MAIN_HEAD}\nbranch refs/heads/main\n`,
+      stderr: '',
+      code: 0,
+      failed: false,
+    }
+    const refs: ExecResult = { stdout: `main ${MAIN_HEAD}\n`, stderr: '', code: 0, failed: false }
+    const failingStatus: ExecResult = { stdout: '', stderr: 'fatal: unable to read index', code: 128, failed: true }
+    const exec: Exec = async (_command, args) => {
+      if (args[0] === 'worktree') return worktreeList
+      if (args[0] === 'for-each-ref') return refs
+      return failingStatus
+    }
+
+    function context(now: number): CollectorContext {
+      return {
+        repoPath: '/repo',
+        now,
+        exec,
+        nextId,
+        emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: now }),
+      }
+    }
+
+    const first = await git.poll(git.initialSnapshot(), context(2000))
+
+    expect(first.events.some((event) => event.type === 'worktree.dirtyStatusRecovered')).toBe(false)
+
+    const foldedAfter = reduceAll([...priorEvents, ...first.events])
+    expect(foldedAfter.worktrees['/repo']?.dirtyStatusFailedSince).not.toBeNull()
+  })
+
+  // #536 Finding A: the case the old boolean latch could not survive. Poll 1
+  // hits a per-path status failure (no collector.disabled) and must not spend
+  // the wrapper's only shot; poll 2 comes back clean and closes the incident.
+  it('stays pending through a per-path failure with no collector.disabled and closes on the next healthy poll', async () => {
+    const nextId = createIdFactory('evt')
+    const MAIN_HEAD = '1111111111111111111111111111111111111111'
+    const priorEvents = [
+      createEvent(
+        'worktree.discovered',
+        {
+          path: '/repo',
+          branch: 'main',
+          head: MAIN_HEAD,
+          isMain: true,
+          detached: false,
+          locked: false,
+          prunable: false,
+        },
+        { id: nextId(), ts: 1000 },
+      ),
+      createEvent(
+        'worktree.dirtyStatusFailed',
+        { worktreePath: '/repo', consecutiveFailures: 4, message: 'git status --porcelain failed' },
+        { id: nextId(), ts: 1500 },
+      ),
+    ]
+    const foldedBefore = reduceAll(priorEvents)
+    expect(foldedBefore.worktrees['/repo']?.dirtyStatusFailedSince).toBe(1500)
+
+    const collectors = await loadCollectors({ warn: () => {} }, priorEvents)
+    const git = collectors.find((c) => c.name === 'git')
+    if (!git) throw new Error('git collector missing')
+
+    const worktreeList: ExecResult = {
+      stdout: `worktree /repo\nHEAD ${MAIN_HEAD}\nbranch refs/heads/main\n`,
+      stderr: '',
+      code: 0,
+      failed: false,
+    }
+    const refs: ExecResult = { stdout: `main ${MAIN_HEAD}\n`, stderr: '', code: 0, failed: false }
+    const failingStatus: ExecResult = { stdout: '', stderr: 'fatal: unable to read index', code: 128, failed: true }
+    const healthyStatus: ExecResult = { stdout: '', stderr: '', code: 0, failed: false }
+
+    let statusCalls = 0
+    const exec: Exec = async (_command, args) => {
+      if (args[0] === 'worktree') return worktreeList
+      if (args[0] === 'for-each-ref') return refs
+      statusCalls += 1
+      return statusCalls === 1 ? failingStatus : healthyStatus
+    }
+
+    function context(now: number): CollectorContext {
+      return {
+        repoPath: '/repo',
+        now,
+        exec,
+        nextId,
+        emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: now }),
+      }
+    }
+
+    const first = await git.poll(git.initialSnapshot(), context(2000))
+    expect(first.events.some((event) => event.type === 'worktree.dirtyStatusRecovered')).toBe(false)
+    expect(first.events.some((event) => event.type === 'collector.disabled')).toBe(false)
+
+    const second = await git.poll(first.nextSnapshot, context(3000))
+    expect(second.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'worktree.dirtyStatusRecovered', payload: { worktreePath: '/repo' } }),
+      ]),
+    )
+
+    const foldedAfter = reduceAll([...priorEvents, ...first.events, ...second.events])
+    expect(foldedAfter.worktrees['/repo']?.dirtyStatusFailedSince).toBeNull()
+  })
+})
+
 describe('loadCollectors — sessionlog (#240)', () => {
   let claudeProjectsRoot: string
 
