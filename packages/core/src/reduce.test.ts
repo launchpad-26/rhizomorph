@@ -122,8 +122,9 @@ describe('reduce — system events', () => {
       lastErrorMessage: 'boom again',
     })
     expect(state.errors).toHaveLength(2)
-    expect(state.errors[0]).toMatchObject({ collector: 'git', message: 'boom', detail: 'exit 128' })
+    expect(state.errors[0]).toMatchObject({ collector: 'git', message: 'boom', detail: 'exit 128', count: 1 })
     expect(state.errors[1]?.detail).toBeNull()
+    expect(state.errors[1]?.count).toBe(1)
   })
 
   it('folds a coalesced count into errorCount, not one per recorded event', () => {
@@ -136,9 +137,24 @@ describe('reduce — system events', () => {
     expect(state.errors).toHaveLength(2)
   })
 
+  it("carries a coalesced event's own count onto its ErrorRecord too — the same fact errorCount folds, one layer up (#588)", () => {
+    // #530 fixed exactly this asymmetry one layer down (errorCount); this
+    // pins that ErrorRecord — the record `state.errors` actually holds, and
+    // what a future reader of that list would render — doesn't repeat it.
+    const state = reduceAll([
+      f.collectorError({ collector: 'otel', message: 'malformed OTLP request body', count: 12 }, { ts: 10 }),
+      f.collectorError({ collector: 'otel', message: 'malformed OTLP request body', count: 5 }, { ts: 20 }),
+    ])
+    expect(state.errors[0]?.count).toBe(12)
+    expect(state.errors[1]?.count).toBe(5)
+    // Mirrors RefusalRecord.count's own shape exactly, not a lookalike field.
+    expect(state.errors[0]).toHaveProperty('count', 12)
+  })
+
   it('keeps counting as one for an emitter that never coalesces and carries no count', () => {
     const state = reduceAll([f.collectorError({ collector: 'git', message: 'boom' }, { ts: 10 })])
     expect(state.collectors['git']?.errorCount).toBe(1)
+    expect(state.errors[0]?.count).toBe(1)
   })
 
   it('caps the error list and keeps the newest', () => {

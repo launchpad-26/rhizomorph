@@ -1,5 +1,5 @@
 import { compareStrings, type CollisionEntry } from '../selectors/index.js'
-import type { SessionState } from '../state.js'
+import type { ErrorRecord, SessionState } from '../state.js'
 import { rankIndex, type LadderRank } from './pathology.js'
 import type { AttentionItem, CalmEvidence, Ladder, Lane } from './types.js'
 
@@ -67,6 +67,16 @@ export function buildLadder(
   // quietly in the provenance bar where nobody is looking.
   for (const collector of Object.values(state.collectors)) {
     if (collector.status !== 'error') continue
+    const message = collector.lastErrorMessage || `${collector.errorCount} errors`
+    // `||`, not `??`: `collectorErrorPayloadSchema.message` is `z.string()`,
+    // not `nonEmptyString` (events/system.ts), so an emitter reporting an
+    // empty message is schema-valid — and `??` would still render it as
+    // literally blank evidence on the one surface prd15 ruling 15 escalates
+    // to. `??` alone was also unreachable: `status: 'error'` is only ever set
+    // by `collectorError`, which always writes a string (#588's own
+    // investigation, executed against the four `CollectorState`
+    // construction sites in reduce.ts).
+    const occurrences = latestErrorFor(state.errors, collector.name)?.count ?? 1
     items.push({
       id: `collector:${collector.name}`,
       laneId: null,
@@ -74,7 +84,10 @@ export function buildLadder(
       kind: 'collector',
       rank: 'notice',
       forMs: collector.lastErrorTs === null ? null : Math.max(0, now - collector.lastErrorTs),
-      evidence: collector.lastErrorMessage ?? `${collector.errorCount} errors`,
+      // Same `(×N)` convention the feed row already uses for a coalesced
+      // collector.error (#530, web/src/panels/feed/feed.ts) — the count
+      // that fault stands for should read the same way wherever it surfaces.
+      evidence: occurrences > 1 ? `${message} (×${occurrences})` : message,
       inferred: false,
     })
   }
@@ -94,6 +107,22 @@ export function buildLadder(
   )
 
   return { rank, items: items as [AttentionItem, ...AttentionItem[]] }
+}
+
+/**
+ * The freshest recorded fault for one collector, or `null` when `state.errors`
+ * holds none (evicted past `MAX_ERRORS`, or none ever recorded — both honest
+ * gaps, never a reason to fabricate a count). `state.errors` is arrival-order
+ * across every collector, not indexed per collector, so this is a linear scan
+ * — cheap against the fixed `MAX_ERRORS` cap, and only ever run for a
+ * collector this poll already found broken.
+ */
+function latestErrorFor(errors: readonly ErrorRecord[], collector: string): ErrorRecord | null {
+  for (let i = errors.length - 1; i >= 0; i -= 1) {
+    const candidate = errors[i]
+    if (candidate !== undefined && candidate.collector === collector) return candidate
+  }
+  return null
 }
 
 /**
