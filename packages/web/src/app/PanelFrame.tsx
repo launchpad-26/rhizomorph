@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { usePanelCollapsed, usePanelFocus } from './panelPrefs.js'
+import { useFocusRequest, usePanelCollapsed, usePanelFocus } from './panelPrefs.js'
 
 export interface PanelFrameProps {
   /** Storage key and aria id root — stable per panel, e.g. `worktrees`. */
@@ -68,8 +68,8 @@ export interface PanelFrameProps {
  * The focused state borrows the pause control's emphasis rather than inventing
  * a second vocabulary for "this control is currently changing what you see".
  */
-const CHROME_BUTTON =
-  'rounded border border-ice-850 border-t-ice-800 bg-ice-950/70 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ice-400 transition-[transform,color,border-color] duration-150 ease-out hover:border-ice-600 hover:text-ice-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600 active:scale-[0.97]'
+export const CHROME_BUTTON =
+  'focus-ring rounded border border-(--line-hair) border-t-(--line-strong) bg-(--surface-panel)/70 px-2 py-0.5 heading tracking-wide text-(--ink-dim) transition-[transform,color,border-color] duration-150 ease-out hover:border-(--ink-dim) hover:text-(--ink-body) active:scale-[0.97]'
 
 export function PanelFrame({
   id,
@@ -82,6 +82,15 @@ export function PanelFrame({
 }: PanelFrameProps) {
   const [internalCollapsed, setInternalCollapsed] = usePanelCollapsed(id)
   const { focused, focus, restore } = usePanelFocus(onFocusChange)
+  // A panel's own surface may ask for its frame's focus by id rather than
+  // growing a second full-view mechanism inside itself — the fleet table's `f`
+  // verb is the one caller (prd5 ruling 1+6). Before #562 the table drew its own
+  // `fixed inset-0` frame on `f`, so a focused table sat inside a *frame that
+  // did not know it was focused*: two headings, two borders, and the grid's own
+  // "one panel at a time" invariant blind to it. This is the same channel the
+  // retired FOCUS TRACE panel used, with the panel that had no home removed and
+  // the ids that do have one kept.
+  useFocusRequest(id, focus)
   const contentId = `panel-frame-${id}-content`
 
   if (hidden) return null
@@ -100,7 +109,7 @@ export function PanelFrame({
     <div
       className={
         focused
-          ? 'fixed inset-0 z-30 flex flex-col overflow-auto bg-ice-1000 p-4 [scrollbar-gutter:stable]'
+          ? 'fixed inset-0 z-30 flex flex-col overflow-auto bg-(--surface-floor) p-4 [scrollbar-gutter:stable]'
           : collapsed
             ? 'flex flex-col self-start'
             : 'flex h-full flex-col'

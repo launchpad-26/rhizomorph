@@ -41,12 +41,12 @@ export function stateSigilKind(lane: Lane): SigilKind {
 
 /**
  * The class the STATE column wears for an operator-parked lane (prd4 ruling
- * 5). Same floor ink as idle (`ice-400` — prd9's legibility floor forbids a
+ * 5). Same floor ink as idle (`--ink-dim` — prd9's legibility floor forbids a
  * dimmer one), so "more stood-down than a lane that merely went quiet" is now
  * carried by style, not luminance: italic reads as an aside the way it does in
  * prose, the way idle's own plain ink does not.
  */
-export const PARKED_TEXT_CLASS = 'text-ice-400 italic'
+export const PARKED_TEXT_CLASS = 'text-(--ink-dim) italic'
 
 /**
  * TERMINAL-DONE's own title (issue #226) — distinct from a lane that declared

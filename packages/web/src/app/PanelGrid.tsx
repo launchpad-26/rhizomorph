@@ -1,9 +1,8 @@
 import { lazy, Suspense, useState, type MouseEvent } from 'react'
 import { FleetSurface } from '../fleet/FleetSurface.js'
 import { useFleet } from '../fleet/index.js'
-import { ErrorBoundary } from './ErrorBoundary.js'
 import { PanelFrame } from './PanelFrame.js'
-import { useFocusRequest, usePanelCollapsed, usePanelFocus } from './panelPrefs.js'
+import { usePanelCollapsed } from './panelPrefs.js'
 import { navigate } from './router.js'
 import { useStream } from './StreamContext.js'
 
@@ -48,28 +47,24 @@ import { useStream } from './StreamContext.js'
 const LedgerPanel = lazy(() => import('../panels/ledger/index.js'))
 const CollisionsPanel = lazy(() => import('../panels/collisions/index.js'))
 const FeedPanel = lazy(() => import('../panels/feed/index.js'))
-const TraceFocusPanel = lazy(() => import('../trace/FocusPanel.js'))
 
 /**
  * Panel ids, in curated order — what `panelPrefs` persists collapse state for.
  * `scene` is gone from this list because the scene is no longer a panel: it is
  * one of the fleet surface's two representations, and `fleet` is the row that
  * collapses, focuses and persists for both of them.
+ *
+ * `trace` was never in it and is now gone from the file entirely: prd9 B1a's
+ * FOCUS TRACE was a panel with no address, reachable only from the drawer's own
+ * `FOCUS ↗`, rendering a subset of what prd-31's run view shows. prd-36 ruling 2
+ * cut it (#562) — `trace/FocusPanel.tsx` is deleted and `/lane/:handle` is where
+ * a trace is read.
  */
 export const PANEL_IDS = ['fleet', 'ledger', 'collisions', 'feed'] as const
 
-/**
- * prd9 B1a's FOCUS TRACE (prd3 #85's mechanism, one more panel). Not in
- * {@link PANEL_IDS}: that list is specifically the collapse-persistence ids
- * (`usePanelCollapsed`), and trace has no collapsed state to persist — it has
- * no inline presence in the curated order at all, only a focused one, opened
- * from the drawer's own `FOCUS ↗` rather than a button drawn here.
- */
-const TRACE_ID = 'trace'
-
 function PanelFallback() {
   return (
-    <div className="h-full min-h-32 animate-pulse rounded-lg border border-ice-850 bg-ice-950" />
+    <div className="h-full min-h-32 animate-pulse rounded-lg border border-(--line-hair) bg-(--surface-panel)" />
   )
 }
 
@@ -152,10 +147,6 @@ export function PanelGrid() {
           </Suspense>
         </PanelFrame>
       </div>
-
-      {/* No inline slot: focused only, requested from the drawer's TRACE
-          section rather than a button in this grid — see `FocusableTrace`. */}
-      <FocusableTrace hidden={hiddenFor(TRACE_ID)} onFocusChange={onFocusChangeFor(TRACE_ID)} />
     </div>
   )
 }
@@ -164,7 +155,7 @@ export function PanelGrid() {
  * THE BALCONY POINTER (prd19 ruling 1, wave 3, #257) — "one quiet pointer from
  * the empty balcony", the one sentence ruling 1 grants an otherwise
  * panels-only grid. A real `<a href>`, modifier-aware like the drawer's own
- * open-page link (`drawer/index.tsx`'s `OpenPageLink`), so ctrl/cmd/shift/
+ * open-run-view link (`drawer/index.tsx`'s `OpenRunView`), so ctrl/cmd/shift/
  * middle-click still open `/connect` in a new tab and a plain click routes
  * through the same `navigate` the nav strip uses rather than a full reload.
  */
@@ -177,64 +168,15 @@ function BalconyConnectPointer() {
   }
 
   return (
-    <p className="px-1 text-xs text-ice-400">
+    <p className="px-1 text-read-floor text-(--ink-dim)">
       nothing is flowing yet — see{' '}
-      <a href="/connect" onClick={onClick} className="text-ice-300 underline hover:text-ice-100">
+      <a
+        href="/connect"
+        onClick={onClick}
+        className="focus-ring rounded text-(--ink-body) underline hover:text-(--ink-primary)"
+      >
         Connect
       </a>
     </p>
-  )
-}
-
-/**
- * FOCUS TRACE's own chrome (prd3 #85, applied to prd9's gantt). Unlike every
- * other panel here it draws nothing when unfocused — the compact tree already
- * lives in the drawer, so the curated order gains no new row for it — and it
- * is never focused by a button of its own: `useFocusRequest` is what the
- * drawer's `FOCUS ↗` reaches, the same `usePanelFocus` every other panel
- * already answers Esc and "one at a time" through.
- */
-function FocusableTrace({
-  hidden,
-  onFocusChange,
-}: {
-  hidden: boolean
-  onFocusChange: (focused: boolean) => void
-}) {
-  const { focused, focus, restore } = usePanelFocus(onFocusChange)
-  useFocusRequest(TRACE_ID, focus)
-
-  if (hidden || !focused) return null
-
-  return (
-    <div className="fixed inset-0 z-30 flex flex-col bg-ice-1000 p-4">
-      <div className="mb-1 flex items-center justify-between px-1">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-ice-400">Trace</h2>
-        <button
-          type="button"
-          aria-pressed={true}
-          onClick={restore}
-          className="rounded border border-ice-850 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ice-400 hover:border-ice-600 hover:text-ice-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600"
-        >
-          Restore Trace
-        </button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
-        <ErrorBoundary fallback={<TraceErrorFallback />}>
-          <Suspense fallback={<PanelFallback />}>
-            <TraceFocusPanel />
-          </Suspense>
-        </ErrorBoundary>
-      </div>
-    </div>
-  )
-}
-
-/** Law 12's voice even here: what is missing, and what is unaffected by it. */
-function TraceErrorFallback() {
-  return (
-    <div className="flex h-full items-center justify-center px-4 text-center text-xs uppercase tracking-widest text-broken">
-      trace unavailable — other panels are unaffected
-    </div>
   )
 }

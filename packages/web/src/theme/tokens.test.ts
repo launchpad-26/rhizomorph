@@ -218,7 +218,14 @@ describe('the type ramp, in rem, in two registers (S1)', () => {
 // fall in the second half of the sweep. Recomputed from the tree, not
 // subtracted from the diff: the number this line pins has to be the number the
 // walk finds.
-const RAW_PIXEL_SIZES = 85
+//
+// 85 -> 69: prd-36 wave 2/3 (#562). The fleet table, the peek (formerly the
+// four-tab drawer, minus `Tabs.tsx` and `Trace.tsx` outright), `PanelFrame`,
+// `PanelGrid`, `FleetSurface` and the focus-trace panel all went through the
+// ramp as they were restructured — retiring a literal while a file is already
+// open beats a sweep that reopens it later. Recomputed from the tree, not
+// subtracted from the diff.
+const RAW_PIXEL_SIZES = 69
 
 /** Everything the sweeps own: the app, less `lab/` (prd-28's territory). */
 function sweepable(): { name: string; text: string }[] {
@@ -287,7 +294,29 @@ describe('no new pixel literal after the ramp exists (S1)', () => {
 // them on the merge, which is the thing it was built to do; taking the
 // pre-existing 24 in the same commit is what makes light mode real on that
 // surface instead of pending. Recomputed from the tree.
-const ICE_RUNG_SITES = 375
+//
+// 375 -> 285: prd-36 wave 2/3 (#562). Every surface prd-36's waves 2 and
+// 3 rewrote now reaches for a role — `bg-(--surface-panel)`, `text-(--ink-body)`,
+// `border-(--line-hair)` — rather than a rung, so the fleet's own list, the
+// peek and the grid's chrome are lawful in light for the first time. The two
+// deleted files (`drawer/Tabs.tsx`, `drawer/Trace.tsx`, plus
+// `trace/FocusPanel.tsx`) took 12 of these with them; the rest were converted.
+//
+// **285 is neither branch's number.** `settings/` (#574) and this lane's
+// directories are disjoint, so the merged tree is lower than main's 375 AND
+// lower than the 309 this branch pinned before the rebase. Taking either would
+// have pinned the ratchet above the truth and left the difference free to be
+// spent silently — the exact mistake the 227->225 note above records costing
+// this project once, when two branches wrote 226 independently and git merged
+// the agreement with no conflict to notice.
+//
+// The pixel ratchet above is the same hazard wearing the opposite face: main
+// said 85, this branch said 69, and the two lines did not conflict at all, so
+// git simply took one. Both numbers below were therefore RUN rather than
+// reasoned — resolve the conflict, execute the law, write down the figure its
+// own self-correcting message reports. 69 is what the walk finds for pixels on
+// the merged tree, unchanged; 285 is what it finds for rungs.
+const ICE_RUNG_SITES = 285
 
 describe('no consumer names a luminance rung — the colour ratchet (S2)', () => {
   /** The sweep's own files, less the one that defines the ramp being counted. */

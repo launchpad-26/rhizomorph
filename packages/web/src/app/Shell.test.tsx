@@ -230,17 +230,18 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
     expect(screen.queryByTestId('lane-drawer')).toBeNull()
   })
 
-  it('mounts the drawer on the selected lane', async () => {
+  it('mounts the peek on the selected lane', async () => {
     await renderShell(LANE)
 
-    const drawer = screen.getByTestId('lane-drawer')
-    expect(drawer.getAttribute('data-lane')).toBe(LANE)
+    const peek = screen.getByTestId('lane-drawer')
+    expect(peek.getAttribute('data-lane')).toBe(LANE)
+    expect(peek.getAttribute('data-peek')).toBe('true')
     expect(screen.getByTestId('drawer-vitals')).toBeInTheDocument()
-    // #163: one tab body at a time. #164: it opens on ACTIVITY, the tab most
-    // reliably populated for any lane, live or folded — not on CONVERSATION,
-    // which can be a gap voice alone.
-    expect(screen.getByTestId('drawer-tab-activity').getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByTestId('drawer-attach')).toBeInTheDocument()
+    // prd-36 ruling 2 (#562): a peek, not a four-tab reader. No tab bar in the
+    // real shell either — this file mounts the whole app frame, so it is the
+    // place a returning tab would show up first.
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.getByTestId('drawer-open-page')).toBeInTheDocument()
   })
 
   it('keeps the fleet visible beside it — it is a drawer, not a page', async () => {
@@ -335,23 +336,27 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
     }
   })
 
-  it('reads the selected lane\'s conversation once its own tab is picked, and only ever GETs it', async () => {
+  it('issues no transcript request no matter what is clicked inside it (prd-36 S2)', async () => {
+    // The tab that used to fire this request is gone with the tabs, and the
+    // conversation moved to the run view with it. This is the whole-shell half
+    // of `drawer/index.test.tsx`'s own assertion: mounted for real, beside the
+    // real strips and the real status bar, so a transcript read reintroduced
+    // by any of the peek's own children would surface here too.
     const fetchSpy = vi.fn(async (input: string) => ({ ok: false, url: input, json: async () => null }))
     const original = globalThis.fetch
     globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch
     try {
       await renderShell(LANE)
 
-      await act(async () => {
-        fireEvent.click(screen.getByTestId('drawer-tab-conversation'))
-      })
+      for (const node of screen.getByTestId('lane-drawer').querySelectorAll('a, button')) {
+        if (node.getAttribute('data-testid') === 'drawer-open-page') continue
+        if (node.getAttribute('data-testid') === 'drawer-close') continue
+        await act(async () => {
+          fireEvent.click(node)
+        })
+      }
 
-      // #134: the conversation opens at the tail, not offset zero.
-      expect(transcriptCalls(fetchSpy).map((call) => call[0])).toEqual([
-        `/api/transcript/${LANE}?tail=1`,
-      ])
-      // One argument: a URL. No init object means no verb but GET.
-      expect(transcriptCalls(fetchSpy)[0]).toHaveLength(1)
+      expect(transcriptCalls(fetchSpy)).toHaveLength(0)
     } finally {
       globalThis.fetch = original
     }

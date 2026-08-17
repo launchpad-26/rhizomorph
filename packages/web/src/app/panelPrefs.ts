@@ -198,14 +198,23 @@ export interface PanelFocusHandle {
  * one of these.
  */
 /**
- * FOCUS TRACE's own trigger (prd9 B1a): the drawer's `FOCUS ↗` affordance and
- * the panel it focuses are siblings under `Shell`, not parent/child, so there
- * is no prop path between "the button was clicked" and "this panel's own
- * `usePanelFocus` should flip on". This is that path — a request by panel id,
- * heard by whichever `usePanelFocus` owner is listening for it — rather than
- * a second, competing focus mechanism. Deliberately not persisted (unlike the
- * stores above): a reload must land back on the curated order, same as every
- * other focus, never mid-request.
+ * FOCUS BY PANEL ID: a request for a panel's frame to focus itself, made from
+ * somewhere that is its sibling rather than its parent.
+ *
+ * prd9 B1a introduced it for FOCUS TRACE — the drawer's `FOCUS ↗` and the panel
+ * it focused were siblings under `Shell`, so there was no prop path between "the
+ * button was clicked" and "that panel's own `usePanelFocus` should flip on".
+ * prd-36 ruling 2 cut FOCUS TRACE (#562) and the `'trace'` id with it; the
+ * mechanism stays because the same shape has a second, better-founded caller:
+ * the fleet table's `f` verb (prd5 ruling 1+6) lives *inside* the panel whose
+ * frame it wants to focus, and before #562 it answered by drawing a competing
+ * `fixed inset-0` of its own — a full-view table inside a frame that did not
+ * know it was focused, invisible to `PanelGrid`'s one-panel-at-a-time
+ * invariant. `PanelFrame` now hears the request for its own id, so there is one
+ * focus mechanism rather than two that agree by luck.
+ *
+ * Deliberately not persisted (unlike the stores above): a reload must land back
+ * on the curated order, same as every other focus, never mid-request.
  */
 const focusRequestListeners = new Map<string, Set<() => void>>()
 

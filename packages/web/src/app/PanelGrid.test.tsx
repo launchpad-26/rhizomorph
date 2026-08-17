@@ -12,16 +12,11 @@ import { StreamProvider } from './StreamContext.js'
 // panels are mounted, in what order, and whether collapse stays per-panel —
 // rather than about the real panels' internals, which each have their own
 // direct-import test file.
-vi.mock('../panels/fleet/index.js', () => ({ default: () => <h2>Fleet</h2> }))
+vi.mock('../panels/fleet/index.js', () => ({ default: () => <div>Fleet rows</div> }))
 vi.mock('../panels/ledger/index.js', () => ({ default: () => <h2>Ledger</h2> }))
 vi.mock('../panels/collisions/index.js', () => ({ default: () => <h2>Collisions</h2> }))
 vi.mock('../panels/feed/index.js', () => ({ default: () => <h2>Activity</h2> }))
 vi.mock('../scene/index.js', () => ({ default: () => <div>Scene stub</div> }))
-// prd9 B1a: the real content needs `StreamProvider`/`SelectionProvider`, which
-// this file deliberately doesn't wire up (see the comment above) — the grid's
-// own focus chrome (`FocusableTrace`) is what's under test here, not the
-// gantt's real data.
-vi.mock('../trace/FocusPanel.js', () => ({ default: () => <h2>Trace</h2> }))
 
 // Mocking the lazy modules (above) makes their dynamic import() trivial, but
 // it's still a real import() — React.lazy still suspends for at least one
@@ -45,7 +40,6 @@ beforeAll(async () => {
   await import('../panels/collisions/index.js')
   await import('../panels/feed/index.js')
   await import('../scene/index.js')
-  await import('../trace/FocusPanel.js')
 })
 
 beforeEach(() => {
@@ -178,12 +172,15 @@ describe('PanelGrid', () => {
 
     await showFleetList()
 
-    // The stubbed fleet table brings an `<h2>Fleet</h2>` of its own until wave
-    // 2 drops it (see `FleetSurface.tsx`), so the heading list gains one — what
-    // matters here is that no row was added or removed from the curated order.
+    // The list is the same panel, not a second one: #562 dropped the table's
+    // own duplicate `<h2>Fleet</h2>` and its duplicate border now that the
+    // surface carries both, so the curated order reads identically in either
+    // representation — which is what "one surface, two representations" has to
+    // mean structurally rather than by description.
     expect(screen.queryByText('Scene stub')).not.toBeInTheDocument()
+    expect(screen.getByText('Fleet rows')).toBeInTheDocument()
     const headings = [...container.querySelectorAll('h2')].map((node) => node.textContent)
-    expect(headings).toEqual(['Fleet', 'Fleet', 'Ledger', 'Collisions', 'Activity'])
+    expect(headings).toEqual(['Fleet', 'Ledger', 'Collisions', 'Activity'])
   })
 
   it('no longer mounts the panels prd3 dissolved', async () => {
@@ -270,32 +267,35 @@ describe('PanelGrid', () => {
       }
     })
 
-    it('FOCUS TRACE (prd9 B1a): drawn nowhere in the curated order, requested externally, and behaves exactly like every other focus', async () => {
+    it('FOCUS TRACE is gone from the grid entirely (prd-36 ruling 2, #562)', async () => {
       await renderGrid()
 
-      // No inline slot at all — unlike every other panel, trace has nothing to
-      // show until it is focused (the compact tree already lives in the
-      // drawer).
+      // It was a panel with no address: no inline slot, reachable only from the
+      // drawer's own `FOCUS ↗`, rendering a subset of what the run view shows.
+      // prd-36 ruling 2 cut it, so there is no `Trace` heading here in any
+      // state — focused or not — and no `Restore Trace` control to reach.
       expect(screen.queryByText('Trace')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /trace/i })).not.toBeInTheDocument()
 
-      // The drawer's own `FOCUS ↗` button is what calls this in the real app —
-      // this test drives the same request without mounting the drawer.
-      act(() => requestPanelFocus('trace'))
+      // The mutation, run rather than argued: the grid's focus machinery still
+      // works for a panel that has one, so the absence above is the trace
+      // panel's own and not a broken renderer.
+      fireEvent.click(screen.getByRole('button', { name: 'Focus Ledger' }))
+      expect(screen.getByRole('button', { name: 'Restore Ledger' })).toBeInTheDocument()
+    })
+
+    it('a panel’s own surface can ask its frame to focus, by id', async () => {
+      // The channel FOCUS TRACE used, with the id that has no home removed and
+      // the one that does kept: the fleet table's `f` verb calls
+      // `requestPanelFocus('fleet')` rather than drawing a second full-view of
+      // its own inside a frame that does not know it is focused.
+      await renderGrid()
+
+      act(() => requestPanelFocus('fleet'))
       await act(async () => {})
 
-      // Both the focus chrome's own header and the (mocked) gantt content say
-      // "Trace" — two elements, not zero, is the thing under test.
-      expect(screen.getAllByText('Trace')).toHaveLength(2)
-      expect(screen.getByRole('button', { name: 'Restore Trace' })).toBeInTheDocument()
-      expect(screen.queryByText('Fleet')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Restore Fleet' })).toBeInTheDocument()
       expect(screen.queryByText('Ledger')).not.toBeInTheDocument()
-      expect(screen.queryByText('Scene stub')).not.toBeInTheDocument()
-
-      fireEvent.keyDown(window, { key: 'Escape' })
-
-      expect(screen.queryByText('Trace')).not.toBeInTheDocument()
-      expect(screen.getByText('Fleet')).toBeInTheDocument()
-      expect(screen.getByText('Scene stub')).toBeInTheDocument()
     })
   })
 
