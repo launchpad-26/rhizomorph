@@ -33,6 +33,18 @@ import {
  * one. Where even the *executable name* is unverified, detection answers
  * `unknown` rather than inventing a name and reporting a confident `absent`
  * about it.
+ *
+ * ## Declared here is a claim about LAUNCHING, not about being captured (#325)
+ *
+ * This table used to conflate the two for pi: its reason said pi was "captured
+ * nowhere", which stopped being true the moment `collectors/pi/` landed a real
+ * collector (#324/#540/#609) — ruling 6 forbids declaring an *implemented*
+ * harness not-implemented exactly as it forbids the reverse, and a harness can
+ * be genuinely observed while still being genuinely unlaunchable by this hand.
+ * `harness-law.test.ts`'s "a harness cannot be declared-not-implemented for a
+ * fact a merged collector contradicts" law is what keeps this honest going
+ * forward: it fails the moment a `collectors/<id>/capabilities.ts` lands for a
+ * harness whose reason here still claims it is uncaptured.
  */
 
 interface DeclaredHarness {
@@ -75,12 +87,17 @@ const DECLARED: readonly DeclaredHarness[] = [
     // collectors/sessionlog/process-probe.ts lists 'pi' as an agent argv[0].
     command: 'pi',
     reason:
-      'named in prd-15 ruling 3 and listed in the process probe\'s AGENT_COMMANDS, so a running pi is *seen* — but ' +
-      'it is captured nowhere (prd-26: "pi, named in prd-15 ruling 3 and captured nowhere"), so its telemetry ' +
-      'surface, its session-file dialect and its continuity verb are all unknown',
+      'named in prd-15 ruling 3 and listed in the process probe\'s AGENT_COMMANDS, so a running pi is *seen* — and ' +
+      'OBSERVING it is no longer the gap: pi is captured (#324), has a registered session-file dialect ' +
+      '(`PI_JSONL_GRAMMAR`, #540) and a real collector emits its llm.usage/llm.cost/tool.activity under ' +
+      'harness: \'pi\' (#609, see collectors/pi/capabilities.ts). What remains unverified is LAUNCHING it: no ' +
+      'capture in this repo shows what argv or env makes a fresh pi process this hand starts, and pi\'s own ' +
+      'CAPTURE.md found OTEL_RESOURCE_ATTRIBUTES-shaped env has zero effect on it — so envRecipe, launchArgv, ' +
+      'continueArgv and resumeArgv have no verified answer yet',
     whatItWouldTake:
-      'a capture of a pi session: what it exports, where it writes, and whether it can be resumed — then a grammar, ' +
-      'then this adapter',
+      'a captured pi launch under a real env/argv recipe pointed at this server, and a captured continuity attempt ' +
+      '(a --continue/--resume-shaped flag or otherwise) — the observation half (capture, grammar, collector) is ' +
+      'already done (#324/#540/#609); only the launch half remains',
   },
   {
     id: 'shell',

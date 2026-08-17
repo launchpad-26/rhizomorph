@@ -175,8 +175,9 @@ export const HARNESSES: readonly HarnessFacts[] = [
     displayName: 'pi',
     status: 'declared',
     whatItWouldTake:
-      'a capture of a pi session: what it exports, where it writes, and whether it can be resumed — then a grammar, ' +
-      'then this adapter',
+      'a captured pi launch under a real env/argv recipe pointed at this server, and a captured continuity attempt ' +
+      '(a --continue/--resume-shaped flag or otherwise) — the observation half (capture, grammar, collector) is ' +
+      'already done (#324/#540/#609); only the launch half remains',
   },
   {
     id: 'shell',

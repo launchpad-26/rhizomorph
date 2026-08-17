@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -267,6 +267,66 @@ describe('declared-not-implemented harnesses are listed with their reason, never
     if (implementation.status !== 'declared') throw new Error('expected declared')
 
     expect(implementation.reason).toMatch(/no continuity verb|not a conductor/i)
+  })
+})
+
+describe('one roster (#325): a harness cannot be declared-not-implemented for a fact a merged collector contradicts', () => {
+  /**
+   * "An organ exists" = a real `collectors/<id>/capabilities.ts` — the same
+   * file `cli/doctor.ts`'s enrichment ladder and `api/meta.ts`'s declared-
+   * capabilities table both read for every other organ in this repo. Checked
+   * by FILE EXISTENCE, not by re-importing the collector: the point of this
+   * law is to fire the moment a future organ lands for a harness this table
+   * still calls uncaptured, whether or not anyone remembers to update this
+   * test file's own knowledge of the id.
+   */
+  const COLLECTORS_ROOT = path.resolve(REPO_ROOT, 'packages', 'server', 'src', 'collectors')
+
+  function organExistsFor(id: HarnessId): boolean {
+    return existsSync(path.join(COLLECTORS_ROOT, id, 'capabilities.ts'))
+  }
+
+  /**
+   * The predicate the law runs, pulled out so the mutation proof below can
+   * drive it directly. Narrow on purpose — "captured nowhere" / "not
+   * captured" is the exact false claim pi's pre-#325 reason made, not a
+   * generic "no capture" (which legitimately still appears in an HONEST
+   * reason about the LAUNCH half, e.g. "no capture ... shows what argv or
+   * env" — a bare `no capture\b` alternative would have false-positived on
+   * that very sentence).
+   */
+  function reasonClaimsUncaptured(reason: string): boolean {
+    return /captured nowhere|\bnot\s+(?:been\s+)?captured\b|\bnever\s+(?:been\s+)?captured\b/i.test(reason)
+  }
+
+  it('a collector organ exists for pi today — otherwise this law is checking nothing', () => {
+    expect(organExistsFor('pi')).toBe(true)
+  })
+
+  it("no declared harness's reason claims it is uncaptured once a collector organ for it exists", () => {
+    const offenders: string[] = []
+    for (const adapter of declaredAdaptersOf()) {
+      if (!organExistsFor(adapter.id)) continue
+      const implementation = adapter.implementation
+      if (implementation.status !== 'declared') continue
+      if (reasonClaimsUncaptured(implementation.reason)) offenders.push(`${adapter.id}: ${implementation.reason}`)
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('the detector bites — pi\'s pre-#325 reason ("captured nowhere") is exactly what this catches', () => {
+    // Mutation proof: this is the live shape `not-implemented.ts`'s pi entry
+    // regressed to before #325 — a `collectors/pi/capabilities.ts` now exists
+    // (asserted above), and the reason used to say pi was captured nowhere.
+    // Restoring that reason string must make the law above go red.
+    expect(reasonClaimsUncaptured('it is captured nowhere (prd-26: "pi… and captured nowhere")')).toBe(true)
+    // And it does not fire on the CURRENT reason, or on an honest one for a
+    // harness genuinely uncaptured (openclaw, shell — neither has an organ).
+    const pi = harnessById('pi')
+    if (pi === undefined) throw new Error('expected pi')
+    const implementation = pi.implementation
+    if (implementation.status !== 'declared') throw new Error('expected pi to stay declared — see this describe\'s own header')
+    expect(reasonClaimsUncaptured(implementation.reason)).toBe(false)
   })
 })
 

@@ -417,7 +417,7 @@ describe('step 2 — the conductor', () => {
     fireEvent.change(screen.getByTestId('wizard-harness-select'), { target: { value: 'pi' } })
 
     const declared = screen.getByTestId('wizard-harness-declared').textContent ?? ''
-    expect(declared).toContain('a capture of a pi session')
+    expect(declared).toContain('a captured pi launch under a real env/argv recipe')
     expect(declared).not.toContain('coming soon')
     expect(screen.getByTestId<HTMLButtonElement>('wizard-launch').disabled).toBe(true)
   })

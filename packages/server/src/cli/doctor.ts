@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
@@ -103,9 +103,9 @@ export function doctorHelpText(): string {
 
 Read-only preflight: checks the Node version, the target path (exists and is
 a git repo), the web build, whether the port is free, Claude Code session
-logs, tmux/workmux presence, and telemetry env — one ok/warn/FAIL line per
-check, each with its remedy. Exits non-zero only when the app genuinely
-cannot run (bad path, not a repo, no web build, port taken).
+logs, tmux/workmux presence, telemetry env, and the harness roster — one
+ok/warn/FAIL line per check, each with its remedy. Exits non-zero only when
+the app genuinely cannot run (bad path, not a repo, no web build, port taken).
 
 Arguments:
   path                    Repo to check (default: current directory)
@@ -152,6 +152,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
     checkTelemetryEnv(options.env ?? process.env, options.platform ?? process.platform),
     await checkLaneManifest(repoPath),
     await checkCliVersionDrift(exec),
+    checkHarnessRoster(),
   ]
 
   const checks: DoctorCheck[] = [...baseChecks, ...(await checkEnrichmentLadder(baseChecks, repoPath))]
@@ -566,6 +567,76 @@ function describeToolError(result: ExecResult): string {
   const stderr = result.stderr.trim()
   if (stderr) return stderr.split('\n')[0]!
   return `exited with code ${result.code}`
+}
+
+/**
+ * `concierge/harness/` — read as TEXT, never imported.
+ *
+ * The concierge namespace law (ADR-0019 / prd-20 ruling 1,
+ * `concierge/namespace-law.test.ts`) grants exactly one import edge into that
+ * module, `api/concierge.ts`; this file is not it. `wizard.tsx`'s own harness
+ * honesty law is the precedent for what this check does instead: a file's
+ * source TEXT is not a module edge, so parsing it crosses no fence, and it
+ * means this check reads the SAME text the registry itself compiles from
+ * rather than a third hand-maintained copy that could drift the way
+ * `not-implemented.ts`'s pi entry did (#325).
+ */
+function harnessSourcePath(...segments: string[]): string {
+  const here = path.dirname(fileURLToPath(import.meta.url))
+  return path.resolve(here, '..', 'concierge', 'harness', ...segments)
+}
+
+/** Every id in `not-implemented.ts`'s own `DECLARED` table, in file order. */
+function declaredHarnessIds(): string[] {
+  const source = readFileSync(harnessSourcePath('not-implemented.ts'), 'utf8')
+  return [...source.matchAll(/id: '([a-z]+)',\n\s*displayName:/g)].map((match) => match[1] as string)
+}
+
+/** The two adapters with their own module — `registry.ts` composes exactly `[claudeAdapter, codexAdapter, ...declaredAdapters]`. */
+function implementedHarnessIds(): string[] {
+  const ids: string[] = []
+  for (const file of ['claude.ts', 'codex.ts']) {
+    const source = readFileSync(harnessSourcePath(file), 'utf8')
+    const id = /\bid: '([a-z]+)'/.exec(source)?.[1]
+    if (id !== undefined) ids.push(id)
+  }
+  return ids
+}
+
+/**
+ * Reports the harness roster — prd-26 ruling 6, "never two rosters" — read
+ * live off `concierge/harness/`'s own source rather than a copy this check
+ * keeps up to date by hand. `ok` whenever both tables parsed; `warn` (never
+ * `fail` — this is informational, like the enrichment ladder) if the source
+ * shape has moved out from under the parse, so the drift itself is visible
+ * rather than silently reporting an empty roster as a real one.
+ */
+export function checkHarnessRoster(): DoctorCheck {
+  try {
+    const implemented = implementedHarnessIds()
+    const declared = declaredHarnessIds()
+    if (implemented.length === 0 || declared.length === 0) {
+      return {
+        id: 'harness-roster',
+        status: 'warn',
+        message:
+          'could not read the harness roster from concierge/harness/ — its source shape has likely changed; see harness-law.test.ts',
+      }
+    }
+    return {
+      id: 'harness-roster',
+      status: 'ok',
+      message:
+        `harness roster: ${implemented.length} implemented (${implemented.join(', ')}), ${declared.length} declared ` +
+        `not-implemented (${declared.join(', ')}) — one registry, packages/server/src/concierge/harness/registry.ts`,
+    }
+  } catch {
+    return {
+      id: 'harness-roster',
+      status: 'warn',
+      message: 'could not read the harness roster — concierge/harness/ source was not found at the expected path',
+    }
+  }
 }
 
 /** Which process's env `checkTelemetryEnv` actually inspected — see its own doc. */
