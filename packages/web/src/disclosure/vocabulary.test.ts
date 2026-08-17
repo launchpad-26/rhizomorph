@@ -3,6 +3,7 @@ import {
   DisclosureError,
   disclosureLines,
   unknownDisclosure,
+  type Derivation,
   type DisclosureContent,
 } from './vocabulary.js'
 
@@ -118,6 +119,104 @@ describe('a card with no evidence fails, rather than saying "no data"', () => {
   })
 })
 
+describe('the teach layer is assembled here too (prd-30 S2 · #561)', () => {
+  function derived(): DisclosureContent {
+    return {
+      ...known(),
+      why: {
+        ...known().why,
+        derivedFrom: [
+          { fact: 'tool call · read', count: 3, elapsedMs: 6 * 60_000 },
+          { fact: 'assistant turn ended', elapsedMs: 90 * 60_000 },
+        ],
+      },
+    }
+  }
+
+  it('renders each folded fact with its count and its own age', () => {
+    // Each line carries its own elapsed time rather than inheriting the why's:
+    // a derivation that borrowed the age above it would be asserting a moment
+    // it did not observe.
+    expect(disclosureLines(derived()).derivation).toEqual([
+      'tool call · read ×3 — 6m00s ago',
+      'assistant turn ended — 1h30m ago',
+    ])
+  })
+
+  it('is empty when the selector had nothing further, so the card offers no control', () => {
+    // The anti-noise law at its source. Nothing here manufactures a teach layer
+    // for a condition with no more facts — #602 is what a surface looks like
+    // once every mark has one more thing to say.
+    expect(disclosureLines(known()).derivation).toEqual([])
+    expect(disclosureLines({ ...known(), why: { ...known().why, derivedFrom: [] } }).derivation).toEqual([])
+  })
+
+  it('reaches the teach layer through both remedy arms', () => {
+    // The sibling case: `disclosureLines` returns from two places, and a
+    // derivation threaded through only the `action` arm would leave every
+    // nothing-to-do condition silently unteachable.
+    const nothingToDo = disclosureLines({
+      ...derived(),
+      remedy: { kind: 'none', because: 'the lane has landed; nothing is running to act on' },
+    })
+
+    expect(nothingToDo.derivation).toHaveLength(2)
+  })
+
+  it('holds the teach layer to the same evidence law as the card above it', () => {
+    // The beginner's depth is exactly where a requirement quietly relaxes, so
+    // every door the why passes through, a derivation passes through too — and
+    // the message names which entry, because "one of your derivations is bad"
+    // is not a fixable error.
+    const withFact = (patch: Partial<Derivation>): DisclosureContent => ({
+      ...known(),
+      why: { ...known().why, derivedFrom: [{ fact: 'tool call · read', elapsedMs: 1_000, ...patch }] },
+    })
+
+    expect(() => disclosureLines(withFact({ fact: '  ' }))).toThrow(/why\.derivedFrom\[0\]\.fact is empty/)
+    expect(() => disclosureLines(withFact({ elapsedMs: Number.NaN }))).toThrow(
+      /why\.derivedFrom\[0\]\.elapsedMs is not a measured age/,
+    )
+    expect(() => disclosureLines(withFact({ elapsedMs: -1 }))).toThrow(/derivedFrom\[0\]\.elapsedMs/)
+  })
+
+  it('names the offending entry by index, not just the first one', () => {
+    expect(() =>
+      disclosureLines({
+        ...known(),
+        why: {
+          ...known().why,
+          derivedFrom: [
+            { fact: 'tool call · read', elapsedMs: 1_000 },
+            { fact: '', elapsedMs: 1_000 },
+          ],
+        },
+      }),
+    ).toThrow(/why\.derivedFrom\[1\]\.fact is empty/)
+  })
+
+  it.each([
+    ['zero', 0],
+    ['negative', -2],
+    ['fractional', 1.5],
+    ['NaN', Number.NaN],
+  ])('refuses a count that is %s rather than rendering "×%s"', (_name, count) => {
+    // "×0" reads as evidence and is an absence. An absence is a fact in its own
+    // words ("no tool call since the session opened"), not a count of nothing.
+    expect(() =>
+      disclosureLines({
+        ...known(),
+        why: { ...known().why, derivedFrom: [{ fact: 'tool call · read', count, elapsedMs: 1_000 }] },
+      }),
+    ).toThrow(/why\.derivedFrom\[0\]\.count is not a count of observations/)
+  })
+
+  it('survives a hole where a selector promised a fact', () => {
+    const rigged = { ...known(), why: { ...known().why, derivedFrom: [undefined] } }
+    expect(() => disclosureLines(rigged as unknown as DisclosureContent)).toThrow(DisclosureError)
+  })
+})
+
 describe('the unknown card names what is missing and which rung would prove it', () => {
   const input = {
     mark: 'WAITING',
@@ -146,6 +245,18 @@ describe('the unknown card names what is missing and which rung would prove it',
     expect(lines.remedy).toContain('nothing further to climb')
     expect(lines.remedy).toContain("condition table's own row")
     expect(lines.command).toBeNull()
+  })
+
+  it('carries a teach layer like any other card, over the facts it does hold', () => {
+    // The unknown arm is where requirements go to relax, so it goes through the
+    // same derivation as everything else — S2's *unknown* state is the same
+    // honest gap at more length, not a second, softer one.
+    const lines = disclosureLines(
+      unknownDisclosure({ ...input, derivedFrom: [{ fact: 'hook beacon last seen', elapsedMs: 4 * 60_000 }] }),
+    )
+
+    expect(lines.derivation).toEqual(['hook beacon last seen — 4m00s ago'])
+    expect(disclosureLines(unknownDisclosure(input)).derivation).toEqual([])
   })
 
   it('refuses to build an unknown that cannot say what is missing', () => {

@@ -1,4 +1,4 @@
-import { useId, useState, type ReactElement, type ReactNode } from 'react'
+import { useId, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { DisclosureCard } from './DisclosureCard.js'
 import type { DisclosureContent } from './vocabulary.js'
 
@@ -35,12 +35,45 @@ import type { DisclosureContent } from './vocabulary.js'
  * reveals, not what it draws"), and #548 had just finished deleting three
  * hand-rolled idioms. `one-card-law.test.ts` holds this directory to that.
  *
- * The card is `pointer-events-none` and positioned under the trigger, so it
- * can never sit between the pointer and the mark it explains — a card that
- * swallowed its own trigger's `mouseleave` would flicker. Viewport-aware
- * positioning is the loupe's existing code and re-seats here in a later wave
- * (prd-30, *what already exists*); this places it in flow beneath the mark,
- * which is right for every adoption site that exists today.
+ * Viewport-aware positioning is the loupe's existing code and re-seats here in
+ * a later wave (prd-30, *what already exists*); this places the card in flow
+ * beneath the mark, which is right for every adoption site that exists today.
+ *
+ * ---
+ *
+ * **What the teach affordance changed here (#561), and why.**
+ *
+ * The card carries a control now (`DisclosureCard`, prd-30 S2), and a control a
+ * reader cannot reach is not a control. Two things follow, and both are
+ * deliberate reversals of what wave 1 shipped:
+ *
+ * **The card is no longer `pointer-events-none`.** It was, so that it could
+ * "never sit between the pointer and the mark it explains" — but the card is
+ * positioned *below* its own trigger, so what that actually bought was
+ * transparency over whatever is beneath, at the price of making the card itself
+ * unreachable: a transparent card hit-tests through to the page, which fires
+ * `mouseleave` on this wrapper, which closes the card the moment the pointer
+ * moves toward it. The flicker the old note worried about is not a risk in the
+ * other direction — the card is a *descendant* of the element carrying
+ * `onMouseLeave`, and neither React's nor the DOM's mouseleave fires on a move
+ * into a descendant. The card stays open while the pointer is on it, and closes
+ * when the pointer leaves the pair.
+ *
+ * **Focus is tracked on the wrapper, not on the trigger, with a containment
+ * check.** Focus moving trigger → teach control is a `blur` on the trigger, and
+ * the old handler would have read that as "the keyboard left", unmounted the
+ * card, and thrown focus to `<body>` mid-keystroke. `relatedTarget` says where
+ * focus is going; if that is still inside this disclosure, the keyboard has not
+ * left. This is still **one** `focused` boolean and still one card — the two
+ * senses did not become two paths.
+ *
+ * **Escape hands focus back to the mark.** With focus inside the card, the card
+ * is about to unmount; without this the reader's place in the tab order becomes
+ * `<body>`. It refocuses only when focus is genuinely inside the card, so the
+ * ordinary case (Escape while on the trigger) moves nothing. And a focus event
+ * arriving from *inside* the wrapper does not clear `dismissed`: the reader who
+ * pressed Escape has not left and has not asked again, so the card must not
+ * spring back open because we moved their focus for them.
  */
 export interface DisclosureProps {
   /** The three strings, from the selector. Never composed here. */
@@ -55,6 +88,8 @@ export interface DisclosureProps {
 
 export function Disclosure({ disclosure, children, triggerLabel, className }: DisclosureProps): ReactElement {
   const cardId = useId()
+  const wrapperRef = useRef<HTMLSpanElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const [tapped, setTapped] = useState(false)
@@ -62,8 +97,13 @@ export function Disclosure({ disclosure, children, triggerLabel, className }: Di
 
   const open = !dismissed && (hovered || focused || tapped)
 
+  /** Is focus going somewhere still inside this disclosure — the trigger, or the card's teach control? */
+  const withinDisclosure = (node: EventTarget | null): boolean =>
+    node instanceof Node && wrapperRef.current !== null && wrapperRef.current.contains(node)
+
   return (
     <span
+      ref={wrapperRef}
       className="relative inline-flex"
       data-testid="disclosure"
       onMouseEnter={() => {
@@ -74,6 +114,20 @@ export function Disclosure({ disclosure, children, triggerLabel, className }: Di
         setHovered(false)
         setTapped(false)
       }}
+      onFocus={(event) => {
+        setFocused(true)
+        // Only focus arriving from outside counts as *returning* — see the
+        // Escape note above.
+        if (!withinDisclosure(event.relatedTarget)) setDismissed(false)
+      }}
+      onBlur={(event) => {
+        // Focus moving from the trigger to the card's teach control is not the
+        // keyboard leaving; unmounting the card here would drop focus on the
+        // floor between two keystrokes.
+        if (withinDisclosure(event.relatedTarget)) return
+        setFocused(false)
+        setTapped(false)
+      }}
       onKeyDown={(event) => {
         if (event.key !== 'Escape') return
         // Stopped here rather than left to bubble: a dismissed card must not
@@ -81,23 +135,19 @@ export function Disclosure({ disclosure, children, triggerLabel, className }: Di
         event.stopPropagation()
         setDismissed(true)
         setTapped(false)
+
+        const active = document.activeElement
+        if (active !== triggerRef.current && withinDisclosure(active)) triggerRef.current?.focus()
       }}
     >
       <button
+        ref={triggerRef}
         type="button"
         data-testid="disclosure-trigger"
         data-open={open}
         aria-label={triggerLabel}
         aria-describedby={open ? cardId : undefined}
         className={className === undefined ? 'focus-ring' : `focus-ring ${className}`}
-        onFocus={() => {
-          setFocused(true)
-          setDismissed(false)
-        }}
-        onBlur={() => {
-          setFocused(false)
-          setTapped(false)
-        }}
         onClick={() => {
           setTapped((pinned) => !pinned)
           setDismissed(false)
@@ -106,7 +156,7 @@ export function Disclosure({ disclosure, children, triggerLabel, className }: Di
         {children}
       </button>
       {open ? (
-        <span className="pointer-events-none absolute left-0 top-full z-50 pt-1">
+        <span className="absolute left-0 top-full z-50 pt-1">
           <DisclosureCard disclosure={disclosure} id={cardId} />
         </span>
       ) : null}
