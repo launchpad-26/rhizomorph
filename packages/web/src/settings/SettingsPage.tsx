@@ -2,22 +2,27 @@ import { useEffect, useState } from 'react'
 import { Nav } from '../app/Nav.js'
 import { UNAVAILABLE } from '../connect/meta.js'
 import { usePreferenceApplication } from './apply.js'
+import { hostName } from './host.js'
 import {
   adoptRepoScope,
   entriesOf,
+  groupUnavailabilityOf,
   isOverridden,
+  readFlag,
   readPreference,
   restoreDefaults,
   scopesIn,
   SCOPE_WORD,
   SETTINGS_GROUPS,
   subscribeToPreferences,
+  unavailabilityOf,
   writePreference,
   type PrefEntry,
   type PrefScope,
   type PrefValue,
   type SettingsGroup,
 } from './registry.js'
+import { TelemetryBlock } from './TelemetryBlock.js'
 
 /**
  * THE SETTINGS SURFACE (prd-35 S1, wave 1; #550) — replacing #549's stub, which
@@ -32,12 +37,23 @@ import {
  * hide-finished toggle, each panel's own collapse), so those are surveyed here
  * rather than duplicated: their state, their default, and the way back.
  *
- * **Eight groups, and six of them are disabled.** S1 names the eight in order,
- * and this wave delivers Appearance and Motion. The other six render DISABLED
- * WITH THEIR REASON — never hidden, never absent — because a settings surface
- * that shows only what it can already do teaches a person that the instrument
- * cannot be told the rest, which is a stronger and falser claim than "not yet,
- * and here is what brings it".
+ * **Eight groups, and every one of them renders.** S1 names the eight in order.
+ * Three act in a browser (Appearance, Motion, Telemetry); two more —
+ * Notifications and Application — are declared, persisted and explained here and
+ * turn on when prd-34's shell hosts this page, without the shell lane editing a
+ * file under `settings/` (`host.ts` carries that decision and its reasoning).
+ * The last three render DISABLED WITH THEIR REASON — never hidden, never absent
+ * — because a settings surface that shows only what it can already do teaches a
+ * person that the instrument cannot be told the rest, which is a stronger and
+ * falser claim than "not yet, and here is what brings it".
+ *
+ * **A group states its reason once, and its rows are merely disabled.** Eight
+ * copies of "there is no desktop shell here" is how a person learns to skip the
+ * `not yet` colour, and the one row that has its OWN reason — a shell whose tray
+ * never appeared — is then the one they would skip. {@link unavailabilityOf}'s
+ * group-first ordering is what buys that, and the coverage law checks the
+ * resolved reason is on screen rather than checking which paragraph it came
+ * from.
  *
  * **Every control says what it defaults to and whether it has been changed**
  * (ruling 4), and every group offers a restore per scope it holds — per scope,
@@ -52,11 +68,15 @@ import {
  *
  * **Replay (S1's *replay* state) disables nothing here, and that is a finding
  * rather than an omission.** The rule is that a control which would change LIVE
- * behaviour stands down while a recording is loaded. Every control this wave
- * ships — theme, density, motion — changes how the instrument is drawn for the
- * person reading it, which is as true of a recording as of a live fleet. The
- * first control that would reach the live fleet (the watched repo, wave 2) is
- * where that state earns its `useMode()` check.
+ * behaviour stands down while a recording is loaded. Every control here changes
+ * how the instrument is drawn for the person reading it (theme, density,
+ * motion) or how the machine hosting it behaves (the tray, the notifier, the
+ * updater) — none of which is a fact about the fleet on screen, so all of them
+ * are as true of a recording as of a live session. **Wave 2 did not change
+ * that**: the one control that would have reached the live fleet, the watched
+ * repo, is still disabled with its reason, because retarget-in-place remains
+ * prd-20's own unruled open question. That control is where the `useMode()`
+ * check lands, on the day it exists.
  */
 
 export interface SettingsPageProps {
@@ -79,11 +99,11 @@ export function SettingsPage({ repoPath = null }: SettingsPageProps = {}) {
   }, [repoPath])
 
   return (
-    <div data-testid="settings-page" className="flex h-screen flex-col bg-ice-1000 font-sans text-ice-300">
+    <div data-testid="settings-page" className="flex h-screen flex-col bg-(--surface-floor) font-sans text-(--ink-body)">
       <Nav />
-      <header className="flex shrink-0 items-baseline gap-4 border-b border-ice-850 bg-ice-950 px-4 py-3">
-        <h1 className="text-sm text-ice-100">Settings</h1>
-        <span className="text-[length:var(--text-inst)] normal-case tracking-normal text-ice-400">
+      <header className="flex shrink-0 items-baseline gap-4 border-b border-(--line-hair) bg-(--surface-panel) px-4 py-3">
+        <h1 className="text-sm text-(--ink-primary)">Settings</h1>
+        <span className="text-inst normal-case tracking-normal text-(--ink-dim)">
           everything this instrument can be told — and, below each group, what it will not be
         </span>
       </header>
@@ -112,41 +132,52 @@ function useRegistryRevision(): number {
 
 function GroupSection({ group, repoPath }: { group: SettingsGroup; repoPath: string | null }) {
   const entries = entriesOf(group.id)
-  const disabled = group.unavailable !== null
+  const reason = groupUnavailabilityOf(group)
+  const disabled = reason !== null
 
   return (
     <section
       data-testid={`settings-group-${group.id}`}
       data-unavailable={disabled ? 'true' : undefined}
       aria-labelledby={`settings-group-${group.id}-heading`}
-      className={`rounded border border-ice-850 bg-ice-950 px-4 py-3 ${disabled ? 'opacity-70' : ''}`}
+      className={`rounded border border-(--line-hair) bg-(--surface-panel) px-4 py-3 ${disabled ? 'opacity-70' : ''}`}
     >
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 id={`settings-group-${group.id}-heading`} className="text-sm text-ice-100">
+        <h2 id={`settings-group-${group.id}-heading`} className="text-sm text-(--ink-primary)">
           {group.title}
         </h2>
-        <p className="text-[length:var(--text-inst)] text-ice-400">{group.what}</p>
+        <p className="text-inst text-(--ink-dim)">{group.what}</p>
       </div>
 
-      {disabled ? (
+      {reason !== null ? (
         <p
           data-testid={`settings-group-${group.id}-reason`}
-          className="mt-2 text-[length:var(--text-inst)] text-notice"
+          className="mt-2 text-inst text-notice"
         >
-          not yet — {group.unavailable}
+          not yet — {reason}
         </p>
       ) : null}
 
       {group.id === 'repo' ? (
-        <p data-testid="settings-watched-repo" className="mt-2 figures text-[length:var(--text-inst)] text-ice-300">
+        <p data-testid="settings-watched-repo" className="mt-2 figures text-inst text-(--ink-body)">
           watching: {repoPath ?? UNAVAILABLE}
         </p>
       ) : null}
 
+      {/* Which side of the answer a person is on, for the one group whose whole
+          availability is a fact about the host rather than about the product. */}
+      {group.id === 'application' ? (
+        <p data-testid="settings-host" className="mt-2 text-inst text-(--ink-dim)">
+          running in: {hostName()}
+        </p>
+      ) : null}
+
+      {group.id === 'telemetry' ? <TelemetryBlock /> : null}
+
       {entries.length > 0 ? (
         <ul className="mt-3 flex flex-col gap-4">
           {entries.map((entry) => (
-            <PrefRow key={entry.id} entry={entry} />
+            <PrefRow key={entry.id} entry={entry} groupReason={reason} />
           ))}
         </ul>
       ) : null}
@@ -163,51 +194,59 @@ function GroupSection({ group, repoPath }: { group: SettingsGroup; repoPath: str
  * whether that differs, and — when there is one — the honest-gap note saying
  * what part of it has not arrived yet.
  */
-function PrefRow({ entry }: { entry: PrefEntry }) {
+function PrefRow({ entry, groupReason }: { entry: PrefEntry; groupReason: string | null }) {
   const overridden = isOverridden(entry.id)
   const value = readPreference(entry.id)
+  const unavailable = unavailabilityOf(entry)
+  // The group has already said its piece above; this row speaks only when the
+  // reason is its own.
+  const ownReason = unavailable !== null && unavailable !== groupReason ? unavailable : null
 
   return (
     <li
       data-pref={entry.id}
       data-scope={entry.scope}
       data-overridden={overridden ? 'true' : 'false'}
-      className="flex flex-col gap-1 border-t border-ice-900 pt-3 first:border-t-0 first:pt-0"
+      className="flex flex-col gap-1 border-t border-(--line-hair) pt-3 first:border-t-0 first:pt-0"
     >
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span className="text-[length:var(--text-inst)] text-ice-100">{entry.label}</span>
-        <span className="text-[length:var(--text-inst-dense)] uppercase tracking-wider text-ice-400">{SCOPE_WORD[entry.scope]}</span>
+        <span className="text-inst text-(--ink-primary)">{entry.label}</span>
+        <span className="text-inst-dense uppercase tracking-wider text-(--ink-dim)">{SCOPE_WORD[entry.scope]}</span>
         {overridden ? (
           <span
             data-testid={`pref-${entry.id}-modified`}
-            className="figures rounded border border-notice/60 px-1 text-[length:var(--text-inst-dense)] uppercase tracking-wider text-notice"
+            className="figures rounded border border-notice/60 px-1 text-inst-dense uppercase tracking-wider text-notice"
           >
             modified
           </span>
         ) : null}
       </div>
-      <p className="text-[length:var(--text-inst)] text-ice-400">{entry.what}</p>
+      <p className="text-inst text-(--ink-dim)">{entry.what}</p>
 
       {entry.control === 'settings' ? (
-        <ChoiceControl entry={entry} />
+        entry.kind === 'flag' ? (
+          <FlagControl entry={entry} unavailable={unavailable} />
+        ) : (
+          <ChoiceControl entry={entry} unavailable={unavailable} />
+        )
       ) : (
-        <p data-testid={`pref-${entry.id}-state`} className="figures text-[length:var(--text-inst)] text-ice-300">
+        <p data-testid={`pref-${entry.id}-state`} className="figures text-inst text-(--ink-body)">
           {describeValue(entry, value)} — set from {entry.control.surface}. {entry.control.why}
         </p>
       )}
 
-      <p data-testid={`pref-${entry.id}-default`} className="figures text-[length:var(--text-inst)] text-ice-400">
+      <p data-testid={`pref-${entry.id}-default`} className="figures text-inst text-(--ink-dim)">
         default: {describeValue(entry, entry.fallback)}
       </p>
 
-      {entry.unavailable !== null ? (
-        <p data-testid={`pref-${entry.id}-unavailable`} className="text-[length:var(--text-inst)] text-notice">
-          not yet — {entry.unavailable}
+      {ownReason !== null ? (
+        <p data-testid={`pref-${entry.id}-unavailable`} className="text-inst text-notice">
+          not yet — {ownReason}
         </p>
       ) : null}
 
       {entry.gap !== null ? (
-        <p data-testid={`pref-${entry.id}-gap`} className="text-[length:var(--text-inst)] text-notice">
+        <p data-testid={`pref-${entry.id}-gap`} className="text-inst text-notice">
           what it does not do yet — {entry.gap}
         </p>
       ) : null}
@@ -220,15 +259,16 @@ function PrefRow({ entry }: { entry: PrefEntry }) {
  * — a `<select>` hides two thirds of the answer behind a click, and this page's
  * whole job is showing a person what their options are.
  *
- * S1's *error* state lives here: a write that does not reach storage leaves the
- * chosen value in memory and says so, rather than snapping the control back to
- * a value the person did not choose and explaining nothing.
+ * S1's *error* state is {@link UnpersistedNote}'s, shared with the flag control
+ * — a write that does not reach storage leaves the chosen value in memory and
+ * says so, rather than snapping the control back to a value the person did not
+ * choose and explaining nothing.
  */
-function ChoiceControl({ entry }: { entry: PrefEntry }) {
+function ChoiceControl({ entry, unavailable }: { entry: PrefEntry; unavailable: string | null }) {
   const [unpersisted, setUnpersisted] = useState<string | null>(null)
   const stored = readPreference(entry.id)
   const value = unpersisted ?? (typeof stored === 'string' ? stored : String(entry.fallback))
-  const disabled = entry.unavailable !== null
+  const disabled = unavailable !== null
 
   const choose = (next: string) => {
     setUnpersisted(writePreference(entry.id, next) ? null : next)
@@ -241,8 +281,8 @@ function ChoiceControl({ entry }: { entry: PrefEntry }) {
         {entry.options.map((option) => (
           <label
             key={option.value}
-            className={`flex items-center gap-1.5 text-[length:var(--text-inst)] ${
-              disabled ? 'cursor-not-allowed text-ice-400 opacity-70' : 'cursor-pointer text-ice-200'
+            className={`flex items-center gap-1.5 text-inst ${
+              disabled ? 'cursor-not-allowed text-(--ink-dim) opacity-70' : 'cursor-pointer text-(--ink-body)'
             }`}
           >
             <input
@@ -259,19 +299,74 @@ function ChoiceControl({ entry }: { entry: PrefEntry }) {
           </label>
         ))}
       </fieldset>
-      {unpersisted !== null ? (
-        <p data-testid={`pref-${entry.id}-error`} className="text-[length:var(--text-inst)] text-notice">
-          this machine refused to store the preference — {entry.label} is {unpersisted} for as long as this
-          page stays open, and back to its stored value after a reload.
-        </p>
-      ) : null}
+      <UnpersistedNote entry={entry} shown={unpersisted !== null ? unpersisted : null} />
     </>
+  )
+}
+
+/**
+ * A two-state preference, as a checkbox — the browser's own control for "this
+ * or not this", with the entry's own two words beside it rather than a bare tick
+ * (`describeValue`'s rule, held here too: settings has to read correctly with
+ * the thing it configures nowhere on screen).
+ *
+ * It carries the same *error* state as {@link ChoiceControl}, through the same
+ * component, because a flag that failed to persist is the identical claim and
+ * two wordings of it is one wording waiting to go stale.
+ */
+function FlagControl({ entry, unavailable }: { entry: PrefEntry; unavailable: string | null }) {
+  const [unpersisted, setUnpersisted] = useState<boolean | null>(null)
+  const stored = readFlag(entry.id)
+  const value = unpersisted ?? stored
+  const disabled = unavailable !== null
+  const [whenTrue, whenFalse] = entry.words ?? ['on', 'off']
+
+  return (
+    <>
+      <label
+        className={`flex items-center gap-1.5 text-inst ${
+          disabled ? 'cursor-not-allowed text-(--ink-dim) opacity-70' : 'cursor-pointer text-(--ink-body)'
+        }`}
+      >
+        <input
+          type="checkbox"
+          className="focus-ring"
+          name={entry.id}
+          data-testid={`pref-${entry.id}-toggle`}
+          checked={value}
+          disabled={disabled}
+          onChange={() => {
+            const next = !value
+            setUnpersisted(writePreference(entry.id, next) ? null : next)
+          }}
+        />
+        {value ? whenTrue : whenFalse}
+      </label>
+      <UnpersistedNote entry={entry} shown={unpersisted !== null ? (unpersisted ? whenTrue : whenFalse) : null} />
+    </>
+  )
+}
+
+/**
+ * S1's *error* state, in one place: a write that did not reach storage leaves
+ * the chosen value in memory and says so, rather than snapping the control back
+ * to a value the person did not choose and explaining nothing.
+ */
+function UnpersistedNote({ entry, shown }: { entry: PrefEntry; shown: string | null }) {
+  if (shown === null) return null
+  return (
+    <p data-testid={`pref-${entry.id}-error`} className="text-inst text-notice">
+      this machine refused to store the preference — {entry.label} is {shown} for as long as this page stays
+      open, and back to its stored value after a reload.
+    </p>
   )
 }
 
 /** Ruling 4's way back, one per scope the group holds. Disabled — with the reason — when nothing is overridden. */
 function RestoreDefaults({ group, scope }: { group: SettingsGroup; scope: PrefScope }) {
-  const restorable = entriesOf(group.id).filter((entry) => entry.scope === scope && entry.unavailable === null)
+  const restorable = entriesOf(group.id).filter(
+    (entry) => entry.scope === scope && unavailabilityOf(entry) === null,
+  )
   const changed = restorable.filter((entry) => isOverridden(entry.id))
 
   return (
@@ -281,11 +376,11 @@ function RestoreDefaults({ group, scope }: { group: SettingsGroup; scope: PrefSc
         data-testid={`restore-${group.id}-${scope}`}
         disabled={changed.length === 0}
         onClick={() => restoreDefaults(group.id, scope)}
-        className="focus-ring shrink-0 rounded border border-ice-800 px-2 py-1 text-[length:var(--text-inst-dense)] uppercase tracking-wider text-ice-400 enabled:hover:border-ice-600 enabled:hover:text-ice-100 disabled:cursor-not-allowed disabled:opacity-60"
+        className="focus-ring shrink-0 rounded border border-(--line-strong) px-2 py-1 text-inst-dense uppercase tracking-wider text-(--ink-dim) enabled:hover:border-(--ink-dim) enabled:hover:text-(--ink-primary) disabled:cursor-not-allowed disabled:opacity-60"
       >
         restore defaults · {SCOPE_WORD[scope]}
       </button>
-      <span className="text-[length:var(--text-inst)] text-ice-400">
+      <span className="text-inst text-(--ink-dim)">
         {changed.length === 0
           ? `nothing changed for ${SCOPE_WORD[scope]}`
           : `${changed.length} changed: ${changed.map((entry) => entry.label).join(', ')}`}

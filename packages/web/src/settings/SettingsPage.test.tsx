@@ -1,7 +1,10 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { SAME_PROCESS_WARNING } from '../connect/links.js'
+import { HOST_GLOBAL } from './host.js'
 import { adoptRepoScope, readPreference, readRecordOverlay, writePreference } from './registry.js'
 import { SettingsPage } from './SettingsPage.js'
+import { TelemetryBlock } from './TelemetryBlock.js'
 
 /**
  * THE SETTINGS SURFACE, AS A PERSON MEETS IT (prd-35 S1, #550).
@@ -250,6 +253,138 @@ describe('ruling 3 — the page adopts the repo the fold names', () => {
     cleanup()
     render(<SettingsPage />)
     expect(screen.getByTestId('settings-watched-repo').textContent).toContain('unavailable')
+  })
+})
+
+describe('a hosted group, once a shell announces itself (#574)', () => {
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>)[HOST_GLOBAL]
+  })
+
+  function withShell(): void {
+    ;(globalThis as Record<string, unknown>)[HOST_GLOBAL] = {
+      name: 'the desktop shell',
+      capabilities: ['shell', 'tray', 'notify', 'launchAtLogin', 'updates'],
+    }
+  }
+
+  it('turns a flag on, says what that MEANS, and puts it back', () => {
+    withShell()
+    render(<SettingsPage />)
+
+    const toggle = screen.getByTestId('pref-notifications.landed-toggle') as HTMLInputElement
+    expect(toggle.type).toBe('checkbox')
+    expect(toggle.checked).toBe(false)
+
+    act(() => {
+      fireEvent.click(toggle)
+    })
+
+    expect(readPreference('notifications.landed')).toBe(true)
+    expect(screen.getByTestId('pref-notifications.landed-modified')).toBeInTheDocument()
+    // `true` says nothing with the tray nowhere on screen — the entry's own two
+    // words are what a person reads.
+    expect((screen.getByTestId('pref-notifications.landed-toggle') as HTMLInputElement).checked).toBe(true)
+    expect(document.querySelector('[data-pref="notifications.landed"]')?.textContent).toContain('interrupts you')
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('restore-notifications-machine'))
+    })
+    expect(readPreference('notifications.landed')).toBe(false)
+  })
+
+  it('keeps the chosen value and says so when a flag fails to persist', () => {
+    withShell()
+    render(<SettingsPage />)
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError')
+    })
+
+    try {
+      act(() => {
+        fireEvent.click(screen.getByTestId('pref-application.launchAtLogin-toggle'))
+      })
+
+      expect((screen.getByTestId('pref-application.launchAtLogin-toggle') as HTMLInputElement).checked).toBe(true)
+      expect(screen.getByTestId('pref-application.launchAtLogin-error').textContent).toContain('refused to store')
+    } finally {
+      setItem.mockRestore()
+    }
+
+    expect(readPreference('application.launchAtLogin')).toBe(false)
+  })
+
+  it('offers nothing to act with in a browser, and refuses the write beneath it too', () => {
+    render(<SettingsPage />)
+    const toggle = screen.getByTestId('pref-notifications.landed-toggle') as HTMLInputElement
+
+    // Disabled at the control…
+    expect(toggle.disabled).toBe(true)
+    // …and refused underneath it, which is the half that holds when the caller
+    // is code rather than a person. (A click is not the probe here: jsdom
+    // dispatches one at a disabled input where a browser would not, so a test
+    // built on it would be asserting jsdom's behaviour, not the page's.)
+    expect(() => writePreference('notifications.landed', true)).toThrow(/unavailable/)
+    expect(readPreference('notifications.landed')).toBe(false)
+  })
+})
+
+describe('the telemetry group — the env block, reused rather than restated', () => {
+  it('shows the command for this instance with the warning /connect gives it', () => {
+    render(<TelemetryBlock location={{ port: '4317', protocol: 'http:' }} />)
+
+    const command = screen.getByTestId('settings-telemetry-command').textContent ?? ''
+    expect(command).toContain('rhizomorph env')
+    expect(command).toContain('--port 4317')
+    // No lane is guessed: a handle invented here would hand a person a command
+    // that instruments a lane which does not exist.
+    expect(command).toContain('<lane>')
+
+    expect(screen.getByTestId('settings-telemetry-warning').textContent).toBe(SAME_PROCESS_WARNING)
+    expect(screen.getByTestId('settings-telemetry-apply').textContent).toContain('eval')
+  })
+
+  it('copies exactly what it showed, and says so when the clipboard refuses', async () => {
+    const copied: string[] = []
+    render(
+      <TelemetryBlock
+        location={{ port: '', protocol: 'https:' }}
+        onCopy={async (text) => {
+          copied.push(text)
+        }}
+      />,
+    )
+
+    // `location.port` is empty on the default port for the scheme — the honest
+    // fallback, never a guess.
+    expect(screen.getByTestId('settings-telemetry-command').textContent).toContain('--port 443')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('settings-telemetry-copy'))
+    })
+    expect(copied).toEqual([screen.getByTestId('settings-telemetry-command').textContent])
+    expect(screen.getByTestId('settings-telemetry-copied').textContent).toContain('copied')
+
+    cleanup()
+    render(
+      <TelemetryBlock location={{ port: '5173', protocol: 'http:' }} onCopy={() => Promise.reject(new Error('no'))} />,
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('settings-telemetry-copy'))
+    })
+    // The command stays on screen either way — a person who cannot use the
+    // clipboard still has it in front of them.
+    expect(screen.getByTestId('settings-telemetry-copied').textContent).toContain('copy it by hand')
+    expect(screen.getByTestId('settings-telemetry-command').textContent).toContain('rhizomorph env')
+  })
+
+  it('makes no claim that any of it worked — that is /connect, and it links there', () => {
+    render(<SettingsPage />)
+
+    expect(screen.getByTestId('settings-group-telemetry').getAttribute('data-unavailable')).toBeNull()
+    expect((screen.getByTestId('settings-telemetry-connect') as HTMLAnchorElement).getAttribute('href')).toBe(
+      '/connect',
+    )
   })
 })
 

@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { HOST_GLOBAL, type HostCapability } from './host.js'
 import {
   adoptRepoScope,
   clearPreference,
   currentRepoScope,
   entriesOf,
+  entryOf,
+  groupOf,
+  groupUnavailabilityOf,
   isOverridden,
   PREF_SCOPES,
   PREFERENCES,
@@ -14,6 +18,7 @@ import {
   scopesIn,
   subscribeToPreferences,
   UNADOPTED_REPO,
+  unavailabilityOf,
   writePreference,
 } from './registry.js'
 
@@ -148,7 +153,12 @@ describe('ruling 3 — scope', () => {
   it('reports which scopes a group holds, so a restore can be offered per scope', () => {
     expect(scopesIn('appearance')).toEqual(['machine', 'repo'])
     expect(scopesIn('motion')).toEqual(['machine'])
-    expect(scopesIn('notifications')).toEqual([])
+    // Notifications became machine-scoped when #574 declared its six keys —
+    // ruling 3 puts notifications on the machine, not the repo.
+    expect(scopesIn('notifications')).toEqual(['machine'])
+    // Telemetry holds no key at all: it shows an env block and changes nothing,
+    // so there is nothing to restore and no button offering to.
+    expect(scopesIn('telemetry')).toEqual([])
   })
 })
 
@@ -197,6 +207,74 @@ describe('ruling 4 — a changed setting looks changed, and can be put back', ()
       expect(entriesOf(group).length).toBeGreaterThan(0)
       expect(scopesIn(group).length).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('what the host clears, and what nothing can clear (#574)', () => {
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>)[HOST_GLOBAL]
+  })
+
+  function withHost(capabilities: readonly HostCapability[]): void {
+    ;(globalThis as Record<string, unknown>)[HOST_GLOBAL] = { name: 'the desktop shell', capabilities }
+  }
+
+  it('refuses to store a hosted preference in a browser, and stores it under a shell', () => {
+    expect(() => writePreference('notifications.landed', true)).toThrow(/unavailable/)
+    expect(readPreference('notifications.landed')).toBe(false)
+
+    withHost(['shell', 'notify'])
+    expect(writePreference('notifications.landed', true)).toBe(true)
+    expect(readPreference('notifications.landed')).toBe(true)
+    expect(isOverridden('notifications.landed')).toBe(true)
+  })
+
+  it('asks the host for the capability the control names, not for the host in general', () => {
+    // A shell whose tray never appeared is a real host (prd-34's own risk
+    // register names the Linux tray), and it does not get the tray controls by
+    // being a shell.
+    withHost(['shell', 'launchAtLogin', 'updates'])
+
+    expect(unavailabilityOf(entryOf('application.launchAtLogin'))).toBeNull()
+    expect(unavailabilityOf(entryOf('application.trayBadge'))).toContain('no tray')
+    expect(() => writePreference('application.trayBadge', false)).toThrow(/unavailable/)
+  })
+
+  it('takes the group down with it when the group itself is what is missing', () => {
+    // `notify` alone does not make the Application group live, and the reason a
+    // person reads is the group's rather than each row's.
+    withHost(['notify'])
+
+    expect(groupUnavailabilityOf(groupOf('notifications'))).toBeNull()
+    expect(unavailabilityOf(entryOf('application.updateChannel'))).toBe(
+      groupUnavailabilityOf(groupOf('application')),
+    )
+  })
+
+  it('leaves a reason no host could clear exactly where it was', () => {
+    // Scene quality, the repo, You and Sharing ride PRDs rather than
+    // capabilities: `requires: null` means there is nothing to announce, so a
+    // shell declaring everything changes none of them.
+    withHost(['shell', 'tray', 'notify', 'launchAtLogin', 'updates'])
+
+    expect(unavailabilityOf(entryOf('appearance.sceneQuality'))).toContain("prd-33's")
+    for (const id of ['repo', 'you', 'sharing'] as const) {
+      expect(groupUnavailabilityOf(groupOf(id)), id).not.toBeNull()
+    }
+  })
+
+  it('restores only what can act, so a disabled control is not quietly rewritten', () => {
+    withHost(['shell', 'notify'])
+    writePreference('notifications.landed', true)
+    withHost(['notify'])
+
+    // The Application group went away with the shell; restoring the machine
+    // scope of a live group must not reach into it.
+    restoreDefaults('notifications', 'machine')
+    expect(readPreference('notifications.landed')).toBe(false)
+
+    restoreDefaults('application', 'machine')
+    expect(() => writePreference('application.closeToTray', false)).toThrow(/unavailable/)
   })
 })
 

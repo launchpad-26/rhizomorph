@@ -31,7 +31,19 @@
  * **What a control may NOT do here.** See `non-negotiables.ts`. The short of it:
  * five things may never become a preference, the law enumerates them, and it
  * fails on an entry below that would weaken any of them.
+ *
+ * **Unavailable is resolved, not declared (wave 2, #574).** An entry's
+ * `unavailable` string is the reason it cannot act; its {@link PrefEntry.requires}
+ * names the host capability that CLEARS that reason, and `host.ts` says whether
+ * this page's host provides it. So the ten controls that ride prd-34's desktop
+ * shell are declared, persisted and explained here today, and turn on when the
+ * shell announces itself — without the shell lane editing this file. Everything
+ * that asks "can this control act?" must go through {@link unavailabilityOf},
+ * never the raw field, or a shell-hosted page would render a disabled control
+ * beside a working one for the same key.
  */
+
+import { hostProvides, type HostCapability } from './host.js'
 
 /** Where a preference lives, and therefore what changing the repo does to it (ruling 3). */
 export type PrefScope = 'machine' | 'repo' | 'session'
@@ -109,8 +121,20 @@ export interface PrefEntry {
    * HIDE it (S1's *unavailable* state): a missing control reads as a setting
    * that does not exist, which is a different and weaker claim than "this one
    * is waiting on something, and here is what".
+   *
+   * Read it through {@link unavailabilityOf}, which is the field AFTER
+   * {@link requires} has had its say.
    */
   readonly unavailable: string | null
+  /**
+   * The host capability that makes {@link unavailable} stop applying — `null`
+   * when nothing a host could provide would clear it (the reason is a PRD that
+   * has not landed, not a capability this page is missing).
+   *
+   * This is what lets prd-34's shell turn on ten controls by existing rather
+   * than by editing this file; see `host.ts` for the decision and its cost.
+   */
+  readonly requires: HostCapability | null
   /**
    * The honest-gap voice (law 12) for a control that persists correctly but
    * whose effect is not fully wired yet: WHAT is missing → WHY it matters →
@@ -136,18 +160,22 @@ export interface SettingsGroup {
   readonly what: string
   /**
    * Why the whole group cannot act yet, in the honest-gap voice — or `null` for
-   * the two this wave delivers. A group riding another PRD renders DISABLED WITH
+   * the groups that are live. A group riding another PRD renders DISABLED WITH
    * ITS REASON, never hidden and never absent, so the shape of the surface is
    * the truth about what the instrument can be told.
+   *
+   * Read it through {@link groupUnavailabilityOf}, never raw.
    */
   readonly unavailable: string | null
+  /** The host capability that clears {@link unavailable} — see {@link PrefEntry.requires}. */
+  readonly requires: HostCapability | null
 }
 
 /**
- * S1's eight groups, in S1's order. Two are live in this wave (prd-35's own
- * sequencing: "appearance, motion and density only, since those are the settings
- * that exist to be set once prd-32 lands"); the other six name the PRD that
- * brings them.
+ * S1's eight groups, in S1's order. Three are live in a browser (appearance,
+ * motion, telemetry); two more turn on the moment prd-34's shell hosts this
+ * page, with no edit here (`requires`); the last three name the PRD that brings
+ * them and stay disabled with their reason until it lands.
  */
 export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
   {
@@ -155,40 +183,46 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     title: 'Appearance',
     what: 'what the instrument looks like, and how much of the picture it draws.',
     unavailable: null,
+    requires: null,
   },
   {
     id: 'motion',
     title: 'Motion',
     what: 'how much of it moves. A health control, not decoration (ruling 5).',
     unavailable: null,
+    requires: null,
   },
   {
     id: 'notifications',
     title: 'Notifications',
-    what: 'per condition — needs a human, died, landed, spend threshold — plus quiet hours.',
+    what:
+      "per condition — needs a human, died, landed, spend threshold — plus the threshold and quiet hours. Muting is about interruption, never about hiding: prd-34 ruling 8 holds that a muted condition still moves the badge, and nothing here reaches the instrument's own picture of it.",
     unavailable:
-      'nothing in the instrument can wake you yet, so a switch here would arm an alert that never fires. prd-34 ships the desktop shell that can; this group turns on with it.',
+      "no host here can raise one. A browser tab could ask for its own notification permission, and this instrument will not — a permission prompt from a page you left open is not the same act as a fleet reaching you, and the two would be indistinguishable afterwards. prd-34's desktop shell (#564) announces `notify` when it hosts this page, and every switch below is already stored and already wired to that: it turns on by the shell existing, not by anyone editing this file.",
+    requires: 'notify',
   },
   {
     id: 'application',
     title: 'Application',
     what: 'close to tray · tray badge · launch on login · update channel.',
     unavailable:
-      'this is a browser, not the desktop shell — there is no tray to close to and no login to launch from, and the shell keeps this state in its own store rather than here. prd-34 ships the shell; run inside it and this group is live.',
+      "this is a browser, not the desktop shell — there is no tray to close to and no login to launch from. prd-34's shell (#564) announces `shell` when it hosts this page, and these four are stored and explained here already, so it turns them on by existing.",
+    requires: 'shell',
   },
   {
     id: 'repo',
     title: 'Repo',
     what: 'which repository this instrument is watching.',
     unavailable:
-      'the watched repo is a command-line argument today. Changing it from here means driving the concierge picker (prd-20), which prd-35 wave 2 reuses rather than reimplements — so the repo is shown here and set there, for now.',
+      "there is no picker to reuse and no hand to drive it. The concierge launches into the repo THIS server is watching — its one route takes no repo at all — and retarget-in-place is prd-20's own open question, still unruled (`connect/wizard.tsx` says the same thing to anyone who picks another repo). A control here would therefore have to invent both the semantics and a fifth mutating call, against a law that pins the four that exist. Until prd-20 rules it, the repo is shown here and set on the command line.",
+    requires: null,
   },
   {
     id: 'telemetry',
     title: 'Telemetry',
-    what: 'the env block for this instance, copyable, with the same warning /connect gives it.',
-    unavailable:
-      "the block and its same-process warning already exist on /connect, and copying them here before wave 2 wires the two together would leave two places to keep in step. Until then /connect is where it is read.",
+    what: 'the env block for this instance, copyable, with the same same-process warning /connect gives it.',
+    unavailable: null,
+    requires: null,
   },
   {
     id: 'you',
@@ -196,6 +230,7 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     what: 'your display name and colour, defaulting to the git identity already in the log.',
     unavailable:
       'nothing reads a display name or a colour yet — prd-37 introduces the identity declaration that gives one somewhere to go. A field stored before then would describe a person to nobody.',
+    requires: null,
   },
   {
     id: 'sharing',
@@ -203,6 +238,7 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     what: 'facts always; your words only if you share them.',
     unavailable:
       'no team server is configured, so there is no other end for an opt-in to reach and no words that could leave this machine. prd-37 brings both, and the default stays facts-only when it does.',
+    requires: null,
   },
 ]
 
@@ -229,6 +265,7 @@ export const PREFERENCES: readonly PrefEntry[] = [
     words: null,
     control: 'settings',
     unavailable: null,
+    requires: null,
     gap: 'the chrome wears light; the scene does not. Panels, ink, rules and focus follow the warm-paper block, but the network is drawn from a table `scene/marks/` and `scene/gl/` import directly, so it goes on hanging in the void under a paper page — the one surface the choice does not reach. #551 landed the light table and the laws that hold it (`scene/palette.ts`); pointing the marks at it is a later wave.',
     legacy: null,
   },
@@ -247,6 +284,7 @@ export const PREFERENCES: readonly PrefEntry[] = [
     words: null,
     control: 'settings',
     unavailable: null,
+    requires: null,
     gap: 'nothing reads `data-density` yet. Choosing compact records the choice and changes no spacing, so the surface would look untouched while the preference is genuinely stored. prd-32 lands the density tokens that read it.',
     legacy: null,
   },
@@ -267,6 +305,7 @@ export const PREFERENCES: readonly PrefEntry[] = [
     control: 'settings',
     unavailable:
       "the levels are prd-33's to define — `calm`, `rich` and `maximum` name nothing in the renderer yet, and storing a level no renderer reads would be a control that claims to have changed the picture. The control is here, disabled, so the place it will act from is not invented later.",
+    requires: null,
     gap: null,
     legacy: null,
   },
@@ -286,6 +325,7 @@ export const PREFERENCES: readonly PrefEntry[] = [
       why: 'a scar is hidden from the picture it sits in, so the toggle belongs on that picture (`scene/SceneView.tsx`). Ruling 1 allows a control that changes something exactly one home, so this page shows what it is set to and what it defaults to, and offers no second copy of it.',
     },
     unavailable: null,
+    requires: null,
     gap: null,
     legacy: { key: 'rhizomorph.scenePrefs.v1', field: 'hideFinished' },
   },
@@ -305,6 +345,7 @@ export const PREFERENCES: readonly PrefEntry[] = [
       why: 'folding the panel in front of you is direct manipulation, not configuration; its header carries the one control. What settings owns is the survey — which panels are not where they started, and the way back.',
     },
     unavailable: null,
+    requires: null,
     gap: null,
     legacy: { key: 'rhizomorph.panelCollapsed.v1', field: null },
   },
@@ -324,7 +365,206 @@ export const PREFERENCES: readonly PrefEntry[] = [
     words: null,
     control: 'settings',
     unavailable: null,
+    requires: null,
     gap: "the scene and the attention strip still read `prefers-reduced-motion` themselves. Choosing *still* records the choice and sets `data-motion`, and the canvas keeps its ambient breath until it reads that attribute — so this control is honest about being half-arrived rather than quietly ineffective. prd-33's scene lane adopts it. Ruling 5's floor is already law here: `resolveMotion` cannot return more motion than the system asked for.",
+    legacy: null,
+  },
+
+  // ── notifications (prd-34 ruling 8, hosted; #574) ───────────────────────────
+  //
+  // RULING 2, CHECKED BEFORE THE GROUP WAS WRITTEN. A notification switch is
+  // the shape "make the alarms quieter" arrives in, so it was held against the
+  // alarm-band entry deliberately rather than let through because prd-35 S1
+  // lists it. It survives for a reason that has to stay true: none of these
+  // reaches the instrument's own account of the fleet. The band, the ladder and
+  // the lane's row are unchanged by every one of them, and prd-34 ruling 8
+  // makes the same commitment one layer out — a muted condition still moves the
+  // badge, because muting is about interruption and never about hiding. The day
+  // a switch here would take a lane OUT of the picture rather than out of your
+  // evening, it is not a setting, and `non-negotiables.ts` is what says so.
+  {
+    id: 'notifications.needsHuman',
+    group: 'notifications',
+    label: 'A lane needs a human',
+    what: 'whether a lane that has stopped for you interrupts you. It is in the picture either way.',
+    scope: 'machine',
+    kind: 'flag',
+    options: [],
+    fallback: true,
+    words: ['interrupts you', 'waits in the picture'],
+    control: 'settings',
+    unavailable: null,
+    requires: 'notify',
+    gap: null,
+    legacy: null,
+  },
+  {
+    id: 'notifications.died',
+    group: 'notifications',
+    label: 'A lane died',
+    what: 'whether a lane that ended without landing interrupts you.',
+    scope: 'machine',
+    kind: 'flag',
+    options: [],
+    fallback: true,
+    words: ['interrupts you', 'waits in the picture'],
+    control: 'settings',
+    unavailable: null,
+    requires: 'notify',
+    gap: null,
+    legacy: null,
+  },
+  {
+    id: 'notifications.landed',
+    group: 'notifications',
+    label: 'Work landed',
+    what: 'whether a lane reaching main interrupts you. Off by default — landing is the good news, and good news can wait.',
+    scope: 'machine',
+    kind: 'flag',
+    options: [],
+    fallback: false,
+    words: ['interrupts you', 'waits in the picture'],
+    control: 'settings',
+    unavailable: null,
+    requires: 'notify',
+    gap: null,
+    legacy: null,
+  },
+  {
+    id: 'notifications.spendCrossed',
+    group: 'notifications',
+    label: 'Spend crosses the threshold',
+    what: 'whether the fleet passing the figure below interrupts you.',
+    scope: 'machine',
+    kind: 'flag',
+    options: [],
+    fallback: false,
+    words: ['interrupts you', 'waits in the picture'],
+    control: 'settings',
+    unavailable: null,
+    requires: 'notify',
+    gap: null,
+    legacy: null,
+  },
+  {
+    id: 'notifications.spendThreshold',
+    group: 'notifications',
+    label: 'Spend threshold',
+    what: 'the figure the switch above watches for, across the whole fleet, for one run.',
+    scope: 'machine',
+    kind: 'choice',
+    options: [
+      { value: '5', label: '$5' },
+      { value: '20', label: '$20' },
+      { value: '50', label: '$50' },
+      { value: '100', label: '$100' },
+    ],
+    fallback: '20',
+    words: null,
+    control: 'settings',
+    unavailable: null,
+    requires: 'notify',
+    /**
+     * Four figures rather than a number field, and that is a real limit rather
+     * than a shortcut: the registry stores three kinds (`choice`, `flag`,
+     * `record`), a free number would be a fourth, and a fourth kind is a change
+     * to what every control, law and store here handles. Whoever finds four
+     * figures too coarse is asking for that kind, with its validation and its
+     * out-of-range case, in its own diff.
+     */
+    gap: 'the dollars this watches are the vendored-or-flagged figures the ledger already carries — it cannot watch a cost nobody reported, and a fleet with no cost data crosses no threshold rather than crossing it silently.',
+    legacy: null,
+  },
+  {
+    id: 'notifications.quietHours',
+    group: 'notifications',
+    label: 'Quiet hours',
+    what: 'when an interruption waits until morning instead. The fleet is unchanged; only whether it reaches you tonight is.',
+    scope: 'machine',
+    kind: 'choice',
+    options: [
+      { value: 'never', label: 'Any hour' },
+      { value: 'night', label: 'Hold 22:00 to 07:00' },
+    ],
+    fallback: 'never',
+    words: null,
+    control: 'settings',
+    unavailable: null,
+    requires: 'notify',
+    gap: "prd-35 leaves the shape of this open — a schedule or a single window — and this is the single window, which is the smaller of the two claims. A schedule can be added over it; a schedule that had to be un-invented could not.",
+    legacy: null,
+  },
+
+  // ── application (prd-34 rulings 2 and 8, hosted; #574) ──────────────────────
+  {
+    id: 'application.closeToTray',
+    group: 'application',
+    label: 'Closing the window',
+    what: 'whether closing the window leaves the fleet being watched, or ends the instrument.',
+    scope: 'machine',
+    kind: 'flag',
+    options: [],
+    fallback: true,
+    words: ['leaves the watcher running', 'quits the instrument'],
+    control: 'settings',
+    unavailable:
+      "this host announces no tray, so there is nowhere for a closed window to go — and quitting on close is the only honest behaviour left. prd-34's own risk register names the Linux tray as the shaky one, which is why this says so on its own rather than taking the group down with it.",
+    requires: 'tray',
+    gap: null,
+    legacy: null,
+  },
+  {
+    id: 'application.trayBadge',
+    group: 'application',
+    label: 'Tray badge',
+    what: "whether the tray icon carries the fleet's state at OS level. The instrument's own picture of it is not affected either way, and a notification you told to wait still moves the badge.",
+    scope: 'machine',
+    kind: 'flag',
+    options: [],
+    fallback: true,
+    words: ['carries the fleet state', 'plain'],
+    control: 'settings',
+    unavailable:
+      'this host announces no tray, so there is no icon to badge. The window carries the same state, unchanged and unswitchable, which is the reason this switch is allowed to exist at all.',
+    requires: 'tray',
+    gap: null,
+    legacy: null,
+  },
+  {
+    id: 'application.launchAtLogin',
+    group: 'application',
+    label: 'Launch at login',
+    what: 'whether the instrument starts with the machine. Offered, never imposed (prd-34 ruling 2).',
+    scope: 'machine',
+    kind: 'flag',
+    options: [],
+    fallback: false,
+    words: ['starts with the machine', 'started by you'],
+    control: 'settings',
+    unavailable:
+      'this host cannot register a login item — it either is not the desktop shell or the OS refused it. Starting the instrument is yours to do until it can.',
+    requires: 'launchAtLogin',
+    gap: null,
+    legacy: null,
+  },
+  {
+    id: 'application.updateChannel',
+    group: 'application',
+    label: 'Update channel',
+    what: 'which builds this instrument updates itself to. Updates download quietly and apply on restart, never mid-session.',
+    scope: 'machine',
+    kind: 'choice',
+    options: [
+      { value: 'stable', label: 'Stable' },
+      { value: 'beta', label: 'Beta' },
+    ],
+    fallback: 'stable',
+    words: null,
+    control: 'settings',
+    unavailable:
+      'this host has no updater — a build served from a repo updates when you pull it. The channel is a choice only where something is choosing on your behalf.',
+    requires: 'updates',
+    gap: null,
     legacy: null,
   },
 ]
@@ -482,6 +722,49 @@ export function scopesIn(group: GroupId): readonly PrefScope[] {
   return seen
 }
 
+// ── what can act, here, now (S1's *unavailable* state; #574) ────────────────
+
+const GROUP_BY_ID = new Map(SETTINGS_GROUPS.map((group) => [group.id, group]))
+
+/** The group `id` names. Throws, for the same reason {@link entryOf} does. */
+export function groupOf(id: GroupId): SettingsGroup {
+  const group = GROUP_BY_ID.get(id)
+  if (group === undefined) throw new Error(`no settings group is declared under ${id}`)
+  return group
+}
+
+/**
+ * A declared reason, after the host has had its say: `null` when there was no
+ * reason to begin with, or when the capability that clears it is provided.
+ *
+ * A `requires` of `null` means nothing a host could provide clears this — the
+ * blocker is a PRD that has not landed, not a capability this page is missing.
+ */
+function resolve(reason: string | null, requires: HostCapability | null): string | null {
+  if (reason === null) return null
+  return requires !== null && hostProvides(requires) ? null : reason
+}
+
+/** Why this whole group cannot act here, or `null`. */
+export function groupUnavailabilityOf(group: SettingsGroup): string | null {
+  return resolve(group.unavailable, group.requires)
+}
+
+/**
+ * Why this one control cannot act here, or `null`.
+ *
+ * **The group answers first**, and that ordering is what keeps the page from
+ * saying the same thing eight times: in a browser every Application control is
+ * blocked by the same missing shell, so the group states it once and each row
+ * is merely disabled. A control's OWN reason is reached only when the group is
+ * live and that one control is not — a shell whose tray never appeared, a
+ * control riding a PRD its group does not — which is exactly when a per-row
+ * sentence is the only place the reason could go.
+ */
+export function unavailabilityOf(entry: PrefEntry): string | null {
+  return groupUnavailabilityOf(groupOf(entry.group)) ?? resolve(entry.unavailable, entry.requires)
+}
+
 function isFlagRecord(value: unknown): value is Record<string, boolean> {
   return (
     value !== null &&
@@ -572,8 +855,9 @@ export function readFlag(id: string): boolean {
  */
 export function writePreference(id: string, value: PrefValue): boolean {
   const entry = entryOf(id)
-  if (entry.unavailable !== null) {
-    throw new Error(`${id} is unavailable — ${entry.unavailable}`)
+  const unavailable = unavailabilityOf(entry)
+  if (unavailable !== null) {
+    throw new Error(`${id} is unavailable — ${unavailable}`)
   }
   const accepted = accept(entry, value)
   if (accepted === null) throw new Error(`${JSON.stringify(value)} is not a value ${id} accepts`)
@@ -623,7 +907,7 @@ export function isOverridden(id: string): boolean {
 export function restoreDefaults(group: GroupId, scope: PrefScope): void {
   for (const entry of entriesOf(group)) {
     if (entry.scope !== scope) continue
-    if (entry.unavailable !== null) continue
+    if (unavailabilityOf(entry) !== null) continue
     clearPreference(entry.id)
   }
 }
