@@ -807,6 +807,54 @@ describe('the two GETs the fold cannot replace', () => {
     })
 
     /**
+     * **#612's acceptance clause, pinned.** "A test fails if the row can read
+     * VERIFIED off one collector's records beside another collector's remedy."
+     *
+     * The state stays `verified` — a transcript really did arrive, and saying
+     * otherwise would be its own lie — but claude's collector having gone dark
+     * is no longer unrecoverable from this row. Before this, the
+     * `flow.count > 0` branch returned first and the reason and remedy sitting
+     * in `/api/meta` were never mentioned at all.
+     */
+    it('names a disabled sessionlog collector on a row it still verifies off pi records', () => {
+      const meta = metaWith({}, { collectors: [{ name: 'sessionlog', signals: [{ signal: 'identity', level: 'absent', reason: 'no Claude Code session logs found', remedy: 'run `claude` here once' }] }] })
+      const state = reduceAll([
+        f.toolActivity({ lane: 'lane-a', role: 'worker', sessionId: 'sess-a', tool: 'Bash', harness: 'pi' }, { ts: 4_000, source: 'sessionlog' }),
+      ])
+      const flow = row(build(state, { meta }), 'transcripts-flow')
+
+      expect(flow.state).toBe('verified')
+      expect(flow.notes.join(' ')).toContain('sessionlog is disabled')
+      expect(flow.notes.join(' ')).toContain('no Claude Code session logs found')
+      expect(flow.notes.join(' ')).toContain('remedy (sessionlog): run `claude` here once')
+      // pi is live and is the one that reported — it has nothing to say here.
+      expect(flow.notes.join(' ')).not.toContain('pi is disabled')
+    })
+
+    it('carries the same names onto an unproven row — nothing arrived, and here is one reason it might not', () => {
+      const meta = metaWith({}, { collectors: [{ name: 'pi', signals: [{ signal: 'identity', level: 'absent', reason: 'no pi session directory', remedy: null }] }] })
+      const flow = row(build(reduceAll([]), { meta }), 'transcripts-flow')
+
+      expect(flow.state).toBe('unproven')
+      expect(flow.notes.join(' ')).toContain('pi is disabled — no pi session directory')
+    })
+
+    /**
+     * The notes are evidence, not decoration: a row with both mechanisms live
+     * carries none. Without this, a note attached unconditionally would satisfy
+     * the two cases above while telling an operator nothing.
+     */
+    it('says nothing about collectors that have not gone quiet', () => {
+      const state = reduceAll([
+        f.toolActivity({ lane: 'lane-a', role: 'worker', sessionId: 'sess-a', tool: 'Bash', harness: 'pi' }, { ts: 4_000, source: 'sessionlog' }),
+      ])
+      const flow = row(build(state), 'transcripts-flow')
+
+      expect(flow.state).toBe('verified')
+      expect(flow.notes).toEqual([])
+    })
+
+    /**
      * Mutation proof: a check keyed ONLY on `disabledReason(meta,
      * 'sessionlog')` — the pre-#612 shape — would call this row BROKEN the
      * moment claude's collector is disabled, regardless of pi. That is
