@@ -99,6 +99,30 @@ export const REPRESENTATION_INSTANCES: readonly RepresentationInstance[] = [
       'scope there and passing the matching `store` below is the whole of what ' +
       'is left; nothing in this component changes when it lands.',
   },
+  {
+    surface: 'history',
+    label: 'History',
+    // By session first: the recordings library was here before the lane axis
+    // existed, so "what happened that night" is the reading a person already
+    // has, and prd-31 ruling 8 is a widening of it rather than a replacement.
+    representations: ['session', 'lane'],
+    // `h` for *history*. Free by the same audit `v` passed: `n`/`shift+n` are
+    // the page-global idle-worker jump, `f`/`a` the fleet table's row verbs,
+    // `v` the fleet surface's own, and `/` the session search's. This instance
+    // is only ever mounted on `/recordings`, so it cannot collide with the
+    // balcony's keys even in principle.
+    keystroke: 'h',
+    persistence: null,
+    gap:
+      'the axis is not remembered — reloading /recordings lands back on the ' +
+      'session axis. It is the same gap the fleet instance carries and it closes ' +
+      'the same way: every persisted key in this package must be declared in ' +
+      '`settings/registry.ts` (prd-35 ruling 2, held by ' +
+      '`settings/coverage-law.test.tsx`), and this lane is fenced to one entry ' +
+      'in that file — the dock tab (prd-32 S3, which rules that one persisted). ' +
+      'Declaring `appearance.historyAxis` there and passing the matching `store` ' +
+      'below is the whole of what is left; nothing in this component changes.',
+  },
 ]
 
 const BY_SURFACE = new Map(REPRESENTATION_INSTANCES.map((instance) => [instance.surface, instance]))
