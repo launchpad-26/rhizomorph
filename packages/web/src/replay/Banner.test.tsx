@@ -1,3 +1,6 @@
+import { readFileSync, readdirSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -68,6 +71,8 @@ async function renderBanner(extra: readonly unknown[] = []) {
     fireEvent.click(screen.getByText('select session'))
   })
 }
+
+const WEB_SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 describe('ReplayBanner', () => {
   it('states the past directly rather than through color', async () => {
@@ -150,5 +155,67 @@ describe('ReplayBanner — the unknown-era voice', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Exit to live' }))
     })
     expect(screen.queryByTestId('replay-unknown-era')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * ONE BANNER, AND IT IS THIS ONE (walkthrough, 2026-08-17).
+ *
+ * This component had existed, tested and fully token-lawful, since #83 — and
+ * **nothing imported it**, because `app/Shell.tsx` defined a duplicate inline
+ * stub that said "#83" and offered no way out of replay. Two implementations,
+ * one rendered, and the rendered one was the placeholder.
+ *
+ * The walkthrough's finding was the duplication; the resolution is to mount the
+ * component that was already finished and delete the stub, rather than the
+ * other way round. Deleting *this* one would have kept a banner with no
+ * timestamp, no session identity, no unknown-era voice and no `Exit to live`
+ * control, and every test above would have gone with it.
+ *
+ * So the claim is checked at the level of the source text, the way the read-only
+ * constitution is: exactly one file in the package draws a replay banner, and it
+ * is this one.
+ */
+describe('the replay banner is drawn in exactly one place', () => {
+  function sourceFiles(): { name: string; text: string }[] {
+    const out: { name: string; text: string }[] = []
+    const visit = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          visit(full)
+          continue
+        }
+        if (!/\.tsx?$/.test(entry.name) || /\.test\.tsx?$/.test(entry.name)) continue
+        out.push({ name: path.relative(WEB_SRC, full), text: readFileSync(full, 'utf8') })
+      }
+    }
+    visit(WEB_SRC)
+    return out
+  }
+
+  it('marks the banner in one source file, and it is Banner.tsx', () => {
+    const drawn = sourceFiles()
+      .filter((file) => file.text.includes('data-panel="replay-banner"'))
+      .map((file) => file.name)
+
+    expect(drawn).toEqual([path.join('replay', 'Banner.tsx')])
+  })
+
+  it('is the component the shell actually mounts', () => {
+    // The other half: one implementation is worth nothing if the shell renders
+    // none of them. Before this commit `Shell.tsx` imported no banner at all.
+    const shell = readFileSync(path.join(WEB_SRC, 'app', 'Shell.tsx'), 'utf8')
+    expect(shell).toMatch(/import \{ ReplayBanner \} from '\.\.\/replay\/Banner\.js'/)
+    expect(shell).toMatch(/<ReplayBanner \/>/)
+    // …and defines no banner of its own any more.
+    expect(shell).not.toMatch(/function ReplayBanner/)
+  })
+
+  it('the sweep bites — a second banner anywhere would be named', () => {
+    // Without this, the assertion above passes identically against a typo'd
+    // marker string that matches nothing at all.
+    expect(sourceFiles().length).toBeGreaterThan(50)
+    expect('data-panel="replay-banner"'.includes('replay-banner')).toBe(true)
   })
 })

@@ -39,8 +39,8 @@ export function TraceGantt({ state, lane }: TraceGanttProps) {
   ]
 
   return (
-    <div data-testid="trace-gantt" className="overflow-x-auto rounded border border-ice-850 bg-ice-1000">
-      <div className="flex items-baseline justify-between px-2 py-1 text-[10px] text-ice-400" style={{ minWidth: `${trackWidthPx}px` }}>
+    <div data-testid="trace-gantt" className="overflow-x-auto rounded border border-(--line-hair) bg-(--surface-floor)">
+      <div className="flex items-baseline justify-between px-2 py-1 text-[10px] text-(--ink-dim)" style={{ minWidth: `${trackWidthPx}px` }}>
         <span>0s</span>
         <span>{formatSpan(totalMs)}</span>
       </div>
@@ -54,17 +54,18 @@ export function TraceGantt({ state, lane }: TraceGanttProps) {
               key={node.span.spanId}
               data-testid="trace-gantt-row"
               data-kind={node.span.kind}
-              className="flex items-center gap-2 border-t border-ice-850/60 px-2 py-1 first:border-t-0"
+              className="flex items-center gap-2 border-t border-(--line-hair) px-2 py-1 first:border-t-0"
             >
               <div
-                className="sticky left-0 z-10 w-44 shrink-0 bg-ice-1000 pr-2"
+                className="sticky left-0 z-10 w-44 shrink-0 bg-(--surface-floor) pr-2"
                 style={{ paddingLeft: `${depth * 0.9}rem` }}
               >
                 <RowLabel node={node} />
               </div>
               <div className="relative h-3 flex-1">
                 <div
-                  className="absolute inset-y-0 rounded-sm bg-ice-700"
+                  data-testid="gantt-bar"
+                  className="absolute inset-y-0 rounded-sm bg-(--surface-line)"
                   style={{ marginLeft: `${left}px`, width: `${width}px` }}
                 />
                 <div

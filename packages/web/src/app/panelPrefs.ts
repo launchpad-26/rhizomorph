@@ -45,22 +45,19 @@ const DOCK_TAB = 'appearance.dockTab'
  * have changed *from*), and this paragraph stays here, where the panels are
  * named, because the ruling is about these panels rather than about storage.
  *
- * prd3 note: the ids here are the *panel* ids registered in `PanelGrid`
- * (`fleet`, `ledger`, `collisions`, `feed`, and — since prd4 ruling 2 —
- * `scene`, whose own collapse toggle in `SceneSlot` was reconciled onto this
- * same store rather than keeping its own unpersisted state). The attention
- * and burn strips are deliberately absent — ruling 5 makes the strip
- * always-present, so it has no collapse state to persist, and neither has the
- * burn strip docked with it.
+ * prd3 note: the ids here are the *panel* ids registered in `PanelGrid`, and
+ * since #552 there are exactly two of them — `fleet` and `dock`. `scene` left
+ * when the scene became a representation of the fleet surface rather than a
+ * panel (#555, which also retired `app/SceneSlot.tsx` and its own collapse
+ * toggle); `ledger`, `collisions` and `feed` left when they became tabs of the
+ * dock, and a tab is never hidden (prd-32 S3). The attention and burn strips
+ * are deliberately absent — ruling 5 makes the strip always-present, so it has
+ * no collapse state to persist, and neither has the burn strip docked with it.
  *
- * prd9 legibility round: `feed` defaults collapsed, the opposite of every
- * other panel's default. It is a stream of history, never the day's own
- * failure mode the way collisions is, so a header-and-latest-line peek costs
- * an operator nothing they need at a glance — and the row it used to take at
- * full height was some of the "crowded" the operator's ruling names. Unlike
- * every other panel here, `feed`'s own collapsed reading isn't just "gone":
- * see `PanelFrame`'s controlled-collapse mode and `panels/feed/index.tsx`'s
- * own peek render.
+ * prd9's `feed`-defaults-collapsed exception went with the feed's panelhood:
+ * see `panels/feed/index.tsx` for what answers the question its peek answered.
+ * `appearance.panelsCollapsed`'s declared default is empty as a result, so
+ * every panel that still HAS a collapse starts open.
  */
 function defaultCollapsed(id: string): boolean {
   return fallbackRecord(PANELS_COLLAPSED)[id] ?? false

@@ -74,16 +74,16 @@ export function TraceTree({ state, lane }: TraceTreeProps) {
         const rows = flattenDescendants(view.root)
 
         return (
-          <li key={view.summary.traceId} data-testid="trace-interaction" className="border-t border-ice-850/60 pt-1 first:border-t-0 first:pt-0">
+          <li key={view.summary.traceId} data-testid="trace-interaction" className="border-t border-(--line-hair) pt-1 first:border-t-0 first:pt-0">
             <button
               type="button"
               onClick={() => toggle(view.summary.traceId)}
               aria-expanded={isOpen}
               aria-label={`${isOpen ? 'Collapse' : 'Expand'} interaction ${ordinal}`}
               data-testid="trace-interaction-toggle"
-              className="flex w-full items-baseline gap-2 text-left font-mono text-[11px] text-ice-200 hover:text-ice-100"
+              className="flex w-full items-baseline gap-2 text-left font-mono text-[11px] text-(--ink-body) hover:text-(--ink-primary)"
             >
-              <span className="w-3 shrink-0 text-ice-400">{isOpen ? '▾' : '▸'}</span>
+              <span className="w-3 shrink-0 text-(--ink-dim)">{isOpen ? '▾' : '▸'}</span>
               <span className="min-w-0 flex-1 truncate">
                 interaction #{ordinal} · {formatSpan(view.summary.wallDurationMs)} · Σ
                 {formatSpan(sumLeafDurationsMs(view.root))}

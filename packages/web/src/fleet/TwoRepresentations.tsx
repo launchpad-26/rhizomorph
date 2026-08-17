@@ -245,7 +245,7 @@ export function TwoRepresentations({ surface, views, heading, store }: TwoRepres
     <section
       data-surface={surface}
       data-representation={current.id}
-      className="flex h-full min-h-0 flex-col rounded-lg border border-ice-850 bg-ice-950"
+      className="flex h-full min-h-0 flex-col rounded-lg border border-(--line-hair) bg-(--surface-panel)"
     >
       <header className="flex shrink-0 items-center justify-between gap-3 px-4 py-2">
         {heading}
@@ -266,14 +266,14 @@ export function TwoRepresentations({ surface, views, heading, store }: TwoRepres
               onClick={() => choose(view.id)}
               className={
                 view.id === current.id
-                  ? `${TOGGLE_BUTTON} border-ice-600 bg-ice-900 text-ice-100`
+                  ? `${TOGGLE_BUTTON} border-(--ink-dim) bg-(--surface-raised) text-(--ink-primary)`
                   : TOGGLE_BUTTON
               }
             >
               {view.label}
             </button>
           ))}
-          <span className="ml-1 font-mono text-[10px] text-ice-400" aria-hidden="true">
+          <span className="ml-1 font-mono text-[10px] text-(--ink-dim)" aria-hidden="true">
             {instance.keystroke}
           </span>
         </div>
@@ -290,4 +290,4 @@ export function TwoRepresentations({ surface, views, heading, store }: TwoRepres
  * hand-rolled ring.
  */
 const TOGGLE_BUTTON =
-  'focus-ring rounded border border-ice-850 border-t-ice-800 bg-ice-950/70 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ice-400 transition-[transform,color,border-color] duration-150 ease-out hover:border-ice-600 hover:text-ice-200 active:scale-[0.97]'
+  'focus-ring rounded border border-(--line-hair) border-t-(--line-strong) bg-(--surface-panel)/70 px-2 py-0.5 text-[10px] uppercase tracking-wide text-(--ink-dim) transition-[transform,color,border-color] duration-150 ease-out hover:border-(--ink-dim) hover:text-(--ink-body) active:scale-[0.97]'

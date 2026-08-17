@@ -133,40 +133,75 @@ export function PanelGrid() {
   const hiddenFor = (id: string) => focusedId !== null && focusedId !== id
   const onFocusChangeFor = (id: string) => (focused: boolean) => setFocusedId(focused ? id : null)
 
+  /*
+   * A GRID OF TWO SHARES, NOT A SCROLLING COLUMN (walkthrough, 2026-08-17).
+   *
+   * This was `flex flex-col gap-4 overflow-auto`, and at 164 lanes the fleet
+   * showed three rows. A flex column of freely-shrinkable children hands every
+   * pixel of pressure to whichever child has no floor — the fleet — and its own
+   * `overflow-auto` then clips it **silently** instead of pushing back. The
+   * scene's `min-h-[55vh]` was the only floor in the file, so the roster
+   * representation had none at all.
+   *
+   * Two explicit shares fix it at the source: `3fr` to the hero and `2fr` to
+   * the dock, with `minmax(0, …)` so a track can actually shrink to its share
+   * rather than inflating to its content (a bare `1fr` has an implicit
+   * `min-height: auto` and will not), and `overflow-hidden` here so the PAGE
+   * never scrolls — each panel scrolls inside its own share instead. Nothing is
+   * ever below a fold, because there is no fold.
+   *
+   * 3:2 rather than 1:1 is prd4 ruling 2's hierarchy expressed as height:
+   * *who is alive* is the first-second question and gets the larger share. The
+   * ruling's own justification for the split — that the scene is
+   * "self-explanatory" — is amended on the record in
+   * `docs/prds/done/prd-04-human-facing.md`, because it is false at fleet scale
+   * and that is precisely why the roster must not be the thing that shrinks.
+   *
+   * Collapsing either panel is unaffected: a collapsed `PanelFrame` is
+   * `self-start`, so it takes its header's height and its share goes to the
+   * other track.
+   */
   return (
-    <div className="flex min-h-0 flex-col gap-4 overflow-auto p-4 [scrollbar-gutter:stable]">
+    <div className="flex min-h-0 flex-col gap-2 overflow-hidden p-4">
       {/* prd19 ruling 1's "one quiet pointer from the empty balcony": a
           pointer, not an interstitial — every panel below still renders (and
           draws its own existing empty state) exactly as it does once a
-          worktree turns up. */}
+          worktree turns up.
+
+          It sits OUTSIDE the two-share grid on purpose: it is one sentence, and
+          giving it a track of its own would take a share of the viewport away
+          from the fleet in order to say it. */}
       {foldIsEmpty ? <BalconyConnectPointer /> : null}
 
-      {/* The centerpiece (prd4 ruling 2, merged by prd-36 ruling 1): "what is
-          the fleet doing?" answered before anything else, hero-sized directly
-          beneath the dock — as the organism or as the list, one keystroke
-          apart. The frame's own collapse and focus chrome wraps the whole
-          surface, so focusing it fills the view with whichever representation
-          is up rather than with one of the two. */}
-      <PanelFrame
-        id="fleet"
-        title="Fleet"
-        hidden={hiddenFor('fleet')}
-        onFocusChange={onFocusChangeFor('fleet')}
-      >
-        <FleetSurface />
-      </PanelFrame>
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,3fr)_minmax(0,2fr)] gap-4">
+        {/* The centerpiece (prd4 ruling 2, merged by prd-36 ruling 1): "what is
+            the fleet doing?" answered before anything else, hero-sized above
+            the dock — as the organism or as the list, one keystroke apart. The
+            frame's own collapse and focus chrome wraps the whole surface, so
+            focusing it fills the view with whichever representation is up
+            rather than with one of the two. */}
+        <PanelFrame
+          id="fleet"
+          title="Fleet"
+          hidden={hiddenFor('fleet')}
+          onFocusChange={onFocusChangeFor('fleet')}
+        >
+          <FleetSurface />
+        </PanelFrame>
 
-      {/* The dock: read after the first-second question has been answered.
-          One surface, full width, one thing at a time — where three panels
-          used to be squeezed two-up or three-up into whatever the fleet left. */}
-      <PanelFrame
-        id="dock"
-        title="Dock"
-        hidden={hiddenFor('dock')}
-        onFocusChange={onFocusChangeFor('dock')}
-      >
-        <Dock />
-      </PanelFrame>
+        {/* The dock: read after the first-second question has been answered.
+            One surface, full width, one thing at a time — where three panels
+            used to be squeezed two-up or three-up into whatever the fleet
+            left. */}
+        <PanelFrame
+          id="dock"
+          title="Dock"
+          hidden={hiddenFor('dock')}
+          onFocusChange={onFocusChangeFor('dock')}
+        >
+          <Dock />
+        </PanelFrame>
+      </div>
     </div>
   )
 }

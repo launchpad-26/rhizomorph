@@ -76,9 +76,9 @@ export const DECISION_WORD: Record<SpanDecision, string> = {
 }
 
 const DECISION_CLASS: Record<SpanDecision, string> = {
-  accept: 'text-ice-300',
-  reject: 'text-ice-200',
-  unknown: 'text-ice-400',
+  accept: 'text-(--ink-body)',
+  reject: 'text-(--ink-body)',
+  unknown: 'text-(--ink-dim)',
 }
 
 export interface DecisionBadgeProps {
@@ -89,7 +89,7 @@ export interface DecisionBadgeProps {
 
 export function DecisionBadge({ decision, waitedFor }: DecisionBadgeProps) {
   return (
-    <span data-testid="trace-decision" data-decision={decision} className="text-[10px] text-ice-400">
+    <span data-testid="trace-decision" data-decision={decision} className="text-[10px] text-(--ink-dim)">
       waited {waitedFor} ·{' '}
       <span className={`uppercase tracking-wide ${DECISION_CLASS[decision]}`}>
         {DECISION_WORD[decision]}

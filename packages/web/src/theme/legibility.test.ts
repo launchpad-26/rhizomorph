@@ -70,18 +70,22 @@ const SUB_FLOOR_ARBITRARY = new RegExp(
  * same file still fails loudly, and a stale entry (the snippet moves or is
  * deleted) fails loudly too, in the test right below this one.
  */
-const ALLOWLIST: ReadonlyArray<{ file: string; snippet: string; reason: string }> = [
-  {
-    file: 'drawer/Conversation.tsx',
-    snippet: '<span aria-hidden className="text-ice-600">',
-    reason: 'the ● before a tool call — decorative line-start mark, aria-hidden, says nothing on its own',
-  },
-  {
-    file: 'drawer/Conversation.tsx',
-    snippet: '<span aria-hidden className="text-ice-700">',
-    reason: 'the ⎿ before a tool result — decorative line-start mark, aria-hidden, says nothing on its own',
-  },
-]
+/**
+ * EMPTY, and the emptiness is progress rather than a weakening.
+ *
+ * It held two entries, both `drawer/Conversation.tsx`: the decorative `●`
+ * before a tool call and the `⎿` before its result, at `text-ice-600` and
+ * `text-ice-700` — sub-floor ink, permitted because both are `aria-hidden` and
+ * say nothing on their own. The 2026-08-17 walkthrough's colour repair swept
+ * that file onto role tokens, and both marks came UP to `--ink-dim` (the floor
+ * itself) as a side effect. Nothing is exempt any more because nothing needs to
+ * be.
+ *
+ * The list may only shrink; this is it reaching zero. The sweep below is what
+ * actually bites, and it is not vacuous with an empty allowlist — it is
+ * stricter, because every sub-floor class in the package now fails.
+ */
+const ALLOWLIST: ReadonlyArray<{ file: string; snippet: string; reason: string }> = []
 
 function sourceFiles(): { name: string; text: string }[] {
   const files: { name: string; text: string }[] = []

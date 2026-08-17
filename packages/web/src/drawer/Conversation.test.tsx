@@ -304,7 +304,7 @@ describe('Conversation — the CLI-style session (prd4 ruling 4)', () => {
 
     // The subagent is marked as such and reads quieter than the lane's own voice.
     expect(turns[4]?.textContent).toContain('subagent')
-    expect(turns[4]?.querySelector('[data-testid="turn-prose"]')?.className).toContain('text-ice-400')
+    expect(turns[4]?.querySelector('[data-testid="turn-prose"]')?.className).toContain('text-(--ink-dim)')
 
     // An unreadable line stays visible rather than vanishing.
     expect(turns[5]?.textContent).toContain('⟨unreadable line⟩')

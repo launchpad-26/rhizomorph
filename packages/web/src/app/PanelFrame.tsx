@@ -131,7 +131,7 @@ export function PanelFrame({
           type="button"
           aria-pressed={focused}
           onClick={focused ? restore : focus}
-          className={focused ? `${CHROME_BUTTON} border-ice-600 bg-ice-900 text-ice-100` : CHROME_BUTTON}
+          className={focused ? `${CHROME_BUTTON} border-(--ink-dim) bg-(--surface-raised) text-(--ink-primary)` : CHROME_BUTTON}
         >
           {focused ? `Restore ${title}` : `Focus ${title}`}
         </button>

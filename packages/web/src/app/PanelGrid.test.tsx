@@ -507,6 +507,88 @@ describe('PanelGrid', () => {
     })
   })
 
+  /**
+   * THE WALKTHROUGH'S SECOND FINDING (2026-08-17) — a human read the running
+   * instrument at 164 lanes and the fleet showed three rows.
+   *
+   * jsdom has no layout engine, so no test here can measure a rendered height.
+   * What it CAN pin is the mechanism, and the mechanism is the whole bug: a
+   * flex column of freely-shrinkable children with one `min-h-[55vh]` floor on
+   * the scene handed every pixel of pressure to the roster, whose own
+   * `overflow-auto` clipped it silently instead of pushing back.
+   *
+   * So these assert the three structural facts that make clipping impossible,
+   * each of which was false before this commit — and the last one asserts the
+   * absence of the floor that caused it, which is the only form the fix's
+   * central claim can take without a browser.
+   */
+  describe('the fleet is not clipped at rest (prd4 ruling 2, amended 2026-08-17)', () => {
+    function grid(container: HTMLElement): HTMLElement {
+      return container.querySelector('[data-panel="dock"]')?.closest('.grid') as HTMLElement
+    }
+
+    it('divides the row into two explicit shares rather than letting one absorb the pressure', async () => {
+      const { container } = await renderGrid()
+
+      // 3fr to the hero, 2fr to the dock: prd4 ruling 2's hierarchy expressed
+      // as height rather than as a floor on one representation.
+      expect(grid(container).className).toContain('grid-rows-[minmax(0,3fr)_minmax(0,2fr)]')
+    })
+
+    it('uses minmax(0, …) so a track can shrink to its share rather than inflate to its content', async () => {
+      // The subtlety that makes a bare `1fr` wrong here: a grid track has an
+      // implicit `min-height: auto`, so `1fr` never shrinks below its content
+      // and a 164-row table would push its own track past the viewport,
+      // dragging the dock off-screen instead of scrolling inside itself.
+      const { container } = await renderGrid()
+      expect(grid(container).className).not.toMatch(/grid-rows-\[\d+fr/)
+      expect(grid(container).className).toContain('minmax(0,')
+    })
+
+    it('does not scroll the page — each panel scrolls inside its own share', async () => {
+      const { container } = await renderGrid()
+      const outer = container.querySelector('.flex.min-h-0.flex-col') as HTMLElement
+
+      // `overflow-auto` here was how 161 of 164 lanes went missing without the
+      // instrument saying a word: the column scrolled, the fleet's own
+      // container clipped, and nothing pushed back.
+      expect(outer.className).toContain('overflow-hidden')
+      expect(outer.className).not.toContain('overflow-auto')
+    })
+
+    it('grants no representation a height floor another cannot have', async () => {
+      // The `min-h-[55vh]` is DELETED rather than moved. A floor on the canvas
+      // is a floor the roster does not get, which is exactly how the roster
+      // came to be the thing that shrank — see the amendment in
+      // `docs/prds/done/prd-04-human-facing.md`.
+      const [{ readFileSync, readdirSync }, path, { fileURLToPath }] = await Promise.all([
+        import('node:fs'),
+        import('node:path'),
+        import('node:url'),
+      ])
+      const webSrc = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+      const offenders: string[] = []
+      const walk = (dir: string) => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name)
+          if (entry.isDirectory()) {
+            walk(full)
+            continue
+          }
+          if (!/\.tsx?$/.test(entry.name) || /\.test\.tsx?$/.test(entry.name)) continue
+          const text = readFileSync(full, 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ')
+          if (/min-h-\[\d+vh\]/.test(text)) offenders.push(path.relative(webSrc, full))
+        }
+      }
+      walk(webSrc)
+
+      expect(offenders, 'a viewport-height floor came back').toEqual([])
+      // …and the sweep is not vacuous.
+      expect(/min-h-\[\d+vh\]/.test('className="min-h-[55vh] flex-1"')).toBe(true)
+    })
+  })
+
   describe('the balcony pointer (prd19 ruling 1 — "one quiet pointer from the empty balcony")', () => {
     it('points at Connect when the fold has no lanes and no worktrees', async () => {
       await renderGrid({ emitWorktree: false })

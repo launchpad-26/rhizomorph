@@ -34,7 +34,11 @@ describe('TraceGantt', () => {
     ])
 
     for (const row of rows) {
-      const bar = row.querySelector('.bg-ice-700') as HTMLElement | null
+      // By test id rather than by class since the 2026-08-17 colour sweep: the
+      // bar is a role token now (`bg-(--surface-line)`), and a CSS selector
+      // carrying parentheses is a needless piece of escaping for a thing the
+      // component can simply name.
+      const bar = row.querySelector('[data-testid="gantt-bar"]') as HTMLElement | null
       expect(bar).not.toBeNull()
       expect(bar?.style.width).not.toBe('')
     }

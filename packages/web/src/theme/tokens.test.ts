@@ -228,7 +228,10 @@ describe('the type ramp, in rem, in two registers (S1)', () => {
 //
 // 69 -> 67: the dock (#552). The activity feed went through the ramp as its
 // frame and its collapsed peek came off.
-const RAW_PIXEL_SIZES = 67
+//
+// 67 -> 65: the walkthrough repairs. `Shell.tsx`'s wordmark and the retired
+// `app/SceneSlot.tsx` (dead since #555's merge, deleted here) took the last two.
+const RAW_PIXEL_SIZES = 65
 
 /** Everything the sweeps own: the app, less `lab/` (prd-28's territory). */
 function sweepable(): { name: string; text: string }[] {
@@ -323,7 +326,35 @@ describe('no new pixel literal after the ramp exists (S1)', () => {
 // 285 -> 258: the dock (#552). `PanelGrid` and the activity feed reach for
 // roles; the ledger and collisions panels lost their own frames to the dock's
 // one border. Run, not subtracted.
-const ICE_RUNG_SITES = 258
+//
+// 258 -> 129: the walkthrough's repairs, in one move because they landed in
+// one commit — pinning an intermediate figure would be inventing a tree that
+// never existed. Two causes, both named:
+//
+// (a) `Shell.tsx` reaches for roles, and `app/SceneSlot.tsx` — nine rungs of
+// it, unmounted since #555 — is deleted.
+//
+// (b) the colour repair. A browser pass
+// over the built instrument found the FLEET SURFACE rendering as a black slab
+// on warm paper — `fleet/TwoRepresentations.tsx` painted the frame
+// `bg-ice-950`, so in light mode the hero of the main screen was the void with
+// dark-on-dark rows in it, and the peek's vitals were `text-ice-200`
+// (near-white) on cream. That is exactly the bug this ratchet was created for
+// (#597's "a dark instrument with a sliver of cream at the edges"), and no test
+// could see it: every law in this file reads the DARK table.
+//
+// So every surface this lane restructured is swept onto roles — the fleet
+// frame, the peek's four regions, the trace's rows and gantt, the attention
+// chips, the panel chrome and the replay bar.
+//
+// **129 is the figure the law reported on the rebased tree, not this branch's
+// own.** Before the rebase this line read 153; `settings/` was swept in
+// parallel by #574 on a disjoint set of directories, so the merged truth is
+// lower than either branch knew. Every pin in this file was re-derived the same
+// way after the rebase — resolve, run the law, write down what its own message
+// says — because the one thing this ratchet must never be is a number somebody
+// worked out.
+const ICE_RUNG_SITES = 129
 
 describe('no consumer names a luminance rung — the colour ratchet (S2)', () => {
   /** The sweep's own files, less the one that defines the ramp being counted. */
