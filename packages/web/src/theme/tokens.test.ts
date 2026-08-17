@@ -225,7 +225,10 @@ describe('the type ramp, in rem, in two registers (S1)', () => {
 // ramp as they were restructured — retiring a literal while a file is already
 // open beats a sweep that reopens it later. Recomputed from the tree, not
 // subtracted from the diff.
-const RAW_PIXEL_SIZES = 69
+//
+// 69 -> 67: the dock (#552). The activity feed went through the ramp as its
+// frame and its collapsed peek came off.
+const RAW_PIXEL_SIZES = 67
 
 /** Everything the sweeps own: the app, less `lab/` (prd-28's territory). */
 function sweepable(): { name: string; text: string }[] {
@@ -316,7 +319,11 @@ describe('no new pixel literal after the ramp exists (S1)', () => {
 // reasoned — resolve the conflict, execute the law, write down the figure its
 // own self-correcting message reports. 69 is what the walk finds for pixels on
 // the merged tree, unchanged; 285 is what it finds for rungs.
-const ICE_RUNG_SITES = 285
+//
+// 285 -> 258: the dock (#552). `PanelGrid` and the activity feed reach for
+// roles; the ledger and collisions panels lost their own frames to the dock's
+// one border. Run, not subtracted.
+const ICE_RUNG_SITES = 258
 
 describe('no consumer names a luminance rung — the colour ratchet (S2)', () => {
   /** The sweep's own files, less the one that defines the ramp being counted. */

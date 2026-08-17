@@ -72,7 +72,7 @@ async function renderPanel(events: readonly unknown[] = [], open = true) {
 }
 
 describe('LedgerPanel', () => {
-  it('renders a header and a waiting state before any connection or data', () => {
+  it('renders a waiting state before any connection or data — and no heading of its own (#552)', () => {
     render(
       <StreamProvider url="/api/stream" createSource={() => new FakeEventSource()}>
         <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
@@ -82,7 +82,9 @@ describe('LedgerPanel', () => {
         </FleetProvider>
       </StreamProvider>,
     )
-    expect(screen.getByText('Ledger')).toBeInTheDocument()
+    // The dock's tab strip names this surface (SPEND); a second name inside it
+    // would be the duplication prd-32 ruling 5 removed.
+    expect(screen.queryByText('Ledger')).not.toBeInTheDocument()
     expect(screen.getByText('Waiting for the stream…')).toBeInTheDocument()
   })
 

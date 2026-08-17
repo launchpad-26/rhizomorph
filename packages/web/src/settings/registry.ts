@@ -337,7 +337,17 @@ export const PREFERENCES: readonly PrefEntry[] = [
     scope: 'repo',
     kind: 'record',
     options: [],
-    fallback: { collisions: false, feed: true },
+    // Empty since #552, and the emptiness is the ruling rather than a loss of
+    // one. This map used to carry `{ collisions: false, feed: true }` — prd1's
+    // "collisions must default to expanded" and prd9's "the feed defaults to a
+    // peek". prd-32 ruling 5 folded collisions and the feed into the dock, so
+    // neither is a panel with a collapse state any more; the four dock tabs are
+    // one surface with one collapse, and which of them is showing is
+    // `appearance.dockTab`. Leaving two panels named here that no longer exist
+    // would have printed a default for them on this very page, which is the
+    // dishonesty prd-35 is against. prd1's ruling survives where it now lives:
+    // collisions is a tab, and a tab is never hidden (S3 forbids it).
+    fallback: {},
     words: ['collapsed', 'expanded'],
     control: {
       surface: "each panel's own header",
@@ -348,6 +358,39 @@ export const PREFERENCES: readonly PrefEntry[] = [
     requires: null,
     gap: null,
     legacy: { key: 'rhizomorph.panelCollapsed.v1', field: null },
+  },
+  {
+    id: 'appearance.dockTab',
+    group: 'appearance',
+    label: 'Dock tab',
+    what: 'which of the dock’s four surfaces is showing beneath the fleet.',
+    // Repo, not machine, and prd-32 S3 says so in as many words ("the selected
+    // tab persists per repo"). The reason is the same one ruling 3 gives panel
+    // collapse: which analytical surface you keep open is a fact about the work
+    // in front of you, and a repo you review spend on is not the repo you watch
+    // collisions on.
+    scope: 'repo',
+    kind: 'choice',
+    options: [
+      { value: 'spend', label: 'Spend' },
+      { value: 'collisions', label: 'Collisions' },
+      { value: 'feed', label: 'Activity' },
+      { value: 'trace', label: 'Trace' },
+    ],
+    fallback: 'spend',
+    words: null,
+    control: {
+      surface: 'the dock’s own tab strip, beneath the fleet',
+      testId: 'dock-tabs',
+      why: 'picking the tab in front of you is direct manipulation, not configuration — ruling 1 allows a control that changes something exactly one home, so this page shows which tab is remembered and offers no second way to change it.',
+    },
+    unavailable: null,
+    // Nothing a host could provide would change this: the dock is four tabs in
+    // a browser and it works today (#574's `requires` names the capability that
+    // CLEARS an `unavailable`, and this entry has none to clear).
+    requires: null,
+    gap: null,
+    legacy: null,
   },
   {
     id: 'motion.level',

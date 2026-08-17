@@ -72,8 +72,11 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
   const connected = status === 'open' && state.events.length > 0
 
   return (
-    <section className="flex h-full flex-col rounded-lg border border-(--line-hair) bg-(--surface-panel) p-4">
-      <h2 className="heading text-(--ink-dim)">Ledger</h2>
+    // No frame and no heading of its own since #552 — the dock draws the border
+    // and its tab strip names this surface (as SPEND, which is what prd-32 S3
+    // calls it and what the reader is actually asking). Everything else about
+    // the panel is untouched.
+    <section data-panel="ledger" className="flex h-full min-h-0 flex-col">
 
       {rows.length === 0 && !connected ? (
         <p className="mt-2 text-read-body text-(--ink-dim)">Waiting for the stream…</p>

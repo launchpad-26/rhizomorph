@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FleetProvider } from '../fleet/FleetContext.js'
@@ -17,9 +17,10 @@ import { StreamProvider } from './StreamContext.js'
 vi.mock('../panels/attention/index.js', () => ({ default: () => <div>Attention strip</div> }))
 vi.mock('../panels/burn/index.js', () => ({ default: () => <div>Burn strip</div> }))
 vi.mock('../panels/fleet/index.js', () => ({ default: () => <h2>Fleet</h2> }))
-vi.mock('../panels/ledger/index.js', () => ({ default: () => <h2>Ledger</h2> }))
-vi.mock('../panels/collisions/index.js', () => ({ default: () => <h2>Collisions</h2> }))
-vi.mock('../panels/feed/index.js', () => ({ default: () => <h2>Activity</h2> }))
+vi.mock('../panels/ledger/index.js', () => ({ default: () => <div>Ledger body</div> }))
+vi.mock('../panels/collisions/index.js', () => ({ default: () => <div>Collisions body</div> }))
+vi.mock('../panels/feed/index.js', () => ({ default: () => <div>Activity body</div> }))
+vi.mock('../panels/trace/index.js', () => ({ default: () => <div>Trace body</div> }))
 vi.mock('../scene/index.js', () => ({ default: () => <div>Scene stub</div> }))
 
 afterEach(cleanup)
@@ -65,6 +66,7 @@ async function renderShell(selected: string | null) {
     import('../panels/ledger/index.js'),
     import('../panels/collisions/index.js'),
     import('../panels/feed/index.js'),
+    import('../panels/trace/index.js'),
     import('../scene/index.js'),
     import('../drawer/index.js'),
   ])
@@ -237,10 +239,12 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
     expect(peek.getAttribute('data-lane')).toBe(LANE)
     expect(peek.getAttribute('data-peek')).toBe('true')
     expect(screen.getByTestId('drawer-vitals')).toBeInTheDocument()
-    // prd-36 ruling 2 (#562): a peek, not a four-tab reader. No tab bar in the
-    // real shell either — this file mounts the whole app frame, so it is the
-    // place a returning tab would show up first.
-    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    // prd-36 ruling 2 (#562): a peek, not a four-tab reader. Scoped to the
+    // peek itself, because the shell below it does have a tablist since #552 —
+    // the dock's — and a bare `queryByRole('tablist')` would find that one and
+    // pass for the wrong reason from the day the dock landed.
+    expect(within(peek).queryByRole('tablist')).not.toBeInTheDocument()
+    expect(within(peek).queryAllByRole('tab')).toEqual([])
     expect(screen.getByTestId('drawer-open-page')).toBeInTheDocument()
   })
 
@@ -249,6 +253,7 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
 
     expect(screen.getByTestId('lane-drawer')).toBeInTheDocument()
     expect(screen.getByText('Fleet')).toBeInTheDocument()
+    expect(screen.getByTestId('dock-tabs')).toBeInTheDocument()
     expect(screen.getByText('Attention strip')).toBeInTheDocument()
     expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
   })
@@ -277,9 +282,11 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
       // what must not have moved.
       .filter((mark) => mark !== LANE)
 
-    // One row shorter since prd-36 ruling 1 merged the scene and the roster
-    // into one `Fleet` surface — see `Shell.tsx`'s curated-order note.
-    expect(closedMarks).toEqual(['THE OBSERVATORY', 'Fleet', 'Ledger', 'Collisions', 'Activity'])
+    // Two rows since prd-32 ruling 5 (#552) folded the ledger, collisions and
+    // the feed into one tabbable dock — and the dock is named by its tab strip
+    // rather than by a heading, so the one mark left below the wordmark is the
+    // fleet's. See `Shell.tsx` and `PanelGrid.tsx`'s curated-order notes.
+    expect(closedMarks).toEqual(['THE OBSERVATORY', 'Fleet'])
     expect(openMarks).toEqual(closedMarks)
   })
 

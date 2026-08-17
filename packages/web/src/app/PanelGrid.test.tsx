@@ -4,7 +4,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { FleetProvider } from '../fleet/FleetContext.js'
 import type { FetchLike } from '../fleet/manifest.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
-import { PANEL_IDS, PanelGrid } from './PanelGrid.js'
+import { adoptRepoScope } from '../settings/registry.js'
+import { DOCK_TABS, PANEL_IDS, PanelGrid } from './PanelGrid.js'
 import { requestPanelFocus } from './panelPrefs.js'
 import { StreamProvider } from './StreamContext.js'
 
@@ -13,9 +14,19 @@ import { StreamProvider } from './StreamContext.js'
 // rather than about the real panels' internals, which each have their own
 // direct-import test file.
 vi.mock('../panels/fleet/index.js', () => ({ default: () => <div>Fleet rows</div> }))
-vi.mock('../panels/ledger/index.js', () => ({ default: () => <h2>Ledger</h2> }))
-vi.mock('../panels/collisions/index.js', () => ({ default: () => <h2>Collisions</h2> }))
-vi.mock('../panels/feed/index.js', () => ({ default: () => <h2>Activity</h2> }))
+vi.mock('../panels/ledger/index.js', () => ({ default: () => <div>Ledger body</div> }))
+vi.mock('../panels/collisions/index.js', () => ({ default: () => <div>Collisions body</div> }))
+vi.mock('../panels/feed/index.js', () => ({ default: () => <div>Activity body</div> }))
+// The trace tab doubles as the *error* state's subject: S3 asks that a
+// throwing tab render its honest line while the dock stays usable, and a tab
+// that cannot be made to throw cannot prove it.
+const traceThrows = { now: false }
+vi.mock('../panels/trace/index.js', () => ({
+  default: () => {
+    if (traceThrows.now) throw new Error('trace tab exploded')
+    return <div>Trace body</div>
+  },
+}))
 vi.mock('../scene/index.js', () => ({ default: () => <div>Scene stub</div> }))
 
 // Mocking the lazy modules (above) makes their dynamic import() trivial, but
@@ -39,6 +50,7 @@ beforeAll(async () => {
   await import('../panels/ledger/index.js')
   await import('../panels/collisions/index.js')
   await import('../panels/feed/index.js')
+  await import('../panels/trace/index.js')
   await import('../scene/index.js')
 })
 
@@ -124,33 +136,32 @@ async function showFleetList() {
 }
 
 describe('PanelGrid', () => {
-  it('renders every registered panel expanded by default, collisions included', async () => {
+  it('registers exactly two rows, both expanded by default (#552)', async () => {
     await renderGrid()
 
-    for (const title of ['Fleet', 'Ledger', 'Collisions']) {
-      expect(screen.getByText(title)).toBeInTheDocument()
+    expect(PANEL_IDS as readonly string[]).toEqual(['fleet', 'dock'])
+    for (const title of ['Fleet', 'Dock']) {
       expect(screen.getByRole('button', { name: `Collapse ${title}` })).toBeInTheDocument()
     }
+    // No panel starts hidden any more: the feed's collapsed-by-default peek was
+    // the one exception (prd9), and prd-32 ruling 5 made the feed a TAB — S3
+    // forbids a hidden tab outright, so the exception has no subject.
+    expect(screen.queryByRole('button', { name: /^Expand / })).not.toBeInTheDocument()
   })
 
-  it('starts Activity collapsed to a header-and-latest-line peek (prd9 legibility)', async () => {
-    await renderGrid()
-
-    expect(screen.getByRole('button', { name: 'Expand Activity' })).toBeInTheDocument()
-    // The peek still says something rather than vanishing — same title, no filter row.
-    expect(screen.getByText('Activity')).toBeInTheDocument()
-    expect(screen.queryByRole('group', { name: 'Filter by kind' })).not.toBeInTheDocument()
-  })
-
-  it('mounts the panels in the conductor-curated order, the fleet surface first', async () => {
+  it('mounts the panels in the conductor-curated order — the fleet, then the dock', async () => {
     const { container } = await renderGrid()
 
-    // prd-36 ruling 1: the scene and the roster are one surface now, so the
-    // hero is a single `Fleet` row rather than a scene above its legend. The
-    // strips are docked in the Shell above this grid, and the provenance bar
-    // below it.
+    // prd-36 ruling 1: the scene and the roster are one surface. prd-32 ruling
+    // 5: the ledger, collisions and the feed are one dock. Two rows, and the
+    // one heading is the fleet's own — the dock's four surfaces are named by
+    // its tab strip rather than by four headings competing with it.
     const headings = [...container.querySelectorAll('h2')].map((node) => node.textContent)
-    expect(headings).toEqual(['Fleet', 'Ledger', 'Collisions', 'Activity'])
+    expect(headings).toEqual(['Fleet'])
+    const rows = [...container.querySelectorAll('[data-surface="fleet"], [data-panel="dock"]')].map(
+      (node) => node.getAttribute('data-surface') ?? node.getAttribute('data-panel'),
+    )
+    expect(rows).toEqual(['fleet', 'dock'])
     // …and the organism is what it opens on, inside that one frame.
     expect(screen.getByText('Scene stub')).toBeInTheDocument()
   })
@@ -180,7 +191,7 @@ describe('PanelGrid', () => {
     expect(screen.queryByText('Scene stub')).not.toBeInTheDocument()
     expect(screen.getByText('Fleet rows')).toBeInTheDocument()
     const headings = [...container.querySelectorAll('h2')].map((node) => node.textContent)
-    expect(headings).toEqual(['Fleet', 'Ledger', 'Collisions', 'Activity'])
+    expect(headings).toEqual(['Fleet'])
   })
 
   it('no longer mounts the panels prd3 dissolved', async () => {
@@ -197,15 +208,14 @@ describe('PanelGrid', () => {
     }
   })
 
-  it('collapsing one panel does not affect the others', async () => {
+  it('collapsing one panel does not affect the other', async () => {
     await renderGrid()
 
     fireEvent.click(screen.getByRole('button', { name: 'Collapse Fleet' }))
 
     expect(screen.queryByText('Fleet')).not.toBeInTheDocument()
-    expect(screen.getByText('Ledger')).toBeInTheDocument()
-    expect(screen.getByText('Collisions')).toBeInTheDocument()
-    expect(screen.getByText('Activity')).toBeInTheDocument()
+    expect(screen.getByTestId('dock-tabs')).toBeInTheDocument()
+    expect(screen.getByText('Ledger body')).toBeInTheDocument()
   })
 
   describe('focus (ruling 6 — one panel at a time)', () => {
@@ -216,13 +226,12 @@ describe('PanelGrid', () => {
 
       expect(screen.getByText('Fleet')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Restore Fleet' })).toBeInTheDocument()
-      expect(screen.queryByText('Ledger')).not.toBeInTheDocument()
-      expect(screen.queryByText('Collisions')).not.toBeInTheDocument()
-      expect(screen.queryByText('Activity')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('dock-tabs')).not.toBeInTheDocument()
       // The scene comes WITH the focused surface now rather than being one of
       // the siblings it displaces — one panel at a time, and the scene is not
       // a panel any more.
       expect(screen.getByText('Scene stub')).toBeInTheDocument()
+      expect(screen.queryByTestId('dock-tabs')).not.toBeInTheDocument()
       // …and the toggle is still reachable while focused.
       await showFleetList()
       expect(screen.queryByText('Scene stub')).not.toBeInTheDocument()
@@ -232,39 +241,38 @@ describe('PanelGrid', () => {
     it('restoring (the explicit control) returns the curated order', async () => {
       await renderGrid()
 
-      fireEvent.click(screen.getByRole('button', { name: 'Focus Ledger' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Restore Ledger' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Focus Dock' }))
+      expect(screen.queryByText('Fleet')).not.toBeInTheDocument()
 
-      for (const title of ['Fleet', 'Ledger', 'Collisions', 'Activity']) {
-        expect(screen.getByText(title)).toBeInTheDocument()
-      }
+      fireEvent.click(screen.getByRole('button', { name: 'Restore Dock' }))
+
+      expect(screen.getByText('Fleet')).toBeInTheDocument()
+      expect(screen.getByTestId('dock-tabs')).toBeInTheDocument()
       expect(screen.getByText('Scene stub')).toBeInTheDocument()
     })
 
     it('Esc restores the curated order when nothing is selected', async () => {
       await renderGrid()
 
-      fireEvent.click(screen.getByRole('button', { name: 'Focus Collisions' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Focus Dock' }))
       fireEvent.keyDown(window, { key: 'Escape' })
 
-      for (const title of ['Fleet', 'Ledger', 'Collisions', 'Activity']) {
-        expect(screen.getByText(title)).toBeInTheDocument()
-      }
+      expect(screen.getByText('Fleet')).toBeInTheDocument()
+      expect(screen.getByTestId('dock-tabs')).toBeInTheDocument()
     })
 
     it('restores the curated order from a focused fleet surface, scene and all', async () => {
       await renderGrid()
 
       fireEvent.click(screen.getByRole('button', { name: 'Focus Fleet' }))
-      expect(screen.queryByText('Ledger')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('dock-tabs')).not.toBeInTheDocument()
 
       fireEvent.click(screen.getByRole('button', { name: 'Restore Fleet' }))
 
       expect(screen.getByText('Scene stub')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Focus Fleet' })).toBeInTheDocument()
-      for (const title of ['Fleet', 'Ledger', 'Collisions', 'Activity']) {
-        expect(screen.getByText(title)).toBeInTheDocument()
-      }
+      expect(screen.getByText('Fleet')).toBeInTheDocument()
+      expect(screen.getByTestId('dock-tabs')).toBeInTheDocument()
     })
 
     it('FOCUS TRACE is gone from the grid entirely (prd-36 ruling 2, #562)', async () => {
@@ -274,14 +282,16 @@ describe('PanelGrid', () => {
       // drawer's own `FOCUS ↗`, rendering a subset of what the run view shows.
       // prd-36 ruling 2 cut it, so there is no `Trace` heading here in any
       // state — focused or not — and no `Restore Trace` control to reach.
-      expect(screen.queryByText('Trace')).not.toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: /trace/i })).not.toBeInTheDocument()
+      // (`Trace` is a dock TAB now — a tab, not a panel with a focus frame of
+      // its own, which is precisely the distinction ruling 2 drew.)
+      expect(screen.queryByRole('button', { name: 'Restore Trace' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Focus Trace' })).not.toBeInTheDocument()
 
       // The mutation, run rather than argued: the grid's focus machinery still
       // works for a panel that has one, so the absence above is the trace
       // panel's own and not a broken renderer.
-      fireEvent.click(screen.getByRole('button', { name: 'Focus Ledger' }))
-      expect(screen.getByRole('button', { name: 'Restore Ledger' })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Focus Dock' }))
+      expect(screen.getByRole('button', { name: 'Restore Dock' })).toBeInTheDocument()
     })
 
     it('a panel’s own surface can ask its frame to focus, by id', async () => {
@@ -295,7 +305,205 @@ describe('PanelGrid', () => {
       await act(async () => {})
 
       expect(screen.getByRole('button', { name: 'Restore Fleet' })).toBeInTheDocument()
-      expect(screen.queryByText('Ledger')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('dock-tabs')).not.toBeInTheDocument()
+    })
+  })
+
+
+  /**
+   * THE DOCK (prd-32 ruling 5 / S3, #552). Its acceptance is four claims and
+   * this block is those four claims: `PanelGrid`'s curated-order tests rewritten
+   * for the dock (above), **the TIDE is not a tab**, each tab reaches its own
+   * surface, and the selection persists per repo.
+   */
+  describe('the tabbable dock (prd-32 ruling 5 / S3)', () => {
+    function tabIds(): string[] {
+      return screen.getAllByRole('tab').map((node) => node.getAttribute('data-testid') ?? '')
+    }
+
+    it('carries exactly four tabs, in S3’s order: spend · collisions · feed · trace', async () => {
+      await renderGrid()
+
+      expect(tabIds()).toEqual([
+        'dock-tab-spend',
+        'dock-tab-collisions',
+        'dock-tab-feed',
+        'dock-tab-trace',
+      ])
+      expect(screen.getAllByRole('tab').map((node) => node.textContent)).toEqual([
+        'Spend',
+        'Collisions',
+        'Activity',
+        'Trace',
+      ])
+    })
+
+    it('THE TIDE IS NOT A TAB — prd-13 ruling 1, restated and held', async () => {
+      await renderGrid()
+
+      // Ruling 1: "the TIDE is the replay bar's body, never a panel", and
+      // prd-32 ruling 5 carries it forward word for word — "never a tab". The
+      // moment it became one it would compete with the scene for the same
+      // reading, which is the exact thing ruling 1 exists to refuse.
+      expect(tabIds()).not.toContain('dock-tab-tide')
+      for (const label of screen.getAllByRole('tab').map((node) => node.textContent ?? '')) {
+        expect(label.toLowerCase()).not.toContain('tide')
+        expect(label.toLowerCase()).not.toContain('time')
+      }
+      // …and no TIDE dock is inside this grid in any form. It is mounted by
+      // `replay/index.tsx` under `Shell`, one row below — a sibling of the
+      // grid, never a child of it.
+      expect(screen.queryByTestId('tide-dock')).not.toBeInTheDocument()
+
+      // The fleet is not a tab either, for the opposite reason: it merged into
+      // the scene (prd-36's own non-goals), so it is the hero ABOVE the dock.
+      expect(tabIds()).not.toContain('dock-tab-fleet')
+      expect(DOCK_TABS.map((tab) => tab.id)).toEqual(['spend', 'collisions', 'feed', 'trace'])
+    })
+
+    it('shows one tab body at a time, and clicking swaps it', async () => {
+      await renderGrid()
+
+      expect(screen.getByText('Ledger body')).toBeInTheDocument()
+      expect(screen.queryByText('Collisions body')).not.toBeInTheDocument()
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('dock-tab-collisions'))
+      })
+
+      expect(screen.getByText('Collisions body')).toBeInTheDocument()
+      expect(screen.queryByText('Ledger body')).not.toBeInTheDocument()
+    })
+
+    it('rovers the tabindex and moves on Left/Right and Home/End', async () => {
+      await renderGrid()
+
+      const selectedTab = () => screen.getAllByRole('tab').find((n) => n.getAttribute('aria-selected') === 'true')
+      // Exactly one tab in the page's Tab order at a time.
+      expect(screen.getAllByRole('tab').filter((n) => n.getAttribute('tabindex') === '0')).toHaveLength(1)
+      expect(selectedTab()?.getAttribute('data-testid')).toBe('dock-tab-spend')
+
+      const tablist = screen.getByTestId('dock-tabs')
+      await act(async () => {
+        fireEvent.keyDown(tablist, { key: 'ArrowRight' })
+      })
+      expect(selectedTab()?.getAttribute('data-testid')).toBe('dock-tab-collisions')
+
+      await act(async () => {
+        fireEvent.keyDown(tablist, { key: 'End' })
+      })
+      expect(selectedTab()?.getAttribute('data-testid')).toBe('dock-tab-trace')
+      expect(screen.getByText('Trace body')).toBeInTheDocument()
+
+      // Wraps, rather than stopping dead at the end.
+      await act(async () => {
+        fireEvent.keyDown(tablist, { key: 'ArrowRight' })
+      })
+      expect(selectedTab()?.getAttribute('data-testid')).toBe('dock-tab-spend')
+
+      await act(async () => {
+        fireEvent.keyDown(tablist, { key: 'ArrowLeft' })
+      })
+      expect(selectedTab()?.getAttribute('data-testid')).toBe('dock-tab-trace')
+
+      await act(async () => {
+        fireEvent.keyDown(tablist, { key: 'Home' })
+      })
+      expect(selectedTab()?.getAttribute('data-testid')).toBe('dock-tab-spend')
+    })
+
+    it('ESCAPE DOES NOT CLOSE IT — it is not a dialog (S3)', async () => {
+      await renderGrid()
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('dock-tab-feed'))
+      })
+      expect(screen.getByText('Activity body')).toBeInTheDocument()
+
+      await act(async () => {
+        fireEvent.keyDown(screen.getByTestId('dock-tabs'), { key: 'Escape' })
+        fireEvent.keyDown(window, { key: 'Escape' })
+      })
+
+      // Same tab, still open. A dock that swallowed Escape would put a third
+      // meaning on a key that already clears the selection and then leaves
+      // panel focus (prd3 ruling 6's one way out).
+      expect(screen.getByTestId('dock-tabs')).toBeInTheDocument()
+      expect(screen.getByText('Activity body')).toBeInTheDocument()
+    })
+
+    it('remembers the tab per repo, and gives each repo back its own (S3)', async () => {
+      adoptRepoScope('/repos/a')
+      await renderGrid()
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('dock-tab-trace'))
+      })
+      expect(screen.getByText('Trace body')).toBeInTheDocument()
+
+      // A different repo does not inherit it…
+      cleanup()
+      adoptRepoScope('/repos/b')
+      await renderGrid()
+      expect(screen.getByText('Ledger body')).toBeInTheDocument()
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('dock-tab-collisions'))
+      })
+
+      // …and A gets its own back, which is the half a "survives a reload"
+      // test alone would pass without.
+      cleanup()
+      adoptRepoScope('/repos/a')
+      await renderGrid()
+      expect(screen.getByText('Trace body')).toBeInTheDocument()
+    })
+
+    it('survives a remount — the choice is stored, not held in a component', async () => {
+      adoptRepoScope('/repos/reload')
+      await renderGrid()
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('dock-tab-feed'))
+      })
+
+      cleanup()
+      await renderGrid()
+      expect(screen.getByText('Activity body')).toBeInTheDocument()
+    })
+
+    it('a throwing tab says so and the dock stays usable (S3’s *error* state)', async () => {
+      // The one state none of the four panels could have on its own: what the
+      // dock adds is that the OTHER THREE keep working while one is broken.
+      const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+      traceThrows.now = true
+      try {
+        await renderGrid()
+        await act(async () => {
+          fireEvent.click(screen.getByTestId('dock-tab-trace'))
+        })
+
+        const line = screen.getByTestId('dock-tab-error').textContent ?? ''
+        expect(line).toContain('TRACE FAILED TO RENDER')
+        // Law 12: what is missing, what is unaffected, what to do next.
+        expect(line).toContain('other three tabs are unaffected')
+
+        // Usable, not merely present: the strip is still there and arrowing
+        // away lands on a working surface.
+        await act(async () => {
+          fireEvent.keyDown(screen.getByTestId('dock-tabs'), { key: 'Home' })
+        })
+        expect(screen.getByText('Ledger body')).toBeInTheDocument()
+        expect(screen.queryByTestId('dock-tab-error')).not.toBeInTheDocument()
+
+        // …and going back re-mounts rather than staying tripped, so a
+        // transient failure is not permanent. (Still broken here, so it says
+        // so again rather than silently blanking.)
+        await act(async () => {
+          fireEvent.keyDown(screen.getByTestId('dock-tabs'), { key: 'End' })
+        })
+        expect(screen.getByTestId('dock-tab-error')).toBeInTheDocument()
+      } finally {
+        traceThrows.now = false
+        quiet.mockRestore()
+      }
     })
   })
 
@@ -311,6 +519,7 @@ describe('PanelGrid', () => {
       // this is a pointer, not an interstitial replacing the grid (ruling 1).
       expect(screen.getByText('Fleet')).toBeInTheDocument()
       expect(screen.getByText('Scene stub')).toBeInTheDocument()
+      expect(screen.getByTestId('dock-tabs')).toBeInTheDocument()
     })
 
     it('is absent once any worktree is discovered', async () => {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSelection } from '../fleet/index.js'
 import {
   fallbackRecord,
+  readChoice,
   readFlag,
   readRecordOverlay,
   subscribeToPreferences,
@@ -30,6 +31,7 @@ import {
  */
 const PANELS_COLLAPSED = 'appearance.panelsCollapsed'
 const HIDE_FINISHED = 'appearance.hideFinished'
+const DOCK_TAB = 'appearance.dockTab'
 
 /**
  * Deliberate product ruling (prd1 UI section, unchanged by prd3): collisions
@@ -79,6 +81,36 @@ export function usePanelCollapsed(id: string): [boolean, (next: boolean | ((prev
     () => isPanelCollapsed(id),
     (resolved) => setPanelCollapsed(id, resolved),
   )
+}
+
+// ── the dock's own tab (prd-32 ruling 5 / S3, #552) ─────────────────────────
+
+/**
+ * WHICH DOCK TAB IS SHOWING, remembered **per repo**.
+ *
+ * S3 is explicit that this is repo-scoped and not machine-scoped, and the
+ * "what would make it wrong" list names global storage by name. The reason is
+ * the same one ruling 3 gives panel collapse: which analytical surface you keep
+ * open is a fact about the work in front of you. A repo you are reviewing spend
+ * on is not the repo you are watching collisions on, and a tab that followed
+ * you between them would be an instrument quietly answering the wrong question.
+ *
+ * Read through `settings/registry.ts` like everything else — this module names
+ * no storage key of its own (`settings/coverage-law.test.tsx` sweeps the whole
+ * package to prove it), and an id the registry does not accept reads as unset
+ * rather than throwing, so a retired tab cannot make the dock unopenable.
+ */
+export function useDockTab(): [string, (next: string) => void] {
+  const [value, setValue] = useState(() => readChoice(DOCK_TAB))
+
+  useEffect(() => subscribeToPreferences(() => setValue(readChoice(DOCK_TAB))), [])
+
+  const set = useCallback((next: string) => {
+    setValue(next)
+    writePreference(DOCK_TAB, next)
+  }, [])
+
+  return [value, set]
 }
 
 // ── the scene's own prefs ────────────────────────────────────────────────────

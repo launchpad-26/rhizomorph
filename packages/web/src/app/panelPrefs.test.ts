@@ -19,14 +19,18 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('panelPrefs', () => {
-  it('defaults every panel to expanded, including collisions (deliberate ruling) — feed is the one deliberate exception', () => {
-    expect(isPanelCollapsed('collisions')).toBe(false)
+  it('defaults every panel to expanded — no panel starts hidden any more (#552)', () => {
     expect(isPanelCollapsed('fleet')).toBe(false)
+    expect(isPanelCollapsed('dock')).toBe(false)
     expect(isPanelCollapsed('scene')).toBe(false)
     expect(isPanelCollapsed('some-future-panel')).toBe(false)
-    // prd9 legibility round: the feed is a history stream, not the day's own
-    // failure mode the way collisions is, so it starts as a peek.
-    expect(isPanelCollapsed('feed')).toBe(true)
+    // The feed used to be the one exception (prd9 legibility: a history stream
+    // that started as a peek). prd-32 ruling 5 made it a dock TAB, and S3
+    // forbids a hidden tab outright, so the exception has no subject left —
+    // `appearance.panelsCollapsed`'s declared default is empty and every panel
+    // that still has a collapse starts open.
+    expect(isPanelCollapsed('feed')).toBe(false)
+    expect(isPanelCollapsed('collisions')).toBe(false)
   })
 
   it('round-trips the scene\'s own collapse toggle (prd4 ruling 2 — one mechanism, not two)', () => {
@@ -89,8 +93,8 @@ describe('panelPrefs', () => {
 
     expect(isPanelCollapsed('fleet')).toBe(true)
     expect(isPanelCollapsed('collisions')).toBe(true)
-    // Untouched by either explicit set — falls back to its own default (true).
-    expect(isPanelCollapsed('feed')).toBe(true)
+    // Untouched by either explicit set — falls back to its own default.
+    expect(isPanelCollapsed('feed')).toBe(false)
   })
 
   it('falls back to the default when stored JSON is malformed', () => {
