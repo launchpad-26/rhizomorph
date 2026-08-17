@@ -103,7 +103,7 @@ describe('ruling 3 — scope', () => {
 
     adoptRepoScope('/repos/b')
     expect(readRecordOverlay('appearance.panelsCollapsed')).toEqual({})
-    expect(readPreference('appearance.panelsCollapsed')).toEqual({ collisions: false, feed: true })
+    expect(readPreference('appearance.panelsCollapsed')).toEqual({})
     expect(isOverridden('appearance.panelsCollapsed')).toBe(false)
 
     // …and B's own answer does not reach back into A.

@@ -59,8 +59,11 @@ export default function CollisionsPanel() {
     focusedPair !== null && row.branches.includes(focusedPair[0]) && row.branches.includes(focusedPair[1])
 
   return (
-    <section className="flex h-full flex-col rounded-lg border border-(--line-hair) bg-(--surface-panel) p-4">
-      <h2 className="heading text-(--ink-dim)">Collisions</h2>
+    // No frame and no heading of its own since #552: the dock draws the border
+    // and its tab strip names this surface, so a second copy of either would be
+    // the duplication prd-32 ruling 5 is against — one thing, one name, one
+    // edge. Everything else about the panel is untouched.
+    <section data-panel="collisions" className="flex h-full min-h-0 flex-col">
 
       {!connected ? (
         <p className="mt-2 text-read-body text-(--ink-dim)">Waiting for the stream…</p>

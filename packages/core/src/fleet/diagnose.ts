@@ -212,26 +212,66 @@ function detectExpensive(lane: Lane, ctx: DiagnoseContext): Pathology | null {
 }
 
 /**
+ * How many trespass paths the evidence clause names before it stops naming and
+ * starts counting.
+ *
+ * One, and the reason it is one rather than three is that this string is
+ * rendered in an 18rem chip on the attention strip. A named path is what makes
+ * a breach actionable (#226) and the *first* one delivers all of that; the
+ * second onward buy nothing a count does not, and they buy it at the cost of
+ * the first being legible at all.
+ */
+export const NAMED_TRESPASSES = 1
+
+/**
  * OFF-FENCE — touching files outside the fence this lane was dispatched with.
+ *
  * Only ever from a real manifest: `lane.trespasses` is empty whenever there was
- * no fence to cross, so this detector cannot fire on an inference. Every
- * trespass names its own path (and its victim, when exactly one fence claims
- * it) — a bare count ("touching 1 other fence") tells the operator nothing
- * they can act on; the path is what lets them tell a real breach from noise
- * (issue #226).
+ * no fence to cross, so this detector cannot fire on an inference.
+ *
+ * **The evidence is bounded here, at the source** (walkthrough, 2026-08-17).
+ * Until this commit it joined EVERY trespass path with ` · ` into one unbounded
+ * string — a lane forty files off its fence produced a clause thousands of
+ * characters long — and poured it into `AttentionStripView`'s 18rem chip, which
+ * truncated it mid-path. The chip was doing the right thing with an impossible
+ * input: what the reader got was `packages/web/src/panels/attent…`, which names
+ * neither the breach nor its size.
+ *
+ * The fix belongs *here* rather than in the view, and that is the whole point of
+ * the finding. This string is `Pathology.evidence`, read by the attention chip,
+ * the fleet table's STATE title, the drawer's evidence line, `selectLaneCondition`
+ * and the run view's outcome — five surfaces, one of which happened to have the
+ * narrowest box. Clipping it in the view would have fixed one surface and left
+ * the other four rendering a sentence nobody can finish reading, and it would
+ * have put a presentation decision downstream of the fact rather than in it.
+ *
+ * **A count plus the first path; the rest on demand.** The rest are not lost and
+ * were never in this clause's gift to keep: `lane.trespasses` carries every one
+ * of them, and the fleet table's FENCE cell already renders the complete list in
+ * its hover title (`panels/fleet/format.ts`'s `fenceCell`) — which is the
+ * surface an operator is on when they want to audit rather than triage.
  */
 function detectOffFence(lane: Lane): Pathology | null {
   if (!lane.fenced || lane.trespasses.length === 0) return null
 
+  const total = lane.trespasses.length
   const named = lane.trespasses
+    .slice(0, NAMED_TRESPASSES)
     .map((t) => (t.victim === null ? t.path : `${t.path} → ${t.victim}`))
     .join(' · ')
+  const rest = total - NAMED_TRESPASSES
+
+  // The count leads, because at forty paths the number IS the finding and the
+  // path is the example. At one path the count would be noise, so there is not
+  // one — a bare `1 file outside fence` beside the path it names reads as an
+  // instrument that cannot count.
+  const headline = total === 1 ? 'outside fence' : `${total} files outside fence`
 
   return {
     kind: 'off-fence',
     rank: PATHOLOGY_RANK['off-fence'],
     since: null,
-    evidence: `outside fence — ${named}`,
+    evidence: rest > 0 ? `${headline} — ${named} +${rest} more` : `${headline} — ${named}`,
     inferred: false,
   }
 }

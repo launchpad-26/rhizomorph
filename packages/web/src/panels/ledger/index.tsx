@@ -1,7 +1,6 @@
 import { Fragment, useMemo, useState, type MouseEvent } from 'react'
 import { selectSpendByBranch } from '@rhizomorph/core'
 import { useModeClock } from '../../app/ModeContext.js'
-import { requestPanelFocus } from '../../app/panelPrefs.js'
 import { laneUrl, navigate } from '../../app/router.js'
 import { useStream } from '../../app/StreamContext.js'
 import { useFleet, useSelection } from '../../fleet/index.js'
@@ -73,8 +72,11 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
   const connected = status === 'open' && state.events.length > 0
 
   return (
-    <section className="flex h-full flex-col rounded-lg border border-(--line-hair) bg-(--surface-panel) p-4">
-      <h2 className="heading text-(--ink-dim)">Ledger</h2>
+    // No frame and no heading of its own since #552 — the dock draws the border
+    // and its tab strip names this surface (as SPEND, which is what prd-32 S3
+    // calls it and what the reader is actually asking). Everything else about
+    // the panel is untouched.
+    <section data-panel="ledger" className="flex h-full min-h-0 flex-col">
 
       {rows.length === 0 && !connected ? (
         <p className="mt-2 text-read-body text-(--ink-dim)">Waiting for the stream…</p>
@@ -277,13 +279,16 @@ function OpenLaneLink({ handle, label }: { handle: string; label: string }) {
 
 /**
  * THE EXEMPLAR JUMP (issue #159, Grafana's exemplars) — opens this branch's
- * lane at the drawer's own TRACE section, over the two mechanisms that
- * already do exactly that for every other surface: the shared selection
- * (`useSelection().select`, which is what opens the drawer at all) and
- * `requestPanelFocus('trace')` (the same call the drawer's own `Focus ↗`
- * button makes, `drawer/Trace.tsx`). No new API, no new state — the trace
- * section then shows this lane's own spans, the heaviest `llm_request` among
- * them included, using its own existing rendering.
+ * lane where its trace is actually read.
+ *
+ * Until #562 that was `select(laneId)` plus `requestPanelFocus('trace')`, which
+ * opened the drawer's TRACE tab and, from there, a focus panel with no address.
+ * prd-36 ruling 2 cut both, so this jump follows the trace to the surface that
+ * kept it: `/lane/:handle`, the run view, whose trace column renders the same
+ * spans — the heaviest `llm_request` among them included — and, unlike the
+ * panel this replaces, can be linked to in a review. The selection is still
+ * written first, so the fleet behind the navigation agrees about which lane the
+ * operator went to look at.
  */
 function ExemplarJumpButton({
   laneId,
@@ -298,10 +303,10 @@ function ExemplarJumpButton({
     <button
       type="button"
       data-testid="ledger-exemplar-jump"
-      title={`jump to trace — heaviest llm_request, ${formatTokens(exemplar.tokens)} tok`}
+      title={`open this lane's run view at its trace — heaviest llm_request, ${formatTokens(exemplar.tokens)} tok`}
       onClick={() => {
         select(laneId)
-        requestPanelFocus('trace')
+        navigate(laneUrl(laneId))
       }}
       className="focus-ring rounded border border-(--line-hair) px-1 text-inst-dense text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
     >

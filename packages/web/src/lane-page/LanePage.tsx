@@ -9,6 +9,7 @@ import { foldActivity } from '../drawer/foldActivity.js'
 import { useTranscript, type TranscriptEntry } from '../drawer/useTranscript.js'
 import { MAIN_SELECTION, useFleet } from '../fleet/index.js'
 import type { FetchLike } from '../fleet/manifest.js'
+import { SearchField } from '../panels/search/SearchField.js'
 import { WhySurface } from '../why/index.js'
 import { useLaneIndex, type LaneIndexEntry } from './laneIndex.js'
 import { PageHeader } from './PageHeader.js'
@@ -300,6 +301,20 @@ export function LanePage({ handle, fetchTranscript, transcriptPollMs, fetchLaneI
         }
         onClose={goBalcony}
       />
+
+      {/*
+        THE ONE SEARCH, second hand (prd-31 ruling 4 / S3, #559). The same
+        module store the dock's field writes, so a query typed on the balcony is
+        already in force here and vice versa — "one search over the loaded
+        session" as a mechanism rather than a description. It is here as well as
+        there because the CONVERSATION is one of the three surfaces the ruling
+        names and it lives only at this address (prd-36 ruling 2 moved it off
+        the peek), so a field only on the balcony would filter two of three.
+        Chrome on a header, never a panel (prd-13 ruling 1).
+      */}
+      <div className="flex shrink-0 items-center justify-end px-3 pt-2">
+        <SearchField surface="run-view" />
+      </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
         <RunOutcomeRegion

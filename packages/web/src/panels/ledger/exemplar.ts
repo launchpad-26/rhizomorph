@@ -24,7 +24,7 @@ export interface ExemplarSpan {
 /**
  * Every lane's own heaviest `llm_request` span, keyed by `span.lane` (the
  * telemetry handle the trace layer attributes spans to — the same identity
- * `drawer/index.tsx`'s own `TraceSection` reads a lane by). A lane absent
+ * `lane-page/TraceColumn.tsx` reads a lane by). A lane absent
  * from the map has no `llm_request` span at all: the honest gap that keeps
  * the ledger's exemplar affordance from rendering for a row with nothing
  * behind it.

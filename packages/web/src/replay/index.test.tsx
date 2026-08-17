@@ -203,10 +203,25 @@ describe('ReplayControls', () => {
     await renderReplay(makeFetch(fixtureEvents()))
 
     expect(screen.getByText('Live mode')).toBeInTheDocument()
-    expect(screen.getByText('Replay')).toBeInTheDocument()
+    // ONE caption for the whole dock since the 2026-08-17 walkthrough — it read
+    // as two timeline bars because it opened three sibling rows with three
+    // uppercase captions ("REPLAY", "SESSION", and the TIDE's own axis beneath
+    // them). prd-13 ruling 1 already called this one thing: "they share one
+    // x-axis and read as a single TIME dock."
+    expect(screen.getByText('Time')).toBeInTheDocument()
+    expect(screen.queryByText('Session')).not.toBeInTheDocument()
     expect(
       screen.getByRole('option', { name: 'Replay a recorded session…' }),
     ).toBeInTheDocument()
+  })
+
+  it('draws the session boundary beside the transport, not under a caption of its own', async () => {
+    // The rotate control is unchanged and unmoved in function: it is the same
+    // control on the same row as the transport it belongs beside. This is a
+    // caption-and-spacing fix, so what it must NOT have done is lose a control.
+    await renderReplay(makeFetch(fixtureEvents()))
+
+    expect(screen.getByTestId('rotate-button')).toBeInTheDocument()
   })
 
   it("Play explains why it's disabled before a session is chosen", async () => {

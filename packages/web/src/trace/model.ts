@@ -5,6 +5,7 @@ import {
   type SessionState,
   type TraceTreeNode,
 } from '@rhizomorph/core'
+import { rowName } from './TraceRow.js'
 
 /**
  * prd9 B1a — the thin zip between the two core selectors both trace surfaces
@@ -51,6 +52,24 @@ export function selectLaneInteractionViews(state: SessionState, lane: string): I
 export function sumLeafDurationsMs(node: TraceTreeNode): number {
   if (node.children.length === 0) return node.span.endTs - node.span.startTs
   return node.children.reduce((sum, child) => sum + sumLeafDurationsMs(child), 0)
+}
+
+/**
+ * Everything about one interaction a session search may match on (prd-31
+ * ruling 4, #559) — every name the tree actually renders, root and descendants
+ * alike.
+ *
+ * Whole-interaction granularity, not per-span, and that is the reading rather
+ * than a shortcut: a trace is a tree, and hiding the one span that matched
+ * while keeping its parents would show a person a structure that never
+ * happened. A search over a trace means *which interaction was that*, so the
+ * interaction is the unit that survives or is hidden, and the count beside it
+ * counts interactions.
+ */
+export function interactionText(view: InteractionView): string {
+  const names = [rowName(view.root.span)]
+  for (const { node } of flattenDescendants(view.root)) names.push(rowName(node.span))
+  return names.join(' ')
 }
 
 export interface TraceRowView {

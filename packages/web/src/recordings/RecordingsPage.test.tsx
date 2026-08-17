@@ -72,6 +72,12 @@ function fetchImplFor(recordings: unknown[]): FetchLike {
     if (href === '/api/sessions') {
       return { ok: true, status: 200, json: async () => ({ sessions: recordings }) } as Response
     }
+    // The lane axis's own read (#558) — answered rather than thrown, so these
+    // session-axis tests are not quietly running beside a lane-index error
+    // banner. The axis itself is exercised in `historyAxis.test.tsx`.
+    if (href === '/api/lane-index') {
+      return { ok: true, status: 200, json: async () => ({ lanes: [], unreadableSessionIds: [] }) } as Response
+    }
     throw new Error(`unexpected fetch: ${href}`)
   }) as unknown as FetchLike
 }

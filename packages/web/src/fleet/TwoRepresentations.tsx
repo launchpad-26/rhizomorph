@@ -99,6 +99,30 @@ export const REPRESENTATION_INSTANCES: readonly RepresentationInstance[] = [
       'scope there and passing the matching `store` below is the whole of what ' +
       'is left; nothing in this component changes when it lands.',
   },
+  {
+    surface: 'history',
+    label: 'History',
+    // By session first: the recordings library was here before the lane axis
+    // existed, so "what happened that night" is the reading a person already
+    // has, and prd-31 ruling 8 is a widening of it rather than a replacement.
+    representations: ['session', 'lane'],
+    // `h` for *history*. Free by the same audit `v` passed: `n`/`shift+n` are
+    // the page-global idle-worker jump, `f`/`a` the fleet table's row verbs,
+    // `v` the fleet surface's own, and `/` the session search's. This instance
+    // is only ever mounted on `/recordings`, so it cannot collide with the
+    // balcony's keys even in principle.
+    keystroke: 'h',
+    persistence: null,
+    gap:
+      'the axis is not remembered — reloading /recordings lands back on the ' +
+      'session axis. It is the same gap the fleet instance carries and it closes ' +
+      'the same way: every persisted key in this package must be declared in ' +
+      '`settings/registry.ts` (prd-35 ruling 2, held by ' +
+      '`settings/coverage-law.test.tsx`), and this lane is fenced to one entry ' +
+      'in that file — the dock tab (prd-32 S3, which rules that one persisted). ' +
+      'Declaring `appearance.historyAxis` there and passing the matching `store` ' +
+      'below is the whole of what is left; nothing in this component changes.',
+  },
 ]
 
 const BY_SURFACE = new Map(REPRESENTATION_INSTANCES.map((instance) => [instance.surface, instance]))
@@ -221,7 +245,7 @@ export function TwoRepresentations({ surface, views, heading, store }: TwoRepres
     <section
       data-surface={surface}
       data-representation={current.id}
-      className="flex h-full min-h-0 flex-col rounded-lg border border-ice-850 bg-ice-950"
+      className="flex h-full min-h-0 flex-col rounded-lg border border-(--line-hair) bg-(--surface-panel)"
     >
       <header className="flex shrink-0 items-center justify-between gap-3 px-4 py-2">
         {heading}
@@ -242,14 +266,14 @@ export function TwoRepresentations({ surface, views, heading, store }: TwoRepres
               onClick={() => choose(view.id)}
               className={
                 view.id === current.id
-                  ? `${TOGGLE_BUTTON} border-ice-600 bg-ice-900 text-ice-100`
+                  ? `${TOGGLE_BUTTON} border-(--ink-dim) bg-(--surface-raised) text-(--ink-primary)`
                   : TOGGLE_BUTTON
               }
             >
               {view.label}
             </button>
           ))}
-          <span className="ml-1 font-mono text-[10px] text-ice-400" aria-hidden="true">
+          <span className="ml-1 font-mono text-[10px] text-(--ink-dim)" aria-hidden="true">
             {instance.keystroke}
           </span>
         </div>
@@ -266,4 +290,4 @@ export function TwoRepresentations({ surface, views, heading, store }: TwoRepres
  * hand-rolled ring.
  */
 const TOGGLE_BUTTON =
-  'focus-ring rounded border border-ice-850 border-t-ice-800 bg-ice-950/70 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ice-400 transition-[transform,color,border-color] duration-150 ease-out hover:border-ice-600 hover:text-ice-200 active:scale-[0.97]'
+  'focus-ring rounded border border-(--line-hair) border-t-(--line-strong) bg-(--surface-panel)/70 px-2 py-0.5 text-[10px] uppercase tracking-wide text-(--ink-dim) transition-[transform,color,border-color] duration-150 ease-out hover:border-(--ink-dim) hover:text-(--ink-body) active:scale-[0.97]'

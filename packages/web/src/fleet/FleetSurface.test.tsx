@@ -237,16 +237,30 @@ describe('the list is the floor', () => {
     expect(screen.getAllByTestId('fleet-row-open').length).toBe(listedLaneIds().length)
   })
 
-  it('says what is missing and names the way to the list, rather than blanking', async () => {
+  it('falls to the list and says so ONCE when the canvas will not come up (S1 *error*)', async () => {
     scene.canRender = false
     await renderSurface()
 
-    // Law 12's voice: what is missing, what is unaffected, what to do — and the
-    // act left to the person, because ruling 3 forbids the surface from
-    // choosing a representation on the application's behalf.
+    // Law 12's voice: what is missing, what is unaffected, and no offer to
+    // retry silently — S1 is explicit that a spinner in place of a fleet is the
+    // wrong answer for a canvas that failed to initialise.
     const line = screen.getByTestId('fleet-organism-unavailable')
-    expect(line.textContent).toMatch(/scene unavailable/i)
-    expect(line.textContent).toMatch(/press v/i)
+    expect(line.textContent).toMatch(/organism unavailable/i)
+    expect(line.textContent).toMatch(/carries every lane/i)
+
+    // Once, not once per retry: the line is the boundary's single fallback,
+    // and there is exactly one of it however many frames the renderer throws on.
+    expect(screen.getAllByTestId('fleet-organism-unavailable')).toHaveLength(1)
+
+    // The FLOOR is what is under it — every lane, in full, without the person
+    // having to press anything.
+    expect(listedLaneIds().length).toBeGreaterThanOrEqual(20)
+    expect(screen.getByTestId('fleet-key-hint')).toBeInTheDocument()
+
+    // …and the person's own choice is untouched. Ruling 3's fourth guarantee:
+    // no representation may be selected automatically by application state, so
+    // the toggle still reads `organism` and a reload lands back on it — on a
+    // machine where the canvas may since have recovered.
     expect(representation()).toBe('organism')
     expect(screen.getByTestId('fleet-representation-organism')).toHaveAttribute('aria-pressed', 'true')
   })

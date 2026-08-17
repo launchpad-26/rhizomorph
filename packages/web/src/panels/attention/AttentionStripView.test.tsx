@@ -131,7 +131,101 @@ describe('AttentionStripView — the staged pathology fleet', () => {
     // height, at any lane count (ruling 7).
     expect(chips().length).toBeLessThanOrEqual(MAX_CHIPS)
   })
+
+  /**
+   * THE WALKTHROUGH'S FINDING (2026-08-17) — a human read the running strip and
+   * saw a trespass path truncated mid-word.
+   *
+   * The bound on chip COUNT above was never the problem: four chips is four
+   * chips whether each says twelve characters or twelve hundred. What was
+   * unbounded was the *evidence inside one chip*, and no test here could see
+   * it, because every fixture happens to trespass exactly once.
+   *
+   * So the fix is in `core/src/fleet/diagnose.ts` (bounded at the source, where
+   * five surfaces read the same clause) and this is the view-side proof that a
+   * real forty-path lane now renders something a person can read.
+   */
+  it('renders a readable chip for a lane forty files off its fence', () => {
+    const forty = fleetWithTrespasses(40)
+    render(<AttentionStripView fleet={forty} selectedId={null} onToggle={vi.fn()} />)
+
+    const chip = chips().find((node) => node.getAttribute('data-chip-kind') === 'off-fence')
+    expect(chip, 'no off-fence chip rendered for a forty-trespass lane').toBeDefined()
+
+    // The count is the finding at this scale, the first path is the example,
+    // and the rest are a number rather than a wall.
+    const evidence = chip?.getAttribute('title') ?? ''
+    expect(evidence).toContain('40 files outside fence')
+    expect(evidence).toContain('+39 more')
+
+    // THE MUTATION, as arithmetic: the unbounded join was 40 × ~60 characters.
+    // A bound well under that fails on a regression, and the lower bound fails
+    // on an over-eager truncation that stopped naming a path at all.
+    expect(evidence.length).toBeLessThan(200)
+    expect(evidence.length).toBeGreaterThan(40)
+  })
 })
+
+/**
+ * A real fleet whose one fenced lane trespasses `count` times — built through
+ * core's own reducer and detectors like every other fixture in this file, so
+ * what is asserted above is what `buildFleet` actually produces rather than a
+ * hand-rolled `Fleet`-shaped object.
+ */
+function fleetWithTrespasses(count: number): Fleet {
+  const nextId = createIdFactory('trespass')
+  const OFFENDER = '600-offender'
+  const VICTIM = '601-victim'
+  const events: RhizomorphEvent[] = [
+    createEvent(
+      'session.started',
+      { sessionId: 's1', repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' },
+      { id: nextId(), ts: NOW - 60_000 },
+    ),
+    createEvent(
+      'worktree.discovered',
+      { path: `/repo-wt/${OFFENDER}`, branch: OFFENDER, head: 'sha-1', isMain: false },
+      { id: nextId(), ts: NOW - 50_000 },
+    ),
+    // COMMITTED touches, not dirty ones: `buildFleet` judges a lane against its
+    // fence on what it actually landed (`touches[...].filter(t => t.committed)`),
+    // because an uncommitted edit is invisible to the gate and must be invisible
+    // to the glass too. A dirty-file fixture would build a fleet with zero
+    // trespasses and this whole block would assert nothing.
+    createEvent(
+      'commit.landed',
+      {
+        branch: OFFENDER,
+        sha: 'abc1234',
+        message: 'feat(offender): forty files where they do not belong',
+        author: { name: 'a lane' },
+        worktreePath: `/repo-wt/${OFFENDER}`,
+        insertions: count,
+        deletions: 0,
+        files: Array.from({ length: count }, (_, i) => ({
+          path: `packages/web/src/panels/attention/very/long/path/number-${i}.tsx`,
+          status: 'modified',
+        })),
+      },
+      { id: nextId(), ts: NOW - 10_000 },
+    ),
+  ]
+
+  // A manifest that fences the offender somewhere it is NOT touching, and gives
+  // every touched path to a second lane — so all `count` files are trespasses
+  // with a named victim, which is the widest the evidence clause can get.
+  const manifest = {
+    [OFFENDER]: { handle: OFFENDER, fence: ['packages/server/**'], issue: '600', model: null },
+    [VICTIM]: {
+      handle: VICTIM,
+      fence: ['packages/web/src/panels/attention/**'],
+      issue: '601',
+      model: null,
+    },
+  }
+
+  return buildFleet(reduceAll(events), { now: NOW, manifest })
+}
 
 describe('AttentionStripView — arrival pulse (ruling 10)', () => {
   const fleet = fleetFor(pathologySpec())
@@ -328,8 +422,18 @@ describe('AttentionStripView — retrospective waited chips', () => {
     for (const forbidden of ['text-needs-you', 'text-broken', 'text-notice', 'glow-', 'attention-chip-flare', 'attention-chip-age-pulse']) {
       expect(chip.className).not.toContain(forbidden)
     }
-    // Every class actually used stays in the ice register.
-    expect(chip.className.split(/\s+/).every((cls) => !cls.startsWith('text-') || cls.startsWith('text-ice'))).toBe(true)
+    // Every class actually used stays in the ice register — spelled as a ROLE
+    // since the 2026-08-17 colour sweep (`text-(--ink-…)` resolves to the ice
+    // ramp in dark and to warm paper in light, which is the whole point), plus
+    // the ramp's own size tokens, which are not colours at all.
+    const inRegister = (cls: string) =>
+      !cls.startsWith('text-') ||
+      cls.startsWith('text-(--ink-') ||
+      cls.startsWith('text-inst') ||
+      cls.startsWith('text-read')
+    expect(chip.className.split(/\s+/).every(inRegister)).toBe(true)
+    // …and the check bites: a ladder hue would not be in the register.
+    expect(inRegister('text-needs-you')).toBe(false)
   })
 
   it('caps the quiet region at MAX_WAITED_CHIPS even with more lanes waited', () => {
