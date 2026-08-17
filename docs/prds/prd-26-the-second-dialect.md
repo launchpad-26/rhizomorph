@@ -171,5 +171,8 @@ board — never a predicted one.
   any non-`absent` cost as L1, so an estimate buys an authoritative number's rung.
 - Live attention for a harness with neither hooks nor a pending-turn shape has no
   door below prd-15's L3 PTY wrapper (its wave 7, a COULD). Not ruled here.
-- Whether an OTLP file drop (gemini's `telemetry.outfile`) is a collector or a
-  receiver, per ruling 1's ADR. Open.
+- **Whether an OTLP file drop is a collector or a receiver — settled (#635), no
+  longer open.** ADR-0025 rules that a harness exporting OTLP natively gets a
+  mapping profile plus an env recipe, per ruling 1 as written, and that a file
+  drop is a fallback for a harness with no network export rather than an
+  ingestion path to own. gemini turned out to be the native case.
