@@ -35,8 +35,8 @@ patch.
 ## Evidence
 
 - **The route table says it plainly** (`api/index.ts:56-87`, seventeen rows): 3 `gated-mutation`,
-  3 `ungated-mutation` (the OTLP inbox, prd-23 ruling 6), 10 `read`, `GET /*` included — and `read`
-  means no `preHandler` at all. Reads get the loopback `Host` law (#303 made it universal,
+  3 `ungated-mutation` (the OTLP inbox, prd-23 ruling 6), 11 `read` — the ten `/api` reads plus the
+  `GET /*` catch-all — and `read` means no `preHandler` at all. Reads get the loopback `Host` law (#303 made it universal,
   `mutation-guard.ts:185-188`); `Origin` and `Content-Type` stay mutating-only (`:190-199`).
 - **prd-23 ruling 5 shipped half-implemented.** `route-class-law.test.ts:61-62` pins the count
   (seventeen, twice, so the walk cannot go vacuous) but never verifies that a `gated-mutation`
