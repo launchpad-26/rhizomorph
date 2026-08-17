@@ -91,9 +91,12 @@ import { SetupWizard } from './wizard.js'
  * **The hue laws (`theme/theme.css`) decide the palette, and the design is
  * otherwise the implementer's** (this issue's own DoD). Verified wears the
  * green family, broken wears the one red the instrument has, and — the rule
- * that actually needed care — **unproven wears the ice ramp, never amber**:
- * a link that has simply not proved itself yet is nothing-to-say, and
- * waiting is not an alarm.
+ * that actually needed care — **unproven wears the structural ink, never
+ * amber**: a link that has simply not proved itself yet is nothing-to-say, and
+ * waiting is not an alarm. Since #597 that ink is `--ink-dim` rather than
+ * `ice-400`, which is the same colour on the void and a plum grey on paper —
+ * the claim is "structure", and only a role carries a claim across two
+ * grounds.
  */
 
 export interface ConnectPageProps {
@@ -165,20 +168,21 @@ export { STATE_GLYPH, STATE_WORD } from './links.js'
 const STATE_CLASS: Record<LinkState, string> = {
   verified: 'text-working',
   broken: 'text-broken',
-  // The ice ramp, deliberately: an unproven link is nothing-to-say, and
-  // amber in this instrument means a human is blocked.
-  unproven: 'text-ice-400',
+  // The structural ink, deliberately: an unproven link is nothing-to-say, and
+  // amber in this instrument means a human is blocked. `--ink-dim` is the
+  // legibility floor in whichever theme is running (prd9, #597).
+  unproven: 'text-(--ink-dim)',
 }
 
 /** The left rule beside each row — the same three-state reading at a glance, in the dark. */
 const STATE_EDGE: Record<LinkState, string> = {
   verified: 'border-working/60',
   broken: 'border-broken/70',
-  unproven: 'border-ice-800',
+  unproven: 'border-(--line-strong)',
 }
 
 const DOCTOR_CLASS: Record<DoctorFact['status'], string> = {
-  ok: 'text-ice-300',
+  ok: 'text-(--ink-body)',
   // The muted end of the amber family: a doctor warning is a degraded
   // optional capability, never the incandescent "a human must act now".
   warn: 'text-waiting-benign',
@@ -261,23 +265,23 @@ export function ConnectPage({
   const fixture = mode !== 'replay' && source !== 'live' ? sampleUninstrumented(port) : null
 
   return (
-    <div data-testid="connect-page" className="flex h-screen flex-col bg-ice-1000 font-sans text-ice-300">
+    <div data-testid="connect-page" className="flex h-screen flex-col bg-(--surface-floor) font-sans text-(--ink-body)">
       <Nav />
-      <header className="flex shrink-0 items-center gap-4 border-b border-ice-850 bg-ice-950 px-4 py-3">
+      <header className="flex shrink-0 items-center gap-4 border-b border-(--line-hair) bg-(--surface-panel) px-4 py-3">
         <button
           type="button"
           data-testid="connect-back"
           onClick={() => navigate('/')}
-          className="shrink-0 rounded border border-ice-800 px-2 py-1 text-[10px] uppercase tracking-wider text-ice-400 hover:border-ice-600 hover:text-ice-100"
+          className="shrink-0 rounded border border-(--line-strong) px-2 py-1 text-inst uppercase tracking-wider text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
         >
           ← balcony
         </button>
-        <h1 className="text-sm text-ice-100">Connect</h1>
-        <span className="text-[11px] text-ice-400">
+        <h1 className="text-read-body text-(--ink-primary)">Connect</h1>
+        <span className="text-read-floor text-(--ink-dim)">
           every link in the chain, and the fact that proves it — this page reads, and never writes
         </span>
         <SampleFleetControl />
-        <span data-testid="connect-tally" className="figures ml-auto text-[11px] text-ice-400">
+        <span data-testid="connect-tally" className="figures ml-auto text-inst text-(--ink-dim)">
           <span className="text-working">{counts.verified} verified</span>
           {' · '}
           <span className={counts.broken > 0 ? 'text-broken' : undefined}>{counts.broken} broken</span>
@@ -339,14 +343,14 @@ export function ConnectPage({
 function Provenance({ meta, provenance, isLive, port }: { meta: MetaFacts | null; provenance: string; isLive: boolean; port: string }) {
   const boot = meta?.boot
   return (
-    <section data-testid="connect-provenance" className="rounded border border-ice-850 bg-ice-950 px-3 py-2 text-[11px]">
+    <section data-testid="connect-provenance" className="rounded border border-(--line-hair) bg-(--surface-panel) px-3 py-2 text-inst">
       {!isLive && (
-        <p data-testid="connect-not-live" className="mb-1.5 text-notice">
+        <p data-testid="connect-not-live" className="mb-1.5 text-read-floor text-notice">
           this checklist is reading {provenance} — not the live log. Nothing below is proof about this instrument's own
           wiring until you return to live.
         </p>
       )}
-      <dl className="flex flex-wrap gap-x-6 gap-y-1 text-ice-400">
+      <dl className="flex flex-wrap gap-x-6 gap-y-1 text-(--ink-dim)">
         <Fact label="rung" value={meta?.rung ?? null} testId="connect-rung" />
         <Fact label="instance" value={meta?.sessionId ?? null} testId="connect-instance" />
         <Fact label="repo" value={meta?.repoPath ?? null} testId="connect-repo" />
@@ -366,8 +370,8 @@ function Provenance({ meta, provenance, isLive, port }: { meta: MetaFacts | null
 function Fact({ label, value, testId }: { label: string; value: string | null; testId: string }) {
   return (
     <div className="flex items-baseline gap-1.5">
-      <dt className="uppercase tracking-wider text-ice-400">{label}</dt>
-      <dd data-testid={testId} className={value === null ? 'text-ice-400 italic' : 'figures text-ice-200'}>
+      <dt className="uppercase tracking-wider text-(--ink-dim)">{label}</dt>
+      <dd data-testid={testId} className={value === null ? 'text-(--ink-dim) italic' : 'figures text-(--ink-primary)'}>
         {value ?? UNAVAILABLE}
       </dd>
     </div>
@@ -378,28 +382,28 @@ function LinkRow({ link, onCopy, children }: { link: ChainLink; onCopy: CopyText
   return (
     <li
       data-testid={`connect-link-${link.id}`}
-      className={`rounded border border-ice-850 border-l-2 bg-ice-950 px-3 py-2 ${STATE_EDGE[link.state]}`}
+      className={`rounded border border-(--line-hair) border-l-2 bg-(--surface-panel) px-3 py-2 ${STATE_EDGE[link.state]}`}
     >
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span
           data-testid={`connect-state-${link.id}`}
-          className={`figures shrink-0 text-[10px] font-semibold uppercase tracking-[0.18em] ${STATE_CLASS[link.state]}`}
+          className={`figures shrink-0 text-inst font-semibold uppercase tracking-[0.18em] ${STATE_CLASS[link.state]}`}
         >
           <span aria-hidden="true">{STATE_GLYPH[link.state]}</span> {STATE_WORD[link.state]}
         </span>
-        <span className="text-[12px] text-ice-100">{link.label}</span>
-        <span className="text-[11px] text-ice-400">{link.question}</span>
+        <span className="text-read-body text-(--ink-primary)">{link.label}</span>
+        <span className="text-read-floor text-(--ink-dim)">{link.question}</span>
       </div>
 
       {link.fact !== null && (
-        <p data-testid={`connect-fact-${link.id}`} className="mt-1 text-[11px] text-ice-200">
+        <p data-testid={`connect-fact-${link.id}`} className="mt-1 text-read-floor text-(--ink-primary)">
           {link.fact}
           <Stamp ts={link.ts} kind={link.tsKind} />
         </p>
       )}
 
       {link.reason !== null && (
-        <p data-testid={`connect-reason-${link.id}`} className="mt-1 text-[11px] text-broken">
+        <p data-testid={`connect-reason-${link.id}`} className="mt-1 text-read-floor text-broken">
           {link.reason}
         </p>
       )}
@@ -407,7 +411,7 @@ function LinkRow({ link, onCopy, children }: { link: ChainLink; onCopy: CopyText
       {link.command !== null && <CommandBlock id={link.id} command={link.command} warning={link.warning} onCopy={onCopy} />}
 
       {link.notes.length > 0 && (
-        <ul data-testid={`connect-notes-${link.id}`} className="mt-1 flex flex-col gap-0.5 text-[10px] leading-snug text-ice-400">
+        <ul data-testid={`connect-notes-${link.id}`} className="mt-1 flex flex-col gap-0.5 text-read-floor leading-snug text-(--ink-dim)">
           {link.notes.map((note) => (
             <li key={note}>{note}</li>
           ))}
@@ -539,14 +543,14 @@ function UninstrumentedSessions({
   const outcome = outcomes[current.sessionId]
 
   return (
-    <div className="mt-2 rounded border border-ice-850 bg-ice-1000 px-2 py-2">
-      <label className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wider text-ice-400">
+    <div className="mt-2 rounded border border-(--line-hair) bg-(--surface-floor) px-2 py-2">
+      <label className="flex flex-wrap items-center gap-2 text-inst uppercase tracking-wider text-(--ink-dim)">
         <span>{sessions.length === 1 ? 'the session' : `${sessions.length} sessions`}</span>
         <select
           data-testid="connect-uninstrumented-select"
           value={current.sessionId}
           onChange={(event) => setChosen(event.target.value)}
-          className="max-w-full rounded border border-ice-850 bg-ice-1000 px-2 py-1 font-sans text-[11px] normal-case tracking-normal text-ice-200"
+          className="max-w-full rounded border border-(--line-hair) bg-(--surface-floor) px-2 py-1 font-sans text-read-floor normal-case tracking-normal text-(--ink-primary)"
         >
           {sessions.map((session) => (
             <option key={session.sessionId} value={session.sessionId}>
@@ -557,10 +561,10 @@ function UninstrumentedSessions({
       </label>
 
       <div data-testid="connect-uninstrumented-detail" className="mt-2 flex flex-col gap-1.5">
-        <p data-testid={`connect-preview-${current.sessionId}`} className="text-[11px] leading-snug text-ice-200">
+        <p data-testid={`connect-preview-${current.sessionId}`} className="text-read-body leading-snug text-(--ink-primary)">
           {previewLine(previewOf(current.sessionId))}
         </p>
-        <p className="figures text-[10px] text-ice-400">
+        <p className="figures text-inst-dense text-(--ink-dim)">
           session {current.sessionId} · branch {current.place.branch ?? UNAVAILABLE} · worktree{' '}
           {current.place.worktreeTail ?? UNAVAILABLE} · {current.ageLabel}
         </p>
@@ -583,7 +587,7 @@ function UninstrumentedSessions({
               <p
                 role="status"
                 data-testid={`connect-instrument-status-${current.sessionId}`}
-                className={`text-[11px] leading-snug ${statusTone(outcome)}`}
+                className={`text-read-body leading-snug ${statusTone(outcome)}`}
               >
                 {statusLine(outcome)}
               </p>
@@ -598,12 +602,12 @@ function UninstrumentedSessions({
               warning={SAME_PROCESS_WARNING}
               onCopy={onCopy}
             />
-            <p className="text-[10px] leading-snug text-ice-400">
-              the env block on its own: <span className="font-mono text-ice-300">{current.envCommand}</span>
+            <p className="text-read-floor leading-snug text-(--ink-dim)">
+              the env block on its own: <span className="font-mono text-(--ink-body)">{current.envCommand}</span>
             </p>
           </>
         ) : (
-          <p data-testid="connect-uninstrumented-fixture" className="text-[10px] leading-snug text-notice">
+          <p data-testid="connect-uninstrumented-fixture" className="text-read-floor leading-snug text-notice">
             these sessions are part of the sample fleet — they do not exist, so there is nothing here to instrument and
             no command worth copying. Return to live to act on a real one.
           </p>
@@ -701,10 +705,10 @@ function Stamp({ ts, kind }: { ts: number | null; kind: ChainLink['tsKind'] }) {
   // `RangeError` out of `toISOString` mid-render, blanking a route that has
   // no ErrorBoundary above it.
   if (!isRenderableTs(ts)) {
-    return <span className="figures ml-2 text-ice-400 italic">{UNAVAILABLE}</span>
+    return <span className="figures ml-2 text-(--ink-dim) italic">{UNAVAILABLE}</span>
   }
   return (
-    <time dateTime={new Date(ts).toISOString()} className="figures ml-2 text-ice-400">
+    <time dateTime={new Date(ts).toISOString()} className="figures ml-2 text-(--ink-dim)">
       {kind === 'render' ? `as of ${formatWallClock(ts)}` : formatWallClock(ts)}
     </time>
   )
@@ -736,24 +740,24 @@ function CommandBlock({ id, command, warning, onCopy }: { id: string; command: s
               () => setCopied('failed'),
             )
           }}
-          className="rounded border border-ice-700 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-ice-100 hover:border-ice-500 hover:bg-ice-900"
+          className="rounded border border-(--line-strong) px-2 py-1 text-inst font-semibold uppercase tracking-[0.18em] text-(--ink-primary) hover:border-(--ink-dim) hover:bg-(--surface-raised)"
         >
           Copy
         </button>
         {copied !== 'idle' && (
-          <span role="status" className={`figures text-[10px] ${copied === 'copied' ? 'text-notice' : 'text-ice-400'}`}>
+          <span role="status" className={`figures text-inst-dense ${copied === 'copied' ? 'text-notice' : 'text-(--ink-dim)'}`}>
             {copied === 'copied' ? 'copied to clipboard' : 'clipboard unavailable — copy it by hand'}
           </span>
         )}
       </div>
       <code
         data-testid={`connect-command-${id}`}
-        className="mt-1.5 block overflow-x-auto whitespace-pre rounded bg-ice-1000 px-2 py-1 font-mono text-[11px] text-ice-200"
+        className="mt-1.5 block overflow-x-auto whitespace-pre rounded bg-(--surface-floor) px-2 py-1 font-mono text-inst text-(--ink-primary)"
       >
         {command}
       </code>
       {warning !== null && (
-        <p data-testid={`connect-warning-${id}`} className="mt-1 text-[10px] leading-snug text-waiting-benign">
+        <p data-testid={`connect-warning-${id}`} className="mt-1 text-read-floor leading-snug text-waiting-benign">
           {warning}
         </p>
       )}
@@ -771,27 +775,27 @@ function CommandBlock({ id, command, warning, onCopy }: { id: string; command: s
 function DoctorPanel({ reading }: { reading: DoctorReading }) {
   return (
     <section data-testid="connect-doctor" className="mt-5">
-      <h2 className="text-[10px] uppercase tracking-[0.18em] text-ice-400">
+      <h2 className="heading text-(--ink-dim)">
         facts the fold cannot know — <span className="font-mono normal-case tracking-normal">GET /api/doctor</span>
       </h2>
       {reading.kind !== 'checks' ? (
         // Which nothing happened, in the note itself (#381): the old copy had
         // one value for two facts and could only name both. Now the reader is
         // told whether to look at the route or at the payload.
-        <p data-testid="connect-doctor-unavailable" className="mt-1 text-[11px] italic text-ice-400">
+        <p data-testid="connect-doctor-unavailable" className="mt-1 text-read-floor italic text-(--ink-dim)">
           {reading.kind === 'absent'
             ? `${UNAVAILABLE} — no usable answer from the doctor route: it may be down, erroring, or answering something other than JSON`
             : `${UNAVAILABLE} — the doctor route answered, but not one entry of its report was readable by this build of the page`}
         </p>
       ) : (
-        <ul className="mt-1 flex flex-col gap-1 text-[11px]">
+        <ul className="mt-1 flex flex-col gap-1 text-inst">
           {reading.checks.map((check) => (
             <li key={check.id} data-testid={`connect-doctor-${check.id}`} className="flex gap-2">
               <span className={`figures w-10 shrink-0 uppercase tracking-wider ${DOCTOR_CLASS[check.status]}`}>{check.status}</span>
-              <span className="w-36 shrink-0 font-mono text-ice-300">{check.id}</span>
-              <span className="text-ice-400">
+              <span className="w-36 shrink-0 font-mono text-(--ink-body)">{check.id}</span>
+              <span className="text-(--ink-dim)">
                 {check.message}
-                {check.assumed && <em className="ml-1 text-ice-400">(assumed, not measured)</em>}
+                {check.assumed && <em className="ml-1 text-(--ink-dim)">(assumed, not measured)</em>}
               </span>
             </li>
           ))}

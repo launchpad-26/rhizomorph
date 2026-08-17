@@ -7,6 +7,7 @@ import { withResilience } from '../collectors/resilience.js'
 import {
   withAgentReconciliation,
   withBranchReconciliation,
+  withDirtyStatusReconciliation,
   withResumeReconciliation,
 } from '../collectors/resume-reconcile.js'
 import { createSessionlogCollector, type SessionlogCollectorConfig } from '../collectors/sessionlog/index.js'
@@ -100,8 +101,23 @@ export async function loadCollectors(
   // deliberate here; do not copy the agent wrapper's `.present` filter.
   const foldedBranchNames = new Set(Object.keys(folded.branches))
 
+  // #536: dirtyStatusFailedSince is a per-worktree fact the collector's own
+  // dirtyFailures counter cannot reconcile on a resume with no memory of a
+  // prior incident — same shape as foldedBranchNames just above, scoped to
+  // this one field instead of branch identity.
+  const foldedDirtyStatusFailedPaths = new Set(
+    Object.entries(folded.worktrees)
+      .filter(([, worktree]) => worktree.dirtyStatusFailedSince !== null)
+      .map(([path]) => path),
+  )
+
   return [
-    wrap(withBranchReconciliation(gitCollector, foldedBranchNames)),
+    wrap(
+      withBranchReconciliation(
+        withDirtyStatusReconciliation(gitCollector, foldedDirtyStatusFailedPaths),
+        foldedBranchNames,
+      ),
+    ),
     wrap(tmuxCollector),
     wrap(withAgentReconciliation(createWorkmuxCollector(), foldedPresentAgentHandles)),
     wrap(createJudgeCollector({ cadenceMs: judgeCadenceMs() })),

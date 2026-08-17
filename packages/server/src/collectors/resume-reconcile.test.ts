@@ -9,9 +9,15 @@ import type {
 } from '@rhizomorph/core'
 import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
+import { gitCollector, MAX_DIRTY_STATUS_FAILURES } from './git/git-collector.js'
 import type { GitSnapshot } from './git/types.js'
 import { withResilience, type ResilientSnapshot } from './resilience.js'
-import { withAgentReconciliation, withBranchReconciliation, withResumeReconciliation } from './resume-reconcile.js'
+import {
+  withAgentReconciliation,
+  withBranchReconciliation,
+  withDirtyStatusReconciliation,
+  withResumeReconciliation,
+} from './resume-reconcile.js'
 
 function makeContext(exec: Exec, now: number): CollectorContext {
   const nextId = createIdFactory('evt')
@@ -171,6 +177,7 @@ function fakeGitSnapshot(branches: GitSnapshot['branches']): GitSnapshot {
     branches,
     dirty: {},
     dirtyFailures: {},
+    refsFailures: 0,
   }
 }
 
@@ -318,6 +325,67 @@ describe('withBranchReconciliation — the first poll after a resume hits a for-
     const second = await reconciled.poll(first.nextSnapshot, makeContext(nullExec, 2000))
     expect(second.events.map((event) => event.type)).toEqual(['branch.removed'])
     expect(second.events[0]?.payload).toEqual({ branch: '132-old-feature' })
+  })
+})
+
+describe("withBranchReconciliation — the real git collector's for-each-ref latch stays quiet through §7's fix", () => {
+  // #429 §7: `diffBranches`' own threshold-and-latch (§6d) means a
+  // for-each-ref failure below MAX_DIRTY_STATUS_FAILURES now returns
+  // `prevSnapshot.branches` unchanged AND voices nothing — the exact
+  // "not observed, no explaining event" shape #454's gate used to read as a
+  // broken observation contract. Without `result.nextSnapshot.refsFailures > 0`
+  // in the fix, every one of these silent polls would emit a spurious
+  // contract-violation `collector.error`.
+  const ONE_WORKTREE = `worktree /repo
+HEAD 1111111111111111111111111111111111111111
+branch refs/heads/main
+`
+  const ONE_REF = 'main 1111111111111111111111111111111111111111\n'
+
+  it('emits no synthetic contract-violation collector.error on any silent poll, and reconciles a real ghost once for-each-ref finally succeeds', async () => {
+    let call = 0
+    const exec: Exec = async (command, args, options) => {
+      if (args[0] === 'for-each-ref') {
+        call += 1
+        if (call <= MAX_DIRTY_STATUS_FAILURES) {
+          return { stdout: '', stderr: 'error: bad ref', code: 1, failed: true }
+        }
+        return { stdout: ONE_REF, stderr: '', code: 0, failed: false }
+      }
+      const key = `${command} ${args.join(' ')}::${options?.cwd ?? ''}`
+      const script: Record<string, string> = {
+        'git worktree list --porcelain::/repo': ONE_WORKTREE,
+        'git status --porcelain::/repo': '',
+      }
+      const stdout = script[key]
+      if (stdout === undefined) throw new Error(`no scripted output for "${key}"`)
+      return { stdout, stderr: '', code: 0, failed: false }
+    }
+
+    // The fold believes '132-old-feature' is still live; it never appears in
+    // any for-each-ref output below, so it is a real ghost.
+    const reconciled = withBranchReconciliation(gitCollector, new Set(['main', '132-old-feature']))
+
+    let snapshot = reconciled.initialSnapshot()
+    for (let poll = 1; poll <= MAX_DIRTY_STATUS_FAILURES; poll += 1) {
+      const result = await reconciled.poll(snapshot, makeContext(exec, 1000 + poll * 1000))
+      expect(result.events.some((event) => event.type === 'collector.error')).toBe(false)
+      snapshot = result.nextSnapshot
+    }
+
+    // for-each-ref finally succeeds: reality has only 'main', so
+    // '132-old-feature' is the one real ghost, retired exactly once.
+    const recovered = await reconciled.poll(snapshot, makeContext(exec, 9000))
+    expect(recovered.events.some((event) => event.type === 'collector.error')).toBe(false)
+    expect(recovered.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'branch.removed', payload: { branch: '132-old-feature' } }),
+      ]),
+    )
+
+    // Idempotent: the next poll has nothing left to reconcile.
+    const again = await reconciled.poll(recovered.nextSnapshot, makeContext(exec, 10_000))
+    expect(again.events.some((event) => event.type === 'branch.removed')).toBe(false)
   })
 })
 
@@ -551,6 +619,226 @@ describe('withAgentReconciliation — fold and reality already agree', () => {
   it('passes through untouched when every folded handle is still present in reality', async () => {
     const inner = fakeAgentCollector('workmux', [{ main: { status: 'working' } }])
     const reconciled = withAgentReconciliation(inner, new Set(['main']))
+
+    const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+
+    expect(result.events).toHaveLength(0)
+  })
+})
+
+function worktreeState(path: string): GitSnapshot['worktrees'][string] {
+  return {
+    path,
+    branch: 'main',
+    head: 'aaaaaaaaaa',
+    isMain: true,
+    detached: false,
+    locked: false,
+    prunable: false,
+  }
+}
+
+function fakeGitSnapshotWithWorktrees(
+  worktrees: GitSnapshot['worktrees'],
+  dirtyFailures: GitSnapshot['dirtyFailures'] = {},
+): GitSnapshot {
+  return {
+    disabled: false,
+    mainBranch: 'main',
+    mainBranchGapVoiced: false,
+    worktrees,
+    branches: {},
+    dirty: {},
+    dirtyFailures,
+    refsFailures: 0,
+  }
+}
+
+function fakeDirtyGitCollector(
+  name: string,
+  responses: readonly {
+    worktrees: GitSnapshot['worktrees']
+    dirtyFailures?: GitSnapshot['dirtyFailures']
+  }[],
+): Collector<GitSnapshot> {
+  const queue = [...responses]
+  return {
+    name,
+    initialSnapshot: (): GitSnapshot => fakeGitSnapshotWithWorktrees({}),
+    poll: (_prev: GitSnapshot, _ctx: CollectorContext) => {
+      const next = queue.shift() ?? { worktrees: {} }
+      return {
+        nextSnapshot: fakeGitSnapshotWithWorktrees(next.worktrees, next.dirtyFailures ?? {}),
+        events: [],
+      }
+    },
+  }
+}
+
+describe('withDirtyStatusReconciliation — fold holds an open incident, reality has moved on (#536)', () => {
+  it('emits worktree.dirtyStatusRecovered for a folded path whose status is clean this poll', async () => {
+    const inner = fakeDirtyGitCollector('git', [{ worktrees: { '/repo': worktreeState('/repo') } }])
+    const reconciled = withDirtyStatusReconciliation(inner, new Set(['/repo']))
+
+    const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+
+    expect(result.events.map((event) => event.type)).toEqual(['worktree.dirtyStatusRecovered'])
+    expect(result.events[0]?.payload).toEqual({ worktreePath: '/repo' })
+  })
+
+  // The mutation this fix must survive: inverting or dropping the
+  // dirtyFailures check would recover a worktree whose status just failed
+  // again this same poll.
+  it('does not recover a folded path that is still failing this same poll', async () => {
+    const inner = fakeDirtyGitCollector('git', [
+      { worktrees: { '/repo': worktreeState('/repo') }, dirtyFailures: { '/repo': 4 } },
+    ])
+    const reconciled = withDirtyStatusReconciliation(inner, new Set(['/repo']))
+
+    const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+
+    expect(result.events).toHaveLength(0)
+  })
+
+  it('reconciles only once — a later poll does not re-emit for the same path', async () => {
+    const inner = fakeDirtyGitCollector('git', [
+      { worktrees: { '/repo': worktreeState('/repo') } },
+      { worktrees: { '/repo': worktreeState('/repo') } },
+    ])
+    const reconciled = withDirtyStatusReconciliation(inner, new Set(['/repo']))
+
+    const first = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+    expect(first.events.map((event) => event.type)).toEqual(['worktree.dirtyStatusRecovered'])
+
+    const second = await reconciled.poll(first.nextSnapshot, makeContext(nullExec, 2000))
+    expect(second.events).toHaveLength(0)
+  })
+
+  it('does not double-report a path the inner collector already recovered this same poll', async () => {
+    const inner: Collector<GitSnapshot> = {
+      name: 'git',
+      initialSnapshot: (): GitSnapshot => fakeGitSnapshotWithWorktrees({}),
+      poll: (_prev, ctx) => ({
+        nextSnapshot: fakeGitSnapshotWithWorktrees({ '/repo': worktreeState('/repo') }),
+        events: [ctx.emit('worktree.dirtyStatusRecovered', { worktreePath: '/repo' })],
+      }),
+    }
+    const reconciled = withDirtyStatusReconciliation(inner, new Set(['/repo']))
+
+    const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0]?.payload).toEqual({ worktreePath: '/repo' })
+  })
+
+  // The mutation this fix must survive: retiring only `toReport` (the paths
+  // the wrapper itself reports) from `pending`, instead of all of `resolved`,
+  // would leave a path the inner collector already recovered still pending —
+  // and the next healthy poll would report it a second time.
+  it('does not spuriously re-recover on the next poll a path the inner collector already recovered', async () => {
+    let call = 0
+    const inner: Collector<GitSnapshot> = {
+      name: 'git',
+      initialSnapshot: (): GitSnapshot => fakeGitSnapshotWithWorktrees({}),
+      poll: (_prev, ctx) => {
+        call += 1
+        return {
+          nextSnapshot: fakeGitSnapshotWithWorktrees({ '/repo': worktreeState('/repo') }),
+          events:
+            call === 1 ? [ctx.emit('worktree.dirtyStatusRecovered', { worktreePath: '/repo' })] : [],
+        }
+      },
+    }
+    const reconciled = withDirtyStatusReconciliation(inner, new Set(['/repo']))
+
+    const first = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+    expect(first.events.map((event) => event.type)).toEqual(['worktree.dirtyStatusRecovered'])
+    expect(first.events[0]?.payload).toEqual({ worktreePath: '/repo' })
+
+    const second = await reconciled.poll(first.nextSnapshot, makeContext(nullExec, 2000))
+    expect(second.events).toEqual([])
+  })
+
+  // The mutation angle for the pollFailed gate: removing it would burn the
+  // one-shot latch on a transient boot blip and leave the incident stuck
+  // open for the rest of the process.
+  it('does not latch on a failed poll, and retires the incident on the next healthy poll', async () => {
+    let call = 0
+    const inner: Collector<GitSnapshot> = {
+      name: 'git',
+      initialSnapshot: (): GitSnapshot => fakeGitSnapshotWithWorktrees({}),
+      poll: (prev, ctx) => {
+        call += 1
+        if (call === 1) {
+          return {
+            nextSnapshot: prev,
+            events: [
+              ctx.emit('collector.disabled', {
+                collector: 'git',
+                reason: 'git worktree list --porcelain failed',
+              }),
+            ],
+          }
+        }
+        return { nextSnapshot: fakeGitSnapshotWithWorktrees({ '/repo': worktreeState('/repo') }), events: [] }
+      },
+    }
+    const reconciled = withDirtyStatusReconciliation(inner, new Set(['/repo']))
+
+    const first = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+    expect(first.events.map((event) => event.type)).toEqual(['collector.disabled'])
+
+    const second = await reconciled.poll(first.nextSnapshot, makeContext(nullExec, 2000))
+    expect(second.events.map((event) => event.type)).toEqual(['worktree.dirtyStatusRecovered'])
+    expect(second.events[0]?.payload).toEqual({ worktreePath: '/repo' })
+  })
+
+  it('a folded path no longer present in worktrees gets no reconciliation event', async () => {
+    const inner = fakeDirtyGitCollector('git', [{ worktrees: {} }])
+    const reconciled = withDirtyStatusReconciliation(inner, new Set(['/repo']))
+
+    const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+
+    expect(result.events).toHaveLength(0)
+  })
+
+  // #536 Finding A: a per-path status failure is not a whole-poll failure, so
+  // it emits no collector.disabled — the old boolean latch still burned
+  // itself on this poll and never looked again. Against that code this test
+  // is RED (see resume-reconcile.ts's git history for the pre-fix shape):
+  // poll 1 would set `reconciled = true` and the path would stay pending
+  // forever, so poll 2's healthy status would never be reported. The pending
+  // set fixes it by only retiring the path once a poll actually observes it
+  // resolved, however many polls that takes.
+  it('stays pending across a per-path failure with no collector.disabled, and closes on the next healthy poll (#536 Finding A)', async () => {
+    const inner = fakeDirtyGitCollector('git', [
+      { worktrees: { '/repo': worktreeState('/repo') }, dirtyFailures: { '/repo': 1 } },
+      { worktrees: { '/repo': worktreeState('/repo') } },
+    ])
+    const reconciled = withDirtyStatusReconciliation(inner, new Set(['/repo']))
+
+    const first = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+    expect(first.events).toHaveLength(0)
+
+    const second = await reconciled.poll(first.nextSnapshot, makeContext(nullExec, 2000))
+    expect(second.events.map((event) => event.type)).toEqual(['worktree.dirtyStatusRecovered'])
+    expect(second.events[0]?.payload).toEqual({ worktreePath: '/repo' })
+  })
+})
+
+describe('withDirtyStatusReconciliation — fold and reality already agree', () => {
+  it('passes through untouched when there is no folded dirty-status history', async () => {
+    const inner = fakeDirtyGitCollector('git', [{ worktrees: { '/repo': worktreeState('/repo') } }])
+    const reconciled = withDirtyStatusReconciliation(inner, undefined)
+
+    const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
+
+    expect(result.events).toHaveLength(0)
+  })
+
+  it('passes through untouched when the folded set is empty', async () => {
+    const inner = fakeDirtyGitCollector('git', [{ worktrees: { '/repo': worktreeState('/repo') } }])
+    const reconciled = withDirtyStatusReconciliation(inner, new Set())
 
     const result = await reconciled.poll(reconciled.initialSnapshot(), makeContext(nullExec, 1000))
 

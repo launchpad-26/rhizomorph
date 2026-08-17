@@ -207,6 +207,7 @@ have carried no information.
 | [0018](0018-bare-path-body-shape-routing.md) | The OTLP receiver adds one bare-path route, dispatched by body shape | 2026-08-13 | proposed |
 | [0019](0019-the-fourth-hand.md) | The concierge: a fourth hand, granted two powers by explicit invocation — amends [0001](0001-read-only-observer-as-a-constitution.md) | 2026-08-10 | accepted |
 | [0020](0020-transcript-migration-is-a-create-only-copy.md) | Transcript migration is one create-only copy into the watched repo's slug directory — amends [0001](0001-read-only-observer-as-a-constitution.md), extends [0019](0019-the-fourth-hand.md) | 2026-08-14 | accepted |
+| [0022](0022-per-worktree-incidents-are-worktree-facts.md) | Per-worktree incidents are recorded on the worktree, not the collector | 2026-08-14 | accepted |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the

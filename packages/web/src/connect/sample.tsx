@@ -48,19 +48,19 @@ export function SampleFleetControl() {
   if (source !== 'live') {
     return (
       <div data-testid="connect-sample" className="flex shrink-0 items-center gap-2">
-        <span data-testid="connect-sample-banner" className="figures text-[11px] font-semibold text-notice">
+        <span data-testid="connect-sample-banner" className="figures text-inst font-semibold text-notice">
           reading {provenance} — not the live log
         </span>
         <button
           type="button"
           data-testid="connect-sample-return"
           onClick={() => setSource('live')}
-          className="shrink-0 rounded border border-notice/60 px-2 py-1 text-[10px] uppercase tracking-wider text-notice hover:border-notice hover:text-ice-100"
+          className="shrink-0 rounded border border-notice/60 px-2 py-1 text-inst uppercase tracking-wider text-notice hover:border-notice hover:text-(--ink-primary)"
         >
           return to live
         </button>
         {/* The route onward, not just back: pressing 2 or 3 works from here exactly as it does from live. */}
-        <span data-testid="connect-sample-keys" className="text-[10px] text-ice-400">
+        <span data-testid="connect-sample-keys" className="text-read-floor text-(--ink-dim)">
           or press {keyDoc()}
         </span>
       </div>
@@ -73,12 +73,12 @@ export function SampleFleetControl() {
         type="button"
         data-testid="connect-sample-activate"
         onClick={() => setSource('fleet20')}
-        className="shrink-0 rounded border border-ice-800 px-2 py-1 text-[10px] uppercase tracking-wider text-ice-400 hover:border-ice-600 hover:text-ice-100"
+        className="shrink-0 rounded border border-(--line-strong) px-2 py-1 text-inst uppercase tracking-wider text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
       >
         view a sample fleet
       </button>
       {/* The secret this control replaces, named rather than left for someone to stumble on. */}
-      <span data-testid="connect-sample-keys" className="text-[10px] text-ice-400">
+      <span data-testid="connect-sample-keys" className="text-read-floor text-(--ink-dim)">
         or press {keyDoc()}
       </span>
     </div>

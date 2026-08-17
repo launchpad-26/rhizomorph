@@ -49,6 +49,7 @@ function rig(overrides: Partial<PrefEntry> & Pick<PrefEntry, 'id' | 'label'>): P
     fallback: false,
     control: 'settings',
     unavailable: null,
+    requires: null,
     gap: null,
     legacy: null,
     ...overrides,
@@ -148,6 +149,39 @@ describe('ruling 2 — the five non-negotiables, as law', () => {
       expect(violations.find((violation) => violation.nonNegotiable === law)?.why.length).toBeGreaterThan(80)
     })
   }
+
+  /**
+   * WAVE 2's OWN EXPOSURE (#574). The Notifications group is the first set of
+   * controls whose honest form and whose forbidden form look almost identical —
+   * "do not interrupt me when a lane needs a human" is a preference, and "dim
+   * the band when a lane needs a human" is the thing the instrument may never
+   * be told. The six that landed are audited by the block above along with
+   * everything else; this proves the line between them is a line the law can
+   * actually see, by walking a control across it.
+   */
+  it('lets a notification be muted and refuses the same switch reaching the band', () => {
+    const muting = rig({
+      id: 'notifications.needsHuman',
+      label: 'A lane needs a human',
+      what: 'whether a lane that has stopped for you interrupts you. It is in the picture either way.',
+    })
+    expect(auditPreference(muting)).toEqual([])
+
+    // One clause further, and it is a different control entirely.
+    const reaching = rig({ id: 'notifications.calmBand', label: 'Dim the alarm band while muted' })
+    expect(auditPreference(reaching).map((violation) => violation.nonNegotiable)).toContain('alarm-band')
+    expect(() => assertRegistryHonest([...PREFERENCES, reaching])).toThrow(/alarm-band/)
+  })
+
+  it('audits the wave-2 groups rather than only the two the law was written beside', () => {
+    // #574 added ten controls under two new groups. A law that only ever saw
+    // `appearance.*` and `motion.*` would have been green for all of them.
+    for (const group of ['notifications', 'application'] as const) {
+      const entries = PREFERENCES.filter((entry) => entry.group === group)
+      expect(entries.length, `${group} declares nothing`).toBeGreaterThan(0)
+      for (const entry of entries) expect(auditPreference(entry), `${entry.id}`).toEqual([])
+    }
+  })
 
   it('is not simply refusing everything — a real control that says nothing about the five passes', () => {
     const innocent = rig({

@@ -1,0 +1,129 @@
+# The installer, for the three platforms (#565; prd-34 ruling 9).
+#
+# Run from the repo root, after `npm run build`:
+#
+#   npm run vendor --workspace packages/app
+#   npx --yes electron-builder@26.0.15 --projectDir packages/app --publish never
+#
+# `--projectDir` rather than `--config`: every relative path below (the server's
+# bin, the SPA's dist, fastify) is written relative to THIS directory, which is
+# what electron-builder resolves against when the project dir is this package.
+# Pointing it at the repo root with `--config` instead would resolve them
+# against the root and copy the wrong trees — or nothing.
+#
+# electron-builder is deliberately NOT a dependency of this repo. It is a
+# release-time tool with a ~250-package tree, and every CI leg would install it
+# to run a job none of them run. The version is pinned in
+# `.github/workflows/desktop.yml`, which is the only thing that invokes it.
+#
+# ── SIGNING IS A SWITCH, AND IT IS OFF ────────────────────────────────────────
+#
+# Nothing below names a certificate, an identity or a notarisation profile:
+# electron-builder reads all three from the environment, and the environment is
+# empty. Turning signing on is credentials in the environment and
+# `RHIZOMORPH_SIGN=1` on the workflow — no file in this repo changes. That is
+# what ruling 9's "signing is configuration rather than rework" means, and
+# `src/host/signing.ts` is the same rule as data, with the costs and the
+# per-platform credential names beside it.
+#
+# `CSC_IDENTITY_AUTO_DISCOVERY: false` is set by the workflow when unsigned, so
+# a build machine that happens to hold an unrelated certificate does not quietly
+# sign a release nobody meant to sign.
+
+appId: dev.rhizomorph.app
+productName: rhizomorph
+copyright: MIT
+
+# Named for the product, not for the npm package. The default is `${name}`,
+# which here is `@rhizomorph/app` — and the second real build died on it: fpm
+# was handed `dist-desktop/@rhizomorph/app_0.0.0_amd64.deb` and refused,
+# because that is a path with a directory in it rather than a package name.
+artifactName: ${productName}-${version}-${arch}.${ext}
+
+directories:
+  output: ../../dist-desktop
+  buildResources: build
+
+# The shell's own bundle, and nothing else from this package: no `src/`, no
+# tests, no tsconfig. `main` in package.json points at `dist/main.js`.
+files:
+  - dist/**/*
+  - package.json
+
+# ── THE INSTRUMENT, MIRRORED ─────────────────────────────────────────────────
+#
+# The server and the SPA are copied UNDER THEIR REPO-RELATIVE PATHS, and that
+# shape is load-bearing twice (see `src/host/layout.ts`):
+#
+#  1. `run.ts`'s `defaultWebDistDir()` walks `<server bundle dir>/../../../web/
+#     dist`. Mirror the repo and that walk lands on the copied SPA with no flag
+#     and no shell-only branch inside `packages/server` — ruling 1's "the server
+#     ships unmodified", enforced by the shape of the copy.
+#  2. `bin/rhizomorph.mjs` prefers `../dist/cli/index.js` and falls back to
+#     `../src` only when it exists. No `src/` is copied, so the bin runs the
+#     built bundle — and still prints which entry point it ran, so a mispackaged
+#     build says so on its first boot.
+#
+# The server's runtime dependencies are copied to `resources/node_modules`
+# because the server bundle is built `--external:fastify`; Node's resolver walks
+# up from `resources/packages/server/dist/cli/` and finds them there.
+#
+# It is the WHOLE closure, produced by `npm run vendor --workspace packages/app`
+# — copying `node_modules/fastify` alone packaged an app whose server died on
+# its first boot with an unresolved transitive dependency (see
+# `scripts/vendor-runtime.mjs` for how that was found). If `dist-vendor/` is
+# missing, this build fails here rather than producing that app again.
+extraResources:
+  - from: ../server/bin
+    to: packages/server/bin
+  - from: ../server/dist
+    to: packages/server/dist
+  - from: ../web/dist
+    to: packages/web/dist
+  - from: ../../dist-vendor/node_modules
+    to: node_modules
+  - from: INSTALL.md
+    to: INSTALL.md
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    - zip
+  # Hardened runtime is what notarisation requires. Left ON so that turning
+  # signing on is one environment variable rather than a config change — an
+  # unsigned build with a hardened runtime installs and runs exactly as an
+  # unsigned build without one does.
+  hardenedRuntime: true
+  # No `identity:` and no `notarize:` — both come from the environment. See the
+  # header, and INSTALL.md for what Gatekeeper will say meanwhile.
+
+win:
+  target:
+    - nsis
+    - zip
+  # No `certificateFile`, no `signingHashAlgorithms`: Azure Trusted Signing is
+  # wired through the environment when `RHIZOMORPH_SIGN=1`. SmartScreen will
+  # warn until then, and INSTALL.md says so in the words it uses.
+
+nsis:
+  # The installer keeps the shape Windows users expect — `rhizomorph-Setup-…` —
+  # rather than inheriting the arch-suffixed name above.
+  artifactName: ${productName}-Setup-${version}.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+
+linux:
+  category: Development
+  # Both of these are scar tissue from building it: without `executableName`,
+  # electron-builder derives the binary and the .deb package name from the npm
+  # `name` — so the first real build produced an executable called
+  # `@rhizomorphapp` and a package called `@rhizomorph/app_0.0.0_amd64.deb`,
+  # which is not a legal Debian package name at all. `productName` is used for
+  # the AppImage's filename but not for either of those.
+  executableName: rhizomorph
+  maintainer: Lachlan Kelliher <lachlankelliher@gmail.com>
+  target:
+    - AppImage
+    - deb

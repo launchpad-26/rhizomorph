@@ -78,6 +78,24 @@ export const worktreeDirtyPayloadSchema = z.object({
 })
 export type WorktreeDirtyPayload = z.infer<typeof worktreeDirtyPayloadSchema>
 
+/**
+ * Voiced once, on the poll that crosses `MAX_DIRTY_STATUS_FAILURES` — #415's
+ * once-per-incident discipline, now naming its own worktree so a sibling's
+ * still-open incident can never be masked by this one's close (#429).
+ */
+export const worktreeDirtyStatusFailedPayloadSchema = z.object({
+  worktreePath: nonEmptyString,
+  consecutiveFailures: z.number().int().positive(),
+  message: z.string(),
+})
+export type WorktreeDirtyStatusFailedPayload = z.infer<typeof worktreeDirtyStatusFailedPayloadSchema>
+
+/** The first clean poll after a voiced `worktree.dirtyStatusFailed` — safe to voice because it names its own worktree (#429). */
+export const worktreeDirtyStatusRecoveredPayloadSchema = z.object({
+  worktreePath: nonEmptyString,
+})
+export type WorktreeDirtyStatusRecoveredPayload = z.infer<typeof worktreeDirtyStatusRecoveredPayloadSchema>
+
 export const worktreeDiscoveredEventSchema = envelope(
   'git',
   'worktree.discovered',
@@ -108,6 +126,16 @@ export const worktreeDirtyEventSchema = envelope(
   'worktree.dirty',
   worktreeDirtyPayloadSchema,
 )
+export const worktreeDirtyStatusFailedEventSchema = envelope(
+  'git',
+  'worktree.dirtyStatusFailed',
+  worktreeDirtyStatusFailedPayloadSchema,
+)
+export const worktreeDirtyStatusRecoveredEventSchema = envelope(
+  'git',
+  'worktree.dirtyStatusRecovered',
+  worktreeDirtyStatusRecoveredPayloadSchema,
+)
 
 export const gitEventSchemas = [
   worktreeDiscoveredEventSchema,
@@ -116,4 +144,6 @@ export const gitEventSchemas = [
   branchRemovedEventSchema,
   commitLandedEventSchema,
   worktreeDirtyEventSchema,
+  worktreeDirtyStatusFailedEventSchema,
+  worktreeDirtyStatusRecoveredEventSchema,
 ] as const

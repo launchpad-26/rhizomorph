@@ -210,14 +210,22 @@ describe('the type ramp, in rem, in two registers (S1)', () => {
 // utilities). Both branches wrote 226 independently, so git merged the number
 // with no conflict at all — agreement is not correctness, and taking it would
 // have pinned the ratchet one slot above the truth. Recomputed from the tree.
-const RAW_PIXEL_SIZES = 225
+//
+// 225 -> 85: the orphan half of the wave-4 sweep (#575), 140 literals retired
+// across the nineteen files no other cluster claims — `connect/`, `why/`,
+// `panels/{ledger,burn,collisions}/`, `concierge/`, `recordings/`, `replay/`,
+// `tide/`, `index.css`. The 85 that survive are the contested files, and they
+// fall in the second half of the sweep. Recomputed from the tree, not
+// subtracted from the diff: the number this line pins has to be the number the
+// walk finds.
+const RAW_PIXEL_SIZES = 85
+
+/** Everything the sweeps own: the app, less `lab/` (prd-28's territory). */
+function sweepable(): { name: string; text: string }[] {
+  return sourceFiles().filter((file) => !file.name.startsWith('lab/'))
+}
 
 describe('no new pixel literal after the ramp exists (S1)', () => {
-  /** Everything the sweeps own: the app, less `lab/` (prd-28's territory). */
-  function sweepable(): { name: string; text: string }[] {
-    return sourceFiles().filter((file) => !file.name.startsWith('lab/'))
-  }
-
   it('has files to count at all — an empty walk proves nothing', () => {
     expect(sweepable().length).toBeGreaterThan(50)
   })
@@ -235,6 +243,108 @@ describe('no new pixel literal after the ramp exists (S1)', () => {
     ).toBe(RAW_PIXEL_SIZES)
   })
 })
+
+/**
+ * THE COLOUR CENSUS — the pixel ratchet's twin, and the reason an early sweep
+ * is safe (#597).
+ *
+ * S2 said "no consumer names a luminance directly" and nothing counted. So on
+ * 2026-08-16 the instrument shipped a complete, lawful light theme that could
+ * not be seen: `theme.css` had the warm-paper block, `index.css` painted the
+ * body warm — and the app's own root class was
+ * `bg-ice-1000 … text-ice-300`, which repainted the void straight back over
+ * it. Choosing Light produced a dark instrument with a sliver of cream at the
+ * edges, and read as a rendering bug rather than a theme. The walk below
+ * counted 753 rung references across 56 consumer files that morning, against
+ * 32 files consuming a role at all. Success criterion 4 — "light mode is real,
+ * lawful and switchable" — was unmet, and no test in the repo could say so.
+ *
+ * This is the same ratchet `RAW_PIXEL_SIZES` is, aimed at the other half of the
+ * substrate: pinned, exact, and it may only go down. **It is what makes the
+ * sweep hard to undo.** Once the number is written, a later wave that reaches
+ * for `bg-ice-950` instead of `bg-(--surface-panel)` turns the suite red on the
+ * commit that does it, rather than a walkthrough finding it a PRD later.
+ *
+ * `theme/theme.css` is excluded, and only it. That file *is* the ice ramp: it
+ * declares the thirteen rungs and derives every role from them with a `var()`,
+ * which another law in this file requires. Counting the definition site would
+ * pin the ratchet's floor at 24 and make "may only go down" a sentence with an
+ * asterisk. Excluding it means the floor is genuinely zero: this number is
+ * consumers, and a consumer has no business naming a rung.
+ */
+// 399 at the end of the orphan half of the sweep (#597) — the nineteen
+// directories no other cluster claims. It was 753 the moment before, which is
+// the 777 the same walk finds with `theme.css` counted, less that file's own
+// 24. The 399 that remain are the contested files, and they fall in the second
+// half. Recomputed from the tree rather than subtracted from the diff.
+//
+// 399 -> 375: `settings/` swept whole (#574), so the directory leaves the
+// contested half entirely rather than being handed to it 13 sites larger.
+// Thirty-seven rung references went; 24 of them were on these books, and the
+// other 13 were this branch's own — wave 2's controls and its telemetry block,
+// written against the rung idiom of the file they extended, on a lane whose
+// brief pre-dated the ratchet and fenced it out of `theme/`. The law caught
+// them on the merge, which is the thing it was built to do; taking the
+// pre-existing 24 in the same commit is what makes light mode real on that
+// surface instead of pending. Recomputed from the tree.
+const ICE_RUNG_SITES = 375
+
+describe('no consumer names a luminance rung — the colour ratchet (S2)', () => {
+  /** The sweep's own files, less the one that defines the ramp being counted. */
+  function consumers(): { name: string; text: string }[] {
+    return sweepable().filter((file) => file.name !== 'theme/theme.css')
+  }
+
+  it('has files to count at all — an empty walk proves nothing', () => {
+    expect(consumers().length).toBeGreaterThan(50)
+  })
+
+  it('still walks the ramp definition it excludes — a stale exclusion hides a file', () => {
+    // The exclusion is by exact name, so a rename would silently turn it into a
+    // no-op *and* start counting 24 sites that are not consumers. Either way
+    // the number moves for a reason that is not the sweep, which is the one
+    // thing a ratchet must not do quietly.
+    expect(sweepable().map((file) => file.name)).toContain('theme/theme.css')
+  })
+
+  it(`still names ${ICE_RUNG_SITES} ice rungs outside theme.css, and not one more`, () => {
+    const sites = countRungSites(consumers())
+
+    expect(
+      sites.length,
+      sites.length > ICE_RUNG_SITES
+        ? `a consumer named a luminance rung after the roles exist — reach for a role (\`bg-(--surface-panel)\`, \`text-(--ink-body)\`, \`border-(--line-hair)\`) instead, or light mode paints the void on that surface`
+        : `${ICE_RUNG_SITES - sites.length} rung reference(s) were retired: lower ICE_RUNG_SITES to ${sites.length} and take the credit`,
+    ).toBe(ICE_RUNG_SITES)
+  })
+
+  it('would catch a rung coming back — the mutation, run rather than argued', () => {
+    // Without this, the assertion above passes for the same reason a `TTL - 1`
+    // assertion passes at any TTL: it would be equally green if `countRungSites`
+    // matched nothing at all. So the counter is handed a file that has just
+    // regressed, and has to say so.
+    const clean = [{ name: 'why/WhySurface.tsx', text: 'className="bg-(--surface-panel) text-(--ink-body)"' }]
+    const regressed = [{ name: 'why/WhySurface.tsx', text: 'className="bg-ice-950 text-ice-300"' }]
+
+    expect(countRungSites(clean)).toEqual([])
+    expect(countRungSites(regressed)).toEqual(['why/WhySurface.tsx', 'why/WhySurface.tsx'])
+  })
+
+  it('counts the code and not the prose about the code', () => {
+    // `withoutComments` is why this file can explain `bg-ice-950` in the
+    // paragraph above without adding two to its own census — the same reason
+    // the pixel ratchet blanks comments. A ratchet that counted its own
+    // rationale would be off by however many words its author wrote.
+    expect(countRungSites([{ name: 'a.tsx', text: '/* bg-ice-950 */ // text-ice-400\n' }])).toEqual([])
+  })
+})
+
+/** Every `ice-<rung>` a set of files names, once per occurrence, comments blanked. */
+function countRungSites(files: { name: string; text: string }[]): string[] {
+  return files.flatMap((file) =>
+    [...withoutComments(file.text).matchAll(/ice-[0-9]/g)].map(() => file.name),
+  )
+}
 
 /**
  * THE ROLE TOKENS (prd-32 S2). Roles rather than steps, derived from dark.
@@ -268,6 +378,98 @@ describe('colour is roles, and the roles derive from the dark ramp (S2)', () => 
     expect(declared.sort()).toEqual([...SURFACES, ...INKS, ...LINES].sort())
   })
 })
+
+/**
+ * ROLE PARITY — the one thing every other law in this file is blind to (#597).
+ *
+ * Everything above reads `themesOf(THEME)[0]`: dark, and dark only. That is not
+ * an oversight so much as a trap, because of how CSS actually layers the two
+ * blocks. `[data-theme='light']` does not replace `:root`, it *overrides* it —
+ * so a role declared in `:root` and forgotten in the light block does not go
+ * undefined in light. It keeps the **dark** value, and paints a void-black
+ * panel onto warm paper.
+ *
+ * Every check in this file stays green through that. `resolve()` finds the
+ * token. `themesOf` reports two themes and hands the light one the inherited
+ * dark value, faithfully, because that is what the browser does. The
+ * contrast law computes a ratio — a *correct* ratio, for a colour nobody
+ * intended. `definedTokens` sees the name. There is no assertion anywhere that
+ * fails, and the only way to find it is to open the app in light and look,
+ * which is exactly how the first version of this bug was found and exactly what
+ * a law is for.
+ *
+ * So the assertion is made one level below the resolved table, on what each
+ * block **declares in its own body**: every custom property `:root` names, every
+ * theme block has to name again. Not equality in both directions — light
+ * legitimately declares more (`--color-paper-*`, the re-inked status hues,
+ * the tissue ramp), because dark declares those in `@theme` instead. The
+ * containment is the claim, and it is the whole of the bug.
+ */
+describe('every theme declares every role, not just the one the laws read', () => {
+  it('has a second theme to check at all — one theme proves nothing', () => {
+    // With only `:root` present this whole describe passes vacuously, and would
+    // go on passing if `[data-theme='light']` were deleted outright.
+    expect(themesOf(THEME).map((theme) => theme.name)).toEqual(['dark', 'light'])
+  })
+
+  it('leaves no role behind in a theme block', () => {
+    expect(
+      rolesMissingFromThemes(THEME),
+      'a token is declared in :root and not re-declared per theme — it silently keeps dark’s value on paper',
+    ).toEqual([])
+  })
+
+  it('would catch a role added to :root and forgotten in light — the mutation', () => {
+    // Run, not argued, and against a synthetic sheet rather than the real one so
+    // the proof does not depend on breaking the file every other law reads.
+    // `--surface-sunk` exists in `:root` only; light inherits dark's `#04060c`
+    // and every other law in this file is satisfied by that.
+    const rigged = `
+      :root { --surface-floor: #04060c; --surface-sunk: #04060c; }
+      [data-theme='light'] { --surface-floor: #faf6ef; }
+    `
+    expect(rolesMissingFromThemes(rigged)).toEqual(['light → --surface-sunk'])
+
+    // And the same sheet with the light declaration present is clean, so the
+    // helper is discriminating rather than merely pessimistic.
+    expect(
+      rolesMissingFromThemes(`
+        :root { --surface-floor: #04060c; --surface-sunk: #04060c; }
+        [data-theme='light'] { --surface-floor: #faf6ef; --surface-sunk: #ebe3d6; }
+      `),
+    ).toEqual([])
+  })
+})
+
+/**
+ * `theme → token` for every custom property `:root` declares that a
+ * `[data-theme='…']` block does not declare back.
+ *
+ * Comments are blanked before the theme blocks are discovered, for the reason
+ * `blockBody` gives: `theme.css` explains `[data-theme='light']` in a paragraph
+ * three lines above the rule that opens it, and a scan that matched the
+ * paragraph would read a theme out of the prose about the theme.
+ */
+function rolesMissingFromThemes(css: string): string[] {
+  const source = withoutComments(css)
+  const base = declarationsOf(blockBody(source, ':root') ?? '')
+  const gaps: string[] = []
+
+  for (const match of source.matchAll(/\[data-theme\s*=\s*['"]([a-z-]+)['"]\]/gi)) {
+    const name = match[1] as string
+    const body = blockBody(source, match[0])
+    if (body === null) {
+      gaps.push(`${name} → the block itself is missing`)
+      continue
+    }
+    const declared = declarationsOf(body)
+    for (const token of base.keys()) {
+      if (!declared.has(token)) gaps.push(`${name} → ${token}`)
+    }
+  }
+
+  return gaps
+}
 
 /**
  * THE FOCUS FLOOR (charter §6, ruling 9) — one token, never a status hue.

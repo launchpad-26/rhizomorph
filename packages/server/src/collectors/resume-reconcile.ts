@@ -218,9 +218,21 @@ export function withBranchReconciliation(
 
       const observedBranches = result.nextSnapshot.branches !== prevSnapshot.branches
       if (!observedBranches) {
-        const explainedByKnownFailure = result.events.some(
-          (event) => event.type === 'collector.disabled' || event.type === 'collector.error',
-        )
+        // #429: for-each-ref's own threshold-and-latch now stays silent
+        // through the bound (git-collector.ts §6d), so "emitted a known
+        // failure event" and "for-each-ref failed this poll" are no longer
+        // the same question — a silent-window poll fails `for-each-ref`,
+        // returns `prevSnapshot.branches` unchanged, and voices nothing.
+        // `refsFailures > 0` is true on exactly that poll, whether or not
+        // this poll's own latch chose to voice it, so it is the honest test
+        // of "not observed, and here is why" the identity gate needs;
+        // `result.nextSnapshot` is already typed as the concrete
+        // `GitSnapshot` (#454), so `.refsFailures` is available with no
+        // widening.
+        const explainedByKnownFailure =
+          result.events.some(
+            (event) => event.type === 'collector.disabled' || event.type === 'collector.error',
+          ) || result.nextSnapshot.refsFailures > 0
         if (explainedByKnownFailure) return result
 
         // #454: identity says nothing was observed, but neither known
@@ -263,6 +275,126 @@ export function withBranchReconciliation(
       return {
         nextSnapshot: result.nextSnapshot,
         events: [...result.events, ...ghosts.map((branch) => context.emit('branch.removed', { branch }))],
+      }
+    },
+  }
+}
+
+/**
+ * Extends the #111/#139/#418 resume-reconciliation seam to the git
+ * collector's per-worktree dirty-status incident — see #536.
+ *
+ * #429 taught the collector to voice `worktree.dirtyStatusFailed`/
+ * `.dirtyStatusRecovered` from its own `dirtyFailures` counter
+ * (`GitSnapshot`, keyed by worktree path). That counter lives only in the
+ * collector's own snapshot. A session resumed with no persisted snapshot,
+ * or one whose `dirtyFailures` entry for a path lags the event log, starts
+ * that counter at 0 even though the fold's `dirtyStatusFailedSince` is
+ * still set from a `worktree.dirtyStatusFailed` this process never saw —
+ * `diffDirty`'s own close condition can then never observe a prior
+ * incident to close, and the fold-side flag latches forever.
+ *
+ * At the first poll after a resume, for every folded path with an open
+ * incident (`foldedDirtyStatusFailedPaths`), check this poll's own
+ * `GitSnapshot.dirtyFailures` — the collector's fresh read of "did this
+ * specific worktree's `git status --porcelain` fail just now". A path
+ * still present in `nextSnapshot.worktrees` (not removed) and absent from
+ * `nextSnapshot.dirtyFailures` (this poll's status succeeded) gets the
+ * close the collector itself couldn't voice, `worktree.dirtyStatusRecovered`.
+ * A path that failed again this same poll (`path in dirtyFailures`) is left
+ * alone — the negative case: a still-failing worktree must not be
+ * spuriously recovered.
+ *
+ * A folded path no longer present in `nextSnapshot.worktrees` at all needs
+ * no reconciliation here: `worktree.removed` (already emitted by
+ * `diffWorktrees`, or by a prior poll) already nulls `dirtyStatusFailedSince`
+ * in the fold (`reduce.ts`'s `worktreeRemoved`) — unlike an agent's soft
+ * `present: false` delete, no extra filtering by presence is needed on the
+ * `foldedDirtyStatusFailedPaths` input itself, because a removed worktree's
+ * `dirtyStatusFailedSince` is already null by the time it would be folded
+ * into that set.
+ *
+ * Gate on `collector.disabled`, the same simple event check
+ * `withAgentReconciliation` uses (not `withBranchReconciliation`'s
+ * allocation-identity gate): the git collector has exactly one whole-poll
+ * failure path that skips both `diffWorktrees` and `diffDirty` entirely —
+ * `git worktree list --porcelain` failing — and that path always emits
+ * `collector.disabled` (`git-collector.ts:107-116`). Unlike branches, there
+ * is no second, independent collector-wide failure event for the dirty-status
+ * phase (`for-each-ref` failing is a *branches* concern, not a dirty-status
+ * one) — so there is nothing here that plays the role `collector.error` from
+ * a failed `for-each-ref` played for `withBranchReconciliation`, and the
+ * simpler gate is the honest one, not a shortcut.
+ *
+ * That `collector.disabled` gate alone is not enough, though (#536 verify,
+ * Finding A): unlike branch and agent reconciliation, whose folded fact is a
+ * single collector-wide question ("did this poll observe rosters at all?"),
+ * dirty status is reconciled **per path**, and `diffDirty` has its own
+ * *per-path* non-observation window that a whole-poll gate cannot see —
+ * a failed `git status --porcelain` for one worktree records the failure in
+ * `nextSnapshot.dirtyFailures[path]` and voices nothing for the first
+ * `MAX_DIRTY_STATUS_FAILURES` (3) polls (`git-collector.ts`'s own
+ * threshold-and-latch), with no `collector.disabled` anywhere in sight. A
+ * one-shot boolean latch that only checks the whole-poll gate would spend
+ * itself on exactly that poll — reaching the per-path filter below, correctly
+ * skipping the still-failing path this once, and then never looking again,
+ * even once that path's own status recovers a poll or two later.
+ *
+ * So the latch here is a **pending set**, not a boolean: every folded path
+ * starts pending, and a path is only retired once this poll's own snapshot
+ * proves it resolved, however many polls that takes. A path still present in
+ * `dirtyFailures` stays pending and gets re-checked next poll; nothing here
+ * is spent on a poll that didn't resolve it. This mirrors `diffDirty`'s own
+ * close condition (`dirtyFailures[path] > MAX_DIRTY_STATUS_FAILURES`) at the
+ * one-shot-on-resume layer instead of the every-poll layer.
+ */
+export function withDirtyStatusReconciliation(
+  collector: Collector<GitSnapshot>,
+  foldedDirtyStatusFailedPaths: ReadonlySet<string> | undefined,
+): Collector<GitSnapshot> {
+  const pending = new Set(foldedDirtyStatusFailedPaths ?? [])
+
+  return {
+    name: collector.name,
+    initialSnapshot: collector.initialSnapshot,
+
+    async poll(prevSnapshot, context) {
+      const result = await collector.poll(prevSnapshot, context)
+      if (pending.size === 0) return result
+
+      const pollFailed = result.events.some((event) => event.type === 'collector.disabled')
+      if (pollFailed) return result
+
+      const alreadyReported = new Set<string>()
+      for (const event of result.events) {
+        if (event.type === 'worktree.dirtyStatusRecovered') alreadyReported.add(event.payload.worktreePath)
+      }
+
+      // A path is resolved once this poll proves either fact about it: its
+      // status came back clean (absent from dirtyFailures), or the worktree
+      // itself is gone (worktree.removed already nulls the fold's flag, so
+      // there is nothing left here to reconcile). Both retire it from
+      // `pending` — a path `diffDirty` already recovered on its own this same
+      // poll (`alreadyReported`) must stop being pending too, or the next
+      // healthy poll would read it as still-open and double-report it.
+      const resolved = [...pending].filter(
+        (worktreePath) =>
+          !(worktreePath in result.nextSnapshot.worktrees) || !(worktreePath in result.nextSnapshot.dirtyFailures),
+      )
+      for (const worktreePath of resolved) pending.delete(worktreePath)
+
+      const toReport = resolved
+        .filter((worktreePath) => worktreePath in result.nextSnapshot.worktrees && !alreadyReported.has(worktreePath))
+        .sort()
+
+      if (toReport.length === 0) return result
+
+      return {
+        nextSnapshot: result.nextSnapshot,
+        events: [
+          ...result.events,
+          ...toReport.map((worktreePath) => context.emit('worktree.dirtyStatusRecovered', { worktreePath })),
+        ],
       }
     },
   }
