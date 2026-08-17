@@ -1,0 +1,44 @@
+# Coupling points — files a fence cannot see coming.
+#
+# `scripts/fence-lint.sh` reads this before a wave is dispatched. For each path
+# below it asks whether any issue in the wave fences it, and warns when the wave
+# is working inside its subtree without owning it. Until this file existed the
+# lint exited 1 with "create one", so the repo's pre-dispatch check was dead.
+#
+# FORMAT, one entry per line, exactly as fence-lint.sh parses it:
+#
+#     <path>  # why it couples
+#
+# One path per line — the path is everything before the first `#`, trimmed, and
+# the whole rest of the line is the reason, printed verbatim in the warning. A
+# line starting with `#` in column 1 is a comment; blank lines are skipped. An
+# entry with no reason is worse than no entry: the reader has to go and find out
+# what couples before they can judge the warning, and a warning nobody can judge
+# is a warning everybody learns to skip.
+#
+# What belongs here: a file that a change ELSEWHERE forces an edit to. Not a
+# file that is merely popular. The test is whether a lane could do everything
+# right inside its own fence and still redden this file.
+
+# ── exact counts and cross-directory anchors in theme/ ──────────────────────
+# These fail in both directions. A count asserted with `.toBe()` breaks when the
+# number falls as readily as when it rises, so a lane that legitimately RETIRES
+# a literal reddens a test it never touched and has no fence to fix it in.
+packages/web/src/theme/tokens.test.ts  # RAW_PIXEL_SIZES is an exact `.toBe(225)` over the whole package, so retiring a pixel literal fails it exactly as adding one does; it also holds STATUS_RING_ALLOWLIST, whose entries are snippet-anchored into app/StatusBar.tsx and break if that line is reworded
+packages/web/src/theme/legibility.test.ts  # its ALLOWLIST is snippet-anchored into drawer/Conversation.tsx — rewording the matched line fails this test from a directory the lane never entered
+packages/web/src/theme/kind.test.tsx  # HAND_SPELLED_TAGS greps the whole package for hand-spelled kind tags and asserts BOTH an exact count and an exact file Set (`why/WhySurface.tsx`), so spelling a kind anywhere new, or cleaning one up, lands here
+
+# ── the one-storage-file law in settings/ ───────────────────────────────────
+packages/web/src/settings/registry.ts  # every persisted preference is declared here and this is the ONLY module in packages/web/src permitted to name localStorage or sessionStorage — so any new persisted preference, anywhere in the app, forces an edit to this file
+packages/web/src/settings/coverage-law.test.tsx  # enforces that law by sweeping the WHOLE web package for browser stores and `rhizomorph.*` keys, and by equating the registry's ids with the controls the settings page renders — it reddens for a persisted value added in any directory
+
+# ── the scene palette, mirrored in both directions ──────────────────────────
+packages/web/src/scene/palette.ts  # mirrors the hexes in theme/theme.css, and scene/salience.ts, pulses.ts, motes.ts, motion.ts, heart.ts, lab/branching/geometry.ts and fleet/sigils.tsx all read or mirror it in turn — a theme edit and a scene edit in the same wave meet here
+packages/web/src/scene/palette.test.ts  # parses theme/theme.css off disk AND imports across four directories — panels/attention/, settings/, theme/ and scene/ — so a change in any of them can redden a test no lane in that subtree fenced
+
+# ── shared test doubles and allowlists ──────────────────────────────────────
+packages/web/src/App.test.tsx  # eight `vi.mock`s of the lazily-loaded panels (panels/attention, burn, fleet, ledger, collisions, feed, plus replay/ and scene/) — adding, renaming or moving a lazy panel forces an edit here, and it sits in nobody's declared fence
+packages/web/src/drawer/readonly.test.ts  # the CONSUMED allowlist — every relative import leaving drawer/index.tsx must resolve into DRAWER_SURFACES or be named here, so a new dependency of the drawer lands in this file
+
+# ── the one every lane touches without meaning to ──────────────────────────
+package-lock.json  # any dependency change rewrites it, so two lanes adding a dependency in the same wave conflict at landing even though neither went near the other's files
