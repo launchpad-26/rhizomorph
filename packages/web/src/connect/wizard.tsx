@@ -134,10 +134,11 @@ export interface TelemetryClaim {
 /**
  * Every harness the registry knows, in its own alphabetical order.
  *
- * The `whatItWouldTake` strings are VERBATIM copies of
- * `harness/not-implemented.ts`'s, because the honesty law compares them
- * character for character — a paraphrase here would be this page inventing a
- * softer version of a refusal the registry stated plainly.
+ * The `whatItWouldTake` strings are VERBATIM copies of the roster's
+ * (`server/src/harness-roster.ts`, which `harness/not-implemented.ts` builds
+ * its declared adapters from), because the honesty law compares them character
+ * for character — a paraphrase here would be this page inventing a softer
+ * version of a refusal the registry stated plainly.
  */
 export const HARNESSES: readonly HarnessFacts[] = [
   { id: 'claude', displayName: 'Claude Code', status: 'implemented', telemetry: { level: 'provided' } },

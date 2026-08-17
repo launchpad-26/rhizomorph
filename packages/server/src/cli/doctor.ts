@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
@@ -20,6 +20,7 @@ import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
 import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
+import { DECLARED_HARNESSES, IMPLEMENTED_HARNESS_IDS } from '../harness-roster.js'
 import { formatBytes } from '../lib/format.js'
 import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
 import { decideSessionBoot, formatBootDuration } from '../log/session-log.js'
@@ -570,72 +571,47 @@ function describeToolError(result: ExecResult): string {
 }
 
 /**
- * `concierge/harness/` — read as TEXT, never imported.
+ * Reports the harness roster — prd-26 ruling 6, "never two rosters" — from the
+ * roster itself, imported.
+ *
+ * ## Why this is an import and not a source read
  *
  * The concierge namespace law (ADR-0019 / prd-20 ruling 1,
- * `concierge/namespace-law.test.ts`) grants exactly one import edge into that
- * module, `api/concierge.ts`; this file is not it. `wizard.tsx`'s own harness
- * honesty law is the precedent for what this check does instead: a file's
- * source TEXT is not a module edge, so parsing it crosses no fence, and it
- * means this check reads the SAME text the registry itself compiles from
- * rather than a third hand-maintained copy that could drift the way
- * `not-implemented.ts`'s pi entry did (#325).
- */
-function harnessSourcePath(...segments: string[]): string {
-  const here = path.dirname(fileURLToPath(import.meta.url))
-  return path.resolve(here, '..', 'concierge', 'harness', ...segments)
-}
-
-/** Every id in `not-implemented.ts`'s own `DECLARED` table, in file order. */
-function declaredHarnessIds(): string[] {
-  const source = readFileSync(harnessSourcePath('not-implemented.ts'), 'utf8')
-  return [...source.matchAll(/id: '([a-z]+)',\n\s*displayName:/g)].map((match) => match[1] as string)
-}
-
-/** The two adapters with their own module — `registry.ts` composes exactly `[claudeAdapter, codexAdapter, ...declaredAdapters]`. */
-function implementedHarnessIds(): string[] {
-  const ids: string[] = []
-  for (const file of ['claude.ts', 'codex.ts']) {
-    const source = readFileSync(harnessSourcePath(file), 'utf8')
-    const id = /\bid: '([a-z]+)'/.exec(source)?.[1]
-    if (id !== undefined) ids.push(id)
-  }
-  return ids
-}
-
-/**
- * Reports the harness roster — prd-26 ruling 6, "never two rosters" — read
- * live off `concierge/harness/`'s own source rather than a copy this check
- * keeps up to date by hand. `ok` whenever both tables parsed; `warn` (never
- * `fail` — this is informational, like the enrichment ladder) if the source
- * shape has moved out from under the parse, so the drift itself is visible
- * rather than silently reporting an empty roster as a real one.
+ * `concierge/namespace-law.test.ts`) grants exactly one import edge into
+ * `concierge/`, `api/concierge.ts`; this file is not it, and the law's
+ * `SPECIFIER_RE` matches `from '…'`, so even a type-only import would be a
+ * violation. #325 worked around that by reading the adapter *source text* at
+ * runtime — legal, and correct in development.
+ *
+ * It was wrong everywhere else. `npm run build` emits one esbuild bundle,
+ * `packages/server/dist/cli/index.js`, and the published package ships `dist`
+ * and `bin` with no `src/`, so an installed `rhizomorph doctor` looked for
+ * `.ts` files that are not there and reported `could not read the harness
+ * roster` on every run — a check reporting its own absence as a source-shape
+ * change, on one of the three surfaces #325 exists to make honest. Verified by
+ * running the built bundle, not by reading it.
+ *
+ * `harness-roster.ts` holds the roster as data outside the concierge namespace
+ * for exactly this reason: `concierge/harness/not-implemented.ts` builds its
+ * adapters from it and this check reads it, one table with two readers, no
+ * edge into the hand and nothing parsed at runtime. `scripts/pack-smoke.sh`
+ * now runs `doctor` against the installed artifact so the shipped answer is
+ * gated rather than assumed.
+ *
+ * Status is `ok` or nothing: there is no failure mode left to report. The
+ * arrays are compile-time constants, so the old `warn` arms could not fire for
+ * a real reason — and a branch that cannot fire is the shape this repo treats
+ * as a defect rather than as caution.
  */
 export function checkHarnessRoster(): DoctorCheck {
-  try {
-    const implemented = implementedHarnessIds()
-    const declared = declaredHarnessIds()
-    if (implemented.length === 0 || declared.length === 0) {
-      return {
-        id: 'harness-roster',
-        status: 'warn',
-        message:
-          'could not read the harness roster from concierge/harness/ — its source shape has likely changed; see harness-law.test.ts',
-      }
-    }
-    return {
-      id: 'harness-roster',
-      status: 'ok',
-      message:
-        `harness roster: ${implemented.length} implemented (${implemented.join(', ')}), ${declared.length} declared ` +
-        `not-implemented (${declared.join(', ')}) — one registry, packages/server/src/concierge/harness/registry.ts`,
-    }
-  } catch {
-    return {
-      id: 'harness-roster',
-      status: 'warn',
-      message: 'could not read the harness roster — concierge/harness/ source was not found at the expected path',
-    }
+  const implemented = IMPLEMENTED_HARNESS_IDS
+  const declared = DECLARED_HARNESSES.map((harness) => harness.id)
+  return {
+    id: 'harness-roster',
+    status: 'ok',
+    message:
+      `harness roster: ${implemented.length} implemented (${implemented.join(', ')}), ${declared.length} declared ` +
+      `not-implemented (${declared.join(', ')}) — one roster, packages/server/src/harness-roster.ts`,
   }
 }
 

@@ -760,6 +760,14 @@ describe('step 3 — verify', () => {
  */
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const HARNESS_DIR = path.resolve(HERE, '..', '..', '..', 'server', 'src', 'concierge', 'harness')
+/**
+ * The declared roster's data lives outside the concierge namespace so
+ * `cli/doctor.ts` can import it in the shipped bundle rather than parse it off
+ * disk — see `server/src/harness-roster.ts`. The adapters are still built from
+ * it in `concierge/harness/not-implemented.ts`, so this law reads the same one
+ * table it always did; only its address moved.
+ */
+const ROSTER_FILE = path.resolve(HERE, '..', '..', '..', 'server', 'src', 'harness-roster.ts')
 
 /**
  * The concatenated single-quoted segments of one field's value, joined as the
@@ -782,10 +790,10 @@ function joinedString(block: string): string {
     .join('')
 }
 
-/** Every declared harness in `not-implemented.ts`'s own DECLARED table: id → what it would take. */
+/** Every declared harness in the roster's own DECLARED_HARNESSES table: id → what it would take. */
 function declaredInRegistry(): Map<string, { displayName: string; whatItWouldTake: string }> {
-  const source = readFileSync(path.join(HARNESS_DIR, 'not-implemented.ts'), 'utf8')
-  const table = /const DECLARED: readonly DeclaredHarness\[\] = \[([\s\S]*?)\n\]/.exec(source)?.[1] ?? ''
+  const source = readFileSync(ROSTER_FILE, 'utf8')
+  const table = /const DECLARED_HARNESSES: readonly DeclaredHarnessEntry\[\] = \[([\s\S]*?)\n\]/.exec(source)?.[1] ?? ''
   const out = new Map<string, { displayName: string; whatItWouldTake: string }>()
   for (const entry of table.split(/\n  \{\n/)) {
     const id = /id: '([a-z]+)'/.exec(entry)?.[1]

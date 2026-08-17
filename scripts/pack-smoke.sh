@@ -200,6 +200,34 @@ NPX_VERSION="$(cd "$INSTALL_DIR" && npx --no-install rhizomorph --version)"
 }
 echo "npx rhizomorph --version -> $NPX_VERSION"
 
+# The roster `doctor` reports is data compiled into the bundle, not source text
+# read off disk — and that distinction is only testable against the INSTALLED
+# artifact, because the published package ships `dist/` and `bin/` and no
+# `src/` at all. Review of #632 found a check that reported `ok` in all 6000+
+# tests and `could not read the harness roster` on every real install; the
+# suite could not see it, because vitest runs from `src/`, and nothing here ran
+# `doctor` at all. This is the gate that closes that class.
+echo "== rhizomorph doctor, from the installed artifact: the roster is readable, not merely reported on =="
+DOCTOR_REPO="$WORK/doctor-repo"
+mkdir -p "$DOCTOR_REPO"
+git -C "$DOCTOR_REPO" init -q
+DOCTOR_OUT="$WORK/doctor.log"
+# Exit status is deliberately not asserted: `doctor` exits non-zero on genuine
+# blockers (a port taken, no web build) and this smoke is about what it can
+# READ, not about whether this throwaway directory is a healthy install.
+(cd "$INSTALL_DIR" && npx --no-install rhizomorph doctor "$DOCTOR_REPO") >"$DOCTOR_OUT" 2>&1 || true
+grep -q "harness roster: " "$DOCTOR_OUT" || {
+  echo "installed doctor never reported the harness roster at all:"
+  cat "$DOCTOR_OUT"
+  exit 1
+}
+if grep -qi "could not read the harness roster" "$DOCTOR_OUT"; then
+  echo "installed doctor cannot read the harness roster — it is reading source the package does not ship:"
+  cat "$DOCTOR_OUT"
+  exit 1
+fi
+echo "doctor -> $(grep -o 'harness roster: .*' "$DOCTOR_OUT" | head -n1)"
+
 # Boots the installed CLI (via npx, exactly prd8's `npx rhizomorph
 # <path-to-repo>` install story) against $1, waits for it to report a
 # listening URL, hits /api/meta and /, then kills it immediately — a

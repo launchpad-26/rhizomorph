@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { DECLARED_HARNESSES, IMPLEMENTED_HARNESS_IDS } from '../../harness-roster.js'
 import { RESUME_EVIDENCE_VERSION } from './claude.js'
 import { HARNESS_ADAPTERS, detectAll, harnessById } from './registry.js'
 import { HarnessNotImplementedError, type HarnessAdapter, type HarnessId } from './types.js'
@@ -327,6 +328,46 @@ describe('one roster (#325): a harness cannot be declared-not-implemented for a 
     const implementation = pi.implementation
     if (implementation.status !== 'declared') throw new Error('expected pi to stay declared — see this describe\'s own header')
     expect(reasonClaimsUncaptured(implementation.reason)).toBe(false)
+  })
+})
+
+/**
+ * The roster's data lives in `server/src/harness-roster.ts`, outside this
+ * namespace, because `cli/doctor.ts` has to read it and the concierge
+ * namespace law grants it no edge in here (review of #632: the previous answer
+ * — parsing this directory's source text at runtime — could not work in the
+ * shipped bundle, which contains no `.ts` files at all).
+ *
+ * That move is only safe while the two cannot disagree. One direction is the
+ * compiler's: `not-implemented.ts` assigns the roster entries to a type whose
+ * `id` is {@link HarnessId}, so a misspelled id fails the build. The other
+ * direction is this — the roster states which harnesses are *implemented*, a
+ * fact about which adapter modules exist, and no type can check that. A third
+ * adapter landing without a line in the roster would make `doctor` undercount
+ * silently; here it reds instead.
+ */
+describe('one roster (#325): the table outside the namespace and the live registry agree', () => {
+  it('IMPLEMENTED_HARNESS_IDS names exactly the adapters the registry implements', () => {
+    const live = HARNESS_ADAPTERS.filter((adapter) => adapter.implementation.status === 'implemented').map(
+      (adapter) => adapter.id,
+    )
+
+    expect(live.length).toBeGreaterThan(0)
+    expect([...IMPLEMENTED_HARNESS_IDS].sort()).toEqual([...live].sort())
+  })
+
+  it('DECLARED_HARNESSES names exactly the adapters the registry declares', () => {
+    const live = declaredAdaptersOf().map((adapter) => adapter.id)
+
+    expect(live.length).toBeGreaterThan(0)
+    expect(DECLARED_HARNESSES.map((harness) => harness.id).sort()).toEqual([...live].sort())
+  })
+
+  it('the two halves together are every id, with nothing counted twice', () => {
+    const all = [...IMPLEMENTED_HARNESS_IDS, ...DECLARED_HARNESSES.map((harness) => harness.id)]
+
+    expect(new Set(all).size).toBe(all.length)
+    expect([...all].sort()).toEqual([...EVERY_ID].sort())
   })
 })
 

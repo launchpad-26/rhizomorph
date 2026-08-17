@@ -1,3 +1,4 @@
+import { DECLARED_HARNESSES, type DeclaredHarnessEntry } from '../../harness-roster.js'
 import { detectHarness } from './detect.js'
 import {
   HarnessNotImplementedError,
@@ -47,75 +48,30 @@ import {
  * harness whose reason here still claims it is uncaptured.
  */
 
-interface DeclaredHarness {
+/**
+ * One declared harness as this module needs it: the roster's own entry shape,
+ * with `id` narrowed to {@link HarnessId}.
+ *
+ * The narrowing is the pin. {@link DECLARED_HARNESSES} lives outside the
+ * concierge namespace (it has to — `cli/doctor.ts` reads the same roster and
+ * the namespace law grants it no edge in here), so it types its ids with a
+ * union of its own. Assigning it to this type is where the compiler checks the
+ * two agree: an id spelled wrong over there fails the build here, rather than
+ * reaching an operator as a harness the registry has never heard of.
+ */
+interface DeclaredHarness extends DeclaredHarnessEntry {
   id: HarnessId
-  displayName: string
-  /**
-   * The executable name, only where this repo actually records one. `null`
-   * means nobody has written down what the binary is called, so PATH cannot
-   * honestly be searched for it.
-   */
-  command: string | null
-  reason: string
-  whatItWouldTake: string
-  /** Used when {@link command} is `null` — why the name is not known. */
-  unnamedReason?: string
 }
 
-const DECLARED: readonly DeclaredHarness[] = [
-  {
-    id: 'openclaw',
-    displayName: 'OpenClaw',
-    // Named as an adapter target in docs/research/2026-08-05-agnostic-adapters-spike.md
-    // and nowhere else — the note names the harness, never its binary.
-    command: null,
-    unnamedReason:
-      'this repo records no executable name for OpenClaw — it appears as an adapter target in the agnostic-adapters ' +
-      'spike and nowhere else. Searching PATH for a name this lane invented would report a confident "absent" about ' +
-      'a spelling nobody verified, which is worse than admitting the name is unknown',
-    reason:
-      'no capture, and no telemetry or session-file surface recorded anywhere in this repo — there is nothing to ' +
-      'write an adapter against beyond the name',
-    whatItWouldTake:
-      'a capture: the executable name, whether it emits OTLP or writes session files, and whether it has a resume ' +
-      'verb at all. prd-15 ruling 4 shared conformance suite, then an adapter',
-  },
-  {
-    id: 'pi',
-    displayName: 'pi',
-    // The one thing this repo does record: `AGENT_COMMANDS` in
-    // collectors/sessionlog/process-probe.ts lists 'pi' as an agent argv[0].
-    command: 'pi',
-    reason:
-      'named in prd-15 ruling 3 and listed in the process probe\'s AGENT_COMMANDS, so a running pi is *seen* — and ' +
-      'OBSERVING it is no longer the gap: pi is captured (#324), has a registered session-file dialect ' +
-      '(`PI_JSONL_GRAMMAR`, #540) and a real collector emits its llm.usage/llm.cost/tool.activity under ' +
-      'harness: \'pi\' (#609, see collectors/pi/capabilities.ts). What remains unverified is LAUNCHING it: no ' +
-      'capture in this repo shows what argv or env makes a fresh pi process this hand starts, and pi\'s own ' +
-      'CAPTURE.md found OTEL_RESOURCE_ATTRIBUTES-shaped env has zero effect on it — so envRecipe, launchArgv, ' +
-      'continueArgv and resumeArgv have no verified answer yet',
-    whatItWouldTake:
-      'a captured pi launch under a real env/argv recipe pointed at this server, and a captured continuity attempt ' +
-      '(a --continue/--resume-shaped flag or otherwise) — the observation half (capture, grammar, collector) is ' +
-      'already done (#324/#540/#609); only the launch half remains',
-  },
-  {
-    id: 'shell',
-    displayName: 'a bare shell',
-    command: null,
-    unnamedReason:
-      'a bare shell is not one executable — it is bash, zsh, fish, pwsh or whatever the operator uses — so there is ' +
-      'no single name to search PATH for, and finding one would not answer the question anyway',
-    reason:
-      'a bare shell is not a conductor. It emits no telemetry, keeps no session transcript this instrument can ' +
-      'read, and has no continuity verb — there is no "relaunch it with continuity" to offer, because there is no ' +
-      'conversation to continue. Relaunching a shell inside a wired envelope instruments the shell, not the work ' +
-      'done in it',
-    whatItWouldTake:
-      'a different mechanism entirely rather than an adapter — wrapping the terminal (the pty-wrap route sketched in ' +
-      'the agnostic-adapters spike), which is a separate decision with its own blast radius',
-  },
-]
+/**
+ * The roster's declared table, held to this module's own type.
+ *
+ * There is no table here. #325 put one in this file and had `cli/doctor.ts`
+ * parse its source text to read it, which worked in development and never once
+ * in the shipped bundle — see `harness-roster.ts` for the whole account. The
+ * data moved; the behaviour below did not.
+ */
+const DECLARED: readonly DeclaredHarness[] = DECLARED_HARNESSES
 
 function declaredAdapter(harness: DeclaredHarness): HarnessAdapter {
   const implementation: HarnessImplementation = {
