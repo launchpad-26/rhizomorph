@@ -12,6 +12,7 @@ import { readResumedCount, recordResume, RESUME_WINDOW_MS, sessionFilePath } fro
 import { writeSessionLock } from '../log/session-lock.js'
 import {
   checkClaudeProjects,
+  checkHarnessRoster,
   checkTelemetryEnv,
   doctorHelpText,
   parseDoctorArgs,
@@ -122,6 +123,7 @@ describe('runDoctor', () => {
       'telemetry',
       'lane-manifest',
       'cli-version-drift',
+      'harness-roster',
       'ladder',
     ])
   })
@@ -753,6 +755,28 @@ describe('runDoctor', () => {
       expect(laneManifest.status).toBe('warn')
       expect(laneManifest.message).toContain('is broken')
       expect(laneManifest.message).toContain('not valid JSON')
+      expect(report.exitCode).toBe(0)
+    })
+  })
+
+  describe('harness roster check (#325 — one roster, read live off concierge/harness/)', () => {
+    it('reports the real registry split: claude/codex implemented, openclaw/pi/shell declared', () => {
+      const check = checkHarnessRoster()
+
+      expect(check.status).toBe('ok')
+      expect(check.message).toContain('2 implemented (claude, codex)')
+      expect(check.message).toContain('3 declared not-implemented (openclaw, pi, shell)')
+      // pi must not be reachable through this line's own honesty check — this
+      // check reports the roster, `harness-law.test.ts` is what proves pi's
+      // reason itself no longer claims it is uncaptured.
+      expect(check.message).not.toContain('captured nowhere')
+    })
+
+    it('is wired into runDoctor, additive to every other check', async () => {
+      const report = await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot, dataRoot })
+
+      const harnessRoster = checkFor(report.checks, 'harness-roster')
+      expect(harnessRoster.status).toBe('ok')
       expect(report.exitCode).toBe(0)
     })
   })

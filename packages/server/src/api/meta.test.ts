@@ -233,6 +233,21 @@ describe('GET /api/meta', () => {
             { id: 'evt-1', ts: 6000 },
           ),
         )
+        // pi (#612) also has real `provided` signals (identity/telemetry/cost),
+        // so a lane genuinely on a machine that has never run pi disables it
+        // too — `~/.pi/agent/sessions` not existing is exactly this event. A
+        // "no collector history" fold (this test's OLD shape) would otherwise
+        // read pi's undeclared collector state as ACTIVE by the same default
+        // every other collector gets before its first poll tick, and pi's own
+        // `cost: provided` alone would carry the merged rung to L1 — which
+        // this test is not about and would silently hide the workmux drop.
+        await recorder.record(
+          createEvent(
+            'collector.disabled',
+            { collector: 'pi', reason: 'no pi session directory' },
+            { id: 'evt-2', ts: 6000 },
+          ),
+        )
         const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
         const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
@@ -246,11 +261,61 @@ describe('GET /api/meta', () => {
             reason: 'workmux binary not found',
           })
         }
-        // Nothing else in this fence declares `attention: provided`, so
-        // losing workmux drops the lane a whole rung, exactly as the
+        // Nothing else active in this fence declares `attention: provided` or
+        // any `cost` — so losing workmux (and pi, the other source of a
+        // non-absent cost) drops the lane a whole rung, exactly as the
         // direction demands ("a lane whose tmux collector is disabled drops
         // a rung automatically and says so").
         expect(body.rung).toBe('L0')
+      } finally {
+        await teardown()
+      }
+    })
+
+    it('pi (#612) is on the same ladder as every other organ: provided when active, absent-with-reason when disabled', async () => {
+      await setup()
+      try {
+        const recorder = new SessionRecorder('6500', sessionFilePath(sessionDir, '6500'))
+        const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+          capabilities: Record<string, AdapterCapabilitiesForTest>
+        }
+
+        // No collector history at all: pi reads its own declared capabilities,
+        // same as every other collector in this state (the "no history" test
+        // above pins the same default for workmux).
+        expect(body.capabilities.pi?.identity).toEqual({ level: 'provided' })
+        expect(body.capabilities.pi?.cost).toEqual({ level: 'provided' })
+      } finally {
+        await teardown()
+      }
+    })
+
+    it('a disabled pi collector reads absent-with-reason, and never pulls another collector down with it', async () => {
+      await setup()
+      try {
+        const recorder = new SessionRecorder('6600', sessionFilePath(sessionDir, '6600'))
+        await recorder.record(
+          createEvent(
+            'collector.disabled',
+            { collector: 'pi', reason: 'no pi session directory at /home/x/.pi/agent/sessions' },
+            { id: 'evt-1', ts: 6600 },
+          ),
+        )
+        const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+          rung: string
+          capabilities: Record<string, AdapterCapabilitiesForTest>
+        }
+
+        expect(body.capabilities.pi?.identity).toEqual({
+          level: 'absent',
+          reason: 'no pi session directory at /home/x/.pi/agent/sessions',
+        })
+        // workmux is untouched and alone already provides everything.
+        expect(body.rung).toBe('L4')
       } finally {
         await teardown()
       }

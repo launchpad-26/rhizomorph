@@ -5,6 +5,7 @@ import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GIT_CAPABILITIES } from '../collectors/git/index.js'
 import { JUDGE_CAPABILITIES } from '../collectors/judge/index.js'
+import { PI_CAPABILITIES } from '../collectors/pi/index.js'
 import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
 import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
@@ -60,6 +61,7 @@ describe('buildApp integration', () => {
         tmux: TMUX_CAPABILITIES,
         workmux: WORKMUX_CAPABILITIES,
         judge: JUDGE_CAPABILITIES,
+        pi: PI_CAPABILITIES,
       },
       rung: 'L4',
       // Additive connection facts (prd19 wave 2, #255) — a bare recorder has

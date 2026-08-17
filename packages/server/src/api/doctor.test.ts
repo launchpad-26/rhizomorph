@@ -133,6 +133,7 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
         'telemetry',
         'lane-manifest',
         'cli-version-drift',
+        'harness-roster',
         'ladder',
       ])
     } finally {
@@ -157,6 +158,34 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
     } finally {
       await teardown()
     }
+  })
+
+  describe('harness roster check (#325 — GET /api/doctor reads the one registry too)', () => {
+    it('reports the real registry split, same as the CLI', async () => {
+      await setup()
+      try {
+        const checks = await runServerDoctor(repoPath, { exec: healthyExec, claudeProjectsRoot, dataRoot })
+
+        const harnessRoster = checkFor(checks, 'harness-roster')
+        expect(harnessRoster.status).toBe('ok')
+        expect(harnessRoster.message).toContain('2 implemented (claude, codex)')
+        expect(harnessRoster.message).toContain('3 declared not-implemented (openclaw, pi, shell)')
+      } finally {
+        await teardown()
+      }
+    })
+
+    it('still reports it during a replay — it names no repo fact, unlike session-boundary/lane-manifest', async () => {
+      const checks = await runServerDoctor('record:some-slug', {
+        exec: healthyExec,
+        claudeProjectsRoot: await mkdtemp(path.join(tmpdir(), 'rhizomorph-api-doctor-claude-')),
+        dataRoot: await mkdtemp(path.join(tmpdir(), 'rhizomorph-api-doctor-data-')),
+        replay: true,
+      })
+
+      const harnessRoster = checkFor(checks, 'harness-roster')
+      expect(harnessRoster.status).toBe('ok')
+    })
   })
 
   describe('law: an assumed input is visible in the payload, not only a code comment (adversarial review item 3)', () => {
