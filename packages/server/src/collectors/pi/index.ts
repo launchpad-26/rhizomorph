@@ -1,6 +1,6 @@
 /**
  * pi — prd-26 wave 4. #324 captured pi's session JSONL and registered a
- * `TurnGrammar` (`./grammar.ts`) from it; #538/ADR-0021 then gave a transcript
+ * `TurnGrammar` (`./grammar.ts`) from it; #538/ADR-0023 then gave a transcript
  * dialect other than claude's an honest way to name itself (`harness` on the
  * shared telemetry attribution, `source` staying `'sessionlog'`); this file's
  * `createPiCollector` (`./collector.ts`) is what actually calls `emit()` with
