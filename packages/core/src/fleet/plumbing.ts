@@ -31,6 +31,7 @@ export interface Draft {
   aheadOfMain: number
   commitCount: number
   dirtyCount: number
+  dirtyStatusFailedSince: number | null
   filesTouched: number
   lastWorkTs: number | null
   firstSeenAt: number
@@ -52,6 +53,7 @@ export function emptyDraft(id: string, seedTs: number): Draft {
     aheadOfMain: 0,
     commitCount: 0,
     dirtyCount: 0,
+    dirtyStatusFailedSince: null,
     filesTouched: 0,
     lastWorkTs: null,
     firstSeenAt: seedTs,

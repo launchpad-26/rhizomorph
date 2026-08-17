@@ -1382,3 +1382,85 @@ describe('fixture memoisation and immutability (#87)', () => {
     expect(a).not.toBe(b)
   })
 })
+
+// ── dirty-status incident (#606) ────────────────────────────────────────────
+
+describe('Lane.dirtyStatusFailedSince (#606)', () => {
+  function twoLaneLog(f: ReturnType<typeof createEventFactory>) {
+    return [
+      f.sessionStarted({ mainBranch: 'main' }, { ts: NOW - 60_000 }),
+      f.worktreeDiscovered({ path: '/repo', branch: 'main', isMain: true }, { ts: NOW - 60_000 }),
+      f.worktreeDiscovered({ path: '/repo-wt/a', branch: 'a', isMain: false }, { ts: NOW - 60_000 }),
+      f.worktreeDiscovered({ path: '/repo-wt/b', branch: 'b', isMain: false }, { ts: NOW - 60_000 }),
+    ]
+  }
+
+  it('reaches the Lane as the raw timestamp plus the derived duration', () => {
+    const f = createEventFactory()
+    const failedTs = NOW - 30_000
+    const state = reduceAll([
+      ...twoLaneLog(f),
+      f.worktreeDirtyStatusFailed(
+        { worktreePath: '/repo-wt/a', consecutiveFailures: 4, message: 'boom' },
+        { ts: failedTs },
+      ),
+    ])
+    const fleet = buildFleet(state, { now: NOW })
+    expect(laneIn(fleet, 'a').dirtyStatusFailedSince).toBe(failedTs)
+    expect(laneIn(fleet, 'a').dirtyStatusFailedForMs).toBe(NOW - failedTs)
+  })
+
+  it('is null for a lane with no such event', () => {
+    const f = createEventFactory()
+    const state = reduceAll(twoLaneLog(f))
+    const fleet = buildFleet(state, { now: NOW })
+    expect(laneIn(fleet, 'a').dirtyStatusFailedSince).toBeNull()
+    expect(laneIn(fleet, 'a').dirtyStatusFailedForMs).toBeNull()
+  })
+
+  it('isolates the incident to its own lane — a sibling stays clean', () => {
+    const f = createEventFactory()
+    const state = reduceAll([
+      ...twoLaneLog(f),
+      f.worktreeDirtyStatusFailed(
+        { worktreePath: '/repo-wt/a', consecutiveFailures: 4, message: 'boom' },
+        { ts: NOW - 30_000 },
+      ),
+    ])
+    const fleet = buildFleet(state, { now: NOW })
+    expect(laneIn(fleet, 'a').dirtyStatusFailedSince).not.toBeNull()
+    expect(laneIn(fleet, 'b').dirtyStatusFailedSince).toBeNull()
+  })
+
+  it('is NOT a pathology and keeps a lane with only this incident off the ladder, rank calm', () => {
+    const f = createEventFactory()
+    const state = reduceAll([
+      ...twoLaneLog(f),
+      f.worktreeDirtyStatusFailed(
+        { worktreePath: '/repo-wt/a', consecutiveFailures: 4, message: 'boom' },
+        { ts: NOW - 30_000 },
+      ),
+    ])
+    const fleet = buildFleet(state, { now: NOW })
+    const lane = laneIn(fleet, 'a')
+    expect(lane.dirtyStatusFailedSince).not.toBeNull()
+    expect(lane.pathologies).toHaveLength(0)
+    expect(lane.rank).toBe('calm')
+    expect(fleet.ladder.items.some((item) => item.laneId === 'a')).toBe(false)
+  })
+
+  it('recovery brings both fields back to null', () => {
+    const f = createEventFactory()
+    const state = reduceAll([
+      ...twoLaneLog(f),
+      f.worktreeDirtyStatusFailed(
+        { worktreePath: '/repo-wt/a', consecutiveFailures: 4, message: 'boom' },
+        { ts: NOW - 30_000 },
+      ),
+      f.worktreeDirtyStatusRecovered({ worktreePath: '/repo-wt/a' }, { ts: NOW - 10_000 }),
+    ])
+    const fleet = buildFleet(state, { now: NOW })
+    expect(laneIn(fleet, 'a').dirtyStatusFailedSince).toBeNull()
+    expect(laneIn(fleet, 'a').dirtyStatusFailedForMs).toBeNull()
+  })
+})

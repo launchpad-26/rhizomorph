@@ -25,9 +25,11 @@ import {
   costCellText,
   costCellTitle,
   fenceCell,
+  gitStatusIncidentTitle,
   outputCellText,
   outputCellTitle,
   PARKED_TEXT_CLASS,
+  showsGitStatusIncidentMark,
   showsTerminalDoneMark,
   stateSigilKind,
   stateTitle,
@@ -272,6 +274,16 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
           // lane already says so via the sigil word alone.
           <span className="ml-1 text-[10px] text-done" title={terminalDoneTitle()} data-testid="terminal-done-mark">
             done
+          </span>
+        ) : null}
+        {showsGitStatusIncidentMark(lane) ? (
+          <span
+            role="status"
+            aria-label={`${lane.label}: git status failing`}
+            title={gitStatusIncidentTitle(lane)}
+            className="ml-1 text-inst-dense text-needs-you"
+          >
+            ⚠ git
           </span>
         ) : null}
       </td>

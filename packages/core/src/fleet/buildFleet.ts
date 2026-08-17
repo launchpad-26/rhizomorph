@@ -185,6 +185,7 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
     draft.agentStatusTs = view.agent?.updatedAt ?? null
     draft.aheadOfMain = view.aheadOfMain
     draft.dirtyCount = view.dirtyCount
+    draft.dirtyStatusFailedSince = view.dirtyStatusFailedSince
     draft.filesTouched = view.filesTouched.length
     draft.commitCount =
       view.branch === null ? 0 : (state.branches[view.branch]?.commits.length ?? 0)
@@ -327,11 +328,14 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       commitCount: draft.commitCount,
       dirtyCount: draft.dirtyCount,
       filesTouched: draft.filesTouched,
+      dirtyStatusFailedSince: draft.dirtyStatusFailedSince,
 
       lastEventTs,
       ageMs: lastEventTs === null ? null : Math.max(0, now - lastEventTs),
       lastWorkTs,
       workAgeMs: lastWorkTs === null ? null : Math.max(0, now - lastWorkTs),
+      dirtyStatusFailedForMs:
+        draft.dirtyStatusFailedSince === null ? null : Math.max(0, now - draft.dirtyStatusFailedSince),
       firstSeenAt: draft.firstSeenAt,
       activeSeconds,
       waitedOnHuman,
