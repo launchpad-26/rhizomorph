@@ -897,8 +897,27 @@ describe('FleetTable — git status incident mark (#606)', () => {
   const FAILING_LANE = '42-failing-lane'
   const HEALTHY_LANE = '43-healthy-lane'
 
+  /** Parks the failing lane and nothing else, so the mark is tested against a
+   *  row the operator has explicitly stood down. */
+  const parkedFailingManifest: FetchLike = async () => ({
+    ok: true,
+    json: async () => ({
+      available: true,
+      version: 1,
+      lanes: [
+        {
+          handle: FAILING_LANE,
+          branch: FAILING_LANE,
+          fence: ['packages/parked/**'],
+          parked: true,
+        },
+      ],
+    }),
+  })
+
   async function renderTwoWorktreeScenario(
     extra?: (fx: ReturnType<typeof createEventFactory>) => void,
+    manifest: FetchLike = noLaneManifest,
   ) {
     const fx = createEventFactory({ startTs: NOW - 5 * 60_000 })
     const failingPath = `/repo/rhizomorph__worktrees/${FAILING_LANE}`
@@ -934,7 +953,7 @@ describe('FleetTable — git status incident mark (#606)', () => {
             return source
           }}
         >
-          <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
+          <FleetProvider now={NOW} fetchLanes={manifest}>
             <SelectionProvider>
               <FleetTable />
             </SelectionProvider>
@@ -946,6 +965,8 @@ describe('FleetTable — git status incident mark (#606)', () => {
       source?.open()
       for (const event of fx.all()) source?.emit(event)
     })
+    // `fetchLanes` resolves on a microtask of its own; give it a tick to land.
+    await act(async () => {})
 
     return {
       failingRow: rows().find((r) => r.getAttribute('data-lane') === FAILING_LANE) as HTMLElement,
@@ -1021,6 +1042,54 @@ describe('FleetTable — git status incident mark (#606)', () => {
         files: [{ path: 'src/x.ts', status: 'modified' }],
       })
     })
+    expect(
+      within(failingRow).getByRole('status', { name: `${FAILING_LANE}: git status failing` }),
+    ).toBeDefined()
+  })
+
+  // The title is the only surface that voices `Lane.dirtyStatusFailedForMs` and
+  // the only place the "no message is retained" gap is stated. Asserting the
+  // whole string is deliberate: querying by role and accessible name alone left
+  // `gitStatusIncidentTitle` free to return '' with the suite still green.
+  it('titles the mark with the worktree, how long the incident has been open, and the gap it cannot fill', async () => {
+    const { failingRow } = await renderTwoWorktreeScenario((fx) => {
+      fx.worktreeDirtyStatusFailed(
+        {
+          worktreePath: `/repo/rhizomorph__worktrees/${FAILING_LANE}`,
+          consecutiveFailures: 4,
+          message: 'boom',
+        },
+        // Pinned rather than left on the factory clock, so the rendered span is
+        // an exact string and not a shape the assertion has to guess at.
+        { ts: NOW - 90_000 },
+      )
+    })
+    const mark = within(failingRow).getByRole('status', {
+      name: `${FAILING_LANE}: git status failing`,
+    })
+    expect(mark.getAttribute('title')).toBe(
+      `${FAILING_LANE}: git status --porcelain has failed repeatedly for 1m30s` +
+        ` — the underlying error is not retained in-app; check the server's own log`,
+    )
+  })
+
+  // ADR-0022's boundary, at the render layer: parking is the operator muting an
+  // *inference*, and this is a recorded fact about the worktree. Without this,
+  // gating the mark on `!lane.parked` — the exact regression the docstring on
+  // `showsGitStatusIncidentMark` forbids — passes the whole suite.
+  it('still marks a parked lane — parking mutes an inferred alarm, never a recorded fact', async () => {
+    const { failingRow } = await renderTwoWorktreeScenario(
+      (fx) => {
+        fx.worktreeDirtyStatusFailed({
+          worktreePath: `/repo/rhizomorph__worktrees/${FAILING_LANE}`,
+          consecutiveFailures: 4,
+          message: 'boom',
+        })
+      },
+      parkedFailingManifest,
+    )
+    // The row really is parked — otherwise the assertion below proves nothing.
+    expect((failingRow.querySelectorAll('td')[1] as HTMLElement).textContent).toContain('PARKED')
     expect(
       within(failingRow).getByRole('status', { name: `${FAILING_LANE}: git status failing` }),
     ).toBeDefined()
