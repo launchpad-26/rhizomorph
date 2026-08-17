@@ -13,10 +13,10 @@ import type { AdapterCapabilities } from '@rhizomorph/core'
  * collector's own literal. Reusing `'sessionlog'` for a pi-native event would
  * have misattributed it as Claude Code's own collector; reusing `'otel'`
  * would have been false, since pi has no OTLP export at all (CAPTURE.md).
- * ADR-0021 closed that gap additively: `harness` on the shared telemetry
+ * ADR-0023 closed that gap additively: `harness` on the shared telemetry
  * attribution names any dialect other than Claude's, absent meaning Claude's
  * own collector, with `source` staying the generic `'sessionlog'` literal —
- * **not** a new `pi` `EventSource` literal, which ADR-0021 explicitly
+ * **not** a new `pi` `EventSource` literal, which ADR-0023 explicitly
  * rejected as option (a) (it would make every future dialect a core PR, the
  * exact coupling prd-26 ruling 4 exists to keep out of `packages/core/**`).
  *

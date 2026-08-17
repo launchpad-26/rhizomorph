@@ -120,6 +120,107 @@ const FORBIDDEN_IMPORT_PREFIXES: readonly RegExp[] = [
   /^(?:\.\.\/)+lab\//,
 ]
 
+/**
+ * The module that holds the act, WITHOUT its extension. Any second call site
+ * must first import this file, and the spellings that reach it do not agree on
+ * a suffix: `./instrument.js` is what this repo writes, `./instrument` also
+ * compiles under the web package's resolution, and both name the same module.
+ * Comparing against a fixed `instrument.ts` matched only the first — an
+ * extensionless import resolved to a path with no `.ts` on it, compared false,
+ * and walked past this law while `tsc --noEmit` exited 0 (verify pass on #608).
+ */
+const INSTRUMENT_MODULE_STEM = path.join(CONCIERGE_DIR, 'instrument')
+
+/** `…/instrument.ts` and `…/instrument.js` and `…/instrument` all reduce to one key. */
+function moduleStem(absolutePath: string): string {
+  return absolutePath.replace(/\.(?:js|jsx|ts|tsx|mjs|cjs)$/, '')
+}
+
+/**
+ * The web package's own `exports` map, which is a SECOND supported route to the
+ * act and not an exotic one: `package.json` publishes
+ * `"./concierge/instrument": "./src/concierge/instrument.ts"` deliberately, so
+ * `import … from '@rhizomorph/web/concierge/instrument'` typechecks (verified,
+ * `tsc --noEmit` exit 0). A law that filtered to relative specifiers could never
+ * see it. Read from the manifest rather than hard-coded, so a subpath added
+ * tomorrow is covered without editing this file.
+ */
+const WEB_PACKAGE_DIR = path.join(WEB_SRC, '..')
+const WEB_PACKAGE = JSON.parse(readFileSync(path.join(WEB_PACKAGE_DIR, 'package.json'), 'utf8')) as {
+  name?: string
+  exports?: Record<string, string>
+}
+
+/** A bare specifier's target file, or null when it names no export of this package. */
+function packageExportTarget(specifier: string): string | null {
+  const name = WEB_PACKAGE.name
+  if (name === undefined || (specifier !== name && !specifier.startsWith(`${name}/`))) return null
+  const subpath = specifier === name ? '.' : `./${specifier.slice(name.length + 1)}`
+  const target = WEB_PACKAGE.exports?.[subpath]
+  return target === undefined ? null : path.resolve(WEB_PACKAGE_DIR, target)
+}
+
+/**
+ * A whole `import type … from '…'` statement, erased by the compiler.
+ *
+ * The inner arm refuses to cross a following `import`, and that bound is the
+ * load-bearing part rather than tidiness. A pattern that could run past the end
+ * of its own statement would delete the NEXT import along with it — and the
+ * next one may be a value import of the very module this law polices, which
+ * turns the law green while the reach it forbids exists. Over-keeping a
+ * statement can only ever over-report a reacher, which fails loudly in a diff;
+ * over-deleting one fails silently forever, so the pattern is written to make
+ * only the first mistake possible.
+ *
+ * Inline modifiers (`import { type A, b } from '…'`) are deliberately NOT
+ * matched: such a statement still imports the value `b`, so it reaches.
+ */
+const TYPE_ONLY_IMPORT_RE = /\bimport\s+type\b(?:(?!\bimport\b)[\s\S])*?from\s*(['"])[^'"\n]*\1/g
+
+/** Every import specifier in `text` that survives compilation — see {@link TYPE_ONLY_IMPORT_RE}. */
+function valueImportSpecifiers(text: string): string[] {
+  return extractImportSpecifiers(text.replace(TYPE_ONLY_IMPORT_RE, ''))
+}
+
+/**
+ * Whether `file` imports the instrument module, by any of the forms
+ * `extractImportSpecifiers` sees, at any depth, under any local name.
+ *
+ * This is the check the caller-count above cannot make. `CALLS_..._RE` reads
+ * call *syntax*, so `import { requestInstrument as go }` + `go(…)` and
+ * `ns['requestInstrument'](…)` both reach the act while never placing the
+ * identifier next to an open paren — measured, not argued: a probe file
+ * spelling it both ways passed this suite 21/21 (review of #528). Reachability
+ * is the property the ruling actually cares about, and reachability requires an
+ * import. There is no back door left: a specifier cannot be computed at runtime
+ * here, because the `${…}` law below already refuses that outright.
+ *
+ * `root` is the directory `file.name` is relative to. It must match the walk
+ * the caller used: {@link sourceFiles} names files against `CONCIERGE_DIR`,
+ * {@link appSourceFiles} against `WEB_SRC`. Getting that wrong resolves every
+ * specifier from the wrong directory and the check answers `false` for
+ * everything — a green law proving nothing, which is the failure this test
+ * exists to prevent rather than commit.
+ *
+ * Type-only imports do not count. `extractImportSpecifiers` sees
+ * `import type { T } from '…'` on purpose — it serves FORBID laws, where
+ * over-matching fails loudly in a diff and under-matching passes forever. This
+ * law asks the opposite question, so the same reading is a false positive:
+ * `connect/index.tsx` imports `InstrumentFetchLike` and `InstrumentOutcome` as
+ * types, which TypeScript erases, and erased text cannot invoke the act.
+ * Listing it as a reacher would make the assertion a census of who mentions the
+ * module rather than of who can call it.
+ */
+function importsInstrumentModule(file: ConciergeSourceFile, root: string = CONCIERGE_DIR): boolean {
+  const fromDir = path.dirname(path.join(root, file.name))
+  return valueImportSpecifiers(file.text).some((specifier) => {
+    const target = specifier.startsWith('.')
+      ? path.resolve(fromDir, specifier)
+      : packageExportTarget(specifier)
+    return target !== null && moduleStem(target) === INSTRUMENT_MODULE_STEM
+  })
+}
+
 function forbiddenImportsIn(text: string): string[] {
   return extractImportSpecifiers(text).filter((specifier) =>
     FORBIDDEN_IMPORT_PREFIXES.some((prefix) => prefix.test(specifier)),
@@ -195,6 +296,88 @@ describe('the concierge instrument path is reachable only from an explicit reque
       .filter((file) => CALLS_REQUEST_CLONE_RE.test(file.text))
       .map((file) => file.name)
     expect(callers).toEqual([path.join('connect', 'wizard.tsx')])
+  })
+
+  /**
+   * App-wide, for the same reason the caller-count above is (#266): a reacher
+   * that lands outside `concierge/` is exactly the one a directory-scoped walk
+   * cannot see. When this check was written the second caller did not yet
+   * exist, so it walked `sourceFiles()` and asserted a single importer — and
+   * it PASSED against a tree holding two, because `connect/wizard.tsx` was out
+   * of its walk. Scoped to this directory it is the defect it was written to
+   * remove.
+   *
+   * Two, not three: `connect/index.tsx` names the module as well, but as
+   * `import type`, which the compiler erases — see {@link TYPE_ONLY_IMPORT_RE}.
+   */
+  it('instrument.ts is REACHED from exactly two files, app-wide — the caller-count above reads syntax, this reads reachability', () => {
+    const importers = appSourceFiles()
+      .filter((file) => file.name !== path.join('concierge', 'instrument.ts'))
+      .filter((file) => importsInstrumentModule(file, WEB_SRC))
+      .map((file) => file.name)
+      .sort()
+    expect(importers).toEqual([path.join('concierge', 'InstrumentButton.tsx'), path.join('connect', 'wizard.tsx')])
+  })
+
+  it('that detector bites — alias, namespace and dynamic imports are all seen, at any depth', () => {
+    const probe = (text: string, name = 'Probe.tsx') => importsInstrumentModule({ name, text })
+    // The two spellings that walked past the caller-count, and the namespace
+    // form the computed-member one needs.
+    expect(probe("import { requestInstrument as go } from './instrument.js'")).toBe(true)
+    expect(probe("import * as ns from './instrument.js'")).toBe(true)
+    expect(probe("const m = await import('./instrument.js')")).toBe(true)
+    expect(probe("import './instrument.js'")).toBe(true)
+    // A nested file reaches the same module by a different spelling, so the
+    // check cannot be pinned to today's flat directory (the sibling law's
+    // 2026-08-08 drift finding).
+    expect(probe("import { requestInstrument } from '../instrument.js'", 'sub/Deep.tsx')).toBe(true)
+    // …and the imports this directory legitimately makes are not caught.
+    expect(probe("import { readCapabilityToken } from '../recordings/capability.js'")).toBe(false)
+    expect(probe("import { missingTokenMessage } from '../recordings/capability-guidance.js'")).toBe(false)
+  })
+
+  /**
+   * The two spellings that defeated the first version of this law, both found
+   * by the verify pass on #608 and both EXECUTED before being fixed: each
+   * compiled (`tsc --noEmit` exit 0) while the law reported 18/18 green.
+   *
+   * They are here rather than in the docstring because a law's known evasions
+   * are exactly the assertions most worth pinning — the first version's comment
+   * claimed "there is no back door left", which was true of the back doors its
+   * author had thought of.
+   */
+  it('an extensionless or package-name import is still a reach — both compile, and both walked past the first version of this law', () => {
+    const probe = (text: string, name = 'Probe.tsx') => importsInstrumentModule({ name, text })
+    // `./instrument` with no suffix: the old check appended `.ts` only to a
+    // `.js` specifier, so this resolved to a path that compared false.
+    expect(probe("import { requestInstrument as go } from './instrument'")).toBe(true)
+    expect(probe("import { requestInstrument } from '../instrument'", 'sub/Deep.tsx')).toBe(true)
+    // The package's own exports map publishes this subpath deliberately, so it
+    // is a supported route to the act, not a trick. The old check filtered to
+    // specifiers starting with '.', so it never looked.
+    expect(probe("import { requestInstrument as go } from '@rhizomorph/web/concierge/instrument'")).toBe(true)
+    // A different published subpath of the same package is NOT the act.
+    expect(probe("import { rotate } from '@rhizomorph/web/replay/rotate'")).toBe(false)
+    // An unrelated package is not a reach either.
+    expect(probe("import { describe } from 'vitest'")).toBe(false)
+  })
+
+  it('a type-only import is not a reach — it is erased, and it cannot invoke', () => {
+    const probe = (text: string, name = 'Probe.tsx') => importsInstrumentModule({ name, text })
+    // The real shape this distinguishes: connect/index.tsx names the module for
+    // its types alone. Counting it would make the assertion a census of who
+    // mentions the act rather than of who can perform it.
+    expect(probe("import type { InstrumentOutcome } from './instrument.js'")).toBe(false)
+    expect(probe('import type {\n  InstrumentOutcome,\n} from "./instrument.js"')).toBe(false)
+    // An inline modifier still imports a value beside the type, so it reaches.
+    expect(probe("import { type InstrumentOutcome, requestInstrument } from './instrument.js'")).toBe(true)
+    // The bound that makes over-deletion impossible: a type-only import of
+    // ANOTHER module must not swallow the value import that follows it. Without
+    // the `(?!\bimport\b)` guard this reads false and the law goes green over a
+    // live reach — the one failure direction that would matter.
+    expect(
+      probe("import type { Foo } from '../recordings/capability.js'\nimport { requestInstrument } from './instrument.js'"),
+    ).toBe(true)
   })
 
   it("the one call site is wired to the confirm button's onClick, not left implicit", () => {

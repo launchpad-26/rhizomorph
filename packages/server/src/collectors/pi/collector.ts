@@ -92,7 +92,7 @@ const HARNESS = 'pi'
  *   'otel'` (core/src/events/index.ts) — the shared `context.emit` helper has
  *   no way to override that default, and giving it one is a `packages/core`
  *   change outside this fence. Emitting a `sessionlog`-sourced `llm.cost` (a
- *   value `envelopeWithSources` already allows — ADR-0021, telemetry.ts:174)
+ *   value `envelopeWithSources` already allows — ADR-0023, telemetry.ts:174)
  *   therefore goes through `createEvent` directly here, exactly the way
  *   `otel`'s own non-primary emitters already do (see
  *   `conformance/codex.test.ts`'s `makeEmitter`) — using the *public* API,
