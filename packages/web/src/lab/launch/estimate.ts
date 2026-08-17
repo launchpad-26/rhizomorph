@@ -1,3 +1,4 @@
+import { capabilityRead } from '../../recordings/capabilityRead.js'
 import type { FetchLike } from '../../replay/api.js'
 
 /**
@@ -59,7 +60,11 @@ async function refusalDetail(response: { json: () => Promise<unknown> }): Promis
  * never a half-believed answer: a response this doesn't recognise is a
  * failure to estimate, not a `$0.00`.
  */
-export async function fetchLabEstimate(lane: string, arms: number, fetchImpl: FetchLike = fetch): Promise<LabEstimate> {
+export async function fetchLabEstimate(
+  lane: string,
+  arms: number,
+  fetchImpl: FetchLike = capabilityRead,
+): Promise<LabEstimate> {
   const url = `/api/lab/estimate?lane=${encodeURIComponent(lane)}&arms=${encodeURIComponent(String(arms))}`
 
   let response: Response

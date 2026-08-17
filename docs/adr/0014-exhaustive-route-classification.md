@@ -1,6 +1,6 @@
 # 0014. Every route is declared into one of three classes, checked by walking the running app
 
-- **Status:** accepted
+- **Status:** accepted — amended by [ADR-0024](0024-a-gated-read-is-the-fourth-route-class.md) (the fourth class, `gated-read`, and the gate-presence law)
 - **Date:** 2026-08-12
 
 ## Context and Problem Statement

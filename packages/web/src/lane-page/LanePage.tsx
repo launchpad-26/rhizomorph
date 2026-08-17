@@ -10,6 +10,7 @@ import { useTranscript, type TranscriptEntry } from '../drawer/useTranscript.js'
 import { MAIN_SELECTION, useFleet } from '../fleet/index.js'
 import type { FetchLike } from '../fleet/manifest.js'
 import { SearchField } from '../panels/search/SearchField.js'
+import { capabilityRead } from '../recordings/capabilityRead.js'
 import { WhySurface } from '../why/index.js'
 import { useLaneIndex, type LaneIndexEntry } from './laneIndex.js'
 import { PageHeader } from './PageHeader.js'
@@ -91,10 +92,11 @@ export function sessionScopedUrl(url: string, sessionId: string): string {
   return `${url}${separator}session=${encodeURIComponent(sessionId)}`
 }
 
+// The scoped transcript read hits `/api/transcript/:lane?session=N`, a
+// `gated-read` (prd-29 ruling 1), so the base fetch routes through the shared
+// `capabilityRead`; `scopedFetch` below wraps it to append the session param.
 function defaultFetch(): FetchLike | null {
-  return typeof globalThis.fetch === 'function'
-    ? ((input: string) => globalThis.fetch(input)) as FetchLike
-    : null
+  return typeof globalThis.fetch === 'function' ? (capabilityRead as FetchLike) : null
 }
 
 /** The recording whose captured transcript this lane's conversation should read. */

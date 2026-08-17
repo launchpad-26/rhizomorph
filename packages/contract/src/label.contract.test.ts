@@ -1,4 +1,5 @@
 import { readSessionLabel } from '@rhizomorph/server/log/label'
+import { CAPABILITY_TOKEN_HEADER } from '@rhizomorph/web/recordings/capability'
 import { missingTokenMessage } from '@rhizomorph/web/recordings/capability-guidance'
 import { requestLabel } from '@rhizomorph/web/recordings/label'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -27,7 +28,16 @@ describe('contract: rename-in-place (#249, #310)', () => {
     expect(outcome).toEqual({ sessionId: '1000', label: 'the morning run' })
     // The rename really landed server-side: sidecar written, listing updated.
     expect(await readSessionLabel(h.sessionDir, '1000')).toBe('the morning run')
-    const listing = (await h.app.inject({ method: 'GET', url: '/api/sessions' })).json() as {
+    // `/api/sessions` is a gated-read since prd-29 wave 1 (#442) — this
+    // server-side verification of the effect carries the same token the served
+    // page stamped, exactly as the client's own read seam does.
+    const listing = (
+      await h.app.inject({
+        method: 'GET',
+        url: '/api/sessions',
+        headers: { [CAPABILITY_TOKEN_HEADER]: h.app.capabilityToken },
+      })
+    ).json() as {
       sessions: Array<Record<string, unknown>>
     }
     expect(listing.sessions[0]).toMatchObject({ id: '1000', label: 'the morning run' })

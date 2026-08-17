@@ -3,6 +3,7 @@ import {
   type RhizomorphEvent,
   type UnknownEventLine,
 } from '@rhizomorph/core'
+import { capabilityRead } from '../recordings/capabilityRead.js'
 
 /** Mirrors the server's `SessionSummary` shape (`GET /api/sessions`). */
 export interface SessionSummary {
@@ -37,7 +38,7 @@ function isSessionSummary(value: unknown): value is SessionSummary {
 }
 
 /** Lists recorded sessions, oldest first (as the server returns them). */
-export async function fetchSessions(fetchImpl: FetchLike = fetch): Promise<SessionSummary[]> {
+export async function fetchSessions(fetchImpl: FetchLike = capabilityRead): Promise<SessionSummary[]> {
   const data = await fetchJson(fetchImpl, '/api/sessions')
   const sessions = isRecord(data) && Array.isArray(data.sessions) ? data.sessions : []
   return sessions.filter(isSessionSummary)
@@ -88,7 +89,7 @@ export interface SessionEventsRead {
  */
 export async function fetchSessionEvents(
   sessionId: string,
-  fetchImpl: FetchLike = fetch,
+  fetchImpl: FetchLike = capabilityRead,
 ): Promise<SessionEventsRead> {
   const data = await fetchJson(fetchImpl, `/api/sessions/${encodeURIComponent(sessionId)}/events`)
   const raw = isRecord(data) && Array.isArray(data.events) ? data.events : []

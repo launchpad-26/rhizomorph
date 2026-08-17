@@ -64,8 +64,15 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   registerConciergeLaunchRoute(app, ctx)
 }
 
-/** The three route classes prd-23 ruling 5 declares. */
-export type RouteClass = 'gated-mutation' | 'ungated-mutation' | 'read'
+/**
+ * The four route classes: prd-23 ruling 5's three, plus `gated-read`
+ * (prd-29 ruling 1 / ADR-0024) — a read that answers only the capability
+ * token's holder. `read` now means specifically a TOKENLESS read: today only
+ * `GET /*`, the bootstrap the in-band token delivery (ADR-0012) depends on,
+ * and the reads prd-29 defers to wave 2 (`/api/meta`, `/api/doctor`,
+ * `/api/stream`).
+ */
+export type RouteClass = 'gated-mutation' | 'ungated-mutation' | 'gated-read' | 'read'
 
 export interface RouteClassification {
   method: string
@@ -107,27 +114,36 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   { method: 'POST', url: '/v1/traces', routeClass: 'ungated-mutation' },
   { method: 'POST', url: '/', routeClass: 'ungated-mutation' },
 
-  // Reads (14, plus the static catch-all below).
+  // Gated reads (7) — prd-29 wave 1's keystone (ruling 1 / ADR-0024). Each
+  // carries `requireCapabilityToken` as a route-local `preHandler`, exactly
+  // as the gated mutations do; the gate-presence law (ADR-0024) fails the
+  // build if any of these rows loses its gate.
+  { method: 'GET', url: '/api/sessions', routeClass: 'gated-read' },
+  { method: 'GET', url: '/api/sessions/:id/events', routeClass: 'gated-read' },
+  { method: 'GET', url: '/api/lanes', routeClass: 'gated-read' },
+  { method: 'GET', url: '/api/transcript/:lane', routeClass: 'gated-read' },
+  { method: 'GET', url: '/api/lab/checkpoints', routeClass: 'gated-read' },
+  { method: 'GET', url: '/api/lab/experiments', routeClass: 'gated-read' },
+  { method: 'GET', url: '/api/lab/estimate', routeClass: 'gated-read' },
+
+  // Tokenless reads (7, plus the static catch-all below). `/api/meta`,
+  // `/api/doctor` and `/api/stream` gate in wave 2 (prd-29 sequencing) so no
+  // consumer outside the SPA breaks mid-milestone; the rest stay `read`.
   { method: 'GET', url: '/api/meta', routeClass: 'read' },
-  { method: 'GET', url: '/api/sessions', routeClass: 'read' },
-  { method: 'GET', url: '/api/sessions/:id/events', routeClass: 'read' },
   { method: 'GET', url: '/api/stream', routeClass: 'read' },
-  { method: 'GET', url: '/api/lanes', routeClass: 'read' },
   // prd-31 ruling 5's durability read — the log's own history, never a worktree's.
   { method: 'GET', url: '/api/lane-index', routeClass: 'read' },
   { method: 'GET', url: '/api/lane-index/:handle', routeClass: 'read' },
-  { method: 'GET', url: '/api/transcript/:lane', routeClass: 'read' },
   { method: 'GET', url: '/api/session-preview/:sessionId', routeClass: 'read' },
-  { method: 'GET', url: '/api/lab/checkpoints', routeClass: 'read' },
-  { method: 'GET', url: '/api/lab/experiments', routeClass: 'read' },
-  { method: 'GET', url: '/api/lab/estimate', routeClass: 'read' },
   { method: 'GET', url: '/api/doctor', routeClass: 'read' },
   { method: 'GET', url: '/api/concierge/repos', routeClass: 'read' },
 
   // The static dashboard / SPA-fallback catch-all `server/static.ts` (or its
   // missing-build placeholder) registers directly on `buildApp`'s instance,
   // outside `registerApiRoutes` — still a real registered route the law
-  // walks, and a plain `GET` is a `read` regardless of which handler answers
-  // it.
+  // walks, and a plain `GET`. It stays `read` FOREVER (prd-29 ruling 1): it is
+  // the tokenless bootstrap the browser's first paint and `rhizomorph rotate`'s
+  // scrape both read the in-band token from (ADR-0012). Gating it cannot stop
+  // a local process and would break that bootstrap — prd-29's non-goals say so.
   { method: 'GET', url: '/*', routeClass: 'read' },
 ]

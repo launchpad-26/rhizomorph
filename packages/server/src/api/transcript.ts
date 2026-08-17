@@ -12,6 +12,7 @@ import {
   isSafeSessionId,
 } from '../log/transcript-attribution.js'
 import type { ServerContext } from '../server/context.js'
+import { requireCapabilityToken } from './security.js'
 
 export { CONDUCTOR_LANE, candidateTranscriptPaths, findConductorAttribution, findLaneAttribution }
 
@@ -675,7 +676,7 @@ export function registerTranscriptRoute(
   app.get<{
     Params: { lane: string }
     Querystring: { offset?: string; tail?: string; before?: string; session?: string }
-  }>('/api/transcript/:lane', async (request, reply) => {
+  }>('/api/transcript/:lane', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async (request, reply) => {
     const tail = request.query.tail === '1'
 
     const before = parseBefore(request.query.before)

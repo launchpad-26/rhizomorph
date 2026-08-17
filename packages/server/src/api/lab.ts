@@ -650,29 +650,33 @@ export async function launchExperiment(body: unknown, options: LaunchExperimentO
 }
 
 export function registerLabRoutes(app: FastifyInstance, ctx: ServerContext): void {
-  app.get('/api/lab/checkpoints', async () => {
+  app.get('/api/lab/checkpoints', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async () => {
     const events = await readAllEvents(ctx)
     return { checkpoints: checkpointDTOs(events) }
   })
 
-  app.get('/api/lab/experiments', async () => {
+  app.get('/api/lab/experiments', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async () => {
     const events = await readAllEvents(ctx)
     return { experiments: experimentDTOs(events) }
   })
 
-  app.get('/api/lab/estimate', async (request: FastifyRequest, reply) => {
-    const query = request.query as Record<string, unknown>
-    const lane = typeof query.lane === 'string' ? query.lane.trim() : ''
-    const armsRaw = typeof query.arms === 'string' ? Number(query.arms) : NaN
+  app.get(
+    '/api/lab/estimate',
+    { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') },
+    async (request: FastifyRequest, reply) => {
+      const query = request.query as Record<string, unknown>
+      const lane = typeof query.lane === 'string' ? query.lane.trim() : ''
+      const armsRaw = typeof query.arms === 'string' ? Number(query.arms) : NaN
 
-    if (lane.length === 0 || !Number.isInteger(armsRaw) || armsRaw < 1) {
-      return reply
-        .code(400)
-        .send({ error: '"lane" (non-empty string) and "arms" (positive integer) query params are required' })
-    }
+      if (lane.length === 0 || !Number.isInteger(armsRaw) || armsRaw < 1) {
+        return reply
+          .code(400)
+          .send({ error: '"lane" (non-empty string) and "arms" (positive integer) query params are required' })
+      }
 
-    return estimateLaunchSpend(ctx, lane, armsRaw)
-  })
+      return estimateLaunchSpend(ctx, lane, armsRaw)
+    },
+  )
 
   // Token-gated since #234: this route forks a worktree and dispatches a live
   // agent that spends real money, and the app-wide guard deliberately lets a

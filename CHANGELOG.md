@@ -38,6 +38,19 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **The identity seam's keystone: seven reads now answer only the token's
+  holder (prd-29 wave 1, #442).** `GET /api/sessions`,
+  `/api/sessions/:id/events`, `/api/transcript/:lane`, `/api/lanes`,
+  `/api/lab/checkpoints`, `/api/lab/experiments` and `/api/lab/estimate` now
+  refuse a tokenless request with `401`, the way the mutating routes already
+  do — a fourth route class, `gated-read` (ADR-0024, amending ADR-0014).
+  "Gated" is now a build law: the route-class walk fails any gated row whose
+  route does not actually carry its `preHandler`. Token comparison is
+  constant-time (`timingSafeEqual`). The SPA sends the header on every read
+  through one shared module and is unaffected; `GET /*` stays tokenless, the
+  bootstrap the in-band token (ADR-0012) depends on. `/api/meta`, `/api/doctor`
+  and `/api/stream` are deliberately still open (wave 2), so nothing outside
+  the browser breaks mid-milestone.
 - **A worktree's open git-status incident is visible again (#606).** The
   fleet table's lane row now marks a lane whose worktree has failed `git
   status --porcelain` four or more times in a row and not yet recovered — the

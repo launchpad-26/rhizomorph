@@ -11,6 +11,7 @@ import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
 import { sessionDirFor } from '../log/paths.js'
 import { listSessions, readSessionEvents, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import { readSessionLock, writeSessionLock } from '../log/session-lock.js'
+import { capabilityHeaders } from '../api/test-support.js'
 import type { SessionRecorder } from '../server/recorder.js'
 import { runCli, type CliHandle } from './index.js'
 
@@ -163,7 +164,7 @@ describe('runCli', () => {
     await handle.pollLoop.tick()
     await handle.pollLoop.tick()
 
-    const eventsResponse = await fetch(`${handle.url}/api/sessions/${handle.recorder.sessionId}/events`)
+    const eventsResponse = await fetch(`${handle.url}/api/sessions/${handle.recorder.sessionId}/events`, { headers: capabilityHeaders(handle.app) })
     const { events } = (await eventsResponse.json()) as { events: Array<{ type: string }> }
     expect(events[0]?.type).toBe('session.started')
     expect(events.slice(1).every((e) => e.type === 'agent.status')).toBe(true)
@@ -816,11 +817,11 @@ describe('runCli export-record and replay subcommands', () => {
     replayServer = await runCli(['replay', outFile, '--port', '0'], { log: silentLog, exit: fakeExit() })
     expect(replayServer.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
 
-    const sessionsResponse = await fetch(`${replayServer.url}/api/sessions`)
+    const sessionsResponse = await fetch(`${replayServer.url}/api/sessions`, { headers: capabilityHeaders(replayServer.app) })
     const { sessions } = (await sessionsResponse.json()) as { sessions: Array<{ id: string }> }
     expect(sessions).toHaveLength(1)
 
-    const eventsResponse = await fetch(`${replayServer.url}/api/sessions/${sessions[0]!.id}/events`)
+    const eventsResponse = await fetch(`${replayServer.url}/api/sessions/${sessions[0]!.id}/events`, { headers: capabilityHeaders(replayServer.app) })
     const { events } = (await eventsResponse.json()) as { events: Array<{ type: string }> }
     expect(events).toHaveLength(written.manifest.eventCount)
     expect(events[0]?.type).toBe('session.started')
@@ -953,10 +954,10 @@ describe('runCli export-record and replay subcommands', () => {
 
     // The rest of the record still replays: the newer-era line is counted and
     // voiced, not refused, and every line this era DOES understand still folds.
-    const sessionsResponse = await fetch(`${replayServer.url}/api/sessions`)
+    const sessionsResponse = await fetch(`${replayServer.url}/api/sessions`, { headers: capabilityHeaders(replayServer.app) })
     const { sessions } = (await sessionsResponse.json()) as { sessions: Array<{ id: string }> }
     expect(sessions).toHaveLength(1)
-    const eventsResponse = await fetch(`${replayServer.url}/api/sessions/${sessions[0]!.id}/events`)
+    const eventsResponse = await fetch(`${replayServer.url}/api/sessions/${sessions[0]!.id}/events`, { headers: capabilityHeaders(replayServer.app) })
     const { events } = (await eventsResponse.json()) as { events: Array<{ type: string }> }
     expect(events.some((e) => e.type === 'session.started')).toBe(true)
     expect(events.some((e) => e.type === 'agent.status')).toBe(true)

@@ -1,6 +1,6 @@
 import Fastify from 'fastify'
 import { describe, expect, it } from 'vitest'
-import { CAPABILITY_TOKEN_HEADER, generateCapabilityToken, requireCapabilityToken } from './security.js'
+import { CAPABILITY_GATE, CAPABILITY_TOKEN_HEADER, generateCapabilityToken, requireCapabilityToken } from './security.js'
 
 /**
  * THE CAPABILITY TOKEN — in isolation, against a throwaway Fastify app
@@ -66,6 +66,25 @@ describe('requireCapabilityToken', () => {
       .then((response) => expect(response.statusCode).toBe(401))
   })
 
+  it('refuses a wrong token of EXACTLY the same length — the constant-time compare rejects content, not just length (prd-29 ruling 5)', async () => {
+    // `timingSafeEqual` is the reason this case matters: a same-length token
+    // gets past the length guard and into the byte comparison, which must
+    // still refuse it. `aaaaaaaaaaa` is 11 chars, same as `right-token`.
+    const app = makeApp('right-token')
+    const wrong = 'aaaaaaaaaaa'
+    expect(wrong.length).toBe('right-token'.length)
+    const response = await app.inject({ method: 'POST', url: '/mutate', headers: { [CAPABILITY_TOKEN_HEADER]: wrong } })
+    expect(response.statusCode).toBe(401)
+  })
+
+  it('refuses a shorter token without throwing — the length guard runs before timingSafeEqual, which would throw on unequal buffers (prd-29 ruling 5)', async () => {
+    const app = makeApp('the-right-token')
+    const response = await app.inject({ method: 'POST', url: '/mutate', headers: { [CAPABILITY_TOKEN_HEADER]: 'short' } })
+    // A thrown RangeError from timingSafeEqual would surface as a 500, not a
+    // clean 401 — so this asserting 401 also asserts the guard held.
+    expect(response.statusCode).toBe(401)
+  })
+
   it('refuses an empty token header', async () => {
     const app = makeApp('the-right-token')
     const response = await app.inject({ method: 'POST', url: '/mutate', headers: { [CAPABILITY_TOKEN_HEADER]: '' } })
@@ -105,5 +124,14 @@ describe('requireCapabilityToken', () => {
 
   it('two independently generated tokens are never equal — no shared default hiding in the mint', () => {
     expect(generateCapabilityToken()).not.toBe(generateCapabilityToken())
+  })
+
+  it('brands the gate it returns, so the route-class law can prove a route carries it (prd-29 ruling 2)', () => {
+    const gate = requireCapabilityToken('some-token') as unknown as { [CAPABILITY_GATE]?: unknown }
+    expect(gate[CAPABILITY_GATE]).toBe(true)
+    // A bare preHandler that is NOT this gate carries no brand — so the law's
+    // check distinguishes the capability gate from any other preHandler.
+    const notAGate = (async () => {}) as unknown as { [CAPABILITY_GATE]?: unknown }
+    expect(notAGate[CAPABILITY_GATE]).toBeUndefined()
   })
 })

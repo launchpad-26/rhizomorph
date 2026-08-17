@@ -90,7 +90,7 @@ describe('POST /api/label', () => {
       payload: { sessionId: '1000', label: 'the morning run' },
     })
 
-    const listing = (await app.inject({ method: 'GET', url: '/api/sessions' })).json() as {
+    const listing = (await app.inject({ method: 'GET', url: '/api/sessions', headers: authHeaders(app) })).json() as {
       sessions: Array<Record<string, unknown>>
     }
     expect(listing.sessions[0]).toMatchObject({ id: '1000', label: 'the morning run', title: 'the morning run' })

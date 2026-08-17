@@ -8,6 +8,7 @@ import { transcriptCaptureDir, transcriptCaptureFileName } from '../log/paths.js
 import { sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
+import { capabilityHeaders, TEST_CAPABILITY_TOKEN } from './test-support.js'
 import {
   CONDUCTOR_LANE,
   TOOL_RESULT_MAX_CHARS,
@@ -1028,7 +1029,7 @@ describe('GET /api/transcript/:lane', () => {
       resumeFrom: events,
     })
     const app = Fastify()
-    registerTranscriptRoute(app, { repoPath: '/repo', repoName: 'repo', sessionDir, recorder }, {
+    registerTranscriptRoute(app, { repoPath: '/repo', repoName: 'repo', sessionDir, recorder, capabilityToken: TEST_CAPABILITY_TOKEN }, {
       claudeProjectsRoot: projectsRoot,
       chunkBytes,
     })
@@ -1044,7 +1045,7 @@ describe('GET /api/transcript/:lane', () => {
   it('serves the lane transcript from offset 0', async () => {
     await writeLog([userLine('hello'), assistantLine('hi')])
 
-    const response = await (await makeApp()).inject({ method: 'GET', url: `/api/transcript/${LANE}` })
+    const response = await (await makeApp()).inject({ method: 'GET', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN), url: `/api/transcript/${LANE}` })
 
     expect(response.statusCode).toBe(200)
     const body = response.json()
@@ -1060,11 +1061,11 @@ describe('GET /api/transcript/:lane', () => {
     await writeLog([userLine('hello'), assistantLine('hi')])
     const app = await makeApp()
 
-    const first = await app.inject({ method: 'GET', url: `/api/transcript/${LANE}?offset=0` })
+    const first = await app.inject({ method: 'GET', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN), url: `/api/transcript/${LANE}?offset=0` })
     const firstLineBytes = `${userLine('hello')}\n`.length
 
     const second = await app.inject({
-      method: 'GET',
+      method: 'GET', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN),
       url: `/api/transcript/${LANE}?offset=${firstLineBytes}`,
     })
 
@@ -1076,7 +1077,7 @@ describe('GET /api/transcript/:lane', () => {
   })
 
   it('404s with the honest reason for a genuinely unknown lane — the log never named it', async () => {
-    const response = await (await makeApp()).inject({ method: 'GET', url: '/api/transcript/ghost' })
+    const response = await (await makeApp()).inject({ method: 'GET', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN), url: '/api/transcript/ghost' })
 
     expect(response.statusCode).toBe(404)
     expect(response.json()).toMatchObject({ available: false, lane: 'ghost' })
@@ -1087,7 +1088,7 @@ describe('GET /api/transcript/:lane', () => {
     '200s (not 404s) with the honest reason for a known lane whose session log is not on disk yet — ' +
       'expected absence, matching the /api/lanes convention',
     async () => {
-      const response = await (await makeApp()).inject({ method: 'GET', url: `/api/transcript/${LANE}` })
+      const response = await (await makeApp()).inject({ method: 'GET', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN), url: `/api/transcript/${LANE}` })
 
       expect(response.statusCode).toBe(200)
       expect(response.json()).toMatchObject({ available: false, lane: LANE })
@@ -1109,7 +1110,7 @@ describe('GET /api/transcript/:lane', () => {
         }),
       ])
 
-      const response = await app.inject({ method: 'GET', url: `/api/transcript/${LANE}` })
+      const response = await app.inject({ method: 'GET', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN), url: `/api/transcript/${LANE}` })
 
       expect(response.statusCode).toBe(200)
       expect(response.json()).toMatchObject({ available: false, lane: LANE })
@@ -1121,7 +1122,7 @@ describe('GET /api/transcript/:lane', () => {
     const app = await makeApp()
 
     for (const bad of ['-1', 'abc', '1.5']) {
-      const response = await app.inject({ method: 'GET', url: `/api/transcript/${LANE}?offset=${bad}` })
+      const response = await app.inject({ method: 'GET', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN), url: `/api/transcript/${LANE}?offset=${bad}` })
       expect(response.statusCode).toBe(400)
     }
   })
@@ -1130,7 +1131,7 @@ describe('GET /api/transcript/:lane', () => {
     const app = await makeApp()
 
     for (const bad of ['-1', 'abc', '1.5']) {
-      const response = await app.inject({ method: 'GET', url: `/api/transcript/${LANE}?before=${bad}` })
+      const response = await app.inject({ method: 'GET', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN), url: `/api/transcript/${LANE}?before=${bad}` })
       expect(response.statusCode).toBe(400)
     }
   })
@@ -1142,7 +1143,7 @@ describe('GET /api/transcript/:lane', () => {
     await writeLog(lines)
     const app = await makeApp(laneEvents(), 80)
 
-    const response = await app.inject({ method: 'GET', url: `/api/transcript/${LANE}?tail=1` })
+    const response = await app.inject({ method: 'GET', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN), url: `/api/transcript/${LANE}?tail=1` })
 
     expect(response.statusCode).toBe(200)
     const body = response.json()
@@ -1157,7 +1158,7 @@ describe('GET /api/transcript/:lane', () => {
     const app = await makeApp()
     const firstLineBytes = `${userLine('hello')}\n`.length
 
-    const response = await app.inject({ method: 'GET', url: `/api/transcript/${LANE}?before=${firstLineBytes}` })
+    const response = await app.inject({ method: 'GET', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN), url: `/api/transcript/${LANE}?before=${firstLineBytes}` })
 
     expect(response.statusCode).toBe(200)
     const body = response.json()
@@ -1177,7 +1178,7 @@ describe('GET /api/transcript/:lane', () => {
       f.llmUsage({ lane: 'conductor', role: 'conductor', sessionId: 'sess-conductor', worktreePath: dir }),
     ])
 
-    const response = await app.inject({ method: 'GET', url: '/api/transcript/main' })
+    const response = await app.inject({ method: 'GET', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN), url: '/api/transcript/main' })
 
     expect(response.statusCode).toBe(200)
     const body = response.json()
@@ -1190,7 +1191,7 @@ describe('GET /api/transcript/:lane', () => {
     '200s with the gap voice, not blankness or a 404, when the conductor is uninstrumented — ' +
       'an expected absence, not a client error',
     async () => {
-      const response = await (await makeApp()).inject({ method: 'GET', url: '/api/transcript/main' })
+      const response = await (await makeApp()).inject({ method: 'GET', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN), url: '/api/transcript/main' })
 
       expect(response.statusCode).toBe(200)
       const body = response.json()
@@ -1211,9 +1212,9 @@ describe('GET /api/transcript/:lane', () => {
 
   it('is registered on the real app, and the real app still refuses a POST to it', async () => {
     const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'), { resumeFrom: [] })
-    const app = buildApp({ repoPath: '/repo', repoName: 'repo', sessionDir, recorder })
+    const app = buildApp({ repoPath: '/repo', repoName: 'repo', sessionDir, recorder, capabilityToken: TEST_CAPABILITY_TOKEN })
 
-    const get = await app.inject({ method: 'GET', url: '/api/transcript/nobody' })
+    const get = await app.inject({ method: 'GET', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN), url: '/api/transcript/nobody' })
     expect(get.statusCode).toBe(404)
     expect(get.json().available).toBe(false)
 
@@ -1230,7 +1231,7 @@ describe('GET /api/transcript/:lane', () => {
       const app = Fastify()
       registerTranscriptRoute(
         app,
-        { repoPath: '/repo', repoName: 'repo', sessionDir, recorder: liveRecorder },
+        { repoPath: '/repo', repoName: 'repo', sessionDir, recorder: liveRecorder, capabilityToken: TEST_CAPABILITY_TOKEN },
         { claudeProjectsRoot: projectsRoot },
       )
 
@@ -1246,7 +1247,7 @@ describe('GET /api/transcript/:lane', () => {
       )
 
       const response = await app.inject({
-        method: 'GET',
+        method: 'GET', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN),
         url: `/api/transcript/${LANE}?session=${ROTATED_AWAY_ID}`,
       })
 
@@ -1262,7 +1263,7 @@ describe('GET /api/transcript/:lane', () => {
       await writeLog([userLine('hello')])
       const app = await makeApp()
 
-      const response = await app.inject({ method: 'GET', url: `/api/transcript/${LANE}` })
+      const response = await app.inject({ method: 'GET', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN), url: `/api/transcript/${LANE}` })
 
       expect(response.statusCode).toBe(200)
       expect(response.json().available).toBe(true)

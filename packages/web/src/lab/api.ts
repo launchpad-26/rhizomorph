@@ -1,3 +1,4 @@
+import { capabilityRead } from '../recordings/capabilityRead.js'
 import type { FetchLike } from '../replay/api.js'
 import type { LabArm, LabCheckpoint, LabCheckpointCapturedBy, LabExperiment, LabRun, LabTreatment } from './types.js'
 
@@ -76,7 +77,7 @@ function isLabExperiment(value: unknown): value is LabExperiment {
 }
 
 /** Every checkpoint this repo has captured, in the order the server folded them. */
-export async function fetchLabCheckpoints(fetchImpl: FetchLike = fetch): Promise<LabCheckpoint[]> {
+export async function fetchLabCheckpoints(fetchImpl: FetchLike = capabilityRead): Promise<LabCheckpoint[]> {
   const response = await fetchImpl('/api/lab/checkpoints')
   if (!response.ok) throw new Error(`/api/lab/checkpoints responded ${response.status}`)
   const data: unknown = await response.json()
@@ -88,7 +89,7 @@ export async function fetchLabCheckpoints(fetchImpl: FetchLike = fetch): Promise
 }
 
 /** Every experiment this repo has run, in the order the server folded them. */
-export async function fetchLabExperiments(fetchImpl: FetchLike = fetch): Promise<LabExperiment[]> {
+export async function fetchLabExperiments(fetchImpl: FetchLike = capabilityRead): Promise<LabExperiment[]> {
   const response = await fetchImpl('/api/lab/experiments')
   if (!response.ok) throw new Error(`/api/lab/experiments responded ${response.status}`)
   const data: unknown = await response.json()

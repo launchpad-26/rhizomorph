@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { parseLaneManifest, type LaneManifest } from '@rhizomorph/core'
+import { capabilityRead } from '../recordings/capabilityRead.js'
 
 /**
  * Fetching the lane manifest the conductor wrote at dispatch (ruling 19),
@@ -29,11 +30,14 @@ export interface LaneManifestState {
 
 const ABSENT: LaneManifestState = { manifest: null, status: 'absent' }
 
-/** The default fetcher, or null where there is no `fetch` to call (some test envs). */
+/**
+ * The default fetcher, or null where there is no `fetch` to call (some test
+ * envs). `/api/lanes` is a `gated-read` (prd-29 ruling 1), so the default
+ * routes through the shared `capabilityRead`, which carries the capability
+ * token; an injected `fetchImpl` (tests) bypasses it.
+ */
 function defaultFetch(): FetchLike | null {
-  return typeof globalThis.fetch === 'function'
-    ? ((input: string) => globalThis.fetch(input)) as FetchLike
-    : null
+  return typeof globalThis.fetch === 'function' ? (capabilityRead as FetchLike) : null
 }
 
 export async function loadLaneManifest(fetchImpl?: FetchLike): Promise<LaneManifestState> {

@@ -6,6 +6,7 @@ import { sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { readLanesManifest } from './lanes.js'
+import { capabilityHeaders, TEST_CAPABILITY_TOKEN } from './test-support.js'
 
 describe('GET /api/lanes', () => {
   let repoPath: string
@@ -25,7 +26,7 @@ describe('GET /api/lanes', () => {
 
   function makeApp() {
     const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
-    return buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+    return buildApp({ repoPath, repoName: 'repo', sessionDir, recorder, capabilityToken: TEST_CAPABILITY_TOKEN })
   }
 
   async function writeManifest(content: string): Promise<void> {
@@ -50,7 +51,7 @@ describe('GET /api/lanes', () => {
       }),
     )
 
-    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes' })
+    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN) })
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual({
@@ -77,7 +78,7 @@ describe('GET /api/lanes', () => {
       }),
     )
 
-    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes' })
+    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN) })
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual({
@@ -102,7 +103,7 @@ describe('GET /api/lanes', () => {
       }),
     )
 
-    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes' })
+    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN) })
 
     expect(response.statusCode).toBe(200)
     const body = response.json()
@@ -118,7 +119,7 @@ describe('GET /api/lanes', () => {
       }),
     )
 
-    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes' })
+    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN) })
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual({
@@ -129,7 +130,7 @@ describe('GET /api/lanes', () => {
   })
 
   it('reports available: false with an honest reason when the file is absent', async () => {
-    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes' })
+    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN) })
 
     expect(response.statusCode).toBe(200)
     const body = response.json()
@@ -140,7 +141,7 @@ describe('GET /api/lanes', () => {
   it('reports available: false with the parse detail when the file is not valid JSON', async () => {
     await writeManifest('{ not valid json')
 
-    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes' })
+    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN) })
 
     expect(response.statusCode).toBe(200)
     const body = response.json()
@@ -151,7 +152,7 @@ describe('GET /api/lanes', () => {
   it('reports available: false with the schema detail when the file does not match the shape', async () => {
     await writeManifest(JSON.stringify({ version: 1, lanes: [{ handle: 'a' }] }))
 
-    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes' })
+    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN) })
 
     expect(response.statusCode).toBe(200)
     const body = response.json()
@@ -162,7 +163,7 @@ describe('GET /api/lanes', () => {
   it('never serves a silent empty list for a malformed file', async () => {
     await writeManifest('not json at all')
 
-    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes' })
+    const response = await makeApp().inject({ method: 'GET', url: '/api/lanes', headers: capabilityHeaders(TEST_CAPABILITY_TOKEN) })
 
     const body = response.json()
     expect(body).not.toEqual({ available: true, version: 1, lanes: [] })
@@ -173,14 +174,14 @@ describe('GET /api/lanes', () => {
     await writeManifest(JSON.stringify({ version: 1, lanes: [] }))
     const app = makeApp()
 
-    const first = await app.inject({ method: 'GET', url: '/api/lanes' })
+    const first = await app.inject({ method: 'GET', url: '/api/lanes', headers: capabilityHeaders(app) })
     expect(first.json()).toEqual({ available: true, version: 1, lanes: [] })
 
     await writeManifest(
       JSON.stringify({ version: 1, lanes: [{ handle: 'b', branch: 'b', fence: ['packages/b/**'] }] }),
     )
 
-    const second = await app.inject({ method: 'GET', url: '/api/lanes' })
+    const second = await app.inject({ method: 'GET', url: '/api/lanes', headers: capabilityHeaders(app) })
     expect(second.json()).toEqual({
       available: true,
       version: 1,
