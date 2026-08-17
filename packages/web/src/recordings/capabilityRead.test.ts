@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CAPABILITY_META_NAME } from './capability.js'
 import { capabilityRead } from './capabilityRead.js'
@@ -73,7 +75,7 @@ describe('capabilityRead — the shared read header (prd-29)', () => {
     expect(headerOf(spy, 2)).toBe('token-1234')
   })
 
-  it('does not clobber a caller-supplied init when it adds the header', async () => {
+  it('keeps a caller-supplied init field that is not `headers` when it adds the header', async () => {
     setToken('tok')
     const spy = stubFetch()
 
@@ -82,5 +84,50 @@ describe('capabilityRead — the shared read header (prd-29)', () => {
     const init = spy.mock.calls[0]?.[1]
     expect(init?.cache).toBe('no-store')
     expect(headerOf(spy, 0)).toBe('tok')
+  })
+
+  it('REPLACES a caller-supplied headers block rather than merging it — the law forbids the merge', async () => {
+    // The narrow claim above ("keeps a caller-supplied init field") is true of
+    // every field EXCEPT `headers`, and the test proving it used `cache`, which
+    // passes whether headers are merged or replaced. So the one field with
+    // surprising behaviour was the one field unpinned.
+    //
+    // Replacement is deliberate: `replay/mutating-calls-law.test.ts`'s
+    // `assertHeaderBlocksExact` refuses a spread inside a `headers:` block
+    // outright, so merging the caller's headers here is the exact shape that
+    // law forbids. This test pins the consequence, so that a future seam
+    // needing its own header meets a red test rather than a header that
+    // silently vanished on the wire.
+    setToken('tok')
+    const spy = stubFetch()
+
+    await capabilityRead('/api/sessions', { headers: { Accept: 'application/json' } })
+
+    const sent = new Headers(spy.mock.calls[0]?.[1]?.headers)
+    expect(sent.get('x-rhizomorph-capability')).toBe('tok')
+    expect(sent.get('Accept')).toBeNull()
+  })
+
+  it('no read seam relies on passing its own header — the constraint above costs nothing today', () => {
+    // The pin is only harmless while nothing needs it. Every read seam calls
+    // its `fetchImpl` with a URL and no `init` at all; this asserts that, so
+    // the day a seam grows a second argument, this says so.
+    const seams = [
+      'lab/api.ts',
+      'lab/launch/estimate.ts',
+      'recordings/api.ts',
+      'recordings/export.ts',
+      'replay/api.ts',
+      'drawer/useTranscript.ts',
+      'fleet/manifest.ts',
+      'lane-page/LanePage.tsx',
+    ]
+    const webSrc = path.resolve(__dirname, '..')
+    const offenders = seams.filter((seam) => {
+      const text = readFileSync(path.join(webSrc, seam), 'utf8')
+      // A `fetchImpl(...)`/`fetchTranscript(...)` call carrying a second argument.
+      return /\bfetch(?:Impl|Transcript)\s*\([^)]*,/.test(text)
+    })
+    expect(offenders).toEqual([])
   })
 })

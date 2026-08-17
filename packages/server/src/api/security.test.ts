@@ -66,7 +66,7 @@ describe('requireCapabilityToken', () => {
       .then((response) => expect(response.statusCode).toBe(401))
   })
 
-  it('refuses a wrong token of the EXACTLY the same length — the constant-time compare rejects content, not just length (prd-29 ruling 5)', async () => {
+  it('refuses a wrong token of EXACTLY the same length — the constant-time compare rejects content, not just length (prd-29 ruling 5)', async () => {
     // `timingSafeEqual` is the reason this case matters: a same-length token
     // gets past the length guard and into the byte comparison, which must
     // still refuse it. `aaaaaaaaaaa` is 11 chars, same as `right-token`.

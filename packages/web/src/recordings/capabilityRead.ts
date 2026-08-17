@@ -17,8 +17,23 @@ import { CAPABILITY_TOKEN_HEADER, readCapabilityToken } from './capability.js'
  * When the page carries no token — `vite dev` serves `index.html` with no
  * capability meta tag (ADR-0012's recorded dev-mode gap) — the request goes
  * out bare and the server answers its own honest 401, rather than this
- * inventing one. The header rides on `init` only when the token is present,
- * and never overwrites a caller's other init fields.
+ * inventing one.
+ *
+ * **THE HEADERS ARE THIS MODULE'S, NOT THE CALLER'S.** Every other `init`
+ * field a caller passes survives (`...init`), but the `headers` property is
+ * *replaced*, so a caller-supplied header is dropped rather than merged. That
+ * is deliberate, and it is forced by the law above: `assertHeaderBlocksExact`
+ * refuses a spread inside a header block outright — "a spread inside a headers
+ * block can carry a header no regex sees" — so merging the caller's headers in
+ * here is exactly the shape the law exists to forbid. A single spread-free
+ * literal naming one computed key is what makes the block statically
+ * checkable.
+ *
+ * The consequence is a real constraint on callers, pinned by this module's own
+ * test: a read seam that needs its own header cannot get one through here. No
+ * seam needs one today — all eight call their `fetchImpl` with a URL and
+ * nothing else. The seam that first does needs the law widened alongside it,
+ * as a reviewed change, which is the whole point of refusing it silently now.
  */
 export const capabilityRead: typeof fetch = (input, init) => {
   const token = readCapabilityToken()
