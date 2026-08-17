@@ -173,6 +173,7 @@ export async function runReplayCommand(
     // A record is a finished thing: `POST /api/rotate` refuses here (prd11
     // ruling 4's read-only replay, restated for the recorder's new hand).
     readOnly: true,
+    port: args.port,
   })
 
   let url: string

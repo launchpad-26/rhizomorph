@@ -20,6 +20,7 @@ import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
 import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
+import { formatBytes } from '../lib/format.js'
 import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
 import { decideSessionBoot, formatBootDuration } from '../log/session-log.js'
 import { exec as realExec } from '../server/exec.js'
@@ -535,16 +536,6 @@ async function sessionFileSize(filePath: string): Promise<string> {
   }
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`
-  const kb = bytes / 1024
-  if (kb < 1024) return `${trimTrailingZero(kb.toFixed(1))}KB`
-  return `${trimTrailingZero((kb / 1024).toFixed(1))}MB`
-}
-
-function trimTrailingZero(value: string): string {
-  return value.endsWith('.0') ? value.slice(0, -2) : value
-}
 
 /** True only when the binary itself could not be run — not for a non-zero exit with real output (same test used by the workmux collector). */
 function isMissingBinary(result: { failed: boolean; errorMessage?: string }): boolean {

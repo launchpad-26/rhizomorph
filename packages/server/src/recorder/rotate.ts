@@ -1,6 +1,6 @@
 import path from 'node:path'
-import { createEvent } from '@rhizomorph/core'
-import { defaultClaudeProjectsRoot, sessionFileName } from '../log/paths.js'
+import { createEvent, type SessionCloseReason, type SessionLink } from '@rhizomorph/core'
+import { defaultClaudeProjectsRoot, repoSlug, sessionFileName } from '../log/paths.js'
 import { removeSessionLock, writeSessionLock } from '../log/session-lock.js'
 import { captureSessionTranscripts } from '../log/transcript-capture.js'
 import type { SessionRecorder } from './session-recorder.js'
@@ -9,12 +9,19 @@ import type { SessionRecorder } from './session-recorder.js'
  * ROTATION — the recorder's hand (prd16 ruling 2), the observer's third and
  * narrowest. It closes the current session log and opens a fresh one, on an
  * explicit operator command (`rhizomorph rotate`, or the dashboard's "end
- * session · start fresh" button), and it writes ONLY inside this repo's own
- * session directory: the log it closes, the log it opens, the lock sidecar
- * beside them, and — since prd16 ruling 3 — each closing lane's transcript,
- * captured beside the log it closes. It READS from `~/.claude/projects` to
- * do that capture, but never writes there. Never the watched repo, never a
- * ref, never a worktree — asserted, not promised, by `namespace-law.test.ts`.
+ * session · start fresh" button), and it writes ONLY inside a watched repo's
+ * own session directory: the log it closes, the log it opens, the lock
+ * sidecar beside them, and — since prd16 ruling 3 — each closing lane's
+ * transcript, captured beside the log it closes. It READS from
+ * `~/.claude/projects` to do that capture, but never writes there. Never the
+ * watched repo, never a ref, never a worktree — asserted, not promised, by
+ * `namespace-law.test.ts`.
+ *
+ * Since prd20 ruling 5 (`retargetSession`, below), "a watched repo's own
+ * session directory" can mean TWO directories in one call — the old repo's,
+ * closed against, and the new repo's, opened against — never a third, and
+ * never the SAME directory for both halves of a retarget the way a plain
+ * rotation always uses the same one for both.
  *
  * **The ordering is the law** (prd17 ruling 3.5): close, THEN open, never
  * both open. The two halves are separate exported functions rather than one
@@ -69,6 +76,28 @@ export interface Rotation {
 }
 
 /**
+ * What {@link closeCurrentSession} actually reads — `repoPath`/`repoName`/`pid`
+ * are the open half's own concern. `reason`/`successor` are non-default close
+ * behaviour a plain rotation never sets (both stay optional and additive):
+ * `retargetSession` is the one caller that passes them.
+ */
+export type CloseSessionOptions = Pick<RotateSessionOptions, 'sessionDir' | 'recorder' | 'now' | 'claudeProjectsRoot'> & {
+  /** Defaults to `'rotated'`. A retarget passes `'retargeted'` instead — see `retargetSession`. */
+  reason?: SessionCloseReason
+  /** Where this run continued, when the successor lives under a directory this one can't imply (#384). Absent for an ordinary rotation. */
+  successor?: SessionLink
+}
+
+/** What {@link openNextSession} actually reads. `predecessor` mirrors {@link CloseSessionOptions}'s `successor`. */
+export type OpenSessionOptions = Pick<
+  RotateSessionOptions,
+  'sessionDir' | 'repoPath' | 'repoName' | 'recorder' | 'now' | 'pid'
+> & {
+  /** Where this run came from, when it isn't the log right where this one is opening (#384). Absent for an ordinary rotation. */
+  predecessor?: SessionLink
+}
+
+/**
  * THE CLOSE HALF. Captures every lane's transcript (prd16 ruling 3), THEN
  * appends the final `session.closed`, flushes and fsyncs the log, then
  * releases the session's lock — in that order, so at no instant is there a
@@ -85,7 +114,7 @@ export interface Rotation {
  * could not find; it records that lane's gap in the manifest and moves on, so
  * one vanished transcript never blocks the operator's rotation.
  */
-export async function closeCurrentSession(options: RotateSessionOptions): Promise<ClosedSession> {
+export async function closeCurrentSession(options: CloseSessionOptions): Promise<ClosedSession> {
   const { sessionDir, recorder } = options
   const now = options.now ?? Date.now
   const sessionId = recorder.sessionId
@@ -105,7 +134,12 @@ export async function closeCurrentSession(options: RotateSessionOptions): Promis
   await recorder.closeWith(
     createEvent(
       'session.closed',
-      { sessionId, reason: 'rotated', eventCount },
+      {
+        sessionId,
+        reason: options.reason ?? 'rotated',
+        eventCount,
+        ...(options.successor ? { successor: options.successor } : {}),
+      },
       // Derived from the closed session's own id rather than a counter, so it
       // is unique in the log without depending on which id factory a caller
       // happens to hold, and legible in the file (`session-closed-1000`).
@@ -122,10 +156,7 @@ export async function closeCurrentSession(options: RotateSessionOptions): Promis
  * boot path does — points the recorder at its fresh log, records its
  * `session.started`, and only then claims a lock for it.
  */
-export async function openNextSession(
-  options: RotateSessionOptions,
-  closed: ClosedSession,
-): Promise<OpenedSession> {
+export async function openNextSession(options: OpenSessionOptions, closed: ClosedSession): Promise<OpenedSession> {
   const { sessionDir, repoPath, repoName, recorder } = options
   const now = options.now ?? Date.now
   const pid = options.pid ?? process.pid
@@ -138,7 +169,7 @@ export async function openNextSession(
   await recorder.record(
     createEvent(
       'session.started',
-      { sessionId, repoPath, repoName },
+      { sessionId, repoPath, repoName, ...(options.predecessor ? { predecessor: options.predecessor } : {}) },
       { id: `session-started-${sessionId}`, ts: startedAt },
     ),
   )
@@ -183,4 +214,59 @@ export function rotateSession(options: RotateSessionOptions): Promise<Rotation> 
   return rotation.finally(() => {
     if (inFlight.get(options.recorder) === rotation) inFlight.delete(options.recorder)
   })
+}
+
+export interface RetargetSessionOptions {
+  /** The repo being left — closed against ITS OWN session dir, never the new one's. */
+  oldSessionDir: string
+  oldRepoPath: string
+  /** The repo being switched to — opened against ITS OWN session dir, only after the old one is sealed. */
+  newSessionDir: string
+  newRepoPath: string
+  newRepoName: string
+  recorder: SessionRecorder
+  now?: () => number
+  pid?: number
+  claudeProjectsRoot?: string
+}
+
+/**
+ * THE RETARGET HALF-PAIR (prd20 ruling 5, spike Q2/Q6). Close against the OLD
+ * repo's session dir, then open against the NEW one — the same two halves
+ * `rotateSession` already uses, called with two different directories instead
+ * of one. Unlike a rotation, this is not `reason: 'rotated'`: the successor
+ * lives under a different slug the old directory can't imply, so the closed
+ * log names `'retargeted'` and carries a `successor` pointer at the new
+ * repo's slug (#384), and the opened log's `session.started` carries the
+ * matching `predecessor` back — the old repo's slug and the exact session id
+ * that was just sealed, which only the open half can know (the close half
+ * finishes before the new session id is even minted).
+ *
+ * No in-flight guard here, unlike `rotateSession`'s `WeakMap`: a retarget is
+ * validated against the new target BEFORE this is ever called (validate-then-
+ * release — #386), so a second concurrent retarget racing this one is that
+ * caller's own boundary to hold, not this function's.
+ */
+export async function retargetSession(options: RetargetSessionOptions): Promise<Rotation> {
+  const closed = await closeCurrentSession({
+    sessionDir: options.oldSessionDir,
+    recorder: options.recorder,
+    now: options.now,
+    claudeProjectsRoot: options.claudeProjectsRoot,
+    reason: 'retargeted',
+    successor: { repoSlug: repoSlug(options.newRepoPath) },
+  })
+  const opened = await openNextSession(
+    {
+      sessionDir: options.newSessionDir,
+      repoPath: options.newRepoPath,
+      repoName: options.newRepoName,
+      recorder: options.recorder,
+      now: options.now,
+      pid: options.pid,
+      predecessor: { repoSlug: repoSlug(options.oldRepoPath), sessionId: closed.sessionId },
+    },
+    closed,
+  )
+  return { closed, opened }
 }

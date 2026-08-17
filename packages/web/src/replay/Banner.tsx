@@ -22,24 +22,24 @@ export function ReplayBanner() {
     <div
       role="status"
       data-panel="replay-banner"
-      className="flex h-9 items-center gap-3 bg-ice-900 px-4 text-xs uppercase tracking-[0.2em] text-ice-100"
+      className="flex h-9 items-center gap-3 bg-(--surface-raised) px-4 heading text-(--ink-primary)"
     >
-      <span className="font-semibold text-ice-050">Replay</span>
-      <span className="normal-case tracking-normal text-ice-400">
+      <span className="font-semibold text-(--ink-primary)">Replay</span>
+      <span className="normal-case tracking-normal text-(--ink-dim)">
         viewing a recorded past — not the live fleet
       </span>
 
-      <span className="figures text-[11px] normal-case tracking-normal text-ice-200" title="timestamp being viewed">
+      <span className="figures text-inst normal-case tracking-normal text-(--ink-primary)" title="timestamp being viewed">
         {formatWallClock(playback.currentTs)}
       </span>
-      <span className="figures text-[11px] normal-case tracking-normal text-ice-400">
+      <span className="figures text-inst normal-case tracking-normal text-(--ink-dim)">
         {formatElapsed(playback.currentTs - range.start)} / {formatElapsed(range.end - range.start)}
       </span>
 
       {session !== null && (
-        <span className="normal-case tracking-normal text-ice-400" title="session identity">
+        <span className="normal-case tracking-normal text-(--ink-dim)" title="session identity">
           {session.repoName}
-          {fileName !== null && <span className="figures text-ice-400"> · {fileName}</span>}
+          {fileName !== null && <span className="figures text-(--ink-dim)"> · {fileName}</span>}
         </span>
       )}
 
@@ -57,7 +57,7 @@ export function ReplayBanner() {
       {unknownVoice !== null && (
         <span
           data-testid="replay-unknown-era"
-          className="rounded border border-ice-700 px-2 py-0.5 normal-case tracking-normal text-ice-100"
+          className="rounded border border-(--line-strong) px-2 py-0.5 normal-case tracking-normal text-(--ink-primary)"
           title="this recording came from a newer instrument; these events were kept in the log but this build cannot fold them"
         >
           {unknownVoice}
@@ -67,7 +67,7 @@ export function ReplayBanner() {
       <button
         type="button"
         onClick={() => selectSession(null)}
-        className="ml-auto rounded border border-ice-700 px-2 py-0.5 normal-case tracking-normal text-ice-200 hover:border-ice-400 hover:text-ice-050"
+        className="ml-auto rounded border border-(--line-strong) px-2 py-0.5 normal-case tracking-normal text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary)"
       >
         Exit to live
       </button>

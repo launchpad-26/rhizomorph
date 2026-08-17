@@ -1,7 +1,9 @@
+import { disclosureLines } from '../../disclosure/index.js'
 import {
-  evidenceLine,
   isTerminalDone,
-  rankIndex,
+  selectLaneCondition,
+  selectWorstPathology,
+  TERMINAL_DONE_FACT,
   type Fleet,
   type Filament,
   type Gap,
@@ -17,27 +19,24 @@ import { formatTokenBreakdown, formatTokens, formatUsd } from '../../lib/format.
  * component stays about layout and this file stays about what a cell is
  * allowed to say — in particular the gap-honest rule that a missing feed reads
  * as an absence with a reason, never as a zero (law 12).
+ *
+ * The STATE cell's *words* — {@link stateTitle}, {@link terminalDoneTitle} —
+ * come from `@rhizomorph/core`'s condition selector (prd-30 ruling 2, #560)
+ * rather than being composed here: this file used to hold its own copy of
+ * "worst pathology wins, then terminal-done, then the bare activity word" and
+ * that is exactly the shape of the failure prd-30 exists against, just
+ * between two files in this package instead of two components. What stays
+ * here is presentation only — which glyph and which hue, not which words.
  */
 
 /** The worst pathology a lane carries, or null when it has none (a calm row). */
 export function worstPathology(lane: Lane): Pathology | null {
-  if (lane.pathologies.length === 0) return null
-  return [...lane.pathologies].sort(
-    (a, b) => rankIndex(b.rank) - rankIndex(a.rank) || a.kind.localeCompare(b.kind),
-  )[0] as Pathology
+  return selectWorstPathology(lane)
 }
 
 /** The STATE column's mark: the worst pathology's kind, or the calm activity. */
 export function stateSigilKind(lane: Lane): SigilKind {
   return worstPathology(lane)?.kind ?? lane.activity
-}
-
-const ACTIVITY_TITLE: Record<Lane['activity'], string> = {
-  working: 'active within the last window',
-  waiting: 'stopped',
-  done: 'finished — worktree landed or agent declared done',
-  idle: 'quiet, past the idle threshold',
-  unknown: 'no work signal yet',
 }
 
 /**
@@ -49,38 +48,31 @@ const ACTIVITY_TITLE: Record<Lane['activity'], string> = {
  */
 export const PARKED_TEXT_CLASS = 'text-ice-400 italic'
 
-/** The STATE cell's title for a parked lane: an acknowledgement, not a mute. */
-export function parkedTitle(): string {
-  return 'parked — declared in .swarm/lanes.json; alarm inferences suppressed, other evidence unaffected'
-}
-
 /**
  * TERMINAL-DONE's own title (issue #226) — distinct from a lane that declared
  * `done` or whose worktree was removed: this one is inferred from git
  * geography (clean, ahead of main, silent past FROZEN's own threshold) after
  * a pane died mid-run. Read where DONE would otherwise be a bare, unexplained
  * word — the whole point is telling the operator *which* kind of finish this
- * was.
+ * was. The sentence itself is `@rhizomorph/core`'s own ({@link TERMINAL_DONE_FACT}),
+ * so this mark and {@link stateTitle} can never phrase the same finish two ways.
  */
 export function terminalDoneTitle(): string {
-  return 'finished — worktree is clean and ahead of main, but nothing ever declared done: the pane likely died right after its last commit landed'
+  return TERMINAL_DONE_FACT
 }
 
-/** The STATE cell's title: the detector's own evidence, never a bare label (graft g4). */
-export function stateTitle(lane: Lane): string {
-  if (lane.parked) return parkedTitle()
-  const worst = worstPathology(lane)
-  if (worst === null) return isTerminalDone(lane) ? terminalDoneTitle() : ACTIVITY_TITLE[lane.activity]
-  const extra = lane.pathologies.length - 1
-  const line = evidenceLine(worst)
-  const body = extra === 0 ? line : `${line} · +${extra} more: ${lane.pathologies.map(evidenceLine).join(' · ')}`
-  // A lane can carry a live pathology AND be terminal-done at once (issue
-  // #226): a pane can die clean-and-ahead right after landing the very commit
-  // that trespassed a fence. The alarm stays the loudest word (`stateSigilKind`
-  // never yields to DONE while a pathology stands — law 9b), but the title
-  // must still say the pane is gone, or the operator reads a live OFF-FENCE
-  // lane as one still being worked when nothing is behind the wheel any more.
-  return isTerminalDone(lane) ? `${body} · ${terminalDoneTitle()}` : body
+/**
+ * The STATE cell's title: the condition selector's own why and remedy, never
+ * a bare label (graft g4) and never re-derived from `lane.activity` /
+ * `lane.pathologies` / `lane.parked` here. `now` defaults to the wall clock
+ * only for a caller with no fold position to hand in (prd-30's own "no clock
+ * read" law binds the selector itself, not every legacy caller of this
+ * wrapper); the fleet table passes the fold's own `fleet.now` below.
+ */
+export function stateTitle(lane: Lane, now: number = Date.now()): string {
+  const lines = disclosureLines(selectLaneCondition(lane, now))
+  const remedy = lines.command === null ? lines.remedy : `${lines.remedy}: ${lines.command}`
+  return `${lines.why} · ${remedy}`
 }
 
 /**
@@ -94,6 +86,30 @@ export function stateTitle(lane: Lane): string {
  */
 export function showsTerminalDoneMark(lane: Lane): boolean {
   return !lane.parked && worstPathology(lane) !== null && isTerminalDone(lane)
+}
+
+/**
+ * The STATE cell's GIT STATUS mark (#606) — deliberately independent of
+ * `selectLaneCondition`: it renders beside any condition, parked or not,
+ * because `dirtyStatusFailedSince` is a recorded fact about the worktree, not
+ * an inferred alarm (`Lane.parked`'s own docstring: parking suppresses
+ * inferences, not facts). Never folded into `stateSigilKind`'s pathology, and
+ * must not be — see the ADR-0022 note on `Lane.dirtyStatusFailedSince`.
+ */
+export function showsGitStatusIncidentMark(lane: Lane): boolean {
+  return lane.dirtyStatusFailedSince !== null
+}
+
+/**
+ * No message is retained for this incident (`reduce.ts`'s
+ * `worktreeDirtyStatusFailed` keeps only the timestamp) — the title says so
+ * rather than inventing detail, the same gap-honesty rule the cost/fence
+ * cells above follow (law 12).
+ */
+export function gitStatusIncidentTitle(lane: Lane): string {
+  const forMs = lane.dirtyStatusFailedForMs
+  const forClause = forMs === null ? '' : ` for ${formatSpan(forMs)}`
+  return `${lane.label}: git status --porcelain has failed repeatedly${forClause} — the underlying error is not retained in-app; check the server's own log`
 }
 
 export function outputCellTitle(lane: Lane): string {

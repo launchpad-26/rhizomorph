@@ -1,6 +1,6 @@
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { PATHOLOGY_KINDS, PATHOLOGY_RANK, type LadderRank, type LaneActivity } from './buildFleet.js'
+import { PATHOLOGY_KINDS, PATHOLOGY_RANK, type LadderRank, type LaneActivity } from '@rhizomorph/core'
 import {
   ACTIVITY_TEXT_CLASS,
   RANK_TEXT_CLASS,

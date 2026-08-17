@@ -1,0 +1,9 @@
+[
+  { "handle": "rhizomorph", "branch": "main", "path": "/Users/dev/other-clone/rhizomorph", "is_main": true, "mode": "window", "has_uncommitted_changes": false, "is_open": false, "created_at": 1786058668 },
+  { "handle": "2-core", "branch": "2-core", "path": "/Users/dev/rhizomorph__worktrees/2-core", "is_main": false, "mode": "window", "has_uncommitted_changes": true, "is_open": true, "created_at": 1786588200 },
+  { "handle": "3-git-collector", "branch": "3-git-collector", "path": "/Users/dev/rhizomorph__worktrees/3-git-collector", "is_main": false, "mode": "window", "has_uncommitted_changes": true, "is_open": true, "created_at": 1786588228 },
+  { "handle": "4-tmux-collector", "branch": "4-tmux-collector", "path": "/Users/dev/rhizomorph__worktrees/4-tmux-collector", "is_main": false, "mode": "window", "has_uncommitted_changes": false, "is_open": true, "created_at": 1786588256 },
+  { "handle": "5-workmux-collector", "branch": "5-workmux-collector", "path": "/Users/dev/rhizomorph", "is_main": false, "mode": "window", "has_uncommitted_changes": true, "is_open": true, "created_at": 1786588284 },
+  { "handle": "6-server", "branch": "6-server", "path": "/Users/dev/rhizomorph__worktrees/6-server", "is_main": false, "mode": "window", "has_uncommitted_changes": true, "is_open": true, "created_at": 1786588312 },
+  { "handle": "7-web-shell", "branch": "7-web-shell", "path": "/Users/dev/rhizomorph__worktrees/7-web-shell", "is_main": false, "mode": "window", "has_uncommitted_changes": false, "is_open": false, "created_at": 1786588340 }
+]

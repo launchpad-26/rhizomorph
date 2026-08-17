@@ -20,12 +20,31 @@ import { RESUME_WINDOW_MS, type SessionBootReason } from '../log/session-log.js'
 import type { SessionRecorder } from '../server/recorder.js'
 import type { ServerContext } from '../server/context.js'
 
-/** The boot facts `/api/meta` carries in addition to `startedAt` — #181 (the web half) reads these. */
+/**
+ * The boot facts `/api/meta` carries in addition to `startedAt` — #181 (the
+ * web half) reads these.
+ *
+ * **`eventCount` is deliberately not one of them (#592).** It used to be: a
+ * snapshot of how many events were already in the session file the moment this
+ * boot decided, recorded once and never updated. On a *resumed* session that
+ * number is large and plausible, so for its whole life it read as a live
+ * count; a rotation is what made the lie legible, because a fresh session
+ * starts at 0 and the field then sat at 0 forever while the log grew (434 →
+ * 470 → 504 lines across 40 seconds of measurement, `/api/meta` reporting 0
+ * throughout).
+ *
+ * A live-sounding name over a frozen value is the thing to remove, and of the
+ * two ways to remove it this endpoint takes the one that keeps the field
+ * useful: it reports the LIVE count, off the same per-request fold
+ * {@link buildLadderManifest} already runs, rather than renaming the field to
+ * advertise a boot snapshot nothing reads. The snapshot is not lost — it is
+ * `decideSessionBoot`'s own `eventCountAtBoot`, and the boot line and
+ * `rhizomorph doctor` still print it — it simply stops being served under a
+ * name that promises something else.
+ */
 export interface SessionBootMeta {
   /** How many earlier boots already continued this exact session, before this one. */
   resumedCount: number
-  /** Events already in the session file the moment this boot decided — 0 for a fresh session. */
-  eventCount: number
   /** The resume window this boot's decision was measured against. */
   resumeWindowMs: number
   lastBootReason: SessionBootReason
@@ -62,14 +81,16 @@ const bootMetaByRecorder = new WeakMap<SessionRecorder, SessionBootMeta>()
 /**
  * A recorder nobody called `recordSessionBootMeta` for — `rhizomorph replay`,
  * or a test that builds a bare `SessionRecorder` — reports the honest
- * default: never resumed, nothing recorded yet, the stock window, and
- * `first-run` (the closest true statement: this process didn't make a resume
- * decision for it either).
+ * default: never resumed, the stock window, and `first-run` (the closest true
+ * statement: this process didn't make a resume decision for it either).
+ *
+ * It takes no recorder any more, because the one field that needed one —
+ * `eventCount` — is no longer a boot fact and is served live by the route
+ * itself (see {@link SessionBootMeta}).
  */
-function fallbackBootMeta(recorder: SessionRecorder): SessionBootMeta {
+function fallbackBootMeta(): SessionBootMeta {
   return {
     resumedCount: 0,
-    eventCount: recorder.eventsSoFar().length,
     resumeWindowMs: RESUME_WINDOW_MS,
     lastBootReason: 'first-run',
   }
@@ -203,7 +224,7 @@ function buildConnection(folded: SessionState): MetaConnection {
 
 export function registerMetaRoute(app: FastifyInstance, ctx: ServerContext): void {
   app.get('/api/meta', async () => {
-    const bootMeta = bootMetaByRecorder.get(ctx.recorder) ?? fallbackBootMeta(ctx.recorder)
+    const bootMeta = bootMetaByRecorder.get(ctx.recorder) ?? fallbackBootMeta()
     const ladder = buildLadderManifest(ctx.recorder)
     return {
       repoPath: ctx.repoPath,
@@ -211,6 +232,11 @@ export function registerMetaRoute(app: FastifyInstance, ctx: ServerContext): voi
       sessionId: ctx.recorder.sessionId,
       startedAt: Number(ctx.recorder.sessionId),
       ...bootMeta,
+      // The LIVE count, off the fold this request already built (#592) — never
+      // a boot snapshot. `folded.eventCount` is `core`'s own envelope counter,
+      // so it is the same number every surface reads, and it moves with the
+      // log rather than with the process. See {@link SessionBootMeta}.
+      eventCount: ladder.folded.eventCount,
       capabilities: ladder.capabilities,
       rung: ladder.rung,
       connection: buildConnection(ladder.folded),

@@ -98,6 +98,7 @@ async function renderApp() {
     import('./recordings/index.js'),
     import('./lab/index.js'),
     import('./connect/index.js'),
+    import('./settings/index.js'),
   ])
 
   let source: FakeEventSource | undefined
@@ -114,6 +115,20 @@ async function renderApp() {
   )
   await act(async () => {})
   return { ...utils, source: () => source }
+}
+
+/**
+ * The fleet surface opens on the organism (prd-36 ruling 1: the list is the
+ * floor, not the default), and the stub that can drive the one selection is the
+ * list arm's. Any test here that reaches for a row asks for the list first, with
+ * the surface's own keystroke — and awaits, because the list arm is behind
+ * `lazy()` and React insists on one suspend-then-resume tick the first time it
+ * mounts.
+ */
+async function showFleetList() {
+  await act(async () => {
+    fireEvent.keyDown(window, { key: 'v' })
+  })
 }
 
 const nextId = createIdFactory('evt')
@@ -140,17 +155,15 @@ describe('App', () => {
     expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
     expect(screen.getByText('connecting…')).toBeInTheDocument()
 
-    // attention + burn docked top → scene → fleet → the rest → provenance bar
-    // (prd4 ruling 2: the scene is the centerpiece, the table is its legend).
+    // attention + burn docked top → fleet → the rest → provenance bar. prd-36
+    // ruling 1 merged the scene and the table into ONE surface, so the curated
+    // order is one row shorter than it was: `Fleet` is the hero, and which
+    // representation it is drawing is the person's own choice inside it rather
+    // than a second heading in this sequence.
     const marks = [...container.querySelectorAll('h1, h2')].map((node) => node.textContent)
-    expect(marks).toEqual([
-      'THE OBSERVATORY',
-      'Scene',
-      'Fleet',
-      'Ledger',
-      'Collisions',
-      'Activity',
-    ])
+    expect(marks).toEqual(['THE OBSERVATORY', 'Fleet', 'Ledger', 'Collisions', 'Activity'])
+    // The organism is what a fresh instrument opens on, inside that one frame.
+    expect(screen.getByText('Scene stub')).toBeInTheDocument()
     expect(screen.getByText('Attention strip')).toBeInTheDocument()
     expect(screen.getByText('Burn strip')).toBeInTheDocument()
     // The provenance bar stays docked at the bottom (ruling 15).
@@ -172,12 +185,34 @@ describe('App', () => {
     await waitFor(() => expect(screen.getByText('live')).toBeInTheDocument())
   })
 
-  it('can collapse and re-expand the scene slot', async () => {
+  it('can collapse and re-expand the fleet surface, whichever representation is up', async () => {
     await renderApp()
-    const toggle = screen.getByRole('button', { name: /collapse scene/i })
+    // The scene has no frame of its own any more (prd-36 ruling 1): the fleet
+    // surface is the panel, and one collapse folds both representations away.
+    expect(screen.queryByRole('button', { name: /collapse scene/i })).not.toBeInTheDocument()
 
-    act(() => toggle.click())
-    expect(await screen.findByRole('button', { name: /expand scene/i })).toBeInTheDocument()
+    act(() => screen.getByRole('button', { name: 'Collapse Fleet' }).click())
+    expect(await screen.findByRole('button', { name: 'Expand Fleet' })).toBeInTheDocument()
+    expect(screen.queryByText('Scene stub')).not.toBeInTheDocument()
+
+    act(() => screen.getByRole('button', { name: 'Expand Fleet' }).click())
+    expect(screen.getByText('Scene stub')).toBeInTheDocument()
+  })
+
+  it('switches the hero between its two representations on one keystroke', async () => {
+    const { container } = await renderApp()
+    expect(screen.getByText('Scene stub')).toBeInTheDocument()
+
+    await showFleetList()
+
+    // The list is the same panel, not a second one: the roster is where the
+    // picture was, and no row was added to or removed from the curated order.
+    expect(screen.queryByText('Scene stub')).not.toBeInTheDocument()
+    expect(screen.getByText('select lane')).toBeInTheDocument()
+    const marks = [...container.querySelectorAll('h1, h2')].map((node) => node.textContent)
+    // The stubbed table brings an `<h2>Fleet</h2>` of its own until wave 2 drops
+    // it now that the surface carries one — see `FleetSurface.tsx`.
+    expect(marks).toEqual(['THE OBSERVATORY', 'Fleet', 'Fleet', 'Ledger', 'Collisions', 'Activity'])
   })
 
   describe('panel focus (ruling 6)', () => {
@@ -198,6 +233,7 @@ describe('App', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Focus Fleet' }))
       expect(screen.getByRole('button', { name: 'Restore Fleet' })).toBeInTheDocument()
 
+      await showFleetList()
       fireEvent.click(screen.getByText('select lane'))
       await act(async () => {})
       expect(screen.getByTestId('lane-drawer')).toBeInTheDocument()
@@ -418,6 +454,208 @@ describe('App', () => {
     })
   })
 
+  describe('the settings surface (prd-35 S1, #550 — the route #549 held open)', () => {
+    afterEach(() => {
+      window.history.replaceState(null, '', '/')
+      localStorage.clear()
+      document.documentElement.removeAttribute('data-theme')
+      document.documentElement.removeAttribute('data-motion')
+    })
+
+    /**
+     * The preferences a person chose are properties of the DOCUMENT, not of the
+     * page they were chosen on — so they are applied at the composition root and
+     * this proves it on the balcony, with the settings page nowhere in the tree.
+     * Applying them only where they are set is how a preference comes to survive
+     * a reload in one place and not in another (prd-35 S1, #550).
+     */
+    it('applies stored preferences on every route, not only on the settings page', async () => {
+      localStorage.setItem(
+        'rhizomorph.prefs.machine.v1',
+        JSON.stringify({ 'appearance.theme': 'light', 'motion.level': 'still' }),
+      )
+
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
+      expect(document.documentElement.dataset.theme).toBe('light')
+      expect(document.documentElement.dataset.motion).toBe('still')
+    })
+
+    it('deep-links cold to /settings — a route switch, not an overlay', async () => {
+      window.history.replaceState(null, '', '/settings')
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      expect(await screen.findByTestId('settings-page')).toBeInTheDocument()
+      expect(screen.queryByText('THE OBSERVATORY')).not.toBeInTheDocument()
+    })
+
+    it('the browser back button returns from settings to the balcony', async () => {
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      act(() => navigate('/settings'))
+      expect(await screen.findByTestId('settings-page')).toBeInTheDocument()
+
+      await act(async () => {
+        const popped = new Promise<void>((resolve) =>
+          window.addEventListener('popstate', () => resolve(), { once: true }),
+        )
+        window.history.back()
+        await popped
+      })
+
+      expect(window.location.pathname).toBe('/')
+      expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
+    })
+  })
+
+  /**
+   * S4'S DONE-WHEN: "a test asserts nav renders on all routes, named
+   * individually" (#549) — before this wave, `Shell.tsx`'s nav mounted only
+   * on the balcony (App's route switch rendered the other four surfaces with
+   * no nav of their own at all, per the honesty note two describe blocks
+   * up). One `it` per route, so a regression that drops the nav from any one
+   * surface fails by name rather than folding into a shared assertion.
+   */
+  describe('the persistent nav renders on every surface, named individually (#549, prd-32 ruling 10)', () => {
+    afterEach(() => {
+      window.history.replaceState(null, '', '/')
+      vi.unstubAllGlobals()
+    })
+
+    function stubEmptyRecordings() {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ sessions: [] }) })),
+      )
+    }
+
+    function stubEmptyLab() {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string | URL | Request) => {
+          const href = String(input)
+          if (href === '/api/lab/checkpoints') return { ok: true, status: 200, json: async () => ({ checkpoints: [] }) }
+          if (href === '/api/lab/experiments') return { ok: true, status: 200, json: async () => ({ experiments: [] }) }
+          throw new Error(`unexpected fetch: ${href}`)
+        }),
+      )
+    }
+
+    it('renders on the balcony (/)', async () => {
+      await renderApp()
+      expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    })
+
+    it('renders on the lane page (/lane/:handle)', async () => {
+      const handle = '42-otel-receiver'
+      window.history.replaceState(null, '', laneUrl(handle))
+      const { source } = await renderApp()
+      act(() => source()?.open())
+      for (const event of fixtureEvents()) act(() => source()?.emit(event))
+      act(() =>
+        source()?.emit(
+          createEvent(
+            'worktree.discovered',
+            { path: `/repo-wt/${handle}`, branch: handle, head: 'sha-1', isMain: false },
+            { id: nextId(), ts: 3 },
+          ),
+        ),
+      )
+
+      await screen.findByTestId('lane-page-header')
+      expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    })
+
+    it('renders on the lane page even for a handle no lane in this session carries', async () => {
+      window.history.replaceState(null, '', laneUrl('never-existed'))
+      const { source } = await renderApp()
+      act(() => source()?.open())
+      for (const event of fixtureEvents()) act(() => source()?.emit(event))
+
+      await screen.findByTestId('lane-page-unknown')
+      expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    })
+
+    it('renders on recordings (/recordings)', async () => {
+      stubEmptyRecordings()
+      window.history.replaceState(null, '', '/recordings')
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      await screen.findByTestId('recordings-page')
+      expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    })
+
+    it('renders on the lab (/lab)', async () => {
+      stubEmptyLab()
+      window.history.replaceState(null, '', '/lab')
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      await screen.findByTestId('lab-page')
+      expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    })
+
+    it('renders on connect (/connect)', async () => {
+      window.history.replaceState(null, '', '/connect')
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      await screen.findByTestId('connect-page')
+      expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    })
+
+    it('renders on the settings surface (/settings)', async () => {
+      window.history.replaceState(null, '', '/settings')
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      await screen.findByTestId('settings-page')
+      expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+    })
+  })
+
+  describe('the window floor (S5, prd-32 ruling 10)', () => {
+    afterEach(() => {
+      window.history.replaceState(null, '', '/')
+      window.innerWidth = 1440
+      window.innerHeight = 900
+    })
+
+    it('replaces the whole app frame with the honest panel below the floor, on any route', async () => {
+      window.innerWidth = 900
+      window.innerHeight = 600
+      window.history.replaceState(null, '', '/lab')
+      const { source } = await renderApp()
+      act(() => source()?.open())
+
+      expect(await screen.findByTestId('window-floor')).toBeInTheDocument()
+      expect(screen.queryByTestId('lab-page')).not.toBeInTheDocument()
+      expect(screen.queryByText('THE OBSERVATORY')).not.toBeInTheDocument()
+    })
+
+    it('resumes the instrument once the window grows back past the floor', async () => {
+      window.innerWidth = 900
+      window.innerHeight = 600
+      const { source } = await renderApp()
+      act(() => source()?.open())
+      expect(await screen.findByTestId('window-floor')).toBeInTheDocument()
+
+      await act(async () => {
+        window.innerWidth = 1440
+        window.innerHeight = 900
+        fireEvent(window, new Event('resize'))
+      })
+
+      expect(screen.queryByTestId('window-floor')).not.toBeInTheDocument()
+      expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
+    })
+  })
+
   /**
    * THE DoD OF #229 (widened by #252) — findability, not routability. `/lab`,
    * `/recordings` and `/connect` all render and deep-link cold (the describe
@@ -503,5 +741,72 @@ describe('App', () => {
       expect(screen.getByTestId('nav-lab')).toBeVisible()
       expect(screen.getByTestId('nav-connect')).toBeVisible()
     })
+  })
+})
+/**
+ * The composition root's own wiring (#390 review). `SelectionProvider` can be
+ * mounted unscoped — most panel tests do — so the fact that the REAL tree
+ * hands it the folded repo path is a separate claim from the provider's own
+ * laws in `fleet/selection.test.tsx`, and this is what fences it.
+ *
+ * The drawer is the observable: it is open exactly while a lane is selected,
+ * so a drawer that survives a retarget is a lane id from the old repo still
+ * pointing at something in the new one.
+ */
+describe('a repo boundary drops the selection (#390 review)', () => {
+  it('closes a lane drawer opened in the old repo when session.started names a different one', async () => {
+    const { source } = await renderApp()
+    for (const event of fixtureEvents()) act(() => source()?.emit(event))
+    await act(async () => {})
+
+    await showFleetList()
+    fireEvent.click(screen.getByText('select lane'))
+    await act(async () => {})
+    expect(screen.getByTestId('lane-drawer')).toBeInTheDocument()
+
+    // The retarget: same page, same connection, different repository.
+    act(() =>
+      source()?.emit(
+        createEvent(
+          'session.started',
+          {
+            sessionId: 's2',
+            repoPath: '/other-repo',
+            repoName: 'other',
+            mainBranch: 'main',
+          },
+          { id: nextId(), ts: 3 },
+        ),
+      ),
+    )
+    await act(async () => {})
+
+    expect(screen.queryByTestId('lane-drawer')).not.toBeInTheDocument()
+  })
+
+  it('keeps a lane drawer open across an ordinary rotation over the same repo', async () => {
+    const { source } = await renderApp()
+    for (const event of fixtureEvents()) act(() => source()?.emit(event))
+    await act(async () => {})
+
+    await showFleetList()
+    fireEvent.click(screen.getByText('select lane'))
+    await act(async () => {})
+    expect(screen.getByTestId('lane-drawer')).toBeInTheDocument()
+
+    // A rotation changes the session id and nothing else. The lane the
+    // operator was reading is still the same lane in the same repo.
+    act(() =>
+      source()?.emit(
+        createEvent(
+          'session.started',
+          { sessionId: 's2', repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' },
+          { id: nextId(), ts: 3 },
+        ),
+      ),
+    )
+    await act(async () => {})
+
+    expect(screen.getByTestId('lane-drawer')).toBeInTheDocument()
   })
 })

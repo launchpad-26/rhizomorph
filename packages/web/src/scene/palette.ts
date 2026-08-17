@@ -1,4 +1,4 @@
-import type { LaneActivity } from '../fleet/buildFleet.js'
+import type { LadderRank, LaneActivity } from '@rhizomorph/core'
 
 /**
  * The scene's ink — the ice-neon register (prd4 ruling 3) as canvas numbers.
@@ -349,3 +349,451 @@ export function cssColour(value: Ink): string {
 export function clamp01(value: number): number {
   return value < 0 ? 0 : value > 1 ? 1 : value
 }
+
+// ── PER-THEME TABLES (prd-32 rulings 4 and 7) ───────────────────────────────
+
+/**
+ * TWO WORLDS, AND THE ONE THING THAT DOES NOT SURVIVE THE CROSSING.
+ *
+ * Everything above this line is dark's, and dark remains the source of truth.
+ * What follows is the machinery ruling 4 asks for — "`scene/palette.ts` becomes
+ * per-theme tables" — plus the harder half of ruling 7, which is that severity
+ * cannot come along unchanged.
+ *
+ * **The trap.** On the void, severity climbs by luminance: `CALM_CEILING` caps
+ * the calm world at 0.78 and `ALARM_FLOOR` puts every summons above 0.84, so a
+ * lane in trouble is literally the brightest thing on screen. Move that
+ * encoding to warm paper and it inverts: brighter means *closer to the page*,
+ * so a dying lane would recede exactly when it should not. The encoding is not
+ * merely miscalibrated on paper — it means the opposite thing.
+ *
+ * **What is re-carried, and on what.** Severity travels here by **weight,
+ * enclosure and saturation** ({@link SeverityReading}), and the band is
+ * re-derived in **presence** ({@link presence}) — a mark's departure from its
+ * own ground — rather than in luminance. On the void the two quantities very
+ * nearly coincide, because the ground is nearly black and departing from black
+ * *is* emitting light; that coincidence is the whole reason nobody had to name
+ * the difference until a second ground existed.
+ *
+ * **What does not move.** `RECEDE`, `CALM_CEILING`, `ALARM_FLOOR` and
+ * `CALM_FLOOR` are dark's numbers and stay exactly as they are (charter §2.2).
+ * Light gets three of its own beside them — {@link PAPER_CALM_FLOOR},
+ * {@link PAPER_CALM_CEILING}, {@link PAPER_ALARM_FLOOR} — derived against warm
+ * paper rather than scaled off the void's. `RECEDE` is the one number the two
+ * themes share, and the reason is worth stating: it is a *ratio*, so it is the
+ * only part of the contrast budget that is not denominated in light at all.
+ *
+ * **What is still dark-only.** `marks/` and `salience.ts` are outside this
+ * wave's fence and still paint from the constants above. The tables, the band
+ * and the laws land here; the scene consuming {@link paletteFor} is the next
+ * wave's work, and until it happens a light chrome sits over a void scene.
+ */
+
+/**
+ * Which table. Deliberately declared here rather than imported from
+ * `settings/`, and the direction is the point: the scene must not depend on the
+ * settings surface to know what a palette is. It is the same two names
+ * `settings/apply.ts` resolves an attribute to and the same two the registry
+ * offers under `appearance.theme`, and `palette.test.ts` holds all three sets
+ * equal — so a theme added to one of them and not the others fails rather than
+ * quietly painting the void under a page that says it is light.
+ */
+export type ThemeName = 'dark' | 'light'
+
+/**
+ * The ten slots the two registers share.
+ *
+ * Named rather than numbered, because the numbers mean opposite things in the
+ * two worlds: dark's ice ramp climbs as light is added and light's paper
+ * register climbs as ink is. A slot is what the scene actually asks for — "the
+ * ground", "body copy", "the peak" — and it survives the crossing where a
+ * luminance step does not.
+ */
+export type RegisterSlot =
+  | 'ground'
+  | 'plate'
+  | 'cold'
+  | 'unknown'
+  | 'oldest'
+  | 'idle'
+  | 'body'
+  | 'data'
+  | 'emphasis'
+  | 'peak'
+
+/** The six status hues (law 9a), by the name each one means. */
+export interface StatusHues {
+  readonly working: Rgb
+  readonly done: Rgb
+  readonly waitingBenign: Rgb
+  readonly needsYou: Rgb
+  readonly broken: Rgb
+  readonly notice: Rgb
+}
+
+/**
+ * How a rung reads, once brightness is taken off the table.
+ *
+ * The three carried channels are the ones ruling 7 names, and they are the ones
+ * a reader can still use on a ground that is already at the top of the range.
+ * `rgb`/`alpha` are the mark's actual ink; everything else is what the mark is
+ * *made* of rather than what colour it is.
+ */
+export interface SeverityReading {
+  /** The ink itself. */
+  readonly rgb: Rgb
+  /** How much of it. */
+  readonly alpha: number
+  /** Stroke weight, relative to a calm mark. Ruling 7's first carrier. */
+  readonly weight: number
+  /** Chroma gain over the resting tint. Ruling 7's third carrier. */
+  readonly saturation: number
+  /** 0 none · 0.5 a rule under the mark · 1 a full cartouche. The second. */
+  readonly enclosure: number
+}
+
+/** The band a theme's severity is denominated in, and the units it is in. */
+export interface SeverityBand {
+  /** `luminance` on the void; `presence` on paper — the quantity, named. */
+  readonly carrier: 'luminance' | 'presence'
+  /** No living mark sits below this. */
+  readonly floor: number
+  /** No calm mark climbs above this. */
+  readonly calmCeiling: number
+  /** Every alarm mark reaches this. */
+  readonly alarmFloor: number
+  /** What everything the spotlight is not on drops to. Shared — it is a ratio. */
+  readonly recede: number
+}
+
+/** One theme's whole scene table. */
+export interface ScenePalette {
+  readonly theme: ThemeName
+  /** The ground the network hangs in — the void, or the page. */
+  readonly ground: Rgb
+  /** The structural register, slot by slot. */
+  readonly register: Readonly<Record<RegisterSlot, Rgb>>
+  readonly status: StatusHues
+  /** The one place a lane's activity becomes a colour, per theme. */
+  readonly activity: Record<LaneActivity, Rgb>
+  readonly necrotic: Rgb
+  /** Five steps, ground-ward first — read as a gradient, never as five choices. */
+  readonly tissue: readonly Rgb[]
+  /** The alpha a living thread is drawn at with nothing going on at all. */
+  readonly bodyFloor: number
+  readonly band: SeverityBand
+  /** The ladder, as four readings. See {@link SeverityReading}. */
+  readonly severity: Readonly<Record<LadderRank, SeverityReading>>
+}
+
+// ── the void's table ────────────────────────────────────────────────────────
+
+/**
+ * Dark, assembled from the constants above rather than restated beside them —
+ * so the table cannot drift from the register every mark in `marks/` still
+ * imports directly.
+ */
+export const DARK_PALETTE: ScenePalette = {
+  theme: 'dark',
+  ground: ICE_1000,
+  register: {
+    ground: ICE_1000,
+    plate: ICE_950,
+    cold: ICE_700,
+    unknown: ICE_600,
+    oldest: ICE_500,
+    idle: ICE_400,
+    body: ICE_300,
+    data: ICE_200,
+    emphasis: ICE_100,
+    peak: ICE_050,
+  },
+  status: {
+    working: WORKING,
+    done: DONE,
+    waitingBenign: WAITING_BENIGN,
+    needsYou: NEEDS_YOU,
+    broken: BROKEN,
+    notice: NOTICE,
+  },
+  activity: ACTIVITY_HUE,
+  necrotic: NECROTIC,
+  tissue: TISSUE_RAMP,
+  bodyFloor: CALM_BODY_FLOOR,
+  band: {
+    carrier: 'luminance',
+    // The four immovable numbers, restated by reference rather than by value:
+    // `salience.ts` owns them and `palette.test.ts` asserts they have not
+    // moved. They are written out here because `salience.ts` imports this
+    // module, so the dependency cannot run the other way.
+    floor: 0.15,
+    calmCeiling: 0.78,
+    alarmFloor: 0.84,
+    recede: 0.3,
+  },
+  /**
+   * DARK'S LADDER, DESCRIBED HONESTLY — including the bit that is a luminance.
+   *
+   * Weight and saturation are flat all the way up, because on the void they do
+   * not have to work: `marks/node.ts` adds an enclosure at the alarm rungs
+   * (`node.ts:161`, alarm-only) and the brightness band does everything else.
+   * That flatness is not an omission in this table, it is the finding — it is
+   * what `palette.test.ts` measures when it flattens luminance and watches
+   * dark's ladder stop climbing while light's keeps going.
+   */
+  severity: {
+    calm: { ...activityInk('working', 0.5, 0), weight: 1, saturation: 1, enclosure: 0 },
+    notice: { rgb: NOTICE, alpha: 1, weight: 1, saturation: 1, enclosure: 0 },
+    'needs-you': { rgb: incandescent(NEEDS_YOU), alpha: 1, weight: 1, saturation: 1, enclosure: 1 },
+    broken: { rgb: BROKEN, alpha: 1, weight: 1, saturation: 1, enclosure: 1 },
+  },
+}
+
+// ── warm paper's table ──────────────────────────────────────────────────────
+
+/**
+ * THE PAPER REGISTER, mirrored for canvas exactly as the ice ramp is.
+ *
+ * Thirteen steps in `theme.css`, ten of them here — the same ten slots the ice
+ * ramp lends the scene. Numbered by ink rather than by luminance: `000` is the
+ * page with nothing on it, `950` is the deepest mark the instrument makes.
+ */
+const PAPER_000: Rgb = [250, 246, 239]
+const PAPER_050: Rgb = [243, 238, 228]
+const PAPER_300: Rgb = [181, 155, 158]
+const PAPER_400: Rgb = [151, 125, 137]
+const PAPER_500: Rgb = [127, 101, 118]
+const PAPER_600: Rgb = [103, 76, 97]
+const PAPER_700: Rgb = [82, 56, 78]
+const PAPER_800: Rgb = [64, 39, 60]
+const PAPER_900: Rgb = [48, 27, 45]
+const PAPER_950: Rgb = [34, 16, 31]
+
+/** The six, re-inked. Each keeps its dark counterpart's OKLCH hue angle. */
+const PAPER_WORKING: Rgb = [0, 112, 57]
+const PAPER_DONE: Rgb = [59, 133, 102]
+const PAPER_WAITING_BENIGN: Rgb = [141, 105, 38]
+const PAPER_NEEDS_YOU: Rgb = [113, 74, 0]
+const PAPER_BROKEN: Rgb = [167, 0, 54]
+const PAPER_NOTICE: Rgb = [0, 111, 126]
+
+const PAPER_NECROTIC: Rgb = [169, 162, 168]
+
+/** Ground-ward first, at the organism's own hue (295.5) in both worlds. */
+const PAPER_TISSUE: readonly Rgb[] = [
+  [237, 234, 249],
+  [214, 207, 239],
+  [185, 173, 223],
+  [155, 138, 205],
+  [134, 113, 189],
+]
+
+/**
+ * THE LIGHT BAND — three numbers derived against paper, beside dark's four.
+ *
+ * Denominated in {@link presence}, which on paper runs the opposite way from
+ * luminance: a mark departs from the page by *darkening*. So the same three
+ * sentences hold — nothing living below the floor, nothing calm above the
+ * ceiling, every alarm above the alarm floor — while the physical direction of
+ * every one of them is reversed.
+ *
+ * They are chosen against this palette rather than scaled off dark's, because a
+ * scaled band is an inverted palette wearing a different coat. The floor is
+ * where the quietest activity ink actually lands (0.235 measured, so 0.20 has
+ * room); the ceiling is what {@link capPresence} holds the calm world to; the
+ * alarm floor is where {@link emphatic} puts a summons.
+ */
+export const PAPER_CALM_FLOOR = 0.2
+/** @see PAPER_CALM_FLOOR */
+export const PAPER_CALM_CEILING = 0.7
+/** @see PAPER_CALM_FLOOR */
+export const PAPER_ALARM_FLOOR = 0.75
+
+/**
+ * The alpha a living thread is drawn at on paper with nothing going on — the
+ * light counterpart of {@link CALM_BODY_FLOOR}, and a smaller number for a
+ * reason that is not taste: alpha is *ink coverage* here, and a resting mark
+ * that laid down 0.58 of the deepest plum in the register would read as heavier
+ * than the body copy beside it.
+ */
+export const PAPER_BODY_FLOOR = 0.52
+
+export const LIGHT_PALETTE: ScenePalette = {
+  theme: 'light',
+  ground: PAPER_000,
+  register: {
+    ground: PAPER_000,
+    plate: PAPER_050,
+    cold: PAPER_300,
+    unknown: PAPER_400,
+    oldest: PAPER_500,
+    idle: PAPER_600,
+    body: PAPER_700,
+    data: PAPER_800,
+    emphasis: PAPER_900,
+    peak: PAPER_950,
+  },
+  status: {
+    working: PAPER_WORKING,
+    done: PAPER_DONE,
+    waitingBenign: PAPER_WAITING_BENIGN,
+    needsYou: PAPER_NEEDS_YOU,
+    broken: PAPER_BROKEN,
+    notice: PAPER_NOTICE,
+  },
+  activity: {
+    working: PAPER_WORKING,
+    waiting: PAPER_WAITING_BENIGN,
+    done: PAPER_DONE,
+    // Nothing to say is structure in both worlds — and `unknown` is still the
+    // quieter of the two, which on paper means *less ink* where on the void it
+    // meant less light. `palette.test.ts` asserts that in presence, which is
+    // the one phrasing of the law that is true in both.
+    idle: PAPER_600,
+    unknown: PAPER_400,
+  },
+  necrotic: PAPER_NECROTIC,
+  tissue: PAPER_TISSUE,
+  bodyFloor: PAPER_BODY_FLOOR,
+  band: {
+    carrier: 'presence',
+    floor: PAPER_CALM_FLOOR,
+    calmCeiling: PAPER_CALM_CEILING,
+    alarmFloor: PAPER_ALARM_FLOOR,
+    // Shared with dark, and the only one that is: a ratio is not denominated in
+    // light, so receding to three-tenths means the same thing on either ground.
+    recede: 0.3,
+  },
+  /**
+   * PAPER'S LADDER — the ruling's sentence, as four rows.
+   *
+   * "BROKEN gains a cartouche and weight where on the void it gained
+   * luminance." Every step up climbs on all three carried channels, and the
+   * enclosure arrives one rung earlier than it does on the void: on paper a
+   * summons cannot buy its rung with brightness, so it buys half a cartouche —
+   * a rule under the mark — where dark's summons simply got brighter.
+   */
+  severity: {
+    calm: { rgb: PAPER_700, alpha: 0.62, weight: 1, saturation: 1, enclosure: 0 },
+    notice: { rgb: PAPER_NOTICE, alpha: 0.8, weight: 1.3, saturation: 1.15, enclosure: 0 },
+    'needs-you': {
+      rgb: mix(PAPER_NEEDS_YOU, PAPER_950, 0.45),
+      alpha: 1,
+      weight: 1.8,
+      saturation: 1.4,
+      enclosure: 0.5,
+    },
+    broken: { rgb: PAPER_BROKEN, alpha: 1, weight: 2.4, saturation: 1.7, enclosure: 1 },
+  },
+}
+
+/** Both tables, in the order `theme.css` declares them. */
+export const PALETTES: Readonly<Record<ThemeName, ScenePalette>> = {
+  dark: DARK_PALETTE,
+  light: LIGHT_PALETTE,
+}
+
+export function paletteFor(theme: ThemeName): ScenePalette {
+  return PALETTES[theme]
+}
+
+// ── the arithmetic a second ground makes necessary ──────────────────────────
+
+/**
+ * PRESENCE — how far a mark departs from its own ground, alpha included.
+ *
+ * The quantity {@link luminance} has been standing in for since prd4. Composite
+ * an ink of alpha *a* over a ground and the result's brightness is
+ * `groundLum + a·(inkLum − groundLum)`, so the *departure* is `a·|inkLum −
+ * groundLum|` — this function, exactly. On the void `groundLum` is 0.024 and
+ * the two quantities agree to within that, which is why one number served for
+ * two ideas for four PRDs. On paper `groundLum` is 0.966 and they run in
+ * opposite directions.
+ *
+ * Note what this is not: {@link luminance} is still the budget dark's four
+ * numbers are denominated in, and nothing here restates them.
+ */
+export function presence(value: Ink, ground: Rgb): number {
+  return Math.abs(luminance(ink(value.rgb, 1)) - luminance(ink(ground, 1))) * clamp01(value.alpha)
+}
+
+/**
+ * Scales alpha down — never up — until the ink departs from its ground by no
+ * more than `ceiling`. The presence-denominated twin of `salience.ts`'s private
+ * `capLuminance`, and deliberately written here rather than there: the four
+ * numbers that file owns are dark's, and a light-mode cap living beside them
+ * would be one edit away from renegotiating them.
+ */
+export function capPresence(source: Ink, ground: Rgb, ceiling: number): Ink {
+  const here = presence(source, ground)
+  if (here <= ceiling) return source
+  return { rgb: source.rgb, alpha: clamp01(source.alpha * (ceiling / here)) }
+}
+
+/**
+ * The emphatic end of a family on paper — {@link incandescent}'s exact mirror.
+ *
+ * Dark's summons clears `ALARM_FLOOR` by being mixed toward the ice ramp's
+ * white; paper's clears {@link PAPER_ALARM_FLOOR} by being mixed toward the
+ * register's deepest ink. Same 0.45, same law, opposite direction, and both are
+ * needed for the same reason: the raw family hue does not reach its own theme's
+ * alarm floor on its own.
+ */
+export function emphatic(rgb: Rgb, palette: ScenePalette = LIGHT_PALETTE): Rgb {
+  return mix(rgb, palette.register.peak, 0.45)
+}
+
+/**
+ * A living lane's resting ink, in whichever world is on — {@link activityInk}
+ * generalised over a palette, with dark's path byte-identical to the function it
+ * generalises (`palette.test.ts` asserts that across the whole sweep, which is
+ * what makes this a widening rather than a rewrite).
+ *
+ * The formula does not change and does not need to. `resting` walks the
+ * register from its `oldest` slot to its `emphasis` slot as a lane freshens,
+ * and alpha climbs from the theme's own body floor — both of which mean "more
+ * of the register" in either world. What differs is only what the register's
+ * ends *are*.
+ */
+export function activityInkOn(
+  palette: ScenePalette,
+  activity: LaneActivity,
+  freshness: number,
+  heat: number,
+): Ink {
+  const fresh = clamp01(freshness)
+  const warm = clamp01(heat)
+  const resting = mix(palette.register.oldest, palette.register.emphasis, fresh)
+  const alpha = palette.bodyFloor + 0.3 * fresh + 0.2 * warm
+
+  return ink(
+    mix(resting, palette.activity[activity], ACTIVITY_TINT[activity]),
+    activity === 'done' ? alpha * 0.85 : alpha,
+  )
+}
+
+/**
+ * Does severity climb from `lower` to `higher` on a channel a reader who cannot
+ * use brightness still has?
+ *
+ * The whole of "severity is re-carried, not re-lit", as one predicate: at least
+ * one of weight, enclosure and saturation must rise, and none of them may fall.
+ * A step that falls on one channel while rising on another is not a ladder, it
+ * is a trade.
+ *
+ * Deliberately not a score. A weighted sum of three channels would let a
+ * reviewer tune the weights until any ladder passed, and would answer a
+ * question nobody asked — "how much worse" — in place of the one ruling 7 does
+ * ask, which is whether worse is legible at all.
+ */
+export function carriesSeverity(lower: SeverityReading, higher: SeverityReading): boolean {
+  const channels: readonly (readonly [number, number])[] = [
+    [lower.weight, higher.weight],
+    [lower.enclosure, higher.enclosure],
+    [lower.saturation, higher.saturation],
+  ]
+  return channels.some(([a, b]) => b > a) && channels.every(([a, b]) => b >= a)
+}
+
+/** The ladder, worst last — the order severity is read in. */
+export const SEVERITY_LADDER: readonly LadderRank[] = ['calm', 'notice', 'needs-you', 'broken']

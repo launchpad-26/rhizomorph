@@ -138,6 +138,18 @@ export interface UninstrumentedSession {
   firstEventTs: number
   /** Latest transcript timestamp for this session. */
   lastEventTs: number
+  /**
+   * Where this session ran, joined from `state.telemetry.sessions` by
+   * `sessionId` — **never by lane**. A lane join would collide the moment two
+   * collectors report the same session under different lane handles (exactly
+   * the case {@link uninstrumentedSessions}'s own doc names for `lanes`
+   * itself), or the moment two different sessions share a lane handle over
+   * time. `null` when `state.telemetry.sessions` has no entry for this session
+   * — an honest absence, never a guess.
+   */
+  worktreePath: string | null
+  /** See {@link worktreePath}; same join, same null-means-unknown rule. */
+  branch: string | null
 }
 
 export interface Connection {
@@ -324,12 +336,20 @@ function uninstrumentedSessions(state: SessionState): UninstrumentedSession[] {
   const uninstrumented: UninstrumentedSession[] = []
   for (const [sessionId, evidence] of bySession) {
     if (evidence.otel) continue
+    // Joined by sessionId, never by lane — `state.telemetry.sessions` is
+    // keyed by session id precisely because the same session can be reported
+    // under two different lane handles by the two collectors (`SessionPlace`'s
+    // own doc), which `evidence.lanes` above is proof can happen in this very
+    // function. A session with no place gets nulls, not a guess.
+    const place = state.telemetry.sessions[sessionId]
     uninstrumented.push({
       sessionId,
       lanes: [...evidence.lanes].sort(compareStrings),
       roles: [...evidence.roles].sort(compareStrings),
       firstEventTs: evidence.first,
       lastEventTs: evidence.last,
+      worktreePath: place?.worktreePath ?? null,
+      branch: place?.branch ?? null,
     })
   }
 

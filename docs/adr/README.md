@@ -130,6 +130,27 @@ exactly what stops it being taken again by accident.
 
 Fixing a typo or a broken link is fine. Rewriting the reasoning is not.
 
+**Amendments are new top-level ADRs.** Some decisions here are constitutions
+rather than one-off choices — ADR-0001 is the clearest — and they get *amended*
+rather than superseded: the old decision still stands, with a named power added
+to it. There is exactly one numbering scheme for that, the sequential one above.
+An amendment gets the next free number, states in its own Decision Outcome that
+it amends ADR-NNNN, and the amended record's **Status** line gains a link to it.
+Sub-numbers (`0001a`) are not a convention here.
+
+This was ambiguous until 2026-08-10, and worth recording rather than quietly
+fixing. ADR-0001's Status line read *"amended by ADR-0001a and ADR-0001b"* from
+the day the log was reconstructed (`752748a`), and **neither file was ever
+written** — the two amendments it means are items 2 and 3 of ADR-0001's own
+Decision Outcome list, each with its commit. So the log simultaneously implied
+three different conventions: sub-numbered records, list items inside the amended
+ADR, and (by its own naming rule) new top-level records. ADR-0019 is the first
+amendment written as a file, and it asserts the third reading. ADR-0001's
+dangling reference was repaired as a broken link — the append-only rule's
+explicit exception — and its reasoning was not touched. The first two amendments
+were **not** retrofitted into records of their own: back-dating two ADRs to tidy
+a convention would be exactly the rewrite this section forbids.
+
 ## Writing an honest one
 
 Named anti-patterns worth knowing, from [Zimmermann's guidance][ozimmer-create]:
@@ -166,7 +187,7 @@ have carried no information.
 
 | # | Decision | Decided | Status |
 |---|---|---|---|
-| [0001](0001-read-only-observer-as-a-constitution.md) | Read-only observer, amendable only by explicit invocation | 2026-07-30 | accepted, amended ×2 |
+| [0001](0001-read-only-observer-as-a-constitution.md) | Read-only observer, amendable only by explicit invocation | 2026-07-30 | accepted, amended ×4 (latest: [0020](0020-transcript-migration-is-a-create-only-copy.md)) |
 | [0002](0002-one-reducer-for-live-and-replay.md) | One event log, one reducer, serving both live and replay | 2026-07-30 | accepted |
 | [0003](0003-core-is-browser-safe.md) | `core` is browser-safe: zod only, no `node:*` | 2026-07-30 | accepted |
 | [0004](0004-collector-contract-over-an-exec-seam.md) | Collectors are pure folds over command output, behind an injected `Exec` | 2026-07-30 | accepted |
@@ -182,6 +203,11 @@ have carried no information.
 | [0014](0014-exhaustive-route-classification.md) | Every route is declared into one of three classes, checked by walking the running app | 2026-08-12 | accepted |
 | [0015](0015-agent-removed-is-an-event.md) | Agent removed is an event, not a silent gap | 2026-08-12 | proposed |
 | [0016](0016-prunable-not-enoent-proves-a-worktree-gone.md) | A worktree is proven gone by git's own `prunable` flag, not by probing for ENOENT | 2026-08-12 | accepted |
+| [0017](0017-one-turngrammar-seams-shape-and-extraction.md) | One `TurnGrammar` seams turn shape and extraction, not two | 2026-08-13 | accepted |
+| [0018](0018-bare-path-body-shape-routing.md) | The OTLP receiver adds one bare-path route, dispatched by body shape | 2026-08-13 | proposed |
+| [0019](0019-the-fourth-hand.md) | The concierge: a fourth hand, granted two powers by explicit invocation — amends [0001](0001-read-only-observer-as-a-constitution.md) | 2026-08-10 | accepted |
+| [0020](0020-transcript-migration-is-a-create-only-copy.md) | Transcript migration is one create-only copy into the watched repo's slug directory — amends [0001](0001-read-only-observer-as-a-constitution.md), extends [0019](0019-the-fourth-hand.md) | 2026-08-14 | accepted |
+| [0022](0022-per-worktree-incidents-are-worktree-facts.md) | Per-worktree incidents are recorded on the worktree, not the collector | 2026-08-14 | accepted |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the

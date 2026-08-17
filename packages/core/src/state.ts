@@ -44,6 +44,14 @@ export interface WorktreeState {
   /** Full current uncommitted set, replaced wholesale by each `worktree.dirty`. */
   dirtyFiles: DirtyFile[]
   dirtyUpdatedAt: number | null
+  /**
+   * Set to the failed event's `ts` when `worktree.dirtyStatusFailed` crosses
+   * the bound; cleared to `null` by `worktree.dirtyStatusRecovered`. Lives
+   * here, not on `CollectorState`, so one worktree's recovery can never mask
+   * a sibling's still-open incident (#429). `null` forever for a pre-#429
+   * recording — no upcast needed, additive events refold cleanly.
+   */
+  dirtyStatusFailedSince: number | null
 }
 
 export interface BranchState {
@@ -247,6 +255,22 @@ export interface ErrorRecord {
   collector: string
   message: string
   detail: string | null
+  /**
+   * Occurrences this one record stands for, this one included — the exact
+   * shape {@link RefusalRecord.count} already carries. #530 taught the
+   * `errorCount` fold and the feed row to honour a coalesced
+   * `collector.error`'s `count`; this record — the one `state.errors`
+   * actually holds — kept reading every coalesced burst as a single
+   * occurrence, the same asymmetry one layer up. Always ≥ 1: an emitter that
+   * never coalesces (most of them) still gets 1, never `undefined`, since
+   * `collectorError` is this field's one construction site and always fills
+   * it (additive: an era whose `collectorError` predates this field replays
+   * to the same byte-identical `SessionState` either way, because the fold is
+   * always recomputed from the event log, never persisted and rehydrated
+   * directly — ADR-0011's "recordings never rot" is about the event, not this
+   * derived field).
+   */
+  count: number
 }
 
 /**

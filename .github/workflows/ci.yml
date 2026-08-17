@@ -5,6 +5,18 @@ on:
     branches: [main]
   pull_request:
 
+# prd-34 (#563) adds `electron` as a devDependency of `packages/app`, and
+# electron's postinstall downloads a ~110 MB platform binary. NOTHING in this
+# workflow launches it: the shell's own tests are pure (`packages/app/src/host/`
+# imports no electron at all), `npm run build` only bundles the main process
+# with esbuild, and the boot smoke drives the plain CLI. Every leg here would
+# therefore pay for a binary none of them runs — seven downloads per push.
+#
+# The binary IS downloaded where it is actually needed: #565's packaging
+# workflow builds the installers and deliberately does not set this.
+env:
+  ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
 jobs:
   build-test-boot:
     # macos-latest bills 10x ubuntu-latest, so it runs the suite once (at

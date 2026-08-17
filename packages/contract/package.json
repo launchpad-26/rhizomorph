@@ -1,0 +1,19 @@
+{
+  "name": "@rhizomorph/contract",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Contract tests: the real web client against the real buildApp (prd-24 ruling 1)",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@rhizomorph/core": "*",
+    "@rhizomorph/server": "*",
+    "@rhizomorph/web": "*",
+    "fastify": "5.10.0",
+    "jsdom": "30.0.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

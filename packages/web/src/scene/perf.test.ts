@@ -10,7 +10,7 @@ import { labelMarks, nodeMarks } from './marks/node.js'
 import { rootMarks } from './marks/root.js'
 import { loopingMarks, offFenceMarks, threadMarks } from './marks/thread.js'
 import { DISSOLUTION } from './motion.js'
-import { paint } from './paint.js'
+import { Batch, buildFrame } from './gl/index.js'
 import { ICE_050, ink, type Ink } from './palette.js'
 import { PulseField } from './pulses.js'
 import { RETURN, returnAt, type RetireState } from './retire.js'
@@ -440,7 +440,7 @@ describe('the whole frame, before and after', () => {
     const fleet = fleet30()
     const retire = midCut()
 
-    const draw = stub()
+    const vertices = new Batch()
     /**
      * One frame, in its three stages. They are timed separately because "the scene
      * is over budget" is not an actionable sentence: the fix for a slow
@@ -456,7 +456,7 @@ describe('the whole frame, before and after', () => {
       const t1 = at()
       const marks = sceneMarks(frameFor(fleet, geometry, now))
       const t2 = at()
-      paint({ ctx: draw.ctx, marks, ...SIZE, dpr: 2 })
+      buildFrame(marks, SIZE, vertices)
       const t3 = at()
 
       if (into !== undefined) {
@@ -591,7 +591,7 @@ describe('thirty lanes where most have finished, before and after', () => {
   it('reports all three interleaved, and draws fewer marks than the living field', () => {
     const fleet = fleet30()
     const retire = mostlyFinished(fleet)
-    const draw = stub()
+    const vertices = new Batch()
 
     /** One whole frame — layout, marks, paint — for one configuration. */
     const frame = (
@@ -601,7 +601,7 @@ describe('thirty lanes where most have finished, before and after', () => {
     ): number => {
       const geometry = layoutScene(fleet, { ...SIZE, now, retire: of, hideFinished })
       const marks = sceneMarks(frameFor(fleet, geometry, now))
-      paint({ ctx: draw.ctx, marks, ...SIZE, dpr: 2 })
+      buildFrame(marks, SIZE, vertices)
       return marks.length
     }
 
@@ -867,7 +867,7 @@ describe('a long field of retired strands (#175, prd10 rulings 13-16)', () => {
     const fleet = fleetSized(LIVING_COUNT + retiredCount)
     const livingFleet = fleetSized(LIVING_COUNT)
     const retire = retiredBeyond(fleet, LIVING_COUNT)
-    const draw = stub()
+    const vertices = new Batch()
 
     const frame = (
       now: number,
@@ -882,7 +882,7 @@ describe('a long field of retired strands (#175, prd10 rulings 13-16)', () => {
       const t1 = at()
       const marks = sceneMarks(frameFor(of, geometry, now))
       const t2 = at()
-      paint({ ctx: draw.ctx, marks, ...SIZE, dpr: 2 })
+      buildFrame(marks, SIZE, vertices)
       const t3 = at()
       if (into !== undefined) {
         into.layout.push(t1 - t0)
@@ -1001,5 +1001,306 @@ describe('a long field of retired strands (#175, prd10 rulings 13-16)', () => {
 
   it('reports 30 living + 200 retired against the living ceiling', () => {
     measureField(200)
+  }, BENCH_TIMEOUT_MS)
+})
+
+/**
+ * THE MODEL FLOOR (#579, prd-33 wave 2) — `layoutScene` + `sceneMarks` alone,
+ * at the sizes prd-33 wants and with nothing drawing a pixel.
+ *
+ * `research/2026-08-15-renderer-spike.md` measured this in Chromium across both
+ * renderer arms and found it identical in both, which is the whole point: **no
+ * painter swap touches it.** At 60 lanes × 3 colonies the model spent 14.6 ms of
+ * a 16.67 ms frame deciding what to draw, so the WebGL2 painter that has since
+ * landed (ADR-0021) inherits 2.1 ms to draw 180 threads in. The spike's own
+ * matrix, which the cells below reproduce in Node so the number can be watched
+ * from the suite rather than from a spike nobody re-runs:
+ *
+ * | lanes × colonies | threads | model ms (spike, Chromium) | share of 60 fps |
+ * | ---------------- | ------- | -------------------------- | --------------- |
+ * | 30 × 1           |   30    | 2.9 – 3.6                  | 17–22%          |
+ * | 30 × 3           |   90    | 9.4 – 10.5                 | 56–63%          |
+ * | 60 × 3           |  180    | 14.6 – 16.5                | **88–99%**      |
+ *
+ * **A colony is a whole fleet, mass and all** (prd-33 ruling 7), so three
+ * colonies is three `layoutScene` + `sceneMarks` pairs per frame and three of
+ * everything the mass costs — three scalar fields sampled, three depth stacks
+ * walked. `lanes` is per colony: "60 × 3" is 180 threads.
+ *
+ * ---
+ *
+ * **WHAT #579 CHANGED, and the number it is measured on.** `contour.ts` now
+ * bakes the mass's field in unit space and *places* it by the frame's own
+ * similarity transform ({@link contourLayers}'s cache). The whole lattice —
+ * pitch, origin, extent, every falloff and every level — is already a multiple
+ * of `geometry.rootRadius` (`marks/root.ts`'s `CELL`, `MELT`, `BODY`,
+ * `depthsFor`), so a frame that only *breathed* (±1.6%) or only grew the mass
+ * asks for a shape that has already been walked, at a different scale.
+ *
+ * Two regimes, and both are reported below because they are genuinely
+ * different and reporting only the first would be a press release:
+ *
+ * - **a calm mass** — no cord arriving, or one frozen mid-withdraw. The unit
+ *   field is unchanged frame to frame, so the sampling and the eighteen walks
+ *   happen once and every later frame pays only the placement.
+ * - **a cord actually arriving** — `arrivalSwell` moves every frame, so the
+ *   unit field is a new shape every frame and the walk runs in full. This is
+ *   the pessimal cell and it is measured, not argued: the bake must cost
+ *   nothing when it cannot help.
+ *
+ * **What it measured, on the dev box** (13th Gen i9-13900H, WSL2, Node 22,
+ * `perf.test.ts` alone so the numbers are not also carrying 144 sibling files) —
+ * median of 60 interleaved frames, model stage only, **before and after taken
+ * as two pairs of alternating runs** in one session (B A B A), because #157's
+ * own lesson is that a before and an after taken minutes apart measure the load
+ * average. Both rounds agreed on every ordering; the medians of the two:
+ *
+ * | cell   | threads | before   | after    | Δ     | share of 60 fps (after) |
+ * | ------ | ------- | -------- | -------- | ----- | ----------------------- |
+ * | 30 × 1 |   30    |  5.49 ms |  3.87 ms | 0.70× | 23%                     |
+ * | 30 × 3 |   90    | 15.84 ms | 10.59 ms | 0.67× | 64%                     |
+ * | 60 × 3 |  180    | 25.77 ms | 20.24 ms | 0.79× | 121%                    |
+ *
+ * …and the builder it came out of, from the `by builder` suite above, same runs:
+ *
+ * | builder | before  | after   |
+ * | ------- | ------- | ------- |
+ * | root    | 1.47 ms | 0.25 ms |
+ * | thread  | 2.06 ms | 2.04 ms |
+ *
+ * **The absolutes are this box and the ratios are not.** These are Node medians
+ * and the spike's are Chromium's, and this cell drives `growth` per lane per
+ * frame where the spike drove its own — so 25.77 ms here is *not* the spike's
+ * 14.6 ms measured again, and the honest transfer is the ratio. prd-33 ruling 13
+ * states the ceiling that follows: **90 threads at 60 fps, 180 at 30.**
+ *
+ * Reported, never asserted, for the reason the file header gives. The laws
+ * beside it are **counts**: the same cells must produce the same number of
+ * marks before and after, since an optimisation that dropped a mark would be a
+ * different picture rather than a faster one — and the three colonies must be
+ * three *different* masses, or the multi-colony rows would be one mass's saving
+ * counted three times. That the picture itself is unchanged is evidenced
+ * elsewhere and by capture: `parity/contour.test.ts` (every vertex, against the
+ * pre-bake implementation's own output) and `parity/README.md` (the same seeded
+ * frame rendered before and after — the canvas arm byte-identical, the WebGL arm
+ * one pixel in 682,000 differing by 1/255).
+ */
+describe('the model floor (#579, prd-33 w2)', () => {
+  /** The spike's own matrix. `lanes` is per colony. */
+  const CELLS: readonly { lanes: number; colonies: number }[] = [
+    { lanes: 30, colonies: 1 },
+    { lanes: 30, colonies: 3 },
+    { lanes: 60, colonies: 3 },
+  ]
+
+  /** Enough that the median is a median; few enough that three cells stay quick. */
+  const ROUNDS = 60
+
+  /**
+   * One colony's fleet, and **no two colonies are the same fleet**.
+   *
+   * Each gets its own lane ids *and* its own output volume, which matters twice
+   * over and would have quietly forged the measurement if it were skipped:
+   * `layoutScene`'s retired-spine cache is keyed on the lane id, and #579's own
+   * contour bake is keyed on the mass's shape — three identical colonies would
+   * have shared one baked surface between them and reported a saving three
+   * times the one a real second colony gets. The token scale moves
+   * `rootFullness`, which moves the mass's radius *and* the depth stack
+   * (`depthsFor`), so the three masses are three different shapes.
+   */
+  function colonyFleet(lanes: number, colony: number): Fleet {
+    const base = fleetSized(lanes)
+    if (colony === 0) return base
+    const scale = 1 + colony * 0.6
+    return {
+      ...base,
+      lanes: base.lanes.map((lane) => ({
+        ...lane,
+        id: `${lane.id}@${colony}`,
+        handles: [`${lane.id}@${colony}`],
+        outputTokens: Math.round(lane.outputTokens * scale) + colony * 37,
+      })),
+    }
+  }
+
+  /**
+   * Two cords mid-withdraw in this colony — the structural cap's own
+   * concurrency, which is the most dissolution the scene can ever be running,
+   * and the same fixture every suite above uses. `at` is how far into the
+   * return they are: **frozen** for the steady-state cells (the cut holds where
+   * it is while the clock advances, so the mass's field is calm), and advanced
+   * per frame for the arriving cell below.
+   */
+  function cutsFor(fleet: Fleet, at: number): ReadonlyMap<string, RetireState> {
+    const state = returnAt(at)
+    const ids = [fleet.lanes[3]?.id, fleet.lanes[11]?.id].filter((id) => id !== undefined)
+    return new Map(ids.map((id) => [id as string, state]))
+  }
+
+  /**
+   * Continuous growth on every living thread (prd-33 ruling 9) — the fact that
+   * makes the model stage a per-frame cost at all. Advanced every frame and per
+   * lane, so a spine is genuinely rebuilt rather than answered from a cache
+   * that a still fleet would have made free.
+   */
+  function growthFor(fleet: Fleet, tick: number): ReadonlyMap<string, number> {
+    return new Map(
+      fleet.lanes.map((lane, i) => [lane.id, ((i * 7 + tick) % 97) / 97] as const),
+    )
+  }
+
+  interface Model {
+    /** `layoutScene` + `sceneMarks`, summed over the colonies. */
+    ms: number
+    layoutMs: number
+    marksMs: number
+    marks: number
+  }
+
+  /** One frame of the whole model stage, across every colony in the cell. */
+  function modelFrame(
+    fleets: readonly Fleet[],
+    now: number,
+    tick: number,
+    cutAt: number | null,
+  ): Model {
+    const at = () => performance.now()
+    let layoutMs = 0
+    let marksMs = 0
+    let marks = 0
+    for (const fleet of fleets) {
+      const retire = cutAt === null ? undefined : cutsFor(fleet, cutAt)
+      const growth = growthFor(fleet, tick)
+      const t0 = at()
+      const geometry = layoutScene(fleet, { ...SIZE, now, retire, growth })
+      const t1 = at()
+      const built = sceneMarks(frameFor(fleet, geometry, now))
+      const t2 = at()
+      layoutMs += t1 - t0
+      marksMs += t2 - t1
+      marks += built.length
+    }
+    return { ms: layoutMs + marksMs, layoutMs, marksMs, marks }
+  }
+
+  it('reports the model stage at every cell prd-33 asks for', () => {
+    withPath2D(() => {
+      const cells = CELLS.map((cell) => ({
+        ...cell,
+        fleets: Array.from({ length: cell.colonies }, (_unused, c) =>
+          colonyFleet(cell.lanes, c),
+        ),
+        samples: [] as number[],
+        layout: [] as number[],
+        marks: [] as number[],
+        counts: 0,
+      }))
+
+      // Warm the JIT on every cell before any of them is measured.
+      for (let i = 0; i < 8; i += 1) {
+        for (const cell of cells) modelFrame(cell.fleets, NOW + i * 16, i, RETURN.tensionMs + 300)
+      }
+
+      // INTERLEAVED (#157): one frame of every cell per round, so all three see
+      // the same machine at the same instant rather than being timed apart.
+      for (let round = 0; round < ROUNDS; round += 1) {
+        const now = NOW + (8 + round) * 16
+        for (const cell of cells) {
+          const model = modelFrame(cell.fleets, now, 8 + round, RETURN.tensionMs + 300)
+          cell.samples.push(model.ms)
+          cell.layout.push(model.layoutMs)
+          cell.marks.push(model.marksMs)
+          cell.counts = model.marks
+        }
+      }
+
+      for (const cell of cells) {
+        const ms = median(cell.samples)
+        report(
+          `model floor ${cell.lanes}x${cell.colonies} (${cell.lanes * cell.colonies} threads): ` +
+            `${ms.toFixed(3)} ms median · ${Math.max(...cell.samples).toFixed(3)} ms worst · ` +
+            `layout ${median(cell.layout).toFixed(3)} / marks ${median(cell.marks).toFixed(3)} ms · ` +
+            `${cell.counts} marks ` +
+            `(60fps budget ${FRAME_MS.toFixed(2)} ms — ${((ms / FRAME_MS) * 100).toFixed(1)}%)`,
+        )
+      }
+
+      // THE LAW, and it is a count rather than a clock: the model stage's job is
+      // to produce the display list, and a cell that got faster by producing
+      // fewer marks would be a different picture. Three colonies of thirty draw
+      // about three times what one does — *about*, because a colony's lanes
+      // carry their own ids and a lane's id is what its wander, its knot and
+      // its filament count are seeded from, so the three colonies are three
+      // different fleets rather than one drawn thrice. Sixty lanes draw more
+      // than thirty.
+      const [one, three, big] = cells as [
+        (typeof cells)[number],
+        (typeof cells)[number],
+        (typeof cells)[number],
+      ]
+      expect(three.counts).toBeGreaterThan(one.counts * 2.9)
+      expect(three.counts).toBeLessThan(one.counts * 3.1)
+      expect(big.counts).toBeGreaterThan(three.counts)
+
+      // …AND THE THREE COLONIES ARE THREE MASSES, which is the assumption the
+      // multi-colony rows above are worth nothing without. `contour.ts`'s bake
+      // is keyed on the *shape* rather than on the caller, so three colonies
+      // that happened to be the same fleet would share one baked surface and
+      // report a saving three times the one a real second colony gets. Pinned
+      // on the drawn rings rather than on the cache, so it stays a fact about
+      // the picture: three colonies, three different surfaces.
+      const surfaces = three.fleets.map((fleet) => {
+        const geometry = layoutScene(fleet, {
+          ...SIZE,
+          now: NOW,
+          retire: cutsFor(fleet, RETURN.tensionMs + 300),
+          growth: growthFor(fleet, 0),
+        })
+        const mass = sceneMarks(frameFor(fleet, geometry, NOW)).find(
+          (mark) => mark.role === 'root-mass',
+        )
+        return JSON.stringify(mass?.kind === 'contour' ? mass.rings : null)
+      })
+      expect(new Set(surfaces).size).toBe(3)
+    })
+  }, BENCH_TIMEOUT_MS)
+
+  /**
+   * THE PESSIMAL CELL, reported beside the steady-state one so the bake cannot
+   * be read as a win it does not have. A cord genuinely arriving moves
+   * `arrivalSwell` every frame, so the mass's field is a **new shape** every
+   * frame and `contourLayers` walks it in full — exactly as it did before #579.
+   * The two lines together are the honest claim: calm frames get the saving,
+   * arriving frames pay what they always paid.
+   */
+  it('reports the same cell with a cord actually arriving, not frozen', () => {
+    withPath2D(() => {
+      const fleets = Array.from({ length: 3 }, (_unused, c) => colonyFleet(60, c))
+      const frozen: number[] = []
+      const arriving: number[] = []
+
+      for (let i = 0; i < 8; i += 1) {
+        modelFrame(fleets, NOW + i * 16, i, RETURN.tensionMs + 300)
+        modelFrame(fleets, NOW + i * 16, i, RETURN.tensionMs + 300 + i * 16)
+      }
+
+      for (let round = 0; round < ROUNDS; round += 1) {
+        const now = NOW + (8 + round) * 16
+        // Interleaved, same instant, same fleets — only the cut's own clock differs.
+        frozen.push(modelFrame(fleets, now, 8 + round, RETURN.tensionMs + 300).ms)
+        arriving.push(
+          modelFrame(fleets, now, 8 + round, RETURN.tensionMs + 300 + (round % 24) * 16).ms,
+        )
+      }
+
+      report(
+        `model floor 60x3, cut frozen mid-withdraw: ${median(frozen).toFixed(3)} ms median · ` +
+          `cut arriving (field moves every frame): ${median(arriving).toFixed(3)} ms median ` +
+          `(60fps budget ${FRAME_MS.toFixed(2)} ms)`,
+      )
+
+      expect(median(frozen)).toBeGreaterThan(0)
+      expect(median(arriving)).toBeGreaterThan(0)
+    })
   }, BENCH_TIMEOUT_MS)
 })

@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import {
   FIXTURE_REPO_PATH,
+  buildFleet,
   createEventFactory,
   fixtureSession,
   initialSessionState,
@@ -9,7 +10,6 @@ import {
 } from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { StreamProvider } from '../../app/StreamContext.js'
-import { buildFleet } from '../../fleet/buildFleet.js'
 import type { EventSourceLike } from '../../hooks/useEventStream.js'
 import CollisionsPanel from './index.js'
 

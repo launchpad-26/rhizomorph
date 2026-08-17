@@ -196,6 +196,197 @@ describe('session.closed', () => {
       }).ok,
     ).toBe(true)
   })
+
+  /**
+   * prd20 ruling 5 (#384): switching the watched repo ends the session too,
+   * and must never be recorded as a rotation — a rotation's successor is the
+   * next log in the same directory, a retarget's is under another slug
+   * entirely. Operator-decided 2026-08-10, at Q2 of the retarget spike.
+   */
+  it('accepts "retargeted" — prd20 ruling 5\'s second way for a session to end', () => {
+    expect(
+      parseEvent({
+        id: 'e',
+        ts: 1,
+        source: 'system',
+        type: 'session.closed',
+        payload: { sessionId: '1000', reason: 'retargeted', eventCount: 42 },
+      }).ok,
+    ).toBe(true)
+  })
+
+  it('stayed ADDITIVE: every reason recorded before the widening still parses, and the enum is still closed', () => {
+    // The reason this enum widens rather than changes (prd17 ruling 1). A log
+    // written the day before #384 must read identically the day after it.
+    expect(
+      parseEvent({
+        id: 'e',
+        ts: 1,
+        source: 'system',
+        type: 'session.closed',
+        payload: { sessionId: '1000', reason: 'rotated', eventCount: 42 },
+      }).ok,
+    ).toBe(true)
+    // Widening is not opening: a reason nothing can produce still never
+    // enters a recording.
+    for (const reason of ['retarget', 'retargetted', 'RETARGETED', 'crashed', '']) {
+      expect(
+        parseEvent({
+          id: 'e',
+          ts: 1,
+          source: 'system',
+          type: 'session.closed',
+          payload: { sessionId: '1000', reason },
+        }).ok,
+        `"${reason}" must not parse as a close reason`,
+      ).toBe(false)
+    }
+  })
+})
+
+/**
+ * THE RUN POINTER (#384) — one operator intent, two logs, and until now no
+ * way to tell they were related. A rotation's successor is the next log in
+ * the same directory; prd20 ruling 5's retarget puts it under a different
+ * repo slug in a different directory, so the seam has to be written down or
+ * it is lost. Nothing emits these yet (#385's `retargetSession` does); the
+ * shape lands first, additively, so the vocabulary is one dateable change.
+ */
+describe('the predecessor/successor pointer', () => {
+  it('lets a closed log name the slug dir its run continued in', () => {
+    const parsed = parseEvent({
+      id: 'session-closed-1000',
+      ts: 2000,
+      source: 'system',
+      type: 'session.closed',
+      payload: {
+        sessionId: '1000',
+        reason: 'retargeted',
+        eventCount: 42,
+        successor: { repoSlug: 'other-repo-9f8e7d6c' },
+      },
+    })
+    expect(parsed.ok).toBe(true)
+    // Asserted on the parsed payload, never on `ok` alone: an unknown key is
+    // STRIPPED rather than refused, so a schema that had never heard of
+    // `successor` would parse this event happily and drop the seam on the
+    // floor — the exact silence this pointer exists to end.
+    expect(parsed.ok && parsed.event.payload).toMatchObject({
+      successor: { repoSlug: 'other-repo-9f8e7d6c' },
+    })
+  })
+
+  it('lets the new log name both halves of where it came from — the close half cannot', () => {
+    // The asymmetry is the ordering law's (`recorder/rotate.ts`): close, THEN
+    // open. The successor's id is minted off the clock after the close has
+    // already landed, so `session.closed` can only ever name the directory,
+    // while `session.started` knows the id on the other side exactly.
+    const parsed = parseEvent({
+      id: 'session-started-2001',
+      ts: 2001,
+      source: 'system',
+      type: 'session.started',
+      payload: {
+        sessionId: '2001',
+        repoPath: '/repo/other',
+        repoName: 'other',
+        predecessor: { repoSlug: 'rhizomorph-abc12345', sessionId: '1000' },
+      },
+    })
+    expect(parsed.ok).toBe(true)
+    expect(parsed.ok && parsed.event.payload).toMatchObject({
+      predecessor: { repoSlug: 'rhizomorph-abc12345', sessionId: '1000' },
+    })
+  })
+
+  it('is absent, not empty, on a session that has no seam — no pointer is not a null pointer', () => {
+    // An ordinary boot has no predecessor and an ordinary rotation has no
+    // cross-directory successor. Saying so with a field would be inventing a
+    // seam that never existed, so both stay off the payload entirely.
+    const started = parseEvent({
+      id: 'e',
+      ts: 1,
+      source: 'system',
+      type: 'session.started',
+      payload: { sessionId: '1000', repoPath: '/repo', repoName: 'repo' },
+    })
+    expect(started.ok).toBe(true)
+    expect(started.ok && 'predecessor' in started.event.payload).toBe(false)
+
+    const closed = parseEvent({
+      id: 'e2',
+      ts: 2,
+      source: 'system',
+      type: 'session.closed',
+      payload: { sessionId: '1000', reason: 'rotated' },
+    })
+    expect(closed.ok).toBe(true)
+    expect(closed.ok && 'successor' in closed.event.payload).toBe(false)
+  })
+
+  it('refuses a pointer that names nothing — a blank slug is worse than no pointer at all', () => {
+    for (const successor of [{ repoSlug: '' }, { sessionId: '2001' }, {}, 'other-repo']) {
+      expect(
+        parseEvent({
+          id: 'e',
+          ts: 1,
+          source: 'system',
+          type: 'session.closed',
+          payload: { sessionId: '1000', reason: 'retargeted', successor },
+        }).ok,
+        `${JSON.stringify(successor)} must not parse as a successor`,
+      ).toBe(false)
+    }
+  })
+})
+
+/**
+ * #472: `telemetry.refused`'s throttle coalesces repeated faults into one
+ * event carrying a count instead of flooding the log; `collector.error`
+ * needed the same field to do it for malformed-body faults. The round-trip
+ * assertion below is also the regression guard the issue's own review named
+ * as the mutation that matters most — remove `count` from the schema again
+ * and this goes red because the field silently strips instead of surviving.
+ */
+describe('collector.error', () => {
+  it('carries a count when the emitter coalesces repeated occurrences of the same fault', () => {
+    const event = createEvent(
+      'collector.error',
+      { collector: 'otel', message: 'malformed OTLP request body', count: 47 },
+      { id: 'e', ts: 1 },
+    )
+    expect(event).toEqual({
+      id: 'e',
+      ts: 1,
+      source: 'system',
+      type: 'collector.error',
+      payload: { collector: 'otel', message: 'malformed OTLP request body', count: 47 },
+    })
+  })
+
+  it('parses without a count — an emitter that never coalesces still records honestly', () => {
+    expect(
+      parseEvent({
+        id: 'e',
+        ts: 1,
+        source: 'system',
+        type: 'collector.error',
+        payload: { collector: 'git', message: 'boom' },
+      }).ok,
+    ).toBe(true)
+  })
+
+  it('refuses a non-positive count — a coalesced event always stands for at least one occurrence', () => {
+    expect(
+      parseEvent({
+        id: 'e',
+        ts: 1,
+        source: 'system',
+        type: 'collector.error',
+        payload: { collector: 'otel', message: 'm', count: 0 },
+      }).ok,
+    ).toBe(false)
+  })
 })
 
 describe('createIdFactory', () => {
@@ -264,6 +455,12 @@ function oneOfEach() {
       branch: 'feat',
       files: [{ path: 'src/a.ts', status: 'modified' }],
     }, { id: id(), ts: 8 }),
+    createEvent('worktree.dirtyStatusFailed', {
+      worktreePath: '/repo/wt',
+      consecutiveFailures: 4,
+      message: 'error: could not read index',
+    }, { id: id(), ts: 8 }),
+    createEvent('worktree.dirtyStatusRecovered', { worktreePath: '/repo/wt' }, { id: id(), ts: 8 }),
     createEvent('pane.discovered', {
       paneId: '%1',
       windowName: 'feat',

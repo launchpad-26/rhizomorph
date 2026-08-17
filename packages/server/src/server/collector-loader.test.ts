@@ -10,10 +10,10 @@ import { createPollLoop } from './poll-loop.js'
 import type { SessionRecorder } from './recorder.js'
 
 describe('loadCollectors', () => {
-  it('registers all five collectors', async () => {
+  it('registers all six collectors', async () => {
     const collectors = await loadCollectors({ warn: () => {} })
 
-    expect(collectors.map((c) => c.name).sort()).toEqual(['git', 'judge', 'sessionlog', 'tmux', 'workmux'])
+    expect(collectors.map((c) => c.name).sort()).toEqual(['git', 'judge', 'pi', 'sessionlog', 'tmux', 'workmux'])
   })
 
   it('never warns for the real collectors, which are always present', async () => {
@@ -117,6 +117,328 @@ describe('loadCollectors — resume reconciliation (#111)', () => {
   })
 })
 
+describe('loadCollectors — agent reconciliation (#418)', () => {
+  it('retires a folded agent absent from the first live poll, when the workmux snapshot is missing', async () => {
+    // The exact shape of the bug: this session's log already folds
+    // 'old-lane' to present — from a run that ended before this process
+    // ever polled — and workmux's own snapshot has no memory of that
+    // departure (a fresh boot, or a lost/pruned snapshot dir). workmux
+    // itself reports zero agents right now.
+    const nextId = createIdFactory('evt')
+    const priorEvents = [
+      createEvent(
+        'agent.status',
+        { handle: 'old-lane', status: 'working', branch: 'old-lane', worktreePath: '../old-lane', elapsedSeconds: 60 },
+        { id: nextId(), ts: 1000 },
+      ),
+    ]
+    const foldedBefore = reduceAll(priorEvents)
+    expect(foldedBefore.agents['old-lane']?.present).toBe(true)
+
+    const collectors = await loadCollectors({ warn: () => {} }, priorEvents)
+    const workmux = collectors.find((c) => c.name === 'workmux')
+    if (!workmux) throw new Error('workmux collector missing')
+
+    const emptyStatus: ExecResult = { stdout: '[]', stderr: '', code: 0, failed: false }
+    const emptyList: ExecResult = { stdout: '[]', stderr: '', code: 0, failed: false }
+    const exec: Exec = async (_command, args) => (args[0] === 'list' ? emptyList : emptyStatus)
+
+    function context(now: number): CollectorContext {
+      return {
+        repoPath: '/repo',
+        now,
+        exec,
+        nextId,
+        emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: now }),
+      }
+    }
+
+    const first = await workmux.poll(workmux.initialSnapshot(), context(2000))
+
+    expect(first.events).toEqual([expect.objectContaining({ type: 'agent.removed', payload: { handle: 'old-lane' } })])
+
+    const foldedAfter = reduceAll([...priorEvents, ...first.events])
+    expect(foldedAfter.agents['old-lane']?.present).toBe(false)
+
+    // Repetition: the wiring inherits the wrapper's own once-only latch, not
+    // just the unit test's — a second poll on the same collector, with the
+    // handle still missing, must not re-emit.
+    const second = await workmux.poll(first.nextSnapshot, context(3000))
+    expect(second.events).toHaveLength(0)
+  })
+})
+
+describe('loadCollectors — branch reconciliation (#449)', () => {
+  it('retires a folded ghost branch absent from the first live poll, when the git snapshot has no memory of it', async () => {
+    // The exact shape of the bug: this session's log already folds
+    // 'old-feature' into `folded.branches` — from a run that ended before
+    // this process ever polled, or from before #137 taught the collector to
+    // diff branch removals at all — and the git collector's own persisted
+    // snapshot has no memory of it (a fresh boot with no snapshot). git
+    // itself reports only 'main' right now.
+    const nextId = createIdFactory('evt')
+    const priorEvents = [
+      createEvent('branch.updated', { branch: 'old-feature', head: 'aaaaaaaaaa' }, { id: nextId(), ts: 1000 }),
+    ]
+    const foldedBefore = reduceAll(priorEvents)
+    expect(foldedBefore.branches['old-feature']).toBeDefined()
+
+    const collectors = await loadCollectors({ warn: () => {} }, priorEvents)
+    const git = collectors.find((c) => c.name === 'git')
+    if (!git) throw new Error('git collector missing')
+
+    const MAIN_HEAD = '1111111111111111111111111111111111111111'
+    const worktreeList: ExecResult = {
+      stdout: `worktree /repo\nHEAD ${MAIN_HEAD}\nbranch refs/heads/main\n`,
+      stderr: '',
+      code: 0,
+      failed: false,
+    }
+    const refs: ExecResult = { stdout: `main ${MAIN_HEAD}\n`, stderr: '', code: 0, failed: false }
+    const status: ExecResult = { stdout: '', stderr: '', code: 0, failed: false }
+    const exec: Exec = async (_command, args) => {
+      if (args[0] === 'worktree') return worktreeList
+      if (args[0] === 'for-each-ref') return refs
+      return status
+    }
+
+    function context(now: number): CollectorContext {
+      return {
+        repoPath: '/repo',
+        now,
+        exec,
+        nextId,
+        emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: now }),
+      }
+    }
+
+    const first = await git.poll(git.initialSnapshot(), context(2000))
+
+    expect(first.events).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: 'branch.removed', payload: { branch: 'old-feature' } })]),
+    )
+
+    const foldedAfter = reduceAll([...priorEvents, ...first.events])
+    expect(foldedAfter.branches['old-feature']).toBeUndefined()
+
+    // Repetition: the wiring inherits the wrapper's own once-only latch, not
+    // just the unit test's — a second poll on the same collector, with the
+    // branch still missing, must not re-emit.
+    const second = await git.poll(first.nextSnapshot, context(3000))
+    expect(second.events.filter((event) => event.type === 'branch.removed')).toHaveLength(0)
+  })
+})
+
+describe('loadCollectors — dirty-status reconciliation (#536)', () => {
+  it('emits worktree.dirtyStatusRecovered for a folded open incident when the first live poll after resume is healthy', async () => {
+    const nextId = createIdFactory('evt')
+    const MAIN_HEAD = '1111111111111111111111111111111111111111'
+    const priorEvents = [
+      createEvent(
+        'worktree.discovered',
+        {
+          path: '/repo',
+          branch: 'main',
+          head: MAIN_HEAD,
+          isMain: true,
+          detached: false,
+          locked: false,
+          prunable: false,
+        },
+        { id: nextId(), ts: 1000 },
+      ),
+      createEvent(
+        'worktree.dirtyStatusFailed',
+        { worktreePath: '/repo', consecutiveFailures: 4, message: 'git status --porcelain failed' },
+        { id: nextId(), ts: 1500 },
+      ),
+    ]
+    const foldedBefore = reduceAll(priorEvents)
+    expect(foldedBefore.worktrees['/repo']?.dirtyStatusFailedSince).toBe(1500)
+
+    const collectors = await loadCollectors({ warn: () => {} }, priorEvents)
+    const git = collectors.find((c) => c.name === 'git')
+    if (!git) throw new Error('git collector missing')
+
+    const worktreeList: ExecResult = {
+      stdout: `worktree /repo\nHEAD ${MAIN_HEAD}\nbranch refs/heads/main\n`,
+      stderr: '',
+      code: 0,
+      failed: false,
+    }
+    const refs: ExecResult = { stdout: `main ${MAIN_HEAD}\n`, stderr: '', code: 0, failed: false }
+    const status: ExecResult = { stdout: '', stderr: '', code: 0, failed: false }
+    const exec: Exec = async (_command, args) => {
+      if (args[0] === 'worktree') return worktreeList
+      if (args[0] === 'for-each-ref') return refs
+      return status
+    }
+
+    function context(now: number): CollectorContext {
+      return {
+        repoPath: '/repo',
+        now,
+        exec,
+        nextId,
+        emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: now }),
+      }
+    }
+
+    const first = await git.poll(git.initialSnapshot(), context(2000))
+
+    expect(first.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'worktree.dirtyStatusRecovered', payload: { worktreePath: '/repo' } }),
+      ]),
+    )
+
+    const foldedAfter = reduceAll([...priorEvents, ...first.events])
+    expect(foldedAfter.worktrees['/repo']?.dirtyStatusFailedSince).toBeNull()
+
+    // Repetition: the wiring inherits the wrapper's one-shot latch.
+    const second = await git.poll(first.nextSnapshot, context(3000))
+    expect(second.events.filter((event) => event.type === 'worktree.dirtyStatusRecovered')).toHaveLength(0)
+  })
+
+  it('leaves a still-failing worktree open — not spuriously recovered', async () => {
+    const nextId = createIdFactory('evt')
+    const MAIN_HEAD = '1111111111111111111111111111111111111111'
+    const priorEvents = [
+      createEvent(
+        'worktree.discovered',
+        {
+          path: '/repo',
+          branch: 'main',
+          head: MAIN_HEAD,
+          isMain: true,
+          detached: false,
+          locked: false,
+          prunable: false,
+        },
+        { id: nextId(), ts: 1000 },
+      ),
+      createEvent(
+        'worktree.dirtyStatusFailed',
+        { worktreePath: '/repo', consecutiveFailures: 4, message: 'git status --porcelain failed' },
+        { id: nextId(), ts: 1500 },
+      ),
+    ]
+    const foldedBefore = reduceAll(priorEvents)
+    expect(foldedBefore.worktrees['/repo']?.dirtyStatusFailedSince).toBe(1500)
+
+    const collectors = await loadCollectors({ warn: () => {} }, priorEvents)
+    const git = collectors.find((c) => c.name === 'git')
+    if (!git) throw new Error('git collector missing')
+
+    const worktreeList: ExecResult = {
+      stdout: `worktree /repo\nHEAD ${MAIN_HEAD}\nbranch refs/heads/main\n`,
+      stderr: '',
+      code: 0,
+      failed: false,
+    }
+    const refs: ExecResult = { stdout: `main ${MAIN_HEAD}\n`, stderr: '', code: 0, failed: false }
+    const failingStatus: ExecResult = { stdout: '', stderr: 'fatal: unable to read index', code: 128, failed: true }
+    const exec: Exec = async (_command, args) => {
+      if (args[0] === 'worktree') return worktreeList
+      if (args[0] === 'for-each-ref') return refs
+      return failingStatus
+    }
+
+    function context(now: number): CollectorContext {
+      return {
+        repoPath: '/repo',
+        now,
+        exec,
+        nextId,
+        emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: now }),
+      }
+    }
+
+    const first = await git.poll(git.initialSnapshot(), context(2000))
+
+    expect(first.events.some((event) => event.type === 'worktree.dirtyStatusRecovered')).toBe(false)
+
+    const foldedAfter = reduceAll([...priorEvents, ...first.events])
+    expect(foldedAfter.worktrees['/repo']?.dirtyStatusFailedSince).not.toBeNull()
+  })
+
+  // #536 Finding A: the case the old boolean latch could not survive. Poll 1
+  // hits a per-path status failure (no collector.disabled) and must not spend
+  // the wrapper's only shot; poll 2 comes back clean and closes the incident.
+  it('stays pending through a per-path failure with no collector.disabled and closes on the next healthy poll', async () => {
+    const nextId = createIdFactory('evt')
+    const MAIN_HEAD = '1111111111111111111111111111111111111111'
+    const priorEvents = [
+      createEvent(
+        'worktree.discovered',
+        {
+          path: '/repo',
+          branch: 'main',
+          head: MAIN_HEAD,
+          isMain: true,
+          detached: false,
+          locked: false,
+          prunable: false,
+        },
+        { id: nextId(), ts: 1000 },
+      ),
+      createEvent(
+        'worktree.dirtyStatusFailed',
+        { worktreePath: '/repo', consecutiveFailures: 4, message: 'git status --porcelain failed' },
+        { id: nextId(), ts: 1500 },
+      ),
+    ]
+    const foldedBefore = reduceAll(priorEvents)
+    expect(foldedBefore.worktrees['/repo']?.dirtyStatusFailedSince).toBe(1500)
+
+    const collectors = await loadCollectors({ warn: () => {} }, priorEvents)
+    const git = collectors.find((c) => c.name === 'git')
+    if (!git) throw new Error('git collector missing')
+
+    const worktreeList: ExecResult = {
+      stdout: `worktree /repo\nHEAD ${MAIN_HEAD}\nbranch refs/heads/main\n`,
+      stderr: '',
+      code: 0,
+      failed: false,
+    }
+    const refs: ExecResult = { stdout: `main ${MAIN_HEAD}\n`, stderr: '', code: 0, failed: false }
+    const failingStatus: ExecResult = { stdout: '', stderr: 'fatal: unable to read index', code: 128, failed: true }
+    const healthyStatus: ExecResult = { stdout: '', stderr: '', code: 0, failed: false }
+
+    let statusCalls = 0
+    const exec: Exec = async (_command, args) => {
+      if (args[0] === 'worktree') return worktreeList
+      if (args[0] === 'for-each-ref') return refs
+      statusCalls += 1
+      return statusCalls === 1 ? failingStatus : healthyStatus
+    }
+
+    function context(now: number): CollectorContext {
+      return {
+        repoPath: '/repo',
+        now,
+        exec,
+        nextId,
+        emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: now }),
+      }
+    }
+
+    const first = await git.poll(git.initialSnapshot(), context(2000))
+    expect(first.events.some((event) => event.type === 'worktree.dirtyStatusRecovered')).toBe(false)
+    expect(first.events.some((event) => event.type === 'collector.disabled')).toBe(false)
+
+    const second = await git.poll(first.nextSnapshot, context(3000))
+    expect(second.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'worktree.dirtyStatusRecovered', payload: { worktreePath: '/repo' } }),
+      ]),
+    )
+
+    const foldedAfter = reduceAll([...priorEvents, ...first.events, ...second.events])
+    expect(foldedAfter.worktrees['/repo']?.dirtyStatusFailedSince).toBeNull()
+  })
+})
+
 describe('loadCollectors — sessionlog (#240)', () => {
   let claudeProjectsRoot: string
 
@@ -209,5 +531,51 @@ describe('loadCollectors — sessionlog (#240)', () => {
     )
     expect(recovered.events.some((event) => event.type === 'collector.recovered')).toBe(true)
     expect(gitCalls).toBe(DEFAULT_FAILURE_THRESHOLD + 1)
+  })
+})
+
+describe('loadCollectors — pi (#546)', () => {
+  let piSessionsRoot: string
+
+  beforeEach(async () => {
+    piSessionsRoot = await mkdtemp(path.join(tmpdir(), 'collector-loader-pi-'))
+  })
+
+  afterEach(async () => {
+    await rm(piSessionsRoot, { recursive: true, force: true })
+  })
+
+  it('registers pi wrapped in resilience, so it also reconciles a stale collector.disabled on resume', async () => {
+    const nextId = createIdFactory('evt')
+    const priorEvents = [
+      createEvent(
+        'collector.disabled',
+        { collector: 'pi', reason: 'no pi session directory', consecutiveFailures: 3 },
+        { id: nextId(), ts: 1000 },
+      ),
+    ]
+    const foldedBefore = reduceAll(priorEvents)
+    expect(foldedBefore.collectors.pi?.status).toBe('disabled')
+
+    const collectors = await loadCollectors({ warn: () => {} }, priorEvents, {}, { piSessionsRoot })
+    const pi = collectors.find((c) => c.name === 'pi')
+    if (!pi) throw new Error('pi collector missing')
+
+    const ok: ExecResult = { stdout: 'worktree /repo\nHEAD abc123\nbranch refs/heads/main\n', stderr: '', code: 0, failed: false }
+    const exec: Exec = async () => ok
+    const context: CollectorContext = {
+      repoPath: '/repo',
+      now: 2000,
+      exec,
+      nextId,
+      emit: (type, payload) => createEvent(type, payload, { id: nextId(), ts: 2000 }),
+    }
+
+    const result = await pi.poll(pi.initialSnapshot(), context)
+
+    expect(result.events.some((event) => event.type === 'collector.recovered')).toBe(true)
+
+    const foldedAfter = reduceAll([...priorEvents, ...result.events])
+    expect(foldedAfter.collectors.pi?.status).toBe('healthy')
   })
 })

@@ -1,5 +1,6 @@
 import {
   initialSessionState,
+  opensNewSession,
   reduce,
   type RhizomorphEvent,
   type SessionState,
@@ -64,6 +65,14 @@ export interface StreamState {
    * Capped at {@link MAX_EVENTS}, oldest evicted first; `session.eventCount`
    * (never capped) is the true total, so `events.length < session.eventCount`
    * is exactly how a reader detects eviction ({@link eventsWindowLabel}).
+   *
+   * This window is the window *for the recording currently folded*: it
+   * empties alongside `session` when the fold crosses a session boundary
+   * (`opensNewSession` in `core/src/reduce.ts` — #390 for the retarget, #592
+   * for the rotation), which is what keeps
+   * `events.length <= session.eventCount` true across one. Clearing one
+   * without the other would leave the pair describing two different
+   * recordings, and {@link eventsWindowLabel} reads exactly that pair.
    */
   events: RhizomorphEvent[]
   /** The fold, kept incrementally so nothing re-reduces the log per render. */
@@ -106,14 +115,78 @@ export function initialStreamState(connectedAt: number): StreamState {
   return { events: [], session: initialSessionState(), connectedAt, news: [], newsCount: 0 }
 }
 
+/**
+ * The repo the fold currently describes, or `null` before any
+ * `session.started` has named one.
+ *
+ * Exported because it is the page's **repo identity**, not just this fold's
+ * private business: anything that caches a per-repo answer beside the fold has
+ * to invalidate whenever the repo it was fetched for changes, or the two drift
+ * apart. `FleetContext` keys `/api/lanes` off this for exactly that reason
+ * (#390 review) — a lane manifest fetched for repo A must not fence repo B.
+ *
+ * Since #592 the fold resets on a strictly wider condition than this key
+ * changes: an ordinary rotation opens a new recording of the SAME repo, so the
+ * fold restarts while `foldedRepoPath` holds still. That is correct rather
+ * than a gap — `/api/lanes` describes the repo's workmux lanes, not the
+ * recording, so a rotation gives it nothing to re-read.
+ */
+export function foldedRepoPath(session: SessionState): string | null {
+  return session.session?.repoPath ?? null
+}
+
+/**
+ * ## The session boundary, and this layer's half of it
+ *
+ * **Whether a `session.started` opens a different recording is `core`'s
+ * question, and `core` answers it** — `opensNewSession` in `core/src/reduce.ts`,
+ * where the rule, the two non-boundaries (a reconnect's replay; anything
+ * before the first `session.started`) and the case-sensitivity decision
+ * (`boundary-on-case-difference`) are all argued in full. It has to live there
+ * rather than here: ADR-0002 says one reducer serves live and replay, so a
+ * reset spelled in the web shell would be true of the live stream and false of
+ * a replayed log carrying the same boundary (#592).
+ *
+ * What is left for this module is the state `core` does not own. `session` is
+ * reset by the reducer itself; the raw `events` window, the `news` flare queue
+ * and its counter are this layer's own, and they cross the boundary with it —
+ * `events` and `session.eventCount` are read as a PAIR by
+ * {@link eventsWindowLabel}, so clearing one without the other would leave the
+ * two describing different recordings. `connectedAt` is carried across
+ * untouched: the news/history boundary belongs to this *connection*, not to
+ * whichever recording it happens to be carrying.
+ *
+ * ## What it assumes about ordering
+ *
+ * That a session's `session.started` **leads** its own events. The recorder
+ * provides this — a rotation opens the new log with `session.started` and
+ * nothing carried over, fenced by that module's own `rotate.test.ts` (not
+ * cited by path here: the recorder namespace law, prd16 ruling 2, keeps web
+ * files clear of that module's paths entirely) — and `/api/stream` replays a
+ * log in order. If that ever stopped holding, a new session's event arriving
+ * *before* its `session.started` in the same flush would fold onto the old one
+ * and then be dropped by the reset: one event lost rather than two recordings
+ * merged, which is the right way round, but it is an assumption and not a
+ * guarantee this module can enforce.
+ * `drops-events-that-precede-the-boundary` pins the behaviour so a change here
+ * is a decision.
+ */
 export function foldStreamEvent(state: StreamState, event: RhizomorphEvent): StreamState {
-  const news = isNews(state, event)
+  // The reset lands *before* the boundary event folds, so the `session.started`
+  // that opened the new recording is itself the first event of the new fold.
+  const base = opensNewSession(state.session, event)
+    ? initialStreamState(state.connectedAt)
+    : state
+  // `isNews` reads `connectedAt`, which a reset carries across untouched: the
+  // news/history boundary belongs to this *connection*, not to the repo it
+  // happens to be watching.
+  const news = isNews(base, event)
   return {
-    events: [...state.events, event].slice(-MAX_EVENTS),
-    session: reduce(state.session, event),
-    connectedAt: state.connectedAt,
-    news: news ? [...state.news, event].slice(-MAX_NEWS) : state.news,
-    newsCount: state.newsCount + (news ? 1 : 0),
+    events: [...base.events, event].slice(-MAX_EVENTS),
+    session: reduce(base.session, event),
+    connectedAt: base.connectedAt,
+    news: news ? [...base.news, event].slice(-MAX_NEWS) : base.news,
+    newsCount: base.newsCount + (news ? 1 : 0),
   }
 }
 
@@ -127,6 +200,14 @@ export function foldStreamEvent(state: StreamState, event: RhizomorphEvent): Str
  * function exists to avoid. `session` folds every event in the batch
  * regardless — the cap never reaches the reducer, only the raw window kept
  * beside it.
+ *
+ * The session boundary (`opensNewSession`) is checked **inside** the loop, not
+ * once against the incoming state: a single flush can carry the rotation and
+ * the new recording's first events together, and a check hoisted out of the
+ * loop would fold the new session's facts straight onto the ended one's.
+ * This is what keeps the batched path bit-for-bit identical to folding the
+ * same events one at a time through {@link foldStreamEvent} — the #166/#183
+ * identity law, which now has to hold across a boundary too.
  */
 export function foldStreamEvents(
   state: StreamState,
@@ -134,14 +215,24 @@ export function foldStreamEvents(
 ): StreamState {
   if (events.length === 0) return state
 
-  const all = [...state.events]
-  const news = [...state.news]
+  let all = [...state.events]
+  let news = [...state.news]
   let session = state.session
   let newsCount = state.newsCount
 
   for (const event of events) {
+    if (opensNewSession(session, event)) {
+      // Fresh arrays rather than `length = 0`: the accumulators start as
+      // copies, but nothing here may assume that of a future caller.
+      all = []
+      news = []
+      newsCount = 0
+      session = initialSessionState()
+    }
     all.push(event)
     session = reduce(session, event)
+    // Against `state`, not the reset: `connectedAt` survives a boundary, so
+    // this is the same question it always was.
     if (isNews(state, event)) {
       news.push(event)
       newsCount += 1

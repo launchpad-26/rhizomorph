@@ -15,6 +15,10 @@ export const eventSourceSchema = z.enum([
   'workmux',
   'system',
   // prd1's two telemetry collectors: sessionlog is depth, otel is authority.
+  // `sessionlog` names a KIND of collector — one that tails an agent CLI's
+  // own transcript file — not one specific CLI; #538 adds `harness` to
+  // telemetry.ts's shared attribution so a dialect other than Claude Code's
+  // can name itself without widening this enum per harness.
   'sessionlog',
   'otel',
 ])

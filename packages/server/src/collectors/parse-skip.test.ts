@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { voiceSkips } from './parse-skip.js'
+import { MAX_VOICE_LENGTH, truncateForVoice, voiceSkips } from './parse-skip.js'
 
 describe('voiceSkips', () => {
   it('renders nothing for an empty list', () => {
@@ -34,5 +34,18 @@ describe('voiceSkips', () => {
       { line: 'f', reason: 'r6' },
     ]
     expect(voiceSkips(skipped)).toBe('r1: a; r2: b; r3: c; r4: d (+2 more)')
+  })
+
+  it("a skip's line at or under the size bound renders unchanged", () => {
+    const line = 'x'.repeat(MAX_VOICE_LENGTH)
+    expect(truncateForVoice(line)).toBe(line)
+    expect(voiceSkips([{ line, reason: 'r' }])).toBe(`r: ${line}`)
+  })
+
+  it("a skip's line over the size bound is truncated with a '+N more chars' suffix (#506)", () => {
+    const line = 'x'.repeat(MAX_VOICE_LENGTH + 50)
+    const truncated = truncateForVoice(line)
+    expect(truncated).toBe(`${'x'.repeat(MAX_VOICE_LENGTH)}… (+50 more chars)`)
+    expect(voiceSkips([{ line, reason: 'r' }])).toBe(`r: ${truncated}`)
   })
 })

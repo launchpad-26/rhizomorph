@@ -64,6 +64,16 @@ describe('parseStatusTable', () => {
     expect(rows[1]?.detail).toBe('⠂ Needs input: which diff format for renames?')
   })
 
+  it('reads a roster a lane has dropped out of, same as its --json twin', () => {
+    // The text twin of `status-mixed-no-git.json`, which the collector's own
+    // tests use to prove `agent.removed`. The fallback has to be able to
+    // observe a departure too, or a lane read through it would never leave.
+    const rows = parseStatusTable(fixture('status-mixed-no-git.txt'))
+    expect(rows.map((r) => r.handle)).toEqual(['2-core', '4-tmux-collector', '5-workmux-collector'])
+    expect(rows.map((r) => r.status)).toEqual(['working', 'done', 'working'])
+    expect(rows[1]?.elapsedSeconds).toBe(9 * 60)
+  })
+
   it('returns no rows for "No active agents"', () => {
     expect(parseStatusTable(fixture('status-empty.txt'))).toEqual([])
   })

@@ -1,4 +1,5 @@
 import { type RefObject, useLayoutEffect, useRef, useState } from 'react'
+import { formatClockSeconds } from '../tide/duration.js'
 import { formatElapsed } from './format.js'
 
 /** One real chapter instant, for the drag label only — never a seek target of its own (that stays `onChange`/`onSeek`'s job). */
@@ -15,6 +16,15 @@ export interface ScrubberProps {
   disabled?: boolean
   /** Sorted or not — nearest-lookup is a linear scan either way. Used only for the drag label (research note §4 R2's YouTube idiom). */
   chapterMarkers?: readonly ScrubberChapterMarker[]
+  /**
+   * The scrub instant's headline facts, already in the caller's own voice —
+   * `4 worktrees · 8 commits · $2.14` (#272). Preformatted rather than
+   * structured on purpose: this component is chrome and owns no vocabulary for
+   * what a fact *is*, so the surface that already knows (`replay/index.tsx`,
+   * through `TideDock`) keeps the formatters and this keeps the placement.
+   * `null` in live mode, where there is no scrub instant to describe.
+   */
+  facts?: string | null
 }
 
 /**
@@ -87,7 +97,7 @@ export interface ScrubberProps {
  * lay the TIDE's bands over the exact same x-axis as this track (prd13
  * ruling 1's "share one x-axis"), without a second, hand-tuned offset.
  */
-export function Scrubber({ start, end, value, onChange, disabled = false, chapterMarkers = [] }: ScrubberProps) {
+export function Scrubber({ start, end, value, onChange, disabled = false, chapterMarkers = [], facts = null }: ScrubberProps) {
   const clamped = Math.min(end, Math.max(start, value))
   const span = Math.max(1, end - start)
   const [trackRef, trackWidth] = useTrackWidth()
@@ -97,22 +107,49 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
   const nearest = dragging ? nearestMarker(chapterMarkers, clamped) : null
   const thumbPercent = ((clamped - start) / span) * 100
 
+  // #272. The absolute clock at the playhead, plus the instant's facts, in one
+  // string used twice: painted beside the thumb, and handed to assistive tech
+  // as the input's `aria-valuetext`. A range input otherwise announces the raw
+  // epoch-millisecond `value`, which is not a time anyone can hear.
+  const readout = facts === null ? formatClockSeconds(clamped) : `${formatClockSeconds(clamped)} · ${facts}`
+
   return (
     <div className="relative flex flex-1 flex-col normal-case tracking-normal">
       {nearest !== null && (
         <div
           aria-hidden="true"
           data-testid="scrubber-drag-label"
-          className="pointer-events-none absolute -top-5 -translate-x-1/2 whitespace-nowrap rounded border border-ice-700 bg-ice-950 px-1 py-0.5 text-[10px] text-ice-100"
+          className="pointer-events-none absolute -top-10 -translate-x-1/2 whitespace-nowrap rounded border border-(--line-strong) bg-(--surface-panel) px-1 py-0.5 text-inst-dense text-(--ink-primary)"
           style={{ left: `${thumbPercent}%` }}
         >
           {nearest.label}
         </div>
       )}
+      {/*
+        Co-located with the thumb and present at rest, which is the whole of
+        #272: the facts it carries used to sit on a prose row at the bottom of
+        the replay bar, the elapsed figures below the track, and the chapter's
+        identity only on a 150 ms hover — four places, none of them where the
+        operator is looking.
+
+        `aria-hidden`, because the same text reaches assistive tech through the
+        input's `aria-valuetext` instead. Announcing a live region that changes
+        on every frame of a drag would be hostile; a value that is read when the
+        value is asked for is not.
+      */}
+      <div
+        aria-hidden="true"
+        data-testid="scrubber-readout"
+        className="figures pointer-events-none absolute -top-5 -translate-x-1/2 whitespace-nowrap rounded border border-(--line-strong) bg-(--surface-panel) px-1 py-0.5 text-inst-dense text-(--ink-primary)"
+        style={{ left: `${thumbPercent}%` }}
+      >
+        {readout}
+      </div>
       <input
         ref={trackRef}
         type="range"
         aria-label="Replay scrubber"
+        aria-valuetext={readout}
         min={start}
         max={Math.max(start, end)}
         step={step}
@@ -122,9 +159,9 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
         onPointerDown={() => setDragging(true)}
         onPointerUp={() => setDragging(false)}
         onPointerCancel={() => setDragging(false)}
-        className="h-1 w-full accent-ice-200"
+        className="h-1 w-full accent-(--ink-primary)"
       />
-      <div className="flex items-center justify-between text-[10px] leading-none text-ice-400">
+      <div className="flex items-center justify-between text-inst-dense leading-none text-(--ink-dim)">
         <span className="figures">{formatElapsed(clamped - start)}</span>
         <span className="figures">{formatElapsed(end - start)}</span>
       </div>

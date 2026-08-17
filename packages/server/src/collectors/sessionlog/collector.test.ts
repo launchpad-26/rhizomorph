@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -6,6 +6,7 @@ import type { CollectorContext, Exec, ExecResult } from '@rhizomorph/core'
 import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createSessionlogCollector } from './collector.js'
+import type { AssistantLineFacts, TurnGrammar } from './turn-grammar.js'
 import { worktreePathToProjectSlug } from './worktree-slug.js'
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -611,6 +612,150 @@ describe('createSessionlogCollector', () => {
     expect(second.events.filter((e) => e.type === 'llm.usage')).toHaveLength(2)
   })
 
+  it("resets the fold on a same-path rotation — turnShape, lane, and branch come from the replacement, not the predecessor", async () => {
+    const worktreePath = '/fake/worktrees/alpha'
+    const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
+    await mkdir(projectDir, { recursive: true })
+    const filePath = path.join(projectDir, 'session.jsonl')
+    await writeFile(filePath, await readFixture('claude-code-2.1.222-tail-pending-tool.jsonl'), 'utf8')
+
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    // '/repo' as the main worktree so `worktreePath` is a linked ('worker')
+    // one — lane comes from `facts.gitBranch` there, not the fixed
+    // `unattributed` laneOverride the main worktree always carries (#62).
+    const gitExec: Exec = async () => success(worktreeListOutput(['/repo', worktreePath]))
+
+    const first = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+    const before = first.nextSnapshot.files[filePath]
+    expect(before?.turnShape?.shape).toBe('pending-tool')
+    expect(before?.turnShape?.pendingToolUseIds).toEqual(['toolu_016B8H8YKsFicyG9JazwdoeV'])
+    expect(before?.lane).toBe('lane-a')
+    expect(before?.branch).toBe('lane-a')
+
+    // Same-path rotation: write the replacement elsewhere, then rename() it
+    // over the old path — the inode changes, the name doesn't. Its one line
+    // is a plain user prompt: no tool_result (so it cannot legitimately close
+    // the predecessor's pending tool call) and not an assistant line (so
+    // nothing here would overwrite lane/branch even without a reset) — the
+    // only way the assertions below can pass is if the reset happened.
+    const replacementPath = path.join(projectDir, 'session.jsonl.new')
+    await writeFile(
+      replacementPath,
+      '{"type":"user","isSidechain":false,"message":{"role":"user","content":"continue"},"timestamp":"2026-08-03T08:00:00.000Z"}\n',
+      'utf8',
+    )
+    await rename(replacementPath, filePath)
+
+    const second = await collector.poll(first.nextSnapshot, makeContext(gitExec))
+    const after = second.nextSnapshot.files[filePath]
+    // A fresh fold over one plain user line lands on 'awaiting-reply' with
+    // nothing pending. Folding it onto the predecessor's pending-tool state
+    // instead would leave pendingToolUseIds non-empty (the dangling call
+    // belongs to the replaced file) and shape stuck at 'pending-tool'.
+    expect(after?.turnShape?.shape).toBe('awaiting-reply')
+    expect(after?.turnShape?.pendingToolUseIds).toEqual([])
+    // Neither is derivable from the line above, so a pass here can only mean
+    // the reset ran, not that this poll's own content produced it.
+    expect(after?.lane).toBe('alpha')
+    expect(after?.branch).toBeNull()
+  })
+
+  it('does not reset the fold on a same-inode truncation, unlike a rotation', async () => {
+    const worktreePath = '/fake/worktrees/alpha'
+    // The `lane` assertions below prove preservation only because 'alpha'
+    // (this path's basename, the post-reset fallback) differs from 'lane-a'
+    // (the fixture's gitBranch, the preserved value) — if a future edit ever
+    // makes them equal, a reset-then-fallback would read identically to a
+    // preserved fold and `lane` could no longer tell the two apart.
+    expect(path.basename(worktreePath)).not.toBe('lane-a')
+    const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
+    await mkdir(projectDir, { recursive: true })
+    const filePath = path.join(projectDir, 'session.jsonl')
+    await writeFile(filePath, await readFixture('claude-code-2.1.222-tail-pending-tool.jsonl'), 'utf8')
+
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const gitExec: Exec = async () => success(worktreeListOutput(['/repo', worktreePath]))
+
+    const first = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+    const before = first.nextSnapshot.files[filePath]
+    expect(before?.turnShape?.shape).toBe('pending-tool')
+    expect(before?.turnShape?.pendingToolUseIds).toEqual(['toolu_016B8H8YKsFicyG9JazwdoeV'])
+    expect(before?.lane).toBe('lane-a')
+    expect(before?.branch).toBe('lane-a')
+    expect(before?.lastUsageRequestId).toBe('req_011CdfKhwWU9Hi5mf8UWvj8X')
+
+    // Same-inode truncation: overwrite the SAME path directly (no rename, no
+    // new file) with far less content — the byte cursor can no longer be
+    // trusted (tail.ts resets it to 0), but the inode is unchanged, so
+    // isRotated is false. The replacement line is a plain user prompt: no
+    // tool_result (so it cannot legitimately close the predecessor's pending
+    // tool call) and not an assistant line (so it cannot legitimately
+    // overwrite lane/branch/lastUsageRequestId either) — the only way every
+    // assertion below can pass is if the fold was preserved, not reset (#413).
+    await writeFile(
+      filePath,
+      '{"type":"user","isSidechain":false,"message":{"role":"user","content":"continue"},"timestamp":"2026-08-03T08:00:00.000Z"}\n',
+      'utf8',
+    )
+
+    const second = await collector.poll(first.nextSnapshot, makeContext(gitExec))
+    const after = second.nextSnapshot.files[filePath]
+    // Folding this line onto the PRESERVED pending-tool state leaves it
+    // pending (closesToolUseIds is empty, so nothing closes toolu_016B8...).
+    // Contrast the rotation test above: the identical line folded onto a
+    // FRESH state lands on 'awaiting-reply' / [] instead — the two tests
+    // together are the asymmetry this issue rules on.
+    expect(after?.turnShape?.shape).toBe('pending-tool')
+    expect(after?.turnShape?.pendingToolUseIds).toEqual(['toolu_016B8H8YKsFicyG9JazwdoeV'])
+    expect(after?.lane).toBe('lane-a')
+    expect(after?.branch).toBe('lane-a')
+    expect(after?.lastUsageRequestId).toBe('req_011CdfKhwWU9Hi5mf8UWvj8X')
+  })
+
+  it("does not let a carried lastUsageRequestId suppress a usage block belonging to the replacement file", async () => {
+    const worktreePath = '/fake/worktrees/alpha'
+    const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
+    await mkdir(projectDir, { recursive: true })
+    const filePath = path.join(projectDir, 'session.jsonl')
+
+    // Deliberately reuses the same requestId across the rotation. Real
+    // provider-issued ids won't collide in practice, but correctness here
+    // must not rest on that — the dedupe key has to be scoped to this file's
+    // own fold, reset on rotation, not merely "usually different next time."
+    const assistantLine = (branch: string, requestId: string): string =>
+      `${JSON.stringify({
+        type: 'assistant',
+        isSidechain: false,
+        message: {
+          model: 'claude-opus-5',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'hi' }],
+          stop_reason: 'end_turn',
+          usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        },
+        requestId,
+        gitBranch: branch,
+        cwd: `/fake/worktrees/${branch}`,
+        sessionId: 'session-one',
+        timestamp: '2026-08-03T08:00:00.000Z',
+      })}\n`
+
+    await writeFile(filePath, assistantLine('lane-a', 'req_SHARED'), 'utf8')
+
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
+
+    const first = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+    expect(first.events.filter((e) => e.type === 'llm.usage')).toHaveLength(1)
+
+    const replacementPath = path.join(projectDir, 'session.jsonl.new')
+    await writeFile(replacementPath, assistantLine('lane-b', 'req_SHARED'), 'utf8')
+    await rename(replacementPath, filePath)
+
+    const second = await collector.poll(first.nextSnapshot, makeContext(gitExec))
+    expect(second.events.filter((e) => e.type === 'llm.usage')).toHaveLength(1)
+  })
+
   it('EOF-starts per file: a second file dropped in mid-run is new to it and, without backfill, emits nothing for its existing content', async () => {
     const worktreePath = '/fake/worktrees/alpha'
     const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
@@ -779,5 +924,91 @@ describe('createSessionlogCollector', () => {
     const usage = result.events.filter((e) => e.type === 'llm.usage')
     expect(usage).toHaveLength(1)
     expect(usage[0]?.payload).toMatchObject({ role: 'conductor', lane: 'conductor', worktreePath: rootPath })
+  })
+
+  it('reads classification and extraction through the injected turnGrammar, not the claude parser (#508)', async () => {
+    const worktreePath = '/fake/worktrees/alpha'
+    const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
+    await mkdir(projectDir, { recursive: true })
+    // Deliberately not valid Claude Code JSONL: CLAUDE_JSONL_GRAMMAR fails to
+    // JSON.parse this and classifies/extracts nothing from it (both return
+    // null on an unparsable line, same as an empty one). Any lane reading or
+    // event below can only have come from the injected fake grammar below —
+    // proof the collector's call sites read through `config.turnGrammar`
+    // rather than the claude dialect directly, for both classify and extractFacts.
+    await writeFile(path.join(projectDir, 'fake-session.jsonl'), 'not real jsonl\n', 'utf8')
+
+    const fakeFacts: AssistantLineFacts = {
+      sessionId: 'fake-session-id',
+      cwd: null,
+      gitBranch: 'fake-branch',
+      requestId: 'fake-req-1',
+      model: 'fake-model',
+      tokens: { input: 1, output: 2, cacheRead: 3, cacheCreation: 4 },
+      toolUses: [{ tool: 'FakeTool', toolUseId: 'fake-tool-1', filePath: null }],
+      timestamp: 555,
+      isSidechain: false,
+    }
+    // Recorded, not just returned: proves not only that the injected grammar
+    // is READ but WHAT it is handed. An isolated call-site bug that still
+    // reads *some* raw line through the injected grammar (e.g. an off-by-one
+    // passing the previous line) would sail through a fake that ignores its
+    // argument; it cannot sail through an assertion on the argument itself.
+    const seenLines: { classify: string[]; extractFacts: string[] } = { classify: [], extractFacts: [] }
+    const fakeGrammar: TurnGrammar = {
+      cli: 'claude',
+      capture: 'fake-test-grammar (#508, not a real capture)',
+      classify: (rawLine) => {
+        seenLines.classify.push(rawLine)
+        return {
+          role: 'assistant',
+          turnComplete: true,
+          opensToolUseIds: [],
+          sidechain: false,
+          ts: 555,
+        }
+      },
+      extractFacts: (rawLine) => {
+        seenLines.extractFacts.push(rawLine)
+        return fakeFacts
+      },
+    }
+
+    const collector = createSessionlogCollector({
+      claudeProjectsRoot: root,
+      backfill: true,
+      turnGrammar: fakeGrammar,
+    })
+    const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+
+    // Both halves are read off the SAME raw line, the exact line the fixture
+    // wrote (the trailing newline is a line terminator, not part of the
+    // line) — the reason ADR-0017 gives for one interface over two.
+    expect(seenLines.classify).toEqual(['not real jsonl'])
+    expect(seenLines.extractFacts).toEqual(['not real jsonl'])
+
+    // extractFacts half: the emitted events reflect the fake facts, not
+    // anything the real claude parser could have read off this garbage line.
+    const usage = result.events.filter((e) => e.type === 'llm.usage')
+    const tools = result.events.filter((e) => e.type === 'tool.activity')
+    expect(usage).toHaveLength(1)
+    expect(usage[0]?.payload).toMatchObject({
+      requestId: 'fake-req-1',
+      model: 'fake-model',
+      tokens: { input: 1, output: 2, cacheRead: 3, cacheCreation: 4 },
+      branch: 'fake-branch',
+    })
+    expect(tools).toHaveLength(1)
+    expect(tools[0]?.payload).toMatchObject({ tool: 'FakeTool', toolUseId: 'fake-tool-1' })
+
+    // classify half: the fake grammar's turn-complete entry drove the fold —
+    // the real grammar classifies this line as null (unparsable), which would
+    // leave the shape 'empty' and the lane unreadable (deriveLaneState returns
+    // null for 'empty'). A 'working' reading here can only have come from the
+    // injected classify.
+    const lanes = result.nextSnapshot.lanes ?? {}
+    const laneStates = Object.values(lanes).map((lane) => lane.state)
+    expect(laneStates).toEqual(['working'])
   })
 })

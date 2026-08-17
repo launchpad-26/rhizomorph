@@ -17,7 +17,6 @@ export * from './system.js'
 export * from './telemetry.js'
 export * from './tmux.js'
 export * from './trace.js'
-export * from './upcast.js'
 export * from './workmux.js'
 
 /** The one event union every consumer reads. Discriminates on `type`. */
@@ -58,6 +57,8 @@ export const EVENT_SOURCE_BY_TYPE = {
   'branch.removed': 'git',
   'commit.landed': 'git',
   'worktree.dirty': 'git',
+  'worktree.dirtyStatusFailed': 'git',
+  'worktree.dirtyStatusRecovered': 'git',
   'pane.discovered': 'tmux',
   'pane.closed': 'tmux',
   'pane.activity': 'tmux',

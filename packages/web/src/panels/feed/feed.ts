@@ -3,10 +3,10 @@ import {
   selectRecentCommits,
   type AgentStatus,
   type CommitRecord,
+  type Lane,
   type RhizomorphEvent,
   type SessionState,
 } from '@rhizomorph/core'
-import type { Lane } from '../../fleet/buildFleet.js'
 
 /**
  * THE ACTIVITY FEED's fold (ruling 15) — the commit ticker's one kind grows
@@ -203,15 +203,22 @@ export function buildFeedEntries(
         message: event.payload.reason,
       })
     } else if (isEventOfType(event, 'collector.error')) {
+      const { collector, message, count } = event.payload
       collectorEntries.push({
         id: `collector-${event.id}`,
         ts: event.ts,
         kind: 'collector',
         laneId: null,
         news: isRecent(event.ts, connectedAt, newsGraceMs),
-        collector: event.payload.collector,
+        collector,
         state: 'error',
-        message: event.payload.message,
+        // A coalesced event (#529, #530) stands for `count` occurrences, not
+        // one; say so, and only when it is more than the single occurrence
+        // every row already implies. Parenthesised rather than the bare `×N`
+        // used elsewhere (scene marks, ChapterMarks, Activity.tsx): this row
+        // is free-text prose next to a message, not a mark on its own, and a
+        // bare `×12` butted against a sentence reads oddly.
+        message: count !== undefined && count > 1 ? `${message} (×${count})` : message,
       })
     }
   }

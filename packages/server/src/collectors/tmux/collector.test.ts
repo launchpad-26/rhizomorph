@@ -423,15 +423,49 @@ describe('tmuxCollector', () => {
     expect(first.events.filter((e) => e.type === 'pane.discovered')).toHaveLength(2)
     expect(first.events.some((e) => e.type === 'collector.disabled')).toBe(false)
 
+    // The identical bad line recurs on polls 2 and 3 — per-incident latching
+    // (#506) means it voices only once, not on every poll it persists (the
+    // pre-#506 shape this test used to assert, restated at greater strength
+    // per AGENTS.md rather than weakened).
     const second = await tmuxCollector.poll(first.nextSnapshot, makeContext(shell.exec))
-    expect(second.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+    expect(second.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
     expect(second.events.some((e) => e.type === 'collector.disabled' || e.type === 'collector.degraded')).toBe(false)
     expect(second.events.some((e) => e.type === 'pane.discovered')).toBe(false)
 
     const third = await tmuxCollector.poll(second.nextSnapshot, makeContext(shell.exec))
-    expect(third.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+    expect(third.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
     expect(third.events.some((e) => e.type === 'collector.disabled' || e.type === 'collector.degraded')).toBe(false)
     expect(third.events.some((e) => e.type === 'pane.discovered')).toBe(false)
+  })
+
+  it('a list-panes skip re-arms silently on recovery, so a later recurrence voices again (#506)', async () => {
+    const paneA: PaneFixture = {
+      paneId: '%1',
+      sessionName: 'obs',
+      windowIndex: 0,
+      windowName: 'wm-a',
+      currentPath: '/worktrees/a',
+      currentCommand: 'claude',
+      title: '',
+    }
+    shell.worktreeByPath.set('/worktrees/a', '/worktrees/a')
+    shell.captureByPane.set('%1', success('hello'))
+    const badLine = '%3\tobs\t2\twin-c\t/tmp/weird\tpath\tbash\ttitle'
+    const goodLine = '%3\tobs\t2\twin-c\t/tmp/weird\tbash\ttitle'
+
+    shell.listPanesOutput = [listPanesLine(paneA), badLine].join('\n')
+    const first = await tmuxCollector.poll(tmuxCollector.initialSnapshot(), makeContext(shell.exec))
+    expect(first.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
+
+    // The bad line parses fine this poll — latch clears silently, no error.
+    shell.listPanesOutput = [listPanesLine(paneA), goodLine].join('\n')
+    const second = await tmuxCollector.poll(first.nextSnapshot, makeContext(shell.exec))
+    expect(second.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
+
+    // The identical bad line recurs — a genuinely new incident, must voice again.
+    shell.listPanesOutput = [listPanesLine(paneA), badLine].join('\n')
+    const third = await tmuxCollector.poll(second.nextSnapshot, makeContext(shell.exec))
+    expect(third.events.filter((e) => e.type === 'collector.error')).toHaveLength(1)
   })
 
   it('maps a pane outside any git worktree to a null worktreePath', async () => {
@@ -451,5 +485,54 @@ describe('tmuxCollector', () => {
     const result = await tmuxCollector.poll(tmuxCollector.initialSnapshot(), makeContext(shell.exec))
     const discovered = result.events.find((e) => e.type === 'pane.discovered')
     expect(discovered?.payload).toMatchObject({ worktreePath: null })
+  })
+
+  it('a failed worktree resolve calls git exactly once and resolves to null, not a cached failure (#505)', async () => {
+    const paneA: PaneFixture = {
+      paneId: '%1',
+      sessionName: 'obs',
+      windowIndex: 0,
+      windowName: 'wm-a',
+      currentPath: '/worktrees/flaky',
+      currentCommand: 'claude',
+      title: '',
+    }
+    shell.listPanesOutput = listPanesLine(paneA)
+    shell.captureByPane.set('%1', success('hello'))
+    // No entry in shell.worktreeByPath ⇒ `git rev-parse` fails.
+
+    const result = await tmuxCollector.poll(tmuxCollector.initialSnapshot(), makeContext(shell.exec))
+
+    expect(result.nextSnapshot.panes['%1']?.worktreePath).toBeNull()
+    expect(shell.gitCalls).toEqual(['/worktrees/flaky'])
+  })
+
+  it('retries a failed worktree resolve on every later poll, and recovers once git succeeds (#505)', async () => {
+    const paneA: PaneFixture = {
+      paneId: '%1',
+      sessionName: 'obs',
+      windowIndex: 0,
+      windowName: 'wm-a',
+      currentPath: '/worktrees/flaky',
+      currentCommand: 'claude',
+      title: '',
+    }
+    shell.listPanesOutput = listPanesLine(paneA)
+    shell.captureByPane.set('%1', success('hello'))
+    // No entry in shell.worktreeByPath ⇒ first poll's `git rev-parse` fails.
+
+    const first = await tmuxCollector.poll(tmuxCollector.initialSnapshot(), makeContext(shell.exec))
+    expect(first.nextSnapshot.panes['%1']?.worktreePath).toBeNull()
+    expect(shell.gitCalls).toEqual(['/worktrees/flaky'])
+
+    // The transient condition clears between polls (e.g. the worktree was
+    // recreated) — a permanently-cached `null` would never see this.
+    shell.worktreeByPath.set('/worktrees/flaky', '/worktrees/flaky')
+    const second = await tmuxCollector.poll(first.nextSnapshot, makeContext(shell.exec))
+
+    expect(second.nextSnapshot.panes['%1']?.worktreePath).toBe('/worktrees/flaky')
+    // Two calls total for the same path proves the failure was retried, not
+    // served from a stale cache.
+    expect(shell.gitCalls).toEqual(['/worktrees/flaky', '/worktrees/flaky'])
   })
 })

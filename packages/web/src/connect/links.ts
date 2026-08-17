@@ -1,4 +1,6 @@
 import { AGENT_ROLES, type AgentRole, type Connection, type RefusalState, type SourceFlow, type UninstrumentedSession } from '@rhizomorph/core'
+import { shellQuote } from '../drawer/attach.js'
+import { formatSpan } from '../fleet/index.js'
 import type { ConnectionStatus } from '../hooks/useEventStream.js'
 import { doctorCheck, type CollectorFacts, type DoctorReading, type MetaFacts } from './meta.js'
 
@@ -42,12 +44,36 @@ import { doctorCheck, type CollectorFacts, type DoctorReading, type MetaFacts } 
  *
  * The three states are also the hue law's own three (`theme/theme.css`):
  * verified wears the green family, broken wears the one red the instrument
- * has, and unproven wears the ice ramp — **waiting is not an alarm**, so a
+ * has, and unproven wears the structural ink — **waiting is not an alarm**, so a
  * row that has nothing to say must never borrow amber's "a human is needed"
  * or red's "this is dead".
  */
 
 export type LinkState = 'verified' | 'broken' | 'unproven'
+
+/**
+ * The one word each state is rendered as, and the glyph beside it — declared
+ * HERE, beside {@link LinkState} itself, so the two cannot drift.
+ *
+ * Colour is never the sole carrier (hue law 9a's own condition): every state
+ * has a glyph and a word as well as a hue, so the checklist survives greyscale,
+ * colour-blindness and a photographed screen.
+ *
+ * They moved down here from `index.tsx` in wave 4 (#266), which is where the
+ * three-states law (#367) still reads them from — `index.tsx` re-exports them
+ * unchanged. The reason is the wizard: it shows the same three readings for the
+ * same rows, and a second surface reaching back INTO the page module for its
+ * vocabulary would be an import cycle between the page and the panel it
+ * renders. A word about a `LinkState` belongs with `LinkState`.
+ */
+export const STATE_WORD: Record<LinkState, string> = {
+  verified: 'VERIFIED',
+  broken: 'BROKEN',
+  unproven: 'UNPROVEN',
+}
+
+/** The glyph beside {@link STATE_WORD} — see its doc for why both exist. */
+export const STATE_GLYPH: Record<LinkState, string> = { verified: '✓', broken: '✕', unproven: '·' }
 
 /**
  * WHAT IS CHECKING A ROW — and therefore what has to be both real and alive
@@ -113,6 +139,68 @@ export interface ChainLink {
   warning: string | null
   /** Context — preconditions, doctor findings, standing faults. Never load-bearing for {@link state}. */
   notes: string[]
+  /**
+   * THE ROW'S OWN ENUMERATION, and today the uninstrumented row is the only
+   * one that has one (prd-20 w7, #520). Every session this row is BROKEN
+   * *about*, each carried as something the page can act on — see
+   * {@link InstrumentableSession}.
+   *
+   * Optional because it is one row's fact, not a field every row owes an
+   * answer for: a row with nothing to enumerate leaves it unset rather than
+   * carrying an empty list that reads like a checked-and-found-nothing claim.
+   * **{@link unproven} clears it explicitly**, which is what keeps a fixture
+   * fold — or a session inside the grace window — from handing an operator a
+   * button and a command for a conversation this page has not proved anything
+   * about.
+   */
+  sessions?: InstrumentableSession[]
+}
+
+/**
+ * ONE RIPE WITNESS, IN THE FORM THE PAGE CAN ACT ON (prd-20 w7, #520).
+ *
+ * The row above this list is unchanged — the BROKEN/UNPROVEN/VERIFIED spine
+ * and the worst-offender sentence still say everything a reader needs without
+ * scrolling. This is the enumeration *under* it: every ripe session, with the
+ * two paths out and enough identity to tell one from another.
+ *
+ * **The command is not a fallback for the button** (prd-20 ruling 3). This
+ * page never claims to attach to a running process, so the copyable command
+ * stays visible EVEN WHERE the button exists: it is the path that needs no
+ * trust in this instrument at all, and the only one that still works when the
+ * instrument cannot reach the transcript.
+ */
+export interface InstrumentableSession {
+  sessionId: string
+  /** The lane whose env block would fix it — `null` when no witness named one, exactly as {@link envCommand} means it. */
+  lane: string | null
+  /** The role that block is generated for; `null` where no witness carried a role the schema knows. */
+  role: AgentRole | null
+  /**
+   * How long this session has been running uninstrumented — `12m00s ago`, or
+   * `undated` for the witness {@link pastGrace} refuses the window to because
+   * it carried no usable first sighting. Never a bare timestamp: the question
+   * this answers is "how long has this been going on", which is elapsed time.
+   */
+  ageLabel: string
+  /**
+   * Where it ran (#515's fields, rendered at last), as a reader can hold it:
+   * the branch, and the LAST SEGMENT of the worktree path rather than its
+   * whole depth — an option in a `<select>` has room for the part that
+   * identifies a worktree, not for `/home/x/rhizomorph__worktrees/…`.
+   */
+  place: { branch: string | null; worktreeTail: string | null }
+  /**
+   * The no-trust path, composed from the two idioms this module already owns:
+   * {@link envCommand} inside {@link envApplyNote}'s own `eval`, then `claude
+   * --resume` on this session id. **One line, joined by `&&`, deliberately** —
+   * the SCAR ({@link SAME_PROCESS_WARNING}) is precisely what happens when the
+   * export and the exec are two different processes, and a two-line recipe is
+   * two processes waiting to happen.
+   */
+  resumeCommand: string
+  /** The env block alone, so a reader can see what that `eval` is about to run before running it. */
+  envCommand: string
 }
 
 /**
@@ -136,7 +224,7 @@ export const SAME_PROCESS_WARNING = 'the env block must be exported in the proce
  * batch an instrumented agent can owe us — `rhizomorph env` sets the metrics
  * interval to 5s, logs to 2s and traces to 1s (`cli/telemetry-env.ts`), so a
  * correctly wired lane proves itself an order of magnitude inside this
- * window. Under it, the row reads UNPROVEN, in the ice register: an export
+ * window. Under it, the row reads UNPROVEN, in the structural register: an export
  * that may still be in flight is waiting, and waiting is not an alarm.
  */
 export const FIRST_EXPORT_GRACE_MS = 60_000
@@ -213,7 +301,27 @@ export function restartCommand(repoPath: string | null, port: string, extra: rea
   return ['npm start --', repoPath ?? '<repo>', '--port', port, ...extra].join(' ')
 }
 
-type LinkBase = Omit<ChainLink, 'state' | 'fact' | 'ts' | 'tsKind' | 'reason' | 'command' | 'warning' | 'notes'>
+/**
+ * The whole no-trust path for one session, as a single pasteable line: the env
+ * block evaluated in this shell, and the agent resumed from that same shell.
+ *
+ * Nothing here is new machinery — it is {@link envApplyNote}'s own sentence
+ * ("apply it in the shell that will exec the agent … then start `claude` from
+ * that same shell") written as the command it describes, with the same
+ * `shellQuote` the drawer's attach commands use so a session id or lane with a
+ * space in it still pastes correctly. **`&&`, never two lines**: the SCAR this
+ * page repeats verbatim is what a two-process recipe does, and a one-liner
+ * cannot be half-followed.
+ */
+export function resumeCommand(env: string, sessionId: string): string {
+  return `eval "$(${env})" && claude --resume ${shellQuote(sessionId)}`
+}
+
+// `sessions` joins the state-carried fields rather than the base ones: it is a
+// property of what a row PROVED, so only the three constructors below may
+// decide it — which is what makes `unproven`'s explicit clear a law rather
+// than a convention a caller could route around.
+type LinkBase = Omit<ChainLink, 'state' | 'fact' | 'ts' | 'tsKind' | 'reason' | 'command' | 'warning' | 'notes' | 'sessions'>
 
 /** When a row was proved, and by what kind of proof — see {@link ChainLink.tsKind}. */
 export interface Proof {
@@ -238,7 +346,7 @@ function provenNow(now: number): Proof {
 }
 
 function verified(base: LinkBase, fact: string, proof: Proof, notes: string[] = []): ChainLink {
-  return { ...base, state: 'verified', fact, ts: proof.ts, tsKind: proof.tsKind, reason: null, command: null, warning: null, notes }
+  return { ...base, state: 'verified', fact, ts: proof.ts, tsKind: proof.tsKind, reason: null, command: null, warning: null, notes, sessions: undefined }
 }
 
 /**
@@ -250,7 +358,7 @@ function verified(base: LinkBase, fact: string, proof: Proof, notes: string[] = 
 function broken(
   base: LinkBase,
   reason: string,
-  options: { command: string; warning?: string; notes?: string[] },
+  options: { command: string; warning?: string; notes?: string[]; sessions?: InstrumentableSession[] },
 ): ChainLink {
   return {
     ...base,
@@ -262,11 +370,23 @@ function broken(
     command: options.command,
     warning: options.warning ?? null,
     notes: options.notes ?? [],
+    sessions: options.sessions,
   }
 }
 
+/**
+ * `sessions: undefined` is written out rather than left off, and it is the one
+ * line that keeps {@link fromFixture} honest. This function is what a fixture
+ * row is REBUILT with, and it is handed the whole {@link ChainLink} — so a
+ * field it forgets to reset is a field that survives the reset, which is
+ * exactly the failure that file's doc warns about ("a hand-listed copy of the
+ * same seven nulls is exactly where a field added to one and not the other
+ * would survive a fixture as a fabricated claim"). An enumeration surviving it
+ * would put an instrument button and a copyable `claude --resume` on a session
+ * that exists only inside a synthetic fleet.
+ */
 function unproven(base: LinkBase, notes: string[] = []): ChainLink {
-  return { ...base, state: 'unproven', fact: null, ts: null, tsKind: null, reason: null, command: null, warning: null, notes }
+  return { ...base, state: 'unproven', fact: null, ts: null, tsKind: null, reason: null, command: null, warning: null, notes, sessions: undefined }
 }
 
 /** `1 record` / `4 records` — the count is evidence of flow and a magnitude, never an event tally (`selectConnection`'s own first limit). */
@@ -637,6 +757,10 @@ export interface UninstrumentedWitness {
    * for why that case is not granted the grace window.
    */
   firstEventTs: number | null
+  /** `UninstrumentedSession.worktreePath` / `UninstrumentedFacts.worktreePath` — not rendered by this wave (#515). */
+  worktreePath: string | null
+  /** See {@link worktreePath}. */
+  branch: string | null
 }
 
 /** A served role string is only a role if it is one of the four the schema has — anything else is dropped rather than passed to `--role`. */
@@ -664,13 +788,24 @@ function knownRoles(roles: readonly string[]): AgentRole[] {
  */
 export function mergeUninstrumented(
   folded: readonly UninstrumentedSession[],
-  served: readonly { sessionId: string; lanes: string[]; roles: string[]; firstEventTs: number | null }[] | undefined,
+  served:
+    | readonly {
+        sessionId: string
+        lanes: string[]
+        roles: string[]
+        firstEventTs: number | null
+        worktreePath?: string | null
+        branch?: string | null
+      }[]
+    | undefined,
 ): UninstrumentedWitness[] {
   const witnesses: UninstrumentedWitness[] = folded.map((session) => ({
     sessionId: session.sessionId,
     lanes: [...session.lanes],
     roles: [...session.roles],
     firstEventTs: session.firstEventTs,
+    worktreePath: session.worktreePath,
+    branch: session.branch,
   }))
   const seen = new Set(witnesses.map((witness) => witness.sessionId))
 
@@ -682,6 +817,8 @@ export function mergeUninstrumented(
       lanes: [...session.lanes],
       roles: knownRoles(session.roles),
       firstEventTs: session.firstEventTs,
+      worktreePath: session.worktreePath ?? null,
+      branch: session.branch ?? null,
     })
   }
   return witnesses
@@ -704,6 +841,32 @@ function relaunchTarget(session: UninstrumentedWitness): { lane: string | null; 
   return {
     lane: session.lanes[0] ?? null,
     role: session.roles.includes('conductor') ? 'conductor' : (session.roles[0] ?? null),
+  }
+}
+
+/**
+ * The last segment of a worktree path — see {@link InstrumentableSession.place}.
+ * Both separators, because the path came off a wire whose other end may be a
+ * Windows checkout, and a `\`-joined path would otherwise return whole.
+ */
+function worktreeTail(worktreePath: string | null): string | null {
+  if (worktreePath === null) return null
+  const segments = worktreePath.split(/[\\/]/).filter((segment) => segment.length > 0)
+  return segments[segments.length - 1] ?? null
+}
+
+/** One ripe witness, in the form the page can act on — the same target and the same env block the row's own headline command is built from. */
+function instrumentable(witness: UninstrumentedWitness, port: string, now: number): InstrumentableSession {
+  const { lane, role } = relaunchTarget(witness)
+  const env = envCommand(lane, role, port)
+  return {
+    sessionId: witness.sessionId,
+    lane,
+    role,
+    ageLabel: witness.firstEventTs === null ? 'undated' : `${formatSpan(now - witness.firstEventTs)} ago`,
+    place: { branch: witness.branch, worktreeTail: worktreeTail(witness.worktreePath) },
+    resumeCommand: resumeCommand(env, witness.sessionId),
+    envCommand: env,
   }
 }
 
@@ -745,7 +908,18 @@ function uninstrumentedConductor(input: ConnectInputs): ChainLink {
     return broken(
       base,
       `${named} has transcript activity and has exported no telemetry at all${others}: this agent was launched without the env block, so its dollars and traces do not exist`,
-      { command, warning: SAME_PROCESS_WARNING, notes: [envApplyNote(command), 'the agent has to be relaunched — an env block exported after `claude` started never reaches it'] },
+      {
+        command,
+        warning: SAME_PROCESS_WARNING,
+        notes: [envApplyNote(command), 'the agent has to be relaunched — an env block exported after `claude` started never reaches it'],
+        // Every ripe session, not only the worst offender the sentence above
+        // names: the row says what is wrong in one line, and the enumeration
+        // is where an operator picks WHICH of them to act on (#520). Ripe
+        // only — a session still inside the grace window has not been shown
+        // to be uninstrumented at all, and offering to relaunch it would be
+        // an alarm about waiting.
+        sessions: ripe.map((witness) => instrumentable(witness, input.port, input.now)),
+      },
     )
   }
 

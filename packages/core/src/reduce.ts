@@ -3,7 +3,6 @@ import type {
   RhizomorphEvent,
 } from './events/index.js'
 import { totalTokens } from './events/index.js'
-import { upcast } from './events/upcast.js'
 import type {
   ActiveTimeRecord,
   AgentState,
@@ -38,18 +37,110 @@ import {
 } from './state.js'
 
 /**
+ * Whether `event` opens a **different recording** than the one `state` is
+ * already the fold of — a `session.started` whose `sessionId` (or `repoPath`)
+ * is not the one folded here (#592).
+ *
+ * ## Why this is a fact of the FOLD, not of the live client
+ *
+ * The operator pressed *end session · start fresh*, the recorder closed one
+ * log and opened another, and `/api/stream` duly began delivering the new
+ * session's events down the same connection — beginning, as every session's
+ * log does, with its own `session.started`. Before this predicate existed the
+ * reducer treated that line as nothing but a new value for `state.session`:
+ * every worktree, branch, commit, lane, span and dollar of the recording the
+ * operator had just ENDED stayed folded underneath it, and every "elapsed"
+ * figure went on being measured from `firstEventTs` of a session that no
+ * longer existed. The live view was a fold of two recordings at once, and
+ * nothing on screen moved when the operator acted (#592, found on the live
+ * instrument — 5,200 passing tests never caught it, because every one of them
+ * folds a single session).
+ *
+ * It lives here, in `reduce`, rather than in the web shell for the reason
+ * ADR-0002 gives: **one reducer serves both live and replay.** A recorded log
+ * that happens to carry two sessions — an exported record, a concatenation, a
+ * replay of a file a rotation appended to — must fold to the same answer the
+ * live stream reaches, and a "the client resets on rotation" fix in
+ * `StreamContext` would have been true of live and false of replay.
+ *
+ * ## What is deliberately NOT a boundary
+ *
+ * - **A reconnect's full replay.** `EventSource` reconnects on its own with
+ *   `Last-Event-ID`, and when the new process's buffer never held that id the
+ *   server honestly falls back to replaying the whole session — which
+ *   re-emits `session.started` for the SAME session. Same id, no reset; the
+ *   replay is absorbed exactly as it always was. This is the eager-reset
+ *   regression this predicate is most likely to grow, so it is what the
+ *   `sessionId` key exists to exclude.
+ * - **Anything before the first `session.started`.** `state.session` is null
+ *   until one has named a session, so the first to arrive never resets: there
+ *   is nothing folded for it to contradict.
+ *
+ * ## Why `repoPath` is checked as well as `sessionId`
+ *
+ * #390 keyed the web shell's own reset on `repoPath` alone, for the retarget
+ * (prd20 ruling 5) — a dashboard re-pointed at another repo, whose fold would
+ * otherwise show one repo's fleet under the other's name. Every retarget
+ * today also mints a new session id, so `sessionId` alone would in practice
+ * catch it; the `repoPath` clause is kept so that a boundary #390 already
+ * proved matters cannot be missed if that ever stops being true. It is also
+ * what keeps #390's own pinned decision alive: a case-only difference in the
+ * path (`/repos/Alpha` vs `/repos/alpha`) is treated as two repos, because on
+ * a case-sensitive filesystem it genuinely is, and a spurious reset costs
+ * recoverable amnesia where a missed boundary costs a lie (ADR-0001).
+ *
+ * ## What this supersedes
+ *
+ * #390's `crossesRepoBoundary` explicitly ruled the other way on rotation:
+ * *"An ordinary rotation changes `sessionId`, never `repoPath`. The fleet it
+ * describes is the same fleet; dropping it would be a self-inflicted
+ * amnesia."* That reading is now retired, and #592 is why: the operator ended
+ * a recording on purpose, and the amnesia is the point — it is the only thing
+ * that makes their own act visible. It is also cheap and brief, because a
+ * rotation resets every collector's warm snapshot (`server/api/rotate.ts`)
+ * precisely so the new log opens self-contained: the fleet refills from the
+ * new session's own discovery pass within a poll interval.
+ *
+ * ## The one place this reading is wrong, named
+ *
+ * A **federated merge** (`record/merge.ts`, prd11 ruling 3) interleaves two
+ * ACTORS' recordings of one repo into a single stream, and there the second
+ * `session.started` means "another observer", not "the previous recording
+ * ended". This predicate cannot tell the two apart from one event, and it
+ * takes succession — because succession is what the live instrument and every
+ * replayed log mean, and federation has no production caller yet.
+ *
+ * That is a limitation of `SessionState`, not of this rule: the slice has one
+ * `session` and one `mainBranch`, so a merged fold was already picking a
+ * winner for both before this predicate existed. The fix a federation lane
+ * wants is a fold PER ACTOR, which is what a multi-actor view needs anyway;
+ * weakening succession here would buy federation nothing and cost the live
+ * dashboard the whole of #592. `record/merge.test.ts` pins the current
+ * behaviour and says all of this from the other end.
+ */
+export function opensNewSession(state: SessionState, event: RhizomorphEvent): boolean {
+  if (event.type !== 'session.started') return false
+  const folded = state.session
+  if (folded === null) return false
+  return folded.sessionId !== event.payload.sessionId || folded.repoPath !== event.payload.repoPath
+}
+
+/**
  * `reduce(state, event) → state`, pure and immutable.
  *
  * The same function folds the live SSE stream and a replayed history slice —
- * that identity is the whole reason replay is free, and it is also why
- * {@link upcast} is called *here*: this is the one function both paths bottom
- * out in, so "every event flows through the migration chokepoint" is true by
- * construction rather than by every future fold remembering (prd17 ruling 3,
- * item 3 — see `events/upcast.ts` for what that chokepoint is for).
+ * that identity is the whole reason replay is free.
+ *
+ * The reset lands **before** the envelope bookkeeping, so a `session.started`
+ * that opens a new recording ({@link opensNewSession}) is itself the first
+ * event of the new fold: `eventCount` comes back as 1, and `firstEventTs` is
+ * that session's own start rather than the ended session's. Nothing else in
+ * this file needs to know — every arm below folds onto whatever state it is
+ * handed, and this is simply a different one.
  */
 export function reduce(state: SessionState, event: RhizomorphEvent): SessionState {
-  const current = upcast(event)
-  return applyEvent(withEnvelope(state, current), current)
+  const base = opensNewSession(state, event) ? initialSessionState() : state
+  return applyEvent(withEnvelope(base, event), event)
 }
 
 /** Fold a whole log. Handy for replay slices and for tests. */
@@ -96,6 +187,10 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       return worktreeRemoved(state, event)
     case 'worktree.dirty':
       return worktreeDirty(state, event)
+    case 'worktree.dirtyStatusFailed':
+      return worktreeDirtyStatusFailed(state, event)
+    case 'worktree.dirtyStatusRecovered':
+      return worktreeDirtyStatusRecovered(state, event)
     case 'branch.updated':
       return branchUpdated(state, event)
     case 'branch.removed':
@@ -149,6 +244,17 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
 
 // --- system -----------------------------------------------------------------
 
+/**
+ * The session's own identity, folded in.
+ *
+ * `state` here is whatever {@link reduce} handed over: the running fold when
+ * this line merely re-states the session already being folded (a reconnect's
+ * replay), and a FRESH state when it opened a different one
+ * ({@link opensNewSession}). That is why `mainBranch` may still fall back to
+ * `state.mainBranch` — on the reset path there is nothing to fall back to, so
+ * a new recording relearns main from its own `worktree.discovered` rather
+ * than inheriting the ended session's answer.
+ */
 function sessionStarted(state: SessionState, event: EventOf<'session.started'>): SessionState {
   const { sessionId, repoPath, repoName, mainBranch } = event.payload
   return {
@@ -159,13 +265,16 @@ function sessionStarted(state: SessionState, event: EventOf<'session.started'>):
 }
 
 function collectorError(state: SessionState, event: EventOf<'collector.error'>): SessionState {
-  const { collector, message, detail } = event.payload
+  const { collector, message, detail, count } = event.payload
   const prev = state.collectors[collector]
   const record: CollectorState = {
     name: collector,
     // A disabled collector that then errors stays disabled: it is the stronger fact.
     status: prev?.status === 'disabled' ? 'disabled' : 'error',
-    errorCount: (prev?.errorCount ?? 0) + 1,
+    // `count` is occurrences this one coalesced event stands for (#529); most
+    // emitters never coalesce and carry no count, so `?? 1` is what keeps them
+    // reading as the single occurrence they are, not zero.
+    errorCount: (prev?.errorCount ?? 0) + (count ?? 1),
     lastErrorTs: event.ts,
     lastErrorMessage: message,
     consecutiveFailures: prev?.consecutiveFailures ?? 0,
@@ -178,6 +287,10 @@ function collectorError(state: SessionState, event: EventOf<'collector.error'>):
     collector,
     message,
     detail: detail ?? null,
+    // Same `?? 1` as `errorCount` above, and the same fact `RefusalRecord`
+    // already carries at this layer: most emitters never coalesce and carry
+    // no count, so this stays the single occurrence it is, not zero.
+    count: count ?? 1,
   }
   return {
     ...state,
@@ -264,6 +377,7 @@ function worktreeDiscovered(
     // Re-discovery must not forget what we knew was dirty.
     dirtyFiles: prev?.dirtyFiles ?? [],
     dirtyUpdatedAt: prev?.dirtyUpdatedAt ?? null,
+    dirtyStatusFailedSince: prev?.dirtyStatusFailedSince ?? null,
   }
 
   let next: SessionState = { ...state, worktrees: { ...state.worktrees, [p.path]: worktree } }
@@ -291,6 +405,8 @@ function worktreeRemoved(state: SessionState, event: EventOf<'worktree.removed'>
     // A worktree that is gone cannot be colliding with anyone.
     dirtyFiles: [],
     dirtyUpdatedAt: event.ts,
+    // A removed worktree cannot have an open git-status incident.
+    dirtyStatusFailedSince: null,
   }
   return { ...state, worktrees: { ...state.worktrees, [prev.path]: worktree } }
 }
@@ -305,6 +421,37 @@ function worktreeDirty(state: SessionState, event: EventOf<'worktree.dirty'>): S
     dirtyUpdatedAt: event.ts,
   }
   return { ...state, worktrees: { ...state.worktrees, [p.path]: worktree } }
+}
+
+/**
+ * A per-worktree fact, voiced as a fact about the worktree — never routed
+ * through `CollectorState`, so one worktree's recovery can never mask a
+ * sibling's still-open incident (#429).
+ */
+function worktreeDirtyStatusFailed(
+  state: SessionState,
+  event: EventOf<'worktree.dirtyStatusFailed'>,
+): SessionState {
+  const { worktreePath } = event.payload
+  const prev = state.worktrees[worktreePath]
+  const worktree: WorktreeState = {
+    ...(prev ?? stubWorktree(worktreePath, event.ts)),
+    dirtyStatusFailedSince: event.ts,
+  }
+  return { ...state, worktrees: { ...state.worktrees, [worktreePath]: worktree } }
+}
+
+function worktreeDirtyStatusRecovered(
+  state: SessionState,
+  event: EventOf<'worktree.dirtyStatusRecovered'>,
+): SessionState {
+  const { worktreePath } = event.payload
+  const prev = state.worktrees[worktreePath]
+  if (prev === undefined) return state
+  return {
+    ...state,
+    worktrees: { ...state.worktrees, [worktreePath]: { ...prev, dirtyStatusFailedSince: null } },
+  }
 }
 
 function branchUpdated(state: SessionState, event: EventOf<'branch.updated'>): SessionState {
@@ -1314,7 +1461,7 @@ function forkCheckpoint(state: SessionState, event: EventOf<'fork.checkpoint'>):
     ...state,
     checkpoints: {
       records: [...checkpoints.records, record],
-      byLane: { ...checkpoints.byLane, [p.lane]: [...(checkpoints.byLane[p.lane] ?? []), at] },
+      byLane: appendIndexed(checkpoints.byLane, p.lane, at),
     },
   }
 }
@@ -1353,8 +1500,8 @@ function forkDispatched(state: SessionState, event: EventOf<'fork.dispatched'>):
     ...state,
     forks: {
       dispatches: [...forks.dispatches, record],
-      byFork: { ...forks.byFork, [p.forkId]: [...(forks.byFork[p.forkId] ?? []), at] },
-      byLane: { ...forks.byLane, [p.laneHandle]: [...(forks.byLane[p.laneHandle] ?? []), at] },
+      byFork: appendIndexed(forks.byFork, p.forkId, at),
+      byLane: appendIndexed(forks.byLane, p.laneHandle, at),
     },
   }
 
@@ -1377,9 +1524,18 @@ function markLaneSynthetic(state: SessionState, laneHandle: string): SessionStat
   }
 }
 
-/** True once a `fork.dispatched` has named this handle. The forward half of {@link markLaneSynthetic}. */
+/**
+ * True once a `fork.dispatched` has named this handle. The forward half of
+ * {@link markLaneSynthetic}.
+ *
+ * `Object.hasOwn`, not `!== undefined`: `byLane['__proto__']` is the
+ * INHERITED `Object.prototype`, never `undefined`, so a lane literally
+ * handled `__proto__` would read as already-synthetic without any
+ * `fork.dispatched` having named it — the same read half {@link
+ * appendIndexed} closes on the write side of this exact index.
+ */
 function isSyntheticLane(state: SessionState, laneHandle: string): boolean {
-  return state.forks.byLane[laneHandle] !== undefined
+  return Object.hasOwn(state.forks.byLane, laneHandle)
 }
 
 // --- judge (prd11 ruling 6b) --------------------------------------------------
@@ -1405,13 +1561,34 @@ function judgeFinding(state: SessionState, event: EventOf<'judge.finding'>): Ses
   const at = judge.findings.length
   let byLane = judge.byLane
   for (const lane of p.lanes) {
-    byLane = { ...byLane, [lane]: [...(byLane[lane] ?? []), at] }
+    byLane = appendIndexed(byLane, lane, at)
   }
 
   return { ...state, judge: { findings: [...judge.findings, record], byLane } }
 }
 
 // --- helpers ----------------------------------------------------------------
+
+/**
+ * Appends `at` under `key` in a per-lane/per-id position index (`byLane`,
+ * `byFork`), the same shape `state.ts`'s `indexRefusalUnder` hardens for
+ * `RefusalState.byInstance` (PR #283, `50d85af`) — mirrored here rather than
+ * imported because `state.ts` is outside this fix's fence.
+ *
+ * `key` is a lane handle or fork id: strings this repo generates today
+ * (`checkpoints.byLane`, `forks.byFork`, `forks.byLane`, `judge.byLane`), but
+ * nothing types-enforces that, and one poisoned event in a recording would
+ * otherwise break every future replay of it. `Object.hasOwn`, never `?? []`:
+ * `index['__proto__']` returns the INHERITED `Object.prototype`, not
+ * `undefined`, so `??` never fires and spreading it throws. The write stays a
+ * computed-key spread, which already DEFINES an own property rather than
+ * invoking a setter — the incremental half of #283's fix needed no change on
+ * write, only on read, and neither does this one.
+ */
+function appendIndexed(index: Record<string, number[]>, key: string, at: number): Record<string, number[]> {
+  const held = Object.hasOwn(index, key) ? (index[key] ?? []) : []
+  return { ...index, [key]: [...held, at] }
+}
 
 function upsertBranch(
   state: SessionState,
@@ -1452,6 +1629,7 @@ function stubWorktree(path: string, ts: number): WorktreeState {
     removedAt: null,
     dirtyFiles: [],
     dirtyUpdatedAt: null,
+    dirtyStatusFailedSince: null,
   }
 }
 

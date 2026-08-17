@@ -144,15 +144,34 @@ describe('compareFork', () => {
   it('calls a missing gate binary "not-run", never "fail" — a tooling gap is not the arm\'s result', async () => {
     const forkId = await forkWith(3)
 
+    // An ABSOLUTE path under this test's own root, never a bare name. `execvp`
+    // searches $PATH only for a command with no slash in it, and a miss is the
+    // one outcome that walks *every* entry before failing — so a bare name
+    // prices this test at (entries in $PATH) x (per-entry latency), neither of
+    // which it controls. That is what timed it out under concurrency (#497):
+    // once per arm, on a box whose $PATH was mostly directories on a foreign
+    // filesystem that slows down under load. This root is `mkdtemp`'d by
+    // `beforeEach` and holds no binary, so it is still a real spawn and a real
+    // ENOENT out of the real `exec` — just one that stats a single path.
+    // Keeping it inside the root also makes "missing" true by construction
+    // rather than an assumption about what the host has installed.
+    const missingGate = path.join(root, 'no-such-gate-binary')
+
     const comparison = await compareFork({
       forkId,
       parentWorktreePath: repoDir,
       dataRoot,
-      verifyCommand: 'definitely-not-a-real-binary-xyz',
+      verifyCommand: missingGate,
       exec: realExec,
     })
 
-    for (const arm of comparison.arms) expect(arm.verified).toBe('not-run')
+    for (const arm of comparison.arms) {
+      expect(arm.verified).toBe('not-run')
+      // Not-run *because the binary could not be spawned* — `--no-verify` also
+      // reports 'not-run', so the outcome alone cannot tell a tooling gap from
+      // a skipped gate. The detail is what distinguishes them.
+      expect(arm.verifiedDetail).toContain('ENOENT')
+    }
   })
 
   it('counts the commits an arm made on top of its restored snapshot', async () => {

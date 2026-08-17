@@ -1,9 +1,10 @@
 import { createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { formatClock } from './duration.js'
+import { formatClock, formatClockSeconds } from './duration.js'
+import { medianEventSpacingMs } from './eventSpacing.js'
 import { timeScale } from './scale.js'
-import { windowForLevel } from './tideWindow.js'
+import { usefulMaxZoomLevel, windowForLevel } from './tideWindow.js'
 import { TideDock } from './TideDock.js'
 
 afterEach(cleanup)
@@ -32,6 +33,25 @@ function log(build: (fx: ReturnType<typeof createEventFactory>) => void): Rhizom
   const fx = createEventFactory({ startTs: T0, stepMs: 0 })
   build(fx)
   return fx.all()
+}
+
+/**
+ * A coalesced pair sitting next to the playhead — the fixture the mark-lane
+ * guard below needs, and the one it did not have (verify pass, PR #430).
+ *
+ * At the cap the lane's hover threshold is wide enough to draw 5000 and 5006 as
+ * one glyph; one level further in it is halved and they split. That split IS
+ * the breach #273's Done-when forbids, and no fixture whose marks all clamp to
+ * x=0 can see it — which is precisely why the first version of the guard
+ * compared three zeros to three zeros and stayed green through the defect.
+ */
+function coalescingNearPlayhead(): RhizomorphEvent[] {
+  return log((fx) => {
+    fx.at(4_800).agentStatus({ handle: 'ke5', status: 'working' })
+    fx.at(5_000).agentStatus({ handle: 'm2', status: 'working' })
+    fx.at(5_006).agentStatus({ handle: 'q9', status: 'working' })
+    fx.at(5_200).agentStatus({ handle: 'r3', status: 'working' })
+  })
 }
 
 /** Three lanes, enough for the mark lane to have something to chew on. */
@@ -414,11 +434,19 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
     expect(screen.getByTestId('chapter-marks').style.height).toBe('10px')
   })
 
-  it('the axis appears once zoomed in replay', () => {
+  // #272 changed the first assertion of each of these two from "absent until
+  // zoomed" to "present at rest, reading the full range". Zoomed out is the
+  // *default* view, so gating the axis on zoom meant the dock said nothing
+  // about when the playhead was until the operator went looking for it.
+  it('the axis reads the full range at rest in replay, and the window once zoomed', () => {
     render(
       <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
     )
-    expect(screen.queryByTestId('tide-axis')).not.toBeInTheDocument()
+    // At rest the window IS the full range, so the axis reads the recording's
+    // own first and last instant — the orientation half of #272.
+    expect(screen.getByTestId('tide-axis').textContent).toBe(
+      `${formatClock(T0)}${formatClock(T_END)}`,
+    )
 
     fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
     const window_ = windowForLevel(1, 9_000, T0, T_END)
@@ -426,13 +454,188 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
     expect(axis.textContent).toBe(`${formatClock(window_.start)}${formatClock(window_.end)}`)
   })
 
-  it('the axis appears once zoomed in live too — zoom is not replay-only', () => {
+  it('the axis is on in live too — it is gated on neither mode nor zoom', () => {
     render(
       <TideDock mode="live" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled={false} />,
     )
-    expect(screen.queryByTestId('tide-axis')).not.toBeInTheDocument()
+    expect(screen.getByTestId('tide-axis')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
     expect(screen.getByTestId('tide-axis')).toBeInTheDocument()
+  })
+
+  // The readout is `Scrubber`'s, but the thread from `TideDock`'s own prop to
+  // it is this file's, and nothing else asserts the two are connected.
+  it('passes the scrub facts through to the readout beside the thumb', () => {
+    render(
+      <TideDock
+        mode="replay"
+        events={threeLaneEvents()}
+        start={T0}
+        end={T_END}
+        value={9_000}
+        onSeek={() => {}}
+        seekEnabled
+        scrubFacts="4 worktrees · 8 commits · $2.14"
+      />,
+    )
+    expect(screen.getByTestId('scrubber-readout').textContent).toContain(
+      '4 worktrees · 8 commits · $2.14',
+    )
+  })
+
+  /**
+   * #273. The mark lane's cap used to be where zooming stopped. It is now a
+   * threshold: one level past it, marks stop thinning and events appear.
+   *
+   * These drive the real button rather than setting a level directly, because
+   * "the cap becomes a threshold rather than a stop" is a claim about the
+   * *gesture* — a test that reached past the control could pass while the
+   * button stayed disabled at the cap, which is the behaviour being changed.
+   */
+  describe('the loupe opens by zooming past the mark lane\'s cap', () => {
+    function zoomToCap() {
+      const button = screen.getByRole('button', { name: 'Zoom in' })
+      // Zoom until one click short of exhausting the control. The bound is
+      // generous and the loop stops on `disabled`, so this does not encode a
+      // particular cap value — `usefulMaxZoomLevel` is free to move.
+      const levels: number[] = []
+      for (let i = 0; i < 40 && !(button as HTMLButtonElement).disabled; i += 1) {
+        expect(screen.queryByTestId('tide-loupe')).not.toBeInTheDocument()
+        fireEvent.click(button)
+        levels.push(i)
+        if (screen.queryByTestId('tide-loupe') !== null) return levels.length
+      }
+      return levels.length
+    }
+
+    /**
+     * Counted against the cap, not merely "it opened eventually". An earlier
+     * draft of this test asserted only that the loupe was absent before each
+     * click and present after the last one — which is equally true of a loupe
+     * that opens *at* the cap, the one thing "the cap becomes a threshold"
+     * distinguishes. Mutating `>` to `>=` left it green. So the cap is computed
+     * from the same inputs the component uses, and the click count is the
+     * assertion.
+     */
+    it('stays shut at every level up to the cap, and opens exactly one past it', () => {
+      const events = threeLaneEvents()
+      const cap = usefulMaxZoomLevel(
+        Math.max(1, T_END - T0),
+        TRACK_WIDTH,
+        medianEventSpacingMs(events),
+      )
+      expect(cap).toBeGreaterThan(0)
+
+      render(
+        <TideDock mode="replay" events={events} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
+      )
+      const button = screen.getByRole('button', { name: 'Zoom in' })
+
+      // Every level up to and including the cap: marks, no events.
+      for (let level = 0; level < cap; level += 1) {
+        expect(screen.queryByTestId('tide-loupe')).not.toBeInTheDocument()
+        fireEvent.click(button)
+      }
+      // Now at the cap itself — still the mark lane's own territory.
+      expect(screen.queryByTestId('tide-loupe')).not.toBeInTheDocument()
+
+      // One more, and the cap has been crossed.
+      fireEvent.click(button)
+      expect(screen.getByTestId('tide-loupe')).toBeInTheDocument()
+    })
+
+    it('stops there — the threshold is one level, not an open-ended descent', () => {
+      render(
+        <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
+      )
+      zoomToCap()
+      expect(screen.getByRole('button', { name: 'Zoom in' })).toBeDisabled()
+    })
+
+    it('closes again on the way back out', () => {
+      render(
+        <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
+      )
+      zoomToCap()
+      expect(screen.getByTestId('tide-loupe')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }))
+      expect(screen.queryByTestId('tide-loupe')).not.toBeInTheDocument()
+    })
+
+    it('reads around the playhead, not around the window centre', () => {
+      render(
+        <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
+      )
+      zoomToCap()
+      expect(screen.getByTestId('tide-loupe')).toBeInTheDocument()
+
+      // Pan the window off the playhead first. `zoomIn` re-centres on `value`
+      // at every click, so until something pans, the playhead and the window
+      // centre are the same number and this assertion holds for either of
+      // them — which is why it used to survive the mutation it names.
+      fireEvent.click(screen.getByRole('button', { name: 'Shift window earlier' }))
+
+      expect(screen.getByTestId('tide-loupe-header').textContent).toContain(formatClockSeconds(9_000))
+    })
+
+    /**
+     * Ruling 2's own boundary: the loupe is additive. If opening it changed what
+     * the mark lane draws, the "coalescing law and its cap are untouched"
+     * sentence would be false, and no other test in this file is looking.
+     *
+     * The marks sit AROUND THE PLAYHEAD, and the comparison asserts it saw
+     * them (review of #430): with `threeLaneEvents()`'s marks 8.7 s from the
+     * playhead, the cap's window held no marks at all and this comparison was
+     * between two empty lanes — green while the lane visibly re-laid past the
+     * cap on any recording whose `usefulMaxZoomLevel` sits below
+     * `MAX_ZOOM_LEVEL`, which is every sparse one.
+     */
+    it('leaves the mark lane exactly as it was at the cap', () => {
+      render(
+        <TideDock mode="replay" events={coalescingNearPlayhead()} start={T0} end={T_END} value={5_000} onSeek={() => {}} seekEnabled />,
+      )
+      const button = screen.getByRole('button', { name: 'Zoom in' })
+      let atCap = ''
+      let capCounts: (string | undefined)[] = []
+      for (let i = 0; i < 40 && !(button as HTMLButtonElement).disabled; i += 1) {
+        atCap = screen.getByTestId('chapter-marks').innerHTML
+        capCounts = screen.getAllByTestId('chapter-mark').map((mark) => mark.dataset.count)
+        fireEvent.click(button)
+        if (screen.queryByTestId('tide-loupe') !== null) break
+      }
+
+      expect(screen.getByTestId('tide-loupe')).toBeInTheDocument()
+      // Two preconditions, asserted rather than assumed — this comparison has
+      // been vacuous once already, and each guards a different way of being so.
+      //
+      // `atCap.length` (from the review of #430) rules out the original defect:
+      // a fixture 8.7 s from the playhead left the cap's window holding no
+      // marks at all, so the lane was compared empty-to-empty.
+      //
+      // `capCounts` contains '2' additionally requires a *coalesced group* to
+      // exist at the cap. Marks merely present prove the layout did not move;
+      // a coalesced pair is what the ruling is actually about — "marks are
+      // still not separated below it" — and it is the thing that splits.
+      expect(atCap.length).toBeGreaterThan(0)
+      expect(capCounts).toContain('2')
+      expect(screen.getAllByTestId('chapter-mark').map((mark) => mark.dataset.count)).toEqual(capCounts)
+      expect(screen.getByTestId('chapter-marks').innerHTML).toBe(atCap)
+    })
+  })
+
+  it('reads now in live, not the dormant replay clock, and carries no facts', () => {
+    render(
+      <TideDock mode="live" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled={false} />,
+    )
+    // `value` is deliberately NOT `end` here, and that gap is the whole test.
+    // Live paints the playhead at "now" (the range's right edge), so the
+    // readout must agree with the playhead and disagree with `value`. The
+    // previous version asserted `value` — it was pinning the defect: in the
+    // real live prop shape `currentTs` is frozen at the range start, so the
+    // readout printed the session's beginning beside a playhead at its end.
+    expect(screen.getByTestId('scrubber-readout').textContent).toBe(formatClockSeconds(T_END))
+    expect(screen.getByTestId('scrubber-readout').textContent).not.toBe(formatClockSeconds(9_000))
   })
 })

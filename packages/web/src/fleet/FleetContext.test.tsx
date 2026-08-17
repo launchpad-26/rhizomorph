@@ -1,15 +1,14 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { createEventFactory } from '@rhizomorph/core'
+import { createEvent, createEventFactory, fixtureHistory, fleet20Spec, pathologySpec } from '@rhizomorph/core'
 import { ModeProvider, useReplay } from '../app/ModeContext.js'
 import { StreamProvider } from '../app/StreamContext.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
 import type { FetchLike as ReplayFetchLike } from '../replay/api.js'
 import { FLEET_TICK_MS, FleetProvider, useFleet } from './FleetContext.js'
 import Scene from '../scene/index.js'
-import { fixtureHistory, fleet20Spec, pathologySpec } from './fixtures.js'
 import { SelectionProvider } from './selection.js'
-import type { FetchLike } from './manifest.js'
+import { LANES_URL, type FetchLike } from './manifest.js'
 
 afterEach(cleanup)
 
@@ -311,6 +310,136 @@ describe('the one clock rule (#155)', () => {
     })
 
     expect(screen.getByTestId('snapshot').textContent).toBe(before)
+  })
+})
+
+// ── the repo boundary reaches the lane manifest (#390 review) ───────────────
+
+/**
+ * The fold resets on a session boundary (`core`'s `opensNewSession`, which a
+ * repo change is one case of), but the lane manifest never went *through* the
+ * fold, so resetting the fold cannot reach it. `/api/lanes` used to be fetched
+ * once for the life of the page — its effect could only re-run on `enabled`
+ * (`source === 'live'`, unchanged by a retarget) or `fetchImpl` (a stable
+ * prop) — which left repo B's freshly-reset lanes fenced by repo A's manifest.
+ *
+ * Same class as #370: state beside the fold has to be invalidated whenever the
+ * thing it describes changes, or the two drift apart while each looks correct.
+ * The key here is the REPO, deliberately narrower than the fold's own reset
+ * since #592 widened that to every rotation: `/api/lanes` describes the repo's
+ * workmux lanes, not the recording, so a rotation gives it nothing to re-read
+ * (`foldedRepoPath` in `app/streamState.ts` says the same from its end).
+ */
+class EmittingEventSource implements EventSourceLike {
+  onopen: ((event: Event) => void) | null = null
+  onerror: ((event: Event) => void) | null = null
+  onmessage: ((event: MessageEvent<string>) => void) | null = null
+
+  emit(data: unknown) {
+    this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent<string>)
+  }
+
+  close() {}
+}
+
+/** A manifest naming one lane, so `hasLaneManifest` reads true when it applies. */
+const laneManifestBody = {
+  lanes: {
+    'dev-1': { handle: 'dev-1', fence: ['packages/web/**'], issue: '1', model: 'claude-opus-5' },
+  },
+}
+
+/**
+ * Serves a different body per call and records every request, so a test can
+ * say both *that* the manifest was re-asked and *what* the answer became.
+ * The last body repeats if the calls outrun it.
+ */
+function countingLanes(bodies: readonly (object | null)[]) {
+  const calls: string[] = []
+  const impl: FetchLike = async (input) => {
+    const body = bodies[Math.min(calls.length, bodies.length - 1)] ?? null
+    calls.push(input)
+    return { ok: body !== null, json: async () => body }
+  }
+  return { impl, calls }
+}
+
+let boundaryEventId = 0
+function startedFor(repo: string, sessionId: string) {
+  boundaryEventId += 1
+  return createEvent(
+    'session.started',
+    { sessionId, repoPath: `/repos/${repo}`, repoName: repo, mainBranch: 'main' },
+    { id: `boundary-${boundaryEventId}`, ts: NOW },
+  )
+}
+
+async function renderBoundaryChain(fetchLanes: FetchLike) {
+  let source: EmittingEventSource | undefined
+  await act(async () => {
+    render(
+      <StreamProvider
+        url="/api/stream"
+        now={NOW}
+        createSource={() => {
+          source = new EmittingEventSource()
+          return source
+        }}
+      >
+        <FleetProvider now={NOW} fetchLanes={fetchLanes}>
+          <Probe />
+        </FleetProvider>
+      </StreamProvider>,
+    )
+  })
+  return { getSource: () => source as EmittingEventSource }
+}
+
+describe('the lane manifest across a repo boundary (#390 review)', () => {
+  it('re-asks /api/lanes when session.started names a different repo, and drops the old answer', async () => {
+    // Boot asks with no repo named yet; repo A asks again; repo B asks a
+    // third time and this server has no manifest for it.
+    const lanes = countingLanes([laneManifestBody, laneManifestBody, null])
+    const { getSource } = await renderBoundaryChain(lanes.impl)
+
+    await act(async () => {
+      getSource().emit(startedFor('alpha', 's-alpha'))
+    })
+    expect(screen.getByTestId('manifest').textContent).toBe('true')
+    expect(lanes.calls).toEqual([LANES_URL, LANES_URL])
+
+    // The retarget. Repo A's manifest must not survive it.
+    await act(async () => {
+      getSource().emit(startedFor('beta', 's-beta'))
+    })
+
+    expect(lanes.calls).toHaveLength(3)
+    expect(lanes.calls.every((url) => url === LANES_URL)).toBe(true)
+    // The load-bearing assertion: repo B is not fenced by repo A's manifest.
+    // Before this fix the answer stayed `true` — repo A's lanes, fencing
+    // repo B's fleet, with nothing on screen to say so.
+    expect(screen.getByTestId('manifest').textContent).toBe('false')
+    expect(screen.getByTestId('gaps').textContent).toContain('no-lane-manifest')
+  })
+
+  it('does NOT re-ask for an ordinary rotation over the same repo', async () => {
+    // The other half of the rule, and the one an over-eager dep would break:
+    // a rotation changes `sessionId`, never `repoPath`, so the manifest the
+    // server already served still describes this repo.
+    const lanes = countingLanes([laneManifestBody])
+    const { getSource } = await renderBoundaryChain(lanes.impl)
+
+    await act(async () => {
+      getSource().emit(startedFor('alpha', 's-alpha-1'))
+    })
+    const afterFirstRepo = lanes.calls.length
+
+    await act(async () => {
+      getSource().emit(startedFor('alpha', 's-alpha-2'))
+    })
+
+    expect(lanes.calls).toHaveLength(afterFirstRepo)
+    expect(screen.getByTestId('manifest').textContent).toBe('true')
   })
 })
 

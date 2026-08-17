@@ -22,6 +22,10 @@ export interface WorktreeView {
   removedAt: number | null
   dirtyFiles: DirtyFile[]
   dirtyCount: number
+  /** Non-null while this worktree's `git status --porcelain` has failed past
+   * the bound and not yet recovered. Read straight off `WorktreeState`
+   * (#429/#537/ADR-0022) — never re-derived. */
+  dirtyStatusFailedSince: number | null
   /** Distinct files this worktree's branch has touched vs main, sorted. */
   filesTouched: string[]
   aheadOfMain: number
@@ -61,6 +65,7 @@ export function selectWorktreeViews(
         removedAt: worktree.removedAt,
         dirtyFiles: worktree.dirtyFiles,
         dirtyCount: worktree.dirtyFiles.length,
+        dirtyStatusFailedSince: worktree.dirtyStatusFailedSince,
         filesTouched:
           worktree.branch === null
             ? []
@@ -118,7 +123,7 @@ function groupPanesByWorktree(state: SessionState): Map<string, PaneState[]> {
  * first, then branch, then the worktree's own name.
  */
 function findAgent(state: SessionState, worktree: WorktreeState): AgentState | null {
-  const agents = Object.values(state.agents)
+  const agents = Object.values(state.agents).filter((agent) => agent.present)
   return (
     agents.find((agent) => agent.worktreePath === worktree.path) ??
     agents.find((agent) => worktree.branch !== null && agent.branch === worktree.branch) ??

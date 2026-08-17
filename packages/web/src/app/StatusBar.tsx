@@ -42,9 +42,40 @@ const SESSION_META_URL = '/api/meta'
  * operator ended the last one, here or from `rhizomorph rotate`) and `closed`
  * (a boot that found a closed log and started fresh rather than resuming it).
  * A reason this list doesn't know still reads as "unavailable" rather than
- * being half-trusted — see {@link parseBootFacts}.
+ * being half-trusted — see {@link parseBootFacts}. That posture is the reason
+ * this list is local at all, and it stays.
+ *
+ * What it cost, and what now guards it (#384): nothing upstream forces this
+ * list to keep up. The server declares its own `SessionBootReason`
+ * (`server/src/log/session-log.ts`) and no non-test file under
+ * `packages/web/src` imports server source, so `bootExplanation`'s exhaustive
+ * switch is exhaustive over THIS union and no server-side widening ever
+ * reaches it — there is no compiler behind this seam. The drift duly
+ * happened: `writer-alive` shipped in #187 and this list never learned it, so
+ * for that entire span a boot that refused to resume because another live
+ * process held the session rendered the whole session voice as *unavailable*
+ * — the instrument saying "I don't know" about something it does know.
+ * `boot-reason-seam.test.ts` reads both lists at runtime and is now the only
+ * thing standing between here and the next `writer-alive`.
+ *
+ * Ordered to mirror the server's array member-for-member, so the two read as
+ * the same list, with the forward-only entries last:
+ *
+ * - `retargeted` — prd20 ruling 5's repo switch, which closes the session in
+ *   the OLD repo's directory and opens one here. The server learns to report
+ *   it with the route that performs it (#390); this list learns it now so
+ *   that boot is not the one to discover the bar cannot read it.
  */
-const KNOWN_BOOT_REASONS = ['fresh-flag', 'resumed', 'stale', 'first-run', 'rotated', 'closed'] as const
+export const KNOWN_BOOT_REASONS = [
+  'fresh-flag',
+  'resumed',
+  'stale',
+  'first-run',
+  'writer-alive',
+  'closed',
+  'rotated',
+  'retargeted',
+] as const
 type SessionBootReason = (typeof KNOWN_BOOT_REASONS)[number]
 
 interface SessionBootFacts {
@@ -158,8 +189,19 @@ function formatSessionSpan(ms: number): string {
  * event 2h04m old" figure — `previousAgeMs` is `decideSessionBoot`'s own
  * internal fact (`session-log.ts`), never added to `/api/meta`'s contract,
  * so reproducing it here would mean guessing rather than reading it.
+ *
+ * Two later reasons are short of a fact for the same reason and answer the
+ * same way — name what is known, then name the command that knows the rest,
+ * never invent the figure. `writer-alive` cannot name the holding pid
+ * (`liveWriter` is `SessionBootDecision`'s, not `/api/meta`'s), so it points
+ * at `rhizomorph doctor`, which does name it. `retargeted` cannot name the
+ * repo left behind (`/api/meta`'s `repoPath` is the CURRENT target by the
+ * time this bar reads it), so it names the consequence the operator will
+ * otherwise trip over — the closed recording is under the old repo's slug
+ * dir, so unlike a rotation's it is NOT in this repo's replay picker, which
+ * only ever lists `ctx.sessionDir` (`api/sessions.ts`).
  */
-function bootExplanation(facts: SessionBootFacts): string {
+export function bootExplanation(facts: SessionBootFacts): string {
   const window = formatSessionSpan(facts.resumeWindowMs)
   switch (facts.lastBootReason) {
     case 'resumed':
@@ -174,6 +216,10 @@ function bootExplanation(facts: SessionBootFacts): string {
       return `rotated: you ended the previous session here — this one began the moment you did, and the closed recording is in the replay picker`
     case 'closed':
       return `starting: the previous session was ended explicitly (\`rhizomorph rotate\`) — a closed recording is never resumed, whatever the ${window} window says`
+    case 'writer-alive':
+      return `starting: another live rhizomorph still holds the previous session — this boot started a fresh one rather than race it onto the same file, whatever the ${window} window says — \`rhizomorph doctor\` names the process`
+    case 'retargeted':
+      return `retargeted: you pointed this instrument at a different repo — the previous session was closed under the old repo's own recordings, so it is not in this repo's replay picker`
   }
 }
 

@@ -1,6 +1,5 @@
-import { createEventFactory, reduceAll, type SessionState } from '@rhizomorph/core'
+import { buildFleet, createEventFactory, reduceAll, type SessionState } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
-import { buildFleet } from '../../fleet/buildFleet.js'
 import {
   buildFeedEntries,
   buildLaneIndex,
@@ -114,6 +113,38 @@ describe('buildFeedEntries', () => {
     )
     expect(firstCommit?.news).toBe(false)
     expect(secondCommit?.news).toBe(true)
+  })
+})
+
+describe('buildFeedEntries — coalesced collector.error count', () => {
+  function buildOne(payload: Parameters<ReturnType<typeof createEventFactory>['collectorError']>[0]) {
+    const f = createEventFactory({ startTs: NOW - 60_000, stepMs: 60_000 })
+    f.sessionStarted()
+    f.collectorError(payload)
+    const events = f.all()
+    const session = reduceAll(events)
+    const fleet = buildFleet(session, { now: NOW })
+    const laneIndex = buildLaneIndex(fleet.lanes)
+    const entries = buildFeedEntries(events, session, laneIndex, {
+      connectedAt: NOW,
+      newsGraceMs: NEWS_GRACE_MS,
+    })
+    return entries.find((entry) => entry.kind === 'collector')
+  }
+
+  it('says how many occurrences a coalesced row stands for', () => {
+    const entry = buildOne({ collector: 'otel', message: 'malformed OTLP request body', count: 12 })
+    expect(entry).toMatchObject({ message: 'malformed OTLP request body (×12)' })
+  })
+
+  it('leaves the message alone for an emitter that never coalesces and carries no count', () => {
+    const entry = buildOne({ collector: 'tmux', message: 'capture-pane timed out' })
+    expect(entry).toMatchObject({ message: 'capture-pane timed out' })
+  })
+
+  it('leaves the message alone for a first-sighting count of exactly one', () => {
+    const entry = buildOne({ collector: 'otel', message: 'malformed OTLP request body', count: 1 })
+    expect(entry).toMatchObject({ message: 'malformed OTLP request body' })
   })
 })
 

@@ -1,0 +1,304 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { HOST_GLOBAL, type HostCapability } from './host.js'
+import {
+  adoptRepoScope,
+  clearPreference,
+  currentRepoScope,
+  entriesOf,
+  entryOf,
+  groupOf,
+  groupUnavailabilityOf,
+  isOverridden,
+  PREF_SCOPES,
+  PREFERENCES,
+  readFlag,
+  readPreference,
+  readRecordOverlay,
+  restoreDefaults,
+  scopesIn,
+  subscribeToPreferences,
+  UNADOPTED_REPO,
+  unavailabilityOf,
+  writePreference,
+} from './registry.js'
+
+/**
+ * THE REGISTRY'S OWN BEHAVIOUR (prd-35 rulings 3 and 4; #550) — scope,
+ * survival, and the way back.
+ *
+ * The claims that matter here are the two S1 states a person can be hurt by: a
+ * repo-scoped preference LEAKING into another repo (which would silently apply
+ * one repo's layout to another's panels), and a preference that cannot be put
+ * back (which is what makes fiddling unsafe).
+ */
+
+beforeEach(() => {
+  localStorage.clear()
+  sessionStorage.clear()
+  // The adopted repo is module state, so it outlives `localStorage.clear()`.
+  adoptRepoScope(null)
+  localStorage.clear()
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+describe('defaults, and what "unset" means', () => {
+  it('reads every declared preference as its own default with nothing stored', () => {
+    for (const entry of PREFERENCES) {
+      expect(readPreference(entry.id), `${entry.id} does not read as its default`).toEqual(entry.fallback)
+      expect(isOverridden(entry.id)).toBe(false)
+    }
+  })
+
+  it('refuses a value the entry does not offer, rather than storing it', () => {
+    expect(() => writePreference('appearance.theme', 'sepia')).toThrow(/not a value/)
+    expect(readPreference('appearance.theme')).toBe('system')
+  })
+
+  it('refuses to store anything for a control that cannot act', () => {
+    // S1's *unavailable* state disables the control, so a write that arrived
+    // here came from code that did not check — and storing a scene-quality
+    // level nothing can render is the "setting that claims to have changed
+    // something" prd-35 exists to prevent.
+    expect(() => writePreference('appearance.sceneQuality', 'maximum')).toThrow(/unavailable/)
+    expect(readPreference('appearance.sceneQuality')).toBe('rich')
+  })
+
+  it('falls back to the default when the stored JSON is malformed', () => {
+    localStorage.setItem('rhizomorph.prefs.machine.v1', '{not json')
+    expect(readPreference('appearance.theme')).toBe('system')
+  })
+
+  it('treats a retired option as unset rather than as a value', () => {
+    localStorage.setItem('rhizomorph.prefs.machine.v1', JSON.stringify({ 'appearance.theme': 'sepia' }))
+    expect(readPreference('appearance.theme')).toBe('system')
+  })
+})
+
+describe('ruling 3 — scope', () => {
+  it('declares three scopes and keeps the third one empty on purpose', () => {
+    expect(PREF_SCOPES).toEqual(['machine', 'repo', 'session'])
+    // Reserved, so a future transient preference has somewhere to be transient
+    // instead of silently becoming permanent.
+    expect(PREFERENCES.filter((entry) => entry.scope === 'session')).toEqual([])
+  })
+
+  it('keeps machine-scoped values out of session storage entirely', () => {
+    writePreference('appearance.theme', 'dark')
+    writePreference('motion.level', 'still')
+
+    expect(sessionStorage.length).toBe(0)
+    expect(JSON.parse(localStorage.getItem('rhizomorph.prefs.machine.v1') ?? '{}')).toEqual({
+      'appearance.theme': 'dark',
+      'motion.level': 'still',
+    })
+  })
+
+  it('does not leak a repo-scoped preference across repos, and gives it back when the repo returns', () => {
+    adoptRepoScope('/repos/a')
+    writePreference('appearance.panelsCollapsed', { fleet: true })
+    expect(readRecordOverlay('appearance.panelsCollapsed')).toEqual({ fleet: true })
+
+    adoptRepoScope('/repos/b')
+    expect(readRecordOverlay('appearance.panelsCollapsed')).toEqual({})
+    expect(readPreference('appearance.panelsCollapsed')).toEqual({ collisions: false, feed: true })
+    expect(isOverridden('appearance.panelsCollapsed')).toBe(false)
+
+    // …and B's own answer does not reach back into A.
+    writePreference('appearance.panelsCollapsed', { ledger: true })
+
+    adoptRepoScope('/repos/a')
+    expect(readRecordOverlay('appearance.panelsCollapsed')).toEqual({ fleet: true })
+  })
+
+  it('does not reset a machine-scoped preference when the watched repo changes', () => {
+    adoptRepoScope('/repos/a')
+    writePreference('appearance.theme', 'dark')
+
+    adoptRepoScope('/repos/b')
+    expect(readPreference('appearance.theme')).toBe('dark')
+  })
+
+  it('carries a first adoption forward, so nothing set before a repo was named is stranded', () => {
+    // A person who collapsed a panel before anything told the registry which
+    // repo it was in was still in a repo. That state belongs to the first one
+    // adopted — and to that one only.
+    expect(currentRepoScope()).toBe(UNADOPTED_REPO)
+    writePreference('appearance.panelsCollapsed', { fleet: true })
+
+    adoptRepoScope('/repos/a')
+    expect(readRecordOverlay('appearance.panelsCollapsed')).toEqual({ fleet: true })
+
+    adoptRepoScope('/repos/b')
+    expect(readRecordOverlay('appearance.panelsCollapsed')).toEqual({})
+  })
+
+  it('remembers the adopted repo across a reload, so a repo-scoped preference survives a restart', async () => {
+    adoptRepoScope('/repos/a')
+    writePreference('appearance.panelsCollapsed', { fleet: true })
+
+    // A reload is a FRESH MODULE reading the same storage — which is the whole
+    // of what is being tested, since the adopted repo is module state and would
+    // otherwise be the one thing lost. Anything less than a real re-import
+    // would test the memory rather than the persistence.
+    vi.resetModules()
+    const reloaded = await import('./registry.js')
+
+    expect(reloaded.currentRepoScope()).toBe('/repos/a')
+    expect(reloaded.readRecordOverlay('appearance.panelsCollapsed')).toEqual({ fleet: true })
+  })
+
+  it('reports which scopes a group holds, so a restore can be offered per scope', () => {
+    expect(scopesIn('appearance')).toEqual(['machine', 'repo'])
+    expect(scopesIn('motion')).toEqual(['machine'])
+    // Notifications became machine-scoped when #574 declared its six keys —
+    // ruling 3 puts notifications on the machine, not the repo.
+    expect(scopesIn('notifications')).toEqual(['machine'])
+    // Telemetry holds no key at all: it shows an env block and changes nothing,
+    // so there is nothing to restore and no button offering to.
+    expect(scopesIn('telemetry')).toEqual([])
+  })
+})
+
+describe('ruling 4 — a changed setting looks changed, and can be put back', () => {
+  it('marks a preference overridden only once it differs from its default', () => {
+    expect(isOverridden('appearance.theme')).toBe(false)
+    writePreference('appearance.theme', 'system')
+    expect(isOverridden('appearance.theme')).toBe(false)
+
+    writePreference('appearance.theme', 'light')
+    expect(isOverridden('appearance.theme')).toBe(true)
+  })
+
+  it('restores one group and one scope, leaving the other scope in the same group alone', () => {
+    adoptRepoScope('/repos/a')
+    writePreference('appearance.theme', 'light')
+    writePreference('appearance.panelsCollapsed', { fleet: true })
+    writePreference('motion.level', 'still')
+
+    restoreDefaults('appearance', 'machine')
+
+    expect(readPreference('appearance.theme')).toBe('system')
+    // The repo-scoped member of the same group is untouched — a restore that
+    // silently crossed scopes is the confusion ruling 3 exists to prevent.
+    expect(readRecordOverlay('appearance.panelsCollapsed')).toEqual({ fleet: true })
+    // …as is the other group.
+    expect(readPreference('motion.level')).toBe('still')
+
+    restoreDefaults('appearance', 'repo')
+    expect(readRecordOverlay('appearance.panelsCollapsed')).toEqual({})
+  })
+
+  it('does not let a superseded legacy key resurrect an override that was just restored', () => {
+    // The pre-registry key is a declared FALLBACK, so clearing the new store
+    // without clearing it would put yesterday's override straight back — a
+    // "restore defaults" that restores something other than the default.
+    localStorage.setItem('rhizomorph.scenePrefs.v1', JSON.stringify({ hideFinished: true }))
+    expect(readFlag('appearance.hideFinished')).toBe(true)
+
+    clearPreference('appearance.hideFinished')
+    expect(readFlag('appearance.hideFinished')).toBe(false)
+  })
+
+  it('offers a restore for every group that holds anything, and none for the groups that hold nothing yet', () => {
+    for (const group of ['appearance', 'motion'] as const) {
+      expect(entriesOf(group).length).toBeGreaterThan(0)
+      expect(scopesIn(group).length).toBeGreaterThan(0)
+    }
+  })
+})
+
+describe('what the host clears, and what nothing can clear (#574)', () => {
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>)[HOST_GLOBAL]
+  })
+
+  function withHost(capabilities: readonly HostCapability[]): void {
+    ;(globalThis as Record<string, unknown>)[HOST_GLOBAL] = { name: 'the desktop shell', capabilities }
+  }
+
+  it('refuses to store a hosted preference in a browser, and stores it under a shell', () => {
+    expect(() => writePreference('notifications.landed', true)).toThrow(/unavailable/)
+    expect(readPreference('notifications.landed')).toBe(false)
+
+    withHost(['shell', 'notify'])
+    expect(writePreference('notifications.landed', true)).toBe(true)
+    expect(readPreference('notifications.landed')).toBe(true)
+    expect(isOverridden('notifications.landed')).toBe(true)
+  })
+
+  it('asks the host for the capability the control names, not for the host in general', () => {
+    // A shell whose tray never appeared is a real host (prd-34's own risk
+    // register names the Linux tray), and it does not get the tray controls by
+    // being a shell.
+    withHost(['shell', 'launchAtLogin', 'updates'])
+
+    expect(unavailabilityOf(entryOf('application.launchAtLogin'))).toBeNull()
+    expect(unavailabilityOf(entryOf('application.trayBadge'))).toContain('no tray')
+    expect(() => writePreference('application.trayBadge', false)).toThrow(/unavailable/)
+  })
+
+  it('takes the group down with it when the group itself is what is missing', () => {
+    // `notify` alone does not make the Application group live, and the reason a
+    // person reads is the group's rather than each row's.
+    withHost(['notify'])
+
+    expect(groupUnavailabilityOf(groupOf('notifications'))).toBeNull()
+    expect(unavailabilityOf(entryOf('application.updateChannel'))).toBe(
+      groupUnavailabilityOf(groupOf('application')),
+    )
+  })
+
+  it('leaves a reason no host could clear exactly where it was', () => {
+    // Scene quality, the repo, You and Sharing ride PRDs rather than
+    // capabilities: `requires: null` means there is nothing to announce, so a
+    // shell declaring everything changes none of them.
+    withHost(['shell', 'tray', 'notify', 'launchAtLogin', 'updates'])
+
+    expect(unavailabilityOf(entryOf('appearance.sceneQuality'))).toContain("prd-33's")
+    for (const id of ['repo', 'you', 'sharing'] as const) {
+      expect(groupUnavailabilityOf(groupOf(id)), id).not.toBeNull()
+    }
+  })
+
+  it('restores only what can act, so a disabled control is not quietly rewritten', () => {
+    withHost(['shell', 'notify'])
+    writePreference('notifications.landed', true)
+    withHost(['notify'])
+
+    // The Application group went away with the shell; restoring the machine
+    // scope of a live group must not reach into it.
+    restoreDefaults('notifications', 'machine')
+    expect(readPreference('notifications.landed')).toBe(false)
+
+    restoreDefaults('application', 'machine')
+    expect(() => writePreference('application.closeToTray', false)).toThrow(/unavailable/)
+  })
+})
+
+describe('the change signal, and the error state', () => {
+  it('tells every listener when anything is written, restored or re-scoped', () => {
+    const heard: string[] = []
+    const stop = subscribeToPreferences(() => heard.push('change'))
+
+    writePreference('appearance.theme', 'dark')
+    restoreDefaults('appearance', 'machine')
+    adoptRepoScope('/repos/a')
+
+    expect(heard.length).toBeGreaterThanOrEqual(3)
+
+    stop()
+    writePreference('appearance.theme', 'light')
+    expect(heard.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('says a write did not persist rather than pretending it did (S1 error state)', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError')
+    })
+
+    expect(writePreference('appearance.theme', 'dark')).toBe(false)
+  })
+})
