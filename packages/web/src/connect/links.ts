@@ -636,7 +636,34 @@ function transcriptSlug(input: ConnectInputs): ChainLink {
   })
 }
 
-/** **transcripts ↔ slug, the flow half.** A first `sessionlog`-origin record — the dir resolving proves nothing about anything arriving from it. */
+/**
+ * **transcripts ↔ slug, the flow half.** A first `sessionlog`-origin record —
+ * the dir resolving proves nothing about anything arriving from it.
+ *
+ * **The question this row asks is "has A transcript arrived", not "is
+ * claude's own sessionlog collector the one that sent it" (#612).** Since
+ * #609 pi emits its own real records under the SAME envelope `origin:
+ * 'sessionlog'` claude's collector uses (ADR-0023, "a transcript dialect names
+ * itself with `harness`" — filed as 0021 until #605 renumbered it out of a
+ * collision, so older text cites that number: `harness` names the
+ * dialect, `source` stays the shared literal so a third collector never
+ * became a core schema change) — so `mergeFlow` below, keyed on `origin` and
+ * not on which collector produced it, already answers the broad question.
+ * The remedy path used to answer a NARROWER one: `disabledReason(meta,
+ * 'sessionlog')` is keyed on the SESSIONLOG COLLECTOR's own name, i.e.
+ * claude's. A fleet running pi only, with claude's collector genuinely
+ * disabled, could VERIFY off pi's records (correctly, per the broad
+ * question) while a BROKEN reading — had flow ever been empty at the same
+ * time — would have quoted only claude's collector's reason, never naming
+ * pi even though pi is the harness actually in front of the operator.
+ *
+ * The fix makes both halves ask the broad question: BROKEN only when EVERY
+ * collector that can stamp a `sessionlog`-origin record — today, `sessionlog`
+ * and `pi` — is disabled with a reason, the same "both, not either" rule
+ * {@link agentsPanes} already uses for tmux/workmux, and for the same reason:
+ * either one alone still leaves a live mechanism that has not reported yet,
+ * which is UNPROVEN, not dead.
+ */
 function transcriptFlow(input: ConnectInputs): ChainLink {
   const base = {
     id: 'transcripts-flow',
@@ -649,11 +676,15 @@ function transcriptFlow(input: ConnectInputs): ChainLink {
     return verified(base, `${records(flow.count)} from the transcript collector`, provenAt(flow.lastEventTs, input.now))
   }
 
-  const disabled = disabledReason(input.meta, 'sessionlog')
-  if (disabled !== null) {
-    return broken(base, disabled.reason, {
+  const sessionlogDisabled = disabledReason(input.meta, 'sessionlog')
+  const piDisabled = disabledReason(input.meta, 'pi')
+  if (sessionlogDisabled !== null && piDisabled !== null) {
+    return broken(base, `sessionlog: ${sessionlogDisabled.reason} · pi: ${piDisabled.reason}`, {
       command: restartCommand(input.meta?.repoPath ?? null, input.port),
-      notes: disabled.remedy === null ? [] : [`remedy: ${disabled.remedy}`],
+      notes: [
+        ...(sessionlogDisabled.remedy === null ? [] : [`remedy (sessionlog): ${sessionlogDisabled.remedy}`]),
+        ...(piDisabled.remedy === null ? [] : [`remedy (pi): ${piDisabled.remedy}`]),
+      ],
     })
   }
   return unproven(base)

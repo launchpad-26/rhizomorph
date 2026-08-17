@@ -765,6 +765,65 @@ describe('the two GETs the fold cannot replace', () => {
     expect(row(links, 'transcripts-flow').state).toBe('unproven')
   })
 
+  /**
+   * **THE ROW ASKS "HAS A TRANSCRIPT ARRIVED", NOT "IS CLAUDE'S OWN COLLECTOR
+   * THE ONE THAT SENT IT" (#612).** Since #609 pi stamps its own records with
+   * the same envelope `origin: 'sessionlog'` claude's collector uses — a
+   * pi-only fleet, with claude's own sessionlog collector never having run at
+   * all, still has a real transcript arriving, and this row must say so.
+   */
+  describe('the transcript flow row answers the same question on both its VERIFIED and BROKEN halves (#612)', () => {
+    it('verifies off pi-only records — no claude sessionlog activity at all', () => {
+      const state = reduceAll([
+        f.toolActivity({ lane: 'lane-a', role: 'worker', sessionId: 'sess-a', tool: 'Bash', harness: 'pi' }, { ts: 4_000, source: 'sessionlog' }),
+      ])
+      const flow = row(build(state), 'transcripts-flow')
+
+      expect(flow.state).toBe('verified')
+      expect(flow.ts).toBe(4_000)
+    })
+
+    it('stays unproven while only ONE of sessionlog/pi is disabled — a live mechanism has not reported, it has not died', () => {
+      const meta = metaWith({}, { collectors: [{ name: 'sessionlog', signals: [{ signal: 'identity', level: 'absent', reason: 'no Claude Code session logs found', remedy: null }] }] })
+      expect(row(build(reduceAll([]), { meta }), 'transcripts-flow').state).toBe('unproven')
+    })
+
+    it('goes broken only once BOTH sessionlog and pi are disabled, naming both reasons', () => {
+      const meta = metaWith(
+        {},
+        {
+          collectors: [
+            { name: 'sessionlog', signals: [{ signal: 'identity', level: 'absent', reason: 'no Claude Code session logs found', remedy: 'run `claude` here once' }] },
+            { name: 'pi', signals: [{ signal: 'identity', level: 'absent', reason: 'no pi session directory', remedy: null }] },
+          ],
+        },
+      )
+      const flow = row(build(reduceAll([]), { meta }), 'transcripts-flow')
+
+      expect(flow.state).toBe('broken')
+      expect(flow.reason).toContain('no Claude Code session logs found')
+      expect(flow.reason).toContain('no pi session directory')
+      expect(flow.notes.join(' ')).toContain('run `claude` here once')
+    })
+
+    /**
+     * Mutation proof: a check keyed ONLY on `disabledReason(meta,
+     * 'sessionlog')` — the pre-#612 shape — would call this row BROKEN the
+     * moment claude's collector is disabled, regardless of pi. That is
+     * exactly the "unproven" case above with sessionlog alone disabled; this
+     * pins the SAME input a second way, spelling out why unproven (not
+     * broken) is the only honest reading while pi might still report.
+     */
+    it('a sessionlog-only disablement is not enough on its own — pi might still be the one that reports', () => {
+      const meta = metaWith({}, { collectors: [{ name: 'sessionlog', signals: [{ signal: 'identity', level: 'absent', reason: 'no Claude Code session logs found', remedy: null }] }] })
+      const flow = row(build(reduceAll([]), { meta }), 'transcripts-flow')
+
+      expect(flow.state).not.toBe('broken')
+      expect(flow.reason).toBeNull()
+      expect(flow.command).toBeNull()
+    })
+  })
+
   it('carries version drift and the lane manifest through as notes, in doctor\'s own words', () => {
     const doctor: DoctorFact[] = [
       { id: 'cli-version-drift', status: 'warn', message: 'claude 2.1.300 does not match the pinned trace fixture version 2.1.220', assumed: false },

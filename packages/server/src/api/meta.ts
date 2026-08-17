@@ -12,6 +12,7 @@ import {
   type SessionState,
 } from '@rhizomorph/core'
 import { GIT_CAPABILITIES } from '../collectors/git/index.js'
+import { PI_CAPABILITIES } from '../collectors/pi/index.js'
 import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
 import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
@@ -104,6 +105,14 @@ function fallbackBootMeta(): SessionBootMeta {
  * adapter for one), and `mergeCapabilities` never lets an absent contributor
  * pull a signal another collector already provides.
  *
+ * **`pi` (#612).** Its collector registers under its own name (`collector.ts`'s
+ * `COLLECTOR_NAME = 'pi'`), so `folded.collectors.pi` is already a real,
+ * independent entry the fold has kept since #609 — this ladder was simply not
+ * reading it. Before this it was invisible to the one surface that exists to
+ * describe organs: pi could emit real `llm.usage`/`llm.cost`/`tool.activity`
+ * (`PI_CAPABILITIES`, five signals `provided`) and `/api/meta` would report
+ * nothing about it at all.
+ *
  * **Named, not fixed here — prd-19's open question.** This ladder has no
  * `otel` entry, so `rung` below never reflects it, while the CLI's own
  * `doctor` command's ladder does — two different answers to "what rung am I
@@ -111,7 +120,7 @@ function fallbackBootMeta(): SessionBootMeta {
  * honest, otel-aware flow fact in the meantime; whoever rules the asymmetry
  * owns both files in one fence.
  */
-const LADDER_COLLECTOR_NAMES = ['git', 'sessionlog', 'tmux', 'workmux', 'judge'] as const
+const LADDER_COLLECTOR_NAMES = ['git', 'sessionlog', 'tmux', 'workmux', 'judge', 'pi'] as const
 
 const DECLARED_CAPABILITIES: Record<(typeof LADDER_COLLECTOR_NAMES)[number], AdapterCapabilities> = {
   git: GIT_CAPABILITIES,
@@ -119,6 +128,7 @@ const DECLARED_CAPABILITIES: Record<(typeof LADDER_COLLECTOR_NAMES)[number], Ada
   tmux: TMUX_CAPABILITIES,
   workmux: WORKMUX_CAPABILITIES,
   judge: JUDGE_CAPABILITIES,
+  pi: PI_CAPABILITIES,
 }
 
 export interface LadderManifest {
