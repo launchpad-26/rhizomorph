@@ -42,6 +42,19 @@ export interface RecordingListing {
   costUsd: number
   costIsAuthoritative: boolean | null
   transcriptCapture?: TranscriptCaptureManifest | null
+  /**
+   * The server's own sentence for lines in this recording it could not fold
+   * (prd17 ruling 3, item 1) — `null` or absent when every line read.
+   *
+   * The listing has carried it since it landed and no surface rendered it, so a
+   * recording that lost lines looked exactly like one that did not. prd-31 S4
+   * asks that an unreadable record be named and counted rather than silently
+   * skipped; this is that requirement one level down from a whole missing file,
+   * and #558 is where it starts being shown. Optional, like the two fields
+   * above and for the same reason: a listing from an older server is still a
+   * valid `RecordingListing` without it.
+   */
+  unreadableLinesVoice?: string | null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -65,6 +78,13 @@ function isRecordingListing(value: unknown): value is RecordingListing {
     (typeof value.costIsAuthoritative === 'boolean' || value.costIsAuthoritative === null)
   )
 }
+
+// `unreadableLinesVoice` is deliberately NOT in the guard above: a server that
+// predates it must still produce a valid listing, and requiring the field would
+// drop every one of its recordings from the library rather than showing them
+// without one line of chrome. It is read where it is rendered, and `undefined`
+// reads as "nothing to say" — which for a server that never counted is exactly
+// the honest answer.
 
 /** Every recording this repo has, oldest first — as the server returns them, never re-sorted or re-derived. */
 export async function fetchRecordings(fetchImpl: FetchLike = capabilityRead): Promise<RecordingListing[]> {

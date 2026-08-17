@@ -20,6 +20,7 @@ import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
 import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
+import { DECLARED_HARNESSES, IMPLEMENTED_HARNESS_IDS } from '../harness-roster.js'
 import { formatBytes } from '../lib/format.js'
 import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
 import { decideSessionBoot, formatBootDuration } from '../log/session-log.js'
@@ -103,9 +104,9 @@ export function doctorHelpText(): string {
 
 Read-only preflight: checks the Node version, the target path (exists and is
 a git repo), the web build, whether the port is free, Claude Code session
-logs, tmux/workmux presence, and telemetry env — one ok/warn/FAIL line per
-check, each with its remedy. Exits non-zero only when the app genuinely
-cannot run (bad path, not a repo, no web build, port taken).
+logs, tmux/workmux presence, telemetry env, and the harness roster — one
+ok/warn/FAIL line per check, each with its remedy. Exits non-zero only when
+the app genuinely cannot run (bad path, not a repo, no web build, port taken).
 
 Arguments:
   path                    Repo to check (default: current directory)
@@ -152,6 +153,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
     checkTelemetryEnv(options.env ?? process.env, options.platform ?? process.platform),
     await checkLaneManifest(repoPath),
     await checkCliVersionDrift(exec),
+    checkHarnessRoster(),
   ]
 
   const checks: DoctorCheck[] = [...baseChecks, ...(await checkEnrichmentLadder(baseChecks, repoPath))]
@@ -566,6 +568,51 @@ function describeToolError(result: ExecResult): string {
   const stderr = result.stderr.trim()
   if (stderr) return stderr.split('\n')[0]!
   return `exited with code ${result.code}`
+}
+
+/**
+ * Reports the harness roster — prd-26 ruling 6, "never two rosters" — from the
+ * roster itself, imported.
+ *
+ * ## Why this is an import and not a source read
+ *
+ * The concierge namespace law (ADR-0019 / prd-20 ruling 1,
+ * `concierge/namespace-law.test.ts`) grants exactly one import edge into
+ * `concierge/`, `api/concierge.ts`; this file is not it, and the law's
+ * `SPECIFIER_RE` matches `from '…'`, so even a type-only import would be a
+ * violation. #325 worked around that by reading the adapter *source text* at
+ * runtime — legal, and correct in development.
+ *
+ * It was wrong everywhere else. `npm run build` emits one esbuild bundle,
+ * `packages/server/dist/cli/index.js`, and the published package ships `dist`
+ * and `bin` with no `src/`, so an installed `rhizomorph doctor` looked for
+ * `.ts` files that are not there and reported `could not read the harness
+ * roster` on every run — a check reporting its own absence as a source-shape
+ * change, on one of the three surfaces #325 exists to make honest. Verified by
+ * running the built bundle, not by reading it.
+ *
+ * `harness-roster.ts` holds the roster as data outside the concierge namespace
+ * for exactly this reason: `concierge/harness/not-implemented.ts` builds its
+ * adapters from it and this check reads it, one table with two readers, no
+ * edge into the hand and nothing parsed at runtime. `scripts/pack-smoke.sh`
+ * now runs `doctor` against the installed artifact so the shipped answer is
+ * gated rather than assumed.
+ *
+ * Status is `ok` or nothing: there is no failure mode left to report. The
+ * arrays are compile-time constants, so the old `warn` arms could not fire for
+ * a real reason — and a branch that cannot fire is the shape this repo treats
+ * as a defect rather than as caution.
+ */
+export function checkHarnessRoster(): DoctorCheck {
+  const implemented = IMPLEMENTED_HARNESS_IDS
+  const declared = DECLARED_HARNESSES.map((harness) => harness.id)
+  return {
+    id: 'harness-roster',
+    status: 'ok',
+    message:
+      `harness roster: ${implemented.length} implemented (${implemented.join(', ')}), ${declared.length} declared ` +
+      `not-implemented (${declared.join(', ')}) — one roster, packages/server/src/harness-roster.ts`,
+  }
 }
 
 /** Which process's env `checkTelemetryEnv` actually inspected — see its own doc. */

@@ -4,6 +4,7 @@ import {
   checkCliVersionDrift,
   checkClaudeProjects,
   checkEnrichmentLadder,
+  checkHarnessRoster,
   checkLaneManifest,
   checkNodeVersion,
   checkOptionalTool,
@@ -100,6 +101,7 @@ export async function runServerDoctor(repoPath: string, options: ServerDoctorOpt
     checkTelemetryEnv(options.env ?? process.env, options.platform ?? process.platform, 'server'),
     replay ? notApplicableDuringReplay('lane-manifest') : await checkLaneManifest(repoPath),
     await checkCliVersionDrift(exec),
+    checkHarnessRoster(),
   ]
 
   if (replay) {

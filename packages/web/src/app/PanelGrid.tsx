@@ -1,9 +1,18 @@
-import { lazy, Suspense, useState, type MouseEvent } from 'react'
+import {
+  lazy,
+  Suspense,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from 'react'
 import { FleetSurface } from '../fleet/FleetSurface.js'
 import { useFleet } from '../fleet/index.js'
+import { SearchField } from '../panels/search/SearchField.js'
 import { ErrorBoundary } from './ErrorBoundary.js'
 import { PanelFrame } from './PanelFrame.js'
-import { useFocusRequest, usePanelCollapsed, usePanelFocus } from './panelPrefs.js'
+import { useDockTab } from './panelPrefs.js'
 import { navigate } from './router.js'
 import { useStream } from './StreamContext.js'
 
@@ -19,66 +28,104 @@ import { useStream } from './StreamContext.js'
  * - `ticker` → the activity feed (#79);
  * - `spend` → the burn strip in the top dock, plus the ledger (#80, ruling 13).
  *
- * Those directories still exist and their own tests still pass; what changed is
- * that the shell no longer mounts them. Deregistering is this issue's job, so
- * that wave 2 lands contents into slots already in the right place.
- *
  * prd3 ruling 6 also adds FOCUS: any one panel can expand to fill the view,
- * Esc or an explicit control restores the curated order. This
- * grid is the one place that knows about every panel at once, so it is the
- * coordinator — it tracks which single id is focused and tells every other
- * panel to get out of the way while that one fills the screen. Each
- * `PanelFrame` (and `FocusableTrace` below) still *decides* its own focused
- * state; this only listens and keeps the "one at a time" invariant.
+ * Esc or an explicit control restores the curated order. This grid is the one
+ * place that knows about every panel at once, so it is the coordinator — it
+ * tracks which single id is focused and tells the other to get out of the way.
+ * Each `PanelFrame` still *decides* its own focused state; this only listens
+ * and keeps the "one at a time" invariant.
  *
- * prd4 ruling 2 reordered this registry so the scene rendered first, with the
- * fleet table right after it as the legend/detail surface. prd-36 ruling 1
- * (#555) finishes that thought by merging them: they are no longer two rows in
- * this registry but ONE — `fleet`, the surface that owns both representations
- * (`fleet/FleetSurface.tsx`) and the toggle between them. The scene therefore
- * has no registry row of its own any more, no `FocusableScene` here and no
- * `SceneSlot` mount; `app/SceneSlot.tsx` is left in place unmounted, since
- * retiring it belongs to whoever owns this directory's chrome rather than to a
- * commit fenced to the merge.
+ * ## TWO ROWS (prd-36 ruling 1, #555 · prd-32 ruling 5, #552)
  *
- * The curated order is one row shorter and otherwise unchanged: fleet (the
- * hero, either representation) → ledger, collisions, feed.
+ * prd4 ruling 2 promoted the scene above the table it used to sit beneath.
+ * prd-36 ruling 1 finished that by merging them into ONE row — `fleet`, the
+ * surface that owns both representations (`fleet/FleetSurface.tsx`) and the
+ * toggle between them.
+ *
+ * prd-32 ruling 5 does the same thing to what was left. The ledger, collisions
+ * and the feed were three panels in a responsive grid **competing for vertical
+ * space**: two-up below 1400px, three across above it, each one squeezed to
+ * roughly a third of whatever the fleet did not take. They now consolidate into
+ * one tabbable dock, full width, one thing at a time — an IA change and not a
+ * restyle, which is why it is its own wave.
+ *
+ * So the curated order is two rows and reads top to bottom as the question and
+ * its answers:
+ *
+ *   attention strip + burn strip (docked top)
+ *     → the fleet surface (the hero — organism or list, one keystroke apart)
+ *       → the dock (spend · collisions · feed · trace, one at a time)
+ *         → replay bar + provenance bar (docked bottom)
+ *
+ * **The TIDE is not one of the tabs and never becomes one.** prd-13 ruling 1 is
+ * respected in full and restated here because this is the file where breaking
+ * it would be easy: the TIDE is the replay bar's body, mounted by
+ * `replay/index.tsx` under `Shell`, and the moment it became a tab it would be
+ * competing with the scene for the same reading. `PanelGrid.test.tsx` asserts
+ * it — a law rather than a paragraph.
+ *
+ * **The fleet is not a tab either**, for the opposite reason: it merged into
+ * the scene (prd-36), so it is the hero above this dock rather than one of the
+ * things you switch between. prd-36's own non-goals say so.
+ *
+ * The lane peek (prd-36 ruling 2) sits outside the sequence on purpose: it is
+ * not a rung of the hierarchy but a layer over it, opened by the one selection
+ * and closed by Esc, `position: fixed` and out of flow — so the curated order is
+ * unchanged whether it is open or not.
  */
 
 const LedgerPanel = lazy(() => import('../panels/ledger/index.js'))
 const CollisionsPanel = lazy(() => import('../panels/collisions/index.js'))
 const FeedPanel = lazy(() => import('../panels/feed/index.js'))
-const TraceFocusPanel = lazy(() => import('../trace/FocusPanel.js'))
+const TracePanel = lazy(() => import('../panels/trace/index.js'))
 
 /**
- * Panel ids, in curated order — what `panelPrefs` persists collapse state for.
- * `scene` is gone from this list because the scene is no longer a panel: it is
- * one of the fleet surface's two representations, and `fleet` is the row that
- * collapses, focuses and persists for both of them.
+ * Panel ids, in curated order — what `panelPrefs` persists collapse state for,
+ * and what a `PanelFrame` exists for.
+ *
+ * Two, since #552. `scene` left when the scene became a representation of
+ * `fleet` rather than a panel (#555); `ledger`, `collisions` and `feed` left
+ * when they became tabs of `dock` — a tab is never hidden (S3 forbids a hidden
+ * empty tab outright), so they have no collapse state of their own to persist.
+ * `trace` was never here at all: prd9 B1a's FOCUS TRACE was a panel with no
+ * address, cut by prd-36 ruling 2 (#562), and the trace is a dock tab now.
  */
-export const PANEL_IDS = ['fleet', 'ledger', 'collisions', 'feed'] as const
+export const PANEL_IDS = ['fleet', 'dock'] as const
 
 /**
- * prd9 B1a's FOCUS TRACE (prd3 #85's mechanism, one more panel). Not in
- * {@link PANEL_IDS}: that list is specifically the collapse-persistence ids
- * (`usePanelCollapsed`), and trace has no collapsed state to persist — it has
- * no inline presence in the curated order at all, only a focused one, opened
- * from the drawer's own `FOCUS ↗` rather than a button drawn here.
+ * THE DOCK'S TABS, in prd-32 S3's order: **spend · collisions · feed · trace**.
+ *
+ * The order is the ruling's, not a preference, and it is the same
+ * question-and-answers shape the curated order above has: what is it costing
+ * (spend) → what is about to hurt (collisions) → what happened (feed) → what
+ * exactly did one lane do (trace). It narrows from the fleet to a single lane
+ * as you move right.
+ *
+ * `id` is stored per repo (`appearance.dockTab`), so it is a stable identity
+ * rather than a label: renaming what a tab is *called* must never move which
+ * one a person had open.
  */
-const TRACE_ID = 'trace'
+interface DockTab {
+  readonly id: string
+  readonly label: string
+  readonly render: () => ReactNode
+}
+
+export const DOCK_TABS: readonly DockTab[] = [
+  { id: 'spend', label: 'Spend', render: () => <LedgerPanel /> },
+  { id: 'collisions', label: 'Collisions', render: () => <CollisionsPanel /> },
+  { id: 'feed', label: 'Activity', render: () => <FeedPanel /> },
+  { id: 'trace', label: 'Trace', render: () => <TracePanel /> },
+]
 
 function PanelFallback() {
   return (
-    <div className="h-full min-h-32 animate-pulse rounded-lg border border-ice-850 bg-ice-950" />
+    <div className="h-full min-h-32 animate-pulse rounded-lg border border-(--line-hair) bg-(--surface-panel)" />
   )
 }
 
 export function PanelGrid() {
   const [focusedId, setFocusedId] = useState<string | null>(null)
-  // Lifted here, not left to PanelFrame's own internal store, so the same
-  // flag can also tell FeedPanel to draw its collapsed peek rather than
-  // disappear (PanelFrame's controlled-collapse mode).
-  const [feedCollapsed, setFeedCollapsed] = usePanelCollapsed('feed')
   const { state } = useStream()
   const fleet = useFleet()
   const foldIsEmpty = Object.keys(state.session.worktrees).length === 0 && fleet.lanes.length === 0
@@ -86,85 +133,238 @@ export function PanelGrid() {
   const hiddenFor = (id: string) => focusedId !== null && focusedId !== id
   const onFocusChangeFor = (id: string) => (focused: boolean) => setFocusedId(focused ? id : null)
 
+  /*
+   * A GRID OF TWO SHARES, NOT A SCROLLING COLUMN (walkthrough, 2026-08-17).
+   *
+   * This was `flex flex-col gap-4 overflow-auto`, and at 164 lanes the fleet
+   * showed three rows. A flex column of freely-shrinkable children hands every
+   * pixel of pressure to whichever child has no floor — the fleet — and its own
+   * `overflow-auto` then clips it **silently** instead of pushing back. The
+   * scene's `min-h-[55vh]` was the only floor in the file, so the roster
+   * representation had none at all.
+   *
+   * Two explicit shares fix it at the source: `3fr` to the hero and `2fr` to
+   * the dock, with `minmax(0, …)` so a track can actually shrink to its share
+   * rather than inflating to its content (a bare `1fr` has an implicit
+   * `min-height: auto` and will not), and `overflow-hidden` here so the PAGE
+   * never scrolls — each panel scrolls inside its own share instead. Nothing is
+   * ever below a fold, because there is no fold.
+   *
+   * 3:2 rather than 1:1 is prd4 ruling 2's hierarchy expressed as height:
+   * *who is alive* is the first-second question and gets the larger share. The
+   * ruling's own justification for the split — that the scene is
+   * "self-explanatory" — is amended on the record in
+   * `docs/prds/done/prd-04-human-facing.md`, because it is false at fleet scale
+   * and that is precisely why the roster must not be the thing that shrinks.
+   *
+   * Collapsing either panel is unaffected: a collapsed `PanelFrame` is
+   * `self-start`, so it takes its header's height and its share goes to the
+   * other track.
+   */
   return (
-    <div className="flex min-h-0 flex-col gap-4 overflow-auto p-4 [scrollbar-gutter:stable]">
+    <div className="flex min-h-0 flex-col gap-2 overflow-hidden p-4">
       {/* prd19 ruling 1's "one quiet pointer from the empty balcony": a
           pointer, not an interstitial — every panel below still renders (and
           draws its own existing empty state) exactly as it does once a
-          worktree turns up. */}
+          worktree turns up.
+
+          It sits OUTSIDE the two-share grid on purpose: it is one sentence, and
+          giving it a track of its own would take a share of the viewport away
+          from the fleet in order to say it. */}
       {foldIsEmpty ? <BalconyConnectPointer /> : null}
 
-      {/* The centerpiece (prd4 ruling 2, merged by prd-36 ruling 1): "what is
-          the fleet doing?" answered before anything else, hero-sized directly
-          beneath the dock — as the organism or as the list, one keystroke
-          apart. The frame's own collapse and focus chrome wraps the whole
-          surface, so focusing it fills the view with whichever representation
-          is up rather than with one of the two. */}
-      <PanelFrame
-        id="fleet"
-        title="Fleet"
-        hidden={hiddenFor('fleet')}
-        onFocusChange={onFocusChangeFor('fleet')}
-      >
-        <FleetSurface />
-      </PanelFrame>
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,3fr)_minmax(0,2fr)] gap-4">
+        {/* The centerpiece (prd4 ruling 2, merged by prd-36 ruling 1): "what is
+            the fleet doing?" answered before anything else, hero-sized above
+            the dock — as the organism or as the list, one keystroke apart. The
+            frame's own collapse and focus chrome wraps the whole surface, so
+            focusing it fills the view with whichever representation is up
+            rather than with one of the two. */}
+        <PanelFrame
+          id="fleet"
+          title="Fleet"
+          hidden={hiddenFor('fleet')}
+          onFocusChange={onFocusChangeFor('fleet')}
+        >
+          <FleetSurface />
+        </PanelFrame>
 
-      {/*
-        The rest: read after the first-second question has been answered.
-        Two-up rather than three below ~1400px (prd9 legibility): three dense
-        panels squeezed into a laptop-width column was the "crowded" half of
-        the operator's complaint, so the third column waits for room instead
-        of shrinking to fit.
-      */}
-      <div className="grid auto-rows-fr gap-4 md:grid-cols-2 min-[1400px]:grid-cols-3">
+        {/* The dock: read after the first-second question has been answered.
+            One surface, full width, one thing at a time — where three panels
+            used to be squeezed two-up or three-up into whatever the fleet
+            left. */}
         <PanelFrame
-          id="ledger"
-          title="Ledger"
-          hidden={hiddenFor('ledger')}
-          onFocusChange={onFocusChangeFor('ledger')}
+          id="dock"
+          title="Dock"
+          hidden={hiddenFor('dock')}
+          onFocusChange={onFocusChangeFor('dock')}
         >
-          <Suspense fallback={<PanelFallback />}>
-            <LedgerPanel />
-          </Suspense>
-        </PanelFrame>
-        <PanelFrame
-          id="collisions"
-          title="Collisions"
-          hidden={hiddenFor('collisions')}
-          onFocusChange={onFocusChangeFor('collisions')}
-        >
-          <Suspense fallback={<PanelFallback />}>
-            <CollisionsPanel />
-          </Suspense>
-        </PanelFrame>
-        <PanelFrame
-          id="feed"
-          title="Activity"
-          hidden={hiddenFor('feed')}
-          onFocusChange={onFocusChangeFor('feed')}
-          collapsed={feedCollapsed}
-          onCollapsedChange={setFeedCollapsed}
-        >
-          <Suspense fallback={<PanelFallback />}>
-            {/* Focusing a collapsed feed expands it for the duration, same as
-                every other panel's own focus/collapse interaction. */}
-            <FeedPanel collapsed={feedCollapsed && focusedId !== 'feed'} />
-          </Suspense>
+          <Dock />
         </PanelFrame>
       </div>
-
-      {/* No inline slot: focused only, requested from the drawer's TRACE
-          section rather than a button in this grid — see `FocusableTrace`. */}
-      <FocusableTrace hidden={hiddenFor(TRACE_ID)} onFocusChange={onFocusChangeFor(TRACE_ID)} />
     </div>
+  )
+}
+
+/**
+ * THE TABBABLE DOCK (prd-32 ruling 5 / S3, #552).
+ *
+ * Standard ARIA tabs with a **roving tabindex**: exactly one tab is in the
+ * page's Tab order and Left/Right (plus Home/End) move focus and selection
+ * together. Activation is automatic on arrow keys, which is the right choice
+ * *here* specifically because every tab reads the fold — arrowing through costs
+ * nothing, unlike a network-backed tab widget where it would fire four requests.
+ *
+ * **`Escape` is not handled and must not be.** S3 says so and the reason is
+ * structural rather than stylistic: the dock is not a dialog, so it has no
+ * dismissed state to return to, and Escape already means something specific
+ * here — it clears the lane selection (closing the peek) and then leaves panel
+ * focus. A dock that swallowed it would put a third meaning on one key and
+ * break the one-way-out rule (prd3 ruling 6). This component adds no
+ * `keydown` handling beyond the arrow and Home/End keys it actually consumes,
+ * so Escape keeps bubbling untouched.
+ *
+ * **Every tab renders in every state, and none of them is hidden.** S3's first
+ * "what would make it wrong" is *a tab hiding an empty state instead of voicing
+ * it*, so the tab strip is fixed: four tabs, always, whatever the fold holds.
+ * Each panel already speaks its own zero-with-evidence (the ledger's, the
+ * collisions panel's, the feed's) and each is reached here unchanged — this
+ * component adds a *fifth* state none of them could have had before, which is
+ * the one below.
+ */
+export function Dock() {
+  const [activeId, setActiveId] = useDockTab()
+  const buttonRefs = useRef(new Map<string, HTMLButtonElement>())
+
+  // A stored id no tab answers to reads as the first tab rather than as a blank
+  // dock — the same posture `settings/registry.ts`'s own `accept` takes. A
+  // retired tab must not make the surface unopenable.
+  const active = DOCK_TABS.find((tab) => tab.id === activeId) ?? (DOCK_TABS[0] as DockTab)
+
+  const moveTo = (id: string) => {
+    setActiveId(id)
+    buttonRefs.current.get(id)?.focus()
+  }
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const index = DOCK_TABS.findIndex((tab) => tab.id === active.id)
+    if (index === -1) return
+
+    if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      moveTo((DOCK_TABS[(index + 1) % DOCK_TABS.length] as DockTab).id)
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      moveTo((DOCK_TABS[(index - 1 + DOCK_TABS.length) % DOCK_TABS.length] as DockTab).id)
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      moveTo((DOCK_TABS[0] as DockTab).id)
+    } else if (event.key === 'End') {
+      event.preventDefault()
+      moveTo((DOCK_TABS[DOCK_TABS.length - 1] as DockTab).id)
+    }
+  }
+
+  return (
+    <section
+      data-panel="dock"
+      className="flex h-full min-h-0 flex-col rounded-lg border border-(--line-hair) bg-(--surface-panel)"
+    >
+      <div
+        role="tablist"
+        aria-label="Dock"
+        data-testid="dock-tabs"
+        onKeyDown={onKeyDown}
+        className="flex shrink-0 border-b border-(--line-hair) px-2"
+      >
+        {DOCK_TABS.map((tab) => {
+          const selected = tab.id === active.id
+          return (
+            <button
+              key={tab.id}
+              ref={(el) => {
+                if (el) buttonRefs.current.set(tab.id, el)
+                else buttonRefs.current.delete(tab.id)
+              }}
+              type="button"
+              role="tab"
+              id={`dock-tab-${tab.id}`}
+              aria-selected={selected}
+              aria-controls={dockPanelId(tab.id)}
+              tabIndex={selected ? 0 : -1}
+              data-testid={`dock-tab-${tab.id}`}
+              onClick={() => setActiveId(tab.id)}
+              className={`focus-ring border-b-2 px-3 py-2 heading tracking-[0.16em] transition-colors duration-150 ease-out ${
+                selected
+                  ? 'border-(--ink-primary) text-(--ink-primary)'
+                  : 'border-transparent text-(--ink-dim) hover:text-(--ink-body)'
+              }`}
+            >
+              {tab.label}
+            </button>
+          )
+        })}
+
+        {/*
+          THE ONE SEARCH (prd-31 ruling 4 / S3, #559) — chrome on the dock's own
+          strip, never a panel (prd-13 ruling 1's standing refusal). It filters
+          the feed and the trace beneath it and the conversation at
+          `/lane/:handle`, all off one module store, so a query typed here is
+          already in force when a person opens a run view.
+        */}
+        <div className="ml-auto flex items-center py-1 pl-2">
+          <SearchField surface="dock" />
+        </div>
+      </div>
+
+      <div
+        role="tabpanel"
+        id={dockPanelId(active.id)}
+        aria-labelledby={`dock-tab-${active.id}`}
+        data-dock-tab={active.id}
+        className="flex min-h-0 flex-1 flex-col overflow-hidden p-3"
+      >
+        {/*
+          S3's *error* state, and it is the one thing the dock adds that none of
+          the four panels could have on its own: "the tab renders its honest-gap
+          line and **the dock stays usable**". Keyed by tab id so a boundary that
+          caught one tab's throw does not stay tripped over the next one — the
+          failure being reported is that tab's, and a person must be able to
+          arrow away from it to a working surface.
+        */}
+        <ErrorBoundary key={active.id} fallback={<TabErrorFallback label={active.label} />}>
+          <Suspense fallback={<PanelFallback />}>{active.render()}</Suspense>
+        </ErrorBoundary>
+      </div>
+    </section>
+  )
+}
+
+/** `id` → the DOM id the active tab's panel carries, so `aria-controls`/`aria-labelledby` point at each other. */
+export function dockPanelId(id: string): string {
+  return `dock-tabpanel-${id}`
+}
+
+/** Law 12's voice: what is missing, what is unaffected, and what a person can still do. */
+function TabErrorFallback({ label }: { label: string }) {
+  return (
+    <p
+      role="status"
+      data-testid="dock-tab-error"
+      className="px-1 py-2 text-read-floor leading-snug text-broken"
+    >
+      {label.toUpperCase()} FAILED TO RENDER — this tab could not draw itself, so what it was going
+      to say is unknown rather than empty. The other three tabs are unaffected: arrow or click to
+      one of them, or reload to try this one again.
+    </p>
   )
 }
 
 /**
  * THE BALCONY POINTER (prd19 ruling 1, wave 3, #257) — "one quiet pointer from
  * the empty balcony", the one sentence ruling 1 grants an otherwise
- * panels-only grid. A real `<a href>`, modifier-aware like the drawer's own
- * open-page link (`drawer/index.tsx`'s `OpenPageLink`), so ctrl/cmd/shift/
+ * panels-only grid. A real `<a href>`, modifier-aware like the peek's own
+ * open-run-view link (`drawer/index.tsx`'s `OpenRunView`), so ctrl/cmd/shift/
  * middle-click still open `/connect` in a new tab and a plain click routes
  * through the same `navigate` the nav strip uses rather than a full reload.
  */
@@ -177,64 +377,15 @@ function BalconyConnectPointer() {
   }
 
   return (
-    <p className="px-1 text-xs text-ice-400">
+    <p className="px-1 text-read-floor text-(--ink-dim)">
       nothing is flowing yet — see{' '}
-      <a href="/connect" onClick={onClick} className="text-ice-300 underline hover:text-ice-100">
+      <a
+        href="/connect"
+        onClick={onClick}
+        className="focus-ring rounded text-(--ink-body) underline hover:text-(--ink-primary)"
+      >
         Connect
       </a>
     </p>
-  )
-}
-
-/**
- * FOCUS TRACE's own chrome (prd3 #85, applied to prd9's gantt). Unlike every
- * other panel here it draws nothing when unfocused — the compact tree already
- * lives in the drawer, so the curated order gains no new row for it — and it
- * is never focused by a button of its own: `useFocusRequest` is what the
- * drawer's `FOCUS ↗` reaches, the same `usePanelFocus` every other panel
- * already answers Esc and "one at a time" through.
- */
-function FocusableTrace({
-  hidden,
-  onFocusChange,
-}: {
-  hidden: boolean
-  onFocusChange: (focused: boolean) => void
-}) {
-  const { focused, focus, restore } = usePanelFocus(onFocusChange)
-  useFocusRequest(TRACE_ID, focus)
-
-  if (hidden || !focused) return null
-
-  return (
-    <div className="fixed inset-0 z-30 flex flex-col bg-ice-1000 p-4">
-      <div className="mb-1 flex items-center justify-between px-1">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-ice-400">Trace</h2>
-        <button
-          type="button"
-          aria-pressed={true}
-          onClick={restore}
-          className="rounded border border-ice-850 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ice-400 hover:border-ice-600 hover:text-ice-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ice-600"
-        >
-          Restore Trace
-        </button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
-        <ErrorBoundary fallback={<TraceErrorFallback />}>
-          <Suspense fallback={<PanelFallback />}>
-            <TraceFocusPanel />
-          </Suspense>
-        </ErrorBoundary>
-      </div>
-    </div>
-  )
-}
-
-/** Law 12's voice even here: what is missing, and what is unaffected by it. */
-function TraceErrorFallback() {
-  return (
-    <div className="flex h-full items-center justify-center px-4 text-center text-xs uppercase tracking-widest text-broken">
-      trace unavailable — other panels are unaffected
-    </div>
   )
 }

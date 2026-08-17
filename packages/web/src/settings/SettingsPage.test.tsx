@@ -201,10 +201,13 @@ describe('ruling 4 — a changed setting looks changed, and can be put back', ()
     render(<SettingsPage />)
 
     // `true`/`false` says nothing with the panel nowhere on screen.
+    act(() => writePreference('appearance.panelsCollapsed', { fleet: true }))
     const state = screen.getByTestId('pref-appearance.panelsCollapsed-state').textContent ?? ''
-    expect(state).toContain('feed collapsed')
-    expect(state).toContain('collisions expanded')
+    expect(state).toContain('fleet collapsed')
     expect(screen.getByTestId('pref-appearance.hideFinished-state').textContent).toContain('visible')
+    // The dock's tab is the third elsewhere-owned key (#552) — its state names
+    // the tab in the person's own words, not a stored id.
+    expect(screen.getByTestId('pref-appearance.dockTab-state').textContent).toContain('Spend')
   })
 })
 

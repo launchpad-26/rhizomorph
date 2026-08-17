@@ -1,6 +1,8 @@
+import type { ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { createEventFactory, initialSessionState, reduce } from '@rhizomorph/core'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { useFocusRequest } from '../../app/panelPrefs.js'
 import { StreamProvider } from '../../app/StreamContext.js'
 import type { CopyText } from '../../drawer/AttachButton.js'
 import { FleetProvider } from '../../fleet/FleetContext.js'
@@ -141,6 +143,144 @@ describe('FleetTable — the twenty-lane fixture (ruling 22 scale test)', () => 
     expect(rows().map((row) => row.getAttribute('data-lane'))).toEqual(
       expected.lanes.map((lane) => lane.id),
     )
+  })
+})
+
+/**
+ * S1'S SCALE CRITERION (prd-36, #562) — "at forty lanes the list renders every
+ * lane; a test asserts no lane is dropped or virtualised out of the
+ * accessibility tree."
+ *
+ * The twenty-lane fixture above is ruling 22's scale test and it is not this
+ * one. prd-36's claim is stronger and specifically about the *floor*: the list
+ * is what a person is left with when the canvas will not draw, so a windowing
+ * optimisation that kept forty rows readable at sixty frames a second by
+ * putting thirty-two of them outside the DOM would satisfy every visual
+ * impression of this panel and defeat the reason it exists. Screen readers,
+ * ctrl-F and `getAllByTestId` all see the same thing here, which is the point.
+ */
+describe('FleetTable — forty lanes, complete (prd-36 S1)', () => {
+  const FORTY = 40
+
+  async function renderFortyLanes() {
+    const fx = createEventFactory({ startTs: NOW - 10 * 60_000, stepMs: 250 })
+    fx.sessionStarted({ repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' })
+    fx.worktreeDiscovered({ path: '/repo', branch: 'main', isMain: true })
+    for (let i = 0; i < FORTY; i += 1) {
+      const branch = `${600 + i}-lane-${i}`
+      const worktreePath = `/repo-wt/${branch}`
+      fx.worktreeDiscovered({ path: worktreePath, branch, isMain: false })
+      fx.llmUsage({
+        lane: branch,
+        branch,
+        worktreePath,
+        tokens: { input: 5, output: 100 + i, cacheRead: 0, cacheCreation: 0 },
+      })
+    }
+
+    let source: FakeEventSource | undefined
+    await act(async () => {
+      render(
+        <StreamProvider
+          url="/api/stream"
+          now={NOW}
+          createSource={() => {
+            source = new FakeEventSource()
+            return source
+          }}
+        >
+          <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
+            <SelectionProvider>
+              <FleetTable />
+            </SelectionProvider>
+          </FleetProvider>
+        </StreamProvider>,
+      )
+    })
+    await act(async () => {
+      source?.open()
+      for (const event of fx.all()) source?.emit(event)
+    })
+  }
+
+  it('renders all forty rows, every one of them in the accessibility tree', async () => {
+    await renderFortyLanes()
+
+    expect(rows()).toHaveLength(FORTY)
+    // Distinct lanes, not forty renders of the same one.
+    expect(new Set(rows().map((row) => row.getAttribute('data-lane'))).size).toBe(FORTY)
+    // Every row is a real, reachable control — `role="button"` and tabbable —
+    // rather than a painted stripe a keyboard cannot get to.
+    for (const row of rows()) {
+      expect(row.getAttribute('role')).toBe('button')
+      expect(row.getAttribute('tabindex')).toBe('0')
+    }
+    // …and every row carries its own drill-down, so the fortieth lane is as
+    // openable as the first.
+    expect(screen.getAllByTestId('fleet-row-open')).toHaveLength(FORTY)
+  })
+
+  it('names no virtualisation seam at all — the structural half', async () => {
+    // The mutation the assertion above cannot make: a windowing library added
+    // tomorrow would render forty rows in a forty-lane test and eight in a
+    // four-hundred-lane fleet, and this suite would never know. The floor is a
+    // claim about the component, so it is also checked as one.
+    const [{ readFileSync }, path, { fileURLToPath }] = await Promise.all([
+      import('node:fs'),
+      import('node:path'),
+      import('node:url'),
+    ])
+    const source = readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), 'index.tsx'),
+      'utf8',
+    )
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, '')
+    expect(code).not.toMatch(/virtual|windowed|react-window|slice\(0,/i)
+    // …and the sweep is not vacuous: the file it read is the one under test.
+    expect(code).toContain('data-testid="fleet-row"')
+  })
+
+  it('renders the empty fleet as an IDLE fleet, naming the repo and its last activity', async () => {
+    // The other half of S1's list pass: "no lanes" and "nothing connected" are
+    // different answers, and before #562 both were a near-blank table.
+    const fx = createEventFactory({ startTs: NOW - 90_000, stepMs: 1_000 })
+    fx.sessionStarted({ repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' })
+    fx.worktreeDiscovered({ path: '/repo', branch: 'main', isMain: true })
+
+    let source: FakeEventSource | undefined
+    await act(async () => {
+      render(
+        <StreamProvider
+          url="/api/stream"
+          now={NOW}
+          createSource={() => {
+            source = new FakeEventSource()
+            return source
+          }}
+        >
+          <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
+            <SelectionProvider>
+              <FleetTable />
+            </SelectionProvider>
+          </FleetProvider>
+        </StreamProvider>,
+      )
+    })
+
+    // Before the stream opens: nothing is known, and "no lanes" would be a
+    // claim the instrument has not earned.
+    expect(screen.getByTestId('fleet-loading')).toBeInTheDocument()
+    expect(screen.queryByTestId('fleet-idle')).not.toBeInTheDocument()
+
+    await act(async () => {
+      source?.open()
+      for (const event of fx.all()) source?.emit(event)
+    })
+
+    const idle = screen.getByTestId('fleet-idle')
+    expect(idle.textContent).toContain('rhizomorph')
+    expect(idle.textContent).toMatch(/last activity \d+/)
+    expect(idle.textContent).toMatch(/idle fleet, not a broken one/)
   })
 })
 
@@ -669,7 +809,7 @@ describe('FleetTable — parked lanes (prd4 ruling 5)', () => {
     expect(stateCell.querySelector('svg[data-sigil]')).toBeNull()
 
     const span = stateCell.querySelector('span') as HTMLElement
-    expect(span.className).toContain('text-ice-400')
+    expect(span.className).toContain('text-(--ink-dim)')
     expect(span.className).toContain('italic')
     expect(stateCell.getAttribute('title')).toMatch(/parked/i)
   })
@@ -757,7 +897,18 @@ describe('FleetTable — prd5 ruling 1+6: single-key verbs (k9s idiom)', () => {
   const LANE_ID = '60-verbs-lane'
   const VERBS_WORKTREE = `/repo/rhizomorph__worktrees/${LANE_ID}`
 
-  async function renderVerbsScenario(onCopy?: CopyText) {
+  /**
+   * Test-only witness for the `f` verb's `requestPanelFocus('fleet')` call —
+   * the same `useFocusRequest` `PanelFrame` answers with in the real tree,
+   * mounted here so this suite proves the request without pulling `PanelGrid`
+   * and every other panel into a table test.
+   */
+  function FocusListener({ id, onRequest }: { id: string; onRequest: () => void }) {
+    useFocusRequest(id, onRequest)
+    return null
+  }
+
+  async function renderVerbsScenario(onCopy?: CopyText, focusListener?: ReactNode) {
     const fx = createEventFactory({ startTs: NOW - 5 * 60_000 })
     fx.sessionStarted({ repoPath: '/repo/rhizomorph', repoName: 'rhizomorph', mainBranch: 'main' })
     fx.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true })
@@ -782,6 +933,7 @@ describe('FleetTable — prd5 ruling 1+6: single-key verbs (k9s idiom)', () => {
         >
           <FleetProvider now={NOW} fetchLanes={noLaneManifest}>
             <SelectionProvider>
+              {focusListener}
               <FleetTable onCopy={onCopy} />
             </SelectionProvider>
           </FleetProvider>
@@ -851,24 +1003,30 @@ describe('FleetTable — prd5 ruling 1+6: single-key verbs (k9s idiom)', () => {
     expect(onCopy).not.toHaveBeenCalled()
   })
 
-  it('toggles this panel\'s own full-view focus on "f" with a lane selected', async () => {
-    const row = await renderVerbsScenario()
-    const section = row.closest('section') as HTMLElement
+  it('asks the fleet FRAME to focus on "f" rather than drawing a second full view (#562)', async () => {
+    // Before #562 this verb called the table's own `usePanelFocus` and the
+    // table drew `fixed inset-0` itself — inside a `PanelFrame` that did not
+    // know it was focused, so the grid's "one panel at a time" invariant could
+    // not see it and the heading and border were drawn twice. It now goes
+    // through the one focus channel, by panel id.
+    const focused: string[] = []
+    const row = await renderVerbsScenario(
+      undefined,
+      <FocusListener id="fleet" onRequest={() => focused.push('fleet')} />,
+    )
 
     await act(async () => {
       fireEvent.click(row)
     })
-    expect(section.className).not.toContain('fixed')
+    expect(focused).toEqual([])
 
     await act(async () => {
       fireEvent.keyDown(window, { key: 'f' })
     })
-    expect(section.className).toContain('fixed inset-0')
+    expect(focused).toEqual(['fleet'])
 
-    await act(async () => {
-      fireEvent.keyDown(window, { key: 'f' })
-    })
-    expect(section.className).not.toContain('fixed')
+    // …and the table itself does not become a full view of its own.
+    expect((row.closest('section') as HTMLElement).className).not.toContain('fixed')
   })
 
   it('does not fire "a" while typing in an input (the standard guard)', async () => {

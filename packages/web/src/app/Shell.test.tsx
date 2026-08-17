@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FleetProvider } from '../fleet/FleetContext.js'
@@ -17,9 +17,10 @@ import { StreamProvider } from './StreamContext.js'
 vi.mock('../panels/attention/index.js', () => ({ default: () => <div>Attention strip</div> }))
 vi.mock('../panels/burn/index.js', () => ({ default: () => <div>Burn strip</div> }))
 vi.mock('../panels/fleet/index.js', () => ({ default: () => <h2>Fleet</h2> }))
-vi.mock('../panels/ledger/index.js', () => ({ default: () => <h2>Ledger</h2> }))
-vi.mock('../panels/collisions/index.js', () => ({ default: () => <h2>Collisions</h2> }))
-vi.mock('../panels/feed/index.js', () => ({ default: () => <h2>Activity</h2> }))
+vi.mock('../panels/ledger/index.js', () => ({ default: () => <div>Ledger body</div> }))
+vi.mock('../panels/collisions/index.js', () => ({ default: () => <div>Collisions body</div> }))
+vi.mock('../panels/feed/index.js', () => ({ default: () => <div>Activity body</div> }))
+vi.mock('../panels/trace/index.js', () => ({ default: () => <div>Trace body</div> }))
 vi.mock('../scene/index.js', () => ({ default: () => <div>Scene stub</div> }))
 
 afterEach(cleanup)
@@ -65,6 +66,7 @@ async function renderShell(selected: string | null) {
     import('../panels/ledger/index.js'),
     import('../panels/collisions/index.js'),
     import('../panels/feed/index.js'),
+    import('../panels/trace/index.js'),
     import('../scene/index.js'),
     import('../drawer/index.js'),
   ])
@@ -230,17 +232,20 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
     expect(screen.queryByTestId('lane-drawer')).toBeNull()
   })
 
-  it('mounts the drawer on the selected lane', async () => {
+  it('mounts the peek on the selected lane', async () => {
     await renderShell(LANE)
 
-    const drawer = screen.getByTestId('lane-drawer')
-    expect(drawer.getAttribute('data-lane')).toBe(LANE)
+    const peek = screen.getByTestId('lane-drawer')
+    expect(peek.getAttribute('data-lane')).toBe(LANE)
+    expect(peek.getAttribute('data-peek')).toBe('true')
     expect(screen.getByTestId('drawer-vitals')).toBeInTheDocument()
-    // #163: one tab body at a time. #164: it opens on ACTIVITY, the tab most
-    // reliably populated for any lane, live or folded — not on CONVERSATION,
-    // which can be a gap voice alone.
-    expect(screen.getByTestId('drawer-tab-activity').getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByTestId('drawer-attach')).toBeInTheDocument()
+    // prd-36 ruling 2 (#562): a peek, not a four-tab reader. Scoped to the
+    // peek itself, because the shell below it does have a tablist since #552 —
+    // the dock's — and a bare `queryByRole('tablist')` would find that one and
+    // pass for the wrong reason from the day the dock landed.
+    expect(within(peek).queryByRole('tablist')).not.toBeInTheDocument()
+    expect(within(peek).queryAllByRole('tab')).toEqual([])
+    expect(screen.getByTestId('drawer-open-page')).toBeInTheDocument()
   })
 
   it('keeps the fleet visible beside it — it is a drawer, not a page', async () => {
@@ -248,6 +253,7 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
 
     expect(screen.getByTestId('lane-drawer')).toBeInTheDocument()
     expect(screen.getByText('Fleet')).toBeInTheDocument()
+    expect(screen.getByTestId('dock-tabs')).toBeInTheDocument()
     expect(screen.getByText('Attention strip')).toBeInTheDocument()
     expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
   })
@@ -276,9 +282,11 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
       // what must not have moved.
       .filter((mark) => mark !== LANE)
 
-    // One row shorter since prd-36 ruling 1 merged the scene and the roster
-    // into one `Fleet` surface — see `Shell.tsx`'s curated-order note.
-    expect(closedMarks).toEqual(['THE OBSERVATORY', 'Fleet', 'Ledger', 'Collisions', 'Activity'])
+    // Two rows since prd-32 ruling 5 (#552) folded the ledger, collisions and
+    // the feed into one tabbable dock — and the dock is named by its tab strip
+    // rather than by a heading, so the one mark left below the wordmark is the
+    // fleet's. See `Shell.tsx` and `PanelGrid.tsx`'s curated-order notes.
+    expect(closedMarks).toEqual(['THE OBSERVATORY', 'Fleet'])
     expect(openMarks).toEqual(closedMarks)
   })
 
@@ -335,28 +343,27 @@ describe('Shell — the lane drawer mount (ruling 17)', () => {
     }
   })
 
-  it('reads the selected lane\'s conversation once its own tab is picked, and only ever GETs it', async () => {
+  it('issues no transcript request no matter what is clicked inside it (prd-36 S2)', async () => {
+    // The tab that used to fire this request is gone with the tabs, and the
+    // conversation moved to the run view with it. This is the whole-shell half
+    // of `drawer/index.test.tsx`'s own assertion: mounted for real, beside the
+    // real strips and the real status bar, so a transcript read reintroduced
+    // by any of the peek's own children would surface here too.
     const fetchSpy = vi.fn(async (input: string) => ({ ok: false, url: input, json: async () => null }))
     const original = globalThis.fetch
     globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch
     try {
       await renderShell(LANE)
 
-      await act(async () => {
-        fireEvent.click(screen.getByTestId('drawer-tab-conversation'))
-      })
+      for (const node of screen.getByTestId('lane-drawer').querySelectorAll('a, button')) {
+        if (node.getAttribute('data-testid') === 'drawer-open-page') continue
+        if (node.getAttribute('data-testid') === 'drawer-close') continue
+        await act(async () => {
+          fireEvent.click(node)
+        })
+      }
 
-      // #134: the conversation opens at the tail, not offset zero.
-      expect(transcriptCalls(fetchSpy).map((call) => call[0])).toEqual([
-        `/api/transcript/${LANE}?tail=1`,
-      ])
-      // Still only ever a GET. Since prd-29 ruling 6 the drawer's read rides
-      // through the shared capability-read module, so the call may now carry an
-      // init (the capability header) — but never a `method`, so it can be
-      // nothing but a GET. The header discipline itself is proven in
-      // `recordings/capabilityRead.test.ts` and the mutating-calls law.
-      const [, init] = transcriptCalls(fetchSpy)[0] as [string, RequestInit | undefined]
-      expect(init?.method).toBeUndefined()
+      expect(transcriptCalls(fetchSpy)).toHaveLength(0)
     } finally {
       globalThis.fetch = original
     }

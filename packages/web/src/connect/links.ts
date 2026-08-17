@@ -636,7 +636,85 @@ function transcriptSlug(input: ConnectInputs): ChainLink {
   })
 }
 
-/** **transcripts ↔ slug, the flow half.** A first `sessionlog`-origin record — the dir resolving proves nothing about anything arriving from it. */
+/**
+ * Every collector that can stamp a `sessionlog`-origin record — the set
+ * {@link transcriptFlow}'s evidence half folds together, named once so its two
+ * readers cannot drift apart.
+ *
+ * A third dialect (#323, gemini-cli) adds itself here and both halves of the
+ * row keep up. That is the whole reason this is a constant rather than two
+ * inline pairs of `disabledReason` calls.
+ */
+const TRANSCRIPT_COLLECTOR_NAMES = ['sessionlog', 'pi'] as const
+
+/**
+ * The transcript collectors that have said they are disabled, in their own
+ * words, as notes (#612).
+ *
+ * Empty whenever every mechanism is live — a row does not carry a note about a
+ * collector with nothing to report, so these appear exactly when one of the two
+ * has genuinely gone quiet. The remedy rides along when the collector supplied
+ * one, because a reason an operator cannot act on is half a finding.
+ */
+function silencedTranscriptCollectors(meta: MetaFacts | null | undefined): string[] {
+  const notes: string[] = []
+  for (const name of TRANSCRIPT_COLLECTOR_NAMES) {
+    const disabled = disabledReason(meta ?? null, name)
+    if (disabled === null) continue
+    notes.push(`${name} is disabled — ${disabled.reason}`)
+    if (disabled.remedy !== null) notes.push(`remedy (${name}): ${disabled.remedy}`)
+  }
+  return notes
+}
+
+/**
+ * **transcripts ↔ slug, the flow half.** A first `sessionlog`-origin record —
+ * the dir resolving proves nothing about anything arriving from it.
+ *
+ * **The question this row asks is "has A transcript arrived", not "is
+ * claude's own sessionlog collector the one that sent it" (#612).** Since
+ * #609 pi emits its own real records under the SAME envelope `origin:
+ * 'sessionlog'` claude's collector uses (ADR-0023, "a transcript dialect names
+ * itself with `harness`" — filed as 0021 until #605 renumbered it out of a
+ * collision, so older text cites that number: `harness` names the
+ * dialect, `source` stays the shared literal so a third collector never
+ * became a core schema change) — so `mergeFlow` below, keyed on `origin` and
+ * not on which collector produced it, already answers the broad question.
+ * The remedy path used to answer a NARROWER one: `disabledReason(meta,
+ * 'sessionlog')` is keyed on the SESSIONLOG COLLECTOR's own name, i.e.
+ * claude's. A fleet running pi only, with claude's collector genuinely
+ * disabled, could VERIFY off pi's records (correctly, per the broad
+ * question) while a BROKEN reading — had flow ever been empty at the same
+ * time — would have quoted only claude's collector's reason, never naming
+ * pi even though pi is the harness actually in front of the operator.
+ *
+ * The fix makes both halves ask the broad question: BROKEN only when EVERY
+ * collector that can stamp a `sessionlog`-origin record — today, `sessionlog`
+ * and `pi` — is disabled with a reason, the same "both, not either" rule
+ * {@link agentsPanes} already uses for tmux/workmux, and for the same reason:
+ * either one alone still leaves a live mechanism that has not reported yet,
+ * which is UNPROVEN, not dead.
+ *
+ * ## The broad question does not license throwing the reason away (#612)
+ *
+ * Answering "has A transcript arrived" with `verified` is right, and it is
+ * still right when the arrival came from pi while claude's own collector is
+ * disabled. What was wrong is what happened to claude's reason in that moment:
+ * nothing. The `flow.count > 0` branch returned first, so a collector that had
+ * said *why* it is dead — with a remedy, sitting in `/api/meta` — was never
+ * mentioned, and an operator whose claude transcripts had stopped read a green
+ * row and learned nothing. That is the harm this issue was filed over, arriving
+ * by the door the fix above does not cover.
+ *
+ * So every reading of this row now carries the silenced collectors as notes:
+ * `verified` (the link holds, AND one of the two mechanisms behind it is
+ * dead), `unproven` (nothing has arrived, and here is one reason it might not),
+ * and `broken` through its own fuller reason-and-remedy treatment below. The
+ * row's STATE answers the broad question; its notes stop the narrow answer from
+ * being unrecoverable. That is #612's acceptance — "a disabled claude
+ * transcript collector cannot be hidden by a live pi one" — met without
+ * pretending a real arrival did not happen.
+ */
 function transcriptFlow(input: ConnectInputs): ChainLink {
   const base = {
     id: 'transcripts-flow',
@@ -645,18 +723,32 @@ function transcriptFlow(input: ConnectInputs): ChainLink {
     evidence: 'fold' as const,
   }
   const flow = mergeFlow(input.flow.sessionlog, input.meta?.connection?.sources.sessionlog)
+  const silenced = silencedTranscriptCollectors(input.meta)
   if (flow.count > 0) {
-    return verified(base, `${records(flow.count)} from the transcript collector`, provenAt(flow.lastEventTs, input.now))
+    return verified(
+      base,
+      `${records(flow.count)} from the transcript collector`,
+      provenAt(flow.lastEventTs, input.now),
+      silenced,
+    )
   }
 
-  const disabled = disabledReason(input.meta, 'sessionlog')
-  if (disabled !== null) {
-    return broken(base, disabled.reason, {
+  // Driven off TRANSCRIPT_COLLECTOR_NAMES rather than two hand-written calls,
+  // so "both, not either" stays "ALL, not any" when #323 adds a third dialect —
+  // the shape that quietly rots is a rule spelled out per collector.
+  const dead = TRANSCRIPT_COLLECTOR_NAMES.flatMap((name) => {
+    const disabled = disabledReason(input.meta, name)
+    return disabled === null ? [] : [{ name, ...disabled }]
+  })
+  if (dead.length === TRANSCRIPT_COLLECTOR_NAMES.length) {
+    return broken(base, dead.map((collector) => `${collector.name}: ${collector.reason}`).join(' · '), {
       command: restartCommand(input.meta?.repoPath ?? null, input.port),
-      notes: disabled.remedy === null ? [] : [`remedy: ${disabled.remedy}`],
+      notes: dead.flatMap((collector) =>
+        collector.remedy === null ? [] : [`remedy (${collector.name}): ${collector.remedy}`],
+      ),
     })
   }
-  return unproven(base)
+  return unproven(base, silenced)
 }
 
 /**

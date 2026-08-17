@@ -54,8 +54,8 @@ export function ActivityView({ entries, now, fill = false, highlightPath = null 
 
   const header = (
     <>
-      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-ice-400">Activity</h3>
-      <p className="figures text-[10px] text-ice-400">
+      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-(--ink-dim)">Activity</h3>
+      <p className="figures text-[10px] text-(--ink-dim)">
         {counts.tool} tools · {counts.file} files · {counts.commit} commits
       </p>
     </>
@@ -63,7 +63,7 @@ export function ActivityView({ entries, now, fill = false, highlightPath = null 
 
   const body =
     entries.length === 0 ? (
-      <p role="status" className="mt-2 text-[11px] text-ice-400">
+      <p role="status" className="mt-2 text-[11px] text-(--ink-dim)">
         NO ACTIVITY RECORDED — this lane has produced no tool call, file change or commit in the
         session so far — the conversation is the only thing left to read.
       </p>
@@ -81,17 +81,17 @@ export function ActivityView({ entries, now, fill = false, highlightPath = null 
               data-testid="activity-entry"
               data-kind={entry.kind}
               data-highlighted={highlighted}
-              className={`flex items-baseline gap-2 border-t border-ice-850/60 py-1 first:border-t-0 ${
-                highlighted ? '-mx-1 rounded bg-ice-900 px-1' : ''
+              className={`flex items-baseline gap-2 border-t border-(--line-hair) py-1 first:border-t-0 ${
+                highlighted ? '-mx-1 rounded bg-(--surface-raised) px-1' : ''
               }`}
             >
-              <span className="figures w-10 shrink-0 text-right text-[10px] text-ice-400">
+              <span className="figures w-10 shrink-0 text-right text-[10px] text-(--ink-dim)">
                 {relative(entry.ts, now)}
               </span>
               <span className={kindTagClass(ACTIVITY_KIND[entry.kind])}>
                 {KIND_APPEARANCE[ACTIVITY_KIND[entry.kind]].word}
               </span>
-              <span className="min-w-0 flex-1 font-mono text-[11px] leading-relaxed text-ice-300">
+              <span className="min-w-0 flex-1 font-mono text-[11px] leading-relaxed text-(--ink-body)">
                 <EntryBody entry={entry} />
               </span>
             </li>
@@ -112,7 +112,7 @@ export function ActivityView({ entries, now, fill = false, highlightPath = null 
   return (
     <section
       data-testid="drawer-activity"
-      className="max-h-52 shrink-0 overflow-auto border-t border-ice-850 px-4 py-3 [scrollbar-gutter:stable]"
+      className="max-h-52 shrink-0 overflow-auto border-t border-(--line-hair) px-4 py-3 [scrollbar-gutter:stable]"
     >
       <header className="flex items-baseline justify-between">{header}</header>
       {body}
@@ -138,9 +138,9 @@ function EntryBody({ entry }: { entry: ActivityEntry }) {
   if (entry.kind === 'tool') {
     return (
       <>
-        <span className="text-ice-200">{entry.tool}</span>
-        {entry.count > 1 ? <span className="ml-1 text-ice-400">×{entry.count}</span> : null}
-        {entry.thread === 'subagent' ? <span className="ml-1 text-ice-400">sub</span> : null}
+        <span className="text-(--ink-body)">{entry.tool}</span>
+        {entry.count > 1 ? <span className="ml-1 text-(--ink-dim)">×{entry.count}</span> : null}
+        {entry.thread === 'subagent' ? <span className="ml-1 text-(--ink-dim)">sub</span> : null}
       </>
     )
   }
@@ -148,15 +148,15 @@ function EntryBody({ entry }: { entry: ActivityEntry }) {
   if (entry.kind === 'file') {
     return (
       <>
-        <span className="text-ice-400">{entry.status}</span> <span className="truncate">{entry.path}</span>
+        <span className="text-(--ink-dim)">{entry.status}</span> <span className="truncate">{entry.path}</span>
       </>
     )
   }
 
   return (
     <>
-      <span className="text-ice-400">{entry.sha.slice(0, 7)}</span> {entry.subject}
-      <span className="ml-1 text-ice-400">
+      <span className="text-(--ink-dim)">{entry.sha.slice(0, 7)}</span> {entry.subject}
+      <span className="ml-1 text-(--ink-dim)">
         {entry.fileCount} file{entry.fileCount === 1 ? '' : 's'}
         {entry.insertions === null ? '' : ` +${entry.insertions}`}
         {entry.deletions === null ? '' : ` −${entry.deletions}`}

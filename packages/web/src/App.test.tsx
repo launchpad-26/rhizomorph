@@ -31,7 +31,6 @@ vi.mock('./panels/fleet/index.js', () => ({
     const { select } = useSelection()
     return (
       <div>
-        <h2>Fleet</h2>
         <button type="button" onClick={() => select('42-otel-receiver')}>
           select lane
         </button>
@@ -39,9 +38,10 @@ vi.mock('./panels/fleet/index.js', () => ({
     )
   },
 }))
-vi.mock('./panels/ledger/index.js', () => ({ default: () => <h2>Ledger</h2> }))
-vi.mock('./panels/collisions/index.js', () => ({ default: () => <h2>Collisions</h2> }))
-vi.mock('./panels/feed/index.js', () => ({ default: () => <h2>Activity</h2> }))
+vi.mock('./panels/ledger/index.js', () => ({ default: () => <div>Ledger body</div> }))
+vi.mock('./panels/collisions/index.js', () => ({ default: () => <div>Collisions body</div> }))
+vi.mock('./panels/feed/index.js', () => ({ default: () => <div>Activity body</div> }))
+vi.mock('./panels/trace/index.js', () => ({ default: () => <div>Trace body</div> }))
 vi.mock('./replay/index.js', () => ({ default: () => <div>Replay stub</div> }))
 vi.mock('./scene/index.js', () => ({ default: () => <div>Scene stub</div> }))
 
@@ -87,6 +87,7 @@ async function renderApp() {
     import('./panels/ledger/index.js'),
     import('./panels/collisions/index.js'),
     import('./panels/feed/index.js'),
+    import('./panels/trace/index.js'),
     import('./replay/index.js'),
     import('./scene/index.js'),
     // Real (unmocked) drawer, lane page, recordings library, lab tab and
@@ -155,13 +156,18 @@ describe('App', () => {
     expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
     expect(screen.getByText('connecting…')).toBeInTheDocument()
 
-    // attention + burn docked top → fleet → the rest → provenance bar. prd-36
-    // ruling 1 merged the scene and the table into ONE surface, so the curated
-    // order is one row shorter than it was: `Fleet` is the hero, and which
-    // representation it is drawing is the person's own choice inside it rather
-    // than a second heading in this sequence.
+    // attention + burn docked top → fleet → the dock → provenance bar. prd-36
+    // ruling 1 merged the scene and the table into ONE surface; prd-32 ruling 5
+    // (#552) folded the three analytical panels into one tabbable dock named by
+    // its tab strip rather than by a heading. Two rows, one heading.
     const marks = [...container.querySelectorAll('h1, h2')].map((node) => node.textContent)
-    expect(marks).toEqual(['THE OBSERVATORY', 'Fleet', 'Ledger', 'Collisions', 'Activity'])
+    expect(marks).toEqual(['THE OBSERVATORY', 'Fleet'])
+    expect(screen.getAllByRole('tab').map((node) => node.textContent)).toEqual([
+      'Spend',
+      'Collisions',
+      'Activity',
+      'Trace',
+    ])
     // The organism is what a fresh instrument opens on, inside that one frame.
     expect(screen.getByText('Scene stub')).toBeInTheDocument()
     expect(screen.getByText('Attention strip')).toBeInTheDocument()
@@ -209,10 +215,11 @@ describe('App', () => {
     // picture was, and no row was added to or removed from the curated order.
     expect(screen.queryByText('Scene stub')).not.toBeInTheDocument()
     expect(screen.getByText('select lane')).toBeInTheDocument()
+    // #562 dropped the table's own duplicate `<h2>Fleet</h2>` now that the
+    // surface carries one, so the curated order reads identically in either
+    // representation.
     const marks = [...container.querySelectorAll('h1, h2')].map((node) => node.textContent)
-    // The stubbed table brings an `<h2>Fleet</h2>` of its own until wave 2 drops
-    // it now that the surface carries one — see `FleetSurface.tsx`.
-    expect(marks).toEqual(['THE OBSERVATORY', 'Fleet', 'Fleet', 'Ledger', 'Collisions', 'Activity'])
+    expect(marks).toEqual(['THE OBSERVATORY', 'Fleet'])
   })
 
   describe('panel focus (ruling 6)', () => {
@@ -222,9 +229,7 @@ describe('App', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Focus Fleet' }))
 
       expect(screen.getByRole('button', { name: 'Restore Fleet' })).toBeInTheDocument()
-      expect(screen.queryByText('Ledger')).not.toBeInTheDocument()
-      expect(screen.queryByText('Collisions')).not.toBeInTheDocument()
-      expect(screen.queryByText('Activity')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('dock-tabs')).not.toBeInTheDocument()
     })
 
     it('Esc precedence: an open drawer/selection closes first, then a second Esc exits focus', async () => {
@@ -248,7 +253,7 @@ describe('App', () => {
       // the curated order returns.
       fireEvent.keyDown(window, { key: 'Escape' })
       expect(screen.getByRole('button', { name: 'Focus Fleet' })).toBeInTheDocument()
-      expect(screen.getByText('Ledger')).toBeInTheDocument()
+      expect(screen.getByTestId('dock-tabs')).toBeInTheDocument()
     })
   })
 

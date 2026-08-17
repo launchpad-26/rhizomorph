@@ -75,6 +75,26 @@ export interface TranscriptEntry {
   blocks: TranscriptBlock[]
 }
 
+/**
+ * Everything about one turn a session search may match on (prd-31 ruling 4,
+ * #559) — the prose, the tool names and their hints, and the tool results.
+ *
+ * Every word the turn actually renders and nothing it does not, for the reason
+ * `panels/feed/feed.ts`'s own haystack gives: a match on a fact that is not on
+ * screen makes the hidden count unexplainable from the screen. `role` is
+ * deliberately IN, because "assistant" and "user" are how a person describes
+ * the turn they are looking for.
+ */
+export function transcriptEntryText(entry: TranscriptEntry): string {
+  const parts: string[] = [entry.role]
+  for (const block of entry.blocks) {
+    if (block.kind === 'text') parts.push(block.text)
+    else if (block.kind === 'tool_use') parts.push(block.name, block.hint)
+    else parts.push(block.text)
+  }
+  return parts.join(' ')
+}
+
 export interface TranscriptState {
   /**
    * `absent` is not an error: a lane with no session log on disk is an ordinary,

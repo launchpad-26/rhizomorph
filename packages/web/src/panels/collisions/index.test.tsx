@@ -50,7 +50,9 @@ function renderPanel() {
 describe('CollisionsPanel', () => {
   it('shows a waiting-for-stream state before any connection or data', () => {
     renderPanel()
-    expect(screen.getByText('Collisions')).toBeInTheDocument()
+    // No heading of its own since #552 — the dock's tab strip names it, and a
+    // second copy inside the panel is the duplication ruling 5 removed.
+    expect(screen.queryByRole('heading', { name: 'Collisions' })).not.toBeInTheDocument()
     expect(screen.getByText('Waiting for the stream…')).toBeInTheDocument()
   })
 

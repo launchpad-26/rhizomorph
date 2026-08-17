@@ -59,7 +59,7 @@ export function Vitals({ lane, fleet }: VitalsProps) {
   const fence = fenceCell(lane, fleet)
 
   return (
-    <div data-testid="drawer-vitals" className="border-b border-ice-850 px-4 py-3">
+    <div data-testid="drawer-vitals" className="border-b border-(--line-hair) px-4 py-3">
       <div className={`flex items-center gap-2 ${RANK_TEXT_CLASS[lane.rank]}`}>
         <Sigil
           kind={sigilKind}
@@ -68,7 +68,7 @@ export function Vitals({ lane, fleet }: VitalsProps) {
         />
         <span className="figures text-xs uppercase tracking-[0.18em]">{SIGIL_WORD[sigilKind]}</span>
         {lane.pathologies.length > 1 ? (
-          <span className="figures text-[10px] text-ice-400">+{lane.pathologies.length - 1} more</span>
+          <span className="figures text-[10px] text-(--ink-dim)">+{lane.pathologies.length - 1} more</span>
         ) : null}
       </div>
 
@@ -77,7 +77,7 @@ export function Vitals({ lane, fleet }: VitalsProps) {
         gets a line: "nothing wrong" is a claim, and a claim needs its evidence
         as much as an accusation does (ruling 14).
       */}
-      <p data-testid="drawer-evidence" className="mt-1 font-mono text-[11px] leading-snug text-ice-400">
+      <p data-testid="drawer-evidence" className="mt-1 font-mono text-[11px] leading-snug text-(--ink-dim)">
         {worst === null ? calmEvidence(lane) : evidenceLine(worst)}
       </p>
 
@@ -140,8 +140,8 @@ export function MainVitals({ fleet }: MainVitalsProps) {
   const overheadGap = isOverheadGap(burn)
 
   return (
-    <div data-testid="drawer-main-vitals" className="border-b border-ice-850 px-4 py-3">
-      <p data-testid="drawer-main-evidence" className="font-mono text-[11px] leading-snug text-ice-400">
+    <div data-testid="drawer-main-vitals" className="border-b border-(--line-hair) px-4 py-3">
+      <p data-testid="drawer-main-evidence" className="font-mono text-[11px] leading-snug text-(--ink-dim)">
         {mainEvidence(fleet)}
       </p>
 
@@ -231,9 +231,9 @@ interface VitalProps {
 function Vital({ label, value, title, muted = false, alarm = false }: VitalProps) {
   return (
     <div className="min-w-0" title={title}>
-      <dt className="text-[10px] uppercase tracking-wider text-ice-400">{label}</dt>
+      <dt className="text-[10px] uppercase tracking-wider text-(--ink-dim)">{label}</dt>
       <dd
-        className={`figures truncate ${alarm ? 'text-needs-you' : muted ? 'text-ice-400' : 'text-ice-200'}`}
+        className={`figures truncate ${alarm ? 'text-needs-you' : muted ? 'text-(--ink-dim)' : 'text-(--ink-body)'}`}
       >
         {value}
       </dd>

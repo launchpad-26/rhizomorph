@@ -84,11 +84,11 @@ function CalmRow({ evidence }: { evidence: CalmEvidence }): ReactElement {
   return (
     <>
       <Pill rank="calm">ALL CLEAR</Pill>
-      <p className="truncate text-ice-400">
-        <span className="figures text-ice-200">{evidence.lanes}</span> lanes ·{' '}
-        <span className="figures text-ice-200">{evidence.branchesChecked}</span> branches ·{' '}
-        <span className="figures text-ice-200">{evidence.filesChecked}</span> files checked ·
-        collisions <span className="figures text-ice-200">{evidence.collisions}</span>
+      <p className="truncate text-(--ink-dim)">
+        <span className="figures text-(--ink-body)">{evidence.lanes}</span> lanes ·{' '}
+        <span className="figures text-(--ink-body)">{evidence.branchesChecked}</span> branches ·{' '}
+        <span className="figures text-(--ink-body)">{evidence.filesChecked}</span> files checked ·
+        collisions <span className="figures text-(--ink-body)">{evidence.collisions}</span>
       </p>
     </>
   )
@@ -129,7 +129,7 @@ function AttentionRow({
           />
         ))}
         {overflow > 0 ? (
-          <span className="figures shrink-0 text-ice-400" data-testid="chip-overflow">
+          <span className="figures shrink-0 text-(--ink-dim)" data-testid="chip-overflow">
             +{overflow}
           </span>
         ) : null}
@@ -207,14 +207,14 @@ function WaitedChipButton({
       aria-pressed={selected}
       onClick={() => onToggle(chip.laneId)}
       className={[
-        'flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 normal-case tracking-normal text-ice-400',
-        selected ? 'border-ice-200 bg-ice-900' : 'border-ice-800 bg-ice-950',
+        'flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 normal-case tracking-normal text-(--ink-dim)',
+        selected ? 'border-(--ink-primary) bg-(--surface-raised)' : 'border-(--line-strong) bg-(--surface-panel)',
       ].join(' ')}
     >
-      <span className="max-w-[7rem] truncate font-medium text-ice-300">{chip.label}</span>
+      <span className="max-w-[7rem] truncate font-medium text-(--ink-body)">{chip.label}</span>
       <span className="figures whitespace-nowrap">waited {duration}</span>
       <span aria-hidden>▸</span>
-      <span aria-hidden className="text-ice-300">
+      <span aria-hidden className="text-(--ink-body)">
         {glyph}
       </span>
     </button>
@@ -269,7 +269,7 @@ function Chip({ item, selected, onToggle, reducedMotion }: ChipProps): ReactElem
       className={[
         'flex shrink-0 items-center gap-1.5 rounded border px-1.5 py-0.5 normal-case tracking-normal',
         aging.ink,
-        selected ? 'border-ice-200 bg-ice-900' : 'border-ice-800 bg-ice-950',
+        selected ? 'border-(--ink-primary) bg-(--surface-raised)' : 'border-(--line-strong) bg-(--surface-panel)',
         clickable ? '' : 'cursor-default opacity-90',
         reducedMotion ? '' : 'attention-chip-flare',
         aging.pulsing && !reducedMotion ? 'attention-chip-age-pulse' : '',
@@ -279,9 +279,9 @@ function Chip({ item, selected, onToggle, reducedMotion }: ChipProps): ReactElem
     >
       <ChipGlyph kind={item.kind} />
       <span className="max-w-[9rem] truncate font-medium">{item.label}</span>
-      <span className="max-w-[18rem] truncate text-ice-300">{evidence}</span>
+      <span className="max-w-[18rem] truncate text-(--ink-body)">{evidence}</span>
       {age === null ? null : (
-        <span className={`figures shrink-0 ${aging.ageEmphasized ? 'text-needs-you font-semibold' : 'text-ice-400'}`}>
+        <span className={`figures shrink-0 ${aging.ageEmphasized ? 'text-needs-you font-semibold' : 'text-(--ink-dim)'}`}>
           {age}
         </span>
       )}
