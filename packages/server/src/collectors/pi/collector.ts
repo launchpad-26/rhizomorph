@@ -11,6 +11,7 @@ import {
   type RhizomorphEvent,
   type PollResult,
 } from '@rhizomorph/core'
+import { isInside } from '../../paths/containment.js'
 import { deriveLaneState, needsProcessProbe, quietMsOf, type LaneStateReading } from '../sessionlog/lane-state.js'
 import { parseWorktreePaths } from '../sessionlog/parse-worktree-paths.js'
 import { defaultProcessProbe, type ProcessLiveness, type ProcessProbe } from '../sessionlog/process-probe.js'
@@ -18,7 +19,7 @@ import { isRotated, readNewLines } from '../sessionlog/tail.js'
 import { advanceTurnShape, initialTurnShape, type TurnShapeState } from '../sessionlog/turn-shape.js'
 import { PI_CAPABILITIES } from './capabilities.js'
 import { PI_JSONL_GRAMMAR } from './grammar.js'
-import type { PiLaneLiveness, PiSnapshot, PiTailedFileState } from './types.js'
+import type { PiHeader, PiLaneLiveness, PiSnapshot, PiTailedFileState } from './types.js'
 
 const COLLECTOR_NAME = 'pi'
 const JSONL_SUFFIX = '.jsonl'
@@ -52,6 +53,22 @@ const HARNESS = 'pi'
  *   `piSessionsRoot` recursively for `*.jsonl` files instead, and identifies
  *   each session by the `cwd` its own header line reports (see below), never
  *   by where the file happens to sit on disk.
+ *
+ *   **That walk is a machine-wide one, so its results are scoped before they
+ *   are used** (#609). `~/.pi/agent/sessions/` holds every pi session the
+ *   operator has ever run, across every unrelated project on the machine.
+ *   `worktreesInScope` below resolves each session's header `cwd` to the
+ *   watched worktree containing it (`isInside`, so a session started in a
+ *   subdirectory still resolves to its worktree root), and a session that
+ *   resolves to none is skipped entirely — not tailed, not emitted, not
+ *   recorded. Without that, two unrelated projects sharing a leaf directory
+ *   name (`api`, `web`, `server` — the common case, not the exotic one)
+ *   both key to the same lane, `deriveLanes`' freshest-wins fold discards
+ *   one of them outright, and the other's telemetry lands on a dashboard
+ *   lane belonging to a different codebase. This is the discipline
+ *   sessionlog gets structurally, by only ever reading the project-dir slug
+ *   of a worktree it already watches; pi has to apply it explicitly because
+ *   its walk cannot be scoped by path shape.
  * - claude's collector reads `cwd`/`gitBranch` off every assistant line,
  *   because claude repeats them there. pi's grammar deliberately extracts
  *   `null` for all four of `sessionId`/`cwd`/`gitBranch`/`requestId` on a
@@ -61,11 +78,16 @@ const HARNESS = 'pi'
  *   header line itself, once per file, and caches the result — the one place
  *   it looks at a pi transcript line without going through the grammar.
  * - pi has no branch concept at all (no capture ever shows one), so `branch`
- *   is always `null` here — an honest per-dialect fact, not an omission.
- * - `git worktree list` failing degrades lane *attribution* (role falls back
- *   to `unattributed`) rather than disabling the whole collector, unlike
- *   sessionlog: pi's data is not fundamentally dependent on this repo's git
- *   state the way a project-dir slug lookup is.
+ *   is always `null` here — an honest per-dialect fact, not an omission. It
+ *   is also why the lane key cannot fall back to a branch the way
+ *   sessionlog's does (`facts.gitBranch ?? basenameOf(...)`), and therefore
+ *   why the scoping above is load-bearing rather than belt-and-braces: a
+ *   worktree basename is the *only* disambiguator this organ has.
+ * - `git worktree list` failing does not disable the collector, unlike
+ *   sessionlog. It narrows this poll's scope to the watched repo path itself,
+ *   on top of every worktree already remembered in `knownWorktrees` — so a
+ *   transient git failure costs at most the discovery of a worktree added
+ *   during it, never the lanes already being watched.
  * - `llm.cost`'s primary source is `EVENT_SOURCE_BY_TYPE['llm.cost'] ===
  *   'otel'` (core/src/events/index.ts) — the shared `context.emit` helper has
  *   no way to override that default, and giving it one is a `packages/core`
@@ -93,12 +115,6 @@ export interface PiCollectorConfig {
   processProbe?: ProcessProbe
 }
 
-/** A parsed session header (`type: "session"`), the one line pi's own `cwd`/session id live on. */
-interface PiHeader {
-  cwd: string | null
-  sessionId: string | null
-}
-
 export function createPiCollector(config: PiCollectorConfig = {}): Collector<PiSnapshot> {
   const piSessionsRoot = config.piSessionsRoot ?? path.join(homedir(), '.pi', 'agent', 'sessions')
   const backfill = config.backfill ?? false
@@ -122,26 +138,65 @@ export function createPiCollector(config: PiCollectorConfig = {}): Collector<PiS
         return disable(context, `no pi session directory at ${piSessionsRoot}`)
       }
 
-      // Best-effort only — pi's own facts don't depend on this repo's git
-      // state, so a failure here degrades attribution, not tailing.
+      // `git worktree list --porcelain` always names the main working tree
+      // first, then linked worktrees in the order they were added. When it
+      // cannot be read at all, the watched repo path itself is the only scope
+      // this collector can honestly claim — never "everything on the machine".
       const worktreeResult = await context.exec('git', ['worktree', 'list', '--porcelain'], {
         cwd: context.repoPath,
       })
-      const worktreePaths = worktreeResult.failed ? [] : parseWorktreePaths(worktreeResult.stdout)
-      const mainWorktreePath = worktreePaths[0] ?? null
+      const parsedWorktreePaths = worktreeResult.failed ? [] : parseWorktreePaths(worktreeResult.stdout)
+      const liveWorktreePaths = parsedWorktreePaths.length > 0 ? parsedWorktreePaths : [context.repoPath]
+      const mainWorktreePath = liveWorktreePaths[0]!
+
+      // The fold sessionlog keeps for the same reason (#165): a worker
+      // worktree is removed once its work lands, but its pi transcript lives
+      // on under `~/.pi` and must stay attributable to the lane that wrote it.
+      // A folded worktree keeps whatever role it was last seen with.
+      const knownWorktrees: Record<string, AgentRole> = { ...(prevSnapshot.knownWorktrees ?? {}) }
+      for (const worktreePath of liveWorktreePaths) {
+        knownWorktrees[worktreePath] = worktreePath === mainWorktreePath ? 'unattributed' : 'worker'
+      }
+      const worktreesInScope = Object.keys(knownWorktrees)
 
       const events: RhizomorphEvent[] = []
       const nextFiles: Record<string, PiTailedFileState> = { ...prevSnapshot.files }
+      const nextHeaders: Record<string, PiHeader> = {}
+      // One resolution per distinct `cwd` per poll — `isInside` canonicalizes
+      // both sides through `realpath(3)` on every call, and unrelated sessions
+      // of the same project share a `cwd`.
+      const ownerByCwd = new Map<string, string | null>()
 
       const filePaths = await findJsonlFilesRecursive(piSessionsRoot)
       for (const filePath of filePaths) {
-        await tailPiFile(filePath, context, events, nextFiles, backfill, worktreePaths, mainWorktreePath)
+        // Cached so a session belonging to another project costs one header
+        // read ever, not one per poll. Only a resolved `cwd` is cached; a
+        // truncated or not-yet-written header is retried next poll.
+        const header = prevSnapshot.headers?.[filePath] ?? (await readPiHeader(filePath))
+        const cwd = header?.cwd ?? null
+        if (header !== null && cwd !== null) nextHeaders[filePath] = header
+
+        const worktreePath = cwd === null ? null : resolveOwningWorktree(cwd, worktreesInScope, ownerByCwd)
+        if (worktreePath === null) {
+          // Out of scope: some other project's session, or one whose header
+          // this organ cannot read and therefore cannot attribute. Drop any
+          // state a previous build recorded for it rather than leaving a lane
+          // behind that nothing will ever refresh.
+          delete nextFiles[filePath]
+          continue
+        }
+
+        await tailPiFile(filePath, context, events, nextFiles, backfill, {
+          worktreePath,
+          role: knownWorktrees[worktreePath] ?? 'unattributed',
+          sessionId: header?.sessionId ?? null,
+        })
       }
 
       const lanes = await deriveLanes(nextFiles, prevSnapshot.lanes ?? {}, context.now, processProbe)
 
       return {
-        nextSnapshot: { disabled: false, files: nextFiles, lanes },
+        nextSnapshot: { disabled: false, files: nextFiles, lanes, knownWorktrees, headers: nextHeaders },
         events,
       }
     },
@@ -150,11 +205,11 @@ export function createPiCollector(config: PiCollectorConfig = {}): Collector<PiS
 
 /**
  * The transcript-tail state machine, run over everything this poll tailed —
- * identical in shape to sessionlog's `deriveLanes`, minus the worktree-fold
- * memory sessionlog needs to keep a landed lane's transcript attributable
- * past its worktree's removal (#165). pi sessions aren't scoped to *this*
- * repo's worktree lifecycle the way a project-dir slug is, so there is
- * nothing here to remember past a poll where the file itself still exists.
+ * identical in shape to sessionlog's `deriveLanes`. The worktree-fold memory
+ * that keeps a landed lane's transcript attributable past its worktree's
+ * removal (#165) lives in `poll` above, as `knownWorktrees`: once the file
+ * walk is scoped to watched worktrees (#609), a removed worktree would
+ * otherwise take its own still-readable transcript out of scope with it.
  */
 async function deriveLanes(
   files: Readonly<Record<string, PiTailedFileState>>,
@@ -175,8 +230,8 @@ async function deriveLanes(
   for (const { file } of freshestByLane.values()) {
     const shape = file.turnShape ?? initialTurnShape()
     const quietMs = quietMsOf(now, shape.lastEntryTs, file.lastWriteTs ?? null)
-    if (file.cwd !== null && file.cwd !== undefined && needsProcessProbe(shape.shape, quietMs)) {
-      stalledWorktrees.push(file.cwd)
+    if (file.worktreePath !== null && file.worktreePath !== undefined && needsProcessProbe(shape.shape, quietMs)) {
+      stalledWorktrees.push(file.worktreePath)
     }
   }
   const liveness: Map<string, ProcessLiveness> =
@@ -190,7 +245,10 @@ async function deriveLanes(
       shape: shape.shape,
       lastEntryTs: shape.lastEntryTs,
       lastWriteTs: file.lastWriteTs ?? null,
-      processAlive: file.cwd === null || file.cwd === undefined ? null : (liveness.get(file.cwd) ?? null),
+      processAlive:
+        file.worktreePath === null || file.worktreePath === undefined
+          ? null
+          : (liveness.get(file.worktreePath) ?? null),
       lastSidechainTs: shape.lastSidechainTs,
     })
     if (reading === null) continue
@@ -198,7 +256,7 @@ async function deriveLanes(
     lanes[lane] = {
       ...reading,
       lane,
-      worktreePath: file.cwd ?? null,
+      worktreePath: file.worktreePath ?? null,
       sessionFile: filePath,
       derivedAt: now,
       previousState: previousLanes[lane]?.state ?? null,
@@ -207,48 +265,45 @@ async function deriveLanes(
   return lanes
 }
 
+/** What `poll` resolved about this session before deciding to tail it at all. */
+interface PiSessionAttribution {
+  /** The watched worktree containing this session's header `cwd`. Never the raw `cwd`. */
+  worktreePath: string
+  /** The role that worktree carries, remembered across its own removal (#165). */
+  role: AgentRole
+  /** The header's session id, when it had one. */
+  sessionId: string | null
+}
+
 async function tailPiFile(
   filePath: string,
   context: CollectorContext,
   events: RhizomorphEvent[],
   nextFiles: Record<string, PiTailedFileState>,
   backfill: boolean,
-  worktreePaths: readonly string[],
-  mainWorktreePath: string | null,
+  attribution: PiSessionAttribution,
 ): Promise<void> {
+  const { worktreePath, role } = attribution
   const prevFile: PiTailedFileState = nextFiles[filePath] ?? {
     offset: await initialOffset(filePath, backfill),
     turnShape: initialTurnShape(),
     lastWriteTs: null,
     lane: null,
-    cwd: null,
-    sessionId: null,
+    worktreePath: null,
   }
 
   const { lines, nextOffset, lastWriteTs, identity } = await readNewLines(filePath, prevFile.offset, prevFile.identity)
   const rotated = isRotated(prevFile.identity, identity)
   let turnShape: TurnShapeState = rotated ? initialTurnShape() : prevFile.turnShape ?? initialTurnShape()
-  let cwd = rotated ? null : prevFile.cwd ?? null
-  let sessionId = rotated ? null : prevFile.sessionId ?? null
   let lane = rotated ? null : prevFile.lane ?? null
 
-  // The header (`type: "session"`) is always line 1 and never repeats its
-  // facts elsewhere — read it once, directly, the one place this organ looks
-  // at a pi line without going through `PI_JSONL_GRAMMAR` (see this file's
-  // header comment).
-  if (cwd === null) {
-    const header = await readPiHeader(filePath)
-    if (header !== null) {
-      cwd = header.cwd
-      sessionId = sessionId ?? header.sessionId
-    }
-  }
-
-  const worktreePath = cwd
-  const role: AgentRole =
-    worktreePath === null || worktreePath === mainWorktreePath || !worktreePaths.includes(worktreePath)
-      ? 'unattributed'
-      : 'worker'
+  // Mirrors sessionlog's own key exactly — the main working tree is where a
+  // human drives the repo directly, so it is `unattributed` rather than a lane
+  // of its own (#62), and a linked worktree keys on its basename. Matching it
+  // is not cosmetic: the lane key is the join across collectors, so a pi lane
+  // that spelled itself differently from the git/tmux/workmux reading of the
+  // same worktree would simply never join.
+  const laneForFile = role === 'unattributed' ? UNATTRIBUTED_LANE : basenameOf(worktreePath) ?? UNATTRIBUTED_LANE
 
   for (const rawLine of lines) {
     const entry = PI_JSONL_GRAMMAR.classify(rawLine)
@@ -257,8 +312,8 @@ async function tailPiFile(
     const facts = PI_JSONL_GRAMMAR.extractFacts(rawLine)
     if (!facts) continue
 
-    lane = basenameOf(cwd) ?? UNATTRIBUTED_LANE
-    const resolvedSessionId = sessionId ?? fallbackSessionId(filePath)
+    lane = laneForFile
+    const resolvedSessionId = attribution.sessionId ?? fallbackSessionId(filePath)
     const emitOptions = facts.timestamp === null ? undefined : { ts: facts.timestamp }
     const thread: AgentThread = facts.isSidechain ? 'subagent' : 'main'
 
@@ -339,9 +394,8 @@ async function tailPiFile(
     turnShape,
     lastWriteTs,
     identity,
-    lane: lane ?? basenameOf(cwd) ?? UNATTRIBUTED_LANE,
-    cwd,
-    sessionId,
+    lane: lane ?? laneForFile,
+    worktreePath,
   }
 }
 
@@ -396,6 +450,44 @@ async function readPiHeader(filePath: string): Promise<PiHeader | null> {
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null
+}
+
+/**
+ * The watched worktree a session's `cwd` belongs to, or `null` when it belongs
+ * to none of them — the scope check of #609.
+ *
+ * **Longest match wins**, so a worktree nested inside another (git allows it)
+ * claims its own sessions rather than losing them to its parent. `isInside`
+ * canonicalizes both sides through the same `realpath`, which is what makes
+ * this survive a symlinked worktree path and, on macOS, `/var` → `/private/var`
+ * (#228) — a raw string prefix test would read a genuinely contained session as
+ * an escape there and drop it.
+ *
+ * `isInside` can throw on a path whose ancestor denies `realpath` (EACCES, not
+ * ENOENT). Out of scope is the safe answer for a directory this process cannot
+ * even resolve: it declines to attribute, rather than guessing a lane.
+ */
+function resolveOwningWorktree(
+  cwd: string,
+  worktreesInScope: readonly string[],
+  memo: Map<string, string | null>,
+): string | null {
+  const cached = memo.get(cwd)
+  if (cached !== undefined) return cached
+
+  let owner: string | null = null
+  for (const candidate of worktreesInScope) {
+    let contained: boolean
+    try {
+      contained = isInside(candidate, cwd)
+    } catch {
+      contained = false
+    }
+    if (contained && (owner === null || candidate.length > owner.length)) owner = candidate
+  }
+
+  memo.set(cwd, owner)
+  return owner
 }
 
 async function findJsonlFilesRecursive(root: string): Promise<string[]> {

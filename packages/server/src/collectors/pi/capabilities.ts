@@ -33,10 +33,14 @@ export const PI_CAPABILITIES: AdapterCapabilities = {
    * A real lane, derived from the session header's own structural `cwd` —
    * the same kind of fact sessionlog derives `identity` from, just read once
    * per file instead of repeated per line (`grammar.ts`'s header comment
-   * explains why pi's shape differs there). `OTEL_RESOURCE_ATTRIBUTES` still
-   * has zero effect on a pi session (CAPTURE.md's env-var finding) — this
-   * signal rests entirely on the structural read, not on any pi-side
-   * cooperation.
+   * explains why pi's shape differs there). That `cwd` is resolved to the
+   * watched worktree containing it before it is allowed to name a lane, so
+   * the key matches what every other collector calls the same worktree, and a
+   * session belonging to an unrelated project on the same machine is not
+   * attributed at all rather than folded into a same-named lane (#609).
+   * `OTEL_RESOURCE_ATTRIBUTES` still has zero effect on a pi session
+   * (CAPTURE.md's env-var finding) — this signal rests entirely on the
+   * structural read, not on any pi-side cooperation.
    */
   identity: { level: 'provided' },
   /**

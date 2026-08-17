@@ -1,3 +1,4 @@
+import type { AgentRole } from '@rhizomorph/core'
 import type { LaneState, LaneStateReading } from '../sessionlog/lane-state.js'
 import type { TailIdentity } from '../sessionlog/tail.js'
 import type { TurnShapeState } from '../sessionlog/turn-shape.js'
@@ -18,21 +19,31 @@ export interface PiTailedFileState {
   /** Lane this file's transcript belongs to, as last resolved. */
   lane?: string | null
   /**
-   * The session's own working directory, read once from the header line
-   * (`type: "session"`) — pi reports this only there, never repeated on a
-   * `message` entry the way claude repeats `cwd` on every assistant line
-   * (`grammar.ts`'s header comment). `null` until a header read succeeds;
-   * never re-attempted once resolved.
+   * The **watched worktree** this session's `cwd` was resolved to — never the
+   * raw `cwd` itself (#609). A file only reaches this state at all once its
+   * header `cwd` fell inside a worktree of the watched repo, so this is always
+   * one of `PiSnapshot.knownWorktrees`' keys, and it is what the lane key, the
+   * `worktreePath` attribution and the process probe are all taken from.
    */
-  cwd?: string | null
-  /** The header's own session id (a UUID), when a header read has resolved one. */
-  sessionId?: string | null
+  worktreePath?: string | null
   /**
    * The `dev`+`ino` this file had at the last poll that read it. Absent means
    * either a snapshot persisted before this field existed, or a file never
    * read before.
    */
   identity?: TailIdentity
+}
+
+/**
+ * A parsed session header (`type: "session"`) — the one line pi's own `cwd` and
+ * session id live on, since pi never repeats them on a `message` line the way
+ * claude repeats `cwd` on every assistant line (`grammar.ts`'s header comment).
+ * Cached in the snapshot per file so a session belonging to some *other*
+ * project is not re-opened and re-read on every poll just to be re-rejected.
+ */
+export interface PiHeader {
+  cwd: string | null
+  sessionId: string | null
 }
 
 /**
@@ -54,8 +65,24 @@ export interface PiLaneLiveness extends LaneStateReading {
 export interface PiSnapshot {
   /** Set once the pi sessions root is confirmed unusable. */
   disabled: boolean
-  /** Keyed by absolute file path. */
+  /** Keyed by absolute file path. Only sessions inside a watched worktree are ever recorded here. */
   files: Record<string, PiTailedFileState>
   /** The transcript-tail state machine's reading per lane, rebuilt every poll from `files`. */
   lanes?: Record<string, PiLaneLiveness>
+  /**
+   * Every worktree of the watched repo this collector has ever seen live, with
+   * the role it carried — the same fold sessionlog keeps (#165), and for the
+   * same reason: a lane's worktree is removed once its work lands, and its
+   * transcript must stay attributable afterwards. It is also the **scope**:
+   * a pi session whose `cwd` falls inside none of these keys is not this
+   * repo's business and is never tailed (#609).
+   */
+  knownWorktrees?: Record<string, AgentRole>
+  /**
+   * Header line per session file, keyed by absolute path and pruned to the
+   * files still on disk. Only a header that resolved a `cwd` is cached — an
+   * unreadable or not-yet-written one is retried next poll, never remembered
+   * as absent.
+   */
+  headers?: Record<string, PiHeader>
 }

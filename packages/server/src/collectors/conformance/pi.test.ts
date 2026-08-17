@@ -43,9 +43,23 @@ function makeContext(exec: Exec, now = 1_000): CollectorContext {
  * (`collector.ts`'s header comment: no directory-naming convention was ever
  * independently captured, so this organ never assumes one). `backfill: true`
  * so a fixture already on disk at first sight is read, not skipped to EOF.
- * The git exec is a real no-op (no worktrees) — identity attribution here
- * rests on the header's structural `cwd`, not on a worktree match.
+ *
+ * The git exec answers with the worktree every capture's own header names as
+ * its `cwd` (`/repo-wt/pi-capture`, alongside the main tree `/repo`). That is
+ * not scaffolding to make the suite pass — it is the collector's scope (#609):
+ * `~/.pi/agent/sessions/` is machine-wide, so a session in no watched worktree
+ * is deliberately not read, and a run against no worktrees at all would be
+ * observing an organ that was correctly declining to observe anything.
  */
+const CAPTURE_WORKTREE = '/repo-wt/pi-capture'
+
+const WATCHED_WORKTREES: Exec = async () => ({
+  stdout: `worktree /repo\nHEAD ${'0'.repeat(40)}\n\nworktree ${CAPTURE_WORKTREE}\nHEAD ${'0'.repeat(40)}\n`,
+  stderr: '',
+  code: 0,
+  failed: false,
+})
+
 async function observePi(): Promise<SignalObservations> {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-conformance-'))
   try {
@@ -54,9 +68,8 @@ async function observePi(): Promise<SignalObservations> {
     }
 
     const collector = createPiCollector({ piSessionsRoot: root, backfill: true })
-    const gitExec: Exec = async () => ({ stdout: '', stderr: '', code: 0, failed: false })
 
-    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(WATCHED_WORKTREES))
     const observed = observeEventSignals(result.events)
     const lanes = Object.values(result.nextSnapshot.lanes ?? {})
     const waiting = lanes.filter((lane) => lane.state === 'waiting').length
@@ -131,8 +144,7 @@ describe('conformance suite: pi — the check bites (mutation, executed)', () =>
         'utf8',
       )
       const collector = createPiCollector({ piSessionsRoot: root, backfill: true })
-      const gitExec: Exec = async () => ({ stdout: '', stderr: '', code: 0, failed: false })
-      const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
+      const result = await collector.poll(collector.initialSnapshot(), makeContext(WATCHED_WORKTREES))
 
       const telemetryEvents = result.events.filter((event) => event.type === 'llm.usage' || event.type === 'llm.cost')
       expect(telemetryEvents.length).toBeGreaterThan(0)
