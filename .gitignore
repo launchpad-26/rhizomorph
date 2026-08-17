@@ -8,8 +8,14 @@ dist-desktop/
 dist-vendor/
 coverage/
 scratchpad/
-.swarm/lanes.json
-.swarm/
+# Swarm state is per-machine (lanes.json and friends) — EXCEPT coupling.txt,
+# which is shared knowledge: the list of files a fence cannot see coming, that
+# `scripts/fence-lint.sh` refuses to run without. Written `.swarm/*` and not
+# `.swarm/`, because git cannot re-include a file whose parent DIRECTORY is
+# excluded — with `.swarm/` the negation below is silently inert and the
+# tracked lint keeps failing "create one" on every clone but the author's.
+.swarm/*
+!.swarm/coupling.txt
 
 # Agent instructions. NEITHER AGENTS.md NOR CLAUDE.md IS IGNORED, and neither
 # may be — together they are the only mechanism by which four contributors'

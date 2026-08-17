@@ -12,24 +12,40 @@
 #
 # Usage:
 #   scripts/dev/issues.sh list                    # open issues with Status + Timeline
-#   scripts/dev/issues.sh when <n> <now|soon|later>
-#   scripts/dev/issues.sh type <n> <bug|feature|task>
-#   scripts/dev/issues.sh priority <n> <urgent|high|medium|low>
-#   scripts/dev/issues.sh status <n> <backlog|ready|in-progress|in-review|done>
+#   scripts/dev/issues.sh when <n>... <now|soon|later>
+#   scripts/dev/issues.sh type <n>... <bug|feature|task>
+#   scripts/dev/issues.sh priority <n>... <urgent|high|medium|low>
+#   scripts/dev/issues.sh status <n>... <backlog|ready|in-progress|in-review|done>
+#   scripts/dev/issues.sh batch                   # many issues, many fields, one board read
 #   scripts/dev/issues.sh show <n>                # issue body + board fields
 #   scripts/dev/issues.sh close <n> "reason"      # close WITH a comment, never silently
 #   scripts/dev/issues.sh orphans                 # open issues missing from the board
 #   scripts/dev/issues.sh ids                     # field/option ids (for debugging)
 #
-# ponytail: ids are resolved from the API each run rather than cached here. One
-# extra call per invocation buys immunity to someone renaming an option in the
+# The value comes LAST on the write subcommands, so the historical two-argument
+# form (`when 548 now`) is unchanged and `when 548 549 550 now` is the new one.
+#
+# `batch` reads "<issue> <when> <status> [priority] [type]" lines on stdin, one
+# per issue, `-` for any field to leave alone. Boarding an era is one call:
+#
+#   scripts/dev/issues.sh batch <<'EOF'
+#   548  now   in-review
+#   549  now   backlog     high
+#   550  later ready       -      task
+#   EOF
+#
+# ponytail: ids are resolved from the API each run rather than hardcoded here.
+# One extra call per RUN buys immunity to someone renaming an option in the
 # GitHub UI — a stale hardcoded id fails by silently writing the wrong column,
 # which is exactly the quiet wrongness this repo's own reviews keep finding.
+# That per-run cost is memoised (see `ensure_*` below); what #581 removed was
+# the per-WRITE cost, which is a different thing and was never deliberate.
 #
 # Note Timeline is a MULTI-select, so its value goes through
 # `multiSelectOptionIds` (a list), not `singleSelectOptionId`. Sending the
 # single-select shape to it fails with `argumentNotAccepted`. `when` sets
 # exactly one option, which is the intended use.
+# END-USAGE
 set -euo pipefail
 
 OWNER="launchpad-26"
@@ -42,9 +58,32 @@ need() { command -v "$1" >/dev/null 2>&1 || die "$1 not found on PATH"; }
 need gh
 need python3
 
+# ── memoised reads (#581) ───────────────────────────────────────────────────
+# Every write used to re-read everything it needed from scratch. `set_select`
+# alone cost FOUR API calls — `field_id`, `field_kind` and `option_id` each ran
+# the whole `fields` query, and `item_id` ran a full `gh project item-list` of
+# every item and every field on the board to resolve one issue's item id.
+#
+# GitHub's GraphQL budget is node-count based, not request-count based, so that
+# board read cost O(board size) *per field written* and got worse on its own as
+# the project grew. Measured 2026-08-15: boarding 28 issues x 2 fields burned a
+# full 5,000-point hourly budget after ~15 writes — ~330 points per invocation
+# — and left 22 of the 28 unboarded.
+#
+# So each remote read happens at most once per process and is held in a plain
+# global. Not a temp file: every `ensure_*` is invoked from the main shell, so
+# the assignment survives, and a subshell that only READS the cache — the
+# `$(item_id ...)` below, or `batch`'s per-line `( ... )` — still sees it
+# populated. Anything that fetches from inside a command substitution would
+# silently re-fetch every time, which is the bug this replaces.
+BOARD_JSON=""     # gh project item-list --format json
+FIELDS_TSV=""     # the project's single/multi-select fields and their options
+ORG_TYPES_JSON="" # org-level issue types (Bug/Feature/Task)
+ORG_FIELDS_JSON="" # org-level issue fields (Priority)
+
 # "<field>\t<field-id>\t<kind>\t<option>\t<option-id>" per option.
 # kind is SINGLE or MULTI — the mutation shape differs between them.
-fields() {
+fetch_fields() {
   gh api graphql -f query="{node(id:\"$PROJECT_ID\"){... on ProjectV2{fields(first:50){nodes{
       __typename
       ... on ProjectV2SingleSelectField{id name options{id name}}
@@ -66,9 +105,15 @@ for n in json.load(sys.stdin)["data"]["node"]["fields"]["nodes"]:
 '
 }
 
-field_id()   { fields | awk -F'\t' -v f="$1" 'tolower($1)==tolower(f){print $2; exit}'; }
-field_kind() { fields | awk -F'\t' -v f="$1" 'tolower($1)==tolower(f){print $3; exit}'; }
-option_id()  { fields | awk -F'\t' -v f="$1" -v o="$2" 'tolower($1)==tolower(f) && tolower($4)==tolower(o){print $5; exit}'; }
+ensure_fields() {
+  [ -n "$FIELDS_TSV" ] && return 0
+  FIELDS_TSV="$(fetch_fields)" || die "could not read the project's fields"
+  [ -n "$FIELDS_TSV" ] || die "the project returned no select fields — refusing to guess"
+}
+
+field_id()   { printf '%s\n' "$FIELDS_TSV" | awk -F'\t' -v f="$1" 'tolower($1)==tolower(f){print $2; exit}'; }
+field_kind() { printf '%s\n' "$FIELDS_TSV" | awk -F'\t' -v f="$1" 'tolower($1)==tolower(f){print $3; exit}'; }
+option_id()  { printf '%s\n' "$FIELDS_TSV" | awk -F'\t' -v f="$1" -v o="$2" 'tolower($1)==tolower(f) && tolower($4)==tolower(o){print $5; exit}'; }
 
 # The board's item cap, in ONE place. Every reader below uses it, and every
 # reader checks whether it was hit — a truncated read here is not a smaller
@@ -78,9 +123,10 @@ option_id()  { fields | awk -F'\t' -v f="$1" -v o="$2" 'tolower($1)==tolower(f) 
 # the same silent-cap defect #420 fixed in `cmd_list`, one function over.
 BOARD_LIMIT=1000
 
-# Every item on the board, as JSON on stdout. Dies loudly rather than returning
-# a short list if the cap is ever reached.
-board_items() {
+# Every item on the board, as JSON. Dies loudly rather than returning a short
+# list if the cap is ever reached — and dies BEFORE any caller writes anything,
+# because `ensure_board` runs up front.
+fetch_board() {
   # Captured, not piped: a failing `gh` handed python an empty stdin, which
   # raised JSONDecodeError and buried gh's own error under a traceback — the
   # real exit status replaced by the parser's. Executed during review with a
@@ -102,14 +148,21 @@ json.dump(data, sys.stdout)
 ' "$BOARD_LIMIT" "$0"
 }
 
+ensure_board() {
+  [ -n "$BOARD_JSON" ] && return 0
+  # Assigned in two steps, not `local x="$(...)"`: that form always returns the
+  # exit status of `local`, so a truncated board would sail past the `||` and
+  # every write would then be attempted against an empty board. The cap check
+  # only fails loudly if its failure can actually be seen.
+  BOARD_JSON="$(fetch_board)" || die "could not read the board"
+  [ -n "$BOARD_JSON" ] || die "could not read the board (empty response)"
+}
+
+# Requires `ensure_board` to have run in the CALLER — this is invoked from a
+# command substitution, so an `ensure_board` here would fetch into a subshell,
+# throw the result away, and re-fetch on the next call.
 item_id() {
-  # Command substitution, not a pipe: `board_items` dies with a specific
-  # message when the cap is hit, and a pipe would hand its empty stdout to the
-  # reader below, which would fail with a JSON decode error instead — burying
-  # the real cause under a stack trace.
-  local items
-  items="$(board_items)" || die "could not read the board"
-  printf '%s' "$items" \
+  printf '%s' "$BOARD_JSON" \
     | python3 -c '
 import sys, json
 want = sys.argv[1]
@@ -122,6 +175,7 @@ for i in json.load(sys.stdin).get("items", []):
 set_select() { # set_select <issue> <Field> <Option>
   local issue="$1" field="$2" opt="$3"
   local item fid kind oid value
+  ensure_board; ensure_fields
   item="$(item_id "$issue")"; [ -n "$item" ] || die "#$issue is not on project $PROJECT (see: $0 orphans)"
   fid="$(field_id "$field")";  [ -n "$fid" ] || die "no field named '$field'"
   kind="$(field_kind "$field")"
@@ -265,11 +319,18 @@ if missing:
 
 # Issue type (Bug / Feature / Task) is an org-level type, not a label — it is
 # set through updateIssue, not `gh issue edit`.
+ensure_org_types() {
+  [ -n "$ORG_TYPES_JSON" ] && return 0
+  ORG_TYPES_JSON="$(gh api graphql -f query="{organization(login:\"$OWNER\"){issueTypes(first:20){nodes{id name}}}}")" \
+    || die "could not read the org's issue types"
+}
+
 cmd_type() { # cmd_type <issue> <Bug|Feature|Task>
   local n="$1" want="$2" iid tid
+  ensure_org_types
   iid="$(gh issue view "$n" --repo "$REPO" --json id -q .id)"
   [ -n "$iid" ] || die "#$n not found"
-  tid="$(gh api graphql -f query="{organization(login:\"$OWNER\"){issueTypes(first:20){nodes{id name}}}}" \
+  tid="$(printf '%s' "$ORG_TYPES_JSON" \
     | python3 -c '
 import sys, json
 want = sys.argv[1].lower()
@@ -286,11 +347,18 @@ for t in json.load(sys.stdin)["data"]["organization"]["issueTypes"]["nodes"]:
 # project field and not a label. The project board column named "Priority" is
 # derived from it and is read-only via the project API — writing it there fails
 # with "Only custom fields can be updated". It goes through setIssueFieldValue.
+ensure_org_fields() {
+  [ -n "$ORG_FIELDS_JSON" ] && return 0
+  ORG_FIELDS_JSON="$(gh api graphql -f query="{organization(login:\"$OWNER\"){issueFields(first:20){nodes{... on IssueFieldSingleSelect{id name options{id name}}}}}}")" \
+    || die "could not read the org's issue fields"
+}
+
 cmd_priority() { # cmd_priority <issue> <urgent|high|medium|low>
   local n="$1" want="$2" iid pf po
+  ensure_org_fields
   iid="$(gh api graphql -f query="{repository(owner:\"$OWNER\",name:\"rhizomorph\"){issue(number:$n){id}}}" --jq .data.repository.issue.id)"
   [ -n "$iid" ] || die "#$n not found"
-  read -r pf po <<<"$(gh api graphql -f query="{organization(login:\"$OWNER\"){issueFields(first:20){nodes{... on IssueFieldSingleSelect{id name options{id name}}}}}}" \
+  read -r pf po <<<"$(printf '%s' "$ORG_FIELDS_JSON" \
     | python3 -c '
 import sys, json
 want = sys.argv[1].lower()
@@ -307,11 +375,13 @@ for f in json.load(sys.stdin)["data"]["organization"]["issueFields"]["nodes"]:
 
 cmd_orphans() {
   local on_board
-  local items
-  items="$(board_items)" || die "could not read the board"
-  on_board="$(printf '%s' "$items" \
+  # `ensure_board`, not the old `items="$(board_items)"`: a `die` inside a
+  # command substitution only kills the subshell, so the cap check has to run
+  # where its exit can actually stop the script.
+  ensure_board
+  on_board="$(printf '%s' "$BOARD_JSON" \
     | python3 -c 'import sys,json; [print(i["content"]["number"]) for i in json.load(sys.stdin).get("items",[]) if i.get("content",{}).get("number")]')"
-  # Captured, not piped, same reason as board_items: a failing gh would hand
+  # Captured, not piped, same reason as fetch_board: a failing gh would hand
   # python an empty stdin and bury the real exit status under a JSONDecodeError
   # traceback. And checked against the cap, same reason as cmd_list's
   # reconciliation: open issues do not all live on the board — that is this
@@ -386,16 +456,118 @@ cmd_close() {
   gh issue close "$n" --repo "$REPO" --comment "$*"
 }
 
+# ── multi-issue writes ──────────────────────────────────────────────────────
+# `when 548 549 550 now` — the value LAST, so `when 548 now` is unchanged.
+#
+# Which argument is which is checked, never assumed: every issue argument must
+# be a bare number and the value must not be. Without that, a transposed
+# `when now 548` would try to set Timeline to "548" on issue "now" — and the
+# whole point of this script is that a wrong write to the board is quiet.
+TARGETS=(); VALUE=""
+split_targets() { # split_targets <subcommand> <usage-suffix> <arg>...
+  local cmd="$1" suffix="$2"; shift 2
+  [ $# -ge 2 ] || die "usage: $0 $cmd <issue>... $suffix"
+  VALUE="${*: -1}"
+  TARGETS=("${@:1:$#-1}")
+  case "$VALUE" in
+    *[!0-9]*) ;;
+    *) die "usage: $0 $cmd <issue>... $suffix — the value goes last, not first" ;;
+  esac
+  local n
+  for n in "${TARGETS[@]}"; do
+    case "$n" in
+      *[!0-9]*|'') die "'$n' is not an issue number (usage: $0 $cmd <issue>... $suffix)" ;;
+    esac
+  done
+}
+
+# ── batch ───────────────────────────────────────────────────────────────────
+# "<issue> <when> <status> [priority] [type]" per line, `-` to skip a field.
+# The whole reason this exists: it resolves the board and the field ids ONCE
+# and then writes, instead of paying a full board read per field per issue.
+#
+# Two deliberate shapes:
+#   * the reads happen BEFORE the first write, so a truncated board aborts with
+#     nothing written rather than half-writing and then dying;
+#   * one bad line does not abandon the rest. Each write runs in a subshell so
+#     its `die` cannot kill the run, and the failures are re-listed at the end
+#     with a non-zero exit. A batch that stops at line 3 of 28 leaves the
+#     operator with the same problem #581 is about.
+cmd_batch() {
+  ensure_board
+  ensure_fields
+  local line="" n="" when="" status="" prio="" typ="" extra=""
+  local lineno=0 ok=0 bad=0
+  local spec field value
+  local -a failures=()
+  local -a writes=()
+  while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno + 1))
+    line="${line%%#*}"
+    read -r n when status prio typ extra <<<"$line" || true
+    if [ -z "${n:-}" ]; then continue; fi
+    case "$n" in
+      *[!0-9]*)
+        failures+=("line $lineno: '$n' is not an issue number"); bad=$((bad + 1)); continue ;;
+    esac
+    if [ -n "${extra:-}" ]; then
+      failures+=("line $lineno: too many fields — <issue> <when> <status> [priority] [type]")
+      bad=$((bad + 1)); continue
+    fi
+    writes=()
+    if [ "${when:--}"   != "-" ]; then writes+=("Timeline|$when"); fi
+    if [ "${status:--}" != "-" ]; then writes+=("Status|${status//-/ }"); fi
+    if [ "${prio:--}"   != "-" ]; then writes+=("priority|$prio"); fi
+    if [ "${typ:--}"    != "-" ]; then writes+=("type|$typ"); fi
+    if [ ${#writes[@]} -eq 0 ]; then
+      failures+=("line $lineno: #$n names no fields to set")
+      bad=$((bad + 1)); continue
+    fi
+    for spec in "${writes[@]}"; do
+      field="${spec%%|*}"; value="${spec#*|}"
+      # `if ( ... )`: the subshell keeps a `die` from killing the run, and the
+      # `if` keeps errexit from doing the same. stdin is closed for the write
+      # because the loop is reading it — a `gh` that decided to consume stdin
+      # would otherwise eat the rest of the batch.
+      #
+      # The `ensure_*` runs in the PARENT, before the subshell: warmed inside
+      # it, the cache would die with the subshell and every line would pay the
+      # lookup again — the exact per-write cost #581 is about, reintroduced one
+      # level down.
+      case "$field" in
+        priority) ensure_org_fields
+                  if ( cmd_priority "$n" "$value" ) </dev/null; then ok=$((ok + 1))
+                  else failures+=("line $lineno: #$n priority -> $value failed"); bad=$((bad + 1)); fi ;;
+        type)     ensure_org_types
+                  if ( cmd_type "$n" "$value" ) </dev/null; then ok=$((ok + 1))
+                  else failures+=("line $lineno: #$n type -> $value failed"); bad=$((bad + 1)); fi ;;
+        *)        if ( set_select "$n" "$field" "$value" ) </dev/null; then ok=$((ok + 1))
+                  else failures+=("line $lineno: #$n $field -> $value failed"); bad=$((bad + 1)); fi ;;
+      esac
+    done
+  done
+  echo "── batch: $ok write(s) applied, $bad failed ──"
+  if [ "$bad" -gt 0 ]; then
+    printf '  %s\n' "${failures[@]}" >&2
+    exit 1
+  fi
+}
+
 case "${1:-}" in
   list)    cmd_list ;;
-  when)    [ $# -eq 3 ] || die "usage: $0 when <issue> <now|soon|later>"; set_select "$2" Timeline "$3" ;;
-  type)    [ $# -eq 3 ] || die "usage: $0 type <issue> <bug|feature|task>"; cmd_type "$2" "$3" ;;
-  priority) [ $# -eq 3 ] || die "usage: $0 priority <issue> <urgent|high|medium|low>"; cmd_priority "$2" "$3" ;;
-  status)  [ $# -eq 3 ] || die "usage: $0 status <issue> <backlog|ready|in-progress|in-review|done>"
-           set_select "$2" Status "$(echo "$3" | tr '-' ' ')" ;;
+  when)    shift; split_targets when "<now|soon|later>" "$@"
+           for n in "${TARGETS[@]}"; do set_select "$n" Timeline "$VALUE"; done ;;
+  type)    shift; split_targets type "<bug|feature|task>" "$@"
+           for n in "${TARGETS[@]}"; do cmd_type "$n" "$VALUE"; done ;;
+  priority) shift; split_targets priority "<urgent|high|medium|low>" "$@"
+           for n in "${TARGETS[@]}"; do cmd_priority "$n" "$VALUE"; done ;;
+  status)  shift; split_targets status "<backlog|ready|in-progress|in-review|done>" "$@"
+           for n in "${TARGETS[@]}"; do set_select "$n" Status "$(echo "$VALUE" | tr '-' ' ')"; done ;;
+  batch)   [ $# -eq 1 ] || die "usage: $0 batch   # reads '<issue> <when> <status> [priority] [type]' lines on stdin"
+           cmd_batch ;;
   show)    [ $# -eq 2 ] || die "usage: $0 show <issue>"; cmd_show "$2" ;;
   close)   shift; [ $# -ge 1 ] || die "usage: $0 close <issue> \"reason\""; cmd_close "$@" ;;
   orphans) cmd_orphans ;;
-  ids)     fields ;;
-  *)       sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' ;;
+  ids)     ensure_fields; printf '%s\n' "$FIELDS_TSV" ;;
+  *)       sed -n '2,/^# END-USAGE$/p' "$0" | grep -v '^# END-USAGE$' | sed 's/^# \{0,1\}//' ;;
 esac
