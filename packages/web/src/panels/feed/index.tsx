@@ -3,12 +3,15 @@ import type { AgentStatus } from '@rhizomorph/core'
 import { useStream } from '../../app/StreamContext.js'
 import { NEWS_GRACE_MS } from '../../app/streamState.js'
 import { useFleet, useSelection } from '../../fleet/index.js'
+import { HiddenNotice } from '../search/HiddenNotice.js'
+import { filterByQuery, useSessionQuery } from '../search/session.js'
 import {
   FEED_KINDS,
   FEED_KIND_LABEL,
   FEED_LIMIT,
   buildFeedEntries,
   buildLaneIndex,
+  feedEntryText,
   filterFeedEntries,
   type CollectorFeedEntry,
   type CommitFeedEntry,
@@ -61,7 +64,22 @@ export default function ActivityFeed() {
   /** Same signal StatusBar/ConnectionBadge read, plus proof at least one event has folded. */
   const connected = status === 'open' && state.events.length > 0
 
-  const entries = filterFeedEntries(allEntries, activeKinds, selectedId).slice(0, FEED_LIMIT)
+  /**
+   * THE SESSION SEARCH (prd-31 ruling 4 / S3, #559), applied AFTER this panel's
+   * own kind and lane filters and BEFORE `FEED_LIMIT`.
+   *
+   * The order is the whole correctness of the count. Searching after the cap
+   * would search the first `FEED_LIMIT` rows and report a hidden count computed
+   * from a window the reader never chose — a filtered view lying about what it
+   * hid, which is the exact failure ruling 4's declaration exists to prevent.
+   */
+  const query = useSessionQuery()
+  const search = filterByQuery(
+    filterFeedEntries(allEntries, activeKinds, selectedId),
+    query,
+    feedEntryText,
+  )
+  const entries = search.shown.slice(0, FEED_LIMIT)
   const filtered = selectedId !== null || activeKinds.size < FEED_KINDS.length
 
   function toggleKind(kind: FeedKind): void {
@@ -114,8 +132,21 @@ export default function ActivityFeed() {
         </div>
       ) : null}
 
+      <HiddenNotice
+        result={search}
+        noun="events"
+        query={query}
+        shown={search.shown.length}
+        surface="feed"
+      />
+
       {entries.length === 0 && !connected ? (
         <p className="mt-2 text-read-body text-(--ink-dim)">Waiting for the stream…</p>
+      ) : entries.length === 0 && search.filtering ? (
+        // The search's own *no matches* line is already above, and it says what
+        // was searched and where. A second empty state under it would be two
+        // sentences for one absence.
+        null
       ) : entries.length === 0 ? (
         <p className="mt-2 text-read-body text-(--ink-body)" role="status">
           {filtered ? 'Nothing matches this filter.' : 'No activity yet this session.'}

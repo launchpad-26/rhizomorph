@@ -1,16 +1,35 @@
 import { useState } from 'react'
 import type { SessionState } from '@rhizomorph/core'
+import { HiddenNotice } from '../panels/search/HiddenNotice.js'
+import { filterByQuery, useSessionQuery } from '../panels/search/session.js'
 import { EmptyTrace } from './EmptyTrace.js'
 import { formatSpan, tokenHeadline, tokenTitle } from './format.js'
-import { flattenDescendants, selectLaneInteractionViews, sumLeafDurationsMs } from './model.js'
+import {
+  flattenDescendants,
+  interactionText,
+  selectLaneInteractionViews,
+  sumLeafDurationsMs,
+} from './model.js'
 import { RowLabel, RowMeta } from './TraceRow.js'
 
 /**
- * THE TREE — the drawer's compact surface (langfuse study: duration-under-
- * name, wall-vs-Σ). One collapsible block per interaction, newest first;
- * everything under it is `state.traces` read through the two selectors this
- * whole directory is built on (`selectLaneInteractionViews` only zips their
- * outputs together — see `model.ts`).
+ * THE TREE — the compact trace surface (langfuse study: duration-under-name,
+ * wall-vs-Σ). One collapsible block per interaction, newest first; everything
+ * under it is `state.traces` read through the two selectors this whole
+ * directory is built on (`selectLaneInteractionViews` only zips their outputs
+ * together — see `model.ts`).
+ *
+ * **The session search filters here rather than in either caller** (prd-31
+ * ruling 4, #559). Both surfaces that render a trace — the dock's trace tab and
+ * the run view's trace column — would otherwise each have to filter, and the
+ * two would drift the first time one of them changed what it matched on. One
+ * filter, one hidden count, in the component that owns the list.
+ *
+ * The ordinal is deliberately computed from the UNFILTERED list. "interaction
+ * #7" is a fact about the lane's life, not about the current query, and
+ * renumbering the survivors 1..n under a filter would make the same interaction
+ * carry two different names depending on what was typed — which is exactly what
+ * a person searching to find one again cannot afford.
  */
 export interface TraceTreeProps {
   state: SessionState
@@ -18,7 +37,10 @@ export interface TraceTreeProps {
 }
 
 export function TraceTree({ state, lane }: TraceTreeProps) {
-  const views = selectLaneInteractionViews(state, lane)
+  const all = selectLaneInteractionViews(state, lane)
+  const query = useSessionQuery()
+  const search = filterByQuery(all, query, interactionText)
+  const views = search.shown
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
 
   const toggle = (traceId: string) => {
@@ -30,12 +52,24 @@ export function TraceTree({ state, lane }: TraceTreeProps) {
     })
   }
 
-  if (views.length === 0) return <EmptyTrace />
+  // The honest gap and the empty filter are different facts: "no trace
+  // telemetry from this lane" is a claim about the collectors, and "none of
+  // this lane's spans match what you typed" is a claim about the query. Only
+  // the first is `EmptyTrace`'s to make.
+  if (all.length === 0) return <EmptyTrace />
 
   return (
-    <ol data-testid="trace-tree" className="space-y-1">
-      {views.map((view, index) => {
-        const ordinal = views.length - index
+    <>
+      <HiddenNotice
+        result={search}
+        noun="interactions"
+        query={query}
+        shown={views.length}
+        surface="trace"
+      />
+      <ol data-testid="trace-tree" className="space-y-1">
+      {views.map((view) => {
+        const ordinal = all.length - all.indexOf(view)
         const isOpen = expanded.has(view.summary.traceId)
         const rows = flattenDescendants(view.root)
 
@@ -79,6 +113,7 @@ export function TraceTree({ state, lane }: TraceTreeProps) {
           </li>
         )
       })}
-    </ol>
+      </ol>
+    </>
   )
 }

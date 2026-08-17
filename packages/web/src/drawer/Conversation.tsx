@@ -2,8 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FetchLike } from '../fleet/manifest.js'
 import { formatTokens } from '../lib/format.js'
 import { KIND_APPEARANCE, kindEdgeClass, kindInkClass, type WorkKind } from '../theme/kind.js'
+import { HiddenNotice } from '../panels/search/HiddenNotice.js'
+import { filterByQuery, useSessionQuery } from '../panels/search/session.js'
 import type { TranscriptBlock, TranscriptEntry, TranscriptRole } from './useTranscript.js'
-import { useTranscript } from './useTranscript.js'
+import { transcriptEntryText, useTranscript } from './useTranscript.js'
 
 /**
  * THE CONVERSATION (prd4 ruling 4) — the drawer's main view.
@@ -60,6 +62,20 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null)
 
   const tail = useTranscript(lane, { fetchImpl, pollMs })
+
+  /**
+   * THE SESSION SEARCH (prd-31 ruling 4 / S3, #559) — the same one query the
+   * feed and the trace read, over the turns already loaded.
+   *
+   * **Over the loaded slice, and it says so.** This is the tail plus whatever
+   * "load earlier" has pulled in; the rest of the log is on disk and this
+   * feature adds no route to go and get it (S3: no index, no server route —
+   * prd-29 would have to gate a new read seam). So `load earlier` stays exactly
+   * where it is *while filtering*, because it is the honest answer to "is that
+   * everything?" — the reader can widen the slice the search runs over.
+   */
+  const query = useSessionQuery()
+  const search = filterByQuery(tail.entries, query, transcriptEntryText)
 
   // A new lane is a new conversation: follow its tail rather than inheriting the
   // previous lane's paused reading position, which pointed into somebody else's
@@ -140,6 +156,13 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
                 {tail.loadingEarlier ? 'loading earlier…' : 'load earlier'}
               </button>
             ) : null}
+            <HiddenNotice
+              result={search}
+              noun="turns"
+              query={query}
+              shown={search.shown.length}
+              surface="conversation"
+            />
             {tail.entries.length === 0 ? (
               <p role="status" className="text-[11px] leading-snug text-ice-400">
                 {tail.status === 'loading'
@@ -149,7 +172,7 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
               </p>
             ) : (
               <ol>
-                {tail.entries.map((entry, index) => (
+                {search.shown.map((entry, index) => (
                   // The index is the key on purpose: a turn's identity *is* its
                   // position in an append-only log, and the log carries no id.
                   // Nothing is ever inserted above or reordered.

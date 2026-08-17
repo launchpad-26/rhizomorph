@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { FleetSurface } from '../fleet/FleetSurface.js'
 import { useFleet } from '../fleet/index.js'
+import { SearchField } from '../panels/search/SearchField.js'
 import { ErrorBoundary } from './ErrorBoundary.js'
 import { PanelFrame } from './PanelFrame.js'
 import { useDockTab } from './panelPrefs.js'
@@ -268,6 +269,17 @@ export function Dock() {
             </button>
           )
         })}
+
+        {/*
+          THE ONE SEARCH (prd-31 ruling 4 / S3, #559) — chrome on the dock's own
+          strip, never a panel (prd-13 ruling 1's standing refusal). It filters
+          the feed and the trace beneath it and the conversation at
+          `/lane/:handle`, all off one module store, so a query typed here is
+          already in force when a person opens a run view.
+        */}
+        <div className="ml-auto flex items-center py-1 pl-2">
+          <SearchField surface="dock" />
+        </div>
       </div>
 
       <div
