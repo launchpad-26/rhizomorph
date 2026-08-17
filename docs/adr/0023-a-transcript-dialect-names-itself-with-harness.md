@@ -1,4 +1,4 @@
-# 0021. A transcript dialect names itself with `harness`, not a new source literal
+# 0023. A transcript dialect names itself with `harness`, not a new source literal
 
 - **Status:** accepted
 - **Date:** 2026-08-15
