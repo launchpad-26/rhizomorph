@@ -465,4 +465,36 @@ describe('parseTracesExport', () => {
     const result = parseTracesExport(body, testEmitter())
     expect(result.events[0]?.payload).toMatchObject({ toolUseId: 'toolu_fallback' })
   })
+
+  describe('gemini-cli (#323, ADR-0025)', () => {
+    it('parses a real gemini tool-call trace unmodified — every span becomes a trace.span event, no collector.error', () => {
+      const result = parseTracesExport(fixture('gemini-cli-0.55.1-otlp-6-traces.json'), testEmitter())
+
+      expect(result.malformed).toBe(false)
+      expect(result.events).toHaveLength(4)
+      expect(result.events.filter((e) => e.type === 'collector.error')).toHaveLength(0)
+      expect(result.events.every((e) => e.type === 'trace.span' && e.source === 'otel')).toBe(true)
+
+      // classify() falls every name it doesn't recognise to 'other' — the
+      // same fallback that already makes codex's own span vocabulary land as
+      // real events with zero code written for codex (CAPTURE.md Finding 6).
+      // gemini's llm_call/tool_call/schedule_tool_calls names go through the
+      // same door: still real activity signal (`trace.span`), just an
+      // unclassified kind, and no profile was needed to get there.
+      const kinds = new Set(result.events.map((e) => (e.type === 'trace.span' ? e.payload.kind : undefined)))
+      expect(kinds).toEqual(new Set(['other']))
+
+      const names = result.events.map((e) => (e.type === 'trace.span' ? e.payload.name : undefined))
+      expect(names).toEqual(expect.arrayContaining(['llm_call', 'tool_call', 'schedule_tool_calls']))
+    })
+
+    it('parses a real gemini llm_call-only trace unmodified', () => {
+      const result = parseTracesExport(fixture('gemini-cli-0.55.1-otlp-8-traces.json'), testEmitter())
+
+      expect(result.malformed).toBe(false)
+      expect(result.events).toHaveLength(1)
+      expect(result.events[0]?.type).toBe('trace.span')
+      expect(result.events[0]?.payload).toMatchObject({ name: 'llm_call', kind: 'other' })
+    })
+  })
 })

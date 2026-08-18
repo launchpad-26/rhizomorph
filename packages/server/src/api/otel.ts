@@ -45,6 +45,29 @@ export function registerOtelRoutes(
      * occurrence's payload is unchanged (`collector`, `message`, `detail`
      * verbatim) plus `count`; suppressed occurrences record nothing until the
      * window closes, same as `refuse` below.
+     *
+     * EVERY route sends its `collector.error` through here, on the success path
+     * as well as the malformed one. Only the malformed branches did originally,
+     * which was adequate while the sole route-level fault WAS a malformed body.
+     * Two faults arrive on otherwise-valid posts: #323's unread-records report
+     * (metrics) and the pre-existing per-span malformed case (traces,
+     * `parse-traces.ts:97`).
+     *
+     * The verify pass on #323 measured the metrics consequence: a real claude
+     * capture carries `claude_code.session.count`, so EVERY ordinary export
+     * tripped it — one per 5s per this repo's own `OTEL_METRIC_EXPORT_INTERVAL`,
+     * unthrottled, into the operator feed. Executed downstream: 20 posts flipped
+     * `collectors.otel` to `error`; 205 reached `MAX_ERRORS` and began evicting
+     * real faults.
+     *
+     * The traces case was already present and no review seat reported it.
+     * Fixing metrics alone would have been a fix that handles the case its
+     * author considered and misses the structurally identical sibling one screen
+     * down — the defect shape AGENTS.md names first.
+     *
+     * The throttle keys on `message`, so a message must not embed a varying
+     * count or each distinct count opens its own window. `parse-metrics.ts`
+     * carries that constraint in its own comment.
      */
     const recordFault = async (message: string, detail?: string) => {
       const count = collectorFaults.register(message)
@@ -107,7 +130,11 @@ export function registerOtelRoutes(
       if (declared !== ACCEPTED) return await refuse(reply, declared)
 
       for (const event of result.events) {
-        await ctx.recorder.record(event)
+        if (event.type === 'collector.error') {
+          await recordFault(event.payload.message, event.payload.detail)
+        } else {
+          await ctx.recorder.record(event)
+        }
       }
       return reply.code(200).send({})
     }
@@ -152,7 +179,11 @@ export function registerOtelRoutes(
       if (declared !== ACCEPTED) return await refuse(reply, declared)
 
       for (const event of result.events) {
-        await ctx.recorder.record(event)
+        if (event.type === 'collector.error') {
+          await recordFault(event.payload.message, event.payload.detail)
+        } else {
+          await ctx.recorder.record(event)
+        }
       }
       return reply.code(200).send({})
     }

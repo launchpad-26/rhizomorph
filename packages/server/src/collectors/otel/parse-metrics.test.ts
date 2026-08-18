@@ -73,13 +73,28 @@ describe('parseMetricsExport', () => {
       authoritative: true,
     })
 
-    // every event source is otel, and every event is authoritative/attributed-null for cwd
-    for (const event of result.events) {
+    // every llm.usage/llm.cost event source is otel, and every one is attributed-null for cwd
+    for (const event of [...usage, ...costs]) {
       expect(event.source).toBe('otel')
     }
     expect(usage.every((e) => 'payload' in e && (e.payload as { worktreePath: unknown }).worktreePath === null)).toBe(
       true,
     )
+
+    // This fixture's third metric, claude_code.session.count, matches none of
+    // claude's three known names — previously silently dropped, now a single
+    // coalesced collector.error (#323) since claude-code is a recognised
+    // service.name, same as gemini-cli would be.
+    const errors = result.events.filter((e) => e.type === 'collector.error')
+    expect(errors).toHaveLength(1)
+    // The message is stable so `recordFault` can throttle on it; the count
+    // moved into `detail`. See parse-metrics.ts and api/otel.ts.
+    expect(errors[0]?.payload).toMatchObject({
+      collector: 'otel',
+      message: "a known harness sent records this receiver doesn't fully read",
+    })
+    expect(errors[0]?.payload.detail).toContain('1 record:')
+    expect((errors[0]?.payload as { detail: string }).detail).toContain('claude_code.session.count')
   })
 
   it('stores query_source as thread on the payload instead of discarding it after role selection (#65)', () => {
@@ -471,5 +486,79 @@ describe('parseMetricsExport', () => {
     }
     const result = parseMetricsExport(body, testEmitter())
     expect(result.events[0]?.payload).toMatchObject({ lane: 'unattributed' })
+  })
+
+  describe('gemini-cli (#323, ADR-0025)', () => {
+    it('maps gemini_cli.token.usage input/output/cache datapoints onto llm.usage, and declares thought/tool as a visible gap instead of dropping them', () => {
+      const result = parseMetricsExport(fixture('gemini-cli-0.55.1-otlp-4-metrics.json'), testEmitter())
+
+      expect(result.malformed).toBe(false)
+
+      const usage = result.events.filter((e) => e.type === 'llm.usage')
+      expect(usage).toHaveLength(3)
+      const tokensByTier = usage.map((e) => (e.payload as { tokens: Record<string, number> }).tokens)
+      expect(tokensByTier).toEqual(
+        expect.arrayContaining([
+          { input: 3568, output: 0, cacheRead: 0, cacheCreation: 0 },
+          { input: 0, output: 33, cacheRead: 0, cacheCreation: 0 },
+          { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+        ]),
+      )
+      expect(usage.every((e) => e.source === 'otel')).toBe(true)
+      expect(
+        usage.every((e) => 'payload' in e && (e.payload as { model: string }).model === 'gemini-3.1-flash-lite'),
+      ).toBe(true)
+
+      // 7 sibling metric names this receiver doesn't map, plus thought/tool
+      // (present but tierless) from the one metric it does — 9 unread facts
+      // from a recognised harness, coalesced into a single collector.error
+      // rather than one event per record (ADR-0025 part 2).
+      const errors = result.events.filter((e) => e.type === 'collector.error')
+      expect(errors).toHaveLength(1)
+      expect(errors[0]?.source).toBe('system')
+      expect(errors[0]?.payload).toMatchObject({
+        collector: 'otel',
+        message: "a known harness sent records this receiver doesn't fully read",
+      })
+      const detail = (errors[0]?.payload as { detail: string }).detail
+      expect(detail).toContain('gemini-cli token type "thought" = 256')
+      expect(detail).toContain('gemini-cli token type "tool" = 0')
+      expect(detail).toContain('gemini-cli metric "gemini_cli.api.request.count"')
+    })
+
+    it('maps gemini_cli.token.usage\'s cache type onto cacheRead — gemini has no separate cache-write tier', () => {
+      const result = parseMetricsExport(fixture('gemini-cli-0.55.1-otlp-9-metrics.json'), testEmitter())
+
+      expect(result.malformed).toBe(false)
+      const usage = result.events.filter((e) => e.type === 'llm.usage')
+      const tokensByTier = usage.map((e) => (e.payload as { tokens: Record<string, number> }).tokens)
+      // gemini-3.5-flash's turn carried a nonzero cache reading in the real capture.
+      expect(tokensByTier).toEqual(
+        expect.arrayContaining([{ input: 0, output: 0, cacheRead: 16_290, cacheCreation: 0 }]),
+      )
+    })
+
+    it('never produces llm.usage/llm.cost/collector.error for a harness this profile table has no row for', () => {
+      const body = {
+        resourceMetrics: [
+          {
+            resource: {
+              attributes: [
+                { key: 'service.name', value: { stringValue: 'some-future-cli' } },
+                { key: 'lane', value: { stringValue: 'future-lane' } },
+              ],
+            },
+            scopeMetrics: [
+              { metrics: [{ name: 'some_future_cli.tokens', sum: { dataPoints: [{ asInt: '10' }] } }] },
+            ],
+          },
+        ],
+      }
+      const result = parseMetricsExport(body, testEmitter())
+      expect(result.malformed).toBe(false)
+      // An unrecognised service.name is not treated as claude and not
+      // reported as a gap — ADR-0025: an entirely unknown harness stays quiet.
+      expect(result.events).toEqual([])
+    })
   })
 })

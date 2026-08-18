@@ -2,6 +2,8 @@ import type { AgentThread, EventType, RhizomorphEvent, PayloadOf, SourceOf, Toke
 import { agentThreadSchema, ZERO_TOKENS } from '@rhizomorph/core'
 import { resolveLane, resolveRole } from './attribution.js'
 import { formatZodIssues } from './format-issues.js'
+import { resolveMetricProfile, type HarnessMetricProfile } from './harness-profiles.js'
+import { voiceSkips, type ParseSkip } from '../parse-skip.js'
 import {
   attrString,
   dataPointValue,
@@ -26,19 +28,6 @@ export interface ParseMetricsResult {
   malformed: boolean
 }
 
-const TOKEN_USAGE_METRIC = 'claude_code.token.usage'
-const COST_USAGE_METRIC = 'claude_code.cost.usage'
-/** #141: exported on every metrics POST alongside the two above, ignored until now. */
-const ACTIVE_TIME_METRIC = 'claude_code.active_time.total'
-
-/** `type` attribute values `claude_code.token.usage` sends, mapped to the core event's token tiers (research §S1). */
-const TOKEN_TYPE_TO_TIER = {
-  input: 'input',
-  output: 'output',
-  cacheRead: 'cacheRead',
-  cacheCreation: 'cacheCreation',
-} as const satisfies Record<string, keyof TokenUsagePayload>
-
 /**
  * Parses one `POST /v1/metrics` body into `llm.usage` / `llm.cost` /
  * `agent.activeTime` events. Pure: no I/O, no clock — the caller's `emitter`
@@ -52,9 +41,16 @@ const TOKEN_TYPE_TO_TIER = {
  *   request still succeeds, same as a poll collector logging one bad row
  *   without failing the whole tick.
  *
- * A metric name that isn't `claude_code.token.usage`, `claude_code.cost.usage`
- * or `claude_code.active_time.total` is ignored silently — not an error, just
- * a signal this receiver doesn't read yet.
+ * Which metric names this route reads depends on the exporting harness
+ * (`harness-profiles.ts`, keyed on the `service.name` resource attribute).
+ * A metric name outside a *recognised* harness's profile — or a
+ * `gemini_cli.token.usage` `type` value with no tier, per that harness's
+ * declared gap — is not silently dropped any more: every such record in one
+ * request coalesces into a single trailing `collector.error`, so a chatty
+ * exporter posting many unread record kinds costs one event, not one per
+ * record (ADR-0025). An entirely unrecognised harness (no `service.name`
+ * match) still parses under claude's profile and stays silent when nothing
+ * matches — that harness never claimed to be one this receiver knows.
  */
 export function parseMetricsExport(body: unknown, emitter: OtelEmitter): ParseMetricsResult {
   const parsed = exportMetricsRequestSchema.safeParse(body)
@@ -72,26 +68,46 @@ export function parseMetricsExport(body: unknown, emitter: OtelEmitter): ParseMe
   }
 
   const events: RhizomorphEvent[] = []
+  const unread: ParseSkip[] = []
 
   for (const resourceMetrics of parsed.data.resourceMetrics) {
     const resourceAttrs = resourceMetrics.resource?.attributes
+    const { profile, recognized } = resolveMetricProfile(resourceAttrs)
     for (const scopeMetrics of resourceMetrics.scopeMetrics ?? []) {
       for (const metric of scopeMetrics.metrics ?? []) {
-        if (metric.name === TOKEN_USAGE_METRIC) {
+        if (metric.name === profile.tokenUsageMetric) {
           for (const dp of metricDataPoints(metric)) {
-            pushBuiltEvent(events, emitter, metric.name, () => buildUsageEvent(emitter, resourceAttrs, dp))
+            pushBuiltEvent(events, emitter, metric.name, () => buildUsageEvent(emitter, profile, resourceAttrs, dp, unread))
           }
-        } else if (metric.name === COST_USAGE_METRIC) {
+        } else if (profile.costUsageMetric !== null && metric.name === profile.costUsageMetric) {
           for (const dp of metricDataPoints(metric)) {
-            pushBuiltEvent(events, emitter, metric.name, () => buildCostEvent(emitter, resourceAttrs, dp))
+            pushBuiltEvent(events, emitter, metric.name, () => buildCostEvent(emitter, metric.name, resourceAttrs, dp))
           }
-        } else if (metric.name === ACTIVE_TIME_METRIC) {
+        } else if (profile.activeTimeMetric !== null && metric.name === profile.activeTimeMetric) {
           for (const dp of metricDataPoints(metric)) {
-            pushBuiltEvent(events, emitter, metric.name, () => buildActiveTimeEvent(emitter, resourceAttrs, dp))
+            pushBuiltEvent(events, emitter, metric.name, () => buildActiveTimeEvent(emitter, metric.name, resourceAttrs, dp))
           }
+        } else if (recognized) {
+          unread.push({ line: `${profile.serviceName} metric "${metric.name}"`, reason: 'not in this receiver\'s profile for that harness' })
         }
       }
     }
+  }
+
+  if (unread.length > 0) {
+    events.push(
+      emitter.emit('collector.error', {
+        collector: 'otel',
+        // The message is STABLE — no count in it — because `api/otel.ts`'s
+        // `recordFault` keys its throttle on exactly this string. The first
+        // version read "N records from a known harness…", so a post with 9
+        // unread and a post with 8 were different keys and neither collapsed.
+        // The varying part belongs in `detail`, and the number of collapsed
+        // occurrences arrives as the payload's own `count` from the throttle.
+        message: "a known harness sent records this receiver doesn't fully read",
+        detail: `${unread.length} record${unread.length === 1 ? '' : 's'}: ${voiceSkips(unread)}`,
+      }),
+    )
   }
 
   return { events, malformed: false }
@@ -105,10 +121,20 @@ export function parseMetricsExport(body: unknown, emitter: OtelEmitter): ParseMe
  * other datapoint in the same request, exactly the hazard `parse-traces.ts`'s
  * per-span loop guards against. One bad datapoint degrades to its own
  * `collector.error` instead.
+ *
+ * `build` returning `null` means the datapoint was handled without an event
+ * of its own — a declared-gap token type recorded itself into the caller's
+ * `unread` list instead (see `buildUsageEvent`).
  */
-function pushBuiltEvent(events: RhizomorphEvent[], emitter: OtelEmitter, metricName: string, build: () => RhizomorphEvent): void {
+function pushBuiltEvent(
+  events: RhizomorphEvent[],
+  emitter: OtelEmitter,
+  metricName: string,
+  build: () => RhizomorphEvent | null,
+): void {
   try {
-    events.push(build())
+    const event = build()
+    if (event) events.push(event)
   } catch (err) {
     events.push(
       emitter.emit('collector.error', {
@@ -132,29 +158,42 @@ function resolveThread(querySource: string | undefined): AgentThread | null {
 
 function buildUsageEvent(
   emitter: OtelEmitter,
+  profile: HarnessMetricProfile,
   resourceAttrs: OtlpKeyValue[] | undefined,
   dp: OtlpNumberDataPoint,
-): RhizomorphEvent {
+  unread: ParseSkip[],
+): RhizomorphEvent | null {
   const type = attrString(dp.attributes, 'type')
   const value = dataPointValue(dp)
-  const tier = TOKEN_TYPE_TO_TIER[type as keyof typeof TOKEN_TYPE_TO_TIER]
+  const tier = type ? profile.tokenTypeToTier[type] : undefined
   if (!tier) {
+    if (type !== undefined && profile.declaredGapTokenTypes.includes(type)) {
+      // A known-but-homeless token type, not malformed data: the harness said
+      // exactly what it meant, TokenUsagePayload just has no tier for it yet
+      // (ruling 4 — an additive core PR, not this receiver). Counted and
+      // surfaced, never silently folded into a tier or dropped.
+      unread.push({
+        line: `${profile.serviceName} token type "${type}" = ${value ?? 'missing'}`,
+        reason: 'no tier in TokenUsagePayload (declared gap, not malformed)',
+      })
+      return null
+    }
     return emitter.emit('collector.error', {
       collector: 'otel',
-      message: `malformed ${TOKEN_USAGE_METRIC} datapoint: unrecognised type "${type ?? ''}"`,
+      message: `malformed ${profile.tokenUsageMetric} datapoint: unrecognised type "${type ?? ''}"`,
     })
   }
   if (value === undefined || value < 0) {
     return emitter.emit('collector.error', {
       collector: 'otel',
-      message: `malformed ${TOKEN_USAGE_METRIC} datapoint: missing or invalid value`,
+      message: `malformed ${profile.tokenUsageMetric} datapoint: missing or invalid value`,
     })
   }
   const model = attrString(dp.attributes, 'model')
   if (!model) {
     return emitter.emit('collector.error', {
       collector: 'otel',
-      message: `malformed ${TOKEN_USAGE_METRIC} datapoint: missing model attribute`,
+      message: `malformed ${profile.tokenUsageMetric} datapoint: missing model attribute`,
     })
   }
 
@@ -201,6 +240,7 @@ function buildUsageEvent(
 
 function buildCostEvent(
   emitter: OtelEmitter,
+  metricName: string,
   resourceAttrs: OtlpKeyValue[] | undefined,
   dp: OtlpNumberDataPoint,
 ): RhizomorphEvent {
@@ -208,14 +248,14 @@ function buildCostEvent(
   if (value === undefined || value < 0) {
     return emitter.emit('collector.error', {
       collector: 'otel',
-      message: `malformed ${COST_USAGE_METRIC} datapoint: missing or invalid value`,
+      message: `malformed ${metricName} datapoint: missing or invalid value`,
     })
   }
   const model = attrString(dp.attributes, 'model')
   if (!model) {
     return emitter.emit('collector.error', {
       collector: 'otel',
-      message: `malformed ${COST_USAGE_METRIC} datapoint: missing model attribute`,
+      message: `malformed ${metricName} datapoint: missing model attribute`,
     })
   }
 
@@ -251,6 +291,7 @@ function buildCostEvent(
  */
 function buildActiveTimeEvent(
   emitter: OtelEmitter,
+  metricName: string,
   resourceAttrs: OtlpKeyValue[] | undefined,
   dp: OtlpNumberDataPoint,
 ): RhizomorphEvent {
@@ -258,7 +299,7 @@ function buildActiveTimeEvent(
   if (value === undefined || value < 0) {
     return emitter.emit('collector.error', {
       collector: 'otel',
-      message: `malformed ${ACTIVE_TIME_METRIC} datapoint: missing or invalid value`,
+      message: `malformed ${metricName} datapoint: missing or invalid value`,
     })
   }
 
