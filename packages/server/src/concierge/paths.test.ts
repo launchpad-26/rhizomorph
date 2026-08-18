@@ -369,11 +369,11 @@ describe('the migration fence', () => {
     // `research/2026-08-14-cross-host-resume.md` Q2: a Windows-authored
     // transcript, reached through a mount, resumed on Linux. The source ROOT
     // moves; the directory beneath it and the filename are still derived.
-    const foreignRoot = path.join(root, 'mnt-c-users-lachl-claude-projects')
+    const foreignRoot = path.join(root, 'mnt-c-users-operator-claude-projects')
     const foreignSlugDir = path.join(foreignRoot, worktreePathToProjectSlug(originRepoPath))
     await mkdir(foreignSlugDir, { recursive: true })
     const foreign = path.join(foreignSlugDir, `${SESSION_ID}.jsonl`)
-    await writeFile(foreign, '{"cwd":"C:\\\\Users\\\\lachl\\\\agenticlaunchpad"}\n')
+    await writeFile(foreign, '{"cwd":"C:\\\\Users\\\\operator\\\\agenticlaunchpad"}\n')
 
     expect(assertMigrationPaths({ ...fence(), sourceProjectsRoot: foreignRoot }, attribution())).toEqual({
       source: foreign,

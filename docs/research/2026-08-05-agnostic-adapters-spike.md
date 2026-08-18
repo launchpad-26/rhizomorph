@@ -8,7 +8,7 @@
 > `research/2026-07-30-telemetry-capture-routes.md`); everything web-sourced
 > today is at best [Verified] (primary doc read) or [Consensus] (multiple
 > independent secondary sources). Repo read via
-> `\\wsl.localhost\Ubuntu\home\lachlan\worktrees-challenge` (read-only).
+> `\\wsl.localhost\Ubuntu\home\operator\worktrees-challenge` (read-only).
 
 ## The question
 
@@ -461,7 +461,7 @@ ruling 9).
 
 ## Sources
 
-Repo (read-only, `\\wsl.localhost\Ubuntu\home\lachlan\worktrees-challenge`):
+Repo (read-only, `\\wsl.localhost\Ubuntu\home\operator\worktrees-challenge`):
 `docs/architecture.md`; `docs/telemetry.md`;
 `research/2026-08-03-trace-era-captures.md`;
 `research/2026-07-30-telemetry-capture-routes.md`;

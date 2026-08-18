@@ -5,7 +5,7 @@
 > "what if there is more than one orchestrator — do we display that? how do we
 > know?" Claims graded [Ran] / [Verified] (primary source read or checked this
 > session) / [Read] (reasoned directly from repo source read this session) /
-> [Hypothesis]. Repo read-only at `\\wsl.localhost\Ubuntu\home\lachlan\worktrees-challenge`.
+> [Hypothesis]. Repo read-only at `\\wsl.localhost\Ubuntu\home\operator\worktrees-challenge`.
 
 ## Headline verdicts
 
