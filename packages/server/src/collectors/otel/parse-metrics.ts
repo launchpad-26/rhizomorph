@@ -98,8 +98,14 @@ export function parseMetricsExport(body: unknown, emitter: OtelEmitter): ParseMe
     events.push(
       emitter.emit('collector.error', {
         collector: 'otel',
-        message: `${unread.length} record${unread.length === 1 ? '' : 's'} from a known harness this receiver doesn't fully read`,
-        detail: voiceSkips(unread),
+        // The message is STABLE — no count in it — because `api/otel.ts`'s
+        // `recordFault` keys its throttle on exactly this string. The first
+        // version read "N records from a known harness…", so a post with 9
+        // unread and a post with 8 were different keys and neither collapsed.
+        // The varying part belongs in `detail`, and the number of collapsed
+        // occurrences arrives as the payload's own `count` from the throttle.
+        message: "a known harness sent records this receiver doesn't fully read",
+        detail: `${unread.length} record${unread.length === 1 ? '' : 's'}: ${voiceSkips(unread)}`,
       }),
     )
   }

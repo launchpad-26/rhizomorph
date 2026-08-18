@@ -70,7 +70,18 @@ export const GEMINI_METRIC_PROFILE: HarnessMetricProfile = {
   declaredGapTokenTypes: ['thought', 'tool'],
 }
 
-const METRIC_PROFILES: Readonly<Record<string, HarnessMetricProfile>> = {
+/**
+ * The live dispatch table. EXPORTED so its own law can iterate it rather than
+ * a hand-written copy of it.
+ *
+ * The verify pass on #323 found the law hard-coded `[CLAUDE_METRIC_PROFILE,
+ * GEMINI_METRIC_PROFILE]` while this table was private: a third row added here
+ * and wired into dispatch passed every test, so "recognised by name implies
+ * fixture-backed" held by someone remembering to extend a list. All four review
+ * seats found it independently — the only unanimous finding of that review.
+ * ADR-0025's done-when asks for it by construction, which means iterating this.
+ */
+export const METRIC_PROFILES: Readonly<Record<string, HarnessMetricProfile>> = {
   [CLAUDE_METRIC_PROFILE.serviceName]: CLAUDE_METRIC_PROFILE,
   [GEMINI_METRIC_PROFILE.serviceName]: GEMINI_METRIC_PROFILE,
 }

@@ -87,7 +87,13 @@ describe('parseMetricsExport', () => {
     // service.name, same as gemini-cli would be.
     const errors = result.events.filter((e) => e.type === 'collector.error')
     expect(errors).toHaveLength(1)
-    expect(errors[0]?.payload).toMatchObject({ collector: 'otel', message: '1 record from a known harness this receiver doesn\'t fully read' })
+    // The message is stable so `recordFault` can throttle on it; the count
+    // moved into `detail`. See parse-metrics.ts and api/otel.ts.
+    expect(errors[0]?.payload).toMatchObject({
+      collector: 'otel',
+      message: "a known harness sent records this receiver doesn't fully read",
+    })
+    expect(errors[0]?.payload.detail).toContain('1 record:')
     expect((errors[0]?.payload as { detail: string }).detail).toContain('claude_code.session.count')
   })
 
@@ -512,7 +518,7 @@ describe('parseMetricsExport', () => {
       expect(errors[0]?.source).toBe('system')
       expect(errors[0]?.payload).toMatchObject({
         collector: 'otel',
-        message: "9 records from a known harness this receiver doesn't fully read",
+        message: "a known harness sent records this receiver doesn't fully read",
       })
       const detail = (errors[0]?.payload as { detail: string }).detail
       expect(detail).toContain('gemini-cli token type "thought" = 256')

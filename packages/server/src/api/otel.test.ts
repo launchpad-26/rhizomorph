@@ -658,6 +658,73 @@ describe('OTLP/HTTP receiver routes', () => {
       return await app.inject({ method: 'POST', url: '/v1/traces', payload: { notResourceSpans: [] } })
     }
 
+    it("an unread-records fault on a VALID post is throttled too — claude's ordinary export must not flood the feed", async () => {
+      // The regression the verify pass on #323 measured. `metrics-token-and-cost.json`
+      // is a real claude capture carrying `claude_code.session.count`, which this
+      // receiver does not read — so every ordinary export reports an unread
+      // record. Recorded outside the throttle that was one event per export,
+      // i.e. one per 5s per `OTEL_METRIC_EXPORT_INTERVAL`, forever: 20 posts
+      // flipped `collectors.otel` to `error`, and 205 reached `MAX_ERRORS` and
+      // began evicting real faults.
+      const start = 5_000
+      const clock = { ms: start }
+      const app = appWithClock(clock)
+      const valid = declaring(fixture('metrics-token-and-cost.json'), OUR_INSTANCE)
+
+      // Twelve posts at the real 5s interval — 55s, inside one 60s window, so
+      // the honest answer is exactly one event. (Twenty posts would span 100s
+      // and legitimately open a second window; that is the throttle working,
+      // not failing, and getting this arithmetic wrong is how a correct fix
+      // looks broken.)
+      for (let i = 0; i < 12; i += 1) {
+        clock.ms = start + i * 5_000 // the repo's own export interval
+        expect((await app.inject({ method: 'POST', url: '/v1/metrics', payload: valid })).statusCode).toBe(200)
+      }
+
+      // One standing fault, not twelve. The count belongs to the throttle, and
+      // the message carries no number of its own — that is what keys the window.
+      expect(collectorErrors()).toHaveLength(1)
+      expect(collectorErrors()[0]?.payload).toMatchObject({
+        collector: 'otel',
+        message: "a known harness sent records this receiver doesn't fully read",
+      })
+    })
+
+    it('the traces sibling throttles too — one bad span in a VALID post does not flood the feed', async () => {
+      // The structurally identical sibling, one screen down in the same file.
+      // `parse-traces.ts` has emitted a per-span `collector.error` on an
+      // otherwise-valid request since #510, and that path was outside the
+      // throttle for exactly the same reason the metrics one was. Fixing only
+      // the case #323 happened to surface is the defect shape AGENTS.md names
+      // first, so this asserts the sibling directly rather than trusting the
+      // shared code path.
+      const start = 5_000
+      const clock = { ms: start }
+      const app = appWithClock(clock)
+      // Valid ExportTraceServiceRequest; the single span is missing traceId, so
+      // `buildSpanEvent` degrades it to a collector.error and the POST is 200.
+      const oneBadSpan = declaring(
+        {
+          resourceSpans: [
+            { scopeSpans: [{ spans: [{ spanId: 'b'.repeat(16), name: 'tool_decision' }] }] },
+          ],
+        },
+        OUR_INSTANCE,
+      )
+
+      for (let i = 0; i < 4; i += 1) {
+        clock.ms = start + i * 1_000 // 3s total, well inside one 60s window
+        expect((await app.inject({ method: 'POST', url: '/v1/traces', payload: oneBadSpan })).statusCode).toBe(200)
+      }
+
+      // One standing fault, not four. Before the fix this read 4.
+      expect(collectorErrors()).toHaveLength(1)
+      expect(collectorErrors()[0]?.payload).toMatchObject({
+        collector: 'otel',
+        message: 'malformed span: missing traceId, spanId, or name',
+      })
+    })
+
     it('coalesces repeated posts of the identical fault into one event carrying a count, exactly like telemetry.refused', async () => {
       const start = 5_000
       const clock = { ms: start }

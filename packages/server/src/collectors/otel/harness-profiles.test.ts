@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CLAUDE_METRIC_PROFILE,
   GEMINI_METRIC_PROFILE,
+  METRIC_PROFILES,
   resolveMetricProfile,
 } from './harness-profiles.js'
 import type { OtlpKeyValue } from './types.js'
@@ -69,7 +70,13 @@ describe('law: every profile row is backed by a real fixture', () => {
     expect(fixtureServiceNamesAndMetrics().length).toBeGreaterThan(0)
   })
 
-  it.each([CLAUDE_METRIC_PROFILE, GEMINI_METRIC_PROFILE])(
+  // Driven off the LIVE table, not a hand-written copy of it. The verify pass
+  // on #323 added a third profile row, wired it into dispatch, and watched this
+  // law stay green 7/7 — because it iterated a literal pair. ADR-0025's
+  // done-when ("a test fails if a harness's records are recognised by name
+  // without a fixture proving that name exists") then held only by someone
+  // remembering to extend a list, which is not by construction.
+  it.each(Object.values(METRIC_PROFILES))(
     '$serviceName: a real fixture declares this service.name and sends its tokenUsageMetric',
     (profile) => {
       const rows = fixtureServiceNamesAndMetrics()
