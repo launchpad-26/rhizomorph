@@ -54,13 +54,13 @@ describe('reverseProjectSlug', () => {
   it('resolves a simple absolute-path slug by walking real directory entries', async () => {
     const fs = fixtureFs({
       '/': ['Users'],
-      '/Users': ['hannah'],
-      '/Users/operator': ['repo'],
-      '/Users/operator/repo': [],
+      '/Users': ['dev'],
+      '/Users/dev': ['repo'],
+      '/Users/dev/repo': [],
     })
 
-    expect(await reverseProjectSlug('-Users-operator-repo', fs)).toEqual({
-      path: path.join('/', 'Users', 'hannah', 'repo'),
+    expect(await reverseProjectSlug('-Users-dev-repo', fs)).toEqual({
+      path: path.join('/', 'Users', 'dev', 'repo'),
     })
   })
 
@@ -76,14 +76,14 @@ describe('reverseProjectSlug', () => {
     // be guessed at — it is read off the filesystem instead.
     const fs = fixtureFs({
       '/': ['Users'],
-      '/Users': ['hannah'],
-      '/Users/operator': ['v2.0'],
-      '/Users/operator/v2.0': ['wt'],
-      '/Users/operator/v2.0/wt': [],
+      '/Users': ['dev'],
+      '/Users/dev': ['v2.0'],
+      '/Users/dev/v2.0': ['wt'],
+      '/Users/dev/v2.0/wt': [],
     })
 
-    expect(await reverseProjectSlug('-Users-operator-v2-0-wt', fs)).toEqual({
-      path: path.join('/', 'Users', 'hannah', 'v2.0', 'wt'),
+    expect(await reverseProjectSlug('-Users-dev-v2-0-wt', fs)).toEqual({
+      path: path.join('/', 'Users', 'dev', 'v2.0', 'wt'),
     })
   })
 
@@ -96,28 +96,28 @@ describe('reverseProjectSlug', () => {
     // reported unresolved.
     const fs = fixtureFs({
       '/': ['Users'],
-      '/Users': ['hannah'],
-      '/Users/operator': ['TailR Nutrition'],
-      '/Users/operator/TailR Nutrition': ['tailr-codebase'],
-      '/Users/operator/TailR Nutrition/tailr-codebase': [],
+      '/Users': ['dev'],
+      '/Users/dev': ['TailR Nutrition'],
+      '/Users/dev/TailR Nutrition': ['tailr-codebase'],
+      '/Users/dev/TailR Nutrition/tailr-codebase': [],
     })
 
-    expect(await reverseProjectSlug('-Users-operator-TailR-Nutrition-tailr-codebase', fs)).toEqual({
-      path: path.join('/', 'Users', 'hannah', 'TailR Nutrition', 'tailr-codebase'),
+    expect(await reverseProjectSlug('-Users-dev-TailR-Nutrition-tailr-codebase', fs)).toEqual({
+      path: path.join('/', 'Users', 'dev', 'TailR Nutrition', 'tailr-codebase'),
     })
   })
 
   it('resolves the exact example from worktree-slug.ts\'s own doc comment — double underscore and a literal dash together', async () => {
     const fs = fixtureFs({
       '/': ['home'],
-      '/home': ['lachlan'],
+      '/home': ['operator'],
       '/home/operator': ['worktrees-challenge__worktrees'],
       '/home/operator/worktrees-challenge__worktrees': ['2-core'],
       '/home/operator/worktrees-challenge__worktrees/2-core': [],
     })
 
     expect(await reverseProjectSlug('-home-operator-worktrees-challenge--worktrees-2-core', fs)).toEqual({
-      path: path.join('/', 'home', 'lachlan', 'worktrees-challenge__worktrees', '2-core'),
+      path: path.join('/', 'home', 'operator', 'worktrees-challenge__worktrees', '2-core'),
     })
   })
 
@@ -143,11 +143,11 @@ describe('reverseProjectSlug', () => {
     // "unknown is not absent," so the tie itself must be reported.
     const fs = fixtureFs({
       '/': ['Users'],
-      '/Users': ['hannah'],
-      '/Users/operator': ['foo-bar', 'foo.bar'],
+      '/Users': ['dev'],
+      '/Users/dev': ['foo-bar', 'foo.bar'],
     })
 
-    const result = await reverseProjectSlug('-Users-operator-foo-bar', fs)
+    const result = await reverseProjectSlug('-Users-dev-foo-bar', fs)
     expect(result.path).toBeNull()
     const reason = (result as { reason: string }).reason
     expect(reason).toContain('ambiguous')
@@ -172,14 +172,14 @@ describe('reverseProjectSlug', () => {
   it('reports unresolved, honestly, with a reason naming where the walk stopped — never silently dropped', async () => {
     const fs = fixtureFs({
       '/': ['Users'],
-      '/Users': ['hannah'],
-      // '/Users/operator' has no 'ghost' subdirectory.
-      '/Users/operator': ['repo'],
+      '/Users': ['dev'],
+      // '/Users/dev' has no 'ghost' subdirectory.
+      '/Users/dev': ['repo'],
     })
 
-    const result = await reverseProjectSlug('-Users-operator-ghost', fs)
+    const result = await reverseProjectSlug('-Users-dev-ghost', fs)
     expect(result.path).toBeNull()
-    expect((result as { reason: string }).reason).toContain(path.join('/', 'Users', 'hannah'))
+    expect((result as { reason: string }).reason).toContain(path.join('/', 'Users', 'dev'))
   })
 
   it('reports unresolved for a slug that does not start with "-" rather than guessing a relative path', async () => {
@@ -204,13 +204,13 @@ describe('reverseProjectSlug', () => {
     const fs = fixtureFs(
       {
         '/': ['Users'],
-        '/Users': ['hannah'],
-        '/Users/operator': ['blocked'],
+        '/Users': ['dev'],
+        '/Users/dev': ['blocked'],
       },
-      { unreadableDirs: new Set([path.join('/', 'Users', 'hannah', 'blocked')]) },
+      { unreadableDirs: new Set([path.join('/', 'Users', 'dev', 'blocked')]) },
     )
 
-    const result = await reverseProjectSlug('-Users-operator-blocked-repo', fs)
+    const result = await reverseProjectSlug('-Users-dev-blocked-repo', fs)
     expect(result.path).toBeNull()
     const reason = (result as { reason: string }).reason
     expect(reason).toContain('permission denied')
@@ -256,16 +256,16 @@ describe('listKnownProjects', () => {
   })
 
   it('reads a shared ancestor directory only ONCE across sibling slugs, not once per slug', async () => {
-    // Two slugs under /Users/operator/… each independently walk /, /Users, and
-    // /Users/operator from scratch — without a shared cache, a projects root
+    // Two slugs under /Users/dev/… each independently walk /, /Users, and
+    // /Users/dev from scratch — without a shared cache, a projects root
     // with N slugs re-reads those same shallow ancestors N times over.
     const base = fixtureFs({
-      '/home/x/.claude/projects': ['-Users-operator-repo1', '-Users-operator-repo2'],
+      '/home/x/.claude/projects': ['-Users-dev-repo1', '-Users-dev-repo2'],
       '/': ['Users'],
-      '/Users': ['hannah'],
-      '/Users/operator': ['repo1', 'repo2'],
-      '/Users/operator/repo1': [],
-      '/Users/operator/repo2': [],
+      '/Users': ['dev'],
+      '/Users/dev': ['repo1', 'repo2'],
+      '/Users/dev/repo1': [],
+      '/Users/dev/repo2': [],
     })
     let listCalls = 0
     const countingFs: DiscoveryFs = {
@@ -279,7 +279,7 @@ describe('listKnownProjects', () => {
     const result = await listKnownProjects('/home/x/.claude/projects', countingFs)
 
     expect(result.available).toBe(true)
-    // 1 for the projects root itself, plus /, /Users, /Users/operator — each
+    // 1 for the projects root itself, plus /, /Users, /Users/dev — each
     // exactly once, however many slugs share them. Uncached, the two
     // sibling walks alone would cost 6 (3 ancestors × 2 slugs) on top of that.
     expect(listCalls).toBe(4)

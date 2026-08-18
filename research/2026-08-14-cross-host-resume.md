@@ -49,10 +49,10 @@ The transcript it created:
 ```console
 $ ls -la ~/.claude/projects/-home-operator-spike-resume-a/
 total 60
-drwxr-xr-x   3 lachlan lachlan  4096 Aug 14 13:06 .
-drwxr-xr-x 263 lachlan lachlan 28672 Aug 14 13:06 ..
--rw-------   1 lachlan lachlan 19713 Aug 14 13:06 edf0eb2b-9c37-4d15-8f06-99e9306cdac6.jsonl
-drwxr-xr-x   2 lachlan lachlan  4096 Aug 14 13:06 memory
+drwxr-xr-x   3 operator operator  4096 Aug 14 13:06 .
+drwxr-xr-x 263 operator operator 28672 Aug 14 13:06 ..
+-rw-------   1 operator operator 19713 Aug 14 13:06 edf0eb2b-9c37-4d15-8f06-99e9306cdac6.jsonl
+drwxr-xr-x   2 operator operator  4096 Aug 14 13:06 memory
 ```
 
 Copied into `b`'s slug dir (guarded against clobbering a pre-existing target):
@@ -110,9 +110,9 @@ Candidate selection from
 
 ```console
 $ ls -lS .../C--Users-operator-agenticlaunchpad/*.jsonl | tail -3
--rwxrwxrwx 1 lachlan lachlan 2090 2026-07-30 .../200fb100-b3e2-4828-a3a6-01333a255127.jsonl
--rwxrwxrwx 1 lachlan lachlan 1971 2026-07-30 .../01441073-3a1d-4dfb-89dc-a1692eaf9cad.jsonl
--rwxrwxrwx 1 lachlan lachlan  278 2026-08-11 .../a3a4ee6a-40bf-4b8c-9901-03b60831e0e2.jsonl
+-rwxrwxrwx 1 operator operator 2090 2026-07-30 .../200fb100-b3e2-4828-a3a6-01333a255127.jsonl
+-rwxrwxrwx 1 operator operator 1971 2026-07-30 .../01441073-3a1d-4dfb-89dc-a1692eaf9cad.jsonl
+-rwxrwxrwx 1 operator operator  278 2026-08-11 .../a3a4ee6a-40bf-4b8c-9901-03b60831e0e2.jsonl
 ```
 
 The brief said to take the smallest. The literal smallest (`a3a4ee6a`, 278 B,
@@ -171,7 +171,7 @@ PY
 
 $ grep -o '"cwd":"[^"]*"' .../200fb100-....jsonl | sort | uniq -c
       5 "cwd":"/home/operator/spike-resume-b"
-      2 "cwd":"C:\\Users\\lachl\\agenticlaunchpad"
+      2 "cwd":"C:\\Users\\operator\\agenticlaunchpad"
 $ grep -o '"sessionId":"[^"]*"' .../200fb100-....jsonl | sort | uniq -c
      14 "sessionId":"200fb100-b3e2-4828-a3a6-01333a255127"
 ```
@@ -184,7 +184,7 @@ The Windows source was read-only throughout — mtime and size unchanged:
 
 ```console
 $ ls -l --time-style=full-iso .../200fb100-b3e2-4828-a3a6-01333a255127.jsonl
--rwxrwxrwx 1 lachlan lachlan 2090 2026-07-30 10:15:38.672816800 +1200 .../200fb100-....jsonl
+-rwxrwxrwx 1 operator operator 2090 2026-07-30 10:15:38.672816800 +1200 .../200fb100-....jsonl
 ```
 
 ### Q2b — a large transcript with Windows paths in tool results
@@ -199,12 +199,12 @@ authored entirely on Windows.
 
 ```console
 $ ls -lS .../C--Users-operator-agenticlaunchpad/*.jsonl | head -1
--rwxrwxrwx 1 lachlan lachlan 23818029 2026-08-03 11:06:22 .../b1bc51ab-0d2a-4d53-bc3a-b92b9de4ef10.jsonl
+-rwxrwxrwx 1 operator operator 23818029 2026-08-03 11:06:22 .../b1bc51ab-0d2a-4d53-bc3a-b92b9de4ef10.jsonl
 
 $ wc -l < .../b1bc51ab-....jsonl
 6133
 $ grep -o '"cwd":"[^"]*"' .../b1bc51ab-....jsonl | sort | uniq -c
-   3922 "cwd":"C:\\Users\\lachl\\agenticlaunchpad"
+   3922 "cwd":"C:\\Users\\operator\\agenticlaunchpad"
 $ grep -c '"tool_use"' .../b1bc51ab-....jsonl ; grep -c '"tool_result"' .../b1bc51ab-....jsonl
 1294
 684
@@ -251,7 +251,7 @@ $ grep -o '"sessionId":"[^"]*"' .../b1bc51ab-....jsonl | sort -u
 "sessionId":"b1bc51ab-0d2a-4d53-bc3a-b92b9de4ef10"
 $ grep -o '"cwd":"[^"]*"' .../b1bc51ab-....jsonl | sort | uniq -c
       9 "cwd":"/home/operator/spike-resume-b"
-   3922 "cwd":"C:\\Users\\lachl\\agenticlaunchpad"
+   3922 "cwd":"C:\\Users\\operator\\agenticlaunchpad"
 ```
 
 The 23 MB source was not modified — byte-identical after the run:
@@ -289,14 +289,14 @@ touched.**
 
 ```console
 $ # b BEFORE the Q1 resume
--rw------- 1 lachlan lachlan 19713 2026-08-14 13:06:53 edf0eb2b-....jsonl
+-rw------- 1 operator operator 19713 2026-08-14 13:06:53 edf0eb2b-....jsonl
 
 $ # b AFTER the Q1 resume
--rw------- 1 lachlan lachlan 22121 2026-08-14 13:07:06 edf0eb2b-....jsonl
-drwxr-xr-x 2 lachlan lachlan  4096 2026-08-14 13:07:04 memory
+-rw------- 1 operator operator 22121 2026-08-14 13:07:06 edf0eb2b-....jsonl
+drwxr-xr-x 2 operator operator  4096 2026-08-14 13:07:04 memory
 
 $ # a, same moment — untouched, original size and mtime
--rw------- 1 lachlan lachlan 19713 2026-08-14 13:06:39 edf0eb2b-....jsonl
+-rw------- 1 operator operator 19713 2026-08-14 13:06:39 edf0eb2b-....jsonl
 ```
 
 The copied file grew (19713 → 22121); no new session file appeared; `a`'s
