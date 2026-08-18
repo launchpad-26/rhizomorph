@@ -530,7 +530,7 @@ describe('createSessionlogCollector', () => {
 
   it('resolves the foreign-slug basename case without leaking the raw project-dir slug as the lane (Windows-shaped dir name a POSIX slug function could never produce)', async () => {
     // Mimics a Windows conductor mounted at a WSL path — e.g.
-    // /mnt/c/Users/operator/.claude/projects/C--Users-operator-launchpad.
+    // /mnt/c/Users/operator/.claude/projects/C--Users-operator-agenticlaunchpad.
     // This is issue #49's exact bug: the raw slug used to leak as the lane.
     //
     // The comment path and the directory name below are **one edit** (#649):
@@ -538,7 +538,7 @@ describe('createSessionlogCollector', () => {
     // leaves a comment that no longer explains the value it sits above. The
     // shape is what this test is about — a Windows-produced slug a POSIX slug
     // function could never emit — and `C--Users-…` preserves it exactly.
-    const foreignSessionDir = path.join(root, 'foreign', 'C--Users-operator-launchpad')
+    const foreignSessionDir = path.join(root, 'foreign', 'C--Users-operator-agenticlaunchpad')
     await mkdir(foreignSessionDir, { recursive: true })
     await writeFile(
       path.join(foreignSessionDir, '85649f6d-2f7d-43aa-a23e-10c9c1c0d2bc.jsonl'),

@@ -387,7 +387,7 @@ a screenshot and a link. Composes with `/lane/:handle` per ruling 9; no new rout
 
 ## Sources
 
-Repo (read this session, UNC `\\wsl.localhost\Ubuntu\home\lachlan\worktrees-challenge`):
+Repo (read this session, UNC `\\wsl.localhost\Ubuntu\home\operator\worktrees-challenge`):
 `docs/prd13.md` · `docs/vision.md` · `docs/prd12.md` (fork/checkpoint rulings) ·
 `docs/research/2026-08-04-dashboard-ia-spike.md` ·
 `packages/web/src/tide/{TideDock.tsx,Tide.tsx,ChapterMarks.tsx,chapters.ts,markCoalesce.ts,scale.ts,tideWindow.ts}` ·

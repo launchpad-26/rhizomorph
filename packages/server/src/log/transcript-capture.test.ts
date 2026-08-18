@@ -31,10 +31,10 @@ describe('redactTranscript (#177\'s discipline, applied to a real capture)', () 
       sessionId: SESSION_ID,
       cwd: '/home/operator/worktrees-challenge',
       organizationId: 'org_abc123def',
-      userEmail: 'lachlan@example.com',
+      userEmail: 'operator@example.com',
       message: {
         role: 'assistant',
-        content: [{ type: 'text', text: 'reach me at lachlan@example.com or see /Users/operator/notes.md' }],
+        content: [{ type: 'text', text: 'reach me at operator@example.com or see /Users/operator/notes.md' }],
       },
     })
 
@@ -56,7 +56,7 @@ describe('redactTranscript (#177\'s discipline, applied to a real capture)', () 
   })
 
   it('scrubs an email or home path even inside a line that fails to parse as JSON', () => {
-    const raw = 'not json but mentions lachlan@example.com and /home/operator/secret\n'
+    const raw = 'not json but mentions operator@example.com and /home/operator/secret\n'
 
     const redacted = redactTranscript(raw)
     expect(redacted).not.toMatch(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/)

@@ -25,7 +25,44 @@ agent: claude --model sonnet
 merge_strategy: merge   # keep the DAG visible — the Rhizomorph renders it
 
 post_create:
-  - "[ -f package.json ] && npm install || true"
+  # Dependencies, under the version .nvmrc pins and with failure VISIBLE.
+  #
+  # This was `[ -f package.json ] && npm install || true`, and both halves were
+  # wrong once #403 landed the Node floor:
+  #
+  #   * it ran under whatever node the shell happened to have. #403 set
+  #     `engine-strict=true` so a wrong version REFUSES rather than warns, and
+  #     `jsdom` excludes the range a common default sits in — so the install
+  #     failed on a correctly-configured machine;
+  #   * `|| true` then swallowed it, and workmux printed "Setup complete" over
+  #     a worktree with no `node_modules`. The lane discovered it at `npm test`,
+  #     where it reads as a broken branch rather than a broken setup.
+  #
+  # Measured: two consecutive lanes had to be rescued by hand before anyone
+  # noticed the hook had never worked. A green report over a step that did not
+  # happen is the failure this repo names first, and #403's own rationale was
+  # that a wrong Node "degrades loudly, the way the collectors do" — that
+  # loudness was being discarded one layer up.
+  #
+  # `npm ci` rather than `npm install`: it installs from the lockfile exactly
+  # and cannot dirty it, which is why every lane brief has to say "never commit
+  # package-lock.json". Fixed at the source instead of asked of each lane.
+  - |
+    if [ -f package.json ]; then
+      export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+      # shellcheck disable=SC1091
+      [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+      if [ -f .nvmrc ] && command -v nvm >/dev/null 2>&1; then
+        nvm use "$(cat .nvmrc)" >/dev/null || {
+          echo "!! setup: node $(cat .nvmrc) is not installed — run: nvm install $(cat .nvmrc)" >&2
+          exit 1
+        }
+      fi
+      npm ci || {
+        echo "!! setup: npm ci FAILED — this worktree has no node_modules and its gates will not run" >&2
+        exit 1
+      }
+    fi
   # AGENTS.md and CLAUDE.md are both tracked (#399), so git puts the runbook and
   # its Claude-side import into every worktree by itself. Only CLAUDE.local.md
   # has to be carried across: it is per-contributor and gitignored, so git will

@@ -51,7 +51,7 @@ describe('worktreePathToProjectSlug', () => {
    * looked for a transcript in a directory Claude Code never writes.
    */
   it('matches the real Windows slug from the cross-host-resume capture', () => {
-    expect(worktreePathToProjectSlug('C:\\Users\\lachl\\agenticlaunchpad')).toBe(
+    expect(worktreePathToProjectSlug('C:\\Users\\operator\\agenticlaunchpad')).toBe(
       'C--Users-operator-agenticlaunchpad',
     )
   })
