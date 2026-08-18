@@ -47,7 +47,23 @@ const LaneDrawer = lazy(() => import('../drawer/index.js'))
  * each of which scrolls inside itself. Nothing below the fold is a surprise,
  * because there is no fold — the page does not scroll, the panels do.
  *
- * Whitespace lives between panels, never inside them (ruling 7).
+ * ## The same bug, on the other axis
+ *
+ * "The page does not scroll" was only ever half-true here. The rows were
+ * bounded by `minmax(0, 1fr)`; the single implicit COLUMN was not declared at
+ * all, so it sized to `auto` — and a grid item's `min-width: auto` means one
+ * over-wide descendant grows the track, the grid and the document past the
+ * viewport. Measured in the running instrument at a 1225px viewport: a
+ * `scrollWidth` of 1758px, 533px of horizontal PAGE scroll, which carries the
+ * nav off the left edge. That is the paragraph above's own failure rotated
+ * ninety degrees, in the same declaration, and it outlived the fix for the
+ * vertical case because the vertical case was the one a human had noticed.
+ *
+ * `grid-cols-[minmax(0,1fr)]` bounds the column the way `minmax(0, 1fr)`
+ * bounds the middle row. Content that cannot fit now has to yield or clip
+ * inside a panel, which is the whole point: whitespace lives between panels,
+ * never inside them (ruling 7), and overflow lives inside one, never in the
+ * document.
  *
  * The lane peek (prd-36 ruling 2) sits outside that sequence on purpose: it is
  * not a rung of the hierarchy but a layer over it, opened by the one selection
@@ -73,7 +89,7 @@ export function Shell() {
   useIdleWorkerJump()
 
   return (
-    <div className="grid h-screen grid-rows-[auto_minmax(0,1fr)_auto_auto] bg-(--surface-floor) font-sans text-(--ink-body)">
+    <div className="grid h-screen grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto_auto] bg-(--surface-floor) font-sans text-(--ink-body)">
       <TopDock />
       <PanelGrid />
       <ReplayBar />
