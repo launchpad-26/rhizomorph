@@ -116,18 +116,53 @@ const ALLOWED_SYNTHETIC_NAMES: readonly string[] = [
   'you',
 ]
 
+/**
+ * Home-directory shapes, in BOTH slash directions.
+ *
+ * The backslash half is not symmetry for its own sake. #651, the PR that added
+ * this law, removed a real contributor's name twice from
+ * `docs/research/2026-08-05-agnostic-adapters-spike.md`, written as
+ * `\\wsl.localhost\Ubuntu\home\<name>\worktrees-challenge` — a UNC path to a
+ * WSL filesystem, so its `home` segment is backslash-delimited. A sweep that
+ * reads `/home/<name>` and not `\home\<name>` cannot stop that exact line
+ * coming back — and it did not: two notes from the same session kept the same
+ * sentence until review widened this pattern and found them. That is the
+ * handles-one-case, misses-the-identical-sibling shape `AGENTS.md` names
+ * first, occurring inside the law written to make it structural.
+ *
+ * The `\Users\<name>` pattern carries no drive prefix on purpose. It was
+ * `[Cc]:`, which left `D:\Users\<name>` — the same disclosure on a second
+ * disk — undetected, and nothing about the `C:` spelling is what made this a
+ * finding. Matching the `\Users\` segment alone covers every drive letter and
+ * a UNC share equally.
+ */
 const HOME_PATH_PATTERNS: RegExp[] = [
   /\/home\/([A-Za-z][A-Za-z0-9._-]*)/g,
   /\/Users\/([A-Za-z][A-Za-z0-9._-]*)/g,
-  /[Cc]:\\+Users\\+([A-Za-z][A-Za-z0-9._-]*)/g,
+  /\\+home\\+([A-Za-z][A-Za-z0-9._-]*)/g,
+  /\\+Users\\+([A-Za-z][A-Za-z0-9._-]*)/g,
 ]
 
-/** Every `/home/<name>`, `/Users/<name>` or `C:\Users\<name>` name found in `contents`. */
+/**
+ * Trailing punctuation is not part of a username. A path ending a prose
+ * sentence — "transcripts live under `/home/operator`." — otherwise captures
+ * `operator.`, which is not the allowlisted `operator`, so the law would fail
+ * on the very placeholder it exists to bless, naming a violation nobody
+ * committed. Only TRAILING `.` and `-` are trimmed: interior dots are real
+ * (`jane.doe`) and so are interior hyphens (`lane-user`).
+ */
+function normalizeName(raw: string): string {
+  return raw.replace(/[.-]+$/, '')
+}
+
+/** Every `/home/<name>`, `/Users/<name>`, `\home\<name>` or `\Users\<name>` name found in `contents`. */
 function extractHomePathNames(contents: string): string[] {
   const names: string[] = []
   for (const pattern of HOME_PATH_PATTERNS) {
     for (const match of contents.matchAll(pattern)) {
-      if (match[1]) names.push(match[1])
+      if (!match[1]) continue
+      const name = normalizeName(match[1])
+      if (name.length > 0) names.push(name)
     }
   }
   return names
@@ -220,6 +255,19 @@ describe('no personal paths law: no tracked file names a real home directory, us
     for (const name of names) expect(ALLOWED_SYNTHETIC_NAMES).toContain(name)
   })
 
+  it('the home-path detector fires on the BACKSLASH home shapes — the sibling a forward-slash-only sweep misses', () => {
+    const wsl = String.raw`\\wsl.localhost\Ubuntu\home\notallowedname\worktrees-challenge`
+    const secondDrive = String.raw`D:\Users\notallowedname\project`
+    expect(extractHomePathNames(wsl)).toContain('notallowedname')
+    expect(extractHomePathNames(secondDrive)).toContain('notallowedname')
+  })
+
+  it('a path ending a sentence does not capture the full stop — an allowlisted name stays allowlisted', () => {
+    const names = extractHomePathNames('transcripts live under /home/operator.')
+    expect(names).toEqual(['operator'])
+    expect(names.every((name) => ALLOWED_SYNTHETIC_NAMES.includes(name))).toBe(true)
+  })
+
   it('the machine-name detector fires on DESKTOP-*, LAPTOP-* and a CamelCase+PC hostname', () => {
     expect(findMachineNames('built on DESKTOP-AB12CD3 last night')).toEqual(['DESKTOP-AB12CD3'])
     expect(findMachineNames('captured from LAPTOP-9XQZ21')).toEqual(['LAPTOP-9XQZ21'])
@@ -237,7 +285,7 @@ describe('no personal paths law: no tracked file names a real home directory, us
     for (const file of scannableTrackedFiles()) {
       const contents = readFileSync(`${REPO_ROOT}/${file}`, 'utf8')
       for (const name of extractHomePathNames(contents)) {
-        if (!ALLOWED_SYNTHETIC_NAMES.includes(name)) violations.push(`${file}: /home or /Users or C:\\Users name "${name}"`)
+        if (!ALLOWED_SYNTHETIC_NAMES.includes(name)) violations.push(`${file}: home-directory name "${name}"`)
       }
     }
     expect(violations).toEqual([])
