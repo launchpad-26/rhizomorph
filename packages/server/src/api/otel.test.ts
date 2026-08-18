@@ -724,10 +724,16 @@ describe('OTLP/HTTP receiver routes', () => {
       clock.ms += 1_000
       await postMalformedMetrics(app)
 
+      // metrics-conductor.json, not metrics-token-and-cost.json: the latter
+      // also carries claude_code.session.count, a metric name outside
+      // claude's profile that #323 now (correctly) surfaces as its own
+      // collector.error — this test is about the fault throttle leaving a
+      // *clean* valid post alone, so it needs a fixture with nothing else to
+      // report.
       const response = await app.inject({
         method: 'POST',
         url: '/v1/metrics',
-        payload: declaring(fixture('metrics-token-and-cost.json'), OUR_INSTANCE),
+        payload: declaring(fixture('metrics-conductor.json'), OUR_INSTANCE),
       })
 
       expect(response.statusCode).toBe(200)

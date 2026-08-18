@@ -23,4 +23,21 @@ describe('validateLogsExport', () => {
       expect(validateLogsExport(body).malformed).toBe(true)
     }
   })
+
+  describe('gemini-cli (#323, ADR-0025)', () => {
+    // This route never dispatches on a log record's name for any harness —
+    // turning one into an event is sessionlog's job, over the transcript
+    // file, not this route's (see this file's own top-of-file doc comment).
+    // So gemini's real records (gemini_cli.api_request/.api_response/
+    // .tool_call/.model_routing, gen_ai.client.inference.operation.details)
+    // need no profile: the route's whole contract is "is this valid OTLP,"
+    // and these captures answer yes, same as claude's records always have.
+    it.each([
+      'gemini-cli-0.55.1-otlp-3-logs.json',
+      'gemini-cli-0.55.1-otlp-5-logs.json',
+      'gemini-cli-0.55.1-otlp-7-logs.json',
+    ])('accepts the real capture %s as a structurally valid ExportLogsServiceRequest', (name) => {
+      expect(validateLogsExport(fixture(name))).toEqual({ malformed: false })
+    })
+  })
 })
