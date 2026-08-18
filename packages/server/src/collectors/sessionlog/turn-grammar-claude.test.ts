@@ -167,12 +167,44 @@ describe('the claude JSONL grammar bundles extraction too (prd26 ruling 5 / ADR-
 })
 
 describe('fixture hygiene law', () => {
-  const fixtures = readdirSync(FIXTURES_DIR).filter((name) => name.startsWith('claude-code-'))
+  /**
+   * THE VERSIONED CAPTURES — the ones whose filename pins a tool release. Only
+   * these can carry the version claim, so only these are asked for it.
+   */
+  const versioned = readdirSync(FIXTURES_DIR).filter((name) => name.startsWith('claude-code-'))
+
+  /**
+   * EVERY COMMITTED CAPTURE, and the distinction is the whole of #649.
+   *
+   * The hygiene law below used to run over the versioned list alone. That is how
+   * three older captures — `conductor-root`, `worker-2-core`,
+   * `worker-4-tmux-collector`, all predating the `claude-code-<version>-`
+   * convention — sat in this directory carrying a real contributor's home path
+   * while a test a few lines down asserted, truthfully and uselessly, that no
+   * fixture carries a real home directory.
+   *
+   * The law was right; its **file list** was the defect. A hygiene sweep scoped
+   * by a naming convention only ever covers the files that adopted it, and the
+   * files most likely to need sweeping are precisely the ones that predate it.
+   * Scope by what a file *is* — every `.jsonl` in the fixtures directory — not
+   * by what it happens to be called.
+   */
+  const everyCapture = readdirSync(FIXTURES_DIR).filter((name) => name.endsWith('.jsonl'))
 
   it('pins every captured fixture to the tool version in its filename', () => {
-    expect(fixtures.length).toBeGreaterThan(0)
-    for (const name of fixtures) {
+    expect(versioned.length).toBeGreaterThan(0)
+    for (const name of versioned) {
       expect(name).toMatch(/^claude-code-\d+\.\d+\.\d+-/)
+    }
+  })
+
+  it('sweeps every capture in the directory, not only the ones named for a version', () => {
+    // The guard on the guard. Without it the widening above silently reverts the
+    // first time someone re-narrows the filter, and the three captures this law
+    // was blind to would go quiet again rather than loudly.
+    expect(everyCapture.length).toBeGreaterThan(versioned.length)
+    for (const name of ['conductor-root.jsonl', 'worker-2-core.jsonl', 'worker-4-tmux-collector.jsonl']) {
+      expect(everyCapture, `${name} is a committed capture and must be swept`).toContain(name)
     }
   })
 
@@ -180,7 +212,7 @@ describe('fixture hygiene law', () => {
     // Same posture as the otel collector's own fixture-hygiene law: a
     // transcript is the most content-bearing artifact this product touches, so
     // the redaction is checked structurally rather than trusted to capture time.
-    for (const name of fixtures) {
+    for (const name of everyCapture) {
       const raw = readFileSync(path.join(FIXTURES_DIR, name), 'utf8')
       expect(raw, `${name} carries an email address`).not.toMatch(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/)
       expect(raw, `${name} carries a real home directory`).not.toMatch(/\/(home|Users)\//)
@@ -189,7 +221,7 @@ describe('fixture hygiene law', () => {
   })
 
   it('keeps every fixture parseable line-by-line, so a capture cannot rot silently', () => {
-    for (const name of fixtures) {
+    for (const name of everyCapture) {
       for (const line of fixtureLines(name)) {
         expect(() => JSON.parse(line), `${name} has an unparsable line`).not.toThrow()
       }

@@ -64,6 +64,41 @@ Everything else is replaced with a fixed placeholder:
 version-pinned filenames, no email addresses, no `/home/` or `/Users/` paths,
 no NUL bytes, every line still parseable.
 
+## The three captures that predate this file (#649)
+
+`conductor-root.jsonl`, `worker-2-core.jsonl` and `worker-4-tmux-collector.jsonl`
+were captured before the discipline above existed, and were **never covered by
+it**. Not because anyone waived it — because the hygiene law's file list read
+`startsWith('claude-code-')`, and these three carry no version prefix. A sweep
+scoped by a naming convention only ever covers the files that adopted it, and
+the files most likely to need sweeping are the ones that predate it. So the test
+asserted, truthfully and uselessly, that no fixture carried a real home
+directory while three of them did.
+
+They now carry the same substitutions as everything else here:
+
+| was | is |
+|---|---|
+| the capture machine's repo root | `/repo` |
+| its per-lane worktrees | `/repo-wt/<lane>` |
+| the capture machine's hostname (sibling tmux capture) | `HOST-REDACTED` |
+
+`/repo` and `/repo-wt/<lane>` rather than `/home/operator/…`, deliberately. The
+ruling on #649 names `/home/operator` as the general placeholder and it is right
+for prose and test strings — but *this* directory already had a stricter local
+convention, and that convention is what lets the hygiene law forbid `/home/` and
+`/Users/` outright instead of maintaining an allowlist of approved home
+directories. An absolute law is worth more than a uniform placeholder.
+
+The law's file list is `endsWith('.jsonl')` now, and a second test asserts it
+still contains these three by name — so re-narrowing it fails loudly rather than
+going quiet.
+
+**Every field the grammar reads is still byte-identical to the capture.** Only
+`cwd`, `gitBranch` and the pane-listing paths moved, and no parser in this repo
+reads which username appears in a path — which is exactly why redaction costs
+prd-26 ruling 3 nothing.
+
 ## Re-deriving
 
 The capture script is not checked in — it reads a private corpus, and the fence

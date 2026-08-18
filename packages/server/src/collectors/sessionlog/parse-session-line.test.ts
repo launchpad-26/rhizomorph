@@ -20,7 +20,7 @@ describe('parseAssistantLine', () => {
 
     expect(facts).toMatchObject({
       sessionId: '95f42357-058c-4ea2-84d4-de7b1eb58635',
-      cwd: '/home/operator/worktrees-challenge__worktrees/2-core',
+      cwd: '/repo-wt/2-core',
       gitBranch: '2-core',
       requestId: 'req_011CdXK9nHfLfMD1xWUP4FYL',
       model: 'claude-opus-5',
@@ -43,7 +43,7 @@ describe('parseAssistantLine', () => {
       {
         tool: 'Read',
         toolUseId: 'toolu_01GqsDLd5PHv36rnrXqFqrLx',
-        filePath: '/home/operator/worktrees-challenge__worktrees/2-core/docs/vision.md',
+        filePath: '/repo-wt/2-core/docs/vision.md',
       },
     ])
     // Same reply, split across two lines: usage and requestId repeat verbatim.
@@ -78,9 +78,9 @@ describe('parseAssistantLine', () => {
     const lines = fixtureLines('worker-4-tmux-collector.jsonl')
     const facts = lines.map((line) => parseAssistantLine(line))
     expect(facts.map((f) => f?.toolUses[0]?.filePath)).toEqual([
-      '/home/operator/worktrees-challenge__worktrees/4-tmux-collector/docs/vision.md',
-      '/home/operator/worktrees-challenge__worktrees/4-tmux-collector/docs/prd0.md',
-      '/home/operator/worktrees-challenge__worktrees/4-tmux-collector/docs/architecture.md',
+      '/repo-wt/4-tmux-collector/docs/vision.md',
+      '/repo-wt/4-tmux-collector/docs/prd0.md',
+      '/repo-wt/4-tmux-collector/docs/architecture.md',
       null,
     ])
   })
@@ -113,7 +113,7 @@ describe('parseAssistantLine', () => {
     const facts = parseAssistantLine(lines[0] as string)
 
     expect(facts).toMatchObject({
-      cwd: '/home/operator/worktrees-challenge',
+      cwd: '/repo',
       gitBranch: 'main',
       model: 'claude-sonnet-5',
       toolUses: [],
