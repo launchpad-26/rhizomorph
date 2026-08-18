@@ -171,9 +171,9 @@ describe('createSessionlogCollector', () => {
     // the real worktree the session ran in, not the fake one `alpha` tails
     // here — honest raw paths, never a guessed rewrite, and Bash stays null.
     expect(tools.map((e) => (e.payload as { filePath: string | null }).filePath)).toEqual([
-      '/home/operator/worktrees-challenge__worktrees/4-tmux-collector/docs/vision.md',
-      '/home/operator/worktrees-challenge__worktrees/4-tmux-collector/docs/prd0.md',
-      '/home/operator/worktrees-challenge__worktrees/4-tmux-collector/docs/architecture.md',
+      '/repo-wt/4-tmux-collector/docs/vision.md',
+      '/repo-wt/4-tmux-collector/docs/prd0.md',
+      '/repo-wt/4-tmux-collector/docs/architecture.md',
       null,
     ])
     expect(tools.map((e) => (e.payload as { toolUseId: string | null }).toolUseId)).toEqual([
@@ -226,9 +226,9 @@ describe('createSessionlogCollector', () => {
 
   it('normalizes filePath to repo-relative when it sits under the lane\'s own worktree (prd11 ruling 2)', async () => {
     // worker-2-core.jsonl's tool_use reports
-    // /home/operator/worktrees-challenge__worktrees/2-core/docs/vision.md — real
+    // /repo-wt/2-core/docs/vision.md — real
     // capture from a session that ran with that exact cwd as its worktree.
-    const worktreePath = '/home/operator/worktrees-challenge__worktrees/2-core'
+    const worktreePath = '/repo-wt/2-core'
     const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
     await mkdir(projectDir, { recursive: true })
     await writeFile(
@@ -266,7 +266,7 @@ describe('createSessionlogCollector', () => {
     expect(tools).toHaveLength(1)
     expect(tools[0]?.payload).toMatchObject({
       tool: 'Read',
-      filePath: '/home/operator/worktrees-challenge__worktrees/2-core/docs/vision.md',
+      filePath: '/repo-wt/2-core/docs/vision.md',
     })
   })
 
@@ -532,6 +532,12 @@ describe('createSessionlogCollector', () => {
     // Mimics a Windows conductor mounted at a WSL path — e.g.
     // /mnt/c/Users/operator/.claude/projects/C--Users-operator-agenticlaunchpad.
     // This is issue #49's exact bug: the raw slug used to leak as the lane.
+    //
+    // The comment path and the directory name below are **one edit** (#649):
+    // the second is the slug encoding of the first, so changing either alone
+    // leaves a comment that no longer explains the value it sits above. The
+    // shape is what this test is about — a Windows-produced slug a POSIX slug
+    // function could never emit — and `C--Users-…` preserves it exactly.
     const foreignSessionDir = path.join(root, 'foreign', 'C--Users-operator-agenticlaunchpad')
     await mkdir(foreignSessionDir, { recursive: true })
     await writeFile(

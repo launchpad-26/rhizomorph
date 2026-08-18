@@ -47,56 +47,22 @@ const OWN_PATH = 'packages/server/src/no-personal-paths-law.test.ts'
 /** Binary extensions checked into the repo (screenshots) — not text, and decoding one as utf8 can produce garbage that coincidentally matches a pattern (seen: a PNG's raw bytes decoding to a false-positive machine name). */
 const BINARY_EXTENSIONS = ['.png']
 
-/** Tracked files the two sweeps below actually read: not pending-fixture-redaction, not this law's own file, not a binary asset. */
-function scannableTrackedFiles(): string[] {
-  return trackedFiles().filter(
-    (file) => !EXCLUDED_PATHS.includes(file) && file !== OWN_PATH && !BINARY_EXTENSIONS.some((ext) => file.endsWith(ext)),
-  )
-}
-
 /**
- * Four real captured session/tmux fixtures, plus the tests that assert
- * byte-for-byte against their real `cwd`/`filePath`/`currentPath`/`title`
- * fields. A capture is redacted for identity at authoring time (#649's
- * ruling, recorded on the issue before dispatch) — these four predate that
- * discipline and are excluded here BY NAME, with a reason, rather than
- * silently passed over: a sweep that is quietly narrower than its title is
- * the defect this repo names second. They land in a follow-up PR that
- * redacts the fixtures and their asserting tests together; renaming one side
- * here without the other would just break the test against real bytes that
- * still exist in the tree.
+ * Tracked files the sweeps below actually read: every one of them except this
+ * law's own file and the binary assets.
+ *
+ * There is deliberately no third category. This law shipped with an
+ * `EXCLUDED_PENDING_FIXTURE_REDACTION` list of seven — four real captures and
+ * the three tests asserting byte-for-byte against them — whose own comment
+ * promised "a follow-up PR that redacts the fixtures and their asserting tests
+ * together". This is that PR, so the list is gone rather than emptied: an
+ * exclusion array left standing at length zero keeps the honesty test that
+ * guards it ("every excluded file actually trips the detector") passing
+ * vacuously, and re-adding a name to it later costs one line and no argument.
  */
-const EXCLUDED_PENDING_FIXTURE_REDACTION: ReadonlyArray<{ path: string; reason: string }> = [
-  {
-    path: 'packages/server/src/collectors/sessionlog/fixtures/conductor-root.jsonl',
-    reason: 'real captured session transcript, predates per-capture redaction',
-  },
-  {
-    path: 'packages/server/src/collectors/sessionlog/fixtures/worker-2-core.jsonl',
-    reason: 'real captured session transcript, predates per-capture redaction',
-  },
-  {
-    path: 'packages/server/src/collectors/sessionlog/fixtures/worker-4-tmux-collector.jsonl',
-    reason: 'real captured session transcript, predates per-capture redaction',
-  },
-  {
-    path: 'packages/server/src/collectors/tmux/fixtures/list-panes.real.txt',
-    reason: 'real captured `tmux list-panes` output, predates per-capture redaction',
-  },
-  {
-    path: 'packages/server/src/collectors/sessionlog/collector.test.ts',
-    reason: "asserts verbatim against the sessionlog fixtures' real cwd/filePath fields",
-  },
-  {
-    path: 'packages/server/src/collectors/sessionlog/parse-session-line.test.ts',
-    reason: "asserts verbatim against the sessionlog fixtures' real cwd/filePath fields",
-  },
-  {
-    path: 'packages/server/src/collectors/tmux/list-panes.test.ts',
-    reason: "asserts verbatim against list-panes.real.txt's real currentPath/title fields",
-  },
-]
-const EXCLUDED_PATHS = EXCLUDED_PENDING_FIXTURE_REDACTION.map((entry) => entry.path)
+function scannableTrackedFiles(): string[] {
+  return trackedFiles().filter((file) => file !== OWN_PATH && !BINARY_EXTENSIONS.some((ext) => file.endsWith(ext)))
+}
 
 /** Obviously-synthetic names seen in tracked files today — anything else is a live-looking name. */
 const ALLOWED_SYNTHETIC_NAMES: readonly string[] = [
@@ -169,6 +135,64 @@ function extractHomePathNames(contents: string): string[] {
 }
 
 /**
+ * Slug encodings of a home path — the form Claude Code writes under
+ * `~/.claude/projects/`, where every separator collapses to a hyphen:
+ * `/home/<name>/fork-probe` becomes `-home-<name>-fork-probe`, and
+ * `C:\Users\<name>\repo` becomes `C--Users-<name>-repo`.
+ *
+ * This is the gap that let one occurrence outlive the sweep in #651. The
+ * patterns above read `/home/<name>` and `\home\<name>`; neither can match a
+ * form with no separators left in it, so a slug naming a real contributor sat
+ * in a research note while the law written for exactly that name passed
+ * green. `AGENTS.md` states the rule this closes — a path and its slug
+ * encoding are ONE edit — and a law that reads only one of the two cannot
+ * hold it.
+ *
+ * The lookbehind is what keeps this off English prose. A slug is a whole
+ * token, so its `-home-` follows a quote, a `/`, or nothing at all; the
+ * hyphenated compounds already in the tree (`real-home-directory`,
+ * `spine-reversed-so-home-is-first`) each follow a letter, and are not slugs.
+ */
+const HOME_SLUG_PATTERNS: RegExp[] = [
+  /(?<![A-Za-z0-9])-home-([A-Za-z][A-Za-z0-9._-]*)/g,
+  /(?<![A-Za-z0-9])-Users-([A-Za-z][A-Za-z0-9._-]*)/g,
+]
+
+/**
+ * A slug carries no boundary marking where the username ends: the hyphen is
+ * both the separator AND a legal character inside a name, and the encoder
+ * folds a dot to a hyphen too, so `lane-user`, `lane/user` and `jane.doe` all
+ * arrive looking alike. Guessing the boundary would report
+ * `-home-jane-doe-project` as the un-allowlisted name `jane`. Instead the
+ * longest allowlisted prefix wins, matched with dots folded to hyphens, and
+ * the allowlisted spelling is what comes back so the caller's plain
+ * `includes` check still recognises it. Only when no allowlisted name fits is
+ * the first segment reported as the violation.
+ */
+function slugName(tail: string): string {
+  const segments = tail.split('-')
+  for (let take = segments.length; take > 0; take -= 1) {
+    const candidate = segments.slice(0, take).join('-')
+    const allowed = ALLOWED_SYNTHETIC_NAMES.find((name) => name.replace(/\./g, '-') === candidate)
+    if (allowed !== undefined) return allowed
+  }
+  return segments[0] ?? ''
+}
+
+/** Every `-home-<name>-…` or `-Users-<name>-…` name found in `contents` — the same disclosure as above, slug-encoded. */
+function extractHomeSlugNames(contents: string): string[] {
+  const names: string[] = []
+  for (const pattern of HOME_SLUG_PATTERNS) {
+    for (const match of contents.matchAll(pattern)) {
+      if (!match[1]) continue
+      const name = slugName(normalizeName(match[1]))
+      if (name.length > 0) names.push(name)
+    }
+  }
+  return names
+}
+
+/**
  * Windows machine-name shapes: the two common auto-generated forms
  * (`DESKTOP-XXXXXXX`, `LAPTOP-XXXXXXX`) and a CamelCase name ending in `PC`
  * (the shape #649 actually found, `<name>PC`). The CamelCase pattern
@@ -191,14 +215,8 @@ describe('no personal paths law: no tracked file names a real home directory, us
     expect(trackedFiles().length).toBeGreaterThan(500)
   })
 
-  it('every excluded path is still tracked — a stale entry here would silently widen the sweep', () => {
-    for (const { path } of EXCLUDED_PENDING_FIXTURE_REDACTION) {
-      expect(isTracked(path), `${path} is not tracked — remove it from the exclusion list`).toBe(true)
-    }
-  })
-
-  it('the exclusion list is pinned — a silent addition is exactly how a narrowed sweep hides', () => {
-    expect(EXCLUDED_PATHS).toEqual([
+  it('the four formerly-excluded captures are still tracked, and are now clean — the sweep widened onto real files, it did not lose them', () => {
+    const redacted = [
       'packages/server/src/collectors/sessionlog/fixtures/conductor-root.jsonl',
       'packages/server/src/collectors/sessionlog/fixtures/worker-2-core.jsonl',
       'packages/server/src/collectors/sessionlog/fixtures/worker-4-tmux-collector.jsonl',
@@ -206,20 +224,20 @@ describe('no personal paths law: no tracked file names a real home directory, us
       'packages/server/src/collectors/sessionlog/collector.test.ts',
       'packages/server/src/collectors/sessionlog/parse-session-line.test.ts',
       'packages/server/src/collectors/tmux/list-panes.test.ts',
-    ])
-    for (const { reason } of EXCLUDED_PENDING_FIXTURE_REDACTION) {
-      expect(reason.length).toBeGreaterThan(0)
-    }
-  })
-
-  it('every excluded file actually trips the detector today — the exclusion is doing real work, not vacuous', () => {
-    const filesThatTrip = new Set<string>()
-    for (const path of EXCLUDED_PATHS) {
+    ]
+    // Dropping the exclusion list could pass for two opposite reasons: the
+    // files were redacted, or they stopped being scanned. This names all
+    // seven and asserts both halves, so only the first reading is available.
+    for (const path of redacted) {
+      expect(isTracked(path), `${path} is not tracked — the sweep cannot have cleaned it`).toBe(true)
+      expect(scannableTrackedFiles(), `${path} is no longer swept`).toContain(path)
       const contents = readFileSync(`${REPO_ROOT}/${path}`, 'utf8')
-      const liveNames = extractHomePathNames(contents).filter((name) => !ALLOWED_SYNTHETIC_NAMES.includes(name))
-      if (liveNames.length > 0 || findMachineNames(contents).length > 0) filesThatTrip.add(path)
+      const live = [...extractHomePathNames(contents), ...extractHomeSlugNames(contents)].filter(
+        (name) => !ALLOWED_SYNTHETIC_NAMES.includes(name),
+      )
+      expect(live, `${path} still names ${live.join(', ')}`).toEqual([])
+      expect(findMachineNames(contents)).toEqual([])
     }
-    expect(filesThatTrip.size).toBe(EXCLUDED_PATHS.length)
   })
 
   it('the allowlist is pinned — a silent addition here is exactly how a real name gets waved through', () => {
@@ -262,6 +280,32 @@ describe('no personal paths law: no tracked file names a real home directory, us
     expect(extractHomePathNames(secondDrive)).toContain('notallowedname')
   })
 
+  it('the slug detector fires on the encoded form the path detectors structurally cannot see', () => {
+    const slug = '~/.claude/projects/-home-notallowedname-fork-probe-wsA'
+    // The point of the whole addition: the same disclosure, in the encoding
+    // that survived a sweep. If this first expectation ever goes green, the
+    // slug reader has become redundant rather than load-bearing.
+    expect(extractHomePathNames(slug)).toEqual([])
+    expect(extractHomeSlugNames(slug)).toContain('notallowedname')
+    expect(extractHomeSlugNames('reverseProjectSlug("-Users-notallowedname-repo")')).toContain('notallowedname')
+  })
+
+  it('the slug detector does NOT fire on hyphenated English — the two compounds already in the tree', () => {
+    expect(extractHomeSlugNames('a blanket regex replaced any other real-home-directory occurrence')).toEqual([])
+    expect(extractHomeSlugNames('the same spine-reversed-so-home-is-first geometry')).toEqual([])
+  })
+
+  it('a slug resolves the longest allowlisted name, not the first hyphen — dots encode as hyphens too', () => {
+    // `jane.doe` and `lane-user` are both allowlisted and both ambiguous once
+    // encoded; cutting at the first hyphen would report `jane` and `lane`,
+    // failing this law on the very placeholders it blesses.
+    expect(extractHomeSlugNames("worktreePathToProjectSlug('/home/jane.doe/project') === '-home-jane-doe-project'")).toEqual([
+      'jane.doe',
+    ])
+    expect(extractHomeSlugNames('-home-lane-user-repo')).toEqual(['lane-user'])
+    expect(extractHomeSlugNames('-Users-dev-TailR-Nutrition-tailr-codebase')).toEqual(['dev'])
+  })
+
   it('a path ending a sentence does not capture the full stop — an allowlisted name stays allowlisted', () => {
     const names = extractHomePathNames('transcripts live under /home/operator.')
     expect(names).toEqual(['operator'])
@@ -280,12 +324,15 @@ describe('no personal paths law: no tracked file names a real home directory, us
     expect(findMachineNames('the gRPC client')).toEqual([])
   })
 
-  it('no non-excluded tracked file contains a home/Users path outside the synthetic allowlist', () => {
+  it('no tracked file contains a home/Users path outside the synthetic allowlist, written either way round', () => {
     const violations: string[] = []
     for (const file of scannableTrackedFiles()) {
       const contents = readFileSync(`${REPO_ROOT}/${file}`, 'utf8')
       for (const name of extractHomePathNames(contents)) {
         if (!ALLOWED_SYNTHETIC_NAMES.includes(name)) violations.push(`${file}: home-directory name "${name}"`)
+      }
+      for (const name of extractHomeSlugNames(contents)) {
+        if (!ALLOWED_SYNTHETIC_NAMES.includes(name)) violations.push(`${file}: home-directory name "${name}", slug-encoded`)
       }
     }
     expect(violations).toEqual([])

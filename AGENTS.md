@@ -237,6 +237,39 @@ Run, in your own worktree: `npm run typecheck`, `npm run lint`, and
 `VITEST_MAX_WORKERS=6 npm test`. That is the whole of what a lane runs. Do
 **not** run `scripts/gate.sh` — see below for what it actually does.
 
+**Nothing you commit may name a real machine or a real person's home.** This
+repo is public, and the line at the top of this file is the whole rule: a
+tracked file says how *the repo* works, not how one contributor's laptop is laid
+out. Paths, OS usernames, hostnames and session ids off your own machine are all
+"how your tooling behaves".
+
+Reach for an obviously synthetic placeholder — `/home/operator`,
+`/Users/operator`, `HOST-REDACTED` — fake enough that no later reader mistakes
+it for captured truth. Where a directory already has a stricter local convention
+(`/repo`, `/repo-wt/<lane>` in the collector fixtures), use that: it is what
+lets those directories ban `/home/` outright rather than keep an allowlist of
+approved home directories.
+
+**A capture is not exempt — it is the main source.** Verification-by-capture is
+the merge gate (prd-26 ruling 3) and it emits your paths by construction. The
+`CAPTURE.md` beside each fixture set is the recipe, and sanitising is a step in
+it: substitute *after* the capture and *before* the commit, move the test's
+expected values in the same edit, and re-run the suite to prove the fixture
+still exercises what it claims. A capture whose test still expects the old bytes
+has stopped being evidence.
+
+Two failures worth knowing, because both actually happened (#649):
+
+- **a path and its encoding are one edit.** `C:\Users\x\repo` and the slug
+  `C--Users-x-repo` are the same fact written twice; changing one leaves a test
+  that passes while no longer testing the encoding. Re-derive the second rather
+  than retyping it.
+- **a guard scoped by a naming convention misses the files that predate it.**
+  The fixture-hygiene law read `startsWith('claude-code-')`, so it never saw
+  three older captures sitting in the same directory — and asserted, truthfully
+  and uselessly, that no fixture carried a home path. Scope a guard by what a
+  file *is*, not by what it is called.
+
 ## Landing — the operator's step, and nobody else's
 
 `scripts/gate.sh <handle> <fence-regex>` is **not a pre-push check**. Running it

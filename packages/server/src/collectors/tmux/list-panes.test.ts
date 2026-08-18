@@ -16,7 +16,7 @@ describe('parseListPanes', () => {
       sessionName: 'obs',
       windowIndex: 0,
       windowName: 'bash',
-      currentPath: '/home/operator/worktrees-challenge',
+      currentPath: '/repo',
       currentCommand: 'bash',
       title: 'HOST-REDACTED',
     })
