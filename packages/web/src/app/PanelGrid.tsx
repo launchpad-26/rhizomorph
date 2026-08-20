@@ -143,19 +143,25 @@ export function PanelGrid() {
    * scene's `min-h-[55vh]` was the only floor in the file, so the roster
    * representation had none at all.
    *
-   * Two explicit shares fix it at the source: `3fr` to the hero and `2fr` to
+   * Two explicit shares fix it at the source: `7fr` to the hero and `3fr` to
    * the dock, with `minmax(0, …)` so a track can actually shrink to its share
    * rather than inflating to its content (a bare `1fr` has an implicit
    * `min-height: auto` and will not), and `overflow-hidden` here so the PAGE
    * never scrolls — each panel scrolls inside its own share instead. Nothing is
    * ever below a fold, because there is no fold.
    *
-   * 3:2 rather than 1:1 is prd4 ruling 2's hierarchy expressed as height:
-   * *who is alive* is the first-second question and gets the larger share. The
-   * ruling's own justification for the split — that the scene is
-   * "self-explanatory" — is amended on the record in
-   * `docs/prds/done/prd-04-human-facing.md`, because it is false at fleet scale
-   * and that is precisely why the roster must not be the thing that shrinks.
+   * 7:3 is prd4 ruling 2's hierarchy expressed as height: *who is alive* is
+   * the first-second question and gets the decisively larger share. It was
+   * 3:2, and at prd-32 S5's own primary size (1440×900) that left the scene
+   * host at ≈330px — BELOW the scene's own 420px zero-size fallback, so the
+   * picture was being rasterised at 420 and squashed ~21% by CSS on the
+   * default window. 7:3 puts the host at ≈398px at S5-primary and ≈524px
+   * maximized on a 1080p display, while the dock keeps ≈134px of content —
+   * above its own `min-h-32` floor, its tab strip plus a legible reading.
+   * 3:1 was rejected (a ~100px dock makes prd-32 S3's "every tab renders in
+   * every state" technically-true-only); the change is recorded in
+   * `docs/prds/done/prd-04-human-facing.md`'s amendment, per its own rule
+   * that the prose and the split move in the same commit.
    *
    * Collapsing either panel is unaffected: a collapsed `PanelFrame` is
    * `self-start`, so it takes its header's height and its share goes to the
@@ -173,7 +179,7 @@ export function PanelGrid() {
           from the fleet in order to say it. */}
       {foldIsEmpty ? <BalconyConnectPointer /> : null}
 
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,3fr)_minmax(0,2fr)] gap-4">
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,7fr)_minmax(0,3fr)] gap-4">
         {/* The centerpiece (prd4 ruling 2, merged by prd-36 ruling 1): "what is
             the fleet doing?" answered before anything else, hero-sized above
             the dock — as the organism or as the list, one keystroke apart. The

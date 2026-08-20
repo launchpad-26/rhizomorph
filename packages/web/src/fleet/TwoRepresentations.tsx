@@ -247,7 +247,10 @@ export function TwoRepresentations({ surface, views, heading, store }: TwoRepres
       data-representation={current.id}
       className="flex h-full min-h-0 flex-col rounded-lg border border-(--line-hair) bg-(--surface-panel)"
     >
-      <header className="flex shrink-0 items-center justify-between gap-3 px-4 py-2">
+      {/* py-1 rather than py-2: the header sits INSIDE the hero's share, so its
+          padding is paid out of the scene — ~8px bought back for the picture
+          without touching any button's own target size (target-size law). */}
+      <header className="flex shrink-0 items-center justify-between gap-3 px-4 py-1">
         {heading}
         <div
           // The law's marker: a representation toggle drawn anywhere else in

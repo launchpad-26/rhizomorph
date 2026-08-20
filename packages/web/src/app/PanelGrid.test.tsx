@@ -530,9 +530,11 @@ describe('PanelGrid', () => {
     it('divides the row into two explicit shares rather than letting one absorb the pressure', async () => {
       const { container } = await renderGrid()
 
-      // 3fr to the hero, 2fr to the dock: prd4 ruling 2's hierarchy expressed
-      // as height rather than as a floor on one representation.
-      expect(grid(container).className).toContain('grid-rows-[minmax(0,3fr)_minmax(0,2fr)]')
+      // 7fr to the hero, 3fr to the dock: prd4 ruling 2's hierarchy expressed
+      // as height rather than as a floor on one representation. (3:2 left the
+      // hero's scene host BELOW its own 420px zero-size fallback at S5's
+      // primary window size — the picture was squashed ~21% by default.)
+      expect(grid(container).className).toContain('grid-rows-[minmax(0,7fr)_minmax(0,3fr)]')
     })
 
     it('uses minmax(0, …) so a track can shrink to its share rather than inflate to its content', async () => {

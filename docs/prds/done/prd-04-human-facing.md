@@ -105,10 +105,19 @@ That mismatch was the bug, mechanically:
    centerpiece.
 2. **Its size is a proportion of the viewport, never a `min-height` floor
    on one representation.** `PanelGrid` divides its row into
-   `minmax(0, 3fr)` for the fleet and `minmax(0, 2fr)` for the dock, and
+   `minmax(0, 7fr)` for the fleet and `minmax(0, 3fr)` for the dock, and
    `Shell`'s middle row is `minmax(0, 1fr)` so it takes what the docked
-   `auto` rows leave rather than being squeezed by them. 3:2 is this
+   `auto` rows leave rather than being squeezed by them. 7:3 is this
    ruling's hierarchy expressed as height.
+
+   *(Re-proportioned 2026-08-20, from the 3:2 this amendment shipped with.
+   Measured on the desktop shell at prd-32 S5's own primary size, 3:2 left
+   the hero's scene host at ≈330px — below the scene's 420px zero-size
+   fallback, so the default experience was a picture rasterised at 420 and
+   squashed ~21% by CSS. 7:3 restores a real ≈398px at S5-primary and
+   ≈524px maximized on 1080p, while the dock keeps ≈134px — above its own
+   `min-h-32` floor. The mechanism is unchanged: still a proportion, still
+   no floor, and the give-up below still stands on short windows.)*
 3. **The page does not scroll; the panels do.** A share a panel cannot
    fill scrolls inside itself, so nothing is ever below a fold — because
    there is no fold. A floor that pushes a sibling off-screen and a
