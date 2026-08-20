@@ -59,11 +59,11 @@ describe('defaults, and what "unset" means', () => {
 
   it('refuses to store anything for a control that cannot act', () => {
     // S1's *unavailable* state disables the control, so a write that arrived
-    // here came from code that did not check — and storing a scene-quality
-    // level nothing can render is the "setting that claims to have changed
-    // something" prd-35 exists to prevent.
-    expect(() => writePreference('appearance.sceneQuality', 'maximum')).toThrow(/unavailable/)
-    expect(readPreference('appearance.sceneQuality')).toBe('rich')
+    // here came from code that did not check. Scene quality went LIVE (loop
+    // 6) so the example is now close-to-tray, which stays unavailable until a
+    // host announces a tray — and this jsdom announces nothing.
+    expect(() => writePreference('application.closeToTray', false)).toThrow(/unavailable/)
+    expect(readPreference('application.closeToTray')).toBe(true)
   })
 
   it('falls back to the default when the stored JSON is malformed', () => {
@@ -257,7 +257,8 @@ describe('what the host clears, and what nothing can clear (#574)', () => {
     // shell declaring everything changes none of them.
     withHost(['shell', 'tray', 'notify', 'launchAtLogin', 'updates'])
 
-    expect(unavailabilityOf(entryOf('appearance.sceneQuality'))).toContain("prd-33's")
+    // Scene quality is live now — the PRD-gated examples left are the groups.
+    expect(unavailabilityOf(entryOf('appearance.sceneQuality'))).toBeNull()
     for (const id of ['repo', 'you', 'sharing'] as const) {
       expect(groupUnavailabilityOf(groupOf(id)), id).not.toBeNull()
     }

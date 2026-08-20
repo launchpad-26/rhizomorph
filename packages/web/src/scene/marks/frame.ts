@@ -33,7 +33,18 @@ import { emphasisOf, spend, spendTip, type Salience } from '../salience.js'
  * holding its clock still, so every mark that reads `now` freezes without having
  * to know the control exists.
  */
+export type SceneQuality = 'calm' | 'rich' | 'maximum'
+
 export interface SceneFrame {
+  /**
+   * THE QUALITY DIAL (prd-35's calm · rich · maximum, live since loop 6).
+   * `calm` is ruling 12's still floor — no bloom, no underglow, no spores, no
+   * grain, no directional light; the facts and the alarm grammar untouched.
+   * `rich` (default) is exactly the scene as shipped. `maximum` adds the
+   * subsurface underglow. Quality moves MATERIAL only — every state and every
+   * pathology stays distinguishable at every level (the ruling-6 harness).
+   */
+  quality: SceneQuality
   fleet: Fleet
   geometry: SceneGeometry
   field: PulseField

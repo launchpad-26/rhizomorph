@@ -94,39 +94,67 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
     modulate: variationFor(variationSeed(thread.lane)).widthJitter,
   }
 
+  // THE SUBSURFACE UNDERGLOW (prd-33 ruling 8; maximum quality only): one
+  // wide, faint tissue ribbon beneath the bloom, brightest at the root end —
+  // matter is dense where it meets the mass. Drawn as light material, so it
+  // adds on the void and washes as ink on paper (the lightBlend seam).
+  if (frame.quality === 'maximum' && !thread.alarm) {
+    marks.push(
+      ribbonMark({
+        ...shape,
+        role: 'underglow',
+        laneId,
+        alarm: false,
+        path: thread.path,
+        widthRoot: thread.widthRoot * 6,
+        widthTip: thread.widthTip * 4,
+        samples: 16,
+        paint: {
+          type: 'linear',
+          from: pointAt(thread.path, 0),
+          to: pointAt(thread.path, 1),
+          stops: [
+            { at: 0, ink: budget(frame, laneId, false, { rgb: mix(base.rgb, tissueAtOn(frame.palette, 0.5), 0.5), alpha: base.alpha * 0.05 }) },
+            { at: 1, ink: budget(frame, laneId, false, { rgb: mix(base.rgb, tissueAtOn(frame.palette, 0.5), 0.5), alpha: base.alpha * 0.015 }) },
+          ],
+        },
+      }),
+    )
+  }
+
   // Bloom first, wide and faint, then the core. Two ribbons rather than a shadow
   // blur: shadows on forty paths a frame is where canvas 2D falls over.
+  // The bloom is material — calm quality draws the thread alone.
+  if (frame.quality !== 'calm') {
+    marks.push(
+      ribbonMark({
+        ...shape,
+        role: 'thread-bloom',
+        laneId,
+        alarm: false,
+        path: thread.path,
+        widthRoot: thread.widthRoot * 3.6,
+        widthTip: thread.widthTip * 3.6,
+        // Half the thread's resolution: a wash at 10% alpha has no edge anybody
+        // can find a facet in, and it is the second-widest ribbon on screen.
+        samples: 24,
+        // THE THREAD UNDERGLOW (prd10 ruling 5) — the bloom, mixed toward the
+        // accent. See docs/design-notes/ and the litStops seam for the light.
+        paint: thread.alarm
+          ? budget(frame, laneId, false, {
+              rgb: mix(base.rgb, tissueAtOn(frame.palette, 0.5), UNDERGLOW),
+              alpha: base.alpha * 0.1,
+            })
+          : litStops(
+              frame,
+              laneId,
+              { rgb: mix(base.rgb, tissueAtOn(frame.palette, 0.5), UNDERGLOW), alpha: base.alpha * 0.1 },
+              thread.path,
+            ),
+      }),
+    )
+  }
   marks.push(
-    ribbonMark({
-      ...shape,
-      role: 'thread-bloom',
-      laneId,
-      alarm: false,
-      path: thread.path,
-      widthRoot: thread.widthRoot * 3.6,
-      widthTip: thread.widthTip * 3.6,
-      // Half the thread's resolution: a wash at 10% alpha has no edge anybody
-      // can find a facet in, and it is the second-widest ribbon on screen.
-      samples: 24,
-      // THE THREAD UNDERGLOW (prd10 ruling 5) — the bloom, mixed toward the
-      // accent. It is the ruling's second named tissue draw, and it costs nothing:
-      // the widest, faintest ribbon on the lane was already being painted, so the
-      // undertone is a change of colour rather than a new object. A third of the
-      // way to `TISSUE_500` keeps the lane's own family unmistakable in the mark
-      // above it while the light *around* it reads as bioluminal — which is the
-      // whole difference between a lit line and a living one.
-      paint: thread.alarm
-        ? budget(frame, laneId, false, {
-            rgb: mix(base.rgb, tissueAtOn(frame.palette, 0.5), UNDERGLOW),
-            alpha: base.alpha * 0.1,
-          })
-        : litStops(
-            frame,
-            laneId,
-            { rgb: mix(base.rgb, tissueAtOn(frame.palette, 0.5), UNDERGLOW), alpha: base.alpha * 0.1 },
-            thread.path,
-          ),
-    }),
     ribbonMark({
       ...shape,
       role: 'thread',
@@ -136,8 +164,12 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       widthRoot: thread.widthRoot,
       widthTip: thread.widthTip,
       // The directional light rides the calm living body; an alarm lane's
-      // ribbon stays flat so nothing ambient touches the band it owes.
-      paint: thread.alarm ? budget(frame, laneId, false, base) : litStops(frame, laneId, base, thread.path),
+      // ribbon stays flat so nothing ambient touches the band it owes. Calm
+      // quality drops the light with the rest of the material.
+      paint:
+        thread.alarm || frame.quality === 'calm'
+          ? budget(frame, laneId, false, base)
+          : litStops(frame, laneId, base, thread.path),
     }),
   )
 

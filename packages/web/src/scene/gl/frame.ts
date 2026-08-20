@@ -114,9 +114,14 @@ function isChrome(mark: Mark): boolean {
   return mark.role === 'gap' || mark.kind === 'wash' || mark.kind === 'grain'
 }
 
-/** Light adds, ink covers — and a drift of motes is light. `paint.ts`'s rule. */
+/**
+ * Light adds, ink covers — and a drift of motes is light. `paint.ts`'s rule,
+ * plus the one ROLE that is light material in ribbon form: the subsurface
+ * underglow (maximum quality), which must add on the void exactly as a glow
+ * does or it would read as paint smeared under the thread.
+ */
 function isLight(mark: Mark): boolean {
-  return mark.kind === 'glow' || mark.kind === 'motes'
+  return mark.kind === 'glow' || mark.kind === 'motes' || mark.role === 'underglow'
 }
 
 function isOverlay(mark: Mark): boolean {

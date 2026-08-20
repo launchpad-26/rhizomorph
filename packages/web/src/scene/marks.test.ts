@@ -39,7 +39,7 @@ import {
   type SceneFrame,
 } from './marks/index.js'
 import { ribbonMark } from './marks/index.js'
-import { LIGHT_AXIS } from './marks/frame.js'
+import { type SceneQuality, LIGHT_AXIS } from './marks/frame.js'
 import { rootFalloffs, arrivalSwell } from './marks/root.js'
 import { RIM_VEIL } from './marks/ambient.js'
 import { buildFrame } from './gl/index.js'
@@ -183,6 +183,8 @@ interface FrameOptions {
   palette?: ScenePalette
   /** laneId → grow-in progress, straight through to the layout (growth class). */
   growth?: ReadonlyMap<string, number>
+  /** The quality dial. Defaults to rich — exactly the scene as shipped. */
+  quality?: SceneQuality
 }
 
 function frameFor(options: FrameOptions = {}): SceneFrame {
@@ -216,6 +218,7 @@ function frameFor(options: FrameOptions = {}): SceneFrame {
     // The two clocks are the same number in every fixture here, which is exactly
     // what they are live — the suites that care about the split say so explicitly.
     asOf: now,
+    quality: options.quality ?? 'rich',
     vibrancy: vibrancyOf(options.replaying ?? false),
     reducedMotion,
     paused,
@@ -882,6 +885,61 @@ describe('ambient never means (prd-33 ruling 2)', () => {
       flora: marks.filter((m) => m.role === 'rim-flora').length,
     })
     expect(countsOf(marksFor())).toEqual(countsOf(marksFor({ fleet: fleetFor(fleet20Spec()) })))
+  })
+})
+
+/**
+ * THE QUALITY DIALS (prd-35's calm · rich · maximum, live). Quality moves
+ * MATERIAL only — prd-33 ruling 6's hard clause is the third law here: every
+ * state and pathology stays distinguishable at every level, because the
+ * vocabulary marks are not material and may never be quality-gated.
+ */
+describe('the quality dials', () => {
+  it('rich IS the scene as shipped — byte-identical to the default', () => {
+    expect(marksFor({ quality: 'rich' })).toEqual(marksFor())
+  })
+
+  it('maximum adds the subsurface underglow and changes nothing else', () => {
+    const rich = marksFor({ quality: 'rich' })
+    const max = marksFor({ quality: 'maximum' })
+    const withoutUnderglow = max.filter((mark) => mark.role !== 'underglow')
+    expect(withoutUnderglow).toEqual(rich)
+    expect(max.filter((mark) => mark.role === 'underglow').length).toBeGreaterThan(0)
+  })
+
+  it('calm strips material and not one word of the vocabulary (ruling 6)', () => {
+    const calm = marksFor({ quality: 'calm' })
+    const max = marksFor({ quality: 'maximum' })
+    const vocabulary = (marks: readonly Mark[]) =>
+      new Set(
+        marks
+          .map((mark) => mark.role)
+          .filter(
+            (role) =>
+              role !== 'thread-bloom' &&
+              role !== 'underglow' &&
+              role !== 'grain' &&
+              role !== 'spore' &&
+              role !== 'thread-flow',
+          ),
+      )
+    // Every role the states and pathologies speak in survives the floor.
+    for (const role of vocabulary(max)) {
+      expect(vocabulary(calm).has(role), `calm lost ${role}`).toBe(true)
+    }
+    // …and the material genuinely went.
+    expect(calm.filter((m) => m.role === 'thread-bloom')).toHaveLength(0)
+    expect(calm.filter((m) => m.role === 'grain')).toHaveLength(0)
+    expect(calm.filter((m) => m.role === 'spore')).toHaveLength(0)
+  })
+
+  it('keeps the underglow inside the tissue fence and the light blend', () => {
+    const max = marksFor({ quality: 'maximum' })
+    for (const mark of max) {
+      if (mark.role !== 'underglow') continue
+      expect(TISSUE_ROLES).toContain(mark.role)
+      expect(mark.alarm).toBe(false)
+    }
   })
 })
 
@@ -3439,6 +3497,7 @@ describe('the tissue accent appears only in tissue draws (prd10 ruling 5)', () =
 
 /** Where the accent is allowed: organic tissue, and nowhere else (ruling 5). */
 const TISSUE_ROLES: readonly MarkRole[] = [
+  'underglow',
   'root-mass',
   'growth-ring',
   'hyphal-fan',

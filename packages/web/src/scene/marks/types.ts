@@ -193,6 +193,8 @@ export type MarkRole =
   | 'grain'
   | 'spore'
   | 'rim-flora'
+  /** Subsurface tissue light beneath a living thread (maximum quality). */
+  | 'underglow'
   /** The scene's own gap voice (law 12) — what it cannot show, and why. */
   | 'gap'
 

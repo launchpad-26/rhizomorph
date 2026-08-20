@@ -310,8 +310,11 @@ export const PREFERENCES: readonly PrefEntry[] = [
     fallback: 'rich',
     words: null,
     control: 'settings',
-    unavailable:
-      "the levels are prd-33's to define — `calm`, `rich` and `maximum` name nothing in the renderer yet, and storing a level no renderer reads would be a control that claims to have changed the picture. The control is here, disabled, so the place it will act from is not invented later.",
+    // LIVE since loop 6 (2026-08-21): the renderer reads all three levels —
+    // calm is ruling 12's still floor, rich is the scene as shipped, maximum
+    // adds the subsurface underglow. The disabled-until-real discipline held:
+    // the control existed here first, and acted only when the reads existed.
+    unavailable: null,
     requires: null,
     gap: null,
     legacy: null,

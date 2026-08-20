@@ -24,6 +24,7 @@ import {
 } from '../marks/index.js'
 import { allowance } from '../motion.js'
 import { ink, paletteFor, type ThemeName } from '../palette.js'
+import type { SceneQuality } from '../marks/frame.js'
 import type { PulseField } from '../pulses.js'
 import type { RetireRegistry } from '../retire.js'
 import { salienceOf } from '../salience.js'
@@ -36,6 +37,7 @@ export interface SceneLatestState {
   field: PulseField
   settle: SettleRegistry
   retire: RetireRegistry
+  quality: SceneQuality
   selectedId: string | null
   hoverId: string | null
   reducedMotion: boolean
@@ -342,6 +344,7 @@ export function useFrameLoop(
         now: clock,
         asOf: asOfClock,
         vibrancy: vibrancyOf(current.replaying),
+        quality: current.quality,
         reducedMotion: current.reducedMotion,
         paused: current.paused,
         breath: breathOf(clock, mode),

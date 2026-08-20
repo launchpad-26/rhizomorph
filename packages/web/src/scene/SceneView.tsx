@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Fleet } from '../fleet/index.js'
 import { ZOOM_STEP } from './camera.js'
+import type { SceneQuality } from './marks/frame.js'
 import { useScenePref } from '../app/panelPrefs.js'
+import { readChoice, subscribeToPreferences } from '../settings/registry.js'
 import type { SceneGeometry } from './geometry.js'
 import type { PulseField } from './pulses.js'
 import { isRetired, type RetireRegistry } from './retire.js'
@@ -57,6 +59,16 @@ export interface SceneViewProps {
   replaying?: boolean
 }
 
+/** The quality dial, straight off the preference registry (live per #574). */
+function useSceneQuality(): SceneQuality {
+  const [value, setValue] = useState<SceneQuality>(() => readChoice('appearance.sceneQuality') as SceneQuality)
+  useEffect(
+    () => subscribeToPreferences(() => setValue(readChoice('appearance.sceneQuality') as SceneQuality)),
+    [],
+  )
+  return value
+}
+
 export function SceneView({
   fleet,
   field,
@@ -83,6 +95,7 @@ export function SceneView({
   const [reducedMotion, setReducedMotion] = useState(false)
   const [paused, setPaused] = useState(false)
   const [hideFinished, setHideFinished] = useScenePref('hideFinished')
+  const quality = useSceneQuality()
   const [failure, setFailure] = useState<string | null>(null)
   const [grabReady, setGrabReady] = useState(false)
   // The theme, off the document's own attribute — the seam `settings/apply.ts`
@@ -100,6 +113,7 @@ export function SceneView({
     reducedMotion,
     paused,
     hideFinished,
+    quality,
     theme,
     now,
     asOf,
@@ -115,6 +129,7 @@ export function SceneView({
     reducedMotion,
     paused,
     hideFinished,
+    quality,
     theme,
     now,
     asOf,

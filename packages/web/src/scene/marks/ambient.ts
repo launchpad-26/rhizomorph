@@ -119,11 +119,15 @@ const GRAIN = { tile: 64, alpha: 0.016, fps: 12 } as const
  * camera moves the picture underneath them and never them.
  */
 export function ambientScreenMarks(frame: SceneFrame): Mark[] {
+  // Calm quality is ruling 12's still floor: the washes stay (a still
+  // gradient costs nothing and carries the depth), the grain goes.
+
   const { width, height } = frame.geometry
   // Pause and reduced motion both leave every one of these exactly where it is:
   // a still gradient is not motion, and WCAG 2.3.3 excludes colour and opacity
   // from the definition. What the frozen clock *does* take away is the grain's
   // crawl, below.
+  const calmQuality = frame.quality === 'calm'
   const still = !allowance('ambient', motionMode(frame)).opacity
   const { vibrancy } = frame
 
@@ -175,7 +179,7 @@ export function ambientScreenMarks(frame: SceneFrame): Mark[] {
       // have turned into movement. The motion budget stays exactly where it was.
       ink: ink(frame.palette.register.data, GRAIN.alpha),
     },
-  ]
+  ].filter((mark) => !(calmQuality && mark.kind === 'grain')) as Mark[]
 }
 
 /**
@@ -187,6 +191,8 @@ export function ambientScreenMarks(frame: SceneFrame): Mark[] {
  * on top of is depth.
  */
 export function ambientWorldMarks(frame: SceneFrame): Mark[] {
+  // Calm quality: the drift goes (per-frame cost), the baked flora stays.
+  if (frame.quality === 'calm') return [floraMark(frame)]
   return [sporeMarks(frame), floraMark(frame)]
 }
 
