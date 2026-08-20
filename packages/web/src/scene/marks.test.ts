@@ -614,6 +614,44 @@ describe('the contrast budget — spotlight, not shouting', () => {
 })
 
 /**
+ * ALARM MOTION IS NEVER WHAT DENSITY DROPS (prd-33 ruling 10's exemption
+ * clause, landed with the measured cap raise). The event cap folds surplus
+ * pulses into aggregates — but a summons' throb is not a pulse and owns no
+ * slot the fold could take: it is computed from the summons' own age, outside
+ * the field entirely. This states that as a display-list fact, so a future
+ * "efficiency" that routes alarm motion through the pulse pool turns the
+ * suite red.
+ */
+describe('the event cap and the alarms', () => {
+  it('draws the same summons on a saturated field as on an empty one', () => {
+    const fleet = fleetFor(pathologySpec())
+    const empty = new PulseField()
+    const saturated = new PulseField()
+    // Far past EVENT.maxConcurrent: every llm.usage the fixture history has,
+    // all mid-journey at the frame's clock.
+    saturated.ingest(
+      fixtureHistory(pathologySpec(), NOW).filter((event) => event.type === 'llm.usage'),
+      indexFor(fleet),
+      NOW - 500,
+    )
+    expect(saturated.concurrency()).toBeGreaterThan(0)
+
+    const calmPulseMarks = (marks: readonly Mark[]) =>
+      marks.filter((mark) => mark.role === 'pulse' || mark.role === 'pulse-wake')
+    const alarmMarks = (marks: readonly Mark[]) =>
+      marks.filter((mark) => mark.laneId === LANE.waiting && mark.alarm)
+
+    const quiet = sceneMarks(frameFor({ fleet, field: empty }))
+    const busy = sceneMarks(frameFor({ fleet, field: saturated }))
+
+    // The field genuinely changed the calm picture…
+    expect(calmPulseMarks(busy).length).toBeGreaterThan(calmPulseMarks(quiet).length)
+    // …and changed the summons not one byte.
+    expect(alarmMarks(busy)).toEqual(alarmMarks(quiet))
+  })
+})
+
+/**
  * THE SAME BUDGET, DENOMINATED IN PRESENCE (#551's consumption wave).
  *
  * On paper the band's unit changes — departure from the ground, alpha included —

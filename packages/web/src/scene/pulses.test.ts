@@ -221,14 +221,16 @@ describe('rule 2 — traffic is coalesced, never invented', () => {
  * the twelve can be tracked. So the sixth event does not get its own light — it
  * folds into a journey that is already running, which starts carrying a count.
  */
-describe('ruling 4 — five concurrent animations, then a count', () => {
+describe('ruling 4 — a cap of concurrent animations, then a count (7, measured)', () => {
   const aggregateOf = (field: PulseField): Pulse | undefined =>
     field.pulses().find((pulse) => pulse.kind === 'aggregate')
 
-  it('animates the first five events and coalesces the sixth', () => {
+  it('animates a cap of events and coalesces the one past it', () => {
     const field = new PulseField()
-    const six = Array.from({ length: 6 }, (_unused, i) => commit('77-strip', 1, NOW + i))
-    field.ingest(six, INDEX, NOW)
+    const overCap = Array.from({ length: EVENT.maxConcurrent + 1 }, (_unused, i) =>
+      commit('77-strip', 1, NOW + i),
+    )
+    field.ingest(overCap, INDEX, NOW)
 
     expect(field.concurrency()).toBe(EVENT.maxConcurrent)
 
@@ -237,7 +239,7 @@ describe('ruling 4 — five concurrent animations, then a count', () => {
     // Two events on one animation: the journey it was already making, plus the
     // one that could not have its own.
     expect(aggregate?.count).toBe(2)
-    expect(represented(field)).toBe(6)
+    expect(represented(field)).toBe(EVENT.maxConcurrent + 1)
   })
 
   it('keeps counting past the cap without ever adding a seventh moving thing', () => {
@@ -309,7 +311,7 @@ describe('ruling 4 — five concurrent animations, then a count', () => {
     expect(field.concurrency()).toBe(EVENT.maxConcurrent)
     expect(field.pulses().every((pulse) => pulse.count === 1)).toBe(true)
     // The wheel still turned for every one of them: the fact survives the flash.
-    expect(field.energyOf('lane-a').orbitTarget).toBeCloseTo(ORBIT_STEP * 8, 10)
+    expect(field.energyOf('lane-a').orbitTarget).toBeCloseTo(ORBIT_STEP * (EVENT.maxConcurrent + 3), 10)
   })
 
   it('flares for every arrival an aggregate carried home', () => {

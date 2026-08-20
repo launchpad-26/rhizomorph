@@ -66,11 +66,14 @@ describe('the ambient class — sub-threshold or nothing', () => {
   })
 })
 
-describe('the event class — five is the tracking limit', () => {
-  it('caps concurrency where people stop being able to follow', () => {
-    // Pylyshyn & Storm: ~4–5 independent targets. The enforcement is in
+describe('the event class — seven is the measured ceiling', () => {
+  it('caps concurrency where the fleet has actually been, not where a guess put it', () => {
+    // Raised from Pylyshyn & Storm's ~4–5 tracking guess to the MEASURED
+    // ceiling (prd-33 ruling 10): 291 hours of real fleet telemetry, replayed
+    // uncapped, peak at exactly 7 genuinely simultaneous distinct-lane pulses
+    // (research/2026-08-16-concurrency-measurement.md). The enforcement is in
     // `pulses.ts`; this is the number it enforces.
-    expect(EVENT.maxConcurrent).toBe(5)
+    expect(EVENT.maxConcurrent).toBe(7)
   })
 
   it('keeps a pulse inside the 400–600 ms band', () => {
@@ -208,7 +211,10 @@ describe('the dissolution class — matter returning, and nothing else', () => {
     // The cheapest way to smuggle a sixth simultaneous pulse into this scene would
     // be to widen the event cap while adding a class nobody was watching.
     expect(AMBIENT.maxAmplitude).toBe(0.03)
-    expect(EVENT.maxConcurrent).toBe(5)
+    expect(EVENT.maxConcurrent).toBe(7)
+    // STRUCTURAL got the opposite verdict from the same measurement: the
+    // ceiling for genuinely simultaneous reflows was 2, five times in 291
+    // hours — the data refused the raise, so the cap does not move.
     expect(STRUCTURAL.maxConcurrent).toBe(2)
     expect(STRUCTURAL.durationMs).toBe(800)
     // …and the older three still degrade exactly as they did.

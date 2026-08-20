@@ -65,8 +65,18 @@ export const EVENT = {
   /** Fast in, slow out: a flare is struck, not faded up. */
   flareInMs: 150,
   flareOutMs: 500,
-  /** The tracking limit. Past it, one aggregate pulse with a count. */
-  maxConcurrent: 5,
+  /**
+   * The tracking limit. Past it, one aggregate pulse with a count.
+   *
+   * Raised 5 → 7 on measurement (prd-33 ruling 10;
+   * `research/2026-08-16-concurrency-measurement.md`): 229,489 events across
+   * ~291 observed hours, replayed through this file's own event→pulse mapping
+   * uncapped, put the honest ceiling of *genuinely simultaneous, distinct-lane*
+   * pulses at exactly 7 — the seven-lane wave the issue named. The raw
+   * single-lane spike (45, one lane's tool-call streak) is what `coalesce`
+   * exists to fold, not what this cap should count.
+   */
+  maxConcurrent: 7,
 } as const
 
 /** Topology changing. The one expressive class, and the one that uses a spring. */
