@@ -91,7 +91,6 @@ const SLACK_HABIT = { min: 0.7, max: 1.5 } as const
 interface ThreadSpine {
   path: Point[]
   filaments: FilamentGeometry[]
-  bud: BudGeometry | null
 }
 
 function layoutSpine(
@@ -108,7 +107,6 @@ function layoutSpine(
   growth: number,
   growthTravel: boolean,
   cut: RetireState | null,
-  now: number,
 ): ThreadSpine {
   // Deterministic sideways lean, keyed on the lane id (same wander every frame
   // and session). Every thread gets a *minimum* bow — sign from the hash,
@@ -173,8 +171,6 @@ function layoutSpine(
   return {
     path,
     filaments: layoutFilaments(lane, path, widthTip, perp),
-    // A retiring lane grows no bud: whatever it had handed out, it has finished.
-    bud: cut === null ? layoutBud(lane, path, perp, now, variation.phase) : null,
   }
 }
 
@@ -189,6 +185,27 @@ const EMPTY_FILAMENTS: readonly FilamentGeometry[] = []
  * docs/design-notes/geometry-cache-audit-178.md.
  */
 let retiredSpineCache: { world: string; entries: Map<string, ThreadSpine> } | null = null
+
+/**
+ * THE LIVING-SPINE CACHE (loop 14) — #178's discipline extended to lanes that
+ * are still alive. Measured before building (the growth note's own condition):
+ * at 160 lanes the model side of a frame was 18.1ms — layoutScene 1.33ms,
+ * sceneMarks 16.7ms of which threadMarks' `getStroke` outlines were 9.75ms —
+ * and at rest every one of those spines differed from the previous frame by
+ * at most 0.0004px (the lifecycle creep). One slot per lane, replaced whenever
+ * any real input changes; the clock term is bucketed by LIFECYCLE_TICK_MS.
+ * Bounded by fleet size, and the outline cache in `ribbon.ts` rides the path
+ * identities this keeps stable.
+ */
+const livingSpineCache = new Map<string, { key: string; spine: ThreadSpine }>()
+
+/**
+ * How long a living spine may coast on its cached geometry. The only term that
+ * moves inside a tick is the lifecycle creep — ≤0.024px per second, forty
+ * times under a pixel — so a one-second step is invisible by two orders of
+ * magnitude while retiring ~59 of every 60 spine builds at rest.
+ */
+const LIFECYCLE_TICK_MS = 1_000
 
 function retiredSpineCacheFor(world: string): Map<string, ThreadSpine> {
   if (retiredSpineCache === null || retiredSpineCache.world !== world) {
@@ -331,9 +348,19 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
     // `cut.stage === 'persistent'` alone — see the decision doc above.
     const settled = cut !== null && cut.dissolve >= 1
 
+    // THE LIVING KEY — everything a living spine is a function of, except the
+    // raw clock. The one true time term (the lifecycle creep in `rim`, via
+    // `lifeFrac`) advances 0.0004px per frame (measured, loop 14) and 0.12px
+    // per five seconds, so it is bucketed: within one LIFECYCLE_TICK_MS the
+    // first computation wins the tick and every later frame reuses its arrays
+    // byte-for-byte. At a pinned clock every distinct `now` that changes any
+    // other term (growth, thicken, a cut stage) changes the key, so still-image
+    // tests and choreography tests see exact per-frame geometry as before.
+    const livingKey = `${world}|${angle.toFixed(6)}|${bundleAngle.toFixed(6)}|${sizeFrac.toFixed(6)}|${growth.toFixed(6)}|${options.growthTravel !== false}|${variationSeed(lane)}|${cut === null ? 'live' : `${cut.stage}|${cut.tension}|${cut.withdraw}|${cut.drift}`}|${Math.floor(now / LIFECYCLE_TICK_MS)}`
+    const livingKnown = livingSpineCache.get(lane.id)
+
     let path: readonly Point[]
     let filaments: readonly FilamentGeometry[]
-    let bud: BudGeometry | null = null
 
     if (hideable) {
       path = EMPTY_PATH
@@ -357,7 +384,6 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
           growth,
           options.growthTravel !== false,
           cut,
-          now,
         )
         cache.set(key, built)
         path = built.path
@@ -366,6 +392,12 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
         path = known.path
         filaments = known.filaments
       }
+    } else if (
+      livingKnown !== undefined &&
+      livingKnown.key === livingKey
+    ) {
+      path = livingKnown.spine.path
+      filaments = livingKnown.spine.filaments
     } else {
       const built = layoutSpine(
         lane,
@@ -381,12 +413,19 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
         growth,
         options.growthTravel !== false,
         cut,
-        now,
       )
+      livingSpineCache.set(lane.id, { key: livingKey, spine: built })
       path = built.path
       filaments = built.filaments
-      bud = built.bud
     }
+
+    // The bud is the spine's one time-varying organ (its vitality reading
+    // expires on the clock), so it is never cached with the path: recomputed
+    // fresh on this frame's path, every frame, cache hit or miss.
+    const bud: BudGeometry | null =
+      hideable || cut !== null || path.length === 0
+        ? null
+        : layoutBud(lane, path, { x: -outward.y, y: outward.x }, now, variationFor(variationSeed(lane)).phase)
 
     // No re-measurement of the drawn arc after release: work-size is the
     // strand's own width, unbroken from mass to node, not the arc length of a

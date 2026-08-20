@@ -155,7 +155,43 @@ export function widthOf(shape: RibbonShape, t: number): number {
  * without a single new object entering the display list; a dashed one is the same
  * mechanism with the runs chosen by index rather than by width.
  */
+/**
+ * THE OUTLINE CACHE (loop 14) — the marks-stage half of the living-spine work,
+ * the same split #178 drew for persist ribbons: `geometry.ts` keeps a living
+ * lane's `path` array identity stable inside a lifecycle tick, so the spine's
+ * identity is the cache key here, exactly as `PERSIST_RIBBON_CACHE` already
+ * uses it. The digest below carries every other input `getStroke`'s output is
+ * a function of; `modulate` is deliberately absent from it because a spine
+ * identity belongs to one lane and a lane's width jitter is seeded — the same
+ * spine can never arrive with a different modulation. Measured before landing:
+ * threadMarks was 9.75ms of a 16.7ms model frame at 160 lanes, nearly all of
+ * it re-running `getStroke` on byte-identical inputs.
+ */
+const OUTLINE_CACHE = new WeakMap<readonly Point[], Map<string, Point[][]>>()
+
+function outlineDigest(shape: RibbonShape): string {
+  const stops = (shape.stops ?? [])
+    .map((stop) => `${stop.at},${stop.span},${stop.scale},${stop.flat ?? 0}`)
+    .join(';')
+  return `${shape.widthRoot}|${shape.widthTip}|${shape.taperTip ?? 0}|${shape.dashed === true}|${shape.caps !== false}|${shape.samples ?? 0}|${stops}`
+}
+
 export function ribbonOutline(shape: RibbonShape): Point[][] {
+  const digest = outlineDigest(shape)
+  const cached = OUTLINE_CACHE.get(shape.spine)?.get(digest)
+  if (cached !== undefined) return cached
+
+  const outline = buildOutline(shape)
+  let perSpine = OUTLINE_CACHE.get(shape.spine)
+  if (perSpine === undefined) {
+    perSpine = new Map()
+    OUTLINE_CACHE.set(shape.spine, perSpine)
+  }
+  perSpine.set(digest, outline)
+  return outline
+}
+
+function buildOutline(shape: RibbonShape): Point[][] {
   const samples = shape.samples ?? sampleCount(shape.spine)
   const spine = resample(shape.spine, samples)
   if (spine.length < 2) return []

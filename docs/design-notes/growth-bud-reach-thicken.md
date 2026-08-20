@@ -74,9 +74,12 @@ Typed causes landed with it: `GrowthCause = 'discovery' | 'work'`,
 exhaustiveness-tested.
 
 ## Deferred, deliberately
-- **The living-spine cache** — the perf loop's, with the measurement that
-  justifies it; the shape-is-never-a-function-of-growth invariant this
-  choreography keeps is what makes it possible.
+- **The living-spine cache** — landed, loop 14, with its measurement (18.1ms
+  → 7.7ms model-side at 160 lanes): see geometry-cache-audit-178.md's living
+  extension. The shape-is-never-a-function-of-growth invariant this
+  choreography keeps is exactly what made it lawful — growth is a key term,
+  so the choreography always recomputes per frame while a settled shape
+  coasts.
 - The exact numbers are operator-tunable on the Germination Bench spike; the
   defaults above are the bench's own openers, adopted for the unmonitored
   loop and journaled as such.

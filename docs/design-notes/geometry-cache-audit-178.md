@@ -60,3 +60,46 @@ motion's `SETTLED_IN_PLACE` reaches `dissolve >= 1` exactly as a normal return
 does, but pins `drift` at 0 instead of 1 — the swap-in-place that keeps a
 cut's node from travelling at all), so it is the one field of `cut` folded
 into the per-lane key.
+
+## The living extension (professionalisation loop 14)
+
+The growth choreography's note deferred "the living-spine cache — with the
+measurement that justifies it". The measurement, on the dev box, 160 lanes:
+
+| model-side cost, per frame     | before  | after (warm) |
+| ------------------------------ | ------- | ------------ |
+| `layoutScene`                  | 1.33ms  | (in warm)    |
+| `sceneMarks`                   | 16.7ms  | (in warm)    |
+| — of which `threadMarks`       | 9.75ms  | —            |
+| layout + marks together        | ~18.1ms | **7.7ms**    |
+| same, at the 20-lane demo      | ~3.8ms  | **2.2ms**    |
+
+And the fact that makes it lawful: at rest, a living spine differs from the
+previous frame by at most **0.0004px** (the lifecycle creep in `lifeFrac`,
+via `rim`), reaching 0.12px only after five seconds. Nothing else in a living
+spine is a function of the raw clock — the wander is seeded, the variation is
+seeded, and the bud (which IS on the clock) was pulled out of `layoutSpine`
+so it is recomputed fresh on the cached path every frame.
+
+So: `livingSpineCache`, one slot per lane, keyed by every real input (world
+signature, angles, `sizeFrac`, `growth`, travel gate, variation seed, the cut
+stage fields) plus the clock bucketed by `LIFECYCLE_TICK_MS` (1s — a ≤0.024px
+step, forty times under a pixel). Within a tick the first computation wins and
+every later frame reuses its arrays byte-for-byte; any real change (a growth
+step, a thicken step, a cut stage, a resize, a handle appearing) changes the
+key and rebuilds that lane alone. At a pinned clock every distinct instant a
+test asserts recomputes exactly, which is why the whole existing suite —
+choreography, parity, geometry pins — passed unchanged.
+
+Downstream, `ribbon.ts` gained the marks-stage half: `ribbonOutline` caches
+per spine-identity (a WeakMap, the same key `PERSIST_RIBBON_CACHE` uses) with
+a digest of every other input `getStroke`'s output is a function of.
+`modulate` is deliberately absent from the digest — a spine identity belongs
+to one lane and a lane's width jitter is seeded, so the same spine can never
+arrive with a different modulation; both `modulate` call sites were audited
+time-free before landing.
+
+Laws in `scene/livingCache.test.ts`: identity stability inside a tick,
+sub-0.05px steps across one, honest invalidation on a growth step, cached
+values byte-equal to a fresh build, the bud never cached, and the outline
+cache's identity/value contract.
