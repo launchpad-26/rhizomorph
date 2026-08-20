@@ -982,6 +982,34 @@ export function labelMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const name = lane.label
   const y = anchor.y - 5
 
+  // THE LEADER LINE (Plate stage 2, loop 24) — paper only. An engraving
+  // CONNECTS its labels: a hairline from just off the node toward the name,
+  // stopped short of the text, in the structure register (a leader is
+  // apparatus, not matter, and never a status word). The dark world keeps its
+  // floating names — in the void, proximity does the connecting; byte-identity
+  // by absence, held in marks.test.ts. Rides every gate above (policy, hidden,
+  // the growth arrive window), so a leader can never point at an unnamed lane.
+  if (frame.palette.theme === 'light') {
+    const gap = 3
+    const away = Math.hypot(anchor.x - thread.node.x, anchor.y - thread.node.y)
+    if (away > gap * 2.5) {
+      const t0 = gap / away
+      const t1 = 1 - gap / away
+      marks.push({
+        kind: 'stroke',
+        role: 'label-leader',
+        laneId,
+        alarm: thread.alarm,
+        points: [
+          { x: thread.node.x + (anchor.x - thread.node.x) * t0, y: thread.node.y + (anchor.y - thread.node.y) * t0 },
+          { x: thread.node.x + (anchor.x - thread.node.x) * t1, y: thread.node.y + (anchor.y - thread.node.y) * t1 },
+        ],
+        width: 0.7,
+        ink: budget(frame, laneId, thread.alarm, ink(frame.palette.register.unknown, 0.5)),
+      })
+    }
+  }
+
   if (spotlit) {
     // A plate behind the winner's name, so it survives whatever it lands on.
     const width = name.length * 5.9 + 10

@@ -4196,3 +4196,45 @@ describe('the engraved mass (Plate stage 1 — loop 23)', () => {
     expect(isLight(mark)).toBe(false)
   })
 })
+
+describe('the specimen leaders (Plate stage 2 — loop 24)', () => {
+  const leadersFor = (palette: typeof DARK_PALETTE) =>
+    marksFor({ palette }).filter((mark) => mark.role === 'label-leader')
+
+  it('the dark world keeps its floating names — no leader, ever', () => {
+    expect(leadersFor(DARK_PALETTE)).toEqual([])
+  })
+
+  it('paper connects every drawn name to its node, and points at nothing unnamed', () => {
+    const palette = LIGHT_PALETTE
+    const marks = marksFor({ palette })
+    const named = new Set(
+      marks.filter((mark) => mark.role === 'label').map((mark) => mark.laneId),
+    )
+    const leaders = marks.filter((mark) => mark.role === 'label-leader')
+    expect(leaders.length).toBeGreaterThan(0)
+    for (const leader of leaders) {
+      expect(named.has(leader.laneId)).toBe(true)
+    }
+  })
+
+  it('a leader is a short straight hairline lying on the node-to-anchor axis', () => {
+    const frame = frameFor({ palette: LIGHT_PALETTE })
+    const threads = new Map(frame.geometry.threads.map((thread) => [thread.laneId, thread]))
+    const leaders = sceneMarks(frame).filter((mark) => mark.role === 'label-leader')
+    for (const leader of leaders) {
+      const stroke = leader as unknown as { points: { x: number; y: number }[]; width: number }
+      expect(stroke.points.length).toBe(2)
+      expect(stroke.width).toBeLessThan(1)
+      const thread = threads.get(leader.laneId as string)
+      expect(thread).toBeDefined()
+      const { node, label } = thread as NonNullable<typeof thread>
+      // both endpoints sit strictly between the node and the anchor
+      for (const point of stroke.points) {
+        const cross =
+          (label.anchor.x - node.x) * (point.y - node.y) - (label.anchor.y - node.y) * (point.x - node.x)
+        expect(Math.abs(cross)).toBeLessThan(1e-6 * (1 + Math.abs(label.anchor.x) + Math.abs(label.anchor.y)))
+      }
+    }
+  })
+})

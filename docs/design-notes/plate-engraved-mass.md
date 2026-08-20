@@ -47,3 +47,14 @@ ink-not-light via the now-exported `isLight`.
 sign of the field (negative INSIDE — it is a distance) cost one round; the
 additive blend cost two more. Landed at 460 / 1.5–2.6px / α .45–.72 with a
 0.055 floor. The operator's knobs are all in `STIPPLE`.
+
+## Stage 2 — the specimen leaders (loop 24, same day)
+
+An engraving CONNECTS its labels. On paper every drawn name gains a 0.7px
+hairline from just off the node to just short of the text, in the structure
+register (`register.unknown` — a leader is apparatus, not matter, and never a
+status word). It rides every gate `labelMarks` already has (the label policy,
+a hidden retiree, the growth arrive window), so a leader can never point at
+an unnamed lane — held as a law, along with dark-absence and
+collinearity-with-the-anchor-axis. The dark world keeps its floating names:
+in the void, proximity does the connecting.

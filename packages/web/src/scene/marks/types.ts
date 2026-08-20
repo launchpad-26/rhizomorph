@@ -187,6 +187,8 @@ export type MarkRole =
   | 'label'
   | 'label-figure'
   | 'label-chip'
+  /** Plate stage 2: the paper world's leader hairline from node to name. */
+  | 'label-leader'
   /**
    * DEPTH, TEXTURE AND AMBIENT LIFE (prd10 ruling 6) — all ambient class, all
    * inside the budget's existing caps. `depth-fog` and `vignette` are the two
