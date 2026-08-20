@@ -7,7 +7,7 @@ import type { CloneFetchLike } from '../concierge/clone.js'
 import type { InstrumentFetchLike } from '../concierge/instrument.js'
 import { CAPABILITY_META_NAME } from '../recordings/capability.js'
 import type { ChainLink, InstrumentableSession } from './links.js'
-import { REPOS_URL, type FetchLike, type MetaFacts } from './meta.js'
+import { REPO_SELECT_CAP, REPOS_URL, type FetchLike, type MetaFacts } from './meta.js'
 import { HARNESSES, SetupWizard, WIZARD_STEPS } from './wizard.js'
 
 /**
@@ -209,8 +209,75 @@ describe('step 1 — the repo', () => {
     const limits = screen.getByTestId('wizard-repos-limits').textContent ?? ''
     expect(limits).toContain('visit budget')
     expect(limits).toContain('/home/x/Desktop')
+    // The unresolved slug and its reason survive the fold — inside the
+    // <details>, still in the document, still named.
     expect(limits).toContain('-home-x-ambiguous')
     expect(limits).toContain('two entries encode to the same slug')
+    // And the fold's own sentence carries the count.
+    expect(limits).toContain('1 more place this instrument could not resolve')
+  })
+
+  it('folds a crowd of dead worktree-lane slugs into ONE counted line — 289 sentences was the finding', async () => {
+    const lanes = Array.from({ length: 12 }, (_, i) => ({
+      slug: `-home-x-repo--worktrees-${i}-lane`,
+      path: null,
+      resolved: false,
+      reason: 'no directory under /home/x matches the next part of the slug',
+    }))
+    await renderWizard({
+      fetchImpl: reposFetch({
+        ...REPOS_BODY,
+        known: { available: true, projects: [...REPOS_BODY.known.projects, ...lanes] },
+      }),
+    })
+
+    await waitFor(() => expect(screen.getByTestId('wizard-repos-unresolved')).toBeTruthy())
+    const fold = screen.getByTestId('wizard-repos-worktree-fold').textContent ?? ''
+    expect(fold).toContain('12 of these are worktree-lane slugs')
+    // Grouped means grouped: no lane slug gets its own sentence...
+    const items = [...screen.getByTestId('wizard-repos-unresolved').querySelectorAll('li')]
+    expect(items.filter((li) => (li.textContent ?? '').includes('--worktrees-'))).toHaveLength(1)
+    // ...while the non-worktree straggler keeps its own named reason.
+    expect(screen.getByTestId('wizard-repos-unresolved').textContent).toContain('-home-x-ambiguous')
+    // Collapsed by default — a fact available on demand, not a wall.
+    expect(screen.getByTestId('wizard-repos-unresolved').hasAttribute('open')).toBe(false)
+  })
+
+  it('names the places Claude has history that are not repos, instead of offering them as repos', async () => {
+    await renderWizard({
+      fetchImpl: reposFetch({
+        ...REPOS_BODY,
+        known: {
+          available: true,
+          projects: [...REPOS_BODY.known.projects, { slug: '-home-x', path: '/home/x', resolved: true, repoRoot: null }],
+        },
+      }),
+    })
+
+    await waitFor(() => expect(screen.getByTestId('wizard-repos-nonrepos')).toBeTruthy())
+    expect(screen.getByTestId('wizard-repos-nonrepos').textContent).toContain('/home/x')
+    // And it is NOT in the picker.
+    const options = [...screen.getByTestId('wizard-repo-select').querySelectorAll('option')].map((option) =>
+      option.getAttribute('value'),
+    )
+    expect(options).not.toContain('/home/x')
+  })
+
+  it('says how many repos the cap cut, and that the clone box reaches them', async () => {
+    const many = Array.from({ length: REPO_SELECT_CAP + 3 }, (_, i) => ({
+      slug: `-home-x-r${i}`,
+      path: `/home/x/r${i}`,
+      resolved: true,
+      repoRoot: `/home/x/r${i}`,
+    }))
+    await renderWizard({
+      fetchImpl: reposFetch({ ...REPOS_BODY, known: { available: true, projects: many } }),
+    })
+
+    await waitFor(() => expect(screen.getByTestId('wizard-repos-limits')).toBeTruthy())
+    const limits = screen.getByTestId('wizard-repos-limits').textContent ?? ''
+    expect(limits).toContain(`the picker caps at ${REPO_SELECT_CAP}`)
+    expect(limits).toContain('clone box below reaches any of them')
   })
 
   it("shows a replay server's own refusal as a sentence, never as an empty list", async () => {

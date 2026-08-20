@@ -10,9 +10,11 @@ import {
   isRenderableTs,
   parseDoctor,
   parseMeta,
+  isWorktreeLaneSlug,
   parseRepos,
   parseSessionPreview,
   fetchRepos,
+  REPO_SELECT_CAP,
   REPOS_URL,
   type FetchLike,
 } from './meta.js'
@@ -566,7 +568,84 @@ describe('parseRepos', () => {
       truncated: false,
       unreadable: [],
       historyUnavailable: null,
+      nonRepos: [],
+      overflow: 0,
     })
+  })
+
+  it("reads an OLD server's entries — no repoRoot field — exactly as before the classification existed", () => {
+    // Wire compatibility is a real case, not a nicety: the SPA also runs in a
+    // browser against whatever server is already up.
+    const reading = parseRepos({
+      available: true,
+      known: { available: true, projects: [{ slug: '-home-x-repo', path: '/home/x/repo', resolved: true }] },
+      scanned: { repos: [], truncated: false, unreadable: [] },
+    })
+    expect(reading).toMatchObject({
+      repos: [{ path: '/home/x/repo', origin: 'claude-history' }],
+      nonRepos: [],
+    })
+  })
+
+  it('moves a resolved path inside NO repo into the counted nonRepos bucket, never the picker', () => {
+    const reading = parseRepos({
+      available: true,
+      known: {
+        available: true,
+        projects: [
+          { slug: '-home-x', path: '/home/x', resolved: true, repoRoot: null },
+          { slug: '-home-x-repo', path: '/home/x/repo', resolved: true, repoRoot: '/home/x/repo' },
+        ],
+      },
+      scanned: { repos: [], truncated: false, unreadable: [] },
+    })
+    expect(reading).toMatchObject({
+      repos: [{ path: '/home/x/repo', origin: 'claude-history' }],
+      nonRepos: ['/home/x'],
+    })
+  })
+
+  it('folds a repo and its subdir onto one picker entry — the root the server classified', () => {
+    const reading = parseRepos({
+      available: true,
+      known: {
+        available: true,
+        projects: [
+          { slug: '-home-x-repo', path: '/home/x/repo', resolved: true, repoRoot: '/home/x/repo' },
+          { slug: '-home-x-repo-packages-web', path: '/home/x/repo/packages/web', resolved: true, repoRoot: '/home/x/repo' },
+        ],
+      },
+      scanned: { repos: [], truncated: false, unreadable: [] },
+    })
+    const repos = reading?.kind === 'repos' ? reading.repos : []
+    expect(repos).toEqual([{ path: '/home/x/repo', origin: 'claude-history' }])
+  })
+
+  it('caps the picker and COUNTS the cut — a short list must say it is short', () => {
+    const projects = Array.from({ length: REPO_SELECT_CAP + 5 }, (_, i) => ({
+      slug: `-home-x-repo${i}`,
+      path: `/home/x/repo${i}`,
+      resolved: true,
+      repoRoot: `/home/x/repo${i}`,
+    }))
+    const reading = parseRepos({
+      available: true,
+      known: { available: true, projects },
+      scanned: { repos: [], truncated: false, unreadable: [] },
+    })
+    expect(reading?.kind === 'repos' ? reading.repos.length : -1).toBe(REPO_SELECT_CAP)
+    expect(reading?.kind === 'repos' ? reading.overflow : -1).toBe(5)
+  })
+})
+
+describe('isWorktreeLaneSlug', () => {
+  it('matches the encoder\'s own --worktrees- infix, and nothing that merely says worktrees', () => {
+    expect(isWorktreeLaneSlug('-home-x-repo--worktrees-9-lane')).toBe(true)
+    expect(isWorktreeLaneSlug('-home-x-repo--worktrees-34-sessionlog-collector')).toBe(true)
+    // A repo literally NAMED worktrees-challenge encodes with a single hyphen
+    // run, not the double the `__worktrees` container produces.
+    expect(isWorktreeLaneSlug('-home-x-worktrees-challenge')).toBe(false)
+    expect(isWorktreeLaneSlug('-home-x-repo')).toBe(false)
   })
 })
 
