@@ -950,3 +950,41 @@ describe('the harness picker states the registry’s own facts, never a softer v
     expect(joinedString("reason: 'it\\u2019s here',")).toBe('it’s here')
   })
 })
+
+describe('unplaced claude history speaks once, not once per slug (loop 19)', () => {
+  const bodyWith = (unresolvedCount: number) => ({
+    available: true,
+    known: {
+      available: true,
+      projects: [
+        { slug: '-home-x-repo', path: WATCHED, resolved: true },
+        ...Array.from({ length: unresolvedCount }, (_, i) => ({
+          slug: `-home-x-stale-${i}`,
+          path: null,
+          resolved: false,
+          reason: `resolved as far as /home/x, "stale-${i}" left unmatched`,
+        })),
+      ],
+    },
+    scanned: { repos: [{ path: WATCHED }], truncated: false, unreadable: [] },
+  })
+
+  it('a single orphan speaks its whole line, no disclosure to open', async () => {
+    await renderWizard({ fetchImpl: reposFetch(bodyWith(1)) })
+    await waitFor(() => expect(screen.getByTestId('wizard-repos-unresolved')).toBeTruthy())
+    const row = screen.getByTestId('wizard-repos-unresolved')
+    expect(row.textContent).toContain('-home-x-stale-0')
+    expect(row.textContent).toContain('left unmatched')
+    expect(row.querySelector('details')).toBeNull()
+  })
+
+  it('sixteen orphans are one summary line carrying the count, with every slug behind it', async () => {
+    await renderWizard({ fetchImpl: reposFetch(bodyWith(16)) })
+    await waitFor(() => expect(screen.getByTestId('wizard-repos-unresolved')).toBeTruthy())
+    const row = screen.getByTestId('wizard-repos-unresolved')
+    expect(row.textContent).toContain('16 slugs')
+    expect(row.querySelector('details')).not.toBeNull()
+    // every individual fact is still present, one click away
+    for (let i = 0; i < 16; i++) expect(row.textContent).toContain(`-home-x-stale-${i}`)
+  })
+})

@@ -496,11 +496,35 @@ function RepoStep({
           {repos.unreadable.length > 0 && (
             <li>{repos.unreadable.length} director{repos.unreadable.length === 1 ? 'y was' : 'ies were'} reached and could not be read: {repos.unreadable.join(', ')}</li>
           )}
-          {repos.unresolved.map((entry) => (
-            <li key={entry.slug}>
-              claude has history under “{entry.slug}”, and this instrument could not say where: {entry.reason}
+          {/* One voice per FACT-CLASS, not per slug (loop 19): a machine with
+              months of history carries a stale slug for every worktree it has
+              ever deleted, and sixteen near-identical paragraphs buried this
+              page's actual controls. The count and the claim stay in plain
+              sight; each slug and how far it resolved is one click away, and
+              a single orphan still speaks its whole line. */}
+          {repos.unresolved.length === 1 && (
+            <li data-testid="wizard-repos-unresolved">
+              claude has history under “{(repos.unresolved[0] as { slug: string }).slug}”, and this instrument could
+              not say where: {(repos.unresolved[0] as { reason: string }).reason}
             </li>
-          ))}
+          )}
+          {repos.unresolved.length > 1 && (
+            <li data-testid="wizard-repos-unresolved">
+              <details>
+                <summary className="focus-ring cursor-pointer rounded">
+                  claude has history under {repos.unresolved.length} slugs this instrument could not place — open for
+                  each slug and how far it resolved
+                </summary>
+                <ul className="mt-1 flex flex-col gap-0.5 pl-4">
+                  {repos.unresolved.map((entry) => (
+                    <li key={entry.slug}>
+                      “{entry.slug}” — {entry.reason}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </li>
+          )}
         </ul>
       )}
 
