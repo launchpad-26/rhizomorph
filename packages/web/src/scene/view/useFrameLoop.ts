@@ -22,6 +22,7 @@ import {
   type Mark,
   type SceneFrame,
 } from '../marks/index.js'
+import { allowance } from '../motion.js'
 import { ink, paletteFor, type ThemeName } from '../palette.js'
 import type { PulseField } from '../pulses.js'
 import type { RetireRegistry } from '../retire.js'
@@ -305,6 +306,12 @@ export function useFrameLoop(
         // growing in is a picture of a fleet that does not exist, so one that was
         // already running settles and *then* stops.
         growth: current.settle.progress(real),
+        // The class's channel gates (motion.ts): reduced motion appears
+        // full-length at encoded width and warms in; paused keeps FULL — a
+        // half-grown thread is a topology that does not exist, so it settles
+        // and then stops.
+        growthTravel: allowance('growth', mode).travel,
+        growthScale: allowance('growth', mode).scale,
         // The cord-cut takes the scene's clock instead, and the difference is not
         // an inconsistency (prd5 ruling 3). A half-grown thread is a *false* fact
         // — that lane's work is shorter than it is. A half-cut one is a true one:

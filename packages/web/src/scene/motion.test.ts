@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { RECENCY_SPAN_MS } from './geometry.js'
 import { RETURN } from './retire.js'
-import {
+import { GROWTH, growthEnvelope,
   ALARM,
   AMBIENT,
   DISSOLUTION,
@@ -16,6 +16,7 @@ import {
   type MotionClass,
   type MotionMode,
 } from './motion.js'
+import { SETTLE_MS } from './geometry.js'
 import { BREATH_DEPTH, BREATH_PERIOD_MS, breathOf } from './marks/frame.js'
 
 /**
@@ -349,5 +350,81 @@ describe('the alarm pulse ages (ruling 5)', () => {
       // Colour and opacity survive the degradation; only the movement goes.
       expect(alarmPulse(RECENCY_SPAN_MS, mode).intensity).toBe(ALARM.maxIntensity)
     }
+  })
+})
+
+/**
+ * THE FIFTH CLASS (prd-33 ruling 9, first half — bud → reach; thicken is the
+ * next loop's). The laws here are the ruling's own clauses: the class exists
+ * with its numbers pinned, no birth is ever queued (the cap is amplitude and
+ * cost, never count), the envelope converges EXACTLY so a settled fleet is
+ * byte-identical to one that never grew, and the four older budgets did not
+ * move — the anti-smuggling test dissolution's arrival set the precedent for.
+ */
+describe('the growth class (prd-33 ruling 9)', () => {
+  it('pins the numbers the choreography runs on', () => {
+    expect(GROWTH.emergeMs).toBe(350)
+    expect(GROWTH.reachMs).toBe(1_400)
+    expect(GROWTH.arriveWindow).toBe(0.2)
+    expect(GROWTH.swellMax).toBeLessThan(0.26) // strictly under the arrival swell
+    expect(GROWTH.maxSwells).toBe(8)
+    expect(GROWTH.youngWidth).toBeGreaterThan(0)
+    expect(GROWTH.warmFloor).toBeGreaterThan(0)
+  })
+
+  it('is the same number the geometry calls the settle — the two cannot drift', () => {
+    // scale.ts carries the literal (importing motion there is an init cycle);
+    // this is the law that ties them.
+    expect(GROWTH.emergeMs + GROWTH.reachMs).toBe(SETTLE_MS)
+  })
+
+  it('converges exactly: every multiplier is 1 at rest', () => {
+    const done = growthEnvelope(1)
+    expect(done.spine).toBe(1)
+    expect(done.width).toBe(1)
+    expect(done.warm).toBe(1)
+    expect(done.arrive).toBe(1)
+    expect(done.swell).toBe(0)
+  })
+
+  it('starts as a nub: understated width and warmth, a struck swell, no arrival', () => {
+    const born = growthEnvelope(0.01)
+    expect(born.spine).toBeLessThan(0.08)
+    expect(born.width).toBeLessThan(1)
+    expect(born.width).toBeGreaterThanOrEqual(GROWTH.youngWidth)
+    expect(born.warm).toBeGreaterThanOrEqual(GROWTH.warmFloor)
+    expect(born.arrive).toBe(0)
+    expect(born.swell).toBeGreaterThan(0)
+  })
+
+  it('is monotone in every drawn channel — growth never retreats', () => {
+    let prev = growthEnvelope(0)
+    for (let p = 0.02; p <= 1.0001; p += 0.02) {
+      const next = growthEnvelope(Math.min(1, p))
+      expect(next.spine).toBeGreaterThanOrEqual(prev.spine)
+      expect(next.width).toBeGreaterThanOrEqual(prev.width)
+      expect(next.warm).toBeGreaterThanOrEqual(prev.warm)
+      expect(next.arrive).toBeGreaterThanOrEqual(prev.arrive)
+      prev = next
+    }
+  })
+
+  it('gets the structural argument under pause, and the excluded channels under reduced', () => {
+    expect(allowance('growth', 'full')).toEqual({ travel: true, scale: true, colour: true, opacity: true })
+    // Reduced: the thread appears at full length and warms in — travel and
+    // scale are exactly WCAG 2.3.3's motion pair, and the warm-in rides the
+    // criterion's own excluded channels.
+    expect(allowance('growth', 'reduced')).toEqual({ travel: false, scale: false, colour: true, opacity: true })
+    // Paused: a half-grown thread is a topology that does not exist — it
+    // settles, then stops, exactly as structural does.
+    expect(allowance('growth', 'paused')).toEqual({ travel: true, scale: true, colour: true, opacity: true })
+  })
+
+  it('moved no older budget — the caps a fifth class could have smuggled', () => {
+    expect(AMBIENT.maxAmplitude).toBe(0.03)
+    expect(EVENT.maxConcurrent).toBe(7)
+    expect(STRUCTURAL.maxConcurrent).toBe(2)
+    expect(STRUCTURAL.durationMs).toBe(800)
+    expect(DISSOLUTION.maxLive).toBe(240)
   })
 })

@@ -24,7 +24,7 @@ import {
   tangentAt,
   type Point,
 } from './geometry.js'
-import { ALARM, AMBIENT, DISSOLUTION, EVENT, STRUCTURAL, allowance } from './motion.js'
+import { GROWTH, ALARM, AMBIENT, DISSOLUTION, EVENT, STRUCTURAL, allowance } from './motion.js'
 import {
   BREATH_PERIOD_MS,
   brightnessOf,
@@ -39,7 +39,7 @@ import {
   type SceneFrame,
 } from './marks/index.js'
 import { ribbonMark } from './marks/index.js'
-import { arrivalSwell } from './marks/root.js'
+import { rootFalloffs, arrivalSwell } from './marks/root.js'
 import { RIM_VEIL } from './marks/ambient.js'
 import { buildFrame } from './gl/index.js'
 import {
@@ -180,6 +180,8 @@ interface FrameOptions {
   replaying?: boolean
   /** Which world the frame is drawn in. Defaults to dark, so every existing fixture is byte-identical. */
   palette?: ScenePalette
+  /** laneId → grow-in progress, straight through to the layout (growth class). */
+  growth?: ReadonlyMap<string, number>
 }
 
 function frameFor(options: FrameOptions = {}): SceneFrame {
@@ -196,6 +198,12 @@ function frameFor(options: FrameOptions = {}): SceneFrame {
       now,
       ...(options.retire === undefined ? {} : { retire: options.retire }),
       ...(options.hideFinished === undefined ? {} : { hideFinished: options.hideFinished }),
+      ...(options.growth === undefined ? {} : { growth: options.growth }),
+      // Mirror useFrameLoop's own wiring: the growth class's channel gates
+      // come from the allowance, so reduced-motion fixtures draw what the
+      // product draws.
+      growthTravel: allowance('growth', mode).travel,
+      growthScale: allowance('growth', mode).scale,
     }),
     field: options.field ?? new PulseField(),
     salience: salienceOf({
@@ -718,6 +726,101 @@ describe('the contrast budget on paper — the same walks, in presence', () => {
     expect(of(marks, LANE.frozen, 'rank-enclosure').length).toBeGreaterThan(0)
   })
 })
+
+/**
+ * THE GROWTH CHOREOGRAPHY, as display-list law (prd-33 ruling 9, first half).
+ * Bud → reach: a lane that has not arrived has no terminal furniture and a
+ * growth cone instead; a lane at growth 1 is byte-identical to one that never
+ * grew — which is what lets the whole suite above stand as the convergence
+ * proof rather than restating it.
+ */
+describe('the growth choreography (prd-33 ruling 9)', () => {
+  const growingLane = () => {
+    const fleet = fleetFor(fleet20Spec())
+    const laneId = fleet.lanes[0]?.id as string
+    return { fleet, laneId }
+  }
+
+  it('draws a half-grown lane with no terminal furniture and a growth cone', () => {
+    const { fleet, laneId } = growingLane()
+    const marks = marksFor({ fleet, growth: new Map([[laneId, 0.3]]) })
+    // No lens, no label, no tail — the arrive window has not opened.
+    expect(of(marks, laneId, 'node')).toHaveLength(0)
+    expect(of(marks, laneId, 'label')).toHaveLength(0)
+    // The active apex is there instead.
+    expect(of(marks, laneId, 'tuft').length).toBeGreaterThan(0)
+    // And the thread itself is short: its drawn spine is a prefix.
+    const thread = of(marks, laneId, 'thread')[0] as Mark & { path: Point[] }
+    const grown = marksFor({ fleet })
+    const full = of(grown, laneId, 'thread')[0] as Mark & { path: Point[] }
+    expect(arcLength(thread.path)).toBeLessThan(arcLength(full.path) * 0.75)
+  })
+
+  it('arrives exactly: growth 1 is byte-identical to never having grown', () => {
+    const { fleet, laneId } = growingLane()
+    const grown = marksFor({ fleet, growth: new Map([[laneId, 1]]) })
+    const never = marksFor({ fleet })
+    expect(grown).toEqual(never)
+  })
+
+  it('understates a young thread, never overstates it', () => {
+    const { fleet, laneId } = growingLane()
+    const young = of(marksFor({ fleet, growth: new Map([[laneId, 0.5]]) }), laneId, 'thread')[0] as Mark & {
+      widthRoot: number
+    }
+    const full = of(marksFor({ fleet }), laneId, 'thread')[0] as Mark & { widthRoot: number }
+    expect(young.widthRoot).toBeLessThan(full.widthRoot)
+    expect(young.widthRoot).toBeGreaterThanOrEqual(full.widthRoot * GROWTH.youngWidth * 0.99)
+  })
+
+  it('swells the mass at the bud and caps the swells as cost, never as a queue', () => {
+    const fleet = fleetFor(fleet20Spec())
+    const twelve = new Map(fleet.lanes.slice(0, 12).map((lane) => [lane.id, 0.1]))
+    const frame = frameFor({ fleet, growth: twelve })
+    const falloffs = rootFalloffs(frame, 100)
+    const emergences = falloffs.filter((f) => f.id.startsWith('emergence:'))
+    // Capped at the cost bound…
+    expect(emergences).toHaveLength(GROWTH.maxSwells)
+    // …while every one of the twelve is still growing (none queued): their
+    // threads are all short.
+    for (const [laneId] of twelve) {
+      const thread = frame.geometry.byLane.get(laneId)
+      expect(thread?.growth).toBeLessThan(1)
+    }
+  })
+
+  it('melts the swell as the reach completes', () => {
+    const { fleet, laneId } = growingLane()
+    const early = rootFalloffs(frameFor({ fleet, growth: new Map([[laneId, 0.15]]) }), 100)
+    const late = rootFalloffs(frameFor({ fleet, growth: new Map([[laneId, 0.95]]) }), 100)
+    const at = (list: typeof early) => list.find((f) => f.id === `emergence:${laneId}`)
+    expect(at(early)).toBeDefined()
+    expect(at(late)).toBeUndefined()
+  })
+
+  it('appears full-length at encoded width under reduced motion — only the warmth animates', () => {
+    const { fleet, laneId } = growingLane()
+    const reduced = marksFor({ fleet, growth: new Map([[laneId, 0.3]]), reducedMotion: true })
+    const settled = marksFor({ fleet, reducedMotion: true })
+    const growingThread = of(reduced, laneId, 'thread')[0] as Mark & { path: Point[]; widthRoot: number }
+    const settledThread = of(settled, laneId, 'thread')[0] as Mark & { path: Point[]; widthRoot: number }
+    // Full length, encoded width (travel and scale are the excluded pair)…
+    expect(growingThread.path).toEqual(settledThread.path)
+    expect(growingThread.widthRoot).toBe(settledThread.widthRoot)
+    // …while the warm-in still carries "new lane" on the allowed channel.
+    expect(brightnessOf(growingThread)).toBeLessThan(brightnessOf(settledThread))
+  })
+})
+
+function arcLength(path: readonly Point[]): number {
+  let length = 0
+  for (let i = 1; i < path.length; i += 1) {
+    const a = path[i - 1] as Point
+    const b = path[i] as Point
+    length += Math.hypot(b.x - a.x, b.y - a.y)
+  }
+  return length
+}
 
 describe('prefers-reduced-motion', () => {
   const field = new PulseField()

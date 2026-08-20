@@ -1,5 +1,5 @@
 import { pointAt, type Point, type RetireGeometry, type ThreadGeometry } from '../geometry.js'
-import { EVENT, allowance } from '../motion.js'
+import { growthEnvelope, EVENT, allowance } from '../motion.js'
 import {
   activityInkOn,
   clamp01,
@@ -79,7 +79,11 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   // iridescence below is the lane being alive, and this one is not.
   if (thread.retire !== null) return persistentMarks(frame, thread, thread.retire, resting)
 
-  const base = frozen ? resting : shimmered(frame, thread, resting)
+  const warmed =
+    thread.growth < 1
+      ? { rgb: resting.rgb, alpha: resting.alpha * growthEnvelope(thread.growth).warm }
+      : resting
+  const base = frozen ? warmed : shimmered(frame, thread, warmed)
 
   // The form this lane's thread takes, in three parts, and all three are shared
   // by the bloom so the two read as one object: the cuts that close it, the

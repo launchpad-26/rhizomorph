@@ -367,8 +367,14 @@ law; the dials turn; the texture passes; the canvas harness.
 
 ## Open questions
 
-- **Fifth class or inside structural** — the growth envelope's home is decided with numbers in
-  hand at the amendment, not here. Open, not ruled.
+- **Fifth class or inside structural** — ANSWERED (charter §5 ruled it fifth-class; landed
+  2026-08-21, professionalisation loop 2, first half): growth is its own `MotionClass` with its
+  own budget (`GROWTH` in `motion.ts` — bud 350 ms → reach 1 400 ms, arrive window 0.2, swell
+  ≤ 0.18 capped at 8 as cost-never-queue, width/warm envelopes exactly 1 at rest), the
+  structural pause argument, and NO_MOVEMENT under reduced motion (appear full-length, warm
+  in). No birth is ever queued — the cap is amplitude and cost, because a queued birth hides
+  an existing lane. Thicken (the ruling's third verb) and typed causes land with the next
+  loop. See docs/design-notes/growth-bud-reach-thicken.md.
 - **Which channels get ambient rows first** — decided at the amendment; the grant
   mechanism is ruled, the grants are not.
 - **How ambient material behaves on light ground** — ANSWERED (light-mode wave, 2026-08-20,

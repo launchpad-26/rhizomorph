@@ -217,6 +217,15 @@ export interface LayoutOptions {
   /** laneId → grow-in progress 0–1. Absent means "already grown" (graft g3). */
   growth?: ReadonlyMap<string, number>
   /**
+   * The growth class's allowance, split by channel (motion.ts). `growthTravel:
+   * false` (reduced motion) draws a growing lane at full length immediately;
+   * `growthScale: false` draws it at its encoded width. The mark layer's
+   * warm-in rides the allowance's excluded channels and needs no gate here.
+   * Both default true — a caller that has not asked is a caller in full mode.
+   */
+  growthTravel?: boolean
+  growthScale?: boolean
+  /**
    * laneId → where its cord-cut has got to (prd5 ruling 3). Absent means the
    * lane is still in the living network — including a lane that has landed but
    * whose cut is still queued behind the structural cap, which is why this is a

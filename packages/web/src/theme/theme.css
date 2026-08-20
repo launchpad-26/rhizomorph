@@ -206,7 +206,7 @@
    * "one pulse then steady" is the same length everywhere it happens.
    */
   --duration-flare: 620ms; /* an event landing: one pulse, then steady */
-  --duration-settle: 900ms; /* a thread growing in on worktree.discovered */
+  --duration-settle: 1750ms; /* a thread growing in on worktree.discovered — bud 350 + reach 1400 (growth class, prd-33 r9) */
   --duration-breath: 5400ms; /* the scene's ambient breathing — the only loop */
   /*
    * The age pulse (prd5 ruling 5): a needs-you chip old enough for the PULSE

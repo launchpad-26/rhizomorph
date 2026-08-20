@@ -1132,10 +1132,11 @@ describe('the pause control (WCAG 2.2.2)', () => {
     const growing = frame()
     expect(growing).not.toBe(starting)
 
-    // Past SETTLE_MS the thread has arrived, and now the paused scene is a still.
-    at(1_400)
+    // Past SETTLE_MS (1 750 since the growth class landed) the thread has
+    // arrived, and now the paused scene is a still.
+    at(2_000)
     const grown = frame()
-    at(2_400)
+    at(3_000)
     expect(frame()).toBe(grown)
   })
 })

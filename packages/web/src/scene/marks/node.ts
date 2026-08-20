@@ -1,7 +1,7 @@
 import { formatTokens } from '../../lib/format.js'
 import type { LadderRank, PathologyKind } from '../../fleet/index.js'
 import { tangentAt, type Point, type RetireGeometry, type ThreadGeometry } from '../geometry.js'
-import { alarmPulse } from '../motion.js'
+import { growthEnvelope, alarmPulse } from '../motion.js'
 import {
   TUFT_WASH,
   clamp01,
@@ -101,7 +101,18 @@ export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const hue = hueOf(frame.palette, thread)
   const alarm = thread.alarm
 
-  const length = lensLength(thread.sizeFrac) * frame.breath
+  // THE ARRIVE WINDOW (growth class, prd-33 r9): a thread that has not
+  // arrived has no terminal. The lens, tail and state marks scale in over the
+  // reach's last window; until it opens, the growth cone (tuftMarks) is the
+  // only thing at the tip. Exactly 1 the moment growth completes, so a
+  // settled fleet is byte-identical to one that never grew.
+  const arriving = thread.growth < 1 ? growthEnvelope(thread.growth).arrive : 1
+  if (arriving <= 0) {
+    marks.push(...tuftMarks(frame, thread, hue, angle, lensLength(thread.sizeFrac)))
+    return marks
+  }
+
+  const length = lensLength(thread.sizeFrac) * frame.breath * (arriving < 1 ? 0.4 + 0.6 * arriving : 1)
   const freshness = 1 - thread.ageFrac
   const frozen = thread.pathology === 'frozen'
   const done = lane.activity === 'done'
@@ -203,6 +214,19 @@ function tuftMarks(
       strength: 1 - cut.withdraw,
       flare: cut.tension * (1 - cut.withdraw),
       glow: false,
+    })
+  }
+
+  // THE GROWTH CONE (growth class): while the thread is reaching, the tuft IS
+  // the active apex — brighter early, settling as the furniture arrives — for
+  // any growing lane, whatever its activity says mid-birth. The 9b glow stays
+  // scoped to working tips exactly as before.
+  if (thread.growth < 1) {
+    const env = growthEnvelope(thread.growth)
+    return branchlets(frame, thread, hue, angle, length, {
+      strength: 0.4 + 0.6 * env.reach,
+      flare: (1 - env.arrive) * 0.5,
+      glow: thread.lane.activity === 'working' && thread.pathology === null,
     })
   }
 
@@ -945,6 +969,9 @@ export function labelMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   if (frame.geometry.labelPolicy === 'hover' && !spotlit && !thread.alarm) return []
   if (thread.retire?.hidden === true) return []
 
+  // Growing lanes have no name yet — the label rides the arrive window with
+  // the rest of the terminal furniture.
+  if (thread.growth < 1 && growthEnvelope(thread.growth).arrive <= 0) return []
   const { anchor, align } = thread.label
   const flagged = thread.pathology !== null
   const hue = hueOf(frame.palette, thread)

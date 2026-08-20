@@ -207,9 +207,15 @@ export function lifecycleFrac(
 /**
  * How long a newly discovered lane takes to grow in (graft g3). Long enough to
  * read as growth, short enough that it is over before anyone looks twice.
- * Matches `--duration-settle` in the theme.
+ * Matches `--duration-settle` in the theme. Since the growth class landed
+ * (prd-33 ruling 9) this is the class's own budget — bud + reach — re-exported
+ * here for the callers that think in "the settle" rather than in stages.
  */
-export const SETTLE_MS = 900
+// 1 750 = GROWTH.emergeMs + GROWTH.reachMs. A literal rather than the import:
+// motion.ts sits above the geometry layer in the module graph and importing it
+// here at init time is a cycle. motion.test.ts asserts the sum matches, so the
+// two cannot drift apart silently.
+export const SETTLE_MS = 1_750
 
 /**
  * Where labels stop being drawn for every lane. B and C independently predicted

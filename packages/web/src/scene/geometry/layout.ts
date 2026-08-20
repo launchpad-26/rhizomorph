@@ -1,5 +1,6 @@
 import type { Fleet, Lane, PathologyKind } from '../../fleet/index.js'
 import { clamp01 } from '../palette.js'
+import { growthEnvelope } from '../motion.js'
 import type { RetireState } from '../retire.js'
 import { smoothSpine } from '../ribbon.js'
 import { isAlarmRank } from '../salience.js'
@@ -105,6 +106,7 @@ function layoutSpine(
   widthTip: number,
   spacing: number,
   growth: number,
+  growthTravel: boolean,
   cut: RetireState | null,
   now: number,
 ): ThreadSpine {
@@ -133,7 +135,13 @@ function layoutSpine(
   }
 
   const full = smoothSpine(waypoints, THREAD_SAMPLES)
-  const grown = growth >= 1 ? full : truncate(full, easeOut(growth))
+  // The growth class's own choreography (motion.ts): a nub through the bud,
+  // tip-led reach after — every multiplier exactly 1 at rest. `travel: false`
+  // (reduced motion) draws the full spine immediately; the mark layer's
+  // warm-in is what carries "new lane" there, on the allowance's own excluded
+  // channels.
+  const grown =
+    growth >= 1 || !growthTravel ? full : truncate(full, growthEnvelope(growth).spine)
 
   // The lane's own free phase (`variation.ts`'s `curl`), spent on the two
   // things about a return that carry nothing: how far its tip relaxes past the
@@ -266,8 +274,15 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
       seedSize(lane.outputTokens),
       seedLane === undefined ? 0 : seedSize(seedLane.outputTokens),
     )
-    const widthRoot = 1.2 + 5 * sizeFrac
-    const widthTip = 0.4 + 1.3 * sizeFrac
+    const growth = clamp01(options.growth?.get(lane.id) ?? 1)
+    // A young thread understates its width and converges to the encoded one
+    // (growth class; width is the LOCKED work-size channel, so the envelope may
+    // only ever understate — and is exactly 1 at rest). `scale: false`
+    // (reduced motion) draws the encoded width immediately.
+    const youngWidth =
+      growth >= 1 || options.growthScale === false ? 1 : growthEnvelope(growth).width
+    const widthRoot = (1.2 + 5 * sizeFrac) * youngWidth
+    const widthTip = (0.4 + 1.3 * sizeFrac) * youngWidth
 
     const ageFrac =
       lane.ageMs === null ? 0.98 : clamp01((lane.ageMs + sinceSnapshot) / RECENCY_SPAN_MS)
@@ -301,7 +316,6 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
       y: centre.y + rootRadius * 0.94 * Math.sin(exitAngle),
     }
 
-    const growth = clamp01(options.growth?.get(lane.id) ?? 1)
 
     // HIDE FINISHED SKIPS LAYOUT TOO (prd10 ruling 16) — every mark builder
     // that touches a retired thread must check `cut.hidden` before touching
@@ -337,6 +351,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
           widthTip,
           spacing,
           growth,
+          options.growthTravel !== false,
           cut,
           now,
         )
@@ -360,6 +375,7 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
         widthTip,
         spacing,
         growth,
+        options.growthTravel !== false,
         cut,
         now,
       )

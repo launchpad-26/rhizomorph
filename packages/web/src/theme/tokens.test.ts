@@ -687,7 +687,7 @@ describe('no token is referenced without being defined', () => {
  */
 const DURATIONS: ReadonlyArray<readonly [string, string]> = [
   ['--duration-flare', '620ms'],
-  ['--duration-settle', '900ms'],
+  ['--duration-settle', '1750ms'], // bud 350 + reach 1400 — the growth class's own budget (prd-33 r9)
   ['--duration-breath', '5400ms'],
   ['--duration-age-pulse-seam', '6800ms'],
 ]

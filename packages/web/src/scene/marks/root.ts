@@ -1,7 +1,7 @@
 import { contourLayers, type Falloff } from '../contour.js'
 import { budLife, type BudGeometry, type Point, type ThreadGeometry } from '../geometry.js'
 import { heartAnatomy, type HeartRing } from '../heart.js'
-import { DISSOLUTION, STRUCTURAL } from '../motion.js'
+import { GROWTH, growthEnvelope, allowance, DISSOLUTION, STRUCTURAL } from '../motion.js'
 import {
   clamp01,
   hotterOn,
@@ -13,7 +13,7 @@ import {
   type ScenePalette,
 } from '../palette.js'
 import { variationFor, variationSeed } from '../variation.js'
-import { budget, type SceneFrame } from './frame.js'
+import { motionMode, budget, type SceneFrame} from './frame.js'
 import { flareAt } from './thread.js'
 import { ribbonMark, type Mark } from './types.js'
 
@@ -366,6 +366,32 @@ export function rootFalloffs(frame: SceneFrame, radius: number): Falloff[] {
     },
     radius: radius * part.radius,
   }))
+
+  // EMERGENCE (growth class, prd-33 r9): the mass births a lane the way it
+  // receives one — a bulge at the exit bearing, struck over the bud and
+  // melting through the reach. Capped at GROWTH.maxSwells as a COST bound
+  // (each falloff prices a contour blend): past the cap the most-advanced
+  // buds keep their swell and later ones grow without it, never queued.
+  // Scale-gated: under reduced motion the swell is exactly the scale
+  // animation the allowance forbids, so it is not drawn at all.
+  if (allowance('growth', motionMode(frame)).scale) {
+    const budding = frame.geometry.threads
+      .filter((thread) => thread.growth < 1 && thread.retire === null)
+      .map((thread) => ({ thread, env: growthEnvelope(thread.growth) }))
+      .filter(({ env }) => env.swell > 0.01)
+      .sort((a, b) => b.thread.growth - a.thread.growth)
+      .slice(0, GROWTH.maxSwells)
+    for (const { thread, env } of budding) {
+      falloffs.push({
+        id: `emergence:${thread.laneId}`,
+        at: {
+          x: centre.x + radius * 0.95 * Math.cos(thread.angle),
+          y: centre.y + radius * 0.95 * Math.sin(thread.angle),
+        },
+        radius: radius * GROWTH.swellMax * env.swell,
+      })
+    }
+  }
 
   for (const thread of frame.geometry.threads) {
     const cut = thread.retire

@@ -46,7 +46,7 @@ import { criticalDamping } from './spring.js'
  *   it stops.
  */
 
-export type MotionClass = 'ambient' | 'event' | 'structural' | 'dissolution'
+export type MotionClass = 'ambient' | 'event' | 'structural' | 'dissolution' | 'growth'
 
 export type MotionMode = 'full' | 'reduced' | 'paused'
 
@@ -176,6 +176,98 @@ export const DISSOLUTION_CAUSES = [
 ] as const satisfies readonly DissolutionCause[]
 
 /**
+ * THE FIFTH CLASS (prd-33 ruling 9, ruled per charter §5; landed by the
+ * professionalisation loop, 2026-08-21) — **the organism growing**, and
+ * nothing else.
+ *
+ * Growth was outside every class: a 900 ms truncation of the final curve,
+ * ungated, uncapped, invisible to the mark layer — "a new thread pops into
+ * existence at full length and stretches; nothing grows" (prd-33's own
+ * problem statement). This is the ruling's first half made real: bud → reach,
+ * with the node's furniture arriving only at the end, drawn young and warming
+ * in. (The ruling's third verb — thicken while alive — is the next loop's,
+ * with its own numbers.)
+ *
+ * Deliberately **no concurrency cap on growth itself**: a queued *retire*
+ * briefly delays a true fact, but a queued *birth* hides an existing lane —
+ * a lie about the fleet. The budget is written in amplitude and cost instead:
+ * `swellMax` bounds each emergence bulge well under the arrival swell's 0.26,
+ * and `maxSwells` bounds only the mass-field cost — past it a bud grows on
+ * schedule without its individual swell, never queued.
+ *
+ * The four older budgets are untouched, and `motion.test.ts` asserts their
+ * bytes — the same anti-smuggling test dissolution's arrival set the
+ * precedent for.
+ */
+export const GROWTH = {
+  /** The bud: the rim swells before the tip leaves the mass. */
+  emergeMs: 350,
+  /** Tip-led extension. Total grow-in = emergeMs + reachMs = 1 750 ms. */
+  reachMs: 1_400,
+  /** The last fraction of the reach in which the node furniture scales in. */
+  arriveWindow: 0.2,
+  /** Emergence bulge radius, as a fraction of the mass radius (< ARRIVAL's 0.26). */
+  swellMax: 0.18,
+  /** Concurrent emergence bulges — a cost bound, never a queue. */
+  maxSwells: 8,
+  /** Width envelope floor at birth: a young thread understates, never overstates. */
+  youngWidth: 0.55,
+  /** Alpha envelope floor at birth — the reduced-motion story is this ramp alone. */
+  warmFloor: 0.6,
+} as const
+
+const clamp01Local = (value: number): number => Math.min(1, Math.max(0, value))
+const easeOutLocal = (k: number): number => 1 - (1 - k) * (1 - k)
+const smoothstepLocal = (k: number): number => {
+  const c = clamp01Local(k)
+  return c * c * (3 - 2 * c)
+}
+
+/** The fraction of the whole grow-in the bud occupies. */
+const EMERGE_FRACTION = GROWTH.emergeMs / (GROWTH.emergeMs + GROWTH.reachMs)
+
+export interface GrowthEnvelope {
+  /** 0–1 through the bud. */
+  emerge: number
+  /** 0–1 through the reach. */
+  reach: number
+  /** 0–1 through the arrive window (the reach's last `arriveWindow`). */
+  arrive: number
+  /** How much of the final spine is drawn — 0.08 by the end of the bud, 1 at rest. */
+  spine: number
+  /** Width multiplier: youngWidth at birth, exactly 1 at rest. */
+  width: number
+  /** Alpha multiplier: warmFloor at birth, exactly 1 at rest. */
+  warm: number
+  /** The emergence bulge's strength: struck over the bud, melting through the reach. */
+  swell: number
+}
+
+/**
+ * The whole choreography as a pure function of one scalar, so the registry's
+ * map shape never changes and a pinned clock is a still image at a known
+ * stage. Every multiplier is EXACTLY 1 at progress 1 — a settled fleet is
+ * byte-identical to one that never grew, which is what lets the entire
+ * existing suite stand as the convergence proof.
+ */
+export function growthEnvelope(progress: number): GrowthEnvelope {
+  const p = clamp01Local(progress)
+  const emerge = clamp01Local(p / EMERGE_FRACTION)
+  const reach = clamp01Local((p - EMERGE_FRACTION) / (1 - EMERGE_FRACTION))
+  const arrive = smoothstepLocal((reach - (1 - GROWTH.arriveWindow)) / GROWTH.arriveWindow)
+  const easedReach = easeOutLocal(reach)
+  return {
+    emerge,
+    reach,
+    arrive,
+    spine: 0.08 * easeOutLocal(emerge) + 0.92 * easedReach,
+    width: GROWTH.youngWidth + (1 - GROWTH.youngWidth) * easedReach,
+    warm: GROWTH.warmFloor + (1 - GROWTH.warmFloor) * easedReach,
+    swell: easeOutLocal(emerge) * (1 - easedReach),
+  }
+}
+
+/**
  * What a class may animate in a given mode.
  *
  * Every field is about *change over time* — `colour: false` does not mean a mark
@@ -215,11 +307,13 @@ export function allowance(motionClass: MotionClass, mode: MotionMode): MotionAll
   // no journey to compost, exactly as it has no homeward ribbon. The strand it
   // would have travelled is drawn either way — a still line is not motion.
   if (mode === 'reduced') return NO_MOVEMENT
-  // Paused. Structural is allowed to finish what it started; nothing else is —
-  // and a dissolution is *not* structural, so it holds still with the clock. A
-  // frozen drift of motes is the picture the operator pressed the button on,
-  // which is what pause is for; the topology it belongs to is settled either way.
-  return motionClass === 'structural' ? FULL : FROZEN
+  // Paused. Structural — and growth, by the same argument — is allowed to
+  // finish what it started; nothing else is. A half-grown thread is a picture
+  // of a topology that does not exist (useFrameLoop keeps growth on the real
+  // clock for exactly this reason), so it settles and *then* stops. A
+  // dissolution is neither, so it holds still with the clock: a frozen drift
+  // of motes is the picture the operator pressed the button on.
+  return motionClass === 'structural' || motionClass === 'growth' ? FULL : FROZEN
 }
 
 /**
