@@ -88,6 +88,16 @@ export interface LaneSpec {
   subagentShare: number
   /** The fence this lane was dispatched with — repo-relative globs. */
   fence: string[]
+  /**
+   * THE LATECOMER (growth-class showcase, loop 4): a lane that is absent from
+   * the fixture's history and JOINS the synthetic session this many ms after
+   * the generator starts ticking — its `worktree.discovered` arrives as NEWS,
+   * so the scene grows it in honestly (ruling 32: only news animates; this is
+   * news, because in the synthetic session it genuinely just happened). Under
+   * a pinned clock the generator never ticks, so tests' still images never
+   * contain it. Absent = a founding lane, exactly as before.
+   */
+  joinsAfterMs?: number
   /** Files it commits and dirties. An off-fence lane lists a neighbour's. */
   touches: string[]
   /**
@@ -179,7 +189,7 @@ export function fleet20Spec(): FixtureSpec {
     id: 'fleet20',
     label: '20-LANE',
     provenance: 'synthetic · 20 lanes · real schema events',
-    lanes: FLEET20_NAMES.map((name, i) => {
+    lanes: FLEET20_NAMES.map((name, i): LaneSpec => {
       // Each lane gets its own sub-area, so twenty lanes share ten directories
       // without any two of them ever touching the same file.
       const area = `${AREAS[i % AREAS.length] as string}/${issueOf(name)}`
@@ -191,7 +201,20 @@ export function fleet20Spec(): FixtureSpec {
         fence: [`${area}/**`],
         touches: [`${area}/${slugOf(name)}.ts`],
       }
-    }),
+    }).concat([
+      // The latecomer: ~6s after the fixture starts ticking, a new lane joins
+      // and the growth choreography plays for anyone watching — which is the
+      // first-run demo. It then works like any steady lane.
+      {
+        name: '121-late-bloom',
+        behaviour: 'steady' as Behaviour,
+        weight: 0.8,
+        subagentShare: 0,
+        fence: ['packages/web/late/**'],
+        touches: ['packages/web/late/bloom.ts'],
+        joinsAfterMs: 6_000,
+      },
+    ]),
   })
   return fleet20Singleton
 }
@@ -443,6 +466,10 @@ export class SyntheticFleet {
   private readonly lanes: LaneRuntime[]
   private readonly seed: number
 
+  /** Set by the first history() call — the instant latecomers count from. */
+  private bornAt: number | null = null
+  private readonly joined = new Set<string>()
+
   constructor(
     private readonly spec: FixtureSpec,
     seed = 0x0b5e2,
@@ -472,7 +499,17 @@ export class SyntheticFleet {
    * reading the same cache entry.
    */
   history(now: number): RhizomorphEvent[] {
+    this.bornAt ??= now
     return cachedHistory(this.spec, this.seed, now, () => this.computeHistory(now))
+  }
+
+  /** A founding lane is in the history; a latecomer joins by tick. */
+  private founding(lane: LaneRuntime): boolean {
+    return lane.spec.joinsAfterMs === undefined
+  }
+
+  private active(lane: LaneRuntime): boolean {
+    return this.founding(lane) || this.joined.has(lane.spec.name)
   }
 
   private computeHistory(now: number): RhizomorphEvent[] {
@@ -495,6 +532,7 @@ export class SyntheticFleet {
     )
 
     for (const lane of this.lanes) {
+      if (!this.founding(lane)) continue
       events.push(
         this.event('worktree.discovered', {
           path: lane.worktreePath,
@@ -519,6 +557,7 @@ export class SyntheticFleet {
     }
 
     for (const lane of this.lanes) {
+      if (!this.founding(lane)) continue
       const endAt = this.laneEndTs(lane, now)
       // A looping lane's tail must be the cycle and nothing else — interleaved
       // ordinary tool calls would hide the very pattern the detector looks for.
@@ -581,7 +620,32 @@ export class SyntheticFleet {
   tick(now: number): RhizomorphEvent[] {
     const events: RhizomorphEvent[] = []
 
+    // Latecomers whose moment has come: the discovery pair arrives as news —
+    // in the synthetic session, this lane genuinely just joined.
     for (const lane of this.lanes) {
+      const after = lane.spec.joinsAfterMs
+      if (after === undefined || this.joined.has(lane.spec.name)) continue
+      if (this.bornAt === null || now < this.bornAt + after) continue
+      this.joined.add(lane.spec.name)
+      events.push(
+        this.event('worktree.discovered', {
+          path: lane.worktreePath,
+          branch: lane.spec.name,
+          head: `sha-${lane.spec.name}-000`,
+          isMain: false,
+        }, now),
+        this.event('pane.discovered', {
+          paneId: lane.paneId,
+          windowName: `wm-${lane.spec.name}`,
+          currentPath: lane.worktreePath,
+          currentCommand: 'claude',
+          worktreePath: lane.worktreePath,
+        }, now),
+      )
+    }
+
+    for (const lane of this.lanes) {
+      if (!this.active(lane)) continue
       const behaviour = lane.spec.behaviour
       if (behaviour === 'frozen' || behaviour === 'done' || behaviour === 'terminal-done') continue
 
