@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { gpuAdapterLine, gpuPlan, gpuProcessGoneLine, WSL_GPU_SWITCHES, WSL_LIB_DIR } from './gpu.js'
+import {
+  GPU_ENV_MARKER,
+  gpuAdapterLine,
+  gpuPlan,
+  gpuProcessGoneLine,
+  needsGpuRelaunch,
+  WEBGL_ADAPTER_PROBE,
+  WSL_GPU_SWITCHES,
+  WSL_LIB_DIR,
+} from './gpu.js'
 
 const WSL = { platform: 'linux', env: {}, hasWslLib: true } as const
 
@@ -59,6 +68,32 @@ describe('the GPU plan', () => {
   })
 })
 
+describe('the re-exec decision', () => {
+  it('relaunches when the plan carries env and the marker is absent — the zygote already missed it', () => {
+    const plan = gpuPlan(WSL)
+    expect(needsGpuRelaunch(plan, {})).toBe(true)
+  })
+
+  it('never relaunches twice — the marker is the terminator', () => {
+    const plan = gpuPlan(WSL)
+    expect(needsGpuRelaunch(plan, { RHIZOMORPH_GPU_ENV_APPLIED: '1' })).toBe(false)
+    expect('RHIZOMORPH_GPU_ENV_APPLIED').toBe(GPU_ENV_MARKER)
+  })
+
+  it('never relaunches when the env is already right at the seam — a wrapper or dev shell that set it', () => {
+    const env = { GALLIUM_DRIVER: 'd3d12', LD_LIBRARY_PATH: WSL_LIB_DIR }
+    const plan = gpuPlan({ ...WSL, env })
+    // The plan's env delta is empty, so there is nothing a re-exec would carry.
+    expect(Object.keys(plan.env)).toHaveLength(0)
+    expect(needsGpuRelaunch(plan, env)).toBe(false)
+  })
+
+  it('never relaunches off WSL — the empty plan cannot ask for it', () => {
+    const plan = gpuPlan({ platform: 'darwin', env: {}, hasWslLib: false })
+    expect(needsGpuRelaunch(plan, {})).toBe(false)
+  })
+})
+
 describe('the GPU-process-gone line', () => {
   it('speaks law 12 for a dead GPU process: the fact, the cost, what is unaffected', () => {
     const line = gpuProcessGoneLine({ type: 'GPU', reason: 'crashed', exitCode: 139 })
@@ -80,22 +115,34 @@ describe('the GPU-process-gone line', () => {
 
 describe('the adapter line', () => {
   it('reports a real adapter plainly', () => {
-    const line = gpuAdapterLine({
-      auxAttributes: { glRenderer: 'ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)' },
-    })
+    const line = gpuAdapterLine('ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics), OpenGL 4.1)')
     expect(line).toContain('gpu adapter — ANGLE')
     expect(line).not.toContain('software')
   })
 
   it("names a software rasteriser in the rigs' own terms — the signal the env did not arrive", () => {
-    const line = gpuAdapterLine({ auxAttributes: { glRenderer: 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device))' } })
+    const line = gpuAdapterLine('ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device))')
     expect(line).toContain('software rasteriser')
     expect(line).toContain('frame budget')
   })
 
-  it('reports an unreadable shape rather than swallowing it', () => {
-    for (const shape of [null, undefined, 42, {}, { auxAttributes: {} }, { auxAttributes: { glRenderer: '' } }]) {
-      expect(gpuAdapterLine(shape)).toContain('unknown')
+  it('a page with no WebGL2 context reads as none — the same fact the scene answers with its error state', () => {
+    for (const shape of [null, undefined, 42, '']) {
+      const line = gpuAdapterLine(shape)
+      expect(line).toContain('none')
+      expect(line).toContain('falls to its list')
     }
+  })
+
+  it('the probe is self-contained page code: no DOM attachment, no imports, null on any failure', () => {
+    // It runs via executeJavaScript in the real page, so it must be an
+    // expression that evaluates alone. Asserted structurally: an IIFE that
+    // never touches document.body and catches everything.
+    expect(WEBGL_ADAPTER_PROBE.trim().startsWith('(() =>')).toBe(true)
+    expect(WEBGL_ADAPTER_PROBE).toContain("getContext('webgl2')")
+    expect(WEBGL_ADAPTER_PROBE).toContain('UNMASKED_RENDERER_WEBGL')
+    expect(WEBGL_ADAPTER_PROBE).toContain('catch')
+    expect(WEBGL_ADAPTER_PROBE).not.toContain('document.body')
+    expect(WEBGL_ADAPTER_PROBE).not.toContain('appendChild')
   })
 })

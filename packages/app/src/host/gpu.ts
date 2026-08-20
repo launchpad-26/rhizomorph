@@ -69,6 +69,35 @@ export const WSL_GPU_SWITCHES: readonly string[] = ['enable-gpu-rasterization', 
 /** The refusal regex both measurement rigs use. Reused verbatim so "software" means the same thing everywhere. */
 export const SOFTWARE_RENDERER_RE = /swiftshader|llvmpipe|software/i
 
+/**
+ * The marker a re-exec'd process carries, proving the env below arrived at the
+ * launch seam rather than being mutated too late.
+ *
+ * ## Why a re-exec exists at all — measured, not theorised
+ *
+ * On Linux, Chromium forks its zygote before a single line of the app's own
+ * script runs, and the GPU process forks from the zygote — so `process.env`
+ * mutation in the main script never reaches it. Measured on this box, in
+ * order: env mutated in-script → `ANGLE (Mesa, llvmpipe …)`, a software
+ * rasteriser; the same variables at the launch seam (the parent shell) →
+ * `ANGLE (Microsoft Corporation, D3D12 (Intel(R) Iris(R) Xe Graphics))`, the
+ * real adapter. Same binary, same flags, same machine — only WHERE the env
+ * was set differed.
+ *
+ * So when the plan has env to deliver and this marker is absent, the shell
+ * spawns itself once with the env in place and exits before taking the
+ * single-instance lock (exiting after would race its own child for the lock
+ * and kill it). The child carries the marker, computes an empty env delta,
+ * and boots normally. Every other platform, and every WSL launch that already
+ * has the env (a wrapper, a dev shell), never re-execs.
+ */
+export const GPU_ENV_MARKER = 'RHIZOMORPH_GPU_ENV_APPLIED'
+
+/** True when this process must re-exec through the launch seam to deliver the plan's env. */
+export function needsGpuRelaunch(plan: GpuPlan, env: Readonly<Record<string, string | undefined>>): boolean {
+  return plan.wsl && Object.keys(plan.env).length > 0 && env[GPU_ENV_MARKER] === undefined
+}
+
 export function gpuPlan(input: GpuPlanInput): GpuPlan {
   const wsl = input.platform === 'linux' && input.hasWslLib
   if (!wsl) {
@@ -116,29 +145,44 @@ export function gpuProcessGoneLine(details: { type?: string; reason?: string; ex
 }
 
 /**
+ * The probe the adapter line runs IN THE PAGE, once it has loaded.
+ *
+ * Measured before choosing this: `app.getGPUInfo('basic')` and `'complete'`
+ * both return no readable renderer string on this Electron under WSLg, so a
+ * main-process report could only ever say "unknown". The page's own WebGL2
+ * context is the truer witness anyway — it is the exact surface the scene
+ * draws on, and `UNMASKED_RENDERER_WEBGL` is the same parameter both
+ * measurement rigs assert against. Self-contained and side-effect-free: one
+ * throwaway canvas, never attached to the DOM.
+ */
+export const WEBGL_ADAPTER_PROBE = `(() => {
+  try {
+    const canvas = document.createElement('canvas')
+    const gl = canvas.getContext('webgl2')
+    if (!gl) return null
+    const ext = gl.getExtension('WEBGL_debug_renderer_info')
+    const renderer = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)
+    return typeof renderer === 'string' ? renderer : null
+  } catch {
+    return null
+  }
+})()`
+
+/**
  * The adapter, reported rather than assumed.
  *
- * `app.getGPUInfo('basic')` has no stable published shape, so the renderer is
- * dug out defensively; a shape this can't read is itself reported rather than
- * swallowed. If the renderer names a software rasteriser, the line says so in
- * the rigs' own terms — that is the signal that the env-timing risk named in
- * the plan has fired, and the launch-seam fallback is due.
+ * Null means the page could not create a WebGL2 context at all — which is the
+ * case the scene now answers with S1's error state, so the two lines agree. A
+ * software rasteriser is named in the rigs' own terms: that is the signal the
+ * env-timing risk named in the plan has fired, and the launch-seam fallback
+ * is due.
  */
-export function gpuAdapterLine(info: unknown): string {
-  const renderer = rendererOf(info)
-  if (renderer === null) {
-    return 'rhizomorph: gpu adapter — unknown (getGPUInfo returned no readable renderer)'
+export function gpuAdapterLine(renderer: unknown): string {
+  if (typeof renderer !== 'string' || renderer === '') {
+    return 'rhizomorph: gpu adapter — none (the page could not create a WebGL2 context; the organism falls to its list and says so)'
   }
   if (SOFTWARE_RENDERER_RE.test(renderer)) {
     return `rhizomorph: gpu adapter — ${renderer} — a software rasteriser: the organism will not hold a frame budget, and on WSL this means the d3d12 env did not reach the GPU process`
   }
   return `rhizomorph: gpu adapter — ${renderer}`
-}
-
-function rendererOf(info: unknown): string | null {
-  if (info === null || typeof info !== 'object') return null
-  const aux = (info as { auxAttributes?: unknown }).auxAttributes
-  if (aux === null || typeof aux !== 'object') return null
-  const renderer = (aux as { glRenderer?: unknown }).glRenderer
-  return typeof renderer === 'string' && renderer !== '' ? renderer : null
 }

@@ -9,7 +9,15 @@ import { BRIDGE_CHANNELS, HOST_CAPABILITIES, type HostDescription } from '../hos
 import type { FleetDigest } from '../host/digest.js'
 import { failurePage } from '../host/failure-page.js'
 import { fetchChunks, fetchJson, FleetFeed } from '../host/fleet-feed.js'
-import { gpuAdapterLine, gpuPlan, gpuProcessGoneLine, WSL_LIB_DIR } from '../host/gpu.js'
+import {
+  GPU_ENV_MARKER,
+  gpuAdapterLine,
+  gpuPlan,
+  gpuProcessGoneLine,
+  needsGpuRelaunch,
+  WEBGL_ADAPTER_PROBE,
+  WSL_LIB_DIR,
+} from '../host/gpu.js'
 import { findRepoRoot, resolveLayout, type HostLayout } from '../host/layout.js'
 import { pageHostDescriptor } from '../host/host-descriptor.js'
 import { honestCapabilities, loginItemPlan, type LoginItemPlan } from '../host/login-item.js'
@@ -59,17 +67,23 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 
 // ── the GPU, before anything else ────────────────────────────────────────────
 //
-// Applied at module top level on purpose: Chromium's GPU process inherits the
-// environment and command line as they stand when it spawns, and `whenReady`
-// is already too late for the switches. Under WSLg this is what lets the
-// scene's WebGL2 reach a real adapter (d3d12) instead of coming up
-// software-or-nothing — the "panel is there, none of the rendering" failure
-// the first real first-run surfaced. Everywhere else `gpuPlan` returns the
-// empty plan and these three lines do nothing at all.
+// Applied at module top level on purpose: the switches must land before
+// `whenReady`, and the env decision must be made before the single-instance
+// lock. Under WSLg this is what lets the scene's WebGL2 reach a real adapter
+// (d3d12) instead of coming up software-or-nothing — the "panel is there,
+// none of the rendering" failure the first real first-run surfaced.
+// Everywhere else `gpuPlan` returns the empty plan and none of this runs.
+//
+// The env cannot be delivered by mutating `process.env` here: Linux forks the
+// zygote before this script runs, and the GPU process forks from the zygote —
+// measured on this box, in-script env produced llvmpipe and the same env at
+// the launch seam produced the real D3D12 adapter. So a launch that needs the
+// env re-execs itself ONCE through the seam (see `GPU_ENV_MARKER`), exiting
+// before the single-instance lock so it never races its own child for it.
 const gpu = gpuPlan({ platform: process.platform, env: process.env, hasWslLib: existsSync(WSL_LIB_DIR) })
-Object.assign(process.env, gpu.env)
+const relaunchingForGpuEnv = needsGpuRelaunch(gpu, process.env)
 for (const gpuSwitch of gpu.switches) app.commandLine.appendSwitch(gpuSwitch)
-if (gpu.wsl) process.stderr.write(`${gpu.note}\n`)
+if (gpu.wsl && !relaunchingForGpuEnv) process.stderr.write(`${gpu.note}\n`)
 
 /**
  * `RHIZOMORPH_REPO` is a development convenience with no packaged equivalent
@@ -616,13 +630,18 @@ async function boot(): Promise<void> {
   if (note !== null) process.stderr.write(`rhizomorph: ${note}\n`)
 
   // The adapter, reported rather than assumed — the one line that says whether
-  // the GPU plan above actually arrived. A software renderer here is the named
-  // env-timing risk firing, and this is what makes it visible instead of
-  // theoretical.
-  void app.getGPUInfo('basic').then(
-    (info) => process.stderr.write(`${gpuAdapterLine(info)}\n`),
-    () => {},
-  )
+  // the GPU plan above actually arrived. Probed in the PAGE once it loads,
+  // because that is the exact surface the scene draws on and the same
+  // UNMASKED_RENDERER_WEBGL both measurement rigs assert against — measured
+  // here, getGPUInfo ('basic' and 'complete' alike) returns no readable
+  // renderer at all. A software rasteriser in this line is the named
+  // env-timing risk firing, made visible instead of theoretical.
+  mainWindow.webContents.once('did-finish-load', () => {
+    void mainWindow?.webContents.executeJavaScript(WEBGL_ADAPTER_PROBE, true).then(
+      (renderer: unknown) => process.stderr.write(`${gpuAdapterLine(renderer)}\n`),
+      () => {},
+    )
+  })
 
   updater = new Updater({
     // Null until ruling 9's deferral ends: an unsigned build has no feed to
@@ -695,7 +714,19 @@ async function boot(): Promise<void> {
 // A second launch is a person looking for the window they already have, not a
 // request for a second watcher on the same repo — two servers would record two
 // sessions of one run.
-if (!app.requestSingleInstanceLock()) {
+if (relaunchingForGpuEnv) {
+  // Through the launch seam, once: same binary, same argv, the GPU env in
+  // place, and the marker so the child never loops. Detached and unref'd so
+  // this process's exit does not take the child with it — and exiting BEFORE
+  // requesting the single-instance lock, or the parent would grab it and the
+  // child (the launch that actually works) would quit as a "second" instance.
+  spawn(process.execPath, process.argv.slice(1), {
+    env: { ...process.env, ...gpu.env, [GPU_ENV_MARKER]: '1' },
+    detached: true,
+    stdio: 'inherit',
+  }).unref()
+  app.exit(0)
+} else if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => showWindow())
