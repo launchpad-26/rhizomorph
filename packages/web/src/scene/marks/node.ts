@@ -3,29 +3,20 @@ import type { LadderRank, PathologyKind } from '../../fleet/index.js'
 import { tangentAt, type Point, type RetireGeometry, type ThreadGeometry } from '../geometry.js'
 import { alarmPulse } from '../motion.js'
 import {
-  ACTIVITY_HUE,
-  BROKEN,
-  ICE_100,
-  ICE_200,
-  ICE_300,
-  ICE_500,
-  ICE_600,
-  ICE_950,
-  NEEDS_YOU,
-  NOTICE,
   TUFT_WASH,
   clamp01,
-  hotter,
-  incandescent,
+  emphatic,
+  hotterOn,
   ink,
   mix,
   type Ink,
   type Rgb,
+  type ScenePalette,
 } from '../palette.js'
 import { PERSIST, toward } from '../retire.js'
-import { TIP_GLOW_RADIUS, spendTip } from '../salience.js'
+import { TIP_GLOW_RADIUS } from '../salience.js'
 import { blobRing, variationFor, variationSeed } from '../variation.js'
-import { budget, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
+import { budget, budgetTip, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
 import { NODE_LENS, THORN_OUT } from './glyphs.js'
 import { regionMark, ribbonMark, type Mark, type MarkRole, type RibbonMark } from './types.js'
 
@@ -57,19 +48,28 @@ import { regionMark, ribbonMark, type Mark, type MarkRole, type RibbonMark } fro
  * and the third axis's naming history.
  */
 
-const PATHOLOGY_HUE: Record<PathologyKind, Rgb> = {
-  looping: NEEDS_YOU,
-  waiting: NEEDS_YOU,
-  'off-fence': NEEDS_YOU,
-  frozen: BROKEN,
-  expensive: NOTICE,
+/** A pathology's family, from the frame's own palette — one map per world, same shape (law 9a). */
+function pathologyHue(palette: ScenePalette, kind: PathologyKind): Rgb {
+  const { status } = palette
+  const table: Record<PathologyKind, Rgb> = {
+    looping: status.needsYou,
+    waiting: status.needsYou,
+    'off-fence': status.needsYou,
+    frozen: status.broken,
+    expensive: status.notice,
+  }
+  return table[kind]
 }
 
-const RANK_HUE: Record<LadderRank, Rgb> = {
-  calm: ICE_200,
-  notice: NOTICE,
-  'needs-you': NEEDS_YOU,
-  broken: BROKEN,
+/** A rank's hue for the one case the activity map cannot speak to. Calm is the register's data ink (dark: ICE_200, exactly as before). */
+function rankHue(palette: ScenePalette, rank: LadderRank): Rgb {
+  const table: Record<LadderRank, Rgb> = {
+    calm: palette.register.data,
+    notice: palette.status.notice,
+    'needs-you': palette.status.needsYou,
+    broken: palette.status.broken,
+  }
+  return table[rank]
 }
 
 /** How much of its hue a node's lens keeps once its lane has aged all the way out. */
@@ -99,7 +99,7 @@ export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const { laneId, lane } = thread
   const along = tangentAt(thread.path, 1)
   const angle = Math.atan2(along.y, along.x)
-  const hue = hueOf(thread)
+  const hue = hueOf(frame.palette, thread)
   const alarm = thread.alarm
 
   const length = lensLength(thread.sizeFrac) * frame.breath
@@ -108,7 +108,7 @@ export function nodeMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const done = lane.activity === 'done'
   const plain = thread.pathology === null && lane.rank === 'calm'
 
-  const tint = lensTint(hue, freshness)
+  const tint = lensTint(frame.palette, hue, freshness)
 
   // The lens. Hollow for a frozen lane and for a finished one — an outline is
   // "no longer filling with work", which is true of a corpse and of a landed
@@ -256,7 +256,7 @@ function branchlets(
   // `CALM_CEILING`. See docs/design-notes/node-apical-tuft-glow.md.
   const arriving = clamp01(frame.field.energyOf(laneId).inbound / 1.4)
   const vivid = ink(
-    hotter(hue, TUFT_WASH + 0.35 * arriving + 0.4 * tuft.flare),
+    hotterOn(frame.palette, hue, TUFT_WASH + 0.35 * arriving + 0.4 * tuft.flare),
     clamp01(tuft.strength) * (1 + 0.1 * tuft.flare),
   )
   const base = length * 0.46
@@ -306,7 +306,7 @@ function branchlets(
     // Small, and *fixed* small: the radius is a bound (`TIP_GLOW_RADIUS`), not a
     // channel. A tip glow that grew with anything would be spending the band.
     radius: TIP_GLOW_RADIUS,
-    ink: spendTip(ink(hotter(hue, 0.5), lit), frame.salience, laneId),
+    ink: budgetTip(frame, laneId, ink(hotterOn(frame.palette, hue, 0.5), lit)),
   })
 
   return marks
@@ -327,8 +327,8 @@ const TIP_LIGHT = { floor: 0.95, commit: 0.05 } as const
  * the same colour at two temperatures rather than two colours. Never mixed all
  * the way to ice: a lane that worked an hour ago still worked.
  */
-function lensTint(hue: Rgb, freshness: number): Rgb {
-  return mix(ICE_600, hue, LENS_HUE_FLOOR + (1 - LENS_HUE_FLOOR) * freshness)
+function lensTint(palette: ScenePalette, hue: Rgb, freshness: number): Rgb {
+  return mix(palette.register.unknown, hue, LENS_HUE_FLOOR + (1 - LENS_HUE_FLOOR) * freshness)
 }
 
 /**
@@ -398,7 +398,7 @@ function persistNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: Retire
   const { laneId } = thread
   const along = tangentAt(thread.path, 1)
   const angle = Math.atan2(along.y, along.x)
-  const hue = hueOf(thread)
+  const hue = hueOf(frame.palette, thread)
   const freshness = 1 - thread.ageFrac
   const length = lensLength(thread.sizeFrac) * (1 - 0.35 * cut.stilled)
 
@@ -432,8 +432,8 @@ function persistNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: Retire
   // ruling 13 the strand behind them says it too.
   const ribbons = persistNodeRibbons(thread, angle, length)
   marks.push(
-    { ...ribbons.tail, paint: cold(ink(lensTint(hue, freshness), 0.75)) },
-    { ...ribbons.seal, paint: cold(ink(ACTIVITY_HUE.done, 0.9)) },
+    { ...ribbons.tail, paint: cold(ink(lensTint(frame.palette, hue, freshness), 0.75)) },
+    { ...ribbons.seal, paint: cold(ink(frame.palette.activity.done, 0.9)) },
   )
 
   if (frame.salience.spotlightId === laneId || frame.salience.hoverId === laneId) {
@@ -519,7 +519,7 @@ function stateMarks(
           at: thread.node,
           size: 13,
           rotate: angle - Math.PI / 2,
-          ink: ink(incandescent(hue), 0.98),
+          ink: ink(emphatic(hue, frame.palette), 0.98),
         },
       ]
 
@@ -540,7 +540,7 @@ function stateMarks(
               thread,
               angle,
               length,
-              budget(frame, laneId, false, ink(ACTIVITY_HUE.done, 0.9)),
+              budget(frame, laneId, false, ink(frame.palette.activity.done, 0.9)),
             ),
           ]
         : []
@@ -602,7 +602,7 @@ function expensiveMarks(
       taperTip: 0.45,
       samples: 10,
       // Fainter as they rise: heat leaving, not a fixed ladder of three.
-      paint: budget(frame, thread.laneId, false, ink(NOTICE, 0.9 - i * 0.18)),
+      paint: budget(frame, thread.laneId, false, ink(frame.palette.status.notice, 0.9 - i * 0.18)),
     })
   })
 }
@@ -657,7 +657,7 @@ function summonsMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark
       // The arm is lifted a little off full saturation so it stays clear of the
       // calm ceiling the fleet around it now reaches; the palm above it is what
       // goes all the way to `ALARM_FLOOR`.
-      paint: ink(hotter(hue, 0.2), 0.98),
+      paint: ink(hotterOn(frame.palette, hue, 0.2), 0.98),
     }),
     {
       kind: 'path',
@@ -683,7 +683,7 @@ function summonsMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark
       rotate: 0,
       // The palm is the summons: the one mark of a waiting lane that reaches the
       // band above the calm ceiling (`ALARM_FLOOR`).
-      ink: ink(incandescent(hue), 1),
+      ink: ink(emphatic(hue, frame.palette), 1),
     },
   ]
 }
@@ -948,7 +948,7 @@ export function labelMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
 
   const { anchor, align } = thread.label
   const flagged = thread.pathology !== null
-  const hue = hueOf(thread)
+  const hue = hueOf(frame.palette, thread)
   const marks: Mark[] = []
 
   // A name is a name, so it is sans (law 11) — and the figure below it is data,
@@ -970,7 +970,7 @@ export function labelMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       },
       width,
       height: 16,
-      fill: ink(ICE_950, 0.88),
+      fill: ink(frame.palette.register.plate, 0.88),
       border: ink(hue, 0.5),
     })
   }
@@ -980,7 +980,7 @@ export function labelMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   // old ramp bottomed out at `ICE_700`, where a stale lane's name was effectively
   // unreadable against the void.
   const living = ink(
-    flagged ? hue : mix(ICE_500, ICE_100, 1 - thread.ageFrac),
+    flagged ? hue : mix(frame.palette.register.oldest, frame.palette.register.emphasis, 1 - thread.ageFrac),
     flagged ? 0.98 : 0.85,
   )
 
@@ -1021,7 +1021,7 @@ export function labelMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
     size: 10,
     weight: 400,
     align,
-    ink: budget(frame, laneId, false, ink(ICE_300, 0.85)),
+    ink: budget(frame, laneId, false, ink(frame.palette.register.body, 0.85)),
   })
 
   return marks
@@ -1039,11 +1039,11 @@ export function labelMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
  * `RANK_HUE` survives for the case the activity map cannot speak to: a lane
  * ranked above calm with no pathology attached to say why.
  */
-function hueOf(thread: ThreadGeometry): Rgb {
-  if (thread.pathology !== null) return PATHOLOGY_HUE[thread.pathology]
+function hueOf(palette: ScenePalette, thread: ThreadGeometry): Rgb {
+  if (thread.pathology !== null) return pathologyHue(palette, thread.pathology)
   return thread.lane.rank === 'calm'
-    ? ACTIVITY_HUE[thread.lane.activity]
-    : RANK_HUE[thread.lane.rank]
+    ? palette.activity[thread.lane.activity]
+    : rankHue(palette, thread.lane.rank)
 }
 
 /** The palm of the raised hand: a filled disc, in the same unit space. */
