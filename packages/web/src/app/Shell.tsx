@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { ReplayBanner } from '../replay/Banner.js'
+import { Welcome } from './Welcome.js'
 import { ConnectionBadge } from './ConnectionBadge.js'
 import { useIdleWorkerJump } from './keyboard.js'
 import { useMode } from './ModeContext.js'
@@ -97,6 +98,7 @@ export function Shell() {
       <Suspense fallback={null}>
         <LaneDrawer />
       </Suspense>
+      <Welcome />
     </div>
   )
 }
