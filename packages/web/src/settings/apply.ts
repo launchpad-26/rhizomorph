@@ -13,15 +13,17 @@ import { readChoice, subscribeToPreferences } from './registry.js'
  *
  * **The seam is also the gap, and the gap is declared.** No surface reads
  * `data-density` or `data-motion` yet, so those two are a correctly-stored
- * preference with nothing on the other end; `data-theme` is now read by
- * `theme.css`'s `[data-theme='light']` block (#551) for all of the chrome, and
- * by nothing in the scene, which still draws from a table `scene/marks/`
- * imports directly. Every one of those says so in its own `gap` note in
- * `registry.ts` (law 12's voice: WHAT is missing → WHY it matters → what fixes
- * it) rather than letting the surface imply an effect it does not have.
+ * preference with nothing on the other end, and each says so in its own `gap`
+ * note in `registry.ts` (law 12's voice: WHAT is missing → WHY it matters →
+ * what fixes it) rather than letting the surface imply an effect it does not
+ * have. `data-theme` is the seam working as designed, end to end: `theme.css`'s
+ * `[data-theme='light']` block (#551) reads it for the chrome, and the scene
+ * reads it through `useDocumentTheme` → `paletteFor(theme)` (the light-mode
+ * wave), so the one choice reaches every surface with no edit here.
  *
- * A gap note is not write-once. #551 closed half of the theme one and rewrote
- * what was left; a note describing a gap that has since closed is worse than
+ * A gap note is not write-once, and not remove-never. #551 closed half of the
+ * theme one and rewrote what was left; the light-mode wave closed the rest and
+ * removed it. A note describing a gap that has since closed is worse than
  * none, because it teaches a reader that this voice is stale.
  *
  * **Ruling 5's floor is arithmetic here, not a comment.** {@link resolveMotion}

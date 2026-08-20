@@ -93,24 +93,17 @@ describe('the theme switch (prd-32 ruling 4, given its home by prd-35 ruling 1)'
     }
   })
 
-  it('says out loud which surface the choice does not reach, rather than implying it reached all of them', () => {
+  it('carries no gap note now that the choice reaches every surface, including the scene', () => {
     render(<SettingsPage />)
-    // Law 12's voice: WHAT is missing, WHY it matters, what fixes it.
-    //
-    // The note was rewritten when #551 landed the light block, and the rewrite
-    // is the point rather than housekeeping. It used to read "there is one
-    // palette … the colours stay dark, because `theme.css` declares no
-    // `[data-theme='light']` block yet" — true when #550 shipped and false the
-    // moment #551 merged. A gap that describes a gap which has since closed is
-    // worse than no gap at all: it teaches a reader that the honest-gap voice
-    // is out of date, and after that they stop reading any of them.
-    //
-    // So this asserts the *shape* of the surviving gap — the scene, which is
-    // genuinely still dark — and not merely that some sentence is present.
-    const gap = screen.getByTestId('pref-appearance.theme-gap').textContent ?? ''
-    expect(gap).toContain('scene')
-    expect(gap).toContain('#551')
-    expect(gap).not.toContain('one palette')
+    // The end of a story this test has told three times. #550 shipped the
+    // switch with an honest note ("the colours stay dark"); #551 landed the
+    // light block and this test made the rewritten note name the scene as the
+    // one surface still out of reach; the light-mode wave pointed the marks at
+    // #551's table, and now the honest thing is *silence* — a gap note that
+    // outlives its gap teaches a reader the voice is stale, and after that
+    // they stop reading any of them. So the assertion inverts: the note must
+    // be gone, and putting one back means naming a genuinely unreached surface.
+    expect(screen.queryByTestId('pref-appearance.theme-gap')).toBeNull()
   })
 })
 

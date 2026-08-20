@@ -266,7 +266,14 @@ export const PREFERENCES: readonly PrefEntry[] = [
     control: 'settings',
     unavailable: null,
     requires: null,
-    gap: 'the chrome wears light; the scene does not. Panels, ink, rules and focus follow the warm-paper block, but the network is drawn from a table `scene/marks/` and `scene/gl/` import directly, so it goes on hanging in the void under a paper page — the one surface the choice does not reach. #551 landed the light table and the laws that hold it (`scene/palette.ts`); pointing the marks at it is a later wave.',
+    // The gap note this entry carried is CLOSED, and its absence is the record:
+    // #550 shipped the switch with no light block ("the colours stay dark"),
+    // #551 landed the light table and rewrote the note to name the scene as the
+    // one surface the choice did not reach, and the light-mode wave pointed the
+    // marks at that table (`useDocumentTheme` → `paletteFor(theme)`), so the
+    // choice now reaches every surface the instrument draws. A note that
+    // outlives its gap teaches readers this voice is stale — see `apply.ts`.
+    gap: null,
     legacy: null,
   },
   {
