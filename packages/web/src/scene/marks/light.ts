@@ -1,6 +1,6 @@
 import { pointAt, tangentAt, type Point, type ThreadGeometry } from '../geometry.js'
 import { alarmPulse } from '../motion.js'
-import { ICE_100, ICE_200, NEEDS_YOU, clamp01, hotter, incandescent, ink } from '../palette.js'
+import { clamp01, emphatic, hotterOn, ink } from '../palette.js'
 import { PulseField, type Pulse } from '../pulses.js'
 import { budget, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
 import { ribbonMark, type Mark } from './types.js'
@@ -94,7 +94,7 @@ function pulseMarks(frame: SceneFrame, thread: ThreadGeometry, pulse: Pulse): Ma
         laneId,
         alarm: false,
         width: 1.1,
-        ink: budget(frame, laneId, false, ink(hotter(ICE_200, 0.7), 0.5 * envelope)),
+        ink: budget(frame, laneId, false, ink(hotterOn(frame.palette, frame.palette.register.data, 0.7), 0.5 * envelope)),
         points: [
           { x: at.x - along.y * 3.4, y: at.y + along.x * 3.4 },
           { x: at.x + along.y * 3.4, y: at.y - along.x * 3.4 },
@@ -133,7 +133,7 @@ function pulseMarks(frame: SceneFrame, thread: ThreadGeometry, pulse: Pulse): Ma
         alarm: false,
         at,
         radius: size * 2.6,
-        ink: budget(frame, laneId, false, ink(hotter(ICE_200, 0.55), 0.16 * envelope)),
+        ink: budget(frame, laneId, false, ink(hotterOn(frame.palette, frame.palette.register.data, 0.55), 0.16 * envelope)),
       },
       {
         kind: 'glow',
@@ -142,7 +142,7 @@ function pulseMarks(frame: SceneFrame, thread: ThreadGeometry, pulse: Pulse): Ma
         alarm: false,
         at,
         radius: size,
-        ink: budget(frame, laneId, false, ink(hotter(ICE_200, 0.92), 0.72 * envelope)),
+        ink: budget(frame, laneId, false, ink(hotterOn(frame.palette, frame.palette.register.data, 0.92), 0.72 * envelope)),
       },
     )
   }
@@ -208,7 +208,7 @@ function swellMarks(
         { at: pulse.homeward ? 0.7 : 0.3, span: 0.8, scale: peaked(trail, bulge * 0.45) },
       ],
       samples: 12,
-      paint: budget(frame, laneId, false, ink(hotter(ICE_200, 0.8), 0.4 * envelope)),
+      paint: budget(frame, laneId, false, ink(hotterOn(frame.palette, frame.palette.register.data, 0.8), 0.4 * envelope)),
     }),
     ribbonMark({
       role: 'pulse',
@@ -219,7 +219,7 @@ function swellMarks(
       widthTip: head,
       stops: [{ at: 0.5, span: 0.7, scale: peaked(head, bulge) }],
       samples: 12,
-      paint: budget(frame, laneId, false, ink(hotter(ICE_200, 0.92), envelope)),
+      paint: budget(frame, laneId, false, ink(hotterOn(frame.palette, frame.palette.register.data, 0.92), envelope)),
     }),
   ]
 }
@@ -268,7 +268,7 @@ function countMark(
     size: 9,
     weight: 600,
     align: 'centre',
-    ink: budget(frame, thread.laneId, false, ink(ICE_100, 0.9 * envelope)),
+    ink: budget(frame, thread.laneId, false, ink(frame.palette.register.emphasis, 0.9 * envelope)),
   }
 }
 
@@ -307,7 +307,7 @@ function orbitMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       alarm: true,
       at: on(angle - (i / wake) * 0.85),
       radius: 1.4 + 1.8 * fade,
-      ink: ink(hotter(NEEDS_YOU, 0.4), 0.4 * fade),
+      ink: ink(hotterOn(frame.palette, frame.palette.status.needsYou, 0.4), 0.4 * fade),
     })
   }
 
@@ -319,7 +319,7 @@ function orbitMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       alarm: true,
       at: on(angle),
       radius: 10,
-      ink: ink(NEEDS_YOU, 0.26),
+      ink: ink(frame.palette.status.needsYou, 0.26),
     },
     {
       kind: 'glow',
@@ -331,7 +331,7 @@ function orbitMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       // The travelling light itself, at the incandescent end of the amber
       // family: a looping lane's brightest mark, and the one that puts it inside
       // the band the alarms own (`ALARM_FLOOR`).
-      ink: ink(incandescent(NEEDS_YOU), 0.98),
+      ink: ink(emphatic(frame.palette.status.needsYou, frame.palette), 0.98),
     },
   )
 
@@ -363,7 +363,7 @@ function heldMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       alarm: true,
       at,
       radius: 13 * throb,
-      ink: ink(NEEDS_YOU, 0.16),
+      ink: ink(frame.palette.status.needsYou, 0.16),
     },
     {
       kind: 'glow',
@@ -374,7 +374,7 @@ function heldMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       radius: 4.6 * (0.75 + 0.35 * throb),
       // Light that has stopped moving, and still the brightest light there is:
       // the held dot clears `ALARM_FLOOR` like every other needs-you core.
-      ink: ink(incandescent(NEEDS_YOU), 0.98),
+      ink: ink(emphatic(frame.palette.status.needsYou, frame.palette), 0.98),
     },
   ]
 }

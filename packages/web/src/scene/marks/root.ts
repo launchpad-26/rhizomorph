@@ -3,21 +3,14 @@ import { budLife, type BudGeometry, type Point, type ThreadGeometry } from '../g
 import { heartAnatomy, type HeartRing } from '../heart.js'
 import { DISSOLUTION, STRUCTURAL } from '../motion.js'
 import {
-  ACTIVITY_HUE,
-  ICE_050,
-  ICE_100,
-  ICE_200,
-  ICE_300,
-  ICE_400,
-  ICE_500,
-  TISSUE_400,
-  TISSUE_700,
   clamp01,
-  hotter,
+  hotterOn,
   ink,
   mix,
+  tissueAtOn,
   type Ink,
   type Rgb,
+  type ScenePalette,
 } from '../palette.js'
 import { variationFor, variationSeed } from '../variation.js'
 import { budget, type SceneFrame } from './frame.js'
@@ -285,7 +278,7 @@ interface Depth {
  * frame where a cord actually parted, and one more shell at 5.5% alpha is
  * not a thing anybody can see happen.
  */
-function depthsFor(fullness: number): readonly Depth[] {
+function depthsFor(palette: ScenePalette, fullness: number): readonly Depth[] {
   const count = Math.round(DEPTH.count + (DEPTH.countFull - DEPTH.count) * fullness)
   return Array.from({ length: count }, (_unused, i) => {
     const t = i / (count - 1)
@@ -296,7 +289,7 @@ function depthsFor(fullness: number): readonly Depth[] {
       // step becomes an edge. Washed toward the tissue ramp only on the
       // deep half and squared in `t`, so the skin stays untouched — see
       // {@link DEPTH_TISSUE} and docs/design-notes/root-organic-contour-not-sticker.md.
-      rgb: mix(mix(ICE_500, ICE_100, Math.pow(t, 1.35)), TISSUE_700, DEPTH_TISSUE * t * t),
+      rgb: mix(mix(palette.register.oldest, palette.register.emphasis, Math.pow(t, 1.35)), tissueAtOn(palette, 0.25), DEPTH_TISSUE * t * t),
       // Thinner per level as the stack deepens, so a fuller mass gains
       // *structure*, not opacity: the accumulation through the middle stays
       // put, and the material simply has more gradations in it. Without
@@ -401,8 +394,8 @@ export function rootFalloffs(frame: SceneFrame, radius: number): Falloff[] {
  * objects again, and the un-instrumented floor is asserted over the mass as a
  * whole (`marks.test.ts`) rather than over whichever part is brightest.
  */
-function depthInk(depth: Depth, surge: number, intensity: number): Ink {
-  return ink(hotter(depth.rgb, 0.14 * surge), depth.alpha * (0.5 + 0.5 * intensity))
+function depthInk(palette: ScenePalette, depth: Depth, surge: number, intensity: number): Ink {
+  return ink(hotterOn(palette, depth.rgb, 0.14 * surge), depth.alpha * (0.5 + 0.5 * intensity))
 }
 
 export function rootMarks(frame: SceneFrame): Mark[] {
@@ -445,7 +438,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
       frame,
       null,
       false,
-      ink(hotter(ICE_200, 0.35), 0.45 * intensity * (1 - 0.5 * fullness)),
+      ink(hotterOn(frame.palette, frame.palette.register.data, 0.35), 0.45 * intensity * (1 - 0.5 * fullness)),
     ),
   })
 
@@ -456,7 +449,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
   // One sampling of the field, walked at every depth in the stack: the
   // silhouette, and the shells beneath it. See {@link depthsFor} — the stack
   // is deeper and more finely divided the fuller the mass is.
-  const depths = depthsFor(fullness)
+  const depths = depthsFor(frame.palette, fullness)
   const rindIndex = rindIndexOf(depths, fullness)
   const layers = contourLayers(
     {
@@ -486,7 +479,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
     // are, so a thread's last inch shows through its edge. This alone is
     // not the body — the body is this plus the shells below. See
     // docs/design-notes/root-organic-contour-not-sticker.md.
-    fill: budget(frame, null, false, depthInk(depths[0] as Depth, surge, intensity)),
+    fill: budget(frame, null, false, depthInk(frame.palette, depths[0] as Depth, surge, intensity)),
     // No edge — an outline states a boundary; a surface with depth behind
     // it already has one. See docs/design-notes/root-organic-contour-not-sticker.md.
     shells: [
@@ -499,6 +492,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
           null,
           false,
           depthInk(
+            frame.palette,
             { ...(depths[0] as Depth), alpha: (depths[0] as Depth).alpha * DEPTH.rindGain },
             surge,
             intensity,
@@ -507,7 +501,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
       },
       ...depths.slice(1).map((depth, i) => ({
         rings: layers[i + 1] ?? [],
-        ink: budget(frame, null, false, depthInk(depth, surge, intensity)),
+        ink: budget(frame, null, false, depthInk(frame.palette, depth, surge, intensity)),
       })),
     ],
   })
@@ -534,7 +528,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
     alarm: false,
     at: centre,
     radius: radius * (0.2 + 0.28 * surge),
-    ink: budget(frame, null, false, ink(ICE_050, 0.12 + 0.28 * intensity)),
+    ink: budget(frame, null, false, ink(frame.palette.register.peak, 0.12 + 0.28 * intensity)),
   })
 
   // `root-arrival` (an expanding ring) used to be drawn here; it's gone,
@@ -553,7 +547,7 @@ export function rootMarks(frame: SceneFrame): Mark[] {
     size: 10,
     weight: 600,
     align: 'centre',
-    ink: budget(frame, null, false, ink(ICE_300, 0.85)),
+    ink: budget(frame, null, false, ink(frame.palette.register.body, 0.85)),
   })
 
   return marks
@@ -614,7 +608,7 @@ function heartMarks(frame: SceneFrame, radius: number, intensity: number): Mark[
       closed: false,
       // Tissue, faint, lit by the conductor's own burn like everything else
       // in the mass, so gap honesty survives into the anatomy.
-      ink: budget(frame, null, false, ink(TISSUE_400, 0.16 * (0.5 + 0.5 * intensity))),
+      ink: budget(frame, null, false, ink(tissueAtOn(frame.palette, 0.75), 0.16 * (0.5 + 0.5 * intensity))),
       width: 0.75,
     },
   ]
@@ -650,7 +644,7 @@ function heartMarks(frame: SceneFrame, radius: number, intensity: number): Mark[
       // so the family that landed is still faintly in it (the same argument
       // `PERSIST_TISSUE` makes about a remnant — "finished" and "nothing to
       // say" must not share a colour), and the accent is what it cooled into.
-      ink: budget(frame, null, false, ink(mix(TISSUE_400, ACTIVITY_HUE.done, RING_GREEN), 0.3 * deposit)),
+      ink: budget(frame, null, false, ink(mix(tissueAtOn(frame.palette, 0.75), frame.palette.activity.done, RING_GREEN), 0.3 * deposit)),
       // THE WORK SIZE, KEPT (prd6 ruling 1). Used to be the stub length a
       // lane left at the rim; ruling 2 removed the stubs, so the channel
       // moved to the one permanent mark a landing leaves instead — a big
@@ -719,7 +713,7 @@ export function conductorBudMarks(frame: SceneFrame, radius: number): Mark[] {
       caps: false,
       // Ice, not a family hue: the conductor is not a lane and has no activity to
       // wear (`theme.css` on why MAIN gets no token of its own).
-      paint: budget(frame, null, false, ink(hotter(ICE_400, 0.3), 0.6 * bud.vitality)),
+      paint: budget(frame, null, false, ink(hotterOn(frame.palette, frame.palette.register.idle, 0.3), 0.6 * bud.vitality)),
     }),
   ]
 
@@ -732,7 +726,7 @@ export function conductorBudMarks(frame: SceneFrame, radius: number): Mark[] {
       alarm: false,
       at: bud.tip,
       radius: 4 + 3 * struck,
-      ink: budget(frame, null, false, ink(hotter(ICE_200, 0.5), 0.45 * struck * bud.vitality)),
+      ink: budget(frame, null, false, ink(hotterOn(frame.palette, frame.palette.register.data, 0.5), 0.45 * struck * bud.vitality)),
     })
   }
 
