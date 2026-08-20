@@ -117,8 +117,8 @@ export const ACTIVITY_TEXT_CLASS: Record<LaneActivity, string> = {
   working: 'text-working',
   waiting: 'text-waiting-benign',
   done: 'text-done',
-  idle: 'text-ice-400',
-  unknown: 'text-ice-400',
+  idle: 'text-(--ink-dim)',
+  unknown: 'text-(--ink-dim)',
 }
 
 /**

@@ -367,7 +367,11 @@ describe('no new pixel literal after the ramp exists (S1)', () => {
 // 98 -> 44: the lane-page cluster (LanePage, PageHeader, SpendDetail,
 // TraceColumn) — every panel there was border-ice-850 bg-ice-950, a set of
 // black slabs on the warm page, with text-ice-400 bodies at 3.7:1.
-const ICE_RUNG_SITES = 44
+//
+// 44 -> 32: kind.ts (every trace/ledger span ink) and the fleet sigils move to
+// the three ink roles — three ordered lightnesses in BOTH themes, so no themed
+// sub-ramp was needed; kind.test.tsx's INK_ALLOWED now names the roles.
+const ICE_RUNG_SITES = 32
 
 describe('no consumer names a luminance rung — the colour ratchet (S2)', () => {
   /** The sweep's own files, less the one that defines the ramp being counted. */

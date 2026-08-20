@@ -81,7 +81,7 @@ const STATUS_TOKENS = [
 ] as const
 
 /** prd9's legibility floor: `ice-500` and dimmer measure under 4.5:1 and are not text. */
-const INK_ALLOWED = ['text-ice-100', 'text-ice-200', 'text-ice-300', 'text-ice-400'] as const
+const INK_ALLOWED = ['text-(--ink-primary)', 'text-(--ink-body)', 'text-(--ink-dim)'] as const
 
 const WORLD: KindWorld = { statusTokens: STATUS_TOKENS, inkAllowed: INK_ALLOWED }
 

@@ -141,7 +141,7 @@ export interface KindAppearance {
   readonly label: string
   /** Which of the four this kind belongs to, or `null` for lightness alone. */
   readonly category: WorkCategory | null
-  /** Lightness. One ice step, never dimmer than the `ice-400` text floor. */
+  /** Lightness. One ink ROLE, never dimmer than the --ink-dim floor — roles so both themes resolve it (the sweep, 2026-08-20). */
   readonly ink: string
   /** The category tint, as a border colour. Never a fill and never ink. */
   readonly edge: string
@@ -159,29 +159,29 @@ export interface KindAppearance {
  */
 export const KIND_APPEARANCE: Record<WorkKind, KindAppearance> = {
   /** A whole exchange — one prompt and everything it caused. */
-  run: { word: 'run', label: 'interaction', category: 'speech', ink: 'text-ice-300', edge: CATEGORY_EDGE.speech },
+  run: { word: 'run', label: 'interaction', category: 'speech', ink: 'text-(--ink-body)', edge: CATEGORY_EDGE.speech },
   /** A request to a model. The conversation's other half, so: speech. */
-  model: { word: 'llm', label: 'model request', category: 'speech', ink: 'text-ice-200', edge: CATEGORY_EDGE.speech },
-  /** A tool call. `ice-300` settles the old disagreement in the ledger's favour. */
-  tool: { word: 'tool', label: 'tool call', category: 'tool', ink: 'text-ice-300', edge: CATEGORY_EDGE.tool },
+  model: { word: 'llm', label: 'model request', category: 'speech', ink: 'text-(--ink-primary)', edge: CATEGORY_EDGE.speech },
+  /** A tool call. Body ink settles the old disagreement in the ledger's favour. */
+  tool: { word: 'tool', label: 'tool call', category: 'tool', ink: 'text-(--ink-body)', edge: CATEGORY_EDGE.tool },
   /** The call actually running — machinery under the call, so a step dimmer. */
-  exec: { word: 'exec', label: 'tool execution', category: 'tool', ink: 'text-ice-400', edge: CATEGORY_EDGE.tool },
+  exec: { word: 'exec', label: 'tool execution', category: 'tool', ink: 'text-(--ink-dim)', edge: CATEGORY_EDGE.tool },
   /** What the tool said back. */
-  result: { word: 'result', label: 'tool result', category: 'tool', ink: 'text-ice-400', edge: CATEGORY_EDGE.tool },
+  result: { word: 'result', label: 'tool result', category: 'tool', ink: 'text-(--ink-dim)', edge: CATEGORY_EDGE.tool },
   /**
    * The run stopped on a human. Retrospective-exact (prd9 ruling 6): it reports
    * how long a lane SAT waiting, never that anyone is waiting now — which is
    * precisely why it is a kind and not the amber that means "a human must act".
    */
-  blocked: { word: 'blocked', label: 'blocked on a human', category: 'gate', ink: 'text-ice-300', edge: CATEGORY_EDGE.gate },
+  blocked: { word: 'blocked', label: 'blocked on a human', category: 'gate', ink: 'text-(--ink-body)', edge: CATEGORY_EDGE.gate },
   /** The run stopped on a policy. Same shape as `blocked`, different gatekeeper. */
-  hook: { word: 'hook', label: 'hook span', category: 'gate', ink: 'text-ice-400', edge: CATEGORY_EDGE.gate },
+  hook: { word: 'hook', label: 'hook span', category: 'gate', ink: 'text-(--ink-dim)', edge: CATEGORY_EDGE.gate },
   /** A file the lane changed — the first half of the evidence the transcript cannot give. */
-  file: { word: 'file', label: 'file change', category: 'change', ink: 'text-ice-400', edge: CATEGORY_EDGE.change },
+  file: { word: 'file', label: 'file change', category: 'change', ink: 'text-(--ink-dim)', edge: CATEGORY_EDGE.change },
   /** A commit it landed — the second half, and the loudest kind in the app. */
-  commit: { word: 'commit', label: 'commit', category: 'change', ink: 'text-ice-200', edge: CATEGORY_EDGE.change },
+  commit: { word: 'commit', label: 'commit', category: 'change', ink: 'text-(--ink-primary)', edge: CATEGORY_EDGE.change },
   /** Unrecognised. Never dropped and never an error — and never a category. */
-  other: { word: 'other', label: 'unclassified span', category: null, ink: 'text-ice-400', edge: NO_EDGE },
+  other: { word: 'other', label: 'unclassified span', category: null, ink: 'text-(--ink-dim)', edge: NO_EDGE },
 }
 
 /** Every kind, for exhaustive walks. Derived, so it cannot fall behind the table. */
