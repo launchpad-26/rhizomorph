@@ -108,7 +108,11 @@ export function SettingsPage({ repoPath = null }: SettingsPageProps = {}) {
         </span>
       </header>
       <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <div className="flex max-w-3xl flex-col gap-6">
+        {/* Two columns on a desktop panel (loop 15): the groups are cards, and a
+            single 48rem column on a 1400px window was leaving half the page
+            blank while the reader scrolled. `items-start` keeps each card its
+            own height — this is a survey, not a table. */}
+        <div className="max-w-6xl columns-1 gap-(--space-gutter) md:columns-2">
           {SETTINGS_GROUPS.map((group) => (
             <GroupSection key={group.id} group={group} repoPath={repoPath} />
           ))}
@@ -140,7 +144,7 @@ function GroupSection({ group, repoPath }: { group: SettingsGroup; repoPath: str
       data-testid={`settings-group-${group.id}`}
       data-unavailable={disabled ? 'true' : undefined}
       aria-labelledby={`settings-group-${group.id}-heading`}
-      className={`rounded border border-(--line-hair) bg-(--surface-panel) px-4 py-3 ${disabled ? 'opacity-70' : ''}`}
+      className={`mb-(--space-gutter) break-inside-avoid rounded-plate border border-(--line-hair) bg-(--surface-panel) px-4 py-3 shadow-(--elev-raised) ${disabled ? 'opacity-70' : ''}`}
     >
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 id={`settings-group-${group.id}-heading`} className="text-read-body text-(--ink-primary)">
@@ -281,8 +285,10 @@ function ChoiceControl({ entry, unavailable }: { entry: PrefEntry; unavailable: 
         {entry.options.map((option) => (
           <label
             key={option.value}
-            className={`flex items-center gap-1.5 text-inst ${
-              disabled ? 'cursor-not-allowed text-(--ink-dim) opacity-70' : 'cursor-pointer text-(--ink-body)'
+            className={`flex items-center gap-1.5 rounded-ctl border px-2 py-1 text-inst transition-[color,border-color] duration-(--duration-touch) ${
+              disabled
+                ? 'cursor-not-allowed border-(--line-hair) text-(--ink-dim) opacity-70'
+                : 'cursor-pointer border-(--line-hair) text-(--ink-body) has-[:checked]:border-(--ink-dim) has-[:checked]:text-(--ink-primary) hover:border-(--ink-dim)'
             }`}
           >
             <input
@@ -324,8 +330,10 @@ function FlagControl({ entry, unavailable }: { entry: PrefEntry; unavailable: st
   return (
     <>
       <label
-        className={`flex items-center gap-1.5 text-inst ${
-          disabled ? 'cursor-not-allowed text-(--ink-dim) opacity-70' : 'cursor-pointer text-(--ink-body)'
+        className={`inline-flex w-fit items-center gap-1.5 rounded-ctl border px-2 py-1 text-inst transition-[color,border-color] duration-(--duration-touch) ${
+          disabled
+            ? 'cursor-not-allowed border-(--line-hair) text-(--ink-dim) opacity-70'
+            : 'cursor-pointer border-(--line-hair) text-(--ink-body) has-[:checked]:border-(--ink-dim) has-[:checked]:text-(--ink-primary) hover:border-(--ink-dim)'
         }`}
       >
         <input
