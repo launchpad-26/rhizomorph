@@ -3,6 +3,7 @@ import { buildFleet, fixtureHistory, fleet20Spec, manifestFor } from '../fleet/i
 import { reduceAll } from '@rhizomorph/core'
 import { MAX_SMOOTHING, chaikin, contourRings, fieldAt, orderFalloffs, smin, type Falloff } from './contour.js'
 import { layoutScene, type Point } from './geometry.js'
+import { DARK_PALETTE } from './palette.js'
 import { breathOf, motionMode, type SceneFrame } from './marks/index.js'
 import { rootFalloffs } from './marks/root.js'
 import { PulseField } from './pulses.js'
@@ -467,5 +468,6 @@ function frameFor(retire?: ReadonlyMap<string, RetireState>): SceneFrame {
     reducedMotion: false,
     paused: false,
     breath: breathOf(NOW, motionMode({ reducedMotion: false, paused: false })),
+    palette: DARK_PALETTE,
   }
 }

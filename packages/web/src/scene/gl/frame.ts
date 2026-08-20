@@ -53,6 +53,14 @@ export interface PanelView {
   width: number
   height: number
   camera?: Camera
+  /**
+   * The clear colour — the ground the network hangs in, from the frame's own
+   * palette. Optional and defaulting to the dark BACKDROP so every existing
+   * caller (and every dark frame) is byte-identical; the light theme is what
+   * needed the seam, because a hardcoded void under a paper page was the one
+   * colour the theme could not reach (#551's wave).
+   */
+  ground?: Ink
 }
 
 /**
@@ -171,7 +179,7 @@ export function buildFrame(marks: readonly Mark[], panel: PanelView, into?: Batc
       world: item.world,
       veil: layers.slice(item.from),
     })),
-    backdrop: premultiply(rgba(BACKDROP)),
+    backdrop: premultiply(rgba(panel.ground ?? BACKDROP)),
     drawCalls: list.reduce((total, run) => total + (run.kind === 'stencil' ? 2 : 1), 0),
   }
 }

@@ -7,6 +7,7 @@ import type { PulseField } from './pulses.js'
 import { isRetired, type RetireRegistry } from './retire.js'
 import type { SettleRegistry } from './settle.js'
 import { useCamera } from './view/useCamera.js'
+import { useDocumentTheme } from './view/useDocumentTheme.js'
 import { useFrameLoop, type SceneLatestState } from './view/useFrameLoop.js'
 import { cursorOf, onSceneKeyDown } from './view/input.js'
 import { pickAt } from './view/hitTest.js'
@@ -84,6 +85,10 @@ export function SceneView({
   const [hideFinished, setHideFinished] = useScenePref('hideFinished')
   const [failure, setFailure] = useState<string | null>(null)
   const [grabReady, setGrabReady] = useState(false)
+  // The theme, off the document's own attribute — the seam `settings/apply.ts`
+  // declares. This is how the picture follows the chrome onto paper (#551's
+  // "pointing the marks at it" wave).
+  const theme = useDocumentTheme()
 
   const latest = useRef<SceneLatestState>({
     fleet,
@@ -95,6 +100,7 @@ export function SceneView({
     reducedMotion,
     paused,
     hideFinished,
+    theme,
     now,
     asOf,
     replaying,
@@ -109,6 +115,7 @@ export function SceneView({
     reducedMotion,
     paused,
     hideFinished,
+    theme,
     now,
     asOf,
     replaying,

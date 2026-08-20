@@ -1,5 +1,6 @@
 import { IDENTITY, type Camera } from '../camera.js'
 import type { Mark } from '../marks/index.js'
+import type { Ink } from '../palette.js'
 import { Batch } from './batch.js'
 import { buildFrame, type GlFrame } from './frame.js'
 import { createOverlayPainter, type OverlayPainter } from './overlay.js'
@@ -44,6 +45,8 @@ export interface ScenePaintOptions {
   camera?: Camera
   /** Device pixels per CSS pixel. The camera composes on top of it. */
   dpr?: number
+  /** The clear colour, from the frame's palette. Absent = the dark BACKDROP, byte-identical to before the seam. */
+  ground?: Ink
 }
 
 export interface ScenePainter {
@@ -96,7 +99,7 @@ export function createScenePainter(
       }
       const frame = buildFrame(
         request.marks,
-        { width: panel.width, height: panel.height, camera },
+        { width: panel.width, height: panel.height, camera, ...(request.ground === undefined ? {} : { ground: request.ground }) },
         vertices,
       )
       last = frame

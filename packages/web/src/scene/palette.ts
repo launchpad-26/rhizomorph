@@ -460,6 +460,8 @@ export interface SeverityBand {
   readonly floor: number
   /** No calm mark climbs above this. */
   readonly calmCeiling: number
+  /** prd10 ruling 4's one door: a WORKING tip's own ceiling, between the calm ceiling and the alarm floor. */
+  readonly tipCeiling: number
   /** Every alarm mark reaches this. */
   readonly alarmFloor: number
   /** What everything the spotlight is not on drops to. Shared — it is a ratio. */
@@ -522,12 +524,14 @@ export const DARK_PALETTE: ScenePalette = {
   bodyFloor: CALM_BODY_FLOOR,
   band: {
     carrier: 'luminance',
-    // The four immovable numbers, restated by reference rather than by value:
-    // `salience.ts` owns them and `palette.test.ts` asserts they have not
-    // moved. They are written out here because `salience.ts` imports this
-    // module, so the dependency cannot run the other way.
+    // The four immovable numbers plus ruling 4's tip door, restated by value
+    // rather than by reference: `salience.ts` owns them and `palette.test.ts`
+    // asserts they have not moved. They are written out here because
+    // `salience.ts` imports this module, so the dependency cannot run the
+    // other way.
     floor: 0.15,
     calmCeiling: 0.78,
+    tipCeiling: 0.81,
     alarmFloor: 0.84,
     recede: 0.3,
   },
@@ -608,6 +612,15 @@ export const PAPER_CALM_FLOOR = 0.2
 export const PAPER_CALM_CEILING = 0.7
 /** @see PAPER_CALM_FLOOR */
 export const PAPER_ALARM_FLOOR = 0.75
+/**
+ * prd10 ruling 4's one door, in presence: a WORKING tip may sit a little above
+ * the calm ceiling and stays well under the alarm floor. 0.72 mirrors dark's
+ * spacing (0.78 / 0.81 / 0.84 — the tip closer to the calm ceiling than to the
+ * alarm floor, deliberately: a little brighter than the fleet, nowhere near a
+ * summons). OPERATOR ITEM (light-mode plan, 2c): the number is proposed and
+ * pinned, and cheap to move before the light theme ships.
+ */
+export const PAPER_TIP_CEILING = 0.72
 
 /**
  * The alpha a living thread is drawn at on paper with nothing going on — the
@@ -659,6 +672,7 @@ export const LIGHT_PALETTE: ScenePalette = {
     carrier: 'presence',
     floor: PAPER_CALM_FLOOR,
     calmCeiling: PAPER_CALM_CEILING,
+    tipCeiling: PAPER_TIP_CEILING,
     alarmFloor: PAPER_ALARM_FLOOR,
     // Shared with dark, and the only one that is: a ratio is not denominated in
     // light, so receding to three-tenths means the same thing on either ground.

@@ -61,7 +61,7 @@ import {
   TIP_GLOW_RADIUS,
   salienceOf,
 } from './salience.js'
-import { BROKEN, NEEDS_YOU, NOTICE, REPLAY_VIBRANCY, type Ink } from './palette.js'
+import { BROKEN, DARK_PALETTE, NEEDS_YOU, NOTICE, REPLAY_VIBRANCY, type Ink, type ScenePalette } from './palette.js'
 import { PulseField } from './pulses.js'
 import type { LaneIndex } from './resolve.js'
 
@@ -165,6 +165,8 @@ interface FrameOptions {
    * thing it changes is `frame.vibrancy`, which the ambient layer alone reads.
    */
   replaying?: boolean
+  /** Which world the frame is drawn in. Defaults to dark, so every existing fixture is byte-identical. */
+  palette?: ScenePalette
 }
 
 function frameFor(options: FrameOptions = {}): SceneFrame {
@@ -196,6 +198,7 @@ function frameFor(options: FrameOptions = {}): SceneFrame {
     reducedMotion,
     paused,
     breath: breathOf(now, mode),
+    palette: options.palette ?? DARK_PALETTE,
   }
 }
 

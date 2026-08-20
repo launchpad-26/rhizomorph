@@ -10,6 +10,7 @@ import { breathOf, motionMode, sceneMarks, type Mark, type SceneFrame } from '..
 import { PulseField } from '../pulses.js'
 import { laneIndex } from '../resolve.js'
 import { RETURN, returnAt } from '../retire.js'
+import { DARK_PALETTE } from '../palette.js'
 import { salienceOf } from '../salience.js'
 
 /**
@@ -67,6 +68,8 @@ export function seededMarks(): Mark[] {
     reducedMotion: false,
     paused: false,
     breath: breathOf(NOW, motionMode({ reducedMotion: false, paused: false })),
+    // The parity capture IS the dark-byte-identity evidence, so it pins dark explicitly.
+    palette: DARK_PALETTE,
   }
 
   return sceneMarks(frame)

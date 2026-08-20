@@ -1,9 +1,9 @@
 import type { Fleet } from '../../fleet/index.js'
 import { RECENCY_SPAN_MS, type SceneGeometry, type ThreadGeometry } from '../geometry.js'
 import { allowance, type MotionMode } from '../motion.js'
-import { REPLAY_VIBRANCY, type Ink } from '../palette.js'
+import { capPresence, fade, REPLAY_VIBRANCY, type Ink, type ScenePalette } from '../palette.js'
 import type { PulseField } from '../pulses.js'
-import { spend, type Salience } from '../salience.js'
+import { emphasisOf, spend, spendTip, type Salience } from '../salience.js'
 
 /**
  * One frame's worth of inputs, shared by every mark builder.
@@ -66,6 +66,15 @@ export interface SceneFrame {
   paused: boolean
   /** Multiplier around 1. The root-mass's slow inhale. */
   breath: number
+  /**
+   * THE THEME'S TABLE (#551's "pointing the marks at it" wave) — which world
+   * this frame is drawn in: the void or the page. Like `vibrancy`, a mode
+   * becomes a value on the frame exactly once, here, and every mark builder
+   * reads it rather than importing a world of its own. `budget()` below is
+   * where the palette's band actually bites; the colours themselves come from
+   * `palette.register`/`status`/`tissue` as each builder converts.
+   */
+  palette: ScenePalette
 }
 
 /**
@@ -121,8 +130,19 @@ export function summonsAgeMs(frame: SceneFrame, thread: ThreadGeometry): number 
 /**
  * Put an ink through the contrast budget. Every mark builder paints through this
  * rather than reaching for a colour directly, which is how the spotlight, the
- * alarm exemption (g2) and the calm luminance ceiling (g6) apply to the whole
- * picture without any single builder having to remember them.
+ * alarm exemption (g2) and the calm ceiling (g6) apply to the whole picture
+ * without any single builder having to remember them.
+ *
+ * The budget dispatches on the palette's own carrier, because the two worlds
+ * denominate salience in different quantities (prd-32 ruling 7): on the void a
+ * calm mark is capped in LUMINANCE — brightness is what draws the eye against
+ * black — and that path is `salience.ts`'s `spend`, verbatim, so dark output is
+ * byte-identical to what it was before the palette existed. On paper the same
+ * cap would be meaningless (the page itself is the brightest thing in sight),
+ * so a calm mark is capped in PRESENCE — departure from the ground — using the
+ * same recession ratio (`emphasisOf`; a ratio is the one part of the budget not
+ * denominated in light at all) and the light band's own ceiling. Alarms pass
+ * untouched on both paths: graft g2 is carrier-independent.
  */
 export function budget(
   frame: SceneFrame,
@@ -130,5 +150,25 @@ export function budget(
   alarm: boolean,
   source: Ink,
 ): Ink {
-  return spend(source, frame.salience, laneId, alarm)
+  if (frame.palette.band.carrier === 'luminance') {
+    return spend(source, frame.salience, laneId, alarm)
+  }
+  if (alarm) return source
+  const faded = fade(source, emphasisOf(frame.salience, laneId, alarm))
+  return capPresence(faded, frame.palette.ground, frame.palette.band.calmCeiling)
+}
+
+/**
+ * The budget as a **working tip** spends it (prd10 ruling 4's amendment),
+ * dispatched like {@link budget}: dark takes `salience.ts`'s `spendTip`
+ * verbatim; paper takes the presence twin at the light band's own tip ceiling.
+ * Still not exempt from the fade on either path — a summons arrives and every
+ * tip in the fleet gets out of its way, whichever world it is drawn in.
+ */
+export function budgetTip(frame: SceneFrame, laneId: string | null, source: Ink): Ink {
+  if (frame.palette.band.carrier === 'luminance') {
+    return spendTip(source, frame.salience, laneId)
+  }
+  const faded = fade(source, emphasisOf(frame.salience, laneId, false))
+  return capPresence(faded, frame.palette.ground, frame.palette.band.tipCeiling)
 }

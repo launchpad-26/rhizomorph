@@ -47,6 +47,7 @@ import {
   PAPER_BODY_FLOOR,
   PAPER_CALM_CEILING,
   PAPER_CALM_FLOOR,
+  PAPER_TIP_CEILING,
   REPLAY_VIBRANCY,
   SEVERITY_LADDER,
   TUFT_WASH,
@@ -77,7 +78,7 @@ import {
   type SeverityReading,
   type ThemeName,
 } from './palette.js'
-import { ALARM_FLOOR, CALM_CEILING, CALM_FLOOR, RECEDE, spend } from './salience.js'
+import { ALARM_FLOOR, CALM_CEILING, CALM_FLOOR, RECEDE, spend, TIP_CEILING } from './salience.js'
 
 /**
  * THE MIRROR. Canvas cannot read a Tailwind class, so `palette.ts` is the one
@@ -481,6 +482,9 @@ describe('dark’s four numbers, unchanged', () => {
       carrier: 'luminance',
       floor: CALM_FLOOR,
       calmCeiling: CALM_CEILING,
+      // Ruling 4's one door, carried on the band since the frame's budget
+      // learned to dispatch on the carrier (#551's consumption wave).
+      tipCeiling: TIP_CEILING,
       alarmFloor: ALARM_FLOOR,
       recede: RECEDE,
     })
@@ -500,6 +504,18 @@ describe('dark’s four numbers, unchanged', () => {
     expect(PAPER_CALM_FLOOR).toBeLessThan(PAPER_CALM_CEILING)
     expect(PAPER_CALM_CEILING).toBeLessThan(PAPER_ALARM_FLOOR)
     expect(LIGHT_PALETTE.band.recede).toBe(RECEDE)
+  })
+
+  it("holds ruling 4's tip door open the same width in both worlds: above the calm ceiling, below the alarm floor", () => {
+    // Dark: 0.78 / 0.81 / 0.84. Light mirrors the SPACING — the tip closer to
+    // the calm ceiling than the alarm floor — not the values. PAPER_TIP_CEILING
+    // is an operator item (light-mode plan 2c): pinned so it is a decision, and
+    // cheap to move before the light theme ships.
+    expect(LIGHT_PALETTE.band.tipCeiling).toBe(PAPER_TIP_CEILING)
+    expect(PAPER_TIP_CEILING).toBeGreaterThan(PAPER_CALM_CEILING)
+    expect(PAPER_TIP_CEILING).toBeLessThan(PAPER_ALARM_FLOOR)
+    expect(TIP_CEILING).toBeGreaterThan(CALM_CEILING)
+    expect(TIP_CEILING).toBeLessThan(ALARM_FLOOR)
   })
 
   it('agrees with luminance on the void, which is why one number served for two ideas', () => {

@@ -11,7 +11,7 @@ import { rootMarks } from './marks/root.js'
 import { loopingMarks, offFenceMarks, threadMarks } from './marks/thread.js'
 import { DISSOLUTION } from './motion.js'
 import { Batch, buildFrame } from './gl/index.js'
-import { ICE_050, ink, type Ink } from './palette.js'
+import { DARK_PALETTE, ICE_050, ink, type Ink } from './palette.js'
 import { PulseField } from './pulses.js'
 import { RETURN, returnAt, type RetireState } from './retire.js'
 import { salienceOf } from './salience.js'
@@ -432,6 +432,7 @@ function frameFor(fleet: Fleet, geometry: ReturnType<typeof layoutScene>, now: n
     reducedMotion: false,
     paused: false,
     breath: breathOf(now, motionMode({ reducedMotion: false, paused: false })),
+    palette: DARK_PALETTE,
   }
 }
 

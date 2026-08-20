@@ -22,7 +22,7 @@ import {
   type Mark,
   type SceneFrame,
 } from '../marks/index.js'
-import { ICE_200, ink } from '../palette.js'
+import { ICE_200, ink, paletteFor, type ThemeName } from '../palette.js'
 import type { PulseField } from '../pulses.js'
 import type { RetireRegistry } from '../retire.js'
 import { salienceOf } from '../salience.js'
@@ -40,6 +40,8 @@ export interface SceneLatestState {
   reducedMotion: boolean
   paused: boolean
   hideFinished: boolean
+  /** The document's theme (`useDocumentTheme`) — which palette the frame paints from. */
+  theme: ThemeName
   now?: number
   asOf?: number
   replaying: boolean
@@ -315,6 +317,7 @@ export function useFrameLoop(
       geometryRef.current = geometry
       rig.boundsRef.current = contentBounds(geometry)
 
+      const palette = paletteFor(current.theme)
       const sceneFrame: SceneFrame = {
         fleet: current.fleet,
         geometry,
@@ -330,6 +333,7 @@ export function useFrameLoop(
         reducedMotion: current.reducedMotion,
         paused: current.paused,
         breath: breathOf(clock, mode),
+        palette,
       }
 
       const marks = sceneMarks(sceneFrame)
@@ -341,7 +345,10 @@ export function useFrameLoop(
       // answers `null` for both) — see {@link lastPaintedFrame}.
       const camera = rig.cameraRef.current
       painted = { marks, camera, dpr, width, height }
-      painter.paint({ marks, width, height, camera, dpr })
+      // The clear colour follows the palette's own ground, so the picture and
+      // the page share one floor in both themes (dark: byte-identical to the
+      // old hardcoded BACKDROP).
+      painter.paint({ marks, width, height, camera, dpr, ground: ink(palette.ground, 1) })
     }
 
     /** One frame of a zoom-to-fit, driven by the loop that is already running. */

@@ -1,6 +1,7 @@
 import { reduceAll } from '@rhizomorph/core'
 import { buildFleet, fixtureHistory, fleet20Spec, manifestFor, type Fleet } from '../../fleet/index.js'
 import { layoutScene, type Point } from '../geometry.js'
+import { DARK_PALETTE } from '../palette.js'
 import { breathOf, motionMode, type SceneFrame } from '../marks/index.js'
 import { rootMarks } from '../marks/root.js'
 import { PulseField } from '../pulses.js'
@@ -221,5 +222,6 @@ function frameFor(state: ContourState): SceneFrame {
     reducedMotion: false,
     paused: false,
     breath: breathOf(clock, motionMode({ reducedMotion: false, paused: false })),
+    palette: DARK_PALETTE,
   }
 }
