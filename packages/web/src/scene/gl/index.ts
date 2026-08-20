@@ -22,9 +22,18 @@ export * from './tessellate.js'
  * Either surface may be missing and the scene must survive both. jsdom answers
  * `null` for `webgl2` *and* `2d`, so under test both painters are absent, the
  * frame is still **built** (which is the half worth asserting — see `frame.ts`),
- * and nothing is drawn. In a browser both exist. A browser that has 2D but no
- * WebGL2 gets the type and loses the picture, which is a degradation the panel
- * around it survives.
+ * and nothing is drawn.
+ *
+ * A browser that has 2D but no WebGL2 is a different fact, and it now SPEAKS
+ * instead of degrading in silence: that combination is exactly "a real
+ * rendering environment that refused the GPU" — an Electron shell with GPU
+ * acceleration unavailable was the first live case — and silently drawing only
+ * the overlay text produced prd-36 S1's named failure, "a canvas failure
+ * leaving a blank frame". The painter reports it as {@link ScenePainter.unavailable};
+ * the frame loop turns that into a throw; the fleet surface's error boundary
+ * turns the throw into S1's *error* state — the list, plus one honest line.
+ * jsdom never trips it (both contexts null → `unavailable` false), which is
+ * what keeps every unit test rendering exactly as before.
  */
 
 export interface ScenePaintOptions {
@@ -44,6 +53,13 @@ export interface ScenePainter {
   dispose(): void
   /** True between `webglcontextlost` and `webglcontextrestored`. */
   readonly lost: boolean
+  /**
+   * True when this environment can draw (a 2D context exists) but WebGL2 was
+   * refused — a real browser or shell without GPU access. False in jsdom,
+   * where both contexts are null and silence stays correct. The frame loop
+   * turns this into prd-36 S1's *error* state rather than a blank frame.
+   */
+  readonly unavailable: boolean
   /** The last frame built. Null before the first paint. */
   readonly last: GlFrame | null
 }
@@ -61,6 +77,10 @@ export function createScenePainter(
 ): ScenePainter {
   const gl: GlPainter | null = createGlPainter(glCanvas, options)
   const overlay: OverlayPainter | null = createOverlayPainter(overlayCanvas)
+  // Decided once, at creation: the discriminator is which HALF came up. Both
+  // null is jsdom (stay silent); 2D without GL is a real environment that
+  // refused the GPU (speak).
+  const unavailable = gl === null && overlay !== null
   // One buffer for the life of the painter: a frame's triangles are rewritten in
   // place, so a scene running for a session allocates its vertex arrays once.
   const vertices = new Batch()
@@ -89,6 +109,7 @@ export function createScenePainter(
     get lost(): boolean {
       return gl?.lost ?? false
     },
+    unavailable,
     get last(): GlFrame | null {
       return last
     },

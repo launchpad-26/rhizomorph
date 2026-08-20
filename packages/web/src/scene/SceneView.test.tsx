@@ -1,5 +1,6 @@
 import { createEvent as rhizomorphEvent, reduceAll } from '@rhizomorph/core'
 import { act, cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
+import { Component, type ReactNode } from 'react'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ModeProvider } from '../app/ModeContext.js'
 import { StreamProvider } from '../app/StreamContext.js'
@@ -22,7 +23,7 @@ import { laneIndex } from './resolve.js'
 import { RetireRegistry } from './retire.js'
 import { SettleRegistry } from './settle.js'
 import { recordingGl } from './gl/recorder.js'
-import { lastPaintedFrame } from './view/useFrameLoop.js'
+import { CANVAS_UNAVAILABLE_MESSAGE, lastPaintedFrame } from './view/useFrameLoop.js'
 import Scene, { SceneView } from './index.js'
 
 // @gate-timing — load-sensitive under `--maxWorkers` (#124, #130, #144,
@@ -216,6 +217,32 @@ describe('the canvas host', () => {
     expect(canvas?.height).toBe(540 * 2)
   })
 
+  it('rasterises a short host at its REAL size — the fallback fires only on a zero rect', async () => {
+    // The assertion that would have caught the distortion: the fallback used to
+    // be a Math.max floor on every tick, so any host shorter than 420 CSS px
+    // got a 420-tall raster squashed by CSS — including at prd-32 S5's own
+    // primary window size, where the hero host measures ≈330px.
+    const hostRect = {
+      width: 800,
+      height: 300,
+      top: 0,
+      left: 0,
+      right: 800,
+      bottom: 300,
+      x: 0,
+      y: 0,
+      toJSON() {},
+    }
+    vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect').mockReturnValue(hostRect as DOMRect)
+    vi.stubGlobal('devicePixelRatio', 1)
+
+    const { container } = await mountScene()
+    const canvas = container.querySelector('canvas')
+
+    expect(canvas?.width).toBe(800)
+    expect(canvas?.height).toBe(300)
+  })
+
   it('draws exactly one frame under a pinned clock, and starts no loop', async () => {
     // A pinned clock is a test asking for a still image. A running loop under
     // one would redraw the same frame forever and race every assertion below it.
@@ -228,15 +255,62 @@ describe('the canvas host', () => {
   it('stops loudly rather than going black, if drawing ever throws', async () => {
     // The frame loop is outside React, so an error boundary cannot see it. Law
     // 12's voice applies to the scene's own failures too.
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    //
+    // Type-discriminating on purpose: a real GL for 'webgl2' and the throwing
+    // double for '2d'. Returning the double for EVERY type used to accidentally
+    // model "a browser that refused WebGL2" — which is now a different, louder
+    // state (`ScenePainter.unavailable` → the fleet boundary), not this one.
+    const gl = recordingGl()
+    const throwing2d = {
       setTransform() {
         throw new Error('canvas is gone')
       },
-    } as unknown as CanvasRenderingContext2D)
+    }
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((type: string) =>
+      type === 'webgl2' ? gl.gl : throwing2d) as unknown as HTMLCanvasElement['getContext'])
 
     await mountWithCanvas()
     expect(screen.getByRole('status').textContent).toContain('canvas is gone')
     expect(screen.getByRole('status').textContent).toContain('panels are unaffected')
+  })
+
+  it('throws the unavailable message when this environment can draw 2D but refused WebGL2 — the boundary renders S1\'s error state', async () => {
+    // The Electron shell without GPU access was the first live case: overlay
+    // labels drew, the picture did not, and nothing said so. The mount effect
+    // now throws, so the nearest error boundary (the fleet surface's) speaks.
+    const calls: string[] = []
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((type: string) =>
+      type === '2d' ? fakeContext(calls) : null) as unknown as HTMLCanvasElement['getContext'])
+    // React logs boundary-caught errors; quiet the channel for this test only.
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    class Boundary extends Component<{ children?: ReactNode }, { message: string | null }> {
+      override state: { message: string | null } = { message: null }
+      static getDerivedStateFromError(error: Error) {
+        return { message: error.message }
+      }
+      override render() {
+        return this.state.message === null ? this.props.children : <p role="alert">{this.state.message}</p>
+      }
+    }
+
+    const fleet = stagedFleet()
+    render(
+      <Boundary>
+        <SceneView
+          fleet={fleet}
+          field={new PulseField()}
+          settle={new SettleRegistry()}
+          retire={new RetireRegistry()}
+          selectedId={null}
+          onSelect={vi.fn()}
+          now={NOW}
+        />
+      </Boundary>,
+    )
+
+    expect(screen.getByRole('alert').textContent).toBe(CANVAS_UNAVAILABLE_MESSAGE)
+    quiet.mockRestore()
   })
 
   it('paints the whole picture when a context exists', async () => {
@@ -386,9 +460,15 @@ describe('the camera', () => {
     const calls: string[] = []
     const transforms: number[][] = []
     const journal: unknown[][] = []
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
-      fakeContext(calls, transforms, journal) as unknown as CanvasRenderingContext2D,
-    )
+    // Type-discriminating: the camera assertions read the OVERLAY's
+    // setTransform, so the 2D double carries them, while 'webgl2' gets a real
+    // recording GL — a blanket 2D-for-everything mock would now read as "a
+    // browser that refused WebGL2" and trip the unavailable throw.
+    const cameraGl = recordingGl()
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((type: string) =>
+      type === 'webgl2'
+        ? cameraGl.gl
+        : fakeContext(calls, transforms, journal)) as unknown as HTMLCanvasElement['getContext'])
 
     const fleet = stagedFleet()
     const onSelect = vi.fn()
@@ -874,9 +954,13 @@ function mountMotion(
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
 
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
-    fakeContext([]) as unknown as CanvasRenderingContext2D,
-  )
+  // Type-discriminating: a blanket 2D-for-everything mock would read as "a
+  // browser that refused WebGL2" and trip the unavailable throw. These suites
+  // are about motion and clocks, not the GL half, so 'webgl2' gets a real
+  // recording GL and everything else the plain 2D double.
+  const liveGl = recordingGl()
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((type: string) =>
+    type === 'webgl2' ? liveGl.gl : fakeContext([])) as unknown as HTMLCanvasElement['getContext'])
 
   const fleet = options.fleet ?? stagedFleet()
   const field = new PulseField()

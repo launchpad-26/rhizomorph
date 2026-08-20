@@ -119,6 +119,17 @@ export function lastPaintedFrame(): PaintedFrame | null {
 /** What the operator is told while the GPU is handing the context back. */
 export const CONTEXT_LOST_MESSAGE = 'the graphics context was lost — recovering'
 
+/**
+ * What the error boundary is told when this environment can draw but WebGL2
+ * was refused (prd-36 S1's *error* state — see `ScenePainter.unavailable`).
+ * Thrown rather than set as a failure line: a scene with no GL half has no
+ * picture to annotate, and the honest surface is the fleet's own boundary —
+ * the list, plus this sentence, once. `FleetSurface.test.tsx`'s stub throws
+ * this same message, so the stub and production cannot drift apart again.
+ */
+export const CANVAS_UNAVAILABLE_MESSAGE =
+  'the canvas did not come up — this environment gave a 2D context but refused WebGL2'
+
 export function useFrameLoop(
   hostRef: RefObject<HTMLDivElement | null>,
   canvasRef: RefObject<HTMLCanvasElement | null>,
@@ -205,13 +216,29 @@ export function useFrameLoop(
       onRestored: () => setFailure(null),
     })
 
+    // A real environment that refused WebGL2 (an Electron shell without GPU
+    // access was the first live case). This throw happens synchronously in the
+    // mount effect — inside React's commit, so the fleet surface's error
+    // boundary catches it and renders S1's *error* state: the list, plus one
+    // honest line, instead of the blank frame prd-36 names as the failure.
+    // jsdom never reaches here with `unavailable` true (both contexts null).
+    if (painter.unavailable) {
+      painter.dispose()
+      throw new Error(CANVAS_UNAVAILABLE_MESSAGE)
+    }
+
     const resize = () => {
       const rect = host.getBoundingClientRect()
       dpr = Math.min(2, window.devicePixelRatio || 1)
-      // A floor rather than the measured size, so a zero-height host during
-      // mount still lays out a coherent scene instead of dividing by nothing.
-      width = Math.max(FALLBACK_WIDTH, Math.floor(rect.width))
-      height = Math.max(FALLBACK_HEIGHT, Math.floor(rect.height))
+      // Only a ZERO measurement falls back (mid-mount, before layout has run —
+      // `useCamera`'s documented intent). This used to be a `Math.max` floor
+      // applied on every tick, which quietly rasterised a 420-tall picture
+      // into any host shorter than that and let CSS squash it — at prd-32
+      // S5's own primary window size the scene host measures ≈330px, so the
+      // default experience was ~21% vertical distortion, with the camera's
+      // extents and hit-testing computed for a viewport that did not exist.
+      width = Math.floor(rect.width) || FALLBACK_WIDTH
+      height = Math.floor(rect.height) || FALLBACK_HEIGHT
       rig.viewportRef.current = { width, height }
       behavior.translateExtent(translateExtentFor(rig.viewportRef.current))
       // The backing store only. The element's *size* is CSS (absolutely

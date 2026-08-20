@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StreamProvider } from '../app/StreamContext.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
+import { CANVAS_UNAVAILABLE_MESSAGE } from '../scene/view/useFrameLoop.js'
 import { FleetProvider } from './FleetContext.js'
 import { FleetSurface } from './FleetSurface.js'
 import { fixtureHistory, fleet20Spec, useFleet } from './index.js'
@@ -31,8 +32,13 @@ vi.mock('../scene/index.js', () => ({
     const { selectedId, select } = useSelection()
     if (!scene.canRender) {
       // What a canvas that cannot get a WebGL context does, from the surface's
-      // point of view: it throws on first render and the error boundary catches.
-      throw new Error('scene stub: no context')
+      // point of view — LITERALLY, not as a stand-in: `useFrameLoop` throws
+      // this exact message when the environment gives a 2D context but refuses
+      // WebGL2 (`ScenePainter.unavailable`), and the boundary catches it. This
+      // comment used to describe behaviour production did not have; importing
+      // the real message is what keeps the stub and the scene from drifting
+      // apart again.
+      throw new Error(CANVAS_UNAVAILABLE_MESSAGE)
     }
     return (
       <div

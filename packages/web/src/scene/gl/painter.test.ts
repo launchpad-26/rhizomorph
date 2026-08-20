@@ -228,6 +228,12 @@ describe('the frame, submitted', () => {
 })
 
 describe('an environment with no GPU', () => {
+  // The split this describe now records: jsdom (BOTH contexts null) stays
+  // silent — the frame is built, nothing is drawn, and every unit test in the
+  // repo keeps rendering; a REAL environment that can draw 2D but refused
+  // WebGL2 is reported as `unavailable`, which the frame loop turns into
+  // prd-36 S1's *error* state instead of a blank frame. The discriminator is
+  // which half came up, decided once at creation.
   it('builds the frame and draws nothing, rather than throwing', () => {
     // jsdom's own answer, which is the shape `SceneView` has always survived.
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
@@ -237,6 +243,10 @@ describe('an environment with no GPU', () => {
     )
 
     expect(painter.lost).toBe(false)
+    // Both halves absent is the TEST environment, not a GPU failure — silence
+    // stays correct, or every jsdom mount in the repo would render the error
+    // state.
+    expect(painter.unavailable).toBe(false)
     expect(painter.paint(PAINT).vertices.n).toBeGreaterThan(0)
     expect(() => painter.resize()).not.toThrow()
     expect(() => painter.dispose()).not.toThrow()
@@ -257,5 +267,9 @@ describe('an environment with no GPU', () => {
       document.createElement('canvas'),
     )
     expect(() => painter.paint(PAINT)).not.toThrow()
+    // And this mock IS the real-browser-without-GL shape: 2D answers, GL does
+    // not. The painter says so, rather than silently drawing only the labels —
+    // the Electron shell without GPU access was the first live case.
+    expect(painter.unavailable).toBe(true)
   })
 })
