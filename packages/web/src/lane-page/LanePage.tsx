@@ -196,22 +196,22 @@ export function LanePage({ handle, fetchTranscript, transcriptPollMs, fetchLaneI
 
   if (isConductor) {
     return (
-      <div data-testid="lane-page" className="flex h-screen flex-col bg-ice-1000 font-sans text-ice-300">
+      <div data-testid="lane-page" className="flex h-screen flex-col bg-(--surface-floor) font-sans text-(--ink-body)">
         <PageHeader subject={{ kind: 'conductor' }} onClose={goBalcony} />
 
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden p-3 md:grid-cols-2">
           <section
             data-testid="lane-page-conversation"
-            className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-ice-850 bg-ice-950"
+            className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-(--line-hair) bg-(--surface-panel)"
           >
             <Conversation lane={MAIN_SELECTION} fetchImpl={fetchTranscript} pollMs={transcriptPollMs} />
           </section>
-          <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-ice-850 bg-ice-950 p-2">
+          <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-(--line-hair) bg-(--surface-panel) p-2">
             <TraceColumn state={state.session} lane={CONDUCTOR_TELEMETRY_LANE} />
           </section>
         </div>
 
-        <div className="grid shrink-0 grid-cols-1 gap-3 border-t border-ice-850 p-3">
+        <div className="grid shrink-0 grid-cols-1 gap-3 border-t border-(--line-hair) p-3">
           <SpendDetail subject={{ kind: 'conductor' }} fleet={fleet} state={state.session} />
         </div>
 
@@ -236,14 +236,14 @@ export function LanePage({ handle, fetchTranscript, transcriptPollMs, fetchLaneI
   // says it is looking rather than claiming the lane does not exist.
   if (lane === null && entry === null) {
     return (
-      <div data-testid="lane-page" className="flex h-screen flex-col bg-ice-1000 font-sans text-ice-300">
+      <div data-testid="lane-page" className="flex h-screen flex-col bg-(--surface-floor) font-sans text-(--ink-body)">
         <Nav />
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
           {index.status === 'loading' ? (
             <p
               role="status"
               data-testid="lane-page-searching"
-              className="max-w-lg font-mono text-read-floor leading-snug text-ice-400"
+              className="max-w-lg font-mono text-read-floor leading-snug text-(--ink-dim)"
             >
               SEARCHING EVERY RECORDING for “{handle}” — the lane is not in the session loaded here, so
               its life is being looked for in the log.
@@ -253,7 +253,7 @@ export function LanePage({ handle, fetchTranscript, transcriptPollMs, fetchLaneI
               <p
                 role="status"
                 data-testid="lane-page-unknown"
-                className="max-w-lg font-mono text-[12px] leading-snug text-ice-400"
+                className="max-w-lg font-mono text-[12px] leading-snug text-(--ink-dim)"
               >
                 NO LANE “{handle}” IN THIS SESSION — it may have landed, been renamed, or never existed
                 in this session's log.
@@ -261,7 +261,7 @@ export function LanePage({ handle, fetchTranscript, transcriptPollMs, fetchLaneI
               {index.reason === null ? null : (
                 <p
                   data-testid="lane-page-unknown-index"
-                  className="max-w-lg font-mono text-read-floor leading-snug text-ice-400"
+                  className="max-w-lg font-mono text-read-floor leading-snug text-(--ink-dim)"
                 >
                   {index.reason}
                 </p>
@@ -272,7 +272,7 @@ export function LanePage({ handle, fetchTranscript, transcriptPollMs, fetchLaneI
             type="button"
             data-testid="lane-page-back"
             onClick={goBalcony}
-            className="shrink-0 rounded border border-ice-800 px-3 py-1 text-[10px] uppercase tracking-wider text-ice-400 hover:border-ice-600 hover:text-ice-100"
+            className="shrink-0 rounded border border-(--line-strong) px-3 py-1 text-[10px] uppercase tracking-wider text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
           >
             ← balcony
           </button>
@@ -288,7 +288,7 @@ export function LanePage({ handle, fetchTranscript, transcriptPollMs, fetchLaneI
   const worktreeGone = lane === null ? entry?.worktreeRemoved === true : !lane.present
 
   return (
-    <div data-testid="lane-page" data-worktree-gone={worktreeGone} className="flex h-screen flex-col bg-ice-1000 font-sans text-ice-300">
+    <div data-testid="lane-page" data-worktree-gone={worktreeGone} className="flex h-screen flex-col bg-(--surface-floor) font-sans text-(--ink-body)">
       <PageHeader
         subject={
           lane === null
@@ -331,11 +331,11 @@ export function LanePage({ handle, fetchTranscript, transcriptPollMs, fetchLaneI
         <div className="grid h-[26rem] shrink-0 grid-cols-1 gap-3 md:grid-cols-2">
           <section
             data-testid="lane-page-conversation"
-            className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-ice-850 bg-ice-950"
+            className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-(--line-hair) bg-(--surface-panel)"
           >
             <Conversation lane={telemetryHandle} fetchImpl={scopedFetch} pollMs={transcriptPollMs} />
           </section>
-          <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-ice-850 bg-ice-950 p-2">
+          <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-(--line-hair) bg-(--surface-panel) p-2">
             <TraceColumn state={state.session} lane={telemetryHandle} />
           </section>
         </div>

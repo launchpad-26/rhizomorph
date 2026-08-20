@@ -22,12 +22,12 @@ export function TraceColumn({ state, lane }: TraceColumnProps) {
   return (
     <section data-testid="lane-page-trace" className="flex min-h-0 flex-1 flex-col">
       <header className="flex items-baseline justify-between px-1 pb-2">
-        <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-ice-400">Trace</h3>
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-(--ink-dim)">Trace</h3>
         <button
           type="button"
           data-testid="lane-page-trace-toggle"
           onClick={() => setView((current) => (current === 'tree' ? 'gantt' : 'tree'))}
-          className="rounded border border-ice-850 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ice-400 hover:border-ice-600 hover:text-ice-200"
+          className="rounded border border-(--line-hair) px-2 py-0.5 text-[10px] uppercase tracking-wide text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
         >
           {view === 'tree' ? 'Gantt ↗' : 'Tree ↗'}
         </button>

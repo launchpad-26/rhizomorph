@@ -363,7 +363,11 @@ describe('no new pixel literal after the ramp exists (S1)', () => {
 // (a near-black slab across the bottom of a warm page), ModeContext. StatusBar's
 // two hand-rolled status-hue rings move to the `focus-ring` utility, which is
 // what finally empties STATUS_RING_ALLOWLIST below.
-const ICE_RUNG_SITES = 98
+//
+// 98 -> 44: the lane-page cluster (LanePage, PageHeader, SpendDetail,
+// TraceColumn) — every panel there was border-ice-850 bg-ice-950, a set of
+// black slabs on the warm page, with text-ice-400 bodies at 3.7:1.
+const ICE_RUNG_SITES = 44
 
 describe('no consumer names a luminance rung — the colour ratchet (S2)', () => {
   /** The sweep's own files, less the one that defines the ramp being counted. */
