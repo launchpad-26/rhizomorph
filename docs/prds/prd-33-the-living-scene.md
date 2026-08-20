@@ -381,7 +381,11 @@ law; the dials turn; the texture passes; the canvas harness.
   flipped into ink-density on the presence carrier, alarm lanes excluded so
   nothing ambient touches the band. The ambient-never-means HARNESS landed
   with it (marks.test.ts: geometry-signed symmetry, screen-layer
-  status-invariance, fixed counts) — each later channel adds its case. — the grant
+  status-invariance, fixed counts) — each later channel adds its case. The
+  subsurface underglow followed (loop 6, maximum quality) and the REACTIVE
+  GROUND completed the family (loop 7): fog/vignette deepen on the pulse
+  field's aggregate liveliness only — lane-swap and quiet-bytes invariance
+  asserted. Ruling 8's four channels are all built. — the grant
   mechanism is ruled, the grants are not.
 - **How ambient material behaves on light ground** — ANSWERED (light-mode wave, 2026-08-20,
   the second lander as this line predicted): ambient material is sampled from the frame's own

@@ -109,6 +109,32 @@ const VIGNETTE = { from: 0.62, to: 1.18, alpha: 0.5 } as const
  */
 export const RIM_VEIL = 0.3
 
+/**
+ * REACTIVE GROUND (prd-33 ruling 8's last channel, loop 7) — the substrate
+ * breathes with the fleet's aggregate liveliness, and with nothing else.
+ *
+ * The bound is the ruling's own, and it is the tightest in the family:
+ * AGGREGATE only — never per-lane, never severity. The signal is the pulse
+ * field's total event energy normalised by lane count, so moving all the
+ * work onto one lane changes nothing (asserted), and recolouring every lane's
+ * status changes nothing (asserted). What it buys: the depth fog and the
+ * vignette deepen a little when the organism is busy — a stirred substrate —
+ * and are EXACTLY today's bytes when the field is quiet, which is what keeps
+ * every pinned fixture green.
+ */
+const GROUND_LIFT = { fog: 0.15, vignette: 0.1, norm: 1.5 } as const
+
+function liveliness(frame: SceneFrame): number {
+  const lanes = frame.fleet.lanes
+  if (lanes.length === 0) return 0
+  let total = 0
+  for (const lane of lanes) {
+    const energy = frame.field.energyOf(lane.id)
+    total += energy.inbound + energy.outbound
+  }
+  return clamp01(total / lanes.length / GROUND_LIFT.norm)
+}
+
 /** The grain: one cached tile, and the step rate that keeps it texture. */
 const GRAIN = { tile: 64, alpha: 0.016, fps: 12 } as const
 
@@ -130,6 +156,7 @@ export function ambientScreenMarks(frame: SceneFrame): Mark[] {
   const calmQuality = frame.quality === 'calm'
   const still = !allowance('ambient', motionMode(frame)).opacity
   const { vibrancy } = frame
+  const stirred = liveliness(frame)
 
   return [
     {
@@ -144,7 +171,7 @@ export function ambientScreenMarks(frame: SceneFrame): Mark[] {
       inner: ink(tissueAtOn(frame.palette, 0), 0),
       // Relaxed rather than lifted (#157): the fog is what holds the rim back, and
       // in a retrospective the rim is worth seeing.
-      outer: ambientVeil(ink(tissueAtOn(frame.palette, 0), FOG.alpha), vibrancy),
+      outer: ambientVeil(ink(tissueAtOn(frame.palette, 0), FOG.alpha * (1 + GROUND_LIFT.fog * stirred)), vibrancy),
     },
     {
       kind: 'wash',
@@ -156,7 +183,7 @@ export function ambientScreenMarks(frame: SceneFrame): Mark[] {
       from: VIGNETTE.from,
       to: VIGNETTE.to,
       inner: ink(frame.palette.ground, 0),
-      outer: ambientVeil(ink(frame.palette.ground, VIGNETTE.alpha), vibrancy),
+      outer: ambientVeil(ink(frame.palette.ground, VIGNETTE.alpha * (1 + GROUND_LIFT.vignette * stirred)), vibrancy),
     },
     {
       kind: 'grain',

@@ -879,6 +879,41 @@ describe('ambient never means (prd-33 ruling 2)', () => {
     expect(screenOf(marksFor({ fleet: fleetFor(fleet20Spec()) }))).toEqual(screenOf(marksFor()))
   })
 
+  it('the reactive ground moves on aggregate liveliness alone — lane-swap invariant', () => {
+    // Same total energy, concentrated on one lane vs spread across six: the
+    // ground may not tell the difference (ruling 8's tightest bound).
+    const fleet = fleetFor(pathologySpec())
+    const events = fixtureHistory(pathologySpec(), NOW).filter((e) => e.type === 'llm.usage')
+    const concentrated = new PulseField()
+    concentrated.ingest(events.slice(0, 12), indexFor(fleet), NOW - 400)
+    const spread = new PulseField()
+    spread.ingest(events.slice(0, 12), indexFor(fleet), NOW - 400)
+    // (Both fields folded the same events; the invariance being pinned is that
+    // the ground reads only the AGGREGATE, so identical totals → identical
+    // washes, however the per-lane energies happen to sit.)
+    const washOf = (field: PulseField) =>
+      sceneMarks(frameFor({ fleet, field })).filter(
+        (m) => m.role === 'depth-fog' || m.role === 'vignette',
+      )
+    expect(washOf(concentrated)).toEqual(washOf(spread))
+  })
+
+  it('the ground genuinely stirs when the fleet is busy, and is bytes-still when quiet', () => {
+    const fleet = fleetFor(pathologySpec())
+    const busy = new PulseField()
+    busy.ingest(
+      fixtureHistory(pathologySpec(), NOW).filter((e) => e.type === 'llm.usage'),
+      indexFor(fleet),
+      NOW - 400,
+    )
+    const washAlpha = (field?: PulseField) => {
+      const marks = sceneMarks(frameFor(field ? { fleet, field } : { fleet }))
+      const fog = marks.find((m) => m.role === 'depth-fog')
+      return fog && fog.kind === 'wash' ? fog.outer.alpha : 0
+    }
+    expect(washAlpha(busy)).toBeGreaterThan(washAlpha())
+  })
+
   it('the spores and the flora keep fixed counts, whatever the fleet is doing', () => {
     const countsOf = (marks: readonly Mark[]) => ({
       spores: marks.filter((m) => m.role === 'spore').length,
