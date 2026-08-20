@@ -59,14 +59,21 @@ literal in `geometry/scale.ts` because importing `motion.ts` there is an init
 cycle (motion → geometry barrel → scale); `motion.test.ts` ties the sum to the
 constant so the two cannot drift. `--duration-settle` moved with it.
 
-## Deferred, deliberately
+## Thicken (landed loop 3, same day)
 
-- **Thicken while alive** (the ruling's third verb) — the next loop: drawn
-  width low-passing toward encoded width as work accumulates, with its own
-  `thickenTau`/`maxRatePerS` numbers and the typed `'work'` cause.
-- **Typed growth causes** — deferred with thicken: until a second cause
-  genuinely exists, a one-value enum is ceremony. (Germination already
-  differs where it matters — the seat, in `geometry/ring.ts`.)
+The third verb: `SettleRegistry.sizes(fleet, clock)` low-passes drawn size
+toward `seedSize(lane.outputTokens)` (`thickenTau 30 s`, rate-capped at
+`maxRatePerS 0.35` of target per second — gentleness as two numbers). Three
+honesty clauses, each a law in `settle.test.ts`: only change animates (first
+sight initialises AT target), understate-only (never exceeds the encoded
+width — and `layout.ts` clamps again, because geometry does not run on
+promises), and the caller's clock decides (fed the SCENE clock, so pause
+freezes thicken with the picture — unlike the grow-in, an under-width thread
+is a true lane whose width is still arriving, so it has nothing to finish).
+Typed causes landed with it: `GrowthCause = 'discovery' | 'work'`,
+exhaustiveness-tested.
+
+## Deferred, deliberately
 - **The living-spine cache** — the perf loop's, with the measurement that
   justifies it; the shape-is-never-a-function-of-growth invariant this
   choreography keeps is what makes it possible.

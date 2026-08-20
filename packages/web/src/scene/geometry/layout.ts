@@ -270,10 +270,14 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
     // the handle that came back is the same worker returning to the same ground.
     const seed = seedOf.get(lane.id)
     const seedLane = seed === undefined ? undefined : byId.get(seed)
-    const sizeFrac = Math.max(
+    const encodedSize = Math.max(
       seedSize(lane.outputTokens),
       seedLane === undefined ? 0 : seedSize(seedLane.outputTokens),
     )
+    // Thicken (growth class, cause 'work'): the drawn size tracks the encoded
+    // one on the registry's low-pass. Clamped understate-only here too — the
+    // tracker promises it, and the geometry does not run on promises.
+    const sizeFrac = Math.min(encodedSize, options.thicken?.get(lane.id) ?? encodedSize)
     const growth = clamp01(options.growth?.get(lane.id) ?? 1)
     // A young thread understates its width and converges to the encoded one
     // (growth class; width is the LOCKED work-size channel, so the envelope may

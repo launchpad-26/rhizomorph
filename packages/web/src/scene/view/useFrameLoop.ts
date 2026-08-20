@@ -312,6 +312,11 @@ export function useFrameLoop(
         // and then stops.
         growthTravel: allowance('growth', mode).travel,
         growthScale: allowance('growth', mode).scale,
+        // Thicken rides the SCENE clock: unlike the grow-in it has no topology
+        // to finish, so a pause freezes it with the picture, and a replay's
+        // per-source registry initialises every lane at target (only change
+        // animates).
+        thicken: current.settle.sizes(current.fleet, clock),
         // The cord-cut takes the scene's clock instead, and the difference is not
         // an inconsistency (prd5 ruling 3). A half-grown thread is a *false* fact
         // — that lane's work is shorter than it is. A half-cut one is a true one:

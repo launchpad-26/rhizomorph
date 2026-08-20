@@ -226,6 +226,13 @@ export interface LayoutOptions {
   growthTravel?: boolean
   growthScale?: boolean
   /**
+   * laneId → the thicken tracker's smoothed size fraction (growth class,
+   * cause 'work'): drawn width low-passing toward the encoded work-width.
+   * Absent (or absent for a lane) means "draw the encoded width" — the
+   * tracker only ever understates, so this can never inflate a lane.
+   */
+  thicken?: ReadonlyMap<string, number>
+  /**
    * laneId → where its cord-cut has got to (prd5 ruling 3). Absent means the
    * lane is still in the living network — including a lane that has landed but
    * whose cut is still queued behind the structural cap, which is why this is a

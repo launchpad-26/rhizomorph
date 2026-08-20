@@ -98,3 +98,72 @@ describe('a new lane grows out of the root-mass', () => {
     expect(progress.get('lane-b')).toBe(0)
   })
 })
+
+
+/**
+ * THICKEN WHILE ALIVE (prd-33 ruling 9's third verb; growth class, cause
+ * 'work'). The tracker is pure arithmetic on injected clocks, so every law is
+ * a table: only change animates, understatement only, gentleness as numbers,
+ * and a held clock holds the width.
+ */
+describe('the thicken tracker', () => {
+  const fleetOf = (lanes: ReadonlyArray<{ id: string; outputTokens: number }>) =>
+    ({ lanes }) as unknown as Parameters<SettleRegistry['sizes']>[0]
+  const T0 = 1_000_000
+
+  it('initialises AT the target — a fleet appearing at size does not thicken from zero', () => {
+    const settle = new SettleRegistry()
+    const sizes = settle.sizes(fleetOf([{ id: 'a', outputTokens: 50_000 }]), T0)
+    const again = settle.sizes(fleetOf([{ id: 'a', outputTokens: 50_000 }]), T0 + 10_000)
+    expect(sizes.get('a')).toBe(again.get('a'))
+  })
+
+  it('approaches a raised target monotonically and never exceeds it', () => {
+    const settle = new SettleRegistry()
+    settle.sizes(fleetOf([{ id: 'a', outputTokens: 1_000 }]), T0)
+    const grown = fleetOf([{ id: 'a', outputTokens: 200_000 }])
+    const target = settle.sizes(fleetOf([{ id: 'b', outputTokens: 200_000 }]), T0).get('b') as number
+    let prev = 0
+    for (let step = 1; step <= 20; step += 1) {
+      const value = settle.sizes(grown, T0 + step * 5_000).get('a') as number
+      expect(value).toBeGreaterThanOrEqual(prev)
+      expect(value).toBeLessThanOrEqual(target)
+      prev = value
+    }
+    // …and genuinely converges: two minutes in, it is essentially there.
+    const late = settle.sizes(grown, T0 + 240_000).get('a') as number
+    expect(late).toBeCloseTo(target, 2)
+  })
+
+  it('is rate-capped — gentle stated as a number', () => {
+    const settle = new SettleRegistry()
+    settle.sizes(fleetOf([{ id: 'a', outputTokens: 1_000 }]), T0)
+    const before = settle.sizes(fleetOf([{ id: 'a', outputTokens: 1_000 }]), T0).get('a') as number
+    const target = new SettleRegistry().sizes(fleetOf([{ id: 'x', outputTokens: 500_000 }]), T0).get('x') as number
+    const after = settle
+      .sizes(fleetOf([{ id: 'a', outputTokens: 500_000 }]), T0 + 1_000)
+      .get('a') as number
+    // One second of travel gains at most maxRatePerS of the target.
+    expect(after - before).toBeLessThanOrEqual(target * 0.35 + 1e-9)
+  })
+
+  it('holds still on a held clock — thicken freezes with the picture', () => {
+    const settle = new SettleRegistry()
+    settle.sizes(fleetOf([{ id: 'a', outputTokens: 1_000 }]), T0)
+    const first = settle.sizes(fleetOf([{ id: 'a', outputTokens: 300_000 }]), T0 + 2_000).get('a')
+    const held = settle.sizes(fleetOf([{ id: 'a', outputTokens: 300_000 }]), T0 + 2_000).get('a')
+    expect(held).toBe(first)
+  })
+
+  it('forgets a departed lane — a returning handle initialises at its own target', () => {
+    const settle = new SettleRegistry()
+    settle.sizes(fleetOf([{ id: 'a', outputTokens: 1_000 }]), T0)
+    settle.sizes(fleetOf([{ id: 'a', outputTokens: 400_000 }]), T0 + 1_000)
+    // The lane leaves…
+    settle.sizes(fleetOf([]), T0 + 2_000)
+    // …and comes back at size: no animation, straight to target.
+    const back = settle.sizes(fleetOf([{ id: 'a', outputTokens: 400_000 }]), T0 + 3_000).get('a') as number
+    const fresh = new SettleRegistry().sizes(fleetOf([{ id: 'a', outputTokens: 400_000 }]), T0).get('a') as number
+    expect(back).toBe(fresh)
+  })
+})

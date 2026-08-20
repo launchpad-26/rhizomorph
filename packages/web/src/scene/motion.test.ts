@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { RECENCY_SPAN_MS } from './geometry.js'
 import { RETURN } from './retire.js'
-import { GROWTH, growthEnvelope,
+import { GROWTH_CAUSES, GROWTH, growthEnvelope,
   ALARM,
   AMBIENT,
   DISSOLUTION,
@@ -418,6 +418,12 @@ describe('the growth class (prd-33 ruling 9)', () => {
     // Paused: a half-grown thread is a topology that does not exist — it
     // settles, then stops, exactly as structural does.
     expect(allowance('growth', 'paused')).toEqual({ travel: true, scale: true, colour: true, opacity: true })
+  })
+
+  it('names its causes exhaustively — a third way to grow must be declared here', () => {
+    expect(GROWTH_CAUSES).toEqual(['discovery', 'work'])
+    expect(GROWTH.thickenTau).toBe(30_000)
+    expect(GROWTH.maxRatePerS).toBe(0.35)
   })
 
   it('moved no older budget — the caps a fifth class could have smuggled', () => {

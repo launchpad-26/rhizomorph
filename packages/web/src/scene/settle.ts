@@ -1,5 +1,7 @@
 import type { RhizomorphEvent } from '@rhizomorph/core'
-import { SETTLE_MS } from './geometry.js'
+import type { Fleet } from '../fleet/index.js'
+import { SETTLE_MS, seedSize } from './geometry.js'
+import { GROWTH } from './motion.js'
 import { clamp01 } from './palette.js'
 import { resolveLane, type LaneIndex } from './resolve.js'
 
@@ -72,5 +74,55 @@ export class SettleRegistry {
       if (now - started < SETTLE_MS) return true
     }
     return false
+  }
+
+  private readonly thickness = new Map<string, { value: number; at: number }>()
+
+  /**
+   * THICKEN WHILE ALIVE (prd-33 ruling 9's third verb; cause `'work'`).
+   *
+   * Encoded width steps discontinuously as token counts arrive; the drawn
+   * width tracks it on a low-pass (`GROWTH.thickenTau`) with a rate cap
+   * (`GROWTH.maxRatePerS`) — "gentle" as two numbers. Three honesty clauses:
+   *
+   * - **Only change animates.** A lane's first sighting initialises AT its
+   *   target — a fleet appearing on boot at its historical sizes must not
+   *   thicken from zero (ruling 32's stance, extended from pulses to width).
+   * - **Understate only.** The tracker never exceeds the encoded width, so
+   *   the locked work-size channel is only ever read low during the approach.
+   * - **The caller's clock decides.** Fed the scene clock, a pause freezes
+   *   thicken exactly as it freezes the breath — unlike the grow-in, thicken
+   *   has no topology to finish (an under-width thread is a true lane whose
+   *   width is still arriving), so it holds with the picture.
+   */
+  sizes(fleet: Fleet, now: number): Map<string, number> {
+    const out = new Map<string, number>()
+    const seen = new Set<string>()
+    for (const lane of fleet.lanes) {
+      seen.add(lane.id)
+      const target = seedSize(lane.outputTokens)
+      const known = this.thickness.get(lane.id)
+      if (known === undefined) {
+        this.thickness.set(lane.id, { value: target, at: now })
+        out.set(lane.id, target)
+        continue
+      }
+      const dt = Math.max(0, now - known.at)
+      const approach = 1 - Math.exp(-dt / GROWTH.thickenTau)
+      const step = (target - known.value) * approach
+      const cap = Math.abs(target) * GROWTH.maxRatePerS * (dt / 1_000)
+      const moved = known.value + Math.sign(step) * Math.min(Math.abs(step), cap)
+      // Never overshoot in the direction of travel — understate-only holds on
+      // the way up, and a (rare) downward retarget lands exactly, never below.
+      const final = step >= 0 ? Math.min(moved, target) : Math.max(moved, target)
+      this.thickness.set(lane.id, { value: final, at: now })
+      out.set(lane.id, final)
+    }
+    // Lanes that left the fleet stop being tracked — a returning handle is a
+    // new lane and initialises at its own target.
+    for (const id of this.thickness.keys()) {
+      if (!seen.has(id)) this.thickness.delete(id)
+    }
+    return out
   }
 }

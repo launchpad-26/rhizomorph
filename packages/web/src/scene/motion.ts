@@ -214,7 +214,25 @@ export const GROWTH = {
   youngWidth: 0.55,
   /** Alpha envelope floor at birth — the reduced-motion story is this ramp alone. */
   warmFloor: 0.6,
+  /**
+   * THICKEN (ruling 9's third verb): drawn width low-passes toward the encoded
+   * work-width while the lane lives. The time constant is the gentleness; the
+   * rate cap is "gentle" stated as a number — no thread gains more than this
+   * fraction of its target width per second outside the grow-in.
+   */
+  thickenTau: 30_000,
+  maxRatePerS: 0.35,
 } as const
+
+/**
+ * The class's typed causes (prd10 ruling 10's template): a third way for the
+ * organism to grow cannot be smuggled in — it has to be named here and pass
+ * the exhaustiveness law. `discovery` is the grow-in (a worktree appearing,
+ * germination included — the seat is what differs there, not the growth);
+ * `work` is thicken.
+ */
+export type GrowthCause = 'discovery' | 'work'
+export const GROWTH_CAUSES = ['discovery', 'work'] as const satisfies readonly GrowthCause[]
 
 const clamp01Local = (value: number): number => Math.min(1, Math.max(0, value))
 const easeOutLocal = (k: number): number => 1 - (1 - k) * (1 - k)
