@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { readChoice, subscribeToPreferences } from './registry.js'
 
 /**
@@ -100,6 +100,36 @@ export function applyPreferences(root: HTMLElement, system: SystemPreferences): 
  * every system change — because a person who turns on reduced motion in their
  * OS while the instrument is open is asking for it now, not at the next reload.
  */
+/**
+ * The motion actually in force, as a live value — for the one surface that
+ * cannot read `data-motion` from CSS because it draws with a clock: the canvas.
+ * Same resolution as the attribute (`resolveMotion`, ruling 5's floor), same
+ * two triggers (a preference write, a system change), so the picture and the
+ * chrome can never disagree about how much may move.
+ */
+export function useResolvedMotion(): ResolvedMotion {
+  const [motion, setMotion] = useState<ResolvedMotion>(() =>
+    resolveMotion(readChoice('motion.level'), readSystemPreferences()),
+  )
+
+  useEffect(() => {
+    const update = () => setMotion(resolveMotion(readChoice('motion.level'), readSystemPreferences()))
+    update()
+
+    const unsubscribe = subscribeToPreferences(update)
+    const query =
+      typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
+    query?.addEventListener?.('change', update)
+
+    return () => {
+      unsubscribe()
+      query?.removeEventListener?.('change', update)
+    }
+  }, [])
+
+  return motion
+}
+
 export function usePreferenceApplication(): void {
   useEffect(() => {
     const apply = () => applyPreferences(document.documentElement, readSystemPreferences())

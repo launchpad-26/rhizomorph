@@ -83,6 +83,46 @@ body {
 }
 
 /*
+ * The same kill switch, keyed to the RESOLVED choice (`data-motion`, written by
+ * settings/apply.ts as the stronger of the stored preference and the system's
+ * request). The media block above answers the OS; this one answers the in-app
+ * control, so choosing "reduced" or "still" in settings genuinely stops chrome
+ * animation — the other half of the gap the registry's motion note confessed.
+ */
+:root[data-motion='reduced'] *,
+:root[data-motion='reduced'] *::before,
+:root[data-motion='reduced'] *::after,
+:root[data-motion='still'] *,
+:root[data-motion='still'] *::before,
+:root[data-motion='still'] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+/*
+ * THE PEEK'S ENTRANCE (loop 13) — the one reveal in the chrome. A short slide
+ * with a fade, at the theme's reveal speed: enough that the panel visibly
+ * arrives from the edge it lives on, small enough that nothing on it travels
+ * far. Both kill switches above already hold it under reduced motion and
+ * under the stored choice, so this rule needs no gate of its own.
+ */
+@keyframes peek-in {
+  from {
+    opacity: 0;
+    transform: translateX(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+[data-peek] {
+  animation: peek-in var(--duration-reveal) ease-out;
+}
+
+/*
  * THE TIDE RAIL (prd-13 amendment, the wrack line — 2026-08-20). The dock's
  * range input keeps every native behaviour (keyboard, step, drag — prd-13
  * ruling 10's "the body is added around it, not in place of it"); what this
@@ -165,6 +205,8 @@ body {
 .tide-plate {
   /* Set by the component when it clamps; centred until it says otherwise. */
   --tide-stem: 50%;
+  /* The raised material (loop 13): on the void a lit edge, on paper a plum shadow. */
+  box-shadow: var(--elev-raised);
 }
 .tide-plate::before {
   content: '';

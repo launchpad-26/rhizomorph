@@ -1,5 +1,7 @@
+import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { applyPreferences, readSystemPreferences, resolveTheme } from './apply.js'
+import { renderHook } from '@testing-library/react'
+import { applyPreferences, readSystemPreferences, resolveTheme, useResolvedMotion } from './apply.js'
 import { writePreference } from './registry.js'
 
 /**
@@ -78,5 +80,31 @@ describe('applyPreferences', () => {
     applyPreferences(root, system)
 
     expect(root.outerHTML).toBe(first)
+  })
+})
+
+describe('useResolvedMotion — the live value the canvas draws by', () => {
+  it('answers the stored choice when the system asks for nothing', () => {
+    writePreference('motion.level', 'still')
+    const { result, unmount } = renderHook(() => useResolvedMotion())
+    expect(result.current).toBe('still')
+    unmount()
+  })
+
+  it('defaults to full with nothing stored and no system request', () => {
+    const { result, unmount } = renderHook(() => useResolvedMotion())
+    expect(result.current).toBe('full')
+    unmount()
+  })
+
+  it('follows a preference written while mounted — the settings page acts live', () => {
+    const { result, rerender, unmount } = renderHook(() => useResolvedMotion())
+    expect(result.current).toBe('full')
+    act(() => {
+      writePreference('motion.level', 'reduced')
+    })
+    rerender()
+    expect(result.current).toBe('reduced')
+    unmount()
   })
 })

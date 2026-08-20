@@ -349,7 +349,6 @@
     0 1px 2px 0 rgba(0, 0, 0, 0.55);
   --elev-overlay: 0 0 0 1px var(--color-ice-850), 0 8px 40px -12px rgba(0, 0, 0, 0.85);
   --elev-sheet: -24px 0 48px -24px rgba(0, 0, 0, 0.9);
-  --scrim: rgba(2, 4, 8, 0.55);
 
   --category-1: #453c5d;
   --category-2: #655d80;
@@ -487,7 +486,6 @@
   --elev-overlay: 0 0 0 1px var(--color-paper-150),
     0 10px 32px -10px color-mix(in oklab, var(--color-paper-950) 28%, transparent);
   --elev-sheet: -24px 0 48px -24px color-mix(in oklab, var(--color-paper-950) 35%, transparent);
-  --scrim: color-mix(in oklab, var(--color-paper-950) 26%, transparent);
 
   --category-1: #5a546c;
   --category-2: #7c778d;

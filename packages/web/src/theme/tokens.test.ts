@@ -734,6 +734,25 @@ describe('every duration in the app is in the theme', () => {
  * about which of them is on top, how fast chrome moves, or what colour a
  * shadow casts on paper — each a decision `theme.css` now owns.
  */
+/**
+ * THE MATERIALS HAVE CONSUMERS (loop 13) — the age-pulse-seam bug inverted.
+ *
+ * A token nothing reads is a decision the theme claims and the page does not
+ * make — --scrim lived three loops that way before being deleted for exactly
+ * this. Each named material must be reached for somewhere outside theme.css;
+ * when one stops being, delete it rather than let it lie.
+ */
+describe('every declared material is consumed', () => {
+  const MATERIALS = ['--elev-raised', '--elev-overlay', '--elev-sheet', '--duration-touch', '--duration-reveal']
+
+  it.each(MATERIALS)('%s has a consumer outside theme.css', (token) => {
+    const consumers = sourceFiles().filter(
+      (file) => file.name !== 'theme/theme.css' && file.text.includes(token),
+    )
+    expect(consumers.length, `${token} is declared but never used — delete it or use it`).toBeGreaterThan(0)
+  })
+})
+
 describe('stacking, speed and shadow come from the theme', () => {
   const appSources = () => sourceFiles().filter((file) => /\.tsx?$/.test(file.name))
 

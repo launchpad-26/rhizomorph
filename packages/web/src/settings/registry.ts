@@ -439,7 +439,7 @@ export const PREFERENCES: readonly PrefEntry[] = [
     control: 'settings',
     unavailable: null,
     requires: null,
-    gap: "the scene and the attention strip still read `prefers-reduced-motion` themselves. Choosing *still* records the choice and sets `data-motion`, and the canvas keeps its ambient breath until it reads that attribute — so this control is honest about being half-arrived rather than quietly ineffective. prd-33's scene lane adopts it. Ruling 5's floor is already law here: `resolveMotion` cannot return more motion than the system asked for.",
+    gap: null,
     legacy: null,
   },
 

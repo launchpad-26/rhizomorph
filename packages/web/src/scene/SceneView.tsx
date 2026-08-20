@@ -4,6 +4,7 @@ import { ZOOM_STEP } from './camera.js'
 import type { SceneQuality } from './marks/frame.js'
 import { useScenePref } from '../app/panelPrefs.js'
 import { readChoice, subscribeToPreferences } from '../settings/registry.js'
+import { useResolvedMotion } from '../settings/apply.js'
 import type { SceneGeometry } from './geometry.js'
 import type { PulseField } from './pulses.js'
 import { isRetired, type RetireRegistry } from './retire.js'
@@ -92,7 +93,16 @@ export function SceneView({
   const overlayRef = useRef<HTMLCanvasElement | null>(null)
   const geometryRef = useRef<SceneGeometry | null>(null)
   const [hoverId, setHoverId] = useState<string | null>(null)
-  const [reducedMotion, setReducedMotion] = useState(false)
+  // The RESOLVED motion (settings/apply.ts): the stronger of the stored choice
+  // and the system's request. Until loop 13 this component read only the raw
+  // media query, so the settings control recorded a choice the picture ignored
+  // — the gap the registry's own note confessed. `reduced` drops travel and
+  // scale; `still` holds the whole picture the way the pause button does,
+  // permanently, with the button disabled so the chrome tells the truth about
+  // who is holding it.
+  const motion = useResolvedMotion()
+  const reducedMotion = motion !== 'full'
+  const stilled = motion === 'still'
   const [paused, setPaused] = useState(false)
   const [hideFinished, setHideFinished] = useScenePref('hideFinished')
   const quality = useSceneQuality()
@@ -111,7 +121,7 @@ export function SceneView({
     selectedId,
     hoverId,
     reducedMotion,
-    paused,
+    paused: paused || stilled,
     hideFinished,
     quality,
     theme,
@@ -127,7 +137,7 @@ export function SceneView({
     selectedId,
     hoverId,
     reducedMotion,
-    paused,
+    paused: paused || stilled,
     hideFinished,
     quality,
     theme,
@@ -135,17 +145,6 @@ export function SceneView({
     asOf,
     replaying,
   }
-
-  useEffect(() => {
-    // `matchMedia` is absent in some test environments; its absence means "no
-    // stated preference", which is the same as not reducing motion.
-    if (typeof window.matchMedia !== 'function') return
-    const query = window.matchMedia('(prefers-reduced-motion: reduce)')
-    setReducedMotion(query.matches)
-    const onChange = () => setReducedMotion(query.matches)
-    query.addEventListener('change', onChange)
-    return () => query.removeEventListener('change', onChange)
-  }, [])
 
   const camera = useCamera(canvasRef, latest)
   const { lost, panning, redraw } = useFrameLoop(
@@ -169,7 +168,7 @@ export function SceneView({
    */
   useEffect(() => {
     redraw()
-  }, [hideFinished, theme, redraw])
+  }, [hideFinished, theme, motion, redraw])
 
   return (
     <div
@@ -198,7 +197,7 @@ export function SceneView({
         }
       />
       <canvas ref={overlayRef} aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" />
-      <MotionControl paused={paused} onToggle={() => setPaused((held) => !held)} />
+      <MotionControl paused={paused || stilled} stilled={stilled} onToggle={() => setPaused((held) => !held)} />
       <FinishedControl
         hidden={hideFinished}
         finished={fleet.lanes.filter(isRetired).length}
@@ -227,6 +226,8 @@ export function SceneView({
 
 interface MotionControlProps {
   paused: boolean
+  /** The settings choice holds the picture; the button says so and yields. */
+  stilled: boolean
   onToggle: () => void
 }
 
@@ -252,22 +253,29 @@ interface MotionControlProps {
  * control that covered law 12's caveats would be buying accessibility with
  * honesty. Ice, never amber — amber means needs-you in this instrument.
  */
-function MotionControl({ paused, onToggle }: MotionControlProps) {
+function MotionControl({ paused, stilled, onToggle }: MotionControlProps) {
   return (
     <div className="pointer-events-none absolute left-2 top-2 flex items-center gap-2">
       <button
         type="button"
         onClick={onToggle}
         aria-pressed={paused}
+        disabled={stilled}
         data-testid="scene-motion-pause"
-        title={paused ? 'Let the scene move again' : 'Freeze the scene’s own motion'}
+        title={
+          stilled
+            ? 'Motion is stilled in settings — the control lives there'
+            : paused
+              ? 'Let the scene move again'
+              : 'Freeze the scene’s own motion'
+        }
         className={`pointer-events-auto rounded border px-2 py-1 text-inst-dense uppercase leading-none tracking-wide backdrop-blur-sm transition-[transform,color,border-color] duration-(--duration-touch) ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97] ${
           paused
             ? 'border-(--ink-dim) bg-(--surface-raised)/90 text-(--ink-primary)'
             : 'border-(--line-hair) bg-(--surface-panel)/80 text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)'
         }`}
       >
-        {paused ? 'Resume motion' : 'Pause motion'}
+        {stilled ? 'Motion stilled' : paused ? 'Resume motion' : 'Pause motion'}
       </button>
       {paused && (
         <span

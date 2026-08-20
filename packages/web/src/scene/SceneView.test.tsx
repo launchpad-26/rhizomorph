@@ -3,6 +3,7 @@ import { act, cleanup, createEvent, fireEvent, render, screen } from '@testing-l
 import { Component, type ReactNode } from 'react'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ModeProvider } from '../app/ModeContext.js'
+import { writePreference } from '../settings/registry.js'
 import { StreamProvider } from '../app/StreamContext.js'
 import {
   FleetProvider,
@@ -1029,6 +1030,23 @@ function restoreAfterMount(): void {
 
 describe('the pause control (WCAG 2.2.2)', () => {
   afterEach(restoreAfterMount)
+
+  it('yields to the settings choice: still means stilled, and the button says who holds it', () => {
+    // Until loop 13 the stored motion level never reached the picture — the
+    // registry's own gap note confessed it. Now `still` holds the scene the
+    // way pause does, and the pause button disables rather than pretend it is
+    // the one holding the picture.
+    writePreference('motion.level', 'still')
+    try {
+      mountMotion()
+      const button = screen.getByTestId('scene-motion-pause')
+      expect(button).toBeDisabled()
+      expect(button.textContent).toMatch(/motion stilled/i)
+      expect(screen.getByTestId('scene-motion-state').textContent).toMatch(/motion paused/i)
+    } finally {
+      localStorage.clear()
+    }
+  })
 
   it('is a button that says what it will do, in the tab order', () => {
     // A real button, so it answers Enter and Space and reaches the keyboard
