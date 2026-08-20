@@ -3,7 +3,6 @@ import { EVENT, allowance } from '../motion.js'
 import {
   activityInkOn,
   clamp01,
-  emphatic,
   hotterOn,
   ink,
   mix,
@@ -13,7 +12,7 @@ import {
 import { PERSIST, persistInks, persistWidths, toward } from '../retire.js'
 import type { WidthStop } from '../ribbon.js'
 import { SHIMMER_PERIOD_MS, variationFor, variationSeed } from '../variation.js'
-import { budget, motionMode, type SceneFrame } from './frame.js'
+import { alarmInk, budget, motionMode, type SceneFrame } from './frame.js'
 import { THORN_OUT } from './glyphs.js'
 import { ribbonMark, type Mark, type RibbonMark } from './types.js'
 
@@ -653,7 +652,7 @@ export function loopingMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] 
   // and clears `ALARM_FLOOR`; the tails behind it stay at full saturation, which
   // is what makes the ring read as the lit part of one object rather than as a
   // paler second one.
-  const amber = ink(emphatic(frame.palette.status.needsYou, frame.palette), 0.98)
+  const amber = alarmInk(frame, frame.palette.status.needsYou, 0.98)
 
   // Knot-local space: +x runs along the thread, so the tails trail behind it.
   const at = (along: number, across: number): Point => ({

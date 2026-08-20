@@ -1,8 +1,8 @@
 import { pointAt, tangentAt, type Point, type ThreadGeometry } from '../geometry.js'
 import { alarmPulse } from '../motion.js'
-import { clamp01, emphatic, hotterOn, ink } from '../palette.js'
+import { clamp01, hotterOn, ink } from '../palette.js'
 import { PulseField, type Pulse } from '../pulses.js'
-import { budget, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
+import { alarmInk, budget, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
 import { ribbonMark, type Mark } from './types.js'
 
 /**
@@ -331,7 +331,7 @@ function orbitMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       // The travelling light itself, at the incandescent end of the amber
       // family: a looping lane's brightest mark, and the one that puts it inside
       // the band the alarms own (`ALARM_FLOOR`).
-      ink: ink(emphatic(frame.palette.status.needsYou, frame.palette), 0.98),
+      ink: alarmInk(frame, frame.palette.status.needsYou, 0.98),
     },
   )
 
@@ -374,7 +374,7 @@ function heldMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       radius: 4.6 * (0.75 + 0.35 * throb),
       // Light that has stopped moving, and still the brightest light there is:
       // the held dot clears `ALARM_FLOOR` like every other needs-you core.
-      ink: ink(emphatic(frame.palette.status.needsYou, frame.palette), 0.98),
+      ink: alarmInk(frame, frame.palette.status.needsYou, 0.98),
     },
   ]
 }

@@ -61,7 +61,20 @@ import {
   TIP_GLOW_RADIUS,
   salienceOf,
 } from './salience.js'
-import { BROKEN, DARK_PALETTE, NEEDS_YOU, NOTICE, REPLAY_VIBRANCY, type Ink, type ScenePalette } from './palette.js'
+import {
+  BROKEN,
+  DARK_PALETTE,
+  LIGHT_PALETTE,
+  NEEDS_YOU,
+  NOTICE,
+  PAPER_ALARM_FLOOR,
+  PAPER_CALM_CEILING,
+  PAPER_TIP_CEILING,
+  REPLAY_VIBRANCY,
+  presence,
+  type Ink,
+  type ScenePalette,
+} from './palette.js'
 import { PulseField } from './pulses.js'
 import type { LaneIndex } from './resolve.js'
 
@@ -597,6 +610,74 @@ describe('the contrast budget — spotlight, not shouting', () => {
     const marks = marksFor({ selectedId: LANE.healthy })
     expect(of(marks, LANE.healthy, 'spotlight').length).toBeGreaterThan(0)
     expect(of(marks, LANE.frozen, 'spotlight')).toHaveLength(0)
+  })
+})
+
+/**
+ * THE SAME BUDGET, DENOMINATED IN PRESENCE (#551's consumption wave).
+ *
+ * On paper the band's unit changes — departure from the ground, alpha included —
+ * but the *sentences* above do not: calm stays inside its ceiling, every summons
+ * owns the band above it, and a frozen lane dominates by recession rather than
+ * by shouting. These are the paper walks of the three walks the void just took,
+ * on the same pathology fixture, so a retune of the light table cannot quietly
+ * hand the alarm band to a calm mark.
+ */
+describe('the contrast budget on paper — the same walks, in presence', () => {
+  const onPaper = (options: FrameOptions = {}): Mark[] =>
+    marksFor({ ...options, palette: LIGHT_PALETTE })
+  const presenceOf = (mark: Mark): number =>
+    Math.max(0, ...inksOf(mark).map((value) => presence(value, LIGHT_PALETTE.ground)))
+  const loudestOf = (marks: readonly Mark[], laneId: string): number => {
+    const mine = marks.filter((mark) => mark.laneId === laneId)
+    expect(mine.length, `${laneId} drew nothing`).toBeGreaterThan(0)
+    return Math.max(...mine.map(presenceOf))
+  }
+
+  it('holds every calm mark inside the paper band, at the ceiling its role owns', () => {
+    // The tip glow keeps its one named exemption in either world — its own
+    // ceiling, not the alarm band (`budgetTip` caps it at the light table's
+    // tipCeiling exactly as `spendTip` caps it at TIP_CEILING on the void).
+    for (const mark of onPaper()) {
+      if (mark.alarm) continue
+      const ceiling = mark.role === 'tuft-glow' ? PAPER_TIP_CEILING : PAPER_CALM_CEILING
+      expect(presenceOf(mark), `${mark.role} broke the paper calm ceiling`).toBeLessThanOrEqual(
+        ceiling + 1e-9,
+      )
+    }
+  })
+
+  it('puts every needs-you lane inside the band the alarms own (PAPER_ALARM_FLOOR)', () => {
+    const marks = onPaper()
+    for (const laneId of [LANE.looping, LANE.waiting, LANE.offFence]) {
+      expect(
+        loudestOf(marks, laneId),
+        `${laneId} never reached the paper alarm band`,
+      ).toBeGreaterThanOrEqual(PAPER_ALARM_FLOOR)
+    }
+  })
+
+  it('lets FROZEN take the band on paper that the void could never give it', () => {
+    // Dark's exemption does not transfer, and that is the point of measuring in
+    // presence: BROKEN cannot reach the void's alarm floor without being mixed
+    // pink, so dark buys the frozen lane's supremacy by recession alone. On
+    // paper the dead hue is a *deep ink*, and deep ink on cream is enormous
+    // presence — the band doc's "every alarm mark reaches this" holds for the
+    // corpse with no exemption needed. What transfers unchanged is everything
+    // else: it clears the receded calm world, holds the spotlight, and wears
+    // the enclosure nothing calm is ever allowed to wear.
+    const marks = onPaper()
+    const alarms = marks.filter((mark) => mark.laneId === LANE.frozen && mark.alarm)
+    const loudest = Math.max(...alarms.map(presenceOf))
+
+    expect(loudest).toBeGreaterThanOrEqual(PAPER_ALARM_FLOOR)
+    expect(loudest).toBeGreaterThan(PAPER_CALM_CEILING * RECEDE)
+    const elsewhere = marks.filter(
+      (mark) => !mark.alarm && mark.laneId !== null && mark.laneId !== LANE.frozen,
+    )
+    expect(loudest).toBeGreaterThan(Math.max(...elsewhere.map(presenceOf)))
+    expect(of(marks, LANE.frozen, 'spotlight').length).toBeGreaterThan(0)
+    expect(of(marks, LANE.frozen, 'rank-enclosure').length).toBeGreaterThan(0)
   })
 })
 

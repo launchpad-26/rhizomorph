@@ -149,11 +149,12 @@ export function SceneView({
    * A preference that changes the picture has to produce a frame. The running
    * loop would pick it up on its own within 16 ms; a *pinned* clock draws once
    * and stops, so under one this is the only thing that redraws — which is what
-   * makes the toggle testable against a still image.
+   * makes the toggle testable against a still image. The theme is such a
+   * preference too: a switch repaints the whole picture in the other palette.
    */
   useEffect(() => {
     redraw()
-  }, [hideFinished, redraw])
+  }, [hideFinished, theme, redraw])
 
   return (
     <div

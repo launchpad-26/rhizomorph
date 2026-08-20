@@ -3,11 +3,12 @@ import { describe, expect, it } from 'vitest'
 import type { Fleet, Lane } from '../fleet/index.js'
 import { STRUCTURAL } from './motion.js'
 import { CALM_FLOOR } from './salience.js'
-import { luminance } from './palette.js'
+import { DARK_PALETTE, luminance } from './palette.js'
 import {
   RETURN,
   RetireRegistry,
   PERSIST,
+  persistInks,
   PERSIST_FLOOR,
   PERSIST_LUMINANCE,
   persistWidths,
@@ -408,6 +409,18 @@ describe('luminous, but not alive — the hierarchy as arithmetic (ruling 14)', 
     for (const [name, value] of Object.entries(PERSIST)) {
       expect(luminance(value), `${name} is invisible`).toBeGreaterThan(PERSIST_FLOOR)
     }
+  })
+
+  it('settles on dark exactly where PERSIST has always settled, byte for byte', () => {
+    // `persistInks` is a widening of the constant, not a rewrite (#551's
+    // consumption wave): on dark the recipe's inputs ARE the constant's own —
+    // unknown is ICE_600, done is DONE, idle is ICE_400 — so any divergence is
+    // the recipe drifting from the ink the luminance laws below are sworn on.
+    expect(persistInks(DARK_PALETTE)).toEqual({
+      strand: PERSIST.strand,
+      glyph: PERSIST.glyph,
+      name: PERSIST.name,
+    })
   })
 
   it('keeps the name readable, in ice rather than in tissue', () => {

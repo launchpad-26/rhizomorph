@@ -771,6 +771,22 @@ export function capPresence(source: Ink, ground: Rgb, ceiling: number): Ink {
 }
 
 /**
+ * Scales alpha up — never down — until the ink departs from its ground by at
+ * least `floor`, stopping at full opacity if even that cannot reach it.
+ * {@link capPresence}'s opposite wall: the cap keeps the calm world inside its
+ * ceiling; this holds a band-owing alarm mark to the band's own floor. Dark
+ * never needs it — the void's alarm inks clear `ALARM_FLOOR` with luminance
+ * headroom — but paper's emphatic amber touches its floor with almost none, so
+ * a styling shave of alpha (an arm drawn at 0.98) would otherwise leave a
+ * summons fractionally under the band it owes a mark to.
+ */
+export function floorPresence(source: Ink, ground: Rgb, floor: number): Ink {
+  const here = presence(source, ground)
+  if (here >= floor || here === 0) return source
+  return { rgb: source.rgb, alpha: clamp01(source.alpha * (floor / here)) }
+}
+
+/**
  * The emphatic end of a family on paper — {@link incandescent}'s exact mirror.
  *
  * Dark's summons clears `ALARM_FLOOR` by being mixed toward the ice ramp's

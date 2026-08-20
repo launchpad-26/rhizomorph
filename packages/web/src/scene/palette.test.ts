@@ -62,6 +62,7 @@ import {
   cssColour,
   emphatic,
   hotter,
+  hotterOn,
   incandescent,
   ink,
   luminance,
@@ -71,6 +72,7 @@ import {
   returningInk,
   saturate,
   tissueAt,
+  tissueAtOn,
   type Ink,
   type RegisterSlot,
   type Rgb,
@@ -749,6 +751,52 @@ describe('the calm world on paper, swept through its own band', () => {
           )
         }
       }
+    }
+  })
+})
+
+/**
+ * THE GENERALISED ARITHMETIC, BYTE-IDENTICAL ON DARK (#551's consumption wave).
+ *
+ * Every mark module now reaches colour through a palette-taking function where
+ * it used to reach a module constant. The refactor's whole warrant is that the
+ * dark picture did not move — `activityInkOn`'s identity above set the pattern,
+ * and these are the same oath sworn for the other three generalisations. Any
+ * divergence here is a light table quietly repainting the void.
+ */
+describe('the generalised arithmetic, on dark', () => {
+  const SWEEP: Rgb[] = [
+    DARK_PALETTE.status.needsYou,
+    DARK_PALETTE.status.broken,
+    DARK_PALETTE.status.notice,
+    DARK_PALETTE.status.waitingBenign,
+    DARK_PALETTE.activity.working,
+    DARK_PALETTE.activity.done,
+    DARK_PALETTE.register.body,
+    DARK_PALETTE.register.data,
+    [0, 0, 0],
+    [255, 255, 255],
+    [17, 130, 201],
+  ]
+
+  it('runs emphatic(x, DARK) exactly where incandescent(x) has always run', () => {
+    // Same 0.45, and DARK_PALETTE.register.peak IS ICE_050 — so this is an
+    // identity by construction; the test is what keeps the construction honest.
+    for (const rgb of SWEEP) expect(emphatic(rgb, DARK_PALETTE)).toEqual(incandescent(rgb))
+  })
+
+  it('marches hotterOn(DARK, …) to the same bytes as hotter(…) at every amount', () => {
+    for (const rgb of SWEEP) {
+      for (const amount of [0, 0.1, 0.25, 0.45, 0.7, 1]) {
+        expect(hotterOn(DARK_PALETTE, rgb, amount)).toEqual(hotter(rgb, amount))
+      }
+    }
+  })
+
+  it('samples tissueAtOn(DARK, t) exactly as tissueAt(t), across the whole ramp', () => {
+    for (let i = 0; i <= 20; i += 1) {
+      const t = i / 20
+      expect(tissueAtOn(DARK_PALETTE, t)).toEqual(tissueAt(t))
     }
   })
 })

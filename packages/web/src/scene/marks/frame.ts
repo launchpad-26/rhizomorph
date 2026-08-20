@@ -1,7 +1,17 @@
 import type { Fleet } from '../../fleet/index.js'
 import { RECENCY_SPAN_MS, type SceneGeometry, type ThreadGeometry } from '../geometry.js'
 import { allowance, type MotionMode } from '../motion.js'
-import { capPresence, fade, REPLAY_VIBRANCY, type Ink, type ScenePalette } from '../palette.js'
+import {
+  capPresence,
+  emphatic,
+  fade,
+  floorPresence,
+  ink,
+  REPLAY_VIBRANCY,
+  type Ink,
+  type Rgb,
+  type ScenePalette,
+} from '../palette.js'
 import type { PulseField } from '../pulses.js'
 import { emphasisOf, spend, spendTip, type Salience } from '../salience.js'
 
@@ -171,4 +181,22 @@ export function budgetTip(frame: SceneFrame, laneId: string | null, source: Ink)
   }
   const faded = fade(source, emphasisOf(frame.salience, laneId, false))
   return capPresence(faded, frame.palette.ground, frame.palette.band.tipCeiling)
+}
+
+/**
+ * The ink a band-owing alarm mark is drawn in: the emphatic end of its own
+ * family, held inside the band whichever unit the band is denominated in.
+ *
+ * On the void this is byte-identical to `ink(incandescent(hue), alpha)` —
+ * dark's alarm inks clear `ALARM_FLOOR` with headroom to spare, and nothing
+ * moves. On paper the same ink has its alpha lifted (never lowered) to the
+ * light band's own floor: paper's emphatic amber touches `PAPER_ALARM_FLOOR`
+ * with almost no margin, so the styling shaves dark's headroom absorbed (a
+ * thorn at 0.98) would otherwise leave an amber lane fractionally under the
+ * band every needs-you lane owes a mark to (law 9b, in either world).
+ */
+export function alarmInk(frame: SceneFrame, hue: Rgb, alpha: number): Ink {
+  const source = ink(emphatic(hue, frame.palette), alpha)
+  if (frame.palette.band.carrier === 'luminance') return source
+  return floorPresence(source, frame.palette.ground, frame.palette.band.alarmFloor)
 }

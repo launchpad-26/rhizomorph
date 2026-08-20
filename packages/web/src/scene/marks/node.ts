@@ -5,7 +5,6 @@ import { alarmPulse } from '../motion.js'
 import {
   TUFT_WASH,
   clamp01,
-  emphatic,
   hotterOn,
   ink,
   mix,
@@ -16,7 +15,7 @@ import {
 import { PERSIST, persistInks, toward } from '../retire.js'
 import { TIP_GLOW_RADIUS } from '../salience.js'
 import { blobRing, variationFor, variationSeed } from '../variation.js'
-import { budget, budgetTip, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
+import { alarmInk, budget, budgetTip, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
 import { NODE_LENS, THORN_OUT } from './glyphs.js'
 import { regionMark, ribbonMark, type Mark, type MarkRole, type RibbonMark } from './types.js'
 
@@ -519,7 +518,7 @@ function stateMarks(
           at: thread.node,
           size: 13,
           rotate: angle - Math.PI / 2,
-          ink: ink(emphatic(hue, frame.palette), 0.98),
+          ink: alarmInk(frame, hue, 0.98),
         },
       ]
 
@@ -683,7 +682,7 @@ function summonsMarks(frame: SceneFrame, thread: ThreadGeometry, hue: Rgb): Mark
       rotate: 0,
       // The palm is the summons: the one mark of a waiting lane that reaches the
       // band above the calm ceiling (`ALARM_FLOOR`).
-      ink: ink(emphatic(hue, frame.palette), 1),
+      ink: alarmInk(frame, hue, 1),
     },
   ]
 }
