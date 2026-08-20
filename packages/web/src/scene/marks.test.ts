@@ -3530,6 +3530,50 @@ describe('the tissue accent appears only in tissue draws (prd10 ruling 5)', () =
   })
 })
 
+/**
+ * THE FRUITING FENCE (prd-33 amendment, loop 8 — live BEFORE the first byte
+ * ships). Fruiting ink may appear only on returned matter: the persist
+ * strand and glyphs, the growth rings, the composting motes. Never on a
+ * living lane, never as text or chip. Membership is rgb-distance to the
+ * frame palette's own fruit steps (ε 12) — the palette law holds the paper
+ * register ≥ 2ε away, so structure ink cannot trip this.
+ */
+const FRUITING_ROLES: readonly MarkRole[] = [
+  'persist',
+  'persist-bloom',
+  'persist-mark',
+  'growth-ring',
+  'dissolution',
+  'absorption',
+  'homeward',
+]
+
+const FRUIT_EPSILON = 12
+
+function isFruitingInk(value: Ink, palette: ScenePalette): boolean {
+  const [r, g, b] = value.rgb
+  return palette.fruit.some((step) => Math.hypot(r - step[0], g - step[1], b - step[2]) <= FRUIT_EPSILON)
+}
+
+describe('the fruiting fence', () => {
+  it('allows fruiting ink only on returned matter, in both worlds', () => {
+    for (const palette of [DARK_PALETTE, LIGHT_PALETTE]) {
+      const fleet = fleetFor(pathologySpec())
+      const settled = new Map(
+        fleet.lanes.slice(0, 3).map((lane) => [lane.id, returnAt(RETURN.totalMs)]),
+      )
+      const frame = frameFor({ palette, fleet, retire: settled })
+      for (const mark of sceneMarks(frame)) {
+        for (const value of inksOf(mark)) {
+          if (!isFruitingInk(value, palette)) continue
+          expect(FRUITING_ROLES, `${mark.role} wears fruit`).toContain(mark.role)
+          expect(mark.kind === 'text' || mark.kind === 'chip').toBe(false)
+        }
+      }
+    }
+  })
+})
+
 /** Where the accent is allowed: organic tissue, and nowhere else (ruling 5). */
 const TISSUE_ROLES: readonly MarkRole[] = [
   'underglow',

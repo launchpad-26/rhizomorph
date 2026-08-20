@@ -185,6 +185,44 @@ export const TISSUE_RAMP: readonly Rgb[] = [
   TISSUE_200,
 ]
 
+// ── the fruiting material (prd-33 amendment, loop 8): returned matter only ──
+
+/**
+ * THE SECOND ORGANIC MATERIAL — spore-print magenta, worn ONLY by matter that
+ * has RETURNED (the landed remnant: persist strand and glyphs, the persisted
+ * seal, the heart's growth rings, a landing's homecoming motes). Never a
+ * status: as a status hue this arc is arithmetically impossible (the accent's
+ * 60° law ∩ broken's 30° leave 43.9°–235.5°), and the amendment's whole claim
+ * is that landed matter is MATERIAL, not vocabulary — law 9a intact because
+ * this never joins it. The ledger's LANDED chip stays done-green for the same
+ * reason, deliberately.
+ *
+ * Measured (theme/oklch.ts): H ≈ 335–341 in both worlds; ≥ 33° from broken,
+ * ≥ 39° from the tissue accent (dark) / ≥ 42° (paper); the paper steps sit
+ * ≥ 24 rgb-units clear of every paper register step so the fence below cannot
+ * mistake structure ink for fruit. Ground-ward first, like the tissue ramp.
+ */
+export const FRUIT_RAMP: readonly Rgb[] = [
+  [126, 74, 114], // FRUIT_700 — the deep step the persist recipe warms toward
+  [178, 107, 163], // FRUIT_400 — the accent: the seal, the rings
+  [214, 154, 196], // FRUIT_200 — the light end a homecoming mote cools to
+]
+
+const PAPER_FRUIT: readonly Rgb[] = [
+  [109, 43, 88], // deep ink on paper
+  [150, 64, 124], // the accent
+  [192, 139, 176], // the faded end
+]
+
+/** Sample the fruiting ramp, 0 = deepest, 1 = lightest — tissueAtOn's twin. */
+export function fruitAtOn(palette: ScenePalette, t: number): Rgb {
+  const ramp = palette.fruit
+  const last = ramp.length - 1
+  const on = clamp01(t) * last
+  const i = Math.min(last - 1, Math.floor(on))
+  return mix(ramp[i] as Rgb, ramp[i + 1] as Rgb, on - i)
+}
+
 /** Sample the tissue ramp, 0 = its deepest step and 1 = its lightest. */
 export function tissueAt(t: number): Rgb {
   const last = TISSUE_RAMP.length - 1
@@ -507,6 +545,8 @@ export interface ScenePalette {
   readonly necrotic: Rgb
   /** Five steps, ground-ward first — read as a gradient, never as five choices. */
   readonly tissue: readonly Rgb[]
+  /** The fruiting material — returned matter only. See {@link FRUIT_RAMP}. */
+  readonly fruit: readonly Rgb[]
   /** The alpha a living thread is drawn at with nothing going on at all. */
   readonly bodyFloor: number
   readonly band: SeverityBand
@@ -547,6 +587,7 @@ export const DARK_PALETTE: ScenePalette = {
   activity: ACTIVITY_HUE,
   necrotic: NECROTIC,
   tissue: TISSUE_RAMP,
+  fruit: FRUIT_RAMP,
   bodyFloor: CALM_BODY_FLOOR,
   band: {
     carrier: 'luminance',
@@ -693,6 +734,7 @@ export const LIGHT_PALETTE: ScenePalette = {
   },
   necrotic: PAPER_NECROTIC,
   tissue: PAPER_TISSUE,
+  fruit: PAPER_FRUIT,
   bodyFloor: PAPER_BODY_FLOOR,
   band: {
     carrier: 'presence',

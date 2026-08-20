@@ -16,7 +16,7 @@ import { entryOf } from '../settings/registry.js'
 import { resolveTheme, type ResolvedTheme } from '../settings/apply.js'
 import { resolve as resolveToken, themesOf, type Theme } from '../theme/tokens.js'
 import { CHANNELS, SHIMMER_MAX, SHIMMER_PERIOD_MS, variationFor } from './variation.js'
-import {
+import { FRUIT_RAMP, fruitAtOn,
   ACTIVITY_HUE,
   BROKEN,
   DONE,
@@ -1279,5 +1279,67 @@ describe('the vibrancy dials, and the ceiling they do not touch (#157)', () => {
     // live scene is unchanged by the replay dial" true by construction.
     expect(ambientLift(spore, 1)).toBe(spore)
     expect(ambientVeil(veil, 1)).toBe(veil)
+  })
+})
+
+
+/**
+ * THE FRUITING MATERIAL, AS ANGLES AND DISTANCES (prd-33 amendment, loop 8).
+ * Returned matter's own family — never a status. The laws: the hue window,
+ * clearance from broken and from the tissue accent in both worlds, and the
+ * paper steps' rgb-distance from the paper register (the fence's clearance —
+ * a magenta near the structure ink would let labels trip the fruiting fence).
+ */
+describe('the fruiting material, as angles', () => {
+  const rgbOf = (steps: readonly Rgb[]) => steps.map((s) => s)
+
+  it('is one magenta family in both worlds, in the 330–345 window', () => {
+    for (const palette of [DARK_PALETTE, LIGHT_PALETTE]) {
+      for (const step of palette.fruit) {
+        const h = oklabHue(step)
+        expect(h, `${palette.theme} ${String(step)}`).toBeGreaterThan(330)
+        expect(h).toBeLessThan(345)
+      }
+    }
+  })
+
+  it('keeps clear of broken and of the tissue accent, both worlds', () => {
+    for (const palette of [DARK_PALETTE, LIGHT_PALETTE]) {
+      for (const step of palette.fruit) {
+        expect(hueGap(step, palette.status.broken)).toBeGreaterThan(30)
+        expect(hueGap(step, palette.tissue[3] as Rgb)).toBeGreaterThan(30)
+      }
+    }
+  })
+
+  it('sits far enough from the paper register that structure ink can never read as fruit', () => {
+    const registers = Object.values(LIGHT_PALETTE.register)
+    const dist = (a: Rgb, b: Rgb) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+    for (const step of LIGHT_PALETTE.fruit) {
+      const nearest = Math.min(...registers.map((r) => dist(step, r)))
+      // Twice the fence epsilon (12) — see marks.test.ts's fruiting fence.
+      expect(nearest).toBeGreaterThanOrEqual(24)
+    }
+  })
+
+  it('samples as one continuous ramp, ground-ward first', () => {
+    for (const palette of [DARK_PALETTE, LIGHT_PALETTE]) {
+      expect(fruitAtOn(palette, 0)).toEqual(palette.fruit[0])
+      expect(fruitAtOn(palette, 1)).toEqual(palette.fruit[palette.fruit.length - 1])
+      // deepest → lightest in luminance terms on dark; ink-ward on paper is
+      // the same ordering read in presence, so luminance ordering is asserted
+      // on dark alone.
+    }
+    const lums = FRUIT_RAMP.map((step) => luminance(ink(step, 1)))
+    expect(lums[0]).toBeLessThan(lums[1] as number)
+    expect(lums[1] as number).toBeLessThan(lums[2] as number)
+  })
+
+  it('keeps the persist recipe under its luminance cap with the fruit in it', () => {
+    // Loop 9 swaps persistInks onto the fruit; this is the arithmetic staked
+    // in advance: the deep step at the recipe k of 0.18 sits UNDER the cap
+    // with more headroom than the green it replaces.
+    const strand = ink(mix(DARK_PALETTE.register.unknown, FRUIT_RAMP[0] as Rgb, 0.18), 0.44)
+    expect(luminance(strand)).toBeLessThanOrEqual(0.14)
   })
 })
