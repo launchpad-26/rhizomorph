@@ -364,7 +364,14 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
 
   return (
     <div
-      className="grid grid-cols-[auto_1fr_minmax(0,auto)] items-center gap-x-2 gap-y-px"
+      // `1fr` is shorthand for `minmax(auto, 1fr)`, and that `auto` minimum is
+      // the TRACK'S CONTENT — so the middle column could not shrink below the
+      // widest thing inside it. The chapter marks are 12px-wide buttons
+      // carrying ~93px labels, which pushed the track to 1236px inside a
+      // 1193px cell and put 85px of scroll on the document (#655). The third
+      // column was already written `minmax(0,auto)` by someone who knew this;
+      // the middle one was not, and only the middle one holds the timeline.
+      className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,auto)] items-center gap-x-2 gap-y-px"
       data-testid="tide-dock"
       data-mode={mode}
     >

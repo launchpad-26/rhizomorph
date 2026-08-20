@@ -164,7 +164,17 @@ function WaitedChipsRow({
   return (
     <div
       data-testid="waited-chips"
-      className="ml-auto flex shrink-0 items-center gap-1.5 overflow-hidden"
+      // `shrink-0` here is what put 533px of horizontal scroll on the DOCUMENT
+      // (#655). This region is the strip's memory, not its summons — the doc
+      // comment above says so — which makes it the one part that SHOULD give
+      // way first when the header runs out of room. It was instead the one part
+      // that could not, so the alarm row (correctly `min-w-0 flex-1`) yielded
+      // its share, ran out, and the overflow left the page entirely.
+      //
+      // `min-w-0` is the load-bearing half: without it this flex item's
+      // automatic minimum is its content width, and the `overflow-hidden`
+      // already here never gets the chance to clip.
+      className="ml-auto flex min-w-0 items-center gap-1.5 overflow-hidden"
     >
       {chips.map((chip) => (
         <WaitedChipButton
@@ -207,12 +217,16 @@ function WaitedChipButton({
       aria-pressed={selected}
       onClick={() => onToggle(chip.laneId)}
       className={[
-        'flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 normal-case tracking-normal text-(--ink-dim)',
+        // Shrinkable, but the duration is not: a chip whose whole point is
+        // "this lane waited 6m" must lose its LABEL before it loses the span,
+        // so the label carries `min-w-0` and the duration keeps
+        // `whitespace-nowrap`. The `title` above still holds the full text.
+        'flex min-w-0 items-center gap-1 rounded border px-1.5 py-0.5 normal-case tracking-normal text-(--ink-dim)',
         selected ? 'border-(--ink-primary) bg-(--surface-raised)' : 'border-(--line-strong) bg-(--surface-panel)',
       ].join(' ')}
     >
-      <span className="max-w-[7rem] truncate font-medium text-(--ink-body)">{chip.label}</span>
-      <span className="figures whitespace-nowrap">waited {duration}</span>
+      <span className="min-w-0 max-w-[7rem] truncate font-medium text-(--ink-body)">{chip.label}</span>
+      <span className="figures shrink-0 whitespace-nowrap">waited {duration}</span>
       <span aria-hidden>▸</span>
       <span aria-hidden className="text-(--ink-body)">
         {glyph}

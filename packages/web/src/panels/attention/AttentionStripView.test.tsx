@@ -126,9 +126,15 @@ describe('AttentionStripView — the staged pathology fleet', () => {
 
   it('never grows past a bounded number of DOM chips, whatever the fault count', () => {
     render(<AttentionStripView fleet={fleet} selectedId={null} onToggle={vi.fn()} />)
-    // MAX_CHIPS named + one overflow counter is the entire ceiling on width —
-    // this is what keeps the strip from ever wrapping taller than its docked
-    // height, at any lane count (ruling 7).
+    // A COUNT bound, and only that. The comment here used to claim MAX_CHIPS
+    // was "the entire ceiling on width"; it is not, and #655 is what that cost.
+    // Each chip caps its own spans at 9rem and 18rem, so four chips bound the
+    // strip at roughly 1,900px — a real ceiling, just one above every usable
+    // viewport. jsdom has no layout, so no assertion in this file can see a
+    // width; the width guarantee is a class-string law instead (see
+    // `shell-bounds-law.test.ts`) plus a browser pass. A comment claiming a
+    // property its own file cannot measure is worse than no comment, because
+    // the next reader stops looking.
     expect(chips().length).toBeLessThanOrEqual(MAX_CHIPS)
   })
 
