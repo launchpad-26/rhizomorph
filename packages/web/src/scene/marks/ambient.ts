@@ -3,15 +3,13 @@ import type { Point } from '../geometry.js'
 import { allowance } from '../motion.js'
 import type { Mote } from '../motes.js'
 import {
-  ICE_1000,
-  ICE_200,
-  TISSUE_200,
-  TISSUE_500,
-  TISSUE_900,
   ambientLift,
   ambientVeil,
   clamp01,
   ink,
+  tissueAtOn,
+  type Rgb,
+  type ScenePalette,
 } from '../palette.js'
 import { BREATH_DEPTH, motionMode, type SceneFrame } from './frame.js'
 import type { Mark } from './types.js'
@@ -139,10 +137,10 @@ export function ambientScreenMarks(frame: SceneFrame): Mark[] {
       height,
       from: FOG.from,
       to: FOG.to,
-      inner: ink(TISSUE_900, 0),
+      inner: ink(tissueAtOn(frame.palette, 0), 0),
       // Relaxed rather than lifted (#157): the fog is what holds the rim back, and
       // in a retrospective the rim is worth seeing.
-      outer: ambientVeil(ink(TISSUE_900, FOG.alpha), vibrancy),
+      outer: ambientVeil(ink(tissueAtOn(frame.palette, 0), FOG.alpha), vibrancy),
     },
     {
       kind: 'wash',
@@ -153,8 +151,8 @@ export function ambientScreenMarks(frame: SceneFrame): Mark[] {
       height,
       from: VIGNETTE.from,
       to: VIGNETTE.to,
-      inner: ink(ICE_1000, 0),
-      outer: ambientVeil(ink(ICE_1000, VIGNETTE.alpha), vibrancy),
+      inner: ink(frame.palette.ground, 0),
+      outer: ambientVeil(ink(frame.palette.ground, VIGNETTE.alpha), vibrancy),
     },
     {
       kind: 'grain',
@@ -175,7 +173,7 @@ export function ambientScreenMarks(frame: SceneFrame): Mark[] {
       // texture rather than light — brightening it adds noise, not vibrancy — and a
       // multiplier on a 1.6% wash that crawls is the one place this number could
       // have turned into movement. The motion budget stays exactly where it was.
-      ink: ink(ICE_200, GRAIN.alpha),
+      ink: ink(frame.palette.register.data, GRAIN.alpha),
     },
   ]
 }
@@ -236,6 +234,7 @@ function sporeMarks(frame: SceneFrame): Mark {
       ink: ambientLift(
         ink(
           mixTissue(
+            frame.palette,
             clamp01((radius / smaller - SPORE_BAND.from) / (SPORE_BAND.to - SPORE_BAND.from)),
           ),
           0.1 + 0.14 * (0.5 + 0.5 * drift(t * 11.7, phase * 0.5)),
@@ -248,13 +247,21 @@ function sporeMarks(frame: SceneFrame): Mark {
   return { kind: 'motes', role: 'spore', laneId: null, alarm: false, items }
 }
 
-/** Light tissue in, deep tissue out. Two steps of the ramp, not the whole of it. */
-function mixTissue(t: number): [number, number, number] {
+/**
+ * Light tissue in, deep tissue out. Two steps of the ramp, not the whole of it —
+ * a direct lerp between the two samples (`tissueAt` would route through the
+ * ramp's middle step, a different colour path), with the endpoints taken from
+ * whichever palette the frame carries. On dark the samples are TISSUE_200 and
+ * TISSUE_500 exactly, so this is byte-identical to what it replaced.
+ */
+function mixTissue(palette: ScenePalette, t: number): [number, number, number] {
+  const light: Rgb = tissueAtOn(palette, 1)
+  const deep: Rgb = tissueAtOn(palette, 0.5)
   const k = clamp01(t)
   return [
-    Math.round(TISSUE_200[0] + (TISSUE_500[0] - TISSUE_200[0]) * k),
-    Math.round(TISSUE_200[1] + (TISSUE_500[1] - TISSUE_200[1]) * k),
-    Math.round(TISSUE_200[2] + (TISSUE_500[2] - TISSUE_200[2]) * k),
+    Math.round(light[0] + (deep[0] - light[0]) * k),
+    Math.round(light[1] + (deep[1] - light[1]) * k),
+    Math.round(light[2] + (deep[2] - light[2]) * k),
   ]
 }
 
@@ -288,7 +295,7 @@ function floraMark(frame: SceneFrame): Mark {
     // Breathing in luminance only — the one ambient channel a hairline can spend
     // without moving. Deep tissue: the rim is the furthest thing from the light,
     // and at replay vibrancy it is the furthest thing worth looking at.
-    ink: ambientLift(ink(TISSUE_500, 0.24 * frame.breath), frame.vibrancy),
+    ink: ambientLift(ink(tissueAtOn(frame.palette, 0.5), 0.24 * frame.breath), frame.vibrancy),
     width: 0.9,
   }
 }

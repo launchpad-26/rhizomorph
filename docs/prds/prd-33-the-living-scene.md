@@ -371,7 +371,15 @@ law; the dials turn; the texture passes; the canvas harness.
   hand at the amendment, not here. Open, not ruled.
 - **Which channels get ambient rows first** — decided at the amendment; the grant
   mechanism is ruled, the grants are not.
-- **How ambient material behaves on light ground** — coordinated with prd-32's per-theme
-  tables; whoever lands second rebases. Open, not ruled.
+- **How ambient material behaves on light ground** — ANSWERED (light-mode wave, 2026-08-20,
+  the second lander as this line predicted): ambient material is sampled from the frame's own
+  palette rather than named constants — the depth fog tints toward the palette's deepest tissue
+  step, the vignette toward the palette's own ground, the grain in the data register — and
+  light-*material* marks (glow, motes) composite by the palette's severity carrier: additive
+  ONE,ONE on the luminance-carried void (emission, byte-identical to what dark always did),
+  source-over on presence-carried paper, where the same arithmetic would saturate to nothing —
+  so on light ground a halo reads as a soft ink wash: presence, not emission. "Ambient never
+  means" is untouched: the carrier decides *how* material composites, never *what* any channel
+  says. Seam: `PanelView.lightBlend` in `scene/gl/frame.ts`; sampling in `scene/marks/ambient.ts`.
 - **#244's final disposition** — ruling 4 proposes absorbed; the operator may
   accept-with-reasons at blessing instead.

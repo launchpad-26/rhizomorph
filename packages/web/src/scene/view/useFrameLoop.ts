@@ -347,8 +347,20 @@ export function useFrameLoop(
       painted = { marks, camera, dpr, width, height }
       // The clear colour follows the palette's own ground, so the picture and
       // the page share one floor in both themes (dark: byte-identical to the
-      // old hardcoded BACKDROP).
-      painter.paint({ marks, width, height, camera, dpr, ground: ink(palette.ground, 1) })
+      // old hardcoded BACKDROP). The blend mode follows the palette's carrier:
+      // luminance-carried severity lives on a void, where light-material marks
+      // genuinely add; presence-carried severity lives on paper, where the same
+      // ONE,ONE arithmetic saturates to nothing — so halos composite source-over
+      // as ink washes instead (prd-33's ambient-on-light answer).
+      painter.paint({
+        marks,
+        width,
+        height,
+        camera,
+        dpr,
+        ground: ink(palette.ground, 1),
+        lightBlend: palette.band.carrier === 'presence' ? 'cover' : 'add',
+      })
     }
 
     /** One frame of a zoom-to-fit, driven by the loop that is already running. */

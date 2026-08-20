@@ -47,6 +47,8 @@ export interface ScenePaintOptions {
   dpr?: number
   /** The clear colour, from the frame's palette. Absent = the dark BACKDROP, byte-identical to before the seam. */
   ground?: Ink
+  /** How light-material marks composite. Absent = 'add', byte-identical to before the seam. See PanelView.lightBlend. */
+  lightBlend?: 'add' | 'cover'
 }
 
 export interface ScenePainter {
@@ -99,7 +101,13 @@ export function createScenePainter(
       }
       const frame = buildFrame(
         request.marks,
-        { width: panel.width, height: panel.height, camera, ...(request.ground === undefined ? {} : { ground: request.ground }) },
+        {
+          width: panel.width,
+          height: panel.height,
+          camera,
+          ...(request.ground === undefined ? {} : { ground: request.ground }),
+          ...(request.lightBlend === undefined ? {} : { lightBlend: request.lightBlend }),
+        },
         vertices,
       )
       last = frame

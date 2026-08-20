@@ -61,6 +61,17 @@ export interface PanelView {
    * colour the theme could not reach (#551's wave).
    */
   ground?: Ink
+  /**
+   * How light-material marks (glow, motes) composite. `'add'` — the default,
+   * and the only mode any dark frame has ever used — is additive ONE,ONE:
+   * light accumulates on the void, which is what emission looks like. On
+   * paper the same arithmetic is invisible-to-wrong (adding light to a
+   * near-white ground saturates immediately), so the light theme asks for
+   * `'cover'`: the same marks composite source-over, reading as soft ink
+   * washes — presence, not emission. This is the recorded answer to prd-33's
+   * open question about ambient material on light ground.
+   */
+  lightBlend?: 'add' | 'cover'
 }
 
 /**
@@ -132,7 +143,7 @@ export function buildFrame(marks: readonly Mark[], panel: PanelView, into?: Batc
       overlay.push({ mark, world: true, from: 0 })
       continue
     }
-    draw(vertices, runs, mark, true, isLight(mark))
+    draw(vertices, runs, mark, true, isLight(mark) && panel.lightBlend !== 'cover')
   }
 
   for (const mark of chrome) {
@@ -167,7 +178,7 @@ export function buildFrame(marks: readonly Mark[], panel: PanelView, into?: Batc
       }
       continue
     }
-    draw(vertices, runs, mark, false, isLight(mark))
+    draw(vertices, runs, mark, false, isLight(mark) && panel.lightBlend !== 'cover')
   }
 
   const list = runs.done(vertices.n)
