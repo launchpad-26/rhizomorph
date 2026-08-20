@@ -150,7 +150,11 @@ function fixtureEvents() {
 }
 
 describe('App', () => {
-  it('renders the instrument shell in the curated order (ruling 6)', async () => {
+  // Explicit timeout: this is the suite's first full-shell mount, and under the
+  // full gate's worker load it has overrun vitest's 5s default (seen once,
+  // 2026-08-20 — it passes standalone in ~1s). Its failure must always mean
+  // the shell broke, never that the box was busy.
+  it('renders the instrument shell in the curated order (ruling 6)', { timeout: 20_000 }, async () => {
     const { container } = await renderApp()
 
     expect(screen.getByText('THE OBSERVATORY')).toBeInTheDocument()
