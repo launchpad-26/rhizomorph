@@ -4167,7 +4167,7 @@ describe('the engraved mass (Plate stage 1 — loop 23)', () => {
   it('the light world carries exactly one stipple mark, bounded and inside the body', () => {
     const marks = massStipple(LIGHT_PALETTE)
     expect(marks.length).toBe(1)
-    const mark = marks[0] as { kind: string; items: { at: { x: number; y: number }; radius: number; ink: { alpha: number } }[] }
+    const mark = marks[0] as unknown as { kind: string; items: { at: { x: number; y: number }; radius: number; ink: { alpha: number } }[] }
     expect(mark.kind).toBe('motes')
     expect(mark.items.length).toBeGreaterThan(40)
     expect(mark.items.length).toBeLessThanOrEqual(460)
