@@ -68,10 +68,10 @@ export function failurePage(input: FailurePageInput): string {
   code, pre { background: #080b14; border: 1px solid #1b2334; border-radius: 3px; padding: .5rem .75rem; display: block; overflow-x: auto; color: #dbe3ef }
   .gap { color: #6b7891 }
   @media (prefers-color-scheme: light) {
-    body { background: #faf6ef; color: #52384e }
-    h1 { color: #714a00 }
-    dt, .gap { color: #674c61 }
-    code, pre { background: #f3eee4; border-color: #dfd1c6; color: #40273c }
+    body { background: #fcf6eb; color: #53374f }
+    h1 { color: #785100 }
+    dt, .gap { color: #674c63 }
+    code, pre { background: #f5eee1; border-color: #ddd2c4; color: #41263d }
   }
 </style>
 </head>

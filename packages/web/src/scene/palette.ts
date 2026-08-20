@@ -588,26 +588,26 @@ export const DARK_PALETTE: ScenePalette = {
  * ramp lends the scene. Numbered by ink rather than by luminance: `000` is the
  * page with nothing on it, `950` is the deepest mark the instrument makes.
  */
-const PAPER_000: Rgb = [250, 246, 239]
-const PAPER_050: Rgb = [243, 238, 228]
-const PAPER_300: Rgb = [181, 155, 158]
-const PAPER_400: Rgb = [151, 125, 137]
-const PAPER_500: Rgb = [127, 101, 118]
-const PAPER_600: Rgb = [103, 76, 97]
-const PAPER_700: Rgb = [82, 56, 78]
-const PAPER_800: Rgb = [64, 39, 60]
-const PAPER_900: Rgb = [48, 27, 45]
-const PAPER_950: Rgb = [34, 16, 31]
+const PAPER_000: Rgb = [252, 246, 235]
+const PAPER_050: Rgb = [245, 238, 225]
+const PAPER_300: Rgb = [169, 159, 163]
+const PAPER_400: Rgb = [144, 128, 139]
+const PAPER_500: Rgb = [124, 103, 119]
+const PAPER_600: Rgb = [103, 76, 99]
+const PAPER_700: Rgb = [83, 55, 79]
+const PAPER_800: Rgb = [65, 38, 61]
+const PAPER_900: Rgb = [49, 26, 46]
+const PAPER_950: Rgb = [35, 15, 32]
 
 /** The six, re-inked. Each keeps its dark counterpart's OKLCH hue angle. */
-const PAPER_WORKING: Rgb = [0, 112, 57]
-const PAPER_DONE: Rgb = [59, 133, 102]
-const PAPER_WAITING_BENIGN: Rgb = [141, 105, 38]
-const PAPER_NEEDS_YOU: Rgb = [113, 74, 0]
-const PAPER_BROKEN: Rgb = [167, 0, 54]
-const PAPER_NOTICE: Rgb = [0, 111, 126]
+const PAPER_WORKING: Rgb = [0, 113, 55]
+const PAPER_DONE: Rgb = [36, 127, 93]
+const PAPER_WAITING_BENIGN: Rgb = [146, 106, 18]
+const PAPER_NEEDS_YOU: Rgb = [120, 81, 0]
+const PAPER_BROKEN: Rgb = [169, 0, 53]
+const PAPER_NOTICE: Rgb = [0, 115, 134]
 
-const PAPER_NECROTIC: Rgb = [169, 162, 168]
+const PAPER_NECROTIC: Rgb = [173, 160, 170]
 
 /** Ground-ward first, at the organism's own hue (295.5) in both worlds. */
 const PAPER_TISSUE: readonly Rgb[] = [
@@ -629,7 +629,7 @@ const PAPER_TISSUE: readonly Rgb[] = [
  *
  * They are chosen against this palette rather than scaled off dark's, because a
  * scaled band is an inverted palette wearing a different coat. The floor is
- * where the quietest activity ink actually lands (0.235 measured, so 0.20 has
+ * where the quietest activity ink actually lands (0.241 measured, so 0.20 has
  * room); the ceiling is what {@link capPresence} holds the calm world to; the
  * alarm floor is where {@link emphatic} puts a summons.
  */

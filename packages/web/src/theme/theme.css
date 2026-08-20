@@ -356,7 +356,10 @@
  * is the whole reason severity could not simply come along.
  *
  * The register is warm at the paper end (OKLCH H ≈ 82) and **deep plum-grey**
- * at the ink end (H ≈ 332), drifting through a rosy middle. Ruling 7 in three
+ * at the ink end (H ≈ 332). The middle holds warm stone and then hinges
+ * through a near-neutral at `paper-300` (C 0.013) into one coherent plum run —
+ * retuned from the first cut, whose mid-ramp drifted tan → terracotta → pink
+ * and put every hairline and disabled mark in the mud between them. Ruling 7 in three
  * facts: warm off-white rather than clinical white, plum-grey rather than
  * black, and hairlines that measure 1.4:1 rather than 4:1 — an eye that reads
  * an instrument for hours is not served by maximum contrast.
@@ -369,19 +372,19 @@
 [data-theme='light'] {
   color-scheme: light;
 
-  --color-paper-000: #faf6ef; /* the page — the ground the network hangs on */
-  --color-paper-050: #f3eee4; /* raised: panels, docks, the strips */
-  --color-paper-100: #ebe3d6; /* raised-2: rows on hover, inset wells */
-  --color-paper-150: #dfd1c6; /* hairlines and panel borders */
-  --color-paper-200: #d0bbb4; /* stronger dividers, table rules */
-  --color-paper-300: #b59b9e; /* absent/disabled marks — never text */
-  --color-paper-400: #977d89; /* decorative structure — never text (1.9:1) */
-  --color-paper-500: #7f6576; /* decorative structure — never text (3.0:1) */
-  --color-paper-600: #674c61; /* secondary labels — the legibility floor (7.00:1) */
-  --color-paper-700: #52384e; /* body copy */
-  --color-paper-800: #40273c; /* primary data ink */
-  --color-paper-900: #301b2d; /* emphasis: the headline number */
-  --color-paper-950: #22101f; /* the deepest mark the instrument makes */
+  --color-paper-000: #fcf6eb; /* the page — the ground the network hangs on */
+  --color-paper-050: #f5eee1; /* raised: panels, docks, the strips */
+  --color-paper-100: #ece3d4; /* raised-2: rows on hover, inset wells */
+  --color-paper-150: #ddd2c4; /* hairlines and panel borders */
+  --color-paper-200: #cabeb5; /* stronger dividers, table rules */
+  --color-paper-300: #a99fa3; /* absent/disabled marks — never text */
+  --color-paper-400: #90808b; /* decorative structure — never text (3.5:1) */
+  --color-paper-500: #7c6777; /* decorative structure — never text (4.8:1) */
+  --color-paper-600: #674c63; /* secondary labels — the legibility floor (7.00:1) */
+  --color-paper-700: #53374f; /* body copy */
+  --color-paper-800: #41263d; /* primary data ink */
+  --color-paper-900: #311a2e; /* emphasis: the headline number */
+  --color-paper-950: #230f20; /* the deepest mark the instrument makes */
 
   /* Roles, slot-for-slot with dark's. Every one is a `var()` onto the register
    * above for the same reason dark's is onto the ice ramp: a role written as
@@ -410,26 +413,26 @@
    *
    * The family relation survives with it, on the channel that still exists. On
    * the void `needs-you` is the incandescent end of the amber family and
-   * `waiting-benign` its muted one; here `needs-you` is the deeper ink (7.3:1
-   * against the page) and `waiting-benign` the lighter (4.7:1). Same ladder,
+   * `waiting-benign` its muted one; here `needs-you` is the deeper ink (6.6:1
+   * against the page) and `waiting-benign` the lighter (4.6:1). Same ladder,
    * same hue, opposite direction of travel.
    */
   --color-calm: var(--color-paper-800);
 
-  --color-working: #007039;
-  --color-done: #3b8566;
+  --color-working: #007137;
+  --color-done: #247f5d;
 
-  --color-waiting-benign: #8d6926;
-  --color-needs-you: #714a00;
+  --color-waiting-benign: #926a12;
+  --color-needs-you: #785100;
 
-  --color-broken: #a70036;
-  --color-notice: #006f7e;
+  --color-broken: #a90035;
+  --color-notice: #007386;
 
   /* Dead tissue drains rather than greys: on the void a corpse is a mid grey
    * against black, and here it is a pale one against the page — the same fact,
    * which is that the matter has stopped carrying anything. Both measure ~2.3:1
    * against their own ground, and neither is a seventh status hue. */
-  --color-necrotic: #a9a2a8;
+  --color-necrotic: #ada0aa;
 
   /* The tissue ramp, at **the organism's own hue in both worlds** (H 295.5).
    * The angle is a fact about the material, not about the theme, so it does not

@@ -58,7 +58,7 @@ export interface WindowFrameOptions {
  */
 export const WINDOW_GROUNDS: Readonly<Record<'dark' | 'light', string>> = {
   dark: '#04060c',
-  light: '#faf6ef',
+  light: '#fcf6eb',
 }
 
 /**
