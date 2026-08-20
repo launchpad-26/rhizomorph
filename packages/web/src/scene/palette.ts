@@ -262,6 +262,19 @@ export function returningInk(family: Rgb, journey: number, luminance: number): I
 }
 
 /**
+ * {@link returningInk}, generalised over the destination material (the
+ * fruiting amendment): a LANDED lane's matter comes home to the fruit — the
+ * spore-print the heart's ring will be laid in — while a dead lane's still
+ * composts to tissue through `returningInk` exactly as ruling 12 wrote it.
+ * Same envelope, same early-soft hand-off; only the home differs.
+ */
+export function returningInkToward(home: Rgb, family: Rgb, journey: number, luminance: number): Ink {
+  const t = clamp01(journey)
+  const cooled = mix(family, home, Math.min(1, t * 1.4))
+  return ink(cooled, clamp01(luminance))
+}
+
+/**
  * The one place a lane's activity becomes a colour — `marks/` must never name a
  * hue for a state itself, only ask here, or "green means productive" stops being
  * a property of the instrument. Idle and unknown stay ice on purpose: a lane the

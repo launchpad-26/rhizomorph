@@ -3491,6 +3491,12 @@ describe('the tissue accent appears only in tissue draws (prd10 ruling 5)', () =
     // the same OKLCH reading `palette.test.ts` measures the ruling's angles in.
     const marks = corpus()
     for (const mark of marks) {
+      // The two materials partition by ROLE (the fruiting amendment): a
+      // returned-matter mark's inks are the fruit recipe's own — byte-pinned
+      // in retire.test.ts and policed by the fruiting fence above — and the
+      // ICE-fruit mixes they pass through trip this violet heuristic without
+      // being tissue. The tissue law therefore polices everything else.
+      if (FRUITING_ROLES.includes(mark.role)) continue
       if (!inksOf(mark).some(isTissue)) continue
       expect(TISSUE_ROLES, `${mark.role} wore the accent`).toContain(mark.role)
       // Never ink: not a name, not a figure, not a plate behind one.

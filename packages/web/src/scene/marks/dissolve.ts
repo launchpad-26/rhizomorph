@@ -1,4 +1,5 @@
 import type { BudGeometry, ThreadGeometry } from '../geometry.js'
+import { fruitAtOn } from '../palette.js'
 import { DISSOLUTION } from '../motion.js'
 import { dissolutionMotes, type Dissolve, type Mote } from '../motes.js'
 import type { Rgb } from '../palette.js'
@@ -114,6 +115,12 @@ function jobsFor(frame: SceneFrame, thread: ThreadGeometry): Job[] {
         progress: cut.dissolve,
         sizeFrac: thread.sizeFrac,
         family,
+        // A landing fruits: its matter comes home to the spore-print material
+        // the heart's ring is laid in. A dead lane's matter still composts to
+        // tissue — death and landing part ways here, deliberately.
+        ...(thread.lane.activity === 'done'
+          ? { home: fruitAtOn(frame.palette, 1) }
+          : {}),
         seed,
         peak,
       },

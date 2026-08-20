@@ -2,7 +2,7 @@ import { contourLayers, type Falloff } from '../contour.js'
 import { budLife, type BudGeometry, type Point, type ThreadGeometry } from '../geometry.js'
 import { heartAnatomy, type HeartRing } from '../heart.js'
 import { GROWTH, growthEnvelope, allowance, DISSOLUTION, STRUCTURAL } from '../motion.js'
-import {
+import { fruitAtOn,
   clamp01,
   hotterOn,
   ink,
@@ -670,7 +670,7 @@ function heartMarks(frame: SceneFrame, radius: number, intensity: number): Mark[
       // so the family that landed is still faintly in it (the same argument
       // `PERSIST_TISSUE` makes about a remnant — "finished" and "nothing to
       // say" must not share a colour), and the accent is what it cooled into.
-      ink: budget(frame, null, false, ink(mix(tissueAtOn(frame.palette, 0.75), frame.palette.activity.done, RING_GREEN), 0.3 * deposit)),
+      ink: budget(frame, null, false, ink(mix(tissueAtOn(frame.palette, 0.75), fruitAtOn(frame.palette, 0.5), RING_FRUIT), 0.3 * deposit)),
       // THE WORK SIZE, KEPT (prd6 ruling 1). Used to be the stub length a
       // lane left at the rim; ruling 2 removed the stubs, so the channel
       // moved to the one permanent mark a landing leaves instead — a big
@@ -684,7 +684,13 @@ function heartMarks(frame: SceneFrame, radius: number, intensity: number): Mark[
 }
 
 /** How much of the done green survives in a ring, over the accent. */
-const RING_GREEN = 0.22
+/**
+ * How far a growth ring warms from the heart's tissue toward the fruiting
+ * accent (prd-33 amendment, loop 9 — this was RING_GREEN 0.22 toward the done
+ * green). 0.3: the spore-print is the memoir the amendment exists for, so it
+ * earns a little more of its own material than the green whisper had.
+ */
+const RING_FRUIT = 0.3
 /** A ring's weight, in world px — the work-size channel (prd6 ruling 1). */
 const RING_WIDTH = { min: 0.7, span: 1.6 } as const
 

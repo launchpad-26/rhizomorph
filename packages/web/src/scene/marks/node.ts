@@ -2,7 +2,7 @@ import { formatTokens } from '../../lib/format.js'
 import type { LadderRank, PathologyKind } from '../../fleet/index.js'
 import { tangentAt, type Point, type RetireGeometry, type ThreadGeometry } from '../geometry.js'
 import { growthEnvelope, alarmPulse } from '../motion.js'
-import {
+import { fruitAtOn,
   TUFT_WASH,
   clamp01,
   hotterOn,
@@ -456,7 +456,7 @@ function persistNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: Retire
   const ribbons = persistNodeRibbons(thread, angle, length)
   marks.push(
     { ...ribbons.tail, paint: cold(ink(lensTint(frame.palette, hue, freshness), 0.75)) },
-    { ...ribbons.seal, paint: cold(ink(frame.palette.activity.done, 0.9)) },
+    { ...ribbons.seal, paint: cold(ink(fruitAtOn(frame.palette, 0.5), 0.9)) },
   )
 
   if (frame.salience.spotlightId === laneId || frame.salience.hoverId === laneId) {

@@ -1,6 +1,6 @@
 import { pointAt, type Point } from './geometry.js'
 import { DISSOLUTION, type DissolutionCause } from './motion.js'
-import { clamp01, returningInk, type Ink, type Rgb } from './palette.js'
+import { clamp01, returningInk, returningInkToward, type Ink, type Rgb } from './palette.js'
 
 /**
  * THE COMPOSTING DECAY (prd10 rulings 2 and 12) — a cord coming apart, as data.
@@ -69,6 +69,11 @@ export interface Dissolve {
   sizeFrac: number
   /** The lane's own colour at the cut (ruling 12). */
   family: Rgb
+  /**
+   * The destination material (the fruiting amendment): a LANDED lane's matter
+   * comes home to the fruit; absent = the tissue home ruling 12 wrote.
+   */
+  home?: Rgb
   /** The lane's seed, so its motes are its own. */
   seed: string
   /** Peak luminance one mote may reach. Held under the calm ceiling by the caller. */
@@ -144,7 +149,10 @@ export function dissolutionMotes(job: Dissolve, budget: number): Mote[] {
         MOTE_RADIUS.min +
         (MOTE_RADIUS.span * ((i * 7 + salt) % 5)) / 4 +
         MOTE_RADIUS.work * clamp01(job.sizeFrac),
-      ink: returningInk(job.family, journey, job.peak * envelope),
+      ink:
+        job.home === undefined
+          ? returningInk(job.family, journey, job.peak * envelope)
+          : returningInkToward(job.home, job.family, journey, job.peak * envelope),
     })
   }
 

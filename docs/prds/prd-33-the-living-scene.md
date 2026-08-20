@@ -365,6 +365,21 @@ survives.
 Unfiled work implied, described not numbered: the growth amendment; the ambient rows and their
 law; the dials turn; the texture passes; the canvas harness.
 
+## Amendment — the fruiting material (operator-directed, landed 2026-08-21)
+
+Landed matter is a SECOND MATERIAL, never a status: the fruiting family
+(spore-print magenta, `FRUIT_RAMP`/`PAPER_FRUIT`, H ≈ 335–341) is worn only
+by returned matter — the persist strand and glyphs, the persisted seal, the
+heart's growth rings, a landing's homecoming motes. Death still composts to
+tissue. Law 9a and prd-10 ruling 11 are NAMED AND KEPT INTACT — the family
+never joins the status vocabulary (as a status hue the arc is arithmetically
+impossible: broken's 30° ∩ the accent's 60° leave 43.9°–235.5°), and the
+ledger's LANDED chip stays done-green deliberately. Fences: the fruiting
+fence (rgb-ε 12 to the frame palette's steps → returned-matter roles only,
+never text/chip) landed before the first consumer; the two materials
+partition by role, with the persist bytes held by the recipe≡constant pins.
+Full text: docs/design-notes/palette-fruiting-material.md.
+
 ## Open questions
 
 - **Fifth class or inside structural** — ANSWERED (charter §5 ruled it fifth-class; landed

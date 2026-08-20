@@ -1,7 +1,7 @@
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import type { Fleet, Lane } from '../fleet/index.js'
 import { DISSOLUTION, STRUCTURAL, allowance, type MotionMode } from './motion.js'
-import { DONE, ICE_400, ICE_600, clamp01, ink, mix, type Ink, type ScenePalette } from './palette.js'
+import { type Rgb, FRUIT_RAMP, DONE, ICE_400, ICE_600, clamp01, ink, mix, type Ink, type ScenePalette } from './palette.js'
 import { resolveLane, type LaneIndex } from './resolve.js'
 import { springStep } from './spring.js'
 
@@ -208,11 +208,12 @@ export const RETURN = {
  * Desaturated, but not all the way. Full desaturation would put a landed lane
  * in exactly the ink law 9a reserves for nothing-to-say (`ICE_600`, an unknown
  * lane's colour) — "finished its work" and "never mentioned" are opposite
- * facts and must not share a colour, so a whisper of the done green survives,
- * far below the 0.35 tint a living done thread carries. Deliberately not
+ * facts and must not share a colour, so a whisper of the FRUITING family
+ * survives (prd-33 amendment: returned matter's own material, the spore-print
+ * magenta — it used to be a whisper of done green). Deliberately not
  * `NECROTIC` either: that grey is a corpse, and landing is not dying.
  */
-const PERSIST_TISSUE = mix(ICE_600, DONE, 0.18)
+const PERSIST_TISSUE = mix(ICE_600, FRUIT_RAMP[0] as Rgb, 0.18)
 
 /**
  * The three settled inks, per world (#551's consumption wave).
@@ -225,10 +226,17 @@ const PERSIST_TISSUE = mix(ICE_600, DONE, 0.18)
  * this returns byte-for-byte what {@link PERSIST} has always been.
  */
 export function persistInks(palette: ScenePalette): { strand: Ink; glyph: Ink; name: Ink } {
-  const tissue = mix(palette.register.unknown, palette.activity.done, 0.18)
+  // THE FRUITING (prd-33 amendment, loop 9): returned matter wears the second
+  // organic material — the quiet register warmed 0.18 toward the fruit's deep
+  // step instead of toward the done green. Same k, same alphas, same laws:
+  // the strand still sits under PERSIST_LUMINANCE (with MORE headroom than
+  // the green gave — 0.1266 vs 0.1388), still over PERSIST_FLOOR, and the
+  // name stays the register's own idle ink because identification is not
+  // material. "Landing is not dying" now has a colour of its own.
+  const fruit = mix(palette.register.unknown, palette.fruit[0] as Rgb, 0.18)
   return {
-    strand: ink(tissue, 0.44),
-    glyph: ink(tissue, 0.7),
+    strand: ink(fruit, 0.44),
+    glyph: ink(fruit, 0.7),
     name: ink(palette.register.idle, 0.7),
   }
 }
