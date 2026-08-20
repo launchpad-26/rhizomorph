@@ -122,10 +122,11 @@ describe('the sigil alphabet', () => {
     expect(ACTIVITY_TEXT_CLASS.working).toBe('text-working')
     expect(ACTIVITY_TEXT_CLASS.done).toBe('text-done')
     expect(ACTIVITY_TEXT_CLASS.waiting).toBe('text-waiting-benign')
-    // Nothing-to-say is structure, so it stays on the ice ramp: a lane the log
+    // Nothing-to-say is structure, so it stays on the quiet ink ROLE (the ice
+    // register, resolved per theme by the sweep, 2026-08-20): a lane the log
     // has never mentioned cannot borrow a status hue's confidence (law 12).
-    expect(ACTIVITY_TEXT_CLASS.idle).toMatch(/^text-ice-/)
-    expect(ACTIVITY_TEXT_CLASS.unknown).toMatch(/^text-ice-/)
+    expect(ACTIVITY_TEXT_CLASS.idle).toBe('text-(--ink-dim)')
+    expect(ACTIVITY_TEXT_CLASS.unknown).toBe('text-(--ink-dim)')
     // And no activity may reach for the two hues that mean somebody is needed.
     for (const activity of activities()) {
       expect(ACTIVITY_TEXT_CLASS[activity]).not.toBe('text-needs-you')
