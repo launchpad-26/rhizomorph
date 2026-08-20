@@ -9,6 +9,7 @@ import { BRIDGE_CHANNELS, HOST_CAPABILITIES, type HostDescription } from '../hos
 import type { FleetDigest } from '../host/digest.js'
 import { failurePage } from '../host/failure-page.js'
 import { fetchChunks, fetchJson, FleetFeed } from '../host/fleet-feed.js'
+import { gpuAdapterLine, gpuPlan, gpuProcessGoneLine, WSL_LIB_DIR } from '../host/gpu.js'
 import { findRepoRoot, resolveLayout, type HostLayout } from '../host/layout.js'
 import { pageHostDescriptor } from '../host/host-descriptor.js'
 import { honestCapabilities, loginItemPlan, type LoginItemPlan } from '../host/login-item.js'
@@ -55,6 +56,20 @@ import { Updater } from './updates.js'
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
+
+// ── the GPU, before anything else ────────────────────────────────────────────
+//
+// Applied at module top level on purpose: Chromium's GPU process inherits the
+// environment and command line as they stand when it spawns, and `whenReady`
+// is already too late for the switches. Under WSLg this is what lets the
+// scene's WebGL2 reach a real adapter (d3d12) instead of coming up
+// software-or-nothing — the "panel is there, none of the rendering" failure
+// the first real first-run surfaced. Everywhere else `gpuPlan` returns the
+// empty plan and these three lines do nothing at all.
+const gpu = gpuPlan({ platform: process.platform, env: process.env, hasWslLib: existsSync(WSL_LIB_DIR) })
+Object.assign(process.env, gpu.env)
+for (const gpuSwitch of gpu.switches) app.commandLine.appendSwitch(gpuSwitch)
+if (gpu.wsl) process.stderr.write(`${gpu.note}\n`)
 
 /**
  * `RHIZOMORPH_REPO` is a development convenience with no packaged equivalent
@@ -600,6 +615,15 @@ async function boot(): Promise<void> {
   const note = unsignedNote(signing)
   if (note !== null) process.stderr.write(`rhizomorph: ${note}\n`)
 
+  // The adapter, reported rather than assumed — the one line that says whether
+  // the GPU plan above actually arrived. A software renderer here is the named
+  // env-timing risk firing, and this is what makes it visible instead of
+  // theoretical.
+  void app.getGPUInfo('basic').then(
+    (info) => process.stderr.write(`${gpuAdapterLine(info)}\n`),
+    () => {},
+  )
+
   updater = new Updater({
     // Null until ruling 9's deferral ends: an unsigned build has no feed to
     // check against, and `updates.ts` reports that rather than pretending.
@@ -693,6 +717,14 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(boot, (error: unknown) => {
     process.stderr.write(`rhizomorph: the shell failed to start: ${String(error)}\n`)
+  })
+
+  // The GPU process dying is a fact the operator is owed, on the one channel
+  // that exists when the picture is the thing that broke. Chromium restarts it
+  // by itself; this is reporting, not recovery.
+  app.on('child-process-gone', (_event, details) => {
+    const line = gpuProcessGoneLine(details)
+    if (line !== null) process.stderr.write(`${line}\n`)
   })
 
   app.on('activate', () => showWindow())
