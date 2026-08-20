@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
@@ -10,6 +10,8 @@ import type { FleetDigest } from '../host/digest.js'
 import { failurePage } from '../host/failure-page.js'
 import { fetchChunks, fetchJson, FleetFeed } from '../host/fleet-feed.js'
 import { findRepoRoot, resolveLayout, type HostLayout } from '../host/layout.js'
+import { pageHostDescriptor } from '../host/host-descriptor.js'
+import { honestCapabilities, loginItemPlan, type LoginItemPlan } from '../host/login-item.js'
 import { firstRunPlan, withDemoSeen, withInvitationTaken, withRepo, type FirstRunPlan, type RunState } from '../host/first-run.js'
 import { decideNotifications } from '../host/notify.js'
 import { loadRunState, saveRunState } from '../host/run-state-file.js'
@@ -27,7 +29,7 @@ import {
   type DemoSource,
 } from '../host/demo-mode.js'
 import { unavailableUpdates, type UpdateState } from '../host/update-gate.js'
-import { windowFrame } from '../host/window-frame.js'
+import { startsHidden, windowFrame } from '../host/window-frame.js'
 import { installAppMenu } from './menu.js'
 import { createTray, type TrayHandle } from './tray.js'
 import { Updater } from './updates.js'
@@ -111,8 +113,23 @@ function platformFamily(): 'mac' | 'win' | 'linux' {
 
 // ── the window ──────────────────────────────────────────────────────────────
 
+/**
+ * The app icon, for the window and the taskbar.
+ *
+ * A packaged build gets this from the bundle — electron-builder derives every
+ * platform's format from `build/icon.png` — but a development run and a Linux
+ * window both take it from `BrowserWindow`, and without it the window wears
+ * Electron's own atom. Resolved rather than assumed, and omitted if absent, so
+ * a build with no icon still opens a window.
+ */
+function windowIcon(): string | undefined {
+  const candidate = path.join(HERE, '..', '..', 'build', 'icon.png')
+  return existsSync(candidate) ? candidate : undefined
+}
+
 function createWindow(): BrowserWindow {
   const frame = windowFrame()
+  const icon = windowIcon()
   const window = new BrowserWindow({
     width: frame.width,
     height: frame.height,
@@ -121,6 +138,7 @@ function createWindow(): BrowserWindow {
     backgroundColor: frame.backgroundColor,
     show: frame.show,
     title: frame.title,
+    ...(icon === undefined ? {} : { icon }),
     webPreferences: {
       // The page is the instrument's own SPA over loopback, and it needs
       // nothing from Node. Everything below is the closed posture: no Node in
@@ -139,7 +157,11 @@ function createWindow(): BrowserWindow {
   // A fresh window has rendered nothing yet, whatever the previous one showed.
   renderedKey = null
 
-  window.once('ready-to-show', () => window.show())
+  // A launch from the login item comes up to the tray instead of throwing a
+  // window at someone who just logged in — `--hidden`, which the autostart
+  // entry passes. Every other launch shows on `ready-to-show` as before, and
+  // the tray's Open still works either way because the window exists, hidden.
+  if (!startsHidden(process.argv)) window.once('ready-to-show', () => window.show())
 
   // A link to anywhere else is the operating system's business, not this
   // window's: the shell is a frame around one loopback origin, and a window
@@ -455,26 +477,81 @@ function applyPreference(id: string, value: unknown): { preferences: HostPrefere
   // is *applied*. Written on every change rather than only at boot, so turning
   // it off takes effect without a restart.
   if (id === 'application.launchOnLogin') {
-    app.setLoginItemSettings({ openAtLogin: preferences['application.launchOnLogin'] })
+    const problem = applyLoginItem(preferences['application.launchOnLogin'])
+    if (problem !== null) {
+      // Report it and keep the stored value honest: a preference that could not
+      // be applied must not read as applied next time settings opens it.
+      preferences = withPreference(preferences, id, !value).preferences
+      savePreferences(app.getPath('userData'), preferences)
+      refreshTray()
+      return { preferences, refused: problem }
+    }
   }
 
   refreshTray()
   return { preferences, refused: null }
 }
 
+/**
+ * Applies the login item, or says why it could not.
+ *
+ * macOS and Windows have an API for this; Linux has a `.desktop` file in the
+ * XDG autostart directory and NO api — `setLoginItemSettings` is documented as
+ * macOS/Windows only and does nothing at all there. Calling it on Linux is what
+ * made this switch save and lie on a packaged `.deb`.
+ */
+/** The login-item plan for this build, at the current preference. One place, so the applier and both descriptors cannot disagree. */
+function currentLoginItemPlan(openAtLogin = preferences['application.launchOnLogin']): LoginItemPlan {
+  return loginItemPlan({
+    platform: process.platform,
+    openAtLogin,
+    packaged: app.isPackaged,
+    homeDir: app.getPath('home'),
+    xdgConfigHome: process.env.XDG_CONFIG_HOME,
+    execPath: process.execPath,
+    appName: app.getName(),
+  })
+}
+
+function applyLoginItem(openAtLogin: boolean): string | null {
+  const plan = currentLoginItemPlan(openAtLogin)
+
+  if (!plan.supported) return plan.reason
+  if (plan.mechanism === 'electron') {
+    app.setLoginItemSettings({ openAtLogin })
+    return null
+  }
+
+  const file = plan.desktopFile
+  if (file === null) return 'launch on login has no mechanism on this platform'
+  try {
+    if (openAtLogin) {
+      mkdirSync(path.dirname(file.path), { recursive: true })
+      writeFileSync(file.path, file.contents, { mode: 0o644 })
+    } else {
+      // `force` so turning it off when it was never on is not an error — the
+      // desired end state is "no autostart file", and it is already true.
+      rmSync(file.path, { force: true })
+    }
+    return null
+  } catch (error) {
+    return `could not ${openAtLogin ? 'write' : 'remove'} ${file.path}: ${String(error)}`
+  }
+}
+
 function describeHost(): HostDescription {
   return {
     version: app.getVersion(),
     platform: process.platform,
-    // Reported, never assumed. `setLoginItemSettings` is a no-op on a Linux
-    // build with no autostart directory, and updates are unavailable until
-    // there is a feed (ruling 9) — a settings surface that rendered a control
-    // for either would be offering a switch that does nothing.
-    capabilities: HOST_CAPABILITIES.filter((capability) => {
-      if (capability === 'updates') return updates.phase !== 'unavailable'
-      if (capability === 'launch-on-login') return app.isPackaged
-      return true
-    }),
+    // Reported, never assumed — and now computed from the same plan that does
+    // the applying, rather than from `isPackaged` alone. That gap is what let a
+    // packaged Linux build advertise `launch-on-login`, render the switch, and
+    // never start at login: `setLoginItemSettings` is a no-op there, which the
+    // old comment here said and the old filter did not act on.
+    capabilities: honestCapabilities(HOST_CAPABILITIES, {
+      loginItem: currentLoginItemPlan(),
+      updatesAvailable: updates.phase !== 'unavailable',
+    }) as HostDescription['capabilities'],
   }
 }
 
@@ -598,6 +675,17 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => showWindow())
+
+  // Synchronous, and the one channel that is. `settings/host.ts` reads the
+  // descriptor off the global while it builds the registry, so it cannot await
+  // — see `BRIDGE_CHANNELS.descriptor`.
+  ipcMain.on(BRIDGE_CHANNELS.descriptor, (event) => {
+    event.returnValue = pageHostDescriptor({
+      loginItem: currentLoginItemPlan(),
+      updatesAvailable: updates.phase !== 'unavailable',
+      trayPresent: tray !== null,
+    })
+  })
 
   ipcMain.handle(BRIDGE_CHANNELS.describe, () => describeHost())
   ipcMain.handle(BRIDGE_CHANNELS.getPreferences, () => preferences)

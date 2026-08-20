@@ -73,3 +73,19 @@ export function windowFrame(overrides: Partial<WindowFrameOptions> = {}): Window
     ...overrides,
   }
 }
+
+/**
+ * Whether this launch should come up to the tray rather than opening a window.
+ *
+ * The autostart entry `login-item.ts` writes passes `--hidden`, because being
+ * handed a 1440×900 window the instant you log in is not a courtesy — it is the
+ * opposite of the one close-to-tray extends. Without this the flag would be
+ * written into the `.desktop` file and honoured nowhere, which is the same shape
+ * of lie as a preference that saves and does nothing.
+ *
+ * An exact token match rather than a substring: a repo path that happens to
+ * contain the characters `--hidden` must not silently suppress the window.
+ */
+export function startsHidden(argv: readonly string[]): boolean {
+  return argv.includes('--hidden')
+}

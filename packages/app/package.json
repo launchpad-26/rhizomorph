@@ -2,10 +2,10 @@
   "name": "@rhizomorph/app",
   "productName": "rhizomorph",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "The desktop shell: spawns the existing server, embeds the existing SPA, and adds nothing to either (prd-34 ruling 1)",
-  "homepage": "https://github.com/KelliherL/rhizomorph#readme",
+  "homepage": "https://github.com/launchpad-26/rhizomorph#readme",
   "author": {
     "name": "Lachlan Kelliher",
     "email": "lachlankelliher@gmail.com"

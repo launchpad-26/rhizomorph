@@ -34,19 +34,45 @@ describe('the preload exposes exactly what the contract declares (#564)', () => 
     expect(preload).toContain(`exposeInMainWorld('${BRIDGE_GLOBAL}'`)
   })
 
-  it.each(Object.entries(BRIDGE_CHANNELS))('invokes the declared %s channel', (_name, channel) => {
+  /**
+   * `descriptor` is the one synchronous channel, so it is `sendSync`/`ipcMain.on`
+   * rather than `invoke`/`ipcMain.handle`. The distinction is encoded here rather
+   * than the law being loosened to "some kind of IPC": which of the two a channel
+   * uses is a real property — `settings/host.ts` reads the host descriptor while
+   * it builds the registry and cannot await, and every other call is awaited and
+   * must not block. Getting that backwards is exactly the kind of thing this law
+   * is for.
+   */
+  const SYNCHRONOUS: readonly string[] = ['descriptor']
+  const asyncChannels = Object.entries(BRIDGE_CHANNELS).filter(([name]) => !SYNCHRONOUS.includes(name))
+  const syncChannels = Object.entries(BRIDGE_CHANNELS).filter(([name]) => SYNCHRONOUS.includes(name))
+
+  it.each(asyncChannels)('invokes the declared %s channel', (_name, channel) => {
     expect(preload).toContain(`ipcRenderer.invoke('${channel}'`)
   })
 
-  it('is answered on every channel it invokes — an unanswered `invoke` never resolves', () => {
-    const registered = [...entry.matchAll(/ipcMain\.handle\(BRIDGE_CHANNELS\.(\w+)/g)].map((match) => match[1])
-    expect(registered.sort()).toEqual(Object.keys(BRIDGE_CHANNELS).sort())
+  it.each(syncChannels)('reads the declared %s channel synchronously', (_name, channel) => {
+    expect(preload).toContain(`ipcRenderer.sendSync('${channel}')`)
   })
 
-  it('invokes NOTHING the contract does not declare', () => {
-    const invoked = [...preload.matchAll(/ipcRenderer\.invoke\('([^']+)'/g)].map((match) => match[1])
-    const declared = Object.values(BRIDGE_CHANNELS)
-    expect(invoked.sort()).toEqual([...declared].sort())
+  it('is answered on every channel it invokes — an unanswered `invoke` never resolves', () => {
+    const handled = [...entry.matchAll(/ipcMain\.handle\(BRIDGE_CHANNELS\.(\w+)/g)].map((match) => match[1])
+    expect(handled.sort()).toEqual(asyncChannels.map(([name]) => name).sort())
+  })
+
+  it('answers the synchronous channel too, and with `on` — an unanswered `sendSync` hangs the renderer', () => {
+    // Worse than an unresolved promise: `sendSync` blocks the renderer's main
+    // thread, so a missing handler is a white window rather than a dead control.
+    const listened = [...entry.matchAll(/ipcMain\.on\(BRIDGE_CHANNELS\.(\w+)/g)].map((match) => match[1])
+    expect(listened.sort()).toEqual(syncChannels.map(([name]) => name).sort())
+  })
+
+  it('reaches for NOTHING the contract does not declare', () => {
+    const used = [
+      ...[...preload.matchAll(/ipcRenderer\.invoke\('([^']+)'/g)].map((match) => match[1]),
+      ...[...preload.matchAll(/ipcRenderer\.sendSync\('([^']+)'/g)].map((match) => match[1]),
+    ]
+    expect(used.sort()).toEqual([...Object.values(BRIDGE_CHANNELS)].sort())
   })
 })
 
@@ -88,8 +114,24 @@ describe('capabilities are reported, not assumed', () => {
   })
 
   it('withholds `updates` while there is no feed — ruling 9 defers signing', () => {
-    // The entry filters the list; this is the branch that keeps a settings
-    // surface from rendering an update control that cannot do anything.
-    expect(entry).toContain("if (capability === 'updates') return updates.phase !== 'unavailable'")
+    // The entry filters the list, and this is what keeps a settings surface
+    // from rendering an update control that cannot do anything.
+    //
+    // Asserted against the value passed to the filter rather than an inline
+    // `if`, because the filter moved: it used to be two hand-written branches
+    // here, one of which asked `app.isPackaged` and therefore let a packaged
+    // LINUX build advertise `launch-on-login` that `setLoginItemSettings`
+    // silently ignores. It is `honestCapabilities` now, fed from the same plan
+    // that does the applying — see `login-item.ts`.
+    expect(entry).toContain('honestCapabilities(HOST_CAPABILITIES')
+    expect(entry).toContain("updatesAvailable: updates.phase !== 'unavailable'")
+  })
+
+  it('decides launch-on-login from the plan that applies it, not from isPackaged alone', () => {
+    // The defect this pins: `capability === 'launch-on-login' ? app.isPackaged`
+    // is true on a packaged .deb, where the API is a documented no-op. If that
+    // shortcut ever comes back, the switch starts saving and lying again.
+    expect(entry).toContain('loginItem: currentLoginItemPlan()')
+    expect(entry).not.toContain("if (capability === 'launch-on-login') return app.isPackaged")
   })
 })

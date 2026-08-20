@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { windowFrame, WINDOW_DEFAULT, WINDOW_GROUND, WINDOW_MINIMUM } from './window-frame.js'
+import { startsHidden, windowFrame, WINDOW_DEFAULT, WINDOW_GROUND, WINDOW_MINIMUM } from './window-frame.js'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..')
 
@@ -69,5 +69,31 @@ describe('the ground is the instrument\'s own token, not a shell invention', () 
     const match = /--color-ice-1000:\s*(#[0-9a-fA-F]{3,8})/.exec(theme)
     expect(match).not.toBeNull()
     expect(match?.[1]?.toLowerCase()).toBe(WINDOW_GROUND.toLowerCase())
+  })
+})
+
+describe('a login-item launch comes up to the tray', () => {
+  it('honours --hidden', () => {
+    expect(startsHidden(['/usr/bin/rhizomorph', '--hidden'])).toBe(true)
+  })
+
+  it('shows a window for every ordinary launch', () => {
+    expect(startsHidden(['/usr/bin/rhizomorph'])).toBe(false)
+    expect(startsHidden(['electron', 'dist/main.js'])).toBe(false)
+  })
+
+  it('matches a whole argument, so a path containing the characters does not suppress the window', () => {
+    // The failure this prevents: someone keeps a worktree at
+    // `/home/operator/repos/--hidden-work` and the app silently stops opening.
+    expect(startsHidden(['/usr/bin/rhizomorph', '/home/operator/--hidden-work'])).toBe(false)
+    expect(startsHidden(['/usr/bin/rhizomorph', '--hidden-extra'])).toBe(false)
+  })
+
+  it('is the same flag the autostart entry writes — the two are one edit', () => {
+    // `login-item.ts` puts `--hidden` in the `.desktop` file's Exec line. If
+    // these two ever disagree, the login item launches a window at someone who
+    // just logged in, and nothing fails.
+    const loginItem = readFileSync(path.join(REPO_ROOT, 'packages', 'app', 'src', 'host', 'login-item.ts'), 'utf8')
+    expect(loginItem).toContain('--hidden')
   })
 })

@@ -40,9 +40,21 @@ import type { HostPreferences } from './prefs.js'
 /** The global the preload defines. Namespaced, because a page's globals are shared with everything else on it. */
 export const BRIDGE_GLOBAL = 'rhizomorphHost'
 
-/** The IPC channels, all of them, named in one place. */
+/**
+ * The IPC channels, all of them, named in one place.
+ *
+ * `descriptor` is the odd one, and it is deliberately SYNCHRONOUS. Everything
+ * else here is a promise the settings page awaits, but `settings/host.ts` reads
+ * the host descriptor off the global synchronously — `readHost()` returns a
+ * value rather than a promise, and `hostProvides()` is consulted while the
+ * registry is being built. A descriptor that arrived a tick later would mean
+ * every desktop-only control painting disabled and then flipping, which is a
+ * worse lie than the one it replaces. One blocking call at preload time is the
+ * cheaper honesty.
+ */
 export const BRIDGE_CHANNELS = {
   describe: 'rhizomorph:host:describe',
+  descriptor: 'rhizomorph:host:descriptor',
   getPreferences: 'rhizomorph:host:get-preferences',
   setPreference: 'rhizomorph:host:set-preference',
 } as const
