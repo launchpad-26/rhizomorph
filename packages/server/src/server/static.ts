@@ -28,6 +28,33 @@ const MIME_TYPES: Record<string, string> = {
 const CAPABILITY_META_NAME = 'rhizomorph-capability'
 
 /**
+ * THE PAGE'S CONTENT-SECURITY-POLICY (loop 18 — the loop-0 finding: every
+ * shell console this session opened with Electron's insecure-CSP warning).
+ *
+ * The app is a localhost-only SPA that reaches nothing beyond its own origin:
+ * the bundle is external module scripts (no inline script anywhere in the
+ * built page — verified against dist before this landed), styles are one
+ * external sheet plus inline `style=` attributes (hence 'unsafe-inline' on
+ * style-src and nowhere else), the build inlines sub-4KB assets as data: URIs (one small woff2 face arrives that way, hence data: on font-src and img-src), the stream is same-origin SSE, and there is no
+ * font, image or frame from anywhere. Everything else is closed: no eval, no
+ * objects, no framing this page, no posting a form off-origin. Served as a
+ * header on every HTML response — dev-served Vite (which needs eval and
+ * inline for HMR) never passes through this route, so tooling stays unbroken.
+ */
+export const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ')
+
+/**
  * Every token this process mints is 64 hex characters
  * (`generateCapabilityToken`, `api/security.ts`) — which is what lets
  * {@link injectCapabilityMeta} interpolate it into an HTML attribute with no
@@ -102,12 +129,15 @@ export function registerStaticRoute(app: FastifyInstance, distDir: string, capab
     }
 
     reply.header('Content-Type', MIME_TYPES[path.extname(filePath)] ?? 'application/octet-stream')
+    // Nothing served from dist is ever content-sniffed into something else.
+    reply.header('X-Content-Type-Options', 'nosniff')
 
     // Every `.html` file gets the token, not only `index.html` — there is no
     // `public/` directory today, so `index.html` is the only `.html` file
     // dist ever contains, but the check is by extension rather than by name
     // so a second static HTML page wouldn't silently miss the token later.
     if (path.extname(filePath) === '.html') {
+      reply.header('Content-Security-Policy', CONTENT_SECURITY_POLICY)
       const html = readFileSync(filePath, 'utf8')
       return reply.send(injectCapabilityMeta(html, capabilityToken))
     }

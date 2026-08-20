@@ -4,7 +4,7 @@ import { registerApiRoutes } from '../api/index.js'
 import { CAPABILITY_GATE, generateCapabilityToken } from '../api/security.js'
 import type { ServerContext } from './context.js'
 import { registerMutationGuard } from './mutation-guard.js'
-import { registerStaticRoute } from './static.js'
+import { CONTENT_SECURITY_POLICY, registerStaticRoute } from './static.js'
 
 const BUILD_COMMAND = 'npm run build --workspace packages/web'
 
@@ -135,6 +135,7 @@ export function buildApp(ctx: ServerContext): FastifyInstance {
     const html = missingBuildHtml(ctx.webDistDir)
     app.get('/*', async (_request, reply) => {
       reply.header('Content-Type', 'text/html; charset=utf-8')
+      reply.header('Content-Security-Policy', CONTENT_SECURITY_POLICY)
       return reply.send(html)
     })
   }
