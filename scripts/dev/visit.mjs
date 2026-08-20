@@ -103,7 +103,15 @@ if (fixture) {
 
 const theme = flag('theme')
 if (theme) {
+  // Written as the STORED PREFERENCE, not the attribute: settings/apply.ts
+  // re-applies the stored choice on every preference/system change, so a bare
+  // attribute write loses the moment anything else touches preferences
+  // (loop 20 found captures silently reverting to follow-system).
   await window.evaluate((t) => {
+    const KEY = 'rhizomorph.prefs.machine.v1'
+    const bucket = JSON.parse(localStorage.getItem(KEY) ?? '{}')
+    bucket['appearance.theme'] = t
+    localStorage.setItem(KEY, JSON.stringify(bucket))
     document.documentElement.dataset.theme = t
   }, theme)
   await window.waitForTimeout(600)
