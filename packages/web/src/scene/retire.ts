@@ -1,8 +1,8 @@
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import type { Fleet, Lane } from '../fleet/index.js'
-import { DISSOLUTION, STRUCTURAL, allowance, type MotionMode } from './motion.js'
-import { type Rgb, FRUIT_RAMP, DONE, ICE_400, ICE_600, clamp01, ink, mix, type Ink, type ScenePalette } from './palette.js'
-import { resolveLane, type LaneIndex } from './resolve.js'
+import { allowance, DISSOLUTION, type MotionMode, STRUCTURAL } from './motion.js'
+import { clamp01, FRUIT_RAMP, ICE_400, ICE_600, type Ink, ink, mix, type Rgb, type ScenePalette } from './palette.js'
+import { type LaneIndex, resolveLane } from './resolve.js'
 import { springStep } from './spring.js'
 
 /**

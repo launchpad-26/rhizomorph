@@ -231,7 +231,7 @@ function usePlateWidth(readout: string): [RefObject<HTMLDivElement | null>, numb
   const ref = useRef<HTMLDivElement | null>(null)
   const [width, setWidth] = useState(0)
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `readout` is the remeasure trigger — the plate's width is a function of its text.
+  // `readout` is the remeasure trigger — the plate's width is a function of its text.
   useLayoutEffect(() => {
     setWidth(Math.max(0, Math.floor(ref.current?.getBoundingClientRect().width ?? 0)))
   }, [readout])

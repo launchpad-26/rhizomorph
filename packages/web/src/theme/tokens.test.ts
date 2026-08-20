@@ -150,6 +150,7 @@ const RAMP: ReadonlyArray<{ token: string; rem: string; pxEq: number }> = [
   { token: '--text-inst-dense', rem: '0.625rem', pxEq: 10 },
   { token: '--text-inst-floor', rem: '0.5625rem', pxEq: 9 },
   { token: '--text-heading', rem: '0.625rem', pxEq: 10 },
+  { token: '--text-title', rem: '1rem', pxEq: 16 }, // a page's own name — the h1 register (loop 10)
 ]
 
 describe('the type ramp, in rem, in two registers (S1)', () => {
@@ -169,9 +170,9 @@ describe('the type ramp, in rem, in two registers (S1)', () => {
     }
   })
 
-  it('has exactly these six sizes and no seventh', () => {
+  it('has exactly these seven sizes and no eighth', () => {
     // The failure S1 names: "a `text-xs`-versus-`text-[12px]` pair returning".
-    // A seventh token is how 13 px gets spelled two ways again, so the set is
+    // An eighth token is how 13 px gets spelled two ways again, so the set is
     // closed rather than merely populated.
     const sizes = [...definedTokens(THEME)].filter((name) => name.startsWith('--text-'))
     expect(sizes.sort()).toEqual(RAMP.map((entry) => entry.token).sort())
@@ -690,6 +691,8 @@ const DURATIONS: ReadonlyArray<readonly [string, string]> = [
   ['--duration-settle', '1750ms'], // bud 350 + reach 1400 — the growth class's own budget (prd-33 r9)
   ['--duration-breath', '5400ms'],
   ['--duration-age-pulse-seam', '6800ms'],
+  ['--duration-touch', '150ms'], // hover/press micro-transitions — the de facto value at every swept site (loop 10)
+  ['--duration-reveal', '240ms'], // overlays arriving — under the 620ms event floor, so chrome stays quieter than the picture
 ]
 
 describe('every duration in the app is in the theme', () => {
@@ -697,9 +700,44 @@ describe('every duration in the app is in the theme', () => {
     expect(resolve(token, DARK)).toBe(value)
   })
 
-  it('has exactly these four and no fifth', () => {
+  it('has exactly these six and no seventh', () => {
     const declared = [...definedTokens(THEME)].filter((name) => name.startsWith('--duration-'))
     expect(declared.sort()).toEqual(DURATIONS.map(([token]) => token).sort())
+  })
+})
+
+/**
+ * THE LADDER CENSUSES (loop 10) — three bans that land at zero, because the
+ * sweeps ran in the same change that declared the tokens.
+ *
+ * Each of these is the pixel census's stronger sibling: not a ratchet from a
+ * pinned count but a flat zero, possible only because the offending sites
+ * (nine raw z-indexes, ten `duration-150`s, one raw drop shadow) were migrated
+ * before the law landed. A new raw value is how two surfaces end up disagreeing
+ * about which of them is on top, how fast chrome moves, or what colour a
+ * shadow casts on paper — each a decision `theme.css` now owns.
+ */
+describe('stacking, speed and shadow come from the theme', () => {
+  const appSources = () => sourceFiles().filter((file) => /\.tsx?$/.test(file.name))
+
+  it('no raw z-index utility outside the five-rung ladder', () => {
+    // z-(--z-sticky) 10 · z-(--z-focus) 30 · z-(--z-peek) 40 · z-(--z-card) 50
+    // · z-(--z-plate) 60. An eleventh-hour `z-[9999]` is a fight, not a rung.
+    const offenders = appSources().filter((file) => /z-(\d|\[)/.test(withoutComments(file.text)))
+    expect(offenders.map((file) => file.name), 'a raw z-index utility — use the z ladder').toEqual([])
+  })
+
+  it('no raw transition-duration utility — the table above is the durations', () => {
+    const offenders = appSources().filter((file) => /duration-(\d|\[)/.test(withoutComments(file.text)))
+    expect(offenders.map((file) => file.name), 'a raw duration utility — use --duration-touch/-reveal').toEqual([])
+  })
+
+  it('no shadow literal in a component — elevation is a token in both themes', () => {
+    // The drawer carried `rgba(0,0,0,0.9)` into the light theme for two PRDs:
+    // a black smear on warm paper. `--elev-*` exists so a shadow is declared
+    // once per theme, in the register's own material.
+    const offenders = appSources().filter((file) => /shadow-\[/.test(withoutComments(file.text)))
+    expect(offenders.map((file) => file.name), 'a literal box-shadow — use --elev-raised/-overlay/-sheet').toEqual([])
   })
 })
 

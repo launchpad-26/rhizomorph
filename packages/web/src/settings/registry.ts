@@ -292,7 +292,7 @@ export const PREFERENCES: readonly PrefEntry[] = [
     control: 'settings',
     unavailable: null,
     requires: null,
-    gap: 'nothing reads `data-density` yet. Choosing compact records the choice and changes no spacing, so the surface would look untouched while the preference is genuinely stored. prd-32 lands the density tokens that read it.',
+    gap: null,
     legacy: null,
   },
   {

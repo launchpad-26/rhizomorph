@@ -48,12 +48,12 @@ export function LaneAxis({ page, emptyLine }: LaneAxisProps) {
     <table data-testid="history-lane-table" className="w-full border-collapse text-left text-read-floor">
       <thead>
         <tr className="border-b border-(--line-hair) text-(--ink-dim)">
-          <th className="p-2 font-normal">lane</th>
-          <th className="p-2 font-normal">issue</th>
-          <th className="p-2 font-normal">when</th>
-          <th className="p-2 font-normal">outcome</th>
-          <th className="p-2 font-normal">spend</th>
-          <th className="p-2 font-normal">sessions</th>
+          <th className="p-(--space-cell) font-normal">lane</th>
+          <th className="p-(--space-cell) font-normal">issue</th>
+          <th className="p-(--space-cell) font-normal">when</th>
+          <th className="p-(--space-cell) font-normal">outcome</th>
+          <th className="p-(--space-cell) font-normal">spend</th>
+          <th className="p-(--space-cell) font-normal">sessions</th>
         </tr>
       </thead>
       <tbody>
@@ -71,7 +71,7 @@ function LaneRow({ lane }: { lane: LaneIndexRow }) {
 
   return (
     <tr data-testid={`history-lane-row-${lane.handle}`} className="border-b border-(--line-hair) align-top">
-      <td className="max-w-[16rem] p-2">
+      <td className="max-w-[16rem] p-(--space-cell)">
         {/*
           A real `<a href>`, modifier-aware, routed in place on a plain click —
           the same convention the fleet row's drill-down and the peek's action
@@ -92,8 +92,8 @@ function LaneRow({ lane }: { lane: LaneIndexRow }) {
           {lane.handle}
         </a>
       </td>
-      <td className="figures p-2 text-(--ink-dim)">{lane.issue === null ? '—' : `#${lane.issue}`}</td>
-      <td className="figures p-2 text-(--ink-dim)" title={whenTitle(lane)}>
+      <td className="figures p-(--space-cell) text-(--ink-dim)">{lane.issue === null ? '—' : `#${lane.issue}`}</td>
+      <td className="figures p-(--space-cell) text-(--ink-dim)" title={whenTitle(lane)}>
         {whenText(lane)}
       </td>
       <td
@@ -103,7 +103,7 @@ function LaneRow({ lane }: { lane: LaneIndexRow }) {
       >
         {outcome.word}
       </td>
-      <td className="figures p-2" title={laneCostTitle(lane)}>
+      <td className="figures p-(--space-cell)" title={laneCostTitle(lane)}>
         {laneCostText(lane)}
         {laneCostSuffix(lane) !== null && <span className="ml-1 text-(--ink-dim)">{laneCostSuffix(lane)}</span>}
         {isLaneCostGap(lane) && (
@@ -112,7 +112,7 @@ function LaneRow({ lane }: { lane: LaneIndexRow }) {
           </span>
         )}
       </td>
-      <td className="figures p-2 text-(--ink-dim)" title={laneSessionsTitle(lane)}>
+      <td className="figures p-(--space-cell) text-(--ink-dim)" title={laneSessionsTitle(lane)}>
         {laneSessionsText(lane)}
       </td>
     </tr>

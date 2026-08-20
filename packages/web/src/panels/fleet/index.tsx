@@ -169,7 +169,7 @@ export default function FleetTable({ onCopy = copyToClipboard }: FleetTableProps
               position away, which is the same failure as not rendering the
               lane: the row is in the tree and unreadable.
             */}
-            <thead className="sticky top-0 z-10 bg-(--surface-panel)">
+            <thead className="sticky top-0 z-(--z-sticky) bg-(--surface-panel)">
               <tr className="heading text-(--ink-dim)">
                 <th className="pb-1.5 pr-2 font-medium">lane</th>
                 <th className="pb-1.5 pr-2 font-medium">state</th>

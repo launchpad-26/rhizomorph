@@ -57,7 +57,7 @@ export function TraceGantt({ state, lane }: TraceGanttProps) {
               className="flex items-center gap-2 border-t border-(--line-hair) px-2 py-1 first:border-t-0"
             >
               <div
-                className="sticky left-0 z-10 w-44 shrink-0 bg-(--surface-floor) pr-2"
+                className="sticky left-0 z-(--z-sticky) w-44 shrink-0 bg-(--surface-floor) pr-2"
                 style={{ paddingLeft: `${depth * 0.9}rem` }}
               >
                 <RowLabel node={node} />

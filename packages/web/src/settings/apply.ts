@@ -11,12 +11,15 @@ import { readChoice, subscribeToPreferences } from './registry.js'
  * scene's quality levels are prd-33's: each of those lands as a rule that reads
  * an attribute already being set, with no edit here and none in settings.
  *
- * **The seam is also the gap, and the gap is declared.** No surface reads
- * `data-density` or `data-motion` yet, so those two are a correctly-stored
- * preference with nothing on the other end, and each says so in its own `gap`
- * note in `registry.ts` (law 12's voice: WHAT is missing → WHY it matters →
- * what fixes it) rather than letting the surface imply an effect it does not
- * have. `data-theme` is the seam working as designed, end to end: `theme.css`'s
+ * **The seam is also the gap, and the gap is declared.** `data-density` is now
+ * read end to end (loop 10): `theme.css`'s `[data-density='compact']` block
+ * re-declares the three spacing tokens (`--space-row-y`, `--space-cell`,
+ * `--space-gutter`) that instrument rows, table cells and the panel gutter
+ * consume, and `theme/density.test.ts` holds every token to a live consumer.
+ * `data-motion`'s in-app choice remains a correctly-stored preference with
+ * nothing on the other end, and says so in its own `gap` note in `registry.ts`
+ * (law 12's voice: WHAT is missing → WHY it matters → what fixes it) rather
+ * than letting the surface imply an effect it does not have. `data-theme` is the seam working as designed, end to end: `theme.css`'s
  * `[data-theme='light']` block (#551) reads it for the chrome, and the scene
  * reads it through `useDocumentTheme` → `paletteFor(theme)` (the light-mode
  * wave), so the one choice reaches every surface with no edit here.

@@ -364,7 +364,7 @@ function MarkHoverCard({
     <div
       role="dialog"
       data-testid="chapter-mark-card"
-      className="pointer-events-none z-[9999] -translate-x-1/2 whitespace-nowrap rounded border border-(--line-strong) bg-(--surface-panel) p-1"
+      className="pointer-events-none z-(--z-plate) -translate-x-1/2 whitespace-nowrap rounded border border-(--line-strong) bg-(--surface-panel) p-1"
       style={{ position: 'fixed', left: anchor.left, top: anchor.top }}
     >
       {group.members.map((member, index) => (

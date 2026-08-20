@@ -156,7 +156,7 @@ export function Disclosure({ disclosure, children, triggerLabel, className }: Di
         {children}
       </button>
       {open ? (
-        <span className="absolute left-0 top-full z-50 pt-1">
+        <span className="absolute left-0 top-full z-(--z-card) pt-1">
           <DisclosureCard disclosure={disclosure} id={cardId} />
         </span>
       ) : null}

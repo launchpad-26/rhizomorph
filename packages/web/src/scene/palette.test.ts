@@ -4,25 +4,35 @@ import { fileURLToPath } from 'node:url'
 import type { LadderRank } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { FALLBACK_HUE } from '../panels/attention/useTabSignal.js'
+import { type ResolvedTheme, resolveTheme } from '../settings/apply.js'
+import { entryOf } from '../settings/registry.js'
+import { resolve as resolveToken, type Theme, themesOf } from '../theme/tokens.js'
 import { SETTLE_MS } from './geometry/scale.js'
-import { BREATH_PERIOD_MS } from './marks/frame.js'
-import { AMBIENT } from './motion.js'
 // The scene's type stacks. They moved from `paint.ts` to the WebGL2 painter's 2D
 // type layer with #578 — type is the one thing the GPU painter still draws
 // through a canvas context, so it is still the one place the stack is a string.
 // The assertions below are unchanged; only the address is.
 import { FONT } from './gl/overlay.js'
-import { entryOf } from '../settings/registry.js'
-import { resolveTheme, type ResolvedTheme } from '../settings/apply.js'
-import { resolve as resolveToken, themesOf, type Theme } from '../theme/tokens.js'
-import { CHANNELS, SHIMMER_MAX, SHIMMER_PERIOD_MS, variationFor } from './variation.js'
-import { FRUIT_RAMP, fruitAtOn,
+import { BREATH_PERIOD_MS } from './marks/frame.js'
+import { AMBIENT } from './motion.js'
+import { 
   ACTIVITY_HUE,
+  activityInk,
+  activityInkOn,
+  ambientLift,
+  ambientVeil,
   BROKEN,
+  CALM_BODY_FLOOR,
+  capPresence,
+  carriesSeverity,
+  cssColour,
+  DARK_PALETTE,
   DONE,
+  emphatic,FRUIT_RAMP, fruitAtOn,
+  hotter,
+  hotterOn,
   ICE_050,
   ICE_100,
-  ICE_1000,
   ICE_200,
   ICE_300,
   ICE_400,
@@ -30,57 +40,47 @@ import { FRUIT_RAMP, fruitAtOn,
   ICE_600,
   ICE_700,
   ICE_950,
+  ICE_1000,
+  type Ink,
+  incandescent,
+  ink,
+  LIGHT_PALETTE,
+  luminance,
+  mix,
   NECROTIC,
   NEEDS_YOU,
   NOTICE,
-  TISSUE_200,
-  TISSUE_400,
-  TISSUE_500,
-  TISSUE_700,
-  TISSUE_900,
-  TISSUE_RAMP,
-  CALM_BODY_FLOOR,
-  DARK_PALETTE,
-  LIGHT_PALETTE,
   PALETTES,
   PAPER_ALARM_FLOOR,
   PAPER_BODY_FLOOR,
   PAPER_CALM_CEILING,
   PAPER_CALM_FLOOR,
   PAPER_TIP_CEILING,
-  REPLAY_VIBRANCY,
-  SEVERITY_LADDER,
-  TUFT_WASH,
-  WAITING_BENIGN,
-  WORKING,
-  activityInk,
-  activityInkOn,
-  ambientLift,
-  ambientVeil,
-  capPresence,
-  carriesSeverity,
-  cssColour,
-  emphatic,
-  hotter,
-  hotterOn,
-  incandescent,
-  ink,
-  luminance,
-  mix,
   paletteFor,
   presence,
-  returningInk,
-  saturate,
-  tissueAt,
-  tissueAtOn,
-  type Ink,
+  REPLAY_VIBRANCY,
   type RegisterSlot,
   type Rgb,
+  returningInk,
   type ScenePalette,
+  SEVERITY_LADDER,
   type SeverityReading,
+  saturate,
   type ThemeName,
+  TISSUE_200,
+  TISSUE_400,
+  TISSUE_500,
+  TISSUE_700,
+  TISSUE_900,
+  TISSUE_RAMP,
+  TUFT_WASH,
+  tissueAt,
+  tissueAtOn,
+  WAITING_BENIGN,
+  WORKING,
 } from './palette.js'
 import { ALARM_FLOOR, CALM_CEILING, CALM_FLOOR, RECEDE, spend, TIP_CEILING } from './salience.js'
+import { CHANNELS, SHIMMER_MAX, SHIMMER_PERIOD_MS, variationFor } from './variation.js'
 
 /**
  * THE MIRROR. Canvas cannot read a Tailwind class, so `palette.ts` is the one
@@ -1291,8 +1291,6 @@ describe('the vibrancy dials, and the ceiling they do not touch (#157)', () => {
  * a magenta near the structure ink would let labels trip the fruiting fence).
  */
 describe('the fruiting material, as angles', () => {
-  const rgbOf = (steps: readonly Rgb[]) => steps.map((s) => s)
-
   it('is one magenta family in both worlds, in the 330–345 window', () => {
     for (const palette of [DARK_PALETTE, LIGHT_PALETTE]) {
       for (const step of palette.fruit) {

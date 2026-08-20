@@ -101,7 +101,7 @@ export default function CollisionsPanel() {
               <table className="w-full min-w-max border-collapse text-left text-inst">
                 <thead>
                   <tr>
-                    <th className="sticky top-0 z-10 min-w-[14rem] bg-(--surface-panel) px-2 py-1.5 font-medium text-(--ink-dim)">
+                    <th className="sticky top-0 z-(--z-sticky) min-w-[14rem] bg-(--surface-panel) px-2 py-1.5 font-medium text-(--ink-dim)">
                       File
                     </th>
                     {columns.map((branch) => (
@@ -109,7 +109,7 @@ export default function CollisionsPanel() {
                         key={branch}
                         scope="col"
                         title={branch}
-                        className="sticky top-0 z-10 min-w-14 truncate bg-(--surface-panel) px-2 py-1.5 text-center font-medium text-(--ink-dim)"
+                        className="sticky top-0 z-(--z-sticky) min-w-14 truncate bg-(--surface-panel) px-2 py-1.5 text-center font-medium text-(--ink-dim)"
                       >
                         <OpenBranchLink branch={branch} />
                       </th>

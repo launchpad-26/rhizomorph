@@ -1,23 +1,23 @@
 import type { Fleet, Lane, PathologyKind } from '../../fleet/index.js'
-import { clamp01 } from '../palette.js'
 import { growthEnvelope } from '../motion.js'
+import { clamp01 } from '../palette.js'
 import type { RetireState } from '../retire.js'
 import { smoothSpine } from '../ribbon.js'
 import { isAlarmRank } from '../salience.js'
-import { WANDER_MAX_SPACING, variationFor, variationSeed } from '../variation.js'
+import { variationFor, variationSeed, WANDER_MAX_SPACING } from '../variation.js'
 import { layoutBud } from './bud.js'
-import { angleDelta, cubicPoint, easeOut, hash, truncate } from './curves.js'
-import { layoutFilaments } from './filaments.js'
+import { angleDelta, cubicPoint, hash, truncate } from './curves.js'
 import { knotAt, outwardReach, rogueFilament, victimLaneId } from './faults.js'
+import { layoutFilaments } from './filaments.js'
 import { persistence, relaxRest, released } from './return.js'
-import { bundleLeader, germination, rimNormal, ringAngles, rimSpacing } from './ring.js'
+import { bundleLeader, germination, rimNormal, rimSpacing, ringAngles } from './ring.js'
 import {
-  LABELS_ALL_MAX,
-  RADIAL_RIM,
-  RECENCY_SPAN_MS,
   bornRadial,
   bundleRadial,
+  LABELS_ALL_MAX,
   lifecycleFrac,
+  RADIAL_RIM,
+  RECENCY_SPAN_MS,
   relaxReachPx,
   rootFullness,
   rootRadiusFor,

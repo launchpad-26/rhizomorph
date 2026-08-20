@@ -179,7 +179,7 @@ export function PanelGrid() {
           from the fleet in order to say it. */}
       {foldIsEmpty ? <BalconyConnectPointer /> : null}
 
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,7fr)_minmax(0,3fr)] gap-4">
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,7fr)_minmax(0,3fr)] gap-(--space-gutter)">
         {/* The centerpiece (prd4 ruling 2, merged by prd-36 ruling 1): "what is
             the fleet doing?" answered before anything else, hero-sized above
             the dock — as the organism or as the list, one keystroke apart. The
@@ -300,7 +300,7 @@ export function Dock() {
               tabIndex={selected ? 0 : -1}
               data-testid={`dock-tab-${tab.id}`}
               onClick={() => setActiveId(tab.id)}
-              className={`focus-ring border-b-2 px-3 py-2 heading tracking-[0.16em] transition-colors duration-150 ease-out ${
+              className={`focus-ring border-b-2 px-3 py-2 heading tracking-[0.16em] transition-colors duration-(--duration-touch) ease-out ${
                 selected
                   ? 'border-(--ink-primary) text-(--ink-primary)'
                   : 'border-transparent text-(--ink-dim) hover:text-(--ink-body)'

@@ -53,7 +53,7 @@ export function Welcome(): ReactElement | null {
       role="region"
       aria-label="welcome"
       data-testid="welcome-card"
-      className="fixed right-6 bottom-28 z-30 w-[22rem] max-w-[calc(100vw-3rem)] rounded-lg border border-(--line-strong) bg-(--surface-panel)/95 p-4 shadow-none backdrop-blur-sm"
+      className="fixed right-6 bottom-28 z-(--z-focus) w-[22rem] max-w-[calc(100vw-3rem)] rounded-lg border border-(--line-strong) bg-(--surface-panel)/95 p-4 shadow-none backdrop-blur-sm"
     >
       {/* A styled paragraph, not an h2: the card is a transient overlay, and the
           shell's curated-order law counts document headings. The region's

@@ -179,13 +179,13 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
         <table data-testid="recordings-table" className="w-full border-collapse text-left text-read-floor">
           <thead>
             <tr className="border-b border-(--line-hair) text-(--ink-dim)">
-              <th className="p-2 font-normal">title</th>
-              <th className="p-2 font-normal">lanes</th>
-              <th className="p-2 font-normal">landed</th>
-              <th className="p-2 font-normal">duration</th>
-              <th className="p-2 font-normal">cost</th>
-              <th className="p-2 font-normal">captured</th>
-              <th className="p-2 font-normal">actions</th>
+              <th className="p-(--space-cell) font-normal">title</th>
+              <th className="p-(--space-cell) font-normal">lanes</th>
+              <th className="p-(--space-cell) font-normal">landed</th>
+              <th className="p-(--space-cell) font-normal">duration</th>
+              <th className="p-(--space-cell) font-normal">cost</th>
+              <th className="p-(--space-cell) font-normal">captured</th>
+              <th className="p-(--space-cell) font-normal">actions</th>
             </tr>
           </thead>
           <tbody>
@@ -195,7 +195,7 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
                 data-testid={`recording-row-${recording.id}`}
                 className="border-b border-(--line-hair) align-top"
               >
-                <td className="max-w-[16rem] p-2">
+                <td className="max-w-[16rem] p-(--space-cell)">
                   <RenameControl
                     sessionId={recording.id}
                     title={recording.title}
@@ -218,10 +218,10 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
                     </p>
                   ) : null}
                 </td>
-                <td className="figures p-2">{recording.lanes}</td>
-                <td className="figures p-2">{recording.landed}</td>
-                <td className="figures p-2">{formatDuration(recording.durationMs)}</td>
-                <td className="figures p-2" title={costHoverTitle(recording)}>
+                <td className="figures p-(--space-cell)">{recording.lanes}</td>
+                <td className="figures p-(--space-cell)">{recording.landed}</td>
+                <td className="figures p-(--space-cell)">{formatDuration(recording.durationMs)}</td>
+                <td className="figures p-(--space-cell)" title={costHoverTitle(recording)}>
                   {formatCost(recording)}
                   {costSuffix(recording) !== null && (
                     <span className="ml-1 text-(--ink-dim)">{costSuffix(recording)}</span>
@@ -232,7 +232,7 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
                     </span>
                   )}
                 </td>
-                <td className="p-2" title={captureHoverTitle(recording)}>
+                <td className="p-(--space-cell)" title={captureHoverTitle(recording)}>
                   {formatCapture(recording)}
                   {isCaptureGap(recording) && (
                     <span data-testid={`recording-capture-gap-${recording.id}`} className="ml-1 text-(--ink-dim)">
@@ -240,7 +240,7 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
                     </span>
                   )}
                 </td>
-                <td className="p-2">
+                <td className="p-(--space-cell)">
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"

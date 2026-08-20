@@ -261,7 +261,7 @@ function OpenRunView({
         href={href}
         onClick={onClick}
         data-testid="drawer-open-page"
-        className="focus-ring inline-flex items-center rounded border border-(--line-strong) px-3 py-1.5 heading tracking-wider text-(--ink-body) transition-[color,border-color] duration-150 ease-out hover:border-(--ink-dim) hover:text-(--ink-primary)"
+        className="focus-ring inline-flex items-center rounded border border-(--line-strong) px-3 py-1.5 heading tracking-wider text-(--ink-body) transition-[color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-primary)"
       >
         open {what} ↗
       </a>
@@ -300,7 +300,7 @@ function DrawerFrame({ selectedId, label, title, onClose, children }: DrawerFram
       data-peek="true"
       data-lane={selectedId}
       aria-label={label}
-      className="fixed inset-y-0 right-0 z-40 flex w-[min(28rem,92vw)] flex-col border-l border-(--line-hair) bg-(--surface-panel) shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.9)]"
+      className="fixed inset-y-0 right-0 z-(--z-peek) flex w-[min(28rem,92vw)] flex-col border-l border-(--line-hair) bg-(--surface-panel) shadow-(--elev-sheet)"
     >
       <header className="flex items-center justify-between gap-2 border-b border-(--line-hair) px-4 py-2">
         {title}
@@ -309,7 +309,7 @@ function DrawerFrame({ selectedId, label, title, onClose, children }: DrawerFram
           data-testid="drawer-close"
           onClick={onClose}
           aria-label="Close the peek"
-          className="focus-ring shrink-0 rounded border border-(--line-strong) px-2 py-0.5 heading tracking-wider text-(--ink-dim) transition-[color,border-color] duration-150 ease-out hover:border-(--ink-dim) hover:text-(--ink-primary)"
+          className="focus-ring shrink-0 rounded border border-(--line-strong) px-2 py-0.5 heading tracking-wider text-(--ink-dim) transition-[color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-primary)"
         >
           Esc
         </button>

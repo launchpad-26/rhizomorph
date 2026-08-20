@@ -200,6 +200,28 @@
   --text-inst-dense: 0.625rem; /* 10 px-eq — instrument: tables, trace rows, columned figures */
   --text-inst-floor: 0.5625rem; /* 9 px-eq — ABSOLUTE floor, `aria-hidden` ornament only */
   --text-heading: 0.625rem; /* 10 px-eq — the one heading utility, below */
+  --text-title: 1rem; /* 16 px-eq — a page's own name: the h1 register the ramp never had (loop 10) */
+
+  /* ── radius: three decisions, not one default (loop 10) ─────────────────
+   * `rounded` ×103 already means 4px and is not drift; the scale exists so
+   * the arbitrary `rounded-lg`s and every NEW surface name a decision. */
+  --radius-ctl: 0.25rem; /* buttons, chips, fields */
+  --radius-plate: 0.375rem; /* cards, plates, inline dialogs, row surfaces */
+  --radius-bead: 9999px; /* the tide bead, dots, pills */
+
+  /* ── the z ladder (loop 10): five rungs, from the eight raw sites swept ── */
+  --z-sticky: 10; /* sticky table headers */
+  --z-focus: 30; /* the focused panel takeover */
+  --z-peek: 40; /* the peek */
+  --z-card: 50; /* the disclosure card */
+  --z-plate: 60; /* the tide readout plate */
+
+  /* ── density spacing (loop 10): the tokens data-density finally reads.
+   * Instrument surfaces only — density is the service there; reading
+   * surfaces never compress. Overridden by [data-density='compact'] below. */
+  --space-row-y: 0.375rem; /* vertical padding of a list/feed/trace row */
+  --space-cell: 0.5rem; /* table cell padding */
+  --space-gutter: 1rem; /* the gap BETWEEN panels (whitespace lives there) */
 
   /* ── motion (law 10) ────────────────────────────────────────────────────
    * Events move, states glow. These are the only durations in the app, so
@@ -231,6 +253,8 @@
    * could not be while it hid in a fallback.
    */
   --duration-age-pulse-seam: 6800ms;
+  --duration-touch: 150ms; /* hover/press/colour micro-transitions — the de facto value at every swept site */
+  --duration-reveal: 240ms; /* an overlay arriving: peek slide, scrim fade, focus takeover — under the event floor, so chrome stays quieter than the picture */
 }
 
 /* ── ROLE TOKENS (prd-32 S2) ────────────────────────────────────────────────
@@ -317,6 +341,16 @@
    * `bg-category-1` utility is generated, so the family cannot be reached by a
    * name shaped like a status colour. `bg-(--category-1)` is the spelling.
    */
+  /* ── elevation (loop 10): on the void a drop shadow is nearly invisible,
+   * so dark depth is a LIT EDGE plus occlusion — the idiom CHROME_BUTTON
+   * proved — while light gets a real shadow ramp in the register's own plum
+   * (never black: black on warm paper is a foreign substance). */
+  --elev-raised: inset 0 1px 0 0 color-mix(in oklab, var(--color-ice-050) 7%, transparent),
+    0 1px 2px 0 rgba(0, 0, 0, 0.55);
+  --elev-overlay: 0 0 0 1px var(--color-ice-850), 0 8px 40px -12px rgba(0, 0, 0, 0.85);
+  --elev-sheet: -24px 0 48px -24px rgba(0, 0, 0, 0.9);
+  --scrim: rgba(2, 4, 8, 0.55);
+
   --category-1: #453c5d;
   --category-2: #655d80;
   --category-3: #8880a4;
@@ -449,10 +483,27 @@
    * against the page. `category.test.ts` runs all five caps over this theme's
    * own world — its own status hues, its own quietest chroma — so a light
    * family that crept past a cap fails the suite a dark one would. */
+  --elev-raised: 0 1px 2px 0 color-mix(in oklab, var(--color-paper-950) 14%, transparent);
+  --elev-overlay: 0 0 0 1px var(--color-paper-150),
+    0 10px 32px -10px color-mix(in oklab, var(--color-paper-950) 28%, transparent);
+  --elev-sheet: -24px 0 48px -24px color-mix(in oklab, var(--color-paper-950) 35%, transparent);
+  --scrim: color-mix(in oklab, var(--color-paper-950) 26%, transparent);
+
   --category-1: #5a546c;
   --category-2: #7c778d;
   --category-3: #9f9bae;
   --category-4: #c2bece;
+}
+
+/* ── density: compact re-declares the spacing tokens (loop 10) ─────────────
+ * `data-density` has been written to the root by settings/apply.ts since #550
+ * and read by nothing — these are the tokens that finally read it. Instrument
+ * rows tighten; reading registers and target sizes are untouched.
+ */
+[data-density='compact'] {
+  --space-row-y: 0.25rem;
+  --space-cell: 0.375rem;
+  --space-gutter: 0.625rem;
 }
 
 /* ── glow: how a state reads as lit rather than filled ─────────────────────
@@ -522,6 +573,15 @@
  * a summons want different ink, and a utility that decided that would be back
  * to being un-overridable chrome. Size, case and tracking are the idiom.
  */
+@utility page-title {
+  /* A page's own name — the register above 10px the instrument never had.
+     Ink deliberately not set, exactly as `heading` leaves it. */
+  font-size: var(--text-title);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
 @utility heading {
   font-size: var(--text-heading);
   font-weight: 600;
