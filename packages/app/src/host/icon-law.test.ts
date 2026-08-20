@@ -61,19 +61,32 @@ describe('icon law: the packaged app ships our own icon, and it matches its gene
     expect(b[25]).toBe(6)
   })
 
-  it('is byte-identical to what the generator produces right now — the asset cannot drift from its source', () => {
-    const regenerated = execFileSync(process.execPath, [SCRIPT, '--stdout'], { maxBuffer: 64 * 1024 * 1024 })
-    // Compared as bytes, not as a hash: on failure the lengths below say
-    // whether the drawing changed or only the encoding did.
-    expect(regenerated.length).toBe(committed().length)
-    expect(regenerated.equals(committed())).toBe(true)
-  })
+  // Explicit timeouts on the two tests that spawn the generator: one render is
+  // ~2s alone, and under the full suite's worker load a pair of them overran
+  // vitest's 5s default — a load flake, seen once in a full gate, in a law
+  // whose failure must always mean "the icon drifted" and never "the box was
+  // busy".
+  it(
+    'is byte-identical to what the generator produces right now — the asset cannot drift from its source',
+    () => {
+      const regenerated = execFileSync(process.execPath, [SCRIPT, '--stdout'], { maxBuffer: 64 * 1024 * 1024 })
+      // Compared as bytes, not as a hash: on failure the lengths below say
+      // whether the drawing changed or only the encoding did.
+      expect(regenerated.length).toBe(committed().length)
+      expect(regenerated.equals(committed())).toBe(true)
+    },
+    30_000,
+  )
 
-  it('the generator is deterministic — two runs agree, so the check above is meaningful', () => {
-    const a = execFileSync(process.execPath, [SCRIPT, '--stdout'], { maxBuffer: 64 * 1024 * 1024 })
-    const b = execFileSync(process.execPath, [SCRIPT, '--stdout'], { maxBuffer: 64 * 1024 * 1024 })
-    expect(a.equals(b)).toBe(true)
-  })
+  it(
+    'the generator is deterministic — two runs agree, so the check above is meaningful',
+    () => {
+      const a = execFileSync(process.execPath, [SCRIPT, '--stdout'], { maxBuffer: 64 * 1024 * 1024 })
+      const b = execFileSync(process.execPath, [SCRIPT, '--stdout'], { maxBuffer: 64 * 1024 * 1024 })
+      expect(a.equals(b)).toBe(true)
+    },
+    30_000,
+  )
 
   it("uses the instrument's own accent, so the icon and the thing it launches are the same picture", () => {
     // `TISSUE_400` — `#8441eb`, hue 295.5, which law 9a pins. Asserted against
