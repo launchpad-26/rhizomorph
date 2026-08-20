@@ -194,6 +194,20 @@ export function tissueAt(t: number): Rgb {
 }
 
 /**
+ * {@link tissueAt}, generalised over a palette — byte-identical to it on dark
+ * (`DARK_PALETTE.tissue === TISSUE_RAMP` by construction; sworn in
+ * `palette.test.ts`). Both ramps are declared ground-ward first, so 0 is the
+ * step nearest each world's own ground.
+ */
+export function tissueAtOn(palette: ScenePalette, t: number): Rgb {
+  const ramp = palette.tissue
+  const last = ramp.length - 1
+  const on = clamp01(t) * last
+  const i = Math.min(last - 1, Math.floor(on))
+  return mix(ramp[i] as Rgb, ramp[i + 1] as Rgb, on - i)
+}
+
+/**
  * A returning mote's colour at `t` of its journey home (ruling 12): born in the
  * lane's own done-family colour, cooling through the tissue ramp as it travels.
  * The only place a status hue and the accent are allowed to touch. Entered from
@@ -275,6 +289,18 @@ export function mix(a: Rgb, b: Rgb, t: number): Rgb {
  */
 export function hotter(rgb: Rgb, amount: number): Rgb {
   return mix(rgb, ICE_050, amount)
+}
+
+/**
+ * {@link hotter}, generalised over a palette: heat is a march toward the
+ * register's own peak, whichever world that peak is in. Byte-identical to
+ * `hotter` on dark (`DARK_PALETTE.register.peak === ICE_050` — the identity is
+ * sworn in `palette.test.ts`), and on paper "hotter" correctly means *deeper* —
+ * more ink, not more light, because the page is already the brightest thing in
+ * sight.
+ */
+export function hotterOn(palette: ScenePalette, rgb: Rgb, amount: number): Rgb {
+  return mix(rgb, palette.register.peak, amount)
 }
 
 /**

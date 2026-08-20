@@ -1,21 +1,13 @@
 import { pointAt, type Point, type RetireGeometry, type ThreadGeometry } from '../geometry.js'
 import { EVENT, allowance } from '../motion.js'
 import {
-  BROKEN,
-  ICE_050,
-  ICE_100,
-  ICE_200,
-  ICE_500,
-  ICE_700,
-  NECROTIC,
-  NEEDS_YOU,
-  TISSUE_500,
-  activityInk,
+  activityInkOn,
   clamp01,
-  hotter,
-  incandescent,
+  emphatic,
+  hotterOn,
   ink,
   mix,
+  tissueAtOn,
   type Ink,
 } from '../palette.js'
 import { PERSIST, persistWidths, toward } from '../retire.js'
@@ -121,7 +113,7 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       // above it while the light *around* it reads as bioluminal — which is the
       // whole difference between a lit line and a living one.
       paint: budget(frame, laneId, false, {
-        rgb: mix(base.rgb, TISSUE_500, UNDERGLOW),
+        rgb: mix(base.rgb, tissueAtOn(frame.palette, 0.5), UNDERGLOW),
         alpha: base.alpha * 0.1,
       }),
     }),
@@ -241,7 +233,7 @@ function budMarks(frame: SceneFrame, thread: ThreadGeometry, base: Ink): Mark[] 
       alarm: false,
       at: bud.tip,
       radius: 4 + 3 * struck,
-      ink: budget(frame, laneId, false, ink(hotter(base.rgb, 0.55), 0.5 * struck * bud.vitality)),
+      ink: budget(frame, laneId, false, ink(hotterOn(frame.palette, base.rgb, 0.55), 0.5 * struck * bud.vitality)),
     })
   }
 
@@ -409,7 +401,7 @@ function persistentMarks(
           frame,
           laneId,
           false,
-          ink(hotter(living.rgb, 0.5), Math.min(1, living.alpha * 1.25)),
+          ink(hotterOn(frame.palette, living.rgb, 0.5), Math.min(1, living.alpha * 1.25)),
         ),
       }),
     )
@@ -450,7 +442,7 @@ function threadInk(frame: SceneFrame, thread: ThreadGeometry): Ink {
     // the encoding, so this is not a fade the alarm exemption should undo — the
     // magenta-red cut strokes on top of it are what stays at full strength. It
     // is also the one thread allowed under `CALM_FLOOR`, for the same reason.
-    return ink(mix(NECROTIC, ICE_700, 0.4), 0.5)
+    return ink(mix(frame.palette.necrotic, frame.palette.register.cold, 0.4), 0.5)
   }
 
   const freshness = 1 - thread.ageFrac
@@ -461,10 +453,10 @@ function threadInk(frame: SceneFrame, thread: ThreadGeometry): Ink {
     // through money is a *quantity*, so it is told in the channel quantities are
     // told in, and the lane's cyan NOTICE stays with the chevrons at the tip.
     // The contrast budget then holds all of it under a summons (graft g6).
-    return ink(hotter(mix(ICE_500, ICE_100, freshness), 0.95), 1)
+    return ink(hotterOn(frame.palette, mix(frame.palette.register.oldest, frame.palette.register.emphasis, freshness), 0.95), 1)
   }
 
-  return activityInk(thread.lane.activity, freshness, heat)
+  return activityInkOn(frame.palette, thread.lane.activity, freshness, heat)
 }
 
 /**
@@ -485,7 +477,7 @@ function heatMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       widthTip: thread.widthTip * 7,
       taperTip: HEAT_TAPER,
       samples: 24,
-      paint: budget(frame, laneId, false, ink(ICE_050, 0.06)),
+      paint: budget(frame, laneId, false, ink(frame.palette.register.peak, 0.06)),
     }),
     ribbonMark({
       role: 'heat',
@@ -495,7 +487,7 @@ function heatMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       widthRoot: thread.widthRoot * 0.5,
       widthTip: thread.widthTip * 0.55,
       taperTip: HEAT_TAPER,
-      paint: budget(frame, laneId, false, ink(ICE_050, 0.85)),
+      paint: budget(frame, laneId, false, ink(frame.palette.register.peak, 0.85)),
     }),
   ]
 }
@@ -537,7 +529,7 @@ function severedMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       widthTip: local * 1.45,
       stops: [{ at: 0.5, span: SEVERED_SPAN / reach / 2, scale: 0, flat: SEVERED_FLAT }],
       samples: 12,
-      paint: ink(BROKEN, 0.95),
+      paint: ink(frame.palette.status.broken, 0.95),
     })
   })
 }
@@ -561,7 +553,7 @@ function standingFlow(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   const outbound = clamp01(energy.outbound / 1.6)
   if (inbound < 0.03 && outbound < 0.03) return []
 
-  const hot = hotter(ICE_200, 0.75)
+  const hot = hotterOn(frame.palette, frame.palette.register.data, 0.75)
   const emphasis = (value: number): Ink =>
     budget(frame, thread.laneId, false, ink(hot, 0.85 * value))
 
@@ -661,7 +653,7 @@ export function loopingMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] 
   // and clears `ALARM_FLOOR`; the tails behind it stay at full saturation, which
   // is what makes the ring read as the lit part of one object rather than as a
   // paler second one.
-  const amber = ink(incandescent(NEEDS_YOU), 0.98)
+  const amber = ink(emphatic(frame.palette.status.needsYou, frame.palette), 0.98)
 
   // Knot-local space: +x runs along the thread, so the tails trail behind it.
   const at = (along: number, across: number): Point => ({
@@ -691,7 +683,7 @@ export function loopingMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] 
       laneId: thread.laneId,
       alarm: true,
       width: width * 0.9,
-      ink: ink(NEEDS_YOU, 0.92),
+      ink: ink(frame.palette.status.needsYou, 0.92),
       points: [
         at(-radius * 1.9, radius * 0.75 * side),
         at(-radius * 0.7, radius * 0.2 * side),
@@ -728,7 +720,7 @@ export function offFenceMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[]
   if (rogue === null || thread.retire !== null) return []
 
   const marks: Mark[] = []
-  const amber = ink(NEEDS_YOU, 0.9)
+  const amber = ink(frame.palette.status.needsYou, 0.9)
 
   marks.push({
     kind: 'stroke',
@@ -753,7 +745,7 @@ export function offFenceMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[]
         laneId: thread.laneId,
         alarm: true,
         width: 1.5,
-        ink: ink(NEEDS_YOU, 0.95),
+        ink: ink(frame.palette.status.needsYou, 0.95),
         points: [
           offset(tip, angle, -7, 0),
           offset(tip, angle, -1.5, side * 2),
@@ -780,7 +772,7 @@ export function offFenceMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[]
       from: towards - half,
       to: towards + half,
       width: 1.4,
-      ink: ink(NEEDS_YOU, 0.7),
+      ink: ink(frame.palette.status.needsYou, 0.7),
       dash: [4, 3],
     })
 
@@ -791,7 +783,7 @@ export function offFenceMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[]
         laneId: thread.laneId,
         alarm: true,
         width: 1.4,
-        ink: ink(NEEDS_YOU, 0.8),
+        ink: ink(frame.palette.status.needsYou, 0.8),
         points: [
           {
             x: victim.node.x + Math.cos(angle) * (radius - 4),
