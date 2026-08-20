@@ -354,7 +354,16 @@ describe('no new pixel literal after the ramp exists (S1)', () => {
 // way after the rebase — resolve, run the law, write down what its own message
 // says — because the one thing this ratchet must never be is a number somebody
 // worked out.
-const ICE_RUNG_SITES = 129
+//
+// 129 -> 98: the light-mode finish begins (the sweep the 2026-08-20 walkthrough
+// demanded — "greyish and ugly" was mostly these sites rendering cold blue ink
+// at 1.2-3.7:1 on cream). The app cluster goes first: WindowFloor (a black
+// panel with 2.4:1 text in light mode — the below-minimum voice, unreadable
+// exactly when someone is already squinting), Nav, ConnectionBadge, StatusBar
+// (a near-black slab across the bottom of a warm page), ModeContext. StatusBar's
+// two hand-rolled status-hue rings move to the `focus-ring` utility, which is
+// what finally empties STATUS_RING_ALLOWLIST below.
+const ICE_RUNG_SITES = 98
 
 describe('no consumer names a luminance rung — the colour ratchet (S2)', () => {
   /** The sweep's own files, less the one that defines the ramp being counted. */
@@ -553,16 +562,11 @@ const STATUS_HUES: readonly string[] = ['working', 'done', 'waiting-benign', 'ne
  * The list may only shrink. That is the point of writing it down.
  */
 const STATUS_RING_ALLOWLIST: ReadonlyArray<{ file: string; snippet: string; reason: string }> = [
-  {
-    file: 'app/StatusBar.tsx',
-    snippet: 'inline-flex items-center gap-1.5 rounded outline-none focus-visible:ring-1 focus-visible:ring-notice',
-    reason: 'the collector-health disclosure trigger — wave 4 sweep, outside prd-32 w1’s fence',
-  },
-  {
-    file: 'app/StatusBar.tsx',
-    snippet: 'figures text-ice-400 outline-none focus-visible:ring-1 focus-visible:ring-notice',
-    reason: 'the event-count figure beside it — wave 4 sweep, outside prd-32 w1’s fence',
-  },
+  // EMPTY, at last (2026-08-20): the two `StatusBar` entries this carried since
+  // prd-32 w1 were swept onto the `focus-ring` utility — the wave-4 sweep their
+  // own reasons promised. The array stays declared rather than deleted so the
+  // next status-hue ring has to argue its way into a named, reasoned exception
+  // instead of just existing.
 ]
 
 describe('focus is one token, and never a status hue', () => {

@@ -146,8 +146,11 @@ describe('ConnectionBadge', () => {
       expect(screen.queryByText('live')).not.toBeInTheDocument()
       // The dot leaves the ladder with the label: a fixture's `status` is
       // fabricated, so it may not wear the open hue (PR #282 review finding).
+      // `--ink-primary` rather than a named rung: the light-mode sweep moved
+      // the ice register onto roles, and the claim here was always "not a
+      // ladder hue", not "this exact rung".
       const fixtureDot = dotOf(fleet20Badge as HTMLElement)
-      expect(fixtureDot.className).toContain('bg-ice-100')
+      expect(fixtureDot.className).toContain('bg-(--ink-primary)')
       expect(fixtureDot.className).not.toContain('bg-notice')
 
       // Key 1 returns to live: the badge must read exactly as it did before

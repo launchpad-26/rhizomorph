@@ -15,7 +15,7 @@ export const CONNECTION_DOT_CLASS: Record<ConnectionStatus, string> = {
   connecting: 'bg-needs-you glow-needs-you animate-pulse',
   open: 'bg-notice glow-notice',
   error: 'bg-broken glow-broken',
-  closed: 'bg-ice-700',
+  closed: 'bg-(--line-strong)',
 }
 
 /**
@@ -50,13 +50,13 @@ export function ConnectionBadge({ status }: { status: ConnectionStatus }) {
     const total = formatElapsed(range.end - range.start)
     return (
       <span className="inline-flex items-center gap-2 text-xs uppercase tracking-wide">
-        <span className="h-2 w-2 rounded-full bg-ice-100 glow-calm" aria-hidden="true" />
-        <span className="font-semibold text-ice-100">replay</span>
-        <span className="figures text-ice-400">
+        <span className="h-2 w-2 rounded-full bg-(--ink-primary) glow-calm" aria-hidden="true" />
+        <span className="font-semibold text-(--ink-primary)">replay</span>
+        <span className="figures text-(--ink-dim)">
           {elapsed} / {total}
         </span>
         <span
-          className="inline-flex items-center gap-1 normal-case tracking-normal text-ice-400"
+          className="inline-flex items-center gap-1 normal-case tracking-normal text-(--ink-dim)"
           title={`Stream: ${CONNECTION_LABEL[status]}`}
         >
           <span className={`h-1.5 w-1.5 rounded-full ${CONNECTION_DOT_CLASS[status]}`} aria-hidden="true" />
@@ -72,10 +72,10 @@ export function ConnectionBadge({ status }: { status: ConnectionStatus }) {
   const label = source === 'live' ? CONNECTION_LABEL[status] : provenance
   // ...and the dot goes with it: the fixture branch fabricates `status`, so
   // only a live source may wear a ladder hue (see the header comment).
-  const dotClass = source === 'live' ? CONNECTION_DOT_CLASS[status] : 'bg-ice-100 glow-calm'
+  const dotClass = source === 'live' ? CONNECTION_DOT_CLASS[status] : 'bg-(--ink-primary) glow-calm'
 
   return (
-    <span className="inline-flex items-center gap-2 text-xs uppercase tracking-wide text-ice-400">
+    <span className="inline-flex items-center gap-2 text-xs uppercase tracking-wide text-(--ink-dim)">
       <span className={`h-2 w-2 rounded-full ${dotClass}`} aria-hidden="true" />
       {label}
     </span>

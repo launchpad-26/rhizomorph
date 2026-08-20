@@ -16,7 +16,7 @@ export const REPLAY_CHROME_CLASSES = [
   'brightness-90',
   'outline',
   'outline-2',
-  'outline-ice-700',
+  'outline-(--line-strong)',
 ] as const
 
 export interface ModeContextValue {

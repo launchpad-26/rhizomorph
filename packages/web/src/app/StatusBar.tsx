@@ -309,8 +309,8 @@ type SourceHealth = 'live' | 'waiting' | 'disabled' | 'degraded' | 'errored'
  */
 const HEALTH_DOT_CLASS: Record<SourceHealth, string> = {
   live: 'bg-calm glow-calm',
-  waiting: 'bg-ice-700',
-  disabled: 'bg-ice-700',
+  waiting: 'bg-(--line-strong)',
+  disabled: 'bg-(--line-strong)',
   degraded: 'bg-notice',
   errored: 'bg-notice glow-notice',
 }
@@ -394,9 +394,9 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
   )
 
   return (
-    <div className="flex flex-col gap-1 border-t border-ice-850 bg-ice-950 px-4 py-1.5 text-xs">
+    <div className="flex flex-col gap-1 border-t border-(--line-hair) bg-(--surface-panel) px-4 py-1.5 text-xs">
       <div className="flex h-6 items-center gap-4">
-        <span className="text-[10px] uppercase tracking-widest text-ice-400">Sources</span>
+        <span className="text-[10px] uppercase tracking-widest text-(--ink-dim)">Sources</span>
         {SOURCES.map((source) => {
           const { health, message } = sourceStatus(session.collectors[source], connection[source])
           const label = SOURCE_LABEL[source]
@@ -411,13 +411,13 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
               tabIndex={0}
               title={message ?? undefined}
               aria-label={description}
-              className="inline-flex items-center gap-1.5 rounded outline-none focus-visible:ring-1 focus-visible:ring-notice"
+              className="inline-flex items-center gap-1.5 focus-ring rounded"
             >
               <span
                 aria-hidden="true"
                 className={`h-2 w-2 rounded-full ${HEALTH_DOT_CLASS[health]}`}
               />
-              <span className="text-ice-400">{label}</span>
+              <span className="text-(--ink-dim)">{label}</span>
             </span>
           )
         })}
@@ -428,7 +428,7 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
             tabIndex={0}
             title={sessionVoice.title}
             aria-label={sessionVoice.title}
-            className="figures text-ice-400 outline-none focus-visible:ring-1 focus-visible:ring-notice"
+            className="figures text-(--ink-dim) focus-ring"
           >
             {sessionVoice.text}
           </span>
@@ -442,7 +442,7 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
             aria-hidden="true"
             className={`h-2 w-2 rounded-full ${CONNECTION_DOT_CLASS[status]}`}
           />
-          <span className="text-ice-400">SSE</span>
+          <span className="text-(--ink-dim)">SSE</span>
         </span>
       </div>
 
@@ -453,12 +453,12 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
               key={gap.id}
               role="status"
               data-testid="gap-voice"
-              className="flex flex-wrap items-baseline gap-1.5 text-[11px] text-ice-400"
+              className="flex flex-wrap items-baseline gap-1.5 text-[11px] text-(--ink-dim)"
             >
-              <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 self-center rounded-full bg-ice-700" />
-              <span className="font-medium text-ice-300">{gap.what}</span>
+              <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 self-center rounded-full bg-(--line-strong)" />
+              <span className="font-medium text-(--ink-body)">{gap.what}</span>
               <span>— {gap.why} — run:</span>
-              <span className="figures text-ice-200">{gap.command}</span>
+              <span className="figures text-(--ink-primary)">{gap.command}</span>
             </li>
           ))}
         </ul>

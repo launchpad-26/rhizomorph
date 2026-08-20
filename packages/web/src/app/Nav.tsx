@@ -70,7 +70,7 @@ export function Nav() {
   const current = activeHref(route)
 
   return (
-    <nav aria-label="Primary" className="flex shrink-0 gap-1 border-b border-ice-850 px-4">
+    <nav aria-label="Primary" className="flex shrink-0 gap-1 border-b border-(--line-hair) px-4">
       {HANDS.map((hand) => {
         const reason = unavailableReason(hand.key, mode)
         return reason === null ? (
@@ -98,7 +98,7 @@ function NavLink({ href, label, active }: { href: string; label: string; active:
       aria-current={active ? 'page' : undefined}
       data-testid={`nav-${label.toLowerCase()}`}
       className={`focus-ring border-b-2 px-2.5 py-2 text-[length:var(--text-inst-dense)] font-semibold uppercase tracking-[0.16em] transition-colors duration-150 ease-out ${
-        active ? 'border-ice-200 text-ice-100' : 'border-transparent text-ice-400 hover:text-ice-200'
+        active ? 'border-(--ink-primary) text-(--ink-primary)' : 'border-transparent text-(--ink-dim) hover:text-(--ink-primary)'
       }`}
     >
       {label}
@@ -120,7 +120,7 @@ function DisabledNavLink({ label, reason }: { label: string; reason: string }) {
       aria-disabled="true"
       title={reason}
       data-testid={`nav-${label.toLowerCase()}`}
-      className="flex cursor-not-allowed items-center border-b-2 border-transparent px-2.5 py-2 text-[length:var(--text-inst-dense)] font-semibold uppercase tracking-[0.16em] text-ice-400"
+      className="flex cursor-not-allowed items-center border-b-2 border-transparent px-2.5 py-2 text-[length:var(--text-inst-dense)] font-semibold uppercase tracking-[0.16em] text-(--ink-dim)"
     >
       {label}
       <span className="sr-only">{` — ${reason}`}</span>

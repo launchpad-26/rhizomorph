@@ -31,15 +31,15 @@ function BelowFloorPanel({ width, height }: { width: number; height: number }) {
     <div
       role="status"
       data-testid="window-floor"
-      className="flex h-screen flex-col items-center justify-center gap-3 bg-ice-1000 px-6 text-center font-sans text-ice-300"
+      className="flex h-screen flex-col items-center justify-center gap-3 bg-(--surface-floor) px-6 text-center font-sans text-(--ink-body)"
     >
-      <p className="max-w-md font-mono text-[length:var(--text-read-floor)] leading-snug text-ice-400">
+      <p className="max-w-md font-mono text-[length:var(--text-read-floor)] leading-snug text-(--ink-dim)">
         THIS WINDOW IS TOO SMALL FOR THE INSTRUMENT — the minimum is{' '}
-        <span className="figures text-ice-200">
+        <span className="figures text-(--ink-primary)">
           {WINDOW_MIN_WIDTH}×{WINDOW_MIN_HEIGHT}
         </span>
         , this window is{' '}
-        <span data-testid="window-floor-current" className="figures text-ice-200">
+        <span data-testid="window-floor-current" className="figures text-(--ink-primary)">
           {width}×{height}
         </span>
         . Resize it and the instrument resumes.
