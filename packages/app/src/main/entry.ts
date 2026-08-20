@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import type { AppMenuId } from '../host/app-menu.js'
 import { badgeFor, unreachableBadge, type TrayBadge } from '../host/badge.js'
 import { BRIDGE_CHANNELS, HOST_CAPABILITIES, type HostDescription } from '../host/bridge-contract.js'
@@ -38,7 +38,7 @@ import {
   type DemoSource,
 } from '../host/demo-mode.js'
 import { unavailableUpdates, type UpdateState } from '../host/update-gate.js'
-import { startsHidden, windowFrame } from '../host/window-frame.js'
+import { startsHidden, windowFrame, WINDOW_GROUNDS } from '../host/window-frame.js'
 import { installAppMenu } from './menu.js'
 import { createTray, type TrayHandle } from './tray.js'
 import { Updater } from './updates.js'
@@ -157,7 +157,12 @@ function windowIcon(): string | undefined {
 }
 
 function createWindow(): BrowserWindow {
-  const frame = windowFrame()
+  // The one theme decision the shell makes: which ground the first frame
+  // wears, from the OS. The SPA reads its own stored preference the moment it
+  // boots and repaints; this only covers the frame before that moment.
+  const frame = windowFrame({
+    backgroundColor: WINDOW_GROUNDS[nativeTheme.shouldUseDarkColors ? 'dark' : 'light'],
+  })
   const icon = windowIcon()
   const window = new BrowserWindow({
     width: frame.width,

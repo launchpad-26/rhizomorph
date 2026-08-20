@@ -55,13 +55,24 @@ export function failurePage(input: FailurePageInput): string {
 <meta charset="utf-8">
 <title>rhizomorph — the server did not start</title>
 <style>
-  :root { color-scheme: dark }
+  /* Theme-awareness in pure CSS: a data: page has no IPC and needs none —
+     prefers-color-scheme in an Electron window follows nativeTheme, so this
+     page wears whichever world the OS is in. The values are the web theme's
+     own registers (ice on dark, paper on light), stated as literals because
+     there is no cascade here to var() into. */
+  :root { color-scheme: light dark }
   body { background: #04060c; color: #c3cbd9; font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 0; padding: 6vh 8vw }
   h1 { color: #f0b429; font-size: 15px; letter-spacing: .12em; text-transform: uppercase; margin: 0 0 1.5rem }
   dt { color: #6b7891; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; margin-top: 1.25rem }
   dd { margin: .25rem 0 0 }
   code, pre { background: #080b14; border: 1px solid #1b2334; border-radius: 3px; padding: .5rem .75rem; display: block; overflow-x: auto; color: #dbe3ef }
   .gap { color: #6b7891 }
+  @media (prefers-color-scheme: light) {
+    body { background: #faf6ef; color: #52384e }
+    h1 { color: #714a00 }
+    dt, .gap { color: #674c61 }
+    code, pre { background: #f3eee4; border-color: #dfd1c6; color: #40273c }
+  }
 </style>
 </head>
 <body>

@@ -41,18 +41,25 @@ export interface WindowFrameOptions {
 }
 
 /**
- * The instrument's own floor, `--color-ice-1000` in
- * `packages/web/src/theme/theme.css` — "the void — the page's floor". Stated
- * here as a literal because the shell cannot read a CSS variable before the
- * page exists, and held to the web file's own value by
- * `window-frame.test.ts` so the two cannot drift.
+ * The instrument's own floor, per theme: dark is `--color-ice-1000` ("the void
+ * — the page's floor") and light is `--color-paper-000` ("the page — the
+ * ground the network hangs on"), both from
+ * `packages/web/src/theme/theme.css`. Stated here as literals because the
+ * shell cannot read a CSS variable before the page exists, and held to the web
+ * file's own values by `window-frame.test.ts` so neither can drift.
  *
- * The dark ground specifically: the light theme's floor is a different token
- * and the shell has no way to know which one is chosen until the SPA has
- * booted and read the preference. This colour is visible for one frame, and
- * being one frame of the wrong dark is better than one frame of white.
+ * Which one the first frame wears is the OS's answer
+ * (`nativeTheme.shouldUseDarkColors`, read in `entry.ts` — this module stays
+ * electron-free): the SPA's own preference may be "the other one", but it
+ * cannot be read before the SPA has booted, and the page self-heals the frame
+ * after it has. What the pair buys is that a person whose whole desktop is
+ * light no longer gets one frame of void before their paper page — the
+ * mirror of the white flash the dark ground has always prevented.
  */
-export const WINDOW_GROUND = '#04060c'
+export const WINDOW_GROUNDS: Readonly<Record<'dark' | 'light', string>> = {
+  dark: '#04060c',
+  light: '#faf6ef',
+}
 
 /**
  * `show: false` is deliberate: the window is created hidden and shown on
@@ -67,7 +74,7 @@ export function windowFrame(overrides: Partial<WindowFrameOptions> = {}): Window
     height: WINDOW_DEFAULT.height,
     minWidth: WINDOW_MINIMUM.width,
     minHeight: WINDOW_MINIMUM.height,
-    backgroundColor: WINDOW_GROUND,
+    backgroundColor: WINDOW_GROUNDS.dark,
     show: false,
     title: 'rhizomorph',
     ...overrides,

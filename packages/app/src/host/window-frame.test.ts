@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { startsHidden, windowFrame, WINDOW_DEFAULT, WINDOW_GROUND, WINDOW_MINIMUM } from './window-frame.js'
+import { startsHidden, windowFrame, WINDOW_DEFAULT, WINDOW_GROUNDS, WINDOW_MINIMUM } from './window-frame.js'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..')
 
@@ -18,7 +18,7 @@ describe('the frame', () => {
   it('opens hidden, on the instrument\'s own ground — no white frame while the SPA boots', () => {
     const frame = windowFrame()
     expect(frame.show).toBe(false)
-    expect(frame.backgroundColor).toBe(WINDOW_GROUND)
+    expect(frame.backgroundColor).toBe(WINDOW_GROUNDS.dark)
   })
 
   it('lets a caller override without losing the floor it did not mention', () => {
@@ -63,12 +63,21 @@ describe('the floor is prd-32 S5\'s own, read from S5 (#563)', () => {
   })
 })
 
-describe('the ground is the instrument\'s own token, not a shell invention', () => {
-  it('is `--color-ice-1000` from the web theme, verbatim', () => {
-    const theme = readFileSync(path.join(REPO_ROOT, 'packages', 'web', 'src', 'theme', 'theme.css'), 'utf8')
+describe('the grounds are the instrument\'s own tokens, not shell inventions', () => {
+  const theme = readFileSync(path.join(REPO_ROOT, 'packages', 'web', 'src', 'theme', 'theme.css'), 'utf8')
+
+  it('dark is `--color-ice-1000` from the web theme, verbatim', () => {
     const match = /--color-ice-1000:\s*(#[0-9a-fA-F]{3,8})/.exec(theme)
     expect(match).not.toBeNull()
-    expect(match?.[1]?.toLowerCase()).toBe(WINDOW_GROUND.toLowerCase())
+    expect(match?.[1]?.toLowerCase()).toBe(WINDOW_GROUNDS.dark.toLowerCase())
+  })
+
+  it('light is `--color-paper-000` from the web theme, verbatim', () => {
+    // Paper tokens exist nowhere in the file but the light block, so the first
+    // declaration is the light block's own.
+    const match = /--color-paper-000:\s*(#[0-9a-fA-F]{3,8})/.exec(theme)
+    expect(match).not.toBeNull()
+    expect(match?.[1]?.toLowerCase()).toBe(WINDOW_GROUNDS.light.toLowerCase())
   })
 })
 
