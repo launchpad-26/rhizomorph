@@ -1,3 +1,4 @@
+import { BUTTON, BUTTON_PRIMARY } from '../ui/controls.js'
 import { useState } from 'react'
 import { copyToClipboard, type CopyText } from '../drawer/AttachButton.js'
 import { requestInstrument, type InstrumentFetchLike, type InstrumentOutcome, type MigrationKind } from './instrument.js'
@@ -71,10 +72,6 @@ const MIGRATION_SENTENCE: Record<MigrationKind, string> = {
   'copy-failed': 'the transcript could not be copied — the relaunch went ahead against whatever the harness already had',
 }
 
-const BUTTON_CLASS =
-  'rounded border px-2 py-1 normal-case tracking-normal disabled:opacity-50 border-(--line-strong) text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary)'
-const CONFIRM_CLASS =
-  'rounded border px-2 py-1 normal-case tracking-normal disabled:opacity-50 border-(--ink-dim) text-(--ink-primary)'
 
 export function InstrumentButton({
   sessionId,
@@ -111,7 +108,7 @@ export function InstrumentButton({
           data-testid={`${testId}-start`}
           onClick={() => setPhase({ status: 'confirming' })}
           title="Relaunch this repo’s conductor, instrumented, on this same conversation."
-          className={BUTTON_CLASS}
+          className={BUTTON}
         >
           instrument this session
         </button>
@@ -133,7 +130,7 @@ export function InstrumentButton({
               type="button"
               data-testid={`${testId}-cancel`}
               onClick={() => setPhase({ status: 'idle' })}
-              className={BUTTON_CLASS}
+              className={BUTTON}
             >
               cancel
             </button>
@@ -141,7 +138,7 @@ export function InstrumentButton({
               type="button"
               data-testid={`${testId}-confirm`}
               onClick={() => void confirmInstrument()}
-              className={CONFIRM_CLASS}
+              className={BUTTON_PRIMARY}
             >
               instrument
             </button>
@@ -220,7 +217,7 @@ export function InstrumentButton({
                       () => setCopied('failed'),
                     )
                   }}
-                  className={BUTTON_CLASS}
+                  className={BUTTON}
                 >
                   copy
                 </button>
@@ -251,7 +248,7 @@ export function InstrumentButton({
             type="button"
             data-testid={`${testId}-back`}
             onClick={() => setPhase({ status: 'idle' })}
-            className={BUTTON_CLASS}
+            className={BUTTON}
           >
             back
           </button>

@@ -1,3 +1,4 @@
+import { FIELD } from '../ui/controls.js'
 import { useMemo } from 'react'
 import { initialSessionState, reduceAll, selectSessionSpend } from '@rhizomorph/core'
 import { useModeClock, useReplay } from '../app/ModeContext.js'
@@ -157,7 +158,7 @@ export default function ReplayControls() {
           <select
             value={selectedId ?? ''}
             onChange={(event) => selectSession(event.target.value === '' ? null : event.target.value)}
-            className="rounded border border-(--line-hair) bg-(--surface-floor) px-2 py-1 text-(--ink-primary)"
+            className={FIELD}
           >
             <option value="">Replay a recorded session…</option>
             {(sessions as SessionListing[]).map((session) => (

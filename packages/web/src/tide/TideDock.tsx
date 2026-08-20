@@ -1,3 +1,4 @@
+import { BUTTON_QUIET } from '../ui/controls.js'
 import {
   useCallback,
   useEffect,
@@ -107,9 +108,6 @@ export interface TideDockProps {
    */
   scrubFacts?: string | null
 }
-
-const BUTTON_CLASS =
-  'rounded border border-(--line-hair) px-2 py-1 text-inst leading-none text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-40 disabled:hover:border-(--line-hair) disabled:hover:text-(--ink-body)'
 
 function useElementWidth(): [RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement | null>(null)
@@ -440,7 +438,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
         title="Shift window earlier"
         onClick={() => shift(-1)}
         disabled={!canShiftEarlier}
-        className={BUTTON_CLASS}
+        className={BUTTON_QUIET}
       >
         «
       </button>
@@ -494,7 +492,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
           title="Zoom in on the playhead"
           onClick={zoomIn}
           disabled={zoomLevel >= loupeZoomLevel}
-          className={BUTTON_CLASS}
+          className={BUTTON_QUIET}
         >
           +
         </button>
@@ -504,7 +502,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
           title="Zoom out"
           onClick={zoomOut}
           disabled={zoomLevel === 0}
-          className={BUTTON_CLASS}
+          className={BUTTON_QUIET}
         >
           −
         </button>
@@ -514,7 +512,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
           title="Shift window later"
           onClick={() => shift(1)}
           disabled={!canShiftLater}
-          className={BUTTON_CLASS}
+          className={BUTTON_QUIET}
         >
           »
         </button>

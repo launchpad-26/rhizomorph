@@ -1,3 +1,4 @@
+import { BUTTON, BUTTON_PRIMARY } from '../ui/controls.js'
 import { useState } from 'react'
 import { bootExplanation } from '../app/StatusBar.js'
 import { requestRotation, type RotateFetchLike, type RotationSummary } from './rotate.js'
@@ -65,10 +66,6 @@ type Phase =
   | { status: 'done'; rotation: RotationSummary }
   | { status: 'failed'; message: string }
 
-const BUTTON_CLASS =
-  'rounded border px-2 py-1 normal-case tracking-normal disabled:opacity-50 border-(--line-strong) text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary)'
-const ARMED_CLASS =
-  'rounded border px-2 py-1 normal-case tracking-normal disabled:opacity-50 border-(--ink-dim) text-(--ink-primary)'
 
 export function RotateButton({ onRotated, fetchImpl }: RotateButtonProps = {}) {
   const [phase, setPhase] = useState<Phase>({ status: 'idle' })
@@ -102,7 +99,7 @@ export function RotateButton({ onRotated, fetchImpl }: RotateButtonProps = {}) {
             ? 'Click again to close this session and start a new one — the closed recording stays, and stays replayable'
             : 'Close the current session log and start a fresh one. Nothing outside the instrument’s own data directory is touched.'
         }
-        className={armed ? ARMED_CLASS : BUTTON_CLASS}
+        className={armed ? BUTTON_PRIMARY : BUTTON}
       >
         {working ? 'ending session…' : armed ? 'confirm: end session' : 'end session · start fresh'}
       </button>

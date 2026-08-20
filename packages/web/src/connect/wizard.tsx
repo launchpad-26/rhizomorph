@@ -1,3 +1,4 @@
+import { BUTTON, BUTTON_PRIMARY, FIELD } from '../ui/controls.js'
 import { useEffect, useState } from 'react'
 import { requestClone, type CloneFetchLike, type CloneOutcome } from '../concierge/clone.js'
 import { requestInstrument, type InstrumentFetchLike, type InstrumentMode, type InstrumentOutcome } from '../concierge/instrument.js'
@@ -216,12 +217,6 @@ const LAUNCH_MODES: ReadonlyArray<{ mode: Exclude<InstrumentMode, 'resume'>; lab
   },
 ]
 
-const BUTTON_CLASS =
-  'rounded border px-2 py-1 text-inst normal-case tracking-normal disabled:opacity-50 border-(--line-strong) text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary)'
-const PRIMARY_CLASS =
-  'rounded border px-2 py-1 text-inst normal-case tracking-normal disabled:opacity-50 border-(--ink-dim) text-(--ink-primary)'
-const FIELD_CLASS =
-  'max-w-full rounded border border-(--line-hair) bg-(--surface-floor) px-2 py-1 font-sans text-inst normal-case tracking-normal text-(--ink-primary)'
 
 export interface SetupWizardProps {
   /**
@@ -348,7 +343,7 @@ export function SetupWizard({
             data-testid={`wizard-step-${name}`}
             aria-current={step === name ? 'step' : undefined}
             onClick={() => setStep(name)}
-            className={step === name ? PRIMARY_CLASS : BUTTON_CLASS}
+            className={step === name ? BUTTON_PRIMARY : BUTTON}
           >
             {STEP_TITLE[name]}
           </button>
@@ -470,7 +465,7 @@ function RepoStep({
             data-testid="wizard-repo-select"
             value={chosen ?? ''}
             onChange={(event) => onChoose(event.target.value)}
-            className={FIELD_CLASS}
+            className={FIELD}
           >
             {/* Never a phantom selection: with nothing chosen and no watched
                 repo to default to, the control shows that rather than
@@ -518,14 +513,14 @@ function RepoStep({
             value={cloneUrl}
             onChange={(event) => onCloneUrlChange(event.target.value)}
             placeholder="https://host/owner/repo.git"
-            className={`${FIELD_CLASS} w-80`}
+            className={`${FIELD} w-80`}
           />
           <button
             type="button"
             data-testid="wizard-clone"
             disabled={!live || cloneUrl.trim().length === 0 || clone.status === 'working'}
             onClick={onClone}
-            className={PRIMARY_CLASS}
+            className={BUTTON_PRIMARY}
           >
             clone
           </button>
@@ -635,7 +630,7 @@ function ConductorStep({
           data-testid="wizard-harness-select"
           value={harness}
           onChange={(event) => onHarness(event.target.value)}
-          className={FIELD_CLASS}
+          className={FIELD}
         >
           {HARNESSES.map((entry) => (
             <option key={entry.id} value={entry.id}>
@@ -740,7 +735,7 @@ function ConductorStep({
               data-testid="wizard-launch"
               disabled={!canAct || launch.status === 'working'}
               onClick={onArm}
-              className={PRIMARY_CLASS}
+              className={BUTTON_PRIMARY}
             >
               {/* The verb the harness has actually earned. "start it
                   instrumented" over a codex row was a promise the registry
@@ -770,10 +765,10 @@ function ConductorStep({
                 </p>
               )}
               <div className="flex gap-2">
-                <button type="button" data-testid="wizard-launch-cancel" onClick={onCancelLaunch} className={BUTTON_CLASS}>
+                <button type="button" data-testid="wizard-launch-cancel" onClick={onCancelLaunch} className={BUTTON}>
                   cancel
                 </button>
-                <button type="button" data-testid="wizard-launch-confirm" onClick={onLaunch} className={PRIMARY_CLASS}>
+                <button type="button" data-testid="wizard-launch-confirm" onClick={onLaunch} className={BUTTON_PRIMARY}>
                   start it
                 </button>
               </div>
@@ -949,7 +944,7 @@ function CopyableCommand({ id, command, onCopy }: { id: string; command: string;
               () => setCopied('failed'),
             )
           }}
-          className={BUTTON_CLASS}
+          className={BUTTON}
         >
           copy
         </button>
