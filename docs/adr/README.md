@@ -212,6 +212,7 @@ have carried no information.
 | [0023](0023-a-transcript-dialect-names-itself-with-harness.md) | A transcript dialect names itself with `harness`, not a new source literal | 2026-08-15 | accepted |
 | [0024](0024-a-gated-read-is-the-fourth-route-class.md) | A gated read is the fourth route class, and "gated" fails the build when it is fiction — amends [0014](0014-exhaustive-route-classification.md) | 2026-08-17 | accepted |
 | [0025](0025-a-native-otlp-harness-gets-a-mapping-profile.md) | A harness that exports OTLP natively gets a mapping profile, not a collector | 2026-08-18 | accepted |
+| [0026](0026-the-shell-is-driven-by-playwright-not-certified-by-hand.md) | The desktop shell is driven by Playwright for visual certification, not certified by hand | 2026-08-21 | accepted |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the
