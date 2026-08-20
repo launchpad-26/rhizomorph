@@ -1,5 +1,5 @@
 {
-  "ref": "d385a693cda1f99a0fb54c92f29966d87fd17b49",
+  "ref": "128244a3a7b2b6ad7e8bcf4b88f7428620b5092c",
   "marks": 155,
   "panel": {
     "width": 1100,
@@ -32,12 +32,12 @@
   },
   "cost": {
     "canvas": {
-      "cpuMs": 0.8,
-      "wallMs": 1.142
+      "cpuMs": 1.2,
+      "wallMs": 1.776
     },
     "webgl": {
-      "cpuMs": 3,
-      "wallMs": 3.483
+      "cpuMs": 4.5,
+      "wallMs": 5.431
     },
     "frames": 120
   }
