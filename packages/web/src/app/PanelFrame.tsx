@@ -21,6 +21,16 @@ export interface PanelFrameProps {
    */
   onFocusChange?: (focused: boolean) => void
   /**
+   * THE DECK (loop 20 — exhibition piece V, its honest core): facts a focus
+   * takeover would otherwise cost. Focusing the fleet fills the view with the
+   * organism and, until this, silently covered the attention summonses and
+   * the burn strip — the two things the charter says may interrupt. Rendered
+   * only while focused, as a strip over the top of the glass; the panel
+   * itself never re-derives a fact, it re-hosts the same components the
+   * shell's header runs.
+   */
+  focusHud?: ReactNode
+  /**
    * Controlled collapse (prd9's feed peek): pass this and `onCollapsedChange`
    * together when `children` should stay mounted through a collapse and draw
    * its own compact reading, rather than disappearing the way every
@@ -77,6 +87,7 @@ export function PanelFrame({
   children,
   hidden = false,
   onFocusChange,
+  focusHud,
   collapsed: collapsedProp,
   onCollapsedChange,
 }: PanelFrameProps) {
@@ -136,6 +147,14 @@ export function PanelFrame({
           {focused ? `Restore ${title}` : `Focus ${title}`}
         </button>
       </div>
+      {focused && focusHud !== undefined && (
+        <div
+          data-testid={`panel-${id}-focus-hud`}
+          className="-mx-4 -mt-1 mb-2 border-b border-(--line-hair) bg-(--surface-panel)/85 backdrop-blur-sm"
+        >
+          {focusHud}
+        </div>
+      )}
       {showContent && (
         <div id={contentId} className="min-h-0 flex-1">
           {children}

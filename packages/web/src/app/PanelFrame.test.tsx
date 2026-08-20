@@ -215,3 +215,31 @@ describe('PanelFrame', () => {
     })
   })
 })
+
+describe('the focus HUD (loop 20 — the deck keeps the interrupting facts)', () => {
+  it('renders the hud only while focused, and not at all when none is offered', () => {
+    render(
+      <PanelFrame id="fleet" title="Fleet" focusHud={<span data-testid="hud-content">burn + attention</span>}>
+        <p>surface</p>
+      </PanelFrame>,
+    )
+    expect(screen.queryByTestId('panel-fleet-focus-hud')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /focus fleet/i }))
+    expect(screen.getByTestId('panel-fleet-focus-hud')).toBeInTheDocument()
+    expect(screen.getByTestId('hud-content')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /restore fleet/i }))
+    expect(screen.queryByTestId('panel-fleet-focus-hud')).toBeNull()
+  })
+
+  it('a panel with no hud focuses exactly as before', () => {
+    render(
+      <PanelFrame id="dock" title="Dock">
+        <p>surface</p>
+      </PanelFrame>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /focus dock/i }))
+    expect(screen.queryByTestId('panel-dock-focus-hud')).toBeNull()
+  })
+})

@@ -124,6 +124,9 @@ function PanelFallback() {
   )
 }
 
+const FocusAttentionStrip = lazy(() => import('../panels/attention/index.js'))
+const FocusBurnStrip = lazy(() => import('../panels/burn/index.js'))
+
 export function PanelGrid() {
   const [focusedId, setFocusedId] = useState<string | null>(null)
   const { state } = useStream()
@@ -191,6 +194,16 @@ export function PanelGrid() {
           title="Fleet"
           hidden={hiddenFor('fleet')}
           onFocusChange={onFocusChangeFor('fleet')}
+          focusHud={
+            /* The deck keeps the interrupting facts (exhibition V): the SAME
+               attention and burn strips the shell's header runs — re-hosted,
+               never re-derived — so a summons or a spend spike is exactly as
+               visible with the organism filling the glass as without. */
+            <Suspense fallback={null}>
+              <FocusAttentionStrip />
+              <FocusBurnStrip />
+            </Suspense>
+          }
         >
           <FleetSurface />
         </PanelFrame>
