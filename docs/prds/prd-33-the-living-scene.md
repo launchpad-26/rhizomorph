@@ -414,3 +414,10 @@ Full text: docs/design-notes/palette-fruiting-material.md.
   says. Seam: `PanelView.lightBlend` in `scene/gl/frame.ts`; sampling in `scene/marks/ambient.ts`.
 - **#244's final disposition** — ruling 4 proposes absorbed; the operator may
   accept-with-reasons at blessing instead.
+
+> **Amendment (2026-08-21, loop 23 — the carrier decides how matter is drawn, first instance).**
+> The light world's mass interior is engraved: a bounded, field-driven stipple
+> (`mass-stipple`), paper only, dark byte-identical by law. This is exhibition
+> II's stage 1 and the first per-theme MARK STYLE — the fact set is unchanged;
+> what changed is how the paper carrier renders the same matter. See
+> docs/design-notes/plate-engraved-mass.md.

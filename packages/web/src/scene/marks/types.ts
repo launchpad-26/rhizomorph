@@ -78,6 +78,12 @@ export type MarkRole =
    * toward the lane it is coming from, so the role went with the ring.
    */
   | 'root-mass'
+  /**
+   * The engraved interior (Plate stage 1): the light world's stipple over the
+   * mass — still, seeded, field-driven dots. Paper only; the dark world never
+   * carries this role, and marks.test.ts holds that as byte-identity.
+   */
+  | 'mass-stipple'
   | 'root-core'
   | 'root-label'
   // threads and second growth

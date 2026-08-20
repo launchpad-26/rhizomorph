@@ -120,7 +120,11 @@ function isChrome(mark: Mark): boolean {
  * underglow (maximum quality), which must add on the void exactly as a glow
  * does or it would read as paint smeared under the thread.
  */
-function isLight(mark: Mark): boolean {
+export function isLight(mark: Mark): boolean {
+  // The one motes mark that is INK, not light: the engraved stipple (Plate
+  // stage 1). Additive compositing can only lighten, so a dark dot on paper
+  // would vanish - which is precisely how this exception was found.
+  if (mark.role === 'mass-stipple') return false
   return mark.kind === 'glow' || mark.kind === 'motes' || mark.role === 'underglow'
 }
 

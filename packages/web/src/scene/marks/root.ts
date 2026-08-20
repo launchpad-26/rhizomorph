@@ -1,6 +1,8 @@
-import { contourLayers, type Falloff } from '../contour.js'
+import { contourLayers, fieldAt, orderFalloffs, type Falloff } from '../contour.js'
 import { budLife, type BudGeometry, type Point, type ThreadGeometry } from '../geometry.js'
 import { heartAnatomy, type HeartRing } from '../heart.js'
+import { hash } from '../geometry/curves.js'
+import type { Mote } from '../motes.js'
 import { GROWTH, growthEnvelope, allowance, DISSOLUTION, STRUCTURAL } from '../motion.js'
 import { fruitAtOn,
   clamp01,
@@ -420,6 +422,70 @@ export function rootFalloffs(frame: SceneFrame, radius: number): Falloff[] {
  * objects again, and the un-instrumented floor is asserted over the mass as a
  * whole (`marks.test.ts`) rather than over whichever part is brightest.
  */
+/**
+ * THE STIPPLE (Plate stage 1): candidate points are seeded (`hash` per index —
+ * the same session-stable determinism the wander uses), uniformly placed over
+ * the disc, and each survives only where the field is deeper than its own
+ * seeded threshold — so the engraving is densest where the body is thickest,
+ * from the field itself rather than from a lookalike. Bounded: CANDIDATES is
+ * the whole budget, and the survivors are typically ~half of it.
+ */
+const STIPPLE = {
+  candidates: 460,
+  /** Interior depth (radius-normalised) a dot needs — keeps the skin clean. */
+  floor: 0.055,
+  /** Dot radius range in px, graded by depth. Legible dots, not a tint. */
+  dot: { min: 1.5, max: 2.6 },
+  /** Ink alpha range, graded by depth. An engraving reads dot by dot. */
+  alpha: { min: 0.45, max: 0.72 },
+} as const
+
+function stippleMark(
+  frame: SceneFrame,
+  centre: Point,
+  radius: number,
+  falloffs: readonly Falloff[],
+  depths: readonly Depth[],
+  surge: number,
+  intensity: number,
+): Mark {
+  const ordered = orderFalloffs(falloffs)
+  const melt = radius * MELT
+  const deepest = depths[depths.length - 1] as Depth
+  const items: Mote[] = []
+
+  for (let i = 0; i < STIPPLE.candidates; i += 1) {
+    const angle = hash(`stipple-a:${i}`) * Math.PI * 2
+    // sqrt for uniform density over the disc rather than crowding the centre
+    const rad = Math.sqrt(hash(`stipple-r:${i}`)) * radius * 1.05
+    const at = { x: centre.x + Math.cos(angle) * rad, y: centre.y + Math.sin(angle) * rad }
+    // The field is a signed distance: negative INSIDE the body (the surface is
+    // 0). Interior depth, normalised by the radius, is what the engraving
+    // grades on.
+    const depth = clamp01(-fieldAt(at, ordered, melt) / radius)
+    if (depth < STIPPLE.floor) continue
+    // The seeded threshold: a dot deep in the body survives almost any draw;
+    // one near the skin survives few — density becomes the field's gradient.
+    if (depth < STIPPLE.floor + hash(`stipple-t:${i}`) * 0.85) continue
+    const grade = clamp01((depth - STIPPLE.floor) / 0.9)
+    items.push({
+      at,
+      radius: STIPPLE.dot.min + (STIPPLE.dot.max - STIPPLE.dot.min) * grade,
+      ink: budget(
+        frame,
+        null,
+        false,
+        ink(
+          hotterOn(frame.palette, deepest.rgb, 0.14 * surge),
+          (STIPPLE.alpha.min + (STIPPLE.alpha.max - STIPPLE.alpha.min) * grade) * (0.5 + 0.5 * intensity),
+        ),
+      ),
+    })
+  }
+
+  return { kind: 'motes', role: 'mass-stipple', laneId: null, alarm: false, items }
+}
+
 function depthInk(palette: ScenePalette, depth: Depth, surge: number, intensity: number): Ink {
   return ink(hotterOn(palette, depth.rgb, 0.14 * surge), depth.alpha * (0.5 + 0.5 * intensity))
 }
@@ -477,9 +543,10 @@ export function rootMarks(frame: SceneFrame): Mark[] {
   // is deeper and more finely divided the fuller the mass is.
   const depths = depthsFor(frame.palette, fullness)
   const rindIndex = rindIndexOf(depths, fullness)
+  const falloffs = rootFalloffs(frame, radius)
   const layers = contourLayers(
     {
-      falloffs: rootFalloffs(frame, radius),
+      falloffs,
       origin: centre,
       melt: radius * MELT,
       cell: radius * CELL,
@@ -531,6 +598,19 @@ export function rootMarks(frame: SceneFrame): Mark[] {
       })),
     ],
   })
+
+  // THE ENGRAVED INTERIOR (Plate stage 1, loop 23 — exhibition II's first
+  // bounded slice). On paper, a translucent wash reads as a smudge where the
+  // same accumulation reads as depth on the void — engraving is how print
+  // carries a volume. So the LIGHT world alone gets a stipple: still, seeded
+  // dots whose survival is decided by the SAME scalar field the silhouette is
+  // walked from (`fieldAt` over the same falloffs), so density IS depth and
+  // the texture can never disagree with the shape. Texture never means:
+  // the dots move nothing, count nothing, and the dark world is untouched —
+  // byte-identity held by law in marks.test.ts.
+  if (frame.palette.theme === 'light') {
+    marks.push(stippleMark(frame, centre, radius, falloffs, depths, surge, intensity))
+  }
 
   // THE ANATOMY INSIDE THE BODY (prd10 ruling 3) — the growth rings and the
   // hyphal fan, over the surface and *under* the core, so the light at the bottom

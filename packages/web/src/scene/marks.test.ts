@@ -40,9 +40,9 @@ import {
 } from './marks/index.js'
 import { ribbonMark } from './marks/index.js'
 import { type SceneQuality, LIGHT_AXIS } from './marks/frame.js'
-import { rootFalloffs, arrivalSwell } from './marks/root.js'
+import { rootFalloffs, arrivalSwell, rootMarks } from './marks/root.js'
 import { RIM_VEIL } from './marks/ambient.js'
-import { buildFrame } from './gl/index.js'
+import { buildFrame, isLight } from './gl/index.js'
 import {
   RETURN,
   RetireRegistry,
@@ -4153,5 +4153,46 @@ describe("the scene's two clocks", () => {
     expect(frameAt(NOW + 900, NOW + 900)).toEqual(
       sceneMarks(frameFor({ fleet: FLEET, now: NOW + 900 })),
     )
+  })
+})
+
+describe('the engraved mass (Plate stage 1 — loop 23)', () => {
+  const massStipple = (palette: typeof DARK_PALETTE) =>
+    rootMarks(frameFor({ palette })).filter((mark) => mark.role === 'mass-stipple')
+
+  it('the dark world never carries the role — the engraving is paper alone', () => {
+    expect(massStipple(DARK_PALETTE)).toEqual([])
+  })
+
+  it('the light world carries exactly one stipple mark, bounded and inside the body', () => {
+    const marks = massStipple(LIGHT_PALETTE)
+    expect(marks.length).toBe(1)
+    const mark = marks[0] as { kind: string; items: { at: { x: number; y: number }; radius: number; ink: { alpha: number } }[] }
+    expect(mark.kind).toBe('motes')
+    expect(mark.items.length).toBeGreaterThan(40)
+    expect(mark.items.length).toBeLessThanOrEqual(460)
+
+    const frame = frameFor({ palette: LIGHT_PALETTE })
+    const radius = frame.geometry.rootRadius * frame.breath
+    const centre = frame.geometry.centre
+    for (const dot of mark.items) {
+      const away = Math.hypot(dot.at.x - centre.x, dot.at.y - centre.y)
+      expect(away).toBeLessThanOrEqual(radius * 1.06)
+      expect(dot.radius).toBeGreaterThan(0)
+      expect(dot.ink.alpha).toBeGreaterThan(0)
+      expect(dot.ink.alpha).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it('is deterministic — the same frame engraves the same print', () => {
+    expect(massStipple(LIGHT_PALETTE)).toEqual(massStipple(LIGHT_PALETTE))
+  })
+
+  it('is ink, not light — additive compositing can only lighten, and paper needs cover', () => {
+    // The finding that shaped the exception: every other motes mark IS light
+    // (a homecoming drift glows), so the painter's rule keys on kind — and an
+    // engraving dot drawn additively on paper is invisible by arithmetic.
+    const mark = massStipple(LIGHT_PALETTE)[0] as never
+    expect(isLight(mark)).toBe(false)
   })
 })
