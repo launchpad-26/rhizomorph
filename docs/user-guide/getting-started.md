@@ -134,6 +134,10 @@ experiment hand.
 
 ## Next
 
+Prefer a window to a browser tab? [The desktop app](the-desktop.md) is the
+same instrument in its own shell — installers, first run, and the settings
+survey.
+
 - **[watching.md](watching.md)** — read the scene, the fleet table, the lane
   drawer, and what the state words mean.
 - **[replay.md](replay.md)** — scrub back through what already happened.
