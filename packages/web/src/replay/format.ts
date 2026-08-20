@@ -1,7 +1,7 @@
 import type { SpendTotals } from '@rhizomorph/core'
 import { formatTokens, formatUsd } from '../lib/format.js'
 
-export { formatElapsed } from '../lib/format.js'
+export { formatDuration, formatElapsed } from '../lib/format.js'
 
 /**
  * Dollars whenever any cost event exists — authoritative or estimated, both are

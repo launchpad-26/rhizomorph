@@ -252,7 +252,8 @@ describe('ReplayControls', () => {
 
     expect(screen.getByText('Replay mode')).toBeInTheDocument()
     // Fixture events span ts 1000..3000 — a 2 second session, not an empty one.
-    expect(screen.getByText('0:02')).toBeInTheDocument()
+    // The duration pair rides the readout plate now (the wrack line).
+    expect(screen.getByTestId('scrubber-readout').textContent).toContain('/ 0:02')
   })
 })
 

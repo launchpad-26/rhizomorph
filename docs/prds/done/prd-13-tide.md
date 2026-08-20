@@ -145,6 +145,55 @@ are noise, not navigation. Amended:
   (same laws: single pass, deterministic, prefix-consistent). No new hue, no
   new motion class; a mark is still, like everything else on the transport.
 
+## Ruling 14 — the wrack line (operator amendment, 2026-08-20)
+
+The dock shipped correct and unreadable, and the operator called it on sight:
+"the timeline tags are too small, the information too tightly bundled and
+overlapping … not thematic." Three defects underneath that sentence, one of
+them an unrecorded ruling-7 breach: the readout chip floated at
+`left:{percent}%` with no clamp, and in live mode the playhead IS the range's
+right edge — so the chip sat over the endpoint clock and the button cluster
+for every live session, permanently. Spiked as three working variants on both
+grounds (the tide-dock-spikes artifact); the operator chose the total
+refurbishment. Amended:
+
+- **Ruling 13's inventory is unchanged and redrawn.** The dock is still the
+  chapter-mark lane, the time axis, and the transport — nothing else. What
+  this amendment changes is that those three things are now drawn at a size
+  and spacing a human can read: the mark lane is 24px, mark labels are
+  `text-inst` (11px-eq, up from the 9px ornament floor), the axis and readout
+  are one strand, and the transport controls carry a 22px hit target.
+- **The mark lane gains a glyph vocabulary — shape first, hue reinforcing.**
+  One shape per ruling-12 chapter kind: a filled sprout dot (`lane-born`), a
+  hollow ring (`lane-landed`), a thorn (`gate-held`), a double bar
+  (`session-boundary`), a braided stem with its count (a coalesced ×N
+  cluster). Each wears the *existing* status ink its fact already means
+  everywhere else in the instrument; boundaries and clusters are structure
+  and wear structural ink. Ruling 12's "no new hue" holds by construction,
+  and law 9's greyscale clause holds on shape alone. Ruling 12's one-ink
+  choice existed to avoid an implicit legend; a shape the hover card already
+  names in words is self-legending, which is the same argument `×N` used.
+- **The axis moves beneath the transport, and the readout docks onto it.**
+  One time line — start clock, the playhead's own clock on a plate under the
+  bead, end clock. The plate clamps inside the track with its stem still
+  pointing at the bead's true x (thumb-travel corrected, not a raw
+  percentage), and whichever endpoint clock the plate would cover yields by
+  `visibility` — hidden, never removed. In live the plate IS the ruler's
+  right end, at seconds precision. #272's "co-located with the thumb" holds;
+  ruling 7's "never covered" now actually does.
+- **The rail is quiet and the thumb is real.** The native range input keeps
+  every native behaviour (ruling 10 verbatim — configured, never
+  reimplemented); its paint moves to `.tide-rail`: played water in
+  `--line-strong`, unplayed shore recessed, a 12px bead with the theme's own
+  focus ring. The old accent fill painted the played portion in primary ink,
+  and live is always 100% played — a full-width rod of the heaviest ink on
+  the strip, carrying nothing.
+- **The elapsed/total pair rides the plate, replay-only.** Its old dim row
+  under the track printed the session's duration twice in live and meant
+  nothing. Ruling 6 ("the number must be readable, not inferred") is served
+  by the plate; live shows the clock alone.
+- No new motion class: the only motion on the strip is playback itself.
+
 ## Sequencing
 
 The TIDE is worth roughly what the spike's cheap wins were worth *combined*,

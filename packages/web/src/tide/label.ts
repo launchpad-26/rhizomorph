@@ -14,11 +14,16 @@
  * that overflows its band, which the law forbids outright.
  */
 
-/** A generous per-character budget — uppercase, tracked-out label text. */
-const CHAR_PX = 6.5
+/**
+ * A generous per-character budget — figures-voice label text. Raised with the
+ * wrack-line refurbishment (prd-13 amendment, 2026-08-20): mark labels grew
+ * from the 9px-eq ornament floor to `text-inst` (11px-eq), so the estimate
+ * grows with them — conservative at the new size, exactly as it was at the old.
+ */
+const CHAR_PX = 7.2
 
 /** Left+right padding a label needs inside its band before it counts as "fits". */
-const LABEL_PADDING_PX = 8
+const LABEL_PADDING_PX = 10
 
 export function estimateLabelWidthPx(text: string): number {
   return text.length * CHAR_PX

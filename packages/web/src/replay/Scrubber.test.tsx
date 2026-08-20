@@ -131,10 +131,19 @@ describe('Scrubber — a native range input, never a reimplementation (ruling 10
     expect(input.className).toContain('w-full')
   })
 
-  it('still shows elapsed and total time, just no longer flanking the input', () => {
+  it('carries elapsed and total inside the plate — the old dim row is gone', () => {
+    // The pair used to be its own row under the track, where live mode printed
+    // the session's duration twice. It now rides the readout plate, and only
+    // while scrubbing is live (the wrack line, prd-13 amendment).
     render(<Scrubber start={1_000} end={11_000} value={5_000} onChange={() => {}} />)
-    expect(screen.getByText('0:04')).toBeInTheDocument()
-    expect(screen.getByText('0:10')).toBeInTheDocument()
+    expect(screen.getByTestId('scrubber-readout').textContent).toContain('0:04 / 0:10')
+    expect(screen.queryByText('0:04')).not.toBeInTheDocument()
+    expect(screen.queryByText('0:10')).not.toBeInTheDocument()
+  })
+
+  it('shows only the clock while disabled — live has no elapsed pair to duplicate', () => {
+    render(<Scrubber start={1_000} end={11_000} value={11_000} onChange={() => {}} disabled />)
+    expect(screen.getByTestId('scrubber-readout').textContent).toBe('00:00:11')
   })
 })
 
@@ -388,7 +397,7 @@ describe('Scrubber — one notch is one pixel of track, at any session length (#
       // 12:00:07 — not an elapsed figure, and not conditional on a pointer
       // being down. Gating this render on `dragging` is the mutation that
       // returns the component to the behaviour the issue reported.
-      expect(screen.getByTestId('scrubber-readout').textContent).toBe('12:00:07')
+      expect(screen.getByTestId('scrubber-readout').textContent).toBe('12:00:07 · 0:07 / 1:00')
       expect(screen.queryByTestId('scrubber-drag-label')).not.toBeInTheDocument()
     })
 
@@ -403,7 +412,7 @@ describe('Scrubber — one notch is one pixel of track, at any session length (#
         />,
       )
       expect(screen.getByTestId('scrubber-readout').textContent).toBe(
-        '12:00:07 · 4 worktrees · 8 commits · $2.14',
+        '12:00:07 · 0:07 / 1:00 · 4 worktrees · 8 commits · $2.14',
       )
     })
 
@@ -411,10 +420,10 @@ describe('Scrubber — one notch is one pixel of track, at any session length (#
       const { rerender } = render(
         <Scrubber start={NOON} end={NOON + 60_000} value={NOON} onChange={() => {}} />,
       )
-      expect(screen.getByTestId('scrubber-readout').textContent).toBe('12:00:00')
+      expect(screen.getByTestId('scrubber-readout').textContent).toBe('12:00:00 · 0:00 / 1:00')
 
       rerender(<Scrubber start={NOON} end={NOON + 60_000} value={NOON + 42_000} onChange={() => {}} />)
-      expect(screen.getByTestId('scrubber-readout').textContent).toBe('12:00:42')
+      expect(screen.getByTestId('scrubber-readout').textContent).toBe('12:00:42 · 0:42 / 1:00')
     })
 
     it('is positioned on the thumb rather than at a fixed place on the track', () => {
@@ -445,7 +454,7 @@ describe('Scrubber — one notch is one pixel of track, at any session length (#
       expect(readout.getAttribute('aria-hidden')).toBe('true')
       expect(input.getAttribute('aria-valuetext')).toBe(readout.textContent)
       expect(input.getAttribute('aria-valuetext')).toBe(
-        '12:00:07 · 4 worktrees · 8 commits · $2.14',
+        '12:00:07 · 0:07 / 1:00 · 4 worktrees · 8 commits · $2.14',
       )
     })
 

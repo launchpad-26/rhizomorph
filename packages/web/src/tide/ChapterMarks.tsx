@@ -23,18 +23,25 @@ import { hoverThresholdMs, timeScale } from './scale.js'
  * a 9px diamond, and its who/what/when now lives in a styled hover card
  * instead of the platform's own `title` tooltip.
  *
- * **No new hue, no new motion (ruling 12's own words, restated by the
- * research note's non-recommendations).** Every mark, of every kind, still
- * renders in the same ink the playhead already uses (`text-(--ink-primary)`/
- * `bg-(--ink-primary)`) — colour-coding chapter kinds would grow an implicit
- * legend, which ruling 7 already forbids for bands and this file does not
- * reopen for marks. The hover card's ~150ms delay is a *timing* choice
- * about when to reveal it, never an animated reveal of the card itself —
- * nothing here transitions or slides.
+ * **The wrack line (prd-13 amendment, operator-directed 2026-08-20).** The
+ * uniform 2px tick grew into a glyph vocabulary, one shape per chapter kind:
+ * a filled sprout dot for `lane-born`, a hollow ring for `lane-landed`, a
+ * thorn for `gate-held`, a double bar for `session-boundary`, and a braided
+ * stem with a count for a coalesced cluster. **Shape is the legend, hue only
+ * reinforces it** — each glyph wears the *existing* status ink its fact
+ * already means everywhere else (born/working green, landed/done green,
+ * gate/needs-you amber; boundaries and clusters are structure and wear
+ * structural ink), so law 9's greyscale-survival clause holds on shape alone
+ * and "no new hue" holds by construction. Ruling 12's original cut kept every
+ * mark in one ink to avoid an implicit legend; the amendment records why the
+ * glyphs supersede that: a shape a hover card names is self-legending the
+ * same way `×N` already was. The hover card's ~150ms delay is a *timing*
+ * choice about when to reveal it, never an animated reveal of the card
+ * itself — nothing here transitions or slides.
  *
- * **Hit target grown without growing the glyph.** The visible tick stays
- * 2px wide; `px-[5px]` on the button around it brings the actual click/hover
- * target to 12px, the same "label when it fits, never clipped" spirit
+ * **Hit target grown with the lane.** The visible glyph is ≤8px wide;
+ * `px-[7px]` on the button around it brings the actual click/hover target to
+ * ~22px in a 24px lane, the same "label when it fits, never clipped" spirit
  * `label.ts` already states for bands, reused here via {@link labelFits}
  * against the pixel gap to this mark's nearest neighbour.
  *
@@ -73,7 +80,7 @@ import { hoverThresholdMs, timeScale } from './scale.js'
  * enter/leave ever drives `anchor` (never the card's).
  */
 
-export const MARK_ROW_HEIGHT_PX = 10
+export const MARK_ROW_HEIGHT_PX = 24
 
 /** The YouTube "chapter title appears as you scrub" idiom's dock-chrome sibling — a deliberate delay, not a debounce for performance. */
 const HOVER_DELAY_MS = 150
@@ -92,8 +99,8 @@ const CARD_GAP_PX = 4
  */
 const CARD_HALF_WIDTH_ESTIMATE_PX = 110
 
-/** Left+right padding a tick's hit target gets beyond its 2px glyph — `label.ts`'s "estimate conservatively" philosophy applied to a target instead of a label. */
-const MARK_HIT_PADDING_PX = 5
+/** Left+right padding a glyph's hit target gets beyond its own width — `label.ts`'s "estimate conservatively" philosophy applied to a target instead of a label. */
+const MARK_HIT_PADDING_PX = 7
 
 export interface ChapterMarksProps {
   /** The raw log. `chaptersFor` is the only thing in this file allowed to fold it. */
@@ -157,11 +164,71 @@ function neighbourGapPx(positions: readonly number[], index: number, trackWidth:
   return Math.max(0, right)
 }
 
-/** `"163 ▸"` for a lone mark, `"×3 ▸"` for a cluster — self-legending the way band labels already are, never a per-kind colour. */
+/**
+ * `"163"` for a lone mark, `"×3"` for a cluster. The trailing `▸` died with
+ * the wrack line: it existed to say "this seeks", which the glyph's own
+ * cursor and shape now say — a label is a name, not an affordance.
+ */
 function markShortLabel(group: MarkGroup): string {
-  if (group.members.length > 1) return `×${group.members.length} ▸`
+  if (group.members.length > 1) return `×${group.members.length}`
   const [member] = group.members as [Chapter]
-  return `${member.lane ?? 'session'} ▸`
+  return member.lane ?? 'session'
+}
+
+/** Which glyph the group wears: its single member's own kind, or the braid. */
+function glyphKindOf(group: MarkGroup): Chapter['kind'] | 'cluster' {
+  if (group.members.length > 1) return 'cluster'
+  const [member] = group.members as [Chapter]
+  return member.kind
+}
+
+/**
+ * THE GLYPHS — one shape per chapter kind, drawn in CSS so the whole lane
+ * stays a handful of spans. Every shape rises from the lane's floor on a
+ * quiet stem (the kind's own ink at reduced presence); the head is what
+ * differs, and it differs in *shape* first so the vocabulary survives
+ * greyscale (law 9). All spans are `aria-hidden` — the button's own
+ * `aria-label` already carries every member's who/what/when in words.
+ */
+function MarkGlyph({ kind }: { kind: Chapter['kind'] | 'cluster' }): ReactElement {
+  switch (kind) {
+    case 'lane-born':
+      return (
+        <span aria-hidden="true" className="pointer-events-none">
+          <span className="absolute bottom-0 left-1/2 h-2.5 w-0.5 -translate-x-1/2 bg-(--color-working) opacity-40" />
+          <span className="absolute bottom-2 left-1/2 h-2 w-2 -translate-x-1/2 rounded-full bg-(--color-working)" />
+        </span>
+      )
+    case 'lane-landed':
+      return (
+        <span aria-hidden="true" className="pointer-events-none">
+          <span className="absolute bottom-0 left-1/2 h-2.5 w-0.5 -translate-x-1/2 bg-(--color-done) opacity-40" />
+          <span className="absolute bottom-2 left-1/2 h-2 w-2 -translate-x-1/2 rounded-full border-2 border-(--color-done)" />
+        </span>
+      )
+    case 'gate-held':
+      return (
+        <span aria-hidden="true" className="pointer-events-none">
+          <span className="absolute bottom-0 left-1/2 h-2.5 w-0.5 -translate-x-1/2 bg-(--color-needs-you) opacity-40" />
+          <span className="absolute bottom-2 left-1/2 h-0 w-0 -translate-x-1/2 border-x-4 border-b-8 border-x-transparent border-b-(--color-needs-you)" />
+        </span>
+      )
+    case 'session-boundary':
+      return (
+        <span aria-hidden="true" className="pointer-events-none">
+          <span className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-[3px] bg-(--ink-dim)" />
+          <span className="absolute inset-y-0 left-1/2 w-0.5 translate-x-px bg-(--ink-dim)" />
+        </span>
+      )
+    case 'cluster':
+      return (
+        <span aria-hidden="true" className="pointer-events-none">
+          <span className="absolute bottom-0 left-1/2 h-2 w-0.5 -translate-x-[5px] bg-(--ink-body) opacity-60" />
+          <span className="absolute bottom-0 left-1/2 h-3.5 w-0.5 -translate-x-1/2 bg-(--ink-body)" />
+          <span className="absolute bottom-0 left-1/2 h-2 w-0.5 translate-x-[3px] bg-(--ink-body) opacity-60" />
+        </span>
+      )
+  }
 }
 
 /** Where the portaled card lands — the tick's own screen rect, read once at show time and kept live while hovered (issue #189 defect 1). */
@@ -258,14 +325,16 @@ function MarkView({
         aria-label={ariaText}
         disabled={!seekEnabled}
         onClick={handleClick}
-        className="relative flex h-full items-center enabled:cursor-pointer disabled:cursor-default"
-        style={{ padding: `0 ${MARK_HIT_PADDING_PX}px` }}
+        className="relative flex h-full w-2 items-end justify-center enabled:cursor-pointer disabled:cursor-default disabled:opacity-70"
+        style={{ padding: `0 ${MARK_HIT_PADDING_PX}px`, boxSizing: 'content-box' }}
       >
-        <span aria-hidden="true" className="h-full w-0.5 bg-(--ink-primary) disabled:opacity-70" />
+        <MarkGlyph kind={glyphKindOf(group)} />
         {showLabel && (
           <span
             aria-hidden="true"
-            className="figures absolute left-full top-1/2 -translate-y-1/2 whitespace-nowrap pl-0.5 text-inst-floor leading-none text-(--ink-primary)"
+            className={`figures absolute bottom-0.5 left-full whitespace-nowrap pl-1 text-inst leading-none ${
+              group.members.length > 1 ? 'font-semibold text-(--ink-body)' : 'text-(--ink-dim)'
+            }`}
           >
             {label}
           </span>

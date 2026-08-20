@@ -135,7 +135,7 @@ export default function ReplayControls() {
    * line the fleet's single `1fr` row gets back.
    */
   return (
-    <div className="flex flex-col gap-1 border-t border-(--line-hair) px-4 py-1.5 text-inst uppercase tracking-wide text-(--ink-dim)">
+    <div className="flex flex-col gap-2 border-t border-(--line-hair) px-4 py-2 text-inst uppercase tracking-wide text-(--ink-dim)">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="font-semibold tracking-widest text-(--ink-body)">Time</span>
         <span className="font-semibold text-(--ink-primary)">

@@ -23,9 +23,12 @@ steps: **1x**, **4x**, **16x**.
 ## The dock
 
 Underneath the transport sits the dock: a sparse chapter-mark lane above the
-scrubber, one mark per lane-born/landed/gate-held/summons/session-boundary
-moment, coalescing into a `×N` count under density the same way everything
-else in this app coalesces rather than invents.
+scrubber, one glyph per moment — a filled dot for a lane born, a hollow ring
+for a lane landed, an amber thorn for a gate held, a double bar for a session
+boundary — coalescing into a braided stem with a `×N` count under density the
+same way everything else in this app coalesces rather than invents. (Ruling
+12 also names attention-summons onset as a mark kind; no event carries that
+moment yet, so it is not drawn — an absence, not an oversight.)
 
 - **Hover** a mark (or a cluster) for a card naming who/what/when for every
   member — mounted straight to `document.body` rather than nested in place,
@@ -34,8 +37,11 @@ else in this app coalesces rather than invents.
   never the whole scrubbable range, which stays full-width always.
 - **`[` / `]`** step to the previous/next chapter mark.
 - The **scrubber** itself is a real range input with a genuine step value (not
-  the browser's 1ms default); dragging it shows the nearest chapter's label
-  above the thumb, plus elapsed/remaining labels below.
+  the browser's 1ms default): a quiet rail with a 12px bead for a thumb.
+  Dragging it shows the nearest chapter's label above the rail; the plate
+  beneath the bead carries the playhead's clock, the elapsed/total pair while
+  scrubbing, and the instant's headline facts — clamped to the track's edges,
+  with the endpoint clock it would cover politely stepping aside.
 
 What prd13 shipped and then walked back: a per-lane density band (a state-fill
 strip, one row per lane) was cut outright on 2026-08-06 — *"get rid of the

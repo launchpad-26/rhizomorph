@@ -424,14 +424,14 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
     render(
       <TideDock mode="live" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled={false} />,
     )
-    expect(screen.getByTestId('chapter-marks').style.height).toBe('10px')
+    expect(screen.getByTestId('chapter-marks').style.height).toBe('24px')
   })
 
   it('the mark lane renders at the same height in replay — no mode split left to grow it', () => {
     render(
       <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled />,
     )
-    expect(screen.getByTestId('chapter-marks').style.height).toBe('10px')
+    expect(screen.getByTestId('chapter-marks').style.height).toBe('24px')
   })
 
   // #272 changed the first assertion of each of these two from "absent until
@@ -462,6 +462,41 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
 
     fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
     expect(screen.getByTestId('tide-axis')).toBeInTheDocument()
+  })
+
+  // The wrack line's endpoint yield (prd-13 ruling 7, "never covered"): the
+  // readout plate hangs beneath the rail on the axis's own strand, clamped
+  // inside the track — so whichever endpoint clock it would cover goes
+  // visibility:hidden. Hidden, never removed: the two assertions above read
+  // the axis's WHOLE textContent, and still can.
+  it('yields the right endpoint clock to the plate in live, where the plate parks at the end', () => {
+    render(
+      <TideDock mode="live" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled={false} />,
+    )
+    const [startClock, endClock] = Array.from(screen.getByTestId('tide-axis').children) as HTMLElement[]
+    expect(endClock?.style.visibility).toBe('hidden')
+    expect(startClock?.style.visibility).not.toBe('hidden')
+    // The yield is a visibility, so the axis text law above still holds whole.
+    expect(screen.getByTestId('tide-axis').textContent).toBe(
+      `${formatClock(T0)}${formatClock(T_END)}`,
+    )
+  })
+
+  it('yields neither clock while the playhead is mid-track in replay', () => {
+    render(
+      <TideDock
+        mode="replay"
+        events={threeLaneEvents()}
+        start={T0}
+        end={T_END}
+        value={(T0 + T_END) / 2}
+        onSeek={() => {}}
+        seekEnabled
+      />,
+    )
+    const [startClock, endClock] = Array.from(screen.getByTestId('tide-axis').children) as HTMLElement[]
+    expect(startClock?.style.visibility).not.toBe('hidden')
+    expect(endClock?.style.visibility).not.toBe('hidden')
   })
 
   // The readout is `Scrubber`'s, but the thread from `TideDock`'s own prop to

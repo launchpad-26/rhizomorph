@@ -374,7 +374,7 @@ describe('ChapterMarks — label-when-fits (research note §4 R2, "the band\'s o
       fx.at(0).agentStatus({ handle: 'ke5', status: 'working' })
     })
     render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
-    expect(screen.getByText('ke5 ▸')).toBeInTheDocument()
+    expect(screen.getByText('ke5')).toBeInTheDocument()
   })
 
   it('shows a count label for a cluster with room to spare', () => {
@@ -383,7 +383,7 @@ describe('ChapterMarks — label-when-fits (research note §4 R2, "the band\'s o
       fx.at(5_010).agentStatus({ handle: 'b', status: 'working' })
     })
     render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
-    expect(screen.getByText('×2 ▸')).toBeInTheDocument()
+    expect(screen.getByText('×2')).toBeInTheDocument()
   })
 
   it('never renders a label when neighbouring marks leave no room — never clipped text', () => {
@@ -427,6 +427,6 @@ describe('ChapterMarks — row height (prd13 ruling 13: one height, not mode-dep
       fx.at(100).agentStatus({ handle: 'ke5', status: 'working' })
     })
     render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
-    expect(screen.getByTestId('chapter-marks').style.height).toBe('10px')
+    expect(screen.getByTestId('chapter-marks').style.height).toBe('24px')
   })
 })

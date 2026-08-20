@@ -9,7 +9,7 @@ import {
   type RefObject,
 } from 'react'
 import type { RhizomorphEvent } from '@rhizomorph/core'
-import { Scrubber } from '../replay/Scrubber.js'
+import { readoutText, Scrubber } from '../replay/Scrubber.js'
 import { ChapterMarks } from './ChapterMarks.js'
 import { chapterLabel, chaptersFor } from './chapters.js'
 import { Loupe } from './Loupe.js'
@@ -24,6 +24,16 @@ import { canShiftWindow, shiftWindow, usefulMaxZoomLevel, windowForLevel, zoomFr
  * 13, issue #194: "get rid of the working green strips entirely"). What's
  * left is exactly what ruling 13 names: the chapter-mark lane, the time
  * axis, and the transport — a line of moments over a scrubber. Nothing else.
+ *
+ * **The wrack line (prd-13 amendment, operator-directed 2026-08-20)** redraws
+ * those same three things properly, adding no fourth: the mark lane grows to
+ * 24px and a per-kind glyph vocabulary (`ChapterMarks`), the rail is quiet
+ * with a real bead for a thumb (`Scrubber` + `.tide-rail`), and the axis
+ * moves *beneath* the transport so the readout plate and the two endpoint
+ * clocks share one strand — start, the playhead's clock, end — with whichever
+ * endpoint the plate would cover yielding by visibility. The old floating
+ * chip's permanent live-mode squat over the right clock and the button
+ * cluster (an unrecorded prd-13 ruling-7 breach) dies with the move.
  *
  * - **One x-axis.** The mark row and the `Scrubber` row are two rows of a
  *   `grid-template-columns: auto 1fr auto` layout — the browser's own grid
@@ -99,7 +109,7 @@ export interface TideDockProps {
 }
 
 const BUTTON_CLASS =
-  'rounded border border-(--line-hair) px-1.5 py-0.5 text-inst-dense leading-none text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-40 disabled:hover:border-(--line-hair) disabled:hover:text-(--ink-body)'
+  'rounded border border-(--line-hair) px-2 py-1 text-inst leading-none text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-40 disabled:hover:border-(--line-hair) disabled:hover:text-(--ink-body)'
 
 function useElementWidth(): [RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement | null>(null)
@@ -231,6 +241,26 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
   const playheadTs = mode === 'replay' ? value : end
   const showPlayhead = width > 0 && playheadTs >= window_.start && playheadTs <= window_.end
   const playheadX = showPlayhead ? scale.xOf(playheadTs) : 0
+
+  // THE ENDPOINT YIELD (the wrack line; prd-13 ruling 7's "never covered").
+  // The readout plate below the rail clamps inside the track, so near either
+  // edge it would sit over that edge's axis clock. Whichever clock the plate
+  // would cover goes `visibility: hidden` — hidden, never removed, so the
+  // axis's DOM text stays whole — and in live mode that is permanently the
+  // right one, where the plate itself IS the right end of the ruler, at
+  // seconds precision. Widths are estimated conservatively from the plate's
+  // own text (the same stance `label.ts` takes and for the same reason:
+  // measuring the DOM makes the answer font-dependent; over-yielding hides a
+  // clock the plate only nearly touched, which is the safe side).
+  const clampedTs = Math.min(end, Math.max(start, playheadTs))
+  const plateText = readoutText(clampedTs, start, end, scrubFacts, !seekEnabled)
+  const PLATE_CHAR_PX = 8
+  const ENDPOINT_WIDTH_PX = 46
+  const plateWidth = plateText.length * PLATE_CHAR_PX + 14
+  const beadX = width > 0 ? 6 + ((clampedTs - start) / Math.max(1, end - start)) * (width - 12) : 0
+  const plateCentre = Math.min(Math.max(beadX, plateWidth / 2), Math.max(plateWidth / 2, width - plateWidth / 2))
+  const hideStartClock = width > 0 && plateCentre - plateWidth / 2 < ENDPOINT_WIDTH_PX + 6
+  const hideEndClock = width > 0 && plateCentre + plateWidth / 2 > width - ENDPOINT_WIDTH_PX - 6
 
   // A drag that crossed the pan threshold suppresses the click-to-seek that
   // would otherwise follow on mouseup — one gesture is either a seek or a
@@ -371,7 +401,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
       // 1193px cell and put 85px of scroll on the document (#655). The third
       // column was already written `minmax(0,auto)` by someone who knew this;
       // the middle one was not, and only the middle one holds the timeline.
-      className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,auto)] items-center gap-x-2 gap-y-px"
+      className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,auto)] items-center gap-x-2 gap-y-1"
       data-testid="tide-dock"
       data-mode={mode}
     >
@@ -401,17 +431,6 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
             style={{ left: playheadX }}
           />
         )}
-      </div>
-      <div aria-hidden="true" />
-
-      {/* The axis is unconditional (#272) — see the module note. */}
-      <div aria-hidden="true" />
-      <div
-        data-testid="tide-axis"
-        className="figures flex items-center justify-between text-inst-dense leading-none text-(--ink-dim)"
-      >
-        <span>{formatClock(window_.start)}</span>
-        <span>{formatClock(window_.end)}</span>
       </div>
       <div aria-hidden="true" />
 
@@ -500,6 +519,25 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
           »
         </button>
       </div>
+
+      {/*
+        THE AXIS ROW (unconditional, #272) — moved beneath the transport by
+        the wrack line: the readout plate hangs below the rail, so the axis
+        clocks and the plate now share one strand and read as a single time
+        line — start, the playhead's own clock on the plate, end. The row is
+        tall enough to be the plate's home (the plate is absolutely positioned
+        out of `Scrubber`'s root into this space), which is what ended the old
+        chip's squat over the axis and the button cluster.
+      */}
+      <div aria-hidden="true" />
+      <div
+        data-testid="tide-axis"
+        className="figures flex h-7 items-start justify-between pt-1 text-inst leading-none text-(--ink-dim)"
+      >
+        <span style={hideStartClock ? { visibility: 'hidden' } : undefined}>{formatClock(window_.start)}</span>
+        <span style={hideEndClock ? { visibility: 'hidden' } : undefined}>{formatClock(window_.end)}</span>
+      </div>
+      <div aria-hidden="true" />
 
       {/*
         THE LOUPE (#273), inside the dock's own grid rather than portaled or

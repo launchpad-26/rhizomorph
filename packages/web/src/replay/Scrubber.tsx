@@ -1,6 +1,6 @@
 import { type RefObject, useLayoutEffect, useRef, useState } from 'react'
 import { formatClockSeconds } from '../tide/duration.js'
-import { formatElapsed } from './format.js'
+import { formatDuration } from './format.js'
 
 /** One real chapter instant, for the drag label only — never a seek target of its own (that stays `onChange`/`onSeek`'s job). */
 export interface ScrubberChapterMarker {
@@ -91,12 +91,41 @@ export interface ScrubberProps {
  * reads `chapterMarkers` only to find the nearest one; it never seeks and
  * never becomes a second click target.
  *
- * The elapsed/remaining labels sit on their own line *below* the input,
- * rather than flanking it as they used to, so the input itself spans the
- * component's full width — the one measurement `TideDock` needs in order to
- * lay the TIDE's bands over the exact same x-axis as this track (prd13
- * ruling 1's "share one x-axis"), without a second, hand-tuned offset.
+ * The elapsed/total pair lives *inside the readout plate* while scrubbing is
+ * live (the wrack line, prd-13 amendment) — it used to be its own dim row
+ * below the input, where in live mode it printed the session's duration twice
+ * and meant nothing. The input still spans the component's full width — the
+ * one measurement `TideDock` needs in order to lay the TIDE's marks over the
+ * exact same x-axis as this track (prd13 ruling 1's "share one x-axis"),
+ * without a second, hand-tuned offset.
  */
+/** The bead's rendered diameter (`.tide-rail`'s thumb), for thumb-travel correction. */
+const THUMB_PX = 12
+
+/**
+ * The readout's whole voice, in one place (the wrack line, prd-13 amendment):
+ * the absolute clock at the playhead; then — only while scrubbing is live —
+ * the elapsed/total pair that used to be its own row under the track, and the
+ * instant's facts. Exported so `TideDock` can estimate the painted plate's
+ * width for its endpoint-yield without a second, silently divergent notion of
+ * what the plate says.
+ */
+export function readoutText(
+  clamped: number,
+  start: number,
+  end: number,
+  facts: string | null,
+  disabled: boolean,
+): string {
+  const clock = formatClockSeconds(clamped)
+  if (disabled) return clock
+  // `formatDuration`, not `formatElapsed`: a recorded session can run days,
+  // and 3288:54 of minutes misreads as under an hour (that formatter's own
+  // header sentence). Under an hour the two agree to the digit.
+  const pair = `${formatDuration(clamped - start)} / ${formatDuration(end - start)}`
+  return facts === null ? `${clock} · ${pair}` : `${clock} · ${pair} · ${facts}`
+}
+
 export function Scrubber({ start, end, value, onChange, disabled = false, chapterMarkers = [], facts = null }: ScrubberProps) {
   const clamped = Math.min(end, Math.max(start, value))
   const span = Math.max(1, end - start)
@@ -108,10 +137,32 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
   const thumbPercent = ((clamped - start) / span) * 100
 
   // #272. The absolute clock at the playhead, plus the instant's facts, in one
-  // string used twice: painted beside the thumb, and handed to assistive tech
-  // as the input's `aria-valuetext`. A range input otherwise announces the raw
-  // epoch-millisecond `value`, which is not a time anyone can hear.
-  const readout = facts === null ? formatClockSeconds(clamped) : `${formatClockSeconds(clamped)} · ${facts}`
+  // string used twice: painted on the plate beneath the bead, and handed to
+  // assistive tech as the input's `aria-valuetext`. A range input otherwise
+  // announces the raw epoch-millisecond `value`, which is not a time anyone
+  // can hear.
+  const readout = readoutText(clamped, start, end, facts, disabled)
+
+  // THE PLATE'S HOME (the wrack line). Two corrections over the old floating
+  // chip, both against measured widths rather than percentages:
+  //
+  //  1. *Thumb travel.* A native thumb's centre runs `[THUMB_PX/2, width −
+  //     THUMB_PX/2]`, not `[0, width]` — a raw percentage drifted off the bead
+  //     toward both ends, worst exactly where the old chip parked.
+  //  2. *The clamp.* The plate's own edges stay inside the track, and the stem
+  //     (`--tide-stem`, drawn by `.tide-plate::before`) keeps pointing at the
+  //     bead's true x — so at the edges the plate stops moving and the stem
+  //     keeps telling the truth. This is what ends the live-mode collision
+  //     with the axis clock and the button cluster (prd-13 ruling 7).
+  //
+  // jsdom reports no widths; the percentage fallback below keeps the component
+  // honest there (and keeps the suite's own geometry assertions meaningful).
+  const [plateRef, plateWidth] = usePlateWidth(readout)
+  const beadX = trackWidth > 0 ? THUMB_PX / 2 + (thumbPercent / 100) * (trackWidth - THUMB_PX) : null
+  const plateLeft =
+    beadX === null || plateWidth === 0
+      ? null
+      : Math.min(Math.max(beadX, plateWidth / 2), Math.max(plateWidth / 2, trackWidth - plateWidth / 2))
 
   return (
     <div className="relative flex flex-1 flex-col normal-case tracking-normal">
@@ -119,7 +170,7 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
         <div
           aria-hidden="true"
           data-testid="scrubber-drag-label"
-          className="pointer-events-none absolute -top-10 -translate-x-1/2 whitespace-nowrap rounded border border-(--line-strong) bg-(--surface-panel) px-1 py-0.5 text-inst-dense text-(--ink-primary)"
+          className="figures pointer-events-none absolute -top-7 -translate-x-1/2 whitespace-nowrap rounded border border-(--line-strong) bg-(--surface-panel) px-1.5 py-0.5 text-inst text-(--ink-primary)"
           style={{ left: `${thumbPercent}%` }}
         >
           {nearest.label}
@@ -138,10 +189,15 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
         value is asked for is not.
       */}
       <div
+        ref={plateRef}
         aria-hidden="true"
         data-testid="scrubber-readout"
-        className="figures pointer-events-none absolute -top-5 -translate-x-1/2 whitespace-nowrap rounded border border-(--line-strong) bg-(--surface-panel) px-1 py-0.5 text-inst-dense text-(--ink-primary)"
-        style={{ left: `${thumbPercent}%` }}
+        className="tide-plate figures pointer-events-none absolute top-full mt-1 -translate-x-1/2 whitespace-nowrap rounded border border-(--line-strong) bg-(--surface-panel) px-1.5 py-0.5 text-read-floor font-semibold leading-none text-(--ink-primary)"
+        style={
+          plateLeft === null
+            ? { left: `${thumbPercent}%` }
+            : { left: plateLeft, ['--tide-stem' as string]: `${plateWidth / 2 + ((beadX as number) - plateLeft)}px` }
+        }
       >
         {readout}
       </div>
@@ -159,14 +215,28 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
         onPointerDown={() => setDragging(true)}
         onPointerUp={() => setDragging(false)}
         onPointerCancel={() => setDragging(false)}
-        className="h-1 w-full accent-(--ink-primary)"
+        className="tide-rail h-3 w-full"
+        style={{ ['--tide-played' as string]: `${thumbPercent}%` }}
       />
-      <div className="flex items-center justify-between text-inst-dense leading-none text-(--ink-dim)">
-        <span className="figures">{formatElapsed(clamped - start)}</span>
-        <span className="figures">{formatElapsed(end - start)}</span>
-      </div>
     </div>
   )
+}
+
+/**
+ * The plate's own painted width, re-measured when its text changes — `0`
+ * until knowable, exactly like {@link useTrackWidth}, which is what routes
+ * jsdom onto the percentage fallback above.
+ */
+function usePlateWidth(readout: string): [RefObject<HTMLDivElement | null>, number] {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState(0)
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `readout` is the remeasure trigger — the plate's width is a function of its text.
+  useLayoutEffect(() => {
+    setWidth(Math.max(0, Math.floor(ref.current?.getBoundingClientRect().width ?? 0)))
+  }, [readout])
+
+  return [ref, width]
 }
 
 /**
