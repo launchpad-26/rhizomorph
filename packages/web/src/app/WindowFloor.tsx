@@ -33,7 +33,7 @@ function BelowFloorPanel({ width, height }: { width: number; height: number }) {
       data-testid="window-floor"
       className="flex h-screen flex-col items-center justify-center gap-3 bg-(--surface-floor) px-6 text-center font-sans text-(--ink-body)"
     >
-      <p className="max-w-md font-mono text-[length:var(--text-read-floor)] leading-snug text-(--ink-dim)">
+      <p className="max-w-md font-mono text-read-floor leading-snug text-(--ink-dim)">
         THIS WINDOW IS TOO SMALL FOR THE INSTRUMENT — the minimum is{' '}
         <span className="figures text-(--ink-primary)">
           {WINDOW_MIN_WIDTH}×{WINDOW_MIN_HEIGHT}

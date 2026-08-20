@@ -306,7 +306,7 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
         >
           ← balcony
         </button>
-        <h1 className="text-read-body text-(--ink-primary)">History</h1>
+        <h1 className="page-title text-(--ink-primary)">History</h1>
         <span className="text-read-floor normal-case tracking-normal text-(--ink-dim)">
           the past, two ways — what happened that night, or what a piece of work did
         </span>

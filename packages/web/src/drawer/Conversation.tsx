@@ -115,18 +115,18 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
   return (
     <section data-testid="drawer-conversation" className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="flex items-baseline justify-between px-4 pb-1 pt-2">
-        <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-(--ink-dim)">
+        <h3 className="text-inst-dense font-semibold uppercase tracking-[0.2em] text-(--ink-dim)">
           Conversation
         </h3>
         {unreadable ? null : (
-          <span data-testid="conversation-tail-state" className="figures text-[10px] text-(--ink-dim)">
+          <span data-testid="conversation-tail-state" className="figures text-inst-dense text-(--ink-dim)">
             {stale ? 'stale ▪' : following ? 'tailing ▾' : 'paused ▴'}
           </span>
         )}
       </header>
 
       {unreadable ? (
-        <p role="status" className="px-4 pb-3 font-mono text-[11px] leading-snug text-(--ink-dim)">
+        <p role="status" className="px-4 pb-3 font-mono text-inst leading-snug text-(--ink-dim)">
           {tail.reason}
         </p>
       ) : (
@@ -141,7 +141,7 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
               <p
                 data-testid="conversation-stale-reason"
                 role="status"
-                className="mb-2 border-b border-(--line-hair) pb-1.5 text-[10px] leading-snug text-(--ink-dim)"
+                className="mb-2 border-b border-(--line-hair) pb-1.5 text-inst-dense leading-snug text-(--ink-dim)"
               >
                 {tail.reason}
               </p>
@@ -151,7 +151,7 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
                 type="button"
                 onClick={() => void tail.loadEarlier()}
                 disabled={tail.loadingEarlier}
-                className="mb-2 w-full border-b border-(--line-hair) pb-1.5 text-center text-[10px] uppercase tracking-wider text-(--ink-dim) hover:bg-(--surface-raised) disabled:opacity-50"
+                className="mb-2 w-full border-b border-(--line-hair) pb-1.5 text-center text-inst-dense uppercase tracking-wider text-(--ink-dim) hover:bg-(--surface-raised) disabled:opacity-50"
               >
                 {tail.loadingEarlier ? 'loading earlier…' : 'load earlier'}
               </button>
@@ -164,7 +164,7 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
               surface="conversation"
             />
             {tail.entries.length === 0 ? (
-              <p role="status" className="text-[11px] leading-snug text-(--ink-dim)">
+              <p role="status" className="text-inst leading-snug text-(--ink-dim)">
                 {tail.status === 'loading'
                   ? 'reading the session log…'
                   : 'NOTHING SAID YET — the session log for this lane carries no turn so far, so ' +
@@ -185,7 +185,7 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
             <button
               type="button"
               onClick={() => setFollowing(true)}
-              className="border-t border-(--line-hair) px-4 py-1 text-left text-[10px] uppercase tracking-wider text-notice hover:bg-(--surface-raised)"
+              className="border-t border-(--line-hair) px-4 py-1 text-left text-inst-dense uppercase tracking-wider text-notice hover:bg-(--surface-raised)"
             >
               paused — jump to the tail
             </button>
@@ -211,7 +211,7 @@ function Turn({ entry }: { entry: TranscriptEntry }) {
       className={`mt-2 first:mt-0 ${entry.role === 'subagent' ? 'border-l border-(--line-hair) pl-2' : ''}`}
     >
       {entry.role === 'subagent' ? (
-        <p className="text-[9px] uppercase tracking-[0.18em] text-(--ink-dim)">subagent</p>
+        <p className="text-inst-floor uppercase tracking-[0.18em] text-(--ink-dim)">subagent</p>
       ) : null}
       {entry.blocks.map((block, index) => (
         <Block key={index} block={block} role={entry.role} />
@@ -239,7 +239,7 @@ function Block({ block, role }: { block: TranscriptBlock; role: TranscriptRole }
     return (
       <p
         data-testid="tool-call"
-        className={`flex items-baseline gap-1.5 py-0.5 font-mono text-[10px] leading-snug text-(--ink-dim) ${kindEdgeClass(BLOCK_KIND.tool_use)}`}
+        className={`flex items-baseline gap-1.5 py-0.5 font-mono text-inst-dense leading-snug text-(--ink-dim) ${kindEdgeClass(BLOCK_KIND.tool_use)}`}
       >
         {/* aria-hidden bullet: decorative line-start mark, no information of its own — legibility.test.ts allowlist */}
         <span aria-hidden className="text-(--ink-dim)">
@@ -260,7 +260,7 @@ function Block({ block, role }: { block: TranscriptBlock; role: TranscriptRole }
     return (
       <p
         data-testid="tool-result"
-        className={`whitespace-pre-wrap break-words border-l-2 pl-3.5 font-mono text-[10px] leading-snug ${kindInkClass(BLOCK_KIND.tool_result)} ${KIND_APPEARANCE[BLOCK_KIND.tool_result].edge}`}
+        className={`whitespace-pre-wrap break-words border-l-2 pl-3.5 font-mono text-inst-dense leading-snug ${kindInkClass(BLOCK_KIND.tool_result)} ${KIND_APPEARANCE[BLOCK_KIND.tool_result].edge}`}
       >
         {/* aria-hidden glyph: decorative line-start mark, no information of its own — legibility.test.ts allowlist */}
         <span aria-hidden className="text-(--ink-dim)">
@@ -285,7 +285,7 @@ function Block({ block, role }: { block: TranscriptBlock; role: TranscriptRole }
         <span aria-hidden className="figures shrink-0 text-notice">
           ›
         </span>
-        <span className="min-w-0 whitespace-pre-wrap break-words text-[12px] leading-relaxed text-(--ink-primary)">
+        <span className="min-w-0 whitespace-pre-wrap break-words text-read-floor leading-relaxed text-(--ink-primary)">
           {block.text}
         </span>
       </p>
@@ -295,7 +295,7 @@ function Block({ block, role }: { block: TranscriptBlock; role: TranscriptRole }
   if (role === 'system') {
     // Not a voice from the log — the parser reporting a line it could not read.
     return (
-      <p data-testid="turn-prose" className="py-0.5 font-mono text-[10px] leading-snug text-(--ink-dim)">
+      <p data-testid="turn-prose" className="py-0.5 font-mono text-inst-dense leading-snug text-(--ink-dim)">
         {block.text}
       </p>
     )
@@ -304,7 +304,7 @@ function Block({ block, role }: { block: TranscriptBlock; role: TranscriptRole }
   return (
     <p
       data-testid="turn-prose"
-      className={`whitespace-pre-wrap break-words py-0.5 text-[12px] leading-relaxed ${
+      className={`whitespace-pre-wrap break-words py-0.5 text-read-floor leading-relaxed ${
         role === 'subagent' ? 'text-(--ink-dim)' : 'text-(--ink-body)'
       }`}
     >

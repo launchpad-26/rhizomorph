@@ -59,7 +59,7 @@ export function Welcome(): ReactElement | null {
           shell's curated-order law counts document headings. The region's
           accessible name is the aria-label above. */}
       <p className="heading text-(--ink-dim)">welcome to the observatory</p>
-      <p className="mt-2 text-[length:var(--text-read-floor)] leading-relaxed text-(--ink-body)">
+      <p className="mt-2 text-read-floor leading-relaxed text-(--ink-body)">
         Every thread is an agent&apos;s worktree; the mass at the centre is the repository their
         work returns to.{' '}
         {sample ? (

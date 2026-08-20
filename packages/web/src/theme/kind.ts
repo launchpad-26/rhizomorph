@@ -200,7 +200,7 @@ export const WORK_KINDS = Object.keys(KIND_APPEARANCE) as readonly WorkKind[]
  */
 export function kindTagClass(kind: WorkKind): string {
   const { ink, edge } = KIND_APPEARANCE[kind]
-  return `w-16 shrink-0 border-l-2 pl-1.5 text-[10px] uppercase tracking-wider ${ink} ${edge}`
+  return `w-16 shrink-0 border-l-2 pl-1.5 text-inst-dense uppercase tracking-wider ${ink} ${edge}`
 }
 
 /**

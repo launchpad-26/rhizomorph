@@ -81,7 +81,7 @@ export function TraceTree({ state, lane }: TraceTreeProps) {
               aria-expanded={isOpen}
               aria-label={`${isOpen ? 'Collapse' : 'Expand'} interaction ${ordinal}`}
               data-testid="trace-interaction-toggle"
-              className="flex w-full items-baseline gap-2 text-left font-mono text-[11px] text-(--ink-body) hover:text-(--ink-primary)"
+              className="flex w-full items-baseline gap-2 text-left font-mono text-inst text-(--ink-body) hover:text-(--ink-primary)"
             >
               <span className="w-3 shrink-0 text-(--ink-dim)">{isOpen ? '▾' : '▸'}</span>
               <span className="min-w-0 flex-1 truncate">

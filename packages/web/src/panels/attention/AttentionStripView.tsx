@@ -57,7 +57,7 @@ export function AttentionStripView({
     <div
       role="status"
       data-panel="attention"
-      className="flex h-9 min-w-0 items-center gap-3 px-4 text-xs"
+      className="flex h-9 min-w-0 items-center gap-3 px-4 text-inst"
     >
       {ladder.rank === 'calm' ? (
         <CalmRow evidence={ladder.evidence} />
@@ -334,7 +334,7 @@ function agingClass(item: AttentionItem): AgingClass {
 function ChipGlyph({ kind }: { kind: AttentionKind }): ReactElement {
   if (isPathologyKind(kind)) return <Sigil kind={kind} size={SIGIL_ROW_SIZE} />
   return (
-    <span aria-hidden className="text-[13px] leading-none">
+    <span aria-hidden className="text-read-floor leading-none">
       {NON_PATHOLOGY_GLYPH[kind]}
     </span>
   )

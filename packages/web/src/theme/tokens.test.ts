@@ -232,7 +232,15 @@ describe('the type ramp, in rem, in two registers (S1)', () => {
 //
 // 67 -> 65: the walkthrough repairs. `Shell.tsx`'s wordmark and the retired
 // `app/SceneSlot.tsx` (dead since #555's merge, deleted here) took the last two.
-const RAW_PIXEL_SIZES = 65
+// 65 -> 0: the sweep's second half (loop 12). Every surviving literal mapped
+// onto the ramp it was approximating - 9->inst-floor, 10->inst-dense,
+// 11->inst, 13->read-floor - and the three genuine 12px sites (conversation
+// prose, a lane-page mono detail) were judged, not mapped: all three are
+// READ, so all three took read-floor. The off-ramp Tailwind spellings
+// (text-xs/text-sm) went in the same pass, with the same judgment. The
+// ratchet is now a wall: S1's original law finally exists in the form it
+// first asked for.
+const RAW_PIXEL_SIZES = 0
 
 /** Everything the sweeps own: the app, less `lab/` (prd-28's territory). */
 function sweepable(): { name: string; text: string }[] {
@@ -255,6 +263,15 @@ describe('no new pixel literal after the ramp exists (S1)', () => {
         ? `a new pixel size landed after the ramp exists — use a --text-* token instead of a literal`
         : `${RAW_PIXEL_SIZES - sites.length} literal(s) were retired: lower RAW_PIXEL_SIZES to ${sites.length} and take the credit`,
     ).toBe(RAW_PIXEL_SIZES)
+  })
+
+  it("spells no size from Tailwind's default scale either — the ramp is the whole vocabulary", () => {
+    // text-xs is 12px and text-sm is 14px: the exact off-ramp the pixel census
+    // cannot see, found carrying eight sites the day the ratchet hit zero.
+    const offenders = sweepable().flatMap((file) =>
+      [...withoutComments(file.text).matchAll(/\btext-(xs|sm|base|lg|xl|2xl)\b/g)].map(() => file.name),
+    )
+    expect(offenders, 'an off-ramp text size — use a --text-* ramp token').toEqual([])
   })
 })
 

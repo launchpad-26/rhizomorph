@@ -69,9 +69,9 @@ export function SpendDetail({ subject, fleet, state }: SpendDetailProps) {
       data-testid="lane-page-spend"
       className="flex min-h-0 flex-col rounded-lg border border-(--line-hair) bg-(--surface-panel) p-3"
     >
-      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-(--ink-dim)">Spend</h3>
+      <h3 className="text-inst-dense font-semibold uppercase tracking-[0.2em] text-(--ink-dim)">Spend</h3>
 
-      <dl className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
+      <dl className="mt-2 grid grid-cols-3 gap-2 text-inst">
         <Cell label="output" value={cells.outputText} title={cells.outputTitle} />
         <Cell
           label="$"
@@ -84,7 +84,7 @@ export function SpendDetail({ subject, fleet, state }: SpendDetailProps) {
       </dl>
 
       {threads.length === 0 ? (
-        <p className="mt-2 text-[10px] leading-snug text-(--ink-dim)">
+        <p className="mt-2 text-inst-dense leading-snug text-(--ink-dim)">
           {subject.kind === 'conductor'
             ? 'no thread breakdown reported for the conductor'
             : subject.lane.handles.length > 1
@@ -97,7 +97,7 @@ export function SpendDetail({ subject, fleet, state }: SpendDetailProps) {
             <li
               key={thread.thread ?? 'unknown'}
               data-testid="lane-page-spend-thread"
-              className="flex items-baseline justify-between gap-2 border-t border-(--line-hair)/60 pt-1 font-mono text-[10px] text-(--ink-dim) first:border-t-0"
+              className="flex items-baseline justify-between gap-2 border-t border-(--line-hair)/60 pt-1 font-mono text-inst-dense text-(--ink-dim) first:border-t-0"
             >
               <span className="uppercase text-(--ink-dim)">{threadShort(thread.thread)}</span>
               <span title={threadTokensTitle(thread)}>{formatTokens(thread.tokens.output)} out</span>
@@ -179,11 +179,11 @@ interface CellProps {
 function Cell({ label, value, title, muted = false, suffix }: CellProps) {
   return (
     <div className="min-w-0" title={title}>
-      <dt className="text-[10px] uppercase tracking-wider text-(--ink-dim)">{label}</dt>
+      <dt className="text-inst-dense uppercase tracking-wider text-(--ink-dim)">{label}</dt>
       <dd className={`figures truncate ${muted ? 'text-(--ink-dim)' : 'text-(--ink-primary)'}`}>
         {value}
         {suffix === undefined ? null : (
-          <span className="ml-1 text-[10px] font-normal text-(--ink-dim)">{suffix}</span>
+          <span className="ml-1 text-inst-dense font-normal text-(--ink-dim)">{suffix}</span>
         )}
       </dd>
     </div>

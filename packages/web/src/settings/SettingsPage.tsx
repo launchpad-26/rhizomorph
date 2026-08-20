@@ -102,7 +102,7 @@ export function SettingsPage({ repoPath = null }: SettingsPageProps = {}) {
     <div data-testid="settings-page" className="flex h-screen flex-col bg-(--surface-floor) font-sans text-(--ink-body)">
       <Nav />
       <header className="flex shrink-0 items-baseline gap-4 border-b border-(--line-hair) bg-(--surface-panel) px-4 py-3">
-        <h1 className="text-sm text-(--ink-primary)">Settings</h1>
+        <h1 className="page-title text-(--ink-primary)">Settings</h1>
         <span className="text-inst normal-case tracking-normal text-(--ink-dim)">
           everything this instrument can be told — and, below each group, what it will not be
         </span>
@@ -143,7 +143,7 @@ function GroupSection({ group, repoPath }: { group: SettingsGroup; repoPath: str
       className={`rounded border border-(--line-hair) bg-(--surface-panel) px-4 py-3 ${disabled ? 'opacity-70' : ''}`}
     >
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 id={`settings-group-${group.id}-heading`} className="text-sm text-(--ink-primary)">
+        <h2 id={`settings-group-${group.id}-heading`} className="text-read-body text-(--ink-primary)">
           {group.title}
         </h2>
         <p className="text-inst text-(--ink-dim)">{group.what}</p>

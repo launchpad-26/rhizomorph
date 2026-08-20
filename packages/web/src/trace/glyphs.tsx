@@ -89,7 +89,7 @@ export interface DecisionBadgeProps {
 
 export function DecisionBadge({ decision, waitedFor }: DecisionBadgeProps) {
   return (
-    <span data-testid="trace-decision" data-decision={decision} className="text-[10px] text-(--ink-dim)">
+    <span data-testid="trace-decision" data-decision={decision} className="text-inst-dense text-(--ink-dim)">
       waited {waitedFor} ·{' '}
       <span className={`uppercase tracking-wide ${DECISION_CLASS[decision]}`}>
         {DECISION_WORD[decision]}

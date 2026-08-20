@@ -54,8 +54,8 @@ export function ActivityView({ entries, now, fill = false, highlightPath = null 
 
   const header = (
     <>
-      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-(--ink-dim)">Activity</h3>
-      <p className="figures text-[10px] text-(--ink-dim)">
+      <h3 className="text-inst-dense font-semibold uppercase tracking-[0.2em] text-(--ink-dim)">Activity</h3>
+      <p className="figures text-inst-dense text-(--ink-dim)">
         {counts.tool} tools · {counts.file} files · {counts.commit} commits
       </p>
     </>
@@ -63,7 +63,7 @@ export function ActivityView({ entries, now, fill = false, highlightPath = null 
 
   const body =
     entries.length === 0 ? (
-      <p role="status" className="mt-2 text-[11px] text-(--ink-dim)">
+      <p role="status" className="mt-2 text-inst text-(--ink-dim)">
         NO ACTIVITY RECORDED — this lane has produced no tool call, file change or commit in the
         session so far — the conversation is the only thing left to read.
       </p>
@@ -85,13 +85,13 @@ export function ActivityView({ entries, now, fill = false, highlightPath = null 
                 highlighted ? '-mx-1 rounded bg-(--surface-raised) px-1' : ''
               }`}
             >
-              <span className="figures w-10 shrink-0 text-right text-[10px] text-(--ink-dim)">
+              <span className="figures w-10 shrink-0 text-right text-inst-dense text-(--ink-dim)">
                 {relative(entry.ts, now)}
               </span>
               <span className={kindTagClass(ACTIVITY_KIND[entry.kind])}>
                 {KIND_APPEARANCE[ACTIVITY_KIND[entry.kind]].word}
               </span>
-              <span className="min-w-0 flex-1 font-mono text-[11px] leading-relaxed text-(--ink-body)">
+              <span className="min-w-0 flex-1 font-mono text-inst leading-relaxed text-(--ink-body)">
                 <EntryBody entry={entry} />
               </span>
             </li>

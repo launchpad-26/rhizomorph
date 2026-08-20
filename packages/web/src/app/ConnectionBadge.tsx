@@ -49,7 +49,7 @@ export function ConnectionBadge({ status }: { status: ConnectionStatus }) {
     const elapsed = formatElapsed(playback.currentTs - range.start)
     const total = formatElapsed(range.end - range.start)
     return (
-      <span className="inline-flex items-center gap-2 text-xs uppercase tracking-wide">
+      <span className="inline-flex items-center gap-2 text-inst uppercase tracking-wide">
         <span className="h-2 w-2 rounded-full bg-(--ink-primary) glow-calm" aria-hidden="true" />
         <span className="font-semibold text-(--ink-primary)">replay</span>
         <span className="figures text-(--ink-dim)">
@@ -75,7 +75,7 @@ export function ConnectionBadge({ status }: { status: ConnectionStatus }) {
   const dotClass = source === 'live' ? CONNECTION_DOT_CLASS[status] : 'bg-(--ink-primary) glow-calm'
 
   return (
-    <span className="inline-flex items-center gap-2 text-xs uppercase tracking-wide text-(--ink-dim)">
+    <span className="inline-flex items-center gap-2 text-inst uppercase tracking-wide text-(--ink-dim)">
       <span className={`h-2 w-2 rounded-full ${dotClass}`} aria-hidden="true" />
       {label}
     </span>

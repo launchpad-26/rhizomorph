@@ -394,9 +394,9 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
   )
 
   return (
-    <div className="flex flex-col gap-1 border-t border-(--line-hair) bg-(--surface-panel) px-4 py-1.5 text-xs">
+    <div className="flex flex-col gap-1 border-t border-(--line-hair) bg-(--surface-panel) px-4 py-1.5 text-inst">
       <div className="flex h-6 items-center gap-4">
-        <span className="text-[10px] uppercase tracking-widest text-(--ink-dim)">Sources</span>
+        <span className="text-inst-dense uppercase tracking-widest text-(--ink-dim)">Sources</span>
         {SOURCES.map((source) => {
           const { health, message } = sourceStatus(session.collectors[source], connection[source])
           const label = SOURCE_LABEL[source]
@@ -453,7 +453,7 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
               key={gap.id}
               role="status"
               data-testid="gap-voice"
-              className="flex flex-wrap items-baseline gap-1.5 text-[11px] text-(--ink-dim)"
+              className="flex flex-wrap items-baseline gap-1.5 text-inst text-(--ink-dim)"
             >
               <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 self-center rounded-full bg-(--line-strong)" />
               <span className="font-medium text-(--ink-body)">{gap.what}</span>

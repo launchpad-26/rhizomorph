@@ -253,7 +253,7 @@ export function LanePage({ handle, fetchTranscript, transcriptPollMs, fetchLaneI
               <p
                 role="status"
                 data-testid="lane-page-unknown"
-                className="max-w-lg font-mono text-[12px] leading-snug text-(--ink-dim)"
+                className="max-w-lg font-mono text-read-floor leading-snug text-(--ink-dim)"
               >
                 NO LANE “{handle}” IN THIS SESSION — it may have landed, been renamed, or never existed
                 in this session's log.
@@ -272,7 +272,7 @@ export function LanePage({ handle, fetchTranscript, transcriptPollMs, fetchLaneI
             type="button"
             data-testid="lane-page-back"
             onClick={goBalcony}
-            className="shrink-0 rounded border border-(--line-strong) px-3 py-1 text-[10px] uppercase tracking-wider text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
+            className="shrink-0 rounded border border-(--line-strong) px-3 py-1 text-inst-dense uppercase tracking-wider text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
           >
             ← balcony
           </button>

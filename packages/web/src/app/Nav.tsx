@@ -97,7 +97,7 @@ function NavLink({ href, label, active }: { href: string; label: string; active:
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
       data-testid={`nav-${label.toLowerCase()}`}
-      className={`focus-ring border-b-2 px-2.5 py-2 text-[length:var(--text-inst-dense)] font-semibold uppercase tracking-[0.16em] transition-colors duration-(--duration-touch) ease-out ${
+      className={`focus-ring border-b-2 px-2.5 py-2 text-inst-dense font-semibold uppercase tracking-[0.16em] transition-colors duration-(--duration-touch) ease-out ${
         active ? 'border-(--ink-primary) text-(--ink-primary)' : 'border-transparent text-(--ink-dim) hover:text-(--ink-primary)'
       }`}
     >
@@ -120,7 +120,7 @@ function DisabledNavLink({ label, reason }: { label: string; reason: string }) {
       aria-disabled="true"
       title={reason}
       data-testid={`nav-${label.toLowerCase()}`}
-      className="flex cursor-not-allowed items-center border-b-2 border-transparent px-2.5 py-2 text-[length:var(--text-inst-dense)] font-semibold uppercase tracking-[0.16em] text-(--ink-dim)"
+      className="flex cursor-not-allowed items-center border-b-2 border-transparent px-2.5 py-2 text-inst-dense font-semibold uppercase tracking-[0.16em] text-(--ink-dim)"
     >
       {label}
       <span className="sr-only">{` — ${reason}`}</span>

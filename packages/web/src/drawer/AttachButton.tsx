@@ -44,7 +44,7 @@ export function AttachButton({ plan, onCopy = copyToClipboard }: AttachButtonPro
   if (plan.command === null) {
     return (
       <div data-testid="drawer-attach" className="border-t border-(--line-hair) px-4 py-2">
-        <p role="status" className="font-mono text-[11px] leading-snug text-(--ink-dim)">
+        <p role="status" className="font-mono text-inst leading-snug text-(--ink-dim)">
           {plan.note}
         </p>
       </div>
@@ -65,15 +65,15 @@ export function AttachButton({ plan, onCopy = copyToClipboard }: AttachButtonPro
               () => setCopied('failed'),
             )
           }}
-          className="rounded border border-(--line-strong) px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-(--ink-primary) hover:border-(--ink-dim) hover:bg-(--surface-raised)"
+          className="rounded border border-(--line-strong) px-2 py-1 text-inst-dense font-semibold uppercase tracking-[0.18em] text-(--ink-primary) hover:border-(--ink-dim) hover:bg-(--surface-raised)"
         >
           Attach
         </button>
-        <span className="figures text-[10px] uppercase tracking-wider text-(--ink-dim)">{plan.kind}</span>
+        <span className="figures text-inst-dense uppercase tracking-wider text-(--ink-dim)">{plan.kind}</span>
         {copied === 'idle' ? null : (
           <span
             role="status"
-            className={`figures text-[10px] ${copied === 'copied' ? 'text-notice' : 'text-(--ink-dim)'}`}
+            className={`figures text-inst-dense ${copied === 'copied' ? 'text-notice' : 'text-(--ink-dim)'}`}
           >
             {copied === 'copied' ? 'copied to clipboard' : 'clipboard unavailable — copy it by hand'}
           </span>
@@ -87,11 +87,11 @@ export function AttachButton({ plan, onCopy = copyToClipboard }: AttachButtonPro
       */}
       <code
         data-testid="attach-command"
-        className="mt-1.5 block overflow-x-auto whitespace-pre rounded bg-(--surface-floor) px-2 py-1 font-mono text-[11px] text-(--ink-body)"
+        className="mt-1.5 block overflow-x-auto whitespace-pre rounded bg-(--surface-floor) px-2 py-1 font-mono text-inst text-(--ink-body)"
       >
         {command}
       </code>
-      <p className="mt-1 text-[10px] leading-snug text-(--ink-dim)">{plan.note}</p>
+      <p className="mt-1 text-inst-dense leading-snug text-(--ink-dim)">{plan.note}</p>
     </div>
   )
 }

@@ -6,7 +6,7 @@
  */
 export function EmptyTrace() {
   return (
-    <p role="status" className="px-4 py-3 text-[11px] leading-snug text-(--ink-dim)">
+    <p role="status" className="px-4 py-3 text-inst leading-snug text-(--ink-dim)">
       NO TRACE TELEMETRY — no trace telemetry from this lane — see docs/telemetry.md.
     </p>
   )

@@ -66,9 +66,9 @@ export function Vitals({ lane, fleet }: VitalsProps) {
           size={SIGIL_ROW_SIZE}
           className={lane.rank === 'calm' ? '' : RANK_GLOW_CLASS[lane.rank]}
         />
-        <span className="figures text-xs uppercase tracking-[0.18em]">{SIGIL_WORD[sigilKind]}</span>
+        <span className="figures text-inst uppercase tracking-[0.18em]">{SIGIL_WORD[sigilKind]}</span>
         {lane.pathologies.length > 1 ? (
-          <span className="figures text-[10px] text-(--ink-dim)">+{lane.pathologies.length - 1} more</span>
+          <span className="figures text-inst-dense text-(--ink-dim)">+{lane.pathologies.length - 1} more</span>
         ) : null}
       </div>
 
@@ -77,11 +77,11 @@ export function Vitals({ lane, fleet }: VitalsProps) {
         gets a line: "nothing wrong" is a claim, and a claim needs its evidence
         as much as an accusation does (ruling 14).
       */}
-      <p data-testid="drawer-evidence" className="mt-1 font-mono text-[11px] leading-snug text-(--ink-dim)">
+      <p data-testid="drawer-evidence" className="mt-1 font-mono text-inst leading-snug text-(--ink-dim)">
         {worst === null ? calmEvidence(lane) : evidenceLine(worst)}
       </p>
 
-      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] sm:grid-cols-3">
+      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-inst sm:grid-cols-3">
         <Vital label="output" value={outputCellText(lane)} title={outputCellTitle(lane)} />
         <Vital
           label="$"
@@ -141,11 +141,11 @@ export function MainVitals({ fleet }: MainVitalsProps) {
 
   return (
     <div data-testid="drawer-main-vitals" className="border-b border-(--line-hair) px-4 py-3">
-      <p data-testid="drawer-main-evidence" className="font-mono text-[11px] leading-snug text-(--ink-dim)">
+      <p data-testid="drawer-main-evidence" className="font-mono text-inst leading-snug text-(--ink-dim)">
         {mainEvidence(fleet)}
       </p>
 
-      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] sm:grid-cols-3">
+      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-inst sm:grid-cols-3">
         <Vital
           label="branch"
           value={root.mainBranch ?? '—'}
@@ -231,7 +231,7 @@ interface VitalProps {
 function Vital({ label, value, title, muted = false, alarm = false }: VitalProps) {
   return (
     <div className="min-w-0" title={title}>
-      <dt className="text-[10px] uppercase tracking-wider text-(--ink-dim)">{label}</dt>
+      <dt className="text-inst-dense uppercase tracking-wider text-(--ink-dim)">{label}</dt>
       <dd
         className={`figures truncate ${alarm ? 'text-needs-you' : muted ? 'text-(--ink-dim)' : 'text-(--ink-body)'}`}
       >

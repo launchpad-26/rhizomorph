@@ -276,7 +276,7 @@ export function ConnectPage({
         >
           ← balcony
         </button>
-        <h1 className="text-read-body text-(--ink-primary)">Connect</h1>
+        <h1 className="page-title text-(--ink-primary)">Connect</h1>
         <span className="text-read-floor text-(--ink-dim)">
           every link in the chain, and the fact that proves it — this page reads, and never writes
         </span>

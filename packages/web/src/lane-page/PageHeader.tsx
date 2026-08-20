@@ -61,7 +61,7 @@ export function PageHeader({ subject, onClose }: PageHeaderProps) {
           type="button"
           data-testid="lane-page-back"
           onClick={onClose}
-          className="shrink-0 rounded border border-(--line-strong) px-2 py-1 text-[10px] uppercase tracking-wider text-(--ink-dim) transition-[color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-primary)"
+          className="shrink-0 rounded border border-(--line-strong) px-2 py-1 text-inst-dense uppercase tracking-wider text-(--ink-dim) transition-[color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-primary)"
         >
           ← balcony
         </button>
@@ -76,7 +76,7 @@ export function PageHeader({ subject, onClose }: PageHeaderProps) {
 
         <span
           data-testid="lane-page-role"
-          className="shrink-0 text-[11px] uppercase tracking-wider text-(--ink-dim)"
+          className="shrink-0 text-inst uppercase tracking-wider text-(--ink-dim)"
           title="declared role"
         >
           {subject.kind === 'conductor' ? 'conductor' : subject.kind === 'run' ? 'worker' : subject.lane.role}
@@ -84,7 +84,7 @@ export function PageHeader({ subject, onClose }: PageHeaderProps) {
 
         <span
           data-testid="lane-page-branch"
-          className="min-w-0 truncate font-mono text-[11px] text-(--ink-dim)"
+          className="min-w-0 truncate font-mono text-inst text-(--ink-dim)"
           title={
             subject.kind === 'conductor'
               ? 'no branch — the conductor runs the fleet, not a worktree of its own'
@@ -110,10 +110,10 @@ function LaneIdentity({ lane }: { lane: Lane }) {
 
   return (
     <>
-      <h1 className="min-w-0 truncate font-mono text-sm text-(--ink-primary)">
+      <h1 className="min-w-0 truncate font-mono text-read-body text-(--ink-primary)">
         {lane.label}
         {lane.issue === null ? null : (
-          <span className="ml-1 text-[11px] text-(--ink-dim)">#{lane.issue}</span>
+          <span className="ml-1 text-inst text-(--ink-dim)">#{lane.issue}</span>
         )}
       </h1>
 
@@ -128,7 +128,7 @@ function LaneIdentity({ lane }: { lane: Lane }) {
             className={lane.rank === 'calm' ? '' : RANK_GLOW_CLASS[lane.rank]}
           />
         )}
-        <span className="figures text-[11px] uppercase tracking-wide">
+        <span className="figures text-inst uppercase tracking-wide">
           {lane.parked ? 'PARKED' : SIGIL_WORD[sigilKind]}
         </span>
       </span>
@@ -144,7 +144,7 @@ function LaneIdentity({ lane }: { lane: Lane }) {
  */
 function RunIdentity({ handle, issue, outcome }: { handle: string; issue: string | null; outcome: string }) {
   return (
-    <h1 className="min-w-0 truncate font-mono text-sm text-(--ink-primary)">
+    <h1 className="min-w-0 truncate font-mono text-read-body text-(--ink-primary)">
       {handle}
       {issue === null ? null : <span className="ml-1 text-inst text-(--ink-dim)">#{issue}</span>}
       <span data-testid="lane-page-run-outcome" className="ml-2 text-inst uppercase tracking-wider text-(--ink-dim)">
@@ -161,8 +161,8 @@ function RunIdentity({ handle, issue, outcome }: { handle: string; issue: string
  */
 function ConductorIdentity() {
   return (
-    <h1 className="min-w-0 truncate font-mono text-sm text-(--ink-primary)">
-      Main <span className="ml-1 text-[11px] italic text-(--ink-dim)">— the conductor</span>
+    <h1 className="min-w-0 truncate font-mono text-read-body text-(--ink-primary)">
+      Main <span className="ml-1 text-inst italic text-(--ink-dim)">— the conductor</span>
     </h1>
   )
 }

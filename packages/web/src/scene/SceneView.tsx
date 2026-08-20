@@ -215,7 +215,7 @@ export function SceneView({
       {failure !== null && (
         <p
           role="status"
-          className="absolute inset-x-0 bottom-0 px-3 py-2 text-center text-[10px] uppercase tracking-widest text-broken"
+          className="absolute inset-x-0 bottom-0 px-3 py-2 text-center text-inst-dense uppercase tracking-widest text-broken"
         >
           {`scene stopped drawing — ${failure} — the panels are unaffected`}
         </p>
@@ -261,7 +261,7 @@ function MotionControl({ paused, onToggle }: MotionControlProps) {
         aria-pressed={paused}
         data-testid="scene-motion-pause"
         title={paused ? 'Let the scene move again' : 'Freeze the scene’s own motion'}
-        className={`pointer-events-auto rounded border px-2 py-1 text-[10px] uppercase leading-none tracking-wide backdrop-blur-sm transition-[transform,color,border-color] duration-(--duration-touch) ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97] ${
+        className={`pointer-events-auto rounded border px-2 py-1 text-inst-dense uppercase leading-none tracking-wide backdrop-blur-sm transition-[transform,color,border-color] duration-(--duration-touch) ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97] ${
           paused
             ? 'border-(--ink-dim) bg-(--surface-raised)/90 text-(--ink-primary)'
             : 'border-(--line-hair) bg-(--surface-panel)/80 text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)'
@@ -273,7 +273,7 @@ function MotionControl({ paused, onToggle }: MotionControlProps) {
         <span
           role="status"
           data-testid="scene-motion-state"
-          className="text-[10px] uppercase tracking-widest text-(--ink-body)"
+          className="text-inst-dense uppercase tracking-widest text-(--ink-body)"
         >
           Motion paused
         </span>
@@ -338,7 +338,7 @@ function FinishedControl({ hidden, finished, onToggle }: FinishedControlProps) {
             ? 'Show the lanes that have finished — they are still in the fleet table either way'
             : 'Hide the strands finished lanes leave behind'
         }
-        className={`pointer-events-auto rounded border px-2 py-1 text-[10px] uppercase leading-none tracking-wide backdrop-blur-sm transition-[opacity,transform,color,border-color] duration-(--duration-touch) ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97] ${
+        className={`pointer-events-auto rounded border px-2 py-1 text-inst-dense uppercase leading-none tracking-wide backdrop-blur-sm transition-[opacity,transform,color,border-color] duration-(--duration-touch) ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97] ${
           has ? 'opacity-100' : 'pointer-events-none opacity-0'
         } ${
           hidden
@@ -383,7 +383,7 @@ function CameraControls({ lost, reducedMotion, onFit, onHome, onIn, onOut }: Cam
         data-testid="scene-recenter"
         aria-hidden={!lost}
         tabIndex={lost ? 0 : -1}
-        className={`pointer-events-auto rounded border border-(--line-strong) bg-(--surface-raised)/90 px-2 py-1 text-[10px] uppercase tracking-wide text-(--ink-primary) backdrop-blur-sm transition-[opacity,transform] duration-200 ease-out hover:border-(--ink-dim) focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97] ${
+        className={`pointer-events-auto rounded border border-(--line-strong) bg-(--surface-raised)/90 px-2 py-1 text-inst-dense uppercase tracking-wide text-(--ink-primary) backdrop-blur-sm transition-[opacity,transform] duration-200 ease-out hover:border-(--ink-dim) focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97] ${
           lost
             ? 'scale-100 opacity-100'
             : `pointer-events-none opacity-0 ${reducedMotion ? '' : 'scale-95'}`
@@ -431,7 +431,7 @@ function CameraButton({ onClick, label, hint, children }: CameraButtonProps) {
       onClick={onClick}
       aria-label={label}
       title={`${label} (${hint})`}
-      className="min-w-7 rounded border border-(--line-hair) bg-(--surface-panel)/80 px-1.5 py-1 text-[10px] uppercase leading-none tracking-wide text-(--ink-dim) backdrop-blur-sm transition-[transform,color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-primary) focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97]"
+      className="min-w-7 rounded border border-(--line-hair) bg-(--surface-panel)/80 px-1.5 py-1 text-inst-dense uppercase leading-none tracking-wide text-(--ink-dim) backdrop-blur-sm transition-[transform,color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-primary) focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97]"
     >
       {children}
     </button>
