@@ -21,6 +21,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     return { failed: true }
   }
 
+  override componentDidCatch(error: unknown): void {
+    // The boundary contains the blast radius; it must never contain the news.
+    // Production React does not log caught errors on its own, so a crash the
+    // fallback absorbs would otherwise vanish from the console entirely.
+    console.error('[rhizomorph] a view crashed and its boundary caught it:', error)
+  }
+
   override render() {
     if (this.state.failed) return this.props.fallback
     return this.props.children

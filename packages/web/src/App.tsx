@@ -2,6 +2,8 @@ import { Suspense, lazy, type ReactNode } from 'react'
 import { ModeProvider } from './app/ModeContext.js'
 import { useRoute } from './app/router.js'
 import { Shell } from './app/Shell.js'
+import { ErrorBoundary } from './app/ErrorBoundary.js'
+import { RouteFallback } from './app/RouteFallback.js'
 import { StreamProvider, useStream } from './app/StreamContext.js'
 import { foldedRepoPath } from './app/streamState.js'
 import { WindowFloor } from './app/WindowFloor.js'
@@ -109,6 +111,11 @@ export function App({ streamUrl = '/api/stream', createSource, now, fetchLanes }
         <FleetProvider now={now} fetchLanes={fetchLanes}>
           <RepoScopedSelection>
             <WindowFloor>
+              {/* One boundary above every route (loop 21): a page's crash is
+                  that page's, never a white screen. Keyed by route name so
+                  navigating away remounts a fresh boundary — one crashed page
+                  must not poison the others. */}
+              <ErrorBoundary key={route.name} fallback={<RouteFallback route={route.name} />}>
               {route.name === 'lane' ? (
                 <Suspense fallback={null}>
                   <LanePage handle={route.handle} />
@@ -132,6 +139,7 @@ export function App({ streamUrl = '/api/stream', createSource, now, fetchLanes }
               ) : (
                 <Shell />
               )}
+              </ErrorBoundary>
             </WindowFloor>
           </RepoScopedSelection>
         </FleetProvider>
