@@ -1,5 +1,5 @@
 import type { ThreadGeometry } from '../geometry.js'
-import { ICE_300, ICE_1000, ink } from '../palette.js'
+import { ICE_1000, ink } from '../palette.js'
 import { ambientScreenMarks, ambientWorldMarks } from './ambient.js'
 import { dissolveMarks } from './dissolve.js'
 import { lightMarks } from './light.js'
@@ -125,6 +125,6 @@ function chromeMarks(frame: SceneFrame): Mark[] {
     // Body-copy brightness, not footnote brightness: the gap voice is the scene
     // telling the truth about itself, and a caveat nobody can read is a caveat
     // that was not made (law 12).
-    ink: ink(ICE_300, 0.85),
+    ink: ink(frame.palette.register.body, 0.85),
   }))
 }

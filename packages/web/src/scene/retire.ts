@@ -1,7 +1,7 @@
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import type { Fleet, Lane } from '../fleet/index.js'
 import { DISSOLUTION, STRUCTURAL, allowance, type MotionMode } from './motion.js'
-import { DONE, ICE_400, ICE_600, clamp01, ink, mix, type Ink } from './palette.js'
+import { DONE, ICE_400, ICE_600, clamp01, ink, mix, type Ink, type ScenePalette } from './palette.js'
 import { resolveLane, type LaneIndex } from './resolve.js'
 import { springStep } from './spring.js'
 
@@ -215,8 +215,33 @@ export const RETURN = {
 const PERSIST_TISSUE = mix(ICE_600, DONE, 0.18)
 
 /**
+ * The three settled inks, per world (#551's consumption wave).
+ *
+ * The recipe is the constant, not the bytes: the strand's tissue is the quiet
+ * "unknown" register warmed 0.18 toward that world's own done-green (dark:
+ * exactly the `mix(ICE_600, DONE, 0.18)` above, since unknown IS ICE_600 and
+ * activity.done IS DONE there), and the name keeps the register's idle ink —
+ * still easy to read, because a finished lane exists to be identified. On dark
+ * this returns byte-for-byte what {@link PERSIST} has always been.
+ */
+export function persistInks(palette: ScenePalette): { strand: Ink; glyph: Ink; name: Ink } {
+  const tissue = mix(palette.register.unknown, palette.activity.done, 0.18)
+  return {
+    strand: ink(tissue, 0.44),
+    glyph: ink(tissue, 0.7),
+    name: ink(palette.register.idle, 0.7),
+  }
+}
+
+/**
  * The three inks a settled strand is drawn in. Living inks interpolate into these
  * over the settle stage, so the cooling is the stage rather than a switch.
+ *
+ * Dark's own values, kept as a module constant for the two GEOMETRY caches that
+ * stamp a placeholder paint (`thread.ts`'s `persistRibbon`, `node.ts`'s
+ * `persistNodeRibbons` — both always overwritten per frame with a frame-scoped
+ * ink) and for `retire.test.ts`'s luminance laws, which are dark's own numbers.
+ * Frame-scoped painters read {@link persistInks}(frame.palette) instead.
  */
 export const PERSIST = {
   /**

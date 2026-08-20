@@ -10,7 +10,7 @@ import {
   tissueAtOn,
   type Ink,
 } from '../palette.js'
-import { PERSIST, persistWidths, toward } from '../retire.js'
+import { PERSIST, persistInks, persistWidths, toward } from '../retire.js'
 import type { WidthStop } from '../ribbon.js'
 import { SHIMMER_PERIOD_MS, variationFor, variationSeed } from '../variation.js'
 import { budget, motionMode, type SceneFrame } from './frame.js'
@@ -357,7 +357,7 @@ function persistentMarks(
 
   const { laneId } = thread
   const marks: Mark[] = []
-  const cold = toward(living, PERSIST.strand, cut.stilled)
+  const cold = toward(living, persistInks(frame.palette).strand, cut.stilled)
   const width = persistThinning(cut)
 
   const lit = 1 - cut.withdraw

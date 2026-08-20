@@ -13,7 +13,7 @@ import {
   type Rgb,
   type ScenePalette,
 } from '../palette.js'
-import { PERSIST, toward } from '../retire.js'
+import { PERSIST, persistInks, toward } from '../retire.js'
 import { TIP_GLOW_RADIUS } from '../salience.js'
 import { blobRing, variationFor, variationSeed } from '../variation.js'
 import { budget, budgetTip, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
@@ -403,7 +403,7 @@ function persistNodeMarks(frame: SceneFrame, thread: ThreadGeometry, cut: Retire
   const length = lensLength(thread.sizeFrac) * (1 - 0.35 * cut.stilled)
 
   const cold = (living: Ink): Ink =>
-    budget(frame, laneId, false, toward(living, PERSIST.glyph, cut.stilled))
+    budget(frame, laneId, false, toward(living, persistInks(frame.palette).glyph, cut.stilled))
 
   const marks: Mark[] = [
     {
@@ -1003,7 +1003,7 @@ export function labelMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       frame,
       laneId,
       thread.alarm,
-      thread.retire === null ? living : toward(living, PERSIST.name, thread.retire.stilled),
+      thread.retire === null ? living : toward(living, persistInks(frame.palette).name, thread.retire.stilled),
     ),
   })
 

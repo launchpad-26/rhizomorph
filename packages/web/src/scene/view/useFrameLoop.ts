@@ -22,7 +22,7 @@ import {
   type Mark,
   type SceneFrame,
 } from '../marks/index.js'
-import { ICE_200, ink, paletteFor, type ThemeName } from '../palette.js'
+import { ink, paletteFor, type ThemeName } from '../palette.js'
 import type { PulseField } from '../pulses.js'
 import type { RetireRegistry } from '../retire.js'
 import { salienceOf } from '../salience.js'
@@ -477,6 +477,6 @@ function rootSpotlight(frame: SceneFrame): Mark[] {
     from: 0,
     to: Math.PI * 2,
     width: offset === 0 ? 1.4 : 1,
-    ink: ink(ICE_200, offset === 0 ? 0.75 : 0.22),
+    ink: ink(frame.palette.register.data, offset === 0 ? 0.75 : 0.22),
   }))
 }

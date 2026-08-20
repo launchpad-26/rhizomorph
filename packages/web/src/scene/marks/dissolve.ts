@@ -1,7 +1,7 @@
 import type { BudGeometry, ThreadGeometry } from '../geometry.js'
 import { DISSOLUTION } from '../motion.js'
 import { dissolutionMotes, type Dissolve, type Mote } from '../motes.js'
-import { ACTIVITY_HUE, ICE_400, type Rgb } from '../palette.js'
+import type { Rgb } from '../palette.js'
 import { emphasisOf } from '../salience.js'
 import { variationSeed } from '../variation.js'
 import type { SceneFrame } from './frame.js'
@@ -93,7 +93,7 @@ function jobsFor(frame: SceneFrame, thread: ThreadGeometry): Job[] {
   // birth": for a cord this is `done`'s dim green (the only activity a landing
   // has), and for a bud it is whatever the parent is doing while its subagent
   // finishes. Either way the mote is born the colour of the thing it came off.
-  const family = ACTIVITY_HUE[thread.lane.activity]
+  const family = frame.palette.activity[thread.lane.activity]
   const seed = variationSeed(thread.lane)
   const peak = MOTE_PEAK * emphasisOf(frame.salience, thread.laneId, false)
 
@@ -175,7 +175,7 @@ function conductorAbsorptionJob(frame: SceneFrame): Job | null {
   const bud = conductorBud(frame, radius)
   const seed = `conductor/${frame.fleet.root.mainBranch ?? 'main'}`
   const peak = MOTE_PEAK * emphasisOf(frame.salience, null, false)
-  return budAbsorptionJob(bud, ICE_400, seed, peak)
+  return budAbsorptionJob(bud, frame.palette.register.idle, seed, peak)
 }
 
 function drift(role: MarkRole, laneId: string | null, items: readonly Mote[]): Mark {
