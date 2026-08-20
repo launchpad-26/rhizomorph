@@ -8,6 +8,7 @@ import {
   formatDuration,
   isCaptureGap,
   isCostGap,
+  isCaptureAbsent,
 } from './format.js'
 import type { RecordingListing } from './api.js'
 
@@ -101,5 +102,23 @@ describe('the capture cell — three honest states, never one blank', () => {
     expect(formatCapture(recording)).toBe("1 of 2 lanes' transcripts captured — some missing")
     expect(isCaptureGap(recording)).toBe(true)
     expect(captureHoverTitle(recording)).toContain('TRANSCRIPT NOT CAPTURED for "b"')
+  })
+})
+
+describe('isCaptureAbsent — the norm, as distinct from the fault', () => {
+  it('absence: capture never ran, or ran and attributed nothing', () => {
+    expect(isCaptureAbsent({ transcriptCapture: null })).toBe(true)
+    expect(isCaptureAbsent({ transcriptCapture: undefined })).toBe(true)
+  })
+
+  it('a partial capture is NOT absence — "some missing" keeps its volume', () => {
+    expect(
+      isCaptureAbsent({
+        transcriptCapture: {
+          complete: false,
+          lanes: [{ laneId: 'a', captured: true }, { laneId: 'b', captured: false }],
+        } as never,
+      }),
+    ).toBe(false)
   })
 })

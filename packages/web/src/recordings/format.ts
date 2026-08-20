@@ -61,6 +61,19 @@ export function isCaptureGap(recording: Pick<RecordingListing, 'transcriptCaptur
   return capture === undefined || capture === null || !capture.complete
 }
 
+/**
+ * Whether capture never ran at all — the pre-instrument NORM, as distinct from
+ * a partial capture (which is a fault in a session that was being watched).
+ * The list page uses this to let absence recede to dim ink while "some
+ * missing" keeps full volume: eleven identical warnings are quieter than one
+ * (loop 16), but the gap mark itself stays on every gap row — the honesty law
+ * in RecordingsPage.test.tsx pins it.
+ */
+export function isCaptureAbsent(recording: Pick<RecordingListing, 'transcriptCapture'>): boolean {
+  const capture = recording.transcriptCapture
+  return capture === undefined || capture === null || capture.lanes.length === 0
+}
+
 function captureReasons(capture: TranscriptCaptureManifest): string {
   return capture.lanes
     .filter((lane) => !lane.captured)

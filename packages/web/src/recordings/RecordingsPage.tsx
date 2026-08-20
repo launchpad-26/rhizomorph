@@ -1,3 +1,4 @@
+import { BUTTON } from '../ui/controls.js'
 import { useCallback, useEffect, useState } from 'react'
 import { useReplay } from '../app/ModeContext.js'
 import { Nav } from '../app/Nav.js'
@@ -15,6 +16,7 @@ import {
   formatDuration,
   isCaptureGap,
   isCostGap,
+  isCaptureAbsent,
 } from './format.js'
 import type { LabelFetchLike } from './label.js'
 import { LaneAxis } from './LaneAxis.js'
@@ -232,7 +234,10 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
                     </span>
                   )}
                 </td>
-                <td className="p-(--space-cell)" title={captureHoverTitle(recording)}>
+                <td
+                  className={`p-(--space-cell) ${isCaptureAbsent(recording) ? 'text-(--ink-dim)' : ''}`}
+                  title={captureHoverTitle(recording)}
+                >
                   {formatCapture(recording)}
                   {isCaptureGap(recording) && (
                     <span data-testid={`recording-capture-gap-${recording.id}`} className="ml-1 text-(--ink-dim)">
@@ -246,7 +251,7 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
                       type="button"
                       data-testid={`recording-open-${recording.id}`}
                       onClick={() => openInReplay(recording.id)}
-                      className="focus-ring rounded border border-(--line-strong) px-2 py-1 normal-case tracking-normal text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary)"
+                      className={BUTTON}
                     >
                       open in replay
                     </button>
@@ -256,7 +261,7 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
                       disabled={exportingId === recording.id}
                       onClick={() => void doExport(recording.id)}
                       title="download the portable record — manifest + hash-chained log, captured transcripts included when this recording has them"
-                      className="focus-ring rounded border border-(--line-strong) px-2 py-1 normal-case tracking-normal text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-50"
+                      className={BUTTON}
                     >
                       {exportingId === recording.id ? 'exporting…' : 'export'}
                     </button>
