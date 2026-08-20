@@ -39,6 +39,7 @@ import {
   type SceneFrame,
 } from './marks/index.js'
 import { ribbonMark } from './marks/index.js'
+import { LIGHT_AXIS } from './marks/frame.js'
 import { rootFalloffs, arrivalSwell } from './marks/root.js'
 import { RIM_VEIL } from './marks/ambient.js'
 import { buildFrame } from './gl/index.js'
@@ -821,6 +822,68 @@ function arcLength(path: readonly Point[]): number {
   }
   return length
 }
+
+/**
+ * AMBIENT NEVER MEANS — the harness (prd-33 ruling 2, landed with the first
+ * atmosphere channel). Every ambient channel must be a function of geometry
+ * and the frame's own dials, never of status, salience or work. One case per
+ * channel; each later channel adds its own.
+ */
+describe('ambient never means (prd-33 ruling 2)', () => {
+  it('directional light: alpha-only, symmetric, geometry-signed, absent on alarm lanes', () => {
+    const frame = frameFor()
+    const marks = sceneMarks(frame)
+    let litSeen = 0
+    for (const mark of marks) {
+      if (mark.role !== 'thread' || mark.kind !== 'ribbon') continue
+      const thread = frame.geometry.byLane.get(mark.laneId as string)
+      if (!thread) continue
+      if (thread.alarm) {
+        // An alarm lane's ribbon stays flat — nothing ambient touches the band.
+        expect(isLinear(mark.paint)).toBe(false)
+        continue
+      }
+      expect(isLinear(mark.paint)).toBe(true)
+      if (!isLinear(mark.paint)) continue
+      litSeen += 1
+      const [a, mid, b] = mark.paint.stops
+      // Same hue at every stop: the channel is alpha alone (law 9a untouched).
+      expect(a?.ink.rgb).toEqual(mid?.ink.rgb)
+      expect(b?.ink.rgb).toEqual(mid?.ink.rgb)
+      // The sign is the thread's bearing against the fixed axis — geometry,
+      // not status: recompute it and it must agree.
+      const from = mark.path[0] as Point
+      const to = mark.path[mark.path.length - 1] as Point
+      const span = Math.hypot(to.x - from.x, to.y - from.y)
+      const along =
+        ((to.x - from.x) * Math.cos(LIGHT_AXIS) + (to.y - from.y) * Math.sin(LIGHT_AXIS)) / span
+      const tipDelta = (b?.ink.alpha as number) - (mid?.ink.alpha as number)
+      if (Math.abs(along) > 0.05 && Math.abs(tipDelta) > 1e-9) {
+        expect(Math.sign(tipDelta)).toBe(Math.sign(along))
+      }
+    }
+    expect(litSeen).toBeGreaterThan(0)
+  })
+
+  it('the screen ambient layer is byte-identical whatever the fleet is doing', () => {
+    // Fog, vignette and grain read the panel and the frame's dials — never a
+    // lane. Two frames that differ in EVERY lane's status must paint the same
+    // ambient screen marks.
+    const screenOf = (marks: readonly Mark[]) =>
+      marks.filter(
+        (mark) => mark.role === 'depth-fog' || mark.role === 'vignette' || mark.role === 'grain',
+      )
+    expect(screenOf(marksFor({ fleet: fleetFor(fleet20Spec()) }))).toEqual(screenOf(marksFor()))
+  })
+
+  it('the spores and the flora keep fixed counts, whatever the fleet is doing', () => {
+    const countsOf = (marks: readonly Mark[]) => ({
+      spores: marks.filter((m) => m.role === 'spore').length,
+      flora: marks.filter((m) => m.role === 'rim-flora').length,
+    })
+    expect(countsOf(marksFor())).toEqual(countsOf(marksFor({ fleet: fleetFor(fleet20Spec()) })))
+  })
+})
 
 describe('prefers-reduced-motion', () => {
   const field = new PulseField()

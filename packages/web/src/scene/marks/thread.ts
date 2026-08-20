@@ -12,7 +12,7 @@ import {
 import { PERSIST, persistInks, persistWidths, toward } from '../retire.js'
 import type { WidthStop } from '../ribbon.js'
 import { SHIMMER_PERIOD_MS, variationFor, variationSeed } from '../variation.js'
-import { alarmInk, budget, motionMode, type SceneFrame } from './frame.js'
+import { litStops, alarmInk, budget, motionMode, type SceneFrame } from './frame.js'
 import { THORN_OUT } from './glyphs.js'
 import { ribbonMark, type Mark, type RibbonMark } from './types.js'
 
@@ -115,10 +115,17 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       // way to `TISSUE_500` keeps the lane's own family unmistakable in the mark
       // above it while the light *around* it reads as bioluminal — which is the
       // whole difference between a lit line and a living one.
-      paint: budget(frame, laneId, false, {
-        rgb: mix(base.rgb, tissueAtOn(frame.palette, 0.5), UNDERGLOW),
-        alpha: base.alpha * 0.1,
-      }),
+      paint: thread.alarm
+        ? budget(frame, laneId, false, {
+            rgb: mix(base.rgb, tissueAtOn(frame.palette, 0.5), UNDERGLOW),
+            alpha: base.alpha * 0.1,
+          })
+        : litStops(
+            frame,
+            laneId,
+            { rgb: mix(base.rgb, tissueAtOn(frame.palette, 0.5), UNDERGLOW), alpha: base.alpha * 0.1 },
+            thread.path,
+          ),
     }),
     ribbonMark({
       ...shape,
@@ -128,7 +135,9 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       path: thread.path,
       widthRoot: thread.widthRoot,
       widthTip: thread.widthTip,
-      paint: budget(frame, laneId, false, base),
+      // The directional light rides the calm living body; an alarm lane's
+      // ribbon stays flat so nothing ambient touches the band it owes.
+      paint: thread.alarm ? budget(frame, laneId, false, base) : litStops(frame, laneId, base, thread.path),
     }),
   )
 

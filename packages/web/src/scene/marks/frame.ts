@@ -1,7 +1,7 @@
 import type { Fleet } from '../../fleet/index.js'
 import { RECENCY_SPAN_MS, type SceneGeometry, type ThreadGeometry } from '../geometry.js'
 import { allowance, type MotionMode } from '../motion.js'
-import {
+import { clamp01,
   capPresence,
   emphatic,
   fade,
@@ -12,6 +12,8 @@ import {
   type Rgb,
   type ScenePalette,
 } from '../palette.js'
+import type { Point } from '../geometry.js'
+import type { Paint } from './types.js'
 import type { PulseField } from '../pulses.js'
 import { emphasisOf, spend, spendTip, type Salience } from '../salience.js'
 
@@ -199,4 +201,58 @@ export function alarmInk(frame: SceneFrame, hue: Rgb, alpha: number): Ink {
   const source = ink(emphatic(hue, frame.palette), alpha)
   if (frame.palette.band.carrier === 'luminance') return source
   return floorPresence(source, frame.palette.ground, frame.palette.band.alarmFloor)
+}
+
+/**
+ * DIRECTIONAL LIGHT (prd-33 ruling 8's granted channel, landed loop 5 of the
+ * professionalisation run) — one fixed axis, upper-left, and the calm living
+ * ribbons carry a 3-stop gradient along it: the lit flank and the shade.
+ *
+ * The channel is ALPHA, symmetric about the base ink, hue untouched — which
+ * is what makes one mechanism honest in both worlds: on the void more alpha
+ * is more light (the lit flank of a translucent organism), on paper more
+ * alpha is more ink, so the SHADE side takes it — less ink where the light
+ * falls, exactly the carrier flip the ambient answer established. The swing
+ * is small (±LIGHT_SWING of the base alpha) and every stop passes through
+ * {@link budget}, so the band's ceilings hold stop by stop.
+ *
+ * "Ambient never means" is the law that rides with it (ruling 2): the
+ * stop-to-stop delta is a function of geometry alone — the axis and the
+ * thread's bearing — never of status, salience or work. `marks.test.ts`'s
+ * harness renders the same geometry under every status and asserts the
+ * deltas byte-identical.
+ */
+export const LIGHT_AXIS = (315 * Math.PI) / 180
+export const LIGHT_SWING = 0.12
+
+export function litStops(
+  frame: SceneFrame,
+  laneId: string | null,
+  base: Ink,
+  path: readonly Point[],
+): Paint {
+  if (path.length < 2) return budget(frame, laneId, false, base)
+  const from = path[0] as Point
+  const to = path[path.length - 1] as Point
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  const span = Math.hypot(dx, dy)
+  if (span < 1e-6) return budget(frame, laneId, false, base)
+  // How much of the thread runs along the light axis: +1 tip-toward-light.
+  const along = (dx * Math.cos(LIGHT_AXIS) + dy * Math.sin(LIGHT_AXIS)) / span
+  // On paper the ink flips: the lit flank carries LESS.
+  const flip = frame.palette.band.carrier === 'presence' ? -1 : 1
+  const swing = LIGHT_SWING * along * flip
+  const stop = (delta: number): Ink =>
+    budget(frame, laneId, false, { rgb: base.rgb, alpha: clamp01(base.alpha * (1 + delta)) })
+  return {
+    type: 'linear',
+    from,
+    to,
+    stops: [
+      { at: 0, ink: stop(-swing) },
+      { at: 0.5, ink: stop(0) },
+      { at: 1, ink: stop(swing) },
+    ],
+  }
 }

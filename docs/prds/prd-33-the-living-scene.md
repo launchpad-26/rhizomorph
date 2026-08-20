@@ -375,7 +375,13 @@ law; the dials turn; the texture passes; the canvas harness.
   in). No birth is ever queued — the cap is amplitude and cost, because a queued birth hides
   an existing lane. Thicken (the ruling's third verb) and typed causes land with the next
   loop. See docs/design-notes/growth-bud-reach-thicken.md.
-- **Which channels get ambient rows first** — decided at the amendment; the grant
+- **Which channels get ambient rows first** — directional light landed first
+  (2026-08-21, loop 5): one fixed axis (315°), a 3-stop LinearPaint on calm
+  living ribbons, ALPHA-only (±0.12 of base — hue untouched, law 9a intact),
+  flipped into ink-density on the presence carrier, alarm lanes excluded so
+  nothing ambient touches the band. The ambient-never-means HARNESS landed
+  with it (marks.test.ts: geometry-signed symmetry, screen-layer
+  status-invariance, fixed counts) — each later channel adds its case. — the grant
   mechanism is ruled, the grants are not.
 - **How ambient material behaves on light ground** — ANSWERED (light-mode wave, 2026-08-20,
   the second lander as this line predicted): ambient material is sampled from the frame's own

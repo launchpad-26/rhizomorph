@@ -25,19 +25,19 @@
   },
   "difference": {
     "pixels": 2728000,
-    "meanDelta": 1.302,
-    "over8": 0.36,
+    "meanDelta": 1.305,
+    "over8": 0.37,
     "over32": 0.04,
     "worst": 222
   },
   "cost": {
     "canvas": {
-      "cpuMs": 1.2,
-      "wallMs": 1.776
+      "cpuMs": 0.8,
+      "wallMs": 1.093
     },
     "webgl": {
-      "cpuMs": 4.5,
-      "wallMs": 5.431
+      "cpuMs": 2.6,
+      "wallMs": 3.585
     },
     "frames": 120
   }
