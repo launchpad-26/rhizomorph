@@ -240,7 +240,10 @@ describe('listKnownProjects', () => {
     expect(result.available).toBe(true)
     const projects = (result as { available: true; projects: unknown[] }).projects
     expect(projects).toEqual([
-      { slug: '-home-x-repo', path: path.join('/', 'home', 'x', 'repo'), resolved: true },
+      // `repoRoot: null` — the fixture has no `.git` anywhere, so the resolved
+      // path is honestly classified as inside no repo. The path itself is
+      // still reported: classification is the server's, dropping is nobody's.
+      { slug: '-home-x-repo', path: path.join('/', 'home', 'x', 'repo'), resolved: true, repoRoot: null },
       {
         slug: '-home-x-ghost',
         path: null,
@@ -248,6 +251,40 @@ describe('listKnownProjects', () => {
         reason: expect.stringContaining('ghost') as unknown as string,
       },
     ])
+  })
+
+  it('classifies a resolved cwd by its nearest .git ancestor — a repo, its subdir, a worktree, and no repo at all', async () => {
+    const fs = fixtureFs(
+      {
+        '/home/x/.claude/projects': ['-home-x-repo', '-home-x-repo-packages-web', '-home-x-lane', '-home-x'],
+        '/': ['home'],
+        '/home': ['x'],
+        '/home/x': ['repo', 'lane'],
+        '/home/x/repo': ['packages'],
+        '/home/x/repo/packages': ['web'],
+        '/home/x/repo/packages/web': [],
+        '/home/x/lane': [],
+      },
+      // `.git` as a bare EXISTS fact: a directory for the repo, a FILE for the
+      // linked worktree (`gitPaths` is deliberately indifferent to which —
+      // exactly the ambiguity the scan half's own pinned test relies on).
+      { gitPaths: new Set([path.join('/home/x/repo', '.git'), path.join('/home/x/lane', '.git')]) },
+    )
+
+    const result = await listKnownProjects('/home/x/.claude/projects', fs)
+    const projects = (result as { available: true; projects: Array<{ slug: string; repoRoot?: string | null }> }).projects
+    const bySlug = new Map(projects.map((entry) => [entry.slug, entry.repoRoot]))
+
+    // A repo is its own root.
+    expect(bySlug.get('-home-x-repo')).toBe(path.join('/home/x/repo'))
+    // A session run in a SUBDIR folds to the repo above it — resolvable,
+    // honestly not itself a repo, and the fold is what dedups it against the
+    // repo in the picker.
+    expect(bySlug.get('-home-x-repo-packages-web')).toBe(path.join('/home/x/repo'))
+    // A linked worktree (`.git` is a file) is a repo in its own right.
+    expect(bySlug.get('-home-x-lane')).toBe(path.join('/home/x/lane'))
+    // A home directory with no `.git` above it: inside no repo, said plainly.
+    expect(bySlug.get('-home-x')).toBeNull()
   })
 
   it('returns an empty list, not an error, when the root exists but has no project slugs yet', async () => {
@@ -437,7 +474,7 @@ describe('discoverRepos', () => {
 
     expect(result.known).toEqual({
       available: true,
-      projects: [{ slug: '-home-x-known', path: path.join('/home/x/known'), resolved: true }],
+      projects: [{ slug: '-home-x-known', path: path.join('/home/x/known'), resolved: true, repoRoot: null }],
     })
     expect(result.scanned).toEqual({
       repos: [{ path: path.join('/home/x/code/scanned') }],
