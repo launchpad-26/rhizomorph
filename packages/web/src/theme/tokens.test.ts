@@ -371,7 +371,14 @@ describe('no new pixel literal after the ramp exists (S1)', () => {
 // 44 -> 32: kind.ts (every trace/ledger span ink) and the fleet sigils move to
 // the three ink roles — three ordered lightnesses in BOTH themes, so no themed
 // sub-ramp was needed; kind.test.tsx's INK_ALLOWED now names the roles.
-const ICE_RUNG_SITES = 32
+//
+// 32 -> 0: the scene's chrome (SceneView.tsx — the motion, finished-lanes and
+// camera controls, and the host's ground and focus ring), and the ratchet
+// RETIRES. From here the census is not a countdown, it is a ban: the empty
+// array below is the end state #597 was opened for, and a single new rung
+// anywhere outside theme.css fails the build by name. The history above is
+// kept because the numbers are the story of how light mode became real.
+const ICE_RUNG_SITES = 0
 
 describe('no consumer names a luminance rung — the colour ratchet (S2)', () => {
   /** The sweep's own files, less the one that defines the ramp being counted. */
@@ -391,15 +398,15 @@ describe('no consumer names a luminance rung — the colour ratchet (S2)', () =>
     expect(sweepable().map((file) => file.name)).toContain('theme/theme.css')
   })
 
-  it(`still names ${ICE_RUNG_SITES} ice rungs outside theme.css, and not one more`, () => {
-    const sites = countRungSites(consumers())
-
+  it('names NO ice rung outside theme.css — the ban the ratchet retired into', () => {
+    // `toEqual([])` rather than a length check, so a violation fails NAMING the
+    // offending file(s) — and unlike the countdown this replaced, there is no
+    // pin to "update": a new rung has no legal move except becoming a role.
     expect(
-      sites.length,
-      sites.length > ICE_RUNG_SITES
-        ? `a consumer named a luminance rung after the roles exist — reach for a role (\`bg-(--surface-panel)\`, \`text-(--ink-body)\`, \`border-(--line-hair)\`) instead, or light mode paints the void on that surface`
-        : `${ICE_RUNG_SITES - sites.length} rung reference(s) were retired: lower ICE_RUNG_SITES to ${sites.length} and take the credit`,
-    ).toBe(ICE_RUNG_SITES)
+      countRungSites(consumers()),
+      'a consumer named a luminance rung — reach for a role (`bg-(--surface-panel)`, `text-(--ink-body)`, `border-(--line-hair)`) instead, or light mode paints the void on that surface',
+    ).toEqual([])
+    expect(ICE_RUNG_SITES).toBe(0)
   })
 
   it('would catch a rung coming back — the mutation, run rather than argued', () => {
