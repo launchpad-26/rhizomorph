@@ -1,10 +1,18 @@
-import { BUTTON, BUTTON_PRIMARY, FIELD } from '../ui/controls.js'
 import { useEffect, useState } from 'react'
+import { BUTTON, BUTTON_PRIMARY, FIELD } from '../ui/controls.js'
 import { requestClone, type CloneFetchLike, type CloneOutcome } from '../concierge/clone.js'
 import { requestInstrument, type InstrumentFetchLike, type InstrumentMode, type InstrumentOutcome } from '../concierge/instrument.js'
 import type { CopyText } from '../drawer/AttachButton.js'
 import { restartCommand, STATE_GLYPH, STATE_WORD, type ChainLink } from './links.js'
-import { fetchRepos, UNAVAILABLE, type FetchLike, type MetaFacts, type ReposReading } from './meta.js'
+import {
+  fetchRepos,
+  isWorktreeLaneSlug,
+  REPO_SELECT_CAP,
+  UNAVAILABLE,
+  type FetchLike,
+  type MetaFacts,
+  type ReposReading,
+} from './meta.js'
 
 /**
  * THE SETUP WIZARD (prd-20 wave 4, #266) — the face of the concierge, and the
@@ -496,31 +504,57 @@ function RepoStep({
           {repos.unreadable.length > 0 && (
             <li>{repos.unreadable.length} director{repos.unreadable.length === 1 ? 'y was' : 'ies were'} reached and could not be read: {repos.unreadable.join(', ')}</li>
           )}
-          {/* One voice per FACT-CLASS, not per slug (loop 19): a machine with
-              months of history carries a stale slug for every worktree it has
-              ever deleted, and sixteen near-identical paragraphs buried this
-              page's actual controls. The count and the claim stay in plain
-              sight; each slug and how far it resolved is one click away, and
-              a single orphan still speaks its whole line. */}
-          {repos.unresolved.length === 1 && (
-            <li data-testid="wizard-repos-unresolved">
-              claude has history under “{(repos.unresolved[0] as { slug: string }).slug}”, and this instrument could
-              not say where: {(repos.unresolved[0] as { reason: string }).reason}
+          {repos.overflow > 0 && (
+            <li>
+              {repos.overflow} more repo{repos.overflow === 1 ? ' was' : 's were'} found and {repos.overflow === 1 ? 'is' : 'are'} not
+              listed — the picker caps at {REPO_SELECT_CAP}, and the clone box below reaches any of them
             </li>
           )}
-          {repos.unresolved.length > 1 && (
-            <li data-testid="wizard-repos-unresolved">
-              <details>
-                <summary className="focus-ring cursor-pointer rounded">
-                  claude has history under {repos.unresolved.length} slugs this instrument could not place — open for
-                  each slug and how far it resolved
-                </summary>
-                <ul className="mt-1 flex flex-col gap-0.5 pl-4">
-                  {repos.unresolved.map((entry) => (
-                    <li key={entry.slug}>
-                      “{entry.slug}” — {entry.reason}
+          {repos.nonRepos.length > 0 && (
+            <li data-testid="wizard-repos-nonrepos">
+              claude has history in {repos.nonRepos.length} place{repos.nonRepos.length === 1 ? '' : 's'} that {repos.nonRepos.length === 1 ? 'is' : 'are'} not
+              inside a git repo — not offered above
+              {repos.nonRepos.length <= 3 ? `: ${repos.nonRepos.join(', ')}` : ''}
+              {repos.nonRepos.length > 3 && (
+                <details className="mt-0.5">
+                  <summary className="cursor-pointer">show them</summary>
+                  <span>{repos.nonRepos.join(', ')}</span>
+                </details>
+              )}
+            </li>
+          )}
+          {/* THE FOLD (walkthrough, 2026-08-20). This list used to render every
+              unresolved slug as its own full sentence, and a machine that had
+              run one swarm held 289 worktree-lane slugs whose directories died
+              with their lanes — a wall of text that buried the four lines
+              above, which are the ones that can actually change what a person
+              does. "Unknown is not absent" survives intact: every slug is
+              still counted in the sentence, every non-worktree one is still
+              named with its reason, and the worktree-shaped crowd is one
+              grouped line inside the details — the FACT kept, the noise
+              folded. A native <details> so this stays render-only state, no
+              hook, no store, nothing for ruling 7's mutation laws to see. */}
+          {repos.unresolved.length > 0 && (
+            <li>
+              claude has history in {repos.unresolved.length} more place{repos.unresolved.length === 1 ? '' : 's'} this
+              instrument could not resolve
+              <details data-testid="wizard-repos-unresolved" className="mt-0.5">
+                <summary className="cursor-pointer">show why</summary>
+                <ul className="mt-0.5 flex flex-col gap-0.5">
+                  {repos.unresolved.filter((entry) => isWorktreeLaneSlug(entry.slug)).length > 0 && (
+                    <li data-testid="wizard-repos-worktree-fold">
+                      {repos.unresolved.filter((entry) => isWorktreeLaneSlug(entry.slug)).length} of these are
+                      worktree-lane slugs — workmux lanes whose directories are gone, one per lane of past swarm runs —
+                      e.g. “{repos.unresolved.find((entry) => isWorktreeLaneSlug(entry.slug))?.slug}”
                     </li>
-                  ))}
+                  )}
+                  {repos.unresolved
+                    .filter((entry) => !isWorktreeLaneSlug(entry.slug))
+                    .map((entry) => (
+                      <li key={entry.slug}>
+                        claude has history under “{entry.slug}”, and this instrument could not say where: {entry.reason}
+                      </li>
+                    ))}
                 </ul>
               </details>
             </li>

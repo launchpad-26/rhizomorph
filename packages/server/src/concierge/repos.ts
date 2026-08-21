@@ -105,22 +105,50 @@ export const realDiscoveryFs: DiscoveryFs = {
  * however many separate `listSubdirectories` calls ask for it — the cache
  * lives only as long as the closure returned here, never module-level state,
  * so a caller that discards this wrapper after one operation cannot leak a
- * stale listing into an unrelated later call. `exists` passes through
- * unwrapped: it is used for `.git` existence checks scattered across many
- * distinct, rarely-repeated paths, not the shared-ancestor pattern this
- * exists to fix.
+ * stale listing into an unrelated later call.
+ *
+ * `exists` is now cached the same way. The comment here used to argue it
+ * needed no cache ("scattered across many distinct, rarely-repeated paths"),
+ * and that was true until `findRepoRoot` existed: an ancestor walk asks
+ * `exists(<dir>/.git)` at every hop, and sibling slugs under one home
+ * directory repeat the same shallow ancestors dozens of times. Same
+ * promise-holding single-flight shape as the listings, same per-call scope.
  */
 function withSharedDirectoryCache(fs: DiscoveryFs): DiscoveryFs {
-  const cache = new Map<string, Promise<SubdirectoryListing>>()
+  const listings = new Map<string, Promise<SubdirectoryListing>>()
+  const existence = new Map<string, Promise<boolean>>()
   return {
-    exists: fs.exists,
-    listSubdirectories: (dir) => {
-      const cached = cache.get(dir)
+    exists: (target) => {
+      const cached = existence.get(target)
       if (cached) return cached
-      const pending = fs.listSubdirectories(dir)
-      cache.set(dir, pending)
+      const pending = fs.exists(target)
+      existence.set(target, pending)
       return pending
     },
+    listSubdirectories: (dir) => {
+      const cached = listings.get(dir)
+      if (cached) return cached
+      const pending = fs.listSubdirectories(dir)
+      listings.set(dir, pending)
+      return pending
+    },
+  }
+}
+
+/**
+ * The nearest ancestor-or-self of `target` holding a `.git` (dir or file — a
+ * linked worktree's `.git` is a file), or `null` when the walk reaches the
+ * filesystem root without finding one. Pure `exists` hops: no spawn (this
+ * serves a tokenless route), no clock, terminates because `dirname` reaches a
+ * fixed point at the root.
+ */
+export async function findRepoRoot(target: string, fs: DiscoveryFs = realDiscoveryFs): Promise<string | null> {
+  let dir = target
+  for (;;) {
+    if (await fs.exists(path.join(dir, '.git'))) return dir
+    const parent = path.dirname(dir)
+    if (parent === dir) return null
+    dir = parent
   }
 }
 
@@ -245,6 +273,28 @@ export interface KnownProjectEntry {
   resolved: boolean
   /** Present only when `resolved` is `false`: where the reversal walk stopped and why. */
   reason?: string
+  /**
+   * Present only when `resolved` is `true`: the nearest ancestor-or-self of
+   * `path` that holds a `.git`, or `null` when no ancestor does.
+   *
+   * This is the classification the picker was missing. A slug records a cwd a
+   * Claude session once ran in — which is often a repo, sometimes a SUBDIR of
+   * one (`<repo>/packages/web`, honestly resolvable and honestly not itself a
+   * repo), and sometimes no repo at all (a home directory, a probe dir).
+   * Offering all three as "repos" is how the measured picker came to hold a
+   * home directory beside two scratch dirs. The fold to the nearest `.git`
+   * ancestor answers the subdir case truthfully (the repo IS there, one level
+   * up — and folding gives dedup for free when a repo and its subdir both
+   * appear); `null` moves the no-repo case into a counted bucket the wizard
+   * names rather than silence.
+   *
+   * `.git` as dir OR file, via `exists` — a linked worktree's `.git` is a
+   * file, and the scan half's own pinned test says a worktree counts. Cheap
+   * on purpose: this is a tokenless GET, so it must not spawn processes;
+   * `retarget-validation.ts` still runs the real `git rev-parse` at act time,
+   * so this is a pre-filter in front of a real gate, not the gate.
+   */
+  repoRoot?: string | null
 }
 
 export type KnownProjectsResult = { available: true; projects: KnownProjectEntry[] } | { available: false; reason: string }
@@ -287,9 +337,13 @@ export async function listKnownProjects(claudeProjectsRoot: string, fs: Discover
   const projects: KnownProjectEntry[] = await Promise.all(
     listing.entries.map(async (slug) => {
       const reversed = await reverseProjectSlug(slug, cachedFs)
-      return reversed.path === null
-        ? { slug, path: null, resolved: false, reason: reversed.reason }
-        : { slug, path: reversed.path, resolved: true }
+      if (reversed.path === null) {
+        return { slug, path: null, resolved: false, reason: reversed.reason }
+      }
+      // The classification the picker reads — see `KnownProjectEntry.repoRoot`.
+      // Through the same per-call cache, so sibling slugs' ancestor hops
+      // single-flight instead of re-stating the same shallow directories.
+      return { slug, path: reversed.path, resolved: true, repoRoot: await findRepoRoot(reversed.path, cachedFs) }
     }),
   )
 

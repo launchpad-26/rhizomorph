@@ -503,23 +503,81 @@ export type ReposReading =
       unreadable: string[]
       /** Present when the `~/.claude/projects` half specifically could not be enumerated, with the server's own reason. */
       historyUnavailable: string | null
+      /**
+       * Resolved paths Claude has history in that are inside NO git repo — a
+       * home directory, a probe dir. Counted and shown as their own line, never
+       * offered in the picker as "repos" and never silently dropped: the
+       * measured picker held three of these beside five real repos.
+       */
+      nonRepos: string[]
+      /** How many repos the {@link REPO_SELECT_CAP} cut from `repos`. Zero means the list is whole. */
+      overflow: number
     }
   | { kind: 'unavailable'; reason: string }
   | { kind: 'absent' }
 
-function parseKnown(value: unknown): { repos: RepoCandidate[]; unresolved: UnresolvedRepo[]; unavailable: string | null } {
-  if (!isRecord(value)) return { repos: [], unresolved: [], unavailable: null }
+/**
+ * The most repos the picker will list. A `<select>` with hundreds of options
+ * is not a picker, it is a haystack — and the clone box below it reaches any
+ * repo the cap cut, which the wizard says whenever `overflow > 0`. History
+ * entries sort before scan entries already, so the cut falls on the weakest
+ * evidence first.
+ */
+export const REPO_SELECT_CAP = 40
+
+/**
+ * Whether an unresolved slug is worktree-shaped — one lane of a swarm run,
+ * minted per-worktree by `collectors/sessionlog/worktree-slug.ts`'s forward
+ * transform (`<repo>__worktrees/<lane>` encodes with a `--worktrees-` infix).
+ * One swarm run mints hundreds of these and they die with their directories,
+ * so the wizard folds them into a single counted line instead of a sentence
+ * each — the measured page rendered 289 of them. Grouping is RENDER-ONLY: the
+ * reading still carries every entry, so nothing is dropped from the fact.
+ */
+export function isWorktreeLaneSlug(slug: string): boolean {
+  return /--worktrees-/.test(slug)
+}
+
+function parseKnown(value: unknown): {
+  repos: RepoCandidate[]
+  unresolved: UnresolvedRepo[]
+  nonRepos: string[]
+  unavailable: string | null
+} {
+  if (!isRecord(value)) return { repos: [], unresolved: [], nonRepos: [], unavailable: null }
   if (value.available !== true) {
-    return { repos: [], unresolved: [], unavailable: str(value.reason) }
+    return { repos: [], unresolved: [], nonRepos: [], unavailable: str(value.reason) }
   }
   const repos: RepoCandidate[] = []
   const unresolved: UnresolvedRepo[] = []
+  const nonRepos: string[] = []
+  const seenRoots = new Set<string>()
   if (Array.isArray(value.projects)) {
     for (const entry of value.projects) {
       if (!isRecord(entry)) continue
       const target = str(entry.path)
       if (entry.resolved === true && target !== null) {
-        repos.push({ path: target, origin: 'claude-history' })
+        // The server's classification, three-valued on purpose:
+        //  - a string `repoRoot` is the repo this cwd belongs to (often itself;
+        //    sometimes an ancestor — a session run in `<repo>/packages/web`
+        //    folds to the repo, which also dedups a repo against its subdirs);
+        //  - `null` means Claude has history here and it is inside no repo at
+        //    all — a fact the wizard states, not a picker entry;
+        //  - absent means an older server that never classified: exactly
+        //    yesterday's behaviour, so an old server keeps working.
+        if (!('repoRoot' in entry)) {
+          repos.push({ path: target, origin: 'claude-history' })
+          continue
+        }
+        const root = str(entry.repoRoot)
+        if (root === null) {
+          nonRepos.push(target)
+          continue
+        }
+        if (!seenRoots.has(root)) {
+          seenRoots.add(root)
+          repos.push({ path: root, origin: 'claude-history' })
+        }
         continue
       }
       const slug = str(entry.slug)
@@ -531,7 +589,7 @@ function parseKnown(value: unknown): { repos: RepoCandidate[]; unresolved: Unres
       }
     }
   }
-  return { repos, unresolved, unavailable: null }
+  return { repos, unresolved, nonRepos, unavailable: null }
 }
 
 function parseScanned(value: unknown): { repos: RepoCandidate[]; truncated: boolean; unreadable: string[] } {
@@ -575,7 +633,11 @@ export function parseRepos(body: unknown): ReposReading | null {
   const scanned = parseScanned(body.scanned)
 
   const seen = new Set(known.repos.map((repo) => repo.path))
-  const repos = [...known.repos, ...scanned.repos.filter((repo) => !seen.has(repo.path))]
+  const merged = [...known.repos, ...scanned.repos.filter((repo) => !seen.has(repo.path))]
+  // The cap falls after the merge so history-first ordering decides what
+  // survives it, and the cut is COUNTED — the wizard says "N more" rather
+  // than showing a short list that claims to be the whole truth.
+  const repos = merged.slice(0, REPO_SELECT_CAP)
 
   return {
     kind: 'repos',
@@ -584,6 +646,8 @@ export function parseRepos(body: unknown): ReposReading | null {
     truncated: scanned.truncated,
     unreadable: scanned.unreadable,
     historyUnavailable: known.unavailable,
+    nonRepos: known.nonRepos,
+    overflow: merged.length - repos.length,
   }
 }
 

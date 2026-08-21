@@ -49,6 +49,14 @@ export { MigrationFenceError, MigrationSourceNotFoundError, MigrationSourceNotRe
  * (an established idiom in this module's family of types) but at the OUTER
  * level: `available: true` carries the real `known`/`scanned` payload,
  * `available: false` means discovery never ran, with a reason.
+ *
+ * Each resolved `known` entry carries `repoRoot` — the nearest `.git`
+ * ancestor-or-self, or `null` for a path inside no repo. The split of labour
+ * that field encodes: CLASSIFICATION is the server's (it has the filesystem),
+ * PRESENTATION is the picker's (it decides that a `null` becomes a counted
+ * "not offered" line and a subdir folds onto its repo). The field is additive
+ * and optional on the wire, so an older client ignores it and an older
+ * server's absence of it reads as the pre-classification behaviour.
  */
 export type ConciergeReposResponse = ({ available: true } & DiscoverReposResult) | { available: false; reason: string }
 
