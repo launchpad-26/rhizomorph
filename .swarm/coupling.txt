@@ -42,3 +42,4 @@ packages/web/src/drawer/readonly.test.ts  # the CONSUMED allowlist — every rel
 
 # ── the one every lane touches without meaning to ──────────────────────────
 package-lock.json  # any dependency change rewrites it, so two lanes adding a dependency in the same wave conflict at landing even though neither went near the other's files
+scripts/gate.sh  # greps packages/web/src/scene/{perf.test.ts,SceneView.test.tsx} for the `@gate-timing` marker and FAILS the landing when the match count is zero (gate.sh:104, the #209 trap) — so renaming, moving or un-marking either test file breaks the operator's landing tool from a directory the lane never entered
