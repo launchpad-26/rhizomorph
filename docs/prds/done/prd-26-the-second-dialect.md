@@ -1,7 +1,10 @@
 # prd-26 — the second dialect: adapters for the harness you actually drive
 
-> **Status:** proposed — the build of prd-15 ruling 4 (the adapter contract) and
-> ruling 3 (provider/model/cost parity), not a redesign of either.
+> **Outcome:** shipped — the conformance seam, real Codex captures and capability declaration,
+> Pi grammar/collector, and roster/doctor truth ship. Pi is the real second dialect:
+> capture-backed, attributed by harness, emitting five provided signals and one honestly partial
+> signal, and verified by transcript flow on `/connect`. Launching Pi remains prd-20's concern
+> and was a non-goal here. Reconciled 2026-08-22 at `03df141`.
 
 ## Problem
 
@@ -176,3 +179,13 @@ board — never a predicted one.
   mapping profile plus an env recipe, per ruling 1 as written, and that a file
   drop is a fallback for a harness with no network export rather than an
   ingestion path to own. gemini turned out to be the native case.
+
+## Amendment — the capture-first build landed (reconciled 2026-08-22)
+
+The Evidence and Sequencing sections above describe the pre-build tree and remain intact as the
+record of why the work was ordered that way. Since then the shared conformance suite, real Codex
+captures and capability declaration, Pi's captured grammar and collector, ADR-0025, and the
+shared roster consumed by `/connect` and doctor have landed. Pi satisfies the Success bar as an
+observation dialect: all six signals are either provided or honestly partial with a reason and
+remedy, and real Pi events verify transcript flow on `/connect`. The missing Pi launch adapter is
+prd-20's surface and is explicitly outside this PRD's launch non-goal.

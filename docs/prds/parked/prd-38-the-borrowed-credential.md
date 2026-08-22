@@ -1,8 +1,11 @@
 # prd-38 — the borrowed credential
 
-**Status:** proposed · **Owner:** operator · **Depends on:** prd-20 (the
-concierge), prd-23 (the trust boundary), prd-34 (the doorstep), ADR-0019 (the
-fourth hand), ADR-0024 (the gated read)
+> **Status:** parked — proposed future direction, zero of five Success criteria implemented and
+> self-gated on an ADR that does not exist. Moving back into flight requires renewed operator
+> blessing. Reconciled 2026-08-22 at `03df141`.
+>
+> **Owner:** operator · **Depends on:** prd-20 (the concierge), prd-23 (the trust boundary),
+> prd-34 (the doorstep), ADR-0019 (the fourth hand), ADR-0024 (the gated read)
 
 ## Problem
 

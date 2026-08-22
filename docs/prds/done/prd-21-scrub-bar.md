@@ -1,6 +1,7 @@
 # prd21 — the scrub bar moves smoothly, reads its position, and opens to the full record at a point
 
-> **Outcome:** proposed 2026-08-07, never blessed; closed out 2026-08-13. **Everything shipped — ruling 1 in full, then ruling 2 and the readability half later the same day, in the same change (#430) that landed this document.** See [Outcome](#outcome--closed-out-2026-08-13) at the foot of this file, and the postscript beneath it, for what landed in what order and one correction to the evidence below.
+> **Outcome:** shipped.
+> Proposed 2026-08-07, never blessed; closed out 2026-08-13. **Everything shipped — ruling 1 in full, then ruling 2 and the readability half later the same day, in the same change (#430) that landed this document.** See [Outcome](#outcome--closed-out-2026-08-13) at the foot of this file, and the postscript beneath it, for what landed in what order and one correction to the evidence below.
 
 **Status:** PROPOSED — operator report 2026-08-07, evidence measured the same
 day. Sequenced after prd13 (the TIDE, whose dock this modifies). Numbered 21 at
@@ -166,7 +167,7 @@ already exceeds the frame budget on its own: 58 ms at 5,000 events, 292 ms at
 2026-08-07 — the cost lands on the live path too, so it is a product-wide
 finding the scrubber merely exposed — and it is specified in **#267** (an
 incremental spend cursor in `packages/core/src/selectors/spend.ts`), on the
-precedent [ADR-0002](../adr/0002-one-reducer-for-live-and-replay.md) and #160's
+precedent [ADR-0002](../../adr/0002-one-reducer-for-live-and-replay.md) and #160's
 keyframed cure of the same disease one layer down. Per `AGENTS.md`, an
 architectural ruling is linked, not restated: **this PRD depends on #267 and
 does not duplicate it.**

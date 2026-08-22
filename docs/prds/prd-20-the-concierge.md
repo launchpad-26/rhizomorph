@@ -1,11 +1,9 @@
 # prd-20 — the concierge: a one-stop front door
 
-> **Status:** proposed · wave 1 in progress — ruling 1's amendment is on the record as
-> [ADR-0019](../adr/0019-the-fourth-hand.md) (#260), with the concierge's namespace law
-> landing ahead of its code. Every route still gated on #234 landing first (ruling 2).
-> Wave 5 adds ruling 6 and its amendment, [ADR-0020](../adr/0020-transcript-migration-is-a-create-only-copy.md)
-> (#514), on the evidence of the cross-host resume spike (#513) — again fence first,
-> copy later.
+> **Outcome:** partially shipped — the fourth-hand fence, capability gate, harness registry,
+> local discovery, clone, launch/relaunch, transcript migration and setup wizard ship. The
+> wizard still cannot switch the watched repository; prd-42 hardens the dormant retarget route
+> but does not add that control. Reconciled 2026-08-22 at `03df141`.
 
 ## Problem
 

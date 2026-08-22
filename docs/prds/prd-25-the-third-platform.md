@@ -1,7 +1,8 @@
 # prd-25 — the third platform: anywhere, with a gate that looks
 
-> **Status:** proposed — completes prd-15 wave 6 (its ruling 7); leaves prd-15 waves
-> 3–5, 7 and 8 where they are.
+> **Status:** proposed · revalidated 2026-08-22 at `03df141` — no `windows-latest` CI leg
+> exists. Completes prd-15 wave 6 (its ruling 7); leaves prd-15 waves 3–5, 7 and 8 where they
+> are. Requires operator blessing before issue grooming.
 
 ## Problem
 

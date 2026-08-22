@@ -93,29 +93,17 @@
   rounds of affordances still read as noise to the one person using it —
   prd3 ruling 25's "every failing mark gets an affordance or is CUT"
   protocol in its clearest live example.
-- **prd14 — the experiment console** (`docs/prds/prd-14-experiment-console.md`, BLESSED 2026-08-06,
-  wave plan not yet landed): a UI onto prd12's laboratory engine —
-  checkpoint a lane, fork arms, compare honestly. Ruling 2 was amended
-  same-session: arms configure freely (own model, own brief, no forced
-  knob), and the *comparison surface*, not the launcher, carries the rigor —
-  naming plainly when arms differ in more than one dimension rather than
-  refusing to run them. **Open, not ruled:** whether the checkpoint timeline
-  scrubs the whole instrument or only the lab's own view; a hard spend cap;
-  and **#205 (the fold-order divergence) remains UNRULED — the lab must not
-  assume a resolution.**
-- **prd15 — the anywhere instrument** (`docs/prds/prd-15-anywhere-instrument.md`, BLESSED 2026-08-05,
-  partially landed): true, full-featured system agnosticism — any OS, any
-  terminal, any agent CLI, any provider, eventually from a plain
-  `npm install`. Landed: ruling 1, the transcript-tail state machine as the
-  universal liveness/attention organ (#188), and ruling 5, the enrichment
-  ladder named not ranked (#190). **Ruled but not yet landed** (waves 3–7):
-  ruling 2 (hook beacons upgrading inferred attention to declared), ruling 3
-  (provider/model/cost parity for codex/pi adapters — overlaps and narrows
-  the old LiteLLM/OpenRouter cohort candidate below to "build the adapters,"
-  the contract is already ruled), ruling 6 (multi-orchestrator honesty), and
-  ruling 7 (a named Windows-native verification pass). Publish-to-npm is
-  this prd's last wave, gated on #177's still-open history-vs-fresh-tree
-  decision.
+- **prd14 — the experiment console** (`docs/prds/prd-14-experiment-console.md`, BLESSED
+  2026-08-06, partially shipped): checkpoint, fork, branching, free arm configuration,
+  spend estimates and honest comparison are live. Comparison artefacts serialize and parse,
+  but are not saved into or reopened from prd16's recording library. The open timeline,
+  spend-cap and fold-order rulings remain open; no backlog issue currently owns the artefact
+  integration.
+- **prd15 — the anywhere instrument** (`docs/prds/prd-15-anywhere-instrument.md`, BLESSED
+  2026-08-05, partially shipped): the universal transcript organ and named enrichment ladder
+  ship. The original remainder has split into narrower successors: prd25 owns Windows, prd26
+  dialect capture, prd27 declared beacons, and prd34 delivery. Multi-orchestrator honesty and
+  terminal/PTY parity remain here and have no live backlog owner.
 - **prd16 — the session is a thing you can hold** (`docs/prds/done/prd-16-session-you-can-hold.md`,
   shipped): a session is a bounded, operator-bounded episode; the observer
   gains a third hand, the recorder (rotation, writing only inside
@@ -144,25 +132,14 @@
   marks for gate holds, summonses, and operator verdicts) — the richer UI
   built on top of all of it is a separate prd (prd18), not yet a doc in this
   tree.
-- **prd19 — the connection** (`docs/prds/prd-19-the-connection.md`, proposed):
-  the instrument proves its own wiring. Connection facts become state
-  (`telemetry.refused` finally folds — the #62 TODO — and first-flow facts are
-  selector-derived), a permanent `/connect` handshake page renders every link
-  VERIFIED/BROKEN/UNPROVEN with the exact fixing command, silence never reads
-  as live, and doctor's checks become a read-only HTTP route. Evidence: a
-  project lead ran the instrument with an uninstrumented conductor and nothing
-  said so. Read-only throughout; numbered 19 because prd18 stays reserved for
-  prd17's richer-UI thread, which blessed citations already name.
-- **prd20 — the concierge** (`docs/prds/prd-20-the-concierge.md`, proposed,
-  gated on #234): the one-stop front door. A fourth hand — token-gated,
-  explicitly invoked, ADR-recorded — that launches or relaunches an
-  instrumented conductor (continuity via `claude --continue`; attachment to a
-  running process is physically impossible and never claimed), clones by URL
-  with the machine's own credentials, discovers local repos, and retargets the
-  watched repo in place. Harness picker built for N with claude first-class;
-  adapter contract stays prd15 ruling 4's.
-- **prd21 — the scrub bar** (`docs/prds/prd-21-scrub-bar.md`, proposed
-  2026-08-07, never blessed, ruling 1 shipped anyway): replay that moves
+- **prd19 — the connection** (`docs/prds/done/prd-19-the-connection.md`, shipped): the
+  `/connect` handshake, folded connection facts, exact remedies and doctor route ship; zero
+  folded events is not accepted as proof that a source is live.
+- **prd20 — the concierge** (`docs/prds/prd-20-the-concierge.md`, proposed, partially shipped):
+  explicit launch/relaunch, clone, discovery and the guarded retarget engine ship. The wizard
+  still cannot choose a discovered repository and invoke the retarget. prd42 hardens the
+  already-built path boundary but does not own this missing operator flow.
+- **prd21 — the scrub bar** (`docs/prds/done/prd-21-scrub-bar.md`, shipped): replay that moves
   smoothly, says where it is, and opens to the full record at a point. Profiling
   overturned the obvious diagnosis — #160's incremental fold is sub-millisecond
   at every size, and the cost is `buildFleet`, which is O(telemetry records) and
@@ -176,6 +153,70 @@
   always-on axis and a readout at the thumb, both ruled).
   Numbered 21 at the operator's direction: prd18 stays reserved for prd17's
   richer-UI thread.
+- **prd22 — survives a real machine** (`docs/prds/done/prd-22-survives-a-real-machine.md`,
+  shipped): collector ticks are bounded, failures recover and speak, removals and parse skips
+  are honest, paths remain byte-honest, recording failure cannot seal the recorder forever,
+  and a source-derived mutation-tested law makes the resilience wrapper unavoidable.
+- **prd23 — the trust boundary** (`docs/prds/done/prd-23-the-trust-boundary.md`, shipped): the
+  capability token reaches the browser without entering logs, every command
+  route is structurally classified and guarded, real browser-to-server mutation
+  contracts hold, and loopback host checks protect reads as well as writes.
+- **prd24 — the seam that lies** (`docs/prds/prd-24-the-seam-that-lies.md`, BLESSED
+  2026-08-06, partially shipped): contract tests, source-derived laws and mutation proofs now
+  protect many critical seams. The original audit plan is stale: CI ordering, boot smoke and
+  coverage work now overlap prd25 and prd43, while ADR-0026 supersedes its blanket Playwright
+  rejection. The surviving audit scope needs a fresh cut before issues are filed.
+- **prd25 — the third platform** (`docs/prds/prd-25-the-third-platform.md`, proposed,
+  revalidated): Windows remains unsupported in CI and the pack-smoke path still has no
+  `windows-latest` leg. This is relevant and bounded, but must be blessed before issue creation.
+- **prd26 — the second dialect** (`docs/prds/done/prd-26-the-second-dialect.md`, shipped):
+  the capture-gated conformance seam, Codex evidence, shared roster, and a real Pi observation
+  dialect ship. Pi emits five provided signals and one honestly partial signal and verifies
+  transcript flow; launching it belongs to prd20, not this PRD.
+- **prd27 — the declared voice** (`docs/prds/prd-27-the-declared-voice.md`, BLESSED
+  2026-08-07, partially shipped): two of four declared-voice successes ship. Hook beacon
+  ingestion and capability-version mismatch voice remain, with no current backlog owner.
+- **prd29 — the identity seam** (`docs/prds/prd-29-the-identity-seam.md`, proposed, partially
+  shipped): the gated-read seam and its first seven browser reads ship. The remaining policy
+  question is unresolved and blocks prd43 issue #23; it needs an operator ruling, not an
+  implementation issue.
+- **prd30 — the open hand** (`docs/prds/prd-30-the-open-hand.md`, BLESSED 2026-08-08,
+  partially shipped): the shared card, condition selector and teach layer ship, but the code's
+  own law still names `MarkHoverCard`, the loupe read-out and the semantic `title=` adoption
+  sweep. First-glance acceptance follows that sweep.
+- **prd31 — the bracketed voice** (`docs/prds/done/prd-31-the-bracketed-voice.md`, shipped):
+  one kind grammar, structural conversation bracketing, trace density, and one typed search over
+  conversation, feed and trace all ship; filtered surfaces state what they hide.
+- **prd32 — the readable instrument** (`docs/prds/done/prd-32-the-readable-instrument.md`, shipped):
+  local Inter and JetBrains Mono faces, a build-policed type and colour ramp,
+  computed contrast in both themes, one focus token, and a persisted light/dark
+  switch whose chrome never impersonates status.
+- **prd33 — the living scene** (`docs/prds/prd-33-the-living-scene.md`, BLESSED 2026-08-08,
+  acceptance pending): the scene work and recorded before/after frame measurements ship. The
+  remaining gate is the first-glance operator act. Success criterion 1's five-lane cap is
+  historical and superseded by ruling 10's seven-lane cap.
+- **prd34 — the doorstep** (`docs/prds/prd-34-the-doorstep.md`, proposed, release acceptance
+  pending): the Electron shell, tray, first run, three-platform installer workflow and update
+  gate ship. Signing/feed activation is deliberately deferred by ruling 9; a measured Windows
+  first run and release decision remain. prd43 #21 covers install identity and CLI listing only.
+- **prd35 — the operator's hand** (`docs/prds/done/prd-35-the-operators-hand.md`, shipped): one
+  settings surface owns every preference, makes scope and overrides visible,
+  persists them correctly, and structurally forbids controls that would weaken
+  the instrument's honesty laws.
+- **prd36 — the fleet surface** (`docs/prds/done/prd-36-the-fleet-surface.md`, shipped): the scene
+  and roster are one surface with instant, state-preserving organism/list
+  representations; the list remains the accessible fleet-scale floor, while
+  lane study belongs to the addressed run view rather than duplicate readers.
+- **prd37 — the shared world** (`docs/prds/parked/prd-37-the-shared-world.md`, parked): a
+  speculative shared/multiplayer product direction with no acceptance evidence, milestone or
+  backlog. It requires renewed product approval before grooming.
+- **prd38 — the borrowed credential** (`docs/prds/parked/prd-38-the-borrowed-credential.md`,
+  parked): a speculative remote-credential direction with no acceptance evidence, milestone or
+  backlog. It requires renewed product and security approval before grooming.
+- **prd39–43 — current blessed programme** (`docs/prds/prd-39-the-gate-that-holds.md` through
+  `docs/prds/prd-43-the-claim-is-a-test.md`): the 24 open board issues all belong here — 2 in
+  prd39, 3 in prd40, 5 in prd41, 5 in prd42 and 9 in prd43. These PRDs are fresh, blessed and
+  actively represented by the GitHub backlog.
 
 ## Unclaimed candidates (cohort-facing)
 

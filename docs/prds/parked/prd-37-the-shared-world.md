@@ -1,6 +1,8 @@
 # prd-37 — the shared world: the repo is the landscape, and an organism is a person
 
-> **Status:** proposed · **Kind: specifying** (`docs/prds/README.md`).
+> **Status:** parked · **Kind: specifying** (`docs/prds/README.md`) — proposed future direction,
+> zero of six Success criteria implemented and no current backlog. Moving back into flight
+> requires renewed operator blessing. Reconciled 2026-08-22 at `03df141`.
 > **This PRD carries the reframe the UI era was rebuilt around** (`docs/design/ui-2.0-decisions.md`):
 > the repo is the landscape and an organism is a *person* — a developer, their conductor, and
 > their agents as threads. Several people working one repository are several colonies in one

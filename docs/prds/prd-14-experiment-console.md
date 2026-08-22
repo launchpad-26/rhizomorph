@@ -1,6 +1,9 @@
 # prd14 — the experiment console
 
-> **Outcome:** blessed 2026-08-06, partially landed — the console ships; the remaining waves do not. See `docs/roadmap.md`.
+> **Outcome:** partially shipped — the browser console, branching view, free-form arms, spread
+> reporting and estimate/confirm flow ship. Finished comparisons are serializable, but are not
+> yet persisted and reopened through prd-16's recording machinery. Reconciled 2026-08-22 at
+> `03df141`; see `docs/roadmap.md`.
 
 **Status:** BLESSED 2026-08-06 (four rulings below).
 **Predecessor:** prd12 (the laboratory — engine, constitution, checkpoints).

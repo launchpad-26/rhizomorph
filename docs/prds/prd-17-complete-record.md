@@ -1,6 +1,8 @@
 # prd17 — the complete record: the instrument's judgements and the operator's decisions join the log
 
-> **Outcome:** blessed 2026-08-06, partially landed — ruling 3 landed (four of five laws); rulings 1, 2 and 4 have not. Ruling 3's fold-order law is UNRULED, tracked on #205.
+> **Outcome:** partially shipped — ruling 3 landed (four of five laws); the event families,
+> beacon ingestion and timeline dividend in rulings 1, 2 and 4 have not. Ruling 3's fold-order
+> law remains unruled. Reconciled 2026-08-22 at `03df141`.
 
 **STATUS: BLESSED** — operator, 2026-08-06, on the council's unanimous master
 finding (`docs/research/2026-08-06-council/synthesis.md`): *the causal record

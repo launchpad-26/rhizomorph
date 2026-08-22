@@ -1,6 +1,7 @@
 # prd-35 — the operator's hand: what you may change, and what you may not
 
-> **Status:** proposed · **Kind: specifying** (`docs/prds/README.md`).
+> **Outcome:** shipped.
+> **Kind: specifying** (`docs/prds/README.md`).
 > The instrument has no settings surface at all — panel collapse and scene preferences hide in
 > browser storage with no UI, and every operational choice (which repo, the telemetry env, the
 > theme that does not yet exist) lives in a shell command or nowhere. Shipping as a desktop

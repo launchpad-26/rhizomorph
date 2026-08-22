@@ -1,6 +1,11 @@
 # prd-31 — the bracketed voice: a conversation reads at a glance
 
-> **Status:** proposed — builds the design charter's §7 rulings (`docs/design/charter.md`,
+> **Outcome:** shipped — one kind grammar, structural conversation bracketing, trace density,
+> and one typed search across conversation, feed and trace are all present. The search declares
+> its hidden count on every surface and is enforced by the prd-31 surface tests. Reconciled
+> 2026-08-22 at `03df141`.
+>
+> Builds the design charter's §7 rulings (`docs/design/charter.md`,
 > PR #451): the kind→lightness module, binding on the charter's merge, and the reserved
 > bracketing vocabulary, whose law shape the charter pre-states and this PRD designs. It owns no
 > charter §8 pending ruling. **Timing law: wave 1 must land before prd-28 wave 3 dispatches —

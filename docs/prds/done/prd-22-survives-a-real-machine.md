@@ -1,6 +1,10 @@
 # prd-22 — collector resilience: the instrument survives a real machine
 
-> **Status:** proposed
+> **Outcome:** shipped — bounded polling, resilient collector registration, honest removal,
+> parse quarantine, byte-honest identity handling, and failure-safe recording are all present.
+> The collector-wrap boundary is enforced structurally by a source-derived law with its own
+> mutation proof. prd-41 is a separate laboratory-hardening successor, not unfinished scope
+> from this PRD. Reconciled 2026-08-22 at `03df141`.
 
 ## Problem
 

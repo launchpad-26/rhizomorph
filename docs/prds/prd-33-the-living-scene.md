@@ -1,6 +1,11 @@
 # prd-33 — the living scene: procedurally alive, lawfully vibrant
 
-> **Status:** proposed — owns THREE of the design charter's §8 pending rulings
+> **Outcome:** implementation shipped; acceptance pending — growth, ambient/material laws, dials
+> and recorded before/after frame measurements exist. The wave-0 first-glance operator act remains,
+> and Success criterion 1 predates ruling 10's measured cap change. Reconciled in depth 2026-08-22
+> at `03df141`; see `retained-prds-review-2026-08-22.md`.
+>
+> Owns THREE of the design charter's §8 pending rulings
 > (`docs/design/charter.md`, PR #451): growth (§5), the ambient layer (§4) and ceilings (§4),
 > each entering only through its named device; records the operator's coexist-by-surface ruling
 > on the prd-14 ruling 1 tension — this PRD rules the observatory scene only. Gate: **wave 0 is
@@ -421,3 +426,12 @@ Full text: docs/design-notes/palette-fruiting-material.md.
 > II's stage 1 and the first per-theme MARK STYLE — the fact set is unchanged;
 > what changed is how the paper carrier renders the same matter. See
 > docs/design-notes/plate-engraved-mass.md.
+
+## Amendment — Success criterion 1 predates ruling 10 (reconciled 2026-08-22)
+
+Success criterion 1's blanket *"not met while any older cap has moved"* is superseded by ruling
+10's measured `EVENT.maxConcurrent` change from 5 to 7. The ruling is later, numbered and backed
+by the recorded load; the criterion is preserved above rather than silently rewritten. The
+remaining acceptance work is the wave-0 first-glance act, not reverting the measured cap.
+`packages/web/src/scene/perf.test.ts` already records and continues to report the before/after
+frame measurements for the texture/detail work.
