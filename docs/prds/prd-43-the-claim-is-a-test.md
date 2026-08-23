@@ -161,8 +161,18 @@ copies.
 ## Ruling 4 — a tracked screenshot is checked by provenance, not exempted by extension
 
 The `BINARY_EXTENSIONS` exemption for `.png` is replaced. Every tracked PNG must be accompanied by
-a sidecar manifest recording the synthetic root it was captured against, and `scripts/dev/visit.mjs`
-strips real paths in capture mode. A PNG with no manifest is a red build.
+a sidecar manifest that records the synthetic root the capture ran against **and the SHA-256 of
+the image bytes it describes**; the law recomputes that digest and fails on a mismatch. A PNG with
+no manifest, or with a manifest whose digest names different bytes, is a red build.
+
+The digest is what makes the sidecar evidence rather than an assertion. Without it a manifest
+declaring `/Users/operator` sits happily beside a PNG rendered against a real home directory, and
+the law passes while the leak ships — no grep can read a path drawn into pixels. Binding the pair
+is necessary and not sufficient, so the second half of the ruling carries the rest:
+`scripts/dev/visit.mjs` gains a capture mode that substitutes the synthetic root **before** the
+screenshot and emits the sidecar itself, and it is the only sanctioned way to produce a tracked
+PNG. A hand-made capture cannot produce a valid pair, which is the point — provenance is enforced
+by the tool that has the root, not by a human remembering to declare one.
 
 This is the one ruling here that changes behaviour rather than prose, and it is included because
 the alternative is a law that will be true until the first time it matters.
