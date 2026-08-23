@@ -39,9 +39,11 @@ published figures put it above half a second on a long session.
 
 ## Success
 
-1. An event that reaches a subscriber has reached the log. **Not met while** any path advances
-   collector state before its append resolves, or a rejected append leaves the fold ahead of the
-   file.
+1. An event that reaches a subscriber has reached the log. **Not met while** any path publishes an
+   event — pushing it to the live buffer or emitting it to subscribers — before its append
+   resolves, or advances collector state before its append resolves, or leaves the fold ahead of
+   the file after a rejected append. Both loci count: the recorder's own `record` /`closeWith`
+   ordering *and* the poll loop's snapshot advance.
 2. A dropped write is loud. **Not met while** an append failure produces no `collector.error`,
    no degrade voice, and no line the operator could find afterwards.
 3. `/api/meta` costs the same at hour six as at minute one. **Not met while** answering it is
@@ -75,16 +77,36 @@ is true now.
   it; it is not reimplemented.
 - The spend cursor (`core/src/selectors/spend-cursor.ts`) — the repo's existing worked example of
   a maintained incremental fold with a prime-once cost, including its cache-key discipline.
-- `closeWith` / the seal release at `session-recorder.ts:104-108` — the recorder already handles a
-  throwing append correctly at its own boundary. The gap is above it, not in it.
+- `closeWith`'s seal release at `session-recorder.ts:104-108` — the recorder already unwinds its
+  *seal* correctly when an append throws, and that unwind is reused untouched. It is only the seal
+  that is right: the publish ordering around it is part of the defect, so the gap is **both above
+  the recorder and inside it**. An earlier draft of this line claimed the gap was above it only;
+  that was wrong, and ruling 1 is scoped to the code, not to that claim.
 
 ## Rulings
 
 ## Ruling 1 — the append is awaited before the event is anyone's
 
-The poll loop awaits `writer.append(event)` before pushing to the live buffer, emitting to
-subscribers, or advancing the collector snapshot. On rejection the snapshot is **not** advanced,
-the event is reported through the existing degrade path, and the next tick re-derives it.
+**Publishing happens after the append resolves, at every site that publishes.** There are three,
+and all three are in scope:
+
+- `record()` (`session-recorder.ts:78-84`) awaits `writer.append(event)` **before** `buffer.push`
+  and before `emitter.emit('event', …)`. Today it does both first, so a rejected append has
+  already handed the event to every subscriber and to `eventsSoFar()`.
+- `closeWith()` (`:97-111`) does the same, in the order seal → append → `sync` → push → emit. The
+  seal is still taken *first*, so prd17 ruling 1's structural guarantee is untouched — a
+  collector poll landing in the same tick still cannot slip in behind the final line. Only the
+  publish moves; the existing `catch` that releases the seal and rethrows is reused as-is.
+- The poll loop (`server/poll-loop.ts:216-218`) awaits `recorder.record(event)` before
+  `snapshots.set`. On rejection the snapshot is **not** advanced, the event is reported through
+  the existing degrade path, and the next tick re-derives it.
+
+The recorder is the durability boundary, so it is the recorder that must not publish early.
+Fixing the poll loop alone would satisfy the snapshot half of success 1 and leave the subscriber
+half broken — a subscriber would still see an event the log never received. This is the sibling
+shape `AGENTS.md` names first: `record()` and `closeWith()` are structurally identical publishers
+one screen apart, and a fix that lands in one and not the other is the defect this repo keeps
+finding.
 
 The consequence is deliberate and is the reason this ruling needs an ADR before its code: a
 re-derived event can be appended twice if the first append partially succeeded, so replay becomes
@@ -114,7 +136,11 @@ wave 2 and every later reader consume it.
 
 **Wave 2 — after the ADR, not before.** `prd40 w2: an event reaches the log before it reaches a
 subscriber` (ruling 1). Gated on the ADR that ruling 1 names. Dispatching it earlier builds a
-delivery guarantee nobody has ruled on.
+delivery guarantee nobody has ruled on. **One issue, one fence, both files:**
+`recorder/session-recorder.ts` *and* `server/poll-loop.ts`. Splitting the recorder half from the
+poll-loop half into two issues would let one land without the other, which is precisely the
+half-fix ruling 1 exists to prevent — and its test must drive an append failure through a live
+subscriber, not only through the snapshot.
 
 **Wave 3 — parallel, fenced apart:** `prd40 w3: /api/meta answers from the maintained fold`
 (`api/meta.ts`) · `prd40 w3: a dropped append speaks in the degrade voice`
