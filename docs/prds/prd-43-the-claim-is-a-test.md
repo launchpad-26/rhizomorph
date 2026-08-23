@@ -1,7 +1,8 @@
 # prd-43 — the claim is a test: a document's factual claim fails the build when it goes false
 
 > **Status:** **BLESSED** — Ciaran Slow, 2026-08-22, in session. Milestone `prd43`. Drafted the same day from the reconciled audit
-> (`docs/audit/REFINED-ISSUES.md` findings 11, 13, 15, 17, 18, 29, 30, 31, 40, at `03df141`).
+> at `03df141` (findings 11, 13, 15, 17, 18, 29, 30, 31, 40 — untracked artefact, `.gitignore`d;
+> the sha is the anchor).
 > Finding 30 needs an **ADR** before its prose is corrected —
 > the divergence it names is prd-12's, and a shipped PRD cannot be edited in place.
 

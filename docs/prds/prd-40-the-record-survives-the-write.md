@@ -1,7 +1,7 @@
 # prd-40 — the record survives the write: an event on screen is an event on disk
 
 > **Status:** **BLESSED** — Ciaran Slow, 2026-08-22, in session. Milestone `prd40`. Drafted the same day from the reconciled audit
-> (`docs/audit/REFINED-ISSUES.md` findings 5 and 7, both at `03df141`). Ruling 1 needs an **ADR** before its code — it changes what a replay may
+> at `03df141` (findings 5 and 7 — untracked artefact, `.gitignore`d; the sha is the anchor). Ruling 1 needs an **ADR** before its code — it changes what a replay may
 > contain, which is ADR-0011's territory, not this PRD's.
 
 ## Problem

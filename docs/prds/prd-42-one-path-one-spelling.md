@@ -1,7 +1,7 @@
 # prd-42 — one path, one spelling: a path means the same thing everywhere it is written
 
 > **Status:** **BLESSED** — Ciaran Slow, 2026-08-22, in session. Milestone `prd42`. Drafted the same day from the reconciled audit
-> (`docs/audit/REFINED-ISSUES.md` findings 3, 19, 20, at `03df141`). Stands on `#217`/`#228`/`#299`/`#401`, whose lesson — *a duplicated path primitive gets
+> at `03df141` (findings 3, 19, 20 — untracked artefact, `.gitignore`d; the sha is the anchor). Stands on `#217`/`#228`/`#299`/`#401`, whose lesson — *a duplicated path primitive gets
 > hardened in one copy and keeps the hole in the other* — is this PRD's whole thesis.
 
 ## Problem

@@ -1,9 +1,10 @@
 # prd-39 — the gate that holds: the landing tool's own checks are checks
 
-> **Status:** **BLESSED** — Ciaran Slow, 2026-08-22, in session. Drafted the same day from the
-> reconciled audit (`docs/audit/REFINED-ISSUES.md` findings 1 and 45, both re-verified at
-> `03df141`). Milestone `prd39`. Wave 1 is the only work in this repo that should land before
-> anything else, because everything else lands *through* the thing it fixes.
+> **Status:** **BLESSED** — Ciaran Slow, 2026-08-22, in session. Milestone `prd39`. Drafted the
+> same day from the reconciled audit at `03df141` (findings 1 and 45, both re-verified there —
+> untracked artefact, `.gitignore`d; the sha is the anchor, and the Evidence below restates what
+> it found rather than deferring to it). Wave 1 is the only work in this repo that should land
+> before anything else, because everything else lands *through* the thing it fixes.
 
 ## Problem
 

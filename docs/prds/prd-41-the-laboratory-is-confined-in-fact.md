@@ -1,7 +1,7 @@
 # prd-41 — the laboratory is confined in fact: the fence prd-12 promised, enforced
 
 > **Status:** **BLESSED** — Ciaran Slow, 2026-08-22, in session. Milestone `prd41`. Drafted the same day from the reconciled audit
-> (`docs/audit/REFINED-ISSUES.md` findings 8, 9, 10, 28, all at `03df141`). Successor to prd-12, whose own Outcome line says *"its fence is incomplete — see
+> at `03df141` (findings 8, 9, 10, 28 — untracked artefact, `.gitignore`d; the sha is the anchor). Successor to prd-12, whose own Outcome line says *"its fence is incomplete — see
 > #234, #245"*: prd-12 is shipped and cannot take new waves, so the unfinished half lands here
 > and cites its rulings rather than restating them.
 
