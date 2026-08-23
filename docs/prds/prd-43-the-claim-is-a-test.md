@@ -64,7 +64,11 @@ already proved it can enforce prose — `runbook-delivery-law` and `adr-log-law`
 ## Success
 
 1. A dead path in a document fails the build. **Not met while** any `packages/**` path cited from
-   `docs/**` or from a source comment can stop existing without a red suite.
+   an in-scope document, or from a source comment, can stop existing without a red suite.
+   In-scope is `docs/**` *minus* the dated-artefact directories ruling 1 excludes
+   (`docs/research/`, `docs/review/`, `docs/prds/`) — a criterion written over all of `docs/**`
+   would be permanently unmet by design, since those directories are meant to hold paths that
+   have since moved.
 2. A count stated in prose is derived, not typed. **Not met while** the route counts in
    `SECURITY.md`, `README.md` and `mutation-guard.ts` can drift from `ROUTE_CLASSES`.
 3. A platform the README calls verified is a platform CI runs. **Not met while** the support
@@ -123,10 +127,15 @@ One law extracts every `packages/**`, `scripts/**` and `docs/**` path string fro
 **and from `packages/**/*.ts` comments**, and asserts each exists.
 
 Scope is by what a file *is*, not what it is called: `docs/research/`, `docs/review/` and
-`docs/prds/done/` are excluded as dated artefacts, and the exclusion list is itself asserted
-non-empty and honest — every excluded directory must contain at least one path that would
-otherwise trip the law, or the exclusion is stale and hiding a live file. That is the `#649`
-lesson applied to the guard rather than to the fixtures.
+`docs/prds/` — the whole PRD tree, not only `done/` — are excluded as dated artefacts, matching
+this PRD's non-goal exactly. A PRD's Evidence section names dead paths **on purpose**: this
+document's own lists four (`buildFleet.ts`, `spend/format.ts`, the semantic-judge note,
+`docs/decisions/`), so a law that read live PRDs would go red on the document that commissioned
+it. Excluding `done/` alone was the earlier, incoherent draft of this scope.
+
+The exclusion list is itself asserted non-empty and honest — every excluded directory must
+contain at least one path that would otherwise trip the law, or the exclusion is stale and hiding
+a live file. That is the `#649` lesson applied to the guard rather than to the fixtures.
 
 Code comments are in scope because that is where four of these findings live, and where the
 `756e1bf` sweep stopped.
