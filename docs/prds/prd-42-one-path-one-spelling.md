@@ -82,7 +82,12 @@ answer.
 ## What already exists (do not rebuild)
 
 - `paths/containment.ts`'s `canonicalize` and `isInside` — the sanctioned primitive, with
-  `#217`/`#228`/`#299`'s hardening already in it. `static.ts` imports it; nothing new is written.
+  `#217`/`#228`/`#299`'s hardening already in it. Nothing new is written; ruling 2 adds a caller.
+  Its four existing importers are `collectors/pi/collector.ts`,
+  `collectors/sessionlog/process-probe.ts`, `concierge/paths.ts` and `concierge/migrate.ts` —
+  **`static.ts` is not among them**, which is the defect at `:119` and not a worked example.
+  (An earlier draft of this line said `static.ts` imports it, contradicting this PRD's own
+  evidence four sections up.)
 - `rotateSession`'s `WeakMap` in-flight guard at `recorder/rotate.ts:201` — the shape ruling 3
   copies. Both routes should share it rather than growing two.
 - `worktree-slug.test.ts` — the test exists; ruling 1 corrects its expectation and adds the round
