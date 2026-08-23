@@ -84,8 +84,9 @@
 - **prd12 — the laboratory** (`docs/prds/done/prd-12-laboratory.md`, shipped): the read-only
   constitution amended to two hands — the observer, absolutely untouched,
   and the laboratory, an explicitly-invoked second actor confined to
-  `refs/rhizomorph/` and artefacts outside the watched repo. Engine only;
-  nothing in `packages/web/` reaches it yet — prd14 is the UI.
+  `refs/rhizomorph/` and artefacts outside the watched repo. The engine is what
+  shipped *here*; its UI is prd14's and is live — `packages/web/src/lab/` is 32
+  tracked files, reached from `App.tsx:129`.
 - **prd13 — the TIDE** (`docs/prds/done/prd-13-tide.md`, shipped, cut down from its first
   shape): the scrubber grows a body inside the replay bar, never a panel —
   a chapter-mark lane, a time axis, and the transport. Ruling 13 (operator

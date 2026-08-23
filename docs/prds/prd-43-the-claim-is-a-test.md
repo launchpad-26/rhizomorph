@@ -27,9 +27,12 @@ already proved it can enforce prose — `runbook-delivery-law` and `adr-log-law`
   `packages/web/src/fleet/buildFleet.ts`; `:314`/`:330` cite `fences.ts`/`fences.test.ts`;
   `:2070` cites `packages/web/src/panels/spend/format.ts`. Verified: all absent;
   `buildFleet` now lives at `packages/core/src/fleet/buildFleet.ts` (moved by `#246`).
-- **The roadmap says the lab has no UI.** `docs/roadmap.md:88`: *"Engine only; nothing in
+- **The roadmap said the lab has no UI.** `docs/roadmap.md:88` read *"Engine only; nothing in
   `packages/web/` reaches it yet"* — while `git ls-files packages/web/src/lab` returns **32**
-  tracked files, including `LabPage.tsx`.
+  tracked files, including `LabPage.tsx`, rendered from `App.tsx:129`. It also contradicted
+  prd14's own entry eight lines below, which already called that console live. **Corrected in the
+  paper PR that blessed this PRD**; retained here because the shape is the point — two entries in
+  one file disagreeing about whether a feature exists is exactly what nothing was checking.
 - **Four source files cite a deleted research note.** `core/src/events/judge.ts`,
   `collectors/judge/collector.ts`, `judge/mergetree.ts` and `judge/symbols.ts` all cite
   `docs/research/2026-08-04-semantic-judge-spike.md`, removed by `756e1bf` — whose own sweep
