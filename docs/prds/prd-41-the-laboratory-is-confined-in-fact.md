@@ -31,8 +31,9 @@ that holds.
 - **The containment law cannot see it.** `lab/namespace-law.test.ts:519-527` calls
   `forkThreeArms({ install: false })`; only two call sites exercise `install: true`, and both stub
   `npm`. The law asserts a fence the default path never crosses under test.
-- **The CLI states its confinement after the hook has already run.** `cli/index.ts:225-227` prints
-  the confining claim on the no-`--launch` path, downstream of the install.
+- **The CLI's confinement claim is false when it prints.** `cli/index.ts:225-227` prints prd-12
+  ruling 1's three namespaces on the no-`--launch` path, downstream of the install — so the tree's
+  hooks have already run outside all three by the time the operator is told they cannot.
 - **Every lab subprocess is untimed.** `lab/compare.ts:79`, `lab/checkpoint.ts:57`,
   `lab/fork.ts:256`, `lab/restore.ts:273` all take `options.exec ?? realExec` raw. `withTimeout`
   is wired at exactly one site in the tree: `server/poll-loop.ts:91`. `#236`'s fix landed for
@@ -59,8 +60,14 @@ that holds.
    outside the lab can be swallowed by a lab request.
 4. A ceiling that costs money is declared, not discovered. **Not met while** an arm count is
    refused by exhaustion rather than by a stated limit and a legible reason.
-5. The claim and the act are in the same order. **Not met while** any surface states its
-   confinement before the thing it confines has finished running.
+5. A stated confinement is true of the run it describes. **Not met while** any surface names a
+   fence that the work it is reporting on has already crossed. The defect is the untruth, not the
+   ordering: `cli/index.ts:225-227` prints prd-12 ruling 1's three namespaces *after*
+   `forkFromCheckpoint` has already run the checkpointed tree's install hooks outside all three,
+   so it satisfies any test of print order while saying something false. An earlier draft of this
+   criterion was falsified by stating confinement *before* the work finished, which the current
+   code already avoids — it could not have caught this. Ruling 1 is what meets it: once the
+   restore cannot execute the tree, the sentence the CLI prints becomes true where it stands.
 
 ## Non-goals
 
