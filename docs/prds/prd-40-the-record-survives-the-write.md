@@ -42,8 +42,18 @@ published figures put it above half a second on a long session.
 1. An event that reaches a subscriber has reached the log. **Not met while** any path publishes an
    event — pushing it to the live buffer or emitting it to subscribers — before its append
    resolves, or advances collector state before its append resolves, or leaves the fold ahead of
-   the file after a rejected append. Both loci count: the recorder's own `record` /`closeWith`
+   the file after a rejected append. Both loci count: the recorder's own `record`/`closeWith`
    ordering *and* the poll loop's snapshot advance.
+
+   **One named exception, and no other.** The degrade `collector.error` that reports an append
+   failure may be emitted without having been appended. It is the alarm saying the log is
+   unwritable, so requiring it to reach the log first silences it in exactly the case it exists
+   for — on a full disk the alarm's own append fails too. This criterion is about not showing
+   collector data the record never received; an alarm is not that data. The exemption is for this
+   one event type on this one path, it is asserted **by name** in the law rather than inferred
+   from a category, and no collector-derived event may carry it. Ruling 1 restates it where the
+   ordering is specified, because an exception recorded only in a success criterion is an
+   exception nobody implementing the ruling will read.
 2. A dropped write is loud. **Not met while** an append failure produces no `collector.error`,
    no degrade voice, and no line the operator could find afterwards.
 3. `/api/meta` costs the same at hour six as at minute one. **Not met while** answering it is
@@ -100,6 +110,12 @@ and all three are in scope:
 - The poll loop (`server/poll-loop.ts:216-218`) awaits `recorder.record(event)` before
   `snapshots.set`. On rejection the snapshot is **not** advanced, the event is reported through
   the existing degrade path, and the next tick re-derives it.
+
+**The one exception, named here so it cannot spread.** The degrade `collector.error` reporting an
+append failure is emitted whether or not its own append succeeds — see success 1. The law asserts
+that exemption against that event type on that path, by name. Any other event emitted without a
+resolved append is a defect, and a law that exempts a *category* rather than a name has already
+lost the guarantee.
 
 The recorder is the durability boundary, so it is the recorder that must not publish early.
 Fixing the poll loop alone would satisfy the snapshot half of success 1 and leave the subscriber
