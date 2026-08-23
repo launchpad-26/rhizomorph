@@ -13,16 +13,17 @@ after that, dispatch.
 - [x] `docs/design/ui-2.0-decisions.md` — the decision record (D1–D52)
 - [x] `docs/design/ui-2.0-progress.md` — this file
 - [x] `docs/prds/README.md` — the specifying-PRD amendment (D49)
-- [x] `docs/prds/prd-32-the-readable-instrument.md` — +5 rulings, +5 spec sections
-- [x] `docs/prds/prd-35-the-operators-hand.md` — NEW (settings, and the
+- [x] `docs/prds/done/prd-32-the-readable-instrument.md` — +5 rulings, +5 spec sections
+- [x] `docs/prds/done/prd-35-the-operators-hand.md` — NEW (settings, and the
       never-configurable list)
 - [x] `docs/prds/prd-30-the-open-hand.md` — +1 ruling, +2 spec sections
-- [x] `docs/prds/prd-31-the-bracketed-voice.md` — ruling 1 rewritten, +4 rulings,
+- [x] `docs/prds/done/prd-31-the-bracketed-voice.md` — ruling 1 rewritten, +4 rulings,
       +4 spec sections
-- [x] `docs/prds/prd-36-the-fleet-surface.md` — NEW (organism ⇄ list)
+- [x] `docs/prds/done/prd-36-the-fleet-surface.md` — NEW (organism ⇄ list)
 - [x] `docs/prds/prd-34-the-doorstep.md` — +5 rulings, +3 spec sections
 - [x] `docs/prds/prd-33-the-living-scene.md` — +7 rulings, +1 spec section
-- [x] `docs/prds/prd-37-the-shared-world.md` — NEW (the team layer)
+- [x] `docs/prds/parked/prd-37-the-shared-world.md` — NEW (the team layer; parked
+      2026-08-22 pending renewed product blessing)
 - [x] charter amendments on `design-charter` (PR #451): four pending rulings
       answered, forms clause neutralised
 - [x] cross-PRD consistency pass (lab fence on all eight, no stale attributions,

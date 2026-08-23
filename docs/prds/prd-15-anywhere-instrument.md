@@ -1,6 +1,9 @@
 # prd15 — the anywhere instrument: true full-featured system agnosticism
 
-> **Outcome:** blessed 2026-08-05, partially landed — rulings 1 and 5 landed; waves 3-7 have not. See `docs/roadmap.md`.
+> **Outcome:** partially shipped — rulings 1 and 5 landed. Remaining scope is now split across
+> prd-25 (Windows), prd-26 (dialects), prd-27 (beacons) and prd-34 (delivery); the
+> multi-orchestrator family and optional PTY tier remain here. Reconciled 2026-08-22 at
+> `03df141`; see `docs/roadmap.md`.
 
 **STATUS: BLESSED** — operator, 2026-08-05: *"CAN we do it? If we CAN do
 it, then LETS do it"* (condition affirmed by the conductor against the

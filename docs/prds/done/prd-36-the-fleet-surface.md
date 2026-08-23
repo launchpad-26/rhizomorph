@@ -1,6 +1,7 @@
 # prd-36 — the fleet surface: one thing, two representations
 
-> **Status:** proposed · **Kind: specifying** (`docs/prds/README.md`).
+> **Outcome:** shipped.
+> **Kind: specifying** (`docs/prds/README.md`).
 > The organism and the roster are already one thing pretending to be two — the fleet table's
 > STATE column draws the scene's own glyphs at row scale, which makes the table the scene's
 > legend. This PRD merges them into a single surface with two representations, toggled, sharing

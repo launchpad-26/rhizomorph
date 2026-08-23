@@ -55,3 +55,10 @@ CLAUDE.local.md
 # contributor who has not set one up does not find them in `git status`.
 .claude/
 .codex/
+
+# Audit findings — a dated snapshot of one reader's pass over the tree, not a
+# ruling and not a record anything cites. Kept out of git deliberately: a
+# findings list goes stale the moment the findings are fixed, and a stale one
+# tracked in `docs/` reads like current state. What survives an audit belongs in
+# an issue, a ruling, or a law test — not here.
+docs/audit/

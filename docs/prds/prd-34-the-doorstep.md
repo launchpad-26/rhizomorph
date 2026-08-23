@@ -1,6 +1,13 @@
 # prd-34 — the doorstep: from npx to software
 
-> **Status:** proposed · **Kind: specifying** (`docs/prds/README.md`) — stage 1 of the staged ship, deliberately outside the metamorphosis:
+> **Outcome:** implementation shipped; release acceptance pending — the Electron shell, tray,
+> first-run demonstration/configuration, three-platform installer workflow, signing switch and
+> update gate exist. Signing and a real update feed are deliberately deferred by ruling 9; a
+> measured real-Windows first run and release decision remain. prd-43 issue #21 owns the
+> repository/install identity correction, not this acceptance. Reconciled in depth 2026-08-22 at
+> `03df141`; see `retained-prds-review-2026-08-22.md`.
+>
+> **Kind: specifying** (`docs/prds/README.md`) — stage 1 of the staged ship, deliberately outside the metamorphosis:
 > zero constitutional change, packaging only. Sources:
 > `docs/research/2026-08-13-from-localhost-to-true-software.md` (lands with PR #432) and
 > `docs/metamorphosis/system-design.md` (PR #462). Completes prd-15's delivery thread — npm

@@ -5,11 +5,18 @@ before the building starts. It is not a spec, not a design doc, and not a
 decision log.
 
 `docs/prds/` holds PRDs still in flight. `docs/prds/done/` holds the shipped and
-superseded ones.
+superseded ones. `docs/prds/parked/` holds proposed future directions that are
+explicitly **not** in flight: they have no milestone or issue set, and moving one
+back to the root requires renewed operator blessing.
+
+The latest code/backlog reconciliation is
+[the 2026-08-22 reconciliation](reconciliation-2026-08-22.md). Its eleven retained PRDs have a
+deeper [code-backed disposition review](retained-prds-review-2026-08-22.md), including corrected
+recommendations where the first pass was too conservative or a status header had drifted.
 
 ## A note on what is already here
 
-The 18 PRDs in this repo were written under an earlier convention, roughly
+The first 18 PRDs in this repo were written under an earlier convention, roughly
 2026-07-30 to 2026-08-06. They are **ruling logs**: numbered
 `## Ruling N — <verdict>` entries, each a decision with its rationale, amended
 in place by later numbered rulings.
@@ -35,7 +42,7 @@ a PRD rewritten after shipping to look like it was planned that way is a
 ```markdown
 # prd-NN — short title
 
-> **Status:** proposed | blessed by <person>, <date> | shipped <date> | superseded by prd-NN
+> **Status:** proposed | blessed by <person>, <date> | parked | shipped <date> | superseded by prd-NN
 
 ## Problem
 
@@ -109,6 +116,10 @@ keep resolving.
   reality diverges, with nobody reconciling it. `docs/roadmap.md` is currently
   the only record of what shipped — the `Status` line above exists so a PRD is
   no longer silent about its own fate.
+- **Park is not postpone.** A parked PRD is a preserved proposal with no active
+  claim on the backlog. It lives under `parked/`, carries no milestone or issue,
+  and must be blessed again before grooming. Parking records uncertainty without
+  pretending either that the work shipped or that the direction was rejected.
 
 ### Anti-patterns
 

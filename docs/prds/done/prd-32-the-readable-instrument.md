@@ -1,6 +1,7 @@
 # prd-32 — the readable instrument: type that loads, colour that computes
 
-> **Status:** proposed · **Kind: specifying** (`docs/prds/README.md` — this PRD carries the
+> **Outcome:** shipped.
+> **Kind: specifying** (`docs/prds/README.md` — this PRD carries the
 > specification for surfaces a stranger will build without the author in the room).
 > Implements the design charter's binding §3, §4 and §6 rulings
 > (`docs/design/charter.md`, PR #451): the loaded faces, the mirror tests, the `--text-*` ramp

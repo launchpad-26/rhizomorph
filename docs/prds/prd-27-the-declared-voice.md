@@ -1,7 +1,8 @@
 # prd-27 — the declared voice: attention that says so, and no silent states
 
-> **Status:** proposed — implements prd-15 ruling 2 (the hook beacon, wave 3, unlanded) and extends
-> it to the rendering side; picks up the two non-goals prd-19 named and left open, #192 and #223.
+> **Outcome:** partially shipped — two of four Success criteria hold; the hook beacon and the
+> capability-version mismatch voice remain unbuilt. Implements prd-15 ruling 2 and extends it
+> to the rendering side. Reconciled 2026-08-22 at `03df141`.
 
 ## Problem
 

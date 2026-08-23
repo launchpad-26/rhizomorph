@@ -40,7 +40,7 @@ describe('the frame', () => {
  * asserting `1100 === 1100` would survive prd-32 changing its mind.
  */
 describe('the floor is prd-32 S5\'s own, read from S5 (#563)', () => {
-  const prd = readFileSync(path.join(REPO_ROOT, 'docs', 'prds', 'prd-32-the-readable-instrument.md'), 'utf8')
+  const prd = readFileSync(path.join(REPO_ROOT, 'docs', 'prds', 'done', 'prd-32-the-readable-instrument.md'), 'utf8')
   const section = prd.slice(prd.indexOf('### S5 — the window'))
 
   it('found S5 to read', () => {

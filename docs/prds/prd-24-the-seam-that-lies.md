@@ -1,6 +1,9 @@
 # prd-24 — the seam that lies: what the suite is allowed to prove
 
-> **Status:** proposed
+> **Outcome:** partially shipped — real web/server contract tests and much of the law hardening
+> ship. Full claimed-scope walks, falsification/mutation discipline and platform-scoped green
+> claims remain split across prd-39, prd-41, prd-43 and unfiled work. ADR-0026 supersedes this
+> proposal's blanket Playwright rejection. Reconciled 2026-08-22 at `03df141`.
 
 ## Problem
 
@@ -135,3 +138,11 @@ becomes a CI leg is gated on #277 and is the leads'.
 - Whether Ruling 4's falsification requirement is practice or mechanised, and whether Ruling 5's
   narrow run enters CI or stays a number on #218. Both a lead's call, as is whether the ~130
   Windows failures are one defect or many — unknown until #277.
+
+## Amendment — the browser oracle is no longer categorically excluded (reconciled 2026-08-22)
+
+ADR-0026 subsequently adopted Playwright, and the repository now carries it as a root
+development dependency. The Non-goal above is retained as the proposal's historical argument,
+but its categorical rejection no longer governs future work. This does not silently expand this
+PRD into an end-to-end rewrite: any browser-backed oracle follows ADR-0026's scope and still has
+to prove which contract it witnesses.

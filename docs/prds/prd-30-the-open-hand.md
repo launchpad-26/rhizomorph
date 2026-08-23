@@ -1,6 +1,11 @@
 # prd-30 — the open hand: every mark explains itself
 
-> **Status:** proposed — builds the design charter's §6 rulings (`docs/design/charter.md`,
+> **Outcome:** partially shipped — the shared disclosure card, condition selector and teach layer
+> ship. The code's own full-scope law says `MarkHoverCard`, the loupe read-out and the semantic
+> `title=` adoption sweep remain; first-glance acceptance follows that sweep. Reconciled in depth
+> 2026-08-22 at `03df141`; see `retained-prds-review-2026-08-22.md`.
+>
+> Builds the design charter's §6 rulings (`docs/design/charter.md`,
 > PR #451): one hover-disclosure vocabulary on prd-27 ruling 5's label/why/remedy triple, and
 > whatever hover discloses, focus discloses. It owns no charter §8 pending ruling — its authority
 > is §6, binding on the charter's merge; the build rides here. **#192 is absorbed**: its fence

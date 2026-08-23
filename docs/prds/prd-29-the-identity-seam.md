@@ -1,9 +1,9 @@
 # prd-29 — the identity seam: a read answers only the token's holder
 
-> **Status:** proposed — extends prd-23 (the trust boundary) and stands on ADR-0012/0014; stage 0 of
-> the staged ship recorded in `docs/research/2026-08-13-from-localhost-to-true-software.md`
-> (committed beside this PRD; stages 2–4 are parked as "the metamorphosis"). Citations verified
-> against `beb4524`.
+> **Outcome:** partially shipped — the `gated-read` seam and the first seven SPA reads landed;
+> the remaining read-gating policy and external consumers are unresolved. That ruling blocks
+> prd-43 issue #23. Reconciled 2026-08-22 at `03df141`; extends prd-23 and stands on
+> ADR-0012/0014.
 
 ## Problem
 

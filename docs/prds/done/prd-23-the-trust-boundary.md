@@ -1,6 +1,6 @@
 # prd-23 — the trust boundary: the guard holds at both ends
 
-> **Status:** proposed · prd-20 ruling 2's gate is this document's subject
+> **Outcome:** shipped.
 
 ## Problem
 

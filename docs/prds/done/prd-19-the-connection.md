@@ -1,6 +1,8 @@
 # prd-19 — the connection: the instrument proves its own wiring
 
-> **Status:** proposed
+> **Outcome:** shipped — `/connect`, connection facts, the doctor route, provenance and live
+> verification ship, and zero folded events no longer reads as proof that a source is live.
+> Reconciled 2026-08-22 at `03df141`.
 
 ## Problem
 
