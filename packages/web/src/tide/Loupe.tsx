@@ -148,7 +148,7 @@ export function Loupe({ events, ts, count = LOUPE_EVENT_COUNT }: LoupeProps): Re
   return (
     <div
       data-testid="tide-loupe"
-      className="col-span-3 mt-1 max-h-20 overflow-y-auto rounded border border-(--line-strong) bg-(--surface-panel) p-1 normal-case tracking-normal"
+      className="col-span-3 mt-1 max-h-20 overflow-y-auto rounded-none border border-(--line-strong) bg-(--surface-panel) p-1 normal-case tracking-normal"
     >
       <div className="figures mb-1 text-inst-dense leading-none text-(--ink-dim)" data-testid="tide-loupe-header">
         {slice.length === 0

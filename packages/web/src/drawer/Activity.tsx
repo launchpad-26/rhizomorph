@@ -82,7 +82,7 @@ export function ActivityView({ entries, now, fill = false, highlightPath = null 
               data-kind={entry.kind}
               data-highlighted={highlighted}
               className={`flex items-baseline gap-2 border-t border-(--line-hair) py-1 first:border-t-0 ${
-                highlighted ? '-mx-1 rounded bg-(--surface-raised) px-1' : ''
+                highlighted ? '-mx-1 rounded-none bg-(--surface-raised) px-1' : ''
               }`}
             >
               <span className="figures w-10 shrink-0 text-right text-inst-dense text-(--ink-dim)">

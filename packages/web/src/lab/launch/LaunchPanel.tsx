@@ -210,7 +210,7 @@ export function LaunchPanel({ fetchImpl, launchFetchImpl }: LaunchPanelProps = {
                 placeholder="model (default if blank)"
                 value={arm.model}
                 onChange={(event) => updateArm(arm.key, 'model', event.target.value)}
-                className="min-w-0 flex-1 rounded border border-ice-800 bg-ice-1000 px-2 py-1 text-ice-100"
+                className="min-w-0 flex-1 rounded-none border border-ice-800 bg-ice-1000 px-2 py-1 text-ice-100"
               />
               <textarea
                 data-testid={`launch-arm-brief-${arm.key}`}
@@ -218,7 +218,7 @@ export function LaunchPanel({ fetchImpl, launchFetchImpl }: LaunchPanelProps = {
                 value={arm.brief}
                 onChange={(event) => updateArm(arm.key, 'brief', event.target.value)}
                 rows={1}
-                className="min-w-0 flex-[2] resize-y rounded border border-ice-800 bg-ice-1000 px-2 py-1 text-ice-100"
+                className="min-w-0 flex-[2] resize-y rounded-none border border-ice-800 bg-ice-1000 px-2 py-1 text-ice-100"
               />
               <button
                 type="button"
@@ -237,7 +237,7 @@ export function LaunchPanel({ fetchImpl, launchFetchImpl }: LaunchPanelProps = {
           data-testid="launch-add-arm"
           onClick={addArm}
           disabled={!configuring}
-          className="w-fit rounded border border-ice-800 px-2 py-1 text-[11px] text-ice-300 hover:border-ice-600 disabled:opacity-40"
+          className="w-fit rounded-none border border-ice-800 px-2 py-1 text-[11px] text-ice-300 hover:border-ice-600 disabled:opacity-40"
         >
           + add arm
         </button>
@@ -249,7 +249,7 @@ export function LaunchPanel({ fetchImpl, launchFetchImpl }: LaunchPanelProps = {
           data-testid="launch-review"
           onClick={() => void review()}
           disabled={!canReview}
-          className="w-fit rounded border border-ice-400 px-3 py-1.5 text-[12px] text-ice-050 disabled:opacity-40"
+          className="w-fit rounded-none border border-ice-400 px-3 py-1.5 text-[12px] text-ice-050 disabled:opacity-40"
         >
           review &amp; launch
         </button>
@@ -269,7 +269,7 @@ export function LaunchPanel({ fetchImpl, launchFetchImpl }: LaunchPanelProps = {
       )}
 
       {phase.status === 'confirming' && selectedCheckpoint !== null && (
-        <div data-testid="launch-confirm-dialog" className="flex flex-col gap-2 rounded border border-ice-700 p-3">
+        <div data-testid="launch-confirm-dialog" className="flex flex-col gap-2 rounded-none border border-ice-700 p-3">
           <p className="text-[12px] text-ice-100">
             Launch {arms.length} arm(s) from lane &quot;{selectedCheckpoint.lane}&quot; at checkpoint{' '}
             {selectedCheckpoint.checkpointId}?
@@ -297,7 +297,7 @@ export function LaunchPanel({ fetchImpl, launchFetchImpl }: LaunchPanelProps = {
               type="button"
               data-testid="launch-cancel"
               onClick={() => setPhase({ status: 'configuring' })}
-              className="rounded border border-ice-800 px-3 py-1.5 text-[12px] text-ice-300 hover:border-ice-600"
+              className="rounded-none border border-ice-800 px-3 py-1.5 text-[12px] text-ice-300 hover:border-ice-600"
             >
               cancel
             </button>
@@ -305,7 +305,7 @@ export function LaunchPanel({ fetchImpl, launchFetchImpl }: LaunchPanelProps = {
               type="button"
               data-testid="launch-confirm"
               onClick={() => void confirmLaunch()}
-              className="rounded border border-ice-400 px-3 py-1.5 text-[12px] text-ice-050"
+              className="rounded-none border border-ice-400 px-3 py-1.5 text-[12px] text-ice-050"
             >
               launch
             </button>
@@ -327,7 +327,7 @@ export function LaunchPanel({ fetchImpl, launchFetchImpl }: LaunchPanelProps = {
       )}
 
       {phase.status === 'done' && (
-        <div data-testid="launch-result" className="flex flex-col gap-2 rounded border border-ice-700 p-3">
+        <div data-testid="launch-result" className="flex flex-col gap-2 rounded-none border border-ice-700 p-3">
           <p className="text-[12px] text-ice-100">
             {phase.outcome.arms.length} arm(s) dispatched from checkpoint {phase.outcome.checkpointId} — every dollar
             they spend is real and lands in the ledger as such.
@@ -350,7 +350,7 @@ export function LaunchPanel({ fetchImpl, launchFetchImpl }: LaunchPanelProps = {
             type="button"
             data-testid="launch-again"
             onClick={startOver}
-            className="w-fit rounded border border-ice-800 px-3 py-1.5 text-[12px] text-ice-300 hover:border-ice-600"
+            className="w-fit rounded-none border border-ice-800 px-3 py-1.5 text-[12px] text-ice-300 hover:border-ice-600"
           >
             launch another experiment
           </button>

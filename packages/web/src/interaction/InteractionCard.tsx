@@ -57,7 +57,7 @@ export function InteractionCard({ model, timeZone }: InteractionCardProps): Reac
       data-lane={model.lane}
       data-span={model.spanId}
       data-in-flight={model.inFlight}
-      className="rounded border border-(--surface-line) bg-(--surface-panel) px-2 py-1.5"
+      className="rounded-none border border-(--surface-line) bg-(--surface-panel) px-2 py-1.5"
     >
       <header className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <time data-testid="interaction-clock" className="figures text-inst text-(--ink-dim)">

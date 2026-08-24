@@ -101,6 +101,37 @@ describe('PanelFrame', () => {
   })
 
   describe('focus (ruling 6)', () => {
+    /*
+     * The dock offset is chrome-relative, and a focused panel HAS no chrome
+     * above it (review of #65). `--dock-h` is published on the shell root so a
+     * sticky child can stop where the shell's dock ends — but a focused frame
+     * is `fixed inset-0` at `--z-focus` (30), opaque, over the dock's
+     * `--z-header` (20). Without this override the collisions table's
+     * `sticky top-(--dock-h)` headings hold a ~146px gap open at the top of a
+     * focused panel, reserving space for a bar that is not on screen.
+     *
+     * Asserted on the inline style rather than a computed offset because jsdom
+     * has no layout engine — it never resolves `var()` or positions a sticky
+     * element, so the declaration is the only thing here that can be read. The
+     * browser pass is still the arbiter for the rendered result.
+     */
+    it('zeroes the dock offset while focused, and only while focused', () => {
+      const { container } = render(
+        <PanelFrame id="fleet" title="Fleet">
+          <p>fleet body</p>
+        </PanelFrame>,
+      )
+      const frame = () => container.firstElementChild as HTMLElement
+
+      expect(frame().style.getPropertyValue('--dock-h')).toBe('')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Focus Fleet' }))
+      expect(frame().style.getPropertyValue('--dock-h')).toBe('0px')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Restore Fleet' }))
+      expect(frame().style.getPropertyValue('--dock-h')).toBe('')
+    })
+
     it('fills the view on Focus, and restores on the same control', () => {
       render(
         <PanelFrame id="fleet" title="Fleet">

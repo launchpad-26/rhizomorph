@@ -65,7 +65,7 @@ export function AttachButton({ plan, onCopy = copyToClipboard }: AttachButtonPro
               () => setCopied('failed'),
             )
           }}
-          className="rounded border border-(--line-strong) px-2 py-1 text-inst-dense font-semibold uppercase tracking-[0.18em] text-(--ink-primary) hover:border-(--ink-dim) hover:bg-(--surface-raised)"
+          className="rounded-none border border-(--line-strong) px-2 py-1 text-inst-dense font-semibold uppercase tracking-[0.18em] text-(--ink-primary) hover:border-(--ink-dim) hover:bg-(--surface-raised)"
         >
           Attach
         </button>
@@ -87,7 +87,7 @@ export function AttachButton({ plan, onCopy = copyToClipboard }: AttachButtonPro
       */}
       <code
         data-testid="attach-command"
-        className="mt-1.5 block overflow-x-auto whitespace-pre rounded bg-(--surface-floor) px-2 py-1 font-mono text-inst text-(--ink-body)"
+        className="mt-1.5 block overflow-x-auto whitespace-pre rounded-none bg-(--surface-floor) px-2 py-1 font-mono text-inst text-(--ink-body)"
       >
         {command}
       </code>

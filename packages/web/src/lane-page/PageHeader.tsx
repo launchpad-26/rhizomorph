@@ -61,7 +61,7 @@ export function PageHeader({ subject, onClose }: PageHeaderProps) {
           type="button"
           data-testid="lane-page-back"
           onClick={onClose}
-          className="shrink-0 rounded border border-(--line-strong) px-2 py-1 text-inst-dense uppercase tracking-wider text-(--ink-dim) transition-[color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-primary)"
+          className="shrink-0 rounded-none border border-(--line-strong) px-2 py-1 text-inst-dense uppercase tracking-wider text-(--ink-dim) transition-[color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-primary)"
         >
           ← balcony
         </button>

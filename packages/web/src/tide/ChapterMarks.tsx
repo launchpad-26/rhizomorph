@@ -364,7 +364,7 @@ function MarkHoverCard({
     <div
       role="dialog"
       data-testid="chapter-mark-card"
-      className="pointer-events-none z-(--z-plate) -translate-x-1/2 whitespace-nowrap rounded border border-(--line-strong) bg-(--surface-panel) p-1"
+      className="pointer-events-none z-(--z-plate) -translate-x-1/2 whitespace-nowrap rounded-none border border-(--line-strong) bg-(--surface-panel) p-1"
       style={{ position: 'fixed', left: anchor.left, top: anchor.top }}
     >
       {group.members.map((member, index) => (
@@ -377,7 +377,7 @@ function MarkHoverCard({
             event.stopPropagation()
             if (seekEnabled) onSeek(member.ts)
           }}
-          className="figures pointer-events-auto block w-full rounded px-1 py-0.5 text-left text-inst-dense leading-tight text-(--ink-body) enabled:cursor-pointer enabled:hover:bg-(--surface-raised) enabled:hover:text-(--ink-primary) disabled:cursor-default"
+          className="figures pointer-events-auto block w-full rounded-none px-1 py-0.5 text-left text-inst-dense leading-tight text-(--ink-body) enabled:cursor-pointer enabled:hover:bg-(--surface-raised) enabled:hover:text-(--ink-primary) disabled:cursor-default"
         >
           {chapterLabel(member)}
         </button>

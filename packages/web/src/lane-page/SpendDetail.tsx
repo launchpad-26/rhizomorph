@@ -67,7 +67,7 @@ export function SpendDetail({ subject, fleet, state }: SpendDetailProps) {
   return (
     <section
       data-testid="lane-page-spend"
-      className="flex min-h-0 flex-col rounded-lg border border-(--line-hair) bg-(--surface-panel) p-3"
+      className="flex min-h-0 flex-col rounded-none border border-(--line-hair) bg-(--surface-panel) p-3"
     >
       <h3 className="text-inst-dense font-semibold uppercase tracking-[0.2em] text-(--ink-dim)">Spend</h3>
 

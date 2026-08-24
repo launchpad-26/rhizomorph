@@ -39,6 +39,13 @@ const NON_PATHOLOGY_GLYPH: Record<'collision' | 'collector', string> = {
   collector: '⚑',
 }
 
+/** The word beside the two non-pathology glyphs — pathology kinds already carry
+ * their own legend via `Sigil`/`SIGIL_WORD`; these two never did. */
+const NON_PATHOLOGY_LABEL: Record<'collision' | 'collector', string> = {
+  collision: 'Collide',
+  collector: 'Flag',
+}
+
 export interface AttentionStripViewProps {
   fleet: Fleet
   selectedId: string | null
@@ -221,7 +228,7 @@ function WaitedChipButton({
         // "this lane waited 6m" must lose its LABEL before it loses the span,
         // so the label carries `min-w-0` and the duration keeps
         // `whitespace-nowrap`. The `title` above still holds the full text.
-        'flex min-w-0 items-center gap-1 rounded border px-1.5 py-0.5 normal-case tracking-normal text-(--ink-dim)',
+        'flex min-w-0 items-center gap-1 rounded-none border px-1.5 py-0.5 normal-case tracking-normal text-(--ink-dim)',
         selected ? 'border-(--ink-primary) bg-(--surface-raised)' : 'border-(--line-strong) bg-(--surface-panel)',
       ].join(' ')}
     >
@@ -238,8 +245,9 @@ function WaitedChipButton({
 function Pill({ rank, children }: { rank: LadderRank; children: ReactNode }): ReactElement {
   return (
     <span
-      className={`flex shrink-0 items-center gap-1.5 rounded px-2 py-1 font-medium uppercase tracking-[0.2em] ${RANK_TEXT_CLASS[rank]} ${RANK_GLOW_CLASS[rank]}`}
+      className={`flex shrink-0 items-center gap-1.5 rounded-none px-2.5 py-1 font-medium uppercase tracking-[0.2em] ${RANK_TEXT_CLASS[rank]} ${RANK_GLOW_CLASS[rank]}`}
     >
+      <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
       {children}
     </span>
   )
@@ -265,6 +273,8 @@ function Chip({ item, selected, onToggle, reducedMotion }: ChipProps): ReactElem
   const evidence = item.inferred ? `${INFERRED_MARK} ${item.evidence}` : item.evidence
   const age = item.forMs === null ? null : formatSpan(item.forMs)
   const aging = agingClass(item)
+  const kind = item.kind
+  const kindLabel = isPathologyKind(kind) ? null : NON_PATHOLOGY_LABEL[kind]
 
   const handleClick = (event: MouseEvent<HTMLButtonElement>): void => {
     event.preventDefault()
@@ -281,7 +291,7 @@ function Chip({ item, selected, onToggle, reducedMotion }: ChipProps): ReactElem
       aria-pressed={selected}
       onClick={clickable ? handleClick : undefined}
       className={[
-        'flex shrink-0 items-center gap-1.5 rounded border px-1.5 py-0.5 normal-case tracking-normal',
+        'flex shrink-0 items-center gap-1.5 rounded-none border px-1.5 py-0.5 normal-case tracking-normal',
         aging.ink,
         selected ? 'border-(--ink-primary) bg-(--surface-raised)' : 'border-(--line-strong) bg-(--surface-panel)',
         clickable ? '' : 'cursor-default opacity-90',
@@ -292,6 +302,7 @@ function Chip({ item, selected, onToggle, reducedMotion }: ChipProps): ReactElem
         .join(' ')}
     >
       <ChipGlyph kind={item.kind} />
+      {kindLabel === null ? null : <span className={`heading shrink-0 ${aging.ink}`}>{kindLabel}</span>}
       <span className="max-w-[9rem] truncate font-medium">{item.label}</span>
       <span className="max-w-[18rem] truncate text-(--ink-body)">{evidence}</span>
       {age === null ? null : (

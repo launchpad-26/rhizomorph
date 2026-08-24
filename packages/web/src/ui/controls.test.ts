@@ -20,7 +20,7 @@ const CONTROLS = [
   ['FIELD', FIELD],
 ] as const
 
-const FLOORS = ['focus-ring', 'min-h-6', 'rounded-ctl'] as const
+const FLOORS = ['focus-ring', 'min-h-6', 'rounded-none'] as const
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -40,7 +40,7 @@ function sourceFiles(): { name: string; text: string }[] {
 }
 
 describe('every control carries the floors', () => {
-  it.each(CONTROLS)('%s has the focus ring, the 24px target, and the named radius', (_name, cls) => {
+  it.each(CONTROLS)('%s has the focus ring, the 24px target, and the square corner', (_name, cls) => {
     for (const floor of FLOORS) expect(cls, `missing ${floor}`).toContain(floor)
   })
 

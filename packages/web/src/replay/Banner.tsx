@@ -57,7 +57,7 @@ export function ReplayBanner() {
       {unknownVoice !== null && (
         <span
           data-testid="replay-unknown-era"
-          className="rounded border border-(--line-strong) px-2 py-0.5 normal-case tracking-normal text-(--ink-primary)"
+          className="rounded-none border border-(--line-strong) px-2 py-0.5 normal-case tracking-normal text-(--ink-primary)"
           title="this recording came from a newer instrument; these events were kept in the log but this build cannot fold them"
         >
           {unknownVoice}
@@ -67,7 +67,7 @@ export function ReplayBanner() {
       <button
         type="button"
         onClick={() => selectSession(null)}
-        className="ml-auto rounded border border-(--line-strong) px-2 py-0.5 normal-case tracking-normal text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary)"
+        className="ml-auto rounded-none border border-(--line-strong) px-2 py-0.5 normal-case tracking-normal text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary)"
       >
         Exit to live
       </button>

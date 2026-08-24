@@ -63,7 +63,7 @@ export default function CollisionsPanel() {
     // and its tab strip names this surface, so a second copy of either would be
     // the duplication prd-32 ruling 5 is against — one thing, one name, one
     // edge. Everything else about the panel is untouched.
-    <section data-panel="collisions" className="flex h-full min-h-0 flex-col">
+    <section data-panel="collisions" className="flex h-full flex-col">
 
       {!connected ? (
         <p className="mt-2 text-read-body text-(--ink-dim)">Waiting for the stream…</p>
@@ -82,7 +82,7 @@ export default function CollisionsPanel() {
                     // "your keyboard is here" the same amber — so the summons
                     // hue meant two things on the one surface that shows
                     // nothing but summonses. It goes first for that reason.
-                    className="focus-ring figures flex w-full items-center gap-2 truncate rounded px-2 py-1 text-left text-needs-you hover:bg-(--surface-raised)"
+                    className="focus-ring figures flex w-full items-center gap-2 truncate rounded-none px-2 py-1 text-left text-needs-you hover:bg-(--surface-raised)"
                   >
                     <span aria-hidden>●</span>
                     <span className="truncate">{formatPairEvidence(pair)}</span>
@@ -97,11 +97,28 @@ export default function CollisionsPanel() {
           )}
 
           {hasData ? (
-            <div className="mt-2 flex-1 overflow-auto [scrollbar-gutter:stable]">
+            <div className="mt-2">
               <table className="w-full min-w-max border-collapse text-left text-inst">
+                {/*
+                  * STICKY AGAIN, offset below the dock (review of #65, option
+                  * B — the operator's own call). `top-0` used to pin these two
+                  * `<th>`s to the viewport's top edge once the panel lost its
+                  * own scrollport (the `flex-1 overflow-auto` wrapper removed
+                  * one screen up) — landing them underneath the shell's opaque
+                  * sticky dock, which sits at the higher `--z-header` rung on
+                  * purpose. `top-(--dock-h)` is the actual fix: it stops the
+                  * header row exactly where the dock ends, so `z-(--z-sticky)`
+                  * (10, below the dock's 20) now means what it always meant —
+                  * "in front of the table, behind the chrome" — rather than
+                  * fighting the dock for the same pixels. `--dock-h` is
+                  * measured live in `Shell.tsx` because the dock's height is
+                  * dynamic: the attention strip and the replay banner swap in
+                  * and out. `sticky-scrollport-law.test.ts` accepts this shape
+                  * as the second lawful answer, alongside owning a scrollport.
+                  */}
                 <thead>
                   <tr>
-                    <th className="sticky top-0 z-(--z-sticky) min-w-[14rem] bg-(--surface-panel) px-2 py-1.5 font-medium text-(--ink-dim)">
+                    <th className="sticky top-(--dock-h) z-(--z-sticky) min-w-[14rem] bg-(--surface-panel) px-2 py-1.5 font-medium text-(--ink-dim)">
                       File
                     </th>
                     {columns.map((branch) => (
@@ -109,7 +126,7 @@ export default function CollisionsPanel() {
                         key={branch}
                         scope="col"
                         title={branch}
-                        className="sticky top-0 z-(--z-sticky) min-w-14 truncate bg-(--surface-panel) px-2 py-1.5 text-center font-medium text-(--ink-dim)"
+                        className="sticky top-(--dock-h) z-(--z-sticky) min-w-14 truncate bg-(--surface-panel) px-2 py-1.5 text-center font-medium text-(--ink-dim)"
                       >
                         <OpenBranchLink branch={branch} />
                       </th>
@@ -189,7 +206,7 @@ function OpenBranchLink({ branch }: { branch: string }) {
       href={laneUrl(branch)}
       onClick={onClick}
       data-testid="collisions-open-lane"
-      className="focus-ring rounded text-inherit hover:text-(--ink-primary)"
+      className="focus-ring rounded-none text-inherit hover:text-(--ink-primary)"
     >
       {shortenBranch(branch)}
     </a>

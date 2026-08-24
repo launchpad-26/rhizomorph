@@ -202,11 +202,11 @@ export function LanePage({ handle, fetchTranscript, transcriptPollMs, fetchLaneI
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden p-3 md:grid-cols-2">
           <section
             data-testid="lane-page-conversation"
-            className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-(--line-hair) bg-(--surface-panel)"
+            className="flex min-h-0 flex-col overflow-hidden rounded-none border border-(--line-hair) bg-(--surface-panel)"
           >
             <Conversation lane={MAIN_SELECTION} fetchImpl={fetchTranscript} pollMs={transcriptPollMs} />
           </section>
-          <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-(--line-hair) bg-(--surface-panel) p-2">
+          <section className="flex min-h-0 flex-col overflow-hidden rounded-none border border-(--line-hair) bg-(--surface-panel) p-2">
             <TraceColumn state={state.session} lane={CONDUCTOR_TELEMETRY_LANE} />
           </section>
         </div>
@@ -272,7 +272,7 @@ export function LanePage({ handle, fetchTranscript, transcriptPollMs, fetchLaneI
             type="button"
             data-testid="lane-page-back"
             onClick={goBalcony}
-            className="shrink-0 rounded border border-(--line-strong) px-3 py-1 text-inst-dense uppercase tracking-wider text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
+            className="shrink-0 rounded-none border border-(--line-strong) px-3 py-1 text-inst-dense uppercase tracking-wider text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
           >
             ← balcony
           </button>
@@ -331,11 +331,11 @@ export function LanePage({ handle, fetchTranscript, transcriptPollMs, fetchLaneI
         <div className="grid h-[26rem] shrink-0 grid-cols-1 gap-3 md:grid-cols-2">
           <section
             data-testid="lane-page-conversation"
-            className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-(--line-hair) bg-(--surface-panel)"
+            className="flex min-h-0 flex-col overflow-hidden rounded-none border border-(--line-hair) bg-(--surface-panel)"
           >
             <Conversation lane={telemetryHandle} fetchImpl={scopedFetch} pollMs={transcriptPollMs} />
           </section>
-          <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-(--line-hair) bg-(--surface-panel) p-2">
+          <section className="flex min-h-0 flex-col overflow-hidden rounded-none border border-(--line-hair) bg-(--surface-panel) p-2">
             <TraceColumn state={state.session} lane={telemetryHandle} />
           </section>
         </div>

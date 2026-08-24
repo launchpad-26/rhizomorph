@@ -335,7 +335,7 @@ export function SetupWizard({
   }
 
   return (
-    <section data-testid="connect-wizard" className="rounded border border-(--line-hair) bg-(--surface-panel) px-3 py-3">
+    <section data-testid="connect-wizard" className="rounded-none border border-(--line-hair) bg-(--surface-panel) px-3 py-3">
       <header className="flex flex-wrap items-baseline gap-3">
         <h2 className="heading text-(--ink-dim)">set up</h2>
         <span className="text-read-floor text-(--ink-dim)">
@@ -614,7 +614,7 @@ function RepoStep({
             {clone.outcome.progress.length > 0 && (
               <pre
                 data-testid="wizard-clone-progress"
-                className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-(--surface-floor) px-2 py-1 font-mono text-inst-dense text-(--ink-body)"
+                className="max-h-32 overflow-auto whitespace-pre-wrap rounded-none bg-(--surface-floor) px-2 py-1 font-mono text-inst-dense text-(--ink-body)"
               >
                 {clone.outcome.progress.join('\n')}
               </pre>
@@ -748,7 +748,7 @@ function ConductorStep({
       </p>
 
       {!isWatched ? (
-        <div data-testid="wizard-not-watched" className="flex flex-col gap-1 rounded border border-(--line-hair) px-2 py-2">
+        <div data-testid="wizard-not-watched" className="flex flex-col gap-1 rounded-none border border-(--line-hair) px-2 py-2">
           <p className="text-read-body leading-snug text-waiting-benign">
             {target ?? UNAVAILABLE} is not the repo this instrument is watching, and this hand cannot retarget one —
             switching the watched repo is prd-20’s own open question and is not built. Nothing below will start a
@@ -803,7 +803,7 @@ function ConductorStep({
           )}
 
           {launch.status === 'confirming' && (
-            <div data-testid="wizard-launch-confirm-dialog" className="flex flex-col gap-2 rounded border border-(--line-strong) p-3">
+            <div data-testid="wizard-launch-confirm-dialog" className="flex flex-col gap-2 rounded-none border border-(--line-strong) p-3">
               <p className="text-read-body text-(--ink-primary)">
                 Start a {facts?.displayName ?? harness} conductor in {target ?? UNAVAILABLE}, {chosenMode?.label}?
               </p>
@@ -898,7 +898,7 @@ function LaunchResult({ outcome }: { outcome: InstrumentOutcome }) {
 
   const { spawn } = outcome
   return (
-    <div data-testid="wizard-launch-result" className="flex flex-col gap-1 rounded border border-(--line-hair) px-2 py-2">
+    <div data-testid="wizard-launch-result" className="flex flex-col gap-1 rounded-none border border-(--line-hair) px-2 py-2">
       {spawn.launched && spawn.via === 'tmux' && (
         <p role="status" className="text-read-body leading-snug text-notice">
           started in the tmux window {spawn.window} (pid {spawn.pid}) — attach with{' '}
@@ -1014,7 +1014,7 @@ function CopyableCommand({ id, command, onCopy }: { id: string; command: string;
       </div>
       <code
         data-testid={`connect-command-${id}`}
-        className="block overflow-x-auto whitespace-pre rounded bg-(--surface-floor) px-2 py-1 font-mono text-inst text-(--ink-primary)"
+        className="block overflow-x-auto whitespace-pre rounded-none bg-(--surface-floor) px-2 py-1 font-mono text-inst text-(--ink-primary)"
       >
         {command}
       </code>

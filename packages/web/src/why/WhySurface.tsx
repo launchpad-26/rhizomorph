@@ -123,7 +123,7 @@ export function WhySurface({
               data-testid="why-open-in-activity"
               onClick={() => onJumpToActivity(activePath)}
               title="jumps to ACTIVITY, scrolled to and marking this file's own entries"
-              className="shrink-0 rounded border border-(--line-hair) px-1.5 py-0.5 text-inst uppercase tracking-wide text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
+              className="shrink-0 rounded-none border border-(--line-hair) px-1.5 py-0.5 text-inst uppercase tracking-wide text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
             >
               activity ↗
             </button>
@@ -185,7 +185,7 @@ function FileList({ touches, activePath, onSelect, now }: FileListProps) {
             data-active={touch.path === activePath}
             title={`${touch.toolCallCount} tool call${touch.toolCallCount === 1 ? '' : 's'} · ${touch.commitCount} commit${touch.commitCount === 1 ? '' : 's'} · last touched ${formatSpan(Math.max(0, now - touch.lastTouchedAt))} ago`}
             onClick={() => onSelect(touch.path)}
-            className={`rounded border px-2 py-1 font-mono text-inst-dense leading-tight ${
+            className={`rounded-none border px-2 py-1 font-mono text-inst-dense leading-tight ${
               touch.path === activePath
                 ? 'border-(--ink-dim) text-(--ink-primary)'
                 : 'border-(--line-hair) text-(--ink-dim) hover:border-(--line-strong) hover:text-(--ink-primary)'
@@ -285,7 +285,7 @@ function ToolCallRow({ call, now, fetchTranscript }: ToolCallRowProps) {
           data-testid="why-tool-call-jump"
           onClick={() => setExpanded((value) => !value)}
           title="jumps to the transcript entry nearest this tool call's timestamp — jump-to-nearest, not exact alignment (future work)"
-          className="shrink-0 rounded border border-(--line-hair) px-1.5 py-0.5 text-inst uppercase tracking-wide text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
+          className="shrink-0 rounded-none border border-(--line-hair) px-1.5 py-0.5 text-inst uppercase tracking-wide text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
         >
           {expanded ? 'hide ▴' : 'conversation ↗'}
         </button>

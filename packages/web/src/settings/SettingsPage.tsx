@@ -144,7 +144,7 @@ function GroupSection({ group, repoPath }: { group: SettingsGroup; repoPath: str
       data-testid={`settings-group-${group.id}`}
       data-unavailable={disabled ? 'true' : undefined}
       aria-labelledby={`settings-group-${group.id}-heading`}
-      className={`mb-(--space-gutter) break-inside-avoid rounded-plate border border-(--line-hair) bg-(--surface-panel) px-4 py-3 shadow-(--elev-raised) ${disabled ? 'opacity-70' : ''}`}
+      className={`mb-(--space-gutter) break-inside-avoid rounded-none border border-(--line-hair) bg-(--surface-panel) px-4 py-3 shadow-(--elev-raised) ${disabled ? 'opacity-70' : ''}`}
     >
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 id={`settings-group-${group.id}-heading`} className="text-read-body text-(--ink-primary)">
@@ -219,7 +219,7 @@ function PrefRow({ entry, groupReason }: { entry: PrefEntry; groupReason: string
         {overridden ? (
           <span
             data-testid={`pref-${entry.id}-modified`}
-            className="figures rounded border border-notice/60 px-1 text-inst-dense uppercase tracking-wider text-notice"
+            className="figures rounded-none border border-notice/60 px-1 text-inst-dense uppercase tracking-wider text-notice"
           >
             modified
           </span>
@@ -285,7 +285,7 @@ function ChoiceControl({ entry, unavailable }: { entry: PrefEntry; unavailable: 
         {entry.options.map((option) => (
           <label
             key={option.value}
-            className={`flex items-center gap-1.5 rounded-ctl border px-2 py-1 text-inst transition-[color,border-color] duration-(--duration-touch) ${
+            className={`flex items-center gap-1.5 rounded-none border px-2 py-1 text-inst transition-[color,border-color] duration-(--duration-touch) ${
               disabled
                 ? 'cursor-not-allowed border-(--line-hair) text-(--ink-dim) opacity-70'
                 : 'cursor-pointer border-(--line-hair) text-(--ink-body) has-[:checked]:border-(--ink-dim) has-[:checked]:text-(--ink-primary) hover:border-(--ink-dim)'
@@ -330,7 +330,7 @@ function FlagControl({ entry, unavailable }: { entry: PrefEntry; unavailable: st
   return (
     <>
       <label
-        className={`inline-flex w-fit items-center gap-1.5 rounded-ctl border px-2 py-1 text-inst transition-[color,border-color] duration-(--duration-touch) ${
+        className={`inline-flex w-fit items-center gap-1.5 rounded-none border px-2 py-1 text-inst transition-[color,border-color] duration-(--duration-touch) ${
           disabled
             ? 'cursor-not-allowed border-(--line-hair) text-(--ink-dim) opacity-70'
             : 'cursor-pointer border-(--line-hair) text-(--ink-body) has-[:checked]:border-(--ink-dim) has-[:checked]:text-(--ink-primary) hover:border-(--ink-dim)'
@@ -384,7 +384,7 @@ function RestoreDefaults({ group, scope }: { group: SettingsGroup; scope: PrefSc
         data-testid={`restore-${group.id}-${scope}`}
         disabled={changed.length === 0}
         onClick={() => restoreDefaults(group.id, scope)}
-        className="focus-ring shrink-0 rounded border border-(--line-strong) px-2 py-1 text-inst-dense uppercase tracking-wider text-(--ink-dim) enabled:hover:border-(--ink-dim) enabled:hover:text-(--ink-primary) disabled:cursor-not-allowed disabled:opacity-60"
+        className="focus-ring shrink-0 rounded-none border border-(--line-strong) px-2 py-1 text-inst-dense uppercase tracking-wider text-(--ink-dim) enabled:hover:border-(--ink-dim) enabled:hover:text-(--ink-primary) disabled:cursor-not-allowed disabled:opacity-60"
       >
         restore defaults · {SCOPE_WORD[scope]}
       </button>

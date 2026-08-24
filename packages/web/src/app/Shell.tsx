@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type RefObject } from 'react'
 import { ReplayBanner } from '../replay/Banner.js'
 import { Welcome } from './Welcome.js'
 import { ConnectionBadge } from './ConnectionBadge.js'
@@ -83,15 +83,62 @@ const LaneDrawer = lazy(() => import('../drawer/index.js'))
  * real one would have kept a placeholder with no timestamp, no session
  * identity, no unknown-era voice and no *exit to live* control.
  */
+/**
+ * The dock's own live height, published as `--dock-h` on the shell's root
+ * (review of #65, option B): a `sticky` child anywhere under the dock — the
+ * collisions table's column headings are the first — can offset by exactly
+ * this much and land right below the dock instead of fighting it for
+ * `--z-header`. Measured, not assumed, because the dock's own height is
+ * dynamic: the attention strip and the replay banner swap places, and either
+ * one changes how tall this bar is. Twin of `tide/TideDock.tsx`'s
+ * `useElementWidth`, including the `typeof ResizeObserver === 'function'`
+ * guard that keeps jsdom (no `ResizeObserver`) from throwing.
+ */
+function useElementHeight(): [RefObject<HTMLElement | null>, number] {
+  const ref = useRef<HTMLElement | null>(null)
+  const [height, setHeight] = useState(0)
+
+  useEffect(() => {
+    const el = ref.current
+    if (el === null) return
+
+    const measure = () => setHeight(Math.max(0, Math.ceil(el.getBoundingClientRect().height)))
+    measure()
+
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
+    observer?.observe(el)
+    return () => observer?.disconnect()
+  }, [])
+
+  return [ref, height]
+}
+
 export function Shell() {
   // prd5 ruling 1+6: the idle-worker jump is page-global (see `keyboard.ts`'s
   // own comment on the split with #100's scene-scoped camera keys), so it is
   // mounted once here rather than by any one panel.
   useIdleWorkerJump()
 
+  const [dockRef, dockHeight] = useElementHeight()
+
   return (
-    <div className="grid h-screen grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto_auto] bg-(--surface-floor) font-sans text-(--ink-body)">
-      <TopDock />
+    // `min-h-screen`, not `h-screen`, and `auto` rather than `minmax(0,1fr)`
+    // on PanelGrid's own row (retuned live, 2026-08-24, at an operator's
+    // explicit request): the page now grows to whatever the dock's content
+    // needs and the DOCUMENT scrolls, rather than clamping every panel to a
+    // fixed viewport share and scrolling each one internally. See
+    // `PanelGrid.tsx`'s own comment for what this trades away — the
+    // page-never-scrolls invariant existed to fix a real silent-clipping bug,
+    // and this reverses it on purpose, not by accident.
+    //
+    // `--dock-h` lives here, on the root, so it is visible to every
+    // descendant that needs to offset a sticky child below the dock — set
+    // once, read wherever (review of #65, option B).
+    <div
+      style={{ ['--dock-h' as string]: `${dockHeight}px` }}
+      className="grid min-h-screen grid-cols-[minmax(0,1fr)] grid-rows-[auto_auto_auto_auto] bg-(--surface-floor) font-sans text-(--ink-body)"
+    >
+      <TopDock headerRef={dockRef} />
       <PanelGrid />
       <ReplayBar />
       <StatusBar />
@@ -110,21 +157,24 @@ export function Shell() {
  * stacked — an operator must never be able to read a live summons off a
  * recording.
  */
-function TopDock() {
+function TopDock({ headerRef }: { headerRef: RefObject<HTMLElement | null> }) {
   const mode = useMode()
   const { status } = useStream()
 
   return (
-    <header className="border-b border-(--line-hair) bg-(--surface-panel)">
+    <header
+      ref={headerRef}
+      className="sticky top-0 z-(--z-header) flex flex-col gap-3 border-b border-(--line-hair) bg-(--surface-floor) px-3 pb-3"
+    >
       <Nav />
-      <div className="flex items-stretch gap-4 border-b border-(--line-hair)">
-        <div className="flex shrink-0 items-center gap-3 px-4">
+      <div className="panel-card flex items-stretch gap-4">
+        <div className="flex shrink-0 items-center gap-3 px-4 py-2">
           <h1 className="font-display text-read-body font-semibold tracking-[0.25em] text-(--ink-primary) text-glow-calm">
             THE OBSERVATORY
           </h1>
           <ConnectionBadge status={status} />
         </div>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 border-l border-(--line-hair)">
           {mode === 'replay' ? (
             <ReplayBanner />
           ) : (

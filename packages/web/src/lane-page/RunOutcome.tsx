@@ -81,7 +81,7 @@ export function RunOutcomeRegion({ handle, entry, indexGap, now }: RunOutcomePro
     <section
       data-testid="run-outcome"
       data-outcome={outcome}
-      className="rounded border border-(--surface-line) bg-(--surface-panel) px-3 py-2"
+      className="rounded-none border border-(--surface-line) bg-(--surface-panel) px-3 py-2"
     >
       <header className="flex flex-wrap items-baseline gap-x-3">
         <h2 className="figures text-inst uppercase tracking-[0.2em] text-(--ink-dim)">outcome</h2>

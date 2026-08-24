@@ -4,18 +4,28 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /**
- * #655's law — the document never scrolls; a panel does.
+ * #655's law — the document never scrolls SIDEWAYS; a descendant's own
+ * overflow does, or it clips.
  *
- * `prd-04`'s amendment 3 says it plainly: *"The page does not scroll; the
- * panels do. A share a panel cannot fill scrolls inside itself, so nothing is
- * ever below a fold — because there is no fold."* That was enforced on the
- * vertical axis by `Shell`'s `grid-rows-[auto_minmax(0,1fr)_auto_auto]` and
- * not enforced at all on the horizontal one: the grid declared no columns, so
- * the single implicit column sized to `auto`, and a grid item's automatic
- * minimum width is its CONTENT. One over-wide descendant — the attention
- * strip's `shrink-0` retrospective region — grew the track, the grid and the
- * document to 1758px inside a 1225px viewport, carrying the nav off the left
- * edge.
+ * `prd-04`'s amendment 3 originally said the document never scrolls on either
+ * axis. That was enforced on the vertical axis by `Shell`'s
+ * `grid-rows-[auto_minmax(0,1fr)_auto_auto]` and not enforced at all on the
+ * horizontal one: the grid declared no columns, so the single implicit column
+ * sized to `auto`, and a grid item's automatic minimum width is its CONTENT.
+ * One over-wide descendant — the attention strip's `shrink-0` retrospective
+ * region — grew the track, the grid and the document to 1758px inside a
+ * 1225px viewport, carrying the nav off the left edge.
+ *
+ * **The vertical half was reversed live (2026-08-24)** at an operator's
+ * explicit request — `PanelGrid.tsx`'s own comment has the full account: the
+ * dock now grows with its content and the document scrolls vertically on
+ * purpose. The horizontal half is untouched and stays a hard law: nothing
+ * about wanting a taller page argues for a wider one, and the 1758px bug had
+ * nothing to do with vertical space — it was one `shrink-0` descendant with
+ * no floor, the same failure mode this file's third test still guards.
+ * `Shell`'s row and column bounds no longer need to move together; they
+ * always protected two different failure modes that happened to share one
+ * fix at the time this file was written.
  *
  * Why a grep law and not a render test: jsdom has no layout engine. It reports
  * every width as 0, so no `@testing-library` assertion in this repo can
@@ -46,13 +56,16 @@ describe('shell bounds law: the document does not scroll, a panel does', () => {
     expect(read(STRIP)).toContain('data-testid="waited-chips"')
   })
 
-  it("Shell's grid bounds its COLUMN, not only its rows", () => {
+  it("Shell's grid still bounds its COLUMN — the row bound moved on purpose, this one has not", () => {
     const shell = read(SHELL)
+    // Horizontal overflow was never wanted for any reason, including this
+    // one — #655's actual bug (one over-wide descendant, nothing to do with
+    // page length) still needs this. The row track deliberately no longer
+    // matches it (`auto` there now, so PanelGrid's content sets the page's
+    // height) — see this file's own header comment for why the two bounds
+    // stopped needing to move together.
     expect(shell).toContain('grid-cols-[minmax(0,1fr)]')
-    // The row bound is the precedent this mirrors; if it ever goes, the pair
-    // should be reconsidered together rather than one silently outliving the
-    // other, which is the whole story of #655.
-    expect(shell).toContain('grid-rows-[auto_minmax(0,1fr)_auto_auto]')
+    expect(shell).not.toMatch(/grid-cols-\[\d+fr/)
   })
 
   it('the strip\'s retrospective region can yield — it is memory, not a summons', () => {

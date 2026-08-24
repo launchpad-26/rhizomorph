@@ -94,7 +94,7 @@ export default function ActivityFeed() {
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col" data-panel="feed">
+    <section className="flex h-full flex-col" data-panel="feed">
       <div className="flex flex-wrap items-center gap-3">
         <div className="ml-auto flex items-center gap-1.5" role="group" aria-label="Filter by kind">
           {FEED_KINDS.map((kind) => (
@@ -104,7 +104,7 @@ export default function ActivityFeed() {
               aria-pressed={activeKinds.has(kind)}
               data-testid={`feed-kind-${kind}`}
               onClick={() => toggleKind(kind)}
-              className={`focus-ring rounded border px-1.5 py-0.5 heading tracking-wide ${
+              className={`focus-ring rounded-none border px-1.5 py-0.5 heading tracking-wide ${
                 activeKinds.has(kind)
                   ? 'border-(--ink-dim) text-(--ink-body)'
                   : 'border-(--line-strong) text-(--ink-dim)'
@@ -124,7 +124,7 @@ export default function ActivityFeed() {
           <button
             type="button"
             data-testid="feed-clear-lane"
-            className="focus-ring rounded text-(--ink-dim) hover:text-(--ink-body) hover:underline"
+            className="focus-ring rounded-none text-(--ink-dim) hover:text-(--ink-body) hover:underline"
             onClick={clear}
           >
             clear
@@ -152,13 +152,13 @@ export default function ActivityFeed() {
           {filtered ? 'Nothing matches this filter.' : 'No activity yet this session.'}
         </p>
       ) : (
-        <ol className="mt-2 min-h-0 flex-1 space-y-1.5 overflow-auto figures text-inst [scrollbar-gutter:stable]">
+        <ol className="mt-2 space-y-1.5 figures text-inst">
           {entries.map((entry) => (
             <li
               key={entry.id}
               data-testid="feed-entry"
               data-kind={entry.kind}
-              className={`rounded px-1.5 py-(--space-row-y) leading-relaxed${entry.news ? ' feed-entry-pulse' : ''}`}
+              className={`rounded-none px-1.5 py-(--space-row-y) leading-relaxed${entry.news ? ' feed-entry-pulse' : ''}`}
             >
               <FeedRow entry={entry} />
             </li>
@@ -188,7 +188,7 @@ function Clock({ ts }: { ts: number }): ReactElement {
 
 function KindTag({ children }: { children: ReactNode }): ReactElement {
   return (
-    <span className="shrink-0 rounded border border-(--line-strong) px-1 uppercase text-(--ink-dim)">
+    <span className="shrink-0 rounded-none border border-(--line-strong) px-1 uppercase text-(--ink-dim)">
       {children}
     </span>
   )
@@ -200,7 +200,7 @@ function CommitRow({ entry }: { entry: CommitFeedEntry }): ReactElement {
     <div className="flex items-start gap-2">
       <Clock ts={entry.ts} />
       {commit.branches.map((branch) => (
-        <span key={branch} className="shrink-0 rounded border border-(--ink-dim) px-1 text-(--ink-body)">
+        <span key={branch} className="shrink-0 rounded-none border border-(--ink-dim) px-1 text-(--ink-body)">
           {branch}
         </span>
       ))}

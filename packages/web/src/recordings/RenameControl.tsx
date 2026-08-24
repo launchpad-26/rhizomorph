@@ -73,14 +73,14 @@ export function RenameControl({ sessionId, title, onRenamed, fetchImpl }: Rename
           value={draft}
           disabled={saving}
           onChange={(event) => setPhase({ status: 'editing', draft: event.target.value })}
-          className="min-w-0 rounded border border-(--line-strong) bg-(--surface-floor) px-2 py-1 font-mono text-(--ink-primary)"
+          className="min-w-0 rounded-none border border-(--line-strong) bg-(--surface-floor) px-2 py-1 font-mono text-(--ink-primary)"
         />
         <button
           type="button"
           data-testid={`rename-save-${sessionId}`}
           disabled={saving}
           onClick={() => void save()}
-          className="shrink-0 rounded border border-(--ink-dim) px-2 py-1 normal-case tracking-normal text-(--ink-primary) disabled:opacity-50"
+          className="shrink-0 rounded-none border border-(--ink-dim) px-2 py-1 normal-case tracking-normal text-(--ink-primary) disabled:opacity-50"
         >
           {saving ? 'saving…' : 'save'}
         </button>

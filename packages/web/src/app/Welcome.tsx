@@ -53,7 +53,7 @@ export function Welcome(): ReactElement | null {
       role="region"
       aria-label="welcome"
       data-testid="welcome-card"
-      className="fixed right-6 bottom-28 z-(--z-focus) w-[22rem] max-w-[calc(100vw-3rem)] rounded-lg border border-(--line-strong) bg-(--surface-panel)/95 p-4 shadow-(--elev-overlay) backdrop-blur-sm"
+      className="fixed right-6 bottom-28 z-(--z-focus) w-[22rem] max-w-[calc(100vw-3rem)] rounded-none border border-(--line-strong) bg-(--surface-panel)/95 p-4 shadow-(--elev-overlay) backdrop-blur-sm"
     >
       {/* A styled paragraph, not an h2: the card is a transient overlay, and the
           shell's curated-order law counts document headings. The region's
@@ -82,7 +82,7 @@ export function Welcome(): ReactElement | null {
           href="/connect"
           onClick={dismiss}
           data-testid="welcome-connect"
-          className="focus-ring rounded border border-(--ink-dim) px-2.5 py-1.5 text-inst font-semibold uppercase tracking-[0.1em] text-(--ink-primary) hover:border-(--ink-body)"
+          className="focus-ring rounded-none border border-(--ink-dim) px-2.5 py-1.5 text-inst font-semibold uppercase tracking-[0.1em] text-(--ink-primary) hover:border-(--ink-body)"
         >
           connect your repo
         </a>
@@ -90,7 +90,7 @@ export function Welcome(): ReactElement | null {
           type="button"
           onClick={dismiss}
           data-testid="welcome-dismiss"
-          className="focus-ring rounded border border-(--line-hair) px-2.5 py-1.5 text-inst uppercase tracking-[0.1em] text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary)"
+          className="focus-ring rounded-none border border-(--line-hair) px-2.5 py-1.5 text-inst uppercase tracking-[0.1em] text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary)"
         >
           explore first
         </button>

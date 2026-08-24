@@ -73,11 +73,11 @@ export default function TracePanel() {
   }
 
   return (
-    <div data-testid="trace-tab" className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-auto px-1 [scrollbar-gutter:stable]">
+    <div data-testid="trace-tab" className="flex flex-col">
+      <div className="px-1">
         <TraceTree state={state.session} lane={selectedId} />
       </div>
-      <p className="mt-1 shrink-0 border-t border-(--line-hair) pt-1 text-inst text-(--ink-dim)">
+      <p className="mt-1 border-t border-(--line-hair) pt-1 text-inst text-(--ink-dim)">
         <RunViewLink handle={selectedId} />
       </p>
     </div>
@@ -102,7 +102,7 @@ function RunViewLink({ handle }: { handle: string }) {
         event.preventDefault()
         navigate(href)
       }}
-      className="focus-ring rounded text-(--ink-body) underline hover:text-(--ink-primary)"
+      className="focus-ring rounded-none text-(--ink-body) underline hover:text-(--ink-primary)"
     >
       open the run view for the gantt and the full spine ↗
     </a>

@@ -55,7 +55,7 @@ export function SampleFleetControl() {
           type="button"
           data-testid="connect-sample-return"
           onClick={() => setSource('live')}
-          className="shrink-0 rounded border border-notice/60 px-2 py-1 text-inst uppercase tracking-wider text-notice hover:border-notice hover:text-(--ink-primary)"
+          className="shrink-0 rounded-none border border-notice/60 px-2 py-1 text-inst uppercase tracking-wider text-notice hover:border-notice hover:text-(--ink-primary)"
         >
           return to live
         </button>
@@ -73,7 +73,7 @@ export function SampleFleetControl() {
         type="button"
         data-testid="connect-sample-activate"
         onClick={() => setSource('fleet20')}
-        className="shrink-0 rounded border border-(--line-strong) px-2 py-1 text-inst uppercase tracking-wider text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
+        className="shrink-0 rounded-none border border-(--line-strong) px-2 py-1 text-inst uppercase tracking-wider text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
       >
         view a sample fleet
       </button>

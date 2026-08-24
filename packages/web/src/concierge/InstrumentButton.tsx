@@ -115,7 +115,7 @@ export function InstrumentButton({
       )}
 
       {phase.status === 'confirming' && (
-        <div data-testid={`${testId}-confirm-dialog`} className="flex flex-col gap-2 rounded border border-(--line-strong) p-3">
+        <div data-testid={`${testId}-confirm-dialog`} className="flex flex-col gap-2 rounded-none border border-(--line-strong) p-3">
           <p className="text-read-body text-(--ink-primary)">
             Relaunch the conductor on session {sessionId}, instrumented?
           </p>
@@ -153,7 +153,7 @@ export function InstrumentButton({
       )}
 
       {phase.status === 'done' && phase.outcome.kind === 'instrumented' && (
-        <div data-testid={`${testId}-result`} className="flex flex-col gap-1 rounded border border-(--line-strong) p-3">
+        <div data-testid={`${testId}-result`} className="flex flex-col gap-1 rounded-none border border-(--line-strong) p-3">
           <p className="text-read-body text-(--ink-primary)">
             {phase.outcome.spawn.launched
               ? `the conductor was started (pid ${phase.outcome.spawn.pid}) on session ${sessionId} — the same id, not a new one`
@@ -195,7 +195,7 @@ export function InstrumentButton({
       )}
 
       {phase.status === 'done' && phase.outcome.kind === 'no-transcript-reachable' && (
-        <div data-testid={`${testId}-no-transcript`} className="flex flex-col gap-1 rounded border border-(--line-strong) p-3">
+        <div data-testid={`${testId}-no-transcript`} className="flex flex-col gap-1 rounded-none border border-(--line-strong) p-3">
           <p role="status" className="text-read-body text-(--ink-primary)">
             there is no transcript this instrument can reach for session {sessionId}, so nothing was copied and
             nothing was started — {phase.outcome.reason}
@@ -230,7 +230,7 @@ export function InstrumentButton({
               {/* Always visible, always the exact string — the fallback that works when the clipboard does not. */}
               <code
                 data-testid={`${testId}-command`}
-                className="mt-1 block overflow-x-auto whitespace-pre rounded bg-(--surface-floor) px-2 py-1 font-mono text-inst text-(--ink-primary)"
+                className="mt-1 block overflow-x-auto whitespace-pre rounded-none bg-(--surface-floor) px-2 py-1 font-mono text-inst text-(--ink-primary)"
               >
                 {manualCommand}
               </code>

@@ -463,7 +463,7 @@ function OpenLaneLink({ handle, label }: { handle: string; label: string }) {
       onKeyDown={(event) => event.stopPropagation()}
       data-testid="fleet-row-open"
       aria-label={`Open ${label}'s page`}
-      className="focus-ring ml-1 rounded text-(--ink-dim) hover:text-(--ink-primary)"
+      className="focus-ring ml-1 rounded-none text-(--ink-dim) hover:text-(--ink-primary)"
     >
       ↗
     </a>

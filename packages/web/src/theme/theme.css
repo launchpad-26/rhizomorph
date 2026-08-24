@@ -202,15 +202,30 @@
   --text-heading: 0.625rem; /* 10 px-eq — the one heading utility, below */
   --text-title: 1rem; /* 16 px-eq — a page's own name: the h1 register the ramp never had (loop 10) */
 
-  /* ── radius: three decisions, not one default (loop 10) ─────────────────
-   * `rounded` ×103 already means 4px and is not drift; the scale exists so
-   * the arbitrary `rounded-lg`s and every NEW surface name a decision. */
-  --radius-ctl: 0.25rem; /* buttons, chips, fields */
-  --radius-plate: 0.375rem; /* cards, plates, inline dialogs, row surfaces */
-  --radius-bead: 9999px; /* the tide bead, dots, pills */
+  /* ── radius: one decision now, not three (loop 10, reversed live 2026-08-24)
+   * ─────────────────────────────────────────────────────────────────────
+   * This ramp used to carry three named values — `--radius-ctl` (buttons,
+   * chips, fields), `--radius-plate` (cards, plates, dialogs, row surfaces)
+   * and `--radius-bead` (dots, pills) — so a curved corner anywhere in the
+   * app named which of three decisions it was making. An operator asked for
+   * every corner square, sitewide, no exceptions for chrome (the same request
+   * that gave `panel-card` and every button `rounded-none`); with the curve
+   * gone everywhere it used to appear, none of the three had a consumer left
+   * to name (`--radius-bead` never had one — the app always reached for
+   * Tailwind's own `rounded-full` for genuine circles instead), so they are
+   * deleted rather than left declared and unread, per this file's own law
+   * (`tokens.test.ts`'s "every declared material is consumed"). A curved
+   * corner returning anywhere is a new decision and earns a new token, the
+   * same as it always did. */
 
-  /* ── the z ladder (loop 10): five rungs, from the eight raw sites swept ── */
+  /* ── the z ladder (loop 10): six rungs, from the eight raw sites swept ──
+   * `--z-header` added live (2026-08-24) once the page started scrolling on
+   * purpose (`PanelGrid.tsx`'s own comment): the shell's sticky top dock has
+   * to out-rank a dock tab's own sticky table header (10) so it does not
+   * disappear behind one when both are stuck at the same scroll position,
+   * but still yield to a focused panel's full-viewport takeover (30). */
   --z-sticky: 10; /* sticky table headers */
+  --z-header: 20; /* the shell's own sticky top dock */
   --z-focus: 30; /* the focused panel takeover */
   --z-peek: 40; /* the peek */
   --z-card: 50; /* the disclosure card */
@@ -548,6 +563,48 @@
   text-shadow: 0 0 10px color-mix(in oklab, var(--color-notice) 60%, transparent);
 }
 
+/* ── light mode: glow becomes cartouche (ruling 7, "severity is re-carried,
+ * not re-lit") ──────────────────────────────────────────────────────────
+ * The blur above reads as *brightness* — a soft halo that disappears against
+ * a ground already near the top of the range. On paper the same classes
+ * swap that blur for enclosure and weight instead: a solid tinted fill
+ * (the `inset … 999px` trick lays a wash inside the element's own shape,
+ * respecting whatever border-radius it already has) plus a crisp,
+ * doubled-width ring. Same class names, same call sites — only the register
+ * changes, exactly as the ice-neon block's law 9b promises a calm mark never
+ * does.
+ */
+[data-theme='light'] {
+  .glow-notice {
+    box-shadow:
+      inset 0 0 0 999px color-mix(in oklab, var(--color-notice) 14%, transparent),
+      0 0 0 1.5px var(--color-notice);
+  }
+
+  .glow-needs-you {
+    box-shadow:
+      inset 0 0 0 999px color-mix(in oklab, var(--color-needs-you) 16%, transparent),
+      0 0 0 1.5px var(--color-needs-you);
+  }
+
+  .glow-broken {
+    box-shadow:
+      inset 0 0 0 999px color-mix(in oklab, var(--color-broken) 18%, transparent),
+      0 0 0 2px var(--color-broken);
+  }
+
+  .glow-calm {
+    box-shadow:
+      inset 0 0 0 999px color-mix(in oklab, var(--color-calm) 9%, transparent),
+      0 0 0 1px var(--color-calm);
+  }
+
+  .text-glow-calm,
+  .text-glow-notice {
+    text-shadow: none;
+  }
+}
+
 /*
  * Law 11 in one class: every figure a reader might compare down a column is
  * mono and tabular. Applied to a container, it covers the cells inside it.
@@ -556,6 +613,68 @@
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
+}
+
+/* ── panel-card: a bordered, radiused surface that reads as enclosure rather
+ * than a shared hairline — the same "weight and enclosure" grammar ruling 7
+ * gave the status hues, now given to the header strips and analytical panels
+ * so they read as discrete cards floating over `--surface-floor` instead of
+ * one continuous panel-toned bar. */
+@utility panel-card {
+  border-radius: 0; /* square, by request — enclosure comes from the border, not a corner */
+  border: 1px solid var(--line-strong);
+  background: var(--surface-panel);
+}
+
+/* a bordered inline chip for a runnable command inside a gap voice — the
+ * paper equivalent of a code block, enclosed rather than merely mono. */
+@utility code-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 0;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-raised);
+  padding: 0.05em 0.5em;
+}
+
+/* ── row-tint-* / cell-rule-*: the weight a table row wears for its own status
+ * — enclosure for a whole row, not just its status cell. Split in two
+ * because `box-shadow` on a `<tr>` renders inconsistently under
+ * `border-collapse`: the tint is a `background` (safe on `tr`), the edge
+ * weight is a `border-left` meant for the row's first `<td>` (safe
+ * everywhere). Five, matching the ladder's own vocabulary
+ * (`RANK_TEXT_CLASS`/`RANK_GLOW_CLASS`) plus the two activity hues a spend
+ * row can carry (working/done) that never reach ladder rank. */
+@utility row-tint-working {
+  background: color-mix(in oklab, var(--color-working) 6%, transparent);
+}
+@utility row-tint-done {
+  background: color-mix(in oklab, var(--color-done) 6%, transparent);
+}
+@utility row-tint-notice {
+  background: color-mix(in oklab, var(--color-notice) 6%, transparent);
+}
+@utility row-tint-needs-you {
+  background: color-mix(in oklab, var(--color-needs-you) 6%, transparent);
+}
+@utility row-tint-broken {
+  background: color-mix(in oklab, var(--color-broken) 6%, transparent);
+}
+
+@utility cell-rule-working {
+  border-left: 3px solid var(--color-working);
+}
+@utility cell-rule-done {
+  border-left: 3px solid var(--color-done);
+}
+@utility cell-rule-notice {
+  border-left: 3px solid var(--color-notice);
+}
+@utility cell-rule-needs-you {
+  border-left: 3px solid var(--color-needs-you);
+}
+@utility cell-rule-broken {
+  border-left: 3px solid var(--color-broken);
 }
 
 /*

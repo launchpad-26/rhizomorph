@@ -60,7 +60,7 @@ export function TelemetryBlock({
             person who cannot use the clipboard still has the command in front of them. */}
         <code
           data-testid="settings-telemetry-command"
-          className="min-w-0 flex-1 break-all rounded border border-(--line-hair) bg-(--surface-floor) px-2 py-1 font-mono text-inst text-(--ink-primary)"
+          className="min-w-0 flex-1 break-all rounded-none border border-(--line-hair) bg-(--surface-floor) px-2 py-1 font-mono text-inst text-(--ink-primary)"
         >
           {command}
         </code>
@@ -73,7 +73,7 @@ export function TelemetryBlock({
               () => setCopied('failed'),
             )
           }}
-          className="focus-ring shrink-0 rounded border border-(--line-strong) px-2 py-1 text-inst-dense uppercase tracking-wider text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
+          className="focus-ring shrink-0 rounded-none border border-(--line-strong) px-2 py-1 text-inst-dense uppercase tracking-wider text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
         >
           Copy
         </button>
