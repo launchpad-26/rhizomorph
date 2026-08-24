@@ -1934,27 +1934,31 @@ laws now hold, four of them landed in this tree:
    (`packages/core/src/reduce.ts`'s `reduce()`), reserved now so the day a
    real migration is needed it has a home every event already flows
    through, rather than a chokepoint retrofitted under time pressure.
-4. **The fold-order law — pinned, NOT resolved. See the open ruling below.**
+4. **The fold-order law (resolved).** Ruled on #205 — append order is the
+   truth; see below.
 5. **Durability (landed).** fsync on session close and rotation; the
    rotation crash ordering is close-then-open, never both-open, and is
    itself tested.
 
-### The fold-order divergence — OPEN, tracked on #205
+### The fold-order divergence — RESOLVED by #205: append order is the truth
 
-`packages/core/src/reduce.test.ts`'s "the fold-order law" fixture proves,
-rather than assumes, that **live and replay fold the same interleaved
-recording to two different states** on at least three axes: last-write-wins
+`packages/core/src/reduce.test.ts`'s "the fold-order law" fixture proved,
+rather than assumed, that live and replay once folded the same interleaved
+recording to two different states on at least three axes: last-write-wins
 fields (`agent.status`), create-vs-delete ordering (`branch.updated` vs.
 `branch.removed`), and first-sighting order (`commits.order`,
-`firstEventTs`). prd17 ruling 3 item 4 states the law only pins what a
-fixture is owed and requires the divergence itself to be *"ruled and
-documented"* — that ruling has not been made. **Issue #205 is open**: no
-document in this tree, and no code, states or implies a fold-order
-guarantee in either direction, and none should be inferred from anything
-above. Cross-actor ordering for a future multi-instrument "forest" is
-already anchored on the commit DAG (`commit.landed.parents`) rather than
-wall clocks, which sidesteps this question for that specific case without
-resolving it generally.
+`firstEventTs`). The operator ruled #205 as option 1 — **a record's own
+append order is the truth** — and replay now honours it unconditionally:
+`packages/web/src/replay/replayFold.ts` folds the log's own order everywhere
+(`buildSessionIndex`, `foldFrom`, `foldUpTo`) and keeps a ts-sorted copy for
+time navigation only, with `replayFold.test.ts` proving the divergence gone
+against the era-1 recording that exposed it. `docs/record-format.md` states
+the per-actor append-order law. Cross-actor ordering for a future
+multi-instrument "forest" stays anchored on the commit DAG
+(`commit.landed.parents`) rather than wall clocks. One stale witness
+remains: the original divergence fixture's prose in `reduce.test.ts` still
+describes the pre-ruling world — named as follow-up in prd17's 2026-08-24
+amendment.
 
 ### Ruling 1 — the new event families (ruled, landing)
 

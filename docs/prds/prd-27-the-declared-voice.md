@@ -1,8 +1,9 @@
 # prd-27 — the declared voice: attention that says so, and no silent states
 
-> **Outcome:** partially shipped — two of four Success criteria hold; the hook beacon and the
-> capability-version mismatch voice remain unbuilt. Implements prd-15 ruling 2 and extends it
-> to the rendering side. Reconciled 2026-08-22 at `03df141`.
+> **Outcome:** ruled 2026-08-24 — rulings 1–6 accepted; the door, the silent-beacon reading
+> and the lapse mechanism are answered in the amendment. Two of four Success criteria hold;
+> the hook beacon and the capability-version mismatch voice remain the build. Implements
+> prd-15 ruling 2 and extends it to the rendering side. Reconciled 2026-08-22 at `03df141`.
 
 ## Problem
 
@@ -75,7 +76,8 @@ guess; a wrong summons is worse on a phone.
 
 ## Rulings
 
-Each is a **proposed** verdict with its reasoning; no operator has ruled on any of them.
+Rulings 1–6 below were written as proposals; the operator ruled them accepted 2026-08-24 —
+the amendment at the foot of this document answers the calls they left open.
 
 ## Ruling 1 — a beacon enters through an existing door, never a new privileged channel
 
@@ -152,3 +154,24 @@ from tmux.
   renders** — chip or hover card (ruling 4); visual form is the implementer's.
 - prd-19's open question — whether "waiting" sources feed the gap registry and attention strip — now
   touches this vocabulary. Named, not ruled; whoever rules it owns both.
+
+## Amendment — the voice is ruled (operator, 2026-08-24)
+
+Ruled with prd-17's matching amendment, against the tree at `9a26030`. Rulings 1–6 are
+accepted as written, and the open calls close:
+
+- **The door (ruling 1): the file drop.** One rhizomorph-owned watched directory, tailed by
+  one beacon collector through the standard collector contract (ADR-0004) — never a new POST
+  route. prd-17 ruling 2 and this PRD now name the same doorway in the same words; the owed
+  ADR on the directory and event contract lands with the keystone wave, the way ADR-0024
+  landed with prd-29's.
+- **Configured-but-silent (ruling 3's carve-out): `partial`, with the reason said.**
+  "Configured and quiet" differs from "never offered", and the reading names what would
+  strengthen it.
+- **The lapse (first open question): the mechanism is ruled, the number is measured.** A
+  previously live beacon that goes quiet becomes a first-class lapsed state with its own
+  voice ("declared attention lapsed Nm ago; reading turn shape"). The interval is not
+  guessed here: the implementation wave owes a design note with a measured value before the
+  state ships.
+- **Disagreement's visual form** (chip or hover card) stays the implementer's, as ruling 4
+  says. prd-19's gap-registry question stays open and keeps its owner clause.
