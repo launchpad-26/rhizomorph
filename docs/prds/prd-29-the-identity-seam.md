@@ -1,9 +1,10 @@
 # prd-29 — the identity seam: a read answers only the token's holder
 
-> **Outcome:** partially shipped — the `gated-read` seam and the first seven SPA reads landed;
-> the remaining read-gating policy and external consumers are unresolved. That ruling blocks
-> prd-43 issue #23. Reconciled 2026-08-22 at `03df141`; extends prd-23 and stands on
-> ADR-0012/0014.
+> **Outcome:** ruled — all six rulings accepted 2026-08-24 and ruling 7 gates the four reads
+> that postdated the route math; wave 1 shipped; waves 2a/2b and the four-read slice are
+> groomable. `GET /*` alone stays tokenless, forever, as the named bootstrap. Unblocks prd-43
+> issue #23. Reconciled 2026-08-22 at `03df141`; extends prd-23 and stands on
+> ADR-0012/0014/0024.
 
 ## Problem
 
@@ -111,7 +112,8 @@ know how to police.
 
 ## Rulings
 
-Each is a **proposed** verdict with its reasoning; no operator has ruled on any of them.
+Rulings 1–6 below were written as proposals; the operator ruled them accepted 2026-08-24, and
+ruling 7 was added by the same act — see the amendment at the foot of this document.
 
 ## Ruling 1 — a fourth route class exists: `gated-read`
 
@@ -189,3 +191,33 @@ wave 2b (`/api/stream`); `GET /*` stays `read` forever.
   ADR-0012 against ADR-0008.
 - **Wave 3's shape** — whether the read axis extends the existing coverage law's parser or gets
   its own walker is decided after #428 lands, not here.
+
+## Amendment — the seam is ruled (operator, 2026-08-24)
+
+The six rulings stop being proposals. Rulings 1, 2 and 5 were already fact in the tree when
+the operator ruled — ADR-0024 carries the `gated-read` class and the gate-presence law, and
+`tokensMatch` is `timingSafeEqual` (`api/security.ts:72`) — so accepting them records what the
+build already enforces. Rulings 3, 4 and 6 are confirmed as written: wave 2a (the shared CLI
+scrape helper; CI's smoke stops `cat`ing `/api/meta` into the build log) and wave 2b (the
+HttpOnly SameSite=Strict cookie, honoured on `gated-read` routes only, never a mutation) may
+be groomed.
+
+### Ruling 7 — the four reads that postdate the route math gate too
+
+The Sequencing arithmetic ("of the ten `/api` reads") predates four reads:
+`GET /api/lane-index` and `GET /api/lane-index/:handle` (prd-31 ruling 5, #556),
+`GET /api/session-preview/:sessionId` (prd20 w6, #516), and `GET /api/concierge/repos`
+(prd-20 ruling 5 / ADR-0019). All four join `gated-read`. Every consumer is the SPA
+(`lane-page/laneIndex.ts`, `recordings/laneIndex.ts`, `connect/meta.ts`), which already holds
+the one capability-read module, so nothing outside the browser breaks — and `session-preview`
+returns transcript content, the family wave 1 gated first. `session-preview.ts`'s recorded
+#216 posture ("untokened, like `/api/doctor`") predates the `gated-read` class and is
+superseded by this ruling.
+
+Route math, corrected: fourteen `/api` reads today, not ten — seven gated in wave 1, three
+deferred to wave 2, four gated by this ruling (one wave-1-shaped slice, groomable beside
+wave 2a). End-state unchanged in spirit and now total in letter: after the waves land,
+"permanently tokenless" names exactly one read — `GET /*` — plus the OTLP inbox's four
+ungated mutations. That is the sentence prd-43 issue #23 was blocked on, and ADR-0012's
+ceiling still applies: none of this stops a local process, and no shipped surface may say
+otherwise.
