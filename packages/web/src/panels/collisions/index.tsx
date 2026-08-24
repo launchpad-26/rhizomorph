@@ -99,9 +99,23 @@ export default function CollisionsPanel() {
           {hasData ? (
             <div className="mt-2">
               <table className="w-full min-w-max border-collapse text-left text-inst">
+                {/*
+                  * NOT sticky any more (review of #65). These two `<th>`s
+                  * carried `sticky top-0 z-(--z-sticky)`, which worked while
+                  * this panel owned a scrollport — the `flex-1 overflow-auto`
+                  * wrapper removed one screen up. With that wrapper gone the
+                  * nearest scrolling ancestor is the DOCUMENT, so `top-0`
+                  * pinned the header row to the viewport's top edge, where the
+                  * shell's own sticky dock (`--z-header`, 20) sits opaque over
+                  * it at a higher rung. The result was the worst of both: the
+                  * header row detached from its table AND was invisible behind
+                  * the dock, so a scrolled collision matrix showed no column
+                  * headings at all. A plain header that scrolls with its own
+                  * table is what the other three dock panels now do.
+                  */}
                 <thead>
                   <tr>
-                    <th className="sticky top-0 z-(--z-sticky) min-w-[14rem] bg-(--surface-panel) px-2 py-1.5 font-medium text-(--ink-dim)">
+                    <th className="min-w-[14rem] bg-(--surface-panel) px-2 py-1.5 font-medium text-(--ink-dim)">
                       File
                     </th>
                     {columns.map((branch) => (
@@ -109,7 +123,7 @@ export default function CollisionsPanel() {
                         key={branch}
                         scope="col"
                         title={branch}
-                        className="sticky top-0 z-(--z-sticky) min-w-14 truncate bg-(--surface-panel) px-2 py-1.5 text-center font-medium text-(--ink-dim)"
+                        className="min-w-14 truncate bg-(--surface-panel) px-2 py-1.5 text-center font-medium text-(--ink-dim)"
                       >
                         <OpenBranchLink branch={branch} />
                       </th>
