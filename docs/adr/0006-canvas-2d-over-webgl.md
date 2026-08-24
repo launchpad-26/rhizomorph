@@ -1,6 +1,6 @@
 # 0006. Canvas 2D for the scene, with no 3D library
 
-- **Status:** accepted (supersedes the react-three-fiber scaffold, `e83bf9e`)
+- **Status:** **superseded by [ADR-0021](0021-webgl2-for-the-living-scene.md)** (was: accepted; supersedes the react-three-fiber scaffold, `e83bf9e`)
 - **Date:** 2026-08-06
 
 ## Context and Problem Statement

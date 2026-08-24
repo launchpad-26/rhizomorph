@@ -184,6 +184,13 @@ state a supported ceiling as a number.
 
 ## Confirmation
 
+> **The gate below was overruled at acceptance** (see the header note): the operator
+> accepted this record without waiting for the native run, and the measurement stands
+> as a **revisit trigger** rather than a precondition. Its two obligations are
+> discharged as of 2026-08-24: ADR-0006's Status line now reads
+> `superseded by ADR-0021`, and the index row matches. The original text stands below,
+> unedited.
+
 This record is `proposed` and gated on one thing:
 
 > **Run `node research/spikes/renderer/run.mjs` on a native (non-WSL) machine.**
