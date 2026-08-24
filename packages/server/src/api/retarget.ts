@@ -262,7 +262,6 @@ export function registerRetargetRoute(app: FastifyInstance, ctx: ServerContext):
           ctx.pollLoop?.start()
           throw err
         }
-        boundary.resolve(retarget)
 
         // (4) RE-POINT, before anything resumes. The fresh snapshot dir below is
         // read off this context, so re-pointing after the resume would land the
@@ -281,6 +280,20 @@ export function registerRetargetRoute(app: FastifyInstance, ctx: ServerContext):
           snapshotStore: createFileSnapshotStore(snapshotDirFor(ctx.sessionDir, retarget.opened.sessionId)),
         })
         ctx.pollLoop?.start()
+
+        // RELEASE THE BOUNDARY — here, not at the end of the close/open. The
+        // poll loop is ONE object shared by every request, so the guard has to
+        // cover every moment this route is still driving it, not just the
+        // seal. Releasing it above (right after `performRetarget`) left the
+        // `await reset()` on the far side of the release: a second retarget
+        // could acquire the boundary in that window, `stop()` the shared loop,
+        // and interleave its own stop/reset pair with this request's still-
+        // pending `start()` — defect 1's exact shape (a `start()` re-arming
+        // the timer while another boundary is mid-flight, and `poll-loop.ts`'s
+        // `start()` fires a tick immediately when the timer is down), moved
+        // off the refusal path and onto the winner's own tail. Held until the
+        // loop is back up, that window does not exist.
+        boundary.resolve(retarget)
 
         // The new session's boot facts, replacing the closed session's — the same
         // move `/api/rotate` makes, with the one word that must differ. Recording

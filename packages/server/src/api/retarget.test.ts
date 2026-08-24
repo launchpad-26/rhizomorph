@@ -564,6 +564,66 @@ describe('POST /api/retarget', () => {
     })
   })
 
+  describe('the boundary is held until the loop is back up, not merely until the close/open ends (#14)', () => {
+    it('a second retarget arriving while the winner is still resuming its loop is refused', async () => {
+      // Defect 1 was a refused request re-arming the shared timer while the
+      // winner was mid-boundary. Releasing the boundary at the end of the
+      // close/open — rather than at the end of the route — leaves the SAME
+      // shape on the winner's own tail: `reset()` is awaited AFTER the
+      // release, so a second retarget can acquire the boundary in that
+      // window, `stop()` the shared loop, and be interleaved with the
+      // winner's own `start()`. The loop is one object shared by every
+      // request; the guard has to cover every moment the route is still
+      // touching it, not just the seal.
+      const other = await makeRepo(path.join(root, 'other'))
+
+      let resetEntered!: () => void
+      const winnerIsResuming = new Promise<void>((resolve) => {
+        resetEntered = resolve
+      })
+      let releaseReset!: () => void
+      const resetGate = new Promise<void>((resolve) => {
+        releaseReset = resolve
+      })
+      let resetCalls = 0
+
+      const base = spyLoop(loopLog)
+      const gatedLoop: PollLoop = {
+        ...base,
+        reset: async (options: PollLoopResetOptions = {}) => {
+          await base.reset(options)
+          resetCalls += 1
+          // Only the winner's own reset parks — a second retarget that got
+          // through must be able to run to completion, so the assertion below
+          // reads its real status rather than a timeout.
+          if (resetCalls === 1) {
+            resetEntered()
+            await resetGate
+          }
+        },
+      }
+      const app = buildApp({ ...ctx, pollLoop: gatedLoop })
+
+      const winner = post(app, { path: adopted })
+      await winnerIsResuming
+
+      // The winner has sealed and re-pointed, but has NOT yet restarted the
+      // loop. Its boundary must still be held.
+      const second = await post(app, { path: other })
+      releaseReset()
+      const winnerResponse = await winner
+
+      expect(winnerResponse.statusCode).toBe(200)
+      expect(second.statusCode).toBe(409)
+      expect(second.json().code).toBe('retarget-in-flight')
+      // And the shared loop was driven by exactly one request: no second
+      // stop/reset pair wedged between the winner's reset and its start.
+      expect(loopLog.map((call) => call.phase)).toEqual(['stop', 'reset', 'start'])
+
+      await app.close()
+    })
+  })
+
   it('a server with no poll loop retargets anyway — the loop is optional, the boundary is not', async () => {
     const { pollLoop: _dropped, ...loopless } = ctx
     const app = buildApp(loopless)
