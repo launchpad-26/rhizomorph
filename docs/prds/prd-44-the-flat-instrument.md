@@ -142,6 +142,26 @@ because they are three different files.
 `log/listing.ts` names the same rule in its own comment. A second caller that walks the directory
 per request is the same defect with a different route name.
 
+**Amendment (2026-08-24, grooming) — the cache is cross-session, and pruning must invalidate it.**
+The reasoning above stands; what it left unsaid is *why* the route reads everything, and a lane
+that does not know can "optimise" by narrowing what the index covers. **prd-31 ruling 5** (shipped)
+built this surface and made the index part of that ruling rather than an optimisation of it: a
+worktree is deleted by `workmux merge` the moment work lands, which is exactly when someone wants
+to read what happened, and a lane that ran across three sessions has its life scattered across
+three recordings. Reading across all of them is therefore the feature. This ruling removes only the
+*repetition* — a finished recording is immutable, so parsing it twice is waste while parsing it
+once is ruling 5 working as designed.
+
+Two constraints follow, and the second is a cross-wave hazard this PRD did not previously name:
+
+- **The cache spans sessions.** One scoped per request, or remembering only the live session,
+  defeats ruling 5 while passing every count law this PRD asks for.
+- **Wave 3 deletes what this cache holds.** Retention enforcement must invalidate it rather than
+  leave it serving a recording that is gone, and a pruned lane must read as *pruned* — degrading
+  the way the index already degrades for an unreadable recording — never as a lane that never
+  existed. "No such lane" for work that did happen is the dishonest failure, the same shape
+  ADR-0011 abolished for the silent skip.
+
 ## Ruling 2 — the log is opened once per session, not once per event
 
 The per-event `appendFile` becomes one held descriptor for the writer's life. Ordering stays the
