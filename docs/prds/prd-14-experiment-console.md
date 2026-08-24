@@ -206,7 +206,9 @@ lab events from an earlier era still reads.
 
 - Whether the checkpoint timeline scrubs the *whole instrument* back to a moment
   or only the lab's own view. Deferred to wave 1's eyeball.
-- Free-form per-arm variation (ruling 2's deliberate deferral).
+- ~~Free-form per-arm variation (ruling 2's deliberate deferral).~~ **Since
+  shipped** — ruling 2's amendment landed it, and `lab/launch/LaunchPanel.tsx`
+  configures model and brief per arm; this PRD's own Outcome header records it.
 - Hard spend cap (ruling 4's deliberate deferral).
 - **#205 fold-order — since ruled: append order is the truth** (prd17's 2026-08-24
   amendment); the lab assumes exactly that resolution and no other.

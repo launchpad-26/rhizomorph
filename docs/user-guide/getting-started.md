@@ -22,7 +22,8 @@ but things may not run correctly below the floor — don't rely on that.
 ## Install
 
 There's no published package yet — cloning the repo is the install story
-(see [Trust and reach](../architecture.md) in the README for why). Four
+(see [When this is published to npm](../../README.md#when-this-is-published-to-npm)
+in the README for why, and for what `npx rhizomorph` does today). Four
 commands:
 
 ```sh
@@ -34,8 +35,10 @@ npm run build   # builds the dashboard once; the server serves it statically
 
 `[Ran]` in this repo (already a clone): `npm install` → `up to date, audited
 217 packages in 803ms … found 0 vulnerabilities`. `npm run build` → builds
-both workspaces; the web build lands at `packages/web/dist/`, ends with `✓
-built in 384ms` (your numbers will differ, the shape won't).
+three workspaces in order — the server, the web dashboard, and the desktop
+shell [the-desktop.md](the-desktop.md) documents; the web build lands at
+`packages/web/dist/`, ends with `✓ built in 384ms` (your numbers will differ,
+the shape won't).
 
 ## Point it at a repo
 
@@ -76,6 +79,7 @@ way: `npm start -- <path-to-repo> --port 5000`.
 | `--fresh` | — | Start a new session instead of resuming the most recent one |
 | `--resume-window <ms>` | 4h (`14400000`) | Override the resume boundary; `0` behaves like `--fresh` |
 | `--backfill` | — | Read session logs from the beginning instead of end-of-file |
+| `--version` | — | Print the installed rhizomorph version and exit |
 | `--help`, `-h` | — | Show usage and exit |
 
 Full flag reference: `npm start -- --help`.
@@ -83,17 +87,25 @@ Full flag reference: `npm start -- --help`.
 ## Check for gaps before you look
 
 Not sure something's missing rather than actually broken? Run the one command
-that explains every gap at once — `[Ran]` against this repo:
+that explains every gap at once:
 
 ```sh
 npm start -- doctor .
 ```
+
+Twelve base checks plus the enrichment ladder, one line each. What follows is
+an **elided** sample of a run against this repo — real lines, paths
+shortened, and two checks cut for length: `cli-version-drift` (whether
+`claude --version` still matches the pinned trace-fixture version) and
+`harness-roster` (which harnesses are implemented, and which are declared
+not-implemented).
+
 ```
 [ok  ] Node v22.23.2 satisfies the required >=22.22.2
 [ok  ] /home/…/220 exists and is a git repository
 [ok  ] web build present at /home/…/220/packages/web/dist/index.html
 [ok  ] a rhizomorph is already serving worktrees-challenge on port 4321 (started …) — nothing to fix
-[ok  ] Claude Code session logs found at /home/operator/.claude/projects
+[ok  ] Claude Code session logs found at /home/…/.claude/projects/<repo-slug> (<n> session files, newest <age> old)
 [ok  ] no rhizomorph session recorded yet for /home/…/220 — the next run starts a fresh one (resume window 4h)
 [ok  ] tmux found on PATH
 [ok  ] workmux found on PATH
@@ -103,6 +115,12 @@ npm start -- doctor .
 
 All required checks passed.
 ```
+
+Note the session-logs line: it names the **per-repo** slug directory under
+`~/.claude/projects`, with a file count and the age of the newest — never
+just the global root. Which of those two it found is the whole point of that
+check, and its `warn` forms are in
+[troubleshooting.md](troubleshooting.md#why-is-my-lanes-conversation-empty).
 
 Every line is `ok`, `warn`, or `FAIL`, each with its exact remedy baked in.
 Only `target-path`, `web-build`, and `port` can make the exit code non-zero
@@ -121,9 +139,9 @@ placeholder:
 - The **burn strip** shows `0` output tokens and the gap line `NO COST FEED
   (OTel) — dollars unavailable — run: eval "$(rhizomorph env <lane>)"` in
   place of a dollar figure.
-- The **scene** shows a single lit mass (`main`) with nothing reaching out
-  from it; the **fleet table** beneath it has no rows — nothing dispatched
-  yet.
+- The **fleet surface** opens on its organism representation: a single lit
+  mass (`main`) with nothing reaching out from it. Press `v` for the list and
+  the table has no rows — nothing dispatched yet.
 - The **provenance bar** along the bottom shows one dot per collector (Git,
   Tmux, Workmux, Sessionlog, OTel) plus the SSE stream dot.
 
@@ -138,8 +156,8 @@ Prefer a window to a browser tab? [The desktop app](the-desktop.md) is the
 same instrument in its own shell — installers, first run, and the settings
 survey.
 
-- **[watching.md](watching.md)** — read the scene, the fleet table, the lane
-  drawer, and what the state words mean.
+- **[watching.md](watching.md)** — read the fleet surface (scene and table),
+  the peek, the run view at `/lane/<handle>`, and what the state words mean.
 - **[replay.md](replay.md)** — scrub back through what already happened.
 - **[sessions.md](sessions.md)** — how a session is bounded, and where its
   recording lives.

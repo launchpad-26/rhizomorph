@@ -33,16 +33,36 @@ conductor" below for the full copy-paste form.
 
 ## Workers (workmux)
 
-`.workmux.yaml` in this repo already does this for you — every new worktree's
-agent pane runs `claude` prefixed with the env block above, `lane` set to the
-worktree's own directory name (`$(basename "$PWD")`, the same handle workmux
-and the worktree table use elsewhere) and `role=worker`. Nothing to enable by
-hand; a lane created after this file landed exports telemetry automatically.
-If you retarget the Rhizomorph to a different port, update the
-`OTEL_EXPORTER_OTLP_ENDPOINT` in `.workmux.yaml`'s `panes` block to match, or
-existing lanes will export to a receiver that isn't listening (a silently
-dropped export, not a crash — `claude` doesn't hard-fail on a bad OTLP
-endpoint).
+A lane's telemetry comes from `scripts/lane-agent.sh`, and it arrives only if the
+lane was dispatched **through** that wrapper:
+
+```sh
+workmux add <handle> -a "bash scripts/lane-agent.sh <model>"
+```
+
+The wrapper resolves the main checkout from the linked worktree
+(`git rev-parse --git-common-dir`), runs `rhizomorph env "$(basename "$PWD")"`
+against port 4321 — so `lane` is the worktree's own directory name, the same
+handle workmux and the worktree table use elsewhere, and `role` is the `env`
+default, `worker` — `eval`s the block it prints, and then `exec`s `claude` **in
+that same process**. That is the whole point of the wrapper: the env is set in
+the process that goes on to become the agent, so inheritance is by construction
+rather than by arrangement. If the server is down on 127.0.0.1:4321, or the main
+checkout is unbuilt, it says so on stderr and starts the agent anyway,
+uninstrumented, rather than refusing to dispatch.
+
+**A pane-command env prefix never reaches the agent**, and `.workmux.yaml` holds
+no `OTEL_*` variable of any kind — so there is nothing in it to enable and
+nothing in it to retarget. This section used to say the fleet config wired every
+lane automatically; it did not, and a pane-command prefix never could, because
+workmux launches the agent *outside* the pane command's shell. That is a scar,
+not a theory (2026-08-04, twice-learned: `/proc/<agent>/environ` read empty of `OTEL_*`
+after two prefix "fixes" changed nothing), and `.workmux.yaml`'s own comment
+above its `panes` block records it. If the Rhizomorph runs on a different port,
+the one line to change is the `--port` in `scripts/lane-agent.sh`; a lane pointed
+at a receiver that isn't listening drops its exports silently rather than
+crashing — `claude` doesn't hard-fail on a bad OTLP endpoint — which is why this
+is worth getting right before dispatch rather than after.
 
 ## Wiring the conductor (setup-agnostic — works from Windows, WSL, or elsewhere)
 
@@ -100,11 +120,14 @@ Start the server first (`npm start -- --port 4321`) — `rhizomorph env` reads t
 
 That is the correct failure — **say so, then launch uninstrumented anyway**
 rather than let a missing server block the conductor from starting at all.
-An uninstrumented conductor session is not silently miscounted: the spend
-panel's dollar headline shows `conductor not instrumented — see
-docs/telemetry.md`, an honest gap rather than an invented `$0.00` (see
-"Instrumentation attaches at launch" just below for why that gap can't be
-closed retroactively once the session's running).
+An uninstrumented conductor session is not silently miscounted: the burn strip's
+overhead figure reads `CONDUCTOR NOT INSTRUMENTED — overhead ratio unknowable`
+(`CONDUCTOR_NOT_INSTRUMENTED_GAP`, `packages/web/src/panels/burn/format.ts`) and
+the drawer's evidence line for main reads `conductor not instrumented — its burn
+is unknown, not zero` (`packages/web/src/drawer/Vitals.tsx`) — an honest gap
+rather than an invented `$0.00` (see "Instrumentation attaches at launch" just
+below for why that gap can't be closed retroactively once the session's
+running).
 
 That expands to the same env block any lane gets
 (`packages/server/src/cli/telemetry-env.ts`) — telemetry on, an OTLP/HTTP-JSON
@@ -141,12 +164,13 @@ session already running when you read this cannot be retro-instrumented by
 exporting the vars into its shell afterward — it has to be restarted with the
 env block already in place. This is exactly why the block above must be
 wired **before** handover, on whichever shell the conductor actually runs:
-there is no supported way to attach it after the fact. The spend panel's
-dollar headline treats a conductor with zero `llm.cost` events as an honest
-gap (`conductor not instrumented — see docs/telemetry.md`), not a zero,
-precisely because this is a common way to end up mid-session with no
-conductor cost data yet. See "Two overhead numbers" below for which figure
-that is and how it differs from the token ratio in `@rhizomorph/core`.
+there is no supported way to attach it after the fact. The burn strip treats a
+conductor with zero `llm.cost` events as an honest gap rather than a zero: its
+overhead figure gates on `conductorInstrumented`, which is a cost-event fact and
+not a token one, so a conductor whose tokens arrive through `--extra-sessions`
+with no cost telemetry behind them still reads as a gap — precisely because this
+is a common way to end up mid-session with no conductor cost data yet. See "The
+overhead number" below for which figure that is.
 
 A conductor's own Claude Code **session-log** directory (the `sessionlog`
 collector's source, `~/.claude/projects/<slug>`) may also live somewhere the
@@ -260,12 +284,13 @@ read costs a fraction of it."
 
 ### Which number each dashboard surface shows, and why
 
-- **Spend ticker headline** — OUTPUT tokens, labelled "output tokens — work
-  produced." Beneath it, all four tiers render as their own labelled counts
-  (`packages/web/src/lib/format.ts`'s `TOKEN_TIERS`); cache tiers are
-  visually de-emphasized (dimmed, smaller bar segments) but never hidden.
-  Once a real `llm.cost` event has arrived, the dollar total and $/hour rate
-  sit alongside the token headline — dollars are never invented from tokens.
+- **Spend ticker headline** — OUTPUT tokens. Beneath it, all four tiers render
+  as their own labelled counts — `output`, `input`, `cache read`, `cache write`,
+  the order and the labels both fixed by `TOKEN_TIERS`
+  (`packages/web/src/lib/format.ts`); cache tiers are visually de-emphasized
+  (dimmed, smaller bar segments) but never hidden. Once a real `llm.cost` event
+  has arrived, the dollar total and $/hour rate sit alongside the token
+  headline — dollars are never invented from tokens.
 - **Ledger TOKENS column, worktree table token fallback, replay bar** — same
   output-led figure, with the full four-tier breakdown reachable via the
   existing `title=` tooltip. Never the bare all-tier sum.
@@ -297,33 +322,41 @@ the same growing context every poll) inflate the ratio far past what the
 conductor's actual work — its output — cost. Output is immune to that
 inflation, so it is the basis now.
 
-This is a different number from the spend panel's headline overhead figure —
-see the next section for the cost-based one and why the two are kept apart
-rather than reconciled.
+This is the number the burn strip renders, not a different one from it — see the
+next section for how the strip gates it, and why no cost-based overhead figure
+exists anywhere in the product.
 
-## Two overhead numbers, and which is which
+## The overhead number, and why there is only one
 
-There are two, they measure different things, and the audit's open question
-("is `selectOverheadRatio` on tokens or cost?") is settled here:
+The audit's open question ("is `selectOverheadRatio` on tokens or cost?") is
+settled: **output tokens**, and there is no cost-based counterpart to compare it
+against.
 
-| Where | What it divides | Reads |
+| Where | What it is | Reads |
 |---|---|---|
-| `selectOverheadRatio` / `RoleSpendSplit.overheadRatio` (`packages/core/src/selectors/spend.ts`) | conductor **output tokens** ÷ worker output tokens | `null` unless both sides reported output tokens |
-| `selectCostOverhead` / `formatCostOverhead` (`packages/web/src/panels/spend/format.ts`), the spend panel's headline | conductor **dollars** ÷ worker dollars | `conductor not instrumented — see docs/telemetry.md` when the conductor has no `llm.cost` events |
+| `selectOverheadRatio` / `selectRoleSpend` → `RoleSpendSplit.overheadRatio` (`packages/core/src/selectors/spend.ts`) | the number: conductor **output tokens** ÷ worker output tokens, `unattributed` spend excluded from both sides | `null` unless both sides reported output tokens |
+| `formatOverheadOrGap` / `overheadHoverTitle` (`packages/web/src/panels/burn/format.ts`), the burn strip's overhead figure | that same number, formatted — it reads `burn.overheadRatio` and never recomputes the division | `CONDUCTOR NOT INSTRUMENTED — overhead ratio unknowable` when the conductor has no `llm.cost` events; `unknown — no worker output yet` when the ratio is `null`; otherwise `<n>×`, with `conductor ÷ worker output tokens` spelled out on hover |
 
-Issue #47 replaced the *panel headline* with the cost-based figure (and its
-commit message said "cost", which is what the audit tripped over). It did not
-change the core selector, and issue #69 re-based that core selector from an
-all-tier token sum to output tokens specifically (see "What is a token" above)
-without changing which of the two numbers the panel displays: **the core
-orchestration overhead ratio is and stays output tokens ÷ output tokens, never
-cost.** Tokens are the honest basis there, because cost is structurally absent
-for any lane the OTel exporter never covered — a sessionlog-only conductor has
-real tokens and no dollars at all, and a cost-based core selector would report
-`null` for it forever while a token-based one reports something true. The two
-numbers are kept apart rather than reconciled: the panel refuses to print a
-token ratio where a reader expects money, and the core selector refuses to pretend the
-tokens it can see are dollars it cannot.
+So those are one number and its formatter, not two competing measures. Issue #47
+is why this ever needed saying: it replaced the *panel headline* and its commit
+message said "cost", which is what the audit tripped over — but no cost-based
+overhead figure survives in the tree today, and issue #69 re-based the core
+selector from an all-tier token sum to output tokens specifically (see "What is a
+token" above). **The orchestration overhead ratio is and stays output tokens ÷
+output tokens, never cost.** Tokens are the honest basis, because cost is
+structurally absent for any lane the OTel exporter never covered — a
+sessionlog-only conductor has real tokens and no dollars at all, and a cost-based
+selector would report `null` for it forever where a token-based one reports
+something true.
+
+What #47's concern survives as is the **gate**, not the basis.
+`formatOverheadOrGap` refuses to print a ratio unless `burn.conductorInstrumented`
+is true — a cost-event fact, not a token one — even when `overheadRatio` is
+itself a perfectly good number, because a conductor whose tokens arrive through
+`--extra-sessions` with no cost telemetry behind them is exactly the "worse than
+absent" shape the gap voice exists to name. The selector and the strip therefore
+part company on purpose: the selector says what the tokens are, and the strip
+declines to headline them while the conductor's own instrumentation is unproven.
 
 ## How dollars reach a branch — the `sessionId` join
 

@@ -4,12 +4,39 @@ This is the read-only hand — collectors, receiver, server, UI. It never
 writes to the repo you're watching, never sends a keystroke to an agent,
 never merges anything. This page is what the picture on screen means.
 
+## The fleet surface
+
+*Who is alive* is one surface with two representations and one toggle (prd-36
+ruling 1, #555/#562): **Organism** — the scene — and **List** — the fleet
+table — one shown at a time, under a single `Fleet` heading. The toggle
+switches them, and so does `v`; nothing else may, because no representation
+is ever selected for you by application state. Until #555 the two cost the
+viewport twice, the scene hero-sized above and the table full-width beneath
+it, which is the layout this page used to describe.
+
+**The list is the floor**, said in that direction deliberately: it is
+complete and usable at every scene quality, in still mode, and on a machine
+that cannot hold a frame budget. The organism is the enhancement. So when the
+canvas does not come up, the organism arm falls to the list and says so once,
+rather than leaving a blank frame where the fleet was:
+
+> `ORGANISM UNAVAILABLE — the canvas did not come up, so the picture cannot
+> be drawn. The list below carries every lane, complete; nothing else on the
+> page is affected.`
+
+It does not flip the toggle to get there — a canvas failure that rewrote your
+remembered choice would be hiding the scene on the next reload of a machine
+where it had since recovered. The choice is not remembered *yet*, and the
+component says so in its own words rather than implying otherwise: a reload
+lands back on the organism until `appearance.fleetRepresentation` is declared
+in `settings/registry.ts` (`packages/web/src/fleet/TwoRepresentations.tsx`
+carries that gap in its own voice).
+
 ## The scene
 
-The centerpiece, directly under the docked attention/burn strips: a
-root-mass at the center, one tendril per lane, pulses of light traveling
-along them for real events (commits, token bursts) — never invented, never
-replayed on top of history.
+The organism representation: a root-mass at the center, one tendril per lane,
+pulses of light traveling along them for real events (commits, token bursts)
+— never invented, never replayed on top of history.
 
 Four channels, each a fact:
 
@@ -33,37 +60,58 @@ toggles it out of the picture, and always shows its own count).
 
 ## The fleet table
 
-One dense row per lane: STATE, output tokens, `$`, request/tool counts,
-thread/subagent count, age, fence status. The STATE column draws the
-scene's own glyph *and* hue at row scale — it's the scene's legend, so
-there's no separate key to learn.
+The list representation, and it carries no heading or frame of its own — the
+surface above carries both. One dense row per lane: STATE, output tokens,
+`$`, request/tool counts, thread/subagent count, age, fence status. The STATE
+column draws the scene's own glyph *and* hue at row scale — it's the scene's
+legend, so there's no separate key to learn.
 
-STATE words you'll see, and what each tooltip (hover the cell) says:
+Hover a STATE cell and you never get a bare label. Every explanation in the
+instrument is assembled in one place and in one order —
+`<reason> — <fact> <elapsed> ago · <remedy>`
+(`web/src/disclosure/vocabulary.ts` over `selectLaneCondition`,
+`packages/core/src/selectors/condition.ts`) — so a working lane's tooltip
+reads, in full:
 
-| Word | Meaning | Tooltip |
+> `active within the last window — a tool call, model request or status
+> update landed inside the working window 12s ago · nothing to do — this lane
+> is getting on with it`
+
+The table below gives the first two parts of that sentence for each word; the
+third is the remedy, and a condition with nothing to do states why it has
+none rather than going blank.
+
+| Word | Reason | Evidence behind it |
 |---|---|---|
-| `working` | active within the last window | *"active within the last window"* |
-| `done` | finished — worktree landed or agent declared done | *"finished — worktree landed or agent declared done"* |
-| `idle` | quiet, past the idle threshold | *"quiet, past the idle threshold"* |
-| `unknown` | no work signal yet | *"no work signal yet"* |
-| `PARKED` | operator declared this lane parked in `.swarm/lanes.json` | *"parked — declared in .swarm/lanes.json; alarm inferences suppressed, other evidence unaffected"* |
-| `LOOPING` | a repeating cycle with no commit | the detector's own evidence, e.g. `a→b→a ×4, no commit` |
-| `FROZEN` | total silence, including the pane | `no events for <span>` |
-| `WAITING` | see below | the detector's own evidence line |
-| `EXPENSIVE` | burning far above the fleet's median | `<n> out-tok/min, <x>× fleet median` |
-| `OFF-FENCE` | touching files inside another lane's declared fence | `touching <victim> — <files>` |
+| `working` | active within the last window | a tool call, model request or status update landed inside the working window |
+| `done` | finished | the agent declared done — or, when the lane is gone, the worktree landed and was removed |
+| `idle` | quiet, past the idle threshold | no tool call, model request or status update has landed since the idle threshold passed |
+| `unknown` | no work signal yet | no request, tool call or status update has reached this lane |
+| `PARKED` | stood down by the operator, not silent by accident | the lane manifest declares it parked — alarm inferences suppressed, other evidence unaffected |
+| `LOOPING` | stuck in a repeating tool cycle with nothing landing behind it | the detector's own line, e.g. `a→b→a ×4, no commit` |
+| `FROZEN` | gone silent — no events of any kind | `no events for <span>` |
+| `WAITING` | stopped, waiting on a human to answer | `workmux reports waiting <span>`, or `quiet <span>, pane still alive` when inferred — see below |
+| `EXPENSIVE` | burning tokens far faster than the rest of the fleet | `<n> out-tok/min, <x>× fleet median` |
+| `OFF-FENCE` | touching files outside its declared fence | `<n> files outside fence — <path> → <victim>`, `+N more` past the first few |
 
-A pathology tooltip is never a bare label — it's always the detector's own
-evidence sentence. If a lane carries more than one pathology at once, the
-tooltip appends `· +N more: <...>`. An inferred (rather than declared)
-pathology gets an inline `~` marker, tooltip *"inferred from a weaker
-signal"*.
+A lane that finished without ever saying so still reads `done`, but for a
+different reason — *finished, but never said so* — with the geography as its
+evidence: the worktree is clean and ahead of main, and the pane likely died
+right after its last commit landed.
 
-Colour is never the only carrier of a state: six hues, one meaning each
+If a lane carries more than one pathology at once, the fact grows a
+`· +N more: <...>` clause rather than dropping the quieter ones. An inferred
+(rather than declared) pathology wears an inline `~` on its evidence, and the
+mark carries its own tooltip: *"inferred from a weaker signal"*.
+
+Colour is never the only carrier of a state: five hues, one meaning each
 (green = productive, amber = blocked on a human, red = dead — `FROZEN`
 only, cyan = notice, ice = structure/nothing-to-say), and only a
 `NEEDS-YOU`/`FROZEN` mark reaches the brightest band — a summons is always
-the brightest thing on the screen.
+the brightest thing on the screen. The scene's magenta is not a sixth: it is
+the fruiting *material* (`scene/palette.ts`'s `FRUIT_RAMP`), worn only by
+matter that returned, and a magenta status chip would be
+[a fifth status hue by the back door](../design-notes/palette-fruiting-material.md).
 
 ### What WAITING actually means
 
@@ -79,10 +127,12 @@ one you're looking at:
   alive`) — the classic "stopped working while its terminal kept moving"
   shape. `FROZEN` always takes precedence over inferred WAITING: total
   silence, including the pane, is never also read as a raised hand.
-- **"Waiting-benign"** — the muted end of the same amber, no live pathology,
-  tooltip just *"stopped"*. This is what a lane reads as when workmux's last
+- **"Waiting-benign"** — the muted end of the same amber, with no live
+  pathology behind it. This is what a lane reads as when workmux's last
   report was `waiting` but the worktree itself is already gone — a lane that
-  has simply stopped, not one asking for you.
+  has simply stopped, not one asking for you. Its tooltip is no longer the
+  bare word *"stopped"*: since #560 every STATE cell speaks the disclosure
+  shape above, reason and evidence included.
 
 Either way, WAITING means the agent is blocked on a human — you — not that
 something is broken.
@@ -98,36 +148,76 @@ showing a bare zero (law 12). Exact strings you may see:
 - `UNATTRIBUTED SPEND (N lanes) — burn has no declared owner`
 - `CONDUCTOR NOT INSTRUMENTED — overhead ratio unknowable` (burn strip) / `— orchestration overhead unknowable` (fleet-level gap)
 - `<COLLECTOR> COLLECTOR DISABLED — <reason> — run: rhizomorph doctor`
-- `NO TRACE TELEMETRY — no trace telemetry from this lane — see docs/telemetry.md.` (per-lane, in the drawer's TRACE tab)
+- `<COLLECTOR> COLLECTOR DEGRADED — <last error, or "retrying after failures"> — run: rhizomorph doctor` — the honest middle (#304): a collector still trying, which is the voice a flaky feed actually speaks in
+- `NO TRACE TELEMETRY — no trace telemetry from this lane — see docs/telemetry.md.` (per-lane, wherever a trace is drawn — the run view's trace column, the dock's own trace panel)
 
 Each one names what's missing, why, and the exact command that fixes it —
 see [troubleshooting.md](troubleshooting.md) for the ones you'll hit most on
 a first run.
 
-## The lane drawer
+## The peek
 
-Click any fleet row (or the root-mass itself, for the conductor's own view)
-to open it. Vitals sit fixed above one tabbed body, in this order:
+Click any lane — a fleet row, a scene node, a strip chip; they all write the
+one selection — and the peek opens on the right with the fleet still visible
+behind it. Since #562 (prd-36 ruling 2/S2) it is four things and one action:
+vitals, the latest activity line, one line of why, and *open the run view*.
+The shortness is the ruling rather than a simplification of it, and the peek
+issues no request at all — it reads the same fold every other surface reads,
+so its top line and the run view's cannot be different events.
 
-1. **Activity** — the default tab on open. The activity ledger, so you can
-   judge whether the conversation is worth reading before committing to it.
-2. **Conversation** — the same thing you'd see sitting at that agent's own
-   terminal: user turns marked with a `›` prompt, assistant prose in the
-   page's own type (not a wall of monospace), tool calls as quiet one-line
-   bullets (`● Read — path/to/file`, `⎿ result, …+2K more` when truncated).
-   Tails the session log live; scroll up and it pauses and says so
-   (`paused ▴`) rather than yanking you back down.
-3. **Why** — every file this lane has touched against its declared fence, a
-   click-through into Activity's own reading of any trespass.
-4. **Trace** — the beta waterfall, when OTel spans are wired in for that
-   lane (see [`docs/telemetry.md`](../telemetry.md#enabling-beta-traces)).
-   It's a real, expandable per-interaction tree when spans exist; a lane
-   with zero recorded spans shows the honest gap above (`NO TRACE
-   TELEMETRY …`), not a blank panel.
+- **latest** — the single most recent thing this lane did to the repo (a tool
+  call, a file change, a commit), or `nothing recorded` when the fold has
+  none for it.
+- **why** — the condition's label and reason, and deliberately not the remedy
+  or the evidence: those are the run view's, and a peek carrying the remedy
+  would be inviting you to act on a glance.
 
-Below all of it, an **ATTACH** button copies the exact `tmux`/`workmux`
-attach command to your clipboard — it never runs anything. **Esc** closes
-the drawer (before it ever exits panel focus).
+Clicking the root-mass opens the same peek for the conductor — the
+orchestrator's own vitals, and `/lane/main` as the one action.
+
+**Esc** closes the peek (before it ever exits panel focus). The ATTACH
+command is no longer a button here: it is the fleet table's `a` verb, over
+the same clipboard path this panel used to call, which is where a hand
+already is when it wants one.
+
+## The run view
+
+`/lane/:handle` — the deep-linkable page for one lane, and where the peek's
+one action goes. The four tabs the drawer used to carry live here now, laid
+out side by side rather than stacked behind one another, because two surfaces
+rendering the same four tabs is how they drift and the drawer was the weaker
+one by construction: transient, unlinkable in a review, and dead the moment
+`workmux merge` removed the worktree.
+
+- **The outcome and the spine** — what this piece of work did, with the
+  evidence for it, above the derived phase spine of the run and its
+  interaction cards.
+- **Conversation** — the same thing you'd see sitting at that agent's own
+  terminal: user turns marked with a `›` prompt, assistant prose in the
+  page's own type (not a wall of monospace), tool calls as quiet one-line
+  bullets (`● Read — path/to/file`, `⎿ result, …+2K more` when truncated).
+  Tails the session log live; scroll up and it pauses and says so
+  (`paused ▴`) rather than yanking you back down.
+- **Trace** — beside the conversation, not behind it: the beta waterfall,
+  when OTel spans are wired in for that lane (see
+  [`docs/telemetry.md`](../telemetry.md#enabling-beta-traces)). A real,
+  expandable per-interaction tree when spans exist; a lane with zero recorded
+  spans shows the honest gap above (`NO TRACE TELEMETRY …`), not a blank
+  panel.
+- **Spend and activity** — the burn broken out, beside the activity ledger
+  the peek's one `latest` line is folded from.
+- **Why** — every file this lane has touched against its declared fence, a
+  click-through into the ledger's own reading of any trespass.
+
+**And it reads after the lane is gone**, which is the expensive half of the
+ruling and the whole reason the tabs moved here. The page has two feeds: the
+loaded recording's fold, and `/api/lane-index/:handle` — every recording this
+lane ever appears in, read from the logs and the captured transcripts beside
+them, never from a worktree. So a lane `workmux merge` deleted last week
+still renders every region. A handle neither feed knows says so in two
+sentences (`NO LANE "<handle>" IN THIS SESSION …`, then the server's own
+account of what it searched) rather than showing you an empty page. **Esc**
+returns to the balcony.
 
 ## Keyboard reference
 
@@ -137,16 +227,21 @@ the drawer (before it ever exits panel focus).
 | `1` | Scene (focused) | Zoom to fit the whole network |
 | `0` | Scene (focused) | Reset the camera |
 | `+` / `-` | Scene (focused) | Step the zoom in/out |
+| `v` | Fleet surface | Switch the representation: organism ⇄ list |
 | `n` / `Shift+n` | Page (global) | Jump the shared selection to the next/previous lane that needs you |
 | `f` | Fleet table (a lane in hand) | Focus the fleet table full-screen |
 | `a` | Fleet table (a lane in hand) | Copy that lane's tmux/workmux attach command |
-| `Esc` | Page (global) | Close the lane drawer, then exit panel focus — never both at once |
+| `Esc` | Page (global) | Close the peek, then exit panel focus — never both at once |
 
 Every key is ignored while you're typing into a form field.
 
-## Navigating away
+## The primary nav
 
-There is no visible nav bar linking to `/recordings` or `/lab` from the main
-dashboard today — both are direct-URL routes with a `← balcony` link back.
-See [sessions.md](sessions.md) for `/recordings` and
-[the-lab.md](the-lab.md) for `/lab`.
+Since #549 (prd-32 ruling 10) the same five-entry nav rides at the top of
+every surface — Observatory · Recordings · Lab · Connect · Settings, real
+`<a href>`s — and the one exception is stated rather than hidden: while a
+recording is loaded, Lab renders as a disabled entry carrying its reason
+(*"unavailable during replay — the lab forks live checkpoints, and this
+session is history"*), never as an entry that quietly vanished. See
+[sessions.md](sessions.md) for `/recordings` and [the-lab.md](the-lab.md) for
+`/lab`.

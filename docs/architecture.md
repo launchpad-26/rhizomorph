@@ -3,6 +3,37 @@
 > **Living document.** Blessed by Lachlan 2026-07-30 before any code. Real
 > decisions made during the build get appended, not rewritten.
 
+> **Where the narrative stops, and what to read instead (2026-08-25).** The
+> sections below run prd0 → prd17 and stop there; several milestones have
+> landed since, and the decisions they made live in `docs/adr/` — 0001 through
+> 0027 today — rather than here. **The ADR log is the register of record; this
+> file appends narrative.** Where an ADR overrules a claim below, the claim
+> carries a superseding pointer in this file's usual idiom rather than being
+> rewritten, because the record of what was decided and why is worth more than
+> a tidy present tense. Four of those supersessions are load-bearing: ADR-0021
+> (WebGL2 for the living scene, superseding ADR-0006's canvas 2D), ADR-0019
+> (the concierge — a fourth hand), ADR-0024 (a gated read is the fourth route
+> class), and ADR-0026 (the shell is driven by Playwright, not certified by
+> hand).
+>
+> **What this doc does not yet cover.** Each has its own PRD and its own
+> records, and none of it should be reconstructed from the narrative below:
+>
+> - **The trust boundary** — the capability token, the four route classes and
+>   the gate-presence law (prd-23, prd-29; ADR-0012, ADR-0014, ADR-0024,
+>   ADR-0027). [Route classes and the trust
+>   boundary](#route-classes-and-the-trust-boundary-prd-23-ruling-5--adr-0014-adr-0024)
+>   below is a pointer, not the account.
+> - **The concierge** — the front door that clones a repo and launches an
+>   instrumented conductor (prd-20; ADR-0019). Named below where the third hand
+>   is ruled, and given no section of its own here.
+> - **The desktop shell** — `packages/app`, prd-34's release-readiness
+>   milestone, and the Playwright drive of the shell (ADR-0026).
+> - **The fleet surface rework** — prd-32 and prd-36 collapsing the panel grid
+>   into one surface with two representations plus a tabbed dock, which is what
+>   makes the prd4/prd5-era layout prose below a record rather than a
+>   description.
+
 ## Platform
 
 - Node 22, TypeScript strict mode.
@@ -10,7 +41,14 @@
   - `packages/core` — event schema + pure logic (reducer, selectors)
   - `packages/server` — collectors + API + CLI
   - `packages/web` — Vite + React + Tailwind 4; the scene is hand-rolled
-    canvas 2D, no 3D library (prd7 ruling 1)
+    canvas 2D, no 3D library (prd7 ruling 1). **Superseded by ADR-0021** —
+    since 2026-08-15 the painter is WebGL2 (`packages/web/src/scene/gl/`);
+    see [The scene](#the-scene) below.
+  - `packages/app` — the desktop shell: spawns the existing server, embeds the
+    existing SPA, and adds nothing to either (prd-34 ruling 1)
+  - `packages/contract` — the seam tests: the real web client against the real
+    `buildApp` (prd-24 ruling 1), so web's exported handlers and server's
+    routes cannot drift apart without something failing
 - Vitest everywhere.
 - Exact versions are pinned at scaffold time (issue #1) and recorded here by
   the scaffold worker, not remembered.
@@ -23,8 +61,17 @@ runtime-validated at the collector boundary, inferred TS types everywhere
 else:
 
 ```ts
-{ id, ts, source: 'git' | 'tmux' | 'workmux' | 'system', type, payload }
+{ id, ts, source: 'git' | 'tmux' | 'workmux' | 'system' | 'sessionlog' | 'otel', type, payload }
 ```
+
+`eventSourceSchema` (`packages/core/src/events/common.ts`) is that union's
+home, and `EVENT_SOURCE_BY_TYPE` (`packages/core/src/events/index.ts`) maps
+every type to the source that owns it — one place to be wrong instead of every
+collector — so a reader counting sources should count them there rather than
+here. Two actors sit deliberately *outside* the enum and widen that map by
+exactly one literal each, which is how the code says they are not collectors:
+`lab`, prd12's explicitly-invoked second hand (`events/lab.ts`), and `judge`,
+prd11's semantic judge (`events/judge.ts`).
 
 v0 event types:
 
@@ -72,6 +119,44 @@ Fastify:
 - `GET /api/meta` — repo name, session info.
 - `GET /api/lanes` — the lane manifest (see below).
 - Serves the built web app statically — one origin, no CORS.
+
+### Route classes and the trust boundary (prd-23 ruling 5 / ADR-0014, ADR-0024)
+
+**The five bullets above are prd0's surface, not today's**, and the interesting
+thing they are missing is not the routes that have been added since — it is
+that every route now carries a *class*, and that a read is no longer
+automatically public. The single table is `ROUTE_CLASSES`
+(`packages/server/src/api/index.ts`), and it is cited here rather than
+re-enumerated on purpose: a route list in prose is precisely the thing that
+drifts. `api/route-class-law.test.ts` walks the real Fastify instance
+`buildApp` produces and fails the build if any registered route lacks a row,
+so incremental adoption is retired — a new mutating route with no `preHandler`
+and no row fails rather than being protected because someone remembered.
+
+Four classes. `gated-mutation` and `ungated-mutation` are prd-23 ruling 5's:
+the OTLP inbox is ungated *by design* (ruling 6 — an exporter has no channel
+through which to learn the capability token at all), and everything else that
+writes carries `requireCapabilityToken` as a route-local `preHandler`
+(`api/security.ts`). `gated-read` is the fourth class, added by prd-29 ruling 1
+/ ADR-0024: a read that answers only the token's holder, gated the same way a
+mutation is, with a gate-presence law that fails the build the day a row loses
+its gate. `read` therefore now means specifically a *tokenless* read.
+
+**Where the boundary actually stands** — as opposed to where it is ruled to
+stand — is worth stating plainly, because the two differ today. Seven reads are
+gated: `/api/sessions`, `/api/sessions/:id/events`, `/api/lanes`,
+`/api/transcript/:lane`, and the laboratory's `/api/lab/checkpoints`,
+`/api/lab/experiments`, `/api/lab/estimate`. Seven are still tokenless, and
+three of those — `/api/meta`, `/api/doctor` and `/api/stream` — are **ruled to
+gate and not yet gated**, deferred to prd-29's wave 2 so that no consumer
+outside the SPA breaks mid-milestone. `GET /*` stays tokenless *forever*
+(prd-29 ruling 1): it is the bootstrap the browser's first paint and
+`rhizomorph rotate`'s scrape both read the in-band token from (ADR-0012), so
+gating it could not stop a local process and would break the delivery the token
+itself depends on. Ruled 2026-08-24 and not yet in code: the late reads gate
+too, which leaves `GET /*` alone outside the gate once they do. Read the
+table's own `routeClass` values for the state of the boundary, never this
+paragraph's tense.
 
 ### Lane manifest (prd3 ruling 19)
 
@@ -142,9 +227,11 @@ One SSE hook feeds one reducer (imported from `core`) into React context —
 no state library (one tree, one store). **Live and replay are the same
 reducer**: live folds the stream as it arrives; replay folds a history slice
 under a scrubber clock. That one property is why replay is free — for
-whatever the fold itself computes. **Three** of this server's read routes sit
+whatever the fold itself computes. Some of this server's read routes sit
 outside it and answer from live disk or the live machine rather than from the
-event log:
+event log. **Three of them were examined when this section was written**, and
+the replay-honesty analysis that follows is scoped to exactly those three
+rather than to the class:
 
 - `GET /api/lanes` — `.swarm/lanes.json` off the watched repo, re-read per
   request, never cached (`api/lanes.ts:59-71`).
@@ -157,9 +244,10 @@ event log:
   `allAttributedLanes`), but because no route exposes it. The worktree path
   that makes a live file resolvable at all comes from the session-log
   collector's events; OTel's rows set `worktreePath: null` unconditionally.
-- `GET /api/doctor` — the live machine, probed behind a 3s single-flight
-  cache (`api/doctor.ts:146`): node version, `tmux -V`, `workmux status`,
-  `claude --version`, the session-log slug dir.
+- `GET /api/doctor` — the live machine, probed behind a single-flight cache
+  (`PROBE_CACHE_TTL_MS`, 15s — `api/doctor.ts`, named rather than cited by
+  line so a later retune cannot silently falsify this sentence): node version,
+  `tmux -V`, `workmux status`, `claude --version`, the session-log slug dir.
 
 **Only the third one knows when it is replaying.** Replay sets `repoPath` to
 the sentinel `record:<slug>` (`cli/replay.ts:157`) rather than switching any
@@ -190,18 +278,33 @@ of them off:
   way it already does to the doctor, rather than rely on a path that happens
   not to resolve.
 
-So of the three, one declares replay and two rest on an accident and a gap.
-Stated rather than smoothed over, because a replay that quietly mixes in live
-state is the failure this instrument exists to make impossible.
+So of the three examined here, one declares replay and two rest on an accident
+and a gap. Stated rather than smoothed over, because a replay that quietly
+mixes in live state is the failure this instrument exists to make impossible.
+
+The class has grown since, and nothing below audits the newcomers: `GET
+/api/concierge/repos` is prd-20 ruling 5's read-only repo picker feed
+(`packages/server/src/api/concierge.ts`), answering off `~/.claude/projects`
+and a bounded scan of common roots — the live machine, by construction — and
+the durability reads added by prd-31 answer from the log store rather than
+from the live fold. Whether each of them declares replay the way the doctor
+does is unexamined; `ROUTE_CLASSES` is the list to walk, not a count kept here.
 
 Panels are sibling directories (`panels/attention`, `panels/burn`,
 `panels/fleet`, `panels/ledger`, `panels/collisions`, `panels/feed`, plus
-`drawer/` and `replay/` outside the panel hierarchy proper), each consuming
+`panels/trace` since the trace era and `panels/search`, which holds shared
+search surfaces rather than a panel of its own), each consuming
 selectors — or, since prd3, the derived fleet object below — only. The shell
 pre-creates lazy-loaded slots and stub directories for every panel, so panel
 workers only ever edit their own directory — that is the file-disjointness
 that let multiple agents build multiple panels simultaneously, in both prd1
-and prd3's fenced waves.
+and prd3's fenced waves. **Which of these directories is a row of the shell,
+which is a tab, and which is neither is not a question this paragraph can
+answer any more:** `PanelGrid.tsx`'s `PANEL_IDS` and `DOCK_TABS` are the
+registry of record (prd-32 ruling 5 / prd-36 ruling 1), and the rest of
+`packages/web/src/` — `drawer/`, `replay/`, `tide/`, `lab/`, `concierge/`,
+`recordings/`, `settings/`, `trace/` and their neighbours — sits outside the
+panel hierarchy proper entirely.
 
 ## The scene
 
@@ -213,6 +316,23 @@ measurement** (a live profile found the running scene already locked to
 60fps with zero `shadowBlur` calls — "janky" was the form language, not the
 renderer) **and the dependency is gone from the tree.** See [prd7 — procedural
 form](#prd7--procedural-form) below.
+
+**Superseded by ADR-0021 — WebGL2 for the living scene (2026-08-15).** prd-33
+created a workload prd7 never measured: translucent tissue with subsurface
+light, depth haze, drifting particles, and several colonies in one frame. On
+ordinary integrated graphics canvas needs **127.8 ms** at 30 × 3, so the
+operator accepted the record on the multiplayer case — the case that decides
+it — rather than on today's single colony, and the native confirmation run was
+deliberately downgraded from a gate to a courtesy. The painter is now
+`packages/web/src/scene/gl/`, which its own README opens by calling "the
+executor, replacing `paint.ts`": `programs.ts` holds three GLSL programs,
+their uniforms and the grain's noise tile; `painter.ts` holds upload, submit
+and the context-loss recovery path; `overlay.ts` is a transparent 2D canvas
+carrying `text`, `path` and `chip`, since type stayed on canvas rather than
+becoming an atlas. What did *not* change is the property prd7 guarded on
+purpose: `sceneMarks` returns the same plain data, `marks.test.ts`'s encoding
+laws did not move, and the display list is still `structuredClone`-safe — which
+is why this supersession cost a painter and not a scene.
 
 ## The instrument (prd3)
 
@@ -353,18 +473,25 @@ the STATE column in place of the usual glyph and word, while every other
 cell — output, age, cost, fence compliance — keeps reading the lane's real
 telemetry untouched. Parked mutes the alarm, never the evidence.
 
-*Two gaps this change leaves for a follow-up, both outside its own fence:*
-`packages/server/src/api/lanes.ts`'s `laneSchema` is a `zod` object with no
-`.passthrough()`, so a live `.swarm/lanes.json` carrying `parked` has it
-silently stripped before `GET /api/lanes` ever serves it — the schema needs
-its own `parked: z.boolean().optional()` for a real dispatch (as opposed to
-a fixture, which hands `buildFleet` a manifest directly) to carry the field
-at all. And the scene has no visual language for "parked" of its own: it
-reads `Lane.activity`, whose `Record<LaneActivity, …>` maps
+*Two gaps this change left for a follow-up, both outside its own fence — and
+one of them since closed:* `packages/server/src/api/lanes.ts`'s `laneSchema`
+was a `zod` object with no `.passthrough()`, so a live `.swarm/lanes.json`
+carrying `parked` had it silently stripped before `GET /api/lanes` ever served
+it, and the schema needed its own `parked: z.boolean().optional()` for a real
+dispatch (as opposed to a fixture, which hands `buildFleet` a manifest
+directly) to carry the field at all. **That one is closed:** `laneSchema` now
+carries `parked: z.boolean().optional()` (`api/lanes.ts:44`), whose comment
+names prd4 ruling 5 and pins the field to "only ever `true` on the wire,
+matching the web validator's `LaneFence.parked`" — so a dispatched manifest's
+`parked` reaches the fleet view over the wire, not only through a fixture.
+**The second gap stands:** the scene has no visual language for "parked" of
+its own: it reads `Lane.activity`, whose `Record<LaneActivity, …>` maps
 (`scene/palette.ts`'s `ACTIVITY_HUE`/`ACTIVITY_TINT`, `sigils.tsx`'s
 `ACTIVITY_TEXT_CLASS`) are exhaustive and outside this change's fence, so
 `parked` was deliberately kept off the `LaneActivity` union rather than
-adding a member those maps don't yet have a key for. See issue #96.
+adding a member those maps don't yet have a key for — and it is still off it
+(`LaneActivity` reads `'working' | 'waiting' | 'done' | 'idle' | 'unknown'`,
+`packages/core/src/fleet/types.ts:15`). See issue #96.
 
 ### Recent panel landings
 
@@ -492,6 +619,22 @@ the table to make sense of it first. `SceneView`'s zero-rect mount fallback
 was resized alongside it (`320×180` → `640×420`, named as a constant) since
 it was tuned for the old, smaller box.
 
+**Superseded by prd-36 (#552 / #555 / #562), with prd-32 ruling 5 taking what
+was left.** The scene and the fleet table are no longer two rows in a curated
+order at all: prd-36 ruling 1 merged them into ONE row — `fleet`, the surface
+that owns both representations (`packages/web/src/fleet/FleetSurface.tsx` and
+`fleet/TwoRepresentations.tsx`, "one surface, two representations": organism or
+list, one keystroke apart) — and prd-32 ruling 5 did the same thing to the
+ledger, collisions and the feed, which were three panels competing for vertical
+space and are now tabs of one full-width dock. `PanelGrid.tsx` is still the
+registry and still the one file that knows the curated order, but `PANEL_IDS`
+is two ids long (`['fleet', 'dock']`) and the order it documents reads:
+attention strip + burn strip (docked top) → the fleet surface (the hero) → the
+dock (spend · collisions · feed · trace, one at a time) → replay bar +
+provenance bar. prd4 ruling 2's reasoning is what promoted the scene above the
+table; prd-36 is why there is no longer a "beneath the table" to demote
+anything to.
+
 ### The conversation, not the transcript (#94, ruling 4)
 
 Two changes land this, one on each side of the wire:
@@ -537,10 +680,12 @@ Two changes land this, one on each side of the wire:
 Documented in full where the wire contract lives — see [Lane geography and
 the manifest](#lane-geography-and-the-manifest-prd3-ruling-19) above for the
 manifest's `parked` field and its consequences in `buildFleet`/the fleet
-table, and the two open gaps (`laneSchema`'s missing `.passthrough()`/schema
-field, and the scene's `LaneActivity` union having no member for "parked")
-that #96 (this issue) inherits rather than fixes, since both sit outside a
-docs-only fence.
+table, and the two gaps (`laneSchema`'s missing `.passthrough()`/schema field,
+and the scene's `LaneActivity` union having no member for "parked") that #96
+(this issue) inherited rather than fixed, since both sat outside a docs-only
+fence. The server-side gap is closed since — `laneSchema` carries `parked:
+z.boolean().optional()` (`api/lanes.ts:44`) — and the `LaneActivity` one is
+not.
 
 ## prd5 — the finished application
 
@@ -810,8 +955,9 @@ issue shipped.
 
 ### Vehicles and taste (ruling 6)
 
-No animation library was adopted — every motion in the scene is DOM/canvas
-arithmetic, and the spring itself is 15 tested lines
+No animation library was adopted — every motion in the scene is arithmetic
+this repo wrote (DOM and canvas then, the display list the WebGL2 painter
+consumes now, per ADR-0021), and the spring itself is 15 tested lines
 (`spring.ts`), which is the whole of the case against reaching for one.
 d3-zoom + d3-interpolate (ISC) are the one exception, adopted for the
 camera's *gestures* only, proven live rather than assumed
@@ -1025,6 +1171,22 @@ display list stays plain data as a *guarded* property rather than a hope:
 mark kind through the same boundary `postMessage` uses and hand-walks the
 result naming the exact offending field, which is what keeps the painter
 swappable if a later prd ever earns a shader layer.
+
+**Superseded by ADR-0021 (2026-08-15) — and the guarded property above is what
+made the supersession cheap.** This ruling stays correct about the workload it
+was taken against (flat marks, one colony, a 900×260 panel, no atmosphere),
+and both of its rejection grounds were answered rather than forgotten. "It
+cures nothing measured" ceased to hold once prd-33 asked for translucent
+tissue, depth haze and several colonies in one frame — the class ruling 11
+itself named as the one where the trade changes, and the class where canvas
+measures 127.8 ms at 30 × 3. The coverage cost was paid rather than accepted:
+`scene/gl/recorder.ts` is a WebGL2 context that records instead of
+rasterising, and `scene/gl/frame.ts` — the display list → triangles step — is
+pure with no context anywhere, so the suite still executes the part that
+decides what the picture *is*. The `shadowBlur` ban stands untouched, and the
+display list is still plain data. A later prd did earn the shader layer; the
+painter was swappable, exactly as this ruling arranged. See [The
+scene](#the-scene) above.
 
 ### Ruling 2 — semantic roles before any visual change (#112)
 
@@ -1360,7 +1522,13 @@ stranger's documentation) together, then **#122** (release engineering).
   pushed rather than running on every merge.
 - **The support matrix, claimed only where verified (ruling 7):** Linux is
   CI-verified on every push; WSL is the daily development platform; macOS is
-  unverified and labelled as such.
+  unverified and labelled as such. **That is prd8's matrix as of 2026-08-03,
+  not a current claim** — platform truth has moved house since, and the live
+  owner of it is `docs/prds/prd-25-the-third-platform.md` (blessed by the
+  operator 2026-08-24), which holds the rows, the native-Windows question and
+  the gate that would witness an answer. Read the README's matrix and prd-25
+  for what is claimed today; this bullet records what prd8 was willing to
+  claim, which is a different thing.
 
 prd8 ruling 2's install story (`npx rhizomorph <path>`) is itself superseded
 one prd later — see [prd9](#prd9--the-trace-era) below and
@@ -1580,7 +1748,7 @@ Ruling 1's own framing, worth restating here because prd16 amends it again:
 *"The read-only constitution is AMENDED, not dissolved. Two hands"* — the
 observer, untouched; the laboratory, a second, explicitly-invoked actor
 confined to `refs/rhizomorph/` and artefacts outside the watched repo. prd16
-below adds a third.
+below adds a third, and ADR-0019 a fourth.
 
 ## prd13 — the TIDE: the scrubber grows a body, then sheds most of it
 
@@ -1754,12 +1922,16 @@ combination:
 |---|---|---|
 | **L0** | zero-cooperation (git + transcript organ) | env vars at launch (`rhizomorph env <lane>`) bringing OTLP dollars/traces |
 | **L1** | env/OTLP | a hook beacon declaring attention instead of inferring it |
-| **L2** | beacon (declared attention) | a PTY wrapper (`rhizomorph run`) adding a live output stream |
+| **L2** | beacon (declared attention) | a PTY wrapper adding a live output stream |
 | **L3** | PTY wrapper | tmux/workmux adding pane previews and one-keystroke ATTACH |
 | **L4** | tmux/workmux | top rung — nothing further to climb |
 
 L2 and L3 are not reachable by any collector shipped in this repo yet (prd15
-waves 3 and 7 — the beacon collector and the PTY wrapper); `deriveRung`
+waves 3 and 7 — the beacon collector and the PTY wrapper, which this table
+used to name `rhizomorph run`; the name is dropped because
+`packages/server/src/cli/run.ts` is already the ordinary boot path — collectors
+plus server for one repo — so the wrapper needs a word of its own the day
+someone builds it, rather than one already spoken for); `deriveRung`
 still maps every signal combination onto all five rungs so the law "every
 capability combination maps to exactly one rung" holds before those
 collectors exist, not only after. `deriveRung` reads top-down: `attention:
@@ -1779,14 +1951,27 @@ for what this means for "instrumented."
 
 ### What's ruled here but not yet reachable by any shipping collector
 
-Ruling 2 (hook beacons upgrading inferred attention to declared), ruling 3
-(provider/model/cost parity for codex/pi adapters, estimated dollars via the
-vendored pricing table), ruling 6 (multi-orchestrator honesty — distinct
-conductor identities rendered as a family rather than silently summed), and
-ruling 7 (a named Windows-native verification pass, captures not
-confidence) are all **ruled, not yet landed** — waves 3–7 of prd15's own
-sequencing. The support matrix in the README moves rows only on evidence per
-ruling 7's own text, and no such evidence exists in this tree yet.
+Ruling 2 (hook beacons upgrading inferred attention to declared) and ruling 6
+(multi-orchestrator honesty — distinct conductor identities rendered as a
+family rather than silently summed) are **ruled, not yet landed** — the later
+waves of prd15's own sequencing; no beacon collector and no conductor-family
+surface exist in this tree.
+
+The other two have moved on since this section was written, and the list above
+carried them longer than it should have. **Ruling 3 landed.**
+`packages/server/src/collectors/codex/` and
+`packages/server/src/collectors/pi/` both ship — each declaring its own
+`AdapterCapabilities` (`capabilities.ts`), the `pi` one with its own turn
+grammar and fixtures — alongside `packages/server/src/harness-roster.ts`,
+ADR-0023 (a transcript dialect names itself with `harness`) and ADR-0025 (a
+native OTLP harness gets a mapping profile). The milestone that landed it,
+`docs/prds/done/prd-26-the-second-dialect.md`, is retired to `done/`.
+**Ruling 7 re-homed.** The named Windows-native verification pass — captures,
+not confidence — is now `docs/prds/prd-25-the-third-platform.md`, blessed by
+the operator 2026-08-24, rather than a wave of prd15's sequencing; the support
+matrix still moves rows only on evidence, but prd-25 is the milestone that owes
+the evidence. prd15 itself is retired to
+`docs/prds/done/prd-15-anywhere-instrument.md`.
 
 ## prd16 — the session is a thing you can hold
 
@@ -1833,6 +2018,25 @@ namespace test set: the existing readonly greps stay green untouched, and a
 rotation-namespace test asserts every write this hand performs lands under
 the data directory and nowhere else.
 
+**Amended again — a fourth hand: the concierge (ADR-0019, 2026-08-10).** The
+count in this ruling is one short. `docs/adr/0019-the-fourth-hand.md` grants a
+fourth actor two powers, and only by explicit invocation: it may **write a
+repo to disk** from a URL a human typed, and it may **start a process the
+operator names**, with an environment block, in a directory it chose. The line
+it crosses is narrower and sharper than "no hand may spawn" — the laboratory
+already spawns `git`, `workmux` and `npm` — and it is the largest blast radius
+any hand has, which is why it arrived as a record rather than as a
+convenience. Its whole surface is three routes:
+`POST /api/concierge/clone` and `POST /api/concierge/launch`, both
+`gated-mutation` (never from a collector, never from a poll — the gate is the
+grant), plus `GET /api/concierge/repos`, prd-20 ruling 5's read-only repo
+picker feed (`packages/server/src/api/concierge.ts`). prd-20 is what asked for
+it: the operator report of 2026-08-07 is a project lead who ran the instrument
+and still ended up with an **uninstrumented** conductor, because reaching one
+was a chain of shell steps that had to run in exactly the right process. The
+count, read forward from here, is four; the README's Trust section is where a
+reader should find them named side by side.
+
 ### Ruling 3 — a recording is self-contained: transcripts are captured, not resolved
 
 The gap this closes: `trace.span` events replay perfectly because they *are*
@@ -1861,16 +2065,23 @@ what was recorded needed its own room.
 what `SessionListing` already computes (title, label, lanes, landed,
 duration, tokens, cost, whether cost is authoritative), plus **rename in
 place**, **open in replay**, and **export the portable record** (prd11's
-builder). `POST /api/label` (`packages/server/src/api/label.ts`) is the
-app's *second* mutating route — the first is the laboratory's own CLI
-surface — and writes only the label sidecar, refusing with a named reason
+builder). `POST /api/label` (`packages/server/src/api/label.ts`) was the
+app's *second* mutating route when this landed — the first was the
+laboratory's own CLI surface — and writes only the label sidecar, refusing
+with a named reason
 (`this server is replaying a session record, not watching a directory of
 recordings — there is nowhere durable to save a label here`) when the
 server is itself in replay-only mode. Renaming a session refreshes every
 other picker showing it, including the live dashboard's own session
 picker — a same-HEAD fix (`fix(web): renaming a recording also refreshes
 the balcony's session picker`) closed a gap where the two pickers cached
-independently and one went stale.
+independently and one went stale. **The count is not worth keeping here any
+more:** the route is one `gated-mutation` row among ten mutating routes, and
+`ROUTE_CLASSES` (`packages/server/src/api/index.ts`) is the table that holds
+them and the law that walks them — see [Route classes and the trust
+boundary](#route-classes-and-the-trust-boundary-prd-23-ruling-5--adr-0014-adr-0024)
+above. A number in prose is exactly what drifts; the refusal reason above is
+the part that is still true.
 
 This is a **library, not a second overview**: it reuses the existing
 hand-rolled router (`packages/web/src/app/router.ts`'s `{ name:
@@ -1962,7 +2173,7 @@ amendment.
 
 ### Ruling 1 — the new event families (ruled, landing)
 
-Six additive event types are ruled but only one has landed in code so far:
+Nine additive event types are ruled but only one has landed in code so far:
 `session.closed` (landed, prd16's own durability fact — a session's end is
 an event, not an absence). **Ruled, not yet landed:** `summons.raised` /
 `summons.cleared` (the instrument's own attention judgements, becoming
@@ -1979,11 +2190,37 @@ ruling 4's timeline dividend (gate holds and summonses becoming chapter
 marks in the TIDE) are downstream of these event types existing and are
 therefore also not yet landed.
 
+**`gate.verdict` has since found a home of its own**, and is no longer prd17's
+open item to carry: `docs/prds/prd-45-the-earned-verdict.md` was blessed by the
+operator 2026-08-24 and owns it, so its shape is that milestone's to rule
+rather than this one's to restate. Two event families that were never in
+prd17's list have landed meanwhile, from the laboratory and from the judge
+rather than from this milestone: `fork.checkpoint` / `fork.dispatched` (source
+`lab`, `packages/core/src/events/lab.ts` — prd12's second hand at checkpoint
+and at dispatch) and `judge.finding` (source `judge`,
+`packages/core/src/events/judge.ts` — prd11's semantic judge, a real polled
+collector rather than a hand). See the note
+under the event envelope at the top of this file for why neither source sits
+in `eventSourceSchema`.
+
 ## Testing
 
 Mass on core selectors/reducers and collector parsers (fixtures captured
-from real command output). Light render tests on panels. The scene is
-verified by eyes, not units — said honestly. Merge gate: `npm test` +
+from real command output). Light render tests on panels. **The scene is tested
+as data, and its painter through a recorder.** This section used to say the
+scene was *verified by eyes, not units — said honestly*, which was true of the
+painter it was written about and is now false in the humble direction, which
+misleads just as much as boasting would: the display list is plain data, so
+`packages/web/src/scene/marks.test.ts` holds its encoding laws and
+`scene/gl/frame.ts` — display list → triangles — is pure with no context to
+mock, while the GPU submit path runs against `scene/gl/recorder.ts`, a WebGL2
+context that records instead of rasterising (`gl/frame.test.ts`,
+`gl/painter.test.ts`). Above the units, the shell is driven by Playwright
+rather than certified by hand (ADR-0026). What no test claims is that the
+picture is *beautiful*; that judgement is still the operator's, and it is the
+only part of the old sentence worth keeping.
+
+Merge gate: `npm test` +
 `npm run typecheck` green, enforced mechanically both by a workmux
 `pre_merge` hook and by `scripts/gate.sh` — the operator's own landing step,
 not something a lane runs (fence compliance, a clean rebase, no NUL bytes,
@@ -2114,7 +2351,7 @@ stale before (#238), and it drifted again since.
 
 | Package | Version |
 | --- | --- |
-| node (engine) | 22 |
+| node (engine) | >=22.22.2 |
 | typescript | 7.0.2 |
 | vitest | 4.1.10 |
 | zod | 4.4.3 |
@@ -2232,8 +2469,10 @@ stale before (#238), and it drifted again since.
   manifest field, its three consequences in `buildFleet` and the fleet
   table, and the two gaps (`laneSchema`'s missing schema field for it
   server-side, and the scene's `LaneActivity` union having no member for it)
-  left for #96 to document rather than close, since both sit outside a
-  docs-only fence.
+  left for #96 to document rather than close, since both sat outside a
+  docs-only fence. The server-side gap has closed since — `laneSchema` carries
+  `parked: z.boolean().optional()` (`api/lanes.ts:44`) — and the
+  `LaneActivity` one has not.
 - 2026-08-01 — prd4 (issue #96, this issue): **docs and screenshots refreshed
   against the landed instrument**, not the plan for it. The screenshots in
   `docs/screenshots/` were regenerated from a live server against this

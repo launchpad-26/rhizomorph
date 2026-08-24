@@ -70,6 +70,13 @@ Experiment-shaped ideas route to **prd-28 (the lab)**, whose nine issues already
 contain three of the gaps Baseline highlighted: an arm holding *r* runs, an
 outcome carrying how it was measured, and compare reading real outcomes.
 
+> **Restamped 2026-08-25.** prd-28's paper did not survive the repository's
+> deletion on 2026-08-19 and re-upload on 2026-08-21, and its nine issues died
+> with it — so that routing instruction, read literally, points at nothing.
+> Experiment-shaped ideas route to the lab's 2026-08-24 re-founding on a design
+> canvas, which is the lab's design authority now; the three gaps are still the
+> three gaps.
+
 ---
 
 ## What the app actually was, before this era
@@ -317,7 +324,11 @@ card, the light theme).
 
 **D51 — the lab joins the era.** prd-28's nine issues (#433–#441) are unassigned,
 so nothing is trampled; the lab inherits the foundation and its surfaces are
-designed with the rest rather than after them.
+designed with the rest rather than after them. *(Those nine unassigned issues
+were the old repo's state on 2026-08-15; prd-28's paper and its issues both died
+in the re-upload, and the lab's design home is its 2026-08-24 re-founding on a
+design canvas. The decision itself — the lab is designed with the era, not after
+it — stands.)*
 
 **D52 — no fixed deadline.** Sequenced for quality.
 
@@ -333,18 +344,21 @@ designed with the rest rather than after them.
 5  sweeps                             prd-32 w4 — era-last, by ruling
 ```
 
-Inherited timing constraints that survive unchanged:
+Inherited timing constraints, as they stood on 2026-08-15:
 
 - **prd-31 wave 1 lands before prd-28 wave 3 dispatches** — #439 reads
   `trace/`'s furniture, and re-laying a reader's ground mid-flight is the
-  collision the fence calendar exists to prevent.
+  collision the fence calendar exists to prevent. **Discharged 2026-08-25:**
+  prd-31 landed (`docs/prds/done/prd-31-the-bracketed-voice.md`), and prd-28's
+  wave 3 and #439 died with the old repo — the constraint has no live referent on
+  either side, and lab sequencing belongs to the 2026-08-24 re-founding.
 - **prd-32 wave 4 (the sweeps) is the last wave of the era**, by ruling: a sweep
   that runs earlier re-lays ground the other PRDs are about to dig.
 - **Ruling numbers are never renumbered** — code comments cite them 688 times.
 
 ---
 
-## What is still open
+## What was still open, as of 2026-08-15
 
 - **#158's glance re-run** — an operator act with a real lay viewer. The gate is
   amended: prd-33 proceeds on a documented deferral, and the re-run is booked
@@ -353,3 +367,13 @@ Inherited timing constraints that survive unchanged:
 - **The measured motion caps** — pending the concurrency distribution (D33).
 - **The team layer's ingest** — designed for here, built when the metamorphosis
   observatory lands.
+
+> **Restamped 2026-08-25.** Two of those four have moved. **The measured motion
+> caps landed:** prd-33 ruling 10 raised the event cap to 7 from the measured
+> distribution rather than from appetite, with alarms exempt, and ruling 9 gave
+> growth its own class and budget — both are in the code, at
+> `packages/web/src/scene/motion.ts:79` (`EVENT.maxConcurrent`) and `:202`
+> (`GROWTH`, with `GROWTH_CAUSES` at `:235`), and the charter's §5 table states
+> them. **The glance re-run outlived its number:** #158 died with the old repo,
+> and the obligation is carried by prd-33's own wave-0 gate text. The renderer
+> spike and the team layer's ingest stand as written.

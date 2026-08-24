@@ -5,20 +5,27 @@ puts any captured pane text on an event, and a record built now strips the
 field out of pre-change logs. That closed the leak that was actually there.
 
 The items below were identified while doing it and **deliberately not
-implemented** — they are hardening and scope-narrowing, not fixes for a
-live leak. Recorded here so a future issue can pick them up rather than
+implemented at the time** — they are hardening and scope-narrowing, not fixes
+for a live leak. Recorded here so a future issue can pick them up rather than
 rediscover them. Nothing here is a known vulnerability.
+
+This is therefore a ledger rather than a standing list of undone work, and it is
+read that way: **item 4 has since been picked up and is kept below as one
+discharged line**, because deleting it would lose the fact that the law exists
+and where it lives. Everything else here is still open.
 
 ## Laws that would keep the boundary from eroding
 
-**4 — a no-open-payload law across `packages/core/src/events/`.** Every
-payload schema there is a closed `z.object`, so zod strips what it does not
-declare, which is the whole mechanism #292 relies on. A grep for
-`.passthrough(`, `.loose(`, `.catchall(`, `z.record(`, `z.any(` and
-`z.unknown(` across that directory currently returns **zero** matches — and
-nothing tests that it stays zero. One open payload anywhere in there
-silently turns the allowlist into a sieve, including for the record
-builder.
+**4 — a no-open-payload law across `packages/core/src/events/` — DISCHARGED.**
+`packages/core/src/events/no-open-payload-law.test.ts` is that law, and it is
+exactly the shape this item asked for: it greps the directory's own source text
+for all six spellings — `.passthrough(`, `.loose(`, `.catchall(`, `z.record(`,
+`z.any(`, `z.unknown(` — and proves its own detector against a rigged schema
+rather than trusting a green run on real files. Its header records the failure
+mode this item predicted, met and fixed in the writing: a first version bound
+eleven files in by name, so a twelfth file containing
+`z.object({…}).passthrough()` left every test there green; it walks the
+directory with `import.meta.glob` now.
 
 **5 — a behavioural sentinel over `collectors/tmux/capture.ts`.** #292
 deleted `lastNonEmptyLine`, the one helper that turned a capture into
@@ -27,18 +34,26 @@ it *returns* — a hash, a count, nothing resembling the input's own
 characters — would survive a rename, which a grep for the old function name
 would not.
 
-**6 — a single-call-site law for `capture-pane`.** Today the only place
-that shells to `tmux capture-pane` is
-`packages/server/src/collectors/tmux/collector.ts:102`. A test pinning that
-to one non-test call site would close the escape where a new directory
-grows its own capture path — which is not hypothetical:
-`collector.ts:19-23` advertises future "footer/prompt heuristics over
-captured pane text" as the way to raise the tmux collector's `attention`
-capability. That is exactly the change that would want pane text on an
-event again. Note the assertion has to be written over the *call*, not a
-bare string match: `capture-pane` also appears in prose comments in
-`collector.ts` and `capture.ts`, so a naive "exactly one file contains this
-string" law fails today for uninteresting reasons.
+**6 — a single-call-site law for `capture-pane`.** Today the only non-test
+place that shells to `tmux capture-pane` is
+`packages/server/src/collectors/tmux/collector.ts:163` — one
+`context.exec('tmux', [...])` inside the per-pane loop. A test
+pinning that to one non-test call site would close the escape where a new
+directory grows its own capture path. The *motive* has moved since this was
+written, and restating it is fairer than leaving the original wording:
+`collector.ts:19-27` no longer advertises footer/prompt heuristics as a future
+way to raise the tmux collector's `attention` capability — it states them as
+today's reason for a partial one, `reason: 'footer/prompt heuristics over
+captured pane text, not a declared status'`, with `remedy: 'pair with the
+workmux collector for declared agent.status'`. The declared route up is
+therefore workmux's status line rather than more pane text, which makes the
+pressure toward putting captured text back on an event weaker than this item
+first argued. The item stands anyway: no test names the single call site, so
+nothing structural stops it, and a capability sitting at `partial` is the kind
+of gap a later change reaches into. Note the assertion has to be written over
+the *call*, not a bare string match: `capture-pane` also appears in prose
+comments in `collector.ts` and `capture.ts`, so a naive "exactly one file
+contains this string" law fails today for uninteresting reasons.
 
 ## The free-form text a record still carries
 
@@ -87,17 +102,20 @@ side. Nothing dropped there reaches the body.
 
 **Where the claim is still made, live in the tree.** Four places state it
 about the *record* specifically; whoever picks this up should read all four
-together rather than fixing one:
+together rather than fixing one. Line numbers below are given with the wording
+they point at, because they have drifted once already — search the quoted phrase
+if the number no longer lands on it:
 
 - `docs/record-format.md:150-160` — the reader's contract, above. True of a
   reader; says nothing about what this emitter writes, which is why it reads
   as a promise the record doesn't keep.
-- `docs/architecture.md:1864-1866` — law 1, "preserved byte-for-byte in the
-  log **and the record**". The "and the record" half is false on both export
-  paths. **Still uncorrected**: this pass was deliberately scoped to leave
+- `docs/architecture.md:1915-1917` — law 1, "preserved byte-for-byte in the
+  log **and the record**", now sitting inside prd11 ruling 4's `/recordings`
+  material. The "and the record" half is false on both export paths. **Still
+  uncorrected**: this pass was deliberately scoped to leave
   `docs/architecture.md` alone, so the wrong wording is still in the tree and
   is inventoried here rather than fixed.
-- `docs/prds/prd-17-complete-record.md:64-67` — ruling 3, law 1: "never
+- `docs/prds/prd-17-complete-record.md:69-72` — ruling 3, law 1: "never
   silently dropped, and always preserved byte-for-byte in the log and the
   record". This is the **origin** of the `docs/architecture.md` wording above,
   and it lives in `docs/prds/`, not `docs/prds/done/`, so by this repo's own
@@ -111,7 +129,7 @@ together rather than fixing one:
   here for the open decision.
 
 Borderline, and probably fine as written:
-`packages/core/src/events/index.ts:202-204` says `UnknownEventLine.line` is
+`packages/core/src/events/index.ts:204-206` says `UnknownEventLine.line` is
 "the *exact* text that arrived, not a re-serialization … what makes a record
 containing unknowns still hash-chain clean". That is true of a *foreign*
 record read by an older build, which is the type's actual job. It is

@@ -321,3 +321,30 @@ emitter or reader must also honor:
    one: everything the current schema *does* declare is exported as logged.
    If a fact isn't safe to export, it was never safe to log in the first
    place.
+4. **Append order is the truth, per actor.** A record's `body` is ordered, and
+   that order *is* the fact: a reader folds `body` in the order it is written,
+   and MUST NOT re-sort it by `ts` to decide what the session's state became.
+   Timestamps are for navigating time — a scrubber, a window, "what did this
+   look like at 14:03" — never for deciding what happened after what. A
+   collector may report a *source's* own clock, so one actor's timestamps are
+   not guaranteed monotonic, and a ts-sort therefore reorders events that actor
+   emitted in a definite order.
+
+   This is the ruling on #205 (operator, 2026-08-24, option 1 — "append order
+   is the truth"), taken after a fixture proved the alternative was not
+   theoretical: live folding in arrival order and replay folding in timestamp
+   order yielded two different states from one recording — on last-write-wins
+   fields, on create-vs-delete ordering, and on first-sighting order. This
+   repo's own replay honours it unconditionally:
+   `packages/web/src/replay/replayFold.ts` (`buildSessionIndex`, `foldFrom`,
+   `foldUpTo`) folds the log's own order everywhere and keeps a ts-sorted copy
+   for time navigation only. `docs/adr/0002-one-reducer-for-live-and-replay.md`'s
+   2026-08-24 amendment records the defect this ruling closed.
+
+   **Cross-actor order is a different question**, and merging is the only place
+   it arises: two actors' clocks are not comparable, so `mergeRecords`
+   interleaves by `ts` with `actor.instance` as the tiebreak while never
+   reordering two events from the same actor (see "Merging two actors' records"
+   above). Causality across actors, for a future multi-instrument "forest", is
+   anchored on the commit DAG (`commit.landed.parents`) rather than on wall
+   clocks.

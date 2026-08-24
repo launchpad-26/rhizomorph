@@ -1,5 +1,17 @@
 # What needs fixing
 
+> **Read as a dated record (noted 2026-08-25).** This consolidation was cut at `1bed433`,
+> before the 2026-08-19 deletion — that sha, `d4b7539` and `f01a41b` below, and every
+> `../../issues/` link in the table at the end all name the old repo's history and no
+> longer resolve from this tree. Nearly every item has since landed or been re-cut as
+> prd-39..45 (`docs/prds/`): §1's unauthenticated launch is gated by
+> `requireCapabilityToken` across `packages/server/src/api/`, and its `model` field by
+> `MODEL_GRAMMAR` (`packages/server/src/api/lab.ts:268`); §2's `GET` bypass was closed
+> globally, recorded in `packages/server/src/server/mutation-guard.ts:147-155`; §7's lab
+> boundary is prd-41; §3's and §5's recorder and buffer items are prd-40 and prd-44. The
+> body below is unrevised — it is the record of what six reviews found at `1bed433`, not a
+> work list to pick up.
+
 Consolidated from six independent reviews of `1bed433`. Every item below was re-verified
 against the tree — line references are checked, not quoted. Ordered by what to do first.
 
@@ -310,6 +322,12 @@ or daemon duplicates it.
 *Sources: [fable/](./fable/), [sol-xhigh/](./sol-xhigh/), [kimi-k3/](./kimi-k3/),
 [gemini-3.1-pro/](./gemini-3.1-pro/), [glm-5.2/](./glm-5.2/),
 [deepseek-v4-pro/](./deepseek-v4-pro/). No product code was changed by any review.*
+
+*The rest of `docs/review/` is not part of this consolidation:
+[`2026-08-07-audit.md`](./2026-08-07-audit.md), an ad hoc full-repository health check —
+a dated artefact from before the deletion, findings only, nothing applied; and
+[`2026-08-24-performance.md`](./2026-08-24-performance.md), the measured performance and
+reliability review at `60c2cae`, which is prd-44's source.*
 
 ---
 

@@ -185,7 +185,13 @@ Normative on merge — additive, amending nothing:
 > through the variation-table device: a channel is granted only if it **carries
 > nothing**, each grant has a stated bound, and an explicit **"ambient never means"**
 > law accompanies the family. The tissue fence is unchanged; "no new **semantic**
-> hue" is preserved exactly. Proposed here, not decided here.
+> hue" is preserved exactly.
+>
+> **Ruled 2026-08-15 (prd-33):** the family is granted on exactly those terms —
+> every ambient channel carries nothing, each grant states its bound in the
+> variation table, and the "ambient never means" law ships with it (a rigged
+> correlation between an ambient channel and a lane's state must turn the suite
+> red).
 
 > **Pending ruling — owned by the scene PRD.** _Ceilings raised._ Vibrancy rises only
 > via the lawful recipe of `palette-vibrancy-dials.md`: chroma (`ACTIVITY_TINT`) and
@@ -300,8 +306,10 @@ Normative on merge:
 
 ## 8 · the disposition table
 
-Every law in §2, dispositioned. AMEND always means a pending ruling — proposed,
-owned, not decided here.
+Every law in §2, dispositioned. AMEND meant a pending ruling — proposed and owned
+here, decided in the owning PRD; all four were **ruled 2026-08-15** (prd-32
+rulings 7 and 8, prd-33 rulings 9 and 10), and each is recorded inline where it
+lands, in §4 and §5.
 
 | law | disposition |
 | --- | --- |
@@ -309,7 +317,7 @@ owned, not decided here.
 | law 9a | **KEEP** — the ambient pending ruling (scene PRD) must preserve "no new semantic hue" exactly |
 | law 9b | **KEEP** — the dark band's four numbers do not move; the light-band pending ruling (legibility PRD) re-derives a band per theme beside it |
 | the CALM_FLOOR law | **KEEP** |
-| law 10 | **KEEP** — the growth pending ruling (scene PRD) may add a fifth class or rule growth into structural; either way, via prd-10 r10's template |
+| law 10 | **KEEP** — growth became the fifth class and the event cap rose to a measured 7 (prd-33 rulings 9 and 10, 2026-08-15), both via prd-10 r10's template; the numbers are in §2 and §5 |
 | law 11 | **KEEP** — stated in full for the first time in §2.3 |
 | law 12 | **KEEP** |
 | the legibility floor | **KEEP** — the contrast-arithmetic addition (§4) turns its numbers from prose into computation, per theme |

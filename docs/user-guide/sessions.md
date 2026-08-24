@@ -104,11 +104,17 @@ ID             TITLE                                                WHEN        
 Lists every recorded session, newest first, each with a title *derived from
 its own events* (or `no recorded sessions yet` when there are none). The same
 rows, plus rename-in-place and export, live in the dashboard's own
-**`/recordings`** page (direct URL — see [watching.md](watching.md#navigating-away)
-for why there's no nav link to it yet). Its own subtitle states the job
-plainly: *"what this instrument recorded — rename it, open it in replay, or
-export the portable record."* It renders only what was recorded, never the
-live fleet — a law its own source-grep test holds it to.
+**`/recordings`** page — Recordings is the second entry in the primary nav
+(see [watching.md](watching.md#the-primary-nav)), so it is one click from
+anywhere. The page calls itself **History**, and its subtitle names the two
+axes it browses: *"the past, two ways — what happened that night, or what a
+piece of work did"* — **By session** and **By lane**, one toggle, one axis
+shown at a time. A recording the lane index could not open is named and
+counted beneath both axes rather than silently skipped (`N RECORDINGS COULD
+NOT BE READ — <ids> — …`), because a recording missing from the lane axis is
+also a lane's life the session axis cannot account for. It renders only what
+was recorded, never the live fleet — a law its own source-grep test holds it
+to.
 
 - **Rename** — click the title, edit in place, save. Writes a sidecar file
   next to the log (`session-<id>.label.json`) — the append-only log itself
