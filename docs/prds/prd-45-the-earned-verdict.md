@@ -46,14 +46,15 @@ never run, because running it is the landing.
 - **Three more of the same shape, lower reachability, all executed.** `gate.sh:83` — a
   process substitution does not propagate its producer's status and `pipefail` does not
   apply, so a failed `git diff` gives the clean verdict (an unresolvable `main` dies at
-  `:70` first). `gate.sh:49` — on the `|| echo "$W/.git"` fallback, `.git` in a linked
-  worktree is a *file*, so `[ -d "$GD/rebase-merge" ]` can never be true; verified
-  against a real in-progress rebase, correct resolution DETECTED, fallback MISSED.
-  `gate.sh:127-129` — a garbage `timing-count` becomes `PREV=0`, making the shrink check
-  unfireable.
-- **Nothing in the suite asserts this script's behaviour.** `grep -rln "gate.sh" packages`
-  finds only `// @gate-timing` marker comments. Every fix above, and prd-39's, is held by
-  review alone.
+  `:57`'s ancestry check first). `gate.sh:49` — on the `|| echo "$W/.git"` fallback,
+  `.git` in a linked worktree is a *file*, so `[ -d "$GD/rebase-merge" ]` can never be
+  true; verified against a real in-progress rebase, correct resolution DETECTED,
+  fallback MISSED. `gate.sh:127-129` — a garbage `timing-count` becomes `PREV=0`,
+  making the shrink check unfireable.
+- **Nothing in the suite asserts this script's behaviour.** No test file reads `scripts/` at
+  all; `grep -rlnF "gate.sh" packages` finds three `// @gate-timing` marker comments, three
+  prose comments naming it in `core/src/fleet/`, and captured collector fixture data — no
+  assertion among them. Every fix above, and prd-39's, is held by review alone.
 - **prd-24 residual 2: a red leg is four unrun gates.** `ci.yml:66,69,72,97` — Typecheck, Lint,
   the packaging guard and the boot smoke carry no `if:` at all, so a failed Test skips them
   silently. Already stated in `AGENTS.md`; still true.
