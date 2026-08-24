@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
@@ -152,7 +152,9 @@ describe('registerStaticRoute — the SPA fallback', () => {
   it('refuses a sibling directory that merely shares the root as a literal string prefix', async () => {
     // A bare `requested.startsWith(root)` would pass this: `dir + '-sibling'`
     // starts with `dir` as a string even though it is a different directory
-    // one level up. The separator-aware check must reject it.
+    // one level up. `isPathContained` canonicalizes both sides and compares
+    // by path segment, so it rejects this the same way the separator-aware
+    // string check it replaced did.
     const siblingDir = `${dir}-sibling`
     await mkdir(siblingDir, { recursive: true })
     await writeFile(path.join(siblingDir, 'secret.txt'), 'top secret')
@@ -170,6 +172,69 @@ describe('registerStaticRoute — the SPA fallback', () => {
       expect(response.body).not.toContain('top secret')
     } finally {
       await rm(siblingDir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a symlink placed inside the dist root whose target resolves outside it', async () => {
+    // This is the case a literal-prefix check cannot see: `escape-link`'s own
+    // unresolved path is `dir/escape-link`, which starts with `root + sep`
+    // same as any ordinary file — the escape only shows up once the link is
+    // followed. `isPathContained` canonicalizes through `realpath`, so it
+    // resolves `escape-link` to where it actually points before comparing.
+    const outsideDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-static-outside-test-'))
+    await writeFile(path.join(outsideDir, 'secret.txt'), 'top secret')
+    const linkPath = path.join(dir, 'escape-link')
+    await symlink(outsideDir, linkPath)
+    try {
+      const app = makeApp()
+      const response = await app.inject({ method: 'GET', url: '/escape-link/secret.txt' })
+
+      expect(response.statusCode).toBe(403)
+      expect(response.body).not.toContain('top secret')
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a wildcard tail that treats a real file as a directory, and never names the dist path in the response', async () => {
+    // `realpathSync` throws ENOTDIR trying to resolve `index.html/x`, since
+    // `index.html` exists and is not a directory — a canonicalization error
+    // the raw `isInside` cannot recover from and does not catch. Before
+    // `isPathContained` (the fail-closed wrapper `log/transcript-attribution.ts`
+    // already exports for exactly this reason), that uncaught throw reached
+    // Fastify's default error handler, which answers 500 with a body of
+    // `{"message":"ENOTDIR: not a directory, realpath '<abs dist path>/index.html/x'"}`
+    // — the server's own absolute filesystem path, handed to an
+    // unauthenticated caller on the one route ADR-0012 keeps tokenless
+    // forever. A path that cannot be canonicalized must be refused, not
+    // guessed at, so this is now a plain 403 with no path anywhere in it —
+    // a deliberate behaviour change from the 200 SPA-fallback this used to
+    // get when a bare `existsSync` check simply reported "not found".
+    const app = makeApp()
+    const response = await app.inject({ method: 'GET', url: '/index.html/x' })
+
+    expect(response.statusCode).toBe(403)
+    expect(response.body).not.toContain(dir)
+    expect(response.body).not.toContain('ENOTDIR')
+  })
+
+  it('refuses a symlink loop inside the dist root instead of hanging or crashing', async () => {
+    // The same fail-closed requirement as the ENOTDIR case above, for the
+    // other error `canonicalize` cannot recover from: ELOOP. A raw `isInside`
+    // would throw this uncaught, straight into a 500.
+    const linkA = path.join(dir, 'loop-a')
+    const linkB = path.join(dir, 'loop-b')
+    await symlink(linkB, linkA)
+    await symlink(linkA, linkB)
+    try {
+      const app = makeApp()
+      const response = await app.inject({ method: 'GET', url: '/loop-a' })
+
+      expect(response.statusCode).toBe(403)
+      expect(response.body).not.toContain(dir)
+    } finally {
+      await rm(linkA, { force: true })
+      await rm(linkB, { force: true })
     }
   })
 })

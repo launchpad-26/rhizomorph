@@ -7,8 +7,19 @@ import { repoSlug, sessionFileName, transcriptCaptureDir, transcriptCaptureFileN
 import { decideSessionBoot, readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import { LOCK_STALE_MS, readSessionLock, sessionLockFileName, writeSessionLock } from '../log/session-lock.js'
 import { readTranscriptCaptureManifest } from '../log/transcript-capture.js'
-import { closeCurrentSession, nextSessionStart, openNextSession, retargetSession, rotateSession } from './rotate.js'
+import {
+  closeCurrentSession,
+  nextSessionStart,
+  openNextSession,
+  RetargetInFlightError,
+  retargetSession,
+  rotateSession,
+} from './rotate.js'
 import { SessionRecorder } from './session-recorder.js'
+
+function isRejected(result: PromiseSettledResult<unknown>): result is PromiseRejectedResult {
+  return result.status === 'rejected'
+}
 
 /**
  * ROTATION'S LAWS (prd16 ruling 2, prd17 ruling 3.5).
@@ -420,6 +431,57 @@ describe('retargetSession (prd20 ruling 5)', () => {
 
     const opened = await readSessionEvents(rotation.opened.filePath)
     expect(opened[0]?.payload).not.toHaveProperty('predecessor')
+  })
+
+  describe('the shared in-flight guard (#14)', () => {
+    it('a second concurrent retarget is REFUSED, not coalesced — one boundary, one session directory', async () => {
+      clock = 5000
+      const settled = await Promise.allSettled([retargetSession(options()), retargetSession(options())])
+
+      expect(settled.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+      const refusals = settled.filter(isRejected)
+      expect(refusals).toHaveLength(1)
+      expect(refusals[0]?.reason).toBeInstanceOf(RetargetInFlightError)
+
+      // The loser never touched either directory: one close, one open, never two.
+      expect((await readdir(oldDir)).filter((n) => n.endsWith('.jsonl'))).toEqual([sessionFileName(Number(FIRST))])
+      expect((await readdir(newDir)).filter((n) => n.endsWith('.jsonl'))).toHaveLength(1)
+    })
+
+    it('refuses a retarget while a rotation on the same recorder is still running', async () => {
+      clock = 5000
+      const rotation = rotateSession({
+        sessionDir: oldDir,
+        repoPath: OLD_REPO_PATH,
+        repoName: 'old-watched',
+        recorder,
+        now: () => clock,
+        pid: process.pid,
+      })
+
+      await expect(retargetSession(options())).rejects.toBeInstanceOf(RetargetInFlightError)
+      await rotation
+    })
+
+    it('a rotation asked while a retarget is in flight COALESCES onto it — rotation keeps its own behaviour', async () => {
+      clock = 5000
+      const [retarget, rotation] = await Promise.all([
+        retargetSession(options()),
+        rotateSession({
+          sessionDir: oldDir,
+          repoPath: OLD_REPO_PATH,
+          repoName: 'old-watched',
+          recorder,
+          now: () => clock,
+          pid: process.pid,
+        }),
+      ])
+
+      expect(rotation).toEqual(retarget)
+      // One close, one open on the old side — the coalesced rotation never
+      // raced its own second close against the retarget's.
+      expect((await readdir(oldDir)).filter((n) => n.endsWith('.jsonl'))).toEqual([sessionFileName(Number(FIRST))])
+    })
   })
 })
 
