@@ -1,8 +1,10 @@
 # prd-25 — the third platform: anywhere, with a gate that looks
 
-> **Status:** proposed · revalidated 2026-08-22 at `03df141` — no `windows-latest` CI leg
-> exists. Completes prd-15 wave 6 (its ruling 7); leaves prd-15 waves 3–5, 7 and 8 where they
-> are. Requires operator blessing before issue grooming.
+> **Status:** blessed by the operator, 2026-08-24 — rulings 1–6 accepted, the three human
+> calls answered in the amendment. Revalidated 2026-08-22 at `03df141`: no `windows-latest`
+> leg exists on the CLI/test/pack matrix (the desktop installer workflow's Windows row
+> packages the shell; it does not run the native suite). Grooming may start from the
+> amendment's re-cut waves.
 
 ## Problem
 
@@ -144,3 +146,30 @@ Continuing prd-15's numbering — its wave 6 is the Windows leg; waves 3–5, 7 
   probed it. Open.
 - The docker brief's rulings A and B stay proposed; if either is answered differently, ruling
   6 changes and nothing else here does.
+
+## Amendment — blessed, with the three human calls answered (operator, 2026-08-24)
+
+Ruled on the retained-PRDs review's recommendation, against the tree at `9a26030`. Rulings
+1–6 stand as written, with these answers and corrections:
+
+- **The CI spend (ruling 1's call):** the leg starts on `pack-smoke`, on every push. Whether
+  `windows-latest` ever joins `build-test-boot` is decided later, against the leg's measured
+  cost and the triage's shape — the first open question above closes to "pack-smoke now;
+  promotion is its own decision, made with numbers".
+- **The pin's shape (the second open question):** an **expected-fail list** — visible, noisy,
+  an honest partial. A skip list renders debt as health, the reading this repo legislates
+  against; ruling 2's list therefore reports its entries on every run rather than silencing
+  them.
+- **The node floor (ruling 4's call):** stays `>=22.22.2`. The README wording change ships
+  with ruling 4 as written.
+- **The keystone is smaller than wave 6b says.** #281's `pathToFileURL` fix already landed
+  (`packages/server/bin/rhizomorph.mjs:51–53`); the Evidence bullet stating the defect in the
+  present tense is history. What remains of 6b is the leg alone — which now also carries the
+  burden of witnessing the landed fix for the first time.
+- **Success is staged.** The committed known-failure list binds at promotion time (6e), not at
+  the first smoke; the smoke's own bar is "a built clone boots natively and a leg proves it on
+  every push".
+- **The numbering de-anchors from prd-15**, retired as superseded this same day: the waves
+  above renumber as this PRD's own at grooming, and prd-15's wave 7 (PTY/L3) is now prd-20
+  ruling 7's parked option — the ConPTY open question above points there, not at prd-15. The
+  docker brief's rulings A and B stay proposed and untouched.

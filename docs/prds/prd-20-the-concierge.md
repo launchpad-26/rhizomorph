@@ -1,9 +1,10 @@
 # prd-20 — the concierge: a one-stop front door
 
-> **Outcome:** partially shipped — the fourth-hand fence, capability gate, harness registry,
-> local discovery, clone, launch/relaunch, transcript migration and setup wizard ship. The
-> wizard still cannot switch the watched repository; prd-42 hardens the dormant retarget route
-> but does not add that control. Reconciled 2026-08-22 at `03df141`.
+> **Outcome:** re-cut 2026-08-24 — the fourth-hand fence, capability gate, harness registry,
+> local discovery, clone, launch/relaunch, transcript migration and setup wizard ship, and the
+> retarget engine ships gated and tested. Exactly two outcomes remain: the wizard invokes that
+> route (prd-42 hardens it; this PRD gives it its control), and ruling 7 narrows the no-tmux
+> launch promise. See the amendment. Reconciled 2026-08-22 at `03df141`.
 
 ## Problem
 
@@ -195,11 +196,39 @@ writes the copy.
 
 ## Open questions
 
-- Retarget semantics — rotate-and-reinit in process vs. supervised respawn.
-  Needs its spike; open, not ruled.
 - Continuity guarantees per harness: `claude --continue` is proven; codex's
   resume story is not. Open until the adapter lands.
 - Where cloned repos live by default. Open, not ruled.
 - Whether the wizard's first screen should also carry the start command for a
   machine where rhizomorph itself isn't running yet — the distribution
   question, #177-adjacent. Open, not ruled.
+
+## Amendment — the re-cut: two outcomes and a narrowed promise (operator, 2026-08-24)
+
+Ruled on the retained-PRDs review's recommendation, against the tree at `9a26030`.
+
+The sequencing list above is history, not a backlog: waves 0–6 shipped, #234 included — the
+Success falsifier naming it is discharged — and wave 3's "retarget design spike" describes a
+route that now exists, gated and proven (`api/retarget.ts`, `retarget.test.ts`,
+`retarget-law.test.ts`, `server/retarget-cost.test.ts`). The rotate-vs-respawn open question
+is deleted above rather than left to imply doubt: ruling 5 already ruled it — the switch
+rotates the session and retargets the collectors — and the implemented route does exactly
+that. What remains of this PRD is two outcomes:
+
+1. **The wizard calls the route.** `connect/wizard.tsx` still tells the operator that
+   switching the watched repo "is not built" and withholds the path for an unwatched repo.
+   The remaining build is the wizard invoking `POST /api/retarget`, showing its consequences
+   — the recording boundary, the telemetry cost the route already reports — and continuing
+   the same setup journey in the newly watched repo.
+2. **The no-tmux launch tells the truth** — narrowed by ruling 7.
+
+### Ruling 7 — the no-tmux launch promise narrows; a real terminal is a parked option
+
+Where tmux exists, launch stays one explicit click into a real window. Where it does not,
+the product presents the copyable command — ruling 3's no-trust path, which #532's finding
+left untouched — and says plainly why: a detached interactive CLI has no terminal to live
+in, and `claude --resume` without a TTY dies asking for a prompt. The Success clause's
+"launching … a single explicit click" is narrowed by this ruling to the tmux path. A real
+no-tmux terminal (a PTY; ConPTY on Windows — the option prd-15's L3 rung named and prd-25's
+open question points at) is **parked here as a named technical option behind its own
+spike**; no wave claims it until that spike is blessed.
