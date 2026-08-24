@@ -86,7 +86,7 @@ export function DisclosureCard({ disclosure, id }: DisclosureCardProps): ReactEl
       id={id}
       data-disclosure-card=""
       data-testid="disclosure-card"
-      className="w-max max-w-xs rounded border border-(--surface-line) bg-(--surface-panel) px-2 py-1.5 text-read-body leading-snug shadow-(--elev-overlay)"
+      className="w-max max-w-xs rounded-none border border-(--surface-line) bg-(--surface-panel) px-2 py-1.5 text-read-body leading-snug shadow-(--elev-overlay)"
     >
       <p data-testid="disclosure-label" className="heading text-(--ink-primary)">
         {lines.label}

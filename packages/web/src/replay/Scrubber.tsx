@@ -170,7 +170,7 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
         <div
           aria-hidden="true"
           data-testid="scrubber-drag-label"
-          className="figures pointer-events-none absolute -top-7 -translate-x-1/2 whitespace-nowrap rounded border border-(--line-strong) bg-(--surface-panel) px-1.5 py-0.5 text-inst text-(--ink-primary)"
+          className="figures pointer-events-none absolute -top-7 -translate-x-1/2 whitespace-nowrap rounded-none border border-(--line-strong) bg-(--surface-panel) px-1.5 py-0.5 text-inst text-(--ink-primary)"
           style={{ left: `${thumbPercent}%` }}
         >
           {nearest.label}
@@ -192,7 +192,7 @@ export function Scrubber({ start, end, value, onChange, disabled = false, chapte
         ref={plateRef}
         aria-hidden="true"
         data-testid="scrubber-readout"
-        className="tide-plate figures pointer-events-none absolute top-full mt-1 -translate-x-1/2 whitespace-nowrap rounded border border-(--line-strong) bg-(--surface-panel) px-1.5 py-0.5 text-read-floor font-semibold leading-none text-(--ink-primary)"
+        className="tide-plate figures pointer-events-none absolute top-full mt-1 -translate-x-1/2 whitespace-nowrap rounded-none border border-(--line-strong) bg-(--surface-panel) px-1.5 py-0.5 text-read-floor font-semibold leading-none text-(--ink-primary)"
         style={
           plateLeft === null
             ? { left: `${thumbPercent}%` }

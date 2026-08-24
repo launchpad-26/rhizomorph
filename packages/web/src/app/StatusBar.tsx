@@ -411,7 +411,7 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
               tabIndex={0}
               title={message ?? undefined}
               aria-label={description}
-              className="inline-flex items-center gap-1.5 focus-ring rounded"
+              className="inline-flex items-center gap-1.5 focus-ring rounded-none"
             >
               <span
                 aria-hidden="true"

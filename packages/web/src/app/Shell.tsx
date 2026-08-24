@@ -90,7 +90,15 @@ export function Shell() {
   useIdleWorkerJump()
 
   return (
-    <div className="grid h-screen grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto_auto] bg-(--surface-floor) font-sans text-(--ink-body)">
+    // `min-h-screen`, not `h-screen`, and `auto` rather than `minmax(0,1fr)`
+    // on PanelGrid's own row (retuned live, 2026-08-24, at an operator's
+    // explicit request): the page now grows to whatever the dock's content
+    // needs and the DOCUMENT scrolls, rather than clamping every panel to a
+    // fixed viewport share and scrolling each one internally. See
+    // `PanelGrid.tsx`'s own comment for what this trades away — the
+    // page-never-scrolls invariant existed to fix a real silent-clipping bug,
+    // and this reverses it on purpose, not by accident.
+    <div className="grid min-h-screen grid-cols-[minmax(0,1fr)] grid-rows-[auto_auto_auto_auto] bg-(--surface-floor) font-sans text-(--ink-body)">
       <TopDock />
       <PanelGrid />
       <ReplayBar />
@@ -115,16 +123,16 @@ function TopDock() {
   const { status } = useStream()
 
   return (
-    <header className="border-b border-(--line-hair) bg-(--surface-panel)">
+    <header className="sticky top-0 z-(--z-header) flex flex-col gap-3 border-b border-(--line-hair) bg-(--surface-floor) px-3 pb-3">
       <Nav />
-      <div className="flex items-stretch gap-4 border-b border-(--line-hair)">
-        <div className="flex shrink-0 items-center gap-3 px-4">
+      <div className="panel-card flex items-stretch gap-4">
+        <div className="flex shrink-0 items-center gap-3 px-4 py-2">
           <h1 className="font-display text-read-body font-semibold tracking-[0.25em] text-(--ink-primary) text-glow-calm">
             THE OBSERVATORY
           </h1>
           <ConnectionBadge status={status} />
         </div>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 border-l border-(--line-hair)">
           {mode === 'replay' ? (
             <ReplayBanner />
           ) : (

@@ -75,74 +75,71 @@ export default function BurnStrip() {
 
   const dollarsGap = isDollarsGap(burn)
   const overheadGap = isOverheadGap(burn)
+  const gapCount = (dollarsGap ? 1 : 0) + (overheadGap ? 1 : 0)
 
   return (
-    <div className="border-t border-(--line-hair) bg-(--surface-panel)" data-panel="burn">
-      <div className="flex h-9 items-center gap-3 px-4 text-inst">
-        <span className="heading shrink-0 text-(--ink-dim)">
-          Burn
-        </span>
-
-        <Figure
-          testId="burn-output-tokens"
-          unit="out"
-          title={outputHoverTitle(burn.tokens)}
-          lead
-        >
-          {formatTokens(burn.outputTokens)}
-        </Figure>
-
-        <Rule />
+    <div className="flex flex-col gap-3" data-panel="burn">
+      <div className="panel-card grid grid-cols-5 divide-x divide-(--line-hair)">
+        <Cell label="Burn">
+          <Figure testId="burn-output-tokens" unit="out" title={outputHoverTitle(burn.tokens)}>
+            {formatTokens(burn.outputTokens)}
+          </Figure>
+        </Cell>
 
         {/*
           The dollars cell. When the feed is missing the cell *moves* to the gap
-          line below — the test id marks the cell wherever it is speaking, and
+          card below — the test id marks the cell wherever it is speaking, and
           what it says there is the whole sentence rather than a truncated
           version of it.
         */}
-        {dollarsGap ? (
-          <Missing unit="usd" title="no authoritative cost feed — see the gap below" />
-        ) : (
-          <Figure testId="burn-dollars" title={dollarsHoverTitle(burn)}>
-            {formatDollarsOrGap(burn)}
+        <Cell label="Dollars">
+          {dollarsGap ? (
+            <Missing title="no authoritative cost feed — see the gap below" short="no cost feed" />
+          ) : (
+            <Figure testId="burn-dollars" title={dollarsHoverTitle(burn)}>
+              {formatDollarsOrGap(burn)}
+            </Figure>
+          )}
+        </Cell>
+
+        <Cell label="Rate">
+          <Figure testId="burn-rate" title={burnRateHoverTitle(burn)}>
+            {formatBurnRate(burn)}
           </Figure>
-        )}
+        </Cell>
 
-        <Rule />
+        <Cell label="Overhead">
+          {overheadGap ? (
+            <Missing title="the conductor is not instrumented — see the gap below" short="not instrumented" />
+          ) : (
+            <Figure testId="burn-overhead" unit="overhead" title={overheadHoverTitle(burn)}>
+              {formatOverheadOrGap(burn)}
+            </Figure>
+          )}
+        </Cell>
 
-        <Figure testId="burn-rate" unit="rate" title={burnRateHoverTitle(burn)}>
-          {formatBurnRate(burn)}
-        </Figure>
-
-        <Rule />
-
-        {overheadGap ? (
-          <Missing unit="overhead" title="the conductor is not instrumented — see the gap below" />
-        ) : (
-          <Figure testId="burn-overhead" unit="overhead" title={overheadHoverTitle(burn)}>
-            {formatOverheadOrGap(burn)}
+        <Cell label="Errors">
+          <Figure
+            testId="burn-errors"
+            unit="err"
+            title={errorsHoverTitle(burn)}
+            alarm={errorCount(burn) > 0}
+          >
+            {errorCount(burn)}
           </Figure>
-        )}
-
-        <Rule />
-
-        <Figure
-          testId="burn-errors"
-          unit="err"
-          title={errorsHoverTitle(burn)}
-          alarm={errorCount(burn) > 0}
-        >
-          {errorCount(burn)}
-        </Figure>
+        </Cell>
       </div>
 
       {dollarsGap || overheadGap ? (
-        <div className="flex flex-col gap-0.5 border-t border-(--line-hair) px-4 pb-1.5 pt-1">
+        <div className="panel-card flex flex-col gap-1.5 px-4 py-2.5 text-inst">
+          <span className="heading shrink-0 text-needs-you">
+            <span className="figures">{gapCount}</span> Gap{gapCount === 1 ? '' : 's'}
+          </span>
           {dollarsGap ? (
             <GapVoice>
               <span data-testid="burn-dollars">
                 {NO_COST_FEED_LEAD}
-                <code className="select-all font-mono text-(--ink-body)">{COST_FEED_COMMAND}</code>
+                <code className="code-chip select-all font-mono text-notice">{COST_FEED_COMMAND}</code>
               </span>
             </GapVoice>
           ) : null}
@@ -157,33 +154,43 @@ export default function BurnStrip() {
   )
 }
 
+/** One metric's own bordered cell: a dim label above, the reading below. */
+function Cell({ label, children }: { label: string; children: ReactNode }): ReactNode {
+  return (
+    <div className="flex flex-col gap-1.5 px-4 py-3">
+      <span className="heading shrink-0 text-(--ink-dim)">{label}</span>
+      {children}
+    </div>
+  )
+}
+
 interface FigureProps {
   testId: string
   title: string
   /** The dim label after the number. A `$` figure is its own unit and takes none. */
   unit?: string
-  /** The headline. One per strip: the output figure prd2 says leads. */
-  lead?: boolean
   /**
    * #159 — the errors figure's own ink once its count is non-zero: `text-broken`,
    * the one ladder hue law 9a permits for "something is dead/erroring", already
-   * used everywhere else in the instrument for exactly this claim. Never set
-   * alongside `lead` — the two headlines don't compete for the same figure.
+   * used everywhere else in the instrument for exactly this claim.
    */
   alarm?: boolean
   children: ReactNode
 }
 
 /**
- * One reading. Mono with tabular numerals (law 11) and the brightest ink on the
- * bar; the unit beside it sits at the legibility floor (`--ink-dim`, prd9)
- * rather than the figure's own brightness, and outside the test-id, so what a
- * hover reports and what a test reads is the figure.
+ * One reading. Mono with tabular numerals (law 11), bold at the ramp's own
+ * reading-body size (S1's guard against a new pixel literal stays intact —
+ * the weight, not a bigger size, is what marks a filled cell now that each
+ * cell's own label above it carries the hierarchy size used to). The unit
+ * beside it sits at the legibility floor (`--ink-dim`, prd9) rather than the
+ * figure's own brightness, and outside the test-id, so what a hover reports
+ * and what a test reads is the figure.
  */
-function Figure({ testId, title, unit, lead, alarm, children }: FigureProps) {
-  const tone = lead === true ? 'text-read-body text-(--ink-primary)' : alarm === true ? 'text-read-floor text-broken' : 'text-read-floor text-(--ink-primary)'
+function Figure({ testId, title, unit, alarm, children }: FigureProps) {
+  const tone = alarm === true ? 'text-read-body font-bold text-broken' : 'text-read-body font-bold text-(--ink-primary)'
   return (
-    <span className="flex shrink-0 items-baseline gap-1">
+    <span className="flex shrink-0 items-baseline gap-1.5">
       {/*
         The hover sits on the *figure*, not on the group around it: ruling 11's
         "full precision on hover" is a promise about the number, and a title on
@@ -201,17 +208,18 @@ function Figure({ testId, title, unit, lead, alarm, children }: FigureProps) {
  * A reading that does not exist, holding its column.
  *
  * An em dash rather than a blank, and rather than closing the gap up: the row is
- * the same four columns whether or not today's fleet can fill them, so an
+ * the same five cells whether or not today's fleet can fill them, so an
  * operator who knows where the dollars sit keeps knowing. Never `$0.00`, and
- * never nothing at all — the sentence underneath says which of the two this is.
+ * never nothing at all — `short` names which kind of absence this is, in the
+ * cell itself, and the gap card below gives the whole sentence.
  */
-function Missing({ unit, title }: { unit: string; title: string }) {
+function Missing({ short, title }: { short: string; title: string }) {
   return (
-    <span className="flex shrink-0 items-baseline gap-1" title={title}>
-      <span className="figures text-read-floor text-(--ink-dim)" aria-hidden>
+    <span className="flex shrink-0 items-baseline gap-1.5" title={title}>
+      <span className="figures text-read-body font-bold text-(--ink-dim)" aria-hidden>
         —
       </span>
-      <Unit>{unit}</Unit>
+      <span className="text-read-floor text-(--ink-dim)">{short}</span>
     </span>
   )
 }
@@ -222,20 +230,14 @@ function Unit({ children }: { children: ReactNode }) {
   )
 }
 
-/** A hairline between two readings. Structure, not decoration — see the header. */
-function Rule() {
-  return <span aria-hidden className="h-3.5 w-px shrink-0 bg-(--line-hair)" />
-}
-
 /**
  * One gap voice: what is missing, why, and the command (law 12), set as the
- * subordinate register it is. `GAP` in front of it so the line is identifiable
- * as a class of statement rather than as a stray sentence.
+ * subordinate register it is. The card above already counts them, so a line
+ * here is just the sentence — no repeated `GAP` prefix.
  */
 function GapVoice({ children }: { children: ReactNode }) {
   return (
     <p className="flex min-w-0 items-baseline gap-2 text-read-floor leading-snug text-(--ink-dim)">
-      <span className="heading shrink-0 text-(--ink-dim)">Gap</span>
       {children}
     </p>
   )

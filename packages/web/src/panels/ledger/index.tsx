@@ -85,7 +85,7 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
           No branch spend recorded yet this session.
         </p>
       ) : (
-        <div className="mt-2 flex min-h-0 flex-1 flex-col gap-2 overflow-auto [scrollbar-gutter:stable]">
+        <div className="mt-2 flex flex-col gap-2">
           <p className="text-read-floor text-(--ink-dim)" data-testid="ledger-honesty">
             Dollars are notional on subscription plans — the real signal here is efficiency and
             rate-limit budget. Estimated dollars are flagged "est."; nothing here is invented.
@@ -93,7 +93,7 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
           <table className="w-full border-collapse text-left text-read-body">
             <thead>
               <tr className="text-inst-dense uppercase tracking-wider text-(--ink-dim)">
-                <th className="pb-1 pr-2 font-medium">Branch</th>
+                <th className="pb-1 pr-2 pl-2 font-medium">Branch</th>
                 <th className="pb-1 pr-2 font-medium">Status</th>
                 <th className="pb-1 pr-2 font-medium">Cost</th>
                 <th className="pb-1 pr-2 font-medium">Tokens</th>
@@ -120,9 +120,11 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
                   <Fragment key={row.branch}>
                     <tr
                       data-testid="ledger-row"
-                      className="border-t border-(--line-hair)/60"
+                      className={`border-t border-(--line-hair)/60 ${row.landed ? 'row-tint-done' : 'row-tint-working'}`}
                     >
-                      <td className="py-1.5 pr-2 font-mono text-(--ink-primary)">
+                      <td
+                        className={`py-1.5 pr-2 pl-2 font-mono text-(--ink-primary) ${row.landed ? 'cell-rule-done' : 'cell-rule-working'}`}
+                      >
                         {expandable ? (
                           <button
                             type="button"
@@ -270,7 +272,7 @@ function OpenLaneLink({ handle, label }: { handle: string; label: string }) {
       onClick={onClick}
       data-testid="ledger-row-open"
       aria-label={`Open ${label}'s page`}
-      className="focus-ring ml-1 rounded text-(--ink-dim) hover:text-(--ink-primary)"
+      className="focus-ring ml-1 rounded-none text-(--ink-dim) hover:text-(--ink-primary)"
     >
       ↗
     </a>
@@ -308,7 +310,7 @@ function ExemplarJumpButton({
         select(laneId)
         navigate(laneUrl(laneId))
       }}
-      className="focus-ring rounded border border-(--line-hair) px-1 text-inst-dense text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
+      className="focus-ring rounded-none border border-(--line-hair) px-1 text-inst-dense text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
     >
       ⇥ trace
     </button>

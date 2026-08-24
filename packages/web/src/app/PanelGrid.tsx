@@ -120,7 +120,7 @@ export const DOCK_TABS: readonly DockTab[] = [
 
 function PanelFallback() {
   return (
-    <div className="h-full min-h-32 animate-pulse rounded-lg border border-(--line-hair) bg-(--surface-panel)" />
+    <div className="min-h-32 animate-pulse rounded-none border border-(--line-hair) bg-(--surface-panel)" />
   )
 }
 
@@ -137,41 +137,44 @@ export function PanelGrid() {
   const onFocusChangeFor = (id: string) => (focused: boolean) => setFocusedId(focused ? id : null)
 
   /*
-   * A GRID OF TWO SHARES, NOT A SCROLLING COLUMN (walkthrough, 2026-08-17).
+   * THE HERO KEEPS A FLOOR, THE DOCK GROWS WITH THE PAGE (retuned live,
+   * 2026-08-24, at an operator's explicit request — reversing the walkthrough
+   * fix below on purpose, not by accident).
    *
-   * This was `flex flex-col gap-4 overflow-auto`, and at 164 lanes the fleet
-   * showed three rows. A flex column of freely-shrinkable children hands every
-   * pixel of pressure to whichever child has no floor — the fleet — and its own
-   * `overflow-auto` then clips it **silently** instead of pushing back. The
-   * scene's `min-h-[55vh]` was the only floor in the file, so the roster
-   * representation had none at all.
+   * History, so the reversal is legible later: this was once `flex flex-col
+   * gap-4 overflow-auto`, and at 164 lanes the fleet showed three rows. A flex
+   * column of freely-shrinkable children hands every pixel of pressure to
+   * whichever child has no floor, and that child's own `overflow-auto` then
+   * clips it **silently** instead of pushing back — nothing on screen said a
+   * single row was missing, let alone 161 of them. The fix was a bounded,
+   * symmetric two-share GRID (`minmax(0, 7fr)` / `minmax(0, 3fr)`, later
+   * retuned to 3:2) with `overflow-hidden` on the page, so neither side could
+   * silently starve the other and every panel scrolled inside its own fixed
+   * share instead.
    *
-   * Two explicit shares fix it at the source: `7fr` to the hero and `3fr` to
-   * the dock, with `minmax(0, …)` so a track can actually shrink to its share
-   * rather than inflating to its content (a bare `1fr` has an implicit
-   * `min-height: auto` and will not), and `overflow-hidden` here so the PAGE
-   * never scrolls — each panel scrolls inside its own share instead. Nothing is
-   * ever below a fold, because there is no fold.
+   * This asks for the opposite trade: the dock (spend/collisions/activity/
+   * trace) should show its whole table without an internal scrollbar, and the
+   * PAGE should grow and scroll instead. That is safe against the ORIGINAL
+   * bug specifically because nothing is silently clipped any more — every row
+   * is in the DOM and reachable by scrolling the document, which is the one
+   * property the walkthrough's fix was actually protecting. What changes is
+   * only the *mechanism*: document scroll instead of per-panel scroll.
    *
-   * 7:3 is prd4 ruling 2's hierarchy expressed as height: *who is alive* is
-   * the first-second question and gets the decisively larger share. It was
-   * 3:2, and at prd-32 S5's own primary size (1440×900) that left the scene
-   * host at ≈330px — BELOW the scene's own 420px zero-size fallback, so the
-   * picture was being rasterised at 420 and squashed ~21% by CSS on the
-   * default window. 7:3 puts the host at ≈398px at S5-primary and ≈524px
-   * maximized on a 1080p display, while the dock keeps ≈134px of content —
-   * above its own `min-h-32` floor, its tab strip plus a legible reading.
-   * 3:1 was rejected (a ~100px dock makes prd-32 S3's "every tab renders in
-   * every state" technically-true-only); the change is recorded in
-   * `docs/prds/done/prd-04-human-facing.md`'s amendment, per its own rule
-   * that the prose and the split move in the same commit.
+   * So: the hero keeps a bounded height (`minmax(420px, 55vh)` — 420px is the
+   * same floor `prd-04`'s own comment names as the scene's zero-size
+   * fallback, so the organism is never rasterised at a size CSS then
+   * squashes), and the dock's row is `auto` — sized to its content, uncapped.
+   * `PanelFrame`'s `h-full` on each still resolves correctly here: a
+   * percentage height inside a CSS Grid row resolves against that row's own
+   * computed size once the grid algorithm settles it, `auto` included, so
+   * nothing needs to change there.
    *
    * Collapsing either panel is unaffected: a collapsed `PanelFrame` is
    * `self-start`, so it takes its header's height and its share goes to the
    * other track.
    */
   return (
-    <div className="flex min-h-0 flex-col gap-2 overflow-hidden p-4">
+    <div className="flex flex-col gap-2 p-4">
       {/* prd19 ruling 1's "one quiet pointer from the empty balcony": a
           pointer, not an interstitial — every panel below still renders (and
           draws its own existing empty state) exactly as it does once a
@@ -182,7 +185,7 @@ export function PanelGrid() {
           from the fleet in order to say it. */}
       {foldIsEmpty ? <BalconyConnectPointer /> : null}
 
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,7fr)_minmax(0,3fr)] gap-(--space-gutter)">
+      <div className="grid grid-rows-[minmax(420px,55vh)_auto] gap-(--space-gutter)">
         {/* The centerpiece (prd4 ruling 2, merged by prd-36 ruling 1): "what is
             the fleet doing?" answered before anything else, hero-sized above
             the dock — as the organism or as the list, one keystroke apart. The
@@ -287,7 +290,7 @@ export function Dock() {
   return (
     <section
       data-panel="dock"
-      className="flex h-full min-h-0 flex-col rounded-lg border border-(--line-hair) bg-(--surface-panel)"
+      className="flex h-full flex-col rounded-none border border-(--line-hair) bg-(--surface-panel)"
     >
       <div
         role="tablist"
@@ -341,7 +344,7 @@ export function Dock() {
         id={dockPanelId(active.id)}
         aria-labelledby={`dock-tab-${active.id}`}
         data-dock-tab={active.id}
-        className="flex min-h-0 flex-1 flex-col overflow-hidden p-3"
+        className="flex flex-col p-3"
       >
         {/*
           S3's *error* state, and it is the one thing the dock adds that none of
@@ -401,7 +404,7 @@ function BalconyConnectPointer() {
       <a
         href="/connect"
         onClick={onClick}
-        className="focus-ring rounded text-(--ink-body) underline hover:text-(--ink-primary)"
+        className="focus-ring rounded-none text-(--ink-body) underline hover:text-(--ink-primary)"
       >
         Connect
       </a>

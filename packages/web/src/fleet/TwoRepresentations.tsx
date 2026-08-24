@@ -245,7 +245,7 @@ export function TwoRepresentations({ surface, views, heading, store }: TwoRepres
     <section
       data-surface={surface}
       data-representation={current.id}
-      className="flex h-full min-h-0 flex-col rounded-lg border border-(--line-hair) bg-(--surface-panel)"
+      className="flex h-full min-h-0 flex-col rounded-none border border-(--line-hair) bg-(--surface-panel)"
     >
       {/* py-1 rather than py-2: the header sits INSIDE the hero's share, so its
           padding is paid out of the scene — ~8px bought back for the picture
@@ -293,4 +293,4 @@ export function TwoRepresentations({ surface, views, heading, store }: TwoRepres
  * hand-rolled ring.
  */
 const TOGGLE_BUTTON =
-  'focus-ring rounded border border-(--line-hair) border-t-(--line-strong) bg-(--surface-panel)/70 px-2 py-0.5 text-inst-dense uppercase tracking-wide text-(--ink-dim) transition-[transform,color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-body) active:scale-[0.97]'
+  'focus-ring rounded-none border border-(--line-hair) border-t-(--line-strong) bg-(--surface-panel)/70 px-2 py-0.5 text-inst-dense uppercase tracking-wide text-(--ink-dim) transition-[transform,color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-body) active:scale-[0.97]'

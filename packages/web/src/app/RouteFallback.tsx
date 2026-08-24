@@ -20,7 +20,7 @@ import { BUTTON, BUTTON_PRIMARY } from '../ui/controls.js'
 export function RouteFallback({ route }: { route: string }): ReactElement {
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-4 bg-(--surface-floor) p-8 font-sans text-(--ink-body)">
-      <div className="w-full max-w-md rounded-plate border border-(--line-hair) bg-(--surface-panel) p-5 shadow-(--elev-raised)">
+      <div className="w-full max-w-md rounded-none border border-(--line-hair) bg-(--surface-panel) p-5 shadow-(--elev-raised)">
         <p className="page-title text-(--ink-primary)">this page failed to draw</p>
         <p className="mt-2 text-read-floor leading-relaxed">
           The <span className="figures">{route}</span> view hit an error while rendering. The fault is this

@@ -272,7 +272,7 @@ export function ConnectPage({
           type="button"
           data-testid="connect-back"
           onClick={() => navigate('/')}
-          className="shrink-0 rounded border border-(--line-strong) px-2 py-1 text-inst uppercase tracking-wider text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
+          className="shrink-0 rounded-none border border-(--line-strong) px-2 py-1 text-inst uppercase tracking-wider text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
         >
           ← balcony
         </button>
@@ -343,7 +343,7 @@ export function ConnectPage({
 function Provenance({ meta, provenance, isLive, port }: { meta: MetaFacts | null; provenance: string; isLive: boolean; port: string }) {
   const boot = meta?.boot
   return (
-    <section data-testid="connect-provenance" className="rounded border border-(--line-hair) bg-(--surface-panel) px-3 py-2 text-inst">
+    <section data-testid="connect-provenance" className="rounded-none border border-(--line-hair) bg-(--surface-panel) px-3 py-2 text-inst">
       {!isLive && (
         <p data-testid="connect-not-live" className="mb-1.5 text-read-floor text-notice">
           this checklist is reading {provenance} — not the live log. Nothing below is proof about this instrument's own
@@ -382,7 +382,7 @@ function LinkRow({ link, onCopy, children }: { link: ChainLink; onCopy: CopyText
   return (
     <li
       data-testid={`connect-link-${link.id}`}
-      className={`rounded border border-(--line-hair) border-l-2 bg-(--surface-panel) px-3 py-2 ${STATE_EDGE[link.state]}`}
+      className={`rounded-none border border-(--line-hair) border-l-2 bg-(--surface-panel) px-3 py-2 ${STATE_EDGE[link.state]}`}
     >
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span
@@ -543,14 +543,14 @@ function UninstrumentedSessions({
   const outcome = outcomes[current.sessionId]
 
   return (
-    <div className="mt-2 rounded border border-(--line-hair) bg-(--surface-floor) px-2 py-2">
+    <div className="mt-2 rounded-none border border-(--line-hair) bg-(--surface-floor) px-2 py-2">
       <label className="flex flex-wrap items-center gap-2 text-inst uppercase tracking-wider text-(--ink-dim)">
         <span>{sessions.length === 1 ? 'the session' : `${sessions.length} sessions`}</span>
         <select
           data-testid="connect-uninstrumented-select"
           value={current.sessionId}
           onChange={(event) => setChosen(event.target.value)}
-          className="max-w-full rounded border border-(--line-hair) bg-(--surface-floor) px-2 py-1 font-sans text-read-floor normal-case tracking-normal text-(--ink-primary)"
+          className="max-w-full rounded-none border border-(--line-hair) bg-(--surface-floor) px-2 py-1 font-sans text-read-floor normal-case tracking-normal text-(--ink-primary)"
         >
           {sessions.map((session) => (
             <option key={session.sessionId} value={session.sessionId}>
@@ -740,7 +740,7 @@ function CommandBlock({ id, command, warning, onCopy }: { id: string; command: s
               () => setCopied('failed'),
             )
           }}
-          className="rounded border border-(--line-strong) px-2 py-1 text-inst font-semibold uppercase tracking-[0.18em] text-(--ink-primary) hover:border-(--ink-dim) hover:bg-(--surface-raised)"
+          className="rounded-none border border-(--line-strong) px-2 py-1 text-inst font-semibold uppercase tracking-[0.18em] text-(--ink-primary) hover:border-(--ink-dim) hover:bg-(--surface-raised)"
         >
           Copy
         </button>
@@ -752,7 +752,7 @@ function CommandBlock({ id, command, warning, onCopy }: { id: string; command: s
       </div>
       <code
         data-testid={`connect-command-${id}`}
-        className="mt-1.5 block overflow-x-auto whitespace-pre rounded bg-(--surface-floor) px-2 py-1 font-mono text-inst text-(--ink-primary)"
+        className="mt-1.5 block overflow-x-auto whitespace-pre rounded-none bg-(--surface-floor) px-2 py-1 font-mono text-inst text-(--ink-primary)"
       >
         {command}
       </code>

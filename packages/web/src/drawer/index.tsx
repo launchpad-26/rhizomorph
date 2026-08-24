@@ -261,7 +261,7 @@ function OpenRunView({
         href={href}
         onClick={onClick}
         data-testid="drawer-open-page"
-        className="focus-ring inline-flex items-center rounded border border-(--line-strong) px-3 py-1.5 heading tracking-wider text-(--ink-body) transition-[color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-primary)"
+        className="focus-ring inline-flex items-center rounded-none border border-(--line-strong) px-3 py-1.5 heading tracking-wider text-(--ink-body) transition-[color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-primary)"
       >
         open {what} ↗
       </a>
@@ -309,7 +309,7 @@ function DrawerFrame({ selectedId, label, title, onClose, children }: DrawerFram
           data-testid="drawer-close"
           onClick={onClose}
           aria-label="Close the peek"
-          className="focus-ring shrink-0 rounded border border-(--line-strong) px-2 py-0.5 heading tracking-wider text-(--ink-dim) transition-[color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-primary)"
+          className="focus-ring shrink-0 rounded-none border border-(--line-strong) px-2 py-0.5 heading tracking-wider text-(--ink-dim) transition-[color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-primary)"
         >
           Esc
         </button>

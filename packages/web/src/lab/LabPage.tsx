@@ -171,7 +171,7 @@ function ExperimentPanel({ experiment }: { experiment: LabExperiment }) {
   const hasOutcome = experimentHasOutcome(experiment)
 
   return (
-    <div data-testid={`lab-experiment-${experiment.forkId}`} className="rounded border border-ice-850 p-3">
+    <div data-testid={`lab-experiment-${experiment.forkId}`} className="rounded-none border border-ice-850 p-3">
       <div className="mb-2 flex flex-wrap items-baseline gap-2 text-[12px]">
         <span className="text-ice-100">{experiment.forkId}</span>
         <span className="text-ice-400">
@@ -248,7 +248,7 @@ export function LabPage({ fetchImpl, launchFetchImpl }: LabPageProps = {}) {
           type="button"
           data-testid="lab-back"
           onClick={goBalcony}
-          className="shrink-0 rounded border border-ice-800 px-2 py-1 text-[10px] uppercase tracking-wider text-ice-400 hover:border-ice-600 hover:text-ice-100"
+          className="shrink-0 rounded-none border border-ice-800 px-2 py-1 text-[10px] uppercase tracking-wider text-ice-400 hover:border-ice-600 hover:text-ice-100"
         >
           ← balcony
         </button>

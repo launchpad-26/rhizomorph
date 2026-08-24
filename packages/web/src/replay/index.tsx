@@ -136,7 +136,7 @@ export default function ReplayControls() {
    * line the fleet's single `1fr` row gets back.
    */
   return (
-    <div className="flex flex-col gap-2 border-t border-(--line-hair) px-4 py-2 text-inst uppercase tracking-wide text-(--ink-dim)">
+    <div className="flex flex-col gap-1 border-t border-(--line-hair) px-4 py-1.5 text-inst uppercase tracking-wide text-(--ink-dim)">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="font-semibold tracking-widest text-(--ink-body)">Time</span>
         <span className="font-semibold text-(--ink-primary)">
@@ -148,7 +148,7 @@ export default function ReplayControls() {
           onClick={replayBirth}
           disabled={sessions.length === 0}
           title={sessions.length === 0 ? 'No recorded sessions yet' : "Replay this session's birth"}
-          className="rounded border border-(--line-strong) px-2 py-1 normal-case tracking-normal text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-50"
+          className="rounded-none border border-(--line-strong) px-2 py-1 normal-case tracking-normal text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-50"
         >
           {"Replay this session's birth"}
         </button>
@@ -183,7 +183,7 @@ export default function ReplayControls() {
           onClick={() => (playback.playing ? playback.pause() : playback.play())}
           disabled={!isReplaying}
           title={isReplaying ? undefined : 'Select a session first to enable playback'}
-          className="rounded border border-(--line-hair) px-2 py-1 hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-50"
+          className="rounded-none border border-(--line-hair) px-2 py-1 hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-50"
         >
           {playback.playing ? 'Pause' : 'Play'}
         </button>
@@ -196,7 +196,7 @@ export default function ReplayControls() {
               onClick={() => playback.setSpeed(speed)}
               disabled={!isReplaying}
               aria-pressed={playback.speed === speed}
-              className={`rounded border px-2 py-1 disabled:opacity-50 ${
+              className={`rounded-none border px-2 py-1 disabled:opacity-50 ${
                 playback.speed === speed
                   ? 'border-(--ink-dim) text-(--ink-primary)'
                   : 'border-(--line-hair) hover:border-(--ink-dim) hover:text-(--ink-primary)'
@@ -211,7 +211,7 @@ export default function ReplayControls() {
           type="button"
           onClick={() => selectSession(null)}
           disabled={!isReplaying}
-          className="rounded border border-(--line-hair) px-2 py-1 hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-50"
+          className="rounded-none border border-(--line-hair) px-2 py-1 hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-50"
         >
           Return to live
         </button>

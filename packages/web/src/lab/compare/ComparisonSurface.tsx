@@ -67,7 +67,7 @@ function claimDetail(claim: ComparisonClaim): string | null {
 
 function ArmPanel({ arm }: { arm: ArmSummary }) {
   return (
-    <div data-testid="arm-panel" className="rounded border border-ice-850 p-3">
+    <div data-testid="arm-panel" className="rounded-none border border-ice-850 p-3">
       <header className="mb-2 flex items-baseline justify-between gap-2">
         <span className="font-mono text-[11px] text-ice-100">{arm.model}</span>
         <span className="max-w-[60%] truncate text-[10px] text-ice-400" title={arm.brief}>

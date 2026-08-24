@@ -1,5 +1,8 @@
 import { lazy, Suspense } from 'react'
 import { ErrorBoundary } from '../app/ErrorBoundary.js'
+import { PARKED_TEXT_CLASS } from '../panels/fleet/format.js'
+import { formatTokens } from '../lib/format.js'
+import { useFleet, useSelection, formatSpan, stateTextClass, type Fleet, type Lane } from './index.js'
 import { TwoRepresentations } from './TwoRepresentations.js'
 
 /**
@@ -42,12 +45,33 @@ export function FleetSurface() {
   return (
     <TwoRepresentations
       surface="fleet"
-      heading={<h2 className="heading text-(--ink-dim)">Fleet</h2>}
+      heading={<FleetHeading />}
       views={[
         { id: 'organism', label: 'Organism', render: () => <Organism /> },
         { id: 'list', label: 'List', render: () => <List /> },
       ]}
     />
+  )
+}
+
+/** "Fleet" plus the one-line census the reference asks for — a fact already
+ * on the derived fleet object, never re-computed. */
+function FleetHeading() {
+  const fleet = useFleet()
+  const count = fleet.lanes.length
+  const census =
+    count === 0
+      ? null
+      : fleet.ladder.rank === 'calm'
+        ? `${count} lane${count === 1 ? '' : 's'} · all live`
+        : `${count} lane${count === 1 ? '' : 's'} · ${fleet.ladder.items.length} need attention`
+  return (
+    <div className="flex items-baseline gap-2">
+      <h2 className="heading text-(--ink-dim)">Fleet</h2>
+      {census === null ? null : (
+        <span className="text-read-floor text-(--ink-dim)">{census}</span>
+      )}
+    </div>
   )
 }
 
@@ -76,13 +100,106 @@ export function FleetSurface() {
  */
 function Organism() {
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <ErrorBoundary fallback={<CanvasFloor />}>
-        <Suspense fallback={<SceneFallback />}>
-          <Scene />
-        </Suspense>
-      </ErrorBoundary>
+    <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <ErrorBoundary fallback={<CanvasFloor />}>
+          <Suspense fallback={<SceneFallback />}>
+            <Scene />
+          </Suspense>
+        </ErrorBoundary>
+      </div>
+      <LanesRail />
     </div>
+  )
+}
+
+/**
+ * THE LANES RAIL — the organism's own legend, always present beside the
+ * picture rather than requiring the List toggle to name a lane. Reads the
+ * same derived fleet the scene draws, so a lane the picture shows is a lane
+ * this list shows (`FleetSurface.test.tsx`'s own claim, extended rather than
+ * risked: nothing here is a second fold of the log).
+ */
+function LanesRail() {
+  const fleet = useFleet()
+  const { selectedId, toggle } = useSelection()
+
+  return (
+    <aside
+      data-testid="fleet-lanes-rail"
+      className="flex w-56 shrink-0 flex-col border-l border-(--line-hair) bg-(--surface-panel)"
+    >
+      <h3 className="heading shrink-0 px-3 pt-2 text-(--ink-dim)">Lanes</h3>
+      <ul className="min-h-0 flex-1 overflow-auto px-2 py-1.5 [scrollbar-gutter:stable]">
+        {fleet.lanes.map((lane) => (
+          <LaneRailRow
+            key={lane.id}
+            lane={lane}
+            now={fleet.now}
+            selected={lane.id === selectedId}
+            onToggle={() => toggle(lane.id)}
+          />
+        ))}
+      </ul>
+      <LanesRailFooter fleet={fleet} />
+    </aside>
+  )
+}
+
+function LaneRailRow({
+  lane,
+  now,
+  selected,
+  onToggle,
+}: {
+  lane: Lane
+  now: number
+  selected: boolean
+  onToggle: () => void
+}) {
+  const stateClass = lane.parked ? PARKED_TEXT_CLASS : stateTextClass(lane.rank, lane.activity)
+  const ago = lane.lastEventTs === null ? null : formatSpan(now - lane.lastEventTs)
+
+  return (
+    <li>
+      <button
+        type="button"
+        data-testid="fleet-lanes-rail-row"
+        aria-pressed={selected}
+        onClick={onToggle}
+        className={`focus-ring flex w-full flex-col gap-0.5 rounded-none px-1.5 py-1.5 text-left ${
+          selected ? 'bg-(--surface-raised)' : 'hover:bg-(--surface-raised)'
+        }`}
+      >
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full bg-current ${stateClass}`} />
+          <span className="min-w-0 truncate font-mono text-read-floor text-(--ink-primary)">
+            {lane.label}
+          </span>
+        </span>
+        <span className="flex items-center justify-between gap-2 text-inst-dense text-(--ink-dim)">
+          <span className="figures">
+            {formatTokens(lane.outputTokens)} out{ago === null ? '' : ` · ${ago} ago`}
+          </span>
+          <span className={`uppercase tracking-wide ${stateClass}`}>{lane.activity}</span>
+        </span>
+      </button>
+    </li>
+  )
+}
+
+function LanesRailFooter({ fleet }: { fleet: Fleet }) {
+  const text =
+    fleet.lanes.length === 0
+      ? null
+      : fleet.ladder.rank === 'calm'
+        ? `Nothing is stuck. All ${fleet.lanes.length} lane${fleet.lanes.length === 1 ? '' : 's'} reported recently.`
+        : `${fleet.ladder.items.length} of ${fleet.lanes.length} lane${fleet.lanes.length === 1 ? '' : 's'} need attention.`
+  if (text === null) return null
+  return (
+    <p className="shrink-0 border-t border-(--line-hair) px-3 py-2 text-read-floor text-(--ink-dim)">
+      {text}
+    </p>
   )
 }
 
@@ -139,6 +256,6 @@ function SceneFallback() {
 
 function ListFallback() {
   return (
-    <div className="h-full min-h-32 animate-pulse rounded-lg border border-(--line-hair) bg-(--surface-panel)" />
+    <div className="h-full min-h-32 animate-pulse rounded-none border border-(--line-hair) bg-(--surface-panel)" />
   )
 }

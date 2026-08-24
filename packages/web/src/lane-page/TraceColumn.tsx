@@ -27,7 +27,7 @@ export function TraceColumn({ state, lane }: TraceColumnProps) {
           type="button"
           data-testid="lane-page-trace-toggle"
           onClick={() => setView((current) => (current === 'tree' ? 'gantt' : 'tree'))}
-          className="rounded border border-(--line-hair) px-2 py-0.5 text-inst-dense uppercase tracking-wide text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
+          className="rounded-none border border-(--line-hair) px-2 py-0.5 text-inst-dense uppercase tracking-wide text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
         >
           {view === 'tree' ? 'Gantt ↗' : 'Tree ↗'}
         </button>

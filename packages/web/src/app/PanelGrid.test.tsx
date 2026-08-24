@@ -509,53 +509,49 @@ describe('PanelGrid', () => {
 
   /**
    * THE WALKTHROUGH'S SECOND FINDING (2026-08-17) — a human read the running
-   * instrument at 164 lanes and the fleet showed three rows.
+   * instrument at 164 lanes and the fleet showed three rows. The fix was a
+   * bounded, symmetric two-share grid where every panel scrolled inside its
+   * own fixed share and the page never scrolled at all.
+   *
+   * **Retuned live (2026-08-24) at an operator's explicit request**, in the
+   * opposite direction: the dock's table should show in full, with no
+   * internal scrollbar, and the PAGE grows and scrolls instead. This is a
+   * deliberate reversal of "the page never scrolls", not a regression of the
+   * walkthrough's bug — the property that actually matters (nothing is
+   * silently clipped; every row is reachable) still holds, just through
+   * document scroll instead of per-panel scroll. The hero keeps a bounded
+   * floor (`minmax(420px, 55vh)` — 420px is the scene's own zero-size
+   * fallback) so the canvas is never squashed; the dock's row is `auto`.
    *
    * jsdom has no layout engine, so no test here can measure a rendered height.
-   * What it CAN pin is the mechanism, and the mechanism is the whole bug: a
-   * flex column of freely-shrinkable children with one `min-h-[55vh]` floor on
-   * the scene handed every pixel of pressure to the roster, whose own
-   * `overflow-auto` clipped it silently instead of pushing back.
-   *
-   * So these assert the three structural facts that make clipping impossible,
-   * each of which was false before this commit — and the last one asserts the
-   * absence of the floor that caused it, which is the only form the fix's
-   * central claim can take without a browser.
+   * What it CAN pin is the mechanism.
    */
-  describe('the fleet is not clipped at rest (prd4 ruling 2, amended 2026-08-17)', () => {
+  describe('the dock grows with its content (prd4 ruling 2, amended 2026-08-17, retuned 2026-08-24)', () => {
     function grid(container: HTMLElement): HTMLElement {
       return container.querySelector('[data-panel="dock"]')?.closest('.grid') as HTMLElement
     }
 
-    it('divides the row into two explicit shares rather than letting one absorb the pressure', async () => {
+    it('gives the hero a bounded floor and the dock an unbounded, content-sized row', async () => {
       const { container } = await renderGrid()
 
-      // 7fr to the hero, 3fr to the dock: prd4 ruling 2's hierarchy expressed
-      // as height rather than as a floor on one representation. (3:2 left the
-      // hero's scene host BELOW its own 420px zero-size fallback at S5's
-      // primary window size — the picture was squashed ~21% by default.)
-      expect(grid(container).className).toContain('grid-rows-[minmax(0,7fr)_minmax(0,3fr)]')
+      // `minmax(420px, 55vh)` to the hero — bounded both ways, so the canvas
+      // is never squashed below its own zero-size fallback — and `auto` to
+      // the dock, so its row is exactly as tall as its content and never
+      // clips it.
+      expect(grid(container).className).toContain('grid-rows-[minmax(420px,55vh)_auto]')
     })
 
-    it('uses minmax(0, …) so a track can shrink to its share rather than inflate to its content', async () => {
-      // The subtlety that makes a bare `1fr` wrong here: a grid track has an
-      // implicit `min-height: auto`, so `1fr` never shrinks below its content
-      // and a 164-row table would push its own track past the viewport,
-      // dragging the dock off-screen instead of scrolling inside itself.
+    it('does not force the dock into a fixed share it must then scroll inside', async () => {
       const { container } = await renderGrid()
-      expect(grid(container).className).not.toMatch(/grid-rows-\[\d+fr/)
-      expect(grid(container).className).toContain('minmax(0,')
-    })
+      const dockSection = container.querySelector('[data-panel="dock"]') as HTMLElement
+      const tabpanel = dockSection.querySelector('[role="tabpanel"]') as HTMLElement
 
-    it('does not scroll the page — each panel scrolls inside its own share', async () => {
-      const { container } = await renderGrid()
-      const outer = container.querySelector('.flex.min-h-0.flex-col') as HTMLElement
-
-      // `overflow-auto` here was how 161 of 164 lanes went missing without the
-      // instrument saying a word: the column scrolled, the fleet's own
-      // container clipped, and nothing pushed back.
-      expect(outer.className).toContain('overflow-hidden')
-      expect(outer.className).not.toContain('overflow-auto')
+      // The old shape — `flex-1 overflow-hidden`/`overflow-auto` stacked from
+      // the grid down through the tabpanel to each tab's own list — is gone
+      // at every link in that chain; content now determines height instead of
+      // being clipped to a share of the viewport.
+      expect(tabpanel.className).not.toContain('overflow-hidden')
+      expect(tabpanel.className).not.toContain('flex-1')
     })
 
     it('grants no representation a height floor another cannot have', async () => {

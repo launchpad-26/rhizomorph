@@ -63,7 +63,7 @@ export default function CollisionsPanel() {
     // and its tab strip names this surface, so a second copy of either would be
     // the duplication prd-32 ruling 5 is against — one thing, one name, one
     // edge. Everything else about the panel is untouched.
-    <section data-panel="collisions" className="flex h-full min-h-0 flex-col">
+    <section data-panel="collisions" className="flex h-full flex-col">
 
       {!connected ? (
         <p className="mt-2 text-read-body text-(--ink-dim)">Waiting for the stream…</p>
@@ -82,7 +82,7 @@ export default function CollisionsPanel() {
                     // "your keyboard is here" the same amber — so the summons
                     // hue meant two things on the one surface that shows
                     // nothing but summonses. It goes first for that reason.
-                    className="focus-ring figures flex w-full items-center gap-2 truncate rounded px-2 py-1 text-left text-needs-you hover:bg-(--surface-raised)"
+                    className="focus-ring figures flex w-full items-center gap-2 truncate rounded-none px-2 py-1 text-left text-needs-you hover:bg-(--surface-raised)"
                   >
                     <span aria-hidden>●</span>
                     <span className="truncate">{formatPairEvidence(pair)}</span>
@@ -97,7 +97,7 @@ export default function CollisionsPanel() {
           )}
 
           {hasData ? (
-            <div className="mt-2 flex-1 overflow-auto [scrollbar-gutter:stable]">
+            <div className="mt-2">
               <table className="w-full min-w-max border-collapse text-left text-inst">
                 <thead>
                   <tr>
@@ -189,7 +189,7 @@ function OpenBranchLink({ branch }: { branch: string }) {
       href={laneUrl(branch)}
       onClick={onClick}
       data-testid="collisions-open-lane"
-      className="focus-ring rounded text-inherit hover:text-(--ink-primary)"
+      className="focus-ring rounded-none text-inherit hover:text-(--ink-primary)"
     >
       {shortenBranch(branch)}
     </a>

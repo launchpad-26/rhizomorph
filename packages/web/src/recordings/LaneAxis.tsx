@@ -87,7 +87,7 @@ function LaneRow({ lane }: { lane: LaneIndexRow }) {
             event.preventDefault()
             navigate(href)
           }}
-          className="focus-ring rounded font-mono text-(--ink-body) underline hover:text-(--ink-primary)"
+          className="focus-ring rounded-none font-mono text-(--ink-body) underline hover:text-(--ink-primary)"
         >
           {lane.handle}
         </a>

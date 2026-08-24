@@ -71,7 +71,7 @@ export function SearchField({ surface }: SearchFieldProps) {
           event.stopPropagation()
           setSessionQuery('')
         }}
-        className="focus-ring w-44 rounded border border-(--line-hair) bg-(--surface-floor) px-2 py-0.5 text-inst text-(--ink-body) placeholder:text-(--ink-dim)"
+        className="focus-ring w-44 rounded-none border border-(--line-hair) bg-(--surface-floor) px-2 py-0.5 text-inst text-(--ink-body) placeholder:text-(--ink-dim)"
       />
       {query === '' ? null : (
         <button
@@ -79,7 +79,7 @@ export function SearchField({ surface }: SearchFieldProps) {
           data-testid={`session-search-clear-${surface}`}
           onClick={() => setSessionQuery('')}
           aria-label="Clear the session search"
-          className="focus-ring rounded border border-(--line-strong) px-1.5 py-0.5 heading tracking-wide text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
+          className="focus-ring rounded-none border border-(--line-strong) px-1.5 py-0.5 heading tracking-wide text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
         >
           clear
         </button>

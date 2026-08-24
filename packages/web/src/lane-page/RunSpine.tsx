@@ -50,7 +50,7 @@ function SpineRow({ session, timeZone }: { session: SpineSession; timeZone?: str
       data-session={session.sessionId}
       data-loaded={session.loaded}
       data-recording-present={session.gap === null}
-      className={`rounded border border-(--surface-line) bg-(--surface-panel) px-2 py-1.5 ${kindEdgeClass('run')}`}
+      className={`rounded-none border border-(--surface-line) bg-(--surface-panel) px-2 py-1.5 ${kindEdgeClass('run')}`}
     >
       <header className="flex flex-wrap items-baseline gap-x-2">
         <span data-testid="run-spine-session-id" className="figures text-inst text-(--ink-primary)">

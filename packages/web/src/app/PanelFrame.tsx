@@ -79,7 +79,7 @@ export interface PanelFrameProps {
  * a second vocabulary for "this control is currently changing what you see".
  */
 export const CHROME_BUTTON =
-  'focus-ring rounded border border-(--line-hair) border-t-(--line-strong) bg-(--surface-panel)/70 px-2 py-0.5 heading tracking-wide text-(--ink-dim) transition-[transform,color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-body) active:scale-[0.97]'
+  'focus-ring rounded-none border border-(--line-hair) border-t-(--line-strong) bg-(--surface-panel)/70 px-2 py-0.5 heading tracking-wide text-(--ink-dim) transition-[transform,color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-body) active:scale-[0.97]'
 
 export function PanelFrame({
   id,

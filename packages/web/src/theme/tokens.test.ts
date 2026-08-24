@@ -756,9 +756,10 @@ describe('every declared material is consumed', () => {
 describe('stacking, speed and shadow come from the theme', () => {
   const appSources = () => sourceFiles().filter((file) => /\.tsx?$/.test(file.name))
 
-  it('no raw z-index utility outside the five-rung ladder', () => {
-    // z-(--z-sticky) 10 · z-(--z-focus) 30 · z-(--z-peek) 40 · z-(--z-card) 50
-    // · z-(--z-plate) 60. An eleventh-hour `z-[9999]` is a fight, not a rung.
+  it('no raw z-index utility outside the six-rung ladder', () => {
+    // z-(--z-sticky) 10 · z-(--z-header) 20 · z-(--z-focus) 30 ·
+    // z-(--z-peek) 40 · z-(--z-card) 50 · z-(--z-plate) 60. An eleventh-hour
+    // `z-[9999]` is a fight, not a rung.
     const offenders = appSources().filter((file) => /z-(\d|\[)/.test(withoutComments(file.text)))
     expect(offenders.map((file) => file.name), 'a raw z-index utility — use the z ladder').toEqual([])
   })
