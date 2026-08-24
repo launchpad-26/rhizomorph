@@ -233,6 +233,14 @@ forms the hand needs. #358's harness registry is the mechanism that closes it
 from a request, the promise becomes true by construction. Named here, and in
 the law's own module comment, rather than left implied.
 
+> **Amendment — the registry landed (2026-08-24).** The mechanism named above
+> exists: `packages/server/src/concierge/harness/` holds the adapter contract
+> (`types.ts`), the implemented `claude.ts` and `codex.ts`, `detect.ts`,
+> `not-implemented.ts` for the declared-but-unbuilt dialects, and
+> `harness-law.test.ts`. A launch's executable comes from the adapter rather than
+> from a request, which is the condition this consequence set for its own closure.
+> The clause's regexes are unchanged — they were never the mechanism.
+
 **Neutral — one open question stays open.** prd-20 does not rule where cloned
 repos live. The fence is therefore expressed relative to a clone root its caller
 supplies, not a hard-coded default, so answering the question later sets an

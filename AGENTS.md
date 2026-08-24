@@ -67,17 +67,36 @@ fields that are easy to get wrong by hand.
 
 ```
 scripts/dev/issues.sh list                    # open issues: WHEN / PRIO / TYPE / STATUS
-scripts/dev/issues.sh when     <n> now|soon|later
-scripts/dev/issues.sh priority <n> urgent|high|medium|low
-scripts/dev/issues.sh type     <n> bug|feature|task
-scripts/dev/issues.sh status   <n> backlog|ready|in-progress|in-review|done
+scripts/dev/issues.sh show     <n>            # one issue: body, comments, and its board row
+scripts/dev/issues.sh when     <n>... now|soon|later
+scripts/dev/issues.sh priority <n>... urgent|high|medium|low
+scripts/dev/issues.sh type     <n>... bug|feature|task
+scripts/dev/issues.sh status   <n>... backlog|ready|in-progress|in-review|done
+scripts/dev/issues.sh batch                   # '<issue> <when> <status> [priority] [type]' lines on stdin
 scripts/dev/issues.sh close    <n> "reason"   # a reason is required
 scripts/dev/issues.sh orphans                 # open issues missing from the board
 scripts/dev/issues.sh ids                     # field/option ids, for debugging
 ```
 
-`issues.sh show` is currently broken (#362) — `gh`'s default issue view still
-queries Projects classic. Use `gh issue view <n>` until that lands.
+The four setters take **one or more issues, with the value last** —
+`when 548 549 550 now`, never `when now 548 549`. Which argument is which is
+checked rather than assumed (`split_targets`, `scripts/dev/issues.sh:467`): every
+issue argument must be a bare number and the value must not be, so a transposed
+call dies with "the value goes last, not first" instead of quietly writing
+Timeline `548` onto an issue called `now`.
+
+For a whole groomed wave, `batch` is the bulk path: it resolves the board and the
+field ids **once** rather than per field per issue, does every read before the
+first write (a truncated board aborts with nothing written), and one bad line
+does not abandon the rest — the failures are re-listed at the end with a non-zero
+exit.
+
+`show` renders one issue's body, comments and board row in a single command.
+`#362` recorded it failing through `gh`'s default issue view, which still asks
+for `repository.issue.projectCards` (Projects classic); `cmd_show` passes an
+explicit `--json` field list, so the query never mentions Projects classic, and
+it matches the board row on the `#<n>` token rather than a fixed column that
+"In progress" shifted by one.
 
 Four things the script exists to hide, each of which cost a wrong guess once:
 
@@ -132,6 +151,17 @@ depend on wave *N*; nothing within a wave depends on anything else in it.
 Every issue declares the files it may touch (its **fence**). The gate audits it.
 Widening a fence is legitimate and common; record it **on the PR before making
 the change**, never after.
+
+The gate audits a fence at *landing*, which is late: the one check that catches a
+bad fence before anyone is dispatched onto it is
+`scripts/fence-lint.sh <issue-number>...`, run over the whole wave. Three checks,
+each learned from a real failure: a **vague** fence — one that delegates the
+boundary to the worker ("touch the minimum shared surface", "if needed") — hard
+fails, because the worker then edits a shared file nobody fenced and the landing
+gate rejects work that was actually correct; an **overlap**, two issues claiming
+the same path, hard fails, because it is a rebase conflict already scheduled; and
+a **gap**, a coupling point listed in `.swarm/coupling.txt` that no fence owns,
+warns, since whether any issue in this wave can reach it is a judgement call.
 
 ### What the fields mean
 
@@ -272,12 +302,30 @@ Two failures worth knowing, because both actually happened (#649):
 
 ## Landing — the operator's step, and nobody else's
 
-`scripts/gate.sh <handle> <fence-regex>` is **not a pre-push check**. Running it
-*is* the landing. It blocks rather than reports —
-`rebase → fence audit → nothing stranded → typecheck → suite`, every check
-exiting non-zero on failure — and then, once green, it **merges the branch into
-local `main`** (`gate.sh:172`), runs `npm install` and `npm run build` against
-the merged result, and ends with **`git push origin main`** (`gate.sh:177`).
+`scripts/gate.sh <handle> <fence-regex> [load-batches]` is **not a pre-push
+check**. Running it *is* the landing. It blocks rather than reports —
+`rebase → base-ancestor assert → fence audit → commits exist → nothing stranded →
+NUL-byte guard → suite → typecheck`, every check exiting non-zero on failure —
+and then, once green, it merges the branch into local `main`, runs `npm install`
+and `npm run build` against the merged result, and finishes by pushing that
+merged `main` to `origin`.
+
+Exactly one step in that sequence is deliberately non-fatal: **the final push**.
+Every earlier check exits non-zero on failure — but *what* a failure holds moves
+with the merge. A check that fails **before** the merge holds the merge: nothing
+landed and the lane still has the work. The two that run **after** it
+(`npm install`, `npm run build`) hold the *push*: local `main` already carries
+the merge and the lane's branch and worktree are already gone, so recovery there
+is to fix forward on `main`, never to go back to the lane. The gate says which
+side of the merge it failed on, and that sentence is the one to read first.
+
+The push alone is allowed to fail loudly and let the landing stand anyway,
+because an offline operator must still be able to land — a merge that cannot
+reach `origin` yet is still a merge, and refusing to keep it on `main` locally
+would throw away real work over a network problem rather than a bad change.
+That exemption belongs to the push, and only the push; no other step in the
+script inherits it. Do not read it as license to treat the rest of the gate as
+advisory too.
 
 That last third used to be missing from this section, which described the
 command under a heading that read as "the thing you run before pushing". On
@@ -290,21 +338,44 @@ So: the operator runs it. A lane never does, and never needs to — the three
 commands above are what a lane's work is gated on, and the operator's review is
 what everything else is gated on.
 
-CI runs `test`, `typecheck`, `lint`, a packaging guard, and a boot smoke across
-ubuntu + macOS. The macOS leg is the one that carries signal for path-shape bugs
-— `os.tmpdir()` is a symlink there (`/var` → `/private/var`) and is not on Linux,
-so a raw-vs-canonical path comparison passes vacuously on ubuntu and fails only
-on macOS.
+The third argument is the one this section used not to name. `[load-batches]` is
+a batch count, and the script's own comment calls it **mandatory for anything
+touching tests** (`scripts/gate.sh:91`) — a suite green 8/8 quietly has failed
+67% at 4x concurrency. Given one, the gate runs the suite four times at once per
+batch with each run's worker pool bounded (`--maxWorkers=5`, so the probe measures
+the suite and not the scheduler), and then runs the timing tests **alone,
+serially, once** — the only condition under which a wall-clock assertion means
+anything at all. The timing set is derived rather than listed: a file opts in with
+a `// @gate-timing` marker or a `*.bench.test.ts` name (#209), and a pass that
+matches zero files fails loudly, because the failure it exists to prevent is a
+renamed timing test dropping out of the serial pass and running under load with
+nothing going red. Omit the argument on a branch that touched tests and none of
+that runs; the landing is green on the friendlier condition.
 
-If the `Test` step fails, **every later step on that leg is skipped** — typecheck,
-lint, packaging and boot smoke silently do not run. A red leg is therefore worth
-more than one failing test; check `gh run list --branch main` before assuming a
-gate has been enforcing anything.
+CI runs `build`, `test`, `typecheck`, `lint`, a packaging guard, and a boot smoke
+across ubuntu + macOS, at the current node and the declared minimum (the
+macOS × min-node leg is excluded — `macos-latest` bills 10x). A **second job**,
+`pack-smoke` (`.github/workflows/ci.yml:166`), packs the tarball, installs it into
+a project that has never heard of this checkout, and runs the CLI from those
+installed files, on the full 2×2 grid. So the checklist to compare
+`gh pr checks <N>` against is two jobs long, not one. The macOS leg is the one
+that carries signal for path-shape bugs — `os.tmpdir()` is a symlink there
+(`/var` → `/private/var`) and is not on Linux, so a raw-vs-canonical path
+comparison passes vacuously on ubuntu and fails only on macOS.
+
+`Build` runs **before** `Test` (`ci.yml:60`), and a failing step skips every later
+step on its leg: if `Test` fails, typecheck, lint, packaging and boot smoke
+silently do not run. A red leg is therefore worth more than one failing test;
+check `gh run list --branch main` before assuming a gate has been enforcing
+anything.
 
 CI is 3.5–4 minutes, against a 21-hour queue. **It is not the bottleneck — do
 not optimise it for throughput.** The valuable CI direction is coverage, not
-speed: the `windows-latest` leg (prd-25) is a real gap, since a built clone
-could not boot on Windows at all until `#281`.
+speed: the `windows-latest` leg **in `ci.yml`** (prd-25) is a real gap, since a
+built clone could not boot on Windows at all until `#281`. The only Windows
+runner anywhere in `.github/workflows/` today is `desktop.yml:40`, the
+installer-packaging leg — so Windows is covered for desktop packaging and absent
+from the test / typecheck / lint / boot grid entirely.
 
 ---
 

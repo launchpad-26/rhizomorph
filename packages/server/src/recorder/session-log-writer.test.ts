@@ -1,9 +1,36 @@
 import { access, chmod, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import type * as FsPromisesModule from 'node:fs/promises'
 import { platform, tmpdir } from 'node:os'
 import path from 'node:path'
 import { createEvent } from '@rhizomorph/core'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionLogWriter } from './session-log-writer.js'
+
+/**
+ * prd44 ruling 2's laws need to see every real `open`/`close` the writer
+ * issues, without a wall clock. `vi.mock`'s hoisting means the counters have
+ * to be declared through `vi.hoisted` — a plain module-scope `const` here
+ * would be read before it's initialised once Vitest hoists this call above
+ * the imports.
+ */
+const handleCounts = vi.hoisted(() => ({ opens: 0, closes: 0 }))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof FsPromisesModule>()
+  return {
+    ...actual,
+    open: (async (...args: Parameters<typeof actual.open>) => {
+      handleCounts.opens += 1
+      const handle = await actual.open(...args)
+      const originalClose = handle.close.bind(handle)
+      handle.close = async () => {
+        handleCounts.closes += 1
+        return originalClose()
+      }
+      return handle
+    }) as typeof actual.open,
+  }
+})
 
 /**
  * The two properties the recorder seam added to the writer, both in service of
@@ -94,6 +121,54 @@ describe('SessionLogWriter', () => {
     const writer = new SessionLogWriter(path.join(blocked, 'session-1.jsonl'))
 
     await expect(writer.append(errorEvent('evt-1', 1))).rejects.toThrow()
+  })
+
+  describe('one open per session, not once per event (prd44 ruling 2)', () => {
+    beforeEach(() => {
+      handleCounts.opens = 0
+      handleCounts.closes = 0
+    })
+
+    it('opens the file once no matter how many events are appended before the first sync()', async () => {
+      const filePath = path.join(dir, 'session-1.jsonl')
+      const writer = new SessionLogWriter(filePath)
+
+      for (let i = 0; i < 50; i += 1) {
+        await writer.append(errorEvent(`evt-${i}`, i))
+      }
+
+      expect(handleCounts.opens).toBe(1)
+    })
+
+    it('closes the held descriptor on sync() and reopens exactly once per append/sync cycle after — no descriptor survives a rotation', async () => {
+      const filePath = path.join(dir, 'session-1.jsonl')
+      const writer = new SessionLogWriter(filePath)
+
+      for (let cycle = 0; cycle < 5; cycle += 1) {
+        await writer.append(errorEvent(`evt-${cycle}`, cycle))
+        await writer.sync()
+      }
+
+      expect(handleCounts.opens).toBe(5)
+      expect(handleCounts.closes).toBe(5)
+    })
+
+    it('an append issued after sync() reopens the file rather than writing into a released handle', async () => {
+      const filePath = path.join(dir, 'session-1.jsonl')
+      const writer = new SessionLogWriter(filePath)
+
+      await writer.append(errorEvent('evt-1', 1))
+      await writer.sync()
+      await writer.append(errorEvent('evt-2', 2))
+      await writer.sync()
+
+      const ids = (await readFile(filePath, 'utf8'))
+        .trimEnd()
+        .split('\n')
+        .map((line) => (JSON.parse(line) as { id: string }).id)
+      expect(ids).toEqual(['evt-1', 'evt-2'])
+      expect(handleCounts.opens).toBe(2)
+    })
   })
 
   describe('secure permissions (2026-08-06 audit)', () => {

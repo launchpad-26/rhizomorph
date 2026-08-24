@@ -65,7 +65,8 @@ cross-machine conductor case. If you never do, the app doesn't pretend to
 know the cost — it says so, and every other signal (liveness, activity,
 tokens) keeps working.
 
-A related gap you may see on the conductor's own row/drawer specifically:
+A related gap you may see on the conductor's own row, peek and run view
+specifically:
 
 ```
 CONDUCTOR NOT INSTRUMENTED — overhead ratio unknowable
@@ -134,9 +135,11 @@ is still on disk (`rhizomorph sessions .` lists both).
 
 ## Why is my lane's conversation empty
 
-The drawer's Conversation tab (or the conductor's own drawer on the
-root-mass) says exactly which of these it is, rather than showing a blank
-pane:
+The run view's conversation — `/lane/<handle>`, or `/lane/main` for the
+conductor — says exactly which of these it is, rather than showing a blank
+pane. Since #562 the peek makes no transcript request at all, so these lines
+live only at that address (see
+[watching.md](watching.md#the-run-view)):
 
 - **`CONDUCTOR NOT INSTRUMENTED`** — nothing in this session's event log was
   recorded against `role: conductor` at all. Fix: `rhizomorph
@@ -152,16 +155,25 @@ pane:
   session is concerned, the lane doesn't exist.
 
 The most common root cause behind the first two: no Claude Code session logs
-were found for this repo in the first place —
+were found *for this repo* in the first place. Since #288 the check says
+which of the two absences it actually found, because they call for different
+things —
 
 ```
-[warn] no Claude Code session logs at ~/.claude/projects — per-agent history
-stays empty until `claude` has run at least once here (or point elsewhere
-with --extra-sessions)
+[warn] no Claude Code session log dir for this repo at
+~/.claude/projects/<repo-slug> — the global root at ~/.claude/projects exists
+— Claude Code has been used for other repos, just not this one — per-agent
+history stays empty until `claude` has run at least once here (or point
+elsewhere with --extra-sessions)
 ```
 
-— i.e. the agent needs to have actually run at least once in that worktree
-before there's anything to tail.
+The middle clause is the one to read. *"The global root exists — just not
+this one"* means the agent has simply never run in this worktree, so run it
+there and the history fills in. `no Claude Code session logs exist anywhere
+at ~/.claude/projects either` is the other case: Claude Code has not run on
+this machine at all. And a slug dir that exists but is empty says exactly
+that instead — `a session log dir for this repo exists at <dir> but has no
+*.jsonl files yet` — which is a repo that was opened and never worked in.
 
 ## No lane manifest (off-fence detection unavailable)
 

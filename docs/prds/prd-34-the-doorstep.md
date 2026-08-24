@@ -4,8 +4,10 @@
 > first-run demonstration/configuration, three-platform installer workflow, signing switch and
 > update gate exist. Signing and a real update feed are deliberately deferred by ruling 9; a
 > measured real-Windows first run and release decision remain. prd-43 issue #21 owns the
-> repository/install identity correction, not this acceptance. Reconciled in depth 2026-08-22 at
-> `03df141`; see `retained-prds-review-2026-08-22.md`.
+> repository/install identity correction, not this acceptance. Rulings 1–9 accepted and
+> Success 3 reconciled with ruling 9 by the 2026-08-24 amendment; release acceptance parked
+> behind release intent. Reconciled in depth 2026-08-22 at `03df141`; see
+> `retained-prds-review-2026-08-22.md`.
 >
 > **Kind: specifying** (`docs/prds/README.md`) — stage 1 of the staged ship, deliberately outside the metamorphosis:
 > zero constitutional change, packaging only. Sources:
@@ -93,7 +95,8 @@ research spike already did the comparative work and its grades stand.
 
 ## Rulings
 
-Each is a **proposed** verdict with its reasoning; no operator has ruled on any of them.
+Rulings 1–9 below were written as proposals; the operator ruled them accepted 2026-08-24 —
+see the amendment, which also reconciles Success 3 with ruling 9.
 
 ## Ruling 1 — Electron, on the JupyterLab Desktop blueprint; the server and SPA ship unmodified
 
@@ -283,3 +286,24 @@ tray lifecycle; the signing pipeline and its two accounts; the wizard.
   reason. Open, not ruled.
 - **Where the shell's own settings live** (run-on-login, update cadence) — tray menu or a
   settings disclosure in chrome; the charter governs either. Open, not ruled.
+
+## Amendment — release readiness, and Success 3 stops being impossible (operator, 2026-08-24)
+
+Ruled on the retained-PRDs review's recommendation, against the tree at `9a26030`. Rulings
+1–9 are accepted — 1–8 record what the tree already ships (shell, tray, first-run, no-fork
+and badge laws, three-platform installer workflow, updater gating), and 9 is the argued
+deferral it always was.
+
+**Success 3 is amended, because ruling 9 made it permanently unmeetable as written.** Its
+falsifier — "an unsigned binary greets SmartScreen or Gatekeeper" — names the exact state
+ruling 9 rules *intended* for every current build. The criterion now binds at signing
+activation, not before: while ruling 9's deferral stands, Success 3 reads "the update gate
+tells the truth about why updates are unavailable" (`update-gate.ts`'s `UNAVAILABLE_REASON`
+already does), and the original signed-and-on-by-default bar is the acceptance test for the
+release that funds signing — not a standing falsifier against a ruled state.
+
+**This PRD is reclassified as release readiness.** Nothing rebuilds the shell, tray,
+first-run or installer workflow. What remains is deliberately parked behind actual release
+intent: the measured real-Windows stranger-run (Success 1's N — a human acceptance act),
+confirmation that the workflow's artifacts complete that run on a real machine, and the
+signing/feed/channel decisions. None of it claims backlog space until a release is planned.

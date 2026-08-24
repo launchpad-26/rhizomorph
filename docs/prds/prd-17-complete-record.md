@@ -1,8 +1,10 @@
 # prd17 — the complete record: the instrument's judgements and the operator's decisions join the log
 
-> **Outcome:** partially shipped — ruling 3 landed (four of five laws); the event families,
-> beacon ingestion and timeline dividend in rulings 1, 2 and 4 have not. Ruling 3's fold-order
-> law remains unruled. Reconciled 2026-08-22 at `03df141`.
+> **Outcome:** partially shipped — ruling 3 landed, all five laws: the fold-order law was
+> ruled on #205 (append order is the truth) and replay honours it. The event families,
+> beacon ingestion and timeline dividend in rulings 1, 2 and 4 have not landed; the beacon
+> doorway is now shared with prd-27 by the 2026-08-24 amendment. Reconciled 2026-08-22 at
+> `03df141`.
 
 **STATUS: BLESSED** — operator, 2026-08-06, on the council's unanimous master
 finding (`docs/research/2026-08-06-council/synthesis.md`): *the causal record
@@ -24,8 +26,9 @@ side effects. An unrecognised event line from a newer emitter is **counted and
 voiced**, never dropped, and a recording folded today matches its committed
 snapshot byte for byte.
 
-Partially met: the integrity laws landed; the event families and the timeline
-dividend have not. The fold-order law remains UNRULED (#205).
+Partially met: the integrity laws landed, the fold-order law included — ruled
+on #205, append order is the truth; the event families and the timeline
+dividend have not.
 
 ## Ruling 1 — the new event families, all additive
 
@@ -95,3 +98,29 @@ operator-surveillance framing: only acts the operator explicitly performs are
 events; there is no idle tracking, no read-receipts on panels. No UI dividend
 surfaces in this prd (digest, pins, diff view, calibration, jump box, drill —
 all prd18). No second process.
+
+## Amendment — the fold order is ruled, and the beacon door is one door (operator, 2026-08-24)
+
+Two reconciliations, against the tree at `9a26030`.
+
+**Ruling 3's fourth law is not open — it was ruled, and the ruling landed.** Issue #205 was
+decided by the operator as option 1, "append order is the truth", and replay now honours it
+unconditionally: `web/src/replay/replayFold.ts` folds the log's own order everywhere
+(`buildSessionIndex`, `foldFrom`, `foldUpTo`), keeps the ts-sort for time navigation only,
+and `replayFold.test.ts` proves the once-real divergence gone against the era-1 recording
+that exposed it. `docs/record-format.md` states the per-actor append-order law. This
+document's older "remains unruled" sentences are corrected above; ADR-0002's and
+`docs/architecture.md`'s stale OPEN sections are corrected in this same change. One stale
+witness remains and is named as follow-up work, not touched here: the prose and local
+`foldReplay` helper of `core/src/reduce.test.ts`'s original divergence fixture still model
+the pre-ruling world.
+
+**Ruling 2's door is prd-27 ruling 1's door — one doorway, ruled 2026-08-24.** Hooks and
+scripts append one-line JSON beacons to a rhizomorph-owned watched directory; one beacon
+collector tails it through the standard collector contract (ADR-0004); either door folds
+through the one reducer (ADR-0002). This PRD's "already blessed" and prd-27's "ADR owed —
+the leads own the choice" now agree: the door is the file drop, never a new POST route, and
+the owed ADR on the directory and event contract lands with the beacon keystone wave. The
+sidecar-for-content / event-for-occurrence split governs both PRDs' payloads. The event
+families of ruling 1 remain this PRD's build; the collector and its lapse voice are
+prd-27's.

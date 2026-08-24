@@ -1,12 +1,20 @@
 # UI 2.0 authorship — progress
 
-> A resume file. If a session died mid-run, read
-> `docs/design/ui-2.0-decisions.md` first, then this. Nothing below is held
-> anywhere but in the repo.
+> **A dated record, not a resume file.** What follows recorded the UI 2.0
+> authorship run as it stood when it was written, ~2026-08-16, on the repository
+> that was deleted 2026-08-19 and re-uploaded 2026-08-21 — so every
+> issue, milestone, branch and PR number below is dead provenance: it cites what
+> was filed, not anything a reader can board, dispatch or open. Review and
+> dispatch have since happened and much of the stack is built — prd-31, prd-32,
+> prd-35 and prd-36 sit in `docs/prds/done/`, prd-37 is parked, and the live
+> backlog is milestones prd40–prd45. Read `docs/design/ui-2.0-decisions.md` for
+> the intent behind the era; read this for what the run produced, and for
+> nothing else. Restamped 2026-08-25 against `main` at `4140f6b`.
 
-**Branch:** `uiera-authoring` (cut from `origin/ui-era-prds`, PR #473).
-**Status: the authorship run is COMPLETE.** What remains is human review and,
-after that, dispatch.
+**Branch, at the run:** `uiera-authoring` (cut from `origin/ui-era-prds`, PR
+#473) — branch, base and PR all died with the old repo.
+**Status, at the run: the authorship run was COMPLETE**, awaiting human review
+and, after that, dispatch. Both have since happened.
 
 ## Artifacts — all landed
 
@@ -32,7 +40,12 @@ after that, dispatch.
 - [x] 28 issues re-filed: **#548–#575**
 - [x] milestones created: prd-35 (21), prd-36 (22), prd-37 (23)
 
-## The issue set, by stage
+The last three lines record the old repo's boarding, and they record it nowhere
+else. None of that numbering survived the re-upload: the live tracker carries
+milestones prd40–prd45 under its own issue numbers, so #548–#575, milestones
+21–23 and the superseded #474–#493 are provenance rather than work.
+
+## The issue set, by stage — as filed on the old repo, 2026-08-16
 
 | stage | issues |
 |---|---|
@@ -43,6 +56,8 @@ after that, dispatch.
 | 5 · era-last | #575 the sweeps |
 
 Plus **#158** (the glance re-run, an operator act) already milestoned to prd-33.
+That milestone died with the repo; the obligation did not — it lives in prd-33's
+own wave-0 gate text, as the charter's §8 standing booking records.
 
 ## What a reviewer should read, in order
 
@@ -51,13 +66,23 @@ Plus **#158** (the glance re-run, an operator act) already milestoned to prd-33.
 3. prd-30, prd-31, prd-36.
 4. prd-34, then prd-33 and prd-37.
 
-## Owed next (not done by this run)
+## What was owed at the end of the run — overtaken, kept as the record
 
-- **Board the new issues** — timeline/priority/type/status via
+Not a dispatch plan, and no longer an action list: the tracker these three items
+pointed at no longer exists, and the first two were overtaken by the re-upload
+rather than done as written.
+
+- **Boarding the new issues** — timeline/priority/type/status via
   `scripts/dev/issues.sh`. GitHub's GraphQL budget was exhausted twice during
-  the night, so this was left undone rather than half-done.
-- **Team review** of the stack, then dispatch #548 as the era's first wave.
-- The **glance re-run (#158)** before the era closes (gate amended, not skipped).
+  the night, so this was left undone rather than half-done; #548–#575 were gone
+  before anyone came back to it.
+- **Team review** of the stack, then dispatch of #548 as the era's first wave.
+  Both happened on the re-uploaded repo instead, against its own numbering —
+  prd-31, prd-32, prd-35 and prd-36 are built and sit in `docs/prds/done/`.
+- The **glance re-run** before the era closes (gate amended, not skipped). This
+  is the one obligation here that outlived its number: it is an operator act with
+  a real lay viewer, and it is carried by prd-33's wave-0 gate now that #158 is
+  dead.
 
 ## Notes for whoever resumes
 
@@ -66,5 +91,7 @@ Plus **#158** (the glance re-run, an operator act) already milestoned to prd-33.
   so the law test gets written correctly the first time.
 - The four immovable numbers: `RECEDE 0.30`, `CALM_CEILING 0.78`,
   `ALARM_FLOOR 0.84`, `CALM_FLOOR 0.15`.
-- Nobody enters `packages/web/src/lab/**` without coordinating with prd-28
-  (#433–#441, currently unassigned).
+- Nobody enters `packages/web/src/lab/**` without coordinating with whoever owns
+  the lab's design. At the run that was prd-28 (#433–#441, unassigned at the
+  time); prd-28's paper did not survive the re-upload, so the lab's design
+  authority is now its 2026-08-24 re-founding on a design canvas.

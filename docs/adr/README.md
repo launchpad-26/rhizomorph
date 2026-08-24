@@ -151,6 +151,20 @@ explicit exception — and its reasoning was not touched. The first two amendmen
 were **not** retrofitted into records of their own: back-dating two ADRs to tidy
 a convention would be exactly the rewrite this section forbids.
 
+**A falsified consequence gets a dated note in place; a changed decision still
+gets a new ADR** *(ruled 2026-08-24)*. The distinction is the whole point. A
+record's **Decision** and its **Considered Options** are history and never move —
+that is the append-only rule above. But a record's **Consequences** are claims
+about the tree, and the tree changes underneath them: five records here spent
+weeks asserting open holes that had been closed, ADR-0008 among them, which is
+the security document a reader consults to learn what is *not* protected. Those
+were corrected by appending a `> **Amendment — <what> (<date>)**` blockquote
+directly under the falsified consequence, saying what closed it and citing the
+code or law that proves it, leaving the original text intact above. This is not a
+licence to revise reasoning: if the *decision* would change, that is a new ADR
+with the next free number, exactly as the paragraph above requires. Records
+amended this way so far: 0001, 0002, 0007, 0008, 0011, 0019.
+
 ## Writing an honest one
 
 Named anti-patterns worth knowing, from [Zimmermann's guidance][ozimmer-create]:
@@ -188,11 +202,11 @@ have carried no information.
 | # | Decision | Decided | Status |
 |---|---|---|---|
 | [0001](0001-read-only-observer-as-a-constitution.md) | Read-only observer, amendable only by explicit invocation | 2026-07-30 | accepted, amended ×4 (latest: [0020](0020-transcript-migration-is-a-create-only-copy.md)) |
-| [0002](0002-one-reducer-for-live-and-replay.md) | One event log, one reducer, serving both live and replay | 2026-07-30 | accepted |
+| [0002](0002-one-reducer-for-live-and-replay.md) | One event log, one reducer, serving both live and replay | 2026-07-30 | accepted, one consequence amended (2026-08-24: the fold-order defect is resolved) |
 | [0003](0003-core-is-browser-safe.md) | `core` is browser-safe: zod only, no `node:*` | 2026-07-30 | accepted |
 | [0004](0004-collector-contract-over-an-exec-seam.md) | Collectors are pure folds over command output, behind an injected `Exec` | 2026-07-30 | accepted |
 | [0005](0005-session-log-lives-outside-the-watched-repo.md) | The session log lives outside the watched repo | 2026-07-30 | accepted |
-| [0006](0006-canvas-2d-over-webgl.md) | Canvas 2D for the scene, with no 3D library | 2026-07-31 | accepted |
+| [0006](0006-canvas-2d-over-webgl.md) | Canvas 2D for the scene, with no 3D library | 2026-07-31 | superseded by [0021](0021-webgl2-for-the-living-scene.md) |
 | [0007](0007-one-derived-fleet-object.md) | One derived `Fleet` object, four surfaces | 2026-07-31 | accepted |
 | [0008](0008-localhost-only-single-origin-server.md) | Localhost-only, single-origin server with token-gated mutation | 2026-07-31 | accepted |
 | [0009](0009-portable-hash-chained-record.md) | A session is one portable, hash-chained file — and there is no protocol | 2026-08-04 | accepted |
@@ -213,7 +227,8 @@ have carried no information.
 | [0024](0024-a-gated-read-is-the-fourth-route-class.md) | A gated read is the fourth route class, and "gated" fails the build when it is fiction — amends [0014](0014-exhaustive-route-classification.md) | 2026-08-17 | accepted |
 | [0025](0025-a-native-otlp-harness-gets-a-mapping-profile.md) | A harness that exports OTLP natively gets a mapping profile, not a collector | 2026-08-18 | accepted |
 | [0026](0026-the-shell-is-driven-by-playwright-not-certified-by-hand.md) | The desktop shell is driven by Playwright for visual certification, not certified by hand | 2026-08-21 | accepted |
-| [0027](0027-the-served-page-declares-its-own-security-policy.md) | The served page declares its own security policy | accepted | 2026-08-21 |
+| [0027](0027-the-served-page-declares-its-own-security-policy.md) | The served page declares its own security policy | 2026-08-21 | accepted |
+| [0028](0028-bounded-lru-cache-for-parsed-session-logs.md) | A bounded, single-flight, mtime+size-validated cache for parsed session logs | 2026-08-24 | accepted |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the

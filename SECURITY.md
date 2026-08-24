@@ -36,6 +36,24 @@ because the path is absent. Read it as a check on who imports the lab
 dynamic `import()` calls, so the gap is the indirection rather than the
 syntax. Nothing in the tree enforces the boundary itself today, and #245
 tracks building something that would.
+
+**One live gap in that confinement, stated plainly because this document
+invites you to report exactly this class of escape.** Restoring a
+checkpoint into a fork worktree runs `npm install` in it, and it does so
+*without* `--ignore-scripts` (`packages/server/src/lab/restore.ts`, whose
+`install` option defaults to true). So a checkpointed tree carrying a
+`preinstall`, `postinstall` or `prepare` hook executes that hook as you,
+outside the ref-and-worktree namespace everything above describes — and
+the namespace law never catches it, because its own fixtures only ever
+exercise the `{install: false}` path. The confinement claim in this
+section is therefore true of what the laboratory *writes* and not yet true
+of what a restore can *run*. This is not news to the project: it is the
+first Evidence item in
+[`docs/prds/prd-41-the-laboratory-is-confined-in-fact.md`](docs/prds/prd-41-the-laboratory-is-confined-in-fact.md)
+(blessed 2026-08-22), and closing it is a boarded issue in that
+milestone's wave 2 — *a restored tree's install runs no scripts*. Until
+that lands, treat `lab fork` on a checkpoint of a repo you do not trust as
+running that repo's install hooks, because that is what it does.
 Since #234, the launch route requires the same `x-rhizomorph-capability`
 token `POST /api/label` does, on top of the Origin/Host/Content-Type guard
 below. See the [Trust section](README.md#trust) for the full account.
@@ -132,11 +150,55 @@ token, the inbox checks the resource attributes every accepted export must
 carry (the session id of the Rhizomorph instance it targets,
 `packages/server/src/api/otel.ts`) and refuses — recording a throttled
 `telemetry.refused` event, not merely dropping the request — anything
-declaring a different instance or none at all. All nine mutating routes, and
-which of these two classes each falls into, are declared in one place —
-`packages/server/src/api/index.ts`'s `ROUTE_CLASSES` — walked by a test that
-fails the build if a new mutating route lands in neither class (prd-23
-ruling 5, `docs/adr/0014-exhaustive-route-classification.md`).
+declaring a different instance or none at all. Which of those two classes each
+mutating route falls into is declared in one place, `ROUTE_CLASSES`
+(`packages/server/src/api/index.ts`) — and that is not a table of mutating
+routes. It carries one row for **every** route this app answers, read and
+mutation alike, under one of four classes: `gated-mutation`,
+`ungated-mutation`, `gated-read`, `read`. `api/route-class-law.test.ts` walks
+the real Fastify instance `buildApp` produces and fails the build if a
+registered route has no row at all — and, since prd-29 ruling 1, if a row
+calling itself gated names a route that does not actually carry the capability
+`preHandler`, so deleting a gate is a red build rather than a later audit's
+finding (prd-23 ruling 5, `docs/adr/0014-exhaustive-route-classification.md`,
+amended by `docs/adr/0024-a-gated-read-is-the-fourth-route-class.md`).
+
+**The token gates reads, too.** Until prd-29 ruling 1 / ADR-0024, `read` meant
+"no check at all", which filed two different postures under one word: the
+`GET /` shell a browser must be able to fetch tokenless, and the `/api` reads
+that serve an agent's verbatim transcript, absolute paths and OS username on
+the strength of a `Host` header any caller writes freely. A read that requires
+the token is now its own class, `gated-read`, and these `GET` routes carry the
+same `requireCapabilityToken` the mutations do: `/api/sessions`,
+`/api/sessions/:id/events`, `/api/lanes`, `/api/transcript/:lane`,
+`/api/lab/checkpoints`, `/api/lab/experiments` and `/api/lab/estimate`.
+
+What is *not* gated yet, stated here rather than left to be discovered:
+`/api/meta`, `/api/doctor` and `/api/stream` are deferred to prd-29's wave 2, so
+no consumer outside the dashboard breaks mid-milestone; and the four reads that postdate
+that route arithmetic — `/api/lane-index`, `/api/lane-index/:handle`,
+`/api/session-preview/:sessionId` and `/api/concierge/repos` — were ruled into
+`gated-read` on 2026-08-24 (prd-29 ruling 7) and are still classed `read` in
+code. `GET /*` stays tokenless **forever**, named that way in its own row: it
+is the bootstrap the in-band `<meta>` delivery above depends on, and gating it
+would break both the browser's first paint and `rhizomorph rotate`'s scrape.
+The ceiling stated above applies to all of this without exception — read-gating
+cannot stop a local process that can already fetch the page, and nothing here
+should be read as claiming otherwise.
+
+One further control belongs in this account, because it bounds what the served
+page may do rather than what a caller may ask for. Every HTML response carries
+a Content-Security-Policy (`CONTENT_SECURITY_POLICY`,
+`packages/server/src/server/static.ts`;
+`docs/adr/0027-the-served-page-declares-its-own-security-policy.md`, accepted
+2026-08-21): `default-src 'self'`, scripts self-only with no `eval`,
+`object-src 'none'`, `base-uri 'self'`, `form-action 'self'`,
+`frame-ancestors 'none'` — and assets additionally carry
+`X-Content-Type-Options: nosniff`. Before it, the static route streamed HTML
+with no policy at all, so the page ran with everything the platform allows,
+`eval` included, on the say-so of nobody. `server/static-csp.test.ts` fails if
+an HTML route loses the header, or if the policy ever grows `unsafe-eval` or an
+absolute origin.
 
 ## Reporting a vulnerability
 

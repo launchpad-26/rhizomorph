@@ -3,10 +3,15 @@
 > A standing normative register — `docs/architecture.md`'s sibling for the visual
 > instrument. This document rules; every other design surface restates it. It is
 > amendable by pull request under the house amendment process (§2.4). The four law
-> **amendments** it names are pending rulings owned by the four upcoming UI PRDs —
-> proposed here, argued here, **not decided here**.
+> **amendments** it names were proposed here and **ruled 2026-08-15** by prd-32
+> (rulings 7 and 8) and prd-33 (rulings 9 and 10); each is recorded inline where it
+> lands, in §4 and §5.
 >
-> 2026-08-13 · verified against `origin/main` at `e62fd93` (post-#428).
+> 2026-08-13 · verified against `origin/main` at `e62fd93` (post-#428) — a sha in the
+> deleted repo's history, unreachable from this tree.
+> 2026-08-24 · re-verified against `main` at `4140f6b`: law 10's numbers, §8's two
+> tensions and the ground-truth notes in §3, §4 and §6 corrected against landed work;
+> the rest stood.
 >
 > Visual companion: [`charter-companion.html`](./charter-companion.html) — open it in a
 > browser; it renders both registers, the band, and every table above with the faces
@@ -36,7 +41,7 @@ than borrowing confidence from a suite that does not exist.
 | **law 9a** | prd-04 ruling 3 (`docs/prds/done/prd-04-human-facing.md:20-34`) | `scene/marks.test.ts:1415` "says what the fleet is doing in a colour a stranger can guess (law 9a)"; `:3297` "shimmers in luminance only, never in hue" | hue is meaning, and each hue means one thing — the full table is §2.1 |
 | **law 9b** | prd-04 ruling 3; amended once by prd-10 ruling 4 | `scene/marks.test.ts:497` (calm under the ceiling), `:546` (needs-you inside the band), `:507` (alarms exempt from fades); `:3000` "law 9b, amended within reason" | the brightness band and the alarm grammar own attention, not hue exclusivity — the numbers are §2.2 |
 | **the CALM_FLOOR law** | prd-04 ruling 3 | `scene/marks.test.ts:1403` "renders every thread bright enough to actually read (CALM_FLOOR)" | a living thread never dims below 0.15 on a calm fleet; a frozen thread sits below it on purpose — absence of light is what FROZEN encodes |
-| **law 10** | prd-05 ruling 4, adopted as law; prd-10 ruling 10 adds the fourth class | `scene/motion.test.ts:39-270`; the classes at `scene/motion.ts:5-51` | four closed motion classes — ambient 4–8 s ≤3%, event 400–600 ms ≤5 concurrent, structural ~800 ms damped ≤2, dissolution ≤240 pooled motes — plus the ALARM throb (1200→2600 ms with age); nothing in the picture moves outside them |
+| **law 10** | prd-05 ruling 4, adopted as law; prd-10 ruling 10 adds the fourth class; prd-33 ruling 9 adds the fifth and ruling 10 raises the event cap (both 2026-08-15) | `scene/motion.test.ts:39-270`; the classes at `scene/motion.ts:49` | five closed motion classes — ambient 4–8 s ≤3%, event 400–600 ms ≤7 concurrent (measured, alarms exempt), structural ~800 ms damped ≤2, dissolution ≤240 pooled motes, growth on its own typed-cause budget — plus the ALARM throb (1200→2600 ms with age); nothing in the picture moves outside them |
 | **law 11** | prd-03; stated in full for the first time in §2.3 | `scene/marks.test.ts:854`, `:1058`, `:1340`; `drawer/Conversation.test.tsx:281` (prose is prose, not a `<pre>` wall) | sans for prose, mono for figures, tabular numerals for anything compared down a column |
 | **law 12** | prd-03 | `panels/fleet/index.test.tsx:515`, `:575`, `:740` | honest gaps: `—` plus a reason, never a fake zero |
 | **the legibility floor** | prd-09 operator ruling (2026-08-03) | `theme/legibility.test.ts:117` "names no text-ice class or arbitrary hex dimmer than ice-400, allowlist aside" | no text dimmer than `ice-400` (5.1:1); a self-policing two-entry allowlist covers the two `aria-hidden` glyphs, and a stale entry fails the suite; `scene/` is excluded by its own fence |
@@ -180,7 +185,13 @@ Normative on merge — additive, amending nothing:
 > through the variation-table device: a channel is granted only if it **carries
 > nothing**, each grant has a stated bound, and an explicit **"ambient never means"**
 > law accompanies the family. The tissue fence is unchanged; "no new **semantic**
-> hue" is preserved exactly. Proposed here, not decided here.
+> hue" is preserved exactly.
+>
+> **Ruled 2026-08-15 (prd-33):** the family is granted on exactly those terms —
+> every ambient channel carries nothing, each grant states its bound in the
+> variation table, and the "ambient never means" law ships with it (a rigged
+> correlation between an ambient channel and a lane's state must turn the suite
+> red).
 
 > **Pending ruling — owned by the scene PRD.** _Ceilings raised._ Vibrancy rises only
 > via the lawful recipe of `palette-vibrancy-dials.md`: chroma (`ACTIVITY_TINT`) and
@@ -218,15 +229,16 @@ Normative on merge — additive, amending nothing:
 
 ## 5 · the motion through-line
 
-Law 10 restated, amending nothing. Four closed classes (`scene/motion.ts`); nothing
+Law 10 restated. **Five** closed classes (`scene/motion.ts:49`); nothing
 in the picture may move outside one of them:
 
 | class | what moves | budget |
 | --- | --- | --- |
 | ambient | the root-mass breath, idle life | 4–8 s period, ≤3% amplitude, unlimited |
-| event | pulse travel, arrival flare, alarm throb | 400–600 ms; ≤5 concurrent (Pylyshyn & Storm's tracking limit) |
+| event | pulse travel, arrival flare, alarm throb | 400–600 ms; ≤7 concurrent, measured rather than chosen (prd-33 ruling 10; was ≤5 on Pylyshyn & Storm's tracking limit); alarms exempt |
 | structural | a lane appearing, reflowing, disconnecting | ~800 ms critically damped (k=170); ≤2, staggered |
 | dissolution | matter returning: composting, absorption | ≤240 pooled motes; luminance-only fade; typed `DissolutionCause` |
+| growth | a thread growing in, continuous and gentle across many | its own budget, never structural's; typed `GROWTH_CAUSES` (prd-33 ruling 9) |
 
 Above them sits the ALARM throb — an aging summons slows from 1200 ms to 2600 ms —
 and beneath them the degradation ladder, which substitutes rather than stops:
@@ -294,8 +306,10 @@ Normative on merge:
 
 ## 8 · the disposition table
 
-Every law in §2, dispositioned. AMEND always means a pending ruling — proposed,
-owned, not decided here.
+Every law in §2, dispositioned. AMEND meant a pending ruling — proposed and owned
+here, decided in the owning PRD; all four were **ruled 2026-08-15** (prd-32
+rulings 7 and 8, prd-33 rulings 9 and 10), and each is recorded inline where it
+lands, in §4 and §5.
 
 | law | disposition |
 | --- | --- |
@@ -303,7 +317,7 @@ owned, not decided here.
 | law 9a | **KEEP** — the ambient pending ruling (scene PRD) must preserve "no new semantic hue" exactly |
 | law 9b | **KEEP** — the dark band's four numbers do not move; the light-band pending ruling (legibility PRD) re-derives a band per theme beside it |
 | the CALM_FLOOR law | **KEEP** |
-| law 10 | **KEEP** — the growth pending ruling (scene PRD) may add a fifth class or rule growth into structural; either way, via prd-10 r10's template |
+| law 10 | **KEEP** — growth became the fifth class and the event cap rose to a measured 7 (prd-33 rulings 9 and 10, 2026-08-15), both via prd-10 r10's template; the numbers are in §2 and §5 |
 | law 11 | **KEEP** — stated in full for the first time in §2.3 |
 | law 12 | **KEEP** |
 | the legibility floor | **KEEP** — the contrast-arithmetic addition (§4) turns its numbers from prose into computation, per theme |
@@ -322,21 +336,27 @@ role tokens (§4) · alias retirement and the `FALLBACK_HUE` pin (§4) · contra
 arithmetic (§4) · one hover-disclosure vocabulary and the `:focus-visible` floor
 (§6) · the kind→lightness module (§7) · the bracketing reservation (§7).
 
-Two live tensions, named and not resolved:
+Two tensions were named here and **both have since resolved** (2026-08-24):
 
-1. **prd-14 ruling 1 is under contradictory amendment by PR #431.** Its ruling 5
-   (the lane canvas is _n_ organisms — amends the metaphor) sits against its ruling 8
-   (the observability frame scene is one organism via the `scene/` renderer — asks
-   for full reversal). The lab review owns this; the charter flags it and rules
-   nothing.
-2. **prd-21 is cited but not on main.** The document was never blessed, yet #272 and
-   #273 cite it; both fence TideDock, the loupe fence was narrowed on 2026-08-13,
-   and prd-13 ruling 1's standing refusal — TIDE is never a panel — binds them
-   regardless. Nothing normative may lean on prd-21's text until it lands.
+1. **prd-14 ruling 1 was under contradictory amendment by PR #431.** Its ruling 5
+   (the lane canvas is _n_ organisms — amends the metaphor) sat against its ruling 8
+   (the observability frame scene is one organism via the `scene/` renderer — asked
+   for full reversal). **Resolved by the operator's coexist-by-surface ruling
+   (2026-08-13, recorded at `docs/prds/prd-33-the-living-scene.md`): different
+   surfaces, different pictures, both lawful** — the lab's arms strip is _n_ small
+   organisms; the frame's scene is one organism through `scene/`. prd-14 was itself
+   ruled 2026-08-24 (ruling 5, the persistence seam). PR #431 is dead-repo
+   provenance, and prd-28's paper did not survive the re-upload: the lab's design
+   authority is its 2026-08-24 re-founding, not that review.
+2. **prd-21 was cited but not on main.** It landed and shipped — `docs/prds/done/
+   prd-21-scrub-bar.md`, closed out 2026-08-13. The prohibition on leaning on its
+   text is lifted; prd-13 ruling 1's standing refusal (TIDE is never a panel) binds
+   as it always did.
 
-One standing booking: the **#158 glance re-run** — never re-run since prd-10 — is part
-of the scene PRD's gate. It is an operator act with a real lay viewer, booked, not
-skipped, and not dispatchable to an agent.
+One standing booking, still owed: the **glance re-run** — never re-run since prd-10 —
+is part of the scene PRD's gate (prd-33 wave 0). It is an operator act with a real lay
+viewer, booked, not skipped, and not dispatchable to an agent. Its old tracker number
+(#158) died with the repo; the obligation lives in prd-33's own gate text.
 
 ## 9 · process
 

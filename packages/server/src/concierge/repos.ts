@@ -12,14 +12,17 @@ import { defaultClaudeProjectsRoot } from '../log/paths.js'
  * a "not yet known" list: a repo Claude already knows can also sit under a
  * common root and so appear in both — see `scanCommonRoots`'s own doc.
  *
- * `#243` documents the known gaps in the *forward* slug transform
- * (`collectors/sessionlog/worktree-slug.ts` maps only `/` and `_` to `-`,
- * missing Claude Code's `.` → `-`). This module does not rely on that
- * transform at all: `reverseProjectSlug` below walks the real filesystem one
- * directory hop at a time, matching each hop against actual directory
- * entries (encoded the same three ways Claude Code encodes them) rather than
- * guessing which characters a `-` used to be. That sidesteps the dotted-path
- * gap rather than fixing the forward helper, which this lane does not own —
+ * `collectors/sessionlog/worktree-slug.ts` maps `/`, `_`, `.`, `\`, `:` and a
+ * literal space to `-` (prd-42 ruling 1 closed its worst gap, the space — not
+ * its last: the real Claude Code slugger maps every non-alphanumeric
+ * character, per #47 and the evidence on that helper's own doc comment, and
+ * this module's own re-encode below only ever covers three of them). This
+ * module does not rely on that transform at all: `reverseProjectSlug`
+ * below walks the real filesystem one directory hop at a time, matching each
+ * hop against actual directory entries (encoded the same three ways Claude
+ * Code encodes them — `.`, `_` and a space) rather than guessing which
+ * characters a `-` used to be. That sidesteps the dotted- and spaced-path
+ * gaps rather than fixing the forward helper, which this lane does not own —
  * and the divergence between the two encodings is real but not this lane's
  * to reconcile either, for the same reason.
  *

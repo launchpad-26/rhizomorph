@@ -185,10 +185,16 @@ describe('the recorder namespace law (prd16 ruling 2)', () => {
       // Every write call's first argument is the path the recorder gave this
       // writer (or its dirname) — and rotation only ever builds those from the
       // session dir. A write to any other expression is what this catches.
+      // Excludes a call on the HELD handle (`handle.appendFile(...)`, prd44
+      // ruling 2): its first argument is the event data, not a path, and the
+      // path it targets was already checked at the `open(` call that opened
+      // it — the negative lookbehind below names that one call rather than
+      // excluding every dot-prefixed call, so a namespaced write to an
+      // arbitrary path (e.g. `someOtherHandle.open(userPath)`) is still caught.
       const ALLOWED_TARGETS = new Set(['this.filePath', 'path.dirname(this.filePath)', 'filePath'])
       const targets = firstArguments(
         codeOf(THE_WRITER),
-        /\b(?:writeFile|appendFile|truncate|mkdir|open|rename|unlink)\s*\(/g,
+        /(?<!handle\.)\b(?:writeFile|appendFile|truncate|mkdir|open|rename|unlink)\s*\(/g,
       )
       expect(targets.length).toBeGreaterThan(0)
       expect(targets.filter((target) => !ALLOWED_TARGETS.has(target))).toEqual([])

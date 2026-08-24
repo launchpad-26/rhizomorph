@@ -77,3 +77,16 @@ is exactly the assumption DNS rebinding invalidates (#235).
 
 **Neutral.** Single-origin means the dashboard is unreachable from a phone or a
 second machine by design. That has not yet been asked for.
+
+> **Amendment — both Bad consequences are closed (2026-08-24).** The decision is
+> unchanged; two of its recorded consequences are no longer true, and a security
+> record that understates its own protections misleads in the costliest direction.
+> **#234 closed:** every mutating route carries the token. `api/index.ts`'s
+> `ROUTE_CLASSES` declares six gated mutations — `/api/label`, `/api/rotate`,
+> `/api/retarget`, `/api/lab/launch` and the concierge's two — and
+> [ADR-0024](0024-a-gated-read-is-the-fourth-route-class.md)'s gate-presence law
+> fails the build if any of those rows loses its `preHandler`, so "the first route
+> to adopt the token" is now the whole table. Reads gate too: seven under prd-29
+> wave 1, with the rest ruled to follow. **#235 closed:** `mutation-guard.ts` runs
+> the loopback `Host` check for **every** method, GET included — its own comment
+> now records the fix — while `Origin` and `Content-Type` stay mutating-only.

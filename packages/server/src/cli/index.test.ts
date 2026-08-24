@@ -246,8 +246,16 @@ describe('runCli', () => {
 
   it('wires --extra-sessions into the default sessionlog collector, attributed role: conductor', async () => {
     const claudeProjectsRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-claude-projects-'))
-    const extraDir = path.join(tmpdir(), 'rhizomorph-conductor-workdir')
-    const projectDir = path.join(claudeProjectsRoot, extraDir.replace(/[/_]/g, '-'))
+    // The dot and the space are load-bearing, not incidental: `os.tmpdir()`
+    // itself contains neither on ubuntu or macOS, so a plain
+    // `rhizomorph-conductor-workdir` leaf makes the hand-rolled `/[/_]/g`
+    // transform this test used to use and the real `worktreePathToProjectSlug`
+    // compute the SAME directory by coincidence — which is exactly how the
+    // original defect (#45) survived here undetected. With them present,
+    // `projectDir` below only matches what the collector under test actually
+    // looks up because both sides call the same function, on every platform.
+    const extraDir = path.join(tmpdir(), 'rhizomorph-conductor.work dir')
+    const projectDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(extraDir))
     await mkdir(projectDir, { recursive: true })
 
     const line = JSON.stringify({

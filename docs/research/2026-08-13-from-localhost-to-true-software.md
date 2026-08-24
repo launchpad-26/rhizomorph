@@ -6,9 +6,10 @@ neighbors (Langfuse, LangSmith, W&B, Arize Phoenix, MLflow), the desktop-shell s
 Desktop, Ollama, JupyterLab Desktop, LM Studio + packaging tech), and the remote-identity school
 (VS Code tunnels, JupyterHub, Prometheus/Grafana, Cloudflare Access, Tailscale, Syncthing). Claims
 carry the source grade assigned at read time: **[V]** verified against official docs/repos,
-**[R]** reported (blog/talk/press), **[I]** inferred. This note lives here because prd-29 (stage 0,
-the identity seam) cites it; stages 2–4 are parked under "the metamorphosis" milestone, and stage 1
-(the app) remains a PRD candidate of its own.
+**[R]** reported (blog/talk/press), **[I]** inferred. This note lives here because prd-34 (stage 1,
+the doorstep — `docs/prds/prd-34-the-doorstep.md`) and parked prd-38 (the borrowed credential) cite
+it; stages 2–4 were parked, at the time of writing, under "the metamorphosis" milestone, and stage 1
+is no longer a candidate — it was ruled as prd-34.
 
 ## The finding that reframes the question
 

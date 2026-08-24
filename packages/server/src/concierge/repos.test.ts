@@ -70,10 +70,12 @@ describe('reverseProjectSlug', () => {
   })
 
   it('resolves a slug through a DOTTED directory name — the #243 gap the forward transform misses', async () => {
-    // worktree-slug.ts's forward transform only maps `/` and `_` to `-`; Claude
-    // Code's real transform also maps `.`. This reverses by matching the real
-    // entry `v2.0` (encoded `v2-0`) against the slug, so the dot never needs to
-    // be guessed at — it is read off the filesystem instead.
+    // worktree-slug.ts's forward transform maps `/`, `_`, `.`, `\`, `:` and a
+    // literal space to `-` (prd-42 ruling 1 closed its worst gap, the space —
+    // not its last: see #47 and that helper's own doc comment for the wider,
+    // still-open divergence). This reverses by matching the real entry
+    // `v2.0` (encoded `v2-0`) against the slug, so the dot never needs to be
+    // guessed at — it is read off the filesystem instead.
     const fs = fixtureFs({
       '/': ['Users'],
       '/Users': ['dev'],

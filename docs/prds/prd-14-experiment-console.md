@@ -1,9 +1,9 @@
 # prd14 — the experiment console
 
-> **Outcome:** partially shipped — the browser console, branching view, free-form arms, spread
-> reporting and estimate/confirm flow ship. Finished comparisons are serializable, but are not
-> yet persisted and reopened through prd-16's recording machinery. Reconciled 2026-08-22 at
-> `03df141`; see `docs/roadmap.md`.
+> **Outcome:** ruled 2026-08-24 — ruling 5 settles the persistence seam; the browser console,
+> branching view, free-form arms, spread reporting and estimate/confirm flow ship, and the
+> remaining build is one bounded save/reopen slice at moderate priority. Reconciled
+> 2026-08-22 at `03df141`; see `docs/roadmap.md`.
 
 **Status:** BLESSED 2026-08-06 (four rulings below).
 **Predecessor:** prd12 (the laboratory — engine, constitution, checkpoints).
@@ -206,6 +206,27 @@ lab events from an earlier era still reads.
 
 - Whether the checkpoint timeline scrubs the *whole instrument* back to a moment
   or only the lab's own view. Deferred to wave 1's eyeball.
-- Free-form per-arm variation (ruling 2's deliberate deferral).
+- ~~Free-form per-arm variation (ruling 2's deliberate deferral).~~ **Since
+  shipped** — ruling 2's amendment landed it, and `lab/launch/LaunchPanel.tsx`
+  configures model and brief per arm; this PRD's own Outcome header records it.
 - Hard spend cap (ruling 4's deliberate deferral).
-- **#205 fold-order remains UNRULED** and the lab must not assume a resolution.
+- **#205 fold-order — since ruled: append order is the truth** (prd17's 2026-08-24
+  amendment); the lab assumes exactly that resolution and no other.
+
+## Amendment — the persistence seam is ruled (operator, 2026-08-24)
+
+Ruled on the retained-PRDs review's recommendation, against the tree at `9a26030`. The
+review's audit stands: `lab/compare/artifact.ts` serialises and parses a versioned
+comparison artifact, and nothing in production calls either function — ruling 3's "saves as
+a reopenable artifact" is the one promise still unkept here.
+
+### Ruling 5 — a comparison is a recording: saved through prd-16's machinery, listed with its kin
+
+A finished comparison persists through the recording machinery ruling 3 already names — the
+server stores it beside the recordings it derives from, and the recordings library lists it
+as its own kind, reopening into the comparison surface rather than the replay surface. An
+artifact from an older format version **refuses by name** — the defensively-versioned
+parser already knows how to say why — and never migrates silently; a migration, when one is
+ever worth writing, goes through its own upcast the way prd17's chokepoint prescribes. One
+bounded slice, moderate priority: storage + library row + reopen + the refusal, and nothing
+that reopens the shipped layout, arm, spread or estimate work.

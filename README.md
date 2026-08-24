@@ -2,9 +2,10 @@
 
 An instrument you point at a repo full of git worktrees: it shows what a
 swarm of coding agents is doing, live, and can replay the session
-afterward. Watching is read-only, absolutely; there is a separate, opt-in
-second hand for running experiments — see [Trust](#trust) below for exactly
-what each does and how that's enforced.
+afterward. Watching is read-only, absolutely; there are separate, opt-in
+hands for recording, for running experiments, and for setting a repo up in
+the first place — see [Trust](#trust) below for exactly what each does and
+how that's enforced.
 
 ![The scene as the centerpiece — a busy 20-lane fleet, every thread live green but visibly different widths for visibly different output, ALL CLEAR above it](docs/screenshots/fixture-20-lane.png)
 
@@ -79,28 +80,33 @@ package to fetch. Once one is published, that single command will fetch and
 run it with nothing installed permanently, no clone required — the same
 code the clone path above runs today, just fewer steps to get there.
 
-The plan, not a date: prd15's "true, full-featured system agnosticism" round
-(any OS, any terminal, any agent CLI) supersedes the earlier clone-first
-ruling and puts publishing back on the map — but deliberately as its **last**
-wave, never its first, so agnosticism lands and gets exercised before a
-stranger's `npm install` is the front door. prd8's packaging machinery
-(tarball-proven `files` allowlist, tag-gated release workflow, no secrets)
-already exists and stays dormant until that wave. The one remaining
-prerequisite is an operator decision, not a build task: whether going public
-means rewriting this repo's history or cutting a fresh tree, a choice #177
-named and left open rather than resolved — the audit that raised it found
-unscrubbed identifiers in captured OTel fixtures, and a scrub commit fixes
-the tree, not the history it's layered on. No wave here promises a date.
+The plan, not a date: publishing stays deliberately **last**, so the
+instrument lands and gets exercised before a stranger's `npm install` is the
+front door. prd15's agnosticism round put publishing back on the map — that
+umbrella retired as superseded on 2026-08-24
+([`docs/prds/done/prd-15-anywhere-instrument.md`](docs/prds/done/prd-15-anywhere-instrument.md)),
+and the delivery thread it named is now **prd-34, the doorstep**
+([`docs/prds/prd-34-the-doorstep.md`](docs/prds/prd-34-the-doorstep.md)),
+reclassified the same day as release readiness: signing and an update feed
+are deliberately deferred by its ruling 9, and a publish waits on a release
+someone actually plans. prd8's packaging machinery (tarball-proven `files`
+allowlist, tag-gated release workflow, no secrets) already exists and stays
+dormant until then. The history question that used to gate this — whether
+going public meant rewriting this repo's history or cutting a fresh tree, a
+choice #177 named and left open — was settled by events rather than by a
+ruling: this repo was re-uploaded to a fresh tree on 2026-08-21, so the
+fresh-tree branch of that decision is simply the one we are standing on. No
+wave here promises a date.
 
 ## Trust
 
 This is a tool that reads your machine's own record of what your coding
 agents have been doing, so here is plainly what it does and doesn't do —
-not a footnote, the second thing in this file. There are three hands here,
+not a footnote, the second thing in this file. There are four hands here,
 not one, each with its own reach and its own enforcing test — a single
 blanket "read-only, never" claim would be weaker than this, not stronger,
-because it would erase the one hand that's allowed to write anything and
-leave the other two looking like they need no fence at all.
+because it would erase the hands that are allowed to write anything and
+leave the rest looking like they need no fence at all.
 
 ### The observer — everything below, absolutely read-only
 
@@ -132,7 +138,10 @@ port, for the same reason.
 **What it sends, and to whom:** nothing, ever, off this machine. There is
 no analytics call, no update check, no phone-home of any kind anywhere in
 this codebase. Everything it shows is read from local files and local
-processes and rendered in your own browser.
+processes and rendered in your own browser. The one network call this
+instrument can make at all is the concierge's clone-by-URL — your own
+`git clone`, run because you asked for it, described in its own section
+below.
 
 ### The recorder — the observer's own second hand, narrower than either (prd16 ruling 2)
 
@@ -220,8 +229,11 @@ a sidecar file next to the log (`session-<id>.label.json`), never a
 mutation of the log itself, and a rename refreshes every picker showing
 that session, including the live dashboard's own. The dashboard's own save
 talks to the exact instrument you booted: the page it's running on carries a
-capability token, minted per process and never logged, that this one write
-requires — so it works against a real boot of the server, not a `vite`-only
+capability token, minted per process and never logged, that every mutating
+route and every gated read requires — the label save is one such write, not
+the token's whole job (prd-29 rules that reads gate too; only the served
+page itself is tokenless, because that page is where the token comes from).
+So it works against a real boot of the server, not a `vite`-only
 preview with nothing behind it. Once you've found the one
 you want, either replay it from the dashboard's own picker, or hand the
 file to someone else first with `rhizomorph export-record` (see [the record
@@ -285,8 +297,48 @@ port is `packages/server/src/index.ts`, and the laboratory's entire write
 surface is `packages/server/src/lab/`, importable only from the CLI wiring
 in `packages/server/src/cli/index.ts` — the dashboard's launch button
 reaches it through that same wiring (`packages/server/src/api/lab.ts`
-calling `runCli(['lab', ...])`), not a separate import. Grep for `fetch(`,
-`http.request`, or any outbound socket; there isn't one.
+calling `runCli(['lab', ...])`), not a separate import.
+
+### The concierge — the fourth hand, for getting set up at all (ADR-0019 / prd-20)
+
+The three hands above assume you already have a repo with a wired
+conductor in it. Getting *to* that state used to be homework — clone,
+build, start, generate an env block, eval it in the right shell, relaunch
+the agent — so the constitution was amended once more, deliberately and on
+the record ([ADR-0019](docs/adr/0019-the-fourth-hand.md)), to grant exactly
+two powers and no others:
+
+- **Clone a repo to disk** — a plain `git clone` through your machine's own
+  existing git credentials, into the concierge's own namespace. This is the
+  one outbound network call in the codebase, and it happens because you
+  pasted a URL and clicked.
+- **Launch or relaunch a conductor** — start the agent CLI inside an
+  instrumented envelope, or offer *relaunch with continuity* for a
+  conductor already running uninstrumented (it never claims to attach to a
+  live process; see [prd-20 ruling 3](docs/prds/prd-20-the-concierge.md)).
+  Relaunching may make **one create-only copy** of a session transcript
+  into the watched repo's own harness directory
+  ([ADR-0020](docs/adr/0020-transcript-migration-is-a-create-only-copy.md)):
+  it never overwrites, never deletes, never edits a line, and the UI says
+  every time what continuity means and what is lost.
+
+Both powers are **token-gated mutating routes** and both are invoked only
+by an explicit human act in `/connect` — never a collector, never a poll,
+never a timer. The fence is enforced the same way the laboratory's is:
+[`packages/server/src/concierge/namespace-law.test.ts`](packages/server/src/concierge/namespace-law.test.ts)
+watches the whole write surface, and
+[`assertMigrationPaths`](packages/server/src/concierge/paths.ts) derives
+both ends of that copy rather than trusting a supplied path.
+
+If you'd rather verify all of this yourself than take it on faith — the
+right instinct for exactly this kind of tool — the source is right here:
+the collectors that read git/tmux/workmux live under
+`packages/server/src/collectors/`, the one that tails your session logs is
+`packages/server/src/collectors/sessionlog/`, the server that binds the
+port is `packages/server/src/index.ts`, the laboratory's entire write
+surface is `packages/server/src/lab/`, and the concierge's is
+`packages/server/src/concierge/`. Grep for `fetch(` or `http.request`: the
+only outbound path is the clone above.
 
 ## Support matrix
 
@@ -294,7 +346,8 @@ calling `runCli(['lab', ...])`), not a separate import. Grep for `fetch(`,
 |---|---|
 | Linux | CI-verified on every push (`.github/workflows/ci.yml`) |
 | WSL | The daily development platform — exercised constantly, just not by CI |
-| macOS | **Unverified.** No platform-specific code exists (paths go through `node:path`, collectors degrade loudly rather than fail silently), but nobody has run it on macOS and confirmed that. Treat it as untested, not as "should work." If you try it, [an issue](https://github.com/KelliherL/rhizomorph/issues) saying what happened is genuinely useful. |
+| macOS | CI-verified on every push (`.github/workflows/ci.yml` runs build, suite, typecheck, lint and the boot smoke on `macos-latest`, and the pack-smoke job covers it at both node legs). Nobody daily-drives it, so ergonomic rough edges are likelier here than correctness ones. |
+| Windows (native) | **Unverified, and known to have failed.** #277's one native run found 130 failures across 15 files, and the built-clone boot defect it exposed is fixed (`pathToFileURL`) but witnessed by no CI leg yet. prd-25 was blessed 2026-08-24: a `windows-latest` pack-smoke leg is the ruled next step. Until it exists, treat native Windows as untested. |
 
 **Node >= 22.22.2** — `engines` in `package.json` is the source of truth, and
 CI pins that exact minimum. Older Node warns on install and may not run at all;
@@ -414,8 +467,11 @@ eval "$(npm start --silent -- env test-lane)"   # then launch claude in the same
 `> rhizomorph@0.1.0 start` banner out of the block that `eval` reads;
 without it, `eval` chokes on that first line.)
 
-`.workmux.yaml` already wires this into every worker lane automatically —
-nothing to enable by hand for a worker. A conductor, or any lane whose Claude
+A worker lane gets this by being dispatched through the tracked wrapper —
+`workmux add … -a "bash scripts/lane-agent.sh <model>"` — because the env
+has to be exported *inside the process that execs the agent*. A pane-command
+env prefix looks like it works and does not; `.workmux.yaml` carries that
+scar in its own comments, which is why the wrapper exists. A conductor, or any lane whose Claude
 Code session-log directory lives outside the worktrees this repo's
 `sessionlog` collector would otherwise discover (a cross-filesystem or
 cross-machine conductor, say), is picked up with the repeatable
@@ -454,10 +510,14 @@ Event-sourced core (`packages/core`), collectors + Fastify API + CLI
 sharing one set of selectors between the live view and replay, plus one
 derived **fleet object** — the attention strip, fleet table, burn strip and
 scene are four views of it and of nothing else. The scene itself is a
-hand-rolled canvas 2D painter, not a 3D library — prd7 measured the running
-scene already locked to 60fps with zero `shadowBlur` calls, found "janky"
-was the form language rather than the renderer, and removed the
-react-three-fiber dependency it was originally scaffolded on. Full write-up
+hand-rolled **WebGL2** painter with a 2D overlay for text and marks
+([ADR-0021](docs/adr/0021-webgl2-for-the-living-scene.md), superseding the
+canvas-2D era of [ADR-0006](docs/adr/0006-canvas-2d-over-webgl.md)) — no 3D
+library either way: prd7 measured the then-canvas scene already locked to
+60fps with zero `shadowBlur` calls, found "janky" was the form language
+rather than the renderer, and removed the react-three-fiber dependency it
+was originally scaffolded on; the move to WebGL2 came later, for the living
+scene's own reasons. Full write-up
 in [`docs/architecture.md`](docs/architecture.md); the product brief is in
 [`docs/prds/done/prd-00-the-rhizomorph.md`](docs/prds/done/prd-00-the-rhizomorph.md), the visualization design rulings in
 [`docs/prds/done/prd-03-viz-design-study.md`](docs/prds/done/prd-03-viz-design-study.md) and [`docs/prds/done/prd-04-human-facing.md`](docs/prds/done/prd-04-human-facing.md). See

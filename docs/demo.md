@@ -18,12 +18,14 @@ tool checking their own work.
 git clone https://github.com/KelliherL/rhizomorph
 cd rhizomorph
 npm install
-npm run build   # builds packages/web
+npm run build   # builds server, web and the desktop shell
 npm start       # boots collectors + server on http://127.0.0.1:4321
 ```
 
-Open the printed URL, full-screen it. Everything below is driven by three
-keyboard shortcuts — no swarm, no telemetry, no setup beyond this:
+Open the printed URL, full-screen it. Everything below is driven from the
+keyboard — the three source keys, the two representation keys under them, and
+the orientation verbs each section names as it needs them — with no swarm, no
+telemetry and no setup beyond this:
 
 | Key | Source | What it loads |
 |---|---|---|
@@ -31,17 +33,43 @@ keyboard shortcuts — no swarm, no telemetry, no setup beyond this:
 | `2` | `fleet20` | A synthetic 20-lane fleet, every lane healthy — [ruling 22](prds/done/prd-03-viz-design-study.md)'s scale test |
 | `3` | `pathology` | A synthetic fleet with exactly one lane per pathology, calm neighbours around them |
 
-(Keys are ignored while typing in a form field.) Two more keys matter for the
-checks below: **Esc** — closes the lane drawer if one is open, otherwise
-exits panel focus if a panel is focused, otherwise does nothing (shell-level
-precedence: drawer first, then focus) — and clicking a fleet-table row, which
-opens that lane's drawer: vitals on top, then one tabbed body beneath it —
-**ACTIVITY, CONVERSATION, WHY, TRACE** — opening on **ACTIVITY** by default
-(an operator ruling, #164: the activity ledger tells you whether the
-conversation is worth reading before you commit to it). **CONVERSATION** is
-a click away, and is the same thing you'd see at that agent's own terminal,
-tailing live. An **ATTACH** button below the tabs copies a tmux/workmux
-command to your clipboard and never runs it.
+| Key | Representation | What it switches |
+|---|---|---|
+| `v` | the fleet surface | **organism ⇄ list** — the scene and the fleet table are one surface since prd36 ruling 1 (`fleet/TwoRepresentations.tsx:91`), so this is how you reach the table at all. The choice is not remembered yet: a reload lands back on the organism, and the component says so itself |
+| `h` | the history surface | **by session ⇄ by lane**, on `/recordings` only — that instance is mounted nowhere else, so it cannot collide with the balcony's keys |
+
+(Keys are ignored while typing in a form field.) **Esc** closes the peek if one
+is open, otherwise exits panel focus if a panel is focused, otherwise does
+nothing (shell-level precedence: peek first, then focus). Clicking a lane
+anywhere — a strip chip, a list row, a scene node; they all write the one
+selection — opens **the peek** on the right: vitals, the latest activity line,
+one line of why, and one action, *open the run view*. Four things and one action
+is the whole of it (prd36 ruling 2 and S2, #562), and the peek issues no
+request at all — it reads the fold and nothing else.
+
+Until #562 this was a four-tab reader — **ACTIVITY, CONVERSATION, WHY, TRACE**,
+opening on ACTIVITY by an operator ruling (#164: the activity ledger tells you
+whether the conversation is worth reading before you commit to it). All four
+live in prd31 ruling 5's run view now, at an address: `/lane/:handle`,
+deep-linkable, and still readable a week after `workmux merge` deleted the
+worktree — which is why keeping the transient copy was the weaker half. The
+**ATTACH** command is no longer a button in the peek either (S2 allows one
+action, and it is not this one); the fleet table's `a` verb copies the same
+string over the same path and never runs it, as ["Orientation
+extras"](#orientation-extras) below already says.
+
+Two first-run facts the script does not otherwise meet. A first boot lands on a
+**welcome card** floating over the scene (`app/Welcome.tsx`) — a line naming
+what a thread and the mass are, then either "this is your live repository" or,
+on a fixture, that the sample fleet is synthetic lanes on the real event schema,
+and two actions, *connect your repo* · *explore first*. A click on either, or
+**Esc**, dismisses it for good; it steals no focus, so the instrument is usable
+underneath it. Dismissal is a stored preference (`onboarding.welcomed`), which
+means the settings page's appearance group — "restore defaults · this machine" —
+genuinely brings it back, and that is how you get a second look at minute zero.
+And the browser is not the only way in: prd34 shipped the desktop shell
+(`packages/app`, [`docs/user-guide/the-desktop.md`](user-guide/the-desktop.md)),
+which reaches the same surfaces and takes the same four checks.
 
 If you'd rather run this against a real swarm: point `npm start -- <path>` at
 a repo with worktrees and tmux panes going (see the README's
@@ -62,16 +90,18 @@ honest-empty-state design, not a failure.
 
 1. Press **`2`** to load the 20-lane fixture.
 2. Look away from the screen, then look back for a 3-second glance at the top
-   of the dashboard only — the attention strip and burn strip (the scene, now
-   the centerpiece directly beneath them, is fair game too — a first-time
-   viewer's eye goes there first). Don't scroll, don't read the fleet table
-   row by row.
+   of the dashboard only — the attention strip and burn strip (the fleet
+   surface, the hero directly beneath them, is fair game too — a first-time
+   viewer's eye goes to the organism first). Don't scroll, don't switch
+   representation, don't read rows one by one.
 3. Answer, from that glance alone:
    - **Anything need me?** The attention strip's pill: `ALL CLEAR` (with its
      evidence line — "N lanes · M branches · K files checked · collisions 0")
      or `N NEED ATTENTION` with named chips.
-   - **How many lanes are working?** Either the calm evidence line's lane
-     count, or a glance at the fleet table's row count.
+   - **How many lanes are working?** The calm evidence line's lane count. The
+     list's row count says the same thing and is one keystroke away (`v`), but
+     that is a second look, not the glance — this answer has to come off the
+     strip.
    - **Rough cost?** The burn strip's leading output-token figure, and the
      `$` figure beside it once cost is authoritative.
 
@@ -79,9 +109,9 @@ honest-empty-state design, not a failure.
 needing to hover, scroll, or open anything.
 
 **What failure looks like:** hesitating past the glance, misreading `ALL
-CLEAR` as an alarm state (or vice versa), or needing to read individual fleet
-rows to get a lane count. `ALL CLEAR` next to a nonzero collision count would
-also be a failure — but per [ruling 22/g5](prds/done/prd-03-viz-design-study.md), the ladder floor makes
+CLEAR` as an alarm state (or vice versa), or having to press `v` and read
+individual list rows to get a lane count. `ALL CLEAR` next to a nonzero
+collision count would also be a failure — but per [ruling 22/g5](prds/done/prd-03-viz-design-study.md), the ladder floor makes
 that combination structurally unrepresentable in the data the strip reads, so
 it should never be reachable from a real bug in this area.
 
@@ -92,8 +122,9 @@ it should never be reachable from a real bug in this area.
 
 1. Press **`3`** to load the staged-pathology fixture. The attention strip
    should read `5 NEED ATTENTION` with five chips.
-2. Within a few seconds, point at (by name, in the strip or the fleet table's
-   STATE column) all five:
+2. Within a few seconds, point at all five by name — in the attention strip, or
+   in the fleet table's STATE column, which is the fleet surface's list
+   representation and one `v` away:
 
    | Pathology | Lane | What names it |
    |---|---|---|
@@ -103,17 +134,18 @@ it should never be reachable from a real bug in this area.
    | EXPENSIVE | `44-scene-pulses` | Burn far above the fleet median (visibly the white-hot thread in the scene) |
    | OFF-FENCE | `45-ledger-subrows` | `touching 46-spend-selectors` — a trespass with a named victim |
 
-3. Confirm the fleet table's STATE column alone is enough to name each one —
-   it draws the scene's own glyph, in the scene's own hue, at row scale
-   ([graft g1](prds/done/prd-03-viz-design-study.md); hue since [prd4 ruling 3](prds/done/prd-04-human-facing.md)), so the table
-   doubles as the legend for shape *and* color; you shouldn't need to open a
-   drawer to tell WAITING (amber, a raised hand) from FROZEN (red, a severed
-   bar) — color and silhouette agree, on purpose.
+3. On the list, confirm the STATE column alone is enough to name each one — it
+   draws the scene's own glyph, in the scene's own hue, at row scale
+   ([graft g1](prds/done/prd-03-viz-design-study.md); hue since [prd4 ruling
+   3](prds/done/prd-04-human-facing.md)), which is why the list is the
+   organism's own legend for shape *and* color rather than a second reader of
+   it; you shouldn't need to open a peek to tell WAITING (amber, a raised hand)
+   from FROZEN (red, a severed bar) — color and silhouette agree, on purpose.
 
 **What you should see:** all five named without hunting, each backed by an
 evidence string, not a bare label ([graft g4](prds/done/prd-03-viz-design-study.md)).
 
-**What failure looks like:** needing the drawer (or a hover tooltip) to
+**What failure looks like:** needing the peek (or a hover tooltip) to
 distinguish two pathologies that should already read apart at a glance; the
 EXPENSIVE lane's white-hot thread outshining a needs-you/broken sigil
 elsewhere in the scene (a regression in the [EXPENSIVE-recede scar,
@@ -126,10 +158,13 @@ graft g6](prds/done/prd-03-viz-design-study.md)); or the fixture showing a count
 > someone already fluent in the rest of the dashboard.
 
 1. With any fixture loaded (`2` or `3` both work — `3` gives more to look at),
-   hand the screen to someone who hasn't seen the Rhizomorph before. Show
-   them the SCENE panel only — it's the first thing under the top dock now
-   ([prd4 ruling 2](prds/done/prd-04-human-facing.md)), so this is naturally what they see first
-   anyway; collapse or ignore the rest of the page regardless.
+   hand the screen to someone who hasn't seen the Rhizomorph before. Show them
+   the fleet surface in its **organism** representation only — the hero
+   directly under the top dock ([prd4 ruling 2](prds/done/prd-04-human-facing.md),
+   finished by [prd36 ruling 1](prds/done/prd-36-the-fleet-surface.md), which
+   merged the scene and the roster into one surface), and what the instrument
+   opens on, so this is naturally what they see first anyway; ignore the dock
+   beneath it, and don't press `v`.
 2. Give them 30 seconds of silent looking, then ask what they're looking at.
 
 **What you should see:** an explanation that covers, unprompted: threads
@@ -343,23 +378,27 @@ to read.
 
 1. With any fixture loaded (or live), click the root-mass at the centre of
    the scene — the same click a lane's node takes.
-2. Confirm the same drawer opens, on **`Main — the conductor`**: vitals
-   (branch, landings, commits home, output, `$`, overhead) instead of a
-   lane's, then the same tabbed body (opening on ACTIVITY, CONVERSATION a
-   click away, tailing the conductor's own session), then the same
-   copies-never-executes ATTACH ([prd6 ruling 5](prds/done/prd-06-living-cycle.md)).
+2. Confirm the same peek opens, on **`Main — the conductor`**: the
+   conductor's own vitals (branch, landings, commits home, output, `$`,
+   overhead) instead of a lane's, and the same single action —
+   `/lane/main`, the conductor's own run view ([prd6 ruling
+   5](prds/done/prd-06-living-cycle.md), in prd36 S2's shape).
+3. Take that action, and read the conductor's session there. The transcript
+   request moved to the run view with the conversation in #562, so this is
+   where "the same thing you'd see at that agent's own terminal" now lives —
+   the peek makes no request of its own.
 
 **What you should see:** a hovered root-mass shows a pointer cursor, same
-as a lane node; the drawer that opens is visually identical in frame and
-layout to a lane's, just with main's own facts in the vitals grid; an
+as a lane node; the peek that opens wears the same frame a lane's does,
+with main's own facts in the vitals grid; an
 un-instrumented conductor says so in words (`conductor not instrumented —
-its burn is unknown, not zero`) rather than showing an empty conversation
-or a `$0.00` that would disagree with the burn strip four inches away.
+its burn is unknown, not zero`) rather than a `$0.00` that would disagree
+with the burn strip four inches away.
 
 **What failure looks like:** clicking the mass does nothing; the fleet
 table grows a `MAIN` row (it must not — main is a pseudo-lane, deliberately
-not one of `fleet.lanes`); the drawer shows a blank conversation instead of
-naming the gap.
+not one of `fleet.lanes`); the run view shows a blank conversation instead
+of naming the gap.
 
 ### Pause the scene
 
@@ -395,7 +434,7 @@ only how insistently the same rung reads.
 - **`n`** / **`Shift+n`** (anywhere on the page, no focus needed) jumps the
   shared selection to the next/previous lane that needs you, worst rung
   then oldest first — the same thing a click on that lane would do
-  (opens the drawer, spotlights the scene, highlights the table row).
+  (opens the peek, spotlights the scene, highlights the table row).
   Nowhere to jump to flashes the attention strip once rather than doing
   nothing visibly.
 - **`f`** / **`a`**, with a lane focused or selected in the fleet table,
@@ -408,9 +447,18 @@ only how insistently the same rung reads.
   detection goes quiet (WAITING becomes unavailable, flagged rather than
   guessed), everything else keeps working — the gap voice
   (`packages/web/src/app/StatusBar.tsx`) says so in the provenance bar.
-- **The scene errors:** the error boundary drops it; the fleet table and the
-  rest of the panel grid stand alone; PATHOLOGY and GLANCE still pass off the
-  table alone (see Check 2, step 3).
+- **The canvas doesn't come up:** the fleet surface **falls to its list
+  representation and says so once** — `ORGANISM UNAVAILABLE — the canvas did
+  not come up, so the picture cannot be drawn. The list below carries every
+  lane, complete; nothing else on the page is affected.` It happens inside the
+  organism arm rather than by flipping the toggle, because prd36 ruling 3's
+  fourth guarantee is that no representation is ever selected automatically by
+  application state — so the toggle still shows the choice you made, untouched,
+  and the instrument is not left hiding its own scene after the canvas
+  recovers. It offers no retry, deliberately: a canvas that failed to
+  initialise fails the same way next frame, and a spinner where the fleet was
+  is the one outcome ruled wrong. PATHOLOGY and GLANCE still pass off the list
+  (see Check 2, step 3).
 - **No lane manifest:** OFF-FENCE detection is unavailable, named as a gap
   rather than silently absent — `rhizomorph doctor` has its own
   `lane-manifest` check for this.
@@ -424,6 +472,8 @@ only how insistently the same rung reads.
   declaration an operator made in `.swarm/lanes.json` (`"parked": true`),
   never something the read-only Rhizomorph decided on its own.
 - **The conductor isn't instrumented:** ([prd6 ruling 5](prds/done/prd-06-living-cycle.md)) clicking
-  MAIN still opens the drawer — it says `conductor not instrumented — its
-  burn is unknown, not zero` in the vitals and conversation, rather than a
-  blank pane or a `$0.00` that would disagree with the burn strip.
+  MAIN still opens the peek — its vitals say `conductor not instrumented — its
+  burn is unknown, not zero` rather than a `$0.00` that would disagree with the
+  burn strip. Follow the peek's one action and the run view's conversation names
+  its own gap in its own words (`NOTHING SAID YET — …`, or the reason a
+  transcript is unreadable) rather than rendering a blank pane.

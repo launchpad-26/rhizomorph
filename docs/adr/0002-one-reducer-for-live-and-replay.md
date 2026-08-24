@@ -72,3 +72,16 @@ log never sees: `/api/lanes` (reads `.swarm/lanes.json` per request),
 attribution path. Replay returns `available: false` for these honestly, so the
 code does not lie — but "live and replay are the same reducer" is true of the
 fold, not of the whole dashboard.
+
+## Amendment — the fold-order defect is resolved (2026-08-24)
+
+The second Bad consequence is history: the operator ruled #205 as option 1, "append order
+is the truth", and replay now folds the log's own order unconditionally —
+`packages/web/src/replay/replayFold.ts` (`buildSessionIndex`, `foldFrom`, `foldUpTo`)
+keeps its ts-sort for time navigation only, and `replayFold.test.ts` proves the divergence
+gone against the era-1 recording that exposed it. `docs/record-format.md` carries the
+per-actor append-order law. The consequence's closing sentence — "none should be inferred
+until #205 is ruled" — no longer binds: the guarantee exists and is stated. The original
+divergence fixture in `core/src/reduce.test.ts` still describes the pre-ruling world in
+its prose; correcting that witness is named follow-up work in prd17's 2026-08-24
+amendment.

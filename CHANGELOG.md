@@ -38,6 +38,30 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **The flat instrument's first wave: three costs that grew with use no longer do
+  (prd-44 wave 1, #30/#31/#33).** A finished recording is now parsed **once**
+  rather than once per request — `GET /api/lane-index` re-read and re-parsed every
+  recording on disk every time, measured at 344 ms per request on a 4-file,
+  61,157-line directory and falling to 130 ms with the parse cached
+  ([ADR-0028](docs/adr/0028-bounded-lru-cache-for-parsed-session-logs.md) records
+  the bound and why the *answer* is never cached, only the parse). The session log
+  is now opened **once per session** instead of once per event, 61.4 µs of
+  open/close per event becoming a held descriptor released on `sync()` — 4.1x on
+  the path every recorded event takes, with the bytes on disk unchanged. And a
+  bounded fan-out helper now exists at a stated ceiling, order-preserving by
+  construction because the record is hash-chained
+  ([ADR-0009](docs/adr/0009-portable-hash-chained-record.md)) — nothing consumes
+  it yet; prd-44 wave 2's collectors are what will.
+
+  Two honest limits, measured rather than assumed. The lane-index stall improves
+  2.6x but does **not** vanish: `buildLaneIndex`'s fold is 107 ms of the
+  remaining 116 ms, so prd-44 ruling 1's claim that steady-state work falls "to
+  the one recording still moving" is not yet true, and the residual freeze became
+  *shorter but less interruptible*. And the wave's fourth issue (#32, the retired
+  lane's tessellation) was built, measured at a **net regression** at its own
+  named configuration, and refused rather than landed — the win is real for
+  settled marks (6x) but the approach charged living lanes for it.
+
 - **The identity seam's keystone: seven reads now answer only the token's
   holder (prd-29 wave 1, #442).** `GET /api/sessions`,
   `/api/sessions/:id/events`, `/api/transcript/:lane`, `/api/lanes`,

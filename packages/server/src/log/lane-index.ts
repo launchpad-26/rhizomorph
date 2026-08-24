@@ -1,4 +1,4 @@
-import { readdir } from 'node:fs/promises'
+import { readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import {
   reduceAll,
@@ -11,7 +11,13 @@ import {
   type TokenTotals,
 } from '@rhizomorph/core'
 import { readSessionLabel } from './label.js'
-import { listSessions, readSessionLog, sessionFilePath, type SessionSummary } from './session-log.js'
+import {
+  listSessions,
+  readSessionLog,
+  sessionFilePath,
+  type SessionLogRead,
+  type SessionSummary,
+} from './session-log.js'
 import {
   readTranscriptCaptureManifest,
   type CapturedLaneTranscript,
@@ -53,6 +59,15 @@ import {
  * `selectLaneInteractions` / `selectCommitsForBranch` — no arithmetic of this
  * module's own, so the index and the live page can never disagree about a
  * number (ADR-0002's one-reducer rule, applied to a second reader).
+ *
+ * **A closed recording's parse is cached, once, for the process's life**
+ * (prd-44 ruling 1 / #30). {@link parsedSessionLogCache} validates every read
+ * against a fresh `stat()` — identity is the path, freshness is `mtimeMs`
+ * plus `size` — so a file that changes on disk is re-parsed, never served
+ * stale. This is a cache of the *parse*, never of this function's *answer*:
+ * every lane is still recomputed from the parsed sessions on every call.
+ * `log/listing.ts` shares this exact cache instance, for the reason the
+ * "how far it extends" note below already gives.
  */
 
 /** One commit this lane landed, reduced to what an outcome claim needs as evidence. */
@@ -461,13 +476,180 @@ export interface ReadLaneIndexOptions {
   liveEvents?: readonly RhizomorphEvent[]
 }
 
+// ── THE PARSED-SESSION CACHE (prd-44 ruling 1 / #30) ────────────────────────
+//
+// A closed session's log file is immutable once written — nothing appends to
+// it again — so re-reading and re-`parseJsonl`-ing it on every request is
+// pure waste. This cache holds that parse, keyed by the file's path plus the
+// `mtimeMs` and `size` a fresh `stat()` reports at read time: either one
+// drifting from what produced the cached entry means the file changed on
+// disk, and it is re-parsed. This is a cache of the *parse*, never of the
+// *answer* — `readLaneIndex` and `listSessionListings` still recompute their
+// response from the parsed sessions on every call, so nothing either one
+// reports can go stale. That is the difference between this and the TTL
+// cache prd-44's own Non-goals reject for this exact route.
+//
+// The live session never reaches this cache: `readLaneIndex` and
+// `listSessionListings` both still read it from the recorder's in-memory
+// buffer, never from a file mid-append (unchanged).
+//
+// Bound (prd-44 open question 1, answered here — see ADR-0028 for the full
+// argument): capped by the RAW file bytes it holds, not by an entry count,
+// because sessions vary wildly in size and a count says nothing about the
+// memory actually at stake. 128 MB is more than 3x this repo's own session
+// directory today (37 files, 39 MB — docs/review/2026-08-24-performance.md).
+// Eviction is plain LRU (least-recently-read first), except a single entry
+// larger than the whole budget is still cached alone rather than never
+// cached — caching it once still saves every request after the first.
+//
+// Single-flighted: two callers racing the same cold (or just-invalidated)
+// file cost exactly one parse, never one each. This holds because nothing
+// else can run between the `await stat(...)` below and the point this method
+// checks/sets `pending` — Node drains one I/O-completion's continuation
+// (including every microtask it spawns) before starting the next, so
+// whichever caller's `stat` resolves first is guaranteed to see `pending`
+// empty and fill it before any other caller for the same path resumes.
+
+interface CachedSessionLog {
+  mtimeMs: number
+  size: number
+  read: SessionLogRead
+}
+
+const EMPTY_SESSION_LOG: SessionLogRead = { events: [], lineCount: 0, unreadableLineCount: 0 }
+
+async function statOrNull(filePath: string): Promise<{ mtimeMs: number; size: number } | null> {
+  try {
+    const info = await stat(filePath)
+    return { mtimeMs: info.mtimeMs, size: info.size }
+  } catch {
+    return null
+  }
+}
+
+/** See ADR-0028 for why 128 MB, and why bytes rather than a file count. */
+export const MAX_CACHED_PARSED_BYTES = 128 * 1024 * 1024
+
+export class ParsedSessionLogCache {
+  private readonly entries = new Map<string, CachedSessionLog>()
+  private readonly pending = new Map<string, Promise<CachedSessionLog>>()
+  private cachedBytesTotal = 0
+  private parses = 0
+
+  constructor(private readonly maxBytes: number = MAX_CACHED_PARSED_BYTES) {}
+
+  /** How many times this instance has actually re-read + re-parsed a file from disk. */
+  get parseCount(): number {
+    return this.parses
+  }
+
+  /** How many distinct files this instance currently holds parsed. */
+  get cachedFileCount(): number {
+    return this.entries.size
+  }
+
+  async read(filePath: string): Promise<SessionLogRead> {
+    const stats = await statOrNull(filePath)
+    if (stats === null) {
+      const existing = this.entries.get(filePath)
+      if (existing !== undefined) {
+        this.cachedBytesTotal -= existing.size
+        this.entries.delete(filePath)
+      }
+      return EMPTY_SESSION_LOG
+    }
+
+    const cached = this.entries.get(filePath)
+    if (cached !== undefined && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+      this.touch(filePath, cached)
+      return cached.read
+    }
+
+    const inflight = this.pending.get(filePath)
+    if (inflight !== undefined) return (await inflight).read
+
+    const load = this.populate(filePath, stats)
+    this.pending.set(filePath, load)
+    try {
+      return (await load).read
+    } finally {
+      this.pending.delete(filePath)
+    }
+  }
+
+  private async populate(filePath: string, stats: { mtimeMs: number; size: number }): Promise<CachedSessionLog> {
+    this.parses++
+    const read = await readSessionLog(filePath)
+    const previous = this.entries.get(filePath)
+    if (previous !== undefined) this.cachedBytesTotal -= previous.size
+    // Map.set on an EXISTING key does not move it in iteration order — only a
+    // genuinely new key is appended at the end. delete-then-set is what makes
+    // a refreshed (stale-then-reparsed) entry count as freshly used, which
+    // the eviction rule below depends on.
+    this.entries.delete(filePath)
+    const entry: CachedSessionLog = { mtimeMs: stats.mtimeMs, size: stats.size, read }
+    this.entries.set(filePath, entry)
+    this.cachedBytesTotal += stats.size
+    this.evictIfNeeded()
+    return entry
+  }
+
+  private touch(filePath: string, entry: CachedSessionLog): void {
+    this.entries.delete(filePath)
+    this.entries.set(filePath, entry)
+  }
+
+  private evictIfNeeded(): void {
+    while (this.cachedBytesTotal > this.maxBytes && this.entries.size > 1) {
+      const oldestKey = this.entries.keys().next().value
+      if (oldestKey === undefined) break
+      const oldest = this.entries.get(oldestKey)
+      this.entries.delete(oldestKey)
+      if (oldest !== undefined) this.cachedBytesTotal -= oldest.size
+    }
+  }
+
+  /** Test-only: back to empty, so one test's reads are never counted toward, or served to, another's. */
+  resetForTests(): void {
+    this.entries.clear()
+    this.pending.clear()
+    this.cachedBytesTotal = 0
+    this.parses = 0
+  }
+}
+
+/**
+ * One per process. Safe as a bare singleton (unlike `api/doctor.ts`'s
+ * per-instance probe cache) because every production entry point
+ * (`cli/run.ts`, `cli/replay.ts`) builds exactly one `buildApp()`, and every
+ * key here is an absolute file path, which already encodes the session
+ * directory — see ADR-0028.
+ */
+export const parsedSessionLogCache = new ParsedSessionLogCache()
+
+/** Chooses the live buffer or the cache, for one session, in `readLaneIndex`'s loop. */
+async function readLaneIndexSessionLog(
+  sessionDir: string,
+  summary: SessionSummary,
+  options: ReadLaneIndexOptions,
+): Promise<{ events: readonly RhizomorphEvent[]; unreadableLineCount: number }> {
+  if (options.liveSessionId === summary.id && options.liveEvents !== undefined) {
+    return { events: options.liveEvents, unreadableLineCount: 0 }
+  }
+  const read = await parsedSessionLogCache.read(sessionFilePath(sessionDir, summary.id))
+  return { events: read.events, unreadableLineCount: read.unreadableLineCount }
+}
+
 /**
  * The index for a repo's whole session directory.
  *
  * A full parse of every recording, for {@link listSessionListings}' own reason:
  * a lane's life can start anywhere in a session's timeline, so a head/tail
- * sample would silently drop the middle of it — and this runs once per run-view
- * open, not on a poll.
+ * sample would silently drop the middle of it. Each closed recording's parse
+ * now costs at most once per process ({@link parsedSessionLogCache}, prd-44
+ * ruling 1 / #30) — only the live session (read from
+ * {@link ReadLaneIndexOptions.liveEvents}, never from disk) and a recording
+ * that has actually changed on disk pay for a fresh parse on a repeat call.
  */
 export async function readLaneIndex(
   sessionDir: string,
@@ -478,16 +660,17 @@ export async function readLaneIndex(
   const sessions: LaneIndexSession[] = []
 
   for (const summary of summaries) {
-    const live = options.liveSessionId === summary.id && options.liveEvents !== undefined
-    const read = live
-      ? { events: options.liveEvents as readonly RhizomorphEvent[], unreadableLineCount: 0 }
-      : await readSessionLog(sessionFilePath(sessionDir, summary.id))
+    const [read, label, capture] = await Promise.all([
+      readLaneIndexSessionLog(sessionDir, summary, options),
+      readSessionLabel(sessionDir, summary.id),
+      readTranscriptCaptureManifest(sessionDir, summary.id),
+    ])
     sessions.push({
       summary,
       events: read.events,
       unreadableLineCount: read.unreadableLineCount,
-      label: await readSessionLabel(sessionDir, summary.id),
-      capture: await readTranscriptCaptureManifest(sessionDir, summary.id),
+      label,
+      capture,
     })
   }
 
