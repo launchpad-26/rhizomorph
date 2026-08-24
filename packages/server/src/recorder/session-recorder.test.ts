@@ -290,6 +290,33 @@ describe('SessionRecorder — foldSoFar() spy law (prd40 ruling 2)', () => {
     recorder.foldSoFar()
     expect(rebuild).toHaveBeenCalledTimes(1) // repaired once, then free again
   })
+
+  it('openSession() clears the desync flag too — a rotation does not carry a repair into the new session', async () => {
+    // The sibling of the law above. `foldSoFar()` clears the flag; so must
+    // `openSession()`, whose own reset makes the fold correct by construction
+    // and leaves nothing to repair. Deleting `this.foldDesynced = false` from
+    // `openSession` left all fifteen other laws green — and the consequence is
+    // a flag that survives the rotation, so the first read of the NEW session
+    // pays a full rebuild for a desync belonging to the session that ended.
+    const spy = vi.spyOn(core, 'reduce').mockImplementationOnce(() => {
+      throw new Error('reduce boom')
+    })
+    await recorder.record(f.worktreeDiscovered({ path: '/repo/a', branch: 'main', isMain: true }))
+    spy.mockRestore()
+    // Deliberately NOT reading foldSoFar() here: that would repair the flag,
+    // and the flag crossing the rotation boundary is the whole point.
+
+    const SECOND = '2000'
+    await recorder.closeWith(f.sessionClosed({ sessionId: FIRST, reason: 'rotated', eventCount: 2 }))
+    recorder.openSession(SECOND, sessionFilePath(dir, SECOND))
+    await recorder.record(f.worktreeDiscovered({ path: '/repo/b', branch: 'main', isMain: true }))
+
+    const rebuild = vi.spyOn(core, 'reduceAll')
+    const fold = recorder.foldSoFar()
+    expect(rebuild).not.toHaveBeenCalled() // the new session's read is free
+    rebuild.mockRestore()
+    expect(fold).toEqual(reduceAll(recorder.eventsSoFar())) // and still correct
+  })
 })
 
 describe('SessionRecorder — foldSoFar() over the golden-era corpus (prd40 ruling 2)', () => {
