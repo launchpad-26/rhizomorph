@@ -1,9 +1,10 @@
 # prd-24 — the seam that lies: what the suite is allowed to prove
 
-> **Outcome:** partially shipped — real web/server contract tests and much of the law hardening
-> ship. Full claimed-scope walks, falsification/mutation discipline and platform-scoped green
-> claims remain split across prd-39, prd-41, prd-43 and unfiled work. ADR-0026 supersedes this
-> proposal's blanket Playwright rejection. Reconciled 2026-08-22 at `03df141`.
+> **Outcome:** superseded 2026-08-24 — the audit retires with every residual given a named
+> home (see the closing amendment): prd-39/41/43 own the programme it seeded, prd-29 wave 3
+> owns the read-side contracts, and two small fixes are described for the next groom.
+> ADR-0026 supersedes this proposal's blanket Playwright rejection. Reconciled 2026-08-22 at
+> `03df141`; lives in `done/`.
 
 ## Problem
 
@@ -146,3 +147,35 @@ development dependency. The Non-goal above is retained as the proposal's histori
 but its categorical rejection no longer governs future work. This does not silently expand this
 PRD into an end-to-end rewrite: any browser-backed oracle follows ADR-0026's scope and still has
 to prove which contract it witnesses.
+
+## Amendment — the audit closes, its residuals re-homed (operator, 2026-08-24)
+
+Retired as superseded on the retained-PRDs review's recommendation, against the tree at
+`9a26030`. The programme this audit seeded is now owned by prd-39 (the landing gate's own
+checks), prd-41 (laboratory laws) and prd-43 (document claims as tests); much of the rest
+shipped here — and the tree has moved past the review in one place already: the `lab/` and
+`drawer/` law walks are recursive today. Every remaining residual has a named home:
+
+1. **The recordings law still walks one directory level**
+   (`web/src/recordings/no-live-fleet-law.test.ts:31`, flat `readdirSync`) — the last flat
+   walk of the three ruling 3 named. **Described for the next groom as one small issue**;
+   the fix pattern is its own siblings' `walkSourceFiles`. Two further walks are only
+   vacuously correct today (`interaction/no-model-call-law.test.ts`,
+   `connect/index.test.tsx`) — the same issue's sweep may take them.
+2. **CI stops producing evidence after a red Test** — no `if: always()` on Typecheck, Lint,
+   the packaging guard or the boot smoke, so a red leg is four unrun gates. **Described for
+   the next groom as one small issue**; prd-25 ruling 1 already prices this defect into its
+   leg design and benefits directly.
+3. **The read-side contract policy** — owned by **prd-29 wave 3** since its 2026-08-24
+   ruling: the read axis joins `packages/contract/`'s coverage law by declared enumeration,
+   gated on #428 as prd-29's sequencing says. The `vite dev` token blind spot named in the
+   open questions above is the same dev-mode question prd-29 and prd-23 carry; whoever rules
+   it there rules it for the oracle too.
+4. **Falsification stays practice; mutation testing stays parked.** Ruling 4's
+   shown-red-in-the-PR discipline and companion assertions remain working practice backed by
+   AGENTS.md's review questions, not a mechanism; ruling 5's scoped mutation run is
+   deliberately unbuilt until someone brings evidence the practice is failing. The
+   `geometry.ts` carve-out ruling 3 surfaced remains a decision owed by whoever grooms the
+   walk sweep.
+
+Ruling numbers here stay citable forever; nothing is renumbered by retirement.

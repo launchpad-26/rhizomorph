@@ -1,9 +1,10 @@
 # prd15 — the anywhere instrument: true full-featured system agnosticism
 
-> **Outcome:** partially shipped — rulings 1 and 5 landed. Remaining scope is now split across
-> prd-25 (Windows), prd-26 (dialects), prd-27 (beacons) and prd-34 (delivery); the
-> multi-orchestrator family and optional PTY tier remain here. Reconciled 2026-08-22 at
-> `03df141`; see `docs/roadmap.md`.
+> **Outcome:** superseded 2026-08-24 — the umbrella retires with its central Success
+> demonstrated. Successors: prd-25 (Windows), prd-26 (dialects), prd-27 (beacons), prd-34
+> (delivery); the PTY tier is prd-20 ruling 7's parked option; multi-orchestrator honesty
+> (ruling 6) parks behind a named trigger. See the amendment. Reconciled 2026-08-22 at
+> `03df141`; lives in `done/`.
 
 **STATUS: BLESSED** — operator, 2026-08-05: *"CAN we do it? If we CAN do
 it, then LETS do it"* (condition affirmed by the conductor against the
@@ -134,3 +135,26 @@ the README moves rows only on evidence.
 No live cross-instrument federation (records only). No SDK, no code
 injection into observed agents — rhizomorph observes; it never instruments.
 No per-CLI UI: one UI, adapters feed it. No semconv schema bet.
+
+## Amendment — the umbrella closes (operator, 2026-08-24)
+
+Retired as superseded on the retained-PRDs review's recommendation, against the tree at
+`9a26030`. This is a completion, not a rejection: the central Success scenario — a no-tmux,
+non-Claude run where every signal is present or honestly absent — is demonstrated by the
+transcript organ (ruling 1, landed), the capability vocabulary (ruling 5, landed) and the
+Pi dialect prd-26 delivered. The wave map, so nothing is lost:
+
+- Waves 1–2 (the organ, the honesty layer) — **shipped here**.
+- Wave 3 (beacons) — **prd-27**, whose 2026-08-24 amendment rules the door this PRD's
+  ruling 2 proposed.
+- Wave 4 (dialects) — **prd-26**, complete.
+- Wave 5 (ruling 6, multi-orchestrator honesty) — **parked behind a named trigger**: a
+  second conductor appearing in real use, with #187's liveness guard as its stated
+  prerequisite. No proposal claims backlog space until that evidence arrives.
+- Wave 6 (Windows) — **prd-25**, blessed 2026-08-24.
+- Wave 7 (PTY/L3) — **prd-20 ruling 7's parked option**, behind its own spike; ConPTY
+  questions point there now.
+- Wave 8 (publish) — **prd-34's delivery thread**, still gated on #177, which stays the
+  leads'.
+
+Ruling numbers here stay citable forever; nothing is renumbered by retirement.
