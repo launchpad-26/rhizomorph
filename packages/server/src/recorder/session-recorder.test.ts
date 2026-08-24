@@ -262,7 +262,10 @@ describe('SessionRecorder — foldSoFar() spy law (prd40 ruling 2)', () => {
     recorder.subscribe(() => {
       seen.push({
         count: recorder.eventsSoFar().length,
-        equal: recorder.foldSoFar() === reduceAll(recorder.eventsSoFar()) ? true : deepEqualFold(recorder),
+        // Structural, never identity: `reduceAll` allocates a fresh state on
+        // every call, so an identity comparison here is dead by construction —
+        // it reads as though identity might hold mid-emit, and it cannot.
+        equal: deepEqualFold(recorder),
       })
     })
     await recorder.record(f.worktreeDiscovered({ path: '/repo/a', branch: 'main', isMain: true }))
